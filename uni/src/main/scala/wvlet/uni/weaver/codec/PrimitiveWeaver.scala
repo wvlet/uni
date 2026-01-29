@@ -566,6 +566,7 @@ object PrimitiveWeaver:
   given indexedSeqWeaver[A](using elementWeaver: Weaver[A]): Weaver[IndexedSeq[A]] =
     iterableCollectionWeaver(elementWeaver, "IndexedSeq", _.toIndexedSeq)
 
+  @scala.annotation.targetName("givenJavaListWeaver")
   given javaListWeaver[A](using elementWeaver: Weaver[A]): Weaver[java.util.List[A]] =
     collectionWeaver(
       elementWeaver,
@@ -577,6 +578,7 @@ object PrimitiveWeaver:
       _.asJava
     )
 
+  @scala.annotation.targetName("givenJavaMapWeaver")
   given javaMapWeaver[K, V](using
       keyWeaver: Weaver[K],
       valueWeaver: Weaver[V]
@@ -605,6 +607,7 @@ object PrimitiveWeaver:
               new IllegalArgumentException(s"Cannot convert ${other} to java.util.Map")
             )
 
+  @scala.annotation.targetName("givenJavaSetWeaver")
   given javaSetWeaver[A](using elementWeaver: Weaver[A]): Weaver[java.util.Set[A]] =
     collectionWeaver(
       elementWeaver,
