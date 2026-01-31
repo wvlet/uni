@@ -61,12 +61,44 @@ object DomRenderer extends LogSupport:
       case _ =>
         node.innerText
 
-  private def createDomNode(e: DomElement): dom.Node =
-    e.namespace match
+  /**
+    * Resolve the effective namespace for an element based on its own namespace and parent context.
+    *
+    * Rules:
+    *   - SVG element always uses SVG namespace
+    *   - Children of foreignObject use XHTML namespace
+    *   - Elements with default XHTML namespace inherit SVG namespace from SVG parent
+    *   - Elements with explicit non-XHTML namespace use their own namespace
+    */
+  private def resolveNamespace(
+      elem: DomElement,
+      parentName: String,
+      parentNs: DomNamespace
+  ): DomNamespace =
+    elem.name match
+      case "svg" =>
+        // SVG element always uses SVG namespace
+        DomNamespace.svg
+      case _ if parentName == "foreignobject" =>
+        // Children of foreignObject use XHTML namespace (lowercased to match getNodeName)
+        DomNamespace.xhtml
+      case _ if elem.namespace == DomNamespace.xhtml && parentNs == DomNamespace.svg =>
+        // Inherit SVG namespace from parent
+        DomNamespace.svg
+      case _ =>
+        elem.namespace
+
+  private def createDomNode(
+      e: DomElement,
+      parentName: String = "",
+      parentNs: DomNamespace = DomNamespace.xhtml
+  ): dom.Node =
+    val ns = resolveNamespace(e, parentName, parentNs)
+    ns match
       case DomNamespace.xhtml =>
         dom.document.createElement(e.name)
       case _ =>
-        dom.document.createElementNS(e.namespace.uri, e.name)
+        dom.document.createElementNS(ns.uri, e.name)
 
   /**
     * Create a new DOM node from the given RxElement.
@@ -143,18 +175,48 @@ object DomRenderer extends LogSupport:
       onRenderHooks = f :: onRenderHooks
       this
 
+  /**
+    * Get the namespace of a DOM node.
+    */
+  private def getNodeNamespace(node: dom.Node): DomNamespace =
+    node match
+      case elem: dom.Element =>
+        Option(elem.namespaceURI) match
+          case Some(DomNamespace.svg.uri) =>
+            DomNamespace.svg
+          case Some(DomNamespace.svgXLink.uri) =>
+            DomNamespace.svgXLink
+          case _ =>
+            DomNamespace.xhtml
+      case _ =>
+        DomNamespace.xhtml
+
+  /**
+    * Get the tag name of a DOM node.
+    */
+  private def getNodeName(node: dom.Node): String =
+    node match
+      case elem: dom.Element =>
+        elem.tagName.toLowerCase
+      case _ =>
+        ""
+
   private def renderToInternal(
       context: RenderingContext,
       node: dom.Node,
       domNode: DomNode,
       modifier: dom.Node => dom.Node = identity
   ): Cancelable =
+    // Get parent namespace context from the target node
+    val parentNs   = getNodeNamespace(node)
+    val parentName = getNodeName(node)
+
     def traverse(v: Any, anchor: Option[dom.Node], localContext: RenderingContext): Cancelable =
       v match
         case DomNode.empty =>
           Cancelable.empty
         case e: DomElement =>
-          val elem = createDomNode(e)
+          val elem = createDomNode(e, parentName, parentNs)
           val c    = e.traverseModifiers(m => renderToInternal(localContext, elem, m))
           node.mountHere(elem, anchor)
           c

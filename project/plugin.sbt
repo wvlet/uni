@@ -23,6 +23,9 @@ addSbtPlugin("org.scala-js" % "sbt-scalajs" % SCALAJS_VERSION)
 // For running Scala.js tests in Node.js
 libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.5.0"
 
+// For running Scala.js tests with JSDOM (provides DOM APIs)
+libraryDependencies += "org.scala-js" %% "scalajs-env-jsdom-nodejs" % "1.1.1"
+
 // For Scala native
 addSbtPlugin("org.portable-scala" % "sbt-scala-native-crossproject" % "1.3.2")
 addSbtPlugin("org.scala-native"   % "sbt-scala-native"              % "0.5.10")

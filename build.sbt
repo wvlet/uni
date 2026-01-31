@@ -245,7 +245,11 @@ lazy val dom = project
     buildSettings,
     jsBuildSettings,
     name        := "uni-dom",
-    description := "Reactive DOM library for Scala.js"
+    description := "Reactive DOM library for Scala.js",
+    // Use JSDOM for testing (provides DOM APIs in Node.js)
+    Test / jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv(),
+    // JSDOM only supports plain scripts (no modules)
+    Test / scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.NoModule) }
   )
   .dependsOn(uni.js, test.js % Test)
 

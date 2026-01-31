@@ -43,3 +43,12 @@ case class DomElement(
     * Override add to return DomElement for method chaining.
     */
   override def add(xs: DomNode*): DomElement = addModifier(xs*)
+
+  /**
+    * Override apply to return DomElement for method chaining.
+    */
+  override def apply(xs: DomNode*): DomElement =
+    if xs.isEmpty then
+      this
+    else
+      addModifier(xs*)

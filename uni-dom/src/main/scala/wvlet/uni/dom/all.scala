@@ -14,7 +14,7 @@
 package wvlet.uni.dom
 
 /**
-  * Convenience import for all DOM utilities.
+  * Convenience import for all DOM utilities including SVG.
   *
   * Usage:
   * {{{
@@ -23,13 +23,20 @@ package wvlet.uni.dom
   *   val app = div(
   *     cls -> "container",
   *     h1("Hello World"),
-  *     button(onclick -> { () => println("clicked") }, "Click me")
+  *     svg(
+  *       viewBox -> "0 0 100 100",
+  *       circle(cx -> 50, cy -> 50, r -> 40, fill -> "blue")
+  *     )
   *   )
   *
   *   app.renderTo("app")
   * }}}
+  *
+  * SVG elements inside an `svg` tag automatically inherit the SVG namespace during rendering. Tags
+  * that exist in both HTML and SVG (like `title`, `a`, `style`) will use the appropriate namespace
+  * based on their parent context.
   */
-object all extends HtmlTags with HtmlAttrs:
+object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
 
   // Resolve conflicts between HtmlTags and HtmlAttrs by preferring tags
   // Use styleAttr and titleAttr for the attribute versions
@@ -104,3 +111,13 @@ object tags extends HtmlTags
   * Import for HTML attributes only.
   */
 object attrs extends HtmlAttrs
+
+/**
+  * Import for SVG tags only.
+  */
+object svgElements extends SvgTags
+
+/**
+  * Import for SVG attributes only.
+  */
+object svgProperties extends SvgAttrs
