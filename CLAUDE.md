@@ -6,12 +6,27 @@
 
 ## Modules
 
-- **uni-core**: Pure-Scala essential libraries shared with uni-test
-- **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
-- **uni-test**: Unit testing framework
-- **uni-agent**: LLM agent interface, orchestration, and tool integration
+- **uni-core**: Pure-Scala essential libraries shared with uni-test (cross-platform)
+- **uni**: Main library collection — logging, DI, JSON/MessagePack, RPC/HTTP (cross-platform)
+- **uni-test**: Unit testing framework (cross-platform)
+- **uni-agent**: LLM agent interface, orchestration, and tool integration (JVM only)
+- **uni-agent-bedrock**: AWS Bedrock integration (JVM only)
+- **uni-netty**: Netty-based HTTP server (JVM only)
 
 Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+
+### Deeper Documentation
+
+| Topic | Location |
+|---|---|
+| Module dependency graph & layering rules | `.github/instructions/architecture.instructions.md` |
+| Scala 3 coding conventions & pitfalls | `.github/instructions/scala3.instructions.md` |
+| UniTest assertion patterns | `.github/instructions/unitest.instructions.md` |
+| Agent module guide | `.github/instructions/agent-module.instructions.md` |
+| HTTP module guide | `.github/instructions/http-module.instructions.md` |
+| Design principles | `docs/guide/principles.md` |
+| Code review criteria | `.github/prompts/review.prompt.md` |
+| Feature plans | `plans/YYYY-MM-DD-(topic).md` |
 
 ## Commands
 
@@ -26,6 +41,17 @@ Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-speci
 npm run docs:dev                           # Start docs server (http://localhost:5173)
 ```
 
+## Verification Workflow
+
+Before declaring a task complete, always run these steps:
+
+1. **Compile**: `./sbt compile` — fix all errors before proceeding
+2. **Test**: `./sbt <module>/test` for affected modules (or `./sbt test` for broad changes)
+3. **Format**: `./sbt scalafmtAll` — CI will reject unformatted code
+4. **Review**: Check that changes respect module layering (see architecture instructions)
+
+If a compile or test error is unclear, read the error message carefully. Custom linter errors contain remediation instructions.
+
 ## Testing (UniTest)
 
 Avoid mocks. Use `shouldBe`, `shouldNotBe`, `shouldContain`, `shouldMatch`.
@@ -38,7 +64,7 @@ Avoid mocks. Use `shouldBe`, `shouldNotBe`, `shouldContain`, `shouldMatch`.
 result shouldMatch { case x: ExpectedType => }  // NOT: .asInstanceOf[X]
 ```
 
-See `.github/instructions/unitest.instructions.md` for more.
+See `.github/instructions/unitest.instructions.md` for full assertion syntax and examples.
 
 ## Coding Style
 
@@ -48,6 +74,9 @@ See `.github/instructions/unitest.instructions.md` for more.
 - Avoid `Try[A]` return types
 - Config classes: `withXXX(...)` for all fields, `noXXX()` for optional fields
 - uni: minimal dependencies only
+- Cross-platform modules must not use JVM-only APIs
+
+See `.github/instructions/scala3.instructions.md` for full conventions and common pitfalls.
 
 ## Git Workflow
 
