@@ -25,6 +25,7 @@ Each module has its own `CLAUDE.md` with module-specific constraints and test co
 | Scala 3 coding conventions & pitfalls | `docs/dev/scala3-conventions.md` |
 | UniTest assertion patterns | `docs/dev/unitest-guide.md` |
 | Design principles | `docs/guide/principles.md` |
+| Known issues & lessons learned | `docs/dev/known-issues.md` |
 | Code review criteria | `.github/prompts/review.prompt.md` |
 | Feature plans | `plans/YYYY-MM-DD-(topic).md` |
 

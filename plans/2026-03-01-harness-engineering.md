@@ -83,17 +83,61 @@ Claude works → "done" → Stop hook → modified .scala files?
 - [x] `.claude/hooks/stop-verify.sh` — checks for uncommitted Scala changes, reminds about verification
 - [x] `.claude/settings.json` — wires the Stop hook
 
+### 7. Iterative Refinement via Operational Data
+
+**Problem**: The harness (CLAUDE.md files, conventions, guides) is only as good as its initial design. Real usage reveals gaps that the author couldn't anticipate.
+
+**Solution**: Three nested feedback loops, each operating at a different timescale:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ Outer loop: Usage & library experience (weeks/months)   │
+│   Source: GitHub issues, user questions, API confusion   │
+│   Sink:   docs/dev/known-issues.md → module CLAUDE.md   │
+│                                                         │
+│  ┌───────────────────────────────────────────────────┐  │
+│  │ Middle loop: CI & PR reviews (per PR cycle)       │  │
+│  │   Source: CI failure logs, Gemini review comments  │  │
+│  │   Sink:   docs/dev/known-issues.md → conventions  │  │
+│  │                                                   │  │
+│  │  ┌─────────────────────────────────────────────┐  │  │
+│  │  │ Inner loop: Stop hook (per session)         │  │  │
+│  │  │   Source: git diff at session end            │  │  │
+│  │  │   Sink:   "run verification workflow"        │  │  │
+│  │  └─────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Data sources that feed the loops**:
+
+| Source | What it reveals | Frequency |
+|---|---|---|
+| CI test reports (`**/target/test-reports/TEST-*.xml`) | Platform-specific failures, assertion errors | Per PR |
+| Gemini PR reviews (`.github/prompts/review.prompt.md`) | Recurring quality gaps across 8 dimensions | Per PR |
+| GitHub issues & discussions | API confusion, missing features, doc gaps | Ongoing |
+| Agent session patterns | Common mistakes, context that was missing | Per session |
+| Scala Steward / Dependabot | Dependency churn, breaking updates | Weekly |
+
+**Promotion path**: Observations flow from raw data → `docs/dev/known-issues.md` → module `CLAUDE.md` or `docs/dev/` guide. Once a pattern is well-understood and a preventive rule is clear, it gets promoted to the place where agents will see it at the right time.
+
+**Done**:
+- [x] `docs/dev/known-issues.md` — operational memory, accumulates patterns with dates and sources
+- [x] `.claude/hooks/analyze-feedback.sh` — extracts CI failures and PR review themes via `gh` CLI
+- [x] Promotion convention documented in `docs/dev/known-issues.md`
+
 ## Future Improvements
 
 ### Phase 2: Richer Hooks
 - [ ] Add a prompt-based Stop hook that uses an LLM to review code quality (type: "prompt")
 - [ ] Add PostToolUse hook on Write/Edit to auto-run `scalafmt` on changed files
-- [ ] Consider a SessionStart hook to run `./sbt compile` as a warm-up
+- [ ] Consider a SessionStart hook that injects recent known-issues as context
 
-### Phase 3: Background Quality Agents
-- [ ] Periodic stale-documentation detection (are instructions still accurate?)
+### Phase 3: Automated Outer Loop
+- [ ] Periodic stale-documentation detection (are CLAUDE.md files still accurate?)
+- [ ] CI workflow step that appends new failure patterns to `docs/dev/known-issues.md`
 - [ ] Automated cleanup PRs for code consistency drift
-- [ ] Quality grading system for modules (track improvement over time)
+- [ ] Script to analyze closed PRs and extract recurring Gemini review themes
 
 ### Phase 4: Additional Module CLAUDE.md Files
 - [ ] Add `uni-dom-test/CLAUDE.md` (JSDOM environment quirks)
