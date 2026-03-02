@@ -1,7 +1,3 @@
----
-applyTo: "**/*.scala"
----
-
 # Scala 3 Coding Conventions for uni
 
 ## Syntax Rules

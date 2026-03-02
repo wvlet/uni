@@ -15,15 +15,15 @@
 
 Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-specific code in `.jvm`, `.js`, `.native` folders.
 
+Each module has its own `CLAUDE.md` with module-specific constraints and test commands.
+
 ### Deeper Documentation
 
 | Topic | Location |
 |---|---|
-| Module dependency graph & layering rules | `.github/instructions/architecture.instructions.md` |
-| Scala 3 coding conventions & pitfalls | `.github/instructions/scala3.instructions.md` |
-| UniTest assertion patterns | `.github/instructions/unitest.instructions.md` |
-| Agent module guide | `.github/instructions/agent-module.instructions.md` |
-| HTTP module guide | `.github/instructions/http-module.instructions.md` |
+| Module dependency graph & layering rules | `docs/dev/architecture.md` |
+| Scala 3 coding conventions & pitfalls | `docs/dev/scala3-conventions.md` |
+| UniTest assertion patterns | `docs/dev/unitest-guide.md` |
 | Design principles | `docs/guide/principles.md` |
 | Code review criteria | `.github/prompts/review.prompt.md` |
 | Feature plans | `plans/YYYY-MM-DD-(topic).md` |
@@ -48,7 +48,7 @@ Before declaring a task complete, always run these steps:
 1. **Compile**: `./sbt compile` — fix all errors before proceeding
 2. **Test**: `./sbt <module>/test` for affected modules (or `./sbt test` for broad changes)
 3. **Format**: `./sbt scalafmtAll` — CI will reject unformatted code
-4. **Review**: Check that changes respect module layering (see architecture instructions)
+4. **Review**: Check that changes respect module layering (see `docs/dev/architecture.md`)
 
 If a compile or test error is unclear, read the error message carefully. Custom linter errors contain remediation instructions.
 
@@ -64,7 +64,7 @@ Avoid mocks. Use `shouldBe`, `shouldNotBe`, `shouldContain`, `shouldMatch`.
 result shouldMatch { case x: ExpectedType => }  // NOT: .asInstanceOf[X]
 ```
 
-See `.github/instructions/unitest.instructions.md` for full assertion syntax and examples.
+See `docs/dev/unitest-guide.md` for full assertion syntax and examples.
 
 ## Coding Style
 
@@ -76,7 +76,7 @@ See `.github/instructions/unitest.instructions.md` for full assertion syntax and
 - uni: minimal dependencies only
 - Cross-platform modules must not use JVM-only APIs
 
-See `.github/instructions/scala3.instructions.md` for full conventions and common pitfalls.
+See `docs/dev/scala3-conventions.md` for full conventions and common pitfalls.
 
 ## Git Workflow
 

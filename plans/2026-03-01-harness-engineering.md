@@ -15,26 +15,38 @@ This plan applies harness engineering principles to the uni repository for Claud
 
 **Problem**: A monolithic instruction file crowds out the actual task context. Stale rules accumulate.
 
-**Solution**: Keep CLAUDE.md concise (~100 lines of universal rules) and use it as a map pointing to deeper sources of truth via `.github/instructions/` files.
+**Solution**: Keep root CLAUDE.md concise (~100 lines of universal rules) and use it as a map pointing to deeper sources of truth. Module-specific context lives in folder-local `CLAUDE.md` files that Claude Code auto-loads.
 
 **Done**:
-- [x] Restructured CLAUDE.md with a "Deeper Documentation" table
-- [x] Added pointers to all instruction files and docs
+- [x] Restructured root CLAUDE.md with a "Deeper Documentation" table
+- [x] Added pointers to `docs/dev/` reference docs
 
-### 2. File-Scoped Instructions (Context When Needed)
+### 2. Folder-Local CLAUDE.md Files (Context When Needed)
 
 **Problem**: Generic instructions waste context on irrelevant rules. Agent doesn't know module-specific constraints.
 
-**Solution**: Use `.github/instructions/*.instructions.md` with `applyTo` front matter so instructions activate only when editing matching files.
+**Solution**: Place a `CLAUDE.md` in each module directory. Claude Code automatically loads these when working in the corresponding directory, providing module-specific constraints, dependencies, and test commands without polluting the root file.
 
 **Done**:
-- [x] `architecture.instructions.md` — module dependency graph and layering rules (for build files)
-- [x] `scala3.instructions.md` — coding conventions and common pitfalls (for all .scala files)
-- [x] `agent-module.instructions.md` — agent module guide (for uni-agent/ files)
-- [x] `http-module.instructions.md` — HTTP module guide (for HTTP-related files)
-- [x] `unitest.instructions.md` — already existed for test files
+- [x] `uni-core/CLAUDE.md` — pure Scala constraints, zero dependencies
+- [x] `uni/CLAUDE.md` — main library, cross-platform patterns
+- [x] `uni-test/CLAUDE.md` — test framework self-testing
+- [x] `uni-agent/CLAUDE.md` — agent module, JVM-only, airframe dependency
+- [x] `uni-agent-bedrock/CLAUDE.md` — AWS Bedrock, isolated AWS SDK usage
+- [x] `uni-netty/CLAUDE.md` — Netty HTTP server, JVM-only
 
-### 3. Verification Workflow (Mechanical Enforcement)
+### 3. Reference Documentation in docs/dev/
+
+**Problem**: Detailed guides (architecture, conventions, test patterns) are too long for CLAUDE.md but need to be discoverable by agents.
+
+**Solution**: Store reference docs in `docs/dev/` and point to them from CLAUDE.md. Agents can read these when they need deeper context.
+
+**Done**:
+- [x] `docs/dev/architecture.md` — module dependency graph and layering rules
+- [x] `docs/dev/scala3-conventions.md` — coding conventions and common pitfalls
+- [x] `docs/dev/unitest-guide.md` — assertion syntax, examples, Design integration
+
+### 4. Verification Workflow (Mechanical Enforcement)
 
 **Problem**: Agents declare "done" without verifying. Broken code gets committed.
 
@@ -43,16 +55,16 @@ This plan applies harness engineering principles to the uni repository for Claud
 **Done**:
 - [x] Added "Verification Workflow" section to CLAUDE.md
 
-### 4. Repository as Single Source of Truth
+### 5. Repository as Single Source of Truth
 
 **Problem**: Knowledge in Slack, docs, or people's heads is invisible to agents.
 
 **Solution**: All architectural decisions, module guides, and conventions are versioned markdown in the repo.
 
 **Done**:
-- [x] Module dependency graph documented in architecture instructions
-- [x] Cross-platform rules documented
-- [x] Common pitfalls documented in scala3 instructions
+- [x] Module dependency graph documented in `docs/dev/architecture.md`
+- [x] Cross-platform rules documented in folder-local CLAUDE.md files
+- [x] Common pitfalls documented in `docs/dev/scala3-conventions.md`
 
 ## Future Improvements
 
@@ -66,7 +78,6 @@ This plan applies harness engineering principles to the uni repository for Claud
 - [ ] Automated cleanup PRs for code consistency drift
 - [ ] Quality grading system for modules (track improvement over time)
 
-### Phase 4: Deeper Module Instructions
-- [ ] Add instructions for `uni-core` (pure Scala constraints, logging patterns)
-- [ ] Add instructions for cross-platform development (expect/actual patterns)
-- [ ] Add instructions for `uni-dom-test` (JSDOM environment quirks)
+### Phase 4: Additional Module CLAUDE.md Files
+- [ ] Add `uni-dom-test/CLAUDE.md` (JSDOM environment quirks)
+- [ ] Add `uni-integration-test/CLAUDE.md` (AWS credential requirements)

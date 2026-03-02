@@ -1,7 +1,3 @@
----
-applyTo: "**/build.sbt,**/plugin.sbt"
----
-
 # Uni Module Architecture
 
 ## Module Dependency Graph
