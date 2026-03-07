@@ -16,7 +16,7 @@ package wvlet.uni.http.rpc
 import wvlet.uni.http.{HttpHeader, Response}
 import wvlet.uni.json.JSON
 import wvlet.uni.msgpack.spi.MsgPack
-import wvlet.uni.weaver.ObjectWeaver
+import wvlet.uni.weaver.Weaver
 
 import scala.util.Try
 
@@ -85,7 +85,7 @@ case class RPCErrorMessage(
   def toMsgPack: MsgPack = RPCErrorMessage.weaver.weave(this)
 
 object RPCErrorMessage:
-  given weaver: ObjectWeaver[RPCErrorMessage] = ObjectWeaver.derived[RPCErrorMessage]
+  given weaver: Weaver[RPCErrorMessage] = Weaver.derived[RPCErrorMessage]
 
   def fromJson(json: String): RPCErrorMessage        = weaver.fromJson(json)
   def fromMsgPack(msgpack: MsgPack): RPCErrorMessage = weaver.unweave(msgpack)

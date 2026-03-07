@@ -66,9 +66,9 @@ object AnimationFrame:
             time - lastTime
         lastTime = time
         callback(dt)
-        rafId = dom.window.requestAnimationFrame(loop)
+        rafId = dom.window.requestAnimationFrame(t => loop(t))
 
-    rafId = dom.window.requestAnimationFrame(loop)
+    rafId = dom.window.requestAnimationFrame(t => loop(t))
 
     override def cancel: Unit =
       running = false
