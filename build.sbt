@@ -19,15 +19,15 @@ ThisBuild / publishTo := {
 // Publishing command aliases
 addCommandAlias(
   "publishSnapshots",
-  s"+ projectJVM/publish; + projectJS/publish; + projectNative/publish"
+  s"projectJVM/publish; projectJS/publish; projectNative/publish"
 )
 addCommandAlias(
   "publishJSSigned",
-  s"+ projectJS/publishSigned"
+  s"projectJS/publishSigned"
 )
 addCommandAlias(
   "publishNativeSigned",
-  s"+ projectNative/publishSigned"
+  s"projectNative/publishSigned"
 )
 
 val SCALA_3                             = "3.8.2"
