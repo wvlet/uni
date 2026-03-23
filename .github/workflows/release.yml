@@ -1,0 +1,37 @@
+name: Release Scala JVM
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  publish_jvm:
+    name: Publish Scala JVM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Fetch all tags so that sbt-dynver can find the previous release version
+          fetch-depth: 0
+      - run: git fetch --tags -f
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - name: Setup GPG
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
+      - name: Build bundle
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+        run: |
+          ./sbt "projectJVM/publishSigned"
+      - name: Release to Sonatype
+        env:
+          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+        run: ./sbt sonaRelease
