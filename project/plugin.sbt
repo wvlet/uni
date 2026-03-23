@@ -8,9 +8,8 @@ ThisBuild / libraryDependencySchemes ++=
 
 val AIRFRAME_VERSION = "2026.1.4"
 
-// For publishing to Maven Central
-addSbtPlugin("com.github.sbt" % "sbt-pgp"      % "2.3.1")
-addSbtPlugin("org.xerial.sbt" % "sbt-sonatype"  % "3.12.2")
+// For GPG signing published artifacts
+addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.1")
 
 addSbtPlugin("org.scalameta"       % "sbt-scalafmt"             % "2.5.6")
 addSbtPlugin("org.portable-scala"  % "sbt-scalajs-crossproject" % "1.3.2")
