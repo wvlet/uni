@@ -51,7 +51,7 @@ val buildSettings = Seq[Setting[?]](
   scmInfo := Some(
     ScmInfo(
       browseUrl = url("https://github.com/wvlet/uni"),
-      connection = "scm:git@github.com:wvlet/uni.git"
+      connection = "scm:git:git@github.com:wvlet/uni.git"
     )
   ),
   developers := List(
