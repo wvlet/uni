@@ -2,6 +2,34 @@ import sbtide.Keys.ideSkipProject
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
+ThisBuild / organization := "org.wvlet.uni"
+
+// Use dynamic snapshot version strings for non tagged versions
+ThisBuild / dynverSonatypeSnapshots := true
+// Use coursier friendly version separator
+ThisBuild / dynverSeparator := "-"
+
+// For Sonatype
+ThisBuild / publishTo := {
+  val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
+  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
+  else localStaging.value
+}
+
+// Publishing command aliases
+addCommandAlias(
+  "publishSnapshots",
+  s"+ projectJVM/publish; + projectJS/publish; + projectNative/publish"
+)
+addCommandAlias(
+  "publishJSSigned",
+  s"+ projectJS/publishSigned"
+)
+addCommandAlias(
+  "publishNativeSigned",
+  s"+ projectNative/publishSigned"
+)
+
 val SCALA_3                             = "3.8.2"
 val AIRFRAME_VERSION                    = "2026.1.4"
 val AWS_SDK_VERSION                     = "2.42.14"
@@ -13,12 +41,22 @@ val SCALACHECK_VERSION                  = "1.19.0"
 
 // Common build settings
 val buildSettings = Seq[Setting[?]](
-  organization             := "org.wvlet.uni",
-  description              := "Scala 3 unified utility library",
-  scalaVersion             := SCALA_3,
-  crossScalaVersions       := List(SCALA_3),
-  crossPaths               := true,
-  publishMavenStyle        := true,
+  description        := "Scala 3 unified utility library",
+  scalaVersion       := SCALA_3,
+  crossScalaVersions := List(SCALA_3),
+  crossPaths         := true,
+  publishMavenStyle  := true,
+  licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
+  homepage := Some(url("https://github.com/wvlet/uni")),
+  scmInfo := Some(
+    ScmInfo(
+      browseUrl = url("https://github.com/wvlet/uni"),
+      connection = "scm:git@github.com:wvlet/uni.git"
+    )
+  ),
+  developers := List(
+    Developer(id = "leo", name = "Taro L. Saito", email = "leo@xerial.org", url = url("http://xerial.org/leo"))
+  ),
   Test / parallelExecution := false,
   // Use UniTest for testing
   libraryDependencies ++=
