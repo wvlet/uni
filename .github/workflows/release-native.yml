@@ -20,6 +20,7 @@ jobs:
         with:
           distribution: 'zulu'
           java-version: '23'
+          cache: sbt
       - name: Install native dependencies
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Setup GPG
@@ -34,4 +35,4 @@ jobs:
         env:
           SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
           SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
-        run: SCALA_NATIVE=true ./sbt sonaRelease
+        run: ./sbt sonaRelease
