@@ -12,27 +12,20 @@ ThisBuild / dynverSeparator := "-"
 // For Sonatype
 ThisBuild / publishTo := {
   val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
-  if (isSnapshot.value) Some("central-snapshots" at centralSnapshots)
-  else localStaging.value
+  if (isSnapshot.value)
+    Some("central-snapshots" at centralSnapshots)
+  else
+    localStaging.value
 }
 
 // Publishing command aliases
-addCommandAlias(
-  "publishSnapshots",
-  s"projectJVM/publish; projectJS/publish; projectNative/publish"
-)
-addCommandAlias(
-  "publishJSSigned",
-  s"projectJS/publishSigned"
-)
-addCommandAlias(
-  "publishNativeSigned",
-  s"projectNative/publishSigned"
-)
+addCommandAlias("publishSnapshots", s"projectJVM/publish; projectJS/publish; projectNative/publish")
+addCommandAlias("publishJSSigned", s"projectJS/publishSigned")
+addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
 val SCALA_3                             = "3.8.2"
 val AIRFRAME_VERSION                    = "2026.1.4"
-val AWS_SDK_VERSION                     = "2.42.14"
+val AWS_SDK_VERSION                     = "2.42.19"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
 val JUNIT_PLATFORM_VERSION              = "6.0.3"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.8"
@@ -48,15 +41,22 @@ val buildSettings = Seq[Setting[?]](
   publishMavenStyle  := true,
   licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
   homepage := Some(url("https://github.com/wvlet/uni")),
-  scmInfo := Some(
-    ScmInfo(
-      browseUrl = url("https://github.com/wvlet/uni"),
-      connection = "scm:git:git@github.com:wvlet/uni.git"
-    )
-  ),
-  developers := List(
-    Developer(id = "leo", name = "Taro L. Saito", email = "leo@xerial.org", url = url("http://xerial.org/leo"))
-  ),
+  scmInfo  :=
+    Some(
+      ScmInfo(
+        browseUrl = url("https://github.com/wvlet/uni"),
+        connection = "scm:git:git@github.com:wvlet/uni.git"
+      )
+    ),
+  developers :=
+    List(
+      Developer(
+        id = "leo",
+        name = "Taro L. Saito",
+        email = "leo@xerial.org",
+        url = url("http://xerial.org/leo")
+      )
+    ),
   Test / parallelExecution := false,
   // Use UniTest for testing
   libraryDependencies ++=
