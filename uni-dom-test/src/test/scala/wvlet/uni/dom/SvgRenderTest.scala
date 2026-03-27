@@ -16,6 +16,7 @@ package wvlet.uni.dom
 import wvlet.uni.test.UniTest
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
+import scala.language.implicitConversions
 import org.scalajs.dom
 
 class SvgRenderTest extends UniTest:

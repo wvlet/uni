@@ -15,12 +15,15 @@ package wvlet.uni.design
 
 import wvlet.uni.surface.Surface
 
+import scala.annotation.nowarn
+
 /**
   * Tracing event
   */
 sealed trait TraceEvent:
   val eventTimeMillis = System.currentTimeMillis()
-  val threadId        = Thread.currentThread().getId
+  @nowarn("msg=getId.*deprecated")
+  val threadId = Thread.currentThread().getId
 
 object TraceEvent:
   case class SessionInitStart(session: Session)      extends TraceEvent
