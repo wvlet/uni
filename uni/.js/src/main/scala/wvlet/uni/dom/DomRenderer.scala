@@ -262,6 +262,9 @@ object DomRenderer extends LogSupport:
           handleResizeEntryBinding(node, reb)
         case rbd: ResizeBindingDebounced =>
           handleResizeBindingDebounced(node, rbd)
+        // Click outside detection
+        case cb: ClickOutsideBinding =>
+          handleClickOutsideBinding(node, cb)
         // Ref bindings
         case rb: RefBinding[?] =>
           node match
@@ -775,6 +778,42 @@ object DomRenderer extends LogSupport:
       observer.disconnect()
     }
   end handleResizeBindingDebounced
+
+  /**
+    * Handle click outside detection by registering a document-level mousedown listener.
+    *
+    * Uses setTimeout(0) to avoid catching the opening click that triggered this binding.
+    */
+  private def handleClickOutsideBinding(node: dom.Node, binding: ClickOutsideBinding): Cancelable =
+    val elem     = node.asInstanceOf[dom.Element]
+    val callback = binding.callback
+
+    var listener: js.UndefOr[js.Function1[dom.Event, Unit]] = js.undefined
+
+    val setupId = dom
+      .window
+      .setTimeout(
+        () =>
+          val handler: js.Function1[dom.Event, Unit] =
+            (event: dom.Event) =>
+              event match
+                case me: dom.MouseEvent =>
+                  val target = me.target.asInstanceOf[dom.Node]
+                  if !elem.contains(target) then
+                    callback(me)
+                case _ =>
+                  ()
+          listener = handler
+          dom.document.addEventListener("mousedown", handler)
+        ,
+        0
+      )
+
+    Cancelable { () =>
+      dom.window.clearTimeout(setupId)
+      listener.foreach(l => dom.document.removeEventListener("mousedown", l))
+    }
+  end handleClickOutsideBinding
 
   /**
     * Handle Portal rendering to a target element by ID.
