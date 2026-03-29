@@ -90,21 +90,12 @@ object TestStats:
     val parts =
       List(s"${total} tests", s"${passed} passed") ++
         List(
-          if failed > 0 then
-            Some(s"${failed} failed")
-          else
-            None
-          ,
-          if skipped > 0 then
-            Some(s"${skipped} skipped")
-          else
-            None
-          ,
-          if pending > 0 then
-            Some(s"${pending} pending")
-          else
-            None
-        ).flatten
+          (failed > 0, s"${failed} failed"),
+          (skipped > 0, s"${skipped} skipped"),
+          (pending > 0, s"${pending} pending")
+        ).collect { case (true, part) =>
+          part
+        }
     parts.mkString(", ")
 
 end TestStats
