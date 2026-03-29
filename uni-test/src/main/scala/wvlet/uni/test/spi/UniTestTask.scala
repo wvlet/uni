@@ -191,7 +191,7 @@ class UniTestTask(
       loggers.foreach(_.info(s"No tests found in ${className}"))
     else
       val classStartTime = System.nanoTime()
-      loggers.foreach(_.info(Tint.cyan(s"${className}:")))
+      loggers.foreach(_.info(Tint.brightGreen(s"${className}:")))
 
       // Queue-based approach to handle dynamically registered nested tests
       val testQueue     = scala.collection.mutable.Queue.from(filteredTests)
