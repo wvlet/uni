@@ -50,7 +50,17 @@ case class NettyServerConfig(
     maxContentLength: Int = 65536,
     maxInitialLineLength: Int = 4096,
     maxHeaderSize: Int = 8192,
-    useNativeTransport: Boolean = true
+    useNativeTransport: Boolean = true,
+    // Graceful shutdown configuration
+    shutdownQuietPeriodSeconds: Long = 2,
+    shutdownTimeoutSeconds: Long = 30,
+    // Whether to register a JVM shutdown hook for SIGTERM/SIGINT handling
+    registerShutdownHook: Boolean = false,
+    // Number of threads for the handler executor group. When set, request handlers
+    // run on a separate thread pool instead of Netty's event loop threads.
+    // Set this to match expected concurrent long-running requests (e.g., upstream
+    // proxy calls) to prevent them from starving the event loop.
+    handlerExecutorThreads: Option[Int] = None
 ):
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
@@ -70,6 +80,29 @@ case class NettyServerConfig(
   )
 
   def noNativeTransport: NettyServerConfig = withUseNativeTransport(false)
+
+  def withShutdownQuietPeriod(seconds: Long): NettyServerConfig =
+    require(seconds >= 0, "shutdownQuietPeriodSeconds must be non-negative")
+    copy(shutdownQuietPeriodSeconds = seconds)
+
+  def withShutdownTimeout(seconds: Long): NettyServerConfig =
+    require(seconds > 0, "shutdownTimeoutSeconds must be positive")
+    copy(shutdownTimeoutSeconds = seconds)
+
+  def withGracefulShutdown(
+      quietPeriodSeconds: Long = 2,
+      timeoutSeconds: Long = 30
+  ): NettyServerConfig =
+    require(quietPeriodSeconds >= 0, "quietPeriodSeconds must be non-negative")
+    require(timeoutSeconds > 0, "timeoutSeconds must be positive")
+    copy(shutdownQuietPeriodSeconds = quietPeriodSeconds, shutdownTimeoutSeconds = timeoutSeconds)
+
+  def withShutdownHook: NettyServerConfig = copy(registerShutdownHook = true)
+  def noShutdownHook: NettyServerConfig   = copy(registerShutdownHook = false)
+
+  def withHandlerExecutorThreads(threads: Int): NettyServerConfig =
+    require(threads > 0, "handlerExecutorThreads must be positive")
+    copy(handlerExecutorThreads = Some(threads))
 
   def withHandler(handler: HttpHandler): NettyServerConfig = copy(handler =
     RxHttpHandler.fromSync(handler)
