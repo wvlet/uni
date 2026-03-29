@@ -40,16 +40,12 @@ class UniTestRunner(_args: Array[String], _remoteArgs: Array[String], testClassL
   }
 
   override def done(): String =
-    if stats.total > 0 then
-      val totalTimeMs = stats.totalTime / 1000000
-      val timeStr     =
-        if totalTimeMs >= 1000 then
-          f"${totalTimeMs / 1000.0}%.2fs"
-        else
-          s"${totalTimeMs}ms"
-      s"Total: ${stats.summary} (${timeStr})"
-    else
+    val summary = stats.summary
+    if summary.isEmpty then
       ""
+    else
+      val timeStr = TestStats.formatTime(stats.totalTime)
+      s"Total: ${summary} (${timeStr})"
 
   // The following methods are defined for Scala.js support:
 
