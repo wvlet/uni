@@ -132,11 +132,13 @@ val response = session.chat("What's 25 * 4?")
 
 // Check if any AI message contains tool calls
 response.messages.collect { case ai: AIMessage if ai.hasToolCalls => ai }.foreach { ai =>
-  // Execute tools manually
-  val results = ai.toolCalls.map { call =>
-    val result = myExecutor.executeToolCall(call)
-    // result is Rx[ToolResultMessage] — await or subscribe as needed
-  }
+  // Execute all tool calls in parallel and collect results
+  val toolResults = myExecutor.executeToolCalls(ai.toolCalls).toSeq.head
+
+  // Continue conversation with tool results
+  val updatedHistory = response.messages ++ toolResults
+  val finalResponse = session.continueChat(updatedHistory, "Please summarize the results")
+  finalResponse.messages.collect { case ai: AIMessage => ai.text }.lastOption.foreach(println)
 }
 ```
 
