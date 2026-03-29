@@ -10,7 +10,7 @@ import wvlet.uni.agent.{LLMAgent, LLM}
 val agent = LLMAgent(
   name = "assistant",
   description = "A helpful AI assistant",
-  model = LLM.Claude3Sonnet
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 )
 ```
 
@@ -22,7 +22,7 @@ val agent = LLMAgent(
 val agent = LLMAgent(
   name = "coder",
   description = "A coding assistant",
-  model = LLM.Claude3Opus
+  model = LLM.Bedrock.Claude4Sonnet_20250514V1_0
 ).withSystemPrompt("""
   You are an expert Scala programmer.
   Write clean, idiomatic Scala 3 code.
@@ -33,13 +33,16 @@ val agent = LLMAgent(
 ### Model Selection
 
 ```scala
-// Available models
-LLM.Claude3Sonnet
-LLM.Claude3Opus
-LLM.Claude3Haiku
+// AWS Bedrock models (under LLM.Bedrock namespace)
+LLM.Bedrock.Claude4Sonnet_20250514V1_0
+LLM.Bedrock.Claude4Opus_20250514V1_0
+LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
+LLM.Bedrock.Claude3_5Sonnet_20241022V2_0
+LLM.Bedrock.Claude3_5Haiku_20241022V1_0
+LLM.Bedrock.Claude3Haiku_20240307V1_0
 
 // Use with agent
-agent.withModel(LLM.Claude3Opus)
+agent.withModel(LLM.Bedrock.Claude4Opus_20250514V1_0)
 ```
 
 ### Temperature
@@ -95,7 +98,7 @@ val searchTool = ToolSpec(
 val agent = LLMAgent(
   name = "researcher",
   description = "A research assistant",
-  model = LLM.Claude3Sonnet
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 ).withTools(List(searchTool))
 ```
 
@@ -152,7 +155,7 @@ val calculateTool = ToolSpec(...)  // calculation tool
 val agent = LLMAgent(
   name = "expert",
   description = "Domain expert",
-  model = LLM.Claude3Opus
+  model = LLM.Bedrock.Claude4Sonnet_20250514V1_0
 )
   .withSystemPrompt("You are a domain expert...")
   .withTemperature(0.5)
@@ -171,7 +174,7 @@ val citationTool = ToolSpec(name = "citation", ...)
 val researchAgent = LLMAgent(
   name = "researcher",
   description = "Gathers and analyzes information",
-  model = LLM.Claude3Sonnet
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 )
   .withSystemPrompt("""
     You are a research assistant.
@@ -195,7 +198,7 @@ val runTestsTool = ToolSpec(name = "run_tests", ...)
 val codingAgent = LLMAgent(
   name = "coder",
   description = "Writes and reviews code",
-  model = LLM.Claude3Opus
+  model = LLM.Bedrock.Claude4Opus_20250514V1_0
 )
   .withSystemPrompt("""
     You are an expert programmer.

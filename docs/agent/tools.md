@@ -46,7 +46,7 @@ ToolParameter("limit", "Max results", DataType.IntegerType, defaultValue = Some(
 val agent = LLMAgent(
   name = "assistant",
   description = "Helpful assistant with tools",
-  model = LLM.Claude3Sonnet
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 ).withTools(List(
   calculatorTool,
   searchTool,
@@ -58,23 +58,28 @@ val agent = LLMAgent(
 
 ### Implementing a Tool Executor
 
+The `ToolExecutor` trait returns `Rx[ToolResultMessage]` for asynchronous execution:
+
 ```scala
 import wvlet.uni.agent.tool.ToolExecutor
-import wvlet.uni.agent.chat.ToolCallRequest
+import wvlet.uni.agent.chat.{ToolSpec, ChatMessage}
+import wvlet.uni.agent.chat.ChatMessage.{ToolCallRequest, ToolResultMessage}
+import wvlet.airframe.rx.Rx
 
 class MyToolExecutor extends ToolExecutor:
-  def execute(call: ToolCallRequest): String =
-    call.name match
+  override def executeToolCall(toolCall: ToolCallRequest): Rx[ToolResultMessage] =
+    val result = toolCall.name match
       case "calculator" =>
-        val expr = call.args("expression").toString
+        val expr = toolCall.args("expression").toString
         evaluateExpression(expr)
-
       case "web_search" =>
-        val query = call.args("query").toString
+        val query = toolCall.args("query").toString
         searchWeb(query)
-
       case _ =>
-        s"Unknown tool: ${call.name}"
+        s"Unknown tool: ${toolCall.name}"
+    Rx.single(ToolResultMessage(toolCall.id, toolCall.name, result))
+
+  override def availableTools: Seq[ToolSpec] = Seq(calculatorTool, webSearchTool)
 ```
 
 ### Local Tool Executor
@@ -97,30 +102,34 @@ val executor = LocalToolExecutor()
 
 ### Automatic Execution
 
+Use `chatWithTools` for automatic tool call handling:
+
 ```scala
+import wvlet.uni.agent.chat.withToolSupport
+
 val session = agent.newSession(runner, Some(toolExecutor))
 
-// Tools are executed automatically
-val response = session.chat("What's 25 * 4?")
+// Tools are executed automatically in a loop
+val response = session.chatWithTools("What's 25 * 4?").toSeq.head
 // Agent calls calculator, gets result, responds
 ```
 
 ### Manual Execution
 
 ```scala
-val session = agent.newSession(runner)
+import wvlet.uni.agent.chat.ChatMessage.{AIMessage, ToolResultMessage}
 
+val session = agent.newSession(runner)
 val response = session.chat("What's 25 * 4?")
 
-if response.hasToolCalls then
+// Check if any AI message contains tool calls
+response.messages.collect { case ai: AIMessage if ai.hasToolCalls => ai }.foreach { ai =>
   // Execute tools manually
-  val results = response.toolCalls.map { call =>
-    val result = myExecutor.execute(call)
-    ChatMessage.ToolResultMessage(call.id, call.name, result)
+  val results = ai.toolCalls.map { call =>
+    val result = myExecutor.executeToolCall(call)
+    // result is Rx[ToolResultMessage] — await or subscribe as needed
   }
-
-  // Continue conversation with results
-  val finalResponse = session.continueWithToolResults(response, results)
+}
 ```
 
 ## Tool Call Flow

@@ -19,8 +19,13 @@ val toolSession = agent.newSession(runner, Some(toolExecutor))
 ### Single Message
 
 ```scala
+import wvlet.uni.agent.chat.ChatMessage.AIMessage
+
 val response = session.chat("What is the capital of France?")
-println(response.text)  // "The capital of France is Paris."
+
+// Access the response text from the last AI message
+response.messages.collect { case ai: AIMessage => ai.text }.lastOption.foreach(println)
+// "The capital of France is Paris."
 ```
 
 ### With Observer
@@ -87,18 +92,28 @@ val result = ChatMessage.ToolResultMessage(
 
 ## Chat Response
 
+`ChatResponse` contains the full conversation history, stats, and finish reason:
+
 ```scala
 val response = session.chat("Hello")
-
-// Get the text response
-val text = response.text
 
 // Get all messages (includes history)
 val messages = response.messages
 
-// Check for tool calls
-val hasTools = response.hasToolCalls
-val toolCalls = response.toolCalls
+// Get token usage stats
+val stats = response.stats  // ChatStats(latencyMs, inputTokens, outputTokens, totalTokens)
+
+// Check why the response finished
+val reason = response.finishReason  // END_TURN, STOP_SEQUENCE, TOOL_CALL, MAX_TOKENS, etc.
+
+// Extract text from the last AI message
+response.messages.collectFirst { case ai: AIMessage => ai.text }
+
+// Check if any AI message has tool calls
+response.messages.exists {
+  case ai: AIMessage => ai.hasToolCalls
+  case _             => false
+}
 ```
 
 ## Streaming
@@ -106,17 +121,23 @@ val toolCalls = response.toolCalls
 ### Chat Observer
 
 ```scala
-import wvlet.uni.agent.chat.ChatObserver
+import wvlet.uni.agent.chat.{ChatObserver, ChatEvent, ChatResponse}
 
 val observer = new ChatObserver:
-  def onText(text: String): Unit =
-    print(text)  // Print as it streams
+  def onPartialResponse(event: ChatEvent): Unit =
+    event match
+      case ChatEvent.PartialResponse(text) =>
+        print(text)  // Print as it streams
+      case ChatEvent.PartialReasoningResponse(text) =>
+        print(text)  // Reasoning output
+      case ChatEvent.PartialToolRequestResponse(text) =>
+        print(text)  // Tool request fragments
 
-  def onToolCall(call: ToolCallRequest): Unit =
-    println(s"Calling tool: ${call.name}")
-
-  def onComplete(): Unit =
+  def onComplete(response: ChatResponse): Unit =
     println("\n[Complete]")
+
+  def onError(e: Throwable): Unit =
+    println(s"Error: ${e.getMessage}")
 
 val response = session.chat("Tell me a story", observer)
 ```
@@ -133,48 +154,61 @@ val response = session.chat("Hello")
 ### Detecting Tool Calls
 
 ```scala
+import wvlet.uni.agent.chat.ChatMessage.AIMessage
+
 val response = session.chat("What's the weather in Tokyo?")
 
-if response.hasToolCalls then
-  for call <- response.toolCalls do
+// Check AI messages for tool calls
+response.messages.collect { case ai: AIMessage if ai.hasToolCalls => ai }.foreach { ai =>
+  for call <- ai.toolCalls do
     println(s"Tool: ${call.name}")
     println(s"Args: ${call.args}")
+}
 ```
 
 ### Handling Tool Results
 
+For manual tool handling, create tool result messages and continue the conversation:
+
 ```scala
-// Get tool calls from response
-val toolCalls = response.toolCalls
+import wvlet.uni.agent.chat.ChatMessage.{AIMessage, ToolResultMessage}
 
-// Execute tools and create results
-val results = toolCalls.map { call =>
-  val result = executeMyTool(call.name, call.args)
-  ChatMessage.ToolResultMessage(call.id, call.name, result)
+// Find AI message with tool calls
+response.messages.collect { case ai: AIMessage if ai.hasToolCalls => ai }.foreach { ai =>
+  // Execute tools and create results
+  val results = ai.toolCalls.map { call =>
+    val result = executeMyTool(call.name, call.args)
+    ToolResultMessage(call.id, call.name, result)
+  }
+
+  // Continue conversation by including tool results in history
+  val updatedHistory = response.messages ++ results
+  val finalResponse = session.continueChat(updatedHistory, "Please summarize the results")
 }
-
-// Continue with results
-val finalResponse = session.continueWithToolResults(response, results)
 ```
 
 ## Tool-Enabled Session
 
-```scala
-// Automatic tool execution
-val session = agent.newSession(runner, Some(toolExecutor))
+For automatic tool execution, use `chatWithTools`:
 
-// Tools are executed automatically
-val response = session.chat("Calculate 2 + 2")
-// Tool is called, result is returned
+```scala
+import wvlet.uni.agent.chat.withToolSupport
+
+// Create a tool-enabled session
+val toolSession = agent.newSession(runner, Some(toolExecutor))
+
+// Tools are executed automatically in a loop until the model stops calling tools
+val response = toolSession.chatWithTools("Calculate 2 + 2").toSeq.head
 ```
 
 ## Example: Interactive Chat
 
 ```scala
 import scala.io.StdIn
+import wvlet.uni.agent.chat.ChatMessage.AIMessage
 
 val session = agent.newSession(runner)
-var response: Option[ChatResponse] = None
+var lastResponse: Option[ChatResponse] = None
 
 println("Chat with AI (type 'quit' to exit)")
 
@@ -185,13 +219,13 @@ while true do
   if input.toLowerCase == "quit" then
     System.exit(0)
 
-  response = response match
+  lastResponse = lastResponse match
     case Some(prev) =>
       Some(session.continueChat(prev, input))
     case None =>
       Some(session.chat(input))
 
-  println(response.get.text)
+  lastResponse.get.messages.collect { case ai: AIMessage => ai.text }.lastOption.foreach(println)
   println()
 ```
 
