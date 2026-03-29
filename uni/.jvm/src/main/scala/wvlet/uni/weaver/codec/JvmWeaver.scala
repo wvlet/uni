@@ -7,6 +7,7 @@ import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 import wvlet.uni.weaver.WeaverContext
 import java.io.File
+import java.net.URI
 import java.net.URL
 import java.time.Duration
 import java.time.LocalDate
@@ -74,7 +75,7 @@ object JvmWeaver:
 
   given fileWeaver: Weaver[File] = stringBasedWeaver("File", _.getPath, File(_))
 
-  given urlWeaver: Weaver[URL] = stringBasedWeaver("URL", _.toString, s => URL(s))
+  given urlWeaver: Weaver[URL] = stringBasedWeaver("URL", _.toString, s => URI(s).toURL)
 
   given pathWeaver: Weaver[java.nio.file.Path] = stringBasedWeaver(
     "Path",
