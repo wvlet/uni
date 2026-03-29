@@ -27,7 +27,7 @@ val withRetry = ServerSentEvent
 | Field | Type | Description |
 |-------|------|-------------|
 | `data` | `String` | Event payload (required). Multiline supported. |
-| `event` | `Option[String]` | Event type (defaults to `"message"` if omitted) |
+| `event` | `Option[String]` | Event type (None if omitted) |
 | `id` | `Option[String]` | Event identifier for resumption |
 | `retry` | `Option[Long]` | Reconnection time in milliseconds |
 
@@ -69,6 +69,55 @@ event.noId
 event.noEvent
 event.noRetry
 ```
+
+## Parsing SSE Streams
+
+`ServerSentEventParser` parses the SSE wire format into `ServerSentEvent` objects.
+
+### One-Shot Parsing
+
+```scala
+import wvlet.uni.http.ServerSentEventParser
+
+val raw = """id: 1
+event: update
+data: hello
+
+data: world
+
+"""
+
+val events = ServerSentEventParser.parse(raw)
+// Seq(
+//   ServerSentEvent(id = Some("1"), event = Some("update"), data = "hello"),
+//   ServerSentEvent(data = "world")
+// )
+```
+
+### Incremental Parsing
+
+For streaming data, create a parser instance and feed chunks as they arrive:
+
+```scala
+import wvlet.uni.http.ServerSentEventParser
+
+val parser = ServerSentEventParser()
+
+// Feed partial data — returns complete events found so far
+val events1 = parser.feed("data: hel")   // Seq() — incomplete
+val events2 = parser.feed("lo\n\n")      // Seq(ServerSentEvent(data = "hello"))
+
+// Feed more data
+val events3 = parser.feed("data: world\n\n")
+
+// Flush at end of stream to emit any pending event
+val last: Option[ServerSentEvent] = parser.flush()
+
+// Reset to reuse the parser
+parser.reset()
+```
+
+The parser handles comments (lines starting with `:`), multi-line `data:` fields, and unknown fields gracefully.
 
 ## Best Practices
 

@@ -91,11 +91,11 @@ size.mostSuccinctDataSize                 // DataSize(2.5, GIGABYTE)
 | Unit | Symbol | Bytes |
 |------|--------|-------|
 | `BYTE` | B | 1 |
-| `KILOBYTE` | kB | 1,000 |
-| `MEGABYTE` | MB | 1,000,000 |
-| `GIGABYTE` | GB | 1,000,000,000 |
-| `TERABYTE` | TB | 1,000,000,000,000 |
-| `PETABYTE` | PB | 1,000,000,000,000,000 |
+| `KILOBYTE` | kB | 1,024 |
+| `MEGABYTE` | MB | 1,048,576 |
+| `GIGABYTE` | GB | 1,073,741,824 |
+| `TERABYTE` | TB | 1,099,511,627,776 |
+| `PETABYTE` | PB | 1,125,899,906,842,624 |
 
 ## Count
 
