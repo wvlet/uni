@@ -92,8 +92,7 @@ object CrockfordBase32:
       l |= carry
       h >>>= 5
       i += 1
-    // TODO: Use reverseInPlace when Scala 2.12 dropped
-    s.reverseContents().toString()
+    s.reverseInPlace().toString()
 
   /**
     * Decode 10-character Crockford Base32 as a 48-bit unsigned value. This is used for decoding

@@ -29,16 +29,23 @@ class UniTestRunner(_args: Array[String], _remoteArgs: Array[String], testClassL
   // Parse test configuration from arguments
   private val config: TestConfig = TestConfig.parse(_args)
 
+  // Shared test statistics across all test tasks
+  private val stats: TestStats = TestStats()
+
   // Apply log configuration at runner initialization
   TestConfig.apply(config)
 
   override def tasks(taskDefs: Array[TaskDef]): Array[Task] = taskDefs.map { td =>
-    UniTestTask(td, testClassLoader, config)
+    UniTestTask(td, testClassLoader, config, stats)
   }
 
   override def done(): String =
-    // Return summary string (empty for now)
-    ""
+    val summary = stats.summary
+    if summary.isEmpty then
+      ""
+    else
+      val timeStr = TestStats.formatTime(stats.totalTime)
+      s"Total: ${summary} (${timeStr})"
 
   // The following methods are defined for Scala.js support:
 
@@ -53,7 +60,8 @@ class UniTestRunner(_args: Array[String], _remoteArgs: Array[String], testClassL
   def deserializeTask(task: String, deserializer: String => TaskDef): Task = UniTestTask(
     deserializer(task),
     testClassLoader,
-    config
+    config,
+    stats
   )
 
   /**

@@ -24,68 +24,94 @@ export AWS_REGION=us-east-1
 aws configure
 ```
 
-## Creating a Bedrock Chat Model
+## Creating a Bedrock Runner
+
+`BedrockRunner` creates an `AgentRunner` backed by AWS Bedrock. It takes an `LLMAgent` and optional `BedrockConfig`:
 
 ```scala
-import wvlet.uni.agent.bedrock.BedrockChat
+import wvlet.uni.agent.{LLMAgent, LLM}
+import wvlet.uni.agent.chat.bedrock.BedrockRunner
 
-val bedrockChat = BedrockChat()
+val agent = LLMAgent(
+  name = "assistant",
+  description = "Bedrock-powered assistant",
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
+)
+
+val runner = BedrockRunner(agent)
 ```
 
 ### With Custom Configuration
 
+Configure the underlying `BedrockConfig` for region and credentials:
+
 ```scala
-val bedrockChat = BedrockChat()
-  .withRegion("us-west-2")
-  .withProfile("my-profile")
+import software.amazon.awssdk.regions.Region
+import wvlet.uni.agent.chat.bedrock.{BedrockRunner, BedrockConfig}
+
+val config = BedrockConfig()
+  .withRegion(Region.US_WEST_2)
+
+val runner = BedrockRunner(agent, config)
+```
+
+### Custom Credentials
+
+```scala
+import software.amazon.awssdk.auth.credentials.*
+
+val credentialsProvider = StaticCredentialsProvider.create(
+  AwsBasicCredentials.create("key", "secret")
+)
+
+val config = BedrockConfig()
+  .withCredentials(credentialsProvider)
+
+val runner = BedrockRunner(agent, config)
 ```
 
 ## Using with LLMAgent
 
 ```scala
 import wvlet.uni.agent.{LLMAgent, LLM}
-import wvlet.uni.agent.bedrock.BedrockChat
-import wvlet.uni.agent.runner.AgentRunner
-
-// Create Bedrock chat model
-val bedrockChat = BedrockChat()
-
-// Create agent runner with Bedrock
-val runner = AgentRunner(bedrockChat)
+import wvlet.uni.agent.chat.ChatMessage.AIMessage
+import wvlet.uni.agent.chat.bedrock.BedrockRunner
 
 // Create agent
 val agent = LLMAgent(
   name = "assistant",
   description = "Bedrock-powered assistant",
-  model = LLM.Claude3Sonnet
+  model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 ).withSystemPrompt("You are a helpful assistant.")
 
-// Create session and chat
+// Create Bedrock runner and session
+val runner = BedrockRunner(agent)
 val session = agent.newSession(runner)
 val response = session.chat("Hello!")
-println(response.text)
+
+// Access the response text
+response.messages.collect { case ai: AIMessage => ai.text }.lastOption.foreach(println)
 ```
 
 ## Available Models
 
 | Model | Identifier |
 |-------|------------|
-| Claude 3 Opus | `LLM.Claude3Opus` |
-| Claude 3 Sonnet | `LLM.Claude3Sonnet` |
-| Claude 3 Haiku | `LLM.Claude3Haiku` |
+| Claude 4 Sonnet | `LLM.Bedrock.Claude4Sonnet_20250514V1_0` |
+| Claude 4 Opus | `LLM.Bedrock.Claude4Opus_20250514V1_0` |
+| Claude 3.7 Sonnet | `LLM.Bedrock.Claude3_7Sonnet_20250219V1_0` |
+| Claude 3.5 Sonnet v2 | `LLM.Bedrock.Claude3_5Sonnet_20241022V2_0` |
+| Claude 3.5 Haiku | `LLM.Bedrock.Claude3_5Haiku_20241022V1_0` |
+| Claude 3 Haiku | `LLM.Bedrock.Claude3Haiku_20240307V1_0` |
 
 ## Configuration Options
 
 ### Region
 
 ```scala
-BedrockChat().withRegion("eu-west-1")
-```
+import software.amazon.awssdk.regions.Region
 
-### AWS Profile
-
-```scala
-BedrockChat().withProfile("production")
+BedrockConfig().withRegion(Region.EU_WEST_1)
 ```
 
 ### Credentials Provider
@@ -97,20 +123,33 @@ val credentialsProvider = StaticCredentialsProvider.create(
   AwsBasicCredentials.create("key", "secret")
 )
 
-BedrockChat().withCredentialsProvider(credentialsProvider)
+BedrockConfig().withCredentials(credentialsProvider)
+```
+
+### Custom Async Client Configuration
+
+```scala
+BedrockConfig().withAsyncClientConfig { builder =>
+  builder.overrideConfiguration(/* ... */)
+}
 ```
 
 ## Streaming Responses
 
 ```scala
-import wvlet.uni.agent.chat.ChatObserver
+import wvlet.uni.agent.chat.{ChatObserver, ChatEvent, ChatResponse}
 
 val observer = new ChatObserver:
-  def onText(text: String): Unit =
-    print(text)
+  def onPartialResponse(event: ChatEvent): Unit =
+    event match
+      case ChatEvent.PartialResponse(text) => print(text)
+      case _                               => ()
 
-  def onComplete(): Unit =
+  def onComplete(response: ChatResponse): Unit =
     println()
+
+  def onError(e: Throwable): Unit =
+    println(s"Error: ${e.getMessage}")
 
 val response = session.chat("Tell me a story", observer)
 ```
@@ -118,15 +157,15 @@ val response = session.chat("Tell me a story", observer)
 ## Error Handling
 
 ```scala
-import wvlet.uni.agent.core.AIException
+import wvlet.uni.agent.core.{AIException, StatusCode}
 
 try
   val response = session.chat("Hello")
 catch
   case e: AIException =>
     e.statusCode match
-      case 429 => println("Rate limited, retry later")
-      case 401 => println("Invalid credentials")
+      case StatusCode.RESOURCE_EXHAUSTED => println("Rate limited, retry later")
+      case StatusCode.INVALID_MODEL_CONFIG => println("Invalid model configuration")
       case _ => println(s"Error: ${e.message}")
 ```
 
@@ -135,22 +174,17 @@ catch
 ```scala
 import wvlet.uni.agent.*
 import wvlet.uni.agent.chat.*
-import wvlet.uni.agent.bedrock.BedrockChat
-import wvlet.uni.agent.runner.AgentRunner
+import wvlet.uni.agent.chat.ChatMessage.AIMessage
+import wvlet.uni.agent.chat.bedrock.{BedrockRunner, BedrockConfig}
+import software.amazon.awssdk.regions.Region
 
 object BedrockExample:
   def main(args: Array[String]): Unit =
-    // Initialize Bedrock
-    val bedrockChat = BedrockChat()
-      .withRegion("us-east-1")
-
-    val runner = AgentRunner(bedrockChat)
-
     // Define agent
     val agent = LLMAgent(
       name = "coder",
       description = "Scala coding assistant",
-      model = LLM.Claude3Sonnet
+      model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
     )
       .withSystemPrompt("""
         You are an expert Scala 3 programmer.
@@ -158,6 +192,10 @@ object BedrockExample:
       """)
       .withTemperature(0.3)
       .withMaxOutputTokens(2048)
+
+    // Initialize Bedrock runner
+    val config = BedrockConfig().withRegion(Region.US_EAST_1)
+    val runner = BedrockRunner(agent, config)
 
     // Create session
     val session = agent.newSession(runner)
@@ -167,7 +205,7 @@ object BedrockExample:
       "Write a function to calculate the nth Fibonacci number"
     )
 
-    println(response.text)
+    response.messages.collect { case ai: AIMessage => ai.text }.lastOption.foreach(println)
 ```
 
 ## IAM Permissions

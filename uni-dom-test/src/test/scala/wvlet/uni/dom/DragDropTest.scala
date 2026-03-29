@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.test.UniTest
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
+import scala.language.implicitConversions
 import wvlet.uni.rx.Rx
 
 class DragDropTest extends UniTest:

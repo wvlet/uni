@@ -17,6 +17,7 @@ import wvlet.uni.test.UniTest
 import wvlet.uni.rx.{Cancelable, Rx}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
+import scala.language.implicitConversions
 
 class RxElementTest extends UniTest:
 
