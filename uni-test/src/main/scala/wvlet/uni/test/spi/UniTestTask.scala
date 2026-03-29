@@ -25,14 +25,92 @@ import wvlet.uni.test.TestIgnored
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.compat
 
+import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.Await
 import scala.concurrent.Promise
 import scala.concurrent.duration.Duration
 
 /**
+  * Accumulated test statistics across all test classes
+  */
+class TestStats:
+  private val _passed    = AtomicLong(0)
+  private val _failed    = AtomicLong(0)
+  private val _skipped   = AtomicLong(0)
+  private val _pending   = AtomicLong(0)
+  private val _cancelled = AtomicLong(0)
+  private val _ignored   = AtomicLong(0)
+  private val _errors    = AtomicLong(0)
+  private val _totalTime = AtomicLong(0)
+
+  def addPassed(): Unit          = _passed.incrementAndGet()
+  def addFailed(): Unit          = _failed.incrementAndGet()
+  def addSkipped(): Unit         = _skipped.incrementAndGet()
+  def addPending(): Unit         = _pending.incrementAndGet()
+  def addCancelled(): Unit       = _cancelled.incrementAndGet()
+  def addIgnored(): Unit         = _ignored.incrementAndGet()
+  def addError(): Unit           = _errors.incrementAndGet()
+  def addTime(nanos: Long): Unit = _totalTime.addAndGet(nanos)
+
+  def passed: Long    = _passed.get()
+  def failed: Long    = _failed.get()
+  def skipped: Long   = _skipped.get()
+  def pending: Long   = _pending.get()
+  def cancelled: Long = _cancelled.get()
+  def ignored: Long   = _ignored.get()
+  def errors: Long    = _errors.get()
+  def totalTime: Long = _totalTime.get()
+  def total: Long     = passed + failed + skipped + pending + cancelled + ignored + errors
+
+  def addResult(result: TestResult): Unit =
+    result match
+      case _: TestResult.Success =>
+        addPassed()
+      case _: TestResult.Failure =>
+        addFailed()
+      case _: TestResult.Error =>
+        addError()
+      case _: TestResult.Skipped =>
+        addSkipped()
+      case _: TestResult.Pending =>
+        addPending()
+      case _: TestResult.Cancelled =>
+        addCancelled()
+      case _: TestResult.Ignored =>
+        addIgnored()
+
+  def summary: String =
+    val parts =
+      List(s"${total} tests", s"${passed} passed") ++
+        List(
+          if failed + errors > 0 then
+            Some(s"${failed + errors} failed")
+          else
+            None
+          ,
+          if skipped > 0 then
+            Some(s"${skipped} skipped")
+          else
+            None
+          ,
+          if pending > 0 then
+            Some(s"${pending} pending")
+          else
+            None
+        ).flatten
+    parts.mkString(", ")
+
+end TestStats
+
+/**
   * sbt test task that executes tests for a single test class
   */
-class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestConfig) extends Task:
+class UniTestTask(
+    _taskDef: TaskDef,
+    testClassLoader: ClassLoader,
+    config: TestConfig,
+    stats: TestStats
+) extends Task:
 
   def taskDef(): TaskDef = _taskDef
 
@@ -104,9 +182,18 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
       // No tests registered via test() DSL, log info
       loggers.foreach(_.info(s"No tests found in ${className}"))
     else
+      val classStartTime = System.nanoTime()
+      // Print class name header before tests
+      loggers.foreach(_.info(s"${className}:"))
+
       // Use queue-based approach to handle dynamically registered nested tests
       val testQueue     = scala.collection.mutable.Queue.from(filteredTests)
       val executedTests = scala.collection.mutable.Set.empty[String]
+      // Per-class counters
+      var classPassed  = 0
+      var classFailed  = 0
+      var classSkipped = 0
+      var classOther   = 0
 
       while testQueue.nonEmpty do
         val testDef = testQueue.dequeue()
@@ -114,14 +201,33 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
           executedTests.add(testDef.fullName)
 
           val beforeCount = testInstance.registeredTests.size
+          val testStart   = System.nanoTime()
           val result      = testInstance.executeTest(testDef)
+          val testElapsed = System.nanoTime() - testStart
           val isContainer = testInstance.registeredTests.size > beforeCount
 
           // Report failing containers or any leaf test
           if result.isFailure || !isContainer then
-            val event = createEvent(testDef.fullName, result)
+            val event = createEvent(testDef.fullName, result, testElapsed)
             eventHandler.handle(event)
-            logResult(result, loggers)
+            logResult(result, testElapsed, loggers)
+            stats.addResult(result)
+            // Track per-class counts
+            result match
+              case _: TestResult.Success =>
+                classPassed += 1
+              case _: TestResult.Failure =>
+                classFailed += 1
+              case _: TestResult.Error =>
+                classFailed += 1
+              case _: TestResult.Skipped =>
+                classSkipped += 1
+              case _: TestResult.Pending =>
+                classOther += 1
+              case _: TestResult.Cancelled =>
+                classOther += 1
+              case _: TestResult.Ignored =>
+                classOther += 1
 
           // Queue nested tests for execution (if container didn't fail)
           if !result.isFailure && isContainer then
@@ -131,16 +237,59 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
                 if !executedTests.contains(t.fullName) then
                   testQueue.enqueue(t)
               }
+        end if
+      end while
+
+      // Print class summary
+      val classElapsed = System.nanoTime() - classStartTime
+      stats.addTime(classElapsed)
+      val classTotal   = classPassed + classFailed + classSkipped + classOther
+      val summaryParts =
+        List(s"${classTotal} tests", s"${classPassed} passed") ++
+          List(
+            if classFailed > 0 then
+              Some(s"${classFailed} failed")
+            else
+              None
+            ,
+            if classSkipped > 0 then
+              Some(s"${classSkipped} skipped")
+            else
+              None
+          ).flatten
+      val classSummary = summaryParts.mkString(", ")
+
+      // Print per-class summary with timing
+      val classTimeStr = formatTime(classElapsed)
+      val summaryLine  = s"  ${classSummary} (${classTimeStr})"
+      val summaryColor =
+        if classFailed > 0 then
+          Tint.red(summaryLine)
+        else
+          Tint.green(summaryLine)
+      loggers.foreach(_.info(summaryColor))
     end if
 
   end runTests
 
-  private def logResult(result: TestResult, loggers: Array[sbt.testing.Logger]): Unit =
+  private def formatTime(nanos: Long): String =
+    val ms = nanos / 1000000
+    if ms >= 1000 then
+      f"${ms / 1000.0}%.2fs"
+    else
+      s"${ms}ms"
+
+  private def logResult(
+      result: TestResult,
+      elapsedNanos: Long,
+      loggers: Array[sbt.testing.Logger]
+  ): Unit =
+    val timeStr = formatTime(elapsedNanos)
     result match
       case TestResult.Success(name) =>
-        loggers.foreach(_.info(Tint.green(s"  + ${name}")))
+        loggers.foreach(_.info(Tint.green(s"  + ${name}") + Tint.gray(s" (${timeStr})")))
       case TestResult.Failure(name, msg, cause) =>
-        loggers.foreach(_.error(Tint.red(s"  - ${name}: ${msg}")))
+        loggers.foreach(_.error(Tint.red(s"  - ${name}: ${msg}") + Tint.gray(s" (${timeStr})")))
         // Show source code snippet for assertion failures
         cause.foreach {
           case af: AssertionFailure =>
@@ -154,18 +303,29 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
             ()
         }
       case TestResult.Error(name, msg, cause) =>
-        loggers.foreach(_.error(Tint.red(s"  x ${name}: ${msg}")))
+        loggers.foreach(_.error(Tint.red(s"  x ${name}: ${msg}") + Tint.gray(s" (${timeStr})")))
         loggers.foreach(_.trace(cause))
       case TestResult.Skipped(name, reason) =>
-        loggers.foreach(_.info(Tint.yellow(s"  ~ ${name}: skipped - ${reason}")))
+        loggers.foreach(
+          _.info(Tint.yellow(s"  ~ ${name}: skipped - ${reason}") + Tint.gray(s" (${timeStr})"))
+        )
       case TestResult.Pending(name, reason) =>
-        loggers.foreach(_.info(Tint.magenta(s"  ? ${name}: pending - ${reason}")))
+        loggers.foreach(
+          _.info(Tint.magenta(s"  ? ${name}: pending - ${reason}") + Tint.gray(s" (${timeStr})"))
+        )
       case TestResult.Cancelled(name, reason) =>
-        loggers.foreach(_.info(Tint.cyan(s"  ! ${name}: cancelled - ${reason}")))
+        loggers.foreach(
+          _.info(Tint.cyan(s"  ! ${name}: cancelled - ${reason}") + Tint.gray(s" (${timeStr})"))
+        )
       case TestResult.Ignored(name, reason) =>
-        loggers.foreach(_.info(Tint.gray(s"  - ${name}: ignored - ${reason}")))
+        loggers.foreach(
+          _.info(Tint.gray(s"  - ${name}: ignored - ${reason}") + Tint.gray(s" (${timeStr})"))
+        )
+    end match
 
-  private def createEvent(testName: String, result: TestResult): Event =
+  end logResult
+
+  private def createEvent(testName: String, result: TestResult, elapsedNanos: Long = 0L): Event =
     val selector = new TestSelector(testName)
     val status   =
       result match
@@ -199,7 +359,7 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
       selector,
       status,
       throwable,
-      0L
+      elapsedNanos / 1000000 // Convert nanos to millis for sbt event
     )
 
   end createEvent
