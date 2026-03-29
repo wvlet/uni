@@ -13,10 +13,14 @@
  */
 package wvlet.uni.test
 
+import scala.concurrent.{ExecutionContext, Future}
+
 /**
   * Self-test for UniTest framework
   */
 class UniTestSelfTest extends UniTest:
+
+  private given ExecutionContext = wvlet.uni.test.compat.executionContext
 
   test("basic shouldBe assertion") {
     1 + 1 shouldBe 2
@@ -133,16 +137,16 @@ class UniTestSelfTest extends UniTest:
   }
 
   test("flaky test converts failure to skipped") {
-    // Create a flaky test that always fails
     val flakyTest = TestDef(
       "failing-flaky",
       () => throw RuntimeException("intentional"),
       Nil,
       isFlaky = true
     )
-    val result = executeTest(flakyTest)
-    result shouldMatch {
-      case TestResult.Skipped(_, msg) if msg.contains("[flaky]") =>
+    executeTest(flakyTest).map { result =>
+      result shouldMatch {
+        case TestResult.Skipped(_, msg) if msg.contains("[flaky]") =>
+      }
     }
   }
 
@@ -153,8 +157,9 @@ class UniTestSelfTest extends UniTest:
       Nil,
       isFlaky = false
     )
-    val result = executeTest(normalTest)
-    result shouldMatch { case TestResult.Error(_, _, _) =>
+    executeTest(normalTest).map { result =>
+      result shouldMatch { case TestResult.Error(_, _, _) =>
+      }
     }
   }
 
@@ -195,13 +200,43 @@ class UniTestSelfTest extends UniTest:
     e2.getMessage shouldContain "Expected not null"
   }
 
+  test("Future test support") {
+    test("successful Future is auto-awaited") {
+      val testDef = TestDef("future-int", () => Future.successful(42), Nil)
+      executeTest(testDef).map { result =>
+        result shouldBe TestResult.Success("future-int")
+      }
+    }
+
+    test("Future returning a string") {
+      val testDef = TestDef("future-str", () => Future.successful("hello"), Nil)
+      executeTest(testDef).map { result =>
+        result shouldBe TestResult.Success("future-str")
+      }
+    }
+
+    test("failed Future surfaces exception") {
+      val testDef = TestDef(
+        "failing-future",
+        () => Future.failed(RuntimeException("future error")),
+        Nil,
+        isFlaky = false
+      )
+      executeTest(testDef).map { result =>
+        result shouldMatch { case TestResult.Error(_, msg, _) =>
+          msg shouldContain "future error"
+        }
+      }
+    }
+  }
+
   test("source snippet is captured") {
     val e = intercept[AssertionFailure] {
       1 shouldBe 2
     }
     // Verify the source location is captured
     e.source.fileName shouldBe "UniTestSelfTest.scala"
-    e.source.line shouldBe 200
+    e.source.line shouldBe 235
     // Verify the source line content is captured
     e.source.sourceLine shouldContain "shouldBe"
     // Verify formatSnippet works

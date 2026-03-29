@@ -16,6 +16,8 @@ package wvlet.uni.test
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.*
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success, Try}
 
 /**
   * Test definition representing a single test case
@@ -93,20 +95,40 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
     finally _context = previousContext
 
   /**
-    * Execute a specific test by name
+    * Execute a test, returning Future[TestResult] to support async test bodies on all platforms.
     */
-  private[test] def executeTest(testDef: TestDef): TestResult =
+  private[test] def executeTest(testDef: TestDef): Future[TestResult] =
+    given ExecutionContext = wvlet.uni.test.compat.executionContext
+
+    def toTestResult: Try[Any] => Try[TestResult] =
+      case Success(_) =>
+        Success(TestResult.Success(testDef.fullName))
+      case Failure(e) =>
+        Success(classifyException(testDef, e))
+
     try
-      runWithContext(testDef.name) {
-        testDef.body() match
-          case rx: RxOps[?] =>
-            // Handle async Rx test - run and await result
-            awaitRx(rx)
-          case other =>
-            other
-      }
-      TestResult.Success(testDef.fullName)
+      // Body runs synchronously (registers nested tests as side effects).
+      // Only the return value may be a Future or Rx.
+      val result =
+        runWithContext(testDef.name) {
+          testDef.body()
+        }
+      result match
+        case f: Future[?] =>
+          f.transform(toTestResult)
+        case rx: RxOps[?] =>
+          // Use fully qualified name to avoid shadowing by wvlet.uni.rx.compat
+          wvlet.uni.test.compat.runRxAsFuture(rx).transform(toTestResult)
+        case _ =>
+          Future.successful(TestResult.Success(testDef.fullName))
     catch
+      case e: Throwable =>
+        Future.successful(classifyException(testDef, e))
+
+  end executeTest
+
+  private def classifyException(testDef: TestDef, e: Throwable): TestResult =
+    e match
       case e: TestSkipped =>
         TestResult.Skipped(testDef.fullName, e.getMessage)
       case e: TestPending =>
@@ -115,7 +137,7 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
         TestResult.Cancelled(testDef.fullName, e.getMessage)
       case e: TestIgnored =>
         TestResult.Ignored(testDef.fullName, e.getMessage)
-      case e: Throwable =>
+      case _ =>
         if testDef.isFlaky then
           TestResult.Skipped(testDef.fullName, s"[flaky] ${e.getMessage}")
         else
@@ -124,15 +146,6 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
               TestResult.Failure(testDef.fullName, af.getMessage, Some(af))
             case _ =>
               TestResult.Error(testDef.fullName, e.getMessage, e)
-
-  /**
-    * Await the result of an Rx stream. Uses platform-specific implementation. On JVM/Native: blocks
-    * until result is available. On JS: runs the Rx for side effects (non-blocking).
-    */
-  private def awaitRx[A](rx: RxOps[A]): A =
-    // Use the platform-specific runRxTest method from test compat
-    // Note: Use fully qualified name to avoid shadowing by wvlet.uni.rx.compat
-    wvlet.uni.test.compat.runRxTest(rx)
 
 end UniTest
 

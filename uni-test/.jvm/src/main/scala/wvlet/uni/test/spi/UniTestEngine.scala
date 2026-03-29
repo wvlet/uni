@@ -21,6 +21,8 @@ import wvlet.uni.test.TestResult
 import wvlet.uni.test.UniTest
 
 import java.util.Optional
+import scala.concurrent.Await
+import scala.concurrent.duration.*
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -183,7 +185,7 @@ class UniTestEngine extends TestEngine:
               executedTests.add(testDef.fullName)
 
               val beforeCount = instance.registeredTests.size
-              val result      = instance.executeTest(testDef)
+              val result      = Await.result(instance.executeTest(testDef), 30.seconds)
               val isContainer = instance.registeredTests.size > beforeCount
 
               // Report failing containers or any leaf test

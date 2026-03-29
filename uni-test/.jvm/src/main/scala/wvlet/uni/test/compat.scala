@@ -14,7 +14,7 @@
 package wvlet.uni.test
 
 import java.lang.reflect.InvocationTargetException
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
   * JVM specific compatibility layer for uni-test
@@ -91,9 +91,8 @@ private[test] object compat:
         e
 
   /**
-    * Run an Rx stream for test purposes. On JVM, blocks until result is available. Returns the
-    * result value.
+    * Convert an Rx stream to a Future for async test execution.
     */
-  def runRxTest[A](rx: wvlet.uni.rx.RxOps[A]): A = rx.await
+  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] = Future(rx.await)(executionContext)
 
 end compat
