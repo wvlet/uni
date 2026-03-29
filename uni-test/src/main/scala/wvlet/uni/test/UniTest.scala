@@ -104,7 +104,6 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
             // Handle async Rx test - run and await result
             awaitRx(rx)
           case f: Future[?] =>
-            // Handle async Future test - await result
             awaitFuture(f)
           case other =>
             other
@@ -139,10 +138,11 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
     wvlet.uni.test.compat.runRxTest(rx)
 
   /**
-    * Await the result of a Future. Uses platform-specific implementation. On JVM/Native: blocks
-    * with Await.result. On JS: extracts the value if already completed.
+    * Await the result of a Future. Uses platform-specific implementation.
     */
-  private def awaitFuture[A](future: Future[A]): A = wvlet.uni.test.compat.runFutureTest(future)
+  private def awaitFuture[A](future: Future[A]): A =
+    // Use fully qualified name to avoid potential shadowing, matching awaitRx style
+    wvlet.uni.test.compat.runFutureTest(future)
 
 end UniTest
 

@@ -199,22 +199,25 @@ class UniTestSelfTest extends UniTest:
 
   test("Future test support") {
     test("successful Future is auto-awaited") {
-      val result = Future.successful(42)
-      result
+      val testDef = TestDef("future-int", () => Future.successful(42), Nil)
+      val result  = executeTest(testDef)
+      result shouldBe TestResult.Success("future-int")
     }
 
     test("Future returning a string") {
-      Future.successful("hello")
+      val testDef = TestDef("future-str", () => Future.successful("hello"), Nil)
+      val result  = executeTest(testDef)
+      result shouldBe TestResult.Success("future-str")
     }
 
     test("failed Future surfaces exception") {
-      val failingTest = TestDef(
+      val testDef = TestDef(
         "failing-future",
         () => Future.failed(RuntimeException("future error")),
         Nil,
         isFlaky = false
       )
-      val result = executeTest(failingTest)
+      val result = executeTest(testDef)
       result shouldMatch { case TestResult.Error(_, msg, _) =>
         msg shouldContain "future error"
       }
@@ -227,7 +230,7 @@ class UniTestSelfTest extends UniTest:
     }
     // Verify the source location is captured
     e.source.fileName shouldBe "UniTestSelfTest.scala"
-    e.source.line shouldBe 226
+    e.source.line shouldBe 229
     // Verify the source line content is captured
     e.source.sourceLine shouldContain "shouldBe"
     // Verify formatSnippet works

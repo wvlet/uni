@@ -97,11 +97,11 @@ private[test] object compat:
     */
   def runRxTest[A](rx: wvlet.uni.rx.RxOps[A]): A = rx.await
 
+  private val futureTestTimeout = 30.seconds
+
   /**
-    * Run a Future for test purposes. On JVM, blocks until result is available using Await.result
-    * with a 30-second timeout. Returns the result value or throws the underlying exception on
-    * failure.
+    * Run a Future for test purposes. Blocks until result is available or timeout expires.
     */
-  def runFutureTest[A](future: Future[A]): A = Await.result(future, 30.seconds)
+  def runFutureTest[A](future: Future[A]): A = Await.result(future, futureTestTimeout)
 
 end compat
