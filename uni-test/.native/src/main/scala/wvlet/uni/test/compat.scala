@@ -13,8 +13,7 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.{Await, ExecutionContext, Future}
-import scala.concurrent.duration.*
+import scala.concurrent.{ExecutionContext, Future}
 import scala.scalanative.reflect.Reflect
 
 /**
@@ -69,16 +68,8 @@ private[test] object compat:
   def findCause(e: Throwable): Throwable = e
 
   /**
-    * Run an Rx stream for test purposes. On Native, blocks until result is available. Returns the
-    * result value.
+    * Convert an Rx stream to a Future for async test execution.
     */
-  def runRxTest[A](rx: wvlet.uni.rx.RxOps[A]): A = rx.await
-
-  private val futureTestTimeout = 30.seconds
-
-  /**
-    * Run a Future for test purposes. Blocks until result is available or timeout expires.
-    */
-  def runFutureTest[A](future: Future[A]): A = Await.result(future, futureTestTimeout)
+  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] = Future(rx.await)(executionContext)
 
 end compat

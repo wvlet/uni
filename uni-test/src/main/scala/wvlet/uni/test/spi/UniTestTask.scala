@@ -25,8 +25,7 @@ import wvlet.uni.test.TestIgnored
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.compat
 
-import scala.concurrent.Await
-import scala.concurrent.Promise
+import scala.concurrent.{Await, ExecutionContext, Future, Promise}
 import scala.concurrent.duration.Duration
 
 /**
@@ -52,46 +51,53 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
 
   /**
     * Asynchronous execute method for Scala.js. This is the main implementation that both sync and
-    * async paths use.
+    * async paths use. Continuation is called after all async test work completes.
     */
   def execute(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger],
       continuation: Array[Task] => Unit
   ): Unit =
-    implicit val ec = compat.executionContext
-    val className   = taskDef().fullyQualifiedName()
+    given ExecutionContext = compat.executionContext
+    val className          = taskDef().fullyQualifiedName()
 
     try
-      // Load the test class using platform-specific reflection
       val testInstance = compat.newInstance(className, testClassLoader)
       runTests(testInstance, className, eventHandler, loggers)
+        .recover { case e: Throwable =>
+          handleSpecLevelError(className, e, eventHandler, loggers)
+        }
+        .foreach { _ =>
+          continuation(Array.empty)
+        }
     catch
       case e: Throwable =>
-        // Unwrap exception to get the actual cause
-        val cause           = compat.findCause(e)
-        val (event, logMsg) = classifySpecLevelException(className, cause)
-        eventHandler.handle(event)
-        loggers.foreach(_.info(logMsg))
-        // Only trace for actual errors, not for skipped/pending/cancelled tests
-        cause match
-          case _: TestSkipped | _: TestPending | _: TestCancelled | _: TestIgnored =>
-          // Don't trace for expected test control flow exceptions
-          case _ =>
-            loggers.foreach(_.trace(cause))
-    finally
-      continuation(Array.empty)
-    end try
+        handleSpecLevelError(className, e, eventHandler, loggers)
+        continuation(Array.empty)
 
   end execute
+
+  private def handleSpecLevelError(
+      className: String,
+      e: Throwable,
+      eventHandler: EventHandler,
+      loggers: Array[sbt.testing.Logger]
+  ): Unit =
+    val cause           = compat.findCause(e)
+    val (event, logMsg) = classifySpecLevelException(className, cause)
+    eventHandler.handle(event)
+    loggers.foreach(_.info(logMsg))
+    cause match
+      case _: TestSkipped | _: TestPending | _: TestCancelled | _: TestIgnored =>
+      case _                                                                   =>
+        loggers.foreach(_.trace(cause))
 
   private def runTests(
       testInstance: UniTest,
       className: String,
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
-  ): Unit =
-    // Get initial tests and apply filter if specified
+  )(using ExecutionContext): Future[Unit] =
     val allTests      = testInstance.registeredTests
     val filteredTests =
       config.testFilter match
@@ -101,36 +107,45 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
           allTests
 
     if filteredTests.isEmpty then
-      // No tests registered via test() DSL, log info
       loggers.foreach(_.info(s"No tests found in ${className}"))
+      Future.unit
     else
-      // Use queue-based approach to handle dynamically registered nested tests
       val testQueue     = scala.collection.mutable.Queue.from(filteredTests)
       val executedTests = scala.collection.mutable.Set.empty[String]
 
-      while testQueue.nonEmpty do
-        val testDef = testQueue.dequeue()
-        if !executedTests.contains(testDef.fullName) then
-          executedTests.add(testDef.fullName)
+      def processQueue(): Future[Unit] =
+        if testQueue.isEmpty then
+          Future.unit
+        else
+          val testDef = testQueue.dequeue()
+          if executedTests.contains(testDef.fullName) then
+            processQueue()
+          else
+            executedTests.add(testDef.fullName)
+            val beforeCount = testInstance.registeredTests.size
 
-          val beforeCount = testInstance.registeredTests.size
-          val result      = testInstance.executeTest(testDef)
-          val isContainer = testInstance.registeredTests.size > beforeCount
-
-          // Report failing containers or any leaf test
-          if result.isFailure || !isContainer then
-            val event = createEvent(testDef.fullName, result)
-            eventHandler.handle(event)
-            logResult(result, loggers)
-
-          // Queue nested tests for execution (if container didn't fail)
-          if !result.isFailure && isContainer then
             testInstance
-              .registeredTests
-              .foreach { t =>
-                if !executedTests.contains(t.fullName) then
-                  testQueue.enqueue(t)
+              .executeTest(testDef)
+              .flatMap { result =>
+                val isContainer = testInstance.registeredTests.size > beforeCount
+
+                if result.isFailure || !isContainer then
+                  val event = createEvent(testDef.fullName, result)
+                  eventHandler.handle(event)
+                  logResult(result, loggers)
+
+                if !result.isFailure && isContainer then
+                  testInstance
+                    .registeredTests
+                    .foreach { t =>
+                      if !executedTests.contains(t.fullName) then
+                        testQueue.enqueue(t)
+                    }
+
+                processQueue()
               }
+
+      processQueue()
     end if
 
   end runTests

@@ -13,8 +13,7 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.{ExecutionContext, Future}
-import scala.util.{Failure, Success}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
 import scala.scalajs.reflect.Reflect
 
@@ -115,41 +114,24 @@ private[test] object compat:
   def findCause(e: Throwable): Throwable = e
 
   /**
-    * Run an Rx stream for test purposes. On JS, we can't block so we just run for side effects. The
-    * Rx is executed but we can't await the result.
+    * Convert an Rx stream to a Future for async test execution. Uses Promise + RxRunner callbacks
+    * since JS cannot block.
     */
-  def runRxTest[A](rx: wvlet.uni.rx.RxOps[A]): A =
+  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] =
     import wvlet.uni.rx.*
-    // Run the Rx for side effects - this is non-blocking
-    var result: Option[A]        = None
-    var error: Option[Throwable] = None
-    // Discard the cancelable - we run synchronously on JS
-    val _ =
+    val p          = Promise[Any]()
+    val cancelable =
       RxRunner.runOnce(rx) {
         case OnNext(v) =>
-          result = Some(v.asInstanceOf[A])
+          if !p.isCompleted then
+            p.success(v)
         case OnError(e) =>
-          error = Some(e)
-        case OnCompletion => // Done
+          if !p.isCompleted then
+            p.failure(e)
+        case OnCompletion =>
+          if !p.isCompleted then
+            p.success(())
       }
-    // Check for errors
-    error.foreach(throw _)
-    // Return result or Unit (for side-effect tests)
-    result.getOrElse(().asInstanceOf[A])
-
-  /**
-    * Run a Future for test purposes. On JS, we cannot block, so we extract the value from
-    * already-completed Futures. Non-completed Futures are treated as side effects and ignored,
-    * since JS is single-threaded and cannot await them.
-    */
-  def runFutureTest[A](future: Future[A]): A =
-    future.value match
-      case Some(Success(v)) =>
-        v
-      case Some(Failure(e)) =>
-        throw e
-      case None =>
-        // Cannot block on JS; treat as a side-effect Future
-        ().asInstanceOf[A]
+    p.future
 
 end compat
