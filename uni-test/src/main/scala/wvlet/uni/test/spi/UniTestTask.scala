@@ -61,19 +61,14 @@ class UniTestTask(_taskDef: TaskDef, testClassLoader: ClassLoader, config: TestC
     given ExecutionContext = compat.executionContext
     val className          = taskDef().fullyQualifiedName()
 
-    try
-      val testInstance = compat.newInstance(className, testClassLoader)
-      runTests(testInstance, className, eventHandler, loggers)
-        .recover { case e: Throwable =>
-          handleSpecLevelError(className, e, eventHandler, loggers)
-        }
-        .foreach { _ =>
-          continuation(Array.empty)
-        }
-    catch
-      case e: Throwable =>
+    Future(compat.newInstance(className, testClassLoader))
+      .flatMap(testInstance => runTests(testInstance, className, eventHandler, loggers))
+      .recover { case e: Throwable =>
         handleSpecLevelError(className, e, eventHandler, loggers)
+      }
+      .foreach { _ =>
         continuation(Array.empty)
+      }
 
   end execute
 

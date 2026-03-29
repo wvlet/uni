@@ -99,6 +99,13 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
     */
   private[test] def executeTest(testDef: TestDef): Future[TestResult] =
     given ExecutionContext = wvlet.uni.test.compat.executionContext
+
+    def toTestResult: Try[Any] => Try[TestResult] =
+      case Success(_) =>
+        Success(TestResult.Success(testDef.fullName))
+      case Failure(e) =>
+        Success(classifyException(testDef, e))
+
     try
       // Body runs synchronously (registers nested tests as side effects).
       // Only the return value may be a Future or Rx.
@@ -108,31 +115,15 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
         }
       result match
         case f: Future[?] =>
-          f.transform {
-            case Success(_) =>
-              Success(TestResult.Success(testDef.fullName))
-            case Failure(e) =>
-              Success(classifyException(testDef, e))
-          }
+          f.transform(toTestResult)
         case rx: RxOps[?] =>
           // Use fully qualified name to avoid shadowing by wvlet.uni.rx.compat
-          wvlet
-            .uni
-            .test
-            .compat
-            .runRxAsFuture(rx)
-            .transform {
-              case Success(_) =>
-                Success(TestResult.Success(testDef.fullName))
-              case Failure(e) =>
-                Success(classifyException(testDef, e))
-            }
+          wvlet.uni.test.compat.runRxAsFuture(rx).transform(toTestResult)
         case _ =>
           Future.successful(TestResult.Success(testDef.fullName))
     catch
       case e: Throwable =>
         Future.successful(classifyException(testDef, e))
-    end try
 
   end executeTest
 

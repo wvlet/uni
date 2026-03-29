@@ -20,6 +20,8 @@ import scala.concurrent.{ExecutionContext, Future}
   */
 class UniTestSelfTest extends UniTest:
 
+  private given ExecutionContext = wvlet.uni.test.compat.executionContext
+
   test("basic shouldBe assertion") {
     1 + 1 shouldBe 2
     "hello" shouldBe "hello"
@@ -135,8 +137,7 @@ class UniTestSelfTest extends UniTest:
   }
 
   test("flaky test converts failure to skipped") {
-    given ExecutionContext = wvlet.uni.test.compat.executionContext
-    val flakyTest          = TestDef(
+    val flakyTest = TestDef(
       "failing-flaky",
       () => throw RuntimeException("intentional"),
       Nil,
@@ -150,8 +151,7 @@ class UniTestSelfTest extends UniTest:
   }
 
   test("non-flaky test reports failure") {
-    given ExecutionContext = wvlet.uni.test.compat.executionContext
-    val normalTest         = TestDef(
+    val normalTest = TestDef(
       "failing-normal",
       () => throw RuntimeException("intentional"),
       Nil,
@@ -201,8 +201,6 @@ class UniTestSelfTest extends UniTest:
   }
 
   test("Future test support") {
-    given ExecutionContext = wvlet.uni.test.compat.executionContext
-
     test("successful Future is auto-awaited") {
       val testDef = TestDef("future-int", () => Future.successful(42), Nil)
       executeTest(testDef).map { result =>
@@ -238,7 +236,7 @@ class UniTestSelfTest extends UniTest:
     }
     // Verify the source location is captured
     e.source.fileName shouldBe "UniTestSelfTest.scala"
-    e.source.line shouldBe 237
+    e.source.line shouldBe 235
     // Verify the source line content is captured
     e.source.sourceLine shouldContain "shouldBe"
     // Verify formatSnippet works
