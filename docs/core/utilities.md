@@ -11,21 +11,23 @@ import wvlet.uni.util.ULID
 
 // Generate a new ULID
 val id = ULID.newULID
-println(id)  // e.g., "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+println(id)  // e.g., "01arz3ndektsv4rrffq69g5fav"
 
 // Generate as string directly
 val idStr: String = ULID.newULIDString
 ```
 
+ULID strings use lowercase Crockford Base32 encoding (digits `0-9` and letters `a-z` excluding `i`, `l`, `o`, `u`).
+
 ### Parsing and Validation
 
 ```scala
-// Parse from string
-val parsed = ULID.fromString("01ARZ3NDEKTSV4RRFFQ69G5FAV")
+// Parse from string (case-insensitive)
+val parsed = ULID.fromString("01arz3ndektsv4rrffq69g5fav")
 
 // Validate
-ULID.isValid("01ARZ3NDEKTSV4RRFFQ69G5FAV")  // true
-ULID.isValid("invalid")                       // false
+ULID.isValid("01arz3ndektsv4rrffq69g5fav")  // true
+ULID.isValid("invalid")                      // false
 ```
 
 ### Extracting Timestamps
