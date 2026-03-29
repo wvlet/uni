@@ -40,27 +40,19 @@ import wvlet.uni.http.{
 }
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
-import wvlet.uni.util.ThreadUtil
 
-import java.util.concurrent.{SynchronousQueue, ThreadPoolExecutor, TimeUnit}
+import java.util.concurrent.ThreadPoolExecutor
 import scala.jdk.CollectionConverters.*
 
 /**
   * Netty channel handler that processes HTTP requests using RxHttpHandler
+  *
+  * @param sseExecutor
+  *   shared thread pool for SSE stream consumption, managed by NettyHttpServer
   */
-class NettyRequestHandler(handler: RxHttpHandler, config: NettyServerConfig)
+class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ThreadPoolExecutor)
     extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
-
-  // Thread pool for SSE stream consumption to avoid blocking Netty worker threads
-  private val sseExecutor = ThreadPoolExecutor(
-    0,
-    config.sseMaxThreads,
-    60L,
-    TimeUnit.SECONDS,
-    SynchronousQueue[Runnable](),
-    ThreadUtil.newDaemonThreadFactory(s"${config.name}-sse")
-  )
 
   override def channelReadComplete(ctx: ChannelHandlerContext): Unit = ctx.flush()
 
@@ -118,7 +110,7 @@ class NettyRequestHandler(handler: RxHttpHandler, config: NettyServerConfig)
     // with chunked streaming responses written from non-event-loop threads.
     // SSE events should not be compressed as it adds latency.
     try
-      ctx.pipeline().remove("compressor")
+      ctx.pipeline().remove(NettyHttpServer.CompressorHandler)
     catch
       case _: java.util.NoSuchElementException =>
         ()
@@ -252,8 +244,8 @@ end NettyRequestHandler
 
 object NettyRequestHandler:
 
-  def apply(handler: RxHttpHandler, config: NettyServerConfig): NettyRequestHandler =
-    new NettyRequestHandler(handler, config)
+  def apply(handler: RxHttpHandler, sseExecutor: ThreadPoolExecutor): NettyRequestHandler =
+    new NettyRequestHandler(handler, sseExecutor)
 
   // "Connection reset" also matches "Connection reset by peer" via contains check
   private val benignIOExceptionMessages = Set("Connection reset", "Broken pipe")

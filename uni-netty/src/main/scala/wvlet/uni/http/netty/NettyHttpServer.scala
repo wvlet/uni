@@ -32,7 +32,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.util.ThreadUtil
 
 import java.net.InetSocketAddress
-import java.util.concurrent.TimeUnit
+import java.util.concurrent.{SynchronousQueue, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -43,6 +43,16 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
   private var workerGroup: EventLoopGroup                             = null
   private var handlerExecutorGroup: Option[DefaultEventExecutorGroup] = None
   private var channel: Channel                                        = null
+
+  // Shared SSE executor across all connections
+  private val sseExecutor = ThreadPoolExecutor(
+    0,
+    config.sseMaxThreads,
+    60L,
+    TimeUnit.SECONDS,
+    SynchronousQueue[Runnable](),
+    ThreadUtil.newDaemonThreadFactory(s"${config.name}-sse")
+  )
 
   private val started = AtomicBoolean(false)
   private val stopped = AtomicBoolean(false)
@@ -115,10 +125,10 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
             )
             pipeline.addLast("keepAlive", HttpServerKeepAliveHandler())
             pipeline.addLast("aggregator", HttpObjectAggregator(config.maxContentLength))
-            pipeline.addLast("compressor", HttpContentCompressor())
+            pipeline.addLast(NettyHttpServer.CompressorHandler, HttpContentCompressor())
             pipeline.addLast("expectContinue", HttpServerExpectContinueHandler())
             pipeline.addLast("chunkedWriter", ChunkedWriteHandler())
-            val reqHandler = NettyRequestHandler(handler, config)
+            val reqHandler = NettyRequestHandler(handler, sseExecutor)
             handlerExecutorGroup match
               case Some(executor) =>
                 pipeline.addLast(executor, "handler", reqHandler)
@@ -170,6 +180,10 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
         .shutdownGracefully(effectiveQuietPeriod, remainingSeconds, TimeUnit.SECONDS)
         .await(remainingMillis, TimeUnit.MILLISECONDS)
     }
+
+    // Shutdown SSE executor
+    sseExecutor.shutdown()
+    sseExecutor.awaitTermination(remainingMillis, TimeUnit.MILLISECONDS)
 
     // Then shutdown worker group to complete remaining I/O
     if workerGroup != null then
@@ -227,4 +241,6 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
 end NettyHttpServer
 
 object NettyHttpServer:
+  private[netty] val CompressorHandler = "compressor"
+
   def apply(config: NettyServerConfig): NettyHttpServer = new NettyHttpServer(config)
