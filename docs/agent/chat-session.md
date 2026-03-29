@@ -107,7 +107,7 @@ val stats = response.stats  // ChatStats(latencyMs, inputTokens, outputTokens, t
 val reason = response.finishReason  // END_TURN, STOP_SEQUENCE, TOOL_CALL, MAX_TOKENS, etc.
 
 // Extract text from the last AI message
-response.messages.collectFirst { case ai: AIMessage => ai.text }
+response.messages.collect { case ai: AIMessage => ai.text }.lastOption
 
 // Check if any AI message has tool calls
 response.messages.exists {

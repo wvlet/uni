@@ -24,13 +24,13 @@ export AWS_REGION=us-east-1
 aws configure
 ```
 
-## Creating a Bedrock Chat Model
+## Creating a Bedrock Runner
 
-`BedrockChat` requires an `LLMAgent` and a `BedrockClient`:
+`BedrockRunner` creates an `AgentRunner` backed by AWS Bedrock. It takes an `LLMAgent` and optional `BedrockConfig`:
 
 ```scala
 import wvlet.uni.agent.{LLMAgent, LLM}
-import wvlet.uni.agent.chat.bedrock.{BedrockChat, BedrockClient, BedrockConfig}
+import wvlet.uni.agent.chat.bedrock.BedrockRunner
 
 val agent = LLMAgent(
   name = "assistant",
@@ -38,8 +38,7 @@ val agent = LLMAgent(
   model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 )
 
-val bedrockClient = BedrockClient()
-val bedrockChat = BedrockChat(agent, bedrockClient)
+val runner = BedrockRunner(agent)
 ```
 
 ### With Custom Configuration
@@ -48,12 +47,12 @@ Configure the underlying `BedrockConfig` for region and credentials:
 
 ```scala
 import software.amazon.awssdk.regions.Region
+import wvlet.uni.agent.chat.bedrock.{BedrockRunner, BedrockConfig}
 
 val config = BedrockConfig()
   .withRegion(Region.US_WEST_2)
 
-val bedrockClient = BedrockClient(config)
-val bedrockChat = BedrockChat(agent, bedrockClient)
+val runner = BedrockRunner(agent, config)
 ```
 
 ### Custom Credentials
@@ -68,7 +67,7 @@ val credentialsProvider = StaticCredentialsProvider.create(
 val config = BedrockConfig()
   .withCredentials(credentialsProvider)
 
-val bedrockClient = BedrockClient(config)
+val runner = BedrockRunner(agent, config)
 ```
 
 ## Using with LLMAgent
@@ -76,7 +75,7 @@ val bedrockClient = BedrockClient(config)
 ```scala
 import wvlet.uni.agent.{LLMAgent, LLM}
 import wvlet.uni.agent.chat.ChatMessage.AIMessage
-import wvlet.uni.agent.chat.bedrock.{BedrockChat, BedrockClient}
+import wvlet.uni.agent.chat.bedrock.BedrockRunner
 
 // Create agent
 val agent = LLMAgent(
@@ -85,12 +84,9 @@ val agent = LLMAgent(
   model = LLM.Bedrock.Claude3_7Sonnet_20250219V1_0
 ).withSystemPrompt("You are a helpful assistant.")
 
-// Create Bedrock chat model
-val bedrockClient = BedrockClient()
-val bedrockChat = BedrockChat(agent, bedrockClient)
-
-// Create session and chat
-val session = agent.newSession(bedrockChat)
+// Create Bedrock runner and session
+val runner = BedrockRunner(agent)
+val session = agent.newSession(runner)
 val response = session.chat("Hello!")
 
 // Access the response text
@@ -179,7 +175,7 @@ catch
 import wvlet.uni.agent.*
 import wvlet.uni.agent.chat.*
 import wvlet.uni.agent.chat.ChatMessage.AIMessage
-import wvlet.uni.agent.chat.bedrock.{BedrockChat, BedrockClient, BedrockConfig}
+import wvlet.uni.agent.chat.bedrock.{BedrockRunner, BedrockConfig}
 import software.amazon.awssdk.regions.Region
 
 object BedrockExample:
@@ -197,13 +193,12 @@ object BedrockExample:
       .withTemperature(0.3)
       .withMaxOutputTokens(2048)
 
-    // Initialize Bedrock
+    // Initialize Bedrock runner
     val config = BedrockConfig().withRegion(Region.US_EAST_1)
-    val bedrockClient = BedrockClient(config)
-    val bedrockChat = BedrockChat(agent, bedrockClient)
+    val runner = BedrockRunner(agent, config)
 
     // Create session
-    val session = agent.newSession(bedrockChat)
+    val session = agent.newSession(runner)
 
     // Chat
     val response = session.chat(

@@ -84,18 +84,26 @@ class MyToolExecutor extends ToolExecutor:
 
 ### Local Tool Executor
 
+For quick tool registration, use `LocalToolExecutor` with `registerTool`:
+
 ```scala
 import wvlet.uni.agent.tool.LocalToolExecutor
 
 val executor = LocalToolExecutor()
-  .register("calculator") { args =>
+  .registerTool(calculatorTool, { args =>
     val expr = args("expression").toString
     evaluate(expr).toString
-  }
-  .register("weather") { args =>
+  })
+  .registerTool(weatherTool, { args =>
     val city = args("city").toString
     getWeather(city)
-  }
+  })
+
+// Or create with pre-registered tools
+val executor2 = LocalToolExecutor(
+  calculatorTool -> { args => evaluate(args("expression").toString) },
+  weatherTool    -> { args => getWeather(args("city").toString) }
+)
 ```
 
 ## Using Tools in Sessions
