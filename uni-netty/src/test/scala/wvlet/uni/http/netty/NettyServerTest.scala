@@ -258,11 +258,6 @@ class NettyServerTest extends UniTest:
     }
   }
 
-  test("should configure SSE max threads") {
-    val config = NettyServerConfig().withSseMaxThreads(128)
-    config.sseMaxThreads shouldBe 128
-  }
-
   test("should start server with handler executor threads") {
     NettyServer
       .withPort(0)

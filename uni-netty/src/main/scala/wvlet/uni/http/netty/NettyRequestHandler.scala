@@ -42,7 +42,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.ExecutorService
 import scala.jdk.CollectionConverters.*
 
 /**
@@ -51,7 +51,7 @@ import scala.jdk.CollectionConverters.*
   * @param sseExecutor
   *   shared thread pool for SSE stream consumption, managed by NettyHttpServer
   */
-class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ThreadPoolExecutor)
+class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ExecutorService)
     extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
 
@@ -245,7 +245,7 @@ end NettyRequestHandler
 
 object NettyRequestHandler:
 
-  def apply(handler: RxHttpHandler, sseExecutor: ThreadPoolExecutor): NettyRequestHandler =
+  def apply(handler: RxHttpHandler, sseExecutor: ExecutorService): NettyRequestHandler =
     new NettyRequestHandler(handler, sseExecutor)
 
   // "Connection reset" also matches "Connection reset by peer" via contains check

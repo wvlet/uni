@@ -58,9 +58,9 @@ case class NettyServerConfig(
     registerShutdownHook: Boolean = false,
     // Number of threads for the handler executor group. When set, request handlers
     // run on a separate thread pool instead of Netty's event loop threads.
-    handlerExecutorThreads: Option[Int] = None,
-    // Maximum threads for SSE stream consumption thread pool
-    sseMaxThreads: Int = 64
+    // Set this to match expected concurrent long-running requests (e.g., upstream
+    // proxy calls) to prevent them from starving the event loop.
+    handlerExecutorThreads: Option[Int] = None
 ):
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
@@ -103,10 +103,6 @@ case class NettyServerConfig(
   def withHandlerExecutorThreads(threads: Int): NettyServerConfig =
     require(threads > 0, "handlerExecutorThreads must be positive")
     copy(handlerExecutorThreads = Some(threads))
-
-  def withSseMaxThreads(threads: Int): NettyServerConfig =
-    require(threads > 0, "sseMaxThreads must be positive")
-    copy(sseMaxThreads = threads)
 
   def withHandler(handler: HttpHandler): NettyServerConfig = copy(handler =
     RxHttpHandler.fromSync(handler)
