@@ -69,7 +69,9 @@ export default defineConfig({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Type Introspection', link: '/core/surface' }
+            { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'FileSystem', link: '/core/filesystem' },
+            { text: 'Utilities', link: '/core/utilities' }
           ]
         },
         {
@@ -89,6 +91,8 @@ export default defineConfig({
             { text: 'HTTP Client', link: '/http/client' },
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
+            { text: 'RPC', link: '/http/rpc' },
+            { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
@@ -97,7 +101,8 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/rx/' },
             { text: 'Basics', link: '/rx/basics' },
-            { text: 'Operators', link: '/rx/operators' }
+            { text: 'Operators', link: '/rx/operators' },
+            { text: 'Concurrency', link: '/rx/concurrency' }
           ]
         },
         {
@@ -138,7 +143,9 @@ export default defineConfig({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Type Introspection', link: '/core/surface' }
+            { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'FileSystem', link: '/core/filesystem' },
+            { text: 'Utilities', link: '/core/utilities' }
           ]
         },
         {
@@ -158,6 +165,8 @@ export default defineConfig({
             { text: 'HTTP Client', link: '/http/client' },
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
+            { text: 'RPC', link: '/http/rpc' },
+            { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
@@ -166,7 +175,8 @@ export default defineConfig({
           items: [
             { text: 'Overview', link: '/rx/' },
             { text: 'Basics', link: '/rx/basics' },
-            { text: 'Operators', link: '/rx/operators' }
+            { text: 'Operators', link: '/rx/operators' },
+            { text: 'Concurrency', link: '/rx/concurrency' }
           ]
         },
         {
