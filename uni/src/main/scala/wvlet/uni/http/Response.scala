@@ -15,6 +15,7 @@ package wvlet.uni.http
 
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.JSONValue
+import wvlet.uni.rx.Rx
 
 /**
   * An immutable HTTP response representation
@@ -22,7 +23,8 @@ import wvlet.uni.json.JSON.JSONValue
 case class Response(
     status: HttpStatus,
     headers: HttpMultiMap = HttpMultiMap.empty,
-    content: HttpContent = HttpContent.Empty
+    content: HttpContent = HttpContent.Empty,
+    events: Rx[ServerSentEvent] = Rx.empty
 ):
 
   def isSuccessful: Boolean    = status.isSuccessful
@@ -92,6 +94,13 @@ case class Response(
 
   def withLocation(uri: String): Response = setHeader(HttpHeader.Location, uri)
 
+  /**
+    * Whether this response is an SSE event stream with streaming events
+    */
+  def isEventStream: Boolean = contentType.exists(_.isEventStream) && content == HttpContent.Empty
+
+  def withEvents(events: Rx[ServerSentEvent]): Response = copy(events = events)
+
 end Response
 
 object Response:
@@ -144,5 +153,12 @@ object Response:
   def badGateway: Response         = Response(HttpStatus.BadGateway_502)
   def serviceUnavailable: Response = Response(HttpStatus.ServiceUnavailable_503)
   def gatewayTimeout: Response     = Response(HttpStatus.GatewayTimeout_504)
+
+  /**
+    * Create an SSE event stream response with the given events
+    */
+  def eventStream(events: Rx[ServerSentEvent]): Response = Response(HttpStatus.Ok_200)
+    .setHeader(HttpHeader.ContentType, ContentType.TextEventStream.toString)
+    .withEvents(events)
 
 end Response

@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response}
+import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, ServerSentEvent}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -216,6 +216,146 @@ class NettyServerTest extends UniTest:
         server.start()
       }
     finally server.stop()
+  }
+
+  test("should configure graceful shutdown") {
+    val config = NettyServerConfig().withShutdownQuietPeriod(5).withShutdownTimeout(60)
+
+    config.shutdownQuietPeriodSeconds shouldBe 5
+    config.shutdownTimeoutSeconds shouldBe 60
+  }
+
+  test("should configure graceful shutdown with convenience method") {
+    val config = NettyServerConfig().withGracefulShutdown(
+      quietPeriodSeconds = 3,
+      timeoutSeconds = 45
+    )
+
+    config.shutdownQuietPeriodSeconds shouldBe 3
+    config.shutdownTimeoutSeconds shouldBe 45
+  }
+
+  test("should configure shutdown hook") {
+    val config = NettyServerConfig().withShutdownHook
+    config.registerShutdownHook shouldBe true
+
+    val config2 = config.noShutdownHook
+    config2.registerShutdownHook shouldBe false
+  }
+
+  test("should configure handler executor threads") {
+    val config = NettyServerConfig().withHandlerExecutorThreads(32)
+    config.handlerExecutorThreads shouldBe Some(32)
+  }
+
+  test("should reject invalid handler executor threads") {
+    intercept[IllegalArgumentException] {
+      NettyServerConfig().withHandlerExecutorThreads(0)
+    }
+    intercept[IllegalArgumentException] {
+      NettyServerConfig().withHandlerExecutorThreads(-1)
+    }
+  }
+
+  test("should configure SSE max threads") {
+    val config = NettyServerConfig().withSseMaxThreads(128)
+    config.sseMaxThreads shouldBe 128
+  }
+
+  test("should start server with handler executor threads") {
+    NettyServer
+      .withPort(0)
+      .withHandlerExecutorThreads(4)
+      .withHandler { request =>
+        Response.ok(s"Handler executor: ${request.path}")
+      }
+      .start { server =>
+        val response = get(s"http://localhost:${server.localPort}/test")
+        response.statusCode() shouldBe 200
+        response.body() shouldBe "Handler executor: /test"
+      }
+  }
+
+  test("should handle SSE response with isEventStream") {
+    // Verify that Response.eventStream creates the correct response
+    val events   = Rx.fromSeq(Seq(ServerSentEvent.data("test")))
+    val response = Response.eventStream(events)
+    response.isEventStream shouldBe true
+    response.status shouldBe wvlet.uni.http.HttpStatus.Ok_200
+  }
+
+  test("should handle SSE streaming") {
+    import java.net.Socket
+    import java.io.{BufferedReader, InputStreamReader}
+
+    val events = Seq(
+      ServerSentEvent.data("hello"),
+      ServerSentEvent.data("world"),
+      ServerSentEvent.withEventType("done", "complete")
+    )
+
+    NettyServer
+      .withPort(0)
+      .withRxHandler { _ =>
+        Rx.single(Response.eventStream(Rx.fromSeq(events)))
+      }
+      .start { server =>
+        // Use raw socket to read the SSE response
+        val socket = Socket("localhost", server.localPort)
+        socket.setSoTimeout(5000) // 5 second timeout for reads
+        try
+          val out = socket.getOutputStream
+          out.write("GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes)
+          out.flush()
+
+          // Read raw bytes to see exactly what the server sends
+          val in  = socket.getInputStream
+          val buf = new Array[Byte](8192)
+          val sb  = StringBuilder()
+          try
+            var n = in.read(buf)
+            while n > 0 do
+              sb.append(String(buf, 0, n, "UTF-8"))
+              n = in.read(buf)
+          catch
+            case _: java.net.SocketTimeoutException =>
+              () // done reading
+
+          val raw = sb.toString()
+          // Check status line
+          raw shouldContain "200"
+          raw shouldContain "text/event-stream"
+          raw shouldContain "data: hello"
+          raw shouldContain "data: world"
+          raw shouldContain "event: complete"
+          raw shouldContain "data: done"
+        finally
+          socket.close()
+      }
+  }
+
+  test("should detect benign I/O exceptions") {
+    import java.io.IOException
+    import java.nio.channels.ClosedChannelException
+
+    // Connection reset
+    NettyRequestHandler.isBenignIOException(IOException("Connection reset by peer")) shouldBe true
+    NettyRequestHandler.isBenignIOException(IOException("Connection reset")) shouldBe true
+
+    // Broken pipe
+    NettyRequestHandler.isBenignIOException(IOException("Broken pipe")) shouldBe true
+
+    // ClosedChannelException
+    NettyRequestHandler.isBenignIOException(ClosedChannelException()) shouldBe true
+
+    // Wrapped benign exception
+    NettyRequestHandler.isBenignIOException(
+      RuntimeException("wrapper", IOException("Connection reset"))
+    ) shouldBe true
+
+    // Non-benign exceptions
+    NettyRequestHandler.isBenignIOException(IOException("Some other error")) shouldBe false
+    NettyRequestHandler.isBenignIOException(RuntimeException("not IO")) shouldBe false
   }
 
 end NettyServerTest
