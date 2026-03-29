@@ -97,7 +97,7 @@ val result = ChatMessage.ToolResultMessage(
 ```scala
 val response = session.chat("Hello")
 
-// Get all messages (includes history)
+// Get the messages from the response
 val messages = response.messages
 
 // Get token usage stats
