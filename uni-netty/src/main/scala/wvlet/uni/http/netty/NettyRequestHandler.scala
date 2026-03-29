@@ -41,6 +41,7 @@ import wvlet.uni.http.{
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.ThreadPoolExecutor
 import scala.jdk.CollectionConverters.*
 
@@ -127,7 +128,7 @@ class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ThreadPoolExecuto
             case OnNext(event) =>
               val sse     = event.asInstanceOf[ServerSentEvent]
               val content = sse.toContent
-              val buf     = Unpooled.copiedBuffer(content.getBytes("UTF-8"))
+              val buf     = Unpooled.copiedBuffer(content.getBytes(StandardCharsets.UTF_8))
               ctx.writeAndFlush(DefaultHttpContent(buf))
             case OnError(e) =>
               warn(s"SSE stream error: ${e.getMessage}", e)

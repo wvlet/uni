@@ -19,6 +19,7 @@ import wvlet.uni.test.UniTest
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.nio.charset.StandardCharsets
 
 class NettyServerTest extends UniTest:
 
@@ -305,7 +306,9 @@ class NettyServerTest extends UniTest:
         socket.setSoTimeout(5000) // 5 second timeout for reads
         try
           val out = socket.getOutputStream
-          out.write("GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes)
+          out.write(
+            "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.UTF_8)
+          )
           out.flush()
 
           // Read raw bytes to see exactly what the server sends
@@ -315,7 +318,7 @@ class NettyServerTest extends UniTest:
           try
             var n = in.read(buf)
             while n > 0 do
-              sb.append(String(buf, 0, n, "UTF-8"))
+              sb.append(String(buf, 0, n, StandardCharsets.UTF_8))
               n = in.read(buf)
           catch
             case _: java.net.SocketTimeoutException =>
@@ -331,6 +334,7 @@ class NettyServerTest extends UniTest:
           raw shouldContain "data: done"
         finally
           socket.close()
+        end try
       }
   }
 

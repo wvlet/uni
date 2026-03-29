@@ -170,8 +170,7 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
     def effectiveQuietPeriod: Long = math.min(config.shutdownQuietPeriodSeconds, remainingSeconds)
 
     // Close the server channel first to stop accepting new connections
-    if channel != null then
-      channel.close().await(remainingMillis, TimeUnit.MILLISECONDS)
+    Option(channel).foreach(_.close().await(remainingMillis, TimeUnit.MILLISECONDS))
 
     // Drain handler executor group first so in-flight handlers can still
     // flush responses through the event loop
@@ -186,16 +185,18 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
     sseExecutor.awaitTermination(remainingMillis, TimeUnit.MILLISECONDS)
 
     // Then shutdown worker group to complete remaining I/O
-    if workerGroup != null then
-      workerGroup
+    Option(workerGroup).foreach { group =>
+      group
         .shutdownGracefully(effectiveQuietPeriod, remainingSeconds, TimeUnit.SECONDS)
         .await(remainingMillis, TimeUnit.MILLISECONDS)
+    }
 
     // Then shutdown boss group
-    if bossGroup != null then
-      bossGroup
+    Option(bossGroup).foreach { group =>
+      group
         .shutdownGracefully(effectiveQuietPeriod, remainingSeconds, TimeUnit.SECONDS)
         .await(remainingMillis, TimeUnit.MILLISECONDS)
+    }
 
     debug(s"Netty server stopped at ${localAddress}")
 
