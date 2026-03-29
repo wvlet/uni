@@ -13,7 +13,8 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.{Failure, Success}
 import scala.scalajs.js
 import scala.scalajs.reflect.Reflect
 
@@ -135,5 +136,22 @@ private[test] object compat:
     error.foreach(throw _)
     // Return result or Unit (for side-effect tests)
     result.getOrElse(().asInstanceOf[A])
+
+  /**
+    * Run a Future for test purposes. On JS, we cannot block, so we extract the value from
+    * already-completed Futures. If the Future is not yet completed, throws an error.
+    */
+  def runFutureTest[A](future: Future[A]): A =
+    future.value match
+      case Some(Success(v)) =>
+        v
+      case Some(Failure(e)) =>
+        throw e
+      case None =>
+        throw UnsupportedOperationException(
+          "Future did not complete synchronously. On Scala.js, test Futures must be " +
+            "already completed (e.g., Future.successful, Future.failed, or computed with a " +
+            "synchronous ExecutionContext)."
+        )
 
 end compat

@@ -14,7 +14,8 @@
 package wvlet.uni.test
 
 import java.lang.reflect.InvocationTargetException
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.*
 
 /**
   * JVM specific compatibility layer for uni-test
@@ -95,5 +96,12 @@ private[test] object compat:
     * result value.
     */
   def runRxTest[A](rx: wvlet.uni.rx.RxOps[A]): A = rx.await
+
+  /**
+    * Run a Future for test purposes. On JVM, blocks until result is available using Await.result
+    * with a 30-second timeout. Returns the result value or throws the underlying exception on
+    * failure.
+    */
+  def runFutureTest[A](future: Future[A]): A = Await.result(future, 30.seconds)
 
 end compat

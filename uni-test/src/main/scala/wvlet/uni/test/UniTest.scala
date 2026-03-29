@@ -16,6 +16,7 @@ package wvlet.uni.test
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.*
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.Future
 
 /**
   * Test definition representing a single test case
@@ -102,6 +103,9 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
           case rx: RxOps[?] =>
             // Handle async Rx test - run and await result
             awaitRx(rx)
+          case f: Future[?] =>
+            // Handle async Future test - await result
+            awaitFuture(f)
           case other =>
             other
       }
@@ -133,6 +137,12 @@ trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestC
     // Use the platform-specific runRxTest method from test compat
     // Note: Use fully qualified name to avoid shadowing by wvlet.uni.rx.compat
     wvlet.uni.test.compat.runRxTest(rx)
+
+  /**
+    * Await the result of a Future. Uses platform-specific implementation. On JVM/Native: blocks
+    * with Await.result. On JS: extracts the value if already completed.
+    */
+  private def awaitFuture[A](future: Future[A]): A = wvlet.uni.test.compat.runFutureTest(future)
 
 end UniTest
 

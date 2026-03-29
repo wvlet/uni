@@ -13,6 +13,8 @@
  */
 package wvlet.uni.test
 
+import scala.concurrent.Future
+
 /**
   * Self-test for UniTest framework
   */
@@ -195,13 +197,37 @@ class UniTestSelfTest extends UniTest:
     e2.getMessage shouldContain "Expected not null"
   }
 
+  test("Future test support") {
+    test("successful Future is auto-awaited") {
+      val result = Future.successful(42)
+      result
+    }
+
+    test("Future returning a string") {
+      Future.successful("hello")
+    }
+
+    test("failed Future surfaces exception") {
+      val failingTest = TestDef(
+        "failing-future",
+        () => Future.failed(RuntimeException("future error")),
+        Nil,
+        isFlaky = false
+      )
+      val result = executeTest(failingTest)
+      result shouldMatch { case TestResult.Error(_, msg, _) =>
+        msg shouldContain "future error"
+      }
+    }
+  }
+
   test("source snippet is captured") {
     val e = intercept[AssertionFailure] {
       1 shouldBe 2
     }
     // Verify the source location is captured
     e.source.fileName shouldBe "UniTestSelfTest.scala"
-    e.source.line shouldBe 200
+    e.source.line shouldBe 226
     // Verify the source line content is captured
     e.source.sourceLine shouldContain "shouldBe"
     // Verify formatSnippet works
