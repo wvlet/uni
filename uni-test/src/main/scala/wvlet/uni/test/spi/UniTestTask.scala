@@ -144,16 +144,27 @@ class UniTestTask(
       runTests(testInstance, className, eventHandler, loggers)
     catch
       case e: Throwable =>
-        // Unwrap exception to get the actual cause
         val cause           = compat.findCause(e)
         val (event, logMsg) = classifySpecLevelException(className, cause)
         eventHandler.handle(event)
         loggers.foreach(_.info(logMsg))
-        // Only trace for actual errors, not for skipped/pending/cancelled tests
+        // Track suite-level exceptions in stats so the overall summary is accurate
+        val suiteResult =
+          cause match
+            case _: TestSkipped =>
+              TestResult.Skipped(className, cause.getMessage)
+            case _: TestPending =>
+              TestResult.Pending(className, cause.getMessage)
+            case _: TestCancelled =>
+              TestResult.Cancelled(className, cause.getMessage)
+            case _: TestIgnored =>
+              TestResult.Ignored(className, cause.getMessage)
+            case _ =>
+              TestResult.Error(className, cause.getMessage, cause)
+        stats.addResult(suiteResult)
         cause match
           case _: TestSkipped | _: TestPending | _: TestCancelled | _: TestIgnored =>
-          // Don't trace for expected test control flow exceptions
-          case _ =>
+          case _                                                                   =>
             loggers.foreach(_.trace(cause))
     finally
       continuation(Array.empty)
