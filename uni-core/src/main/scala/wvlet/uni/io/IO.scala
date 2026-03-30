@@ -160,7 +160,18 @@ object ProcessApi:
         if c == '"' then
           inDoubleQuote = false
         else if c == '\\' && i + 1 < commandLine.length then
-          current.append(commandLine(i + 1))
+          val next = commandLine(i + 1)
+          next match
+            case '"' | '\\' =>
+              current.append(next)
+            case 'n' =>
+              current.append('\n')
+            case 't' =>
+              current.append('\t')
+            case 'r' =>
+              current.append('\r')
+            case _ =>
+              current.append(c)
           i += 1
         else
           current.append(c)
