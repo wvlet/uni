@@ -12,6 +12,8 @@ The `uni` module provides essential utilities for Scala application development.
 | [JSON](./json) | Pure Scala JSON parser and DSL |
 | [MessagePack](./msgpack) | Binary serialization format |
 | [Surface](./surface) | Compile-time type introspection |
+| [FileSystem](./filesystem) | Cross-platform file I/O with IOPath |
+| [Utilities](./utilities) | ULID, DataSize, Count, ElapsedTime |
 
 ## Quick Start
 
@@ -49,6 +51,8 @@ wvlet.uni.json     - JSON processing
 wvlet.uni.msgpack  - MessagePack serialization
 wvlet.uni.surface  - Type reflection
 wvlet.uni.weaver   - Object serialization
+wvlet.uni.io       - Cross-platform file system
+wvlet.uni.util     - ID generators and value types
 ```
 
 ## Cross-Platform Support
@@ -62,3 +66,5 @@ All core utilities work across JVM, Scala.js, and Scala Native platforms.
 | JSON | ✓ | ✓ | ✓ |
 | MessagePack | ✓ | ✓ | ✓ |
 | Surface | ✓ | ✓ | ✓ |
+| FileSystem | ✓ | ✓ | ✓ |
+| Utilities | ✓ | ✓ | ✓ |
