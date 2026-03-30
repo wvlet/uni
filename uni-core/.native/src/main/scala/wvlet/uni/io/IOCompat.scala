@@ -37,19 +37,14 @@ trait IOCompat extends ProcessApi:
   override def run(command: String*): CommandResult = run(command.toSeq, ProcessConfig.default)
 
   override def run(command: Seq[String], config: ProcessConfig): CommandResult =
-    val pb = buildProcess(command, config)
-    if config.redirectErrorToOutput then
-      pb.redirectErrorStream(true)
-
+    val pb      = buildProcess(command, config)
     val process = pb.start()
 
     // Close stdin so commands that wait for EOF can terminate
     process.getOutputStream.close()
 
     // Read stdout and stderr in parallel to avoid deadlock when buffers fill
-    @volatile
     var stdoutStr = ""
-    @volatile
     var stderrStr = ""
 
     val stdoutThread = Thread(() => stdoutStr = readStream(process.getInputStream))
@@ -80,9 +75,7 @@ trait IOCompat extends ProcessApi:
   override def spawn(command: String*): Process = spawn(command.toSeq, ProcessConfig.default)
 
   override def spawn(command: Seq[String], config: ProcessConfig): Process =
-    val pb = buildProcess(command, config)
-    if config.redirectErrorToOutput then
-      pb.redirectErrorStream(true)
+    val pb      = buildProcess(command, config)
     val process = pb.start()
     NativeProcess(process)
 
@@ -94,6 +87,8 @@ trait IOCompat extends ProcessApi:
       config.env.foreach((k, v) => env.put(k, v))
     if config.inheritIO then
       pb.inheritIO()
+    if config.redirectErrorToOutput then
+      pb.redirectErrorStream(true)
     pb
 
   private def readStream(is: InputStream): String = String(
