@@ -15,6 +15,7 @@ package wvlet.uni.io
 
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.TimeUnit
 
 /**
   * Cross-platform exception for non-zero process exit codes.
@@ -55,6 +56,8 @@ trait Process:
   def stderr: InputStream
   def isAlive: Boolean
   def waitFor(): Int
+  def waitFor(timeout: Long, unit: TimeUnit): Boolean
+  def exitValue(): Int
   def destroy(): Unit
   def destroyForcibly(): Unit
 

@@ -17,15 +17,18 @@ import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 
 private class JvmProcess(process: java.lang.Process) extends Process:
-  override def stdin: OutputStream     = process.getOutputStream
-  override def stdout: InputStream     = process.getInputStream
-  override def stderr: InputStream     = process.getErrorStream
-  override def isAlive: Boolean        = process.isAlive
-  override def waitFor(): Int          = process.waitFor()
-  override def destroy(): Unit         = process.destroy()
-  override def destroyForcibly(): Unit =
+  override def stdin: OutputStream                             = process.getOutputStream
+  override def stdout: InputStream                             = process.getInputStream
+  override def stderr: InputStream                             = process.getErrorStream
+  override def isAlive: Boolean                                = process.isAlive
+  override def waitFor(): Int                                  = process.waitFor()
+  override def waitFor(timeout: Long, unit: TimeUnit): Boolean = process.waitFor(timeout, unit)
+  override def exitValue(): Int                                = process.exitValue()
+  override def destroy(): Unit                                 = process.destroy()
+  override def destroyForcibly(): Unit                         =
     process.destroyForcibly();
     ()
 
