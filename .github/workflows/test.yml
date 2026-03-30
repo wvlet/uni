@@ -112,6 +112,26 @@ jobs:
           check_name: Test Report Scala Native
           annotate_only: true
           detailed_summary: true
+  package_src:
+    name: Verify packageSrc
+    needs: changes
+    if: ${{ needs.changes.outputs.src == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+      - name: Install npm packages
+        run: npm install
+      - name: Install libcurl
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
+      - name: Verify packageSrc (detect cross-platform class name conflicts)
+        run: ./sbt "projectJVM/packageSrc" "projectJS/packageSrc" "projectNative/packageSrc"
   test_integration:
     name: Integration test
     needs: changes

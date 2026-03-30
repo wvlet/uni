@@ -70,6 +70,7 @@ export default defineConfig({
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
             { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
             { text: 'Utilities', link: '/core/utilities' }
           ]
@@ -144,6 +145,7 @@ export default defineConfig({
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
             { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
             { text: 'Utilities', link: '/core/utilities' }
           ]
