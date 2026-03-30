@@ -1,6 +1,46 @@
 # IO
 
-uni provides cross-platform I/O utilities including subprocess execution.
+The `IO` object is uni's unified I/O facade, providing both file system operations and subprocess execution in a single entry point.
+
+```scala
+import wvlet.uni.io.IO
+```
+
+## File System Operations
+
+`IO` exposes all cross-platform file system operations from `FileSystem`:
+
+```scala
+// Read and write files
+val content = IO.readString(path)
+IO.writeString(path, "hello", WriteMode.Create)
+
+// Check existence and type
+IO.exists(path)      // true
+IO.isFile(path)      // true
+IO.isDirectory(path) // false
+
+// Directory operations
+IO.list(dir, ListOptions.default)
+IO.createDirectory(dir)
+
+// Copy, move, delete
+IO.copy(src, dst, CopyOptions.default)
+IO.move(src, dst)
+IO.delete(path)
+IO.deleteRecursively(dir)
+
+// Temporary files
+val tmp = IO.createTempFile("prefix", ".txt", None)
+val tmpDir = IO.createTempDirectory("prefix", None)
+
+// Platform info
+IO.currentDirectory
+IO.homeDirectory
+IO.tempDirectory
+```
+
+See [FileSystem](filesystem.md) for the full file system API reference.
 
 ## Subprocess Execution
 
@@ -116,8 +156,7 @@ val result = IO.run(Seq("my-command", "--flag"), config)
 
 ## Platform Support
 
-| Platform | Status |
-|----------|--------|
-| JVM | Supported (uses `java.lang.ProcessBuilder`) |
-| Scala Native | Supported (uses `java.lang.ProcessBuilder`) |
-| Scala.js | Not supported (throws `UnsupportedOperationException`) |
+| Feature | JVM | Scala Native | Scala.js |
+|---------|-----|--------------|----------|
+| File operations | Supported | Supported | Node.js only (async recommended) |
+| Subprocess execution | Supported | Supported | Not supported |

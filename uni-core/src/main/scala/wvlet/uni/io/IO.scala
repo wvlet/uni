@@ -211,12 +211,58 @@ object ProcessApi:
 end ProcessApi
 
 /**
-  * Unified I/O facade. Currently provides subprocess execution; file operations will be added in
-  * future releases.
+  * Unified I/O facade providing both file system operations and subprocess execution.
   *
-  * Platform implementations:
-  *   - JVM: Uses java.lang.ProcessBuilder
-  *   - Scala.js: Not supported (throws UnsupportedOperationException)
-  *   - Scala Native: Uses java.lang.ProcessBuilder
+  * File system operations are delegated to the platform-specific FileSystem implementation.
+  * Subprocess execution is provided by the platform-specific IOCompat trait.
+  *
+  * Usage:
+  * {{{
+  * import wvlet.uni.io.IO
+  *
+  * // File operations
+  * val content = IO.readString(IOPath("file.txt"))
+  * IO.writeString(IOPath("out.txt"), "hello")
+  *
+  * // Process execution
+  * val result = IO.run("ls -la")
+  * }}}
   */
-object IO extends IOCompat
+object IO extends IOCompat:
+  export FileSystem.{
+    currentDirectory,
+    homeDirectory,
+    tempDirectory,
+    isBrowser,
+    isNode,
+    exists,
+    isFile,
+    isDirectory,
+    info,
+    readString,
+    readBytes,
+    readLines,
+    writeString,
+    writeBytes,
+    appendString,
+    appendBytes,
+    list,
+    createDirectory,
+    createDirectoryIfNotExists,
+    delete,
+    deleteRecursively,
+    deleteIfExists,
+    copy,
+    move,
+    createTempFile,
+    createTempDirectory,
+    readStringAsync,
+    readBytesAsync,
+    writeStringAsync,
+    writeBytesAsync,
+    listAsync,
+    infoAsync,
+    existsAsync
+  }
+
+end IO
