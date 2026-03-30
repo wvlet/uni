@@ -69,7 +69,8 @@ export default defineConfig({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Type Introspection', link: '/core/surface' }
+            { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'IO', link: '/core/io' }
           ]
         },
         {
@@ -138,7 +139,8 @@ export default defineConfig({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Type Introspection', link: '/core/surface' }
+            { text: 'Type Introspection', link: '/core/surface' },
+            { text: 'IO', link: '/core/io' }
           ]
         },
         {
