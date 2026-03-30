@@ -43,6 +43,9 @@ trait IOCompat extends ProcessApi:
 
     val process = pb.start()
 
+    // Close stdin so commands that wait for EOF can terminate
+    process.getOutputStream.close()
+
     // Read stdout and stderr in parallel to avoid deadlock when buffers fill
     @volatile
     var stdoutStr = ""
@@ -77,7 +80,9 @@ trait IOCompat extends ProcessApi:
   override def spawn(command: String*): Process = spawn(command.toSeq, ProcessConfig.default)
 
   override def spawn(command: Seq[String], config: ProcessConfig): Process =
-    val pb      = buildProcess(command, config)
+    val pb = buildProcess(command, config)
+    if config.redirectErrorToOutput then
+      pb.redirectErrorStream(true)
     val process = pb.start()
     NativeProcess(process)
 
