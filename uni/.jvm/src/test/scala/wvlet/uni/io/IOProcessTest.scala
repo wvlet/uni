@@ -103,6 +103,47 @@ class IOProcessTest extends UniTest:
       proc.destroy()
   }
 
+  test("run with single command line string") {
+    val result = IO.run("echo hello")
+    result.exitCode shouldBe 0
+    result.stdout.trim shouldBe "hello"
+  }
+
+  test("run with single command line string containing arguments") {
+    val result = IO.run("sh -c 'echo hello world'")
+    result.exitCode shouldBe 0
+    result.stdout.trim shouldBe "hello world"
+  }
+
+  test("call with single command line string") {
+    val result = IO.call("echo from-call")
+    result.stdout.trim shouldBe "from-call"
+  }
+
+  test("tokenize splits simple commands") {
+    ProcessApi.tokenize("ls -la /tmp") shouldBe Seq("ls", "-la", "/tmp")
+  }
+
+  test("tokenize handles double quotes") {
+    ProcessApi.tokenize("""echo "hello world"""") shouldBe Seq("echo", "hello world")
+  }
+
+  test("tokenize handles single quotes") {
+    ProcessApi.tokenize("echo 'hello world'") shouldBe Seq("echo", "hello world")
+  }
+
+  test("tokenize handles escaped characters") {
+    ProcessApi.tokenize("""echo "it\"s here"""") shouldBe Seq("echo", """it"s here""")
+  }
+
+  test("tokenize handles multiple spaces") {
+    ProcessApi.tokenize("ls   -la    /tmp") shouldBe Seq("ls", "-la", "/tmp")
+  }
+
+  test("tokenize handles empty string") {
+    ProcessApi.tokenize("") shouldBe Seq.empty
+  }
+
   test("CommandResult isSuccess") {
     CommandResult(0, "", "").isSuccess shouldBe true
     CommandResult(1, "", "").isSuccess shouldBe false

@@ -67,12 +67,17 @@ trait Process:
 trait ProcessApi:
 
   /**
-    * Execute a command and wait for completion.
+    * Execute a command and wait for completion. When called with a single string containing spaces,
+    * it is tokenized by splitting on whitespace, respecting single and double quotes.
+    *
+    * Examples:
+    *   - `IO.run("ls -la /tmp")` — tokenized to `Seq("ls", "-la", "/tmp")`
+    *   - `IO.run("echo", "hello")` — used as-is: `Seq("echo", "hello")`
     *
     * @return
     *   CommandResult with exit code, stdout, and stderr
     */
-  def run(command: String*): CommandResult
+  def run(command: String, rest: String*): CommandResult
 
   /**
     * Execute a command with configuration and wait for completion.
@@ -81,8 +86,9 @@ trait ProcessApi:
 
   /**
     * Execute a command and wait for completion. Throws NonZeroExitCodeException on non-zero exit.
+    * When called with a single string containing spaces, it is tokenized automatically.
     */
-  def call(command: String*): CommandResult
+  def call(command: String, rest: String*): CommandResult
 
   /**
     * Execute a command with configuration and wait for completion. Throws NonZeroExitCodeException
@@ -91,17 +97,84 @@ trait ProcessApi:
   def call(command: Seq[String], config: ProcessConfig): CommandResult
 
   /**
-    * Start a process without waiting for completion.
+    * Start a process without waiting for completion. When called with a single string containing
+    * spaces, it is tokenized automatically.
     *
     * @return
     *   a Process handle for interacting with the running process
     */
-  def spawn(command: String*): Process
+  def spawn(command: String, rest: String*): Process
 
   /**
     * Start a process with configuration without waiting for completion.
     */
   def spawn(command: Seq[String], config: ProcessConfig): Process
+
+end ProcessApi
+
+object ProcessApi:
+
+  /**
+    * Resolve a command and rest arguments into a Seq. When rest is empty and the command contains
+    * whitespace, it is tokenized as a command line string.
+    */
+  def resolveCommand(command: String, rest: Seq[String]): Seq[String] =
+    if rest.isEmpty && command.exists(_.isWhitespace) then
+      tokenize(command)
+    else
+      command +: rest.toSeq
+
+  /**
+    * Tokenize a command line string into arguments, respecting single and double quotes.
+    *
+    * Examples:
+    *   - `"ls -la"` -> `Seq("ls", "-la")`
+    *   - `"echo 'hello world'"` -> `Seq("echo", "hello world")`
+    *   - `"git commit -m \"initial commit\""` -> `Seq("git", "commit", "-m", "initial commit")`
+    */
+  def tokenize(commandLine: String): Seq[String] =
+    val tokens        = Seq.newBuilder[String]
+    val current       = StringBuilder()
+    var i             = 0
+    var inSingleQuote = false
+    var inDoubleQuote = false
+
+    while i < commandLine.length do
+      val c = commandLine(i)
+      if inSingleQuote then
+        if c == '\'' then
+          inSingleQuote = false
+        else
+          current.append(c)
+      else if inDoubleQuote then
+        if c == '"' then
+          inDoubleQuote = false
+        else if c == '\\' && i + 1 < commandLine.length then
+          current.append(commandLine(i + 1))
+          i += 1
+        else
+          current.append(c)
+      else if c == '\'' then
+        inSingleQuote = true
+      else if c == '"' then
+        inDoubleQuote = true
+      else if c == '\\' && i + 1 < commandLine.length then
+        current.append(commandLine(i + 1))
+        i += 1
+      else if c.isWhitespace then
+        if current.nonEmpty then
+          tokens += current.result()
+          current.clear()
+      else
+        current.append(c)
+      i += 1
+    end while
+
+    if current.nonEmpty then
+      tokens += current.result()
+    tokens.result()
+
+  end tokenize
 
 end ProcessApi
 

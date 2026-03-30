@@ -14,22 +14,34 @@ The `IO` object provides three methods for running external commands:
 
 ### IO.run
 
-Execute a command and capture its output:
+Execute a command and capture its output. Accepts a single command line string (automatically tokenized) or separate arguments:
 
 ```scala
 import wvlet.uni.io.IO
 
-val result = IO.run("ls", "-la")
+// Single command line string — tokenized automatically
+val result = IO.run("ls -la /tmp")
+
+// Separate arguments
+val result = IO.run("ls", "-la", "/tmp")
+
 println(result.exitCode)  // 0
 println(result.stdout)    // file listing
 println(result.stderr)    // empty
 println(result.isSuccess) // true
 ```
 
+Quoted arguments are handled correctly:
+
+```scala
+IO.run("sh -c 'echo hello world'")
+IO.run("""grep -r "TODO" src/""")
+```
+
 Non-zero exit codes are returned without throwing:
 
 ```scala
-val result = IO.run("sh", "-c", "exit 42")
+val result = IO.run("sh -c 'exit 42'")
 result.exitCode  // 42
 result.isSuccess // false
 ```

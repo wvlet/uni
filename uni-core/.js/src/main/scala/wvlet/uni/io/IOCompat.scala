@@ -24,11 +24,11 @@ trait IOCompat extends ProcessApi:
       "Subprocess execution is not supported in Scala.js environments"
     )
 
-  override def run(command: String*): CommandResult                             = unsupported
+  override def run(command: String, rest: String*): CommandResult               = unsupported
   override def run(command: Seq[String], config: ProcessConfig): CommandResult  = unsupported
-  override def call(command: String*): CommandResult                            = unsupported
+  override def call(command: String, rest: String*): CommandResult              = unsupported
   override def call(command: Seq[String], config: ProcessConfig): CommandResult = unsupported
-  override def spawn(command: String*): Process                                 = unsupported
+  override def spawn(command: String, rest: String*): Process                   = unsupported
   override def spawn(command: Seq[String], config: ProcessConfig): Process      = unsupported
 
 end IOCompat

@@ -37,7 +37,10 @@ private class NativeProcess(process: java.lang.Process) extends Process:
   */
 trait IOCompat extends ProcessApi:
 
-  override def run(command: String*): CommandResult = run(command.toSeq, ProcessConfig.default)
+  override def run(command: String, rest: String*): CommandResult = run(
+    ProcessApi.resolveCommand(command, rest),
+    ProcessConfig.default
+  )
 
   override def run(command: Seq[String], config: ProcessConfig): CommandResult =
     val pb      = buildProcess(command, config)
@@ -61,7 +64,10 @@ trait IOCompat extends ProcessApi:
 
     CommandResult(exitCode = exitCode, stdout = stdoutStr, stderr = stderrStr)
 
-  override def call(command: String*): CommandResult = call(command.toSeq, ProcessConfig.default)
+  override def call(command: String, rest: String*): CommandResult = call(
+    ProcessApi.resolveCommand(command, rest),
+    ProcessConfig.default
+  )
 
   override def call(command: Seq[String], config: ProcessConfig): CommandResult =
     val result = run(command, config)
@@ -75,7 +81,10 @@ trait IOCompat extends ProcessApi:
       )
     result
 
-  override def spawn(command: String*): Process = spawn(command.toSeq, ProcessConfig.default)
+  override def spawn(command: String, rest: String*): Process = spawn(
+    ProcessApi.resolveCommand(command, rest),
+    ProcessConfig.default
+  )
 
   override def spawn(command: Seq[String], config: ProcessConfig): Process =
     val pb      = buildProcess(command, config)
