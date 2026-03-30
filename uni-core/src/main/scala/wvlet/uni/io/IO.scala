@@ -74,6 +74,9 @@ trait ProcessApi:
     *   - `IO.run("ls -la /tmp")` — tokenized to `Seq("ls", "-la", "/tmp")`
     *   - `IO.run("echo", "hello")` — used as-is: `Seq("echo", "hello")`
     *
+    * Note: For executables with spaces in the path, use the Seq overload:
+    * `IO.run(Seq("/path/to/my program"), config)`
+    *
     * @return
     *   CommandResult with exit code, stdout, and stderr
     */
@@ -117,6 +120,9 @@ object ProcessApi:
   /**
     * Resolve a command and rest arguments into a Seq. When rest is empty and the command contains
     * whitespace, it is tokenized as a command line string.
+    *
+    * Note: If the command is a path with spaces (e.g., "/path/to/my program"), use the Seq overload
+    * instead: `IO.run(Seq("/path/to/my program"), config)`
     */
   def resolveCommand(command: String, rest: Seq[String]): Seq[String] =
     if rest.isEmpty && command.exists(_.isWhitespace) then
@@ -131,6 +137,9 @@ object ProcessApi:
     *   - `"ls -la"` -> `Seq("ls", "-la")`
     *   - `"echo 'hello world'"` -> `Seq("echo", "hello world")`
     *   - `"git commit -m \"initial commit\""` -> `Seq("git", "commit", "-m", "initial commit")`
+    *
+    * @throws IllegalArgumentException
+    *   if the command line has unclosed quotes
     */
   def tokenize(commandLine: String): Seq[String] =
     val tokens        = Seq.newBuilder[String]
@@ -138,6 +147,7 @@ object ProcessApi:
     var i             = 0
     var inSingleQuote = false
     var inDoubleQuote = false
+    var inToken       = false
 
     while i < commandLine.length do
       val c = commandLine(i)
@@ -156,21 +166,32 @@ object ProcessApi:
           current.append(c)
       else if c == '\'' then
         inSingleQuote = true
+        inToken = true
       else if c == '"' then
         inDoubleQuote = true
+        inToken = true
       else if c == '\\' && i + 1 < commandLine.length then
         current.append(commandLine(i + 1))
         i += 1
+        inToken = true
       else if c.isWhitespace then
-        if current.nonEmpty then
+        if current.nonEmpty || inToken then
           tokens += current.result()
           current.clear()
+          inToken = false
       else
         current.append(c)
+        inToken = true
+      end if
       i += 1
     end while
 
-    if current.nonEmpty then
+    if inSingleQuote then
+      throw IllegalArgumentException(s"Unclosed single quote in command: ${commandLine}")
+    if inDoubleQuote then
+      throw IllegalArgumentException(s"Unclosed double quote in command: ${commandLine}")
+
+    if current.nonEmpty || inToken then
       tokens += current.result()
     tokens.result()
 

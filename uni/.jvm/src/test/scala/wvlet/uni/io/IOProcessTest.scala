@@ -144,6 +144,22 @@ class IOProcessTest extends UniTest:
     ProcessApi.tokenize("") shouldBe Seq.empty
   }
 
+  test("tokenize preserves empty quoted strings") {
+    ProcessApi.tokenize("""echo "" done""") shouldBe Seq("echo", "", "done")
+  }
+
+  test("tokenize throws on unclosed double quote") {
+    intercept[IllegalArgumentException] {
+      ProcessApi.tokenize("""echo "hello""")
+    }
+  }
+
+  test("tokenize throws on unclosed single quote") {
+    intercept[IllegalArgumentException] {
+      ProcessApi.tokenize("echo 'hello")
+    }
+  }
+
   test("CommandResult isSuccess") {
     CommandResult(0, "", "").isSuccess shouldBe true
     CommandResult(1, "", "").isSuccess shouldBe false
