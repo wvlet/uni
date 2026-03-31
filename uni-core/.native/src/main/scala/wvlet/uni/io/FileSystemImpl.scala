@@ -13,9 +13,13 @@
  */
 package wvlet.uni.io
 
+import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.FileReader
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import scala.concurrent.ExecutionContext
@@ -94,6 +98,31 @@ private[io] object FileSystemNative extends FileSystemBase:
       fis.close()
 
   override def readLines(path: IOPath): Seq[String] = readString(path).split("\n").toSeq
+
+  override def readLinesLazy(path: IOPath): Iterator[String] =
+    val reader = BufferedReader(FileReader(toJavaFile(path)))
+    CloseableLineIterator(reader)
+
+  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] =
+    val in = FileInputStream(toJavaFile(path))
+    CloseableChunkIterator(in, chunkSize)
+
+  override def readStream(path: IOPath): InputStream = FileInputStream(toJavaFile(path))
+
+  override def writeStream(path: IOPath, mode: WriteMode): OutputStream =
+    val file   = toJavaFile(path)
+    val parent = file.getParentFile
+    if parent != null && !parent.exists() then
+      parent.mkdirs()
+    mode match
+      case WriteMode.CreateNew =>
+        if !file.createNewFile() then
+          throw FileAlreadyExistsException(path.path)
+        FileOutputStream(file, false)
+      case WriteMode.Create =>
+        FileOutputStream(file, false)
+      case WriteMode.Append =>
+        FileOutputStream(file, true)
 
   override def writeString(path: IOPath, content: String, mode: WriteMode): Unit = writeBytes(
     path,
@@ -314,6 +343,65 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def existsAsync(path: IOPath): Future[Boolean] = Future(exists(path))
 
 end FileSystemNative
+
+private[io] class CloseableLineIterator(reader: BufferedReader)
+    extends Iterator[String]
+    with AutoCloseable:
+  private var nextLine: String | Null = reader.readLine()
+
+  override def hasNext: Boolean =
+    val has = nextLine != null
+    if !has then
+      close()
+    has
+
+  override def next(): String =
+    val line = nextLine
+    if line == null then
+      throw java.util.NoSuchElementException("No more lines")
+    nextLine = reader.readLine()
+    line
+
+  override def close(): Unit = reader.close()
+
+end CloseableLineIterator
+
+private[io] class CloseableChunkIterator(in: InputStream, chunkSize: Int)
+    extends Iterator[Array[Byte]]
+    with AutoCloseable:
+  private val buffer                        = new Array[Byte](chunkSize)
+  private var bytesRead: Int                = in.read(buffer)
+  private var nextChunk: Array[Byte] | Null =
+    if bytesRead == -1 then
+      null
+    else if bytesRead == chunkSize then
+      buffer.clone()
+    else
+      java.util.Arrays.copyOf(buffer, bytesRead)
+
+  override def hasNext: Boolean =
+    val has = nextChunk != null
+    if !has then
+      close()
+    has
+
+  override def next(): Array[Byte] =
+    val chunk = nextChunk
+    if chunk == null then
+      throw java.util.NoSuchElementException("No more chunks")
+    bytesRead = in.read(buffer)
+    nextChunk =
+      if bytesRead == -1 then
+        null
+      else if bytesRead == chunkSize then
+        buffer.clone()
+      else
+        java.util.Arrays.copyOf(buffer, bytesRead)
+    chunk
+
+  override def close(): Unit = in.close()
+
+end CloseableChunkIterator
 
 /**
   * Scala Native FileSystem initialization.
