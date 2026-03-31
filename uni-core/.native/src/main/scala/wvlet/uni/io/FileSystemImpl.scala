@@ -17,8 +17,8 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.FileReader
 import java.io.InputStream
+import java.io.InputStreamReader
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.time.Instant
@@ -100,7 +100,9 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def readLines(path: IOPath): Seq[String] = readString(path).split("\n").toSeq
 
   override def readLinesLazy(path: IOPath): Iterator[String] =
-    val reader = BufferedReader(FileReader(toJavaFile(path)))
+    val reader = BufferedReader(
+      InputStreamReader(FileInputStream(toJavaFile(path)), StandardCharsets.UTF_8)
+    )
     CloseableLineIterator(reader)
 
   override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] =

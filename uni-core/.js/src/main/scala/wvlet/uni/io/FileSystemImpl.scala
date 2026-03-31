@@ -647,13 +647,7 @@ private[io] object FileSystemJS extends FileSystemBase:
   private class FlushToFileOutputStream(path: IOPath, mode: WriteMode)
       extends ByteArrayOutputStream:
     override def close(): Unit =
-      val bytes  = toByteArray
-      val buffer = byteArrayToUint8Array(bytes)
-      mode match
-        case WriteMode.Append =>
-          NodeFSModule.appendFileSync(path.path, buffer)
-        case _ =>
-          FileSystemJS.writeBytes(path, bytes, mode)
+      FileSystemJS.writeBytes(path, toByteArray, mode)
       super.close()
 
   end FlushToFileOutputStream
