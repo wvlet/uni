@@ -329,8 +329,9 @@ class FileSystemTest extends UniTest:
     val file = testDir / "rx-lines.txt"
     FileSystem.writeString(file, "A\nB\nC")
 
-    val lines = FileSystem.readLinesRx(file).toSeq
-    lines shouldBe Seq("A", "B", "C")
+    val lines = scala.collection.mutable.ArrayBuffer[String]()
+    FileSystem.readLinesRx(file).run(lines += _)
+    lines.toSeq shouldBe Seq("A", "B", "C")
   }
 
   test("readChunksRx emits chunks") {
@@ -339,7 +340,8 @@ class FileSystemTest extends UniTest:
     java.util.Arrays.fill(data, 7.toByte)
     FileSystem.writeBytes(file, data)
 
-    val chunks = FileSystem.readChunksRx(file, chunkSize = 40).toSeq
+    val chunks = scala.collection.mutable.ArrayBuffer[Array[Byte]]()
+    FileSystem.readChunksRx(file, chunkSize = 40).run(chunks += _)
     chunks.length shouldBe 3
     chunks.map(_.length).sum shouldBe 100
   }
