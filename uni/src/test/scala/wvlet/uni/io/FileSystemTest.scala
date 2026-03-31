@@ -325,25 +325,4 @@ class FileSystemTest extends UniTest:
     FileSystem.readString(file) shouldBe "first-second"
   }
 
-  test("readLinesRx emits lines") {
-    val file = testDir / "rx-lines.txt"
-    FileSystem.writeString(file, "A\nB\nC")
-
-    val lines = scala.collection.mutable.ArrayBuffer[String]()
-    FileSystem.readLinesRx(file).run(lines += _)
-    lines.toSeq shouldBe Seq("A", "B", "C")
-  }
-
-  test("readChunksRx emits chunks") {
-    val file = testDir / "rx-chunks.bin"
-    val data = new Array[Byte](100)
-    java.util.Arrays.fill(data, 7.toByte)
-    FileSystem.writeBytes(file, data)
-
-    val chunks = scala.collection.mutable.ArrayBuffer[Array[Byte]]()
-    FileSystem.readChunksRx(file, chunkSize = 40).run(chunks += _)
-    chunks.length shouldBe 3
-    chunks.map(_.length).sum shouldBe 100
-  }
-
 end FileSystemTest

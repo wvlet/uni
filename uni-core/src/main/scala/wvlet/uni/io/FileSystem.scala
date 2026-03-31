@@ -15,7 +15,6 @@ package wvlet.uni.io
 
 import java.io.InputStream
 import java.io.OutputStream
-import wvlet.uni.rx.Rx
 
 import scala.concurrent.Future
 
@@ -237,24 +236,6 @@ trait FileSystemBase:
     *   in browser environments
     */
   def writeStream(path: IOPath, mode: WriteMode = WriteMode.Create): OutputStream
-
-  // ============================================================
-  // Reactive streaming operations
-  // ============================================================
-
-  /**
-    * Reads the file line by line as a reactive stream. Each line is emitted as an OnNext event,
-    * followed by OnCompletion.
-    */
-  def readLinesRx(path: IOPath): Rx[String] = Rx.fromSeq(readLinesLazy(path).toSeq)
-
-  /**
-    * Reads the file in fixed-size byte chunks as a reactive stream. Each chunk is emitted as an
-    * OnNext event, followed by OnCompletion.
-    */
-  def readChunksRx(path: IOPath, chunkSize: Int = 8192): Rx[Array[Byte]] = Rx.fromSeq(
-    readChunks(path, chunkSize).toSeq
-  )
 
   // ============================================================
   // Synchronous write operations
