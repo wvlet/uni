@@ -196,19 +196,6 @@ trait FileSystemBase:
   // ============================================================
 
   /**
-    * Reads the file line by line lazily, returning an Iterator that does not load the entire file
-    * into memory.
-    *
-    * On JVM and Native, the returned iterator implements AutoCloseable and holds an underlying file
-    * handle. Use Control.withResource or ensure the iterator is fully consumed to release
-    * resources.
-    *
-    * @throws UnsupportedOperationException
-    *   in browser environments
-    */
-  def readLinesLazy(path: IOPath): Iterator[String]
-
-  /**
     * Reads the file in fixed-size byte chunks. Returns an Iterator over byte arrays for processing
     * large files incrementally.
     *
@@ -460,7 +447,6 @@ object FileSystem extends FileSystemBase:
   override def readBytes(path: IOPath): Array[Byte] = impl.readBytes(path)
   override def readLines(path: IOPath): Seq[String] = impl.readLines(path)
 
-  override def readLinesLazy(path: IOPath): Iterator[String] = impl.readLinesLazy(path)
   override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] = impl.readChunks(
     path,
     chunkSize

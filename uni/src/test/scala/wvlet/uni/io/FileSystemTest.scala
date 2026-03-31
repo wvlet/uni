@@ -236,24 +236,6 @@ class FileSystemTest extends UniTest:
   // Streaming I/O tests
   // ============================================================
 
-  test("readLinesLazy returns lines lazily") {
-    val file    = testDir / "lazy-lines.txt"
-    val content = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5"
-    FileSystem.writeString(file, content)
-
-    val iter  = FileSystem.readLinesLazy(file)
-    val lines = iter.toSeq
-    lines shouldBe Seq("Line 1", "Line 2", "Line 3", "Line 4", "Line 5")
-  }
-
-  test("readLinesLazy on empty file") {
-    val file = testDir / "lazy-lines-empty.txt"
-    FileSystem.writeString(file, "")
-
-    val iter = FileSystem.readLinesLazy(file)
-    iter.hasNext shouldBe false
-  }
-
   test("readChunks returns byte chunks") {
     val file = testDir / "chunks.bin"
     val data = new Array[Byte](20000)

@@ -174,10 +174,6 @@ private[io] object FileSystemJS extends FileSystemBase:
 
   override def readLines(path: IOPath): Seq[String] = readString(path).split("\n").toSeq
 
-  override def readLinesLazy(path: IOPath): Iterator[String] =
-    // Node.js readFileSync is inherently eager; split into iterator
-    readString(path).linesIterator
-
   override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] = readBytes(path)
     .grouped(chunkSize)
 

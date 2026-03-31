@@ -13,7 +13,6 @@
  */
 package wvlet.uni.io
 
-import java.io.BufferedReader
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
@@ -110,10 +109,6 @@ private[io] object FileSystemJvm extends FileSystemBase:
 
   override def readLines(path: IOPath): Seq[String] =
     Files.readAllLines(toNioPath(path), StandardCharsets.UTF_8).asScala.toSeq
-
-  override def readLinesLazy(path: IOPath): Iterator[String] =
-    val reader = Files.newBufferedReader(toNioPath(path), StandardCharsets.UTF_8)
-    CloseableLineIterator(reader)
 
   override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] =
     val in = Files.newInputStream(toNioPath(path))

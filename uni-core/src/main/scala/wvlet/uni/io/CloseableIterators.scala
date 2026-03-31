@@ -13,34 +13,7 @@
  */
 package wvlet.uni.io
 
-import java.io.BufferedReader
 import java.io.InputStream
-
-/**
-  * An Iterator over lines from a BufferedReader that implements AutoCloseable. The underlying
-  * reader is automatically closed when the iterator is exhausted.
-  */
-private[io] class CloseableLineIterator(reader: BufferedReader)
-    extends Iterator[String]
-    with AutoCloseable:
-  private var nextLine: String | Null = reader.readLine()
-
-  override def hasNext: Boolean =
-    val has = nextLine != null
-    if !has then
-      close()
-    has
-
-  override def next(): String =
-    val line = nextLine
-    if line == null then
-      throw java.util.NoSuchElementException("No more lines")
-    nextLine = reader.readLine()
-    line
-
-  override def close(): Unit = reader.close()
-
-end CloseableLineIterator
 
 /**
   * An Iterator over fixed-size byte chunks from an InputStream that implements AutoCloseable. The
