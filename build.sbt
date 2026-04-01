@@ -23,7 +23,7 @@ addCommandAlias("publishSnapshots", s"projectJVM/publish; projectJS/publish; pro
 addCommandAlias("publishJSSigned", s"projectJS/publishSigned")
 addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
-val SCALA_3                             = "3.8.2"
+val SCALA_3                             = "3.8.3"
 val AIRFRAME_VERSION                    = "2026.1.4"
 val AWS_SDK_VERSION                     = "2.42.24"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
