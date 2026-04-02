@@ -141,6 +141,14 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   export wvlet.uni.dom.FieldValidation
   export wvlet.uni.dom.FormValidation
 
+  // Transitions
+  export wvlet.uni.dom.Transition
+  export wvlet.uni.dom.TransitionConfig
+
+  // Click outside detection
+  export wvlet.uni.dom.ClickOutside
+  export wvlet.uni.dom.ClickOutsideBinding
+
   /**
     * Re-export helper functions.
     */
