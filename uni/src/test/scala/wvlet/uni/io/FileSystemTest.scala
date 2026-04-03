@@ -232,4 +232,79 @@ class FileSystemTest extends UniTest:
     FileSystem.isDirectory(tempDir) shouldBe true
   }
 
+  // ============================================================
+  // Streaming I/O tests
+  // ============================================================
+
+  test("readChunks returns byte chunks") {
+    val file = testDir / "chunks.bin"
+    val data = new Array[Byte](20000)
+    java.util.Arrays.fill(data, 42.toByte)
+    FileSystem.writeBytes(file, data)
+
+    val chunks    = FileSystem.readChunks(file).toSeq
+    val totalSize = chunks.map(_.length).sum
+    totalSize shouldBe 20000
+    // Default chunk size 8192: 8192 + 8192 + 3616
+    chunks.length shouldBe 3
+    chunks.head.length shouldBe 8192
+  }
+
+  test("readChunks with custom chunk size") {
+    val file = testDir / "chunks-custom.bin"
+    val data = new Array[Byte](100)
+    java.util.Arrays.fill(data, 1.toByte)
+    FileSystem.writeBytes(file, data)
+
+    val chunks = FileSystem.readChunks(file, chunkSize = 30).toSeq
+    chunks.length shouldBe 4
+    chunks.last.length shouldBe 10
+    chunks.map(_.length).sum shouldBe 100
+  }
+
+  test("readChunks on empty file") {
+    val file = testDir / "chunks-empty.bin"
+    FileSystem.writeString(file, "")
+
+    val chunks = FileSystem.readChunks(file).toSeq
+    chunks.isEmpty shouldBe true
+  }
+
+  test("readStream returns InputStream") {
+    val file    = testDir / "stream-read.txt"
+    val content = "stream content"
+    FileSystem.writeString(file, content)
+
+    val in = FileSystem.readStream(file)
+    try
+      val bytes  = new Array[Byte](1024)
+      val read   = in.read(bytes)
+      val result = new String(bytes, 0, read, "UTF-8")
+      result shouldBe content
+    finally
+      in.close()
+  }
+
+  test("writeStream returns OutputStream") {
+    val file    = testDir / "stream-write.txt"
+    val content = "written via stream"
+
+    val out = FileSystem.writeStream(file)
+    try out.write(content.getBytes("UTF-8"))
+    finally out.close()
+
+    FileSystem.readString(file) shouldBe content
+  }
+
+  test("writeStream with append mode") {
+    val file = testDir / "stream-append.txt"
+    FileSystem.writeString(file, "first")
+
+    val out = FileSystem.writeStream(file, WriteMode.Append)
+    try out.write("-second".getBytes("UTF-8"))
+    finally out.close()
+
+    FileSystem.readString(file) shouldBe "first-second"
+  }
+
 end FileSystemTest

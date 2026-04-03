@@ -16,6 +16,8 @@ package wvlet.uni.io
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.time.Instant
 import scala.concurrent.ExecutionContext
@@ -94,6 +96,27 @@ private[io] object FileSystemNative extends FileSystemBase:
       fis.close()
 
   override def readLines(path: IOPath): Seq[String] = readString(path).split("\n").toSeq
+
+  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] =
+    val in = FileInputStream(toJavaFile(path))
+    CloseableChunkIterator(in, chunkSize)
+
+  override def readStream(path: IOPath): InputStream = FileInputStream(toJavaFile(path))
+
+  override def writeStream(path: IOPath, mode: WriteMode): OutputStream =
+    val file   = toJavaFile(path)
+    val parent = file.getParentFile
+    if parent != null && !parent.exists() then
+      parent.mkdirs()
+    mode match
+      case WriteMode.CreateNew =>
+        if !file.createNewFile() then
+          throw FileAlreadyExistsException(path.path)
+        FileOutputStream(file, false)
+      case WriteMode.Create =>
+        FileOutputStream(file, false)
+      case WriteMode.Append =>
+        FileOutputStream(file, true)
 
   override def writeString(path: IOPath, content: String, mode: WriteMode): Unit = writeBytes(
     path,

@@ -13,6 +13,9 @@
  */
 package wvlet.uni.io
 
+import java.io.InputStream
+import java.io.OutputStream
+
 import scala.concurrent.Future
 
 /**
@@ -187,6 +190,39 @@ trait FileSystemBase:
     *   in browser environments
     */
   def readLines(path: IOPath): Seq[String]
+
+  // ============================================================
+  // Streaming read operations
+  // ============================================================
+
+  /**
+    * Reads the file in fixed-size byte chunks. Returns an Iterator over byte arrays for processing
+    * large files incrementally.
+    *
+    * On JVM and Native, the returned iterator implements AutoCloseable.
+    *
+    * @throws UnsupportedOperationException
+    *   in browser environments
+    */
+  def readChunks(path: IOPath, chunkSize: Int = 8192): Iterator[Array[Byte]]
+
+  /**
+    * Opens a file and returns an InputStream for streaming reads. The caller is responsible for
+    * closing the stream.
+    *
+    * @throws UnsupportedOperationException
+    *   in browser environments
+    */
+  def readStream(path: IOPath): InputStream
+
+  /**
+    * Opens a file and returns an OutputStream for streaming writes. The caller is responsible for
+    * closing the stream.
+    *
+    * @throws UnsupportedOperationException
+    *   in browser environments
+    */
+  def writeStream(path: IOPath, mode: WriteMode = WriteMode.Create): OutputStream
 
   // ============================================================
   // Synchronous write operations
@@ -410,6 +446,17 @@ object FileSystem extends FileSystemBase:
   override def readString(path: IOPath): String     = impl.readString(path)
   override def readBytes(path: IOPath): Array[Byte] = impl.readBytes(path)
   override def readLines(path: IOPath): Seq[String] = impl.readLines(path)
+
+  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] = impl.readChunks(
+    path,
+    chunkSize
+  )
+
+  override def readStream(path: IOPath): InputStream                    = impl.readStream(path)
+  override def writeStream(path: IOPath, mode: WriteMode): OutputStream = impl.writeStream(
+    path,
+    mode
+  )
 
   override def writeString(path: IOPath, content: String, mode: WriteMode): Unit = impl.writeString(
     path,

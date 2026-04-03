@@ -14,6 +14,8 @@
 package wvlet.uni.io
 
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.LinkOption
@@ -107,6 +109,31 @@ private[io] object FileSystemJvm extends FileSystemBase:
 
   override def readLines(path: IOPath): Seq[String] =
     Files.readAllLines(toNioPath(path), StandardCharsets.UTF_8).asScala.toSeq
+
+  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] =
+    val in = Files.newInputStream(toNioPath(path))
+    CloseableChunkIterator(in, chunkSize)
+
+  override def readStream(path: IOPath): InputStream = Files.newInputStream(toNioPath(path))
+
+  override def writeStream(path: IOPath, mode: WriteMode): OutputStream =
+    val nioPath = toNioPath(path)
+    val parent  = nioPath.getParent
+    if parent != null && !Files.exists(parent) then
+      Files.createDirectories(parent)
+    val options =
+      mode match
+        case WriteMode.CreateNew =>
+          Array(StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)
+        case WriteMode.Create =>
+          Array(
+            StandardOpenOption.CREATE,
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE
+          )
+        case WriteMode.Append =>
+          Array(StandardOpenOption.CREATE, StandardOpenOption.APPEND, StandardOpenOption.WRITE)
+    Files.newOutputStream(nioPath, options*)
 
   private def withFileAlreadyExistsHandler[A](body: => A): A =
     try

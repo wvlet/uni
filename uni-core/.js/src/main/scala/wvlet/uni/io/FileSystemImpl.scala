@@ -13,6 +13,11 @@
  */
 package wvlet.uni.io
 
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.io.OutputStream
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 import scala.concurrent.Promise
@@ -168,6 +173,23 @@ private[io] object FileSystemJS extends FileSystemBase:
       requireNode("readBytes")
 
   override def readLines(path: IOPath): Seq[String] = readString(path).split("\n").toSeq
+
+  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] = readBytes(path)
+    .grouped(chunkSize)
+
+  override def readStream(path: IOPath): InputStream =
+    if isNodeEnv then
+      ByteArrayInputStream(readBytes(path))
+    else if isBrowserEnv then
+      ByteArrayInputStream(BrowserFileSystem.readBytes(path))
+    else
+      requireNode("readStream")
+
+  override def writeStream(path: IOPath, mode: WriteMode): OutputStream =
+    if isNodeEnv || isBrowserEnv then
+      FlushToFileOutputStream(path, mode)
+    else
+      requireNode("writeStream")
 
   private def withEEXISTHandler[A](path: IOPath)(body: => A): A =
     try
@@ -614,6 +636,17 @@ private[io] object FileSystemJS extends FileSystemBase:
       result(i) = (arr(i) & 0xff).toShort
       i += 1
     result
+
+  /**
+    * An OutputStream that buffers writes in memory and flushes to the file system on close.
+    */
+  private class FlushToFileOutputStream(path: IOPath, mode: WriteMode)
+      extends ByteArrayOutputStream:
+    override def close(): Unit =
+      FileSystemJS.writeBytes(path, toByteArray, mode)
+      super.close()
+
+  end FlushToFileOutputStream
 
 end FileSystemJS
 
