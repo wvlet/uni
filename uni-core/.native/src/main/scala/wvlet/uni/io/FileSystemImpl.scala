@@ -366,10 +366,16 @@ private[io] object FileSystemNative extends FileSystemBase:
   }
 
   override def readSymlink(link: IOPath): IOPath = Zone {
-    val buf = stackalloc[Byte](4096)
-    val len = unistd.readlink(toCString(link.path), buf, 4095.toUSize)
+    // Buffer sized to PATH_MAX (4096). readlink truncates silently if the target
+    // were longer, so we treat a full buffer as an error rather than returning
+    // a corrupt path. In practice symlink targets cannot exceed PATH_MAX.
+    val bufSize = 4096
+    val buf     = stackalloc[Byte](bufSize)
+    val len     = unistd.readlink(toCString(link.path), buf, (bufSize - 1).toUSize)
     if len < 0 then
       throw java.io.IOException(s"Failed to read symlink: ${link.path}")
+    if len.toInt == bufSize - 1 then
+      throw java.io.IOException(s"Symlink target too long: ${link.path}")
     buf(len.toInt) = 0.toByte
     IOPath.parse(fromCString(buf))
   }
