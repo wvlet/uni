@@ -652,13 +652,13 @@ private[io] object FileSystemJS extends FileSystemBase:
     if isNodeEnv then
       NodeFSModule.symlinkSync(target.path, link.path)
     else
-      throw UnsupportedOperationException("createSymlink requires Node.js")
+      requireNode("createSymlink")
 
   override def readSymlink(link: IOPath): IOPath =
     if isNodeEnv then
       IOPath.parse(NodeFSModule.readlinkSync(link.path))
     else
-      throw UnsupportedOperationException("readSymlink requires Node.js")
+      requireNode("readSymlink")
 
 end FileSystemJS
 

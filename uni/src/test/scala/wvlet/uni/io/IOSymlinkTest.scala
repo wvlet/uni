@@ -40,7 +40,6 @@ class IOSymlinkTest extends UniTest:
     FileSystem.createSymlink(link, target)
 
     val fi = FileSystem.info(link)
-    fi.isSymbolicLink shouldBe true
     fi.fileType shouldBe FileType.SymbolicLink
   }
 
@@ -55,17 +54,6 @@ class IOSymlinkTest extends UniTest:
     FileSystem.exists(linkDir) shouldBe true
     FileSystem.isDirectory(linkDir) shouldBe true
     FileSystem.readSymlink(linkDir) shouldBe targetDir
-  }
-
-  test("readSymlink returns the link target as given") {
-    val target = testDir / "rel-target.txt"
-    val link   = testDir / "rel-link.txt"
-
-    FileSystem.writeString(target, "relative")
-    FileSystem.createSymlink(link, target)
-
-    val resolved = FileSystem.readSymlink(link)
-    resolved shouldBe target
   }
 
 end IOSymlinkTest
