@@ -130,6 +130,7 @@ lazy val root = project
 lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
   uni.jvm,
+  httpCodegen,
   agent,
   bedrock,
   netty,
@@ -226,6 +227,19 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       )
   )
   .dependsOn(core)
+
+lazy val httpCodegen = project
+  .in(file("uni-http-codegen"))
+  .settings(
+    buildSettings,
+    name        := "uni-http-codegen",
+    description := "HTTP/RPC client code generation from Scala 3 traits",
+    libraryDependencies ++=
+      Seq(
+        "org.scala-lang" %% "scala3-tasty-inspector" % SCALA_3
+      )
+  )
+  .dependsOn(uni.jvm, test.jvm % Test)
 
 lazy val agent = project
   .in(file("uni-agent"))
