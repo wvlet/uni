@@ -648,6 +648,22 @@ private[io] object FileSystemJS extends FileSystemBase:
 
   end FlushToFileOutputStream
 
+  override def createSymlink(link: IOPath, target: IOPath): Unit =
+    if isNodeEnv then
+      NodeFSModule.symlinkSync(target.path, link.path)
+    else if isBrowserEnv then
+      BrowserFileSystem.createSymlink(link, target)
+    else
+      requireNode("createSymlink")
+
+  override def readSymlink(link: IOPath): IOPath =
+    if isNodeEnv then
+      IOPath.parse(NodeFSModule.readlinkSync(link.path))
+    else if isBrowserEnv then
+      BrowserFileSystem.readSymlink(link)
+    else
+      requireNode("readSymlink")
+
 end FileSystemJS
 
 /**

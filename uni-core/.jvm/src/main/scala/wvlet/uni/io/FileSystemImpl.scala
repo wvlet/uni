@@ -65,10 +65,14 @@ private[io] object FileSystemJvm extends FileSystemBase:
   override def info(path: IOPath): FileInfo =
     val nioPath = toNioPath(path)
     try
-      if !Files.exists(nioPath) then
+      if !Files.exists(nioPath, LinkOption.NOFOLLOW_LINKS) then
         FileInfo.notFound(path)
       else
-        val attrs    = Files.readAttributes(nioPath, classOf[BasicFileAttributes])
+        val attrs = Files.readAttributes(
+          nioPath,
+          classOf[BasicFileAttributes],
+          LinkOption.NOFOLLOW_LINKS
+        )
         val fileType =
           if attrs.isRegularFile then
             FileType.File
@@ -356,6 +360,15 @@ private[io] object FileSystemJvm extends FileSystemBase:
   override def infoAsync(path: IOPath): Future[FileInfo] = Future(info(path))
 
   override def existsAsync(path: IOPath): Future[Boolean] = Future(exists(path))
+
+  override def createSymlink(link: IOPath, target: IOPath): Unit = Files.createSymbolicLink(
+    toNioPath(link),
+    toNioPath(target)
+  )
+
+  override def readSymlink(link: IOPath): IOPath = fromNioPath(
+    Files.readSymbolicLink(toNioPath(link))
+  )
 
 end FileSystemJvm
 
