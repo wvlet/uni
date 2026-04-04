@@ -50,6 +50,7 @@ private[io] object BrowserFileSystem:
   )
 
   private val storage: mutable.Map[String, MemoryFile] = mutable.Map.empty
+  private val symlinks: mutable.Map[String, String]    = mutable.Map.empty
 
   // Initialize root directory
   storage("/") = MemoryFile(Array.emptyByteArray, isDirectory = true, Instant.now(), Instant.now())
@@ -78,7 +79,9 @@ private[io] object BrowserFileSystem:
   // Sync operations
   // ============================================================
 
-  def exists(path: IOPath): Boolean = storage.contains(normalizePath(path))
+  def exists(path: IOPath): Boolean =
+    val key = normalizePath(path)
+    storage.contains(key) || symlinks.contains(key)
 
   def isFile(path: IOPath): Boolean = storage.get(normalizePath(path)).exists(!_.isDirectory)
 
@@ -86,26 +89,41 @@ private[io] object BrowserFileSystem:
 
   def info(path: IOPath): FileInfo =
     val key = normalizePath(path)
-    storage.get(key) match
-      case Some(file) =>
-        FileInfo(
-          path = path,
-          fileType =
-            if file.isDirectory then
-              FileType.Directory
-            else
-              FileType.File
-          ,
-          size = file.content.length.toLong,
-          lastModified = Some(file.modifiedAt),
-          createdAt = Some(file.createdAt),
-          isReadable = true,
-          isWritable = true,
-          isExecutable = false,
-          isHidden = path.fileName.startsWith(".")
-        )
-      case None =>
-        FileInfo.notFound(path)
+    if symlinks.contains(key) then
+      FileInfo(
+        path = path,
+        fileType = FileType.SymbolicLink,
+        size = 0L,
+        lastModified = None,
+        isReadable = true,
+        isWritable = true,
+        isExecutable = false,
+        isHidden = path.fileName.startsWith(".")
+      )
+    else
+      storage.get(key) match
+        case Some(file) =>
+          FileInfo(
+            path = path,
+            fileType =
+              if file.isDirectory then
+                FileType.Directory
+              else
+                FileType.File
+            ,
+            size = file.content.length.toLong,
+            lastModified = Some(file.modifiedAt),
+            createdAt = Some(file.createdAt),
+            isReadable = true,
+            isWritable = true,
+            isExecutable = false,
+            isHidden = path.fileName.startsWith(".")
+          )
+        case None =>
+          FileInfo.notFound(path)
+    end if
+
+  end info
 
   def readString(path: IOPath): String =
     val key = normalizePath(path)
@@ -437,6 +455,17 @@ private[io] object BrowserFileSystem:
 
   def existsAsync(path: IOPath): Future[Boolean] = Future(exists(path))
 
+  def createSymlink(link: IOPath, target: IOPath): Unit =
+    symlinks(normalizePath(link)) = normalizePath(target)
+
+  def readSymlink(link: IOPath): IOPath =
+    val key = normalizePath(link)
+    symlinks.get(key) match
+      case Some(target) =>
+        IOPath.parse(target)
+      case None =>
+        throw NoSuchFileException(s"Not a symlink: ${link}")
+
   // ============================================================
   // Browser File System Access API integration
   // ============================================================
@@ -571,6 +600,7 @@ private[io] object BrowserFileSystem:
     */
   def clear(): Unit =
     storage.clear()
+    symlinks.clear()
     val now = Instant.now()
     storage("/") = MemoryFile(Array.emptyByteArray, isDirectory = true, now, now)
     storage("/home") = MemoryFile(Array.emptyByteArray, isDirectory = true, now, now)
