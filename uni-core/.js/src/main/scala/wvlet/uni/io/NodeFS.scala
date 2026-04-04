@@ -39,6 +39,8 @@ private[io] object NodeFSModule extends js.Object:
   def copyFileSync(src: String, dest: String, mode: Int): Unit                = js.native
   def renameSync(oldPath: String, newPath: String): Unit                      = js.native
   def mkdtempSync(prefix: String): String                                     = js.native
+  def symlinkSync(target: String, path: String): Unit                         = js.native
+  def readlinkSync(path: String): String                                      = js.native
 
   // Promises API
   val promises: NodeFSPromises = js.native

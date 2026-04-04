@@ -23,6 +23,9 @@ import java.time.Instant
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 import scala.collection.mutable.ArrayBuffer
+import scalanative.posix.unistd
+import scalanative.unsafe.*
+import scalanative.unsigned.*
 
 /**
   * Scala Native implementation of FileSystem. Uses java.io APIs which are well-supported in Scala
@@ -52,9 +55,26 @@ private[io] object FileSystemNative extends FileSystemBase:
 
   override def isDirectory(path: IOPath): Boolean = toJavaFile(path).isDirectory
 
+  // Returns true if the path is a symbolic link (without following it).
+  private def isSymlinkPath(path: IOPath): Boolean = Zone {
+    val buf = stackalloc[Byte](1)
+    unistd.readlink(toCString(path.path), buf, 1.toUSize) >= 0
+  }
+
   override def info(path: IOPath): FileInfo =
     val file = toJavaFile(path)
-    if !file.exists() then
+    if isSymlinkPath(path) then
+      FileInfo(
+        path = path,
+        fileType = FileType.SymbolicLink,
+        size = 0L,
+        lastModified = None,
+        isReadable = file.canRead,
+        isWritable = file.canWrite,
+        isExecutable = file.canExecute,
+        isHidden = path.fileName.startsWith(".")
+      )
+    else if !file.exists() then
       FileInfo.notFound(path)
     else
       val fileType =
@@ -75,6 +95,9 @@ private[io] object FileSystemNative extends FileSystemBase:
         isExecutable = file.canExecute,
         isHidden = file.isHidden
       )
+    end if
+
+  end info
 
   override def readString(path: IOPath): String =
     new String(readBytes(path), StandardCharsets.UTF_8)
@@ -335,6 +358,21 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def infoAsync(path: IOPath): Future[FileInfo] = Future(info(path))
 
   override def existsAsync(path: IOPath): Future[Boolean] = Future(exists(path))
+
+  override def createSymlink(link: IOPath, target: IOPath): Unit = Zone {
+    val ret = unistd.symlink(toCString(target.path), toCString(link.path))
+    if ret != 0 then
+      throw java.io.IOException(s"Failed to create symlink: ${link.path} -> ${target.path}")
+  }
+
+  override def readSymlink(link: IOPath): IOPath = Zone {
+    val buf = stackalloc[Byte](4096)
+    val len = unistd.readlink(toCString(link.path), buf, 4095.toUSize)
+    if len < 0 then
+      throw java.io.IOException(s"Failed to read symlink: ${link.path}")
+    buf(len.toInt) = 0.toByte
+    IOPath.parse(fromCString(buf))
+  }
 
 end FileSystemNative
 

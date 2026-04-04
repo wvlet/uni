@@ -407,6 +407,24 @@ trait FileSystemBase:
     */
   def existsAsync(path: IOPath): Future[Boolean]
 
+  // ============================================================
+  // Symlink operations
+  // ============================================================
+
+  /**
+    * Creates a symbolic link at `link` pointing to `target`.
+    * @throws UnsupportedOperationException
+    *   in browser environments
+    */
+  def createSymlink(link: IOPath, target: IOPath): Unit
+
+  /**
+    * Reads the target of a symbolic link without following it.
+    * @throws UnsupportedOperationException
+    *   in browser environments
+    */
+  def readSymlink(link: IOPath): IOPath
+
 end FileSystemBase
 
 /**
@@ -506,5 +524,8 @@ object FileSystem extends FileSystemBase:
 
   override def infoAsync(path: IOPath): Future[FileInfo]  = impl.infoAsync(path)
   override def existsAsync(path: IOPath): Future[Boolean] = impl.existsAsync(path)
+
+  override def createSymlink(link: IOPath, target: IOPath): Unit = impl.createSymlink(link, target)
+  override def readSymlink(link: IOPath): IOPath                 = impl.readSymlink(link)
 
 end FileSystem
