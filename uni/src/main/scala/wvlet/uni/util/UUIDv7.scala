@@ -48,6 +48,12 @@ final class UUIDv7 private[util] (val mostSignificantBits: Long, val leastSignif
   def toUUID: UUID = new UUID(mostSignificantBits, leastSignificantBits)
 
   /**
+    * Returns a compact 22-character Base62 representation of this UUIDv7. The encoding is
+    * sort-order preserving and URL-safe.
+    */
+  def toBase62: String = Base62.encode128bits(mostSignificantBits, leastSignificantBits)
+
+  /**
     * Returns the string representation of this UUIDv7. The format is
     * "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx".
     */
@@ -218,6 +224,29 @@ object UUIDv7:
     *   A new UUIDv7Generator instance.
     */
   def createGenerator(randomSource: Random): UUIDv7Generator = new UUIDv7Generator(randomSource)
+
+  /**
+    * Creates a UUIDv7 from a 22-character Base62 string.
+    *
+    * @param base62Str
+    *   The Base62-encoded UUIDv7 string (22 characters).
+    * @return
+    *   A UUIDv7 instance.
+    * @throws IllegalArgumentException
+    *   if the string is not valid Base62 or does not represent a valid UUIDv7.
+    */
+  def fromBase62(base62Str: String): UUIDv7 =
+    val (msb, lsb) = Base62.decode128bits(base62Str)
+    val u7         = new UUIDv7(msb, lsb)
+    if u7.version != 7 then
+      throw IllegalArgumentException(
+        s"Invalid UUIDv7 Base62 string: version is ${u7.version}, expected 7"
+      )
+    if u7.variant != 2 then
+      throw IllegalArgumentException(
+        s"Invalid UUIDv7 Base62 string: variant is ${u7.variant}, expected 2 (RFC 4122)"
+      )
+    u7
 
   /**
     * Creates a UUIDv7 from its string representation.
