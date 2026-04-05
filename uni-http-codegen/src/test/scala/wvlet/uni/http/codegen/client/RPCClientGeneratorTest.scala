@@ -73,12 +73,12 @@ class RPCClientGeneratorTest extends UniTest:
     source shouldContain "class SyncClient(client: HttpSyncClient):"
 
     // Check getUser method
-    source shouldContain "def getUser(id: Long): User"
+    source shouldContain "def getUser(id: Long): com.example.model.User"
     source shouldContain "/com.example.api.UserService/getUser"
-    source shouldContain "Weaver.of[User].fromJSONValue"
+    source shouldContain "Weaver.of[com.example.model.User].fromJSONValue"
 
     // Check createUser method with multiple params
-    source shouldContain "def createUser(name: String, email: String): User"
+    source shouldContain "def createUser(name: String, email: String): com.example.model.User"
 
     // Check deleteUser returns Unit
     source shouldContain "def deleteUser(id: Long): Unit"
@@ -96,7 +96,7 @@ class RPCClientGeneratorTest extends UniTest:
     source shouldContain "class AsyncClient(client: HttpAsyncClient):"
 
     // Check async return types
-    source shouldContain "def getUser(id: Long): Rx[User]"
+    source shouldContain "def getUser(id: Long): Rx[com.example.model.User]"
     source shouldContain "def deleteUser(id: Long): Rx[Unit]"
 
     // Should NOT have SyncClient

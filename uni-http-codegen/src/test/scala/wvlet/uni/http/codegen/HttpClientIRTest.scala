@@ -80,6 +80,17 @@ class HttpClientIRTest extends UniTest:
     }
   }
 
+  test("TypeRef should use full name for user-defined types") {
+    val userType = TypeRef("com.example.model.User", "User")
+    userType.render shouldBe "com.example.model.User"
+  }
+
+  test("TypeRef should use short name for well-known types") {
+    TypeRef.Long.render shouldBe "Long"
+    val seqType = TypeRef("scala.collection.immutable.Seq", "Seq", Seq(TypeRef.String))
+    seqType.render shouldBe "Seq[String]"
+  }
+
   test("ServiceDef.fullName should combine package and name") {
     val svc = ServiceDef("com.example.api", "UserService", Seq.empty)
     svc.fullName shouldBe "com.example.api.UserService"

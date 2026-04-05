@@ -154,13 +154,24 @@ case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] =
   def isOption: Boolean = fullName == "scala.Option" || fullName == "Option"
 
   /**
-    * Render as a Scala type expression (e.g., "Map[String, User]")
+    * Render as a Scala type expression suitable for generated code. Uses short names for well-known
+    * Scala/Java types, and fully-qualified names for user-defined types to ensure generated code
+    * compiles regardless of the target package.
     */
   def render: String =
+    val name = renderName
     if typeArgs.isEmpty then
-      shortName
+      name
     else
-      s"${shortName}[${typeArgs.map(_.render).mkString(", ")}]"
+      s"${name}[${typeArgs.map(_.render).mkString(", ")}]"
+
+  private def renderName: String =
+    if TypeRef.wellKnownPackages.exists(pkg => fullName.startsWith(pkg)) then
+      shortName
+    else if fullName.contains('.') then
+      fullName
+    else
+      shortName
 
 object TypeRef:
   val Unit: TypeRef    = TypeRef("scala.Unit", "Unit")
@@ -169,3 +180,11 @@ object TypeRef:
   val Long: TypeRef    = TypeRef("scala.Long", "Long")
   val Boolean: TypeRef = TypeRef("scala.Boolean", "Boolean")
   val Double: TypeRef  = TypeRef("scala.Double", "Double")
+
+  // Packages whose types are safe to use by short name in generated code
+  private[codegen] val wellKnownPackages = Set(
+    "scala.",
+    "java.lang.",
+    "scala.collection.",
+    "wvlet.uni."
+  )
