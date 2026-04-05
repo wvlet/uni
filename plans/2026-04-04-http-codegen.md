@@ -44,9 +44,27 @@ object UserServiceClient:
 - [x] `RPCClientGenerator.scala` — Sync/async RPC client source generation
 - [x] `HttpCodeGenerator.scala` — Orchestrator with config parsing and file writing
 - [x] Tests: IR model, config parsing, RPC generation, TASTy scanning with real traits
+- [x] `sbt-uni-codegen/` — sbt 2.0.0-RC10 plugin with AutoPlugin + scripted test
+
+### Key Validation: sbt 2 In-Process Codegen
+
+The sbt 2 plugin validates the core design hypothesis: sbt 2's Scala 3 metabuild enables
+**direct in-process calls** to `uni-http-codegen` without forking a JVM. This eliminates the
+Coursier download → tar.gz extraction → shell process → JSON IPC pattern used by sbt-airframe.
+
+The scripted test proves the full pipeline:
+1. Compile API trait → .tasty file
+2. Plugin finds .tasty in dependent project's class directory
+3. TastyServiceScanner extracts method metadata
+4. RPCClientGenerator produces Scala source
+5. Generated code compiles alongside user code
+
+### Weaver Serialization Strategy
+
+- **Primitive params** (`String`, `Long`, etc.): `summon[Weaver[T]]` finds pre-built givens from `PrimitiveWeaver`
+- **Complex return types** (case classes): `Weaver.of[T]` uses compile-time derivation via `WeaverDerivation`
 
 ## Future Phases
 
-- Phase 2: sbt 2.x plugin wrapper (`sbt-uni-codegen/`)
 - Phase 3: REST client generation (from `@Endpoint`-annotated traits)
 - Phase 4: Error messages, incremental compilation, documentation
