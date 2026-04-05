@@ -56,6 +56,8 @@ object NanoId:
       throw IllegalArgumentException(
         s"Alphabet must have 1 to 255 characters, but has ${alphabet.length}"
       )
+    if alphabet.distinct.length != alphabet.length then
+      throw IllegalArgumentException("Alphabet must not contain duplicate characters")
     if size <= 0 then
       throw IllegalArgumentException(s"Size must be positive: ${size}")
 

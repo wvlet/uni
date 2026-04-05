@@ -86,4 +86,11 @@ class Base62Test extends UniTest:
       (Base62.isValid(encoded) shouldBe true)
   }
 
+  test("decode rejects values exceeding 128-bit range") {
+    // "zzzzzzzzzzzzzzzzzzzzzz" (all z's) is much larger than 2^128 - 1
+    intercept[IllegalArgumentException] {
+      Base62.decode128bits("zzzzzzzzzzzzzzzzzzzzzz")
+    }
+  }
+
 end Base62Test

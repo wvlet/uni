@@ -64,4 +64,10 @@ class NanoIdTest extends UniTest:
     id1 shouldBe id2
   }
 
+  test("reject duplicate characters in alphabet") {
+    intercept[IllegalArgumentException] {
+      NanoId.generate("aabcd", 10)
+    }
+  }
+
 end NanoIdTest

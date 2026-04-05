@@ -59,9 +59,11 @@ object Base62:
         s"Base62 string must be ${EncodedLength128} characters: ${s} (length: ${s.length})"
       )
     val value = decodeBigInteger(s)
-    val mask  = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
-    val low   = value.and(mask).longValue()
-    val hi    = value.shiftRight(64).and(mask).longValue()
+    if value.bitLength() > 128 then
+      throw IllegalArgumentException(s"Base62 value exceeds 128-bit range: ${s}")
+    val mask = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
+    val low  = value.and(mask).longValue()
+    val hi   = value.shiftRight(64).and(mask).longValue()
     (hi, low)
 
   /**
