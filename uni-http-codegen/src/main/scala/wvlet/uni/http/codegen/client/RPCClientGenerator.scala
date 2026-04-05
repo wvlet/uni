@@ -43,6 +43,7 @@ object RPCClientGenerator:
     sb.append("import wvlet.uni.http.*\n")
     sb.append("import wvlet.uni.rx.Rx\n")
     sb.append("import wvlet.uni.weaver.Weaver\n")
+    sb.append("import wvlet.uni.weaver.codec.PrimitiveWeaver.given\n")
     sb.append("\n")
 
     sb.append(s"object ${objectName}:\n\n")
@@ -93,7 +94,7 @@ object RPCClientGenerator:
       sb.append(generateRequestBody(method))
       sb.append(s"      val resp = client.send(req)\n")
       sb.append(
-        s"      Weaver.of[${returnType}].fromJSONValue(resp.contentAsJson.getOrElse(throw IllegalStateException(\"Empty response body\")))\n"
+        s"      Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\")))\n"
       )
 
     sb.toString
@@ -111,31 +112,31 @@ object RPCClientGenerator:
       sb.append(s"    def ${method.name}${paramList}: Rx[${returnType}] =\n")
       sb.append(generateRequestBody(method))
       sb.append(
-        s"      client.send(req).map(resp => Weaver.of[${returnType}].fromJSONValue(resp.contentAsJson.getOrElse(throw IllegalStateException(\"Empty response body\"))))\n"
+        s"      client.send(req).map(resp => Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\"))))\n"
       )
 
     sb.toString
+
+  private val dq = "\\\"" // produces \" in the generated source
 
   private def generateRequestBody(method: MethodDef): String =
     val sb = StringBuilder()
 
     if method.params.isEmpty then
       sb.append(s"""      val req = Request.post("${method.path}")\n""")
-      sb.append(s"""        .withJsonContent("""")
-      sb.append("""{"request":{}}""")
-      sb.append(s"""")\n""")
+      sb.append(s"""        .withJsonContent("{${dq}request${dq}:{}}")\n""")
     else
       sb.append(s"      val jsonParts = Seq(\n")
       val parts = method
         .params
         .map: p =>
           val weaverType = p.typeName.render
-          s"""        "\"${p.name}\":" + Weaver.of[${weaverType}].toJson(${p.name})"""
+          s"""        "${dq}${p.name}${dq}:" + summon[Weaver[${weaverType}]].toJson(${p.name})"""
       sb.append(parts.mkString(",\n"))
       sb.append("\n      )\n")
       sb.append(s"""      val req = Request.post("${method.path}")\n""")
       sb.append(
-        s"""        .withJsonContent("{\"request\":{" + jsonParts.mkString(",") + "}}")\n"""
+        s"""        .withJsonContent("{${dq}request${dq}:{" + jsonParts.mkString(",") + "}}")\n"""
       )
 
     sb.toString

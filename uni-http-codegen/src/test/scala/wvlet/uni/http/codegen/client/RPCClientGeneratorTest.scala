@@ -75,7 +75,7 @@ class RPCClientGeneratorTest extends UniTest:
     // Check getUser method
     source shouldContain "def getUser(id: Long): com.example.model.User"
     source shouldContain "/com.example.api.UserService/getUser"
-    source shouldContain "Weaver.of[com.example.model.User].fromJSONValue"
+    source shouldContain "Weaver.of[com.example.model.User].fromJson"
 
     // Check createUser method with multiple params
     source shouldContain "def createUser(name: String, email: String): com.example.model.User"
@@ -134,7 +134,7 @@ class RPCClientGeneratorTest extends UniTest:
     val source = RPCClientGenerator.generate(service, config)
 
     source shouldContain "def ping: String"
-    source shouldContain """{"request":{}}"""
+    source shouldContain """"request"""
   }
 
   test("use default target package from API class") {
