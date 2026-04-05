@@ -308,7 +308,8 @@ lazy val integrationTest = project
   )
   .dependsOn(bedrock, test.jvm % Test)
 
-val TEMPORAL_SDK_VERSION = "1.27.0"
+val TEMPORAL_SDK_VERSION    = "1.27.0"
+val JACKSON_SCALA_VERSION  = "2.14.2"
 
 lazy val temporalExample = project
   .in(file("uni-temporal-example"))
@@ -320,11 +321,11 @@ lazy val temporalExample = project
     ideSkipProject := false,
     libraryDependencies ++=
       Seq(
-        "io.temporal"                    % "temporal-sdk"          % TEMPORAL_SDK_VERSION,
-        "io.temporal"                    % "temporal-testing"      % TEMPORAL_SDK_VERSION % Test,
-        "com.fasterxml.jackson.module" %% "jackson-module-scala"  % "2.14.2",
+        "io.temporal"                    % "temporal-sdk"         % TEMPORAL_SDK_VERSION,
+        "io.temporal"                    % "temporal-testing"     % TEMPORAL_SDK_VERSION % Test,
+        "com.fasterxml.jackson.module" %% "jackson-module-scala" % JACKSON_SCALA_VERSION,
         // Redirect slf4j to airframe-log
-        "org.slf4j"                      % "slf4j-jdk14"          % "2.0.17"
+        "org.slf4j"                      % "slf4j-jdk14"         % "2.0.17"
       )
   )
   .dependsOn(uni.jvm, test.jvm % Test)

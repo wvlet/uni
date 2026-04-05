@@ -12,44 +12,36 @@ import wvlet.uni.test.UniTest
   */
 class HelloWorkflowTest extends UniTest:
 
-  test("HelloWorkflow returns greeting from activity") {
+  private def withHelloEnv(testCode: TestWorkflowEnvironment => Unit): Unit =
     val testEnv = TestWorkflowEnvironment.newInstance()
     try
       val worker = testEnv.newWorker(TemporalExample.TaskQueue)
       worker.registerWorkflowImplementationTypes(classOf[HelloWorkflowImpl])
       worker.registerActivitiesImplementations(GreetingActivitiesImpl())
       testEnv.start()
-
-      val stub = testEnv
-        .getWorkflowClient
-        .newWorkflowStub(
-          classOf[HelloWorkflow],
-          WorkflowOptions.newBuilder().setTaskQueue(TemporalExample.TaskQueue).build()
-        )
-
-      val result = stub.sayHello("World")
-      result shouldBe "Hello, World!"
+      testCode(testEnv)
     finally
       testEnv.close()
+
+  private def newHelloStub(testEnv: TestWorkflowEnvironment): HelloWorkflow = testEnv
+    .getWorkflowClient
+    .newWorkflowStub(
+      classOf[HelloWorkflow],
+      WorkflowOptions.newBuilder().setTaskQueue(TemporalExample.TaskQueue).build()
+    )
+
+  test("HelloWorkflow returns greeting from activity") {
+    withHelloEnv { testEnv =>
+      newHelloStub(testEnv).sayHello("World") shouldBe "Hello, World!"
+    }
   }
 
   test("HelloWorkflow greets different names") {
-    val testEnv = TestWorkflowEnvironment.newInstance()
-    try
-      val worker = testEnv.newWorker(TemporalExample.TaskQueue)
-      worker.registerWorkflowImplementationTypes(classOf[HelloWorkflowImpl])
-      worker.registerActivitiesImplementations(GreetingActivitiesImpl())
-      testEnv.start()
-
-      val client = testEnv.getWorkflowClient
+    withHelloEnv { testEnv =>
+      // Each stub is bound to a single workflow execution, so a new stub is needed per call
       for name <- Seq("Alice", "Bob", "Temporal") do
-        val stub = client.newWorkflowStub(
-          classOf[HelloWorkflow],
-          WorkflowOptions.newBuilder().setTaskQueue(TemporalExample.TaskQueue).build()
-        )
-        stub.sayHello(name) shouldBe s"Hello, ${name}!"
-    finally
-      testEnv.close()
+        newHelloStub(testEnv).sayHello(name) shouldBe s"Hello, ${name}!"
+    }
   }
 
 end HelloWorkflowTest
