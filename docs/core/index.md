@@ -13,7 +13,7 @@ The `uni` module provides essential utilities for Scala application development.
 | [MessagePack](./msgpack) | Binary serialization format |
 | [Surface](./surface) | Compile-time type introspection |
 | [FileSystem](./filesystem) | Cross-platform file I/O with IOPath |
-| [Utilities](./utilities) | ULID, DataSize, Count, ElapsedTime |
+| [Utilities](./utilities) | UUIDv7, Base62, NanoId, DataSize, Count, ElapsedTime |
 
 ## Quick Start
 
