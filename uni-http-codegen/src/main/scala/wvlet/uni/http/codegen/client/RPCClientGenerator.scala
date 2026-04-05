@@ -92,7 +92,9 @@ object RPCClientGenerator:
       sb.append(s"    def ${method.name}${paramList}: ${returnType} =\n")
       sb.append(generateRequestBody(method))
       sb.append(s"      val resp = client.send(req)\n")
-      sb.append(s"      Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(\"\"))\n")
+      sb.append(
+        s"      Weaver.of[${returnType}].fromJSONValue(resp.contentAsJson.getOrElse(throw IllegalStateException(\"Empty response body\")))\n"
+      )
 
     sb.toString
 
@@ -109,7 +111,7 @@ object RPCClientGenerator:
       sb.append(s"    def ${method.name}${paramList}: Rx[${returnType}] =\n")
       sb.append(generateRequestBody(method))
       sb.append(
-        s"      client.send(req).map(resp => Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(\"\")))\n"
+        s"      client.send(req).map(resp => Weaver.of[${returnType}].fromJSONValue(resp.contentAsJson.getOrElse(throw IllegalStateException(\"Empty response body\"))))\n"
       )
 
     sb.toString

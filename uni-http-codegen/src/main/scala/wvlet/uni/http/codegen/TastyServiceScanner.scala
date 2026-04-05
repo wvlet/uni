@@ -132,11 +132,11 @@ object TastyServiceScanner extends LogSupport:
       val rawReturnType = extractTypeRef(dd.returnTpt.tpe)
 
       // Unwrap Rx[T] to get the inner type
-      val (returnType, isAsync) =
+      val returnType =
         if rawReturnType.fullName == "wvlet.uni.rx.Rx" && rawReturnType.typeArgs.nonEmpty then
-          (rawReturnType.typeArgs.head, true)
+          rawReturnType.typeArgs.head
         else
-          (rawReturnType, false)
+          rawReturnType
 
       // Check for @Endpoint annotation
       val endpointAnnotation = findEndpointAnnotation(dd.symbol)

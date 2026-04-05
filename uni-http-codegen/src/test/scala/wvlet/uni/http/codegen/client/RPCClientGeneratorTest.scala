@@ -75,7 +75,7 @@ class RPCClientGeneratorTest extends UniTest:
     // Check getUser method
     source shouldContain "def getUser(id: Long): User"
     source shouldContain "/com.example.api.UserService/getUser"
-    source shouldContain "Weaver.of[User].fromJson"
+    source shouldContain "Weaver.of[User].fromJSONValue"
 
     // Check createUser method with multiple params
     source shouldContain "def createUser(name: String, email: String): User"

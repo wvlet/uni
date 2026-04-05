@@ -116,6 +116,6 @@ object HttpCodeGenerator extends LogSupport:
       Some(file)
     else
       debug(s"Unchanged: ${file.getAbsolutePath}")
-      Some(file)
+      None
 
 end HttpCodeGenerator
