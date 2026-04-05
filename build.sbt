@@ -133,7 +133,8 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   agent,
   bedrock,
   netty,
-  test.jvm
+  test.jvm,
+  temporalExample
 )
 
 lazy val jsProjects: Seq[ProjectReference]     = Seq(core.js, uni.js, domTest, test.js)
@@ -306,3 +307,24 @@ lazy val integrationTest = project
     ideSkipProject := false
   )
   .dependsOn(bedrock, test.jvm % Test)
+
+val TEMPORAL_SDK_VERSION = "1.27.0"
+
+lazy val temporalExample = project
+  .in(file("uni-temporal-example"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name           := "uni-temporal-example",
+    description    := "Temporal workflow example for Scala 3 usability exploration",
+    ideSkipProject := false,
+    libraryDependencies ++=
+      Seq(
+        "io.temporal"                    % "temporal-sdk"          % TEMPORAL_SDK_VERSION,
+        "io.temporal"                    % "temporal-testing"      % TEMPORAL_SDK_VERSION % Test,
+        "com.fasterxml.jackson.module" %% "jackson-module-scala"  % "2.14.2",
+        // Redirect slf4j to airframe-log
+        "org.slf4j"                      % "slf4j-jdk14"          % "2.0.17"
+      )
+  )
+  .dependsOn(uni.jvm, test.jvm % Test)
