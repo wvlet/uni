@@ -42,7 +42,7 @@ object NanoId:
     * Generate a NanoId with a custom alphabet and size.
     *
     * @param alphabet
-    *   The set of characters to use (must have 2-255 characters, no duplicates).
+    *   The set of characters to use (must have 1-255 characters, no duplicates).
     * @param size
     *   The length of the generated ID (must be > 0).
     */

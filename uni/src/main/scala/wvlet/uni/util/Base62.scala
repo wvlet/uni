@@ -28,6 +28,11 @@ object Base62:
   // Sort-order preserving alphabet: 0-9 < A-Z < a-z
   private val Alphabet: Array[Char] = (('0' to '9') ++ ('A' to 'Z') ++ ('a' to 'z')).toArray
 
+  // Pre-allocated BigInteger values for each alphabet index (0-61) to avoid repeated allocations
+  private val BigIntValues: Array[BigInteger] = (0 until 62)
+    .map(i => BigInteger.valueOf(i.toLong))
+    .toArray
+
   // Decoding table: char -> value (0-61), -1 for invalid
   private val DecodeTable: Array[Byte] =
     val table = Array.fill[Byte](128)(-1)
@@ -39,6 +44,9 @@ object Base62:
 
   // Fixed length for 128-bit values
   private val EncodedLength128 = 22
+
+  // Pre-allocated 64-bit mask for splitting 128-bit values
+  private val Mask64 = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
 
   /**
     * Encode a 128-bit value (represented as two Longs) to a 22-character Base62 string.
@@ -61,9 +69,8 @@ object Base62:
     val value = decodeBigInteger(s)
     if value.bitLength() > 128 then
       throw IllegalArgumentException(s"Base62 value exceeds 128-bit range: ${s}")
-    val mask = BigInteger.ONE.shiftLeft(64).subtract(BigInteger.ONE)
-    val low  = value.and(mask).longValue()
-    val hi   = value.shiftRight(64).and(mask).longValue()
+    val low = value.and(Mask64).longValue()
+    val hi  = value.shiftRight(64).and(Mask64).longValue()
     (hi, low)
 
   /**
@@ -94,7 +101,7 @@ object Base62:
       val v = DecodeTable(ch)
       if v < 0 then
         throw IllegalArgumentException(s"Invalid Base62 character: ${ch}")
-      result = result.multiply(Base).add(BigInteger.valueOf(v.toLong))
+      result = result.multiply(Base).add(BigIntValues(v.toInt))
       i += 1
     result
 
