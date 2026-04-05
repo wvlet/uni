@@ -19,7 +19,6 @@ import wvlet.uni.log.LogSupport
 import java.io.File
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Files, Path}
-import java.security.MessageDigest
 
 /**
   * Orchestrator for HTTP client code generation. Parses configuration strings, scans .tasty files,
@@ -92,21 +91,14 @@ object HttpCodeGenerator extends LogSupport:
     *   Configuration string (e.g., "com.example.api.UserService:rpc")
     * @param tastyFilePath
     *   Path to the .tasty file for the service trait
-    * @param classpath
-    *   Classpath entries for resolving types
     * @param outputDir
     *   Base output directory
     * @return
     *   Generated file path, or None if unchanged
     */
-  def run(
-      spec: String,
-      tastyFilePath: String,
-      classpath: List[String],
-      outputDir: File
-  ): Option[File] =
+  def run(spec: String, tastyFilePath: String, outputDir: File): Option[File] =
     val config  = parseConfig(spec)
-    val service = TastyServiceScanner.scan(tastyFilePath, classpath)
+    val service = TastyServiceScanner.scan(tastyFilePath)
     info(s"Generating ${config.clientType} client for ${service.fullName}")
     generateAndWrite(service, config, outputDir)
 
@@ -114,14 +106,8 @@ object HttpCodeGenerator extends LogSupport:
     * Write file only if content has changed (hash-based caching).
     */
   private def writeIfChanged(file: File, content: String): Option[File] =
-    val newHash = sha256(content)
-
     val needsUpdate =
-      if file.exists() then
-        val existingContent = Files.readString(file.toPath, StandardCharsets.UTF_8)
-        sha256(existingContent) != newHash
-      else
-        true
+      !file.exists() || Files.readString(file.toPath, StandardCharsets.UTF_8) != content
 
     if needsUpdate then
       file.getParentFile.mkdirs()
@@ -131,9 +117,5 @@ object HttpCodeGenerator extends LogSupport:
     else
       debug(s"Unchanged: ${file.getAbsolutePath}")
       Some(file)
-
-  private def sha256(s: String): String =
-    val digest = MessageDigest.getInstance("SHA-256")
-    digest.digest(s.getBytes(StandardCharsets.UTF_8)).map("%02x".format(_)).mkString
 
 end HttpCodeGenerator

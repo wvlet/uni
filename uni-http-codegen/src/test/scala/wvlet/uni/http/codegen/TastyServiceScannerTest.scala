@@ -33,13 +33,9 @@ class TastyServiceScannerTest extends UniTest:
     // Convert URL to file path
     File(url.toURI).getAbsolutePath
 
-  private def testClasspath: List[String] =
-    val cp = System.getProperty("java.class.path", "")
-    cp.split(File.pathSeparator).toList
-
   test("scan TestUserService trait") {
     val tastyPath = findTastyFile("wvlet.uni.http.codegen.TestUserService")
-    val service   = TastyServiceScanner.scan(tastyPath, testClasspath)
+    val service   = TastyServiceScanner.scan(tastyPath)
 
     service.packageName shouldBe "wvlet.uni.http.codegen"
     service.serviceName shouldBe "TestUserService"
@@ -68,7 +64,7 @@ class TastyServiceScannerTest extends UniTest:
 
   test("scan TestHealthService trait") {
     val tastyPath = findTastyFile("wvlet.uni.http.codegen.TestHealthService")
-    val service   = TastyServiceScanner.scan(tastyPath, testClasspath)
+    val service   = TastyServiceScanner.scan(tastyPath)
 
     service.serviceName shouldBe "TestHealthService"
     service.methods.size shouldBe 1
@@ -78,7 +74,7 @@ class TastyServiceScannerTest extends UniTest:
 
   test("scan TestOptionalParamService trait") {
     val tastyPath = findTastyFile("wvlet.uni.http.codegen.TestOptionalParamService")
-    val service   = TastyServiceScanner.scan(tastyPath, testClasspath)
+    val service   = TastyServiceScanner.scan(tastyPath)
 
     service.serviceName shouldBe "TestOptionalParamService"
     val search = service.methods.head
@@ -89,7 +85,7 @@ class TastyServiceScannerTest extends UniTest:
 
   test("scan and generate RPC client source") {
     val tastyPath = findTastyFile("wvlet.uni.http.codegen.TestUserService")
-    val service   = TastyServiceScanner.scan(tastyPath, testClasspath)
+    val service   = TastyServiceScanner.scan(tastyPath)
     val config    = CodegenConfig(
       apiClassName = service.fullName,
       clientType = ClientType.Sync,

@@ -30,12 +30,10 @@ object TastyServiceScanner extends LogSupport:
     *
     * @param tastyFilePath
     *   Path to the .tasty file
-    * @param classpath
-    *   Classpath entries needed to resolve types
     * @return
     *   ServiceDef extracted from the trait
     */
-  def scan(tastyFilePath: String, classpath: List[String]): ServiceDef =
+  def scan(tastyFilePath: String): ServiceDef =
     val result    = collection.mutable.Buffer.empty[ServiceDef]
     val inspector = ServiceInspector(result)
     TastyInspector.inspectTastyFiles(List(tastyFilePath))(inspector)
@@ -47,11 +45,25 @@ object TastyServiceScanner extends LogSupport:
   /**
     * Scan multiple .tasty files.
     */
-  def scanAll(tastyFilePaths: List[String], classpath: List[String]): Seq[ServiceDef] =
+  def scanAll(tastyFilePaths: List[String]): Seq[ServiceDef] =
     val result    = collection.mutable.Buffer.empty[ServiceDef]
     val inspector = ServiceInspector(result)
     TastyInspector.inspectTastyFiles(tastyFilePaths)(inspector)
     result.toSeq
+
+  private val excludedMethodNames = Set(
+    "<init>",
+    "hashCode",
+    "equals",
+    "toString",
+    "getClass",
+    "notify",
+    "notifyAll",
+    "wait",
+    "clone",
+    "finalize",
+    "$init$"
+  )
 
   private class ServiceInspector(result: collection.mutable.Buffer[ServiceDef]) extends Inspector:
     def inspect(using Quotes)(tastys: List[Tasty[quotes.type]]): Unit =
@@ -104,22 +116,9 @@ object TastyServiceScanner extends LogSupport:
     private def isServiceMethod(using Quotes)(dd: quotes.reflect.DefDef): Boolean =
       import quotes.reflect.*
 
-      val name          = dd.name
-      val symbol        = dd.symbol
-      val excludedNames = Set(
-        "<init>",
-        "hashCode",
-        "equals",
-        "toString",
-        "getClass",
-        "notify",
-        "notifyAll",
-        "wait",
-        "clone",
-        "finalize",
-        "$init$"
-      )
-      !excludedNames.contains(name) && !symbol.flags.is(Flags.Synthetic) &&
+      val name   = dd.name
+      val symbol = dd.symbol
+      !excludedMethodNames.contains(name) && !symbol.flags.is(Flags.Synthetic) &&
       !symbol.flags.is(Flags.Private) && !symbol.flags.is(Flags.Protected) &&
       symbol.flags.is(Flags.Deferred) // Only abstract methods
 
@@ -204,14 +203,7 @@ object TastyServiceScanner extends LogSupport:
         case tpe =>
           val fullName  = tpe.typeSymbol.fullName
           val shortName = tpe.typeSymbol.name
-          // Normalize common names
-          val normalizedShort =
-            shortName match
-              case "String" =>
-                "String"
-              case other =>
-                other
-          wvlet.uni.http.codegen.TypeRef(fullName, normalizedShort)
+          wvlet.uni.http.codegen.TypeRef(fullName, shortName)
 
     private def findEndpointAnnotation(using
         Quotes

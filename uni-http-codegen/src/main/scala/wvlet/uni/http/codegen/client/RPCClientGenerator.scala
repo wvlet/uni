@@ -37,25 +37,20 @@ object RPCClientGenerator:
 
     val sb = StringBuilder()
 
-    // Package declaration
     if targetPackage.nonEmpty then
       sb.append(s"package ${targetPackage}\n\n")
 
-    // Imports
     sb.append("import wvlet.uni.http.*\n")
     sb.append("import wvlet.uni.rx.Rx\n")
     sb.append("import wvlet.uni.weaver.Weaver\n")
     sb.append("\n")
 
-    // Object wrapper
     sb.append(s"object ${objectName}:\n\n")
 
-    // Generate SyncClient if requested
     if config.clientType == ClientType.Sync || config.clientType == ClientType.Both then
       sb.append(generateSyncClient(service))
       sb.append("\n")
 
-    // Generate AsyncClient if requested
     if config.clientType == ClientType.Async || config.clientType == ClientType.Both then
       sb.append(generateAsyncClient(service))
       sb.append("\n")
@@ -128,7 +123,6 @@ object RPCClientGenerator:
       sb.append("""{"request":{}}""")
       sb.append(s"""")\n""")
     else
-      // Build JSON body using Weaver for each parameter
       sb.append(s"      val jsonParts = Seq(\n")
       val parts = method
         .params
