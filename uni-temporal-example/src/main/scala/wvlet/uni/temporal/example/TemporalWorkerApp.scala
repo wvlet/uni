@@ -1,10 +1,11 @@
 package wvlet.uni.temporal.example
 
-import io.temporal.client.WorkflowClient
-import io.temporal.client.WorkflowOptions
+import io.temporal.client.{WorkflowClient, WorkflowClientOptions, WorkflowOptions}
 import io.temporal.serviceclient.WorkflowServiceStubs
 import io.temporal.worker.WorkerFactory
 import wvlet.uni.log.LogSupport
+
+import java.util.UUID
 
 /** Shared task-queue name used by all workers and clients in this example. */
 object TemporalExample:
@@ -28,8 +29,13 @@ object TemporalWorkerApp extends App with LogSupport:
 
   logger.info("Connecting to local Temporal dev server...")
 
-  val service = WorkflowServiceStubs.newLocalServiceStubs()
-  val client  = WorkflowClient.newInstance(service)
+  val service       = WorkflowServiceStubs.newLocalServiceStubs()
+  val clientOptions = WorkflowClientOptions
+    .newBuilder()
+    .setDataConverter(ScalaDataConverter.converter)
+    .build()
+
+  val client  = WorkflowClient.newInstance(service, clientOptions)
   val factory = WorkerFactory.newInstance(client)
 
   val worker = factory.newWorker(TemporalExample.TaskQueue)
@@ -50,8 +56,13 @@ object TemporalWorkerApp extends App with LogSupport:
   */
 object TemporalClientApp extends App with LogSupport:
 
-  val service = WorkflowServiceStubs.newLocalServiceStubs()
-  val client  = WorkflowClient.newInstance(service)
+  val service       = WorkflowServiceStubs.newLocalServiceStubs()
+  val clientOptions = WorkflowClientOptions
+    .newBuilder()
+    .setDataConverter(ScalaDataConverter.converter)
+    .build()
+
+  val client = WorkflowClient.newInstance(service, clientOptions)
 
   // --- Hello workflow ---
   val helloStub = client.newWorkflowStub(
@@ -59,7 +70,7 @@ object TemporalClientApp extends App with LogSupport:
     WorkflowOptions
       .newBuilder()
       .setTaskQueue(TemporalExample.TaskQueue)
-      .setWorkflowId("hello-workflow-1")
+      .setWorkflowId(s"hello-${UUID.randomUUID()}")
       .build()
   )
 
@@ -72,7 +83,7 @@ object TemporalClientApp extends App with LogSupport:
     WorkflowOptions
       .newBuilder()
       .setTaskQueue(TemporalExample.TaskQueue)
-      .setWorkflowId("pipeline-workflow-1")
+      .setWorkflowId(s"pipeline-${UUID.randomUUID()}")
       .build()
   )
 
