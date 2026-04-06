@@ -16,14 +16,14 @@ package wvlet.uni.sbt
 import sbt.*
 import sbt.Keys.*
 import xsbti.FileConverter
-import wvlet.uni.http.codegen.{HttpCodeGenerator, TastyServiceScanner}
+import wvlet.uni.http.codegen.{HttpCodeGenerator, ServiceScanner}
 
 /**
   * sbt 2.x plugin for generating HTTP/RPC client code from Scala 3 traits.
   *
   * Unlike sbt-airframe (which forks a JVM for code generation), this plugin runs the codegen
   * in-process. This is possible because sbt 2.x uses Scala 3 for the metabuild, so the plugin can
-  * directly call uni-http-codegen as a library.
+  * directly call uni's codegen as a library.
   *
   * Usage in build.sbt:
   * {{{
@@ -57,7 +57,6 @@ object UniHttpCodegenPlugin extends AutoPlugin:
   override def projectSettings: Seq[Setting[?]] = Seq(
     uniHttpClients := Seq.empty,
     uniHttpCodegenOutDir := (Compile / sourceManaged).value,
-
     uniHttpGenerateClient := {
       given FileConverter = fileConverter.value
       val log     = streams.value.log
@@ -68,41 +67,27 @@ object UniHttpCodegenPlugin extends AutoPlugin:
         log.debug("uniHttpClients is empty, skipping code generation")
         Seq.empty
       else
-        // Compile dependent projects first to produce .tasty files
+        // Compile dependent projects first to produce .class files
         val _ = (Compile / compile).all(dependentProjects).value
 
-        // Collect class directories from dependent projects (for .tasty file lookup)
+        // Build a classloader from dependent project class dirs + dependency JARs
         val depClassDirs: Seq[java.io.File] =
           (Compile / classDirectory).all(dependentProjects).value
-        // Also include the current project's classpath for external JARs
-        val classpathPaths: Seq[java.nio.file.Path] =
-          depClassDirs.map(_.toPath) ++ Seq((Compile / classDirectory).value.toPath)
+        val depClasspath: Seq[java.nio.file.Path] =
+          (Compile / dependencyClasspath).value.files
+        val allUrls =
+          (depClassDirs.map(_.toURI.toURL) ++ depClasspath.map(_.toUri.toURL)).toArray
+        val classLoader = java.net.URLClassLoader(allUrls, getClass.getClassLoader)
 
         val generated = clients.flatMap { spec =>
           val config    = HttpCodeGenerator.parseConfig(spec)
           val className = config.apiClassName
-
-          // Find the .tasty file in the classpath
-          val tastyRelPath = className.replace('.', '/') + ".tasty"
-          val tastyFilePath = classpathPaths
-            .map(dir => dir.resolve(tastyRelPath))
-            .find(java.nio.file.Files.exists(_))
-
-          tastyFilePath match
-            case Some(f) =>
-              log.info(s"Generating client for ${className} from ${f}")
-              val service = TastyServiceScanner.scan(f.toAbsolutePath.toString)
-              HttpCodeGenerator.generateAndWrite(service, config, outDir)
-            case None =>
-              log.error(
-                s"Could not find .tasty file for ${className}. " +
-                  s"Searched in: ${classpathPaths.mkString(", ")}"
-              )
-              None
+          log.info(s"Generating client for ${className}")
+          val service = ServiceScanner.scan(className, classLoader)
+          HttpCodeGenerator.generateAndWrite(service, config, outDir)
         }
         generated
     },
-
     // Hook into source generation so generated code is compiled with user code
     Compile / sourceGenerators += uniHttpGenerateClient
   )

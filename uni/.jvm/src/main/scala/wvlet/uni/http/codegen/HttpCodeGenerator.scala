@@ -85,20 +85,20 @@ object HttpCodeGenerator extends LogSupport:
     RPCClientGenerator.generate(service, config)
 
   /**
-    * Run the full code generation pipeline: parse config, scan .tasty, generate source, write file.
+    * Run the full code generation pipeline: parse config, scan class, generate source, write file.
     *
     * @param spec
     *   Configuration string (e.g., "com.example.api.UserService:rpc")
-    * @param tastyFilePath
-    *   Path to the .tasty file for the service trait
+    * @param classLoader
+    *   ClassLoader that can find the compiled service class
     * @param outputDir
     *   Base output directory
     * @return
     *   Generated file path, or None if unchanged
     */
-  def run(spec: String, tastyFilePath: String, outputDir: File): Option[File] =
+  def run(spec: String, classLoader: ClassLoader, outputDir: File): Option[File] =
     val config  = parseConfig(spec)
-    val service = TastyServiceScanner.scan(tastyFilePath)
+    val service = ServiceScanner.scan(config.apiClassName, classLoader)
     info(s"Generating ${config.clientType} client for ${service.fullName}")
     generateAndWrite(service, config, outputDir)
 

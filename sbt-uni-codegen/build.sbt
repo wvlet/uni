@@ -45,9 +45,10 @@ lazy val sbtUniCodegen = project
           url = url("http://xerial.org/leo")
         )
       ),
-    // uni-http-codegen runs in-process (Scala 3 metabuild enables this)
+    // uni runs in-process (Scala 3 metabuild enables this)
+    // Codegen logic lives in uni's JVM-specific code (wvlet.uni.http.codegen)
     libraryDependencies ++= Seq(
-      "org.wvlet.uni" %% "uni-http-codegen" % UNI_VERSION
+      "org.wvlet.uni" %% "uni" % UNI_VERSION
     ),
     scriptedLaunchOpts := {
       scriptedLaunchOpts.value ++ Seq(
