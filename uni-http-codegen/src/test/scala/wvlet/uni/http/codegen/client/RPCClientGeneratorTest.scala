@@ -59,30 +59,22 @@ class RPCClientGeneratorTest extends UniTest:
     )
     val source = RPCClientGenerator.generate(testService, config)
 
-    // Check package declaration
     source shouldContain "package com.example.client"
-
-    // Check imports
     source shouldContain "import wvlet.uni.http.*"
-    source shouldContain "import wvlet.uni.json.JSON"
-    source shouldContain "import wvlet.uni.json.JSON.JSONObject"
-    source shouldContain "import wvlet.uni.weaver.Weaver"
-
-    // Check object wrapper
+    source shouldContain "import wvlet.uni.http.rpc.RPCClient"
+    source shouldContain "import wvlet.uni.surface.Surface"
     source shouldContain "object UserServiceClient:"
-
-    // Check SyncClient class
     source shouldContain "class SyncClient(client: HttpSyncClient):"
 
-    // Check getUser method
+    // RPCClient.build uses Surface inline
+    source shouldContain "Surface.of[com.example.api.UserService]"
+    source shouldContain "Surface.methodsOf[com.example.api.UserService]"
+
+    // Methods delegate to rpc.callSync
     source shouldContain "def getUser(id: Long): com.example.model.User"
-    source shouldContain "/com.example.api.UserService/getUser"
-    source shouldContain "Weaver.of[com.example.model.User].fromJson"
-
-    // Check createUser method with multiple params
+    source shouldContain """rpc.callSync[com.example.model.User](client, "getUser", Seq(id))"""
     source shouldContain "def createUser(name: String, email: String): com.example.model.User"
-
-    // Check deleteUser returns Unit
+    source shouldContain """Seq(name, email)"""
     source shouldContain "def deleteUser(id: Long): Unit"
   }
 
@@ -94,14 +86,10 @@ class RPCClientGeneratorTest extends UniTest:
     )
     val source = RPCClientGenerator.generate(testService, config)
 
-    // Check AsyncClient class
     source shouldContain "class AsyncClient(client: HttpAsyncClient):"
-
-    // Check async return types
     source shouldContain "def getUser(id: Long): Rx[com.example.model.User]"
+    source shouldContain """rpc.callAsync[com.example.model.User](client, "getUser", Seq(id))"""
     source shouldContain "def deleteUser(id: Long): Rx[Unit]"
-
-    // Should NOT have SyncClient
     (source.contains("class SyncClient")) shouldBe false
   }
 
@@ -136,7 +124,7 @@ class RPCClientGeneratorTest extends UniTest:
     val source = RPCClientGenerator.generate(service, config)
 
     source shouldContain "def ping: String"
-    source shouldContain "JSONObject.empty"
+    source shouldContain "Seq.empty"
   }
 
   test("use default target package from API class") {
@@ -146,7 +134,6 @@ class RPCClientGeneratorTest extends UniTest:
     )
     val source = RPCClientGenerator.generate(testService, config)
 
-    // Should use the API class's own package
     source shouldContain "package com.example.api"
   }
 
