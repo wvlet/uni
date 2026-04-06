@@ -28,14 +28,14 @@ import wvlet.uni.http.codegen.{HttpCodeGenerator, ServiceScanner}
   * Usage in build.sbt:
   * {{{
   * lazy val app = project
-  *   .enablePlugins(UniHttpCodegenPlugin)
+  *   .enablePlugins(UniPlugin)
   *   .settings(
   *     uniHttpClients := Seq("com.example.api.UserService:rpc")
   *   )
   *   .dependsOn(api) // project containing the service trait
   * }}}
   */
-object UniHttpCodegenPlugin extends AutoPlugin:
+object UniPlugin extends AutoPlugin:
 
   object autoImport:
     val uniHttpClients = settingKey[Seq[String]](
@@ -95,4 +95,4 @@ object UniHttpCodegenPlugin extends AutoPlugin:
   private def dependentProjects: ScopeFilter =
     ScopeFilter(inDependencies(ThisProject, transitive = true, includeRoot = false))
 
-end UniHttpCodegenPlugin
+end UniPlugin

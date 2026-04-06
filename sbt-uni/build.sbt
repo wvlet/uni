@@ -1,6 +1,5 @@
-// sbt-uni-codegen: sbt 2.x plugin for generating HTTP/RPC client code
-// This plugin is written in Scala 3 (sbt 2.x metabuild) and directly calls
-// uni-http-codegen as an in-process library — no forked JVM needed.
+// sbt-uni: sbt 2.x plugin for uni
+// Written in Scala 3 (sbt 2.x metabuild), directly calls uni as an in-process library.
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -18,15 +17,14 @@ ThisBuild / publishTo := {
     localStaging.value
 }
 
-// Read uni-http-codegen version from environment or use snapshot
 val UNI_VERSION = sys.env.getOrElse("UNI_VERSION", "0.0.1-SNAPSHOT")
 
-lazy val sbtUniCodegen = project
+lazy val sbtUni = project
   .in(file("."))
   .enablePlugins(SbtPlugin)
   .settings(
-    name        := "sbt-uni-codegen",
-    description := "sbt plugin for generating HTTP/RPC client code from Scala 3 traits",
+    name        := "sbt-uni",
+    description := "sbt plugin for uni",
     licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
     homepage := Some(url("https://github.com/wvlet/uni")),
     scmInfo :=
@@ -46,7 +44,6 @@ lazy val sbtUniCodegen = project
         )
       ),
     // uni runs in-process (Scala 3 metabuild enables this)
-    // Codegen logic lives in uni's JVM-specific code (wvlet.uni.http.codegen)
     libraryDependencies ++= Seq(
       "org.wvlet.uni" %% "uni" % UNI_VERSION
     ),

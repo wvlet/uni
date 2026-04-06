@@ -9,7 +9,7 @@ lazy val api = project
 
 lazy val app = project
   .in(file("app"))
-  .enablePlugins(UniHttpCodegenPlugin)
+  .enablePlugins(UniPlugin)
   .settings(
     scalaVersion := "3.8.3",
     uniHttpClients := Seq("example.api.GreetingService:rpc:example.client"),

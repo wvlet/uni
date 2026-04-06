@@ -29,7 +29,7 @@ Generate type-safe RPC client code from Scala 3 service traits via an sbt 2 plug
 | `HttpCodeGenerator` | `uni/.jvm/.../codegen/HttpCodeGenerator.scala` | Orchestrator: config parsing → scanning → generation → file writing |
 | `HttpClientIR` | `uni/.jvm/.../codegen/HttpClientIR.scala` | IR data model: ServiceDef, MethodDef, TypeRef, CodegenConfig |
 | `CodeFormatter` | `uni-core/src/.../text/CodeFormatter.scala` | Wadler pretty printer (cross-platform, reusable) |
-| `UniHttpCodegenPlugin` | `sbt-uni-codegen/.../UniHttpCodegenPlugin.scala` | sbt 2.0.0-RC10 AutoPlugin |
+| `UniPlugin` | `sbt-uni/.../UniPlugin.scala` | sbt 2.0.0-RC10 AutoPlugin |
 
 ### Generated Code Shape
 
@@ -61,7 +61,7 @@ end UserServiceClient
 - [x] `RPCClientGenerator` — Doc-tree code generation with CodeFormatter
 - [x] `HttpCodeGenerator` — orchestrator with config parsing and file caching
 - [x] `CodeFormatter` in uni-core — Wadler pretty printer (ported from wvlet)
-- [x] `sbt-uni-codegen/` — sbt 2.0.0-RC10 plugin with scripted test
+- [x] `sbt-uni/` — sbt 2.0.0-RC10 plugin with scripted test
 - [x] All codegen merged into `uni` module (no separate `uni-http-codegen`)
 
 ## Future
