@@ -14,139 +14,131 @@
 package wvlet.uni.http.codegen.client
 
 import wvlet.uni.http.codegen.*
+import wvlet.uni.text.CodeFormatter
+import wvlet.uni.text.CodeFormatter.*
+import wvlet.uni.text.CodeFormatterConfig
 
 /**
   * Generates type-safe RPC client source code from a ServiceDef. RPC clients send all requests as
   * POST with JSON body in the {"request": {...}} envelope format.
+  *
+  * Uses CodeFormatter's Doc tree for structured code generation, avoiding ad-hoc string escaping.
   */
 object RPCClientGenerator:
 
+  private val formatter = CodeFormatter(CodeFormatterConfig(indentWidth = 2, maxLineWidth = 100))
+
   /**
     * Generate complete Scala source for an RPC client object.
-    *
-    * @param service
-    *   Service definition extracted from trait
-    * @param config
-    *   Code generation configuration
-    * @return
-    *   Generated Scala source code string
     */
   def generate(service: ServiceDef, config: CodegenConfig): String =
+    val doc = buildDoc(service, config)
+    formatter.format(doc) + "\n"
+
+  private def buildDoc(service: ServiceDef, config: CodegenConfig): Doc =
     val targetPackage = config.resolvedTargetPackage
     val objectName    = s"${service.serviceName}Client"
 
-    val sb = StringBuilder()
+    val packageDecl =
+      if targetPackage.nonEmpty then
+        text(s"package ${targetPackage}") / empty
+      else
+        empty
 
-    if targetPackage.nonEmpty then
-      sb.append(s"package ${targetPackage}\n\n")
+    val imports = lines(
+      List(
+        text("import wvlet.uni.http.*"),
+        text("import wvlet.uni.rx.Rx"),
+        text("import wvlet.uni.weaver.Weaver"),
+        text("import wvlet.uni.weaver.codec.PrimitiveWeaver.given")
+      )
+    )
 
-    sb.append("import wvlet.uni.http.*\n")
-    sb.append("import wvlet.uni.rx.Rx\n")
-    sb.append("import wvlet.uni.weaver.Weaver\n")
-    sb.append("import wvlet.uni.weaver.codec.PrimitiveWeaver.given\n")
-    sb.append("\n")
+    val clients = List.concat(
+      Option.when(config.clientType == ClientType.Sync || config.clientType == ClientType.Both)(
+        buildSyncClient(service)
+      ),
+      Option.when(config.clientType == ClientType.Async || config.clientType == ClientType.Both)(
+        buildAsyncClient(service)
+      )
+    )
+    val objectBody = verticalAppend(clients, empty)
 
-    sb.append(s"object ${objectName}:\n\n")
+    packageDecl / imports / empty / text(s"object ${objectName}:") +
+      nest(newline / objectBody) / empty / text(s"end ${objectName}")
 
-    if config.clientType == ClientType.Sync || config.clientType == ClientType.Both then
-      sb.append(generateSyncClient(service))
-      sb.append("\n")
+  end buildDoc
 
-    if config.clientType == ClientType.Async || config.clientType == ClientType.Both then
-      sb.append(generateAsyncClient(service))
-      sb.append("\n")
+  private def buildSyncClient(service: ServiceDef): Doc =
+    val methods = service.methods.map(buildSyncMethod).toList
+    val body    = verticalAppend(methods, empty)
+    text("class SyncClient(client: HttpSyncClient):") +
+      nest(newline + body) / empty / text("end SyncClient")
 
-    sb.append(s"end ${objectName}\n")
-    sb.toString
+  private def buildAsyncClient(service: ServiceDef): Doc =
+    val methods = service.methods.map(buildAsyncMethod).toList
+    val body    = verticalAppend(methods, empty)
+    text("class AsyncClient(client: HttpAsyncClient):") +
+      nest(newline + body) / empty / text("end AsyncClient")
 
-  end generate
-
-  private def generateSyncClient(service: ServiceDef): String =
-    val sb = StringBuilder()
-    sb.append("  class SyncClient(client: HttpSyncClient):\n")
-    for method <- service.methods do
-      sb.append(generateSyncMethod(method))
-      sb.append("\n")
-    sb.append("  end SyncClient\n")
-    sb.toString
-
-  private def generateAsyncClient(service: ServiceDef): String =
-    val sb = StringBuilder()
-    sb.append("  class AsyncClient(client: HttpAsyncClient):\n")
-    for method <- service.methods do
-      sb.append(generateAsyncMethod(method))
-      sb.append("\n")
-    sb.append("  end AsyncClient\n")
-    sb.toString
-
-  private def generateSyncMethod(method: MethodDef): String =
-    val sb         = StringBuilder()
+  private def buildSyncMethod(method: MethodDef): Doc =
     val paramList  = renderParamList(method.params)
     val returnType = method.returnType.render
+    val reqBody    = buildRequestBody(method)
 
     if method.returnType.isUnit then
-      sb.append(s"    def ${method.name}${paramList}: Unit =\n")
-      sb.append(generateRequestBody(method))
-      sb.append(s"      client.send(req)\n")
-      sb.append(s"      ()\n")
+      text(s"def ${method.name}${paramList}: Unit =") +
+        nest(newline + reqBody / text("client.send(req)") / text("()"))
     else
-      sb.append(s"    def ${method.name}${paramList}: ${returnType} =\n")
-      sb.append(generateRequestBody(method))
-      sb.append(s"      val resp = client.send(req)\n")
-      sb.append(
-        s"      Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\")))\n"
-      )
+      text(s"def ${method.name}${paramList}: ${returnType} =") +
+        nest(
+          newline +
+            reqBody / text("val resp = client.send(req)") /
+            text(
+              s"Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\")))"
+            )
+        )
 
-    sb.toString
-
-  private def generateAsyncMethod(method: MethodDef): String =
-    val sb         = StringBuilder()
+  private def buildAsyncMethod(method: MethodDef): Doc =
     val paramList  = renderParamList(method.params)
     val returnType = method.returnType.render
+    val reqBody    = buildRequestBody(method)
 
     if method.returnType.isUnit then
-      sb.append(s"    def ${method.name}${paramList}: Rx[Unit] =\n")
-      sb.append(generateRequestBody(method))
-      sb.append(s"      client.send(req).map(_ => ())\n")
+      text(s"def ${method.name}${paramList}: Rx[Unit] =") +
+        nest(newline + reqBody / text("client.send(req).map(_ => ())"))
     else
-      sb.append(s"    def ${method.name}${paramList}: Rx[${returnType}] =\n")
-      sb.append(generateRequestBody(method))
-      sb.append(
-        s"      client.send(req).map(resp => Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\"))))\n"
-      )
+      text(s"def ${method.name}${paramList}: Rx[${returnType}] =") +
+        nest(
+          newline +
+            reqBody /
+            text(
+              s"client.send(req).map(resp => Weaver.of[${returnType}].fromJson(resp.contentAsString.getOrElse(throw IllegalStateException(\"Empty response body\"))))"
+            )
+        )
 
-    sb.toString
-
-  private val dq = "\\\"" // produces \" in the generated source
-
-  private def generateRequestBody(method: MethodDef): String =
-    val sb = StringBuilder()
-
+  private def buildRequestBody(method: MethodDef): Doc =
     if method.params.isEmpty then
-      sb.append(s"""      val req = Request.post("${method.path}")\n""")
-      sb.append(s"""        .withJsonContent("{${dq}request${dq}:{}}")\n""")
+      text(s"""val req = Request.post("${method.path}")""") /
+        text("""  .withJsonContent("{\"request\":{}}")""")
     else
-      sb.append(s"      val jsonParts = Seq(\n")
-      val parts = method
+      val jsonParts = method
         .params
         .map: p =>
           val weaverType = p.typeName.render
-          s"""        "${dq}${p.name}${dq}:" + summon[Weaver[${weaverType}]].toJson(${p.name})"""
-      sb.append(parts.mkString(",\n"))
-      sb.append("\n      )\n")
-      sb.append(s"""      val req = Request.post("${method.path}")\n""")
-      sb.append(
-        s"""        .withJsonContent("{${dq}request${dq}:{" + jsonParts.mkString(",") + "}}")\n"""
-      )
+          text(s""""\\\"${p.name}\\\":" + summon[Weaver[${weaverType}]].toJson(${p.name})""")
+      val seqItems = cl(jsonParts*)
 
-    sb.toString
+      text("val jsonParts = Seq(") +
+        nest(newline + seqItems) /
+        text(")") / text(s"""val req = Request.post("${method.path}")""") /
+        text("""  .withJsonContent("{\"request\":{" + jsonParts.mkString(",") + "}}")""")
 
   private def renderParamList(params: Seq[ParamDef]): String =
     if params.isEmpty then
       ""
     else
-      val rendered = params.map: p =>
-        s"${p.name}: ${p.typeName.render}"
+      val rendered = params.map(p => s"${p.name}: ${p.typeName.render}")
       s"(${rendered.mkString(", ")})"
 
 end RPCClientGenerator
