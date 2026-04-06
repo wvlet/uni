@@ -210,4 +210,42 @@ class UUIDv7Test extends UniTest:
       "Bytes do not represent a valid UUIDv7 structure (version/variant mismatch)"
   }
 
+  test("UUIDv7.toBase62 produces 22-character string") {
+    val uuid   = UUIDv7.newUUIDv7()
+    val base62 = uuid.toBase62
+    base62.length shouldBe 22
+    (Base62.isValid(base62) shouldBe true)
+  }
+
+  test("UUIDv7 Base62 roundtrip") {
+    for _ <- 0 until 100 do
+      val original  = UUIDv7.newUUIDv7()
+      val base62    = original.toBase62
+      val recovered = UUIDv7.fromBase62(base62)
+      recovered shouldBe original
+      recovered.timestamp shouldBe original.timestamp
+  }
+
+  test("UUIDv7 Base62 sort order preserved") {
+    val uuids   = (1 to 50).map(_ => UUIDv7.newUUIDv7())
+    val base62s = uuids.map(_.toBase62)
+    base62s
+      .sliding(2)
+      .foreach { pair =>
+        val a = pair(0)
+        val b = pair(1)
+        assert(a < b, s"Expected ${a} < ${b}")
+      }
+  }
+
+  test("UUIDv7.fromBase62 rejects invalid UUIDv7 (wrong version)") {
+    // Encode a non-UUIDv7 value
+    val msbV4  = (0x1111222233334444L & ~0x000000000000f000L) | (4L << 12)
+    val lsbV4  = (0x5555666677778888L & ~0xc000000000000000L) | (2L << 62)
+    val base62 = Base62.encode128bits(msbV4, lsbV4)
+    intercept[IllegalArgumentException] {
+      UUIDv7.fromBase62(base62)
+    }
+  }
+
 end UUIDv7Test
