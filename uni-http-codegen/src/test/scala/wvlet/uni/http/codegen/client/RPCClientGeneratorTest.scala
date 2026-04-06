@@ -64,6 +64,8 @@ class RPCClientGeneratorTest extends UniTest:
 
     // Check imports
     source shouldContain "import wvlet.uni.http.*"
+    source shouldContain "import wvlet.uni.json.JSON"
+    source shouldContain "import wvlet.uni.json.JSON.JSONObject"
     source shouldContain "import wvlet.uni.weaver.Weaver"
 
     // Check object wrapper
@@ -134,7 +136,7 @@ class RPCClientGeneratorTest extends UniTest:
     val source = RPCClientGenerator.generate(service, config)
 
     source shouldContain "def ping: String"
-    source shouldContain """"request"""
+    source shouldContain "JSONObject.empty"
   }
 
   test("use default target package from API class") {

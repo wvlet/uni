@@ -22,7 +22,8 @@ import wvlet.uni.text.CodeFormatterConfig
   * Generates type-safe RPC client source code from a ServiceDef. RPC clients send all requests as
   * POST with JSON body in the {"request": {...}} envelope format.
   *
-  * Uses CodeFormatter's Doc tree for structured code generation, avoiding ad-hoc string escaping.
+  * Uses CodeFormatter's Doc tree for structured code generation. JSON request bodies are built
+  * using uni's JSON codec (JSONObject) instead of manual string concatenation.
   */
 object RPCClientGenerator:
 
@@ -48,6 +49,8 @@ object RPCClientGenerator:
     val imports = lines(
       List(
         text("import wvlet.uni.http.*"),
+        text("import wvlet.uni.json.JSON"),
+        text("import wvlet.uni.json.JSON.JSONObject"),
         text("import wvlet.uni.rx.Rx"),
         text("import wvlet.uni.weaver.Weaver"),
         text("import wvlet.uni.weaver.codec.PrimitiveWeaver.given")
@@ -70,11 +73,6 @@ object RPCClientGenerator:
 
   /**
     * Build an indented Scala 3 block: header + nested body + end marker
-    *
-    * @param header
-    *   Full header text (e.g., "object Foo", "class Bar(x: Int)")
-    * @param endLabel
-    *   Label for the end marker (e.g., "Foo", "Bar")
     */
   private def indentedBlock(header: String, endLabel: String, body: Doc): Doc =
     text(s"${header}:") + nest(newline / body) / empty / text(s"end ${endLabel}")
@@ -113,18 +111,21 @@ object RPCClientGenerator:
   private def buildRequestBody(method: MethodDef): Doc =
     val postReq = text(s"""Request.post("${method.path}")""")
     if method.params.isEmpty then
-      text("val req =") + ws + postReq / nest(text(""".withJsonContent("{\"request\":{}}")"""))
+      text("val requestBody = JSONObject(Seq(\"request\" -> JSONObject.empty))") /
+        text("val req =") + ws + postReq + nest(newline + text(".withJsonContent(requestBody)"))
     else
-      val jsonParts = method
+      val paramFields = method
         .params
         .map: p =>
           val weaverType = p.typeName.render
-          text(s""""\\\"${p.name}\\\":" + summon[Weaver[${weaverType}]].toJson(${p.name})""")
-      val seqItems = cl(jsonParts.toList*)
+          text(s""""${p.name}" -> JSON.parse(summon[Weaver[${weaverType}]].toJson(${p.name}))""")
+      val fieldList = cl(paramFields.toList*)
 
-      text("val jsonParts = Seq(") + nest(newline + seqItems) / text(")") / text("val req =") + ws +
-        postReq /
-        nest(text(""".withJsonContent("{\"request\":{" + jsonParts.mkString(",") + "}}")"""))
+      text("val requestBody = JSONObject(Seq(") +
+        nest(
+          newline + text("\"request\" -> JSONObject(Seq(") + nest(newline + fieldList) / text("))")
+        ) / text("))") / text("val req =") + ws + postReq +
+        nest(newline + text(".withJsonContent(requestBody)"))
 
   private def decodeResponse(method: MethodDef): Doc =
     val rt = method.returnType.render
