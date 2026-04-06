@@ -145,9 +145,7 @@ jobs:
           java-version: '23'
           cache: sbt
       - name: Install sbt
-        run: |
-          cs install sbt
-          echo "$HOME/.local/share/coursier/bin" >> "$GITHUB_PATH"
+        uses: sbt/setup-sbt@v1
       - name: Publish uni locally and get version
         id: publish
         run: |
