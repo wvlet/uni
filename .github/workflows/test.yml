@@ -144,13 +144,19 @@ jobs:
           distribution: 'temurin'
           java-version: '23'
           cache: sbt
-      - name: Publish uni locally
-        run: ./sbt "coreJVM/publishLocal; uniJVM/publishLocal"
+      - name: Install sbt
+        run: |
+          cs install sbt
+          echo "$HOME/.local/share/coursier/bin" >> "$GITHUB_PATH"
+      - name: Publish uni locally and get version
+        id: publish
+        run: |
+          ./sbt "coreJVM/publishLocal; uniJVM/publishLocal"
+          UNI_VERSION=$(./sbt --no-colors "print uniJVM/version" 2>/dev/null | tail -1 | tr -d '[:space:]')
+          echo "UNI_VERSION=${UNI_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Build and test sbt plugin
         working-directory: sbt-uni-codegen
-        run: |
-          UNI_VERSION=$(cd .. && ./sbt "print uniJVM/version" | tail -1)
-          UNI_VERSION=$UNI_VERSION sbt "publishLocal; scripted"
+        run: UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "publishLocal; scripted"
   test_integration:
     name: Integration test
     needs: changes
