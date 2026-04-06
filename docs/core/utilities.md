@@ -56,11 +56,16 @@ val gen2 = UUIDv7.createGenerator(new scala.util.Random(42))
 Sort-order preserving encoding using the `0-9A-Za-z` alphabet (62 characters). Encodes 128-bit values to compact 22-character URL-safe strings. Use `UUIDv7.toBase62` / `UUIDv7.fromBase62` for the common case.
 
 ```scala
-import wvlet.uni.util.Base62
+import wvlet.uni.util.{Base62, UUIDv7}
 
-// Encode / decode 128-bit values directly
-val encoded: String = Base62.encode128bits(hi, low)        // 22 chars
-val (hi, low): (Long, Long) = Base62.decode128bits(encoded)
+// Most common usage: via UUIDv7
+val id = UUIDv7.newUUIDv7()
+val encoded: String = id.toBase62                           // 22 chars
+val decoded: UUIDv7 = UUIDv7.fromBase62(encoded)
+
+// Encode / decode raw 128-bit values
+val raw: String = Base62.encode128bits(0x0123456789abcdefL, 0xfedcba9876543210L)
+val (hi, low): (Long, Long) = Base62.decode128bits(raw)
 
 // Validate
 Base62.isValid("0K9mFb3xYz1Qw5Rv8NpJ2a")  // true

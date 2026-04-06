@@ -112,11 +112,12 @@ object Base62:
     ch < 128 && DecodeTable(ch) >= 0
   }
 
+  private val TwoTo63 = BigInteger.ONE.shiftLeft(63)
+
   private def toUnsignedBigInteger(v: Long): BigInteger =
     if v >= 0 then
       BigInteger.valueOf(v)
     else
-      // Treat as unsigned: add 2^64
-      BigInteger.valueOf(v & Long.MaxValue).add(BigInteger.ONE.shiftLeft(63))
+      BigInteger.valueOf(v & Long.MaxValue).add(TwoTo63)
 
 end Base62

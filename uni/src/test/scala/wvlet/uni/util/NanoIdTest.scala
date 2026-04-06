@@ -58,9 +58,8 @@ class NanoIdTest extends UniTest:
   }
 
   test("generate with custom random source") {
-    val random = new scala.util.Random(42)
-    val id1    = NanoId.generate(NanoId.DefaultAlphabet, 21, new scala.util.Random(42))
-    val id2    = NanoId.generate(NanoId.DefaultAlphabet, 21, new scala.util.Random(42))
+    val id1 = NanoId.generate(NanoId.DefaultAlphabet, 21, new scala.util.Random(42))
+    val id2 = NanoId.generate(NanoId.DefaultAlphabet, 21, new scala.util.Random(42))
     id1 shouldBe id2
   }
 
