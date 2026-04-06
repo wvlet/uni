@@ -150,11 +150,14 @@ jobs:
         id: publish
         run: |
           ./sbt "coreJVM/publishLocal; uniJVM/publishLocal"
-          UNI_VERSION=$(./sbt --no-colors "print uniJVM/version" 2>/dev/null | tail -1 | tr -d '[:space:]')
+          UNI_VERSION=$(./sbt "print uniJVM/version" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^[0-9]' | tail -1 | tr -d '[:space:]')
+          echo "UNI_VERSION=${UNI_VERSION}"
           echo "UNI_VERSION=${UNI_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Build and test sbt plugin
         working-directory: sbt-uni-codegen
-        run: UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "publishLocal; scripted"
+        run: |
+          echo "Using UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }}"
+          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "publishLocal; scripted"
   test_integration:
     name: Integration test
     needs: changes
