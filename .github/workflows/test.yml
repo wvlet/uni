@@ -132,6 +132,32 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Verify packageSrc (detect cross-platform class name conflicts)
         run: ./sbt "projectJVM/packageSrc" "projectJS/packageSrc" "projectNative/packageSrc"
+  test_sbt_plugin:
+    name: sbt plugin scripted test
+    needs: changes
+    if: ${{ needs.changes.outputs.src == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      - name: Publish uni locally and get version
+        id: publish
+        run: |
+          ./sbt "coreJVM/publishLocal; uniJVM/publishLocal"
+          UNI_VERSION=$(./sbt "print uniJVM/version" 2>/dev/null | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^[0-9]' | tail -1 | tr -d '[:space:]')
+          echo "UNI_VERSION=${UNI_VERSION}"
+          echo "UNI_VERSION=${UNI_VERSION}" >> "$GITHUB_OUTPUT"
+      - name: Build and test sbt plugin
+        working-directory: sbt-uni
+        run: |
+          echo "Using UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }}"
+          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "publishLocal; scripted"
   test_integration:
     name: Integration test
     needs: changes

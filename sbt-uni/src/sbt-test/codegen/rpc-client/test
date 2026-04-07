@@ -1,0 +1,2 @@
+# Verify that code generation + compilation works end-to-end
+> app/compile
