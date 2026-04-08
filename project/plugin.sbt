@@ -6,7 +6,7 @@ ThisBuild / libraryDependencySchemes ++=
     "org.scala-lang.modules" %% "scala-parser-combinators" % "always"
   )
 
-val AIRFRAME_VERSION = "2026.1.4"
+val AIRFRAME_VERSION = "2026.1.5"
 
 // For GPG signing published artifacts
 addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.1")
