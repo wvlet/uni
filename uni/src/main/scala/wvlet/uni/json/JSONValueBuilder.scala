@@ -58,13 +58,10 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       private val list                                         = Seq.newBuilder[(String, JSONValue)]
       override def closeContext(s: JSONSource, end: Int): Unit =
         val r = result
-        // Remaining comments at end of container
         if pendingLeadingComments.nonEmpty then
           if lastAddedValue != null then
-            // Attach as trailing on last element
             lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
           else
-            // Empty container: attach comments to the container itself
             r.leadingComments = pendingLeadingComments.toSeq
           pendingLeadingComments.clear()
         self.add(r)
@@ -84,7 +81,6 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       override def isObjectContext: Boolean                    = false
       override def closeContext(s: JSONSource, end: Int): Unit =
         val r = result
-        // Remaining comments at end of container
         if pendingLeadingComments.nonEmpty then
           if lastAddedValue != null then
             lastAddedValue.trailingComment = Some(pendingLeadingComments.head)

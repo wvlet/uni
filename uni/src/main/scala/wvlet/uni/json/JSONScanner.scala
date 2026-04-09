@@ -254,17 +254,19 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       f"Found '${String.valueOf(char.toChar)}' 0x${char}%02x. expected: ${expected}"
     )
 
+  private def flushHandlerComments(): Unit =
+    handler match
+      case ctx: JSONContext[J @unchecked] =>
+        flushComments(ctx)
+      case _ =>
+        commentBuffer.clear()
+
   def scan: Unit =
     try
       skipWhiteSpaces
       if cursor >= s.length then
         throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
-      // Flush leading comments to handler (root context)
-      handler match
-        case ctx: JSONContext[J @unchecked] =>
-          flushComments(ctx)
-        case _ =>
-          commentBuffer.clear()
+      flushHandlerComments()
       (s(cursor): @switch) match
         case LBracket =>
           cursor += 1
@@ -274,13 +276,8 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
           rscan(ARRAY_START, handler.arrayContext(s, cursor - 1) :: Nil)
         case other =>
           throw unexpected("object or array")
-      // Scan trailing comments after the root value
       skipWhiteSpaces
-      handler match
-        case ctx: JSONContext[J @unchecked] =>
-          flushComments(ctx)
-        case _ =>
-          commentBuffer.clear()
+      flushHandlerComments()
     catch
       case e: ArrayIndexOutOfBoundsException =>
         throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, s"Unexpected EOF")
@@ -316,16 +313,12 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
         markValueLine()
       case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
         scanNumber(ctx)
-        markValueLine()
       case 't' =>
         scanTrue(ctx)
-        markValueLine()
       case 'f' =>
         scanFalse(ctx)
-        markValueLine()
       case 'n' =>
         scanNull(ctx)
-        markValueLine()
       case _ =>
         throw unexpected("unknown json token")
     end match
@@ -356,7 +349,6 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
         val ctx = stack.head
         if (ch >= '0' && ch <= '9') || ch == '-' then
           scanNumber(ctx)
-          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == DoubleQuote then
           scanString(ctx)
@@ -364,15 +356,12 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
           rscan(ctx.endScannerState, stack)
         else if ch == 't' then
           scanTrue(ctx)
-          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == 'f' then
           scanFalse(ctx)
-          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == 'n' then
           scanNull(ctx)
-          markValueLine()
           rscan(ctx.endScannerState, stack)
         // Trailing comma support: closing bracket after comma in DATA state
         else if (ch == RSquare && !stack.head.isObjectContext) ||
@@ -502,6 +491,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     val numberEnd = cursor
     if numberStart < numberEnd then
       ctx.addNumber(s, numberStart, numberEnd, dotIndex, expIndex)
+    markValueLine()
 
   end scanNumber
 
@@ -519,6 +509,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if s(cursor) == 't' && s(cursor + 1) == 'r' && s(cursor + 2) == 'u' && s(cursor + 3) == 'e' then
       cursor += 4
       ctx.addBoolean(s, true, cursor - 4, cursor)
+      markValueLine()
     else
       throw unexpected("true")
 
@@ -529,6 +520,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     then
       cursor += 5
       ctx.addBoolean(s, false, cursor - 5, cursor)
+      markValueLine()
     else
       throw unexpected("false")
 
@@ -537,6 +529,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     if s(cursor) == 'n' && s(cursor + 1) == 'u' && s(cursor + 2) == 'l' && s(cursor + 3) == 'l' then
       cursor += 4
       ctx.addNull(s, cursor - 4, cursor)
+      markValueLine()
     else
       throw unexpected("null")
 

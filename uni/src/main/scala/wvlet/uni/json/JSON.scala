@@ -168,22 +168,24 @@ object JSON extends LogSupport:
       this match
         case x: JSONObject =>
           sb.append("{")
-          val entries = x.v.toIndexedSeq
-          for i <- entries.indices do
-            val (k, v) = entries(i)
+          var first = true
+          for (k, v) <- x.v do
+            if !first then
+              sb.append(",")
             sb.append("\"")
             sb.append(quoteJSONString(k))
             sb.append("\":")
             sb.append(v.toJSONC)
-            if i < entries.size - 1 then
-              sb.append(",")
+            first = false
           sb.append("}")
         case x: JSONArray =>
           sb.append("[")
-          for i <- x.v.indices do
-            sb.append(x.v(i).toJSONC)
-            if i < x.v.size - 1 then
+          var first = true
+          for elem <- x.v do
+            if !first then
               sb.append(",")
+            sb.append(elem.toJSONC)
+            first = false
           sb.append("]")
         case _ =>
           sb.append(toJSON)
