@@ -164,7 +164,9 @@ val config = JSON.parse("""
 Comments are preserved as mutable metadata on value nodes for round-tripping:
 
 ```scala
-val v = JSON.parse("""{"key": "value" // important}""")
+val v = JSON.parse("""{
+  "key": "value" // important
+}""")
 
 // Comments are attached to nearby value nodes
 val keyVal = v("key")
@@ -172,9 +174,6 @@ keyVal.trailingComment // Some(JSONComment("// important"))
 
 // toJSON outputs valid JSON (no comments)
 v.toJSON // {"key":"value"}
-
-// toJSONC preserves comments
-v.toJSONC // {"key":"value" // important}
 
 // JSON.format pretty-prints with comments
 JSON.format(v)
