@@ -52,7 +52,7 @@ package object json:
 
     def getValue: Any =
       jsonValue match
-        case JSONNull =>
+        case _: JSONNull =>
           null
         case JSONDouble(x) =>
           x
@@ -73,7 +73,7 @@ package object json:
     )
     def value: Any = getValue
 
-    def isNull: Boolean = jsonValue == JSONNull
+    def isNull: Boolean = jsonValue.isInstanceOf[JSONNull]
 
     def toStringValue: String                 = jsonValue.asInstanceOf[JSONString].v
     def toDoubleValue: Double                 = jsonValue.asInstanceOf[JSONDouble].v

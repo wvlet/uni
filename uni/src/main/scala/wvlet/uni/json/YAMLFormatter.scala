@@ -144,7 +144,7 @@ object YAMLFormatter:
     override def visitString(v: JSONString): Unit   = emitPrimitive(v)
     override def visitNumber(n: JSONNumber): Unit   = emitPrimitive(n)
     override def visitBoolean(n: JSONBoolean): Unit = emitPrimitive(n)
-    override def visitNull: Unit                    = emitPrimitive(JSONNull)
+    override def visitNull: Unit                    = emitPrimitive(JSONNull())
 
   end YamlWriter
 

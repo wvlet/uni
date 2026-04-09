@@ -78,7 +78,7 @@ class JSONTest extends UniTest:
     users2(0).toObjectValue shouldBe
       Map("id" -> JSONLong(1), "name" -> JSONString("a"), "flag" -> JSONBoolean(true))
     users2(1).toObjectValue shouldBe
-      Map("id" -> JSONLong(2), "name" -> JSONString("b"), "flag" -> JSONNull)
+      Map("id" -> JSONLong(2), "name" -> JSONString("b"), "flag" -> JSONNull())
   }
 
   test("Extract nested properties by JSON DSL") {

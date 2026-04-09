@@ -51,7 +51,7 @@ object JSONWeaver extends Weaver[String]:
         }
       case JSONString(s) =>
         p.packString(s)
-      case JSONNull =>
+      case _: JSONNull =>
         p.packNil
       case JSONBoolean(v) =>
         p.packBoolean(v)
@@ -86,7 +86,7 @@ object JSONValueWeaver extends Weaver[JSONValue]:
     u.getNextValueType match
       case ValueType.NIL =>
         u.unpackNil
-        JSONNull
+        JSONNull()
       case ValueType.STRING =>
         JSONString(u.unpackString)
       case ValueType.FLOAT =>

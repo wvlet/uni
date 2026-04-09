@@ -16,6 +16,24 @@ package wvlet.uni.json
 import wvlet.uni.log.LogSupport
 
 /**
+  * Represents a comment in JSONC. The text includes delimiters (e.g., "// comment" or "/​* block
+  * *​/").
+  */
+case class JSONComment(text: String):
+  def commentBody: String =
+    if text.startsWith("//") then
+      text.substring(2).trim
+    else if text.startsWith("/*") && text.endsWith("*/") then
+      text.substring(2, text.length - 2).trim
+    else
+      text
+
+  def isLineComment: Boolean  = text.startsWith("//")
+  def isBlockComment: Boolean = text.startsWith("/*")
+
+end JSONComment
+
+/**
   */
 object JSON extends LogSupport:
 
@@ -59,50 +77,78 @@ object JSON extends LogSupport:
     * Format JSON value
     */
   def format(v: JSONValue): String =
-    def formatInternal(v: JSONValue, level: Int = 0): String =
-      val s = new StringBuilder()
+    def indent(level: Int): String = "  " * level
+
+    def appendComments(sb: StringBuilder, comments: Seq[JSONComment], level: Int): Unit =
+      for c <- comments do
+        sb.append(indent(level))
+        sb.append(c.text)
+        sb.append("\n")
+
+    // Format a value without its leading/trailing comments (those are handled by the caller)
+    def formatValue(v: JSONValue, level: Int): String =
       v match
         case x: JSONObject =>
           if x.v.isEmpty then
-            s.append("{}")
+            "{}"
           else
+            val s = new StringBuilder()
             s.append("{\n")
-            s.append {
-              x.v
-                .map { case (k, v: JSONValue) =>
-                  val ss = new StringBuilder
-                  ss.append("  " * (level + 1))
-                  ss.append("\"")
-                  ss.append(quoteJSONString(k))
-                  ss.append("\": ")
-                  ss.append(formatInternal(v, level + 1))
-                  ss.result()
+            val entries = x.v.toIndexedSeq
+            for i <- entries.indices do
+              val (k, ev) = entries(i)
+              appendComments(s, ev.leadingComments, level + 1)
+              s.append(indent(level + 1))
+              s.append("\"")
+              s.append(quoteJSONString(k))
+              s.append("\": ")
+              s.append(formatValue(ev, level + 1))
+              if i < entries.size - 1 then
+                s.append(",")
+              ev.trailingComment
+                .foreach { c =>
+                  s.append(" ")
+                  s.append(c.text)
                 }
-                .mkString("", ",\n", "\n")
-            }
-            s.append("  " * level)
+              s.append("\n")
+            s.append(indent(level))
             s.append("}")
+            s.result()
         case x: JSONArray =>
           if x.v.isEmpty then
-            s.append("[]")
+            "[]"
           else
+            val s = new StringBuilder()
             s.append("[\n")
-            s.append(
-              x.v
-                .map { x =>
-                  ("  " * (level + 1)) + formatInternal(x, level + 1)
+            for i <- x.v.indices do
+              val elem = x.v(i)
+              appendComments(s, elem.leadingComments, level + 1)
+              s.append(indent(level + 1))
+              s.append(formatValue(elem, level + 1))
+              if i < x.v.size - 1 then
+                s.append(",")
+              elem
+                .trailingComment
+                .foreach { c =>
+                  s.append(" ")
+                  s.append(c.text)
                 }
-                .mkString("", ",\n", "\n")
-            )
-            s.append("  " * level)
+              s.append("\n")
+            s.append(indent(level))
             s.append("]")
+            s.result()
         case x =>
-          s.append(x.toJSON)
-      end match
-      s.result()
-    end formatInternal
+          x.toJSON
 
-    formatInternal(v, 0)
+    val sb = new StringBuilder()
+    appendComments(sb, v.leadingComments, 0)
+    sb.append(formatValue(v, 0))
+    v.trailingComment
+      .foreach { c =>
+        sb.append(" ")
+        sb.append(c.text)
+      }
+    sb.result()
 
   end format
 
@@ -110,7 +156,50 @@ object JSON extends LogSupport:
     override def toString = toJSON
     def toJSON: String
 
-  case object JSONNull extends JSONValue:
+    // Mutable comment annotations for JSONC round-tripping
+    var leadingComments: Seq[JSONComment]    = Nil
+    var trailingComment: Option[JSONComment] = None
+
+    def toJSONC: String =
+      val sb = StringBuilder()
+      for c <- leadingComments do
+        sb.append(c.text)
+        sb.append("\n")
+      this match
+        case x: JSONObject =>
+          sb.append("{")
+          var first = true
+          for (k, v) <- x.v do
+            if !first then
+              sb.append(",")
+            sb.append("\"")
+            sb.append(quoteJSONString(k))
+            sb.append("\":")
+            sb.append(v.toJSONC)
+            first = false
+          sb.append("}")
+        case x: JSONArray =>
+          sb.append("[")
+          var first = true
+          for elem <- x.v do
+            if !first then
+              sb.append(",")
+            sb.append(elem.toJSONC)
+            first = false
+          sb.append("]")
+        case _ =>
+          sb.append(toJSON)
+      trailingComment.foreach { c =>
+        sb.append(" ")
+        sb.append(c.text)
+      }
+      sb.result()
+
+    end toJSONC
+
+  end JSONValue
+
+  case class JSONNull() extends JSONValue:
     override def toJSON: String = "null"
 
   final case class JSONBoolean(val v: Boolean) extends JSONValue:

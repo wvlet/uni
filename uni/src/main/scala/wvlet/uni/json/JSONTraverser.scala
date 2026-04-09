@@ -51,5 +51,5 @@ object JSONTraverser:
         visitor.visitNumber(v)
       case v: JSONBoolean =>
         visitor.visitBoolean(v)
-      case JSONNull =>
+      case _: JSONNull =>
         visitor.visitNull
