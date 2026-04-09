@@ -165,12 +165,37 @@ object JSON extends LogSupport:
       for c <- leadingComments do
         sb.append(c.text)
         sb.append("\n")
-      sb.append(toJSON)
+      this match
+        case x: JSONObject =>
+          sb.append("{")
+          val entries = x.v.toIndexedSeq
+          for i <- entries.indices do
+            val (k, v) = entries(i)
+            sb.append("\"")
+            sb.append(quoteJSONString(k))
+            sb.append("\":")
+            sb.append(v.toJSONC)
+            if i < entries.size - 1 then
+              sb.append(",")
+          sb.append("}")
+        case x: JSONArray =>
+          sb.append("[")
+          for i <- x.v.indices do
+            sb.append(x.v(i).toJSONC)
+            if i < x.v.size - 1 then
+              sb.append(",")
+          sb.append("]")
+        case _ =>
+          sb.append(toJSON)
       trailingComment.foreach { c =>
         sb.append(" ")
         sb.append(c.text)
       }
       sb.result()
+
+    end toJSONC
+
+  end JSONValue
 
   case class JSONNull() extends JSONValue:
     override def toJSON: String = "null"

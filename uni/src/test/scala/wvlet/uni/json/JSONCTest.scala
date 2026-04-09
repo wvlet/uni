@@ -190,10 +190,29 @@ class JSONCTest extends UniTest:
   }
 
   test("empty object and array with comments") {
-    JSON.parse("{ /* empty */ }") shouldMatch { case obj: JSONObject =>
+    val obj = JSON.parse("{ /* empty */ }")
+    obj shouldMatch { case _: JSONObject =>
     }
-    JSON.parse("[ /* empty */ ]") shouldMatch { case arr: JSONArray =>
+    // Comments in empty container are preserved on the container itself
+    obj.leadingComments.size shouldBe 1
+    obj.leadingComments.head.commentBody shouldBe "empty"
+
+    val arr = JSON.parse("[ /* empty */ ]")
+    arr shouldMatch { case _: JSONArray =>
     }
+    arr.leadingComments.size shouldBe 1
+  }
+
+  test("toJSONC recurses into nested structures") {
+    val jsonc =
+      """{
+        |  // comment
+        |  "key": "value"
+        |}""".stripMargin
+    val v      = JSON.parse(jsonc)
+    val jsonc2 = v.toJSONC
+    jsonc2 shouldContain "// comment"
+    jsonc2 shouldContain "\"key\""
   }
 
   test("comments between array elements") {

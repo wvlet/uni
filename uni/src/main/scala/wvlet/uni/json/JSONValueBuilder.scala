@@ -57,11 +57,17 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       private var key: String                                  = null
       private val list                                         = Seq.newBuilder[(String, JSONValue)]
       override def closeContext(s: JSONSource, end: Int): Unit =
-        // Any remaining pending comments at end of container go as trailing on last element
-        if pendingLeadingComments.nonEmpty && lastAddedValue != null then
-          lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+        val r = result
+        // Remaining comments at end of container
+        if pendingLeadingComments.nonEmpty then
+          if lastAddedValue != null then
+            // Attach as trailing on last element
+            lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+          else
+            // Empty container: attach comments to the container itself
+            r.leadingComments = pendingLeadingComments.toSeq
           pendingLeadingComments.clear()
-        self.add(result)
+        self.add(r)
       override def isObjectContext: Boolean = true
       override def add(v: JSONValue): Unit  =
         if key == null then
@@ -77,11 +83,15 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       private val list                                         = IndexedSeq.newBuilder[JSONValue]
       override def isObjectContext: Boolean                    = false
       override def closeContext(s: JSONSource, end: Int): Unit =
-        // Any remaining pending comments at end of container go as trailing on last element
-        if pendingLeadingComments.nonEmpty && lastAddedValue != null then
-          lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+        val r = result
+        // Remaining comments at end of container
+        if pendingLeadingComments.nonEmpty then
+          if lastAddedValue != null then
+            lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+          else
+            r.leadingComments = pendingLeadingComments.toSeq
           pendingLeadingComments.clear()
-        self.add(result)
+        self.add(r)
       override def add(v: JSONValue): Unit =
         attachPendingComments(v)
         list += v
