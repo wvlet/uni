@@ -42,6 +42,25 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       pendingLeadingComments.clear()
     lastAddedValue = v
 
+  /**
+    * Flush orphaned comments at end of container. Merges multiple comments into a single
+    * JSONComment. Attaches to last element as trailing, or to container as leading if empty.
+    */
+  protected def flushOrphanedComments(container: JSONValue): Unit =
+    if pendingLeadingComments.nonEmpty then
+      val merged = JSONComment(pendingLeadingComments.map(_.text).mkString("\n"))
+      if lastAddedValue != null then
+        // Merge with existing trailing comment if present
+        lastAddedValue.trailingComment =
+          lastAddedValue.trailingComment match
+            case Some(existing) =>
+              Some(JSONComment(existing.text + "\n" + merged.text))
+            case None =>
+              Some(merged)
+      else
+        container.leadingComments = pendingLeadingComments.toSeq
+      pendingLeadingComments.clear()
+
   override def singleContext(s: JSONSource, start: Int): JSONContext[JSONValue] =
     new JSONValueBuilder:
       private var holder: JSONValue                            = uninitialized
@@ -58,12 +77,7 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       private val list                                         = Seq.newBuilder[(String, JSONValue)]
       override def closeContext(s: JSONSource, end: Int): Unit =
         val r = result
-        if pendingLeadingComments.nonEmpty then
-          if lastAddedValue != null then
-            lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
-          else
-            r.leadingComments = pendingLeadingComments.toSeq
-          pendingLeadingComments.clear()
+        flushOrphanedComments(r)
         self.add(r)
       override def isObjectContext: Boolean = true
       override def add(v: JSONValue): Unit  =
@@ -81,12 +95,7 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       override def isObjectContext: Boolean                    = false
       override def closeContext(s: JSONSource, end: Int): Unit =
         val r = result
-        if pendingLeadingComments.nonEmpty then
-          if lastAddedValue != null then
-            lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
-          else
-            r.leadingComments = pendingLeadingComments.toSeq
-          pendingLeadingComments.clear()
+        flushOrphanedComments(r)
         self.add(r)
       override def add(v: JSONValue): Unit =
         attachPendingComments(v)
