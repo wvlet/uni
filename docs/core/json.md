@@ -71,7 +71,7 @@ json match
   case JSONLong(n) => // Integer value
   case JSONDouble(d) => // Floating point
   case JSONBoolean(b) => // Boolean
-  case JSONNull => // Null value
+  case _: JSONNull => // Null value
 ```
 
 ## Creating JSON
@@ -138,6 +138,63 @@ val result = Try(JSON.parse(maybeInvalidJson))
 result match
   case scala.util.Success(json) => // Use json
   case scala.util.Failure(e) => // Handle parse failure
+```
+
+## JSONC Support
+
+uni's JSON parser supports [JSONC](https://jsonc.org/) (JSON with Comments) out of the box. Line comments (`//`), block comments (`/* */`), and trailing commas are all accepted by `JSON.parse`:
+
+```scala
+val config = JSON.parse("""
+{
+  // Database configuration
+  "host": "localhost", // server address
+  "port": 5432,
+  "options": {
+    /* Connection pool settings */
+    "minConnections": 5,
+    "maxConnections": 20,
+  }
+}
+""")
+```
+
+### Comment Round-Tripping
+
+Comments are preserved as mutable metadata on value nodes for round-tripping:
+
+```scala
+val v = JSON.parse("""{"key": "value" // important}""")
+
+// Comments are attached to nearby value nodes
+val keyVal = v("key")
+keyVal.trailingComment // Some(JSONComment("// important"))
+
+// toJSON outputs valid JSON (no comments)
+v.toJSON // {"key":"value"}
+
+// toJSONC preserves comments
+v.toJSONC // {"key":"value" // important}
+
+// JSON.format pretty-prints with comments
+JSON.format(v)
+// {
+//   "key": "value" // important
+// }
+```
+
+### Comment Attachment Rules
+
+- **New-line comments** are attached as `leadingComments` on the **next** value node
+- **Inline comments** (same line) are attached as `trailingComment` on the **previous** value node
+
+### JSONComment
+
+```scala
+val comment = JSONComment("// server host")
+comment.commentBody    // "server host"
+comment.isLineComment  // true
+comment.isBlockComment // false
 ```
 
 ## YAML Output
