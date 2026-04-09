@@ -26,9 +26,8 @@ class JSONCTest extends UniTest:
       |}""".stripMargin
     val v = JSON.parse(jsonc)
     v shouldMatch { case obj: JSONObject =>
+      obj.get("key") shouldBe Some(JSONString("value"))
     }
-    val obj = v.asInstanceOf[JSONObject]
-    obj.get("key") shouldBe Some(JSONString("value"))
   }
 
   test("parse JSONC with block comments") {
@@ -37,9 +36,10 @@ class JSONCTest extends UniTest:
       |  /* block comment */
       |  "key": 42
       |}""".stripMargin
-    val v   = JSON.parse(jsonc)
-    val obj = v.asInstanceOf[JSONObject]
-    obj.get("key") shouldBe Some(JSONLong(42))
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("key") shouldBe Some(JSONLong(42))
+    }
   }
 
   test("parse JSONC with inline trailing comments") {
@@ -48,29 +48,31 @@ class JSONCTest extends UniTest:
       |  "host": "localhost", // server host
       |  "port": 5432
       |}""".stripMargin
-    val v   = JSON.parse(jsonc)
-    val obj = v.asInstanceOf[JSONObject]
-    obj.get("host") shouldBe Some(JSONString("localhost"))
-    obj.get("port") shouldBe Some(JSONLong(5432))
-    // Check trailing comment is attached
-    val hostVal = obj.v.find(_._1 == "host").get._2
-    hostVal.trailingComment.isDefined shouldBe true
-    hostVal.trailingComment.get.text shouldBe "// server host"
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("host") shouldBe Some(JSONString("localhost"))
+      obj.get("port") shouldBe Some(JSONLong(5432))
+      val hostVal = obj.v.find(_._1 == "host").get._2
+      hostVal.trailingComment.isDefined shouldBe true
+      hostVal.trailingComment.get.text shouldBe "// server host"
+    }
   }
 
   test("parse JSONC with trailing commas in objects") {
     val jsonc = """{"a": 1, "b": 2,}"""
     val v     = JSON.parse(jsonc)
-    val obj   = v.asInstanceOf[JSONObject]
-    obj.get("a") shouldBe Some(JSONLong(1))
-    obj.get("b") shouldBe Some(JSONLong(2))
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("a") shouldBe Some(JSONLong(1))
+      obj.get("b") shouldBe Some(JSONLong(2))
+    }
   }
 
   test("parse JSONC with trailing commas in arrays") {
     val jsonc = """[1, 2, 3,]"""
     val v     = JSON.parse(jsonc)
-    val arr   = v.asInstanceOf[JSONArray]
-    arr.size shouldBe 3
+    v shouldMatch { case arr: JSONArray =>
+      arr.size shouldBe 3
+    }
   }
 
   test("parse JSONC with multi-line block comment") {
@@ -82,9 +84,10 @@ class JSONCTest extends UniTest:
       |   */
       |  "key": "value"
       |}""".stripMargin
-    val v   = JSON.parse(jsonc)
-    val obj = v.asInstanceOf[JSONObject]
-    obj.get("key") shouldBe Some(JSONString("value"))
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("key") shouldBe Some(JSONString("value"))
+    }
   }
 
   test("preserve leading comments on values") {
@@ -93,22 +96,24 @@ class JSONCTest extends UniTest:
       |  // comment about name
       |  "name": "test"
       |}""".stripMargin
-    val v       = JSON.parse(jsonc)
-    val obj     = v.asInstanceOf[JSONObject]
-    val nameVal = obj.v.find(_._1 == "name").get._2
-    nameVal.leadingComments.size shouldBe 1
-    nameVal.leadingComments.head.text shouldBe "// comment about name"
-    nameVal.leadingComments.head.isLineComment shouldBe true
-    nameVal.leadingComments.head.commentBody shouldBe "comment about name"
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case obj: JSONObject =>
+      val nameVal = obj.v.find(_._1 == "name").get._2
+      nameVal.leadingComments.size shouldBe 1
+      nameVal.leadingComments.head.text shouldBe "// comment about name"
+      nameVal.leadingComments.head.isLineComment shouldBe true
+      nameVal.leadingComments.head.commentBody shouldBe "comment about name"
+    }
   }
 
   test("preserve trailing inline comments") {
     val jsonc = """[1, 2 /* count */]"""
     val v     = JSON.parse(jsonc)
-    val arr   = v.asInstanceOf[JSONArray]
-    arr.v(1).trailingComment.isDefined shouldBe true
-    arr.v(1).trailingComment.get.isBlockComment shouldBe true
-    arr.v(1).trailingComment.get.commentBody shouldBe "count"
+    v shouldMatch { case arr: JSONArray =>
+      arr.v(1).trailingComment.isDefined shouldBe true
+      arr.v(1).trailingComment.get.isBlockComment shouldBe true
+      arr.v(1).trailingComment.get.commentBody shouldBe "count"
+    }
   }
 
   test("round-trip JSONC with comments via format") {
@@ -162,9 +167,10 @@ class JSONCTest extends UniTest:
   test("parse standard JSON still works") {
     val json = """{"id": 1, "name": "test"}"""
     val v    = JSON.parse(json)
-    val obj  = v.asInstanceOf[JSONObject]
-    obj.get("id") shouldBe Some(JSONLong(1))
-    obj.get("name") shouldBe Some(JSONString("test"))
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("id") shouldBe Some(JSONLong(1))
+      obj.get("name") shouldBe Some(JSONString("test"))
+    }
   }
 
   test("parseAny with JSONC comments") {
@@ -181,19 +187,20 @@ class JSONCTest extends UniTest:
       |    "port": 5432
       |  }
       |}""".stripMargin
-    val v       = JSON.parse(jsonc)
-    val obj     = v.asInstanceOf[JSONObject]
-    val db      = obj.get("db").get.asInstanceOf[JSONObject]
-    val hostVal = db.v.find(_._1 == "host").get._2
-    hostVal.leadingComments.size shouldBe 1
-    hostVal.leadingComments.head.commentBody shouldBe "connection settings"
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case obj: JSONObject =>
+      obj.get("db").get shouldMatch { case db: JSONObject =>
+        val hostVal = db.v.find(_._1 == "host").get._2
+        hostVal.leadingComments.size shouldBe 1
+        hostVal.leadingComments.head.commentBody shouldBe "connection settings"
+      }
+    }
   }
 
   test("empty object and array with comments") {
     val obj = JSON.parse("{ /* empty */ }")
     obj shouldMatch { case _: JSONObject =>
     }
-    // Comments in empty container are preserved on the container itself
     obj.leadingComments.size shouldBe 1
     obj.leadingComments.head.commentBody shouldBe "empty"
 
@@ -223,11 +230,12 @@ class JSONCTest extends UniTest:
       |  2,
       |  3
       |]""".stripMargin
-    val v   = JSON.parse(jsonc)
-    val arr = v.asInstanceOf[JSONArray]
-    arr.size shouldBe 3
-    arr.v(1).leadingComments.size shouldBe 1
-    arr.v(1).leadingComments.head.commentBody shouldBe "separator"
+    val v = JSON.parse(jsonc)
+    v shouldMatch { case arr: JSONArray =>
+      arr.size shouldBe 3
+      arr.v(1).leadingComments.size shouldBe 1
+      arr.v(1).leadingComments.head.commentBody shouldBe "separator"
+    }
   }
 
 end JSONCTest
