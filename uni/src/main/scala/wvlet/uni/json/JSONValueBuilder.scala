@@ -26,24 +26,48 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
   override def closeContext(s: JSONSource, end: Int): Unit = {}
   def add(v: JSONValue): Unit                              = {}
 
+  // Comment buffering for JSONC support (protected so inner builders access their own instance)
+  protected val pendingLeadingComments    = scala.collection.mutable.ArrayBuffer[JSONComment]()
+  protected var lastAddedValue: JSONValue = null
+
+  override def addComment(comment: JSONComment, isTrailing: Boolean): Unit =
+    if isTrailing && lastAddedValue != null then
+      lastAddedValue.trailingComment = Some(comment)
+    else
+      pendingLeadingComments += comment
+
+  protected def attachPendingComments(v: JSONValue): Unit =
+    if pendingLeadingComments.nonEmpty then
+      v.leadingComments = pendingLeadingComments.toSeq
+      pendingLeadingComments.clear()
+    lastAddedValue = v
+
   override def singleContext(s: JSONSource, start: Int): JSONContext[JSONValue] =
     new JSONValueBuilder:
       private var holder: JSONValue                            = uninitialized
       override def isObjectContext                             = false
       override def closeContext(s: JSONSource, end: Int): Unit = {}
-      override def add(v: JSONValue): Unit                     = holder = v
-      override def result: JSONValue                           = holder
+      override def add(v: JSONValue): Unit                     =
+        attachPendingComments(v)
+        holder = v
+      override def result: JSONValue = holder
 
   override def objectContext(s: JSONSource, start: Int): JSONContext[JSONValue] =
     new JSONValueBuilder:
       private var key: String                                  = null
       private val list                                         = Seq.newBuilder[(String, JSONValue)]
-      override def closeContext(s: JSONSource, end: Int): Unit = self.add(result)
-      override def isObjectContext: Boolean                    = true
-      override def add(v: JSONValue): Unit                     =
+      override def closeContext(s: JSONSource, end: Int): Unit =
+        // Any remaining pending comments at end of container go as trailing on last element
+        if pendingLeadingComments.nonEmpty && lastAddedValue != null then
+          lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+          pendingLeadingComments.clear()
+        self.add(result)
+      override def isObjectContext: Boolean = true
+      override def add(v: JSONValue): Unit  =
         if key == null then
           key = v.toString
         else
+          attachPendingComments(v)
           list += key -> v
           key = null
       override def result: JSONValue = JSONObject(list.result())
@@ -52,11 +76,18 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
     new JSONValueBuilder:
       private val list                                         = IndexedSeq.newBuilder[JSONValue]
       override def isObjectContext: Boolean                    = false
-      override def closeContext(s: JSONSource, end: Int): Unit = self.add(result)
-      override def add(v: JSONValue): Unit                     = list += v
-      override def result: JSONValue                           = JSONArray(list.result())
+      override def closeContext(s: JSONSource, end: Int): Unit =
+        // Any remaining pending comments at end of container go as trailing on last element
+        if pendingLeadingComments.nonEmpty && lastAddedValue != null then
+          lastAddedValue.trailingComment = Some(pendingLeadingComments.head)
+          pendingLeadingComments.clear()
+        self.add(result)
+      override def add(v: JSONValue): Unit =
+        attachPendingComments(v)
+        list += v
+      override def result: JSONValue = JSONArray(list.result())
 
-  override def addNull(s: JSONSource, start: Int, end: Int): Unit   = add(JSONNull)
+  override def addNull(s: JSONSource, start: Int, end: Int): Unit   = add(JSONNull())
   override def addString(s: JSONSource, start: Int, end: Int): Unit = add(
     JSONString(s.substring(start, end))
   )
@@ -79,9 +110,9 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
   override def addBoolean(s: JSONSource, v: Boolean, start: Int, end: Int): Unit =
     val b =
       if v then
-        JSONTrue
+        JSONBoolean(true)
       else
-        JSONFalse
+        JSONBoolean(false)
     add(b)
 
 end JSONValueBuilder

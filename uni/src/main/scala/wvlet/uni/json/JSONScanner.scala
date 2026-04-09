@@ -172,10 +172,14 @@ end JSONScanner
 
 class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler[J])
     extends LogSupport:
-  private var cursor: Int       = 0
-  private var lineStartPos: Int = 0
-  private var line: Int         = 0
-  private val sb                = new StringBuilder()
+  private var cursor: Int        = 0
+  private var lineStartPos: Int  = 0
+  private var line: Int          = 0
+  private var lastValueLine: Int = -1
+  private val sb                 = new StringBuilder()
+
+  // Buffer for comments collected during whitespace skipping
+  private val commentBuffer = scala.collection.mutable.ArrayBuffer[(JSONComment, Boolean)]()
 
   import JSONScanner.*
   import JSONToken.*
@@ -191,8 +195,55 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
           cursor += 1
           line += 1
           lineStartPos = cursor
+        case Slash =>
+          if cursor + 1 < s.length then
+            val next = s(cursor + 1)
+            if next == Slash then
+              scanLineComment()
+            else if next == '*' then
+              scanBlockComment()
+            else
+              toContinue = false
+          else
+            toContinue = false
         case _ =>
           toContinue = false
+
+  private def scanLineComment(): Unit =
+    val commentLine = line
+    val start       = cursor
+    cursor += 2 // skip //
+    while cursor < s.length && s(cursor) != WS_N do
+      cursor += 1
+    val text       = s.substring(start, cursor)
+    val isTrailing = commentLine == lastValueLine && lastValueLine >= 0
+    commentBuffer += ((JSONComment(text), isTrailing))
+
+  private def scanBlockComment(): Unit =
+    val commentLine = line
+    val start       = cursor
+    cursor += 2 // skip /*
+    var found = false
+    while !found && cursor + 1 < s.length do
+      if s(cursor) == '*' && s(cursor + 1) == Slash then
+        cursor += 2
+        found = true
+      else
+        if s(cursor) == WS_N then
+          line += 1
+          lineStartPos = cursor + 1
+        cursor += 1
+    if !found then
+      throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unterminated block comment")
+    val text       = s.substring(start, cursor)
+    val isTrailing = commentLine == lastValueLine && lastValueLine >= 0
+    commentBuffer += ((JSONComment(text), isTrailing))
+
+  private def flushComments(ctx: JSONContext[J]): Unit =
+    if commentBuffer.nonEmpty then
+      for (comment, isTrailing) <- commentBuffer do
+        ctx.addComment(comment, isTrailing)
+      commentBuffer.clear()
 
   private def unexpected(expected: String): Exception =
     val char = s(cursor)
@@ -206,6 +257,14 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
   def scan: Unit =
     try
       skipWhiteSpaces
+      if cursor >= s.length then
+        throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
+      // Flush leading comments to handler (root context)
+      handler match
+        case ctx: JSONContext[J @unchecked] =>
+          flushComments(ctx)
+        case _ =>
+          commentBuffer.clear()
       (s(cursor): @switch) match
         case LBracket =>
           cursor += 1
@@ -215,6 +274,13 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
           rscan(ARRAY_START, handler.arrayContext(s, cursor - 1) :: Nil)
         case other =>
           throw unexpected("object or array")
+      // Scan trailing comments after the root value
+      skipWhiteSpaces
+      handler match
+        case ctx: JSONContext[J @unchecked] =>
+          flushComments(ctx)
+        case _ =>
+          commentBuffer.clear()
     catch
       case e: ArrayIndexOutOfBoundsException =>
         throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, s"Unexpected EOF")
@@ -229,45 +295,57 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
 
   private final def scanAny(ctx: JSONContext[J]): J =
     skipWhiteSpaces
+    flushComments(ctx)
     if cursor >= s.length then
       throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
     (s(cursor): @switch) match
       case DoubleQuote =>
         scanString(ctx)
+        markValueLine()
       case LBracket =>
         val objectCtx = ctx.objectContext(s, cursor)
         cursor += 1
         rscan(OBJECT_START, objectCtx :: Nil)
         ctx.add(objectCtx.result)
+        markValueLine()
       case LSquare =>
         val arrayCtx = ctx.arrayContext(s, cursor)
         cursor += 1
         rscan(ARRAY_START, arrayCtx :: Nil)
         ctx.add(arrayCtx.result)
+        markValueLine()
       case '-' | '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' =>
         scanNumber(ctx)
+        markValueLine()
       case 't' =>
         scanTrue(ctx)
+        markValueLine()
       case 'f' =>
         scanFalse(ctx)
+        markValueLine()
       case 'n' =>
         scanNull(ctx)
+        markValueLine()
       case _ =>
         throw unexpected("unknown json token")
+    end match
+    // Scan trailing comments
+    skipWhiteSpaces
+    flushComments(ctx)
     ctx.result
+
+  end scanAny
+
+  private def markValueLine(): Unit = lastValueLine = line
 
   @tailrec
   private final def rscan(state: Int, stack: List[JSONContext[J]]): Unit =
+    skipWhiteSpaces
+    if cursor >= s.length then
+      throw new UnexpectedEOF(line, cursor - lineStartPos, cursor, "Unexpected EOF")
+    flushComments(stack.head)
     val ch = s(cursor)
-    if ch == WS_N then
-      cursor += 1
-      line += 1
-      lineStartPos = cursor
-      rscan(state, stack)
-    else if ch == WS || ch == WS_T || ch == WS_R then
-      cursor += 1
-      rscan(state, stack)
-    else if state == DATA then
+    if state == DATA then
       if ch == LSquare then
         cursor += 1
         rscan(ARRAY_START, stack.head.arrayContext(s, cursor - 1) :: stack)
@@ -278,21 +356,38 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
         val ctx = stack.head
         if (ch >= '0' && ch <= '9') || ch == '-' then
           scanNumber(ctx)
+          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == DoubleQuote then
           scanString(ctx)
+          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == 't' then
           scanTrue(ctx)
+          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == 'f' then
           scanFalse(ctx)
+          markValueLine()
           rscan(ctx.endScannerState, stack)
         else if ch == 'n' then
           scanNull(ctx)
+          markValueLine()
           rscan(ctx.endScannerState, stack)
+        // Trailing comma support: closing bracket after comma in DATA state
+        else if (ch == RSquare && !stack.head.isObjectContext) ||
+          (ch == RBracket && stack.head.isObjectContext)
+        then
+          val ctx1 = stack.head
+          val tail = stack.tail
+          ctx1.closeContext(s, cursor)
+          cursor += 1
+          markValueLine()
+          if tail.nonEmpty then
+            rscan(tail.head.endScannerState, tail)
         else
           throw unexpected("json value")
+        end if
     else if (ch == RSquare && (state == ARRAY_END || state == ARRAY_START)) ||
       (ch == RBracket && (state == OBJECT_END || state == OBJECT_START))
     then
@@ -301,9 +396,9 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       else
         val ctx1 = stack.head
         val tail = stack.tail
-
         ctx1.closeContext(s, cursor)
         cursor += 1
+        markValueLine()
         if tail.isEmpty then {
           // root context
         } else
@@ -313,6 +408,15 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       if ch == DoubleQuote then
         scanString(stack.head)
         rscan(SEPARATOR, stack)
+      // Trailing comma support: closing bracket after comma in OBJECT_KEY state
+      else if ch == RBracket then
+        val ctx1 = stack.head
+        val tail = stack.tail
+        ctx1.closeContext(s, cursor)
+        cursor += 1
+        markValueLine()
+        if tail.nonEmpty then
+          rscan(tail.head.endScannerState, tail)
       else
         throw unexpected("DoubleQuote")
     else if state == SEPARATOR then

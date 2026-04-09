@@ -40,3 +40,9 @@ trait JSONContext[Expr] extends JSONHandler[Expr]:
   def addUnescapedString(s: String): Unit
   def addNumber(s: JSONSource, start: Int, end: Int, dotIndex: Int, expIndex: Int): Unit
   def addBoolean(s: JSONSource, v: Boolean, start: Int, end: Int): Unit
+
+  /**
+    * Called when a JSONC comment is found. isTrailing is true when the comment is on the same line
+    * as the previous value (inline comment).
+    */
+  def addComment(comment: JSONComment, isTrailing: Boolean): Unit = {}
