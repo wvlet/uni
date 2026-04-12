@@ -269,4 +269,6 @@ object IO extends IOCompat:
     group
   }
 
+  export IOWatch.watch
+
 end IO

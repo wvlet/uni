@@ -691,8 +691,9 @@ end FileSystemJS
   * Scala.js FileSystem initialization.
   */
 object FileSystemInit:
-  // Register JS implementation
+  // Register JS implementations
   FileSystem.setImplementation(FileSystemJS)
+  IOWatch.setImplementation(IOWatchJS)
 
   /**
     * Ensures the FileSystem is initialized.
