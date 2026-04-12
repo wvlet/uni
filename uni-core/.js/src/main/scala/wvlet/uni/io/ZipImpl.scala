@@ -71,11 +71,12 @@ trait ZipCompat extends ZipApi:
         "Zip operations are not supported in browser environments"
       )
 
-    val targetDir = NodePathModule.dirname(target.path)
+    val resolvedTarget = NodePathModule.resolve(target.path)
+    val targetDir      = NodePathModule.dirname(resolvedTarget)
     if !NodeFSModule.existsSync(targetDir) then
       NodeFSModule.mkdirSync(targetDir, js.Dynamic.literal(recursive = true))
 
-    val filesToAdd = collectFiles(sources)
+    val filesToAdd = collectFiles(sources, resolvedTarget)
     val buffers    = js.Array[js.Any]()
 
     // Track entries for central directory
@@ -120,7 +121,7 @@ trait ZipCompat extends ZipApi:
       val header    = NodeBufferFactory.alloc(30)
       header.writeUInt32LE(LocalFileHeaderSig, 0)
       header.writeUInt16LE(VersionNeeded, 4)
-      header.writeUInt16LE(0, 6) // flags
+      header.writeUInt16LE(0x800, 6) // flags: UTF-8 filename encoding (bit 11)
       header.writeUInt16LE(method, 8)
       header.writeUInt16LE(dosTime, 10)
       header.writeUInt16LE(dosDate, 12)
@@ -162,7 +163,7 @@ trait ZipCompat extends ZipApi:
       cdEntry.writeUInt32LE(CentralDirSig, 0)
       cdEntry.writeUInt16LE(VersionNeeded, 4) // version made by
       cdEntry.writeUInt16LE(VersionNeeded, 6) // version needed
-      cdEntry.writeUInt16LE(0, 8)             // flags
+      cdEntry.writeUInt16LE(0x800, 8)         // flags: UTF-8 filename encoding (bit 11)
       cdEntry.writeUInt16LE(entry.method, 10)
       cdEntry.writeUInt16LE(entry.dosTime, 12)
       cdEntry.writeUInt16LE(entry.dosDate, 14)
@@ -231,9 +232,10 @@ trait ZipCompat extends ZipApi:
       val dataOffset    = localOffset + 30 + localNameLen + localExtraLen
 
       val entryPath       = NodePathModule.join(destination.path, name)
-      val normalizedDest  = NodePathModule.resolve(destination.path)
+      val normalizedDest  = NodePathModule.resolve(destination.path) + NodePathModule.sep
       val normalizedEntry = NodePathModule.resolve(entryPath)
-      // Guard against zip slip attack
+      // Guard against zip slip attack — append separator to prevent prefix false positives
+      // e.g. "/tmp/out-evil".startsWith("/tmp/out") would be a false positive
       if !normalizedEntry.startsWith(normalizedDest) then
         throw IOOperationException(s"Zip entry outside target directory: ${name}")
 
@@ -314,21 +316,22 @@ trait ZipCompat extends ZipApi:
       pos -= 1
     throw IOOperationException("Invalid zip archive: end of central directory not found")
 
-  private def collectFiles(sources: Seq[IOPath]): Seq[(String, String)] =
+  private def collectFiles(sources: Seq[IOPath], excludePath: String): Seq[(String, String)] =
     val files = scala.collection.mutable.ArrayBuffer[(String, String)]()
     for source <- sources do
       val path = source.path
       if NodeFSModule.statSync(path).isDirectory() then
         val baseName = NodePathModule.basename(path)
-        collectDirectory(files, path, baseName)
-      else
+        collectDirectory(files, path, baseName, excludePath)
+      else if NodePathModule.resolve(path) != excludePath then
         files += ((NodePathModule.basename(path), path))
     files.toSeq
 
   private def collectDirectory(
       files: scala.collection.mutable.ArrayBuffer[(String, String)],
       dirPath: String,
-      prefix: String
+      prefix: String,
+      excludePath: String
   ): Unit =
     files += ((s"${prefix}/", dirPath))
     val entries = NodeFSModule.readdirSync(dirPath, js.Dynamic.literal(withFileTypes = true))
@@ -337,8 +340,8 @@ trait ZipCompat extends ZipApi:
       val childPath = NodePathModule.join(dirPath, dirent.name)
       val childName = s"${prefix}/${dirent.name}"
       if dirent.isDirectory() then
-        collectDirectory(files, childPath, childName)
-      else
+        collectDirectory(files, childPath, childName, excludePath)
+      else if NodePathModule.resolve(childPath) != excludePath then
         files += ((childName, childPath))
 
   private def epochMillisToDosDateTime(millis: Double): (Int, Int) =

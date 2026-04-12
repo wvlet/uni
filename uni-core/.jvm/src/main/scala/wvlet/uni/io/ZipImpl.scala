@@ -31,19 +31,19 @@ trait ZipCompat extends ZipApi:
   private val BufferSize = 8192
 
   override def create(target: IOPath, sources: Seq[IOPath]): Unit =
-    val targetPath = Path.of(target.path)
+    val targetPath = Path.of(target.path).toAbsolutePath.normalize()
     val parent     = targetPath.getParent
     if parent != null && !Files.exists(parent) then
       Files.createDirectories(parent)
 
-    val fos = FileOutputStream(target.path)
+    val fos = FileOutputStream(targetPath.toString)
     val zos = ZipOutputStream(BufferedOutputStream(fos))
     try sources.foreach { source =>
         val sourcePath = Path.of(source.path)
         if Files.isDirectory(sourcePath) then
-          addDirectory(zos, sourcePath, sourcePath.getFileName.toString)
+          addDirectory(zos, sourcePath, sourcePath.getFileName.toString, targetPath)
         else
-          addFile(zos, sourcePath, sourcePath.getFileName.toString)
+          addFile(zos, sourcePath, sourcePath.getFileName.toString, targetPath)
       }
     finally zos.close()
 
@@ -102,7 +102,15 @@ trait ZipCompat extends ZipApi:
     finally
       zipFile.close()
 
-  private def addFile(zos: ZipOutputStream, file: Path, entryName: String): Unit =
+  private def addFile(
+      zos: ZipOutputStream,
+      file: Path,
+      entryName: String,
+      excludePath: Path
+  ): Unit =
+    // Skip the output archive itself to prevent self-referential zip
+    if file.toAbsolutePath.normalize() == excludePath then
+      return
     val entry = JZipEntry(entryName)
     entry.setTime(Files.getLastModifiedTime(file).toMillis)
     zos.putNextEntry(entry)
@@ -117,7 +125,12 @@ trait ZipCompat extends ZipApi:
       fis.close()
     zos.closeEntry()
 
-  private def addDirectory(zos: ZipOutputStream, dir: Path, prefix: String): Unit =
+  private def addDirectory(
+      zos: ZipOutputStream,
+      dir: Path,
+      prefix: String,
+      excludePath: Path
+  ): Unit =
     // Add directory entry
     val dirEntry = JZipEntry(s"${prefix}/")
     dirEntry.setTime(Files.getLastModifiedTime(dir).toMillis)
@@ -129,9 +142,9 @@ trait ZipCompat extends ZipApi:
     try stream.forEach { child =>
         val childName = s"${prefix}/${child.getFileName}"
         if Files.isDirectory(child) then
-          addDirectory(zos, child, childName)
+          addDirectory(zos, child, childName, excludePath)
         else
-          addFile(zos, child, childName)
+          addFile(zos, child, childName, excludePath)
       }
     finally stream.close()
 
