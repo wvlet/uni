@@ -262,7 +262,11 @@ object IO extends IOCompat:
     writeBytesAsync,
     listAsync,
     infoAsync,
-    existsAsync
+    existsAsync,
+    permissions,
+    setPermissions,
+    owner,
+    group
   }
 
 end IO

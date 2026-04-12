@@ -27,6 +27,8 @@ import java.nio.file.FileVisitResult
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
+import java.nio.file.attribute.PosixFileAttributes
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Instant
 import java.util.Comparator
 import scala.concurrent.ExecutionContext
@@ -68,11 +70,36 @@ private[io] object FileSystemJvm extends FileSystemBase:
       if !Files.exists(nioPath, LinkOption.NOFOLLOW_LINKS) then
         FileInfo.notFound(path)
       else
-        val attrs = Files.readAttributes(
-          nioPath,
-          classOf[BasicFileAttributes],
-          LinkOption.NOFOLLOW_LINKS
-        )
+        // Try PosixFileAttributes first (extends BasicFileAttributes), fall back to basic
+        val (attrs, perms, fileOwner, fileGroup) =
+          try
+            val posixAttrs = Files.readAttributes(
+              nioPath,
+              classOf[PosixFileAttributes],
+              LinkOption.NOFOLLOW_LINKS
+            )
+            (
+              posixAttrs: BasicFileAttributes,
+              Some(posixPermsToPermSet(posixAttrs.permissions())),
+              Option(posixAttrs.owner()).map(_.getName),
+              Option(posixAttrs.group()).map(_.getName)
+            )
+          catch
+            case _: UnsupportedOperationException =>
+              val basicAttrs = Files.readAttributes(
+                nioPath,
+                classOf[BasicFileAttributes],
+                LinkOption.NOFOLLOW_LINKS
+              )
+              // Files.getOwner works on non-POSIX filesystems (e.g., Windows/NTFS)
+              val fallbackOwner =
+                try
+                  Option(Files.getOwner(nioPath)).map(_.getName)
+                catch
+                  case _: UnsupportedOperationException =>
+                    None
+              (basicAttrs, None, fallbackOwner, None)
+
         val fileType =
           if attrs.isRegularFile then
             FileType.File
@@ -93,7 +120,10 @@ private[io] object FileSystemJvm extends FileSystemBase:
           isReadable = Files.isReadable(nioPath),
           isWritable = Files.isWritable(nioPath),
           isExecutable = Files.isExecutable(nioPath),
-          isHidden = Files.isHidden(nioPath)
+          isHidden = Files.isHidden(nioPath),
+          permissions = perms,
+          owner = fileOwner,
+          group = fileGroup
         )
     catch
       case _: Throwable =>
@@ -369,6 +399,35 @@ private[io] object FileSystemJvm extends FileSystemBase:
   override def readSymlink(link: IOPath): IOPath = fromNioPath(
     Files.readSymbolicLink(toNioPath(link))
   )
+
+  override def permissions(path: IOPath): PermSet =
+    val perms = Files.getPosixFilePermissions(toNioPath(path))
+    posixPermsToPermSet(perms)
+
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit = Files
+    .setPosixFilePermissions(toNioPath(path), permSetToPosixPerms(permissions))
+
+  override def owner(path: IOPath): String = Files.getOwner(toNioPath(path)).getName
+
+  override def group(path: IOPath): String =
+    val posixAttrs = Files.readAttributes(toNioPath(path), classOf[PosixFileAttributes])
+    posixAttrs.group().getName
+
+  // PosixFilePermission ordinals map directly to bit positions: ordinal 0 = bit 8 (OWNER_READ)
+  private def posixPermsToPermSet(perms: java.util.Set[PosixFilePermission]): PermSet =
+    var bits = 0
+    perms.forEach(p => bits |= (1 << (8 - p.ordinal())))
+    PermSet(bits)
+
+  private def permSetToPosixPerms(perms: PermSet): java.util.Set[PosixFilePermission] =
+    val result = java.util.EnumSet.noneOf(classOf[PosixFilePermission])
+    PosixFilePermission
+      .values()
+      .foreach { p =>
+        if (perms.bits & (1 << (8 - p.ordinal()))) != 0 then
+          result.add(p)
+      }
+    result
 
 end FileSystemJvm
 

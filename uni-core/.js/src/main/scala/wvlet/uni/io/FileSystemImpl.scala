@@ -135,6 +135,7 @@ private[io] object FileSystemJS extends FileSystemBase:
           else
             FileType.Other
 
+        val modeBits = stats.mode & PermSet.PermissionMask
         FileInfo(
           path = path,
           fileType = fileType,
@@ -144,8 +145,9 @@ private[io] object FileSystemJS extends FileSystemBase:
           createdAt = Some(Instant.ofEpochMilli(stats.birthtimeMs.toLong)),
           isReadable = true, // Node.js requires separate access check
           isWritable = true,
-          isExecutable = (stats.mode & 0x49) != 0, // Check executable bits
-          isHidden = path.fileName.startsWith(".")
+          isExecutable = (modeBits & PermSet.AnyExecute) != 0, // Check executable bits
+          isHidden = path.fileName.startsWith("."),
+          permissions = Some(PermSet(modeBits))
         )
       catch
         case _: Throwable =>
@@ -562,6 +564,7 @@ private[io] object FileSystemJS extends FileSystemBase:
             else
               FileType.Other
 
+          val modeBits = stats.mode & PermSet.PermissionMask
           FileInfo(
             path = path,
             fileType = fileType,
@@ -571,8 +574,9 @@ private[io] object FileSystemJS extends FileSystemBase:
             createdAt = Some(Instant.ofEpochMilli(stats.birthtimeMs.toLong)),
             isReadable = true,
             isWritable = true,
-            isExecutable = (stats.mode & 0x49) != 0,
-            isHidden = path.fileName.startsWith(".")
+            isExecutable = (modeBits & PermSet.AnyExecute) != 0,
+            isHidden = path.fileName.startsWith("."),
+            permissions = Some(PermSet(modeBits))
           )
         }
         .recover { case _: Throwable =>
@@ -663,6 +667,23 @@ private[io] object FileSystemJS extends FileSystemBase:
       BrowserFileSystem.readSymlink(link)
     else
       requireNode("readSymlink")
+
+  override def permissions(path: IOPath): PermSet =
+    if isNodeEnv then
+      val stats = NodeFSModule.statSync(path.path)
+      PermSet(stats.mode & PermSet.PermissionMask)
+    else
+      throw UnsupportedOperationException(
+        "POSIX permissions are not supported in browser environment"
+      )
+
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit =
+    if isNodeEnv then
+      NodeFSModule.chmodSync(path.path, permissions.bits)
+    else
+      throw UnsupportedOperationException(
+        "POSIX permissions are not supported in browser environment"
+      )
 
 end FileSystemJS
 

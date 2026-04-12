@@ -48,6 +48,12 @@ enum FileType:
   *   Whether the file is executable
   * @param isHidden
   *   Whether the file is hidden
+  * @param permissions
+  *   POSIX file permissions (if available on the platform)
+  * @param owner
+  *   File owner name (if available on the platform)
+  * @param group
+  *   File group name (if available on the platform)
   */
 case class FileInfo(
     path: IOPath,
@@ -59,7 +65,10 @@ case class FileInfo(
     isReadable: Boolean = true,
     isWritable: Boolean = true,
     isExecutable: Boolean = false,
-    isHidden: Boolean = false
+    isHidden: Boolean = false,
+    permissions: Option[PermSet] = None,
+    owner: Option[String] = None,
+    group: Option[String] = None
 ):
   /**
     * Returns true if this is a regular file.
