@@ -27,6 +27,9 @@ import java.nio.file.FileVisitResult
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
+import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFileAttributes
+import java.nio.file.attribute.PosixFilePermission
 import java.time.Instant
 import java.util.Comparator
 import scala.concurrent.ExecutionContext
@@ -83,6 +86,23 @@ private[io] object FileSystemJvm extends FileSystemBase:
           else
             FileType.Other
 
+        // Try to read POSIX attributes (owner, group, permissions)
+        val (perms, fileOwner, fileGroup) =
+          try
+            val posixView = Files.getFileAttributeView(nioPath, classOf[PosixFileAttributeView])
+            if posixView != null then
+              val posixAttrs = posixView.readAttributes()
+              (
+                Some(posixPermsToPermSet(posixAttrs.permissions())),
+                Option(posixAttrs.owner()).map(_.getName),
+                Option(posixAttrs.group()).map(_.getName)
+              )
+            else
+              (None, None, None)
+          catch
+            case _: UnsupportedOperationException =>
+              (None, None, None)
+
         FileInfo(
           path = path,
           fileType = fileType,
@@ -93,7 +113,10 @@ private[io] object FileSystemJvm extends FileSystemBase:
           isReadable = Files.isReadable(nioPath),
           isWritable = Files.isWritable(nioPath),
           isExecutable = Files.isExecutable(nioPath),
-          isHidden = Files.isHidden(nioPath)
+          isHidden = Files.isHidden(nioPath),
+          permissions = perms,
+          owner = fileOwner,
+          group = fileGroup
         )
     catch
       case _: Throwable =>
@@ -369,6 +392,63 @@ private[io] object FileSystemJvm extends FileSystemBase:
   override def readSymlink(link: IOPath): IOPath = fromNioPath(
     Files.readSymbolicLink(toNioPath(link))
   )
+
+  override def permissions(path: IOPath): PermSet =
+    val perms = Files.getPosixFilePermissions(toNioPath(path))
+    posixPermsToPermSet(perms)
+
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit = Files
+    .setPosixFilePermissions(toNioPath(path), permSetToPosixPerms(permissions))
+
+  override def owner(path: IOPath): String = Files.getOwner(toNioPath(path)).getName
+
+  override def group(path: IOPath): String =
+    val posixAttrs = Files.readAttributes(toNioPath(path), classOf[PosixFileAttributes])
+    posixAttrs.group().getName
+
+  private def posixPermsToPermSet(perms: java.util.Set[PosixFilePermission]): PermSet =
+    var bits = 0
+    if perms.contains(PosixFilePermission.OWNER_READ) then
+      bits |= PermSet.OwnerRead
+    if perms.contains(PosixFilePermission.OWNER_WRITE) then
+      bits |= PermSet.OwnerWrite
+    if perms.contains(PosixFilePermission.OWNER_EXECUTE) then
+      bits |= PermSet.OwnerExecute
+    if perms.contains(PosixFilePermission.GROUP_READ) then
+      bits |= PermSet.GroupRead
+    if perms.contains(PosixFilePermission.GROUP_WRITE) then
+      bits |= PermSet.GroupWrite
+    if perms.contains(PosixFilePermission.GROUP_EXECUTE) then
+      bits |= PermSet.GroupExecute
+    if perms.contains(PosixFilePermission.OTHERS_READ) then
+      bits |= PermSet.OtherRead
+    if perms.contains(PosixFilePermission.OTHERS_WRITE) then
+      bits |= PermSet.OtherWrite
+    if perms.contains(PosixFilePermission.OTHERS_EXECUTE) then
+      bits |= PermSet.OtherExecute
+    PermSet(bits)
+
+  private def permSetToPosixPerms(perms: PermSet): java.util.Set[PosixFilePermission] =
+    val result = java.util.EnumSet.noneOf(classOf[PosixFilePermission])
+    if perms.ownerRead then
+      result.add(PosixFilePermission.OWNER_READ)
+    if perms.ownerWrite then
+      result.add(PosixFilePermission.OWNER_WRITE)
+    if perms.ownerExecute then
+      result.add(PosixFilePermission.OWNER_EXECUTE)
+    if perms.groupRead then
+      result.add(PosixFilePermission.GROUP_READ)
+    if perms.groupWrite then
+      result.add(PosixFilePermission.GROUP_WRITE)
+    if perms.groupExecute then
+      result.add(PosixFilePermission.GROUP_EXECUTE)
+    if perms.otherRead then
+      result.add(PosixFilePermission.OTHERS_READ)
+    if perms.otherWrite then
+      result.add(PosixFilePermission.OTHERS_WRITE)
+    if perms.otherExecute then
+      result.add(PosixFilePermission.OTHERS_EXECUTE)
+    result
 
 end FileSystemJvm
 

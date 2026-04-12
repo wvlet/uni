@@ -41,6 +41,7 @@ private[io] object NodeFSModule extends js.Object:
   def mkdtempSync(prefix: String): String                                     = js.native
   def symlinkSync(target: String, path: String): Unit                         = js.native
   def readlinkSync(path: String): String                                      = js.native
+  def chmodSync(path: String, mode: Int): Unit                                = js.native
 
   // Promises API
   val promises: NodeFSPromises = js.native

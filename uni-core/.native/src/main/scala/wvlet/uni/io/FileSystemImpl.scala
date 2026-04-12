@@ -23,6 +23,11 @@ import java.time.Instant
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 import scala.collection.mutable.ArrayBuffer
+import scalanative.posix.grp
+import scalanative.posix.pwd
+import scalanative.posix.stat as posixStat
+import scalanative.posix.sys.stat.{chmod, stat as statFunc}
+import scalanative.posix.sys.statOps.*
 import scalanative.posix.unistd
 import scalanative.unsafe.*
 import scalanative.unsigned.*
@@ -72,7 +77,8 @@ private[io] object FileSystemNative extends FileSystemBase:
         isReadable = file.canRead,
         isWritable = file.canWrite,
         isExecutable = file.canExecute,
-        isHidden = path.fileName.startsWith(".")
+        isHidden = path.fileName.startsWith("."),
+        permissions = statPermissions(path)
       )
     else if !file.exists() then
       FileInfo.notFound(path)
@@ -85,6 +91,8 @@ private[io] object FileSystemNative extends FileSystemBase:
         else
           FileType.Other
 
+      val (perms, fileOwner, fileGroup) = statFileInfo(path)
+
       FileInfo(
         path = path,
         fileType = fileType,
@@ -93,7 +101,10 @@ private[io] object FileSystemNative extends FileSystemBase:
         isReadable = file.canRead,
         isWritable = file.canWrite,
         isExecutable = file.canExecute,
-        isHidden = file.isHidden
+        isHidden = file.isHidden,
+        permissions = perms,
+        owner = fileOwner,
+        group = fileGroup
       )
     end if
 
@@ -378,6 +389,67 @@ private[io] object FileSystemNative extends FileSystemBase:
       throw java.io.IOException(s"Symlink target too long: ${link.path}")
     buf(len.toInt) = 0.toByte
     IOPath.parse(fromCString(buf))
+  }
+
+  override def permissions(path: IOPath): PermSet = Zone {
+    val buf = stackalloc[posixStat.stat]()
+    if statFunc(toCString(path.path), buf) != 0 then
+      throw java.io.IOException(s"Failed to stat: ${path.path}")
+    PermSet(buf.st_mode.toInt & 0x1ff)
+  }
+
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit = Zone {
+    if chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
+      throw java.io.IOException(s"Failed to chmod: ${path.path}")
+  }
+
+  override def owner(path: IOPath): String = Zone {
+    val buf = stackalloc[posixStat.stat]()
+    if statFunc(toCString(path.path), buf) != 0 then
+      throw java.io.IOException(s"Failed to stat: ${path.path}")
+    val pw = pwd.getpwuid(buf.st_uid)
+    if pw == null then
+      throw java.io.IOException(s"Failed to get owner for: ${path.path}")
+    fromCString(pw.pw_name)
+  }
+
+  override def group(path: IOPath): String = Zone {
+    val buf = stackalloc[posixStat.stat]()
+    if statFunc(toCString(path.path), buf) != 0 then
+      throw java.io.IOException(s"Failed to stat: ${path.path}")
+    val gr = grp.getgrgid(buf.st_gid)
+    if gr == null then
+      throw java.io.IOException(s"Failed to get group for: ${path.path}")
+    fromCString(gr.gr_name)
+  }
+
+  private def statPermissions(path: IOPath): Option[PermSet] = Zone {
+    val buf = stackalloc[posixStat.stat]()
+    if statFunc(toCString(path.path), buf) != 0 then
+      None
+    else
+      Some(PermSet(buf.st_mode.toInt & 0x1ff))
+  }
+
+  private def statFileInfo(path: IOPath): (Option[PermSet], Option[String], Option[String]) = Zone {
+    val buf = stackalloc[posixStat.stat]()
+    if statFunc(toCString(path.path), buf) != 0 then
+      (None, None, None)
+    else
+      val perms     = Some(PermSet(buf.st_mode.toInt & 0x1ff))
+      val ownerName =
+        val pw = pwd.getpwuid(buf.st_uid)
+        if pw != null then
+          Some(fromCString(pw.pw_name))
+        else
+          None
+      val groupName =
+        val gr = grp.getgrgid(buf.st_gid)
+        if gr != null then
+          Some(fromCString(gr.gr_name))
+        else
+          None
+      (perms, ownerName, groupName)
   }
 
 end FileSystemNative

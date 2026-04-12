@@ -425,6 +425,42 @@ trait FileSystemBase:
     */
   def readSymlink(link: IOPath): IOPath
 
+  // ============================================================
+  // Permission operations
+  // ============================================================
+
+  /**
+    * Returns the POSIX file permissions for the given path.
+    * @throws UnsupportedOperationException
+    *   on platforms that do not support POSIX permissions
+    */
+  def permissions(path: IOPath): PermSet =
+    throw UnsupportedOperationException("POSIX permissions are not supported on this platform")
+
+  /**
+    * Sets the POSIX file permissions for the given path.
+    * @throws UnsupportedOperationException
+    *   on platforms that do not support POSIX permissions
+    */
+  def setPermissions(path: IOPath, permissions: PermSet): Unit =
+    throw UnsupportedOperationException("POSIX permissions are not supported on this platform")
+
+  /**
+    * Returns the file owner name for the given path.
+    * @throws UnsupportedOperationException
+    *   on platforms that do not support owner information (e.g., JS)
+    */
+  def owner(path: IOPath): String =
+    throw UnsupportedOperationException("File owner is not supported on this platform")
+
+  /**
+    * Returns the file group name for the given path.
+    * @throws UnsupportedOperationException
+    *   on platforms that do not support group information (e.g., JS)
+    */
+  def group(path: IOPath): String =
+    throw UnsupportedOperationException("File group is not supported on this platform")
+
 end FileSystemBase
 
 /**
@@ -527,5 +563,14 @@ object FileSystem extends FileSystemBase:
 
   override def createSymlink(link: IOPath, target: IOPath): Unit = impl.createSymlink(link, target)
   override def readSymlink(link: IOPath): IOPath                 = impl.readSymlink(link)
+
+  override def permissions(path: IOPath): PermSet                       = impl.permissions(path)
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit = impl.setPermissions(
+    path,
+    permissions
+  )
+
+  override def owner(path: IOPath): String = impl.owner(path)
+  override def group(path: IOPath): String = impl.group(path)
 
 end FileSystem
