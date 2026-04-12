@@ -61,25 +61,27 @@ trait ZipCompat extends ZipApi:
   private val LocalFileHeaderSig = 0x04034b50.toDouble
   private val CentralDirSig      = 0x02014b50.toDouble
   private val EndOfCentralDirSig = 0x06054b50.toDouble
-  private val MethodStored       = 0
-  private val MethodDeflated     = 8
-  private val VersionNeeded      = 20
+  private val FlagUtf8       = 0x800 // General purpose bit flag: UTF-8 filename encoding (bit 11)
+  private val MethodStored   = 0
+  private val MethodDeflated = 8
+  private val VersionNeeded  = 20
 
-  override def create(target: IOPath, sources: Seq[IOPath]): Unit =
+  private def requireNode(): Unit =
     if FileSystem.isBrowser then
       throw UnsupportedOperationException(
         "Zip operations are not supported in browser environments"
       )
 
+  override def create(target: IOPath, sources: Seq[IOPath]): Unit =
+    requireNode()
+
     val resolvedTarget = NodePathModule.resolve(target.path)
     val targetDir      = NodePathModule.dirname(resolvedTarget)
-    if !NodeFSModule.existsSync(targetDir) then
-      NodeFSModule.mkdirSync(targetDir, js.Dynamic.literal(recursive = true))
+    NodeFSModule.mkdirSync(targetDir, js.Dynamic.literal(recursive = true))
 
     val filesToAdd = collectFiles(sources, resolvedTarget)
     val buffers    = js.Array[js.Any]()
 
-    // Track entries for central directory
     case class EntryRecord(
         name: String,
         localOffset: Int,
@@ -96,18 +98,19 @@ trait ZipCompat extends ZipApi:
     for (entryName, sourcePath) <- filesToAdd do
       val isDir = entryName.endsWith("/")
 
-      val (fileData, crc, compressed, method) =
+      // Track uncompressed size and keep compressed data as Uint8Array to avoid extra copies
+      val (uncompressedSize, crc, compressedData, method) =
         if isDir then
-          (Array.emptyByteArray, 0.0, Array.emptyByteArray, MethodStored)
+          (0, 0.0, Uint8Array(0), MethodStored)
         else
           val raw      = NodeFSModule.readFileSync(sourcePath)
           val bytes    = uint8ArrayToByteArray(raw)
           val crcValue = toUnsigned(CRC32.compute(bytes))
           if bytes.isEmpty then
-            (bytes, crcValue, bytes, MethodStored)
+            (0, crcValue, Uint8Array(0), MethodStored)
           else
-            val deflated = uint8ArrayToByteArray(NodeZlibRawModule.deflateRawSync(raw))
-            (bytes, crcValue, deflated, MethodDeflated)
+            val deflated = NodeZlibRawModule.deflateRawSync(raw)
+            (bytes.length, crcValue, deflated, MethodDeflated)
 
       val (dosTime, dosDate) =
         if isDir then
@@ -121,38 +124,32 @@ trait ZipCompat extends ZipApi:
       val header    = NodeBufferFactory.alloc(30)
       header.writeUInt32LE(LocalFileHeaderSig, 0)
       header.writeUInt16LE(VersionNeeded, 4)
-      header.writeUInt16LE(0x800, 6) // flags: UTF-8 filename encoding (bit 11)
+      header.writeUInt16LE(FlagUtf8, 6)
       header.writeUInt16LE(method, 8)
       header.writeUInt16LE(dosTime, 10)
       header.writeUInt16LE(dosDate, 12)
       header.writeUInt32LE(crc, 14)
-      header.writeUInt32LE(compressed.length.toDouble, 18)
-      header.writeUInt32LE(fileData.length.toDouble, 22)
+      header.writeUInt32LE(compressedData.length.toDouble, 18)
+      header.writeUInt32LE(uncompressedSize.toDouble, 22)
       header.writeUInt16LE(nameBytes.length, 26)
-      header.writeUInt16LE(0, 28) // extra field length
+      header.writeUInt16LE(0, 28)
 
       buffers.push(header)
       buffers.push(nameBytes)
-
-      val dataBuf =
-        if compressed.isEmpty then
-          NodeBufferFactory.alloc(0)
-        else
-          NodeBufferFactory.from(byteArrayToUint8Array(compressed))
-      buffers.push(dataBuf)
+      buffers.push(NodeBufferFactory.from(compressedData))
 
       entries +=
         EntryRecord(
           name = entryName,
           localOffset = offset,
           crc = crc,
-          compressedSize = compressed.length,
-          uncompressedSize = fileData.length,
+          compressedSize = compressedData.length,
+          uncompressedSize = uncompressedSize,
           method = method,
           dosTime = dosTime,
           dosDate = dosDate
         )
-      offset += 30 + nameBytes.length + compressed.length
+      offset += 30 + nameBytes.length + compressedData.length
     end for
 
     // Central directory
@@ -161,9 +158,9 @@ trait ZipCompat extends ZipApi:
       val nameBytes = NodeBufferFactory.from(entry.name, "utf8")
       val cdEntry   = NodeBufferFactory.alloc(46)
       cdEntry.writeUInt32LE(CentralDirSig, 0)
-      cdEntry.writeUInt16LE(VersionNeeded, 4) // version made by
-      cdEntry.writeUInt16LE(VersionNeeded, 6) // version needed
-      cdEntry.writeUInt16LE(0x800, 8)         // flags: UTF-8 filename encoding (bit 11)
+      cdEntry.writeUInt16LE(VersionNeeded, 4)
+      cdEntry.writeUInt16LE(VersionNeeded, 6)
+      cdEntry.writeUInt16LE(FlagUtf8, 8)
       cdEntry.writeUInt16LE(entry.method, 10)
       cdEntry.writeUInt16LE(entry.dosTime, 12)
       cdEntry.writeUInt16LE(entry.dosDate, 14)
@@ -171,11 +168,11 @@ trait ZipCompat extends ZipApi:
       cdEntry.writeUInt32LE(entry.compressedSize.toDouble, 20)
       cdEntry.writeUInt32LE(entry.uncompressedSize.toDouble, 24)
       cdEntry.writeUInt16LE(nameBytes.length, 28)
-      cdEntry.writeUInt16LE(0, 30) // extra field length
-      cdEntry.writeUInt16LE(0, 32) // comment length
-      cdEntry.writeUInt16LE(0, 34) // disk number start
-      cdEntry.writeUInt16LE(0, 36) // internal attrs
-      cdEntry.writeUInt32LE(0, 38) // external attrs
+      cdEntry.writeUInt16LE(0, 30)
+      cdEntry.writeUInt16LE(0, 32)
+      cdEntry.writeUInt16LE(0, 34)
+      cdEntry.writeUInt16LE(0, 36)
+      cdEntry.writeUInt32LE(0, 38)
       cdEntry.writeUInt32LE(entry.localOffset.toDouble, 42)
 
       buffers.push(cdEntry)
@@ -187,13 +184,13 @@ trait ZipCompat extends ZipApi:
     // End of central directory
     val eocd = NodeBufferFactory.alloc(22)
     eocd.writeUInt32LE(EndOfCentralDirSig, 0)
-    eocd.writeUInt16LE(0, 4)             // disk number
-    eocd.writeUInt16LE(0, 6)             // disk with CD
-    eocd.writeUInt16LE(entries.size, 8)  // entries this disk
-    eocd.writeUInt16LE(entries.size, 10) // total entries
+    eocd.writeUInt16LE(0, 4)
+    eocd.writeUInt16LE(0, 6)
+    eocd.writeUInt16LE(entries.size, 8)
+    eocd.writeUInt16LE(entries.size, 10)
     eocd.writeUInt32LE(cdSize.toDouble, 12)
     eocd.writeUInt32LE(cdStart.toDouble, 16)
-    eocd.writeUInt16LE(0, 20) // comment length
+    eocd.writeUInt16LE(0, 20)
     buffers.push(eocd)
 
     val result = NodeBufferFactory.concat(buffers)
@@ -202,13 +199,8 @@ trait ZipCompat extends ZipApi:
   end create
 
   override def extract(archive: IOPath, destination: IOPath): Unit =
-    if FileSystem.isBrowser then
-      throw UnsupportedOperationException(
-        "Zip operations are not supported in browser environments"
-      )
-
-    if !NodeFSModule.existsSync(destination.path) then
-      NodeFSModule.mkdirSync(destination.path, js.Dynamic.literal(recursive = true))
+    requireNode()
+    NodeFSModule.mkdirSync(destination.path, js.Dynamic.literal(recursive = true))
 
     val data         = NodeBufferFactory.from(NodeFSModule.readFileSync(archive.path))
     val eocdOffset   = findEOCD(data)
@@ -226,7 +218,6 @@ trait ZipCompat extends ZipApi:
       val localOffset    = data.readUInt32LE(pos + 42).toInt
       val name           = data.toString("utf8", pos + 46, pos + 46 + nameLength)
 
-      // Read local file header to find actual data offset
       val localNameLen  = data.readUInt16LE(localOffset + 26)
       val localExtraLen = data.readUInt16LE(localOffset + 28)
       val dataOffset    = localOffset + 30 + localNameLen + localExtraLen
@@ -234,8 +225,7 @@ trait ZipCompat extends ZipApi:
       val entryPath       = NodePathModule.join(destination.path, name)
       val normalizedDest  = NodePathModule.resolve(destination.path) + NodePathModule.sep
       val normalizedEntry = NodePathModule.resolve(entryPath)
-      // Guard against zip slip attack — append separator to prevent prefix false positives
-      // e.g. "/tmp/out-evil".startsWith("/tmp/out") would be a false positive
+      // Guard against zip slip — append separator to prevent prefix false positives
       if !normalizedEntry.startsWith(normalizedDest) then
         throw IOOperationException(s"Zip entry outside target directory: ${name}")
 
@@ -243,8 +233,7 @@ trait ZipCompat extends ZipApi:
         NodeFSModule.mkdirSync(entryPath, js.Dynamic.literal(recursive = true))
       else
         val parentDir = NodePathModule.dirname(entryPath)
-        if !NodeFSModule.existsSync(parentDir) then
-          NodeFSModule.mkdirSync(parentDir, js.Dynamic.literal(recursive = true))
+        NodeFSModule.mkdirSync(parentDir, js.Dynamic.literal(recursive = true))
 
         val compressedData = data.subarray(dataOffset, dataOffset + compressedSize)
         val fileData       =
@@ -268,10 +257,7 @@ trait ZipCompat extends ZipApi:
   end extract
 
   override def list(archive: IOPath): Seq[ZipEntry] =
-    if FileSystem.isBrowser then
-      throw UnsupportedOperationException(
-        "Zip operations are not supported in browser environments"
-      )
+    requireNode()
 
     val data         = NodeBufferFactory.from(NodeFSModule.readFileSync(archive.path))
     val eocdOffset   = findEOCD(data)
@@ -310,7 +296,7 @@ trait ZipCompat extends ZipApi:
 
   private def findEOCD(data: NodeBuffer): Int =
     var pos = data.length - 22
-    while pos >= 0 do
+    while pos >= math.max(0, data.length - 65557) do
       if data.readUInt32LE(pos) == EndOfCentralDirSig then
         return pos
       pos -= 1

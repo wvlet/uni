@@ -33,7 +33,7 @@ trait ZipCompat extends ZipApi:
   override def create(target: IOPath, sources: Seq[IOPath]): Unit =
     val targetPath = Path.of(target.path).toAbsolutePath.normalize()
     val parent     = targetPath.getParent
-    if parent != null && !Files.exists(parent) then
+    if parent != null then
       Files.createDirectories(parent)
 
     val fos = FileOutputStream(targetPath.toString)
@@ -49,11 +49,11 @@ trait ZipCompat extends ZipApi:
 
   override def extract(archive: IOPath, destination: IOPath): Unit =
     val destPath = Path.of(destination.path)
-    if !Files.exists(destPath) then
-      Files.createDirectories(destPath)
+    Files.createDirectories(destPath)
 
-    val fis = FileInputStream(archive.path)
-    val zis = ZipInputStream(BufferedInputStream(fis))
+    val fis    = FileInputStream(archive.path)
+    val zis    = ZipInputStream(BufferedInputStream(fis))
+    val buffer = Array.ofDim[Byte](BufferSize)
     try
       var entry = zis.getNextEntry
       while entry != null do
@@ -65,13 +65,12 @@ trait ZipCompat extends ZipApi:
           Files.createDirectories(entryPath)
         else
           val parent = entryPath.getParent
-          if parent != null && !Files.exists(parent) then
+          if parent != null then
             Files.createDirectories(parent)
-          val fos    = FileOutputStream(entryPath.toFile)
-          val buffer = Array.ofDim[Byte](BufferSize)
+          val fos = BufferedOutputStream(FileOutputStream(entryPath.toFile))
           try
             var len = zis.read(buffer)
-            while len > 0 do
+            while len >= 0 do
               fos.write(buffer, 0, len)
               len = zis.read(buffer)
           finally
@@ -108,22 +107,23 @@ trait ZipCompat extends ZipApi:
       entryName: String,
       excludePath: Path
   ): Unit =
-    // Skip the output archive itself to prevent self-referential zip
     if file.toAbsolutePath.normalize() == excludePath then
       return
     val entry = JZipEntry(entryName)
     entry.setTime(Files.getLastModifiedTime(file).toMillis)
     zos.putNextEntry(entry)
-    val fis    = FileInputStream(file.toFile)
-    val buffer = Array.ofDim[Byte](BufferSize)
     try
-      var len = fis.read(buffer)
-      while len > 0 do
-        zos.write(buffer, 0, len)
-        len = fis.read(buffer)
+      val fis    = BufferedInputStream(FileInputStream(file.toFile))
+      val buffer = Array.ofDim[Byte](BufferSize)
+      try
+        var len = fis.read(buffer)
+        while len >= 0 do
+          zos.write(buffer, 0, len)
+          len = fis.read(buffer)
+      finally
+        fis.close()
     finally
-      fis.close()
-    zos.closeEntry()
+      zos.closeEntry()
 
   private def addDirectory(
       zos: ZipOutputStream,
@@ -131,13 +131,11 @@ trait ZipCompat extends ZipApi:
       prefix: String,
       excludePath: Path
   ): Unit =
-    // Add directory entry
     val dirEntry = JZipEntry(s"${prefix}/")
     dirEntry.setTime(Files.getLastModifiedTime(dir).toMillis)
     zos.putNextEntry(dirEntry)
     zos.closeEntry()
 
-    // Add files and subdirectories
     val stream = Files.list(dir)
     try stream.forEach { child =>
         val childName = s"${prefix}/${child.getFileName}"
