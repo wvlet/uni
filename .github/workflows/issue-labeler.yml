@@ -1,11 +1,6 @@
 name: Issue Labeler
 
 on:
-  # pull_request event is required only for autolabeler
-  pull_request:
-    # Only following types are handled by the action, but one can default to all as well
-    types: [opened, reopened, synchronize]
-  # Label pull request from forks
   pull_request_target:
     types: [opened, reopened, synchronize]
 
@@ -16,12 +11,7 @@ jobs:
   update_labels:
     name: Update PR labels
     permissions:
-      contents: write
-      # write permission is required for autolabeler
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-      # Runs only pull-request labeler
-      - uses: release-drafter/release-drafter@v7
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/labeler@v5
