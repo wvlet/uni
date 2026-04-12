@@ -1,0 +1,12 @@
+breaking:
+  - head-branch: ['^breaking/']
+feature:
+  - head-branch: ['^feature/']
+bug:
+  - head-branch: ['^fix/']
+internal:
+  - head-branch: ['^chore/', '^test/']
+library-update:
+  - head-branch: ['^deps/']
+doc:
+  - head-branch: ['^docs/']

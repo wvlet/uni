@@ -35,24 +35,3 @@ template: |
   $CHANGES
 
   **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
-
-
-autolabeler:
-  - label: 'breaking'
-    title:
-      - '/breaking/i'
-  - label: 'doc'
-    files:
-      - '*.md'
-  - label: 'feature'
-    title:
-      - '/(support|feature)/i'
-  - label: 'bug'
-    title:
-      - '/fix/i'
-  - label: 'internal'
-    title:
-      - '/internal/i'
-  - label: 'deprecation'
-    title:
-      - '/deprecate/i'
