@@ -225,7 +225,7 @@ trait ZipCompat extends ZipApi:
       val dataOffset    = localOffset + 30 + localNameLen + localExtraLen
 
       // Guard against zip slip — use IOPath segment-based startsWith
-      val destIOPath  = IOPath.parse(destination.path).normalize
+      val destIOPath  = destination.normalize
       val entryIOPath = destIOPath.resolve(name).normalize
       if !entryIOPath.startsWith(destIOPath) then
         throw IOOperationException(s"Zip entry outside target directory: ${name}")
@@ -351,14 +351,6 @@ trait ZipCompat extends ZipApi:
     d.getTime().toLong
 
   private def toUnsigned(value: Int): Double = (value.toLong & 0xffffffffL).toDouble
-
-  private def byteArrayToUint8Array(bytes: Array[Byte]): Uint8Array =
-    val uint8 = Uint8Array(bytes.length)
-    var i     = 0
-    while i < bytes.length do
-      uint8(i) = (bytes(i) & 0xff).toShort
-      i += 1
-    uint8
 
   private def uint8ArrayToByteArray(uint8: Uint8Array): Array[Byte] =
     Int8Array(uint8.buffer, uint8.byteOffset, uint8.length).toArray

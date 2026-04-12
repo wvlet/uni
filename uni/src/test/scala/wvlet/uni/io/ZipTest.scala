@@ -101,6 +101,23 @@ class ZipTest extends UniTest:
     FileSystem.exists(extractDir) shouldBe true
   }
 
+  test("handle empty file content") {
+    val sourceDir = tempDir / "emptyfile-src"
+    FileSystem.createDirectory(sourceDir)
+    FileSystem.writeBytes(sourceDir / "empty.txt", Array.emptyByteArray)
+
+    val archivePath = tempDir / "emptyfile.zip"
+    Zip.create(archivePath, Seq(sourceDir / "empty.txt"))
+
+    val entries = Zip.list(archivePath)
+    val entry   = entries.find(_.name == "empty.txt").get
+    entry.size shouldBe 0L
+
+    val extractDir = tempDir / "emptyfile-out"
+    Zip.extract(archivePath, extractDir)
+    FileSystem.readBytes(extractDir / "empty.txt") shouldBe Array.emptyByteArray
+  }
+
   test("round-trip preserves file content") {
     val sourceDir = tempDir / "roundtrip-src"
     FileSystem.createDirectory(sourceDir)
