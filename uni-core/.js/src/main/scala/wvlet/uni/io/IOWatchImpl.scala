@@ -62,19 +62,23 @@ private[io] object IOWatchJS extends IOWatchBase:
     val listener: js.Function2[String, String, Unit] =
       (eventType: String, filename: String) =>
         if filename != null then
-          val fullPath       = IOPath.parse(NodePathModule.join(path.path, filename))
-          val watchEventType =
-            eventType match
-              case "rename" =>
-                if NodeFSModule.existsSync(fullPath.path) then
-                  WatchEventType.Created
-                else
-                  WatchEventType.Deleted
-              case "change" =>
-                WatchEventType.Modified
-              case _ =>
-                WatchEventType.Modified
-          handler(WatchEvent(watchEventType, fullPath))
+          try
+            val fullPath       = IOPath.parse(NodePathModule.join(path.path, filename))
+            val watchEventType =
+              eventType match
+                case "rename" =>
+                  if NodeFSModule.existsSync(fullPath.path) then
+                    WatchEventType.Created
+                  else
+                    WatchEventType.Deleted
+                case "change" =>
+                  WatchEventType.Modified
+                case _ =>
+                  WatchEventType.Modified
+            handler(WatchEvent(watchEventType, fullPath))
+          catch
+            case _: Throwable =>
+              ()
 
     val fsWatcher = NodeFSWatchModule.watch(path.path, watchOptions, listener)
 
