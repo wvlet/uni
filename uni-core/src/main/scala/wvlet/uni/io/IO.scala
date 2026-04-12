@@ -265,4 +265,6 @@ object IO extends IOCompat:
     existsAsync
   }
 
+  export IOWatch.watch
+
 end IO

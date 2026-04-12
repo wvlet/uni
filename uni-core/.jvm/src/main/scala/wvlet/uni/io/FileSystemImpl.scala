@@ -376,8 +376,9 @@ end FileSystemJvm
   * JVM FileSystem initialization. This object ensures the JVM implementation is registered.
   */
 object FileSystemInit:
-  // Register JVM implementation
+  // Register JVM implementations
   FileSystem.setImplementation(FileSystemJvm)
+  IOWatch.setImplementation(IOWatchJvm)
 
   /**
     * Ensures the FileSystem is initialized. Call this at application startup if needed.

@@ -386,8 +386,9 @@ end FileSystemNative
   * Scala Native FileSystem initialization.
   */
 object FileSystemInit:
-  // Register Native implementation
+  // Register Native implementations
   FileSystem.setImplementation(FileSystemNative)
+  IOWatch.setImplementation(IOWatchNative)
 
   /**
     * Ensures the FileSystem is initialized.
