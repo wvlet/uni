@@ -173,14 +173,15 @@ object PermSet:
     PermSet(bits)
 
   /**
-    * Creates a PermSet from an octal string like "755".
+    * Creates a PermSet from an octal string like "755" or "0755". Accepts 1-4 digit octal strings;
+    * special bits (setuid/setgid/sticky) in the leading digit are masked off.
     */
   def fromOctalString(s: String): PermSet =
     require(
-      s.length >= 1 && s.length <= 3 && s.forall(c => c >= '0' && c <= '7'),
+      s.length >= 1 && s.length <= 4 && s.forall(c => c >= '0' && c <= '7'),
       s"Invalid octal permission string: \"${s}\""
     )
-    PermSet(Integer.parseInt(s, 8))
+    PermSet(Integer.parseInt(s, 8) & PermissionMask)
 
   private def parseBit(c: Char, expected: Char, bit: Int): Int =
     if c == expected then

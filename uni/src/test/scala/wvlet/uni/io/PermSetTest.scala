@@ -76,6 +76,18 @@ class PermSetTest extends UniTest:
     PermSet.fromOctalString("700").bits shouldBe 0x1c0
   }
 
+  test("fromOctalString with leading zero") {
+    PermSet.fromOctalString("0755").bits shouldBe 0x1ed
+    PermSet.fromOctalString("0644").bits shouldBe 0x1a4
+  }
+
+  test("fromOctalString masks special bits") {
+    // setuid (4755) -> only permission bits
+    PermSet.fromOctalString("4755").bits shouldBe 0x1ed
+    // setgid + sticky (3755) -> only permission bits
+    PermSet.fromOctalString("3755").bits shouldBe 0x1ed
+  }
+
   test("toOctalString") {
     PermSet(0x1ed).toOctalString shouldBe "755"
     PermSet(0x1a4).toOctalString shouldBe "644"
