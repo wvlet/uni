@@ -27,7 +27,6 @@ import java.nio.file.FileVisitResult
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.attribute.FileTime
-import java.nio.file.attribute.PosixFileAttributeView
 import java.nio.file.attribute.PosixFileAttributes
 import java.nio.file.attribute.PosixFilePermission
 import java.time.Instant
@@ -71,11 +70,29 @@ private[io] object FileSystemJvm extends FileSystemBase:
       if !Files.exists(nioPath, LinkOption.NOFOLLOW_LINKS) then
         FileInfo.notFound(path)
       else
-        val attrs = Files.readAttributes(
-          nioPath,
-          classOf[BasicFileAttributes],
-          LinkOption.NOFOLLOW_LINKS
-        )
+        // Try PosixFileAttributes first (extends BasicFileAttributes), fall back to basic
+        val (attrs, perms, fileOwner, fileGroup) =
+          try
+            val posixAttrs = Files.readAttributes(
+              nioPath,
+              classOf[PosixFileAttributes],
+              LinkOption.NOFOLLOW_LINKS
+            )
+            (
+              posixAttrs: BasicFileAttributes,
+              Some(posixPermsToPermSet(posixAttrs.permissions())),
+              Option(posixAttrs.owner()).map(_.getName),
+              Option(posixAttrs.group()).map(_.getName)
+            )
+          catch
+            case _: UnsupportedOperationException =>
+              val basicAttrs = Files.readAttributes(
+                nioPath,
+                classOf[BasicFileAttributes],
+                LinkOption.NOFOLLOW_LINKS
+              )
+              (basicAttrs, None, None, None)
+
         val fileType =
           if attrs.isRegularFile then
             FileType.File
@@ -85,23 +102,6 @@ private[io] object FileSystemJvm extends FileSystemBase:
             FileType.SymbolicLink
           else
             FileType.Other
-
-        // Try to read POSIX attributes (owner, group, permissions)
-        val (perms, fileOwner, fileGroup) =
-          try
-            val posixView = Files.getFileAttributeView(nioPath, classOf[PosixFileAttributeView])
-            if posixView != null then
-              val posixAttrs = posixView.readAttributes()
-              (
-                Some(posixPermsToPermSet(posixAttrs.permissions())),
-                Option(posixAttrs.owner()).map(_.getName),
-                Option(posixAttrs.group()).map(_.getName)
-              )
-            else
-              (None, None, None)
-          catch
-            case _: UnsupportedOperationException =>
-              (None, None, None)
 
         FileInfo(
           path = path,
@@ -406,48 +406,20 @@ private[io] object FileSystemJvm extends FileSystemBase:
     val posixAttrs = Files.readAttributes(toNioPath(path), classOf[PosixFileAttributes])
     posixAttrs.group().getName
 
+  // PosixFilePermission ordinals map directly to bit positions: ordinal 0 = bit 8 (OWNER_READ)
   private def posixPermsToPermSet(perms: java.util.Set[PosixFilePermission]): PermSet =
     var bits = 0
-    if perms.contains(PosixFilePermission.OWNER_READ) then
-      bits |= PermSet.OwnerRead
-    if perms.contains(PosixFilePermission.OWNER_WRITE) then
-      bits |= PermSet.OwnerWrite
-    if perms.contains(PosixFilePermission.OWNER_EXECUTE) then
-      bits |= PermSet.OwnerExecute
-    if perms.contains(PosixFilePermission.GROUP_READ) then
-      bits |= PermSet.GroupRead
-    if perms.contains(PosixFilePermission.GROUP_WRITE) then
-      bits |= PermSet.GroupWrite
-    if perms.contains(PosixFilePermission.GROUP_EXECUTE) then
-      bits |= PermSet.GroupExecute
-    if perms.contains(PosixFilePermission.OTHERS_READ) then
-      bits |= PermSet.OtherRead
-    if perms.contains(PosixFilePermission.OTHERS_WRITE) then
-      bits |= PermSet.OtherWrite
-    if perms.contains(PosixFilePermission.OTHERS_EXECUTE) then
-      bits |= PermSet.OtherExecute
+    perms.forEach(p => bits |= (1 << (8 - p.ordinal())))
     PermSet(bits)
 
   private def permSetToPosixPerms(perms: PermSet): java.util.Set[PosixFilePermission] =
     val result = java.util.EnumSet.noneOf(classOf[PosixFilePermission])
-    if perms.ownerRead then
-      result.add(PosixFilePermission.OWNER_READ)
-    if perms.ownerWrite then
-      result.add(PosixFilePermission.OWNER_WRITE)
-    if perms.ownerExecute then
-      result.add(PosixFilePermission.OWNER_EXECUTE)
-    if perms.groupRead then
-      result.add(PosixFilePermission.GROUP_READ)
-    if perms.groupWrite then
-      result.add(PosixFilePermission.GROUP_WRITE)
-    if perms.groupExecute then
-      result.add(PosixFilePermission.GROUP_EXECUTE)
-    if perms.otherRead then
-      result.add(PosixFilePermission.OTHERS_READ)
-    if perms.otherWrite then
-      result.add(PosixFilePermission.OTHERS_WRITE)
-    if perms.otherExecute then
-      result.add(PosixFilePermission.OTHERS_EXECUTE)
+    PosixFilePermission
+      .values()
+      .foreach { p =>
+        if (perms.bits & (1 << (8 - p.ordinal()))) != 0 then
+          result.add(p)
+      }
     result
 
 end FileSystemJvm

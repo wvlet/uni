@@ -69,6 +69,7 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def info(path: IOPath): FileInfo =
     val file = toJavaFile(path)
     if isSymlinkPath(path) then
+      val (perms, fileOwner, fileGroup) = statFileInfo(path)
       FileInfo(
         path = path,
         fileType = FileType.SymbolicLink,
@@ -78,7 +79,9 @@ private[io] object FileSystemNative extends FileSystemBase:
         isWritable = file.canWrite,
         isExecutable = file.canExecute,
         isHidden = path.fileName.startsWith("."),
-        permissions = statPermissions(path)
+        permissions = perms,
+        owner = fileOwner,
+        group = fileGroup
       )
     else if !file.exists() then
       FileInfo.notFound(path)
@@ -391,52 +394,29 @@ private[io] object FileSystemNative extends FileSystemBase:
     IOPath.parse(fromCString(buf))
   }
 
-  override def permissions(path: IOPath): PermSet = Zone {
-    val buf = stackalloc[posixStat.stat]()
-    if statFunc(toCString(path.path), buf) != 0 then
-      throw java.io.IOException(s"Failed to stat: ${path.path}")
-    PermSet(buf.st_mode.toInt & 0x1ff)
-  }
+  override def permissions(path: IOPath): PermSet = statFileInfo(path)
+    ._1
+    .getOrElse(throw java.io.IOException(s"Failed to stat: ${path.path}"))
 
   override def setPermissions(path: IOPath, permissions: PermSet): Unit = Zone {
     if chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
       throw java.io.IOException(s"Failed to chmod: ${path.path}")
   }
 
-  override def owner(path: IOPath): String = Zone {
-    val buf = stackalloc[posixStat.stat]()
-    if statFunc(toCString(path.path), buf) != 0 then
-      throw java.io.IOException(s"Failed to stat: ${path.path}")
-    val pw = pwd.getpwuid(buf.st_uid)
-    if pw == null then
-      throw java.io.IOException(s"Failed to get owner for: ${path.path}")
-    fromCString(pw.pw_name)
-  }
+  override def owner(path: IOPath): String = statFileInfo(path)
+    ._2
+    .getOrElse(throw java.io.IOException(s"Failed to get owner for: ${path.path}"))
 
-  override def group(path: IOPath): String = Zone {
-    val buf = stackalloc[posixStat.stat]()
-    if statFunc(toCString(path.path), buf) != 0 then
-      throw java.io.IOException(s"Failed to stat: ${path.path}")
-    val gr = grp.getgrgid(buf.st_gid)
-    if gr == null then
-      throw java.io.IOException(s"Failed to get group for: ${path.path}")
-    fromCString(gr.gr_name)
-  }
-
-  private def statPermissions(path: IOPath): Option[PermSet] = Zone {
-    val buf = stackalloc[posixStat.stat]()
-    if statFunc(toCString(path.path), buf) != 0 then
-      None
-    else
-      Some(PermSet(buf.st_mode.toInt & 0x1ff))
-  }
+  override def group(path: IOPath): String = statFileInfo(path)
+    ._3
+    .getOrElse(throw java.io.IOException(s"Failed to get group for: ${path.path}"))
 
   private def statFileInfo(path: IOPath): (Option[PermSet], Option[String], Option[String]) = Zone {
     val buf = stackalloc[posixStat.stat]()
     if statFunc(toCString(path.path), buf) != 0 then
       (None, None, None)
     else
-      val perms     = Some(PermSet(buf.st_mode.toInt & 0x1ff))
+      val perms     = Some(PermSet(buf.st_mode.toInt & PermSet.PermissionMask))
       val ownerName =
         val pw = pwd.getpwuid(buf.st_uid)
         if pw != null then

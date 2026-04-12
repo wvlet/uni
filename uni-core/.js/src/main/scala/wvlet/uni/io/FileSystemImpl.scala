@@ -135,7 +135,7 @@ private[io] object FileSystemJS extends FileSystemBase:
           else
             FileType.Other
 
-        val modeBits = stats.mode & 0x1ff
+        val modeBits = stats.mode & PermSet.PermissionMask
         FileInfo(
           path = path,
           fileType = fileType,
@@ -145,7 +145,7 @@ private[io] object FileSystemJS extends FileSystemBase:
           createdAt = Some(Instant.ofEpochMilli(stats.birthtimeMs.toLong)),
           isReadable = true, // Node.js requires separate access check
           isWritable = true,
-          isExecutable = (modeBits & 0x49) != 0, // Check executable bits
+          isExecutable = (modeBits & PermSet.AnyExecute) != 0, // Check executable bits
           isHidden = path.fileName.startsWith("."),
           permissions = Some(PermSet(modeBits))
         )
@@ -564,7 +564,7 @@ private[io] object FileSystemJS extends FileSystemBase:
             else
               FileType.Other
 
-          val modeBits = stats.mode & 0x1ff
+          val modeBits = stats.mode & PermSet.PermissionMask
           FileInfo(
             path = path,
             fileType = fileType,
@@ -574,7 +574,7 @@ private[io] object FileSystemJS extends FileSystemBase:
             createdAt = Some(Instant.ofEpochMilli(stats.birthtimeMs.toLong)),
             isReadable = true,
             isWritable = true,
-            isExecutable = (modeBits & 0x49) != 0,
+            isExecutable = (modeBits & PermSet.AnyExecute) != 0,
             isHidden = path.fileName.startsWith("."),
             permissions = Some(PermSet(modeBits))
           )
@@ -671,7 +671,7 @@ private[io] object FileSystemJS extends FileSystemBase:
   override def permissions(path: IOPath): PermSet =
     if isNodeEnv then
       val stats = NodeFSModule.statSync(path.path)
-      PermSet(stats.mode & 0x1ff)
+      PermSet(stats.mode & PermSet.PermissionMask)
     else
       throw UnsupportedOperationException(
         "POSIX permissions are not supported in browser environment"

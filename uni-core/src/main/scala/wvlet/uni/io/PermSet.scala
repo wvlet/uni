@@ -24,21 +24,16 @@ package wvlet.uni.io
   */
 case class PermSet(bits: Int):
   require(
-    (bits & ~0x1ff) == 0,
+    (bits & ~PermSet.PermissionMask) == 0,
     s"Permission bits must be in range 0-511 (0o000-0o777), got: ${bits}"
   )
 
-  // Owner permissions
   def ownerRead: Boolean    = (bits & PermSet.OwnerRead) != 0
   def ownerWrite: Boolean   = (bits & PermSet.OwnerWrite) != 0
   def ownerExecute: Boolean = (bits & PermSet.OwnerExecute) != 0
-
-  // Group permissions
   def groupRead: Boolean    = (bits & PermSet.GroupRead) != 0
   def groupWrite: Boolean   = (bits & PermSet.GroupWrite) != 0
   def groupExecute: Boolean = (bits & PermSet.GroupExecute) != 0
-
-  // Other permissions
   def otherRead: Boolean    = (bits & PermSet.OtherRead) != 0
   def otherWrite: Boolean   = (bits & PermSet.OtherWrite) != 0
   def otherExecute: Boolean = (bits & PermSet.OtherExecute) != 0
@@ -135,7 +130,9 @@ case class PermSet(bits: Int):
 end PermSet
 
 object PermSet:
-  // Individual permission bit constants
+  /** 9-bit mask for POSIX permission bits (0o777). */
+  val PermissionMask: Int = 0x1ff
+
   val OwnerRead: Int    = 0x100 // 0o400
   val OwnerWrite: Int   = 0x080 // 0o200
   val OwnerExecute: Int = 0x040 // 0o100
@@ -146,11 +143,11 @@ object PermSet:
   val OtherWrite: Int   = 0x002 // 0o002
   val OtherExecute: Int = 0x001 // 0o001
 
-  /** No permissions. */
-  val empty: PermSet = PermSet(0)
+  /** Mask for any execute bit (owner | group | other). */
+  val AnyExecute: Int = OwnerExecute | GroupExecute | OtherExecute
 
-  /** All permissions (rwxrwxrwx / 0o777). */
-  val all: PermSet = PermSet(0x1ff)
+  val empty: PermSet = PermSet(0)
+  val all: PermSet   = PermSet(PermissionMask)
 
   /**
     * Creates a PermSet from a POSIX permission string like "rwxr-xr-x".
