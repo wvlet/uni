@@ -59,7 +59,7 @@ private[io] object IOWatchJvm extends IOWatchBase:
       registerTree(nioPath)
     else
       registerDirectory(nioPath)
-    val thread  = Thread(() =>
+    val thread = Thread(() =>
       while running.get() do
         try
           val key = watchService.poll(options.pollingIntervalMs, TimeUnit.MILLISECONDS)
