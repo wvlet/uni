@@ -67,6 +67,7 @@ trait ZipCompat extends ZipApi:
   private val MethodStored   = 0
   private val MethodDeflated = 8
   private val VersionNeeded  = 20
+  private val MaxEOCDSearchOffset = 22 + 65535 // EOCD size + max comment length
 
   private def requireNode(): Unit =
     if FileSystem.isBrowser then
@@ -100,7 +101,9 @@ trait ZipCompat extends ZipApi:
     for (entryName, sourcePath) <- filesToAdd do
       val isDir = entryName.endsWith("/")
 
-      // Track uncompressed size and keep compressed data as Uint8Array to avoid extra copies
+      val stats = NodeFSModule.statSync(sourcePath)
+
+      // Keep compressed data as Uint8Array to avoid extra copies
       val (uncompressedSize, crc, compressedData, method) =
         if isDir then
           (0, 0.0, Uint8Array(0), MethodStored)
@@ -114,12 +117,7 @@ trait ZipCompat extends ZipApi:
             val deflated = NodeZlibRawModule.deflateRawSync(raw)
             (bytes.length, crcValue, deflated, MethodDeflated)
 
-      val (dosTime, dosDate) =
-        if isDir then
-          (0, 0)
-        else
-          val stats = NodeFSModule.statSync(sourcePath)
-          epochMillisToDosDateTime(stats.mtimeMs)
+      val (dosTime, dosDate) = epochMillisToDosDateTime(stats.mtimeMs)
 
       // Local file header
       val nameBytes = NodeBufferFactory.from(entryName, "utf8")
@@ -298,7 +296,7 @@ trait ZipCompat extends ZipApi:
 
   private def findEOCD(data: NodeBuffer): Int =
     var pos = data.length - 22
-    while pos >= math.max(0, data.length - 65557) do
+    while pos >= math.max(0, data.length - MaxEOCDSearchOffset) do
       if data.readUInt32LE(pos) == EndOfCentralDirSig then
         return pos
       pos -= 1
