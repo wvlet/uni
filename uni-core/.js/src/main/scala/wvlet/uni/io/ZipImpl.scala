@@ -53,7 +53,9 @@ private[io] object NodeBufferFactory extends js.Object:
   * Scala.js (Node.js) implementation of zip archive operations.
   *
   * Uses Node's zlib module for raw deflate/inflate compression and Buffer for binary data
-  * manipulation to implement the ZIP file format directly.
+  * manipulation to implement the ZIP file format directly. Archives and individual entries are
+  * loaded into memory, so this implementation is limited to archives that fit in available heap
+  * (typically under 2GB). For streaming support, use the JVM or Native platforms.
   *
   * Browser environments throw UnsupportedOperationException.
   */
@@ -222,12 +224,12 @@ trait ZipCompat extends ZipApi:
       val localExtraLen = data.readUInt16LE(localOffset + 28)
       val dataOffset    = localOffset + 30 + localNameLen + localExtraLen
 
-      val entryPath       = NodePathModule.join(destination.path, name)
-      val normalizedDest  = NodePathModule.resolve(destination.path) + NodePathModule.sep
-      val normalizedEntry = NodePathModule.resolve(entryPath)
-      // Guard against zip slip — append separator to prevent prefix false positives
-      if !normalizedEntry.startsWith(normalizedDest) then
+      // Guard against zip slip — use IOPath segment-based startsWith
+      val destIOPath  = IOPath.parse(destination.path).normalize
+      val entryIOPath = destIOPath.resolve(name).normalize
+      if !entryIOPath.startsWith(destIOPath) then
         throw IOOperationException(s"Zip entry outside target directory: ${name}")
+      val entryPath = entryIOPath.path
 
       if name.endsWith("/") then
         NodeFSModule.mkdirSync(entryPath, js.Dynamic.literal(recursive = true))
