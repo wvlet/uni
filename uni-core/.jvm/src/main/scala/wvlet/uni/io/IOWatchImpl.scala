@@ -40,18 +40,19 @@ private[io] object IOWatchJvm extends IOWatchBase:
       val key = dir.register(watchService, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE)
       keyToPath.put(key, dir)
 
-    // Register the root directory
-    registerDirectory(nioPath)
+    def registerTree(root: Path): Unit = Files.walkFileTree(
+      root,
+      new SimpleFileVisitor[Path]:
+        override def preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
+          registerDirectory(dir)
+          FileVisitResult.CONTINUE
+    )
 
-    // For recursive watching, register all subdirectories
+    // Register the root directory (and all subdirectories if recursive)
     if options.recursive then
-      Files.walkFileTree(
-        nioPath,
-        new SimpleFileVisitor[Path]:
-          override def preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
-            registerDirectory(dir)
-            FileVisitResult.CONTINUE
-      )
+      registerTree(nioPath)
+    else
+      registerDirectory(nioPath)
 
     val running = AtomicBoolean(true)
     val thread  = Thread(() =>
@@ -78,9 +79,9 @@ private[io] object IOWatchJvm extends IOWatchBase:
 
                   handler(WatchEvent(eventType, ioPath))
 
-                  // If recursive and a new directory was created, register it
+                  // If recursive and a new directory was created, register its entire subtree
                   if options.recursive && kind == ENTRY_CREATE && Files.isDirectory(fullPath) then
-                    registerDirectory(fullPath)
+                    registerTree(fullPath)
                 else
                   handler(WatchEvent(WatchEventType.Overflow, IOPath.parse(dir.toString)))
               }

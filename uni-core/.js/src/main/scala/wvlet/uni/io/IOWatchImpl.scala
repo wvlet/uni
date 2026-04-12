@@ -40,12 +40,22 @@ private[io] object IOWatchJS extends IOWatchBase:
       !js.isUndefined(js.Dynamic.global.process.versions) &&
       !js.isUndefined(js.Dynamic.global.process.versions.node)
 
+  private def supportsRecursiveWatch: Boolean =
+    val platform = NodeOSModule.platform()
+    platform == "darwin" || platform == "win32"
+
   override def watch(path: IOPath, options: WatchOptions)(handler: WatchEvent => Unit): IOWatcher =
     if !isNodeEnv then
       throw UnsupportedOperationException("IOWatch is not supported in browser environments")
 
     if !NodeFSModule.existsSync(path.path) || !NodeFSModule.statSync(path.path).isDirectory() then
       throw IOOperationException(s"Watch path is not a directory: ${path.path}")
+
+    if options.recursive && !supportsRecursiveWatch then
+      throw UnsupportedOperationException(
+        "Recursive watching is not supported on this platform in Node.js. " +
+          "Use non-recursive watching or switch to JVM."
+      )
 
     val watchOptions = js.Dynamic.literal(recursive = options.recursive, persistent = false)
 
