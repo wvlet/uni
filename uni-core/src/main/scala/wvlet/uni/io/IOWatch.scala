@@ -49,27 +49,6 @@ trait IOWatcher extends AutoCloseable:
   def close(): Unit
 
 /**
-  * Cross-platform file system watcher. Watches a directory for file creation, modification, and
-  * deletion events.
-  *
-  * Usage:
-  * {{{
-  * import wvlet.uni.io.*
-  *
-  * val watcher = IOWatch.watch(IOPath("my-dir")) { event =>
-  *   println(s"${event.eventType}: ${event.path}")
-  * }
-  * // ... later
-  * watcher.close()
-  * }}}
-  *
-  * Platform implementations:
-  *   - JVM: Uses `java.nio.file.WatchService`
-  *   - Node.js: Uses `fs.watch`
-  *   - Native: Uses polling-based approach
-  *   - Browser: Not supported
-  */
-/**
   * Base trait for platform-specific watch implementations.
   */
 trait IOWatchBase:

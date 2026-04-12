@@ -35,6 +35,7 @@ private[io] object IOWatchJvm extends IOWatchBase:
 
     val watchService = FileSystems.getDefault.newWatchService()
     val keyToPath    = java.util.concurrent.ConcurrentHashMap[WatchKey, Path]()
+    val running      = AtomicBoolean(true)
 
     def registerDirectory(dir: Path): Unit =
       val key = dir.register(watchService, ENTRY_CREATE, ENTRY_MODIFY, ENTRY_DELETE)
@@ -44,17 +45,20 @@ private[io] object IOWatchJvm extends IOWatchBase:
       root,
       new SimpleFileVisitor[Path]:
         override def preVisitDirectory(dir: Path, attrs: BasicFileAttributes): FileVisitResult =
-          registerDirectory(dir)
+          if !running.get() then
+            FileVisitResult.TERMINATE
+          else
+            registerDirectory(dir)
+            FileVisitResult.CONTINUE
+
+        override def visitFileFailed(file: Path, exc: java.io.IOException): FileVisitResult =
           FileVisitResult.CONTINUE
     )
 
-    // Register the root directory (and all subdirectories if recursive)
     if options.recursive then
       registerTree(nioPath)
     else
       registerDirectory(nioPath)
-
-    val running = AtomicBoolean(true)
     val thread  = Thread(() =>
       while running.get() do
         try
@@ -80,13 +84,19 @@ private[io] object IOWatchJvm extends IOWatchBase:
                   handler(WatchEvent(eventType, ioPath))
 
                   // If recursive and a new directory was created, register its entire subtree
-                  if options.recursive && kind == ENTRY_CREATE && Files.isDirectory(fullPath) then
-                    registerTree(fullPath)
+                  if options.recursive && kind == ENTRY_CREATE then
+                    try
+                      if Files.isDirectory(fullPath) then
+                        registerTree(fullPath)
+                    catch
+                      case _: java.io.IOException => // Directory may have been removed
                 else
                   handler(WatchEvent(WatchEventType.Overflow, IOPath.parse(dir.toString)))
               }
               if !key.reset() then
                 keyToPath.remove(key)
+            end if
+          end if
         catch
           case _: java.nio.file.ClosedWatchServiceException =>
             running.set(false)

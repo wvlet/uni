@@ -14,7 +14,6 @@
 package wvlet.uni.io
 
 import scala.scalajs.js
-import scala.scalajs.js.annotation.JSImport
 
 /**
   * Node.js fs.watch facade.
@@ -35,20 +34,21 @@ private[io] object NodeFSWatchModule:
 
 private[io] object IOWatchJS extends IOWatchBase:
 
-  private def isNodeEnv: Boolean =
-    js.typeOf(js.Dynamic.global.process) != "undefined" &&
-      !js.isUndefined(js.Dynamic.global.process.versions) &&
-      !js.isUndefined(js.Dynamic.global.process.versions.node)
-
   private def supportsRecursiveWatch: Boolean =
     val platform = NodeOSModule.platform()
     platform == "darwin" || platform == "win32"
 
   override def watch(path: IOPath, options: WatchOptions)(handler: WatchEvent => Unit): IOWatcher =
-    if !isNodeEnv then
+    if !FileSystem.isNode then
       throw UnsupportedOperationException("IOWatch is not supported in browser environments")
 
-    if !NodeFSModule.existsSync(path.path) || !NodeFSModule.statSync(path.path).isDirectory() then
+    val isDir =
+      try
+        NodeFSModule.statSync(path.path).isDirectory()
+      catch
+        case _: Throwable =>
+          false
+    if !isDir then
       throw IOOperationException(s"Watch path is not a directory: ${path.path}")
 
     if options.recursive && !supportsRecursiveWatch then

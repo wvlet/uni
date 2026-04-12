@@ -29,7 +29,7 @@ private[io] object IOWatchNative extends IOWatchBase:
 
     val running = AtomicBoolean(true)
 
-    // Take an initial snapshot of the directory
+    @volatile
     var snapshot = scanDirectory(rootFile, options.recursive)
 
     val thread = Thread(() =>
@@ -39,7 +39,6 @@ private[io] object IOWatchNative extends IOWatchBase:
           if running.get() then
             val current = scanDirectory(rootFile, options.recursive)
 
-            // Detect created files
             current.foreach { (filePath, modTime) =>
               snapshot.get(filePath) match
                 case None =>
@@ -49,7 +48,6 @@ private[io] object IOWatchNative extends IOWatchBase:
                 case _ => // No change
             }
 
-            // Detect deleted files
             snapshot.foreach { (filePath, _) =>
               if !current.contains(filePath) then
                 handler(WatchEvent(WatchEventType.Deleted, IOPath.parse(filePath)))
