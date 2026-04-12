@@ -57,7 +57,7 @@ private[io] object IOWatchJS extends IOWatchBase:
           "Use non-recursive watching or switch to JVM."
       )
 
-    val watchOptions = js.Dynamic.literal(recursive = options.recursive, persistent = false)
+    val watchOptions = js.Dynamic.literal(recursive = options.recursive, persistent = true)
 
     val listener: js.Function2[String, String, Unit] =
       (eventType: String, filename: String) =>

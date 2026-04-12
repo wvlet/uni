@@ -105,7 +105,8 @@ object IOWatch extends IOWatchBase:
       )
     _impl
 
-  override def watch(path: IOPath, options: WatchOptions)(handler: WatchEvent => Unit): IOWatcher =
-    impl.watch(path, options)(handler)
+  override def watch(path: IOPath, options: WatchOptions = WatchOptions.default)(
+      handler: WatchEvent => Unit
+  ): IOWatcher = impl.watch(path, options)(handler)
 
 end IOWatch

@@ -40,17 +40,26 @@ private[io] object IOWatchNative extends IOWatchBase:
             val current = scanDirectory(rootFile, options.recursive)
 
             current.foreach { (filePath, modTime) =>
-              snapshot.get(filePath) match
-                case None =>
-                  handler(WatchEvent(WatchEventType.Created, IOPath.parse(filePath)))
-                case Some(oldModTime) if oldModTime != modTime =>
-                  handler(WatchEvent(WatchEventType.Modified, IOPath.parse(filePath)))
-                case _ => // No change
+              try
+                snapshot.get(filePath) match
+                  case None =>
+                    handler(WatchEvent(WatchEventType.Created, IOPath.parse(filePath)))
+                  case Some(oldModTime) if oldModTime != modTime =>
+                    handler(WatchEvent(WatchEventType.Modified, IOPath.parse(filePath)))
+                  case _ =>
+                    ()
+              catch
+                case _: Throwable =>
+                  ()
             }
 
             snapshot.foreach { (filePath, _) =>
               if !current.contains(filePath) then
-                handler(WatchEvent(WatchEventType.Deleted, IOPath.parse(filePath)))
+                try
+                  handler(WatchEvent(WatchEventType.Deleted, IOPath.parse(filePath)))
+                catch
+                  case _: Throwable =>
+                    ()
             }
 
             snapshot = current

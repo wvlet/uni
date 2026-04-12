@@ -81,7 +81,11 @@ private[io] object IOWatchJvm extends IOWatchBase:
                     else
                       WatchEventType.Deleted
 
-                  handler(WatchEvent(eventType, ioPath))
+                  try
+                    handler(WatchEvent(eventType, ioPath))
+                  catch
+                    case _: Throwable =>
+                      ()
 
                   // If recursive and a new directory was created, register its entire subtree
                   if options.recursive && kind == ENTRY_CREATE then
@@ -89,9 +93,15 @@ private[io] object IOWatchJvm extends IOWatchBase:
                       if Files.isDirectory(fullPath) then
                         registerTree(fullPath)
                     catch
-                      case _: java.io.IOException => // Directory may have been removed
+                      case _: java.io.IOException =>
+                        ()
                 else
-                  handler(WatchEvent(WatchEventType.Overflow, IOPath.parse(dir.toString)))
+                  try
+                    handler(WatchEvent(WatchEventType.Overflow, IOPath.parse(dir.toString)))
+                  catch
+                    case _: Throwable =>
+                      ()
+                end if
               }
               if !key.reset() then
                 keyToPath.remove(key)
