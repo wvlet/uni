@@ -91,7 +91,14 @@ private[io] object FileSystemJvm extends FileSystemBase:
                 classOf[BasicFileAttributes],
                 LinkOption.NOFOLLOW_LINKS
               )
-              (basicAttrs, None, None, None)
+              // Files.getOwner works on non-POSIX filesystems (e.g., Windows/NTFS)
+              val fallbackOwner =
+                try
+                  Option(Files.getOwner(nioPath)).map(_.getName)
+                catch
+                  case _: UnsupportedOperationException =>
+                    None
+              (basicAttrs, None, fallbackOwner, None)
 
         val fileType =
           if attrs.isRegularFile then

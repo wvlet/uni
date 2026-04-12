@@ -25,8 +25,8 @@ import scala.concurrent.Future
 import scala.collection.mutable.ArrayBuffer
 import scalanative.posix.grp
 import scalanative.posix.pwd
-import scalanative.posix.stat as posixStat
-import scalanative.posix.sys.stat.{chmod, stat as statFunc}
+import scalanative.posix.pwdOps.*
+import scalanative.posix.sys.stat as statMod
 import scalanative.posix.sys.statOps.*
 import scalanative.posix.unistd
 import scalanative.unsafe.*
@@ -69,7 +69,7 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def info(path: IOPath): FileInfo =
     val file = toJavaFile(path)
     if isSymlinkPath(path) then
-      val (perms, fileOwner, fileGroup) = statFileInfo(path)
+      val (perms, fileOwner, fileGroup) = lstatFileInfo(path)
       FileInfo(
         path = path,
         fileType = FileType.SymbolicLink,
@@ -399,7 +399,7 @@ private[io] object FileSystemNative extends FileSystemBase:
     .getOrElse(throw java.io.IOException(s"Failed to stat: ${path.path}"))
 
   override def setPermissions(path: IOPath, permissions: PermSet): Unit = Zone {
-    if chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
+    if statMod.chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
       throw java.io.IOException(s"Failed to chmod: ${path.path}")
   }
 
@@ -411,22 +411,37 @@ private[io] object FileSystemNative extends FileSystemBase:
     ._3
     .getOrElse(throw java.io.IOException(s"Failed to get group for: ${path.path}"))
 
-  private def statFileInfo(path: IOPath): (Option[PermSet], Option[String], Option[String]) = Zone {
-    val buf = stackalloc[posixStat.stat]()
-    if statFunc(toCString(path.path), buf) != 0 then
+  private def statFileInfo(path: IOPath): (Option[PermSet], Option[String], Option[String]) =
+    doStatFileInfo(path, followLinks = true)
+
+  /** Like statFileInfo but uses lstat (does not follow symlinks). */
+  private def lstatFileInfo(path: IOPath): (Option[PermSet], Option[String], Option[String]) =
+    doStatFileInfo(path, followLinks = false)
+
+  private def doStatFileInfo(
+      path: IOPath,
+      followLinks: Boolean
+  ): (Option[PermSet], Option[String], Option[String]) = Zone {
+    val buf = stackalloc[statMod.stat]()
+    val ret =
+      if followLinks then
+        statMod.stat(toCString(path.path), buf)
+      else
+        statMod.lstat(toCString(path.path), buf)
+    if ret != 0 then
       (None, None, None)
     else
       val perms     = Some(PermSet(buf.st_mode.toInt & PermSet.PermissionMask))
       val ownerName =
-        val pw = pwd.getpwuid(buf.st_uid)
-        if pw != null then
-          Some(fromCString(pw.pw_name))
+        val pwBuf = stackalloc[pwd.passwd]()
+        if pwd.getpwuid(buf.st_uid, pwBuf) == 0 then
+          Some(fromCString(pwBuf.pw_name))
         else
           None
       val groupName =
-        val gr = grp.getgrgid(buf.st_gid)
-        if gr != null then
-          Some(fromCString(gr.gr_name))
+        val grBuf = stackalloc[grp.group]()
+        if grp.getgrgid(buf.st_gid, grBuf) == 0 then
+          Some(fromCString(grBuf._1)) // _1 is gr_name
         else
           None
       (perms, ownerName, groupName)
