@@ -27,7 +27,7 @@ lazy val sbtUni = project
     description := "sbt plugin for uni",
     licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
     homepage := Some(url("https://github.com/wvlet/uni")),
-    scmInfo :=
+    scmInfo  :=
       Some(
         ScmInfo(
           browseUrl = url("https://github.com/wvlet/uni"),
@@ -44,15 +44,10 @@ lazy val sbtUni = project
         )
       ),
     // uni runs in-process (Scala 3 metabuild enables this)
-    libraryDependencies ++= Seq(
-      "org.wvlet.uni" %% "uni" % UNI_VERSION
-    ),
+    libraryDependencies ++= Seq("org.wvlet.uni" %% "uni" % UNI_VERSION),
     scriptedLaunchOpts := {
-      scriptedLaunchOpts.value ++ Seq(
-        "-Xmx1024M",
-        s"-Dplugin.version=${version.value}",
-        s"-Duni.version=${UNI_VERSION}"
-      )
+      scriptedLaunchOpts.value ++
+        Seq("-Xmx1024M", s"-Dplugin.version=${version.value}", s"-Duni.version=${UNI_VERSION}")
     },
     scriptedBufferLog := false
   )
