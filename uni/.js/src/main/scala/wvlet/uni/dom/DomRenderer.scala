@@ -799,7 +799,7 @@ object DomRenderer extends LogSupport:
               event match
                 case me: dom.MouseEvent =>
                   val target = me.target.asInstanceOf[dom.Node]
-                  if !elem.contains(target) then
+                  if target != null && !elem.contains(target) then
                     callback(me)
                 case _ =>
                   ()

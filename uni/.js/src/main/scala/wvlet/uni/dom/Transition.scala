@@ -252,14 +252,18 @@ private class TransitionElement(
   private def waitForTransitionEnd(elem: dom.HTMLElement)(onEnd: () => Unit): Unit =
     val timeoutMs = config.duration.getOrElse(5000)
 
-    val listener: js.Function1[dom.Event, Unit] =
+    // Use lazy val for self-reference and guard with identity check to prevent
+    // race conditions between transitionend and timeout, and between rapid show/hide calls
+    lazy val listener: js.Function1[dom.Event, Unit] =
       (_: dom.Event) =>
-        pendingTimeout.foreach(id => dom.window.clearTimeout(id))
-        pendingTimeout = js.undefined
-        elem.removeEventListener("transitionend", transitionListener.get)
-        elem.removeEventListener("animationend", transitionListener.get)
-        transitionListener = js.undefined
-        onEnd()
+        // Only act if this listener is still the active one
+        if transitionListener.toOption.exists(_ eq listener) then
+          pendingTimeout.foreach(id => dom.window.clearTimeout(id))
+          pendingTimeout = js.undefined
+          elem.removeEventListener("transitionend", listener)
+          elem.removeEventListener("animationend", listener)
+          transitionListener = js.undefined
+          onEnd()
     transitionListener = listener
 
     elem.addEventListener("transitionend", listener)
@@ -270,13 +274,12 @@ private class TransitionElement(
       .window
       .setTimeout(
         () =>
-          transitionListener.foreach { l =>
-            elem.removeEventListener("transitionend", l)
-            elem.removeEventListener("animationend", l)
-          }
-          transitionListener = js.undefined
-          onEnd()
-        ,
+          // Only act if this listener is still the active one
+          if transitionListener.toOption.exists(_ eq listener) then
+            elem.removeEventListener("transitionend", listener)
+            elem.removeEventListener("animationend", listener)
+            transitionListener = js.undefined
+            onEnd(),
         timeoutMs
       )
 
