@@ -41,13 +41,11 @@ object UniPlugin extends AutoPlugin:
     val uniHttpClients = settingKey[Seq[String]](
       "Client generation targets. Format: 'fqcn:clientType[:targetPackage]'"
     )
+
     @transient
-    val uniHttpGenerateClient = taskKey[Seq[File]](
-      "Generate HTTP client code from service traits"
-    )
-    val uniHttpCodegenOutDir = settingKey[File](
-      "Output directory for generated code"
-    )
+    val uniHttpGenerateClient = taskKey[Seq[File]]("Generate HTTP client code from service traits")
+
+    val uniHttpCodegenOutDir = settingKey[File]("Output directory for generated code")
 
   import autoImport.*
 
@@ -55,13 +53,13 @@ object UniPlugin extends AutoPlugin:
   override def trigger           = noTrigger
 
   override def projectSettings: Seq[Setting[?]] = Seq(
-    uniHttpClients := Seq.empty,
-    uniHttpCodegenOutDir := (Compile / sourceManaged).value,
+    uniHttpClients        := Seq.empty,
+    uniHttpCodegenOutDir  := (Compile / sourceManaged).value,
     uniHttpGenerateClient := {
       given FileConverter = fileConverter.value
-      val log     = streams.value.log
-      val outDir  = uniHttpCodegenOutDir.value
-      val clients = uniHttpClients.value
+      val log             = streams.value.log
+      val outDir          = uniHttpCodegenOutDir.value
+      val clients         = uniHttpClients.value
 
       if clients.isEmpty then
         log.debug("uniHttpClients is empty, skipping code generation")
@@ -71,12 +69,11 @@ object UniPlugin extends AutoPlugin:
         val _ = (Compile / compile).all(dependentProjects).value
 
         // Build a classloader from dependent project class dirs + dependency JARs
-        val depClassDirs: Seq[java.io.File] =
-          (Compile / classDirectory).all(dependentProjects).value
-        val depClasspath: Seq[java.nio.file.Path] =
-          (Compile / dependencyClasspath).value.files
-        val allUrls =
-          (depClassDirs.map(_.toURI.toURL) ++ depClasspath.map(_.toUri.toURL)).toArray
+        val depClassDirs: Seq[java.io.File] = (Compile / classDirectory)
+          .all(dependentProjects)
+          .value
+        val depClasspath: Seq[java.nio.file.Path] = (Compile / dependencyClasspath).value.files
+        val allUrls = (depClassDirs.map(_.toURI.toURL) ++ depClasspath.map(_.toUri.toURL)).toArray
         val classLoader = java.net.URLClassLoader(allUrls, getClass.getClassLoader)
 
         val generated = clients.flatMap { spec =>
@@ -92,7 +89,8 @@ object UniPlugin extends AutoPlugin:
     Compile / sourceGenerators += uniHttpGenerateClient
   )
 
-  private def dependentProjects: ScopeFilter =
-    ScopeFilter(inDependencies(ThisProject, transitive = true, includeRoot = false))
+  private def dependentProjects: ScopeFilter = ScopeFilter(
+    inDependencies(ThisProject, transitive = true, includeRoot = false)
+  )
 
 end UniPlugin
