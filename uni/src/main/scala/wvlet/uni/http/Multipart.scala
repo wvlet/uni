@@ -70,26 +70,20 @@ object MultipartPart:
 end MultipartPart
 
 /**
-  * A multipart message body (RFC 7578 when subtype is `form-data`). Parts are held in memory; the
-  * encoded bytes are produced lazily on demand.
+  * A multipart/form-data message body (RFC 7578). Parts are held in memory; the encoded bytes are
+  * produced lazily on demand.
   *
-  * Construct via [[Multipart.builder]].
+  * Construct via [[Multipart.of]] or [[Multipart.builder]].
   */
-case class Multipart(
-    boundary: String,
-    parts: List[MultipartPart],
-    subtype: String = Multipart.FormDataSubtype
-):
+case class Multipart(boundary: String, parts: List[MultipartPart]):
 
-  def contentType: ContentType = ContentType(s"multipart/${subtype}").withBoundary(boundary)
+  def contentType: ContentType = ContentType.MultipartFormData.withBoundary(boundary)
 
   def encode: Array[Byte] = Multipart.encode(this)
 
 end Multipart
 
 object Multipart:
-
-  val FormDataSubtype: String = "form-data"
 
   private val Crlf: Array[Byte]        = "\r\n".getBytes("UTF-8")
   private val DoubleDash: Array[Byte]  = "--".getBytes("UTF-8")
@@ -101,7 +95,7 @@ object Multipart:
 
   /**
     * Build a multipart/form-data body from an ordered list of parts. Auto-generates a boundary. Use
-    * [[builder]] for custom boundaries or subtypes.
+    * [[builder]] for a fixed boundary.
     */
   def of(parts: Seq[MultipartPart]): Multipart = Multipart(
     boundary = generateBoundary(),
@@ -127,6 +121,7 @@ object Multipart:
     * Encode a [[Multipart]] into its RFC 7578 byte representation.
     */
   def encode(mp: Multipart): Array[Byte] =
+    validateHeaderValue("boundary", mp.boundary)
     val out      = ByteArrayOutputStream()
     val boundary = mp.boundary.getBytes("UTF-8")
     mp.parts
@@ -181,7 +176,6 @@ object Multipart:
 
   final class Builder private[Multipart] ():
     private var boundaryOpt: Option[String]                               = None
-    private var subtype: String                                           = FormDataSubtype
     private val parts: scala.collection.mutable.ListBuffer[MultipartPart] =
       scala.collection.mutable.ListBuffer.empty
 
@@ -214,14 +208,9 @@ object Multipart:
       boundaryOpt = Some(boundary)
       this
 
-    def withSubtype(subtype: String): Builder =
-      this.subtype = subtype
-      this
-
     def build(): Multipart = Multipart(
       boundary = boundaryOpt.getOrElse(generateBoundary()),
-      parts = parts.toList,
-      subtype = subtype
+      parts = parts.toList
     )
 
   end Builder

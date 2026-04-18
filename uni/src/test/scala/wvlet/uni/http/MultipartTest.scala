@@ -128,9 +128,11 @@ class MultipartTest extends UniTest:
     decode(mp.encode) shouldContain s"--${mp.boundary}--\r\n"
   }
 
-  test("custom subtype is reflected in contentType") {
-    val mp = Multipart.builder().withBoundary("B").withSubtype("mixed").addField("k", "v").build()
-    mp.contentType.value shouldBe "multipart/mixed; boundary=B"
+  test("reject CR or LF in boundary") {
+    val mp = Multipart.builder().withBoundary("bad\r\nboundary").addField("k", "v").build()
+    intercept[IllegalArgumentException] {
+      mp.encode
+    }
   }
 
   test("HttpContent.multipart wraps a Multipart with correct contentType and bytes") {

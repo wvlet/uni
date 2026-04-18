@@ -1,7 +1,32 @@
 # Multipart Upload Support for HTTP Client
 
 Date: 2026-04-18
-Status: Draft
+Status: Implemented in PR #484
+
+## Design changes during the PR cycle
+
+- **Scope confirmed as `multipart/form-data` only.** `multipart/form-data` is
+  about bundling form fields + small-to-moderate files into one request, not
+  about streaming/large uploads. Large-content concerns (streaming bodies,
+  S3-style chunked uploads) are a separate design.
+- **Removed `withSubtype`.** It would have advertised `multipart/mixed` etc.
+  while the encoder always writes `Content-Disposition: form-data` per part.
+  YAGNI: drop it until we actually implement per-part disposition for the
+  other subtypes.
+- **Channels must propagate `content.contentType` to the wire.** The original
+  design missed that the three HTTP channels only serialized `request.headers`
+  and never derived `Content-Type` from `content.contentType`. Fixed via a new
+  `Request.wireHeaders` helper used by all three channels. This also
+  incidentally fixes a latent issue for `withJsonContent` / `withTextContent`
+  etc. (though those cases had no explicit test coverage before).
+- **Custom part headers and boundaries are CR/LF-validated** to prevent header
+  injection.
+- **Zero-part multipart is not collapsed to `Empty`** — it still has a
+  meaningful closing-boundary wire representation.
+- **Ergonomic API:** `Multipart.of(Seq(...))` and `MultipartPart.field` /
+  `MultipartPart.file` factories, plus `Request.withMultipart(Seq[...])` as
+  the one-liner. Builder retained for the fixed-boundary case (tests).
+- **Prefer `Seq[T]` over varargs** in public API (user preference).
 
 ## Problem
 
