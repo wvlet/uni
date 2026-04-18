@@ -179,6 +179,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Overview', link: '/control/' },
             { text: 'Retry Logic', link: '/control/retry' },
             { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
+            { text: 'Rate Limiter', link: '/control/rate-limiter' },
             { text: 'Caching', link: '/control/cache' },
             { text: 'Resource Management', link: '/control/resource' }
           ]
@@ -254,6 +255,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Overview', link: '/control/' },
             { text: 'Retry Logic', link: '/control/retry' },
             { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
+            { text: 'Rate Limiter', link: '/control/rate-limiter' },
             { text: 'Caching', link: '/control/cache' },
             { text: 'Resource Management', link: '/control/resource' }
           ]
