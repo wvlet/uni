@@ -161,12 +161,6 @@ everyone shares lives at the module root under `src/main/scala` and
 > browser DOM API, a native syscall. You will see examples of that in
 > Chapter 10.
 
-The other alternative, `CrossType.Full`, uses a different layout with
-a `shared/` folder alongside `jvm/`, `js/`, and `native/` folders for
-per-platform sources. **Prefer `Pure`.** Reach for `Full` only when
-platform-specific code is a substantial part of the project, at which
-point splitting into separate modules is usually cleaner still.
-
 The `%%%` operator tells sbt: *pick the version of `uni` that was built
 for whichever platform I am compiling for right now*. Your Scala source
 does not change between platforms; only the build setting does.
