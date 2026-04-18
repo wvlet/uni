@@ -170,6 +170,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Type Introspection', link: '/core/surface' },
             { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
+            { text: 'Result', link: '/core/result' },
             { text: 'Utilities', link: '/core/utilities' }
           ]
         },
@@ -246,6 +247,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Type Introspection', link: '/core/surface' },
             { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
+            { text: 'Result', link: '/core/result' },
             { text: 'Utilities', link: '/core/utilities' }
           ]
         },

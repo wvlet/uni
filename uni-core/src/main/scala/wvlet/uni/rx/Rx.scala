@@ -16,6 +16,7 @@ package wvlet.uni.rx
 import java.util.concurrent.TimeUnit
 import wvlet.uni.log.LogSupport
 import wvlet.uni.util.LazyF0
+import wvlet.uni.util.Result
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
@@ -545,6 +546,18 @@ trait Rx[+A] extends RxOps[A]:
       other
   }
 
+  /**
+    * Reify each upstream event as a [[wvlet.uni.Result]] so errors are delivered as values instead
+    * of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)` becomes
+    * `Result.Failure(e)`.
+    */
+  def materialize: Rx[Result[A]] = transform {
+    case Success(v) =>
+      Result.Success(v)
+    case Failure(e) =>
+      Result.Failure(e)
+  }
+
   def concat[A1 >: A](other: Rx[A1]): Rx[A1] = Rx.concat(this, other)
   def lastOption: RxOption[A]                = LastOp(this).toOption
 
@@ -668,6 +681,12 @@ object Rx extends LogSupport:
   def fromSeq[A](lst: => Seq[A]): Rx[A] = SeqOp(LazyF0(lst))
 
   def fromTry[A](t: Try[A]): Rx[A] = TryOp(LazyF0(t))
+
+  /**
+    * Convert a [[wvlet.uni.Result]] into a single-element Rx, propagating `Failure(e)` as
+    * `OnError(e)`.
+    */
+  def fromResult[A](r: Result[A]): Rx[A] = fromTry(r.toTry)
 
   /**
     * Create a sequence of values
