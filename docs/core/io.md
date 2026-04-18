@@ -11,6 +11,10 @@ import wvlet.uni.io.IO
 `IO` exposes all cross-platform file system operations from `FileSystem`:
 
 ```scala
+// Construct paths
+val path = IO.path("file.txt")
+val dir  = IO.path("some", "nested", "dir")
+
 // Read and write files
 val content = IO.readString(path)
 IO.writeString(path, "hello", WriteMode.Create)
@@ -136,10 +140,10 @@ else
 All three methods accept a `ProcessConfig` for advanced options:
 
 ```scala
-import wvlet.uni.io.{IO, ProcessConfig, IOPath}
+import wvlet.uni.io.{IO, ProcessConfig}
 
 val config = ProcessConfig.default
-  .withWorkingDirectory(IOPath("/tmp"))
+  .withWorkingDirectory(IO.path("/tmp"))
   .withEnv("MY_VAR", "value")
   .withRedirectErrorToOutput(true)
 

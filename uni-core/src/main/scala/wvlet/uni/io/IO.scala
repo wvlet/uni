@@ -221,14 +221,25 @@ end ProcessApi
   * import wvlet.uni.io.IO
   *
   * // File operations
-  * val content = IO.readString(IOPath("file.txt"))
-  * IO.writeString(IOPath("out.txt"), "hello")
+  * val content = IO.readString(IO.path("file.txt"))
+  * IO.writeString(IO.path("out.txt"), "hello")
   *
   * // Process execution
   * val result = IO.run("ls -la")
   * }}}
   */
 object IO extends IOCompat:
+
+  /**
+    * Creates an [[IOPath]] from a path string, or by joining multiple path segments.
+    *
+    * {{{
+    * IO.path("/home/user/file.txt")       // parsed as an absolute path
+    * IO.path("home", "user", "file.txt")  // joined from segments
+    * }}}
+    */
+  def path(first: String, rest: String*): IOPath = IOPath.of(first, rest*)
+
   export FileSystem.{
     currentDirectory,
     homeDirectory,

@@ -77,4 +77,27 @@ class IOFileSystemTest extends UniTest:
     IO.isDirectory(cwd) shouldBe true
   }
 
+  test("IO.path should parse a path string") {
+    val p = IO.path("/home/user/file.txt")
+    p.isAbsolute shouldBe true
+    p.segments shouldBe Seq("home", "user", "file.txt")
+    p.fileName shouldBe "file.txt"
+  }
+
+  test("IO.path should join segments") {
+    val p = IO.path("home", "user", "file.txt")
+    p.isAbsolute shouldBe false
+    p.segments shouldBe Seq("home", "user", "file.txt")
+  }
+
+  test("IO.path should compose with IO operations") {
+    val tmpDir  = IO.createTempDirectory("io-path-test", None)
+    val tmpFile = IO.path(tmpDir.posixPath, "nested.txt")
+    try
+      IO.writeString(tmpFile, "io.path works", WriteMode.Create)
+      IO.readString(tmpFile) shouldBe "io.path works"
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
 end IOFileSystemTest

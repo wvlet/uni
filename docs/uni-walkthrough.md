@@ -9,6 +9,7 @@ This walkthrough provides a comprehensive guide to using `uni`, the foundational
 - [Logging](#logging)
 - [JSON Processing](#json-processing)
 - [MessagePack Serialization](#messagepack-serialization)
+- [FileSystem](#filesystem)
 - [Reactive Streams (Rx)](#reactive-streams-rx)
 - [Control Flow Utilities](#control-flow-utilities)
 - [Surface (Type Reflection)](#surface-type-reflection)
@@ -224,6 +225,74 @@ val age = unpacker.unpackInt()
 
 // For complex objects, use Weaver (see Object Weaving section)
 ```
+
+## FileSystem
+
+Scala historically lacked a cross-platform file I/O abstraction that works
+uniformly on JVM, Scala.js (Node and browser), and Scala Native. Uni's
+`wvlet.uni.io.IO` object is the single entry point that fills that gap —
+path construction, reads, writes, directory listings, and async variants
+all live on `IO`, working the same way on every supported platform.
+
+### Paths
+
+```scala
+import wvlet.uni.io.IO
+
+val path = IO.path("/home/user") / "project" / "README.md"
+path.fileName    // "README.md"
+path.extension   // "md"
+
+// Join segments directly
+val nested = IO.path("home", "user", "file.txt")
+
+// Well-known directories
+val cwd  = IO.currentDirectory
+val home = IO.homeDirectory
+val tmp  = IO.tempDirectory
+```
+
+### Reading and Writing
+
+```scala
+import wvlet.uni.io.{IO, WriteMode}
+
+val path = IO.path("data.txt")
+
+// Synchronous read/write (JVM, Node.js, Native)
+val text: String = IO.readString(path)
+IO.writeString(path, "hello")
+
+// Create-new and append modes
+IO.writeString(path, "content", WriteMode.CreateNew)
+IO.writeString(path, "more", WriteMode.Append)
+```
+
+### Directory Listing
+
+```scala
+import wvlet.uni.io.{IO, ListOptions}
+
+val scalaSources = IO.list(
+  IO.path("src"),
+  ListOptions().withRecursive(true).withExtensions("scala")
+)
+```
+
+### Async for Every Platform
+
+Scala.js in the browser cannot run the synchronous APIs; use the `Async`
+variants for code that must work everywhere, including in a browser.
+
+```scala
+import wvlet.uni.io.IO
+import scala.concurrent.Future
+
+val content: Future[String] = IO.readStringAsync(IO.path("data.txt"))
+```
+
+See [FileSystem](/core/filesystem) for the full reference, including
+copy/move, metadata, temporary files, and gzip utilities.
 
 ## Reactive Streams (Rx)
 

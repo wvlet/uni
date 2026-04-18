@@ -19,7 +19,7 @@ hero:
 
 features:
   - title: Core Primitives
-    details: Logging, Design (object wiring), Rx (async programming), and unified serialization through JSON and MessagePack.
+    details: Logging, Design (object wiring), Rx (async programming), unified JSON/MessagePack serialization, and a cross-platform FileSystem that works on JVM, Scala.js, and Scala Native.
     link: /core/
   - title: HTTP Client & Server
     details: Full-featured HTTP with automatic retry, circuit breaker, rate limiting, and streaming support.
