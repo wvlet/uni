@@ -139,14 +139,19 @@ Gemini reviews caught them before merge:
 All regressions are covered by new tests under
 `uni/src/test/scala/wvlet/uni/text/parser/`.
 
+## Extensibility hooks added from Gemini feedback
+
+- Identifier character set is now controlled by a protected
+  `isIdentifierPart(c: Char): Boolean` method (ASCII letters/digits/`_`/`$`
+  by default), so Lisp-style `foo?` or Unicode-ident languages can
+  override the predicate without rewriting the tailrec loop.
+- `TokenBuffer.last` now validates via `require(nonEmpty)` so an empty
+  buffer throws a clear `IllegalArgumentException` instead of
+  `ArrayIndexOutOfBounds`. `lastOption` is also provided.
+
 ## Deferred (follow-up)
 
-Gemini flagged three medium-priority concerns that require bigger API
-changes; leaving them for a follow-up PR:
-
-- `getIdentRest` / `getOperatorRest` are `@tailrec final`, so concrete
-  scanners with non-ASCII identifier rules cannot override them directly.
-- `>>` is always split into two tokens; languages that want it as a single
-  bit-shift operator need a config flag.
-- `TokenBuffer.last` throws on empty buffer rather than returning
-  `Option[Char]`.
+- `getOperatorRest` hardcodes `>>` to emit two `>` tokens (Scala/Java
+  generics semantics). Languages that treat `>>` as a single bit-shift
+  operator will need a config flag or an overridable operator predicate.
+  Out of scope for this port.

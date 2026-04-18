@@ -87,10 +87,16 @@ end ToyScanner
 
 import wvlet.uni.text.parser.ToyScanner.ToyToken
 
-class ToyScanner(input: String, config: ScannerConfig = ScannerConfig())
-    extends ScannerBase[ToyToken](IArray.from(input.toCharArray), config):
+class ToyScanner(
+    input: String,
+    config: ScannerConfig = ScannerConfig(),
+    extraIdentChars: Set[Char] = Set.empty
+) extends ScannerBase[ToyToken](IArray.from(input.toCharArray), config):
 
   import ToyScanner.ToyToken.*
+
+  override protected def isIdentifierPart(c: Char): Boolean =
+    super.isIdentifierPart(c) || extraIdentChars.contains(c)
 
   override protected def getNextToken(lastToken: ToyToken): Unit =
     if next.token == EMPTY then
@@ -255,6 +261,15 @@ class ScannerBaseTest extends UniTest:
     // makes `nextToken()` surface an error token instead of spinning.
     val s = ToyScanner("/* unterminated", ScannerConfig(reportErrorToken = true))
     s.nextToken().token shouldBe ToyToken.ERROR
+  }
+
+  test("isIdentifierPart hook lets subclasses accept extra characters") {
+    // `?` and `!` are identifier parts in Lisp-style languages. Default
+    // behavior would tokenize `foo?` as [IDENT foo, unknown ?].
+    val s      = ToyScanner("foo?bar!", extraIdentChars = Set('?', '!'))
+    val tokens =
+      Iterator.continually(s.nextToken()).takeWhile(_.token != ToyToken.EOF).map(_.str).toList
+    tokens shouldBe List("foo?bar!")
   }
 
 end ScannerBaseTest

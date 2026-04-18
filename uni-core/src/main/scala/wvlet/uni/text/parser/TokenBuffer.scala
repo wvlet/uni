@@ -36,6 +36,21 @@ class TokenBuffer(initialSize: Int = 1024):
   def isEmpty: Boolean  = len == 0
   def nonEmpty: Boolean = !isEmpty
   def clear(): Unit     = len = 0
-  def last: Char        = buf(len - 1)
+
+  /**
+    * The last character in the buffer. Throws if the buffer is empty; guard with [[nonEmpty]] or
+    * use [[lastOption]] instead.
+    */
+  def last: Char =
+    require(nonEmpty, "TokenBuffer is empty")
+    buf(len - 1)
+
+  def lastOption: Option[Char] =
+    if isEmpty then
+      None
+    else
+      Some(buf(len - 1))
 
   override def toString: String = String(buf, 0, len)
+
+end TokenBuffer

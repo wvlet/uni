@@ -42,3 +42,25 @@ class TokenBufferTest extends UniTest:
     b.length shouldBe s.length
     b.toString shouldBe s
   }
+
+  test("last requires a non-empty buffer with a clear message") {
+    val b = TokenBuffer()
+    intercept[IllegalArgumentException] {
+      b.last
+    }
+  }
+
+  test("lastOption returns None when the buffer is empty") {
+    val b = TokenBuffer()
+    b.lastOption shouldBe None
+    b.append('z')
+    b.lastOption shouldBe Some('z')
+  }
+
+  test("initialSize must be positive") {
+    intercept[IllegalArgumentException] {
+      TokenBuffer(0)
+    }
+  }
+
+end TokenBufferTest
