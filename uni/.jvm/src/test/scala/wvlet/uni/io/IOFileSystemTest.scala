@@ -90,7 +90,7 @@ class IOFileSystemTest extends UniTest:
     p.segments shouldBe Seq("home", "user", "file.txt")
   }
 
-  test("IO.path should compose with FileSystem operations") {
+  test("IO.path should compose with IO operations") {
     val tmpDir  = IO.createTempDirectory("io-path-test", None)
     val tmpFile = IO.path(tmpDir.posixPath, "nested.txt")
     try
