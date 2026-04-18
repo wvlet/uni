@@ -94,16 +94,12 @@ case class ScannerConfig(
   * class, provide a `given TokenTypeInfo[Token]` instance, and implement [[fetchToken]] and
   * [[getNextToken]] for language-specific tokens (keywords, operators).
   *
-  * The scanner operates on an in-memory character buffer. To read from a file or string, load the
-  * content into an `IArray[Char]` and pass it in together with a display name used in error
-  * messages.
+  * The scanner operates on an in-memory character buffer. To read from a string, convert it with
+  * `IArray.from(s.toCharArray)` before constructing the scanner.
   */
-abstract class ScannerBase[Token](
-    protected val buf: IArray[Char],
-    config: ScannerConfig,
-    sourceName: String = "<input>"
-)(using tokenTypeInfo: TokenTypeInfo[Token])
-    extends LogSupport:
+abstract class ScannerBase[Token](protected val buf: IArray[Char], config: ScannerConfig)(using
+    tokenTypeInfo: TokenTypeInfo[Token]
+) extends LogSupport:
 
   protected var current: ScanState[Token] = ScanState(tokenTypeInfo.empty, config.startFrom)
 
@@ -149,9 +145,16 @@ abstract class ScannerBase[Token](
       fetchToken()
 
   /**
-    * The list of comment tokens pushed before the current token.
+    * The list of comment tokens seen so far. This list is accumulated across every call to
+    * [[nextToken]]; call [[clearCommentTokens]] to drop already-consumed entries.
     */
   def getCommentTokens(): List[TokenData[Token]] = commentBuffer
+
+  /**
+    * Drop the accumulated list of comment tokens. Call this periodically when scanning large or
+    * long-running inputs to keep memory bounded.
+    */
+  def clearCommentTokens(): Unit = commentBuffer = Nil
 
   def resetNextToken(): Unit = next.token = tokenTypeInfo.empty
 
@@ -247,7 +250,7 @@ abstract class ScannerBase[Token](
     if config.reportErrorToken then
       throw TextParseException(msg, offset)
     else
-      error(s"${msg} at ${sourceName}:${offset}")
+      error(s"${msg} at offset ${offset}")
 
   protected def consume(expectedChar: Char): Unit =
     if ch != expectedChar then
@@ -547,15 +550,15 @@ abstract class ScannerBase[Token](
         case '\'' =>
           nextChar()
           ch match
-            case '\'' => // Escaped single quote
+            case '\'' =>
+              // '' escape sequence
               putChar('\'')
               nextChar()
               readStringContent()
-            case _ => // End of the string
+            case _ =>
               current.token = tokenTypeInfo.singleQuoteString
               current.str = flushTokenString()
         case SU =>
-          // Unclosed string literal
           consume('\'')
         case _ =>
           putChar(ch)
@@ -565,14 +568,13 @@ abstract class ScannerBase[Token](
     readStringContent()
 
   protected def getDoubleQuoteString(resultingToken: Token): Unit =
-    // Regular double quoted string
-    // TODO: Support unicode and escape characters
+    // Unicode / escape sequences are not decoded here; subclasses can override
+    // getStringLiteral to support them.
     nextChar()
     if ch == '\"' then
       nextChar()
       if ch == '\"' then
         nextRawChar()
-        // Triple-quote string
         getRawStringLiteral(resultingToken)
       else
         current.token = resultingToken
@@ -581,7 +583,6 @@ abstract class ScannerBase[Token](
       getStringLiteral()
 
   protected def getBackQuoteString(): Unit =
-    // Regular back-quoted string
     consume('`')
     while ch != '`' && ch != SU do
       putChar(ch)
@@ -598,6 +599,7 @@ abstract class ScannerBase[Token](
     current.token = tokenTypeInfo.doubleQuoteString
     current.str = flushTokenString()
 
+  @tailrec
   private def getRawStringLiteral(resultingToken: Token): Unit =
     if ch == '\"' then
       nextRawChar()

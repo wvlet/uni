@@ -18,12 +18,14 @@ package wvlet.uni.text.parser
   * token being read.
   */
 class TokenBuffer(initialSize: Int = 1024):
-  private var buf: Array[Char] = new Array[Char](initialSize)
+  require(initialSize > 0, s"initialSize must be positive: ${initialSize}")
+
+  private var buf: Array[Char] = Array.ofDim[Char](initialSize)
   private var len: Int         = 0
 
   def append(ch: Char): Unit =
     if len == buf.length then
-      val newBuffer = new Array[Char](buf.length * 2)
+      val newBuffer = Array.ofDim[Char](buf.length * 2)
       Array.copy(buf, 0, newBuffer, 0, len)
       buf = newBuffer
     buf(len) = ch
@@ -36,4 +38,4 @@ class TokenBuffer(initialSize: Int = 1024):
   def clear(): Unit     = len = 0
   def last: Char        = buf(len - 1)
 
-  override def toString: String = new String(buf, 0, len)
+  override def toString: String = String(buf, 0, len)

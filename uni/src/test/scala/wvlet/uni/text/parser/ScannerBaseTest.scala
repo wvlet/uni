@@ -117,13 +117,9 @@ class ToyScanner(input: String, config: ScannerConfig = ScannerConfig())
           getNumber(10)
       case '+' | '=' | '-' =>
         getOperator()
-      case '(' =>
-        putChar(ch);
-        nextChar();
-        finishNamedToken()
-      case ')' =>
-        putChar(ch);
-        nextChar();
+      case '(' | ')' =>
+        putChar(ch)
+        nextChar()
         finishNamedToken()
       case '/' =>
         scanSlash()
