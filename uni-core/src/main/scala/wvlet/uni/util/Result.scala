@@ -108,11 +108,7 @@ enum Result[+A]:
   def recover[B >: A](pf: PartialFunction[Throwable, B]): Result[B] =
     this match
       case Failure(e) =>
-        pf.lift(e) match
-          case Some(v) =>
-            Result.catching(v)
-          case None =>
-            this
+        Result.catchingResult(pf.lift(e).fold[Result[B]](this)(Result.Success(_)))
       case _: Success[?] =>
         this
 

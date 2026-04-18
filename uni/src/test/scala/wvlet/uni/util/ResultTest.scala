@@ -101,6 +101,24 @@ class ResultTest extends UniTest:
     Result.Success(1).recover(matchAll) shouldBe Result.Success(1)
   }
 
+  test("recover / recoverWith catch exceptions thrown inside the partial function") {
+    val throwingRecover: PartialFunction[Throwable, Int] = { case _: RuntimeException =>
+      throw new IllegalStateException("recovery failed")
+    }
+    Result.Failure(boom).recover(throwingRecover) shouldMatch {
+      case Result.Failure(e: IllegalStateException) =>
+        e.getMessage shouldBe "recovery failed"
+    }
+
+    val throwingRecoverWith: PartialFunction[Throwable, Result[Int]] = { case _: RuntimeException =>
+      throw new IllegalStateException("recoverWith failed")
+    }
+    Result.Failure(boom).recoverWith(throwingRecoverWith) shouldMatch {
+      case Result.Failure(e: IllegalStateException) =>
+        e.getMessage shouldBe "recoverWith failed"
+    }
+  }
+
   test("mapError translates the wrapped throwable") {
     val wrapped = Result.Failure(boom).mapError(e => new IllegalStateException(e))
     wrapped shouldMatch { case Result.Failure(e: IllegalStateException) =>
