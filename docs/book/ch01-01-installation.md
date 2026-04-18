@@ -126,13 +126,45 @@ lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 Two parts of that snippet are worth a moment.
 
 `.crossType(CrossType.Pure)` says *"all of this project's sources are
-shared across platforms"*. The alternative, `CrossType.Full`, keeps
-per-platform `src/main/scala-jvm`, `src/main/scala-js`, and
-`src/main/scala-native` folders for code that has to differ. **Prefer
-`Pure`.** Reach for `Full` only when you actually have a chunk of code
-that cannot compile on every target — at which point a separate module
-is usually a cleaner split than per-platform source folders inside one
-module.
+shared across platforms"*. With `Pure`, your project looks like this
+on disk:
+
+```
+hello/
+├── build.sbt
+├── .jvm/          ← auto-generated per-platform project root
+├── .js/           ← auto-generated per-platform project root
+├── .native/       ← auto-generated per-platform project root
+└── src/
+    ├── main/scala/    ← shared code, compiled for all three platforms
+    └── test/scala/    ← shared tests
+```
+
+The `.jvm`, `.js`, and `.native` directories are **not** where you put
+code. sbt-crossproject creates them as per-platform project roots
+(each is a distinct sbt subproject with its own `target/`), but your
+Scala lives at the module root under `src/main/scala` and
+`src/test/scala`. Compile once, run on three platforms.
+
+> **Why this works with Uni.** Uni's public API — `Design`, `Logger`,
+> `Http`, `Rx`, `JSON`, `MessagePack` — is the same on every platform.
+> Where a platform difference exists (filesystem access, timers,
+> threading), Uni exposes a single abstraction that resolves to the
+> right implementation under the covers. For a typical Uni
+> application, *all* of your code can live in the shared `src/main/scala`,
+> and that is usually the whole story.
+>
+> If you do need truly platform-specific code — say, calling a
+> JVM-only Java library — sbt-crossproject lets you drop files into
+> `.jvm/src/main/scala`, `.js/src/main/scala`, or
+> `.native/src/main/scala`, and only the matching platform sees them.
+> You will see examples of this in Chapter 10.
+
+The other alternative, `CrossType.Full`, uses a different layout with
+a `shared/` folder alongside `jvm/`, `js/`, and `native/` folders for
+per-platform sources. **Prefer `Pure`.** Reach for `Full` only when
+platform-specific code is a substantial part of the project, at which
+point splitting into separate modules is usually cleaner still.
 
 The `%%%` operator tells sbt: *pick the version of `uni` that was built
 for whichever platform I am compiling for right now*. Your Scala source
@@ -140,7 +172,7 @@ does not change between platforms; only the build setting does.
 
 We will build a real cross-platform codebase in Chapter 10. For now
 know that it is one cross-plugin, one `CrossType.Pure`, and a `%%%`
-away.
+away — and that everything you write goes in `src/main/scala`.
 
 ## IDE setup
 
