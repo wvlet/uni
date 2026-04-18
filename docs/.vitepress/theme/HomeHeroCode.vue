@@ -1,4 +1,7 @@
 <script setup>
+import { useData } from 'vitepress'
+
+const { theme } = useData()
 </script>
 
 <template>
@@ -11,7 +14,7 @@
         <span class="code-title">build.sbt</span>
       </div>
       <pre><code><span class="comment">// Add to your build.sbt</span>
-<span class="key">libraryDependencies</span> += <span class="string">"org.wvlet.uni"</span> %% <span class="string">"uni"</span> % <span class="string">"2026.1.0"</span></code></pre>
+<span class="key">libraryDependencies</span> += <span class="string">"org.wvlet.uni"</span> %% <span class="string">"uni"</span> % <span class="string">"{{ theme.uniVersion }}"</span></code></pre>
     </div>
     <div class="code-block">
       <div class="code-header">

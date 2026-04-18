@@ -7,7 +7,7 @@ Connect to AWS Bedrock for Claude model access.
 ### Dependencies
 
 ```scala
-libraryDependencies += "org.wvlet.uni" %% "uni-bedrock" % "2026.1.0"
+libraryDependencies += "org.wvlet.uni" %% "uni-bedrock" % "__UNI_VERSION__"
 ```
 
 ### AWS Credentials

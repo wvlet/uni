@@ -20,7 +20,7 @@ This walkthrough provides a comprehensive guide to using `uni`, the foundational
 Add the uni dependency to your `build.sbt`:
 
 ```scala
-libraryDependencies += "org.wvlet.uni" %% "uni" % "2026.1.0" // Replace with current version
+libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
 ## Dependency Injection with Design
