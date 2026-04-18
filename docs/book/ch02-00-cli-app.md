@@ -40,8 +40,7 @@ does I/O, and reports success or failure.
 
 ## Step 1: Parse arguments with Launcher
 
-Create `src/main/scala/Fetch.scala` and start with just the argument
-shape:
+Create `src/main/scala/Fetch.scala` and start with the argument shape:
 
 ```scala
 import wvlet.uni.cli.launcher.{Launcher, argument, option}
@@ -55,6 +54,7 @@ case class FetchArgs(
 
 @main def fetch(args: String*): Unit =
   val parsed = Launcher.execute[FetchArgs](args.toArray)
+  if parsed == null then return // user requested --help; Launcher already printed it
   println(s"url='${parsed.url}', showBody=${parsed.showBody}")
 ```
 
@@ -68,7 +68,7 @@ url='https://example.com', showBody=true
 Three things to notice.
 
 **`FetchArgs` is a plain case class.** The `@option` and `@argument`
-annotations are metadata; the class itself is just data. This is a
+annotations are metadata; the class itself is data. This is a
 recurring Uni shape: configuration and input are ordinary Scala types,
 and a separate tool (`Launcher`) populates them.
 
@@ -78,7 +78,10 @@ and a separate tool (`Launcher`) populates them.
 **`Launcher.execute[FetchArgs](args)` does two things.** It parses, and
 it constructs — returning a `FetchArgs` ready to use. If you passed
 malformed flags, it prints help and exits; if the user passed `--help`
-it prints the description strings you wrote in the annotations.
+(or invoked the program with no arguments, which is the default help
+trigger) `Launcher` prints the annotation-derived usage text and returns
+`null`. The `if parsed == null then return` line is how you let that
+help-message path out of your `main`.
 
 > **Why annotate the fields instead of calling a builder?**
 > The annotation form keeps the case class *the* source of truth for
@@ -150,6 +153,7 @@ class UrlFetcher(client: HttpSyncClient) extends LogSupport:
 
 @main def fetch(args: String*): Unit =
   val parsed = Launcher.execute[FetchArgs](args.toArray)
+  if parsed == null then return // --help was handled by Launcher
   if parsed.url.isEmpty then
     println("Missing URL. Usage: fetch [--show-body] <url>")
     sys.exit(1)

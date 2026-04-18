@@ -153,12 +153,17 @@ the book by skimming.
 
 - All book files live under `docs/book/`.
 - File names: `chNN-MM-slug.md`.
-  - `NN` = part number (zero-padded: `01`, `02`, … `10`).
-  - `MM` = section within part (`00` = the part's intro page).
+  - `NN` = chapter number (zero-padded: `01`, `02`, … `12`).
+  - `MM` = section within the chapter (`00` = the chapter's intro or
+    main page).
   - `slug` = short kebab-case, ≤ 4 words.
-  - Example: `ch02-03-config-and-launchers.md`.
-- The part-intro page (`chNN-00-*.md`) introduces what the part is
-  about and lists its sections. It does not teach; it frames.
+  - Example: `ch01-02-hello-uni.md` is Chapter 1, Section 2.
+- The chapter-intro page (`chNN-00-*.md`) either frames what the
+  chapter is about and lists its sections (for multi-section chapters
+  like Chapter 1) or is itself the entire chapter (for single-section
+  chapters like Chapter 2).
+- "Parts" in the book's outline are a grouping in the ToC and sidebar,
+  not a file-naming concept.
 - The book landing page is `docs/book/index.md`. Update it when adding
   or renaming chapters.
 - `docs/book/CLAUDE.md` (this file) is the guide for authors — do **not**
