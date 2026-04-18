@@ -82,16 +82,17 @@ class MultipartTest extends UniTest:
     mp.contentType.value shouldBe "multipart/form-data; boundary=xyz"
   }
 
-  test("escape quotes in field name and filename") {
+  test("escape quotes and backslashes in field name and filename") {
     val mp = Multipart
       .builder()
       .withBoundary("B")
-      .addFile("a\"b", "c\".txt", "x".getBytes("UTF-8"))
+      .addFile("a\"b", "C:\\temp\\c\".txt", "x".getBytes("UTF-8"))
       .build()
 
     val asText = decode(mp.encode)
     asText shouldContain "name=\"a\\\"b\""
-    asText shouldContain "filename=\"c\\\".txt\""
+    // Backslashes doubled, then quote escaped — matches RFC 7578 quoted-string
+    asText shouldContain "filename=\"C:\\\\temp\\\\c\\\".txt\""
   }
 
   test("reject CR or LF in field name") {
@@ -194,6 +195,27 @@ class MultipartTest extends UniTest:
       .setHeader(HttpHeader.ContentType, "application/override")
 
     req.wireHeaders.get(HttpHeader.ContentType) shouldBe Some("application/override")
+  }
+
+  test("reject custom header names with invalid token characters") {
+    val badNames = List("X-Bad Header", "X:Evil", "X-Bad\r\nInjected", "", "X-Non-Ascii-\u00ff")
+    badNames.foreach { bad =>
+      val mp = Multipart
+        .builder()
+        .withBoundary("B")
+        .addPart(
+          MultipartPart.FilePart(
+            name = "f",
+            filename = "x.bin",
+            bytes = Array[Byte](1),
+            headers = HttpMultiMap(bad -> "1")
+          )
+        )
+        .build()
+      intercept[IllegalArgumentException] {
+        mp.encode
+      }
+    }
   }
 
   test("reject CR or LF in custom part header name or value") {

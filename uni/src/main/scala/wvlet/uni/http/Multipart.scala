@@ -32,7 +32,8 @@ object MultipartPart:
     */
   case class FormField(name: String, value: String, headers: HttpMultiMap = HttpMultiMap.empty)
       extends MultipartPart:
-    def bodyBytes: Array[Byte] = value.getBytes("UTF-8")
+    private lazy val bytesCache: Array[Byte] = value.getBytes("UTF-8")
+    def bodyBytes: Array[Byte]               = bytesCache
 
   /**
     * A file part with a filename and explicit content type.
@@ -137,16 +138,17 @@ object Multipart:
   private def writePartHeaders(out: ByteArrayOutputStream, part: MultipartPart): Unit =
     validateHeaderValue("name", part.name)
     val disposition = StringBuilder()
-    disposition.append("form-data; name=\"").append(escapeQuotes(part.name)).append('"')
+    disposition.append("form-data; name=\"").append(escapeQuoted(part.name)).append('"')
     part match
       case fp: MultipartPart.FilePart =>
         validateHeaderValue("filename", fp.filename)
-        disposition.append("; filename=\"").append(escapeQuotes(fp.filename)).append('"')
+        disposition.append("; filename=\"").append(escapeQuoted(fp.filename)).append('"')
       case _: MultipartPart.FormField =>
         ()
     writeHeaderLine(out, HttpHeader.ContentDisposition, disposition.result())
     part match
       case fp: MultipartPart.FilePart =>
+        validateHeaderValue("part Content-Type", fp.contentType.value)
         writeHeaderLine(out, HttpHeader.ContentType, fp.contentType.value)
       case _: MultipartPart.FormField =>
         ()
@@ -157,7 +159,7 @@ object Multipart:
         if !k.equalsIgnoreCase(HttpHeader.ContentDisposition) &&
           !k.equalsIgnoreCase(HttpHeader.ContentType)
         then
-          validateHeaderValue("custom header name", k)
+          validateHeaderName(k)
           validateHeaderValue(s"custom header '${k}' value", v)
           writeHeaderLine(out, k, v)
       }
@@ -166,11 +168,26 @@ object Multipart:
     out.write(s"${name}: ${value}".getBytes("UTF-8"))
     out.write(Crlf)
 
-  private def escapeQuotes(s: String): String = s.replace("\"", "\\\"")
+  // RFC 7578 / WHATWG HTML spec: inside a quoted-string, both backslash and double-quote
+  // must be escaped with a leading backslash. Escape order matters — backslash first.
+  private def escapeQuoted(s: String): String = s.replace("\\", "\\\\").replace("\"", "\\\"")
 
   private def validateHeaderValue(field: String, value: String): Unit =
     if value.contains('\r') || value.contains('\n') then
       throw IllegalArgumentException(s"multipart ${field} must not contain CR or LF: ${value}")
+
+  private def validateHeaderName(name: String): Unit =
+    if name.isEmpty then
+      throw IllegalArgumentException("multipart custom header name must not be empty")
+    var i = 0
+    while i < name.length do
+      val c = name.charAt(i)
+      // RFC 7230 token = 1*tchar; disallow CTL, space, colon, and non-ASCII
+      if c <= ' ' || c >= 0x7f || c == ':' then
+        throw IllegalArgumentException(
+          s"invalid character in multipart custom header name: ${name}"
+        )
+      i += 1
 
   final class Builder private[Multipart] ():
     private var boundaryOpt: Option[String]                               = None
