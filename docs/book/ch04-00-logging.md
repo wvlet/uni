@@ -6,10 +6,10 @@ This chapter is an outline. The full draft ships in a follow-up PR.
 
 ## What this chapter will cover
 
-Logging is load-bearing infrastructure: the difference between a
-five-minute incident and a five-hour one is usually whether the right
-log line was in the right place, at the right level, with the right
-context.
+Logs in a Uni application are written for **a human reading output**,
+not for a log-aggregation pipeline to parse. That framing shapes what
+Uni's logger does, and — just as importantly — what it chooses not to
+do.
 
 Concepts introduced:
 
@@ -20,9 +20,11 @@ Concepts introduced:
 - Log levels and how to choose between them without lying to your
   future self.
 - Per-package log configuration at runtime.
-- Structured logging and how to attach context (request IDs,
-  user IDs) without string concatenation.
-- Formatting for humans (terminals) vs. machines (log aggregators).
+- Why Uni's logger intentionally has **no structured-logging API**:
+  logs are developer context, not machine-parsed records. When you
+  need fields, IDs, and correlation, reach for a telemetry tool
+  (metrics, traces) instead of encoding state into log lines.
+- Formatting choices for terminals and for log files.
 
 ## Reference you can read now
 

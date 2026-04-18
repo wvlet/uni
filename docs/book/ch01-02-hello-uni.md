@@ -2,8 +2,8 @@
 
 With Uni on the classpath, the shortest useful program you can write is
 one that logs a line. That seems small, but it introduces two of Uni's
-core ideas — **structured logging** and the **LogSupport trait** — and
-sets up the next step, where we let **Design** wire objects together
+core ideas — the **LogSupport trait** and **source-location capture** —
+and sets up the next step, where we let **Design** wire objects together
 for us.
 
 ## The smallest Uni program
