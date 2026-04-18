@@ -51,6 +51,66 @@ val request = Request
 val response = client.send(request)
 ```
 
+### Multipart Upload (multipart/form-data)
+
+Use `withMultipart` to upload files alongside form fields in a single request.
+The boundary and `Content-Type: multipart/form-data; boundary=...` header are
+generated automatically.
+
+```scala
+import wvlet.uni.http.{Request, MultipartPart, ContentType}
+
+val avatarBytes: Array[Byte] = readBytes("avatar.png")
+
+val request = Request
+  .post("https://api.example.com/upload")
+  .withMultipart(Seq(
+    MultipartPart.field("name", "alice"),
+    MultipartPart.file("avatar", "avatar.png", avatarBytes, ContentType.ImagePng)
+  ))
+
+val response = client.send(request)
+```
+
+`MultipartPart.file` defaults to `application/octet-stream` when no content
+type is given. `MultipartPart.field` is a plain form value serialized as
+UTF-8. To add custom per-part headers, construct the case classes directly:
+
+```scala
+val request = Request
+  .post("https://api.example.com/upload")
+  .withMultipart(Seq(
+    MultipartPart.FilePart(
+      name = "report",
+      filename = "q1.pdf",
+      bytes = pdfBytes,
+      contentType = ContentType.ApplicationPdf,
+      headers = HttpMultiMap("X-Checksum-Sha256" -> checksum)
+    )
+  ))
+```
+
+For a fixed boundary (for example in snapshot tests), use the builder:
+
+```scala
+import wvlet.uni.http.Multipart
+
+val mp = Multipart
+  .builder()
+  .withBoundary("----fixed-boundary")
+  .addField("name", "alice")
+  .addFile("avatar", "avatar.png", avatarBytes, ContentType.ImagePng)
+  .build()
+
+val request = Request.post("/upload").withMultipartContent(mp)
+```
+
+**Scope note**: `multipart/form-data` is intended for bundling form fields and
+small-to-moderate files (avatars, PDFs, a few MB at most) in a single
+request. All parts are held in memory. Large-file or resumable uploads (S3
+multipart, tus.io) use separate protocols and are out of scope for this
+API.
+
 ## Response Handling
 
 ```scala
