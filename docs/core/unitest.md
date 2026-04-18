@@ -7,7 +7,7 @@ UniTest is a lightweight testing framework for Scala 3. It provides a simple, ex
 Add the dependency to your build:
 
 ```scala
-libraryDependencies += "org.wvlet.uni" %% "uni-test" % "(version)" % Test
+libraryDependencies += "org.wvlet.uni" %% "uni-test" % "__UNI_VERSION__" % Test
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 ```
 

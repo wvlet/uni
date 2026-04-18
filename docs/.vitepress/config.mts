@@ -1,6 +1,15 @@
-import { defineConfig } from 'vitepress'
+import { defineConfig, type DefaultTheme } from 'vitepress'
+import { fetchLatestVersion } from './fetchLatestVersion'
 
-export default defineConfig({
+const FALLBACK_VERSION = '2026.1.6'
+const VERSION_TOKEN = '__UNI_VERSION__'
+const uniVersion = await fetchLatestVersion(FALLBACK_VERSION)
+
+interface UniThemeConfig extends DefaultTheme.Config {
+  uniVersion: string
+}
+
+export default defineConfig<UniThemeConfig>({
   title: 'Uni',
   description: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies',
 
@@ -11,6 +20,19 @@ export default defineConfig({
     theme: {
       light: 'nord',
       dark: 'nord'
+    },
+    config(md) {
+      const replace = (text: string): string =>
+        text.split(VERSION_TOKEN).join(uniVersion)
+      for (const rule of ['fence', 'code_block', 'code_inline', 'text'] as const) {
+        const original = md.renderer.rules[rule]
+        md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
+          tokens[idx].content = replace(tokens[idx].content)
+          return original
+            ? original(tokens, idx, options, env, self)
+            : self.renderToken(tokens, idx, options)
+        }
+      }
     }
   },
 
@@ -40,6 +62,7 @@ export default defineConfig({
   ],
 
   themeConfig: {
+    uniVersion,
     logo: '/uni-logo-1024x1024.png',
     nav: [
       { text: 'Guide', link: '/guide/' },
