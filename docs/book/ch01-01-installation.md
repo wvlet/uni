@@ -132,9 +132,9 @@ on disk:
 ```
 hello/
 ├── build.sbt
-├── .jvm/          ← auto-generated per-platform project root
-├── .js/           ← auto-generated per-platform project root
-├── .native/       ← auto-generated per-platform project root
+├── .jvm/          ← JVM-specific code (rarely needed with Uni)
+├── .js/           ← Scala.js-specific code (rarely needed with Uni)
+├── .native/       ← Scala Native-specific code (rarely needed with Uni)
 └── src/
     ├── main/scala/    ← shared code, compiled for all three platforms
     └── test/scala/    ← shared tests
