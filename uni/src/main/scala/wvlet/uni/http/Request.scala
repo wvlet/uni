@@ -111,6 +111,8 @@ case class Request(
 
   def withBytesContent(bytes: Array[Byte]): Request = copy(content = HttpContent.bytes(bytes))
 
+  def withMultipartContent(mp: Multipart): Request = copy(content = HttpContent.multipart(mp))
+
   def withContentType(ct: ContentType): Request = setHeader(HttpHeader.ContentType, ct.toString)
 
   def withHost(host: String): Request = setHeader(HttpHeader.Host, host)
