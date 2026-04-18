@@ -203,7 +203,7 @@ class MultipartTest extends UniTest:
       .addPart(
         MultipartPart.FilePart(
           name = "f",
-          fileName = "x.bin",
+          filename = "x.bin",
           bytes = Array[Byte](1),
           headers = HttpMultiMap("X-Bad\r\nInjected" -> "1")
         )
@@ -219,7 +219,7 @@ class MultipartTest extends UniTest:
       .addPart(
         MultipartPart.FilePart(
           name = "f",
-          fileName = "x.bin",
+          filename = "x.bin",
           bytes = Array[Byte](1),
           headers = HttpMultiMap("X-Meta" -> "bad\r\nvalue")
         )
@@ -237,9 +237,9 @@ class MultipartTest extends UniTest:
       .addPart(
         MultipartPart.FilePart(
           name = "f",
-          fileName = "x.bin",
+          filename = "x.bin",
           bytes = Array[Byte](1),
-          partContentType = ContentType.ApplicationOctetStream,
+          contentType = ContentType.ApplicationOctetStream,
           headers = HttpMultiMap("X-Custom" -> "1", "Content-Type" -> "ignored/type")
         )
       )

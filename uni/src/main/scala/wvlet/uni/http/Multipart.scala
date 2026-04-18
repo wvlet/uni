@@ -23,8 +23,6 @@ sealed trait MultipartPart:
   def name: String
   def headers: HttpMultiMap
   def bodyBytes: Array[Byte]
-  def contentType: Option[ContentType]
-  def filename: Option[String]
 
 object MultipartPart:
 
@@ -34,23 +32,19 @@ object MultipartPart:
     */
   case class FormField(name: String, value: String, headers: HttpMultiMap = HttpMultiMap.empty)
       extends MultipartPart:
-    def bodyBytes: Array[Byte]           = value.getBytes("UTF-8")
-    def contentType: Option[ContentType] = None
-    def filename: Option[String]         = None
+    def bodyBytes: Array[Byte] = value.getBytes("UTF-8")
 
   /**
     * A file part with a filename and explicit content type.
     */
   case class FilePart(
       name: String,
-      fileName: String,
+      filename: String,
       bytes: Array[Byte],
-      partContentType: ContentType = ContentType.ApplicationOctetStream,
+      contentType: ContentType = ContentType.ApplicationOctetStream,
       headers: HttpMultiMap = HttpMultiMap.empty
   ) extends MultipartPart:
-    def bodyBytes: Array[Byte]           = bytes
-    def contentType: Option[ContentType] = Some(partContentType)
-    def filename: Option[String]         = Some(fileName)
+    def bodyBytes: Array[Byte] = bytes
 
   /**
     * Build a text form field.
@@ -144,14 +138,18 @@ object Multipart:
     validateHeaderValue("name", part.name)
     val disposition = StringBuilder()
     disposition.append("form-data; name=\"").append(escapeQuotes(part.name)).append('"')
-    part
-      .filename
-      .foreach { fn =>
-        validateHeaderValue("filename", fn)
-        disposition.append("; filename=\"").append(escapeQuotes(fn)).append('"')
-      }
+    part match
+      case fp: MultipartPart.FilePart =>
+        validateHeaderValue("filename", fp.filename)
+        disposition.append("; filename=\"").append(escapeQuotes(fp.filename)).append('"')
+      case _: MultipartPart.FormField =>
+        ()
     writeHeaderLine(out, HttpHeader.ContentDisposition, disposition.result())
-    part.contentType.foreach(ct => writeHeaderLine(out, HttpHeader.ContentType, ct.value))
+    part match
+      case fp: MultipartPart.FilePart =>
+        writeHeaderLine(out, HttpHeader.ContentType, fp.contentType.value)
+      case _: MultipartPart.FormField =>
+        ()
     part
       .headers
       .entries
@@ -159,8 +157,8 @@ object Multipart:
         if !k.equalsIgnoreCase(HttpHeader.ContentDisposition) &&
           !k.equalsIgnoreCase(HttpHeader.ContentType)
         then
-          validateHeaderValue(s"header name", k)
-          validateHeaderValue(s"header '${k}' value", v)
+          validateHeaderValue("custom header name", k)
+          validateHeaderValue(s"custom header '${k}' value", v)
           writeHeaderLine(out, k, v)
       }
 

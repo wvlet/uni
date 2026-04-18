@@ -85,15 +85,14 @@ object HttpContent:
 
   case class MultipartContent(multipart: Multipart) extends HttpContent:
     private lazy val encoded: Array[Byte] = multipart.encode
-    // The encoded form always contains the closing boundary, so the body is never empty
-    def isEmpty: Boolean                 = false
-    def length: Long                     = encoded.length.toLong
-    def contentType: Option[ContentType] = Some(multipart.contentType)
-    def asString: Option[String]         = Some(String(encoded, "UTF-8"))
-    def asBytes: Option[Array[Byte]]     = Some(encoded)
-    def toContentString: String          = String(encoded, "UTF-8")
-    def toContentBytes: Array[Byte]      = encoded
-    def contentHash: Int                 = java.util.Arrays.hashCode(encoded)
+    def isEmpty: Boolean                  = false
+    def length: Long                      = encoded.length.toLong
+    def contentType: Option[ContentType]  = Some(multipart.contentType)
+    def asString: Option[String]          = Some(String(encoded, "UTF-8"))
+    def asBytes: Option[Array[Byte]]      = Some(encoded)
+    def toContentString: String           = String(encoded, "UTF-8")
+    def toContentBytes: Array[Byte]       = encoded
+    def contentHash: Int                  = java.util.Arrays.hashCode(encoded)
 
   def empty: HttpContent = Empty
 
