@@ -54,6 +54,21 @@ case class Request(
     .flatMap(_.toLongOption)
     .orElse(Some(content.length))
 
+  /**
+    * Headers as they should appear on the wire: any `Content-Type` implied by `content` is merged
+    * in when the user hasn't set the header explicitly. Channels should use this instead of
+    * `headers` when serializing a request.
+    */
+  def wireHeaders: HttpMultiMap =
+    if headers.contains(HttpHeader.ContentType) then
+      headers
+    else
+      content.contentType match
+        case Some(ct) =>
+          headers.set(HttpHeader.ContentType, ct.value)
+        case None =>
+          headers
+
   def header(name: String): Option[String]    = headers.get(name)
   def headerValues(name: String): Seq[String] = headers.getAll(name)
   def hasHeader(name: String): Boolean        = headers.contains(name)
@@ -110,6 +125,22 @@ case class Request(
   def withJsonContent(json: String): Request = copy(content = HttpContent.json(json))
 
   def withBytesContent(bytes: Array[Byte]): Request = copy(content = HttpContent.bytes(bytes))
+
+  def withMultipartContent(mp: Multipart): Request = copy(content = HttpContent.multipart(mp))
+
+  /**
+    * Attach a multipart/form-data body built from the given parts. Boundary is auto-generated and
+    * the correct `Content-Type` header is set on the wire.
+    *
+    * Example:
+    * {{{
+    * Request.post("/upload").withMultipart(Seq(
+    *   MultipartPart.field("name", "alice"),
+    *   MultipartPart.file("avatar", "a.png", pngBytes, ContentType.ImagePng)
+    * ))
+    * }}}
+    */
+  def withMultipart(parts: Seq[MultipartPart]): Request = withMultipartContent(Multipart.of(parts))
 
   def withContentType(ct: ContentType): Request = setHeader(HttpHeader.ContentType, ct.toString)
 

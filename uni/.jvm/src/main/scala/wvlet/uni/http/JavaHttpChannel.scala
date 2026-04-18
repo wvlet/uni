@@ -41,7 +41,7 @@ private[http] object JavaHttpChannelHelper:
       .timeout(java.time.Duration.ofMillis(config.readTimeoutMillis))
 
     request
-      .headers
+      .wireHeaders
       .entries
       .foreach { case (k, v) =>
         builder.setHeader(k, v)

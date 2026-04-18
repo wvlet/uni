@@ -117,7 +117,7 @@ class FetchChannel extends HttpAsyncChannel:
       headers =
         new Headers(
           request
-            .headers
+            .wireHeaders
             .entries
             .map { case (k, v) =>
               js.Array(k, v)
