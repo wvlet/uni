@@ -107,17 +107,17 @@ enum Result[+A]:
   /** Recover from a matching throwable by emitting a replacement value. Mirrors `Rx.recover`. */
   def recover[B >: A](pf: PartialFunction[Throwable, B]): Result[B] =
     this match
-      case Failure(e) =>
-        Result.catchingResult(pf.lift(e).fold[Result[B]](this)(Result.Success(_)))
-      case _: Success[?] =>
+      case Failure(e) if pf.isDefinedAt(e) =>
+        Result.catching(pf(e))
+      case _ =>
         this
 
   /** Recover from a matching throwable by returning another `Result`. Mirrors `Rx.recoverWith`. */
   def recoverWith[B >: A](pf: PartialFunction[Throwable, Result[B]]): Result[B] =
     this match
-      case Failure(e) =>
-        Result.catchingResult(pf.lift(e).getOrElse(this))
-      case _: Success[?] =>
+      case Failure(e) if pf.isDefinedAt(e) =>
+        Result.catchingResult(pf(e))
+      case _ =>
         this
 
   /**
