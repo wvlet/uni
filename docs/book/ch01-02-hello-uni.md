@@ -109,8 +109,7 @@ class Greeter extends LogSupport:
   val design = Design.newDesign
     .bindSingleton[Greeter]
 
-  design.withSession { session =>
-    val greeter = session.build[Greeter]
+  design.build[Greeter] { greeter =>
     greeter.greet("Uni")
   }
 ```
@@ -121,10 +120,11 @@ Run it again — same output, but now something structural has changed.
   configuration.
 - `.bindSingleton[Greeter]` says *"when someone asks for a `Greeter`,
   build one and share it."* No instance is created yet.
-- `design.withSession { session => ... }` opens a **session**. Inside
-  the block, `session.build[Greeter]` gets (or creates on first ask)
-  the `Greeter`. When the block ends, the session is shut down and any
-  resources attached to it are released.
+- `design.build[Greeter] { greeter => ... }` opens a **session**,
+  builds the `Greeter` (this is the moment it is actually constructed),
+  hands it to your block, and then shuts the session down when the
+  block returns. Any resources attached to the session are released
+  at that shutdown.
 
 You did not have to tell `Main` how `Greeter` is constructed. You did
 not have to thread a `Greeter` through intermediate functions. You
@@ -143,7 +143,7 @@ Fair question — this is exactly the point. With three lines of code,
   pool when the session ends). Design has a hook for that.
 
 We will meet all three of those in Part III. For now, treat
-`Design.newDesign.bindSingleton[X].withSession { ... }` as the shape
+`Design.newDesign.bindSingleton[X].build[X] { x => ... }` as the shape
 your `main` methods will have from here on.
 
 ## What you have, what comes next

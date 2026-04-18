@@ -163,8 +163,7 @@ class UrlFetcher(client: HttpSyncClient) extends LogSupport:
     .onShutdown(_.close())
     .bindSingleton[UrlFetcher]
 
-  design.withSession { session =>
-    val fetcher = session.build[UrlFetcher]
+  design.build[UrlFetcher] { fetcher =>
     fetcher.fetch(parsed.url, parsed.showBody)
   }
 ```
@@ -180,8 +179,8 @@ info [UrlFetcher] GET https://httpbin.org/get  - (Fetch.scala:15)
 You now have the spine of every Uni application you will write:
 
 1. **Parse** (`Launcher.execute`).
-2. **Wire** (`Design.newDesign...withSession`).
-3. **Do** (build the services you need, call them).
+2. **Wire** (`Design.newDesign...`).
+3. **Do** (`design.build[EntryPoint] { entry => ... }`).
 
 Everything else — more services, more wiring, more complex flows —
 slots into that spine.
@@ -199,11 +198,11 @@ the test would have to call `main` with monkey-patched globals. With
 
 **Lifecycle.** You saw a small example of this already:
 `.bindInstance[HttpSyncClient](...).onShutdown(_.close())` attaches the
-client's cleanup to the session. When `withSession` ends — whether the
-block completed normally or threw — the client's `close()` runs. A real
-app might add a database connection, a server, and a scheduler, each
-with its own hook. `withSession` is the single place that controls
-when they all wind down.
+client's cleanup to the session `design.build` opens. When the block
+returns — whether normally or by throwing — the session shuts down
+and the client's `close()` runs. A real app might add a database
+connection, a server, and a scheduler, each with its own hook. One
+block controls when they all wind down.
 
 **Locality of wiring.** The entire dependency graph of your program is
 visible in one `Design.newDesign...` block. Growing from one service to
@@ -260,7 +259,7 @@ You have written a Scala 3 CLI tool end to end:
 
 - Typed CLI arguments with `@option` and `@argument`.
 - Real HTTP calls through `Http.client.newSyncClient`.
-- Object wiring and lifecycle through `Design.withSession`.
+- Object wiring and lifecycle through `Design.build`.
 - A test suite that runs in milliseconds and has no external
   dependencies.
 
