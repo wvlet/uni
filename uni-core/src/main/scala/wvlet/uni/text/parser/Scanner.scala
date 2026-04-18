@@ -480,9 +480,6 @@ abstract class ScannerBase[Token](
       if '0' <= ch && ch <= '9' || isNumberSeparator(ch) then
         putChar(ch)
         nextChar()
-        if ch == '+' || ch == '-' then
-          putChar(ch)
-          nextChar()
         while '0' <= ch && ch <= '9' || isNumberSeparator(ch) do
           putChar(ch)
           nextChar()
@@ -636,18 +633,21 @@ abstract class ScannerBase[Token](
   protected def getBlockComment(): Unit =
     @tailrec
     def readToCommentEnd(): Unit =
-      putChar(ch)
-      nextChar()
-      if ch == '*' then
+      if ch == SU then
+        reportError("unclosed block comment", offset)
+      else
         putChar(ch)
         nextChar()
-        if ch == '/' then
+        if ch == '*' then
           putChar(ch)
           nextChar()
+          if ch == '/' then
+            putChar(ch)
+            nextChar()
+          else
+            readToCommentEnd()
         else
           readToCommentEnd()
-      else
-        readToCommentEnd()
 
     readToCommentEnd()
     current.token = tokenTypeInfo.commentToken

@@ -115,7 +115,7 @@ class ToyScanner(input: String, config: ScannerConfig = ScannerConfig())
           scanZero()
         else
           getNumber(10)
-      case '+' | '=' =>
+      case '+' | '=' | '-' =>
         getOperator()
       case '(' =>
         putChar(ch);
@@ -125,12 +125,15 @@ class ToyScanner(input: String, config: ScannerConfig = ScannerConfig())
         putChar(ch);
         nextChar();
         finishNamedToken()
+      case '/' =>
+        scanSlash()
       case '"' =>
         getDoubleQuoteString(DQ_STRING)
       case '\'' =>
         getSingleQuoteString()
       case Tokens.SU =>
         current.token = EOF
+    end match
 
   end fetchToken
 
@@ -202,6 +205,28 @@ class ScannerBaseTest extends UniTest:
     t2.str shouldBe "foo"
     t2.span.start shouldBe 4
     t2.span.end shouldBe 7
+  }
+
+  test("exponent literal does not absorb a following additive operator") {
+    // Regression: a sign inside the exponent is only allowed immediately after
+    // `e`/`E`, never after the first exponent digit. `1e1+2` must tokenize as
+    // three tokens, not as a single exponent literal.
+    val s      = ToyScanner("1e1+2")
+    val tokens =
+      Iterator
+        .continually(s.nextToken())
+        .takeWhile(_.token != ToyToken.EOF)
+        .map(t => (t.token, t.str))
+        .toList
+    tokens shouldBe List((ToyToken.EXP_LIT, "1e1"), (ToyToken.PLUS, "+"), (ToyToken.INT_LIT, "2"))
+  }
+
+  test("unclosed block comment reports an error instead of hanging") {
+    // Regression: without an SU guard in the block-comment loop, scanning
+    // `/* unterminated` would loop forever on EOF. `reportErrorToken=true`
+    // makes `nextToken()` surface an error token instead of spinning.
+    val s = ToyScanner("/* unterminated", ScannerConfig(reportErrorToken = true))
+    s.nextToken().token shouldBe ToyToken.ERROR
   }
 
 end ScannerBaseTest
