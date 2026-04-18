@@ -107,25 +107,32 @@ enum Result[+A]:
   /** Recover from a matching throwable by emitting a replacement value. Mirrors `Rx.recover`. */
   def recover[B >: A](pf: PartialFunction[Throwable, B]): Result[B] =
     this match
-      case Failure(e) if pf.isDefinedAt(e) =>
-        Result.catching(pf(e))
-      case _ =>
+      case Failure(e) =>
+        pf.lift(e) match
+          case Some(v) =>
+            Result.catching(v)
+          case None =>
+            this
+      case _: Success[?] =>
         this
 
   /** Recover from a matching throwable by returning another `Result`. Mirrors `Rx.recoverWith`. */
   def recoverWith[B >: A](pf: PartialFunction[Throwable, Result[B]]): Result[B] =
     this match
-      case Failure(e) if pf.isDefinedAt(e) =>
-        Result.catchingResult(pf(e))
-      case _ =>
+      case Failure(e) =>
+        Result.catchingResult(pf.lift(e).getOrElse(this))
+      case _: Success[?] =>
         this
 
-  /** Translate the wrapped throwable on failure. */
+  /**
+    * Translate the wrapped throwable on failure. Exceptions thrown by `f` become `Failure`,
+    * matching `map` / `flatMap`.
+    */
   def mapError(f: Throwable => Throwable): Result[A] =
     this match
       case Failure(e) =>
-        Result.Failure(f(e))
-      case _ =>
+        Result.catchingResult(Result.Failure(f(e)))
+      case _: Success[?] =>
         this
 
   /** Eliminator: handle both branches. */

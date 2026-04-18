@@ -41,19 +41,17 @@ Scala's exception mechanism as the default for internal control flow.
 enums in the tree (see `uni-core/src/main/scala/wvlet/uni/log/LogLevel.scala`).
 
 ```scala
-package wvlet.uni
-
-import scala.util.control.NonFatal
-import scala.util.{Try, Success => TrySuccess, Failure => TryFailure}
+package wvlet.uni.util
 
 enum Result[+A]:
-  case Success(value: A)
-  case Failure(error: Throwable)
+  case Success(value: A) extends Result[A]
+  case Failure(error: Throwable) extends Result[Nothing]
 ```
 
-Placed at `uni-core/src/main/scala/wvlet/uni/Result.scala` (root of
-`wvlet.uni` inside `uni-core`), so it sits alongside foundational types and
-is reachable from `import wvlet.uni.Result`.
+Placed at `uni-core/src/main/scala/wvlet/uni/util/Result.scala` (inside
+`wvlet.uni.util` alongside `LazyF0`), so `wvlet.uni.*` stays reserved for
+subpackage organization and the type is reachable from
+`import wvlet.uni.util.Result`.
 
 ### Core API (instance methods)
 
@@ -77,7 +75,7 @@ Methods mirror `Rx`'s names where they overlap, so users switching between
 | `toOption` | `Option[A]` | `Failure → None`. |
 | `toEither` | `Either[Throwable, A]` | |
 | `toTry` | `scala.util.Try[A]` | |
-| `toRx` | `Rx[A]` | Single-element `Rx` (or errored `Rx`). |
+| `toRx` (extension) | `Rx[A]` | Provided via `wvlet.uni.rx.ResultConverter` — import `wvlet.uni.rx.*`. |
 
 `map` and `flatMap` always catch `NonFatal`, so `for` comprehensions propagate
 failures uniformly — this is the "`Rx[A]`-like propagation while wrapping
@@ -138,19 +136,26 @@ Fixing `E = Throwable` keeps the shape single-parameter like `Option[A]` and
 
 Added:
 
-- `uni-core/src/main/scala/wvlet/uni/Result.scala` — the enum and companion.
-- `uni-core/src/test/scala/wvlet/uni/ResultTest.scala` — unit tests using
-  `wvlet.uni.test.UniTest` (matches existing test style, e.g. `RxTest`).
+- `uni-core/src/main/scala/wvlet/uni/util/Result.scala` — the enum and
+  companion.
+- `uni/src/test/scala/wvlet/uni/util/ResultTest.scala` — unit tests using
+  `wvlet.uni.test.UniTest` (tests for `uni-core` live in the `uni` module).
 - `docs/core/result.md` — reference page following
   `docs/control/rate-limiter.md`'s shape (concept, API tour, interop with
   `Rx` and `Try`).
 
 Modified:
 
-- `uni-core/src/main/scala/wvlet/uni/rx/Rx.scala` — add `materialize` on
-  `RxOps`, `fromResult` on the `Rx` companion. Small localized additions;
-  reuse the existing `FlatMapOp` / `RecoverOp` mechanics so no new
-  `RxEvent` is required.
+- `uni-core/src/main/scala/wvlet/uni/rx/Rx.scala` — add `materialize` method
+  on `Rx`, `fromResult` factory on the `Rx` companion, and a `MaterializeOp`
+  case class.
+- `uni-core/src/main/scala/wvlet/uni/rx/RxRunner.scala` — add the
+  `MaterializeOp` case. Unlike `recover`, `materialize` explicitly emits
+  `OnCompletion` after an `OnError`-derived `Failure` so downstream
+  operators (`toSeq`, `lastOption`, …) terminate cleanly.
+- `uni-core/src/main/scala/wvlet/uni/rx/package.scala` — add
+  `ResultConverter` implicit class so `Result[A].toRx` works after
+  `import wvlet.uni.rx.*`.
 - `docs/.vitepress/config.mts` — add the new page to **both** the `/guide/`
   and `/` sidebars (per `docs/CLAUDE.md` rule).
 

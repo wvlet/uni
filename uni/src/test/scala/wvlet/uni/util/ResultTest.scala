@@ -109,6 +109,15 @@ class ResultTest extends UniTest:
     Result.Success(1).mapError(_ => boom) shouldBe Result.Success(1)
   }
 
+  test("mapError catches exceptions thrown by the translator") {
+    val translated = Result
+      .Failure(boom)
+      .mapError(_ => throw new IllegalStateException("translator failed"))
+    translated shouldMatch { case Result.Failure(e: IllegalStateException) =>
+      e.getMessage shouldBe "translator failed"
+    }
+  }
+
   test("conversions to Option/Either/Try") {
     Result.Success(1).toOption shouldBe Some(1)
     Result.Failure(boom).toOption shouldBe None

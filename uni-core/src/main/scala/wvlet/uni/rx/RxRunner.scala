@@ -489,8 +489,11 @@ class RxRunner(
             case OnNext(v) =>
               effect(OnNext(Result.Success(v)))
             case OnError(e) =>
-              effect(OnNext(Result.Failure(e)))
-              effect(OnCompletion)
+              val downstream = effect(OnNext(Result.Failure(e)))
+              if downstream.toContinue then
+                effect(OnCompletion)
+              else
+                downstream
             case OnCompletion =>
               effect(OnCompletion)
         }
