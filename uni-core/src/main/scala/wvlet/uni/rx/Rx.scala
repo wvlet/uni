@@ -680,10 +680,15 @@ object Rx extends LogSupport:
   def fromTry[A](t: Try[A]): Rx[A] = TryOp(LazyF0(t))
 
   /**
-    * Convert a [[wvlet.uni.Result]] into a single-element Rx, propagating `Failure(e)` as
+    * Convert a [[wvlet.uni.util.Result]] into a single-element Rx, propagating `Failure(e)` as
     * `OnError(e)`.
     */
-  def fromResult[A](r: Result[A]): Rx[A] = fromTry(r.toTry)
+  def fromResult[A](r: Result[A]): Rx[A] =
+    r match
+      case Result.Success(v) =>
+        single(v)
+      case Result.Failure(e) =>
+        exception(e)
 
   /**
     * Create a sequence of values

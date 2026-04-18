@@ -66,11 +66,7 @@ enum Result[+A]:
   def map[B](f: A => B): Result[B] =
     this match
       case Success(v) =>
-        try
-          Result.Success(f(v))
-        catch
-          case NonFatal(e) =>
-            Result.Failure(e)
+        Result.catching(f(v))
       case fail: Failure =>
         fail
 
@@ -78,11 +74,7 @@ enum Result[+A]:
   def flatMap[B](f: A => Result[B]): Result[B] =
     this match
       case Success(v) =>
-        try
-          f(v)
-        catch
-          case NonFatal(e) =>
-            Result.Failure(e)
+        Result.catchingResult(f(v))
       case fail: Failure =>
         fail
 
@@ -93,14 +85,12 @@ enum Result[+A]:
   def filter(p: A => Boolean): Result[A] =
     this match
       case Success(v) =>
-        try
+        Result.catchingResult {
           if p(v) then
             this
           else
             Result.Failure(new NoSuchElementException("Result.filter predicate is not satisfied"))
-        catch
-          case NonFatal(e) =>
-            Result.Failure(e)
+        }
       case _: Failure =>
         this
 
@@ -118,11 +108,7 @@ enum Result[+A]:
   def recover[B >: A](pf: PartialFunction[Throwable, B]): Result[B] =
     this match
       case Failure(e) if pf.isDefinedAt(e) =>
-        try
-          Result.Success(pf(e))
-        catch
-          case NonFatal(e2) =>
-            Result.Failure(e2)
+        Result.catching(pf(e))
       case _ =>
         this
 
@@ -130,11 +116,7 @@ enum Result[+A]:
   def recoverWith[B >: A](pf: PartialFunction[Throwable, Result[B]]): Result[B] =
     this match
       case Failure(e) if pf.isDefinedAt(e) =>
-        try
-          pf(e)
-        catch
-          case NonFatal(e2) =>
-            Result.Failure(e2)
+        Result.catchingResult(pf(e))
       case _ =>
         this
 
@@ -183,9 +165,23 @@ object Result:
     * Evaluate `body` and wrap the outcome. Non-fatal exceptions become `Failure`; fatal errors
     * (e.g. `InterruptedException`, `VirtualMachineError`) escape the wrapper.
     */
-  def apply[A](body: => A): Result[A] =
+  def apply[A](body: => A): Result[A] = catching(body)
+
+  /**
+    * Evaluate `body` and wrap the value in `Success`, converting `NonFatal` throwables to
+    * `Failure`.
+    */
+  private[util] def catching[A](body: => A): Result[A] =
     try
       Success(body)
+    catch
+      case NonFatal(e) =>
+        Failure(e)
+
+  /** Like [[catching]] but for blocks that already return a `Result`. */
+  private[util] def catchingResult[A](body: => Result[A]): Result[A] =
+    try
+      body
     catch
       case NonFatal(e) =>
         Failure(e)
