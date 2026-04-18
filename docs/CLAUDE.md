@@ -9,16 +9,14 @@ its own guide). Framework: VitePress 2 (`docs/.vitepress/config.mts`,
 Reference pages are contractual. Users paste snippets. Before documenting
 any method, Builder option, factory, or behavior:
 
-- **Read the source** and confirm signature, defaults, return type.
-- **Check that Builder fields are read, not just stored.** A `case class
-  Builder` may declare a field (`warmupPeriodMillis`, `name`) that no
-  implementation ever consumes. `Grep` for `config.fieldName` usage
-  before mentioning it.
-- **Blocking vs virtual time.** A manual `Ticker` fast-forwards refill
-  state; it does **not** skip `Thread.sleep` inside `acquire`/similar
-  blocking calls. Verify which path the snippet exercises.
-- **Platform matters.** Check whether the API lives under `src/` (shared)
-  or `.jvm/` / `.js/` / `.native/`. Call it out if platform-specific.
+- **Read the source** and confirm signature, defaults, and return type.
+- **Confirm config fields are actually consumed**, not just declared.
+  Grep the implementation for each field before documenting it.
+- **Confirm described behavior matches the code path the snippet
+  exercises** (e.g. whether a call blocks, is async, or only reads
+  state).
+- **Call out platform scope.** APIs live under `src/` (shared) or
+  `.jvm/` / `.js/` / `.native/`. Flag anything platform-specific.
 
 If any of the above is unverified, drop the claim.
 
