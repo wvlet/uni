@@ -21,6 +21,9 @@ features:
   - title: Core Primitives
     details: Logging, Design (object wiring), Rx (async programming), and unified serialization through JSON and MessagePack.
     link: /core/
+  - title: Cross-Platform FileSystem
+    details: Uniform file I/O and path handling across JVM, Scala.js (Node and browser), and Scala Native — a gap in the standard Scala ecosystem.
+    link: /core/filesystem
   - title: HTTP Client & Server
     details: Full-featured HTTP with automatic retry, circuit breaker, rate limiting, and streaming support.
     link: /http/

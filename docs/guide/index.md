@@ -11,6 +11,7 @@ Uni provides:
 - **Design** - Object wiring with lifecycle management
 - **Logging** - Structured logging with source code location tracking
 - **Serialization** - JSON parsing/generation and MessagePack binary format
+- **FileSystem** - Cross-platform file I/O and path handling for JVM, Scala.js (Node and browser), and Scala Native — a capability that the standard Scala ecosystem historically lacked
 - **HTTP Client** - Cross-platform client with retry and streaming support
 - **Reactive Streams** - Rx-based operators for async data flows
 - **Control Flow** - Retry logic, circuit breakers, and resource management
@@ -38,6 +39,7 @@ uni follows these principles:
 | [JSON](/core/json) | JSON parsing and generation |
 | [MessagePack](/core/msgpack) | Binary serialization format |
 | [Surface](/core/surface) | Compile-time type introspection |
+| [FileSystem](/core/filesystem) | Cross-platform file I/O with `IOPath` for JVM, Scala.js, and Scala Native |
 | [HTTP](/http/) | HTTP client with retry and streaming support |
 | [Rx](/rx/) | Reactive streams and async data flows |
 | [Control](/control/) | Retry logic, circuit breakers, and caching |
