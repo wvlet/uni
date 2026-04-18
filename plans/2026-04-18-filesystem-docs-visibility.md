@@ -43,3 +43,27 @@ new surfaces should be brief with links into it.
 - FileSystem appears in `/guide/` intro list and module table.
 - Walkthrough has a FileSystem section with working examples.
 - `npm run docs:build` succeeds (no broken links, no markdown errors).
+
+## PR-cycle follow-ups (added during review)
+
+After the first review, the FileSystem mention was folded into the existing
+"Core Primitives" feature card on the landing page rather than introduced as
+a fifth card — keeps the hero section focused on four categories.
+
+Scope was then expanded to make `IO` a true single entry point for file
+operations:
+
+- Added `IO.path(first: String, rest: String*): IOPath` (delegates to
+  `IOPath.of`) so users can construct paths, read, write, list, and
+  execute subprocesses all through one `IO` name.
+- Swept `docs/core/filesystem.md`, `docs/core/io.md`, and the walkthrough
+  FileSystem section to use `IO.*` consistently instead of mixing
+  `FileSystem.*` and `IOPath(...)`. `IOPath` remains the underlying type
+  and is still imported when explicit type annotations are needed.
+- 3 new tests in `IOFileSystemTest` cover parse, segment-join, and an
+  `IO.writeString` / `IO.readString` round-trip through `IO.path`.
+
+Rationale: the existing `IO` doc page already pitched `IO` as the unified
+facade, but `FileSystem.*` and `IOPath(...)` were still the default names
+in examples. Adding `IO.path` closes the gap and makes the "one entry
+point" promise real.
