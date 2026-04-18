@@ -99,13 +99,54 @@ Add `uni-core/src/test/scala/wvlet/uni/text/` with:
 
 ## Execution checklist
 
-- [ ] Port `Span.scala` verbatim (it is already free of wvlet deps).
-- [ ] Port `Tokens.scala`, `TokenBuffer.scala`, `TokenType.scala` verbatim
+- [x] Port `Span.scala` verbatim (it is already free of wvlet deps).
+- [x] Port `Tokens.scala`, `TokenBuffer.scala`, `TokenType.scala` verbatim
       (only package statement changes, swap `wvlet.log.LogSupport` for the uni
       one in `TokenBuffer`).
-- [ ] Port `Scanner.scala`, stripping `SourceFile` / `CompilationUnit` /
+- [x] Port `Scanner.scala`, stripping `SourceFile` / `CompilationUnit` /
       `WvletLangException` / `StatusCode` dependencies as described above.
-- [ ] Add `TextParseException` (minimal, extends `RuntimeException`).
-- [ ] Add unit tests under `uni-core` using UniTest.
-- [ ] `./sbt scalafmtAll` and `./sbt coreJVM/test`.
-- [ ] Open PR with `feature/` prefix and wait for Gemini review.
+- [x] Add `TextParseException` (minimal, extends `RuntimeException`).
+- [x] Add unit tests under `uni-core` using UniTest.
+- [x] `./sbt scalafmtAll` and `./sbt coreJVM/test`.
+- [x] Open PR with `feature/` prefix and wait for Gemini review.
+
+## Fixes applied during the PR review cycle
+
+The verbatim port inherited several latent bugs from wvlet-lang. Codex and
+Gemini reviews caught them before merge:
+
+1. **Unclosed block comment hung on EOF.** `readToCommentEnd` never checked
+   for `SU`, so `/* unterminated` input looped forever. Added an explicit
+   SU guard that calls `reportError`.
+2. **Exponent literal absorbed a second sign.** `1e1+2` tokenized as a
+   single `expLiteral` because `getFraction` accepted `+`/`-` after the
+   first exponent digit. Removed the stray branch.
+3. **Missing digits after exponent sign accepted.** `1e+` was classified as
+   `expLiteral` even though no digits followed. Moved the `tokenType`
+   assignment into the digit-found branch and report an error otherwise.
+4. **Long-literal suffix was not captured.** `100L` emitted `str="100"`
+   because the `L` was consumed via `nextChar()` but not via `putChar`.
+5. **CRLF collapsing used the wrong cursor.** `fetchLineEnd` read
+   `buf(current.offset)` (the token start) and advanced `current.offset`
+   instead of `charOffset`, so Windows-style line endings never collapsed.
+6. **`getRawStringLiteral` was not `@tailrec`.** Large triple-quoted
+   strings could blow the stack. Added the annotation.
+7. **Unbounded `commentBuffer` growth.** Added `clearCommentTokens()` so
+   callers can cap memory in long-running scanners.
+8. **Dead `sourceName` parameter.** It was only referenced in a log string
+   and never surfaced on `TextParseException`, so it was removed entirely.
+
+All regressions are covered by new tests under
+`uni/src/test/scala/wvlet/uni/text/parser/`.
+
+## Deferred (follow-up)
+
+Gemini flagged three medium-priority concerns that require bigger API
+changes; leaving them for a follow-up PR:
+
+- `getIdentRest` / `getOperatorRest` are `@tailrec final`, so concrete
+  scanners with non-ASCII identifier rules cannot override them directly.
+- `>>` is always split into two tokens; languages that want it as a single
+  bit-shift operator need a config flag.
+- `TokenBuffer.last` throws on empty buffer rather than returning
+  `Option[Char]`.
