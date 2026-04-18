@@ -48,6 +48,15 @@ trait RxOps[+A]:
   def recoverWith[A](f: PartialFunction[Throwable, RxOps[A]]): Rx[A] = RecoverWithOp(this, f)
 
   /**
+    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values
+    * instead of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)`
+    * becomes `Result.Failure(e)` followed by `OnCompletion` — the resulting stream always
+    * terminates cleanly, so downstream operators like `toSeq` and `lastOption` work on errored
+    * sources.
+    */
+  def materialize: Rx[Result[A]] = MaterializeOp(this)
+
+  /**
     * Applies `f` to the value for having a side effect, and return the original value.
     *
     * This method is useful for debugging Rx chains. For example:
@@ -545,15 +554,6 @@ trait Rx[+A] extends RxOps[A]:
     case other =>
       other
   }
-
-  /**
-    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values
-    * instead of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)`
-    * becomes `Result.Failure(e)` followed by `OnCompletion` — the resulting stream always
-    * terminates cleanly, so downstream operators like `toSeq` and `lastOption` work on errored
-    * sources.
-    */
-  def materialize: Rx[Result[A]] = MaterializeOp(this)
 
   def concat[A1 >: A](other: Rx[A1]): Rx[A1] = Rx.concat(this, other)
   def lastOption: RxOption[A]                = LastOp(this).toOption
