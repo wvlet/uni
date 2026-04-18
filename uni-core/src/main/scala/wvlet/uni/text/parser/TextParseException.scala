@@ -24,4 +24,4 @@ class TextParseException(
     val offset: Int,
     val span: Span = Span.NoSpan,
     cause: Throwable = null
-) extends RuntimeException(message, cause)
+) extends Exception(message, cause)
