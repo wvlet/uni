@@ -26,3 +26,5 @@ target
 .metals
 .vscode
 metals.sbt
+
+.claude/settings.local.json
