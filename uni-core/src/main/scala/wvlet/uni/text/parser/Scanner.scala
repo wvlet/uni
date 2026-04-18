@@ -220,10 +220,11 @@ abstract class ScannerBase[Token](protected val buf: IArray[Char], config: Scann
       ch = buf(index)
 
   private def fetchLineEnd(): Unit =
-    // Collapse CR LF into a single LF
+    // Collapse CR LF into a single LF by eagerly consuming the LF
     if ch == CR then
-      if charOffset < length && buf(offset) == LF then
-        current.offset += 1
+      if charOffset < length && buf(charOffset) == LF then
+        charOffset += 1
+        lastCharOffset = charOffset - 1
         ch = LF
 
     // New line: remember the start offset
@@ -457,6 +458,7 @@ abstract class ScannerBase[Token](protected val buf: IArray[Char], config: Scann
           if base == 10 then
             tokenType = getFraction()
         case 'l' | 'L' =>
+          putChar(ch)
           nextChar()
           tokenType = tokenTypeInfo.longLiteral
         case _ =>
@@ -487,7 +489,9 @@ abstract class ScannerBase[Token](protected val buf: IArray[Char], config: Scann
           putChar(ch)
           nextChar()
         checkNoTrailingNumberSeparator()
-      tokenType = tokenTypeInfo.expLiteral
+        tokenType = tokenTypeInfo.expLiteral
+      else
+        reportError("malformed exponent: expected digits after the sign", offset)
     if ch == 'd' || ch == 'D' then
       putChar(ch)
       nextChar()

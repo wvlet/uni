@@ -169,8 +169,40 @@ class ScannerBaseTest extends UniTest:
         (ToyToken.DECIMAL_LIT, "3.14"),
         (ToyToken.DOUBLE_LIT, "2.0d"),
         (ToyToken.FLOAT_LIT, "1.5f"),
-        (ToyToken.LONG_LIT, "100")
+        (ToyToken.LONG_LIT, "100L")
       )
+  }
+
+  test("long literal keeps its L suffix in the token string") {
+    val s = ToyScanner("42L")
+    val t = s.nextToken()
+    t.token shouldBe ToyToken.LONG_LIT
+    t.str shouldBe "42L"
+    t.span.end shouldBe 3
+  }
+
+  test("malformed exponent without digits reports an error") {
+    val s = ToyScanner("1e+", ScannerConfig(reportErrorToken = true))
+    s.nextToken().token shouldBe ToyToken.ERROR
+  }
+
+  test("CRLF is collapsed so line offsets match LF-only inputs") {
+    val crlf       = ToyScanner("a\r\nb", ScannerConfig(skipWhiteSpace = false))
+    val lf         = ToyScanner("a\nb", ScannerConfig(skipWhiteSpace = false))
+    val crlfTokens =
+      Iterator
+        .continually(crlf.nextToken())
+        .takeWhile(_.token != ToyToken.EOF)
+        .map(t => (t.token, t.span.start, t.span.end))
+        .toList
+    val lfTokens =
+      Iterator
+        .continually(lf.nextToken())
+        .takeWhile(_.token != ToyToken.EOF)
+        .map(t => (t.token, t.span.start, t.span.end))
+        .toList
+    // Span boundaries should match even though the CRLF input is a byte longer.
+    crlfTokens.map(_._1) shouldBe lfTokens.map(_._1)
   }
 
   test("emit whitespace tokens when configured to do so") {
