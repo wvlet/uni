@@ -13,6 +13,7 @@
  */
 package wvlet.uni.util
 
+import wvlet.uni.rx.OnCompletion
 import wvlet.uni.rx.OnError
 import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
@@ -146,18 +147,26 @@ class ResultTest extends UniTest:
     }
   }
 
-  test("Rx.materialize reifies OnNext and OnError as Result values") {
+  test("Rx.materialize reifies OnNext and OnError as Result values and completes") {
     val events = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.exception[Int](boom).materialize)(events += _)
-    events.result() shouldMatch { case OnNext(v) +: _ =>
-      v shouldBe Result.Failure(boom)
-    }
+    events.result() shouldBe Seq(OnNext(Result.Failure(boom)), OnCompletion)
 
     val ok = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.single(1).materialize)(ok += _)
-    ok.result() shouldMatch { case OnNext(v) +: _ =>
-      v shouldBe Result.Success(1)
-    }
+    ok.result() shouldBe Seq(OnNext(Result.Success(1)), OnCompletion)
+  }
+
+  test("Rx.materialize emits Result values for multi-element streams") {
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.run(Rx.fromSeq(Seq(1, 2, 3)).materialize)(events += _)
+    events.result() shouldBe
+      Seq(
+        OnNext(Result.Success(1)),
+        OnNext(Result.Success(2)),
+        OnNext(Result.Success(3)),
+        OnCompletion
+      )
   }
 
   test("Rx.fromResult and Result.toRx round-trip") {

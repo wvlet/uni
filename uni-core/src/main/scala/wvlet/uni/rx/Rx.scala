@@ -547,16 +547,13 @@ trait Rx[+A] extends RxOps[A]:
   }
 
   /**
-    * Reify each upstream event as a [[wvlet.uni.Result]] so errors are delivered as values instead
-    * of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)` becomes
-    * `Result.Failure(e)`.
+    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values
+    * instead of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)`
+    * becomes `Result.Failure(e)` followed by `OnCompletion` — the resulting stream always
+    * terminates cleanly, so downstream operators like `toSeq` and `lastOption` work on errored
+    * sources.
     */
-  def materialize: Rx[Result[A]] = transform {
-    case Success(v) =>
-      Result.Success(v)
-    case Failure(e) =>
-      Result.Failure(e)
-  }
+  def materialize: Rx[Result[A]] = MaterializeOp(this)
 
   def concat[A1 >: A](other: Rx[A1]): Rx[A1] = Rx.concat(this, other)
   def lastOption: RxOption[A]                = LastOp(this).toOption
@@ -1111,6 +1108,8 @@ object Rx extends LogSupport:
 
   case class RecoverWithOp[A, U](input: RxOps[A], f: PartialFunction[Throwable, RxOps[U]])
       extends UnaryRx[A, U]
+
+  case class MaterializeOp[A](input: RxOps[A]) extends UnaryRx[A, Result[A]]
 
   case class TapOnOp[A](input: RxOps[A], f: PartialFunction[Try[A], Unit]) extends UnaryRx[A, A]
 

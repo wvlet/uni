@@ -3,6 +3,7 @@ package wvlet.uni.rx
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import wvlet.uni.log.LogSupport
+import wvlet.uni.util.Result
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
@@ -481,6 +482,17 @@ class RxRunner(
                   effect(OnError(e))
             case other =>
               effect(other)
+        }
+      case MaterializeOp(in) =>
+        run(in) { ev =>
+          ev match
+            case OnNext(v) =>
+              effect(OnNext(Result.Success(v)))
+            case OnError(e) =>
+              effect(OnNext(Result.Failure(e)))
+              effect(OnCompletion)
+            case OnCompletion =>
+              effect(OnCompletion)
         }
       case RecoverWithOp(in, f) =>
         var toContinue: RxResult = RxResult.Continue
