@@ -65,10 +65,8 @@ limiter.withLimitN(10) {
 ```scala
 val limiter = RateLimiter
   .newBuilder
-  .withPermitsPerSecond(50.0)   // steady rate
-  .withBurstSize(10)            // max tokens stored
-  .withWarmupPeriod(1000L)      // gradually ramp up over 1s
-  .withName("external-api")     // for logs / metrics
+  .withPermitsPerSecond(50.0)      // steady rate
+  .withBurstSize(10)               // max tokens stored
   .withTicker(Ticker.systemTicker) // injectable for tests
   .build()
 ```
@@ -133,8 +131,9 @@ limiter.estimatedWaitTimeMillis // projected wait for the next permit
 
 ## Testing with a Manual Ticker
 
-Inject `Ticker.manualTicker` to advance time deterministically in tests, avoiding
-`Thread.sleep` in your test suite:
+Inject `Ticker.manualTicker` to advance virtual time deterministically. Exercise
+the limiter via `tryAcquire` / `availablePermits` — the ticker controls token
+refill, not blocking:
 
 ```scala
 import wvlet.uni.control.{RateLimiter, Ticker}
@@ -150,9 +149,14 @@ val limiter = RateLimiter
 limiter.tryAcquire() shouldBe true
 limiter.tryAcquire() shouldBe false
 
-ticker.tick(1_000_000_000L) // advance 1 second
+ticker.advance(1_000_000_000L) // advance 1 second
 limiter.tryAcquire() shouldBe true
 ```
+
+> **Note:** `acquire` / `acquireN` / `withLimit` still block on real wall clock
+> time via `Thread.sleep`, even with a manual ticker. Test the blocking path
+> with a system ticker and short intervals, or stick to `tryAcquire` for fully
+> deterministic tests.
 
 ## Composing with Retry and Circuit Breaker
 
@@ -182,6 +186,7 @@ val result = Retry.withBackOff(maxRetry = 3).run {
    downstream services; `burstSize = 1` enforces strict smoothing.
 3. **Prefer `tryAcquire` at system boundaries** — shed load explicitly instead
    of blocking caller threads indefinitely.
-4. **Inject a `Ticker` in tests** — avoid real sleeps; use `Ticker.manualTicker`.
+4. **Inject a `Ticker` in tests** — use `Ticker.manualTicker` with `tryAcquire`
+   to drive refill deterministically; note that `acquire` still uses real sleeps.
 5. **Combine with `CircuitBreaker` and `Retry`** — rate limiting alone does not
    protect against downstream outages.
