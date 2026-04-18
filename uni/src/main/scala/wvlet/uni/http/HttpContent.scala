@@ -85,14 +85,15 @@ object HttpContent:
 
   case class MultipartContent(multipart: Multipart) extends HttpContent:
     private lazy val encoded: Array[Byte] = multipart.encode
-    def isEmpty: Boolean                  = multipart.parts.isEmpty
-    def length: Long                      = encoded.length.toLong
-    def contentType: Option[ContentType]  = Some(multipart.contentType)
-    def asString: Option[String]          = Some(String(encoded, "UTF-8"))
-    def asBytes: Option[Array[Byte]]      = Some(encoded)
-    def toContentString: String           = String(encoded, "UTF-8")
-    def toContentBytes: Array[Byte]       = encoded
-    def contentHash: Int                  = java.util.Arrays.hashCode(encoded)
+    // The encoded form always contains the closing boundary, so the body is never empty
+    def isEmpty: Boolean                 = false
+    def length: Long                     = encoded.length.toLong
+    def contentType: Option[ContentType] = Some(multipart.contentType)
+    def asString: Option[String]         = Some(String(encoded, "UTF-8"))
+    def asBytes: Option[Array[Byte]]     = Some(encoded)
+    def toContentString: String          = String(encoded, "UTF-8")
+    def toContentBytes: Array[Byte]      = encoded
+    def contentHash: Int                 = java.util.Arrays.hashCode(encoded)
 
   def empty: HttpContent = Empty
 
@@ -122,11 +123,7 @@ object HttpContent:
 
   def json(j: JSONValue): HttpContent = JsonContent(j)
 
-  def multipart(mp: Multipart): HttpContent =
-    if mp.parts.isEmpty then
-      Empty
-    else
-      MultipartContent(mp)
+  def multipart(mp: Multipart): HttpContent = MultipartContent(mp)
 
   def json(s: String): HttpContent = TextContent(s, Some(ContentType.ApplicationJson))
 

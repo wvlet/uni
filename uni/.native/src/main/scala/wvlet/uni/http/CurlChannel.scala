@@ -67,7 +67,7 @@ class CurlChannel extends HttpChannel:
             curl_easy_setopt_str(curl, CURLOPT_CUSTOMREQUEST, toCString(other.name))
 
         // Set request headers
-        for (key, value) <- request.headers.entries do
+        for (key, value) <- request.wireHeaders.entries do
           val headerLine = s"${key}: ${value}"
           headerList = curl_slist_append(headerList, toCString(headerLine))
 

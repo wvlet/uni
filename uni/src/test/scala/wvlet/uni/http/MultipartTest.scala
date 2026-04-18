@@ -143,9 +143,13 @@ class MultipartTest extends UniTest:
     hc.length shouldBe mp.encode.length.toLong
   }
 
-  test("HttpContent.multipart returns Empty for zero-part multipart") {
+  test("zero-part multipart keeps closing-boundary bytes on the wire") {
     val mp = Multipart.builder().withBoundary("B").build()
-    HttpContent.multipart(mp) shouldBe HttpContent.Empty
+    val hc = HttpContent.multipart(mp)
+
+    hc.isEmpty shouldBe false
+    hc.toContentString shouldBe "--B--\r\n"
+    hc.contentType shouldBe Some(mp.contentType)
   }
 
   test("Request.withMultipartContent sets content and content-type") {
@@ -155,6 +159,73 @@ class MultipartTest extends UniTest:
     req.content.isEmpty shouldBe false
     req.contentType shouldBe Some(mp.contentType)
     req.content.toContentBytes.toSeq shouldBe mp.encode.toSeq
+  }
+
+  test("Request.withMultipart(Seq) is a one-liner for common uploads") {
+    val req = Request
+      .post("/upload")
+      .withMultipart(
+        Seq(
+          MultipartPart.field("name", "alice"),
+          MultipartPart.file("avatar", "a.png", Array[Byte](1, 2, 3), ContentType.ImagePng)
+        )
+      )
+
+    req.content.isEmpty shouldBe false
+    req.contentType.map(_.fullType) shouldBe Some("multipart/form-data")
+    // A boundary parameter is present in the Content-Type
+    req.contentType.exists(_.value.contains("boundary=")) shouldBe true
+  }
+
+  test("wireHeaders sets Content-Type from content when header not set explicitly") {
+    val mp  = Multipart.builder().withBoundary("BND").addField("k", "v").build()
+    val req = Request.post("/upload").withMultipartContent(mp)
+
+    req.wireHeaders.get(HttpHeader.ContentType) shouldBe Some("multipart/form-data; boundary=BND")
+  }
+
+  test("wireHeaders keeps explicit Content-Type header when user set one") {
+    val mp  = Multipart.builder().withBoundary("BND").addField("k", "v").build()
+    val req = Request
+      .post("/upload")
+      .withMultipartContent(mp)
+      .setHeader(HttpHeader.ContentType, "application/override")
+
+    req.wireHeaders.get(HttpHeader.ContentType) shouldBe Some("application/override")
+  }
+
+  test("reject CR or LF in custom part header name or value") {
+    val withBadName = Multipart
+      .builder()
+      .withBoundary("B")
+      .addPart(
+        MultipartPart.FilePart(
+          name = "f",
+          fileName = "x.bin",
+          bytes = Array[Byte](1),
+          headers = HttpMultiMap("X-Bad\r\nInjected" -> "1")
+        )
+      )
+      .build()
+    intercept[IllegalArgumentException] {
+      withBadName.encode
+    }
+
+    val withBadValue = Multipart
+      .builder()
+      .withBoundary("B")
+      .addPart(
+        MultipartPart.FilePart(
+          name = "f",
+          fileName = "x.bin",
+          bytes = Array[Byte](1),
+          headers = HttpMultiMap("X-Meta" -> "bad\r\nvalue")
+        )
+      )
+      .build()
+    intercept[IllegalArgumentException] {
+      withBadValue.encode
+    }
   }
 
   test("custom part headers are emitted and do not override disposition/content-type") {

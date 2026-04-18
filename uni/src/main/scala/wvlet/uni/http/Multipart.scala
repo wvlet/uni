@@ -52,6 +52,21 @@ object MultipartPart:
     def contentType: Option[ContentType] = Some(partContentType)
     def filename: Option[String]         = Some(fileName)
 
+  /**
+    * Build a text form field.
+    */
+  def field(name: String, value: String): FormField = FormField(name, value)
+
+  /**
+    * Build a file part.
+    */
+  def file(
+      name: String,
+      filename: String,
+      bytes: Array[Byte],
+      contentType: ContentType = ContentType.ApplicationOctetStream
+  ): FilePart = FilePart(name, filename, bytes, contentType)
+
 end MultipartPart
 
 /**
@@ -83,6 +98,15 @@ object Multipart:
   private val HexChars: Array[Char]    = "0123456789abcdef".toCharArray
 
   def builder(): Builder = Builder()
+
+  /**
+    * Build a multipart/form-data body from an ordered list of parts. Auto-generates a boundary. Use
+    * [[builder]] for custom boundaries or subtypes.
+    */
+  def of(parts: Seq[MultipartPart]): Multipart = Multipart(
+    boundary = generateBoundary(),
+    parts = parts.toList
+  )
 
   /**
     * Generate a random boundary string unlikely to collide with part content.
@@ -140,6 +164,8 @@ object Multipart:
         if !k.equalsIgnoreCase(HttpHeader.ContentDisposition) &&
           !k.equalsIgnoreCase(HttpHeader.ContentType)
         then
+          validateHeaderValue(s"header name", k)
+          validateHeaderValue(s"header '${k}' value", v)
           writeHeaderLine(out, k, v)
       }
 
