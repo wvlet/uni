@@ -112,7 +112,10 @@ addSbtPlugin("org.scala-native"   % "sbt-scala-native"               % "0.5.7")
 
 ```scala
 // build.sbt
+import sbtcrossproject.CrossPlugin.autoImport.CrossType
+
 lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
   .in(file("."))
   .settings(
     scalaVersion := "3.3.4",
@@ -120,13 +123,24 @@ lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
 ```
 
+Two parts of that snippet are worth a moment.
+
+`.crossType(CrossType.Pure)` says *"all of this project's sources are
+shared across platforms"*. The alternative, `CrossType.Full`, keeps
+per-platform `src/main/scala-jvm`, `src/main/scala-js`, and
+`src/main/scala-native` folders for code that has to differ. **Prefer
+`Pure`.** Reach for `Full` only when you actually have a chunk of code
+that cannot compile on every target — at which point a separate module
+is usually a cleaner split than per-platform source folders inside one
+module.
+
 The `%%%` operator tells sbt: *pick the version of `uni` that was built
 for whichever platform I am compiling for right now*. Your Scala source
 does not change between platforms; only the build setting does.
 
 We will build a real cross-platform codebase in Chapter 10. For now
-know that it is two characters of difference (`%%` → `%%%`) and one
-sbt plugin away.
+know that it is one cross-plugin, one `CrossType.Pure`, and a `%%%`
+away.
 
 ## IDE setup
 
