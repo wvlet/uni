@@ -13,15 +13,22 @@
  */
 package wvlet.uni.test
 
-import org.scalacheck.Arbitrary
-import org.scalacheck.Gen
-import org.scalacheck.Prop
-import org.scalacheck.Test
-import org.scalacheck.Test.Parameters
+import scala.collection.mutable
+import scala.util.Random
+import wvlet.uni.test.check.Arbitrary
+import wvlet.uni.test.check.DiscardException
+import wvlet.uni.test.check.Gen
+import wvlet.uni.test.check.Params
+import wvlet.uni.test.check.PropertyConfig
+import wvlet.uni.test.check.Shrink
 
 /**
-  * Property-based testing support using ScalaCheck. Mix in this trait with UniTest to use forAll
-  * method for property-based testing.
+  * Property-based testing support, self-contained within uni-test (no external dependency).
+  *
+  * Mix in this trait with [[UniTest]] to use [[forAll]] for property-based testing. Each property
+  * runs [[PropertyConfig.minSuccessfulTests]] random samples; a failing sample is shrunk to a
+  * minimal counter-example (see [[Shrink]]), and the failing input plus the RNG seed are reported
+  * so the run can be replayed by overriding [[propertyConfig]] with `withSeed(...)`.
   *
   * Example:
   * {{{
@@ -34,160 +41,355 @@ import org.scalacheck.Test.Parameters
   * }}}
   */
 trait PropertyCheck:
-  private val testParameters: Parameters = Parameters.default.withMinSuccessfulTests(100)
 
   /**
-    * Run a property check with implicit Arbitrary generators for a single parameter.
+    * Number of successful samples required for a property to pass. Overriding this method is the
+    * simplest way to tighten or loosen an individual test; for finer control (seed, size range,
+    * discard budget) override [[propertyConfig]] instead.
     */
-  inline def forAll[A](body: A => Unit)(using arb: Arbitrary[A]): Unit =
-    val prop = Prop.forAll { (a: A) =>
-      body(a)
-      true
-    }
-    checkProperty(prop)
+  protected def minSuccessfulTests: Int = PropertyConfig.default.minSuccessfulTests
 
   /**
-    * Run a property check with implicit Arbitrary generators for two parameters.
+    * Override to customise the property runner (seed, size range, discard budget, shrink budget,
+    * etc.). The default honours [[minSuccessfulTests]] so that overriding just the sample count
+    * continues to work.
     */
-  inline def forAll[A, B](
-      body: (A, B) => Unit
-  )(using arbA: Arbitrary[A], arbB: Arbitrary[B]): Unit =
-    val prop = Prop.forAll { (a: A, b: B) =>
-      body(a, b)
-      true
-    }
-    checkProperty(prop)
+  protected def propertyConfig: PropertyConfig = PropertyConfig
+    .default
+    .withMinSuccessful(minSuccessfulTests)
+
+  // ---- Classify/collect support ---------------------------------------------------------------
+
+  private val statsStack = scala
+    .collection
+    .mutable
+    .ArrayDeque
+    .empty[mutable.LinkedHashMap[String, Int]]
 
   /**
-    * Run a property check with implicit Arbitrary generators for three parameters.
+    * Record a classification label within the current property. Only active while a `forAll` is
+    * running; counts are surfaced in the final success message.
     */
-  inline def forAll[A, B, C](
-      body: (A, B, C) => Unit
-  )(using arbA: Arbitrary[A], arbB: Arbitrary[B], arbC: Arbitrary[C]): Unit =
-    val prop = Prop.forAll { (a: A, b: B, c: C) =>
-      body(a, b, c)
-      true
-    }
-    checkProperty(prop)
+  protected def classify(cond: Boolean, ifTrue: String, ifFalse: String = ""): Unit =
+    if statsStack.nonEmpty then
+      val label =
+        if cond then
+          ifTrue
+        else
+          ifFalse
+      if label.nonEmpty then
+        val stats = statsStack.last
+        stats.update(label, stats.getOrElse(label, 0) + 1)
 
   /**
-    * Run a property check with implicit Arbitrary generators for four parameters.
+    * Record an arbitrary value as a classification label for the current property. Typical use:
+    * `collect(s"bucket=${bucket(n)}")`.
     */
-  inline def forAll[A, B, C, D](
-      body: (A, B, C, D) => Unit
-  )(using arbA: Arbitrary[A], arbB: Arbitrary[B], arbC: Arbitrary[C], arbD: Arbitrary[D]): Unit =
-    val prop = Prop.forAll { (a: A, b: B, c: C, d: D) =>
-      body(a, b, c, d)
-      true
-    }
-    checkProperty(prop)
+  protected def collect(label: Any): Unit =
+    if statsStack.nonEmpty then
+      val stats = statsStack.last
+      val key   = String.valueOf(label)
+      stats.update(key, stats.getOrElse(key, 0) + 1)
+
+  // ---- ==> operator ---------------------------------------------------------------------------
+
+  extension (cond: Boolean)
+    /**
+      * Discard the current sample if `cond` is false. The runner retries with a new sample, failing
+      * the property if too many discards accumulate.
+      */
+    inline def ==>[A](inline body: => A): A =
+      if cond then
+        body
+      else
+        throw DiscardException()
+
+  // ---- Runner ---------------------------------------------------------------------------------
+
+  private def runnerSeed(): Long = propertyConfig.seed.getOrElse(System.nanoTime())
+
+  private def mkParams(rng: Random, config: PropertyConfig, sampleIdx: Int, total: Int): Params =
+    val span = math.max(1, config.maxSize - config.minSize)
+    // Linearly grow size with sample index so early samples stay small (helpful for shrinking).
+    val size = config.minSize + ((sampleIdx * span) / math.max(1, total))
+    Params(rng, math.min(config.maxSize, size))
 
   /**
-    * Run a property check with implicit Arbitrary generators for five parameters.
+    * Core runner used by every `forAll` overload. `sample` produces the next tuple of inputs from
+    * the current `Params`; `describe` formats them for error messages; `body` is the property; and
+    * `shrinkInput` returns a lazy list of simpler candidate inputs.
     */
-  inline def forAll[A, B, C, D, E](body: (A, B, C, D, E) => Unit)(using
+  private def runProperty[I](
+      sample: Params => I,
+      describe: I => String,
+      body: I => Any,
+      shrinkInput: I => LazyList[I]
+  ): Unit =
+    val config = propertyConfig
+    val seed   = runnerSeed()
+    val rng    = Random(seed)
+    val stats  = mutable.LinkedHashMap.empty[String, Int]
+    statsStack += stats
+    var succeeded = 0
+    var discarded = 0
+    try
+      while succeeded < config.minSuccessfulTests do
+        val params  = mkParams(rng, config, succeeded + discarded, config.minSuccessfulTests)
+        val input   = sample(params)
+        val outcome =
+          try
+            body(input)
+            Outcome.Passed
+          catch
+            case _: DiscardException =>
+              Outcome.Discarded
+            case af: AssertionFailure =>
+              Outcome.Failed(af)
+            case e: Throwable =>
+              Outcome.Failed(e)
+        outcome match
+          case Outcome.Passed =>
+            succeeded += 1
+          case Outcome.Discarded =>
+            discarded += 1
+            if discarded > config.maxDiscarded then
+              throw AssertionFailure(
+                s"Property check gave up after ${discarded} discards (seed=${seed})",
+                TestSource.generate
+              )
+          case Outcome.Failed(e) =>
+            val minimal = minimise(input, body, shrinkInput, config.maxShrinks)
+            throw AssertionFailure(
+              buildFailureMessage(describe(minimal), e, seed),
+              TestSource.generate
+            )
+    finally statsStack.removeLast()
+    end try
+
+    // Log classifications if any were collected.
+    if stats.nonEmpty then
+      val formatted = stats
+        .toSeq
+        .sortBy { case (_, n) =>
+          -n
+        }
+        .map { case (l, n) =>
+          s"${n} × ${l}"
+        }
+        .mkString(", ")
+      // Not LogSupport-dependent — use println to avoid changing the trait's parent set. Test
+      // frameworks capture stdout so these lines show alongside test output.
+      println(s"[property] ${formatted}")
+
+  end runProperty
+
+  private def buildFailureMessage(desc: String, e: Throwable, seed: Long): String =
+    val prefix =
+      e match
+        case af: AssertionFailure =>
+          af.getMessage
+        case other =>
+          Option(other.getMessage).getOrElse(other.getClass.getSimpleName)
+    s"${prefix} (property input: ${desc}, seed=${seed})"
+
+  /**
+    * Greedy shrink: given a failing input, try each candidate from `shrinkInput(current)` and keep
+    * the first that also fails. Recurse until no candidate still fails, up to `maxSteps`.
+    */
+  private def minimise[I](
+      initial: I,
+      body: I => Any,
+      shrinkInput: I => LazyList[I],
+      maxSteps: Int
+  ): I =
+    var current = initial
+    var steps   = 0
+    var done    = false
+    while !done && steps < maxSteps do
+      val next = shrinkInput(current).find { candidate =>
+        steps += 1
+        if steps > maxSteps then
+          false
+        else
+          try
+            body(candidate)
+            false
+          catch
+            case _: DiscardException =>
+              false
+            case _: Throwable =>
+              true
+      }
+      next match
+        case Some(smaller) =>
+          current = smaller
+        case None =>
+          done = true
+    current
+
+  end minimise
+
+  private enum Outcome:
+    case Passed
+    case Discarded
+    case Failed(cause: Throwable)
+
+  /**
+    * Pretty-print a generated value for error messages. Expands arrays since their default
+    * `toString` is the unreadable `[B@…` form.
+    */
+  private def display(a: Any): String =
+    a match
+      case null =>
+        "null"
+      case ba: Array[Byte] =>
+        ba.mkString("Array(", ", ", ")")
+      case s: String =>
+        s"\"${s}\""
+      case other =>
+        String.valueOf(other)
+
+  // ---- forAll with implicit Arbitrary generators --------------------------------------------
+
+  def forAll[A](body: A => Any)(using arb: Arbitrary[A], sa: Shrink[A]): Unit = runProperty[A](
+    arb.gen.apply,
+    display,
+    body,
+    sa.shrink
+  )
+
+  def forAll[A, B](
+      body: (A, B) => Any
+  )(using arbA: Arbitrary[A], arbB: Arbitrary[B], sa: Shrink[A], sb: Shrink[B]): Unit =
+    runProperty[(A, B)](
+      p => (arbA.gen(p), arbB.gen(p)),
+      t => s"(${display(t._1)}, ${display(t._2)})",
+      t => body(t._1, t._2),
+      t => shrinkPair(t._1, t._2, sa, sb)
+    )
+
+  def forAll[A, B, C](body: (A, B, C) => Any)(using
+      arbA: Arbitrary[A],
+      arbB: Arbitrary[B],
+      arbC: Arbitrary[C],
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C]
+  ): Unit = runProperty[(A, B, C)](
+    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p)),
+    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)})",
+    t => body(t._1, t._2, t._3),
+    t => shrinkTriple(t._1, t._2, t._3, sa, sb, sc)
+  )
+
+  def forAll[A, B, C, D](body: (A, B, C, D) => Any)(using
       arbA: Arbitrary[A],
       arbB: Arbitrary[B],
       arbC: Arbitrary[C],
       arbD: Arbitrary[D],
-      arbE: Arbitrary[E]
-  ): Unit =
-    val prop = Prop.forAll { (a: A, b: B, c: C, d: D, e: E) =>
-      body(a, b, c, d, e)
-      true
-    }
-    checkProperty(prop)
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D]
+  ): Unit = runProperty[(A, B, C, D)](
+    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p), arbD.gen(p)),
+    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)})",
+    t => body(t._1, t._2, t._3, t._4),
+    t => shrinkQuad(t, sa, sb, sc, sd)
+  )
 
-  /**
-    * Run a property check with an explicit generator for a single parameter.
-    */
-  inline def forAll[A](gen: Gen[A])(body: A => Unit): Unit =
-    val prop =
-      Prop.forAll(gen) { (a: A) =>
-        body(a)
-        true
-      }
-    checkProperty(prop)
+  def forAll[A, B, C, D, E](body: (A, B, C, D, E) => Any)(using
+      arbA: Arbitrary[A],
+      arbB: Arbitrary[B],
+      arbC: Arbitrary[C],
+      arbD: Arbitrary[D],
+      arbE: Arbitrary[E],
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D],
+      se: Shrink[E]
+  ): Unit = runProperty[(A, B, C, D, E)](
+    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p), arbD.gen(p), arbE.gen(p)),
+    t =>
+      s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)}, ${display(t._5)})",
+    t => body(t._1, t._2, t._3, t._4, t._5),
+    t => shrinkQuint(t, sa, sb, sc, sd, se)
+  )
 
-  /**
-    * Run a property check with explicit generators for two parameters.
-    */
-  inline def forAll[A, B](genA: Gen[A], genB: Gen[B])(body: (A, B) => Unit): Unit =
-    val prop =
-      Prop.forAll(genA, genB) { (a: A, b: B) =>
-        body(a, b)
-        true
-      }
-    checkProperty(prop)
+  // ---- forAll with explicit Gen (no shrinking) ----------------------------------------------
 
-  /**
-    * Run a property check with explicit generators for three parameters.
-    */
-  inline def forAll[A, B, C](genA: Gen[A], genB: Gen[B], genC: Gen[C])(
-      body: (A, B, C) => Unit
-  ): Unit =
-    val prop =
-      Prop.forAll(genA, genB, genC) { (a: A, b: B, c: C) =>
-        body(a, b, c)
-        true
-      }
-    checkProperty(prop)
+  def forAll[A](gen: Gen[A])(body: A => Any): Unit = runProperty[A](
+    gen.apply,
+    display,
+    body,
+    _ => LazyList.empty
+  )
 
-  /**
-    * Run a property check with explicit generators for four parameters.
-    */
-  inline def forAll[A, B, C, D](genA: Gen[A], genB: Gen[B], genC: Gen[C], genD: Gen[D])(
-      body: (A, B, C, D) => Unit
-  ): Unit =
-    val prop =
-      Prop.forAll(genA, genB, genC, genD) { (a: A, b: B, c: C, d: D) =>
-        body(a, b, c, d)
-        true
-      }
-    checkProperty(prop)
+  def forAll[A, B](genA: Gen[A], genB: Gen[B])(body: (A, B) => Any): Unit = runProperty[(A, B)](
+    p => (genA(p), genB(p)),
+    t => s"(${display(t._1)}, ${display(t._2)})",
+    t => body(t._1, t._2),
+    _ => LazyList.empty
+  )
 
-  private inline def checkProperty(prop: Prop): Unit =
-    val result = Test.check(testParameters, prop)
-    result.status match
-      case Test.Passed =>
-      // Success
-      case Test.Proved(_) =>
-      // Success
-      case Test.Exhausted =>
-        throw AssertionFailure(
-          s"Property check exhausted: unable to generate enough test cases after ${result
-              .discarded} discarded",
-          TestSource.generate
-        )
-      case Test.Failed(args, labels) =>
-        val argsStr   = args.map(_.arg).mkString(", ")
-        val labelsStr =
-          if labels.isEmpty then
-            ""
-          else
-            s" [${labels.mkString(", ")}]"
-        throw AssertionFailure(
-          s"Property check failed for args: (${argsStr})${labelsStr}",
-          TestSource.generate
-        )
-      case Test.PropException(args, e, labels) =>
-        val argsStr   = args.map(_.arg).mkString(", ")
-        val labelsStr =
-          if labels.isEmpty then
-            ""
-          else
-            s" [${labels.mkString(", ")}]"
-        e match
-          case af: AssertionFailure =>
-            throw af
-          case _ =>
-            throw AssertionFailure(
-              s"Property check failed for args: (${argsStr})${labelsStr}: ${e.getMessage}",
-              TestSource.generate
-            )
+  def forAll[A, B, C](genA: Gen[A], genB: Gen[B], genC: Gen[C])(body: (A, B, C) => Any): Unit =
+    runProperty[(A, B, C)](
+      p => (genA(p), genB(p), genC(p)),
+      t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)})",
+      t => body(t._1, t._2, t._3),
+      _ => LazyList.empty
+    )
 
-    end match
+  def forAll[A, B, C, D](genA: Gen[A], genB: Gen[B], genC: Gen[C], genD: Gen[D])(
+      body: (A, B, C, D) => Any
+  ): Unit = runProperty[(A, B, C, D)](
+    p => (genA(p), genB(p), genC(p), genD(p)),
+    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)})",
+    t => body(t._1, t._2, t._3, t._4),
+    _ => LazyList.empty
+  )
 
-  end checkProperty
+  // ---- Private: tuple shrinkers ----------------------------------------------------------
+
+  private def shrinkPair[A, B](a: A, b: B, sa: Shrink[A], sb: Shrink[B]): LazyList[(A, B)] =
+    sa.shrink(a).map(a2 => (a2, b)) #::: sb.shrink(b).map(b2 => (a, b2))
+
+  private def shrinkTriple[A, B, C](
+      a: A,
+      b: B,
+      c: C,
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C]
+  ): LazyList[(A, B, C)] =
+    sa.shrink(a).map(x => (x, b, c)) #::: sb.shrink(b).map(x => (a, x, c)) #:::
+      sc.shrink(c).map(x => (a, b, x))
+
+  private def shrinkQuad[A, B, C, D](
+      t: (A, B, C, D),
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D]
+  ): LazyList[(A, B, C, D)] =
+    sa.shrink(t._1).map(x => (x, t._2, t._3, t._4)) #:::
+      sb.shrink(t._2).map(x => (t._1, x, t._3, t._4)) #:::
+      sc.shrink(t._3).map(x => (t._1, t._2, x, t._4)) #:::
+      sd.shrink(t._4).map(x => (t._1, t._2, t._3, x))
+
+  private def shrinkQuint[A, B, C, D, E](
+      t: (A, B, C, D, E),
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D],
+      se: Shrink[E]
+  ): LazyList[(A, B, C, D, E)] =
+    sa.shrink(t._1).map(x => (x, t._2, t._3, t._4, t._5)) #:::
+      sb.shrink(t._2).map(x => (t._1, x, t._3, t._4, t._5)) #:::
+      sc.shrink(t._3).map(x => (t._1, t._2, x, t._4, t._5)) #:::
+      sd.shrink(t._4).map(x => (t._1, t._2, t._3, x, t._5)) #:::
+      se.shrink(t._5).map(x => (t._1, t._2, t._3, t._4, x))
 
 end PropertyCheck

@@ -30,7 +30,6 @@ val JS_JAVA_LOGGING_VERSION             = "1.0.0"
 val JUNIT_PLATFORM_VERSION              = "6.0.3"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.8"
 val SBT_TEST_INTERFACE_VERSION          = "1.0"
-val SCALACHECK_VERSION                  = "1.19.0"
 
 // Common build settings
 val buildSettings = Seq[Setting[?]](
@@ -188,12 +187,7 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name           := "uni-test",
     description    := "Lightweight testing framework with AirSpec syntax",
-    testFrameworks := Seq(new TestFramework("wvlet.uni.test.Framework")),
-    libraryDependencies ++=
-      Seq(
-        // ScalaCheck for property-based testing
-        "org.scalacheck" %%% "scalacheck" % SCALACHECK_VERSION
-      )
+    testFrameworks := Seq(new TestFramework("wvlet.uni.test.Framework"))
   )
   .jvmSettings(
     libraryDependencies ++=
