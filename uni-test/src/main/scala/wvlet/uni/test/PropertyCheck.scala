@@ -82,14 +82,13 @@ trait PropertyCheck:
         stats.update(label, stats.getOrElse(label, 0) + 1)
 
   /**
-    * Record an arbitrary value as a classification label for the current property. Typical use:
+    * Record a classification label for the current property. Typical use:
     * `collect(s"bucket=${bucket(n)}")`.
     */
-  protected def collect(label: Any): Unit =
+  protected def collect(label: String): Unit =
     if statsStack.nonEmpty then
       val stats = statsStack.last
-      val key   = String.valueOf(label)
-      stats.update(key, stats.getOrElse(key, 0) + 1)
+      stats.update(label, stats.getOrElse(label, 0) + 1)
 
   // ---- ==> operator ---------------------------------------------------------------------------
 
@@ -166,7 +165,6 @@ trait PropertyCheck:
     finally statsStack.removeLast()
     end try
 
-    // Log classifications if any were collected.
     if stats.nonEmpty then
       val formatted = stats
         .toSeq
@@ -177,8 +175,6 @@ trait PropertyCheck:
           s"${n} × ${l}"
         }
         .mkString(", ")
-      // Not LogSupport-dependent — use println to avoid changing the trait's parent set. Test
-      // frameworks capture stdout so these lines show alongside test output.
       println(s"[property] ${formatted}")
 
   end runProperty
@@ -258,64 +254,21 @@ trait PropertyCheck:
     sa.shrink
   )
 
-  def forAll[A, B](
-      body: (A, B) => Any
-  )(using arbA: Arbitrary[A], arbB: Arbitrary[B], sa: Shrink[A], sb: Shrink[B]): Unit =
-    runProperty[(A, B)](
-      p => (arbA.gen(p), arbB.gen(p)),
-      t => s"(${display(t._1)}, ${display(t._2)})",
-      t => body(t._1, t._2),
-      t => shrinkPair(t._1, t._2, sa, sb)
-    )
+  def forAll[A, B](body: (A, B) => Any)(using Arbitrary[(A, B)], Shrink[(A, B)]): Unit =
+    forAll[(A, B)](t => body(t._1, t._2))
 
-  def forAll[A, B, C](body: (A, B, C) => Any)(using
-      arbA: Arbitrary[A],
-      arbB: Arbitrary[B],
-      arbC: Arbitrary[C],
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C]
-  ): Unit = runProperty[(A, B, C)](
-    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p)),
-    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)})",
-    t => body(t._1, t._2, t._3),
-    t => shrinkTriple(t._1, t._2, t._3, sa, sb, sc)
-  )
+  def forAll[A, B, C](body: (A, B, C) => Any)(using Arbitrary[(A, B, C)], Shrink[(A, B, C)]): Unit =
+    forAll[(A, B, C)](t => body(t._1, t._2, t._3))
 
   def forAll[A, B, C, D](body: (A, B, C, D) => Any)(using
-      arbA: Arbitrary[A],
-      arbB: Arbitrary[B],
-      arbC: Arbitrary[C],
-      arbD: Arbitrary[D],
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C],
-      sd: Shrink[D]
-  ): Unit = runProperty[(A, B, C, D)](
-    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p), arbD.gen(p)),
-    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)})",
-    t => body(t._1, t._2, t._3, t._4),
-    t => shrinkQuad(t, sa, sb, sc, sd)
-  )
+      Arbitrary[(A, B, C, D)],
+      Shrink[(A, B, C, D)]
+  ): Unit = forAll[(A, B, C, D)](t => body(t._1, t._2, t._3, t._4))
 
   def forAll[A, B, C, D, E](body: (A, B, C, D, E) => Any)(using
-      arbA: Arbitrary[A],
-      arbB: Arbitrary[B],
-      arbC: Arbitrary[C],
-      arbD: Arbitrary[D],
-      arbE: Arbitrary[E],
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C],
-      sd: Shrink[D],
-      se: Shrink[E]
-  ): Unit = runProperty[(A, B, C, D, E)](
-    p => (arbA.gen(p), arbB.gen(p), arbC.gen(p), arbD.gen(p), arbE.gen(p)),
-    t =>
-      s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)}, ${display(t._5)})",
-    t => body(t._1, t._2, t._3, t._4, t._5),
-    t => shrinkQuint(t, sa, sb, sc, sd, se)
-  )
+      Arbitrary[(A, B, C, D, E)],
+      Shrink[(A, B, C, D, E)]
+  ): Unit = forAll[(A, B, C, D, E)](t => body(t._1, t._2, t._3, t._4, t._5))
 
   // ---- forAll with explicit Gen (no shrinking) ----------------------------------------------
 
@@ -326,70 +279,34 @@ trait PropertyCheck:
     _ => LazyList.empty
   )
 
-  def forAll[A, B](genA: Gen[A], genB: Gen[B])(body: (A, B) => Any): Unit = runProperty[(A, B)](
-    p => (genA(p), genB(p)),
-    t => s"(${display(t._1)}, ${display(t._2)})",
-    t => body(t._1, t._2),
-    _ => LazyList.empty
-  )
+  def forAll[A, B](genA: Gen[A], genB: Gen[B])(body: (A, B) => Any): Unit =
+    forAll(genA.zip(genB))(t => body(t._1, t._2))
 
   def forAll[A, B, C](genA: Gen[A], genB: Gen[B], genC: Gen[C])(body: (A, B, C) => Any): Unit =
-    runProperty[(A, B, C)](
-      p => (genA(p), genB(p), genC(p)),
-      t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)})",
-      t => body(t._1, t._2, t._3),
-      _ => LazyList.empty
-    )
+    forAll(
+      genA
+        .zip(genB)
+        .zip(genC)
+        .map { case ((a, b), c) =>
+          (a, b, c)
+        }
+    ) { t =>
+      body(t._1, t._2, t._3)
+    }
 
   def forAll[A, B, C, D](genA: Gen[A], genB: Gen[B], genC: Gen[C], genD: Gen[D])(
       body: (A, B, C, D) => Any
-  ): Unit = runProperty[(A, B, C, D)](
-    p => (genA(p), genB(p), genC(p), genD(p)),
-    t => s"(${display(t._1)}, ${display(t._2)}, ${display(t._3)}, ${display(t._4)})",
-    t => body(t._1, t._2, t._3, t._4),
-    _ => LazyList.empty
-  )
-
-  // ---- Private: tuple shrinkers ----------------------------------------------------------
-
-  private def shrinkPair[A, B](a: A, b: B, sa: Shrink[A], sb: Shrink[B]): LazyList[(A, B)] =
-    sa.shrink(a).map(a2 => (a2, b)) #::: sb.shrink(b).map(b2 => (a, b2))
-
-  private def shrinkTriple[A, B, C](
-      a: A,
-      b: B,
-      c: C,
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C]
-  ): LazyList[(A, B, C)] =
-    sa.shrink(a).map(x => (x, b, c)) #::: sb.shrink(b).map(x => (a, x, c)) #:::
-      sc.shrink(c).map(x => (a, b, x))
-
-  private def shrinkQuad[A, B, C, D](
-      t: (A, B, C, D),
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C],
-      sd: Shrink[D]
-  ): LazyList[(A, B, C, D)] =
-    sa.shrink(t._1).map(x => (x, t._2, t._3, t._4)) #:::
-      sb.shrink(t._2).map(x => (t._1, x, t._3, t._4)) #:::
-      sc.shrink(t._3).map(x => (t._1, t._2, x, t._4)) #:::
-      sd.shrink(t._4).map(x => (t._1, t._2, t._3, x))
-
-  private def shrinkQuint[A, B, C, D, E](
-      t: (A, B, C, D, E),
-      sa: Shrink[A],
-      sb: Shrink[B],
-      sc: Shrink[C],
-      sd: Shrink[D],
-      se: Shrink[E]
-  ): LazyList[(A, B, C, D, E)] =
-    sa.shrink(t._1).map(x => (x, t._2, t._3, t._4, t._5)) #:::
-      sb.shrink(t._2).map(x => (t._1, x, t._3, t._4, t._5)) #:::
-      sc.shrink(t._3).map(x => (t._1, t._2, x, t._4, t._5)) #:::
-      sd.shrink(t._4).map(x => (t._1, t._2, t._3, x, t._5)) #:::
-      se.shrink(t._5).map(x => (t._1, t._2, t._3, t._4, x))
+  ): Unit =
+    forAll(
+      genA
+        .zip(genB)
+        .zip(genC)
+        .zip(genD)
+        .map { case (((a, b), c), d) =>
+          (a, b, c, d)
+        }
+    ) { t =>
+      body(t._1, t._2, t._3, t._4)
+    }
 
 end PropertyCheck

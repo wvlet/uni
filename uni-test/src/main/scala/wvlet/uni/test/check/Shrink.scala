@@ -75,14 +75,13 @@ object Shrink extends LowPriorityShrinks:
     if s.isEmpty then
       LazyList.empty
     else
-      // Shorten by half, then by dropping one char at a time
       val halves =
         if s.length > 1 then
           LazyList(s.substring(0, s.length / 2))
         else
           LazyList.empty
       val drops = LazyList.tabulate(s.length)(i => s.substring(0, i) + s.substring(i + 1))
-      (LazyList("") #::: halves #::: drops).distinct
+      LazyList("") #::: halves #::: drops
   }
 
   given Shrink[Array[Byte]] = apply { arr =>
@@ -108,26 +107,30 @@ object Shrink extends LowPriorityShrinks:
     if xs.isEmpty then
       LazyList.empty
     else
-      val drops  = LazyList.tabulate(xs.size)(i => xs.take(i) ++ xs.drop(i + 1)).filter(_ != xs)
+      // Operate via Vector to keep per-index access O(log N) rather than O(N).
+      val vec    = xs.toVector
+      val n      = vec.size
+      val empty  = LazyList(List.empty[A])
       val halves =
-        if xs.size > 1 then
-          LazyList(xs.take(xs.size / 2))
+        if n > 1 then
+          LazyList(vec.take(n / 2).toList)
         else
           LazyList.empty
-      val elementShrinks =
+      val drops = LazyList.tabulate(n)(i => (vec.take(i) ++ vec.drop(i + 1)).toList)
+      def elementShrinks: LazyList[List[A]] =
         LazyList
-          .tabulate(xs.size) { i =>
-            elem.shrink(xs(i)).map(replaced => xs.updated(i, replaced))
+          .tabulate(n) { i =>
+            elem.shrink(vec(i)).map(replaced => vec.updated(i, replaced).toList)
           }
           .flatten
-      (LazyList(List.empty[A]) #::: halves #::: drops #::: elementShrinks).distinct
+      empty #::: halves #::: drops #::: elementShrinks
   }
 
   given [A](using elem: Shrink[A]): Shrink[Option[A]] = apply {
     case None =>
       LazyList.empty
     case Some(a) =>
-      Some(a) #:: elem.shrink(a).map(Some(_)).prepended(None)
+      None #:: elem.shrink(a).map(Some(_))
   }
 
   given [A, B](using sa: Shrink[A], sb: Shrink[B]): Shrink[(A, B)] = apply { case (a, b) =>
@@ -138,6 +141,28 @@ object Shrink extends LowPriorityShrinks:
     case (a, b, c) =>
       sa.shrink(a).map(a2 => (a2, b, c)) #::: sb.shrink(b).map(b2 => (a, b2, c)) #:::
         sc.shrink(c).map(c2 => (a, b, c2))
+  }
+
+  given [A, B, C, D](using
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D]
+  ): Shrink[(A, B, C, D)] = apply { case (a, b, c, d) =>
+    sa.shrink(a).map(x => (x, b, c, d)) #::: sb.shrink(b).map(x => (a, x, c, d)) #:::
+      sc.shrink(c).map(x => (a, b, x, d)) #::: sd.shrink(d).map(x => (a, b, c, x))
+  }
+
+  given [A, B, C, D, E](using
+      sa: Shrink[A],
+      sb: Shrink[B],
+      sc: Shrink[C],
+      sd: Shrink[D],
+      se: Shrink[E]
+  ): Shrink[(A, B, C, D, E)] = apply { case (a, b, c, d, e) =>
+    sa.shrink(a).map(x => (x, b, c, d, e)) #::: sb.shrink(b).map(x => (a, x, c, d, e)) #:::
+      sc.shrink(c).map(x => (a, b, x, d, e)) #::: sd.shrink(d).map(x => (a, b, c, x, e)) #:::
+      se.shrink(e).map(x => (a, b, c, d, x))
   }
 
   // ---- integral shrinker ----
@@ -161,13 +186,12 @@ object Shrink extends LowPriorityShrinks:
           LazyList.empty
         else
           val diff = n - x
-          diff #:: halves(x / 2)
-      val base = halves(n / 2).map(n - _)
-      (zero #::: neg #::: base).distinct.filter(_ != n)
-
-  // ---- Low-priority fallback ---------------------------------------------------------------
-
-  private[check] def noShrink[A]: Shrink[A] = apply(_ => LazyList.empty)
+          if diff == n then
+            halves(x / 2)
+          else
+            diff #:: halves(x / 2)
+      val base = halves(n / 2)
+      zero #::: neg #::: base
 
   private def shrinkFloating(d: Double): LazyList[Double] =
     if d == 0d then
@@ -186,4 +210,4 @@ end Shrink
   * allowing `forAll[Point]` to compile without the caller having to define a shrinker.
   */
 sealed trait LowPriorityShrinks:
-  given fallbackShrink[A]: Shrink[A] = Shrink.noShrink
+  given fallbackShrink[A]: Shrink[A] = Shrink.none

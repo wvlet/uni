@@ -201,12 +201,18 @@ object Arbitrary:
   private def productArbitrary[T](
       m: Mirror.ProductOf[T],
       elems: List[Arbitrary[Any]]
-  ): Arbitrary[T] = Arbitrary(
-    Gen { p =>
-      val values = elems.map(_.gen.apply(p))
-      m.fromProduct(Tuple.fromArray(values.toArray))
-    }
-  )
+  ): Arbitrary[T] =
+    val arr = elems.toArray
+    Arbitrary(
+      Gen { p =>
+        val values = new Array[AnyRef](arr.length)
+        var i      = 0
+        while i < arr.length do
+          values(i) = arr(i).gen.apply(p).asInstanceOf[AnyRef]
+          i += 1
+        m.fromProduct(Tuple.fromArray(values))
+      }
+    )
 
   private def sumArbitrary[T](alts: List[Arbitrary[Any]]): Arbitrary[T] =
     require(alts.nonEmpty, "derived Arbitrary: sum type has no alternatives")
