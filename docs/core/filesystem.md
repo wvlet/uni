@@ -2,74 +2,79 @@
 
 Cross-platform file I/O abstraction for JVM, Scala.js (Node.js and browser), and Scala Native.
 
+Uni's `IO` object is the single entry point for file operations — it exposes path
+construction, reads, writes, directory listings, metadata, and async variants
+uniformly across platforms.
+
 ```scala
-import wvlet.uni.io.*
+import wvlet.uni.io.IO
 
 // Read and write files
-val content = FileSystem.readString(IOPath("config.json"))
-FileSystem.writeString(IOPath("output.txt"), "hello")
+val content = IO.readString(IO.path("config.json"))
+IO.writeString(IO.path("output.txt"), "hello")
 
 // Path operations
-val path = IOPath("/home/user") / "documents" / "file.txt"
+val path = IO.path("/home/user") / "documents" / "file.txt"
 println(path.fileName)   // "file.txt"
 println(path.extension)  // "txt"
 ```
 
-## IOPath
+## Paths
 
-`IOPath` is a cross-platform path abstraction that works consistently across all platforms.
+`IOPath` is uni's cross-platform path abstraction. Construct one through
+`IO.path(...)` and use it as the path type everywhere in the API.
 
 ### Creating Paths
 
 ```scala
-import wvlet.uni.io.IOPath
+import wvlet.uni.io.IO
 
 // From string
-val path = IOPath("/home/user/file.txt")
+val path = IO.path("/home/user/file.txt")
 
 // Join segments
-val joined = IOPath.of("home", "user", "file.txt")
+val joined = IO.path("home", "user", "file.txt")
 
 // Using / operator
-val composed = IOPath("/home") / "user" / "file.txt"
+val composed = IO.path("/home") / "user" / "file.txt"
 
 // Well-known directories
-val cwd  = IOPath.currentDir
-val home = IOPath.homeDir
-val tmp  = IOPath.tempDir
+val cwd  = IO.currentDirectory
+val home = IO.homeDirectory
+val tmp  = IO.tempDirectory
 ```
 
 ### Path Properties
 
 ```scala
-val path = IOPath("/home/user/project/README.md")
+val path = IO.path("/home/user/project/README.md")
 
 path.fileName    // "README.md"
 path.baseName    // "README"
 path.extension   // "md"
 path.isAbsolute  // true
 path.segments    // Seq("home", "user", "project", "README.md")
-path.parent      // Some(IOPath("/home/user/project"))
+path.parent      // Some(IO.path("/home/user/project"))
 ```
 
 ### Path Operations
 
 ```scala
 // Normalize . and ..
-IOPath("/home/user/../admin/./config").normalize
-// IOPath("/home/admin/config")
+IO.path("/home/user/../admin/./config").normalize
+// IO.path("/home/admin/config")
 
 // Relative path
-val base = IOPath("/home/user")
-val file = IOPath("/home/user/project/src/Main.scala")
-file.relativeTo(base)  // IOPath("project/src/Main.scala")
+val base = IO.path("/home/user")
+val file = IO.path("/home/user/project/src/Main.scala")
+file.relativeTo(base)  // IO.path("project/src/Main.scala")
 
 // POSIX format (always forward slashes)
 path.posixPath  // "/home/user/project/README.md"
 
 // Checks
-path.startsWith(IOPath("/home"))  // true
-path.endsWith(IOPath("README.md"))  // true
+path.startsWith(IO.path("/home"))  // true
+path.endsWith(IO.path("README.md"))  // true
 ```
 
 ## Reading and Writing Files
@@ -77,41 +82,41 @@ path.endsWith(IOPath("README.md"))  // true
 ### Reading Files
 
 ```scala
-import wvlet.uni.io.{FileSystem, IOPath}
+import wvlet.uni.io.IO
 
-val path = IOPath("data.txt")
+val path = IO.path("data.txt")
 
 // Read as string (UTF-8)
-val text: String = FileSystem.readString(path)
+val text: String = IO.readString(path)
 
 // Read as bytes
-val bytes: Array[Byte] = FileSystem.readBytes(path)
+val bytes: Array[Byte] = IO.readBytes(path)
 
 // Read line by line
-val lines: Seq[String] = FileSystem.readLines(path)
+val lines: Seq[String] = IO.readLines(path)
 ```
 
 ### Writing Files
 
 ```scala
-import wvlet.uni.io.{FileSystem, IOPath, WriteMode}
+import wvlet.uni.io.{IO, WriteMode}
 
-val path = IOPath("output.txt")
+val path = IO.path("output.txt")
 
 // Create or overwrite (default)
-FileSystem.writeString(path, "hello world")
+IO.writeString(path, "hello world")
 
 // Create new file, fail if exists
-FileSystem.writeString(path, "content", WriteMode.CreateNew)
+IO.writeString(path, "content", WriteMode.CreateNew)
 
 // Append to file
-FileSystem.writeString(path, "more content", WriteMode.Append)
+IO.writeString(path, "more content", WriteMode.Append)
 
 // Write bytes
-FileSystem.writeBytes(path, Array[Byte](1, 2, 3))
+IO.writeBytes(path, Array[Byte](1, 2, 3))
 
 // Append shorthand
-FileSystem.appendString(path, "\nnew line")
+IO.appendString(path, "\nnew line")
 ```
 
 ### WriteMode
@@ -127,93 +132,95 @@ FileSystem.appendString(path, "\nnew line")
 ### Listing Files
 
 ```scala
-import wvlet.uni.io.{FileSystem, IOPath, ListOptions}
+import wvlet.uni.io.{IO, ListOptions}
 
-val dir = IOPath("src")
+val dir = IO.path("src")
 
 // List immediate children
-val files = FileSystem.list(dir)
+val files = IO.list(dir)
 
 // Recursive listing
-val allFiles = FileSystem.list(dir, ListOptions().withRecursive(true))
+val allFiles = IO.list(dir, ListOptions().withRecursive(true))
 
 // Filter by extension
-val scalaFiles = FileSystem.list(dir,
+val scalaFiles = IO.list(dir,
   ListOptions()
     .withRecursive(true)
     .withExtensions("scala")
 )
 
 // Filter by glob pattern
-val testFiles = FileSystem.list(dir,
+val testFiles = IO.list(dir,
   ListOptions()
     .withRecursive(true)
     .withGlob("**/*Test.scala")
 )
 
 // Limit depth
-val shallow = FileSystem.list(dir,
+val shallow = IO.list(dir,
   ListOptions()
     .withRecursive(true)
     .withMaxDepth(2)
 )
 
 // Include hidden files
-val withHidden = FileSystem.list(dir, ListOptions().withIncludeHidden(true))
+val withHidden = IO.list(dir, ListOptions().withIncludeHidden(true))
 ```
 
 ### Creating, Deleting, Copying, Moving
 
 ```scala
+import wvlet.uni.io.{IO, CopyOptions}
+
 // Create directory (including parents)
-FileSystem.createDirectory(IOPath("a/b/c"))
+IO.createDirectory(IO.path("a/b/c"))
 
 // Create only if it doesn't exist
-FileSystem.createDirectoryIfNotExists(IOPath("output"))
+IO.createDirectoryIfNotExists(IO.path("output"))
 
 // Delete file or empty directory
-FileSystem.delete(IOPath("temp.txt"))
+IO.delete(IO.path("temp.txt"))
 
 // Delete recursively
-FileSystem.deleteRecursively(IOPath("build"))
+IO.deleteRecursively(IO.path("build"))
 
 // Delete if exists (no error if missing)
-FileSystem.deleteIfExists(IOPath("maybe.txt"))
+IO.deleteIfExists(IO.path("maybe.txt"))
 
 // Copy
-FileSystem.copy(IOPath("src.txt"), IOPath("dst.txt"))
-FileSystem.copy(IOPath("srcDir"), IOPath("dstDir"),
+IO.copy(IO.path("src.txt"), IO.path("dst.txt"))
+IO.copy(IO.path("srcDir"), IO.path("dstDir"),
   CopyOptions().withOverwrite(true).withPreserveAttributes(true)
 )
 
 // Move / rename
-FileSystem.move(IOPath("old.txt"), IOPath("new.txt"))
-FileSystem.move(IOPath("old.txt"), IOPath("new.txt"), overwrite = true)
+IO.move(IO.path("old.txt"), IO.path("new.txt"))
+IO.move(IO.path("old.txt"), IO.path("new.txt"), overwrite = true)
 ```
 
 ### Temporary Files
 
 ```scala
 // Temporary file
-val tmpFile = FileSystem.createTempFile(prefix = "data", suffix = ".json")
+val tmpFile = IO.createTempFile(prefix = "data", suffix = ".json")
 
 // Temporary directory
-val tmpDir = FileSystem.createTempDirectory(prefix = "work")
+val tmpDir = IO.createTempDirectory(prefix = "work")
 
 // In a specific directory
-val custom = FileSystem.createTempFile(
+val custom = IO.createTempFile(
   prefix = "report",
   suffix = ".csv",
-  directory = Some(IOPath("output"))
+  directory = Some(IO.path("output"))
 )
 ```
 
 ## File Metadata
 
 ```scala
-import wvlet.uni.io.{FileSystem, IOPath, FileType}
+import wvlet.uni.io.{IO, FileType}
 
-val info = FileSystem.info(IOPath("README.md"))
+val info = IO.info(IO.path("README.md"))
 
 info.fileType      // FileType.File
 info.size          // file size in bytes
@@ -227,9 +234,9 @@ info.isExecutable  // false
 info.isHidden      // false
 
 // Existence checks
-FileSystem.exists(IOPath("README.md"))       // true
-FileSystem.isFile(IOPath("README.md"))       // true
-FileSystem.isDirectory(IOPath("src"))        // true
+IO.exists(IO.path("README.md"))       // true
+IO.isFile(IO.path("README.md"))       // true
+IO.isDirectory(IO.path("src"))        // true
 ```
 
 ### FileType
@@ -247,31 +254,34 @@ FileSystem.isDirectory(IOPath("src"))        // true
 All async operations return `Future[...]` and work on every platform, including browsers.
 
 ```scala
-import wvlet.uni.io.{FileSystem, IOPath}
+import wvlet.uni.io.{IO, IOPath, FileInfo}
 import scala.concurrent.Future
 
 // Async read/write
-val content: Future[String] = FileSystem.readStringAsync(IOPath("data.txt"))
-val bytes: Future[Array[Byte]] = FileSystem.readBytesAsync(IOPath("image.png"))
+val content: Future[String] = IO.readStringAsync(IO.path("data.txt"))
+val bytes: Future[Array[Byte]] = IO.readBytesAsync(IO.path("image.png"))
 
-val written: Future[Unit] = FileSystem.writeStringAsync(
-  IOPath("output.txt"), "hello"
+val written: Future[Unit] = IO.writeStringAsync(
+  IO.path("output.txt"), "hello"
 )
 
 // Async directory listing
-val files: Future[Seq[IOPath]] = FileSystem.listAsync(IOPath("src"))
+val files: Future[Seq[IOPath]] = IO.listAsync(IO.path("src"))
 
 // Async metadata
-val info: Future[FileInfo] = FileSystem.infoAsync(IOPath("file.txt"))
-val exists: Future[Boolean] = FileSystem.existsAsync(IOPath("file.txt"))
+val info: Future[FileInfo] = IO.infoAsync(IO.path("file.txt"))
+val exists: Future[Boolean] = IO.existsAsync(IO.path("file.txt"))
 ```
+
+`IOPath` and `FileInfo` are the underlying types — import them when you need
+explicit type annotations.
 
 ## Gzip Compression
 
 Cross-platform gzip utilities for compressing and decompressing data.
 
 ```scala
-import wvlet.uni.io.{Gzip, IOPath}
+import wvlet.uni.io.{IO, Gzip}
 
 // In-memory compression
 val data = "hello world".getBytes("UTF-8")
@@ -279,8 +289,8 @@ val compressed = Gzip.compress(data)
 val decompressed = Gzip.decompress(compressed)
 
 // File-based compression (streaming)
-Gzip.compressFile(IOPath("large.txt"), IOPath("large.txt.gz"))
-Gzip.decompressFile(IOPath("large.txt.gz"), IOPath("large.txt"))
+Gzip.compressFile(IO.path("large.txt"), IO.path("large.txt.gz"))
+Gzip.decompressFile(IO.path("large.txt.gz"), IO.path("large.txt"))
 ```
 
 ## Cross-Platform Support
@@ -298,7 +308,7 @@ Sync operations throw `UnsupportedOperationException` in browser environments. U
 
 ## Best Practices
 
-1. **Use `IOPath`** instead of raw strings for file paths
+1. **Use `IO` as the single entry point** — `IO.path(...)`, `IO.readString(...)`, `IO.list(...)`, etc.
 2. **Prefer async operations** for code that must run on all platforms
 3. **Use `ListOptions`** with glob or extension filters instead of filtering results manually
 4. **Use `WriteMode.CreateNew`** when you want to avoid overwriting existing files
