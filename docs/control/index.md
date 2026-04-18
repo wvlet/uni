@@ -8,6 +8,7 @@ uni provides utilities for handling failures gracefully and managing resources p
 |-----------|-------------|
 | [Retry](./retry) | Automatic retry with backoff strategies |
 | [Circuit Breaker](./circuit-breaker) | Prevent cascade failures |
+| [Rate Limiter](./rate-limiter) | Throttle operation throughput (JVM) |
 | [Cache](./cache) | TTL and LRU caching |
 | [Resource](./resource) | Safe resource acquisition and release |
 
