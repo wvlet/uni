@@ -158,6 +158,25 @@ class ResultTest extends UniTest:
     Result.fromOption(None, boom) shouldBe Result.Failure(boom)
   }
 
+  test("orElse catches exceptions thrown by the alternative") {
+    val alt: Result[Int] = Result
+      .Failure(boom)
+      .orElse(throw new IllegalStateException("alt failed"))
+    alt shouldMatch { case Result.Failure(e: IllegalStateException) =>
+      e.getMessage shouldBe "alt failed"
+    }
+  }
+
+  test("fromOption catches exceptions thrown by the ifNone thunk") {
+    val r: Result[Int] = Result.fromOption(
+      Option.empty[Int],
+      throw new IllegalStateException("ifNone failed")
+    )
+    r shouldMatch { case Result.Failure(e: IllegalStateException) =>
+      e.getMessage shouldBe "ifNone failed"
+    }
+  }
+
   test("getOrElse / orElse / fold / get") {
     Result.Success(1).getOrElse(0) shouldBe 1
     Result.Failure(boom).getOrElse(0) shouldBe 0

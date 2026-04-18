@@ -60,7 +60,7 @@ enum Result[+A]:
       case _: Success[?] =>
         this
       case _: Failure =>
-        alt
+        Result.catchingResult(alt)
 
   /** Apply `f` to the success value. Exceptions thrown by `f` become `Failure`. */
   def map[B](f: A => B): Result[B] =
@@ -211,6 +211,6 @@ object Result:
       case Some(v) =>
         Success(v)
       case None =>
-        Failure(ifNone)
+        catchingResult(Failure(ifNone))
 
 end Result
