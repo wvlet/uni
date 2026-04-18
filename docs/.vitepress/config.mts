@@ -16,6 +16,9 @@ export default defineConfig<UniThemeConfig>({
   base: '/uni/',
   cleanUrls: true,
 
+  // Exclude contributor-only files from the rendered site.
+  srcExclude: ['**/CLAUDE.md'],
+
   markdown: {
     theme: {
       light: 'nord',
@@ -66,6 +69,7 @@ export default defineConfig<UniThemeConfig>({
     logo: '/uni-logo-1024x1024.png',
     nav: [
       { text: 'Guide', link: '/guide/' },
+      { text: 'Book', link: '/book/' },
       { text: 'Modules', link: '/core/' },
       {
         text: 'GitHub',
@@ -74,6 +78,77 @@ export default defineConfig<UniThemeConfig>({
     ],
 
     sidebar: {
+      '/book/': [
+        {
+          text: 'The Uni Book',
+          items: [
+            { text: 'Overview', link: '/book/' },
+            { text: 'Foreword', link: '/book/foreword' }
+          ]
+        },
+        {
+          text: 'Part I — Getting Started',
+          items: [
+            { text: '1. Getting Started', link: '/book/ch01-00-getting-started' },
+            { text: '1.1 Installation', link: '/book/ch01-01-installation' },
+            { text: '1.2 Hello, Uni!', link: '/book/ch01-02-hello-uni' }
+          ]
+        },
+        {
+          text: 'Part II — Building a CLI Application',
+          items: [
+            { text: '2. A URL Fetcher', link: '/book/ch02-00-cli-app' }
+          ]
+        },
+        {
+          text: 'Part III — Core Concepts',
+          items: [
+            { text: '3. Wiring with Design', link: '/book/ch03-00-design' },
+            { text: '4. Logging That Finds You', link: '/book/ch04-00-logging' },
+            { text: '5. JSON & MessagePack', link: '/book/ch05-00-data' }
+          ]
+        },
+        {
+          text: 'Part IV — Async & Control Flow',
+          items: [
+            { text: '6. Rx, the Composable Stream', link: '/book/ch06-00-rx' },
+            { text: '7. Retry, Circuit Breakers, Resources', link: '/book/ch07-00-control' }
+          ]
+        },
+        {
+          text: 'Part V — HTTP & RPC',
+          items: [
+            { text: '8. HTTP Clients and Servers', link: '/book/ch08-00-http' },
+            { text: '9. Typed RPC', link: '/book/ch09-00-rpc' }
+          ]
+        },
+        {
+          text: 'Part VI — Cross-Platform',
+          items: [
+            { text: '10. One Codebase, Three Runtimes', link: '/book/ch10-00-cross-platform' }
+          ]
+        },
+        {
+          text: 'Part VII — Agent Framework',
+          items: [
+            { text: '11. Building LLM Agents', link: '/book/ch11-00-agent' }
+          ]
+        },
+        {
+          text: 'Part VIII — Testing',
+          items: [
+            { text: '12. Testing with UniTest', link: '/book/ch12-00-testing' }
+          ]
+        },
+        {
+          text: 'Appendices',
+          items: [
+            { text: 'A. Scala 3 Syntax Notes', link: '/book/appendix-a-scala3' },
+            { text: 'B. Uni and Airframe', link: '/book/appendix-b-airframe' },
+            { text: 'C. Glossary', link: '/book/appendix-c-glossary' }
+          ]
+        }
+      ],
       '/guide/': [
         {
           text: 'Getting Started',
