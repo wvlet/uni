@@ -25,10 +25,12 @@ export default defineConfig<UniThemeConfig>({
       const replace = (text: string): string =>
         text.includes(VERSION_TOKEN) ? text.split(VERSION_TOKEN).join(uniVersion) : text
       for (const rule of ['fence', 'code_inline'] as const) {
-        const original = md.renderer.rules[rule]!
+        const original = md.renderer.rules[rule]
         md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
           tokens[idx].content = replace(tokens[idx].content)
-          return original(tokens, idx, options, env, self)
+          return original
+            ? original(tokens, idx, options, env, self)
+            : self.renderToken(tokens, idx, options)
         }
       }
     }

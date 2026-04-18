@@ -4,7 +4,10 @@ const GITHUB_RELEASES_URL =
 export async function fetchLatestVersion(fallback: string): Promise<string> {
   try {
     const res = await fetch(GITHUB_RELEASES_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'User-Agent': 'wvlet-uni-docs'
+      },
       signal: AbortSignal.timeout(3000)
     })
     if (!res.ok) {
