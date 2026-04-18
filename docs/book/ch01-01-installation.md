@@ -140,25 +140,26 @@ hello/
     └── test/scala/    ← shared tests
 ```
 
-The `.jvm`, `.js`, and `.native` directories are **not** where you put
-code. sbt-crossproject creates them as per-platform project roots
-(each is a distinct sbt subproject with its own `target/`), but your
-Scala lives at the module root under `src/main/scala` and
-`src/test/scala`. Compile once, run on three platforms.
+The `.jvm`, `.js`, and `.native` directories are per-platform project
+roots. Each is a distinct sbt subproject with its own `target/`, and
+each is where **platform-specific** code goes when you need it:
+`.jvm/src/main/scala` is seen only by the JVM build,
+`.js/src/main/scala` only by the Scala.js build, and
+`.native/src/main/scala` only by the Scala Native build. The code
+everyone shares lives at the module root under `src/main/scala` and
+`src/test/scala`.
 
-> **Why this works with Uni.** Uni's public API — `Design`, `Logger`,
-> `Http`, `Rx`, `JSON`, `MessagePack` — is the same on every platform.
-> Where a platform difference exists (filesystem access, timers,
-> threading), Uni exposes a single abstraction that resolves to the
+> **With Uni, you rarely have to.** Uni's public API — `Design`,
+> `Logger`, `Http`, `Rx`, `JSON`, `MessagePack` — is the same on every
+> platform. Where a platform difference exists (filesystem access,
+> timers, threading), Uni exposes one abstraction that resolves to the
 > right implementation under the covers. For a typical Uni
-> application, *all* of your code can live in the shared `src/main/scala`,
-> and that is usually the whole story.
->
-> If you do need truly platform-specific code — say, calling a
-> JVM-only Java library — sbt-crossproject lets you drop files into
-> `.jvm/src/main/scala`, `.js/src/main/scala`, or
-> `.native/src/main/scala`, and only the matching platform sees them.
-> You will see examples of this in Chapter 10.
+> application, *all* of your code can live in the shared
+> `src/main/scala`, and that is usually the whole story. The
+> `.<platform>/src/main/scala` folders stay empty unless you reach for
+> a genuinely platform-only dependency — a JVM-only Java library, a
+> browser DOM API, a native syscall. You will see examples of that in
+> Chapter 10.
 
 The other alternative, `CrossType.Full`, uses a different layout with
 a `shared/` folder alongside `jvm/`, `js/`, and `native/` folders for
