@@ -28,6 +28,11 @@ default_version="${current_year}.${milestone}.${patch}"
 read -p "next version (default: ${default_version})? " next_version
 next_version=${next_version:-${default_version}}
 
+if [[ ! "${next_version}" =~ ^[0-9]{4}\.[0-9]+\.[0-9]+$ ]]; then
+  echo "invalid version: '${next_version}' (expected YYYY.milestone.patch, e.g. ${default_version})"
+  exit 1
+fi
+
 set -x
 git tag -a -m "uni ${next_version}" "v${next_version}"
 git push --follow-tags
