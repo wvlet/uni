@@ -104,9 +104,16 @@ object Arbitrary:
     }
   )
 
+  // Bound `size + 1` so `size == Int.MaxValue` doesn't wrap to a negative upper bound.
+  private inline def sizeBound(size: Int): Int =
+    if size >= Int.MaxValue - 1 then
+      Int.MaxValue
+    else
+      math.max(1, size + 1)
+
   given Arbitrary[String] = Arbitrary(
     Gen { p =>
-      val target = p.rng.nextInt(math.max(1, p.size + 1)) // 0..size
+      val target = p.rng.nextInt(sizeBound(p.size)) // 0..size
       val sb     = StringBuilder()
       var count  = 0
       while count < target do
@@ -128,7 +135,7 @@ object Arbitrary:
 
   given Arbitrary[Array[Byte]] = Arbitrary(
     Gen { p =>
-      val len = p.rng.nextInt(math.max(1, p.size + 1))
+      val len = p.rng.nextInt(sizeBound(p.size))
       val arr = new Array[Byte](len)
       p.rng.nextBytes(arr)
       arr

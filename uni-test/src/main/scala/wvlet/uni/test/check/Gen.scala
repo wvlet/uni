@@ -115,15 +115,17 @@ object Gen:
     require(pairs.nonEmpty, "frequency: requires at least one (weight, gen) pair")
     val positive = pairs.filter(_._1 > 0)
     require(positive.nonEmpty, "frequency: at least one weight must be positive")
-    val total = positive.map(_._1).sum
+    // Sum widened to Long: many large weights can overflow Int and then `nextLong(total)` would
+    // throw on a negative bound.
+    val total = positive.iterator.map(_._1.toLong).sum
     Gen { p =>
-      val pick           = p.rng.nextInt(total)
-      var acc            = 0
-      var iter           = positive.iterator
+      val pick           = (p.rng.nextLong() & Long.MaxValue) % total
+      var acc            = 0L
+      val iter           = positive.iterator
       var result: Gen[A] = null
       while result == null && iter.hasNext do
         val (w, g) = iter.next()
-        acc += w
+        acc += w.toLong
         if pick < acc then
           result = g
       result.run(p)

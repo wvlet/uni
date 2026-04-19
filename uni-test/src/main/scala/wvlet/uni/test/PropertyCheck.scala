@@ -62,35 +62,42 @@ trait PropertyCheck:
 
   // ---- Classify/collect support ---------------------------------------------------------------
 
-  private val statsStack = scala
-    .collection
-    .mutable
-    .ArrayDeque
-    .empty[mutable.LinkedHashMap[String, Int]]
+  // Per-thread stack of stats collectors. Using a ThreadLocal keeps `classify`/`collect` correct
+  // when two threads in the same suite run property checks concurrently.
+  private val statsStack =
+    new ThreadLocal[mutable.ArrayDeque[mutable.LinkedHashMap[String, Int]]]:
+      override def initialValue(): mutable.ArrayDeque[mutable.LinkedHashMap[String, Int]] =
+        mutable.ArrayDeque.empty
+
+  private def currentStats: Option[mutable.LinkedHashMap[String, Int]] =
+    val s = statsStack.get()
+    if s.isEmpty then
+      None
+    else
+      Some(s.last)
 
   /**
     * Record a classification label within the current property. Only active while a `forAll` is
     * running; counts are surfaced in the final success message.
     */
-  protected def classify(cond: Boolean, ifTrue: String, ifFalse: String = ""): Unit =
-    if statsStack.nonEmpty then
+  protected def classify(cond: Boolean, ifTrue: String, ifFalse: String = ""): Unit = currentStats
+    .foreach { stats =>
       val label =
         if cond then
           ifTrue
         else
           ifFalse
       if label.nonEmpty then
-        val stats = statsStack.last
         stats.update(label, stats.getOrElse(label, 0) + 1)
+    }
 
   /**
     * Record a classification label for the current property. Typical use:
     * `collect(s"bucket=${bucket(n)}")`.
     */
-  protected def collect(label: String): Unit =
-    if statsStack.nonEmpty then
-      val stats = statsStack.last
-      stats.update(label, stats.getOrElse(label, 0) + 1)
+  protected def collect(label: String): Unit = currentStats.foreach(stats =>
+    stats.update(label, stats.getOrElse(label, 0) + 1)
+  )
 
   // ---- ==> operator ---------------------------------------------------------------------------
 
@@ -130,7 +137,8 @@ trait PropertyCheck:
   private def mkParams(rng: Random, config: PropertyConfig, sampleIdx: Int, total: Int): Params =
     val span = math.max(1, config.maxSize - config.minSize)
     // Linearly grow size with sample index so early samples stay small (helpful for shrinking).
-    val size = config.minSize + ((sampleIdx * span) / math.max(1, total))
+    // Use a Long intermediate: for large `maxSize * minSuccessfulTests`, the Int product overflows.
+    val size = config.minSize + ((sampleIdx.toLong * span) / math.max(1, total)).toInt
     Params(rng, math.min(config.maxSize, size))
 
   /**
@@ -148,7 +156,8 @@ trait PropertyCheck:
     val seed   = runnerSeed()
     val rng    = Random(seed)
     val stats  = mutable.LinkedHashMap.empty[String, Int]
-    statsStack += stats
+    val stack  = statsStack.get()
+    stack += stats
     var succeeded = 0
     var discarded = 0
     try
@@ -182,7 +191,7 @@ trait PropertyCheck:
               buildFailureMessage(describe(minimal), e, seed),
               TestSource.generate
             )
-    finally statsStack.removeLast()
+    finally stack.removeLast()
     end try
 
     if stats.nonEmpty then
@@ -259,7 +268,11 @@ trait PropertyCheck:
       case null =>
         "null"
       case ba: Array[Byte] =>
-        ba.mkString("Array(", ", ", ")")
+        // Cap long arrays so a failing large sample can't blow up the failure message.
+        if ba.length > 32 then
+          ba.take(32).mkString("Array(", ", ", s", …+${ba.length - 32} bytes)")
+        else
+          ba.mkString("Array(", ", ", ")")
       case s: String =>
         s"\"${s}\""
       case other =>
