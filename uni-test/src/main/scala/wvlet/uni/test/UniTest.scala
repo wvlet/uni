@@ -60,7 +60,12 @@ case class TestDef(
   *     }
   * }}}
   */
-trait UniTest extends PlatformUniTest with LogSupport with Assertions with TestControl:
+trait UniTest
+    extends PlatformUniTest
+    with LogSupport
+    with Assertions
+    with TestControl
+    with PropertyCheck:
   // Storage for registered tests
   private val _tests: ListBuffer[TestDef] = ListBuffer.empty
 

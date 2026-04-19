@@ -360,32 +360,224 @@ class UserServiceTest extends UniTest:
 
 ## Property-Based Testing
 
-UniTest integrates with ScalaCheck for property-based testing:
+UniTest ships a self-contained property-based testing toolkit — no external
+dependency — and it's part of the base `UniTest` trait. Any test class
+gets `forAll` automatically. Call it with a body that holds for every
+randomly generated input; a failing run is automatically *shrunk* to a
+minimal counter-example, and the seed is reported so the run can be
+replayed.
 
 ```scala
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.PropertyCheck
-import org.scalacheck.Gen
 
-class PropertyTest extends UniTest with PropertyCheck:
+class ListLawsTest extends UniTest:
   test("addition is commutative") {
     forAll { (a: Int, b: Int) =>
       (a + b) shouldBe (b + a)
     }
   }
 
-  test("list reverse") {
-    forAll { (list: List[Int]) =>
-      list.reverse.reverse shouldBe list
-    }
-  }
-
-  test("custom generator") {
-    forAll(Gen.posNum[Int]) { n =>
-      (n > 0) shouldBe true
+  test("reverse is an involution") {
+    forAll { (xs: List[Int]) =>
+      xs.reverse.reverse shouldBe xs
     }
   }
 ```
+
+### Generators
+
+Generators live in `wvlet.uni.test.check.Gen`. Every `forAll` body receives
+randomly generated values — by default drawn from the type's implicit
+`Arbitrary` instance, or from a `Gen` you supply explicitly.
+
+```scala
+import wvlet.uni.test.check.Gen
+
+test("positive integers") {
+  forAll(Gen.posNum[Int]) { n =>
+    (n > 0) shouldBe true
+  }
+}
+
+test("bounded integers") {
+  forAll(Gen.chooseNum(1, 100)) { n =>
+    (n >= 1 && n <= 100) shouldBe true
+  }
+}
+```
+
+Common combinators:
+
+| Factory | Produces |
+|---------|----------|
+| `Gen.const(x)` | Always `x` |
+| `Gen.chooseNum[T](min, max)` | Uniform integer in `[min, max]` |
+| `Gen.posNum[T]` | Positive, non-zero value |
+| `Gen.oneOf(a, b, c)` | Uniform choice from values |
+| `Gen.oneOfGen(g1, g2)` | Uniform choice from generators |
+| `Gen.frequency(w1 -> g1, w2 -> g2)` | Weighted choice from generators |
+| `Gen.listOf(g)` / `Gen.nonEmptyListOf(g)` | List of `g`, size-aware |
+| `Gen.listOfN(n, g)` | List of exactly `n` elements |
+| `Gen.setOf(g)` / `Gen.mapOf(gK, gV)` | Set / Map, size-aware |
+| `Gen.option(g)` | `Some(g)` or `None` |
+| `Gen.alphaChar` / `.numChar` / `.alphaNumChar` / `.asciiChar` | Single character |
+| `Gen.alphaStr` / `.numStr` / `.alphaNumStr` / `.asciiStr` | Size-aware string |
+| `Gen.identifier` | `[A-Za-z][A-Za-z0-9]*` |
+| `Gen.sized(n => g)` / `Gen.resize(n, g)` | Read or override the current size |
+
+Generators compose like `Option`s: `g.map`, `g.flatMap`, `g.filter`, `g.zip`,
+plus for-comprehensions.
+
+```scala
+val evenPositive: Gen[Int] = Gen.posNum[Int].map(_ * 2)
+
+val labeledInt: Gen[(String, Int)] =
+  for
+    label <- Gen.alphaStr
+    value <- Gen.chooseNum(0, 100)
+  yield (label, value)
+```
+
+### Arbitrary and derivation
+
+Implicit `Arbitrary[T]` instances drive the argument-less `forAll` overload.
+Defaults ship for primitives, `String`, `Array[Byte]`, `List`, `Vector`,
+`Option`, and small tuples. For your own types, use Scala 3's `derives`:
+
+```scala
+import wvlet.uni.test.check.Arbitrary
+
+case class Point(x: Int, y: Int) derives Arbitrary
+
+sealed trait Shape derives Arbitrary
+case class Circle(r: Int)                   extends Shape
+case class Rect(w: Int, h: Int)             extends Shape
+case class Triangle(a: Int, b: Int, c: Int) extends Shape
+
+test("shapes round-trip through the renderer") {
+  forAll { (s: Shape) =>
+    Renderer.parse(Renderer.show(s)) shouldBe s
+  }
+}
+```
+
+Derivation is recursive: a `derives Arbitrary` on a sealed trait picks up
+each case class automatically, and fields of user types that themselves have
+an `Arbitrary` given (or a `Mirror`) are threaded through.
+
+To summon a default generator explicitly, use `Arbitrary.arbitrary[T]`:
+
+```scala
+forAll(Arbitrary.arbitrary[String]) { s =>
+  s.length >= 0 shouldBe true
+}
+```
+
+### Shrinking
+
+When a property fails, the runner shrinks the counter-example to a minimal
+value. Default shrinkers ship for numeric primitives, `Char`, `String`,
+`Array[Byte]`, `List`, `Option`, and tuples up to arity 5.
+
+```scala
+test("sum is never negative for non-negative inputs") {
+  forAll { (xs: List[Int]) =>
+    xs.filter(_ >= 0).sum >= 0 shouldBe true
+  }
+}
+```
+
+If this property were broken, the error message would point at a minimal
+list — typically `List(...)` with one or two elements — rather than the raw
+random failing input.
+
+User types get an empty shrinker by default, so `forAll[MyCaseClass]`
+compiles even without a shrink instance. To customize, provide a given:
+
+```scala
+import wvlet.uni.test.check.Shrink
+
+given Shrink[Point] = Shrink { p =>
+  LazyList(Point(0, 0), Point(p.x, 0), Point(0, p.y))
+}
+```
+
+### Preconditions with `==>` / `implies`
+
+Use `==>` (or its English alias `implies`) to discard samples that don't
+satisfy a precondition. The runner retries with a new sample and fails the
+test only if the discard budget (default: 500) runs out.
+
+```scala
+test("division by non-zero is self-inverse") {
+  forAll { (a: Int, b: Int) =>
+    (b != 0) ==> {
+      ((a * b) / b) shouldBe a
+    }
+  }
+}
+
+test("reads the same way in prose") {
+  forAll { (xs: List[Int]) =>
+    xs.nonEmpty implies {
+      xs.head shouldBe xs(0)
+    }
+  }
+}
+```
+
+### Statistics: `classify` and `collect`
+
+Break down what the generator is actually producing to make sure your
+property is exercising the cases you care about. Counts print after the
+run.
+
+```scala
+test("partition respects predicate") {
+  forAll(Gen.listOf(Gen.chooseNum(-100, 100))) { xs =>
+    classify(xs.isEmpty, "empty")
+    classify(xs.size > 50, "large")
+    collect(s"size=${xs.size / 10 * 10}")
+    val (neg, nonNeg) = xs.partition(_ < 0)
+    (neg ++ nonNeg).sorted shouldBe xs.sorted
+  }
+}
+```
+
+Output (example):
+```
+[property] 42 × size=10, 31 × size=0, 18 × large, 9 × size=20, 7 × empty
+```
+
+### Configuration
+
+Override `propertyConfig` on the test class to change sample count, seed,
+size range, discard limit, or shrink budget for every `forAll` in that
+class. For a one-off tweak of the sample count, override
+`minSuccessfulTests`.
+
+```scala
+import wvlet.uni.test.check.PropertyConfig
+
+class HeavyPropertyTest extends UniTest:
+  override protected def propertyConfig: PropertyConfig =
+    PropertyConfig.default
+      .withMinSuccessful(500)
+      .withSize(0, 256)
+      .withSeed(1_234L) // reproducible runs
+```
+
+| Knob | Method | Default |
+|------|--------|---------|
+| Samples | `withMinSuccessful(n)` | 100 |
+| Discard limit | `withMaxDiscarded(n)` | 500 |
+| Size range | `withSize(min, max)` | `0..100` |
+| Shrink budget | `withMaxShrinks(n)` | 1000 |
+| Seed | `withSeed(s)` | `System.nanoTime()` |
+
+Every failure includes the seed. To reproduce a flaky failure, copy the
+seed from the error message into `propertyConfig.withSeed(...)` and rerun
+— the exact same samples are drawn.
 
 ## Running Tests
 
@@ -449,5 +641,7 @@ UniTest works across all Scala 3 platforms:
 
 ```scala
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.PropertyCheck  // For property-based testing
+// Property-based testing is part of UniTest — nothing else to import.
+// For custom generators / shrinkers:
+import wvlet.uni.test.check.{Arbitrary, Gen, Shrink, PropertyConfig}
 ```

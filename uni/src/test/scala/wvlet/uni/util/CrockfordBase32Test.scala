@@ -17,11 +17,10 @@ import wvlet.uni.util.CrockfordBase32
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
-import wvlet.uni.test.PropertyCheck
 
 /**
   */
-class CrockfordBase32Test extends UniTest with PropertyCheck:
+class CrockfordBase32Test extends UniTest:
   test("Encode long pairs") {
     forAll { (hi: Long, low: Long) =>
       val encoded       = CrockfordBase32.encode128bits(hi, low)
