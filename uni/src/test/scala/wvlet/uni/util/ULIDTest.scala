@@ -18,11 +18,10 @@ import wvlet.uni.util.ULID
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
-import wvlet.uni.test.PropertyCheck
 
 /**
   */
-class ULIDTest extends UniTest with PropertyCheck:
+class ULIDTest extends UniTest:
 
   test("generate ULID") {
     for i <- 0 to 10 do

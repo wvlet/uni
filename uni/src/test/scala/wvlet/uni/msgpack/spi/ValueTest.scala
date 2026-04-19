@@ -19,7 +19,6 @@ import java.util.Base64
 import wvlet.uni.msgpack.impl.ByteArrayBuffer
 import wvlet.uni.msgpack.spi.Value.*
 import wvlet.uni.msgpack.spi.ValueFactory.*
-import wvlet.uni.test.PropertyCheck
 import wvlet.uni.test.check.Gen
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
@@ -27,7 +26,7 @@ import wvlet.uni.test.defined
 
 /**
   */
-class ValueTest extends UniTest with PropertyCheck:
+class ValueTest extends UniTest:
   private def rankOf(mf: MessageFormat): Int =
     val order = Seq(
       MessageFormat.INT8,

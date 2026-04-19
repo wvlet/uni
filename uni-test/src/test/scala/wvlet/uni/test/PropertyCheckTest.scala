@@ -21,7 +21,7 @@ import wvlet.uni.test.check.Shrink
 /**
   * Self-test for the built-in property-based testing support.
   */
-class PropertyCheckTest extends UniTest with PropertyCheck:
+class PropertyCheckTest extends UniTest:
 
   // Reduce sample count to keep the suite snappy.
   override protected def propertyConfig: PropertyConfig = PropertyConfig
@@ -183,6 +183,14 @@ class PropertyCheckTest extends UniTest with PropertyCheck:
     // Without discard this would fail the moment we draw 0; with discard it simply skips 0.
     forAll { (n: Int) =>
       (n != 0) ==> {
+        (n * 0 == 0) shouldBe true
+      }
+    }
+  }
+
+  test("implies is the English alias of ==>") {
+    forAll { (n: Int) =>
+      (n != 0) implies {
         (n * 0 == 0) shouldBe true
       }
     }

@@ -18,9 +18,8 @@ import wvlet.uni.util.ULID
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
-import wvlet.uni.test.PropertyCheck
 
-class PrefixedULIDTest extends UniTest with PropertyCheck:
+class PrefixedULIDTest extends UniTest:
 
   test("basic") {
     val ulid = ULID.newULID

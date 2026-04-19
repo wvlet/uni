@@ -361,16 +361,16 @@ class UserServiceTest extends UniTest:
 ## Property-Based Testing
 
 UniTest ships a self-contained property-based testing toolkit — no external
-dependency. Mix in the `PropertyCheck` trait and call `forAll` with a body
-that holds for every randomly generated input. A failing run is automatically
-*shrunk* to a minimal counter-example, and the seed is reported so the run
-can be replayed.
+dependency — and it's part of the base `UniTest` trait. Any test class
+gets `forAll` automatically. Call it with a body that holds for every
+randomly generated input; a failing run is automatically *shrunk* to a
+minimal counter-example, and the seed is reported so the run can be
+replayed.
 
 ```scala
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.PropertyCheck
 
-class ListLawsTest extends UniTest with PropertyCheck:
+class ListLawsTest extends UniTest:
   test("addition is commutative") {
     forAll { (a: Int, b: Int) =>
       (a + b) shouldBe (b + a)
@@ -502,17 +502,25 @@ given Shrink[Point] = Shrink { p =>
 }
 ```
 
-### Preconditions with `==>`
+### Preconditions with `==>` / `implies`
 
-Use `==>` to discard samples that don't satisfy a precondition. The runner
-retries with a new sample and fails the test only if the discard budget
-(default: 500) runs out.
+Use `==>` (or its English alias `implies`) to discard samples that don't
+satisfy a precondition. The runner retries with a new sample and fails the
+test only if the discard budget (default: 500) runs out.
 
 ```scala
 test("division by non-zero is self-inverse") {
   forAll { (a: Int, b: Int) =>
     (b != 0) ==> {
       ((a * b) / b) shouldBe a
+    }
+  }
+}
+
+test("reads the same way in prose") {
+  forAll { (xs: List[Int]) =>
+    xs.nonEmpty implies {
+      xs.head shouldBe xs(0)
     }
   }
 }
@@ -551,7 +559,7 @@ class. For a one-off tweak of the sample count, override
 ```scala
 import wvlet.uni.test.check.PropertyConfig
 
-class HeavyPropertyTest extends UniTest with PropertyCheck:
+class HeavyPropertyTest extends UniTest:
   override protected def propertyConfig: PropertyConfig =
     PropertyConfig.default
       .withMinSuccessful(500)
@@ -633,5 +641,7 @@ UniTest works across all Scala 3 platforms:
 
 ```scala
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.PropertyCheck  // For property-based testing
+// Property-based testing is part of UniTest — nothing else to import.
+// For custom generators / shrinkers:
+import wvlet.uni.test.check.{Arbitrary, Gen, Shrink, PropertyConfig}
 ```

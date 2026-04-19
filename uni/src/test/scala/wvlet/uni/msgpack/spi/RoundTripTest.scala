@@ -18,7 +18,6 @@ import java.nio.charset.StandardCharsets
 import java.time.Instant
 
 import wvlet.uni.msgpack.impl.ByteArrayBuffer
-import wvlet.uni.test.PropertyCheck
 import wvlet.uni.test.check.Arbitrary.arbitrary
 import wvlet.uni.test.check.Gen
 import wvlet.uni.test.UniTest
@@ -27,7 +26,7 @@ import wvlet.uni.test.defined
 
 /**
   */
-class RoundTripTest extends UniTest with PropertyCheck:
+class RoundTripTest extends UniTest:
   val buf = ByteArrayBuffer.newBuffer(1024)
 
   protected def rawRoundtrip[A, B](v: A)(pack: (WriteCursor, A) => Unit)(

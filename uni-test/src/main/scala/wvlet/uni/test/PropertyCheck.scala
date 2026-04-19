@@ -25,14 +25,16 @@ import wvlet.uni.test.check.Shrink
 /**
   * Property-based testing support, self-contained within uni-test (no external dependency).
   *
-  * Mix in this trait with [[UniTest]] to use [[forAll]] for property-based testing. Each property
-  * runs [[PropertyConfig.minSuccessfulTests]] random samples; a failing sample is shrunk to a
-  * minimal counter-example (see [[Shrink]]), and the failing input plus the RNG seed are reported
-  * so the run can be replayed by overriding [[propertyConfig]] with `withSeed(...)`.
+  * Already mixed into [[UniTest]], so any test class picks up [[forAll]] automatically. Mixing it
+  * in explicitly is harmless and kept for backward compatibility.
+  *
+  * Each property runs [[PropertyConfig.minSuccessfulTests]] random samples; a failing sample is
+  * shrunk to a minimal counter-example (see [[Shrink]]), and the failing input plus the RNG seed
+  * are reported so the run can be replayed by overriding [[propertyConfig]] with `withSeed(...)`.
   *
   * Example:
   * {{{
-  *   class MyTest extends UniTest with PropertyCheck:
+  *   class MyTest extends UniTest:
   *     test("property test") {
   *       forAll { (a: Int, b: Int) =>
   *         (a + b) shouldBe (b + a)
@@ -95,9 +97,27 @@ trait PropertyCheck:
   extension (cond: Boolean)
     /**
       * Discard the current sample if `cond` is false. The runner retries with a new sample, failing
-      * the property if too many discards accumulate.
+      * the property if too many discards accumulate. Reads naturally as "precondition implies
+      * property".
+      *
+      * {{{
+      *   forAll { (n: Int) =>
+      *     (n != 0) ==> {
+      *       ((n * 0) == 0) shouldBe true
+      *     }
+      *   }
+      * }}}
       */
     inline def ==>[A](inline body: => A): A =
+      if cond then
+        body
+      else
+        throw DiscardException()
+
+    /**
+      * English-language alias for [[==>]]: `cond implies body`. Same discard semantics.
+      */
+    inline def implies[A](inline body: => A): A =
       if cond then
         body
       else
