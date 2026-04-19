@@ -16,6 +16,7 @@ package wvlet.uni.rx
 import java.util.concurrent.TimeUnit
 import wvlet.uni.log.LogSupport
 import wvlet.uni.util.LazyF0
+import wvlet.uni.util.Result
 
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
@@ -45,6 +46,15 @@ trait RxOps[+A]:
     * Recover from a known error and emit replacement values from a given Rx
     */
   def recoverWith[A](f: PartialFunction[Throwable, RxOps[A]]): Rx[A] = RecoverWithOp(this, f)
+
+  /**
+    * Reify each upstream event as a [[wvlet.uni.util.Result]] so errors are delivered as values
+    * instead of terminating the stream. `OnNext(v)` becomes `Result.Success(v)` and `OnError(e)`
+    * becomes `Result.Failure(e)` followed by `OnCompletion` — the resulting stream always
+    * terminates cleanly, so downstream operators like `toSeq` and `lastOption` work on errored
+    * sources.
+    */
+  def materialize: Rx[Result[A]] = MaterializeOp(this)
 
   /**
     * Applies `f` to the value for having a side effect, and return the original value.
@@ -670,6 +680,17 @@ object Rx extends LogSupport:
   def fromTry[A](t: Try[A]): Rx[A] = TryOp(LazyF0(t))
 
   /**
+    * Convert a [[wvlet.uni.util.Result]] into a single-element Rx, propagating `Failure(e)` as
+    * `OnError(e)`.
+    */
+  def fromResult[A](r: Result[A]): Rx[A] =
+    r match
+      case Result.Success(v) =>
+        single(v)
+      case Result.Failure(e) =>
+        exception(e)
+
+  /**
     * Create a sequence of values
     */
   def sequence[A](values: A*): Rx[A] = fromSeq(values)
@@ -1092,6 +1113,8 @@ object Rx extends LogSupport:
 
   case class RecoverWithOp[A, U](input: RxOps[A], f: PartialFunction[Throwable, RxOps[U]])
       extends UnaryRx[A, U]
+
+  case class MaterializeOp[A](input: RxOps[A]) extends UnaryRx[A, Result[A]]
 
   case class TapOnOp[A](input: RxOps[A], f: PartialFunction[Try[A], Unit]) extends UnaryRx[A, A]
 

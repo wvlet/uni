@@ -13,6 +13,8 @@
  */
 package wvlet.uni
 
+import wvlet.uni.util.Result
+
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 
@@ -21,3 +23,6 @@ import scala.concurrent.Future
 package object rx:
   implicit class FutureConverter[A](private val f: Future[A]) extends AnyVal:
     def toRx(using ec: ExecutionContext): RxOption[A] = Rx.fromFuture(f)
+
+  implicit class ResultConverter[A](private val r: Result[A]) extends AnyVal:
+    def toRx: Rx[A] = Rx.fromResult(r)
