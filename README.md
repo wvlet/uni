@@ -66,6 +66,12 @@ libraryDependencies += "org.wvlet.uni" %% "uni-test" % "<version>" % Test
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 ```
 
+For Scala.js or Scala Native projects, use `%%%`:
+
+```scala
+libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
+```
+
 Write a test by extending `UniTest`:
 
 ```scala
