@@ -49,6 +49,13 @@ object RxRouterTestFixtures:
     def hello(name: String): String
     def hello(name: String, greeting: String): String
 
+  // For the Any/Object filter test: a class (not just a trait) so toString/hashCode/equals are
+  // visible on the receiver. Surface.methodsOf already filters Any/Object methods, but we also
+  // apply a defensive filter in extractRoutesForRx.
+  @RPC
+  class WithObjectMethods:
+    def greet(name: String): String = s"hi ${name}"
+
 end RxRouterTestFixtures
 
 class RxRouterTest extends UniTest:
@@ -116,6 +123,21 @@ class RxRouterTest extends UniTest:
     }
     ex.getMessage.contains("Overloaded RPC methods are not supported") shouldBe true
     ex.getMessage.contains("hello") shouldBe true
+  }
+
+  test("RxRouter.of[T] does not expose Any / Object methods") {
+    val router = RxRouter.of[WithObjectMethods]
+    val names  = router.toRoutes.map(_.methodSurface.name).toSet
+    names shouldBe Set("greet")
+    names.contains("toString") shouldBe false
+    names.contains("hashCode") shouldBe false
+    names.contains("equals") shouldBe false
+    names.contains("getClass") shouldBe false
+  }
+
+  test("StemNode names include a stem- prefix for log readability") {
+    val combined = RxRouter.of(RxRouter.of[FrontendApi], RxRouter.of[FileApi])
+    combined.name.startsWith("stem-") shouldBe true
   }
 
 end RxRouterTest
