@@ -89,7 +89,10 @@ object RouterMacros:
   // Members inherited from java.lang.Object / scala.Any / scala.Product. Surface.methodsOf
   // already filters them by owner, but we also exclude by name as belt-and-suspenders against
   // unusual user-supplied method surfaces and future Surface changes.
-  private[router] val ObjectMethodNames: Set[String] = Set(
+  //
+  // Public because the buildRxRouter macro expands `ObjectMethodNames.contains(...)` at the
+  // call site, which by definition lives outside this package.
+  val ObjectMethodNames: Set[String] = Set(
     // java.lang.Object / scala.Any
     "toString",
     "hashCode",

@@ -50,8 +50,20 @@ trait RxRouter:
   def toRoutes: Seq[Route]
 
   /**
-    * Returns a copy of this router whose endpoint paths are prefixed with the given string. Stem
-    * nodes propagate the prefix to all children.
+    * Returns a copy of this router whose endpoint paths are prefixed with the given string.
+    *
+    * The prefix is **prepended** to any prefix the router already carries, so composition works as
+    * expected for nested stems:
+    *
+    * {{{
+    *   val v1Foo   = RxRouter.of[Foo].withPathPrefix("/v1")
+    *   val v2Bar   = RxRouter.of[Bar].withPathPrefix("/v2")
+    *   val all     = RxRouter.of(v1Foo, v2Bar).withPathPrefix("/api")
+    *   // all routes are /api/v1/foo/... and /api/v2/bar/...
+    * }}}
+    *
+    * To replace an existing prefix, build the router fresh (e.g.
+    * `RxRouter.of[Foo].withPathPrefix(newPrefix)`).
     */
   def withPathPrefix(prefix: String): RxRouter
 
@@ -102,7 +114,7 @@ object RxRouter:
     override def children: List[RxRouter] = Nil
     override def isLeaf: Boolean          = true
 
-    override def toRoutes: Seq[Route] =
+    override lazy val toRoutes: Seq[Route] =
       val duplicates = methodSurfaces.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
       if duplicates.nonEmpty then
         throw IllegalArgumentException(
@@ -116,7 +128,9 @@ object RxRouter:
         Route(HttpMethod.POST, rpcPath, pathComponents, controllerSurface, ms)
       }
 
-    override def withPathPrefix(prefix: String): RxRouter = copy(pathPrefix = prefix)
+    override def withPathPrefix(prefix: String): RxRouter = copy(pathPrefix =
+      RxRouter.composePrefix(prefix, pathPrefix)
+    )
 
   end EndpointNode
 
@@ -124,11 +138,21 @@ object RxRouter:
   case class StemNode(override val children: List[RxRouter]) extends RxRouter:
     override def name: String                             = f"stem-${this.hashCode()}%08x"
     override def isLeaf: Boolean                          = false
-    override def toRoutes: Seq[Route]                     = children.flatMap(_.toRoutes)
+    override lazy val toRoutes: Seq[Route]                = children.flatMap(_.toRoutes)
     override def withPathPrefix(prefix: String): RxRouter = copy(children =
       children.map(_.withPathPrefix(prefix))
     )
 
   end StemNode
+
+  /**
+    * Compose `outer` with an existing inner prefix so stem-level prefixes propagate down to child
+    * leaves without erasing prefixes the children already carry.
+    */
+  private def composePrefix(outer: String, inner: String): String =
+    if inner.isEmpty then
+      outer
+    else
+      s"${outer.stripSuffix("/")}/${inner.stripPrefix("/")}"
 
 end RxRouter

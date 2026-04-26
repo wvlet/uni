@@ -90,6 +90,16 @@ class RxRouterTest extends UniTest:
       }
   }
 
+  test("withPathPrefix composes additively rather than overwriting") {
+    val v1    = RxRouter.of[FileApi].withPathPrefix("/v1")
+    val v2    = RxRouter.of[FrontendApi].withPathPrefix("/v2")
+    val all   = RxRouter.of(v1, v2).withPathPrefix("/api")
+    val paths = all.toRoutes.map(_.pathPattern).toSet
+    // The stem-level "/api" is prepended to each child's pre-existing prefix.
+    paths shouldContain "/api/v1/wvlet.uni.http.router.RxRouterTestFixtures.FileApi/upload"
+    paths shouldContain "/api/v2/wvlet.uni.http.router.RxRouterTestFixtures.FrontendApi/status"
+  }
+
   test("RxRouter.of(routers*) composes child routers") {
     val combined = RxRouter.of(RxRouter.of[FrontendApi], RxRouter.of[FileApi])
     combined.isLeaf shouldBe false
