@@ -19,6 +19,8 @@ import wvlet.uni.io.IOPath
 import wvlet.uni.test.UniTest
 
 class IOReadAsStringTest extends UniTest:
+  // The test creates temp files via FileSystem before invoking IO, so initialize explicitly.
+  // (IO.readAsString itself does not require this — IO triggers FileSystemInit during class load.)
   FileSystemInit.init()
 
   test("IO.readAsString accepts a path string") {

@@ -21,11 +21,16 @@ import java.nio.charset.StandardCharsets
 
 import wvlet.uni.control.Control.withResource
 import wvlet.uni.io.FileSystem
+import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
 
 /**
   */
 object IO:
+  // Ensure the platform-specific FileSystem implementation is registered before any
+  // file-path-based read uses it. Without this, the first call to readAsString(String) on a
+  // fresh JVM would throw IllegalStateException("FileSystem not initialized").
+  FileSystemInit.init()
 
   /**
     * Reads the file at the given path string as a UTF-8 string. Backed by the cross-platform
