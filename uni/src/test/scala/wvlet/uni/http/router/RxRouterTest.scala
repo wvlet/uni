@@ -36,6 +36,19 @@ object RxRouterTestFixtures:
     @Endpoint(HttpMethod.GET, "/health")
     def health: String
 
+  // For the constant-prefix test: `@RPC(path = ApiPrefix)` rather than a string literal.
+  final val ApiPrefix = "/v2"
+
+  @RPC(path = ApiPrefix)
+  trait ConstantPrefixApi:
+    def ping: String
+
+  // For the overload-rejection test: two methods with the same name.
+  @RPC
+  trait OverloadedApi:
+    def hello(name: String): String
+    def hello(name: String, greeting: String): String
+
 end RxRouterTestFixtures
 
 class RxRouterTest extends UniTest:
@@ -89,6 +102,20 @@ class RxRouterTest extends UniTest:
     FrontendApi.router shouldMatch { case _: RxRouter =>
     }
     FrontendApi.router.toRoutes.size shouldBe 2
+  }
+
+  test("RxRouter.of[T] resolves a constant-reference @RPC(path = ApiPrefix)") {
+    val router = RxRouter.of[ConstantPrefixApi]
+    router.toRoutes.map(_.pathPattern).toSet shouldBe
+      Set("/v2/wvlet.uni.http.router.RxRouterTestFixtures.ConstantPrefixApi/ping")
+  }
+
+  test("RxRouter.of[T] rejects overloaded @RPC methods") {
+    val ex = intercept[IllegalArgumentException] {
+      RxRouter.of[OverloadedApi]
+    }
+    ex.getMessage.contains("Overloaded RPC methods are not supported") shouldBe true
+    ex.getMessage.contains("hello") shouldBe true
   }
 
 end RxRouterTest

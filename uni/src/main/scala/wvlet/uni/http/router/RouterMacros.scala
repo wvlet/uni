@@ -66,25 +66,44 @@ object RouterMacros:
     val rpcPathExpr: Expr[Option[String]] =
       rpcAnnot match
         case Some(annot) =>
-          // Extract the `path` argument literal from `@RPC(path = "/v1")` if present.
+          // Extract the `path` argument from `@RPC(path = ...)` if present. Accept both inline
+          // string literals and references to constant `final val`s by asking the compiler for
+          // the term's constant-folded value.
           val applyArgs =
             annot match
               case Apply(_, args) =>
                 args
               case _ =>
                 Nil
-          val literalPath = applyArgs
+
+          def constantString(term: Term): Option[String] =
+            term.tpe.widenTermRefByName match
+              case ConstantType(StringConstant(s)) =>
+                Some(s)
+              case _ =>
+                term match
+                  case Literal(StringConstant(s)) =>
+                    Some(s)
+                  case Inlined(_, _, inner) =>
+                    constantString(inner)
+                  case Typed(inner, _) =>
+                    constantString(inner)
+                  case _ =>
+                    None
+
+          val resolvedPath = applyArgs
             .collectFirst {
-              case NamedArg("path", Literal(StringConstant(p))) =>
-                p
-              case Literal(StringConstant(p)) =>
-                p
+              case NamedArg("path", t) =>
+                constantString(t)
+              case t: Term if constantString(t).isDefined =>
+                constantString(t)
             }
+            .flatten
             .getOrElse("")
           '{
             Some(
               ${
-                Expr(literalPath)
+                Expr(resolvedPath)
               }
             )
           }
@@ -149,7 +168,13 @@ object RouterMacros:
   ): Seq[Route] =
     rpcPathPrefix match
       case Some(rawPrefix) =>
-        val prefix = rawPrefix.stripSuffix("/")
+        val prefix     = rawPrefix.stripSuffix("/")
+        val duplicates = methodSurfaces.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
+        if duplicates.nonEmpty then
+          throw IllegalArgumentException(
+            s"Overloaded RPC methods are not supported in @RPC trait '${controllerSurface
+                .fullName}': " + duplicates.mkString(", ")
+          )
         methodSurfaces.map { ms =>
           val rpcPath        = s"${prefix}/${controllerSurface.fullName}/${ms.name}"
           val pathComponents = PathComponent.parse(rpcPath)
