@@ -264,7 +264,20 @@ class UniTestTask(
                             s"after hook failed: ${e.getMessage}",
                             e
                           )
-                        case _ =>
+                        case Some(e) =>
+                          // The body already failed; we can't replace its result, but log the
+                          // teardown error so it doesn't disappear.
+                          loggers.foreach(
+                            _.error(
+                              Tint.red(
+                                s"  x after hook also failed for ${testDef.fullName}: ${e
+                                    .getMessage}"
+                              )
+                            )
+                          )
+                          loggers.foreach(_.trace(e))
+                          result
+                        case None =>
                           result
 
                     if finalResult.isFailure || !isContainer then
@@ -309,6 +322,8 @@ class UniTestTask(
         beforeAllError match
           case Some(e) =>
             handleSpecLevelError(className, e, eventHandler, loggers)
+            // Reflect the spec-level failure in the class summary so it renders red.
+            classFailed += 1
             Future.unit
           case None =>
             processQueue()
@@ -321,6 +336,7 @@ class UniTestTask(
           catch
             case e: Throwable =>
               handleSpecLevelError(className, e, eventHandler, loggers)
+              classFailed += 1
           tryValue
         }
         .map { _ =>
