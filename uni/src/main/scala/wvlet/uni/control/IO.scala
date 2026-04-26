@@ -20,10 +20,18 @@ import java.net.URL
 import java.nio.charset.StandardCharsets
 
 import wvlet.uni.control.Control.withResource
+import wvlet.uni.io.FileSystem
+import wvlet.uni.io.IOPath
 
 /**
   */
 object IO:
+
+  /**
+    * Reads the file at the given path string as a UTF-8 string. Backed by the cross-platform
+    * [[wvlet.uni.io.FileSystem]], so it works on JVM, Node.js (Scala.js), and Scala Native.
+    */
+  def readAsString(filePath: String): String = FileSystem.readString(IOPath(filePath))
 
   def readAsString(f: File): String = readAsString(f.toURI.toURL)
 
@@ -52,3 +60,5 @@ object IO:
           b.toByteArray
         }
     byteArray
+
+end IO

@@ -7,6 +7,7 @@ import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
 import wvlet.uni.surface.*
+import wvlet.uni.weaver.codec.AnyWeaver
 import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
 import wvlet.uni.weaver.codec.JSONWeaver
@@ -40,6 +41,42 @@ trait Weaver[A]:
     val packer = MessagePack.newPacker()
     JSONWeaver.packJsonValue(packer, v, config)
     unweave(packer.toByteArray, config)
+
+  /**
+    * Hydrate a value of type `A` from a `Map[String, Any]`. This is convenient when working with
+    * loosely typed sources such as YAML/HOCON parsers that produce `Map[String, Any]`. Nested Maps,
+    * Seqs/Arrays, primitives, and `Option` values are all packed via [[AnyWeaver]] before being
+    * decoded by this Weaver.
+    */
+  def fromMap(map: Map[String, Any], config: WeaverConfig = WeaverConfig()): A =
+    val packer = MessagePack.newPacker()
+    AnyWeaver.default.pack(packer, map, config)
+    unweave(packer.toByteArray, config)
+
+  /**
+    * Serialize a value of type `A` to a `Map[String, Any]`. Inverse of [[fromMap]]. Nested objects
+    * become nested `Map[String, Any]` values; collections become `Seq[Any]`. Throws
+    * [[IllegalArgumentException]] if the top-level value does not pack as a MsgPack map.
+    */
+  def toMap(v: A, config: WeaverConfig = WeaverConfig()): Map[String, Any] =
+    val msgpack  = toMsgPack(v, config)
+    val unpacker = MessagePack.newUnpacker(msgpack)
+    val context  = WeaverContext(config)
+    AnyWeaver.default.unpack(unpacker, context)
+    if context.hasError then
+      throw context.getError.get
+    context.getLastValue match
+      case m: Map[?, ?] =>
+        m.map { (k, v) =>
+            k.toString -> v
+          }
+          .toMap
+      case other =>
+        throw IllegalArgumentException(
+          s"toMap expected a map representation, but got ${Option(other)
+              .map(_.getClass.getName)
+              .getOrElse("null")}"
+        )
 
   def toJson(v: A, config: WeaverConfig = WeaverConfig()): String =
     val msgpack = toMsgPack(v, config)
@@ -94,6 +131,14 @@ object Weaver:
 
   def fromJson[A](json: String, config: WeaverConfig = WeaverConfig())(using weaver: Weaver[A]): A =
     weaver.fromJson(json, config)
+
+  def fromMap[A](map: Map[String, Any], config: WeaverConfig = WeaverConfig())(using
+      weaver: Weaver[A]
+  ): A = weaver.fromMap(map, config)
+
+  def toMap[A](v: A, config: WeaverConfig = WeaverConfig())(using
+      weaver: Weaver[A]
+  ): Map[String, Any] = weaver.toMap(v, config)
 
   // Export primitive weavers for compile-time resolution
   // Java collection weavers are not exported to avoid type erasure conflicts.
