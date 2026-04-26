@@ -43,6 +43,91 @@ object RouterMacros:
     }
 
   /**
+    * Build an [[RxRouter]] from a controller type at compile-time. If the type is annotated with
+    * `@RPC`, every public method becomes an RPC endpoint (POST). Otherwise, methods annotated with
+    * `@Endpoint` are picked up just like [[buildRouter]].
+    */
+  inline def buildRxRouter[T]: RxRouter =
+    ${
+      buildRxRouterImpl[T]
+    }
+
+  private def buildRxRouterImpl[T: Type](using Quotes): Expr[RxRouter] =
+    import quotes.reflect.*
+
+    val rpcAnnot = TypeRepr
+      .of[T]
+      .typeSymbol
+      .annotations
+      .find { a =>
+        a.tpe.typeSymbol == TypeRepr.of[wvlet.uni.http.rpc.RPC].typeSymbol
+      }
+
+    val rpcPathExpr: Expr[Option[String]] =
+      rpcAnnot match
+        case Some(annot) =>
+          // Extract the `path` argument from `@RPC(path = ...)` if present. Accept both inline
+          // string literals and references to constant `final val`s by asking the compiler for
+          // the term's constant-folded value.
+          val applyArgs =
+            annot match
+              case Apply(_, args) =>
+                args
+              case _ =>
+                Nil
+
+          def constantString(term: Term): Option[String] =
+            term.tpe.widenTermRefByName match
+              case ConstantType(StringConstant(s)) =>
+                Some(s)
+              case _ =>
+                term match
+                  case Literal(StringConstant(s)) =>
+                    Some(s)
+                  case Inlined(_, _, inner) =>
+                    constantString(inner)
+                  case Typed(inner, _) =>
+                    constantString(inner)
+                  case _ =>
+                    None
+
+          val resolvedPath = applyArgs
+            .collectFirst {
+              case NamedArg("path", t) =>
+                constantString(t)
+              case t: Term if constantString(t).isDefined =>
+                constantString(t)
+            }
+            .flatten
+            .getOrElse("")
+          '{
+            Some(
+              ${
+                Expr(resolvedPath)
+              }
+            )
+          }
+        case None =>
+          '{
+            None
+          }
+
+    '{
+      val surface        = Surface.of[T]
+      val methodSurfaces = Surface.methodsOf[T]
+      val routes         = RouterMacros.extractRoutesForRx(
+        surface,
+        methodSurfaces,
+        ${
+          rpcPathExpr
+        }
+      )
+      RxRouter.EndpointNode(surface, methodSurfaces, routes)
+    }
+
+  end buildRxRouterImpl
+
+  /**
     * Extract routes from method surfaces at runtime. This method filters methods annotated with
     * `@Endpoint` and creates Route instances.
     */
@@ -69,5 +154,33 @@ object RouterMacros:
               None
         }
     }
+
+  /**
+    * Extract routes for an [[RxRouter]]. When `rpcPathPrefix` is `Some(_)`, the controller was
+    * annotated with `@RPC` and every public method becomes an RPC endpoint (HTTP POST, path
+    * `{rpcPathPrefix}/{controllerFullName}/{method}`). Otherwise, falls back to the
+    * `@Endpoint`-driven scan used by [[buildRouter]].
+    */
+  def extractRoutesForRx(
+      controllerSurface: Surface,
+      methodSurfaces: Seq[MethodSurface],
+      rpcPathPrefix: Option[String]
+  ): Seq[Route] =
+    rpcPathPrefix match
+      case Some(rawPrefix) =>
+        val prefix     = rawPrefix.stripSuffix("/")
+        val duplicates = methodSurfaces.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
+        if duplicates.nonEmpty then
+          throw IllegalArgumentException(
+            s"Overloaded RPC methods are not supported in @RPC trait '${controllerSurface
+                .fullName}': " + duplicates.mkString(", ")
+          )
+        methodSurfaces.map { ms =>
+          val rpcPath        = s"${prefix}/${controllerSurface.fullName}/${ms.name}"
+          val pathComponents = PathComponent.parse(rpcPath)
+          Route(HttpMethod.POST, rpcPath, pathComponents, controllerSurface, ms)
+        }
+      case None =>
+        extractRoutes(controllerSurface, methodSurfaces)
 
 end RouterMacros
