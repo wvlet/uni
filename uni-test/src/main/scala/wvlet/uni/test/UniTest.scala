@@ -86,6 +86,34 @@ trait UniTest
     _tests += TestDef(name, () => body, _context, isFlaky = flaky)
 
   /**
+    * Lifecycle hook invoked once before any test in this spec runs. Override to perform setup work
+    * that should be shared across the test class instance.
+    */
+  protected def beforeAll: Unit = {}
+
+  /**
+    * Lifecycle hook invoked once after all tests in this spec finish. Override to release resources
+    * allocated in [[beforeAll]].
+    */
+  protected def afterAll: Unit = {}
+
+  /**
+    * Lifecycle hook invoked before each individual test. Override for per-test setup.
+    */
+  protected def before: Unit = {}
+
+  /**
+    * Lifecycle hook invoked after each individual test. Override for per-test teardown.
+    */
+  protected def after: Unit = {}
+
+  // Internal accessors used by the test runner.
+  private[test] def runBeforeAll(): Unit = beforeAll
+  private[test] def runAfterAll(): Unit  = afterAll
+  private[test] def runBefore(): Unit    = before
+  private[test] def runAfter(): Unit     = after
+
+  /**
     * Get all registered tests. Used by the test framework.
     */
   private[test] def registeredTests: Seq[TestDef] = _tests.toSeq
