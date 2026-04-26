@@ -15,22 +15,18 @@ package wvlet.uni.http.router
 
 /**
   * Marker trait that exposes the default [[RxRouter]] for an RPC interface. Typically extended by
-  * the companion object of an `@RPC`-annotated trait so that codegen tooling (e.g. `sbt-uni`'s
-  * `uniHttpClients` task) can discover the router without runtime configuration.
-  *
-  * Mirrors `wvlet.airframe.http.RxRouterProvider` for porting compatibility.
+  * the companion object of an RPC trait so that codegen tooling (e.g. `sbt-uni`'s `uniHttpClients`
+  * task) can discover the router without runtime configuration.
   *
   * Example:
   * {{{
-  *   import wvlet.uni.http.rpc.RPC
   *   import wvlet.uni.http.router.{RxRouter, RxRouterProvider}
   *
-  *   @RPC
   *   trait MyApi:
   *     def hello(name: String): String
   *
   *   object MyApi extends RxRouterProvider:
-  *     override def router: RxRouter = RxRouter.of[MyApi]
+  *     override def router: RxRouter = RxRouter.of[MyApi].withPathPrefix("/v1")
   * }}}
   */
 trait RxRouterProvider:
