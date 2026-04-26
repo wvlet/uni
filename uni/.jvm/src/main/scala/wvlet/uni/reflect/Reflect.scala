@@ -45,13 +45,17 @@ import scala.collection.mutable
 object Reflect:
 
   /**
-    * Reflectively looks up a loadable module class using the system class loader.
+    * Reflectively looks up a loadable module class. Tries the classloader that loaded `Reflect`
+    * first, then the thread context classloader, then the system classloader. Use the
+    * `(fqcn, loader)` overload when you need deterministic resolution.
     *
     * @param fqcn
     *   fully-qualified name of the module class, including its trailing `$`.
     */
-  def lookupLoadableModuleClass(fqcn: String): Option[LoadableModuleClass] =
-    lookupLoadableModuleClass(fqcn, defaultLoader)
+  def lookupLoadableModuleClass(fqcn: String): Option[LoadableModuleClass] = candidateLoaders
+    .iterator
+    .flatMap(loader => lookupLoadableModuleClass(fqcn, loader))
+    .nextOption()
 
   /**
     * Reflectively looks up a loadable module class using the given class loader.
@@ -65,13 +69,17 @@ object Reflect:
     load(fqcn, loader).filter(isModuleClass).map(new LoadableModuleClass(_))
 
   /**
-    * Reflectively looks up an instantiatable class using the system class loader.
+    * Reflectively looks up an instantiatable class. Tries the classloader that loaded `Reflect`
+    * first, then the thread context classloader, then the system classloader. Use the
+    * `(fqcn, loader)` overload when you need deterministic resolution.
     *
     * @param fqcn
     *   fully-qualified name of the class.
     */
-  def lookupInstantiatableClass(fqcn: String): Option[InstantiatableClass] =
-    lookupInstantiatableClass(fqcn, defaultLoader)
+  def lookupInstantiatableClass(fqcn: String): Option[InstantiatableClass] = candidateLoaders
+    .iterator
+    .flatMap(loader => lookupInstantiatableClass(fqcn, loader))
+    .nextOption()
 
   /**
     * Reflectively looks up an instantiatable class using the given class loader.
@@ -94,8 +102,12 @@ object Reflect:
     * [[companionOfUnchecked]] instead — it is JVM-only and will not compile on JS / Native.
     */
   def companionOf(cls: Class[?]): Option[Any] =
-    val loader = Option(cls.getClassLoader).getOrElse(defaultLoader)
-    lookupLoadableModuleClass(companionFqn(cls), loader).map(_.loadModule())
+    val name = companionFqn(cls)
+    Option(cls.getClassLoader) match
+      case Some(loader) =>
+        lookupLoadableModuleClass(name, loader).map(_.loadModule())
+      case None =>
+        lookupLoadableModuleClass(name).map(_.loadModule())
 
   /**
     * JVM-only convenience that returns the singleton companion of `cls` via direct
@@ -108,9 +120,18 @@ object Reflect:
     * so a portable bypass is impossible.
     */
   def companionOfUnchecked(cls: Class[?]): Option[Any] =
-    val loader = Option(cls.getClassLoader).getOrElse(defaultLoader)
+    val name    = companionFqn(cls)
+    val loaders =
+      Option(cls.getClassLoader) match
+        case Some(loader) =>
+          loader :: candidateLoaders.filterNot(_ == loader)
+        case None =>
+          candidateLoaders
+    loaders.iterator.flatMap(loader => loadCompanion(name, loader)).nextOption()
+
+  private def loadCompanion(name: String, loader: ClassLoader): Option[Any] =
     try
-      val companionCls = Class.forName(companionFqn(cls), false, loader)
+      val companionCls = Class.forName(name, false, loader)
       val fld          = companionCls.getField("MODULE$")
       if (fld.getModifiers & Modifier.STATIC) != 0 then
         Option(fld.get(null))
@@ -129,16 +150,26 @@ object Reflect:
 
   // -- private helpers ------------------------------------------------------
 
-  private def defaultLoader: ClassLoader = Option(Thread.currentThread.getContextClassLoader)
-    .getOrElse(getClass.getClassLoader)
+  // The original portable-scala-reflect Scala 2 macro inserted
+  // `enclosingClass.getClassLoader()` at the call site. Without macros we instead try a small
+  // chain of loaders that are usually sufficient: Reflect's own loader (which under SBT shares
+  // its loader with the project's test classes), then the thread context classloader, then the
+  // system classloader.
+  private def candidateLoaders: List[ClassLoader] =
+    val self    = Option(getClass.getClassLoader)
+    val context = Option(Thread.currentThread.getContextClassLoader)
+    val system  = Option(ClassLoader.getSystemClassLoader)
+    (self ++ context ++ system).toList.distinct
 
   private def isModuleClass(clazz: Class[?]): Boolean =
-    try
-      val fld = clazz.getField("MODULE$")
-      clazz.getName.endsWith("$") && (fld.getModifiers & Modifier.STATIC) != 0
-    catch
-      case _: NoSuchFieldException =>
-        false
+    clazz.getName.endsWith("$") && {
+      try
+        val fld = clazz.getField("MODULE$")
+        (fld.getModifiers & Modifier.STATIC) != 0
+      catch
+        case _: NoSuchFieldException =>
+          false
+    }
 
   private def isInstantiatableClass(clazz: Class[?]): Boolean =
     // A local class has a non-null *enclosing* class but a null *declaring* class.
@@ -168,7 +199,8 @@ object Reflect:
       if c.getAnnotation(classOf[EnableReflectiveInstantiation]) != null then
         true
       else
-        (Iterator(c.getSuperclass) ++ c.getInterfaces.iterator).filter(_ != null).exists(check)
+        val sc = c.getSuperclass
+        (sc != null && check(sc)) || c.getInterfaces.exists(check)
 
     check(clazz)
 
