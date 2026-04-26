@@ -187,7 +187,11 @@ object RouterMacros:
       case None =>
         extractRoutes(controllerSurface, methodSurfaces)
 
+  // Members inherited from java.lang.Object / scala.Any / scala.Product. Surface.methodsOf
+  // already filters them by owner, but we also exclude by name as belt-and-suspenders against
+  // unusual user-supplied method surfaces and future Surface changes.
   private val ObjectMethodNames: Set[String] = Set(
+    // java.lang.Object / scala.Any
     "toString",
     "hashCode",
     "equals",
@@ -196,7 +200,14 @@ object RouterMacros:
     "notify",
     "notifyAll",
     "clone",
-    "finalize"
+    "finalize",
+    // scala.Product (case classes)
+    "canEqual",
+    "productArity",
+    "productElement",
+    "productElementName",
+    "productIterator",
+    "productPrefix"
   )
 
 end RouterMacros

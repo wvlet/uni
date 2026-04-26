@@ -37,6 +37,7 @@ object ServiceScanner extends LogSupport:
     val simpleName  = clazz.getSimpleName
 
     val excludedNames = Set(
+      // java.lang.Object / scala.Any
       "hashCode",
       "equals",
       "toString",
@@ -46,6 +47,14 @@ object ServiceScanner extends LogSupport:
       "wait",
       "clone",
       "finalize",
+      // scala.Product (case classes)
+      "canEqual",
+      "productArity",
+      "productElement",
+      "productElementName",
+      "productIterator",
+      "productPrefix",
+      // Scala synthetic
       "$init$"
     )
 
