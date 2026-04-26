@@ -76,6 +76,19 @@ class AnyWeaverImpl(knownWeavers: Map[Class[?], Weaver[?]]) extends Weaver[Any]:
           pack(p, k, config)
           pack(p, v, config)
         }
+      // Java collections (commonly produced by YAML/JSON parsers like SnakeYAML / Jackson)
+      case m: java.util.Map[?, ?] =>
+        p.packMapHeader(m.size)
+        val it = m.entrySet().iterator()
+        while it.hasNext do
+          val entry = it.next()
+          pack(p, entry.getKey, config)
+          pack(p, entry.getValue, config)
+      case v: java.util.Collection[?] =>
+        p.packArrayHeader(v.size)
+        val it = v.iterator()
+        while it.hasNext do
+          pack(p, it.next(), config)
       // Scala 3 enum support
       case e: scala.reflect.Enum =>
         p.packString(e.toString)

@@ -228,4 +228,26 @@ class CaseClassWeaverTest extends UniTest:
     Weaver.fromMap[Employee](map) shouldBe employee
   }
 
+  test("fromMap accepts nested java.util.Map values (e.g. SnakeYAML output)") {
+    val nested = java.util.LinkedHashMap[String, Any]()
+    nested.put("city", "Tokyo")
+    nested.put("country", "Japan")
+    val map = Map[String, Any]("name" -> "Charlie", "address" -> nested)
+    Weaver.fromMap[Employee](map) shouldBe Employee("Charlie", Address("Tokyo", "Japan"))
+  }
+
+  test("fromMap accepts nested java.util.List values") {
+    val members = java.util.ArrayList[Any]()
+    val alice   = java.util.LinkedHashMap[String, Any]()
+    alice.put("name", "Alice")
+    alice.put("age", 30)
+    val bob = java.util.LinkedHashMap[String, Any]()
+    bob.put("name", "Bob")
+    bob.put("age", 25)
+    members.add(alice)
+    members.add(bob)
+    val map = Map[String, Any]("name" -> "RPC", "members" -> members)
+    Weaver.fromMap[Team](map) shouldBe Team("RPC", List(Person("Alice", 30), Person("Bob", 25)))
+  }
+
 end CaseClassWeaverTest
