@@ -1,0 +1,3 @@
+# Verify that codegen + compilation works end-to-end for an @RPC-annotated trait whose
+# companion extends RxRouterProvider — the wvlet-lang migration target shape.
+> app/compile
