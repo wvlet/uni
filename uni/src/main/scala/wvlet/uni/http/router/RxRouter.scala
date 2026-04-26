@@ -96,7 +96,7 @@ object RxRouter:
 
   /** A composition of multiple child routers. */
   case class StemNode(override val children: List[RxRouter]) extends RxRouter:
-    override def name: String         = f"${this.hashCode()}%08x"
+    override def name: String         = f"stem-${this.hashCode()}%08x"
     override def isLeaf: Boolean      = false
     override def toRoutes: Seq[Route] = children.flatMap(_.toRoutes)
   end StemNode

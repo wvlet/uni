@@ -168,19 +168,35 @@ object RouterMacros:
   ): Seq[Route] =
     rpcPathPrefix match
       case Some(rawPrefix) =>
-        val prefix     = rawPrefix.stripSuffix("/")
-        val duplicates = methodSurfaces.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
+        val prefix = rawPrefix.stripSuffix("/")
+        // Surface.methodsOf already filters out methods owned by Any / java.lang.Object /
+        // scala.Product, but defend against future changes (and against unusual user-supplied
+        // method surfaces) by excluding methods named identically to those base members.
+        val rpcMethods = methodSurfaces.filterNot(ms => ObjectMethodNames.contains(ms.name))
+        val duplicates = rpcMethods.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
         if duplicates.nonEmpty then
           throw IllegalArgumentException(
             s"Overloaded RPC methods are not supported in @RPC trait '${controllerSurface
                 .fullName}': " + duplicates.mkString(", ")
           )
-        methodSurfaces.map { ms =>
+        rpcMethods.map { ms =>
           val rpcPath        = s"${prefix}/${controllerSurface.fullName}/${ms.name}"
           val pathComponents = PathComponent.parse(rpcPath)
           Route(HttpMethod.POST, rpcPath, pathComponents, controllerSurface, ms)
         }
       case None =>
         extractRoutes(controllerSurface, methodSurfaces)
+
+  private val ObjectMethodNames: Set[String] = Set(
+    "toString",
+    "hashCode",
+    "equals",
+    "getClass",
+    "wait",
+    "notify",
+    "notifyAll",
+    "clone",
+    "finalize"
+  )
 
 end RouterMacros
