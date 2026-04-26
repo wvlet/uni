@@ -85,24 +85,32 @@ object Reflect:
     load(fqcn, loader).filter(isInstantiatableClass).map(new InstantiatableClass(_))
 
   /**
-    * Returns the singleton companion object of `cls` via direct reflection. This bypasses the
-    * `@EnableReflectiveInstantiation` requirement of [[lookupLoadableModuleClass]] and is useful
-    * when porting JVM-only code that previously relied on `airframe.surface.reflect`.
+    * Returns the singleton companion object of `cls` via [[lookupLoadableModuleClass]]. The
+    * companion module (i.e. the runtime class of `object Foo`) must be annotated with
+    * [[wvlet.uni.reflect.annotation.EnableReflectiveInstantiation]] (or inherit it). This contract
+    * is identical across JVM, Scala.js, and Scala Native.
     *
-    * On Scala.js / Scala Native this method requires the class to be annotated with
-    * [[wvlet.uni.reflect.annotation.EnableReflectiveInstantiation]] so the linker keeps the
-    * companion's metadata.
+    * If you are porting JVM-only code that relies on raw reflection without the annotation, use
+    * [[companionOfUnchecked]] instead — it is JVM-only and will not compile on JS / Native.
     */
   def companionOf(cls: Class[?]): Option[Any] =
-    val name          = cls.getName
-    val companionName =
-      if name.endsWith("$") then
-        name
-      else
-        s"${name}$$"
+    val loader = Option(cls.getClassLoader).getOrElse(defaultLoader)
+    lookupLoadableModuleClass(companionFqn(cls), loader).map(_.loadModule())
+
+  /**
+    * JVM-only convenience that returns the singleton companion of `cls` via direct
+    * `java.lang.reflect` access. Unlike [[companionOf]], this does NOT require the companion to be
+    * annotated with `@EnableReflectiveInstantiation` — it mirrors the behavior of the
+    * `airframe.surface.reflect.ReflectTypeUtil.companionObject` helper that JVM-only callers (e.g.
+    * wvlet-lang's `TreeNodeCompat`) historically relied on.
+    *
+    * Not available on Scala.js or Scala Native: the linker has no metadata for unannotated classes,
+    * so a portable bypass is impossible.
+    */
+  def companionOfUnchecked(cls: Class[?]): Option[Any] =
     val loader = Option(cls.getClassLoader).getOrElse(defaultLoader)
     try
-      val companionCls = Class.forName(companionName, false, loader)
+      val companionCls = Class.forName(companionFqn(cls), false, loader)
       val fld          = companionCls.getField("MODULE$")
       if (fld.getModifiers & Modifier.STATIC) != 0 then
         Option(fld.get(null))
@@ -111,6 +119,13 @@ object Reflect:
     catch
       case _: ClassNotFoundException | _: NoSuchFieldException =>
         None
+
+  private def companionFqn(cls: Class[?]): String =
+    val name = cls.getName
+    if name.endsWith("$") then
+      name
+    else
+      s"${name}$$"
 
   // -- private helpers ------------------------------------------------------
 

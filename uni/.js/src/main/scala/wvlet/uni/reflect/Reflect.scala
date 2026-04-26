@@ -38,9 +38,11 @@ object Reflect:
     lookupInstantiatableClass(fqcn)
 
   /**
-    * Returns the singleton companion object of `cls` via [[lookupLoadableModuleClass]]. Scala.js
-    * requires the class (or one of its supertypes) to be annotated with
-    * [[wvlet.uni.reflect.annotation.EnableReflectiveInstantiation]].
+    * Returns the singleton companion object of `cls` via [[lookupLoadableModuleClass]]. The
+    * companion module (i.e. the runtime class of `object Foo`) must be annotated with
+    * [[wvlet.uni.reflect.annotation.EnableReflectiveInstantiation]] (or inherit it). Annotating
+    * only the class itself is not enough — `class Foo` and `object Foo` are independent runtime
+    * classes and Scala.js retains metadata only for explicitly annotated module classes.
     */
   def companionOf(cls: Class[?]): Option[Any] =
     val name          = cls.getName
