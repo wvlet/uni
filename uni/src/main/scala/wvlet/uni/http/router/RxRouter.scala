@@ -13,26 +13,27 @@
  */
 package wvlet.uni.http.router
 
+import wvlet.uni.http.HttpMethod
 import wvlet.uni.surface.{MethodSurface, Surface}
 
 /**
-  * Declarative router built from a Scala trait/class annotated with [[wvlet.uni.http.rpc.RPC]]
-  * (every public method becomes an RPC endpoint) or [[Endpoint]] (per-method endpoints).
+  * Declarative router built from a Scala trait/class via [[RxRouter.of]]. Every public method on
+  * the underlying type is exposed as an HTTP POST endpoint with path
+  * `{pathPrefix}/{controllerFullName}/{methodName}`. The path prefix defaults to empty; use
+  * [[RxRouter.withPathPrefix]] to namespace a router (e.g. `"/v1"`).
   *
-  * Mirrors the API surface of `wvlet.airframe.http.RxRouter` so code being migrated from airframe
-  * can change imports without restructuring.
+  * RxRouter is convention-based: the trait does not need a marker annotation. For explicit
+  * `@Endpoint`-driven routing, use [[Router]] instead.
   *
   * Example:
   * {{{
-  *   import wvlet.uni.http.rpc.RPC
   *   import wvlet.uni.http.router.{RxRouter, RxRouterProvider}
   *
-  *   @RPC
   *   trait MyApi:
   *     def hello(name: String): String
   *
   *   object MyApi extends RxRouterProvider:
-  *     override def router: RxRouter = RxRouter.of[MyApi]
+  *     override def router: RxRouter = RxRouter.of[MyApi].withPathPrefix("/v1")
   * }}}
   */
 trait RxRouter:
@@ -47,6 +48,24 @@ trait RxRouter:
 
   /** Underlying flat list of routes that this RxRouter contributes. */
   def toRoutes: Seq[Route]
+
+  /**
+    * Returns a copy of this router whose endpoint paths are prefixed with the given string.
+    *
+    * The prefix is **prepended** to any prefix the router already carries, so composition works as
+    * expected for nested stems:
+    *
+    * {{{
+    *   val v1Foo   = RxRouter.of[Foo].withPathPrefix("/v1")
+    *   val v2Bar   = RxRouter.of[Bar].withPathPrefix("/v2")
+    *   val all     = RxRouter.of(v1Foo, v2Bar).withPathPrefix("/api")
+    *   // all routes are /api/v1/foo/... and /api/v2/bar/...
+    * }}}
+    *
+    * To replace an existing prefix, build the router fresh (e.g.
+    * `RxRouter.of[Foo].withPathPrefix(newPrefix)`).
+    */
+  def withPathPrefix(prefix: String): RxRouter
 
   override def toString: String = printNode(0)
 
@@ -66,9 +85,9 @@ end RxRouter
 object RxRouter:
 
   /**
-    * Build a router from the given controller type at compile time. `T` should be annotated with
-    * [[wvlet.uni.http.rpc.RPC]] (every public method becomes an RPC endpoint) or have one or more
-    * [[Endpoint]]-annotated methods.
+    * Build an [[RxRouter]] from the given service type at compile time. Every public method on `T`
+    * becomes an HTTP POST endpoint at `/{T.fullName}/{methodName}`. Customize the namespace with
+    * [[RxRouter.withPathPrefix]].
     */
   inline def of[T]: RxRouter = RouterMacros.buildRxRouter[T]
 
@@ -82,23 +101,58 @@ object RxRouter:
     else
       StemNode(routers.toList)
 
-  /** A leaf RxRouter wrapping a controller surface and its method surfaces. */
+  /**
+    * A leaf RxRouter wrapping a controller surface and its method surfaces. Routes are computed
+    * lazily so [[withPathPrefix]] can rebuild them without re-running the macro.
+    */
   case class EndpointNode(
       controllerSurface: Surface,
       methodSurfaces: Seq[MethodSurface],
-      routes: Seq[Route]
+      pathPrefix: String
   ) extends RxRouter:
     override def name: String             = controllerSurface.name
     override def children: List[RxRouter] = Nil
     override def isLeaf: Boolean          = true
-    override def toRoutes: Seq[Route]     = routes
+
+    override lazy val toRoutes: Seq[Route] =
+      val duplicates = methodSurfaces.groupBy(_.name).filter(_._2.size > 1).keys.toSeq.sorted
+      if duplicates.nonEmpty then
+        throw IllegalArgumentException(
+          s"Overloaded RPC methods are not supported in RxRouter for '${controllerSurface
+              .fullName}': " + duplicates.mkString(", ")
+        )
+      val prefix = pathPrefix.stripSuffix("/")
+      methodSurfaces.map { ms =>
+        val rpcPath        = s"${prefix}/${controllerSurface.fullName}/${ms.name}"
+        val pathComponents = PathComponent.parse(rpcPath)
+        Route(HttpMethod.POST, rpcPath, pathComponents, controllerSurface, ms)
+      }
+
+    override def withPathPrefix(prefix: String): RxRouter = copy(pathPrefix =
+      RxRouter.composePrefix(prefix, pathPrefix)
+    )
+
   end EndpointNode
 
   /** A composition of multiple child routers. */
   case class StemNode(override val children: List[RxRouter]) extends RxRouter:
-    override def name: String         = f"stem-${this.hashCode()}%08x"
-    override def isLeaf: Boolean      = false
-    override def toRoutes: Seq[Route] = children.flatMap(_.toRoutes)
+    override def name: String                             = f"stem-${this.hashCode()}%08x"
+    override def isLeaf: Boolean                          = false
+    override lazy val toRoutes: Seq[Route]                = children.flatMap(_.toRoutes)
+    override def withPathPrefix(prefix: String): RxRouter = copy(children =
+      children.map(_.withPathPrefix(prefix))
+    )
+
   end StemNode
+
+  /**
+    * Compose `outer` with an existing inner prefix so stem-level prefixes propagate down to child
+    * leaves without erasing prefixes the children already carry.
+    */
+  private def composePrefix(outer: String, inner: String): String =
+    if inner.isEmpty then
+      outer
+    else
+      s"${outer.stripSuffix("/")}/${inner.stripPrefix("/")}"
 
 end RxRouter

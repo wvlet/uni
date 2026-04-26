@@ -14,12 +14,10 @@
 package wvlet.uni.http.router
 
 import wvlet.uni.http.HttpMethod
-import wvlet.uni.http.rpc.RPC
 import wvlet.uni.test.UniTest
 
 object RxRouterTestFixtures:
 
-  @RPC
   trait FrontendApi:
     def status: String
     def submitQuery(request: String): String
@@ -27,32 +25,18 @@ object RxRouterTestFixtures:
   object FrontendApi extends RxRouterProvider:
     override def router: RxRouter = RxRouter.of[FrontendApi]
 
-  @RPC(path = "/v1")
   trait FileApi:
     def upload(name: String): String
     def download(id: String): Array[Byte]
 
-  trait NotAnRpcTrait:
-    @Endpoint(HttpMethod.GET, "/health")
-    def health: String
-
-  // For the constant-prefix test: `@RPC(path = ApiPrefix)` rather than a string literal.
-  final val ApiPrefix = "/v2"
-
-  @RPC(path = ApiPrefix)
-  trait ConstantPrefixApi:
-    def ping: String
-
   // For the overload-rejection test: two methods with the same name.
-  @RPC
   trait OverloadedApi:
     def hello(name: String): String
     def hello(name: String, greeting: String): String
 
-  // For the Any/Object filter test: a class (not just a trait) so toString/hashCode/equals are
-  // visible on the receiver. Surface.methodsOf already filters Any/Object methods, but we also
-  // apply a defensive filter in extractRoutesForRx.
-  @RPC
+  // For the Object/Product filter test: a class (not just a trait) so toString/hashCode/equals
+  // are visible on the receiver. Surface.methodsOf already filters Object/Product methods, but
+  // we also apply a defensive name-based filter in the macro.
   class WithObjectMethods:
     def greet(name: String): String = s"hi ${name}"
 
@@ -61,7 +45,7 @@ end RxRouterTestFixtures
 class RxRouterTest extends UniTest:
   import RxRouterTestFixtures.*
 
-  test("RxRouter.of[T] exposes every public method when T is @RPC-annotated") {
+  test("RxRouter.of[T] exposes every public method as a POST endpoint") {
     val router = RxRouter.of[FrontendApi]
     router.isLeaf shouldBe true
     val routes = router.toRoutes
@@ -81,8 +65,8 @@ class RxRouterTest extends UniTest:
       )
   }
 
-  test("RxRouter.of[T] honors @RPC(path = ...) prefix") {
-    val router = RxRouter.of[FileApi]
+  test("withPathPrefix prepends the namespace to every endpoint") {
+    val router = RxRouter.of[FileApi].withPathPrefix("/v1")
     router.toRoutes.map(_.pathPattern).toSet shouldBe
       Set(
         "/v1/wvlet.uni.http.router.RxRouterTestFixtures.FileApi/upload",
@@ -90,12 +74,30 @@ class RxRouterTest extends UniTest:
       )
   }
 
-  test("RxRouter.of[T] falls back to @Endpoint scan when @RPC is absent") {
-    val router = RxRouter.of[NotAnRpcTrait]
-    val routes = router.toRoutes
-    routes.size shouldBe 1
-    routes.head.method shouldBe HttpMethod.GET
-    routes.head.pathPattern shouldBe "/health"
+  test("withPathPrefix strips trailing slashes") {
+    val router = RxRouter.of[FileApi].withPathPrefix("/v1/")
+    router.toRoutes.head.pathPattern.startsWith("/v1/wvlet.uni.") shouldBe true
+  }
+
+  test("withPathPrefix on a stem propagates to all children") {
+    val combined = RxRouter
+      .of(RxRouter.of[FrontendApi], RxRouter.of[FileApi])
+      .withPathPrefix("/api")
+    combined
+      .toRoutes
+      .foreach { r =>
+        r.pathPattern.startsWith("/api/") shouldBe true
+      }
+  }
+
+  test("withPathPrefix composes additively rather than overwriting") {
+    val v1    = RxRouter.of[FileApi].withPathPrefix("/v1")
+    val v2    = RxRouter.of[FrontendApi].withPathPrefix("/v2")
+    val all   = RxRouter.of(v1, v2).withPathPrefix("/api")
+    val paths = all.toRoutes.map(_.pathPattern).toSet
+    // The stem-level "/api" is prepended to each child's pre-existing prefix.
+    paths shouldContain "/api/v1/wvlet.uni.http.router.RxRouterTestFixtures.FileApi/upload"
+    paths shouldContain "/api/v2/wvlet.uni.http.router.RxRouterTestFixtures.FrontendApi/status"
   }
 
   test("RxRouter.of(routers*) composes child routers") {
@@ -111,21 +113,16 @@ class RxRouterTest extends UniTest:
     FrontendApi.router.toRoutes.size shouldBe 2
   }
 
-  test("RxRouter.of[T] resolves a constant-reference @RPC(path = ApiPrefix)") {
-    val router = RxRouter.of[ConstantPrefixApi]
-    router.toRoutes.map(_.pathPattern).toSet shouldBe
-      Set("/v2/wvlet.uni.http.router.RxRouterTestFixtures.ConstantPrefixApi/ping")
-  }
-
-  test("RxRouter.of[T] rejects overloaded @RPC methods") {
-    val ex = intercept[IllegalArgumentException] {
-      RxRouter.of[OverloadedApi]
+  test("RxRouter.of[T] rejects overloaded methods") {
+    val router = RxRouter.of[OverloadedApi]
+    val ex     = intercept[IllegalArgumentException] {
+      router.toRoutes
     }
     ex.getMessage.contains("Overloaded RPC methods are not supported") shouldBe true
     ex.getMessage.contains("hello") shouldBe true
   }
 
-  test("RxRouter.of[T] does not expose Any / Object methods") {
+  test("RxRouter.of[T] does not expose Any / Object / Product methods") {
     val router = RxRouter.of[WithObjectMethods]
     val names  = router.toRoutes.map(_.methodSurface.name).toSet
     names shouldBe Set("greet")
