@@ -217,57 +217,130 @@ class UniTestTask(
             val beforeCount = testInstance.registeredTests.size
             val testStart   = System.nanoTime()
 
-            testInstance
-              .executeTest(testDef)
-              .flatMap { result =>
+            // Per-test `before` hook. A failure here is reported as a test error.
+            val beforeFailure: Option[Throwable] =
+              try
+                testInstance.runBefore()
+                None
+              catch
+                case e: Throwable =>
+                  Some(e)
+
+            beforeFailure match
+              case Some(e) =>
                 val testElapsed = System.nanoTime() - testStart
-                val isContainer = testInstance.registeredTests.size > beforeCount
-
-                if result.isFailure || !isContainer then
-                  val event = createEvent(testDef.fullName, result, testElapsed)
-                  eventHandler.handle(event)
-                  logResult(result, testElapsed, loggers)
-                  stats.addResult(result)
-                  result match
-                    case _: TestResult.Success =>
-                      classPassed += 1
-                    case _: TestResult.Failure | _: TestResult.Error =>
-                      classFailed += 1
-                    case _: TestResult.Skipped =>
-                      classSkipped += 1
-                    case _: TestResult.Pending | _: TestResult.Cancelled | _: TestResult.Ignored =>
-                      classPending += 1
-
-                if !result.isFailure && isContainer then
-                  testInstance
-                    .registeredTests
-                    .foreach { t =>
-                      if !executedTests.contains(t.fullName) then
-                        testQueue.enqueue(t)
-                    }
-
+                val errorResult = TestResult.Error(
+                  testDef.fullName,
+                  s"before hook failed: ${e.getMessage}",
+                  e
+                )
+                val event = createEvent(testDef.fullName, errorResult, testElapsed)
+                eventHandler.handle(event)
+                logResult(errorResult, testElapsed, loggers)
+                stats.addResult(errorResult)
+                classFailed += 1
                 processQueue()
-              }
+              case None =>
+                testInstance
+                  .executeTest(testDef)
+                  .flatMap { result =>
+                    val testElapsed = System.nanoTime() - testStart
+                    val isContainer = testInstance.registeredTests.size > beforeCount
+
+                    // Per-test `after` hook. Always runs, even when the body fails.
+                    val afterError: Option[Throwable] =
+                      try
+                        testInstance.runAfter()
+                        None
+                      catch
+                        case e: Throwable =>
+                          Some(e)
+
+                    val finalResult: TestResult =
+                      afterError match
+                        case Some(e) if !result.isFailure =>
+                          TestResult.Error(
+                            testDef.fullName,
+                            s"after hook failed: ${e.getMessage}",
+                            e
+                          )
+                        case _ =>
+                          result
+
+                    if finalResult.isFailure || !isContainer then
+                      val event = createEvent(testDef.fullName, finalResult, testElapsed)
+                      eventHandler.handle(event)
+                      logResult(finalResult, testElapsed, loggers)
+                      stats.addResult(finalResult)
+                      finalResult match
+                        case _: TestResult.Success =>
+                          classPassed += 1
+                        case _: TestResult.Failure | _: TestResult.Error =>
+                          classFailed += 1
+                        case _: TestResult.Skipped =>
+                          classSkipped += 1
+                        case _: TestResult.Pending | _: TestResult.Cancelled |
+                            _: TestResult.Ignored =>
+                          classPending += 1
+
+                    if !finalResult.isFailure && isContainer then
+                      testInstance
+                        .registeredTests
+                        .foreach { t =>
+                          if !executedTests.contains(t.fullName) then
+                            testQueue.enqueue(t)
+                        }
+
+                    processQueue()
+                  }
+            end match
           end if
 
-      processQueue().map { _ =>
-        val classElapsed = System.nanoTime() - classStartTime
-        stats.addTime(classElapsed)
-        val classSummary = TestStats.formatSummary(
-          classPassed,
-          classFailed,
-          classSkipped,
-          classPending
-        )
-        val classTimeStr = TestStats.formatTime(classElapsed)
-        val summaryLine  = s"  ${classSummary} (${classTimeStr})"
-        val summaryColor =
-          if classFailed > 0 then
-            Tint.red(summaryLine)
-          else
-            Tint.green(summaryLine)
-        loggers.foreach(_.info(summaryColor))
-      }
+      // Run `beforeAll` once before processing the test queue. If it throws, abort the spec.
+      val beforeAllError: Option[Throwable] =
+        try
+          testInstance.runBeforeAll()
+          None
+        catch
+          case e: Throwable =>
+            Some(e)
+
+      val testsFuture: Future[Unit] =
+        beforeAllError match
+          case Some(e) =>
+            handleSpecLevelError(className, e, eventHandler, loggers)
+            Future.unit
+          case None =>
+            processQueue()
+
+      testsFuture
+        .transform { tryValue =>
+          // Always run `afterAll`, even on failure. Surface any teardown error.
+          try
+            testInstance.runAfterAll()
+          catch
+            case e: Throwable =>
+              handleSpecLevelError(className, e, eventHandler, loggers)
+          tryValue
+        }
+        .map { _ =>
+          val classElapsed = System.nanoTime() - classStartTime
+          stats.addTime(classElapsed)
+          val classSummary = TestStats.formatSummary(
+            classPassed,
+            classFailed,
+            classSkipped,
+            classPending
+          )
+          val classTimeStr = TestStats.formatTime(classElapsed)
+          val summaryLine  = s"  ${classSummary} (${classTimeStr})"
+          val summaryColor =
+            if classFailed > 0 then
+              Tint.red(summaryLine)
+            else
+              Tint.green(summaryLine)
+          loggers.foreach(_.info(summaryColor))
+        }
     end if
 
   end runTests
