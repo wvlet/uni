@@ -173,4 +173,81 @@ class CaseClassWeaverTest extends UniTest:
     restored shouldBe data
   }
 
+  test("fromMap hydrates a flat case class") {
+    val map      = Map[String, Any]("name" -> "Alice", "age" -> 30)
+    val restored = Weaver.fromMap[Person](map)
+    restored shouldBe Person("Alice", 30)
+  }
+
+  test("fromMap hydrates nested case classes") {
+    val map = Map[String, Any](
+      "name"    -> "Charlie",
+      "address" -> Map[String, Any]("city" -> "Tokyo", "country" -> "Japan")
+    )
+    val restored = Weaver.fromMap[Employee](map)
+    restored shouldBe Employee("Charlie", Address("Tokyo", "Japan"))
+  }
+
+  test("fromMap hydrates collection fields") {
+    val map = Map[String, Any](
+      "name"    -> "RPC",
+      "members" ->
+        Seq(
+          Map[String, Any]("name" -> "Alice", "age" -> 30),
+          Map[String, Any]("name" -> "Bob", "age"   -> 25)
+        )
+    )
+    val restored = Weaver.fromMap[Team](map)
+    restored shouldBe Team("RPC", List(Person("Alice", 30), Person("Bob", 25)))
+  }
+
+  test("fromMap fills defaults for missing fields") {
+    val map      = Map[String, Any]("name" -> "svc")
+    val restored = Weaver.fromMap[ConfigWithDefaults](map)
+    restored shouldBe ConfigWithDefaults("svc")
+  }
+
+  test("fromMap leaves None for missing optional fields") {
+    val map      = Map[String, Any]("name" -> "Frank")
+    val restored = Weaver.fromMap[Profile](map)
+    restored shouldBe Profile("Frank", None)
+  }
+
+  test("toMap round-trips a flat case class") {
+    val person = Person("Alice", 30)
+    val map    = Weaver.toMap(person)
+    map("name") shouldBe "Alice"
+    // AnyWeaver decodes integers as Long
+    map("age") shouldBe 30L
+    Weaver.fromMap[Person](map) shouldBe person
+  }
+
+  test("toMap round-trips nested case classes") {
+    val employee = Employee("Charlie", Address("Tokyo", "Japan"))
+    val map      = Weaver.toMap(employee)
+    Weaver.fromMap[Employee](map) shouldBe employee
+  }
+
+  test("fromMap accepts nested java.util.Map values (e.g. SnakeYAML output)") {
+    val nested = java.util.LinkedHashMap[String, Any]()
+    nested.put("city", "Tokyo")
+    nested.put("country", "Japan")
+    val map = Map[String, Any]("name" -> "Charlie", "address" -> nested)
+    Weaver.fromMap[Employee](map) shouldBe Employee("Charlie", Address("Tokyo", "Japan"))
+  }
+
+  test("fromMap accepts nested java.util.List values") {
+    val members = java.util.ArrayList[Any]()
+    val alice   = java.util.LinkedHashMap[String, Any]()
+    alice.put("name", "Alice")
+    alice.put("age", 30)
+    val bob = java.util.LinkedHashMap[String, Any]()
+    bob.put("name", "Bob")
+    bob.put("age", 25)
+    members.add(alice)
+    members.add(bob)
+    val map = Map[String, Any]("name" -> "RPC", "members" -> members)
+    Weaver.fromMap[Team](map) shouldBe Team("RPC", List(Person("Alice", 30), Person("Bob", 25)))
+  }
+
 end CaseClassWeaverTest
