@@ -152,7 +152,9 @@ class CommandLauncher(
 
   /**
     * Build method arguments from parsed values. `instance` is the method's owner, needed to read
-    * Scala 3 method-parameter defaults (which live as accessors on the owner class).
+    * Scala 3 method-parameter defaults (which live as accessors on the owner class). Falls back to
+    * the compile-time `getDefaultValue` for surfaces that don't synthesize a runtime accessor (e.g.
+    * inherited/trait methods).
     */
   private def buildMethodArgs(
       method: MethodSurface,
@@ -160,7 +162,10 @@ class CommandLauncher(
       parseResult: ParseResult
   ): Seq[Any] = method
     .args
-    .map(p => resolveOne(p, p.getMethodArgDefaultValue(instance), parseResult, "argument"))
+    .map { p =>
+      val default = p.getMethodArgDefaultValue(instance).orElse(p.getDefaultValue)
+      resolveOne(p, default, parseResult, "argument")
+    }
 
   private def resolveOne(
       p: Parameter,
@@ -195,6 +200,17 @@ class CommandLauncher(
       case None =>
         buildInstanceFromSurface(surf, parseResult)
 
+  // Read a field from the default object, falling back to the param's own declared default when
+  // the surface lacks a readable accessor (e.g. plain non-case classes whose constructor params
+  // aren't exposed as fields). `Parameter.get` returns null in that case; we don't want to
+  // silently smuggle null into the rebuilt instance.
+  private def readFromDefault(p: Parameter, default: Any): Any =
+    val v = p.get(default)
+    if v == null then
+      p.getDefaultValue.getOrElse(getDefaultForType(p.surface))
+    else
+      v
+
   private def mergeWithDefault(surf: Surface, default: Any, parseResult: ParseResult): Any =
     surf.objectFactory match
       case Some(factory) =>
@@ -208,7 +224,7 @@ class CommandLauncher(
                 case Some(values) =>
                   convertValue(p.surface, values)
                 case None =>
-                  p.get(default)
+                  readFromDefault(p, default)
           }
         factory.newInstance(args)
       case None =>
