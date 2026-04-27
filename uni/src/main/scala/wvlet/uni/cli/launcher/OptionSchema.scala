@@ -186,17 +186,35 @@ object MethodOptionSchema:
     val options   = optionsBuilder.result()
     val arguments = argumentsBuilder.result()
 
-    // Detect inner-field name collisions early — flattened nested-config options share the
-    // OptionParser's parameter-name namespace, so two flags backed by params with the same
-    // `name` would silently overwrite each other.
-    val nameCounts = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
+    // Detect collisions early — flattened nested-config options share the OptionParser's
+    // parameter-name namespace, and OptionParser.findOption binds each prefix to the first
+    // CLOption, so duplicates would silently overwrite each other or be unreachable.
+    val dupNames = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
       .groupBy(_.name)
-      .filter(_._2.size > 1)
-    if nameCounts.nonEmpty then
-      val dupes = nameCounts.keys.toSeq.sorted.mkString(", ")
+      .collect {
+        case (n, ps) if ps.size > 1 =>
+          n
+      }
+      .toSeq
+      .sorted
+    val dupPrefixes =
+      options
+        .flatMap(_.prefixes)
+        .groupBy(identity)
+        .collect {
+          case (p, ps) if ps.size > 1 =>
+            p
+        }
+        .toSeq
+        .sorted
+    if dupNames.nonEmpty || dupPrefixes.nonEmpty then
+      val parts = Seq(
+        Option.when(dupNames.nonEmpty)(s"field names: ${dupNames.mkString(", ")}"),
+        Option.when(dupPrefixes.nonEmpty)(s"option prefixes: ${dupPrefixes.mkString(", ")}")
+      ).flatten.mkString("; ")
       throw IllegalArgumentException(
-        s"Conflicting parameter names in command '${method.name}': ${dupes}. " +
-          "Methods cannot mix nested config classes that expose options with the same field name."
+        s"Conflicting parameters in command '${method.name}' (${parts}). " +
+          "Methods cannot mix nested config classes that expose duplicate option flags or field names."
       )
 
     new MethodOptionSchema(method, options, arguments)

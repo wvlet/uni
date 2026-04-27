@@ -129,6 +129,21 @@ class ConflictingNestedApp:
   @command(description = "Two nested configs that share field names")
   def collide(a: ServerConfig, b: ServerConfig): String = s"${a.port}-${b.port}"
 
+case class DbConfig(
+    @option(prefix = "--host", description = "DB host")
+    host: String = "db"
+)
+
+case class ApiConfig(
+    @option(prefix = "--host", description = "API host")
+    apiHost: String = "api"
+)
+
+@command(description = "App with conflicting nested config option prefixes")
+class ConflictingPrefixApp:
+  @command(description = "Two configs that reuse the same option prefix")
+  def run(db: DbConfig, api: ApiConfig): String = s"${db.host}-${api.apiHost}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -254,6 +269,12 @@ class LauncherTest extends UniTest:
   test("colliding nested config-class params produce a clear error") {
     intercept[IllegalArgumentException] {
       Launcher.of[ConflictingNestedApp].execute(Array("collide"))
+    }
+  }
+
+  test("nested configs with duplicate option prefixes produce a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ConflictingPrefixApp].execute(Array("run"))
     }
   }
 
