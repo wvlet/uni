@@ -58,33 +58,25 @@ object WeaverDerivation:
     // Get the constructor parameters
     val params = symbol.primaryConstructor.paramSymss.flatten.filterNot(_.isTypeParam)
 
-    // Build the field weavers expression for each parameter
+    // Build the field weavers expression for each parameter.
+    //
+    // Mirror airframe-codec's pattern: prefer an in-scope `given Weaver[t]` when one is available,
+    // else fall back to a Surface-driven runtime weaver via `Weaver.fromSurface(Surface.of[t])`.
+    // The Surface fallback covers transitively-open hierarchies — e.g. `pet: Animal` where
+    // `Animal` is a non-sealed abstract class, or `pets: Option[Animal]` — without requiring
+    // subclass registration. For surfaces with no params/factory the runtime weaver packs as `{}`
+    // and unpacks as null, matching airframe ObjectMapCodec's lossy handling.
     val fieldWeaverExprs: List[Expr[Weaver[?]]] = params.map { param =>
       val paramType = tpe.memberType(param)
       paramType.asType match
         case '[t] =>
-          // Try to summon a Weaver for this type
           Expr.summon[Weaver[t]] match
             case Some(weaver) =>
               weaver.asExprOf[Weaver[?]]
             case None =>
-              val typeShow       = paramType.show
-              val typeSym        = paramType.typeSymbol
-              val typeFlags      = typeSym.flags
-              val isOpenAbstract =
-                (typeFlags.is(Flags.Abstract) || typeFlags.is(Flags.Trait)) &&
-                  !typeFlags.is(Flags.Sealed)
-              val hint =
-                if isOpenAbstract then
-                  s" ${typeShow} is a non-sealed abstract type, so Weaver cannot enumerate its " +
-                    s"subclasses at compile time. Either seal ${typeShow} (and add `derives " +
-                    s"Weaver`), or define a given via `Weaver.subclassesOf[${typeShow}](" +
-                    s"Weaver.SubclassEntry(classOf[ConcreteSub], Weaver.of[ConcreteSub]), ...)`."
-                else
-                  " Make sure a Weaver instance is available in scope."
-              report.errorAndAbort(
-                s"No Weaver found for field '${param.name}' of type ${typeShow}.${hint}"
-              )
+              '{
+                Weaver.fromSurface(Surface.of[t]).asInstanceOf[Weaver[t]]
+              }.asExprOf[Weaver[?]]
     }
 
     // Build IndexedSeq of field weavers

@@ -12,7 +12,6 @@ import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
 import wvlet.uni.weaver.codec.JSONWeaver
 import wvlet.uni.weaver.codec.PrimitiveWeaver
-import wvlet.uni.weaver.codec.SealedTraitWeaver
 
 import java.time.Instant
 import java.util.UUID
@@ -119,164 +118,6 @@ object Weaver:
 
   // For `derives Weaver` clause
   inline def derived[A]: Weaver[A] = of[A]
-
-  /**
-    * Build a Weaver for a non-sealed abstract class (or trait) `A` from an explicit list of
-    * concrete subclass weavers. Use this when `Weaver.of[A]` cannot derive automatically because
-    * `A` is open and the macro can't enumerate its subtypes.
-    *
-    * The resulting weaver shares the wire format of [[Weaver.of]] for sealed traits: a
-    * discriminator field (default `@type`) holds the concrete subclass name, and the remaining
-    * fields hold the subclass payload.
-    *
-    * {{{
-    * abstract class Animal(val name: String)
-    * case class Dog(name: String, breed: String) extends Animal(name) derives Weaver
-    * case class Cat(name: String, color: String) extends Animal(name) derives Weaver
-    *
-    * given Weaver[Animal] = Weaver.subclassesOf[Animal](
-    *   Weaver.SubclassEntry(classOf[Dog], Weaver.of[Dog]),
-    *   Weaver.SubclassEntry(classOf[Cat], Weaver.of[Cat])
-    * )
-    *
-    * case class Owner(name: String, pet: Animal) derives Weaver
-    * }}}
-    *
-    * Each entry binds a concrete subclass `S <: A` to a `Weaver[S]` (and optionally an `S`
-    * singleton instance). Sharing the type parameter prevents mismatched registrations like
-    * `SubclassEntry(classOf[Dog], Weaver.of[Cat])` from compiling.
-    *
-    * For Scala `object` (singleton) subclasses, pass `singleton = Some(MyObject)` explicitly so the
-    * registration works portably on JVM, Scala.js, and Native:
-    * {{{
-    * given Weaver[Signal] = Weaver.subclassesOf[Signal](
-    *   Weaver.SubclassEntry(classOf[On.type],  Weaver.of[On.type],  Some(On)),
-    *   Weaver.SubclassEntry(classOf[Off.type], Weaver.of[Off.type], Some(Off)),
-    *   Weaver.SubclassEntry(classOf[Pulse],    Weaver.of[Pulse])
-    * )
-    * }}}
-    *
-    * Entries should point at *concrete* leaf subclasses. Abstract intermediates compile but will
-    * never match at pack time (dispatch keys on the concrete runtime class name) — packing then
-    * fails with `Unknown child type 'X'` for the actual concrete value.
-    *
-    * @param subclassWeavers
-    *   one [[SubclassEntry]] per concrete subclass. Discriminator names come from
-    *   `Class.getSimpleName` and are validated for collisions after canonicalization (matching how
-    *   the discriminator is resolved during unpack).
-    */
-  def subclassesOf[A](subclassWeavers: SubclassEntry[A, ?]*)(using
-      ct: scala.reflect.ClassTag[A]
-  ): Weaver[A] =
-    if subclassWeavers.isEmpty then
-      throw IllegalArgumentException("Weaver.subclassesOf requires at least one subclass entry")
-    val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers
-      .toSeq
-      .map { entry =>
-        val name      = entry.cls.getSimpleName.stripSuffix("$")
-        val weaver    = entry.weaver.asInstanceOf[Weaver[? <: A]]
-        val singleton = entry.singleton.asInstanceOf[Option[A]]
-        (name, (weaver, singleton))
-      }
-    // Discriminator lookup at unpack time normalizes via CName.toCanonicalName, so two
-    // registered children that differ only in casing/separators (e.g. FooBar vs foo_bar) would
-    // collide silently if we only compared raw names.
-    val canonicalDupes = pairs
-      .groupBy { (name, _) =>
-        CName.toCanonicalName(name)
-      }
-      .collect {
-        case (canonical, group) if group.size > 1 =>
-          canonical -> group.map(_._1)
-      }
-    if canonicalDupes.nonEmpty then
-      val rendered = canonicalDupes
-        .map { (canonical, names) =>
-          s"${names.mkString(" / ")} (canonical: ${canonical})"
-        }
-        .mkString("; ")
-      throw IllegalArgumentException(
-        s"Weaver.subclassesOf received subclass names that collide after canonicalization: " +
-          s"${rendered}. Each subclass must have a unique discriminator name."
-      )
-    val parentName =
-      try
-        ct.runtimeClass.getSimpleName.stripSuffix("$")
-      catch
-        case _: Throwable =>
-          "abstract type"
-    new SealedTraitWeaver[A](parentName, pairs.toMap)
-
-  end subclassesOf
-
-  /**
-    * One subclass registration for [[subclassesOf]]. The shared subtype parameter `S <: A` keeps
-    * the class, weaver, and optional singleton on the same concrete subtype, so mismatched
-    * registrations are rejected at compile time.
-    */
-  case class SubclassEntry[A, S <: A](cls: Class[S], weaver: Weaver[S], singleton: Option[S] = None)
-
-  object SubclassEntry:
-
-    /**
-      * Register a singleton subclass (Scala `object`) without supplying a `Weaver[S]`. The pack/
-      * unpack paths inside [[SealedTraitWeaver]] never consult the child weaver when a singleton is
-      * set — they just emit the discriminator and return the cached instance — so a placeholder
-      * weaver is fine. This makes plain `object` subclasses (which can't `derives Weaver`)
-      * registrable on any platform.
-      */
-    def singleton[A, S <: A](cls: Class[S], instance: S): SubclassEntry[A, S] = SubclassEntry[A, S](
-      cls,
-      singletonOnlyWeaver[S](cls),
-      Some(instance)
-    )
-
-    /**
-      * JVM-only convenience: build a [[SubclassEntry]] for a Scala `object` subclass by recovering
-      * the singleton via the synthetic `MODULE$` field reflectively. Throws
-      * `IllegalArgumentException` if `cls` doesn't have `MODULE$` (i.e. it isn't a Scala module).
-      * Use [[singleton]] (passing the instance directly) on Scala.js / Native.
-      */
-    def forSingleton[A, S <: A](cls: Class[S], weaver: Weaver[S]): SubclassEntry[A, S] =
-      Weaver.singletonInstanceOf[A](cls.asInstanceOf[Class[? <: A]]) match
-        case Some(instance) =>
-          SubclassEntry[A, S](cls, weaver, Some(instance.asInstanceOf[S]))
-        case None =>
-          throw IllegalArgumentException(
-            s"SubclassEntry.forSingleton: ${cls.getName} is not a Scala module " +
-              s"(no MODULE$$ field), or reflection isn't supported on this platform. " +
-              s"Pass `singleton = Some(...)` explicitly to construct a SubclassEntry instead."
-          )
-
-    /**
-      * Placeholder Weaver used when registering a singleton-only subclass. SealedTraitWeaver short-
-      * circuits to the singleton instance whenever it's defined, so this is never invoked during
-      * normal pack/unpack — but we throw if it ever is, to surface bugs loudly instead of silently.
-      */
-    private def singletonOnlyWeaver[S](cls: Class[S]): Weaver[S] =
-      new Weaver[S]:
-        private def fail =
-          throw new IllegalStateException(
-            s"singletonOnlyWeaver for ${cls.getName} should never be invoked; " +
-              s"SealedTraitWeaver dispatches singleton subclasses without consulting the weaver."
-          )
-        override def pack(p: wvlet.uni.msgpack.spi.Packer, v: S, config: WeaverConfig): Unit = fail
-        override def unpack(u: wvlet.uni.msgpack.spi.Unpacker, context: WeaverContext): Unit = fail
-
-  end SubclassEntry
-
-  /**
-    * Recover a singleton instance from the synthetic `MODULE$` field that the Scala compiler emits
-    * for `object` definitions on JVM. Returns None if the class isn't a module, or if reflection
-    * isn't supported on the current platform (Scala.js / Native).
-    */
-  private[weaver] def singletonInstanceOf[A](cls: Class[? <: A]): Option[A] =
-    try
-      val field = cls.getField("MODULE$")
-      Some(field.get(null).asInstanceOf[A])
-    catch
-      case _: Throwable =>
-        None
 
   def weave[A](v: A, config: WeaverConfig = WeaverConfig())(using weaver: Weaver[A]): MsgPack =
     weaver.weave(v, config)
@@ -440,11 +281,37 @@ object Weaver:
       CaseClassWeaver(s, fieldWeavers)
   }
 
+  /**
+    * Final fallback for surfaces with no objectFactory and no params (typically abstract classes
+    * and unsealed traits whose macro-generated Surface is bare). Mirrors airframe-codec's
+    * `ObjectMapCodec` behavior for the same case: pack as an empty map, unpack as null. Lossy by
+    * design — users who need typed round-trip for an open hierarchy should provide a custom
+    * `given Weaver[A]` for the abstract type.
+    */
+  private val emptyObjectFallbackFactory: WeaverFactory = {
+    case s if !s.isPrimitive && s.objectFactory.isEmpty =>
+      new Weaver[Any]:
+        override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
+          if v == null then
+            p.packNil
+          else
+            p.packMapHeader(0)
+        override def unpack(u: Unpacker, context: WeaverContext): Unit =
+          u.getNextValueType match
+            case ValueType.NIL =>
+              u.unpackNil
+              context.setNull
+            case _ =>
+              u.skipValue
+              context.setNull
+  }
+
   private val defaultFactories: Seq[WeaverFactory] = Seq(
     primitiveFactory,
     collectionFactory,
     javaCollectionFactory,
-    complexTypeFactory
+    complexTypeFactory,
+    emptyObjectFallbackFactory
   )
 
   private def buildWeaver(surface: Surface): Weaver[?] = defaultFactories
