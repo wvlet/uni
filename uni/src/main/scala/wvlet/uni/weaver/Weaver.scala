@@ -166,6 +166,20 @@ object Weaver:
   ): Weaver[A] =
     if subclassWeavers.isEmpty then
       throw IllegalArgumentException("Weaver.subclassesOf requires at least one subclass entry")
+    // Reject abstract intermediate registrations: pack-time dispatch keys on the concrete
+    // runtime class name, so abstract entries can never match an actual instance.
+    val abstractEntries = subclassWeavers
+      .toSeq
+      .filter { entry =>
+        entry.singleton.isEmpty && java.lang.reflect.Modifier.isAbstract(entry.cls.getModifiers)
+      }
+    if abstractEntries.nonEmpty then
+      val names = abstractEntries.map(_.cls.getName).mkString(", ")
+      throw IllegalArgumentException(
+        s"Weaver.subclassesOf received abstract class entries: ${names}. " +
+          s"Pack-time dispatch keys on the concrete runtime class, so abstract intermediates " +
+          s"can never match. Register concrete subclasses (or singletons) instead."
+      )
     val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers
       .toSeq
       .map { entry =>
@@ -215,10 +229,23 @@ object Weaver:
   object SubclassEntry:
 
     /**
+      * Register a singleton subclass (Scala `object`) without supplying a `Weaver[S]`. The pack/
+      * unpack paths inside [[SealedTraitWeaver]] never consult the child weaver when a singleton is
+      * set — they just emit the discriminator and return the cached instance — so a placeholder
+      * weaver is fine. This makes plain `object` subclasses (which can't `derives Weaver`)
+      * registrable on any platform.
+      */
+    def singleton[A, S <: A](cls: Class[S], instance: S): SubclassEntry[A, S] = SubclassEntry[A, S](
+      cls,
+      singletonOnlyWeaver[S](cls),
+      Some(instance)
+    )
+
+    /**
       * JVM-only convenience: build a [[SubclassEntry]] for a Scala `object` subclass by recovering
       * the singleton via the synthetic `MODULE$` field reflectively. Throws
       * `IllegalArgumentException` if `cls` doesn't have `MODULE$` (i.e. it isn't a Scala module).
-      * Use the case-class constructor with an explicit `singleton` on Scala.js / Native.
+      * Use [[singleton]] (passing the instance directly) on Scala.js / Native.
       */
     def forSingleton[A, S <: A](cls: Class[S], weaver: Weaver[S]): SubclassEntry[A, S] =
       Weaver.singletonInstanceOf[A](cls.asInstanceOf[Class[? <: A]]) match
@@ -230,6 +257,21 @@ object Weaver:
               s"(no MODULE$$ field), or reflection isn't supported on this platform. " +
               s"Pass `singleton = Some(...)` explicitly to construct a SubclassEntry instead."
           )
+
+    /**
+      * Placeholder Weaver used when registering a singleton-only subclass. SealedTraitWeaver short-
+      * circuits to the singleton instance whenever it's defined, so this is never invoked during
+      * normal pack/unpack — but we throw if it ever is, to surface bugs loudly instead of silently.
+      */
+    private def singletonOnlyWeaver[S](cls: Class[S]): Weaver[S] =
+      new Weaver[S]:
+        private def fail =
+          throw new IllegalStateException(
+            s"singletonOnlyWeaver for ${cls.getName} should never be invoked; " +
+              s"SealedTraitWeaver dispatches singleton subclasses without consulting the weaver."
+          )
+        override def pack(p: wvlet.uni.msgpack.spi.Packer, v: S, config: WeaverConfig): Unit = fail
+        override def unpack(u: wvlet.uni.msgpack.spi.Unpacker, context: WeaverContext): Unit = fail
 
   end SubclassEntry
 

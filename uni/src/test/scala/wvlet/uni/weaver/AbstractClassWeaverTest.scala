@@ -150,4 +150,36 @@ class AbstractClassWeaverTest extends UniTest:
     Weaver.fromJson[Signal](json) shouldBe pulse
   }
 
+  test("error: subclassesOf rejects abstract intermediate registrations") {
+    abstract class Base
+    abstract class Mammal         extends Base
+    case class Mouse(weight: Int) extends Mammal derives Weaver
+
+    val e = intercept[IllegalArgumentException] {
+      // Using the singleton-less path so we trip the abstract guard
+      Weaver.subclassesOf[Base](
+        Weaver.SubclassEntry(classOf[Mammal], Weaver.of[Mouse].asInstanceOf[Weaver[Mammal]])
+      )
+    }
+    e.getMessage shouldContain "abstract class entries"
+    e.getMessage shouldContain "Mammal"
+  }
+
+  test("SubclassEntry.singleton works for plain (non-case) object subclasses") {
+    trait Marker
+    object Alpha extends Marker
+    object Beta  extends Marker
+
+    given Weaver[Marker] = Weaver.subclassesOf[Marker](
+      Weaver.SubclassEntry.singleton[Marker, Alpha.type](classOf[Alpha.type], Alpha),
+      Weaver.SubclassEntry.singleton[Marker, Beta.type](classOf[Beta.type], Beta)
+    )
+
+    val a: Marker = Alpha
+    Weaver.fromJson[Marker](Weaver.toJson(a)) shouldBe Alpha
+
+    val b: Marker = Beta
+    Weaver.fromJson[Marker](Weaver.toJson(b)) shouldBe Beta
+  }
+
 end AbstractClassWeaverTest
