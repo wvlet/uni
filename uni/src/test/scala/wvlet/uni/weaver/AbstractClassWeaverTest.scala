@@ -17,6 +17,21 @@ object AbstractClassWeaverTest:
   // Owner can now derive because Weaver[Animal] is in scope
   case class Owner(name: String, pet: Animal) derives Weaver
 
+  // Concrete Animal subclass intentionally NOT registered with the Weaver, used to verify the
+  // pack-time "Unknown child type" error path. Defined here (not inside a test body) because
+  // Scala.js mangles local class names (`Fish$1`), which would break the assertion.
+  case class Fish(override val name: String, depth: Int) extends Animal(name) derives Weaver
+
+  // Used by the canonical-name collision test. Top-level so simpleName stays stable on JS.
+  abstract class Marker
+  case class FooBar(value: Int)  extends Marker derives Weaver
+  case class foo_bar(value: Int) extends Marker derives Weaver
+
+  // Used by the plain-object singleton test. Top-level for the same reason.
+  trait Tag
+  object Alpha extends Tag
+  object Beta  extends Tag
+
   // Cover the programmatic-construction path: build a Seq of entries and splat it
   abstract class Shape
   case class Circle(radius: Double) extends Shape derives Weaver
@@ -81,7 +96,6 @@ class AbstractClassWeaverTest extends UniTest:
   }
 
   test("error: pack instance whose class wasn't registered") {
-    case class Fish(override val name: String, depth: Int) extends Animal(name) derives Weaver
     val rogue: Animal = Fish("Nemo", 50)
     val e             = intercept[IllegalArgumentException] {
       Weaver.weave(rogue)
@@ -106,9 +120,6 @@ class AbstractClassWeaverTest extends UniTest:
 
   test("error: subclassesOf rejects names that collide after canonicalization") {
     // FooBar and foo_bar canonicalize to the same discriminator
-    abstract class Marker
-    case class FooBar(value: Int)  extends Marker derives Weaver
-    case class foo_bar(value: Int) extends Marker derives Weaver
     val e = intercept[IllegalArgumentException] {
       Weaver.subclassesOf[Marker](
         Weaver.SubclassEntry(classOf[FooBar], Weaver.of[FooBar]),
@@ -151,20 +162,16 @@ class AbstractClassWeaverTest extends UniTest:
   }
 
   test("SubclassEntry.singleton works for plain (non-case) object subclasses") {
-    trait Marker
-    object Alpha extends Marker
-    object Beta  extends Marker
-
-    given Weaver[Marker] = Weaver.subclassesOf[Marker](
-      Weaver.SubclassEntry.singleton[Marker, Alpha.type](classOf[Alpha.type], Alpha),
-      Weaver.SubclassEntry.singleton[Marker, Beta.type](classOf[Beta.type], Beta)
+    given Weaver[Tag] = Weaver.subclassesOf[Tag](
+      Weaver.SubclassEntry.singleton[Tag, Alpha.type](classOf[Alpha.type], Alpha),
+      Weaver.SubclassEntry.singleton[Tag, Beta.type](classOf[Beta.type], Beta)
     )
 
-    val a: Marker = Alpha
-    Weaver.fromJson[Marker](Weaver.toJson(a)) shouldBe Alpha
+    val a: Tag = Alpha
+    Weaver.fromJson[Tag](Weaver.toJson(a)) shouldBe Alpha
 
-    val b: Marker = Beta
-    Weaver.fromJson[Marker](Weaver.toJson(b)) shouldBe Beta
+    val b: Tag = Beta
+    Weaver.fromJson[Tag](Weaver.toJson(b)) shouldBe Beta
   }
 
 end AbstractClassWeaverTest
