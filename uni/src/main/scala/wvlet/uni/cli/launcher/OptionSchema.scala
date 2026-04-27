@@ -16,6 +16,14 @@ package wvlet.uni.cli.launcher
 import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
 
 /**
+  * Detect a nested configuration class — a structured (non-primitive) parameter that should
+  * contribute its own fields as options/arguments rather than being parsed directly.
+  */
+private[launcher] def isNestedConfigClass(surface: Surface): Boolean =
+  !surface.isPrimitive && !surface.isOption && !surface.isSeq && !surface.isArray &&
+    surface.params.nonEmpty
+
+/**
   * Schema for command-line options and arguments, built from Surface annotations
   */
 trait OptionSchema:
@@ -91,11 +99,8 @@ object ClassOptionSchema:
               argumentsBuilder += CLArgument(argCount, name, desc, Some(p))
               argCount += 1
             case None =>
-              // Check if this is a nested class with options
-              if !p.surface.isPrimitive && !p.surface.isOption && !p.surface.isSeq &&
-                !p.surface.isArray && p.surface.params.nonEmpty
-              then
-                // Recursively process nested class
+              // Recursively process nested config classes so their fields become options/arguments
+              if isNestedConfigClass(p.surface) then
                 val nested = ClassOptionSchema(p.surface, argCount)
                 optionsBuilder ++= nested.options
                 argumentsBuilder ++= nested.arguments
@@ -167,11 +172,20 @@ object MethodOptionSchema:
               argumentsBuilder += CLArgument(argCount, name, desc, Some(p))
               argCount += 1
             case None =>
-              // Parameters without @option or @argument are treated as positional arguments
-              argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
-              argCount += 1
+              if isNestedConfigClass(p.surface) then
+                // Recursively expose nested config class options/arguments
+                val nested = ClassOptionSchema(p.surface, argCount)
+                optionsBuilder ++= nested.options
+                argumentsBuilder ++= nested.arguments
+                argCount += nested.arguments.length
+              else
+                // Plain parameters are treated as positional arguments
+                argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
+                argCount += 1
 
     new MethodOptionSchema(method, optionsBuilder.result(), argumentsBuilder.result())
+
+  end apply
 
   private def splitPrefixes(prefix: String, paramName: String): Seq[String] =
     if prefix.isEmpty then

@@ -13,7 +13,7 @@
  */
 package wvlet.uni.cli.launcher
 
-import wvlet.uni.surface.{MethodSurface, Surface}
+import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
 
 /**
   * Information about a command
@@ -137,27 +137,11 @@ class CommandLauncher(
         val args = surf
           .params
           .map { p =>
-            // Check if this is a nested class (not primitive, not Option, not Seq/Array, has params)
-            val isNested =
-              !p.surface.isPrimitive && !p.surface.isOption && !p.surface.isSeq &&
-                !p.surface.isArray && p.surface.params.nonEmpty &&
-                !p.findAnnotation("option").isDefined && !p.findAnnotation("argument").isDefined
-
-            if isNested then
+            if isUnannotatedNested(p) then
               // Recursively build nested instance
               buildInstanceFromSurface(p.surface, parseResult)
             else
-              parseResult.optionValues.get(p.name) match
-                case Some(values) =>
-                  convertValue(p.surface, values)
-                case None =>
-                  p.getDefaultValue
-                    .getOrElse {
-                      if p.isRequired then
-                        throw IllegalArgumentException(s"Missing required parameter: ${p.name}")
-                      else
-                        getDefaultForType(p.surface)
-                    }
+              resolveParamValue(p, parseResult, "parameter")
           }
         factory.newInstance(args)
       case None =>
@@ -169,18 +153,29 @@ class CommandLauncher(
   private def buildMethodArgs(method: MethodSurface, parseResult: ParseResult): Seq[Any] = method
     .args
     .map { p =>
-      parseResult.optionValues.get(p.name) match
-        case Some(values) =>
-          convertValue(p.surface, values)
-        case None =>
-          p.getDefaultValue
-            .getOrElse {
-              if p.isRequired then
-                throw IllegalArgumentException(s"Missing required argument: ${p.name}")
-              else
-                getDefaultForType(p.surface)
-            }
+      if isUnannotatedNested(p) then
+        // Recursively build nested config-class instance from parsed flags
+        buildInstanceFromSurface(p.surface, parseResult)
+      else
+        resolveParamValue(p, parseResult, "argument")
     }
+
+  private def isUnannotatedNested(p: Parameter): Boolean =
+    isNestedConfigClass(p.surface) && p.findAnnotation("option").isEmpty &&
+      p.findAnnotation("argument").isEmpty
+
+  private def resolveParamValue(p: Parameter, parseResult: ParseResult, kind: String): Any =
+    parseResult.optionValues.get(p.name) match
+      case Some(values) =>
+        convertValue(p.surface, values)
+      case None =>
+        p.getDefaultValue
+          .getOrElse {
+            if p.isRequired then
+              throw IllegalArgumentException(s"Missing required ${kind}: ${p.name}")
+            else
+              getDefaultForType(p.surface)
+          }
 
   /**
     * Convert string values to the target type

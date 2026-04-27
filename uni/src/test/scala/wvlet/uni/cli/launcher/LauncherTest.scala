@@ -96,6 +96,29 @@ class GitLikeCommand(
   @command(isDefault = true)
   def help(): String = "show help"
 
+// Methods that take nested config-class parameters (#509)
+case class ServerConfig(
+    @option(prefix = "--port", description = "Server port")
+    port: Int = 8080,
+    @option(prefix = "--host", description = "Server host")
+    host: String = "localhost"
+)
+
+case class CompilerOption(
+    @option(prefix = "--target", description = "Target directory")
+    target: String = "out",
+    @argument(name = "source", description = "Source file")
+    source: String = ""
+)
+
+@command(description = "App with nested-config methods")
+class NestedConfigApp:
+  @command(description = "Start the server")
+  def start(config: ServerConfig): String = s"start ${config.host}:${config.port}"
+
+  @command(description = "Compile a source file")
+  def compile(opt: CompilerOption): String = s"compile ${opt.source} -> ${opt.target}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -178,6 +201,27 @@ class LauncherTest extends UniTest:
   test("Launcher.of creates a launcher") {
     val launcher = Launcher.of[SimpleApp]
     launcher shouldNotBe null
+  }
+
+  test("execute method with nested config-class parameter") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("start", "--port", "9090", "--host", "example.com"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "start example.com:9090"
+  }
+
+  test("nested config-class method falls back to defaults when flags omitted") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("start"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "start localhost:8080"
+  }
+
+  test("nested config-class method accepts positional arguments and options") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("compile", "--target", "build", "Main.scala"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "compile Main.scala -> build"
   }
 
   test("launcher with config") {
