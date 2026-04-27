@@ -239,7 +239,7 @@ class CommandLauncher(
           value.toByte
         case Primitive.Char =>
           value.headOption.getOrElse('\u0000')
-        case _ if surface.fullName == "wvlet.uni.cli.launcher.KeyValue" =>
+        case _ if surface.fullName == KeyValue.SurfaceName =>
           KeyValue.parse(value)
         case _ =>
           // Try to use string as-is for unknown types

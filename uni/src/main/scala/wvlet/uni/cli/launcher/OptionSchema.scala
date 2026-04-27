@@ -17,11 +17,12 @@ import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
 
 /**
   * Detect a nested configuration class — a structured (non-primitive) parameter that should
-  * contribute its own fields as options/arguments rather than being parsed directly.
+  * contribute its own fields as options/arguments rather than being parsed directly. Excludes
+  * launcher-recognized scalar wrappers (e.g. `KeyValue`) that have a custom string parser.
   */
 private[launcher] def isNestedConfigClass(surface: Surface): Boolean =
   !surface.isPrimitive && !surface.isOption && !surface.isSeq && !surface.isArray &&
-    surface.params.nonEmpty
+    surface.params.nonEmpty && surface.fullName != KeyValue.SurfaceName
 
 /**
   * Schema for command-line options and arguments, built from Surface annotations

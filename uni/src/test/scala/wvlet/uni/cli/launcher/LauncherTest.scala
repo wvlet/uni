@@ -144,6 +144,13 @@ class ConflictingPrefixApp:
   @command(description = "Two configs that reuse the same option prefix")
   def run(db: DbConfig, api: ApiConfig): String = s"${db.host}-${api.apiHost}"
 
+@command(description = "App that takes a KeyValue method arg")
+class KeyValueMethodApp:
+  // Unannotated KeyValue should be treated as a single positional argument,
+  // NOT flattened into key/value sub-fields.
+  @command(description = "Parse a key=value pair")
+  def set(kv: KeyValue): String = s"${kv.key}=${kv.value}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -276,6 +283,13 @@ class LauncherTest extends UniTest:
     intercept[IllegalArgumentException] {
       Launcher.of[ConflictingPrefixApp].execute(Array("run"))
     }
+  }
+
+  test("KeyValue method arg is parsed as a single positional, not flattened") {
+    val launcher = Launcher.of[KeyValueMethodApp]
+    val result   = launcher.execute(Array("set", "foo=bar"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "foo=bar"
   }
 
   test("launcher with config") {
