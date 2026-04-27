@@ -12,6 +12,7 @@ import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
 import wvlet.uni.weaver.codec.JSONWeaver
 import wvlet.uni.weaver.codec.PrimitiveWeaver
+import wvlet.uni.weaver.codec.SealedTraitWeaver
 
 import java.time.Instant
 import java.util.UUID
@@ -118,6 +119,66 @@ object Weaver:
 
   // For `derives Weaver` clause
   inline def derived[A]: Weaver[A] = of[A]
+
+  /**
+    * Build a Weaver for a non-sealed abstract class (or trait) `A` from an explicit list of
+    * concrete subclass weavers. Use this when `Weaver.of[A]` cannot derive automatically because
+    * `A` is open and the macro can't enumerate its subtypes.
+    *
+    * The resulting weaver shares the wire format of [[Weaver.of]] for sealed traits: a
+    * discriminator field (default `@type`) holds the concrete subclass name, and the remaining
+    * fields hold the subclass payload.
+    *
+    * {{{
+    * abstract class Animal(val name: String)
+    * case class Dog(name: String, breed: String) extends Animal(name) derives Weaver
+    * case class Cat(name: String, color: String) extends Animal(name) derives Weaver
+    *
+    * given Weaver[Animal] = Weaver.subclassesOf[Animal](
+    *   classOf[Dog] -> Weaver.of[Dog],
+    *   classOf[Cat] -> Weaver.of[Cat]
+    * )
+    *
+    * case class Owner(name: String, pet: Animal) derives Weaver
+    * }}}
+    *
+    * Subclasses must be concrete (case classes or regular classes with derivable Weavers); Scala
+    * `case object`s aren't supported here because abstract classes with constructor parameters
+    * cannot be extended by `object`s. For sealed hierarchies that include case objects, use
+    * `derives Weaver` on the sealed parent instead.
+    *
+    * @param subclassWeavers
+    *   pairs of `(concrete subclass, weaver)`. Names are taken from `Class.getSimpleName`.
+    */
+  def subclassesOf[A](subclassWeavers: (Class[? <: A], Weaver[? <: A])*): Weaver[A] =
+    if subclassWeavers.isEmpty then
+      throw IllegalArgumentException(
+        "Weaver.subclassesOf requires at least one (Class, Weaver) pair"
+      )
+    val entries: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers.map { (cls, weaver) =>
+      val name = cls.getSimpleName.stripSuffix("$")
+      name -> (weaver, None)
+    }
+    val map = entries.toMap
+    if map.size != entries.size then
+      val dupes = entries
+        .groupBy(_._1)
+        .collect {
+          case (k, vs) if vs.size > 1 =>
+            k
+        }
+        .mkString(", ")
+      throw IllegalArgumentException(
+        s"Weaver.subclassesOf received duplicate subclass names: ${dupes}. " +
+          s"Each subclass must have a unique simpleName."
+      )
+    // Derive a human-readable label from the first subclass's superclass for error messages.
+    val firstCls     = subclassWeavers.head._1
+    val abstractName = Option(firstCls.getSuperclass)
+      .filterNot(_ == classOf[Object])
+      .map(_.getSimpleName)
+      .getOrElse("abstract type")
+    new SealedTraitWeaver[A](abstractName, map)
 
   def weave[A](v: A, config: WeaverConfig = WeaverConfig())(using weaver: Weaver[A]): MsgPack =
     weaver.weave(v, config)

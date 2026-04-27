@@ -68,9 +68,22 @@ object WeaverDerivation:
             case Some(weaver) =>
               weaver.asExprOf[Weaver[?]]
             case None =>
+              val typeShow       = paramType.show
+              val typeSym        = paramType.typeSymbol
+              val typeFlags      = typeSym.flags
+              val isOpenAbstract =
+                (typeFlags.is(Flags.Abstract) || typeFlags.is(Flags.Trait)) &&
+                  !typeFlags.is(Flags.Sealed)
+              val hint =
+                if isOpenAbstract then
+                  s" ${typeShow} is a non-sealed abstract type, so Weaver cannot enumerate its " +
+                    s"subclasses at compile time. Either seal ${typeShow} (and add `derives " +
+                    s"Weaver`), or define a given via " +
+                    s"`Weaver.subclassesOf[${typeShow}](classOf[ConcreteSub] -> Weaver.of[ConcreteSub], ...)`."
+                else
+                  " Make sure a Weaver instance is available in scope."
               report.errorAndAbort(
-                s"No Weaver found for field '${param.name}' of type ${paramType.show}. " +
-                  s"Make sure a Weaver instance is available in scope."
+                s"No Weaver found for field '${param.name}' of type ${typeShow}.${hint}"
               )
     }
 
