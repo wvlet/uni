@@ -109,8 +109,19 @@ class CommandLauncher(
       args: Seq[String]
   ): LauncherResult =
     val methodSchema = MethodOptionSchema(method)
-    val parser       = OptionParser(methodSchema)
-    val parseResult  = parser.parse(args.toArray, config.helpPrefixes)
+    // The outer command schema parses first and consumes its known prefixes from the args.
+    // If the method schema reuses any of those prefixes (likely when a nested config and the
+    // command class both expose --host etc.), the user's value would silently bind to the outer
+    // class. Reject this configuration up front rather than misroute the input.
+    val outerPrefixes = schema.options.flatMap(_.prefixes).toSet
+    val collisions    = methodSchema.options.flatMap(_.prefixes).filter(outerPrefixes).distinct
+    if collisions.nonEmpty then
+      throw IllegalArgumentException(
+        s"Option prefixes ${collisions.mkString(", ")} on command '${method.name}' are already " +
+          s"declared on the enclosing command and would be intercepted by the outer parse."
+      )
+    val parser      = OptionParser(methodSchema)
+    val parseResult = parser.parse(args.toArray, config.helpPrefixes)
 
     if parseResult.showHelp then
       printMethodHelp(config, method, methodSchema)

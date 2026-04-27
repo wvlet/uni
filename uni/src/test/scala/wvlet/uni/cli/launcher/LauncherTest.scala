@@ -161,6 +161,23 @@ class VariadicNotLastApp:
   @command(description = "Variadic followed by another positional")
   def run(cfg: MultiPositionalConfig, mode: String): String = s"${cfg.files.mkString(",")} ${mode}"
 
+// Nested config with an unannotated leaf field — should be auto-positional via method-arg flatten
+case class Credentials(user: String = "")
+
+@command(description = "App that uses a nested config with unannotated fields")
+class UnannotatedNestedApp:
+  @command(description = "Login")
+  def login(c: Credentials): String = s"login ${c.user}"
+
+// Outer-class option that overlaps with nested method config option
+@command(description = "App whose class option shadows a nested method option")
+class ShadowingOuterApp(
+    @option(prefix = "--host", description = "Outer host")
+    host: String = "outer"
+):
+  @command(description = "Run with a nested config")
+  def run(cfg: ServerConfig): String = s"${host}-${cfg.host}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -304,6 +321,19 @@ class LauncherTest extends UniTest:
   test("multi-valued positional that isn't last produces a clear error") {
     intercept[IllegalArgumentException] {
       Launcher.of[VariadicNotLastApp].execute(Array("run"))
+    }
+  }
+
+  test("nested config-class with unannotated fields exposes them as positionals") {
+    val launcher = Launcher.of[UnannotatedNestedApp]
+    val result   = launcher.execute(Array("login", "alice"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "login alice"
+  }
+
+  test("nested method options that collide with outer-class options are rejected") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ShadowingOuterApp].execute(Array("run"))
     }
   }
 

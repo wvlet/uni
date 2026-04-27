@@ -75,9 +75,18 @@ class ClassOptionSchema(
 
 object ClassOptionSchema:
   /**
-    * Build an option schema from a Surface by reading @option and @argument annotations
+    * Build an option schema from a Surface by reading @option and @argument annotations.
+    *
+    * When `treatUnannotatedAsPositional` is true, plain scalar fields without annotations are
+    * exposed as positional arguments (matching `MethodOptionSchema`'s behavior). This is enabled
+    * when flattening a nested config that's used as a method argument, so users don't have to
+    * annotate every field of a config that drives a single command method.
     */
-  def apply(surface: Surface, argIndexOffset: Int = 0): ClassOptionSchema =
+  def apply(
+      surface: Surface,
+      argIndexOffset: Int = 0,
+      treatUnannotatedAsPositional: Boolean = false
+  ): ClassOptionSchema =
     var argCount         = argIndexOffset
     val optionsBuilder   = Seq.newBuilder[CLOption]
     val argumentsBuilder = Seq.newBuilder[CLArgument]
@@ -102,10 +111,13 @@ object ClassOptionSchema:
             case None =>
               // Recursively process nested config classes so their fields become options/arguments
               if isNestedConfigClass(p.surface) then
-                val nested = ClassOptionSchema(p.surface, argCount)
+                val nested = ClassOptionSchema(p.surface, argCount, treatUnannotatedAsPositional)
                 optionsBuilder ++= nested.options
                 argumentsBuilder ++= nested.arguments
                 argCount += nested.arguments.length
+              else if treatUnannotatedAsPositional then
+                argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
+                argCount += 1
 
     new ClassOptionSchema(surface, optionsBuilder.result(), argumentsBuilder.result())
 
@@ -174,8 +186,14 @@ object MethodOptionSchema:
               argCount += 1
             case None =>
               if isNestedConfigClass(p.surface) then
-                // Recursively expose nested config class options/arguments
-                val nested = ClassOptionSchema(p.surface, argCount)
+                // Recursively expose nested config class options/arguments. Pass
+                // treatUnannotatedAsPositional=true so that plain scalar fields inside the
+                // nested class behave the same as plain method parameters.
+                val nested = ClassOptionSchema(
+                  p.surface,
+                  argCount,
+                  treatUnannotatedAsPositional = true
+                )
                 optionsBuilder ++= nested.options
                 argumentsBuilder ++= nested.arguments
                 argCount += nested.arguments.length
@@ -183,6 +201,8 @@ object MethodOptionSchema:
                 // Plain parameters are treated as positional arguments
                 argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
                 argCount += 1
+      end match
+    end for
 
     val options   = optionsBuilder.result()
     val arguments = argumentsBuilder.result()
