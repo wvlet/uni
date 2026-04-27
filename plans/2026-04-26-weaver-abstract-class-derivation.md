@@ -129,11 +129,23 @@ design choice in uni; they should stay loud.
      cross-platform: round-trip through MsgPack and JSON, custom discriminator,
      unknown subclass, empty list, canonical-name collisions, case-object
      subclasses via explicit singleton, parent type name from ClassTag,
-     case-class child of a trait alongside case objects, programmatic
-     construction (`Seq` splat).
+     case-class child of a trait alongside case objects, plain `object`
+     subclasses via `SubclassEntry.singleton`, programmatic construction
+     (`Seq` splat).
    - `uni/.jvm/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverJvmTest.scala`
      — JVM-only: `SubclassEntry.forSingleton` recovers MODULE$, and rejects
      non-module classes with a clear error.
+
+## Cross-platform gotchas
+
+- **Abstract intermediate entries** are not rejected at registration time —
+  Scala Native doesn't link `java.lang.Class.getModifiers`, so the defensive
+  check would have broken Native builds. Documented in the scaladoc; users
+  who register an abstract class get an `Unknown child type 'X'` error at
+  pack time when the concrete instance arrives.
+- **`MODULE$` reflection** for singleton recovery only works on JVM; the
+  cross-platform path uses `SubclassEntry(cls, weaver, Some(instance))` or
+  `SubclassEntry.singleton(cls, instance)` to pass the instance directly.
 
 ## Files touched
 

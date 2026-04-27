@@ -156,6 +156,10 @@ object Weaver:
     * )
     * }}}
     *
+    * Entries should point at *concrete* leaf subclasses. Abstract intermediates compile but will
+    * never match at pack time (dispatch keys on the concrete runtime class name) — packing then
+    * fails with `Unknown child type 'X'` for the actual concrete value.
+    *
     * @param subclassWeavers
     *   one [[SubclassEntry]] per concrete subclass. Discriminator names come from
     *   `Class.getSimpleName` and are validated for collisions after canonicalization (matching how
@@ -166,20 +170,6 @@ object Weaver:
   ): Weaver[A] =
     if subclassWeavers.isEmpty then
       throw IllegalArgumentException("Weaver.subclassesOf requires at least one subclass entry")
-    // Reject abstract intermediate registrations: pack-time dispatch keys on the concrete
-    // runtime class name, so abstract entries can never match an actual instance.
-    val abstractEntries = subclassWeavers
-      .toSeq
-      .filter { entry =>
-        entry.singleton.isEmpty && java.lang.reflect.Modifier.isAbstract(entry.cls.getModifiers)
-      }
-    if abstractEntries.nonEmpty then
-      val names = abstractEntries.map(_.cls.getName).mkString(", ")
-      throw IllegalArgumentException(
-        s"Weaver.subclassesOf received abstract class entries: ${names}. " +
-          s"Pack-time dispatch keys on the concrete runtime class, so abstract intermediates " +
-          s"can never match. Register concrete subclasses (or singletons) instead."
-      )
     val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers
       .toSeq
       .map { entry =>
