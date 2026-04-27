@@ -281,29 +281,27 @@ object Weaver:
       CaseClassWeaver(s, fieldWeavers)
   }
 
-  /**
-    * Final fallback for surfaces with no objectFactory and no params (typically abstract classes
-    * and unsealed traits whose macro-generated Surface is bare). Mirrors airframe-codec's
-    * `ObjectMapCodec` behavior for the same case: pack as an empty map, unpack as null. Lossy by
-    * design — users who need typed round-trip for an open hierarchy should provide a custom
-    * `given Weaver[A]` for the abstract type.
-    */
+  // Fallback for surfaces with no objectFactory (open abstract types). Lossy by design:
+  // a custom `given Weaver[A]` is required to preserve subtype data on round-trip.
+  private val emptyObjectWeaver: Weaver[Any] =
+    new Weaver[Any]:
+      override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
+        if v == null then
+          p.packNil
+        else
+          p.packMapHeader(0)
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.NIL =>
+            u.unpackNil
+            context.setNull
+          case _ =>
+            u.skipValue
+            context.setNull
+
   private val emptyObjectFallbackFactory: WeaverFactory = {
     case s if !s.isPrimitive && s.objectFactory.isEmpty =>
-      new Weaver[Any]:
-        override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
-          if v == null then
-            p.packNil
-          else
-            p.packMapHeader(0)
-        override def unpack(u: Unpacker, context: WeaverContext): Unit =
-          u.getNextValueType match
-            case ValueType.NIL =>
-              u.unpackNil
-              context.setNull
-            case _ =>
-              u.skipValue
-              context.setNull
+      emptyObjectWeaver
   }
 
   private val defaultFactories: Seq[WeaverFactory] = Seq(

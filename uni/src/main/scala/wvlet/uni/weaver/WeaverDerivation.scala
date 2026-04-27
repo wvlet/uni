@@ -58,14 +58,8 @@ object WeaverDerivation:
     // Get the constructor parameters
     val params = symbol.primaryConstructor.paramSymss.flatten.filterNot(_.isTypeParam)
 
-    // Build the field weavers expression for each parameter.
-    //
-    // Mirror airframe-codec's pattern: prefer an in-scope `given Weaver[t]` when one is available,
-    // else fall back to a Surface-driven runtime weaver via `Weaver.fromSurface(Surface.of[t])`.
-    // The Surface fallback covers transitively-open hierarchies — e.g. `pet: Animal` where
-    // `Animal` is a non-sealed abstract class, or `pets: Option[Animal]` — without requiring
-    // subclass registration. For surfaces with no params/factory the runtime weaver packs as `{}`
-    // and unpacks as null, matching airframe ObjectMapCodec's lossy handling.
+    // Prefer an in-scope `given Weaver[t]`; fall back to a Surface-driven runtime weaver so
+    // open hierarchies (abstract classes, `Option[Animal]`, etc.) compile without registration.
     val fieldWeaverExprs: List[Expr[Weaver[?]]] = params.map { param =>
       val paramType = tpe.memberType(param)
       paramType.asType match
