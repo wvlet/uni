@@ -183,7 +183,23 @@ object MethodOptionSchema:
                 argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
                 argCount += 1
 
-    new MethodOptionSchema(method, optionsBuilder.result(), argumentsBuilder.result())
+    val options   = optionsBuilder.result()
+    val arguments = argumentsBuilder.result()
+
+    // Detect inner-field name collisions early — flattened nested-config options share the
+    // OptionParser's parameter-name namespace, so two flags backed by params with the same
+    // `name` would silently overwrite each other.
+    val nameCounts = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
+      .groupBy(_.name)
+      .filter(_._2.size > 1)
+    if nameCounts.nonEmpty then
+      val dupes = nameCounts.keys.toSeq.sorted.mkString(", ")
+      throw IllegalArgumentException(
+        s"Conflicting parameter names in command '${method.name}': ${dupes}. " +
+          "Methods cannot mix nested config classes that expose options with the same field name."
+      )
+
+    new MethodOptionSchema(method, options, arguments)
 
   end apply
 

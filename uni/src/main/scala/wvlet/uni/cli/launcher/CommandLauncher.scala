@@ -116,7 +116,7 @@ class CommandLauncher(
       printMethodHelp(config, method, methodSchema)
       return LauncherResult(instance, Some((method, null)), showedHelp = true)
 
-    val methodArgs = buildMethodArgs(method, parseResult)
+    val methodArgs = buildMethodArgs(method, instance, parseResult)
     val result     = method.call(instance, methodArgs*)
     LauncherResult(instance, Some((method, result)), showedHelp = false)
 
@@ -134,48 +134,78 @@ class CommandLauncher(
   private def buildInstanceFromSurface(surf: Surface, parseResult: ParseResult): Any =
     surf.objectFactory match
       case Some(factory) =>
-        val args = surf
-          .params
-          .map { p =>
-            if isUnannotatedNested(p) then
-              // Recursively build nested instance
-              buildInstanceFromSurface(p.surface, parseResult)
-            else
-              resolveParamValue(p, parseResult, "parameter")
-          }
+        val args = surf.params.map(p => resolveOne(p, p.getDefaultValue, parseResult, "parameter"))
         factory.newInstance(args)
       case None =>
         throw IllegalStateException(s"Cannot create instance of ${surf.fullName}")
 
   /**
-    * Build method arguments from parsed values
+    * Build method arguments from parsed values. `instance` is the method's owner, needed to read
+    * Scala 3 method-parameter defaults (which live as accessors on the owner class).
     */
-  private def buildMethodArgs(method: MethodSurface, parseResult: ParseResult): Seq[Any] = method
+  private def buildMethodArgs(
+      method: MethodSurface,
+      instance: Any,
+      parseResult: ParseResult
+  ): Seq[Any] = method
     .args
-    .map { p =>
-      if isUnannotatedNested(p) then
-        // Recursively build nested config-class instance from parsed flags
-        buildInstanceFromSurface(p.surface, parseResult)
-      else
-        resolveParamValue(p, parseResult, "argument")
-    }
+    .map(p => resolveOne(p, p.getMethodArgDefaultValue(instance), parseResult, "argument"))
+
+  private def resolveOne(
+      p: Parameter,
+      defaultValue: => Option[Any],
+      parseResult: ParseResult,
+      kind: String
+  ): Any =
+    if isUnannotatedNested(p) then
+      buildNestedInstance(p.surface, defaultValue, parseResult)
+    else
+      resolveParamValue(p, defaultValue, parseResult, kind)
 
   private def isUnannotatedNested(p: Parameter): Boolean =
     isNestedConfigClass(p.surface) && p.findAnnotation("option").isEmpty &&
       p.findAnnotation("argument").isEmpty
 
-  private def resolveParamValue(p: Parameter, parseResult: ParseResult, kind: String): Any =
+  /**
+    * Build a nested config-class instance, honoring the outer parameter default when no inner
+    * fields were parsed from the command line.
+    */
+  private def buildNestedInstance(
+      surf: Surface,
+      defaultValue: Option[Any],
+      parseResult: ParseResult
+  ): Any =
+    defaultValue match
+      case Some(default) if !hasParsedInnerValue(surf, parseResult) =>
+        default
+      case _ =>
+        buildInstanceFromSurface(surf, parseResult)
+
+  private def hasParsedInnerValue(surf: Surface, parseResult: ParseResult): Boolean = surf
+    .params
+    .exists { p =>
+      if isUnannotatedNested(p) then
+        hasParsedInnerValue(p.surface, parseResult)
+      else
+        parseResult.optionValues.contains(p.name)
+    }
+
+  private def resolveParamValue(
+      p: Parameter,
+      defaultValue: Option[Any],
+      parseResult: ParseResult,
+      kind: String
+  ): Any =
     parseResult.optionValues.get(p.name) match
       case Some(values) =>
         convertValue(p.surface, values)
       case None =>
-        p.getDefaultValue
-          .getOrElse {
-            if p.isRequired then
-              throw IllegalArgumentException(s"Missing required ${kind}: ${p.name}")
-            else
-              getDefaultForType(p.surface)
-          }
+        defaultValue.getOrElse {
+          if p.isRequired then
+            throw IllegalArgumentException(s"Missing required ${kind}: ${p.name}")
+          else
+            getDefaultForType(p.surface)
+        }
 
   /**
     * Convert string values to the target type

@@ -119,6 +119,16 @@ class NestedConfigApp:
   @command(description = "Compile a source file")
   def compile(opt: CompilerOption): String = s"compile ${opt.source} -> ${opt.target}"
 
+  // Nested config-class with a method-level default
+  @command(description = "Start the server with a custom default")
+  def startCustom(config: ServerConfig = ServerConfig(port = 9090, host = "default-host")): String =
+    s"start ${config.host}:${config.port}"
+
+@command(description = "App with conflicting nested configs")
+class ConflictingNestedApp:
+  @command(description = "Two nested configs that share field names")
+  def collide(a: ServerConfig, b: ServerConfig): String = s"${a.port}-${b.port}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -222,6 +232,29 @@ class LauncherTest extends UniTest:
     val result   = launcher.execute(Array("compile", "--target", "build", "Main.scala"))
     result.executedMethod.isDefined shouldBe true
     result.executedMethod.get._2 shouldBe "compile Main.scala -> build"
+  }
+
+  test("nested config-class method honors method-level default when no flags parsed") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("startCustom"))
+    result.executedMethod.isDefined shouldBe true
+    // Should preserve the method-level default, not fall back to inner field defaults
+    result.executedMethod.get._2 shouldBe "start default-host:9090"
+  }
+
+  test("nested config-class method overrides method default when flags provided") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("startCustom", "--port", "1234"))
+    result.executedMethod.isDefined shouldBe true
+    // When any inner flag is parsed, the method default is replaced by an instance built
+    // from the nested surface (so unspecified fields fall back to inner defaults).
+    result.executedMethod.get._2 shouldBe "start localhost:1234"
+  }
+
+  test("colliding nested config-class params produce a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ConflictingNestedApp].execute(Array("collide"))
+    }
   }
 
   test("launcher with config") {
