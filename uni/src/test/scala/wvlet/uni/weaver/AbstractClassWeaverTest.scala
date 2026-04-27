@@ -29,15 +29,16 @@ object AbstractClassWeaverTest:
 
   given Weaver[Shape] = Weaver.subclassesOf[Shape](shapeChildren*)
 
-  // Non-sealed trait with case-object children — singleton subclass round-trip
+  // Non-sealed trait with case-object children — singleton subclass round-trip.
+  // Uses SubclassEntry overload with explicit singletons so this works on JVM/JS/Native.
   trait Signal
   case object On                    extends Signal
   case object Off                   extends Signal
   case class Pulse(durationMs: Int) extends Signal derives Weaver
   given Weaver[Signal] = Weaver.subclassesOf[Signal](
-    classOf[On.type]  -> Weaver.of[On.type],
-    classOf[Off.type] -> Weaver.of[Off.type],
-    classOf[Pulse]    -> Weaver.of[Pulse]
+    Weaver.SubclassEntry(classOf[On.type], Weaver.of[On.type], Some(On)),
+    Weaver.SubclassEntry(classOf[Off.type], Weaver.of[Off.type], Some(Off)),
+    Weaver.SubclassEntry(classOf[Pulse], Weaver.of[Pulse])
   )
 
 end AbstractClassWeaverTest
@@ -98,7 +99,7 @@ class AbstractClassWeaverTest extends UniTest:
 
   test("error: subclassesOf rejects empty list") {
     val e = intercept[IllegalArgumentException] {
-      Weaver.subclassesOf[Animal]()
+      Weaver.subclassesOf[Animal](Seq.empty[Weaver.SubclassEntry[Animal]]*)
     }
     e.getMessage shouldContain "at least one"
   }
@@ -117,7 +118,7 @@ class AbstractClassWeaverTest extends UniTest:
     restored shouldBe s
   }
 
-  test("case-object subclass round-trips through MODULE$ recovery") {
+  test("case-object subclass round-trips via explicit singleton (cross-platform)") {
     val on: Signal = On
     val onJson     = Weaver.toJson(on)
     onJson shouldBe """{"@type":"On"}"""
@@ -125,6 +126,14 @@ class AbstractClassWeaverTest extends UniTest:
 
     val off: Signal = Off
     Weaver.fromJson[Signal](Weaver.toJson(off)) shouldBe Off
+  }
+
+  test("error-message names the parent type from ClassTag, not a child's superclass") {
+    // Animal is the abstract parent, regardless of whether Dog or Cat appears first
+    val e = intercept[IllegalArgumentException] {
+      Weaver.fromJson[Animal]("""{"@type":"Bird"}""")
+    }
+    e.getMessage shouldContain "Animal"
   }
 
   test("case-class child of a trait still round-trips alongside case objects") {

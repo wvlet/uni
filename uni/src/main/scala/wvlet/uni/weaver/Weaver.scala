@@ -142,26 +142,51 @@ object Weaver:
     * case class Owner(name: String, pet: Animal) derives Weaver
     * }}}
     *
-    * Subclasses can be concrete classes or Scala `object`s; for an `object` child, pass
-    * `classOf[ChildObj.type]` (or `ChildObj.getClass`) and a Weaver for the object — the singleton
-    * instance is recovered automatically via the synthetic `MODULE$` field on JVM.
+    * For Scala `object` (singleton) subclasses on JVM, this overload recovers the singleton via the
+    * synthetic `MODULE$` field reflectively. On Scala.js / Native, that reflection isn't portable —
+    * use the [[SubclassEntry]] overload below and pass the singleton explicitly.
     *
     * @param subclassWeavers
     *   pairs of `(concrete subclass, weaver)`. Names are taken from `Class.getSimpleName`.
     */
-  def subclassesOf[A](subclassWeavers: (Class[? <: A], Weaver[? <: A])*): Weaver[A] =
-    if subclassWeavers.isEmpty then
-      throw IllegalArgumentException(
-        "Weaver.subclassesOf requires at least one (Class, Weaver) pair"
-      )
-    val entries: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers.map { (cls, weaver) =>
-      val name      = cls.getSimpleName.stripSuffix("$")
-      val singleton = singletonInstanceOf[A](cls)
-      name -> (weaver, singleton)
+  def subclassesOf[A](subclassWeavers: (Class[? <: A], Weaver[? <: A])*)(using
+      ct: scala.reflect.ClassTag[A]
+  ): Weaver[A] =
+    val entries = subclassWeavers.map { (cls, weaver) =>
+      SubclassEntry[A](cls, weaver, singletonInstanceOf[A](cls))
     }
-    val map = entries.toMap
-    if map.size != entries.size then
-      val dupes = entries
+    subclassesOfImpl[A](entries, ct)
+
+  /**
+    * Variant of [[subclassesOf]] that accepts [[SubclassEntry]] values, letting the caller pass an
+    * explicit singleton instance for `object` subclasses. Use this on Scala.js / Native (where
+    * `MODULE$` reflection isn't portable) or anywhere you want to avoid relying on reflection:
+    * {{{
+    * given Weaver[Signal] = Weaver.subclassesOf[Signal](
+    *   Weaver.SubclassEntry(classOf[On.type],  Weaver.of[On.type],  Some(On)),
+    *   Weaver.SubclassEntry(classOf[Off.type], Weaver.of[Off.type], Some(Off)),
+    *   Weaver.SubclassEntry(classOf[Pulse],    Weaver.of[Pulse])
+    * )
+    * }}}
+    */
+  @scala.annotation.targetName("subclassesOfEntries")
+  def subclassesOf[A](subclassWeavers: SubclassEntry[A]*)(using
+      ct: scala.reflect.ClassTag[A]
+  ): Weaver[A] = subclassesOfImpl[A](subclassWeavers, ct)
+
+  private def subclassesOfImpl[A](
+      entries: Seq[SubclassEntry[A]],
+      ct: scala.reflect.ClassTag[A]
+  ): Weaver[A] =
+    if entries.isEmpty then
+      throw IllegalArgumentException("Weaver.subclassesOf requires at least one subclass entry")
+    val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = entries.map { entry =>
+      val name = entry.cls.getSimpleName.stripSuffix("$")
+      name -> (entry.weaver, entry.singleton)
+    }
+    val map = pairs.toMap
+    if map.size != pairs.size then
+      val dupes = pairs
         .groupBy(_._1)
         .collect {
           case (k, vs) if vs.size > 1 =>
@@ -172,20 +197,31 @@ object Weaver:
         s"Weaver.subclassesOf received duplicate subclass names: ${dupes}. " +
           s"Each subclass must have a unique simpleName."
       )
-    // Derive a human-readable label from the first subclass's superclass for error messages.
-    val firstCls     = subclassWeavers.head._1
-    val abstractName = Option(firstCls.getSuperclass)
-      .filterNot(_ == classOf[Object])
-      .map(_.getSimpleName)
-      .getOrElse("abstract type")
-    new SealedTraitWeaver[A](abstractName, map)
+    val parentName =
+      try
+        ct.runtimeClass.getSimpleName.stripSuffix("$")
+      catch
+        case _: Throwable =>
+          "abstract type"
+    new SealedTraitWeaver[A](parentName, map)
 
-  end subclassesOf
+  end subclassesOfImpl
+
+  /**
+    * One subclass registration for [[subclassesOf]]. Use the `singleton` slot to pass an explicit
+    * instance for Scala `object` children — this avoids the JVM-only `MODULE$` reflection path and
+    * works portably on Scala.js / Native.
+    */
+  case class SubclassEntry[A](
+      cls: Class[? <: A],
+      weaver: Weaver[? <: A],
+      singleton: Option[A] = None
+  )
 
   /**
     * Recover a singleton instance from the synthetic `MODULE$` field that the Scala compiler emits
-    * for `object` definitions. Returns None if the class isn't a module (e.g. it's a regular
-    * class), or if reflection isn't supported on the current platform.
+    * for `object` definitions on JVM. Returns None if the class isn't a module, or if reflection
+    * isn't supported on the current platform (Scala.js / Native).
     */
   private def singletonInstanceOf[A](cls: Class[? <: A]): Option[A] =
     try
