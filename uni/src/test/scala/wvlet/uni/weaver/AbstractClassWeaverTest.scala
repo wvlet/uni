@@ -10,27 +10,27 @@ object AbstractClassWeaverTest:
   case class Cat(override val name: String, color: String) extends Animal(name) derives Weaver
 
   given Weaver[Animal] = Weaver.subclassesOf[Animal](
-    classOf[Dog] -> Weaver.of[Dog],
-    classOf[Cat] -> Weaver.of[Cat]
+    Weaver.SubclassEntry(classOf[Dog], Weaver.of[Dog]),
+    Weaver.SubclassEntry(classOf[Cat], Weaver.of[Cat])
   )
 
   // Owner can now derive because Weaver[Animal] is in scope
   case class Owner(name: String, pet: Animal) derives Weaver
 
-  // Cover the Seq[(Class, Weaver)] overload (programmatic construction path)
+  // Cover the programmatic-construction path: build a Seq of entries and splat it
   abstract class Shape
   case class Circle(radius: Double) extends Shape derives Weaver
   case class Square(side: Double)   extends Shape derives Weaver
 
-  val shapeChildren: Seq[(Class[? <: Shape], Weaver[? <: Shape])] = Seq(
-    classOf[Circle] -> Weaver.of[Circle],
-    classOf[Square] -> Weaver.of[Square]
+  val shapeChildren: Seq[Weaver.SubclassEntry[Shape, ?]] = Seq(
+    Weaver.SubclassEntry(classOf[Circle], Weaver.of[Circle]),
+    Weaver.SubclassEntry(classOf[Square], Weaver.of[Square])
   )
 
   given Weaver[Shape] = Weaver.subclassesOf[Shape](shapeChildren*)
 
-  // Non-sealed trait with case-object children — singleton subclass round-trip.
-  // Uses SubclassEntry overload with explicit singletons so this works on JVM/JS/Native.
+  // Non-sealed trait with case-object children. Uses explicit `Some(...)` for the singleton so
+  // the registration is portable to JVM, Scala.js, and Native.
   trait Signal
   case object On                    extends Signal
   case object Off                   extends Signal
@@ -99,19 +99,26 @@ class AbstractClassWeaverTest extends UniTest:
 
   test("error: subclassesOf rejects empty list") {
     val e = intercept[IllegalArgumentException] {
-      Weaver.subclassesOf[Animal](Seq.empty[Weaver.SubclassEntry[Animal]]*)
+      Weaver.subclassesOf[Animal](Seq.empty[Weaver.SubclassEntry[Animal, ?]]*)
     }
     e.getMessage shouldContain "at least one"
   }
 
-  test("error: subclassesOf rejects duplicate subclass simpleNames") {
+  test("error: subclassesOf rejects names that collide after canonicalization") {
+    // FooBar and foo_bar canonicalize to the same discriminator
+    abstract class Marker
+    case class FooBar(value: Int)  extends Marker derives Weaver
+    case class foo_bar(value: Int) extends Marker derives Weaver
     val e = intercept[IllegalArgumentException] {
-      Weaver.subclassesOf[Animal](classOf[Dog] -> Weaver.of[Dog], classOf[Dog] -> Weaver.of[Dog])
+      Weaver.subclassesOf[Marker](
+        Weaver.SubclassEntry(classOf[FooBar], Weaver.of[FooBar]),
+        Weaver.SubclassEntry(classOf[foo_bar], Weaver.of[foo_bar])
+      )
     }
-    e.getMessage shouldContain "duplicate subclass names"
+    e.getMessage shouldContain "collide after canonicalization"
   }
 
-  test("Seq overload also round-trips") {
+  test("Seq splat overload also round-trips") {
     val s: Shape = Circle(2.5)
     val json     = Weaver.toJson(s)
     val restored = Weaver.fromJson[Shape](json)
@@ -129,7 +136,6 @@ class AbstractClassWeaverTest extends UniTest:
   }
 
   test("error-message names the parent type from ClassTag, not a child's superclass") {
-    // Animal is the abstract parent, regardless of whether Dog or Cat appears first
     val e = intercept[IllegalArgumentException] {
       Weaver.fromJson[Animal]("""{"@type":"Bird"}""")
     }

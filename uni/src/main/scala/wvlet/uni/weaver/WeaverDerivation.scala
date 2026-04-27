@@ -78,8 +78,8 @@ object WeaverDerivation:
                 if isOpenAbstract then
                   s" ${typeShow} is a non-sealed abstract type, so Weaver cannot enumerate its " +
                     s"subclasses at compile time. Either seal ${typeShow} (and add `derives " +
-                    s"Weaver`), or define a given via " +
-                    s"`Weaver.subclassesOf[${typeShow}](classOf[ConcreteSub] -> Weaver.of[ConcreteSub], ...)`."
+                    s"Weaver`), or define a given via `Weaver.subclassesOf[${typeShow}](" +
+                    s"Weaver.SubclassEntry(classOf[ConcreteSub], Weaver.of[ConcreteSub]), ...)`."
                 else
                   " Make sure a Weaver instance is available in scope."
               report.errorAndAbort(

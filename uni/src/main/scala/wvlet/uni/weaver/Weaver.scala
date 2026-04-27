@@ -135,32 +135,19 @@ object Weaver:
     * case class Cat(name: String, color: String) extends Animal(name) derives Weaver
     *
     * given Weaver[Animal] = Weaver.subclassesOf[Animal](
-    *   classOf[Dog] -> Weaver.of[Dog],
-    *   classOf[Cat] -> Weaver.of[Cat]
+    *   Weaver.SubclassEntry(classOf[Dog], Weaver.of[Dog]),
+    *   Weaver.SubclassEntry(classOf[Cat], Weaver.of[Cat])
     * )
     *
     * case class Owner(name: String, pet: Animal) derives Weaver
     * }}}
     *
-    * For Scala `object` (singleton) subclasses on JVM, this overload recovers the singleton via the
-    * synthetic `MODULE$` field reflectively. On Scala.js / Native, that reflection isn't portable —
-    * use the [[SubclassEntry]] overload below and pass the singleton explicitly.
+    * Each entry binds a concrete subclass `S <: A` to a `Weaver[S]` (and optionally an `S`
+    * singleton instance). Sharing the type parameter prevents mismatched registrations like
+    * `SubclassEntry(classOf[Dog], Weaver.of[Cat])` from compiling.
     *
-    * @param subclassWeavers
-    *   pairs of `(concrete subclass, weaver)`. Names are taken from `Class.getSimpleName`.
-    */
-  def subclassesOf[A](subclassWeavers: (Class[? <: A], Weaver[? <: A])*)(using
-      ct: scala.reflect.ClassTag[A]
-  ): Weaver[A] =
-    val entries = subclassWeavers.map { (cls, weaver) =>
-      SubclassEntry[A](cls, weaver, singletonInstanceOf[A](cls))
-    }
-    subclassesOfImpl[A](entries, ct)
-
-  /**
-    * Variant of [[subclassesOf]] that accepts [[SubclassEntry]] values, letting the caller pass an
-    * explicit singleton instance for `object` subclasses. Use this on Scala.js / Native (where
-    * `MODULE$` reflection isn't portable) or anywhere you want to avoid relying on reflection:
+    * For Scala `object` (singleton) subclasses, pass `singleton = Some(MyObject)` explicitly so the
+    * registration works portably on JVM, Scala.js, and Native:
     * {{{
     * given Weaver[Signal] = Weaver.subclassesOf[Signal](
     *   Weaver.SubclassEntry(classOf[On.type],  Weaver.of[On.type],  Some(On)),
@@ -168,34 +155,45 @@ object Weaver:
     *   Weaver.SubclassEntry(classOf[Pulse],    Weaver.of[Pulse])
     * )
     * }}}
+    *
+    * @param subclassWeavers
+    *   one [[SubclassEntry]] per concrete subclass. Discriminator names come from
+    *   `Class.getSimpleName` and are validated for collisions after canonicalization (matching how
+    *   the discriminator is resolved during unpack).
     */
-  @scala.annotation.targetName("subclassesOfEntries")
-  def subclassesOf[A](subclassWeavers: SubclassEntry[A]*)(using
-      ct: scala.reflect.ClassTag[A]
-  ): Weaver[A] = subclassesOfImpl[A](subclassWeavers, ct)
-
-  private def subclassesOfImpl[A](
-      entries: Seq[SubclassEntry[A]],
+  def subclassesOf[A](subclassWeavers: SubclassEntry[A, ?]*)(using
       ct: scala.reflect.ClassTag[A]
   ): Weaver[A] =
-    if entries.isEmpty then
+    if subclassWeavers.isEmpty then
       throw IllegalArgumentException("Weaver.subclassesOf requires at least one subclass entry")
-    val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = entries.map { entry =>
-      val name = entry.cls.getSimpleName.stripSuffix("$")
-      name -> (entry.weaver, entry.singleton)
-    }
-    val map = pairs.toMap
-    if map.size != pairs.size then
-      val dupes = pairs
-        .groupBy(_._1)
-        .collect {
-          case (k, vs) if vs.size > 1 =>
-            k
+    val pairs: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers
+      .toSeq
+      .map { entry =>
+        val name      = entry.cls.getSimpleName.stripSuffix("$")
+        val weaver    = entry.weaver.asInstanceOf[Weaver[? <: A]]
+        val singleton = entry.singleton.asInstanceOf[Option[A]]
+        (name, (weaver, singleton))
+      }
+    // Discriminator lookup at unpack time normalizes via CName.toCanonicalName, so two
+    // registered children that differ only in casing/separators (e.g. FooBar vs foo_bar) would
+    // collide silently if we only compared raw names.
+    val canonicalDupes = pairs
+      .groupBy { (name, _) =>
+        CName.toCanonicalName(name)
+      }
+      .collect {
+        case (canonical, group) if group.size > 1 =>
+          canonical -> group.map(_._1)
+      }
+    if canonicalDupes.nonEmpty then
+      val rendered = canonicalDupes
+        .map { (canonical, names) =>
+          s"${names.mkString(" / ")} (canonical: ${canonical})"
         }
-        .mkString(", ")
+        .mkString("; ")
       throw IllegalArgumentException(
-        s"Weaver.subclassesOf received duplicate subclass names: ${dupes}. " +
-          s"Each subclass must have a unique simpleName."
+        s"Weaver.subclassesOf received subclass names that collide after canonicalization: " +
+          s"${rendered}. Each subclass must have a unique discriminator name."
       )
     val parentName =
       try
@@ -203,27 +201,44 @@ object Weaver:
       catch
         case _: Throwable =>
           "abstract type"
-    new SealedTraitWeaver[A](parentName, map)
+    new SealedTraitWeaver[A](parentName, pairs.toMap)
 
-  end subclassesOfImpl
+  end subclassesOf
 
   /**
-    * One subclass registration for [[subclassesOf]]. Use the `singleton` slot to pass an explicit
-    * instance for Scala `object` children — this avoids the JVM-only `MODULE$` reflection path and
-    * works portably on Scala.js / Native.
+    * One subclass registration for [[subclassesOf]]. The shared subtype parameter `S <: A` keeps
+    * the class, weaver, and optional singleton on the same concrete subtype, so mismatched
+    * registrations are rejected at compile time.
     */
-  case class SubclassEntry[A](
-      cls: Class[? <: A],
-      weaver: Weaver[? <: A],
-      singleton: Option[A] = None
-  )
+  case class SubclassEntry[A, S <: A](cls: Class[S], weaver: Weaver[S], singleton: Option[S] = None)
+
+  object SubclassEntry:
+
+    /**
+      * JVM-only convenience: build a [[SubclassEntry]] for a Scala `object` subclass by recovering
+      * the singleton via the synthetic `MODULE$` field reflectively. Throws
+      * `IllegalArgumentException` if `cls` doesn't have `MODULE$` (i.e. it isn't a Scala module).
+      * Use the case-class constructor with an explicit `singleton` on Scala.js / Native.
+      */
+    def forSingleton[A, S <: A](cls: Class[S], weaver: Weaver[S]): SubclassEntry[A, S] =
+      Weaver.singletonInstanceOf[A](cls.asInstanceOf[Class[? <: A]]) match
+        case Some(instance) =>
+          SubclassEntry[A, S](cls, weaver, Some(instance.asInstanceOf[S]))
+        case None =>
+          throw IllegalArgumentException(
+            s"SubclassEntry.forSingleton: ${cls.getName} is not a Scala module " +
+              s"(no MODULE$$ field), or reflection isn't supported on this platform. " +
+              s"Pass `singleton = Some(...)` explicitly to construct a SubclassEntry instead."
+          )
+
+  end SubclassEntry
 
   /**
     * Recover a singleton instance from the synthetic `MODULE$` field that the Scala compiler emits
     * for `object` definitions on JVM. Returns None if the class isn't a module, or if reflection
     * isn't supported on the current platform (Scala.js / Native).
     */
-  private def singletonInstanceOf[A](cls: Class[? <: A]): Option[A] =
+  private[weaver] def singletonInstanceOf[A](cls: Class[? <: A]): Option[A] =
     try
       val field = cls.getField("MODULE$")
       Some(field.get(null).asInstanceOf[A])

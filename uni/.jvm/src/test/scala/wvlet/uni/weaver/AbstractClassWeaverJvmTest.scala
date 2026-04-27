@@ -4,18 +4,18 @@ import wvlet.uni.test.UniTest
 
 object AbstractClassWeaverJvmTest:
 
-  // Same shape as the cross-platform Signal test, but uses the (Class, Weaver) overload
-  // which relies on JVM-only MODULE$ reflection to recover the singleton. JS/Native users
-  // should use the SubclassEntry overload instead — exercised in the shared test.
+  // Same shape as the cross-platform Signal test, but uses the JVM-only
+  // `SubclassEntry.forSingleton` helper that recovers the singleton via MODULE$ reflection.
+  // JS/Native users should construct SubclassEntry with `singleton = Some(...)` instead.
   trait Signal
   case object On                    extends Signal
   case object Off                   extends Signal
   case class Pulse(durationMs: Int) extends Signal derives Weaver
 
   given Weaver[Signal] = Weaver.subclassesOf[Signal](
-    classOf[On.type]  -> Weaver.of[On.type],
-    classOf[Off.type] -> Weaver.of[Off.type],
-    classOf[Pulse]    -> Weaver.of[Pulse]
+    Weaver.SubclassEntry.forSingleton[Signal, On.type](classOf[On.type], Weaver.of[On.type]),
+    Weaver.SubclassEntry.forSingleton[Signal, Off.type](classOf[Off.type], Weaver.of[Off.type]),
+    Weaver.SubclassEntry(classOf[Pulse], Weaver.of[Pulse])
   )
 
 end AbstractClassWeaverJvmTest
@@ -23,7 +23,7 @@ end AbstractClassWeaverJvmTest
 class AbstractClassWeaverJvmTest extends UniTest:
   import AbstractClassWeaverJvmTest.*
 
-  test("MODULE$ reflection recovers singleton on JVM") {
+  test("MODULE$ reflection via SubclassEntry.forSingleton recovers singleton on JVM") {
     val on: Signal = On
     Weaver.fromJson[Signal](Weaver.toJson(on)) shouldBe On
 
@@ -36,6 +36,14 @@ class AbstractClassWeaverJvmTest extends UniTest:
     val json          = Weaver.toJson(pulse)
     json shouldContain "\"@type\":\"Pulse\""
     Weaver.fromJson[Signal](json) shouldBe pulse
+  }
+
+  test("forSingleton rejects non-module classes with a clear error") {
+    case class NotAModule(value: Int) derives Weaver
+    val e = intercept[IllegalArgumentException] {
+      Weaver.SubclassEntry.forSingleton[Any, NotAModule](classOf[NotAModule], Weaver.of[NotAModule])
+    }
+    e.getMessage shouldContain "not a Scala module"
   }
 
 end AbstractClassWeaverJvmTest

@@ -81,36 +81,66 @@ design choice in uni; they should stay loud.
 
 1. **`Weaver.subclassesOf[A]`** in `uni/src/main/scala/wvlet/uni/weaver/Weaver.scala`:
    ```scala
-   def subclassesOf[A](
-       subclassWeavers: (Class[? <: A], Weaver[? <: A])*
+   def subclassesOf[A](subclassWeavers: SubclassEntry[A, ?]*)(using
+       ct: scala.reflect.ClassTag[A]
    ): Weaver[A]
+
+   case class SubclassEntry[A, S <: A](
+       cls: Class[S],
+       weaver: Weaver[S],
+       singleton: Option[S] = None
+   )
    ```
    Builds the `Map[String, (Weaver[? <: A], Option[A])]` that
-   `SealedTraitWeaver` already accepts. Singleton detection: if the class is
-   a Scala module (`MODULE$` field), record its singleton instance; otherwise
-   `None`. Discriminator name = `Class.getSimpleName.stripSuffix("$")` to match
-   how SealedTraitWeaver derives names from `getClass.getSimpleName`.
+   `SealedTraitWeaver` already accepts.
+
+   **Type safety**: the shared subtype parameter `S <: A` keeps the class,
+   weaver, and singleton on the same concrete subtype, so mismatched
+   registrations like `SubclassEntry(classOf[Dog], Weaver.of[Cat])` are
+   rejected at compile time.
+
+   **Singleton handling**: Scala `object` subclasses must be registered with an
+   explicit `singleton = Some(...)` so the registration works portably on JVM,
+   Scala.js, and Native (where `MODULE$` reflection isn't supported). A
+   JVM-only convenience `SubclassEntry.forSingleton(cls, weaver)` does the
+   `MODULE$` lookup for users who want terse JVM code.
+
+   **Parent type name** (for error messages): captured via `using ClassTag[A]`
+   rather than guessed from the first child's superclass — the latter is
+   unreliable for traits and varargs ordering.
+
+   **Duplicate detection**: discriminator names are validated for collisions
+   *after* canonicalization via `CName.toCanonicalName`, matching how the
+   discriminator is resolved during unpack. This catches silent collisions
+   like `FooBar` vs `foo_bar`.
 
 2. **Improved macro error message** in
    `uni/src/main/scala/wvlet/uni/weaver/WeaverDerivation.scala`:
    When a field type is an abstract class (or trait, but unsealed), point the
    user at `Weaver.subclassesOf`:
-   > No Weaver found for field 'pet' of type Animal. Animal is abstract; either
-   > seal it (and add `derives Weaver`) or define a given via
-   > `Weaver.subclassesOf[Animal](classOf[Dog] -> Weaver.of[Dog], ...)`.
+   > No Weaver found for field 'pet' of type Animal. Animal is a non-sealed
+   > abstract type, so Weaver cannot enumerate its subclasses at compile time.
+   > Either seal Animal (and add `derives Weaver`), or define a given via
+   > `Weaver.subclassesOf[Animal](Weaver.SubclassEntry(classOf[Dog],
+   > Weaver.of[Dog]), ...)`.
 
-3. **Tests** in `uni/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverTest.scala`:
-   - Round-trip Owner with Dog/Cat through MsgPack and JSON.
-   - Custom discriminator field name still works.
-   - Unregistered subclass at pack time → clear error.
-   - Unknown `@type` at unpack time → clear error.
-   - Singleton (case object extending abstract class) handled correctly.
+3. **Tests**:
+   - `uni/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverTest.scala` —
+     cross-platform: round-trip through MsgPack and JSON, custom discriminator,
+     unknown subclass, empty list, canonical-name collisions, case-object
+     subclasses via explicit singleton, parent type name from ClassTag,
+     case-class child of a trait alongside case objects, programmatic
+     construction (`Seq` splat).
+   - `uni/.jvm/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverJvmTest.scala`
+     — JVM-only: `SubclassEntry.forSingleton` recovers MODULE$, and rejects
+     non-module classes with a clear error.
 
 ## Files touched
 
-- `uni/src/main/scala/wvlet/uni/weaver/Weaver.scala` (+ ~20 lines)
-- `uni/src/main/scala/wvlet/uni/weaver/WeaverDerivation.scala` (error message tweak)
+- `uni/src/main/scala/wvlet/uni/weaver/Weaver.scala`
+- `uni/src/main/scala/wvlet/uni/weaver/WeaverDerivation.scala` (error message)
 - `uni/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverTest.scala` (new)
+- `uni/.jvm/src/test/scala/wvlet/uni/weaver/AbstractClassWeaverJvmTest.scala` (new)
 
 ## Out of scope / follow-ups
 
