@@ -58,20 +58,19 @@ object WeaverDerivation:
     // Get the constructor parameters
     val params = symbol.primaryConstructor.paramSymss.flatten.filterNot(_.isTypeParam)
 
-    // Build the field weavers expression for each parameter
+    // Prefer an in-scope `given Weaver[t]`; fall back to a Surface-driven runtime weaver so
+    // open hierarchies (abstract classes, `Option[Animal]`, etc.) compile without registration.
     val fieldWeaverExprs: List[Expr[Weaver[?]]] = params.map { param =>
       val paramType = tpe.memberType(param)
       paramType.asType match
         case '[t] =>
-          // Try to summon a Weaver for this type
           Expr.summon[Weaver[t]] match
             case Some(weaver) =>
               weaver.asExprOf[Weaver[?]]
             case None =>
-              report.errorAndAbort(
-                s"No Weaver found for field '${param.name}' of type ${paramType.show}. " +
-                  s"Make sure a Weaver instance is available in scope."
-              )
+              '{
+                Weaver.fromSurface(Surface.of[t]).asInstanceOf[Weaver[t]]
+              }.asExprOf[Weaver[?]]
     }
 
     // Build IndexedSeq of field weavers

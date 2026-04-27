@@ -281,11 +281,35 @@ object Weaver:
       CaseClassWeaver(s, fieldWeavers)
   }
 
+  // Fallback for surfaces with no objectFactory (open abstract types). Lossy by design:
+  // a custom `given Weaver[A]` is required to preserve subtype data on round-trip.
+  private val emptyObjectWeaver: Weaver[Any] =
+    new Weaver[Any]:
+      override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
+        if v == null then
+          p.packNil
+        else
+          p.packMapHeader(0)
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.NIL =>
+            u.unpackNil
+            context.setNull
+          case _ =>
+            u.skipValue
+            context.setNull
+
+  private val emptyObjectFallbackFactory: WeaverFactory = {
+    case s if !s.isPrimitive && s.objectFactory.isEmpty =>
+      emptyObjectWeaver
+  }
+
   private val defaultFactories: Seq[WeaverFactory] = Seq(
     primitiveFactory,
     collectionFactory,
     javaCollectionFactory,
-    complexTypeFactory
+    complexTypeFactory,
+    emptyObjectFallbackFactory
   )
 
   private def buildWeaver(surface: Surface): Weaver[?] = defaultFactories
