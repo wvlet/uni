@@ -151,6 +151,16 @@ class KeyValueMethodApp:
   @command(description = "Parse a key=value pair")
   def set(kv: KeyValue): String = s"${kv.key}=${kv.value}"
 
+case class MultiPositionalConfig(
+    @argument(name = "files", description = "Files")
+    files: Seq[String] = Seq.empty
+)
+
+@command(description = "App with a multi-valued positional that isn't last")
+class VariadicNotLastApp:
+  @command(description = "Variadic followed by another positional")
+  def run(cfg: MultiPositionalConfig, mode: String): String = s"${cfg.files.mkString(",")} ${mode}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -264,13 +274,12 @@ class LauncherTest extends UniTest:
     result.executedMethod.get._2 shouldBe "start default-host:9090"
   }
 
-  test("nested config-class method overrides method default when flags provided") {
+  test("nested config-class method overrides only specified fields, preserving method default") {
     val launcher = Launcher.of[NestedConfigApp]
     val result   = launcher.execute(Array("startCustom", "--port", "1234"))
     result.executedMethod.isDefined shouldBe true
-    // When any inner flag is parsed, the method default is replaced by an instance built
-    // from the nested surface (so unspecified fields fall back to inner defaults).
-    result.executedMethod.get._2 shouldBe "start localhost:1234"
+    // host comes from the method default object (default-host), port is overridden by --port.
+    result.executedMethod.get._2 shouldBe "start default-host:1234"
   }
 
   test("colliding nested config-class params produce a clear error") {
@@ -290,6 +299,12 @@ class LauncherTest extends UniTest:
     val result   = launcher.execute(Array("set", "foo=bar"))
     result.executedMethod.isDefined shouldBe true
     result.executedMethod.get._2 shouldBe "foo=bar"
+  }
+
+  test("multi-valued positional that isn't last produces a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[VariadicNotLastApp].execute(Array("run"))
+    }
   }
 
   test("launcher with config") {

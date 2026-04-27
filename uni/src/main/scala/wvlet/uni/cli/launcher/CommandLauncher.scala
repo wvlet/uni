@@ -167,8 +167,9 @@ class CommandLauncher(
       p.findAnnotation("argument").isEmpty
 
   /**
-    * Build a nested config-class instance, honoring the outer parameter default when no inner
-    * fields were parsed from the command line.
+    * Build a nested config-class instance, honoring the outer parameter default. When some inner
+    * fields were parsed, the parsed values override the corresponding fields of the default object
+    * so partial overrides preserve unrelated default fields.
     */
   private def buildNestedInstance(
       surf: Surface,
@@ -178,8 +179,29 @@ class CommandLauncher(
     defaultValue match
       case Some(default) if !hasParsedInnerValue(surf, parseResult) =>
         default
-      case _ =>
+      case Some(default) =>
+        mergeWithDefault(surf, default, parseResult)
+      case None =>
         buildInstanceFromSurface(surf, parseResult)
+
+  private def mergeWithDefault(surf: Surface, default: Any, parseResult: ParseResult): Any =
+    surf.objectFactory match
+      case Some(factory) =>
+        val args = surf
+          .params
+          .map { p =>
+            if isUnannotatedNested(p) then
+              buildNestedInstance(p.surface, Option(p.get(default)), parseResult)
+            else
+              parseResult.optionValues.get(p.name) match
+                case Some(values) =>
+                  convertValue(p.surface, values)
+                case None =>
+                  p.get(default)
+          }
+        factory.newInstance(args)
+      case None =>
+        throw IllegalStateException(s"Cannot create instance of ${surf.fullName}")
 
   private def hasParsedInnerValue(surf: Surface, parseResult: ParseResult): Boolean = surf
     .params

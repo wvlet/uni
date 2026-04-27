@@ -218,6 +218,20 @@ object MethodOptionSchema:
           "Methods cannot mix nested config classes that expose duplicate option flags or field names."
       )
 
+    // OptionParser greedily consumes all remaining non-option tokens for a multi-valued
+    // positional, so any Seq/Array argument must be the LAST positional. Flag earlier ones
+    // explicitly — particularly important now that nested-config flattening can introduce
+    // positional Seq fields that sit before subsequent method args.
+    val variadicNotLast = arguments
+      .dropRight(1)
+      .filter(_.takesMultipleArguments)
+      .flatMap(_.param.map(_.name))
+    if variadicNotLast.nonEmpty then
+      throw IllegalArgumentException(
+        s"Multi-valued positional argument(s) ${variadicNotLast.mkString(", ")} in command " +
+          s"'${method.name}' must be the last positional argument."
+      )
+
     new MethodOptionSchema(method, options, arguments)
 
   end apply
