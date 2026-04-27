@@ -142,10 +142,9 @@ object Weaver:
     * case class Owner(name: String, pet: Animal) derives Weaver
     * }}}
     *
-    * Subclasses must be concrete (case classes or regular classes with derivable Weavers); Scala
-    * `case object`s aren't supported here because abstract classes with constructor parameters
-    * cannot be extended by `object`s. For sealed hierarchies that include case objects, use
-    * `derives Weaver` on the sealed parent instead.
+    * Subclasses can be concrete classes or Scala `object`s; for an `object` child, pass
+    * `classOf[ChildObj.type]` (or `ChildObj.getClass`) and a Weaver for the object — the singleton
+    * instance is recovered automatically via the synthetic `MODULE$` field on JVM.
     *
     * @param subclassWeavers
     *   pairs of `(concrete subclass, weaver)`. Names are taken from `Class.getSimpleName`.
@@ -156,8 +155,9 @@ object Weaver:
         "Weaver.subclassesOf requires at least one (Class, Weaver) pair"
       )
     val entries: Seq[(String, (Weaver[? <: A], Option[A]))] = subclassWeavers.map { (cls, weaver) =>
-      val name = cls.getSimpleName.stripSuffix("$")
-      name -> (weaver, None)
+      val name      = cls.getSimpleName.stripSuffix("$")
+      val singleton = singletonInstanceOf[A](cls)
+      name -> (weaver, singleton)
     }
     val map = entries.toMap
     if map.size != entries.size then
@@ -179,6 +179,21 @@ object Weaver:
       .map(_.getSimpleName)
       .getOrElse("abstract type")
     new SealedTraitWeaver[A](abstractName, map)
+
+  end subclassesOf
+
+  /**
+    * Recover a singleton instance from the synthetic `MODULE$` field that the Scala compiler emits
+    * for `object` definitions. Returns None if the class isn't a module (e.g. it's a regular
+    * class), or if reflection isn't supported on the current platform.
+    */
+  private def singletonInstanceOf[A](cls: Class[? <: A]): Option[A] =
+    try
+      val field = cls.getField("MODULE$")
+      Some(field.get(null).asInstanceOf[A])
+    catch
+      case _: Throwable =>
+        None
 
   def weave[A](v: A, config: WeaverConfig = WeaverConfig())(using weaver: Weaver[A]): MsgPack =
     weaver.weave(v, config)

@@ -29,6 +29,17 @@ object AbstractClassWeaverTest:
 
   given Weaver[Shape] = Weaver.subclassesOf[Shape](shapeChildren*)
 
+  // Non-sealed trait with case-object children — singleton subclass round-trip
+  trait Signal
+  case object On                    extends Signal
+  case object Off                   extends Signal
+  case class Pulse(durationMs: Int) extends Signal derives Weaver
+  given Weaver[Signal] = Weaver.subclassesOf[Signal](
+    classOf[On.type]  -> Weaver.of[On.type],
+    classOf[Off.type] -> Weaver.of[Off.type],
+    classOf[Pulse]    -> Weaver.of[Pulse]
+  )
+
 end AbstractClassWeaverTest
 
 class AbstractClassWeaverTest extends UniTest:
@@ -104,6 +115,24 @@ class AbstractClassWeaverTest extends UniTest:
     val json     = Weaver.toJson(s)
     val restored = Weaver.fromJson[Shape](json)
     restored shouldBe s
+  }
+
+  test("case-object subclass round-trips through MODULE$ recovery") {
+    val on: Signal = On
+    val onJson     = Weaver.toJson(on)
+    onJson shouldBe """{"@type":"On"}"""
+    Weaver.fromJson[Signal](onJson) shouldBe On
+
+    val off: Signal = Off
+    Weaver.fromJson[Signal](Weaver.toJson(off)) shouldBe Off
+  }
+
+  test("case-class child of a trait still round-trips alongside case objects") {
+    val pulse: Signal = Pulse(250)
+    val json          = Weaver.toJson(pulse)
+    json shouldContain "\"@type\":\"Pulse\""
+    json shouldContain "\"durationMs\":250"
+    Weaver.fromJson[Signal](json) shouldBe pulse
   }
 
 end AbstractClassWeaverTest
