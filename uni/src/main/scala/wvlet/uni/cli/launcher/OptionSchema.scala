@@ -22,7 +22,47 @@ import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
   */
 private[launcher] def isNestedConfigClass(surface: Surface): Boolean =
   !surface.isPrimitive && !surface.isOption && !surface.isSeq && !surface.isArray &&
-    surface.params.nonEmpty && surface.fullName != KeyValue.SurfaceName
+    !surface.isMap && surface.params.nonEmpty && surface.fullName != KeyValue.SurfaceName
+
+/**
+  * Reject schemas where flattened options/arguments would silently shadow each other.
+  * `OptionParser` binds each prefix and parameter-name key to a single CLOption/CLArgument, so
+  * duplicates would either overwrite values or be unreachable.
+  */
+private[launcher] def detectCollisions(
+    context: String,
+    options: Seq[CLOption],
+    arguments: Seq[CLArgument]
+): Unit =
+  val dupNames = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
+    .groupBy(_.name)
+    .collect {
+      case (n, ps) if ps.size > 1 =>
+        n
+    }
+    .toSeq
+    .sorted
+  val dupPrefixes =
+    options
+      .flatMap(_.prefixes)
+      .groupBy(identity)
+      .collect {
+        case (p, ps) if ps.size > 1 =>
+          p
+      }
+      .toSeq
+      .sorted
+  if dupNames.nonEmpty || dupPrefixes.nonEmpty then
+    val parts = Seq(
+      Option.when(dupNames.nonEmpty)(s"field names: ${dupNames.mkString(", ")}"),
+      Option.when(dupPrefixes.nonEmpty)(s"option prefixes: ${dupPrefixes.mkString(", ")}")
+    ).flatten.mkString("; ")
+    throw IllegalArgumentException(
+      s"Conflicting parameters in ${context} (${parts}). " +
+        "Schemas cannot expose duplicate option flags or field names."
+    )
+
+end detectCollisions
 
 /**
   * Schema for command-line options and arguments, built from Surface annotations
@@ -119,7 +159,10 @@ object ClassOptionSchema:
                 argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
                 argCount += 1
 
-    new ClassOptionSchema(surface, optionsBuilder.result(), argumentsBuilder.result())
+    val options   = optionsBuilder.result()
+    val arguments = argumentsBuilder.result()
+    detectCollisions(s"class '${surface.fullName}'", options, arguments)
+    new ClassOptionSchema(surface, options, arguments)
 
   end apply
 
@@ -207,36 +250,7 @@ object MethodOptionSchema:
     val options   = optionsBuilder.result()
     val arguments = argumentsBuilder.result()
 
-    // Detect collisions early — flattened nested-config options share the OptionParser's
-    // parameter-name namespace, and OptionParser.findOption binds each prefix to the first
-    // CLOption, so duplicates would silently overwrite each other or be unreachable.
-    val dupNames = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
-      .groupBy(_.name)
-      .collect {
-        case (n, ps) if ps.size > 1 =>
-          n
-      }
-      .toSeq
-      .sorted
-    val dupPrefixes =
-      options
-        .flatMap(_.prefixes)
-        .groupBy(identity)
-        .collect {
-          case (p, ps) if ps.size > 1 =>
-            p
-        }
-        .toSeq
-        .sorted
-    if dupNames.nonEmpty || dupPrefixes.nonEmpty then
-      val parts = Seq(
-        Option.when(dupNames.nonEmpty)(s"field names: ${dupNames.mkString(", ")}"),
-        Option.when(dupPrefixes.nonEmpty)(s"option prefixes: ${dupPrefixes.mkString(", ")}")
-      ).flatten.mkString("; ")
-      throw IllegalArgumentException(
-        s"Conflicting parameters in command '${method.name}' (${parts}). " +
-          "Methods cannot mix nested config classes that expose duplicate option flags or field names."
-      )
+    detectCollisions(s"command '${method.name}'", options, arguments)
 
     // OptionParser greedily consumes all remaining non-option tokens for a multi-valued
     // positional, so any Seq/Array argument must be the LAST positional. Flag earlier ones
