@@ -13,7 +13,7 @@
  */
 package wvlet.uni.cli.launcher
 
-import wvlet.uni.surface.{MethodSurface, Surface}
+import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
 
 /**
   * Information about a command
@@ -109,14 +109,25 @@ class CommandLauncher(
       args: Seq[String]
   ): LauncherResult =
     val methodSchema = MethodOptionSchema(method)
-    val parser       = OptionParser(methodSchema)
-    val parseResult  = parser.parse(args.toArray, config.helpPrefixes)
+    // The outer command schema parses first and consumes its known prefixes from the args.
+    // If the method schema reuses any of those prefixes (likely when a nested config and the
+    // command class both expose --host etc.), the user's value would silently bind to the outer
+    // class. Reject this configuration up front rather than misroute the input.
+    val outerPrefixes = schema.options.flatMap(_.prefixes).toSet
+    val collisions    = methodSchema.options.flatMap(_.prefixes).filter(outerPrefixes).distinct
+    if collisions.nonEmpty then
+      throw IllegalArgumentException(
+        s"Option prefixes ${collisions.mkString(", ")} on command '${method.name}' are already " +
+          s"declared on the enclosing command and would be intercepted by the outer parse."
+      )
+    val parser      = OptionParser(methodSchema)
+    val parseResult = parser.parse(args.toArray, config.helpPrefixes)
 
     if parseResult.showHelp then
       printMethodHelp(config, method, methodSchema)
       return LauncherResult(instance, Some((method, null)), showedHelp = true)
 
-    val methodArgs = buildMethodArgs(method, parseResult)
+    val methodArgs = buildMethodArgs(method, instance, parseResult)
     val result     = method.call(instance, methodArgs*)
     LauncherResult(instance, Some((method, result)), showedHelp = false)
 
@@ -134,53 +145,116 @@ class CommandLauncher(
   private def buildInstanceFromSurface(surf: Surface, parseResult: ParseResult): Any =
     surf.objectFactory match
       case Some(factory) =>
-        val args = surf
-          .params
-          .map { p =>
-            // Check if this is a nested class (not primitive, not Option, not Seq/Array, has params)
-            val isNested =
-              !p.surface.isPrimitive && !p.surface.isOption && !p.surface.isSeq &&
-                !p.surface.isArray && p.surface.params.nonEmpty &&
-                !p.findAnnotation("option").isDefined && !p.findAnnotation("argument").isDefined
-
-            if isNested then
-              // Recursively build nested instance
-              buildInstanceFromSurface(p.surface, parseResult)
-            else
-              parseResult.optionValues.get(p.name) match
-                case Some(values) =>
-                  convertValue(p.surface, values)
-                case None =>
-                  p.getDefaultValue
-                    .getOrElse {
-                      if p.isRequired then
-                        throw IllegalArgumentException(s"Missing required parameter: ${p.name}")
-                      else
-                        getDefaultForType(p.surface)
-                    }
-          }
+        val args = surf.params.map(p => resolveOne(p, p.getDefaultValue, parseResult, "parameter"))
         factory.newInstance(args)
       case None =>
         throw IllegalStateException(s"Cannot create instance of ${surf.fullName}")
 
   /**
-    * Build method arguments from parsed values
+    * Build method arguments from parsed values. `instance` is the method's owner, needed to read
+    * Scala 3 method-parameter defaults (which live as accessors on the owner class). Falls back to
+    * the compile-time `getDefaultValue` for surfaces that don't synthesize a runtime accessor (e.g.
+    * inherited/trait methods).
     */
-  private def buildMethodArgs(method: MethodSurface, parseResult: ParseResult): Seq[Any] = method
+  private def buildMethodArgs(
+      method: MethodSurface,
+      instance: Any,
+      parseResult: ParseResult
+  ): Seq[Any] = method
     .args
     .map { p =>
-      parseResult.optionValues.get(p.name) match
-        case Some(values) =>
-          convertValue(p.surface, values)
-        case None =>
-          p.getDefaultValue
-            .getOrElse {
-              if p.isRequired then
-                throw IllegalArgumentException(s"Missing required argument: ${p.name}")
-              else
-                getDefaultForType(p.surface)
-            }
+      val default = p.getMethodArgDefaultValue(instance).orElse(p.getDefaultValue)
+      resolveOne(p, default, parseResult, "argument")
     }
+
+  private def resolveOne(
+      p: Parameter,
+      defaultValue: => Option[Any],
+      parseResult: ParseResult,
+      kind: String
+  ): Any =
+    if isUnannotatedNested(p) then
+      buildNestedInstance(p.surface, defaultValue, parseResult)
+    else
+      resolveParamValue(p, defaultValue, parseResult, kind)
+
+  private def isUnannotatedNested(p: Parameter): Boolean =
+    isNestedConfigClass(p.surface) && p.findAnnotation("option").isEmpty &&
+      p.findAnnotation("argument").isEmpty
+
+  /**
+    * Build a nested config-class instance, honoring the outer parameter default. When some inner
+    * fields were parsed, the parsed values override the corresponding fields of the default object
+    * so partial overrides preserve unrelated default fields.
+    */
+  private def buildNestedInstance(
+      surf: Surface,
+      defaultValue: Option[Any],
+      parseResult: ParseResult
+  ): Any =
+    defaultValue match
+      case Some(default) if !hasParsedInnerValue(surf, parseResult) =>
+        default
+      case Some(default) =>
+        mergeWithDefault(surf, default, parseResult)
+      case None =>
+        buildInstanceFromSurface(surf, parseResult)
+
+  // Read a field from the default object, falling back to the param's own declared default when
+  // the surface lacks a readable accessor (e.g. plain non-case classes whose constructor params
+  // aren't exposed as fields). `Parameter.get` returns null in that case; we don't want to
+  // silently smuggle null into the rebuilt instance.
+  private def readFromDefault(p: Parameter, default: Any): Any =
+    val v = p.get(default)
+    if v == null then
+      p.getDefaultValue.getOrElse(getDefaultForType(p.surface))
+    else
+      v
+
+  private def mergeWithDefault(surf: Surface, default: Any, parseResult: ParseResult): Any =
+    surf.objectFactory match
+      case Some(factory) =>
+        val args = surf
+          .params
+          .map { p =>
+            if isUnannotatedNested(p) then
+              buildNestedInstance(p.surface, Option(p.get(default)), parseResult)
+            else
+              parseResult.optionValues.get(p.name) match
+                case Some(values) =>
+                  convertValue(p.surface, values)
+                case None =>
+                  readFromDefault(p, default)
+          }
+        factory.newInstance(args)
+      case None =>
+        throw IllegalStateException(s"Cannot create instance of ${surf.fullName}")
+
+  private def hasParsedInnerValue(surf: Surface, parseResult: ParseResult): Boolean = surf
+    .params
+    .exists { p =>
+      if isUnannotatedNested(p) then
+        hasParsedInnerValue(p.surface, parseResult)
+      else
+        parseResult.optionValues.contains(p.name)
+    }
+
+  private def resolveParamValue(
+      p: Parameter,
+      defaultValue: Option[Any],
+      parseResult: ParseResult,
+      kind: String
+  ): Any =
+    parseResult.optionValues.get(p.name) match
+      case Some(values) =>
+        convertValue(p.surface, values)
+      case None =>
+        defaultValue.getOrElse {
+          if p.isRequired then
+            throw IllegalArgumentException(s"Missing required ${kind}: ${p.name}")
+          else
+            getDefaultForType(p.surface)
+        }
 
   /**
     * Convert string values to the target type
@@ -214,7 +288,7 @@ class CommandLauncher(
           value.toByte
         case Primitive.Char =>
           value.headOption.getOrElse('\u0000')
-        case _ if surface.fullName == "wvlet.uni.cli.launcher.KeyValue" =>
+        case _ if surface.fullName == KeyValue.SurfaceName =>
           KeyValue.parse(value)
         case _ =>
           // Try to use string as-is for unknown types

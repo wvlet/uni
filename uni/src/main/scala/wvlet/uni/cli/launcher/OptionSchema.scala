@@ -16,6 +16,55 @@ package wvlet.uni.cli.launcher
 import wvlet.uni.surface.{MethodSurface, Parameter, Surface}
 
 /**
+  * Detect a nested configuration class — a structured (non-primitive) parameter that should
+  * contribute its own fields as options/arguments rather than being parsed directly. Excludes
+  * launcher-recognized scalar wrappers (e.g. `KeyValue`) that have a custom string parser.
+  */
+private[launcher] def isNestedConfigClass(surface: Surface): Boolean =
+  !surface.isPrimitive && !surface.isOption && !surface.isSeq && !surface.isArray &&
+    !surface.isMap && surface.params.nonEmpty && surface.fullName != KeyValue.SurfaceName
+
+/**
+  * Reject schemas where flattened options/arguments would silently shadow each other.
+  * `OptionParser` binds each prefix and parameter-name key to a single CLOption/CLArgument, so
+  * duplicates would either overwrite values or be unreachable.
+  */
+private[launcher] def detectCollisions(
+    context: String,
+    options: Seq[CLOption],
+    arguments: Seq[CLArgument]
+): Unit =
+  val dupNames = (options.flatMap(_.param) ++ arguments.flatMap(_.param))
+    .groupBy(_.name)
+    .collect {
+      case (n, ps) if ps.size > 1 =>
+        n
+    }
+    .toSeq
+    .sorted
+  val dupPrefixes =
+    options
+      .flatMap(_.prefixes)
+      .groupBy(identity)
+      .collect {
+        case (p, ps) if ps.size > 1 =>
+          p
+      }
+      .toSeq
+      .sorted
+  if dupNames.nonEmpty || dupPrefixes.nonEmpty then
+    val parts = Seq(
+      Option.when(dupNames.nonEmpty)(s"field names: ${dupNames.mkString(", ")}"),
+      Option.when(dupPrefixes.nonEmpty)(s"option prefixes: ${dupPrefixes.mkString(", ")}")
+    ).flatten.mkString("; ")
+    throw IllegalArgumentException(
+      s"Conflicting parameters in ${context} (${parts}). " +
+        "Schemas cannot expose duplicate option flags or field names."
+    )
+
+end detectCollisions
+
+/**
   * Schema for command-line options and arguments, built from Surface annotations
   */
 trait OptionSchema:
@@ -66,9 +115,18 @@ class ClassOptionSchema(
 
 object ClassOptionSchema:
   /**
-    * Build an option schema from a Surface by reading @option and @argument annotations
+    * Build an option schema from a Surface by reading @option and @argument annotations.
+    *
+    * When `treatUnannotatedAsPositional` is true, plain scalar fields without annotations are
+    * exposed as positional arguments (matching `MethodOptionSchema`'s behavior). This is enabled
+    * when flattening a nested config that's used as a method argument, so users don't have to
+    * annotate every field of a config that drives a single command method.
     */
-  def apply(surface: Surface, argIndexOffset: Int = 0): ClassOptionSchema =
+  def apply(
+      surface: Surface,
+      argIndexOffset: Int = 0,
+      treatUnannotatedAsPositional: Boolean = false
+  ): ClassOptionSchema =
     var argCount         = argIndexOffset
     val optionsBuilder   = Seq.newBuilder[CLOption]
     val argumentsBuilder = Seq.newBuilder[CLArgument]
@@ -91,17 +149,20 @@ object ClassOptionSchema:
               argumentsBuilder += CLArgument(argCount, name, desc, Some(p))
               argCount += 1
             case None =>
-              // Check if this is a nested class with options
-              if !p.surface.isPrimitive && !p.surface.isOption && !p.surface.isSeq &&
-                !p.surface.isArray && p.surface.params.nonEmpty
-              then
-                // Recursively process nested class
-                val nested = ClassOptionSchema(p.surface, argCount)
+              // Recursively process nested config classes so their fields become options/arguments
+              if isNestedConfigClass(p.surface) then
+                val nested = ClassOptionSchema(p.surface, argCount, treatUnannotatedAsPositional)
                 optionsBuilder ++= nested.options
                 argumentsBuilder ++= nested.arguments
                 argCount += nested.arguments.length
+              else if treatUnannotatedAsPositional then
+                argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
+                argCount += 1
 
-    new ClassOptionSchema(surface, optionsBuilder.result(), argumentsBuilder.result())
+    val options   = optionsBuilder.result()
+    val arguments = argumentsBuilder.result()
+    detectCollisions(s"class '${surface.fullName}'", options, arguments)
+    new ClassOptionSchema(surface, options, arguments)
 
   end apply
 
@@ -167,11 +228,47 @@ object MethodOptionSchema:
               argumentsBuilder += CLArgument(argCount, name, desc, Some(p))
               argCount += 1
             case None =>
-              // Parameters without @option or @argument are treated as positional arguments
-              argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
-              argCount += 1
+              if isNestedConfigClass(p.surface) then
+                // Recursively expose nested config class options/arguments. Pass
+                // treatUnannotatedAsPositional=true so that plain scalar fields inside the
+                // nested class behave the same as plain method parameters.
+                val nested = ClassOptionSchema(
+                  p.surface,
+                  argCount,
+                  treatUnannotatedAsPositional = true
+                )
+                optionsBuilder ++= nested.options
+                argumentsBuilder ++= nested.arguments
+                argCount += nested.arguments.length
+              else
+                // Plain parameters are treated as positional arguments
+                argumentsBuilder += CLArgument(argCount, p.name, "", Some(p))
+                argCount += 1
+      end match
+    end for
 
-    new MethodOptionSchema(method, optionsBuilder.result(), argumentsBuilder.result())
+    val options   = optionsBuilder.result()
+    val arguments = argumentsBuilder.result()
+
+    detectCollisions(s"command '${method.name}'", options, arguments)
+
+    // OptionParser greedily consumes all remaining non-option tokens for a multi-valued
+    // positional, so any Seq/Array argument must be the LAST positional. Flag earlier ones
+    // explicitly — particularly important now that nested-config flattening can introduce
+    // positional Seq fields that sit before subsequent method args.
+    val variadicNotLast = arguments
+      .dropRight(1)
+      .filter(_.takesMultipleArguments)
+      .flatMap(_.param.map(_.name))
+    if variadicNotLast.nonEmpty then
+      throw IllegalArgumentException(
+        s"Multi-valued positional argument(s) ${variadicNotLast.mkString(", ")} in command " +
+          s"'${method.name}' must be the last positional argument."
+      )
+
+    new MethodOptionSchema(method, options, arguments)
+
+  end apply
 
   private def splitPrefixes(prefix: String, paramName: String): Seq[String] =
     if prefix.isEmpty then

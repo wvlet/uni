@@ -26,6 +26,9 @@ case class KeyValue(key: String, value: String):
   override def toString: String = s"${key}=${value}"
 
 object KeyValue:
+  /** Surface fullName used by the launcher to recognize this scalar-parsed type. */
+  val SurfaceName: String = "wvlet.uni.cli.launcher.KeyValue"
+
   /**
     * Parse "key=value" string into KeyValue. If no '=' is present, value defaults to empty string.
     */

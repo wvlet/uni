@@ -96,6 +96,88 @@ class GitLikeCommand(
   @command(isDefault = true)
   def help(): String = "show help"
 
+// Methods that take nested config-class parameters (#509)
+case class ServerConfig(
+    @option(prefix = "--port", description = "Server port")
+    port: Int = 8080,
+    @option(prefix = "--host", description = "Server host")
+    host: String = "localhost"
+)
+
+case class CompilerOption(
+    @option(prefix = "--target", description = "Target directory")
+    target: String = "out",
+    @argument(name = "source", description = "Source file")
+    source: String = ""
+)
+
+@command(description = "App with nested-config methods")
+class NestedConfigApp:
+  @command(description = "Start the server")
+  def start(config: ServerConfig): String = s"start ${config.host}:${config.port}"
+
+  @command(description = "Compile a source file")
+  def compile(opt: CompilerOption): String = s"compile ${opt.source} -> ${opt.target}"
+
+  // Nested config-class with a method-level default
+  @command(description = "Start the server with a custom default")
+  def startCustom(config: ServerConfig = ServerConfig(port = 9090, host = "default-host")): String =
+    s"start ${config.host}:${config.port}"
+
+@command(description = "App with conflicting nested configs")
+class ConflictingNestedApp:
+  @command(description = "Two nested configs that share field names")
+  def collide(a: ServerConfig, b: ServerConfig): String = s"${a.port}-${b.port}"
+
+case class DbConfig(
+    @option(prefix = "--host", description = "DB host")
+    host: String = "db"
+)
+
+case class ApiConfig(
+    @option(prefix = "--host", description = "API host")
+    apiHost: String = "api"
+)
+
+@command(description = "App with conflicting nested config option prefixes")
+class ConflictingPrefixApp:
+  @command(description = "Two configs that reuse the same option prefix")
+  def run(db: DbConfig, api: ApiConfig): String = s"${db.host}-${api.apiHost}"
+
+@command(description = "App that takes a KeyValue method arg")
+class KeyValueMethodApp:
+  // Unannotated KeyValue should be treated as a single positional argument,
+  // NOT flattened into key/value sub-fields.
+  @command(description = "Parse a key=value pair")
+  def set(kv: KeyValue): String = s"${kv.key}=${kv.value}"
+
+case class MultiPositionalConfig(
+    @argument(name = "files", description = "Files")
+    files: Seq[String] = Seq.empty
+)
+
+@command(description = "App with a multi-valued positional that isn't last")
+class VariadicNotLastApp:
+  @command(description = "Variadic followed by another positional")
+  def run(cfg: MultiPositionalConfig, mode: String): String = s"${cfg.files.mkString(",")} ${mode}"
+
+// Nested config with an unannotated leaf field — should be auto-positional via method-arg flatten
+case class Credentials(user: String = "")
+
+@command(description = "App that uses a nested config with unannotated fields")
+class UnannotatedNestedApp:
+  @command(description = "Login")
+  def login(c: Credentials): String = s"login ${c.user}"
+
+// Outer-class option that overlaps with nested method config option
+@command(description = "App whose class option shadows a nested method option")
+class ShadowingOuterApp(
+    @option(prefix = "--host", description = "Outer host")
+    host: String = "outer"
+):
+  @command(description = "Run with a nested config")
+  def run(cfg: ServerConfig): String = s"${host}-${cfg.host}"
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -178,6 +260,81 @@ class LauncherTest extends UniTest:
   test("Launcher.of creates a launcher") {
     val launcher = Launcher.of[SimpleApp]
     launcher shouldNotBe null
+  }
+
+  test("execute method with nested config-class parameter") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("start", "--port", "9090", "--host", "example.com"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "start example.com:9090"
+  }
+
+  test("nested config-class method falls back to defaults when flags omitted") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("start"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "start localhost:8080"
+  }
+
+  test("nested config-class method accepts positional arguments and options") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("compile", "--target", "build", "Main.scala"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "compile Main.scala -> build"
+  }
+
+  test("nested config-class method honors method-level default when no flags parsed") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("startCustom"))
+    result.executedMethod.isDefined shouldBe true
+    // Should preserve the method-level default, not fall back to inner field defaults
+    result.executedMethod.get._2 shouldBe "start default-host:9090"
+  }
+
+  test("nested config-class method overrides only specified fields, preserving method default") {
+    val launcher = Launcher.of[NestedConfigApp]
+    val result   = launcher.execute(Array("startCustom", "--port", "1234"))
+    result.executedMethod.isDefined shouldBe true
+    // host comes from the method default object (default-host), port is overridden by --port.
+    result.executedMethod.get._2 shouldBe "start default-host:1234"
+  }
+
+  test("colliding nested config-class params produce a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ConflictingNestedApp].execute(Array("collide"))
+    }
+  }
+
+  test("nested configs with duplicate option prefixes produce a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ConflictingPrefixApp].execute(Array("run"))
+    }
+  }
+
+  test("KeyValue method arg is parsed as a single positional, not flattened") {
+    val launcher = Launcher.of[KeyValueMethodApp]
+    val result   = launcher.execute(Array("set", "foo=bar"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "foo=bar"
+  }
+
+  test("multi-valued positional that isn't last produces a clear error") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[VariadicNotLastApp].execute(Array("run"))
+    }
+  }
+
+  test("nested config-class with unannotated fields exposes them as positionals") {
+    val launcher = Launcher.of[UnannotatedNestedApp]
+    val result   = launcher.execute(Array("login", "alice"))
+    result.executedMethod.isDefined shouldBe true
+    result.executedMethod.get._2 shouldBe "login alice"
+  }
+
+  test("nested method options that collide with outer-class options are rejected") {
+    intercept[IllegalArgumentException] {
+      Launcher.of[ShadowingOuterApp].execute(Array("run"))
+    }
   }
 
   test("launcher with config") {
