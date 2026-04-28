@@ -24,53 +24,83 @@ and recursively calls `fromSurface(DataType)` while the outer
 
 ## Why airframe-codec doesn't hit this
 
-`MessageCodecFactory.ofSurface` (airframe-codec) takes a `seen: Set[Surface]`
-parameter. When recursion sees the same surface twice, it returns a
-`LazyCodec` placeholder. The placeholder's `ref` is `lazy val`, so the actual
-codec lookup happens only when `pack`/`unpack` is called — by which point
-the cache has been populated by the outer call. Crucially the cache there is
-a plain `Map`, populated *after* `generateObjectSurface` returns — so cache
-writes never nest.
+`MessageCodecFactory.ofSurface` threads a `seen: Set[Surface]` and returns a
+`LazyCodec` placeholder when recursion sees the same surface twice. The
+placeholder's `ref` is `lazy val` and looks up the per-factory cache only
+when `pack`/`unpack` is called. Crucially that cache is a *plain `Map`
+private to the factory instance*, so it is single-threaded — no other
+thread ever observes a partial weaver tree.
 
-## Fix
+uni's `Weaver.fromSurface` uses a single global cache, so adapting the
+airframe approach has to be more careful about cross-thread visibility.
 
-Mirror the airframe-codec design:
+## Final design
 
-1. **Drop `getOrElseUpdate`** on `ConcurrentHashMap`. Use explicit `get` /
-   `putIfAbsent` so cache writes don't nest.
-2. **Thread a `seen: Set[Surface]`** through `fromSurface` /
-   `buildWeaver` / each `WeaverFactory`. When a recursive request comes in
-   for a surface already on the stack, return a `LazyWeaver` placeholder
-   instead of recursing.
-3. **`LazyWeaver`** holds the surface and resolves to the cached weaver
-   lazily on first `pack`/`unpack`.
+1. **Drop `getOrElseUpdate` / nested `computeIfAbsent`.** Use direct
+   `ConcurrentHashMap.get` + `putIfAbsent` so cache writes never nest
+   (which is what Java's CHM blocks for recursive computations on the
+   same key).
+2. **Per-thread pending-build map.** Each top-level `fromSurface`
+   accumulates its sub-builds in a `ThreadLocal[LinkedHashMap]`. Entries
+   are committed to the shared cache only after the outer-most call
+   returns — concurrent readers never observe a partial weaver tree.
+3. **`LazyWeaver` placeholder with direct resolution.** When recursion
+   re-enters a surface still on the build stack, we return a
+   `LazyWeaver`. After that surface's `buildWeaver` finishes, we wire the
+   placeholder's target in directly via `resolve(...)` — *not* via cache
+   lookup at use time. So visibility to other threads is independent of
+   commit order.
+4. **Track recursion by `Surface.fullName`** (not the Surface instance).
+   `LazySurface` (uni's compile-time recursive-surface placeholder) and
+   the corresponding `GenericSurface` have different equality, so a
+   Set-of-Surface guard would miss the cycle in the common
+   `Node(next: Option[Node])` case.
 
-`fromSurface(surface: Surface)` keeps its public single-arg signature for
-back-compat; recursive callers use a private `fromSurface(surface, seen)`.
+`WeaverFactory` and the rest of the public surface of `Weaver` are
+unchanged: factories don't need a `seen` parameter because recursion is
+handled inside `fromSurface` itself.
 
-## Worked sketch
+## Iterations and lessons (from codex review)
 
-```scala
-private def fromSurface(surface: Surface, seen: Set[Surface]): Weaver[?] =
-  surfaceWeaverCache.get(surface.fullName) match
-    case Some(w) => w
-    case None    =>
-      if seen.contains(surface) then LazyWeaver(surface)
-      else
-        val w = buildWeaver(surface, seen + surface)
-        surfaceWeaverCache.putIfAbsent(surface.fullName, w).getOrElse(w)
-```
+The fix went through three drafts. Each round revealed a subtler issue:
 
-`LazyWeaver` defers to `fromSurface(surface, Set.empty)` on first use; by
-that point the outer build has populated the cache, so the recursion is
-broken safely.
+1. **Draft 1** — `seen: Set[Surface]` threaded through factories; cache
+   committed entry-by-entry.
+   - codex: `seen.contains(surface)` misses `LazySurface` because
+     `LazySurface` and `GenericSurface` have different case-class
+     equality even when they describe the same type.
+   - codex: a sub-weaver containing a `LazyWeaver` is published to the
+     shared cache mid-build, so a parallel reader can grab it before
+     the LazyWeaver's target is in the cache.
+
+2. **Draft 2** — atomic commit at outer-most return; key recursion by
+   `fullName` via per-thread pending map.
+   - codex: when the outer-most surface is a *wrapper* around the
+     recursive type (e.g. `case class Wrap(node: Node)`), insertion-order
+     commit publishes Wrap before Node. Wrap's structure embeds
+     CaseClassWeaver(Node) inline, which embeds `LazyWeaver("Node")`. A
+     parallel reader hits IllegalStateException before Node is published.
+
+3. **Draft 3** (final) — `LazyWeaver` holds a directly-set reference,
+   wired in by the outer build before commit. Use-time no longer touches
+   the cache, so commit order is irrelevant for correctness.
+
+**Lesson:** when adapting a known design (airframe-codec's `LazyCodec`)
+into a different concurrency model (single-instance cache → globally
+shared cache), the original cache-lookup pattern stops being safe. The
+fix is to *eliminate* the cache lookup at use time, not to engineer the
+commit order around it.
 
 ## Test
 
-Add a test that reproduces the crash with an abstract class whose
-`typeParams: List[Self]`. Without the fix this throws
-`IllegalStateException`; with it, deriving completes and a round-trip on a
-non-abstract subtype works.
+`RecursiveSurfaceWeaverTest` covers:
+- self-recursive abstract class with `List[Self]` (the `DataType` shape),
+- abstract field embedded in a concrete case class,
+- self-recursive case class via `Option`,
+- mutually recursive case classes,
+- round-trip through the `LazyWeaver` path,
+- a 64-task concurrent stress test on the same recursive type — the
+  regression test for the cross-thread race that draft 2 still had.
 
 ## Out of scope
 
