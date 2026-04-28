@@ -28,7 +28,7 @@ val AIRFRAME_VERSION                    = "2026.1.6"
 val AWS_SDK_VERSION                     = "2.42.41"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
 val JUNIT_PLATFORM_VERSION              = "6.0.3"
-val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.8"
+val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.11"
 val SBT_TEST_INTERFACE_VERSION          = "1.0"
 
 // Common build settings
