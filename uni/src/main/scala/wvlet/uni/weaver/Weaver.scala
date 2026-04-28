@@ -16,7 +16,6 @@ import wvlet.uni.weaver.codec.PrimitiveWeaver
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import scala.jdk.CollectionConverters.*
 
 trait Weaver[A]:
   def weave(v: A, config: WeaverConfig = WeaverConfig()): MsgPack         = toMsgPack(v, config)
@@ -177,7 +176,7 @@ object Weaver:
   export PrimitiveWeaver.{emptyTupleElementWeaver, nonEmptyTupleElementWeaver}
 
   // Cache for weavers created from Surface
-  private val surfaceWeaverCache = ConcurrentHashMap[String, Weaver[?]]().asScala
+  private val surfaceWeaverCache = ConcurrentHashMap[String, Weaver[?]]()
 
   /**
     * Create a Weaver from Surface at runtime. Uses Surface type information to look up or build
@@ -185,23 +184,44 @@ object Weaver:
     *
     * This is used by RPC framework to derive weavers for method parameters and return types without
     * requiring compile-time type information.
+    *
+    * Self-recursive types (e.g. `class T(children: List[T])`) are supported via [[LazyWeaver]]:
+    * when a recursive request is made for a surface that is still being built on the current stack,
+    * a placeholder is returned that resolves to the cached weaver lazily on first use.
     */
-  def fromSurface(surface: Surface): Weaver[?] = surfaceWeaverCache.getOrElseUpdate(
-    surface.fullName,
-    buildWeaver(surface)
-  )
+  def fromSurface(surface: Surface): Weaver[?] = fromSurface(surface, Set.empty)
+
+  private def fromSurface(surface: Surface, seen: Set[Surface]): Weaver[?] =
+    val cached = surfaceWeaverCache.get(surface.fullName)
+    if cached != null then
+      cached
+    else if seen.contains(surface) then
+      // Break the cycle: defer resolution until the outer build populates the cache.
+      LazyWeaver(surface)
+    else
+      val w = buildWeaver(surface, seen + surface)
+      // putIfAbsent guards against a concurrent build winning the race.
+      val existing = surfaceWeaverCache.putIfAbsent(surface.fullName, w)
+      if existing == null then
+        w
+      else
+        existing
 
   /**
-    * Extensible weaver factories for runtime weaver construction. Each factory is a partial
-    * function that maps a Surface to a Weaver. Factories are tried in order until one matches.
+    * Extensible weaver factories for runtime weaver construction. Each factory takes the current
+    * `seen` set (surfaces being built on the recursion stack) and returns a partial function from
+    * Surface to Weaver. Factories are tried in order until one matches.
+    *
+    * Recursive factories must thread `seen` through their `fromSurface` calls so that
+    * self-recursive types resolve to a [[LazyWeaver]] placeholder instead of looping.
     *
     * This can be extended by platform-specific code to add support for additional types.
     */
-  type WeaverFactory = PartialFunction[Surface, Weaver[?]]
+  type WeaverFactory = Set[Surface] => PartialFunction[Surface, Weaver[?]]
 
   private val primitiveFactory: WeaverFactory =
     import PrimitiveWeaver.given
-    {
+    _ => {
       case s if s.rawType == classOf[Unit] || s.fullName == "Unit" =>
         unitWeaver
       case s if s.rawType == classOf[Int] =>
@@ -234,52 +254,55 @@ object Weaver:
 
   end primitiveFactory
 
-  private val collectionFactory: WeaverFactory = {
-    // Option[A]
-    case s: OptionSurface =>
-      OptionWeaver(fromSurface(s.elementSurface))
+  private val collectionFactory: WeaverFactory =
+    seen => {
+      // Option[A]
+      case s: OptionSurface =>
+        OptionWeaver(fromSurface(s.elementSurface, seen))
 
-    // Seq/List/Vector/IndexedSeq
-    case s if s.isSeq && s.typeArgs.nonEmpty =>
-      SeqWeaver(fromSurface(s.typeArgs.head), s.rawType)
+      // Seq/List/Vector/IndexedSeq
+      case s if s.isSeq && s.typeArgs.nonEmpty =>
+        SeqWeaver(fromSurface(s.typeArgs.head, seen), s.rawType)
 
-    // Set (Scala)
-    case s if classOf[Set[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
-      SetWeaver(fromSurface(s.typeArgs.head))
+      // Set (Scala)
+      case s if classOf[Set[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
+        SetWeaver(fromSurface(s.typeArgs.head, seen))
 
-    // Map (Scala)
-    case s if s.isMap && s.typeArgs.size >= 2 =>
-      MapWeaver(fromSurface(s.typeArgs(0)), fromSurface(s.typeArgs(1)))
+      // Map (Scala)
+      case s if s.isMap && s.typeArgs.size >= 2 =>
+        MapWeaver(fromSurface(s.typeArgs(0), seen), fromSurface(s.typeArgs(1), seen))
 
-    // Array
-    case s: ArraySurface =>
-      ArrayWeaver(fromSurface(s.elementSurface), s.elementSurface.rawType)
-  }
+      // Array
+      case s: ArraySurface =>
+        ArrayWeaver(fromSurface(s.elementSurface, seen), s.elementSurface.rawType)
+    }
 
-  private val javaCollectionFactory: WeaverFactory = {
-    // java.util.List
-    case s if classOf[java.util.List[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
-      JavaListWeaver(fromSurface(s.typeArgs.head))
+  private val javaCollectionFactory: WeaverFactory =
+    seen => {
+      // java.util.List
+      case s if classOf[java.util.List[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
+        JavaListWeaver(fromSurface(s.typeArgs.head, seen))
 
-    // java.util.Set
-    case s if classOf[java.util.Set[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
-      JavaSetWeaver(fromSurface(s.typeArgs.head))
+      // java.util.Set
+      case s if classOf[java.util.Set[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
+        JavaSetWeaver(fromSurface(s.typeArgs.head, seen))
 
-    // java.util.Map
-    case s if classOf[java.util.Map[?, ?]].isAssignableFrom(s.rawType) && s.typeArgs.size >= 2 =>
-      JavaMapWeaver(fromSurface(s.typeArgs(0)), fromSurface(s.typeArgs(1)))
-  }
+      // java.util.Map
+      case s if classOf[java.util.Map[?, ?]].isAssignableFrom(s.rawType) && s.typeArgs.size >= 2 =>
+        JavaMapWeaver(fromSurface(s.typeArgs(0), seen), fromSurface(s.typeArgs(1), seen))
+    }
 
-  private val complexTypeFactory: WeaverFactory = {
-    // Enum
-    case s: EnumSurface =>
-      EnumWeaver(s)
+  private val complexTypeFactory: WeaverFactory =
+    seen => {
+      // Enum
+      case s: EnumSurface =>
+        EnumWeaver(s)
 
-    // Case class (has objectFactory)
-    case s if s.objectFactory.isDefined =>
-      val fieldWeavers = s.params.map(p => fromSurface(p.surface)).toIndexedSeq
-      CaseClassWeaver(s, fieldWeavers)
-  }
+      // Case class (has objectFactory)
+      case s if s.objectFactory.isDefined =>
+        val fieldWeavers = s.params.map(p => fromSurface(p.surface, seen)).toIndexedSeq
+        CaseClassWeaver(s, fieldWeavers)
+    }
 
   // Fallback for surfaces with no objectFactory (open abstract types). Lossy by design:
   // a custom `given Weaver[A]` is required to preserve subtype data on round-trip.
@@ -299,10 +322,11 @@ object Weaver:
             u.skipValue
             context.setNull
 
-  private val emptyObjectFallbackFactory: WeaverFactory = {
-    case s if !s.isPrimitive && s.objectFactory.isEmpty =>
-      emptyObjectWeaver
-  }
+  private val emptyObjectFallbackFactory: WeaverFactory =
+    _ => {
+      case s if !s.isPrimitive && s.objectFactory.isEmpty =>
+        emptyObjectWeaver
+    }
 
   private val defaultFactories: Seq[WeaverFactory] = Seq(
     primitiveFactory,
@@ -312,14 +336,30 @@ object Weaver:
     emptyObjectFallbackFactory
   )
 
-  private def buildWeaver(surface: Surface): Weaver[?] = defaultFactories
-    .collectFirst {
-      case f if f.isDefinedAt(surface) =>
-        f(surface)
-    }
+  private def buildWeaver(surface: Surface, seen: Set[Surface]): Weaver[?] = defaultFactories
+    .iterator
+    .flatMap(_(seen).lift(surface))
+    .nextOption()
     .getOrElse(
       throw IllegalArgumentException(s"Cannot create Weaver for type: ${surface.fullName}")
     )
+
+  /**
+    * Placeholder Weaver used to break cycles when deriving weavers for self-recursive types. The
+    * actual Weaver is looked up from [[surfaceWeaverCache]] lazily on first use, by which point the
+    * outer build has finished populating the cache.
+    */
+  private class LazyWeaver(surface: Surface) extends Weaver[Any]:
+    private lazy val ref: Weaver[Any] =
+      val w = surfaceWeaverCache.get(surface.fullName)
+      if w == null then
+        throw IllegalStateException(
+          s"LazyWeaver for ${surface.fullName} resolved before its target was cached"
+        )
+      w.asInstanceOf[Weaver[Any]]
+
+    override def pack(p: Packer, v: Any, config: WeaverConfig): Unit = ref.pack(p, v, config)
+    override def unpack(u: Unpacker, context: WeaverContext): Unit   = ref.unpack(u, context)
 
   // Weaver factory methods for composing weavers at runtime
 
