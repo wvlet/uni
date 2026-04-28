@@ -40,11 +40,16 @@ class RecursiveSurfaceWeaverTest extends UniTest:
     w shouldNotBe null
   }
 
-  test("fromSurface for mutually recursive case classes") {
-    val w1 = Weaver.fromSurface(Surface.of[Branch])
-    val w2 = Weaver.fromSurface(Surface.of[Leaf])
+  test("fromSurface for mutually recursive case classes round-trips") {
+    val w1 = Weaver.fromSurface(Surface.of[Branch]).asInstanceOf[Weaver[Any]]
+    val w2 = Weaver.fromSurface(Surface.of[Leaf]).asInstanceOf[Weaver[Any]]
     w1 shouldNotBe null
     w2 shouldNotBe null
+
+    val data     = Branch("root", Some(Leaf(1, Some(Branch("child", None)))))
+    val json     = w1.toJson(data)
+    val restored = w1.fromJson(json)
+    restored shouldBe data
   }
 
   test("LazyWeaver round-trips data through self-recursive case class") {

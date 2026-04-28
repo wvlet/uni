@@ -60,6 +60,51 @@ airframe approach has to be more careful about cross-thread visibility.
 unchanged: factories don't need a `seen` parameter because recursion is
 handled inside `fromSurface` itself.
 
+## Worked sketch
+
+```scala
+// Each pending entry holds the placeholder that recursive callers see, plus
+// the final weaver once buildWeaver completes for that surface.
+private final class PendingEntry(val placeholder: LazyWeaver):
+  var built: Weaver[?] = null
+
+private val pendingBuild
+    : ThreadLocal[mutable.LinkedHashMap[String, PendingEntry]] = ...
+
+def fromSurface(surface: Surface): Weaver[?] =
+  val key    = surface.fullName
+  val cached = surfaceWeaverCache.get(key)
+  if cached != null then return cached
+
+  val pending = pendingBuild.get()
+  pending.get(key) match
+    case Some(entry) if entry.built != null => entry.built
+    case Some(entry)                        => entry.placeholder // cycle
+    case None =>
+      val isOuterMost = pending.isEmpty
+      val entry       = PendingEntry(LazyWeaver())
+      pending(key) = entry
+      try
+        val built = buildWeaver(surface)
+        // Wire any captured placeholder *before* the weaver escapes the build.
+        entry.placeholder.resolve(built)
+        entry.built = built
+        if isOuterMost then
+          for (k, e) <- pending do surfaceWeaverCache.putIfAbsent(k, e.built)
+        built
+      finally
+        if isOuterMost then pending.clear()
+
+// LazyWeaver holds a directly-set ref. By the time the build returns, every
+// placeholder has been resolved — so consumers never see an unresolved one,
+// regardless of what order entries land in surfaceWeaverCache.
+private final class LazyWeaver extends Weaver[Any]:
+  @volatile private var ref: Weaver[Any] = null
+  def resolve(w: Weaver[?]): Unit = ref = w.asInstanceOf[Weaver[Any]]
+  override def pack(...)   = ref.pack(...)
+  override def unpack(...) = ref.unpack(...)
+```
+
 ## Iterations and lessons (from codex review)
 
 The fix went through three drafts. Each round revealed a subtler issue:
