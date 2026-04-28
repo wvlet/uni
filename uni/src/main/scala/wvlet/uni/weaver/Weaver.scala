@@ -16,7 +16,6 @@ import wvlet.uni.weaver.codec.PrimitiveWeaver
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
-import scala.jdk.CollectionConverters.*
 
 trait Weaver[A]:
   def weave(v: A, config: WeaverConfig = WeaverConfig()): MsgPack         = toMsgPack(v, config)
@@ -176,8 +175,24 @@ object Weaver:
   export PrimitiveWeaver.TupleElementWeaver
   export PrimitiveWeaver.{emptyTupleElementWeaver, nonEmptyTupleElementWeaver}
 
-  // Cache for weavers created from Surface
-  private val surfaceWeaverCache = ConcurrentHashMap[String, Weaver[?]]().asScala
+  // Cache for weavers created from Surface. Only fully-resolved weaver trees are committed.
+  private val surfaceWeaverCache = ConcurrentHashMap[String, Weaver[?]]()
+
+  // Per-thread accumulator for the current top-level fromSurface call. Each entry holds
+  // the LazyWeaver placeholder that was returned for recursive requests at that key, plus
+  // the final built weaver once the build completes. Entries are published to
+  // surfaceWeaverCache only after the outer-most fromSurface call returns, by which time
+  // every LazyWeaver placeholder has had its target set directly via `resolve`. This
+  // means consumers reading the cache never have to look up a placeholder's target — it's
+  // already wired in — so concurrent threads observing a sub-weaver in cache cannot see
+  // an unresolved LazyWeaver, regardless of commit order.
+  private final class PendingEntry(val placeholder: LazyWeaver):
+    var built: Weaver[?] = null
+
+  private val pendingBuild
+      : ThreadLocal[scala.collection.mutable.LinkedHashMap[String, PendingEntry]] =
+    new ThreadLocal[scala.collection.mutable.LinkedHashMap[String, PendingEntry]]:
+      override def initialValue() = scala.collection.mutable.LinkedHashMap.empty
 
   /**
     * Create a Weaver from Surface at runtime. Uses Surface type information to look up or build
@@ -185,15 +200,56 @@ object Weaver:
     *
     * This is used by RPC framework to derive weavers for method parameters and return types without
     * requiring compile-time type information.
+    *
+    * Self-recursive types (e.g. `class T(children: List[T])`) are supported via [[LazyWeaver]]:
+    * when a recursive request is made for a surface still on the current build stack, a placeholder
+    * is returned. The placeholder's target is wired in directly once the surface's weaver is built,
+    * so it never depends on cache lookups at use time.
     */
-  def fromSurface(surface: Surface): Weaver[?] = surfaceWeaverCache.getOrElseUpdate(
-    surface.fullName,
-    buildWeaver(surface)
-  )
+  def fromSurface(surface: Surface): Weaver[?] =
+    val key    = surface.fullName
+    val cached = surfaceWeaverCache.get(key)
+    if cached != null then
+      return cached
+
+    val pending = pendingBuild.get()
+    pending.get(key) match
+      case Some(entry) if entry.built != null =>
+        // Already finished within this build — return the same instance for sibling references.
+        entry.built
+      case Some(entry) =>
+        // Recursive request: parent is still being built. Return its placeholder; it will be
+        // resolved when the parent's buildWeaver call returns, before any consumer sees it.
+        entry.placeholder
+      case None =>
+        val isOuterMost = pending.isEmpty
+        val entry       = PendingEntry(LazyWeaver())
+        pending(key) = entry
+        try
+          val built = buildWeaver(surface)
+          // Wire the placeholder directly to the built weaver so any structures that
+          // captured the placeholder during recursion now have a working target.
+          entry.placeholder.resolve(built)
+          entry.built = built
+          if isOuterMost then
+            val it = pending.iterator
+            while it.hasNext do
+              val (k, e) = it.next()
+              surfaceWeaverCache.putIfAbsent(k, e.built)
+          built
+        finally
+          if isOuterMost then
+            pending.clear()
+
+  end fromSurface
 
   /**
     * Extensible weaver factories for runtime weaver construction. Each factory is a partial
     * function that maps a Surface to a Weaver. Factories are tried in order until one matches.
+    *
+    * Recursion is handled transparently via [[fromSurface]]: factories may call it directly when
+    * descending into child surfaces; cycle detection is keyed on `Surface.fullName` so a
+    * `LazySurface` placeholder resolves to the same key as the corresponding `GenericSurface`.
     *
     * This can be extended by platform-specific code to add support for additional types.
     */
@@ -320,6 +376,31 @@ object Weaver:
     .getOrElse(
       throw IllegalArgumentException(s"Cannot create Weaver for type: ${surface.fullName}")
     )
+
+  /**
+    * Placeholder Weaver used to break cycles when deriving weavers for self-recursive types. Its
+    * target is wired in by the outer build via [[resolve]] before any consumer can use it; pack and
+    * unpack delegate directly to the resolved weaver. Holding a direct reference (rather than
+    * re-looking up a global cache) means visibility to other threads doesn't depend on commit order
+    * — the placeholder is always fully wired by the time it escapes the build.
+    */
+  private final class LazyWeaver extends Weaver[Any]:
+    @volatile
+    private var ref: Weaver[Any] = null
+
+    def resolve(w: Weaver[?]): Unit = ref = w.asInstanceOf[Weaver[Any]]
+
+    override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
+      val w = ref
+      if w == null then
+        throw IllegalStateException("LazyWeaver used before its target was resolved")
+      w.pack(p, v, config)
+
+    override def unpack(u: Unpacker, context: WeaverContext): Unit =
+      val w = ref
+      if w == null then
+        throw IllegalStateException("LazyWeaver used before its target was resolved")
+      w.unpack(u, context)
 
   // Weaver factory methods for composing weavers at runtime
 
