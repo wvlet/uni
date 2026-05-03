@@ -97,6 +97,25 @@ class DomElementTest extends UniTest:
     val d       = div(when(visible, span("Visible")))
     d.modifiers.flatten.head shouldBe DomNode.empty
 
+  // Runtime behavior tests for `unless`. These pin the *runtime semantics*; the
+  // separate `example.dom.AllExportsTest` pins the migration-path *visibility*
+  // contract (since this test class lives in `wvlet.uni.dom`, top-level
+  // package members are reachable here even without the `all.*` export).
+  test("conditional rendering with unless (false branch renders)"):
+    val hidden = false
+    val d      = div(unless(hidden, span("Visible")))
+    // Don't just assert size=1 — DomNode.empty also occupies a slot, so size=1
+    // alone wouldn't distinguish a real element from a regression where
+    // `unless(false, _)` returned empty. Verify the head is a real element.
+    d.modifiers.flatten.head shouldMatch { case e: DomElement =>
+      e.name shouldBe "span"
+    }
+
+  test("conditional rendering with unless (true branch yields empty)"):
+    val hidden = true
+    val d      = div(unless(hidden, span("Visible")))
+    d.modifiers.flatten.head shouldBe DomNode.empty
+
   test("element chaining"):
     val d = div.add(cls -> "a").add(id -> "b").add(span("content"))
     d.modifiers.flatten.size shouldBe 3

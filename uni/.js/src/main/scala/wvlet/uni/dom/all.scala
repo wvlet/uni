@@ -150,7 +150,9 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   export wvlet.uni.dom.ClickOutsideBinding
 
   /**
-    * Re-export helper functions.
+    * Re-export helper functions. `when` and `unless` are the airframe-rx-html migration path:
+    * `import wvlet.uni.dom.all.*` then `when(cond, body)` / `unless(cond, body)` works without an
+    * extra `import wvlet.uni.dom.{when, unless}`.
     */
   export wvlet.uni.dom.when
   export wvlet.uni.dom.unless
