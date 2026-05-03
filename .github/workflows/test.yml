@@ -31,6 +31,7 @@ jobs:
               - '**.html'
               - '**.css'
               - '**.ts'
+              - 'pnpm-lock.yaml'
               - SCALA_VERSION
   code_format:
     name: Code format
@@ -74,11 +75,13 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '23'
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
-      - name: Install npm packages
-        run: npm install
+          cache: 'pnpm'
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
       - name: Scala.js test
         run: NODE_OPTIONS=--max-old-space-size=4096 JVM_OPTS=-Xmx4g ./sbt "projectJS/test"
       - name: Publish Test Report
@@ -123,11 +126,13 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '23'
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
-      - name: Install npm packages
-        run: npm install
+          cache: 'pnpm'
+      - name: Install Node dependencies
+        run: pnpm install --frozen-lockfile
       - name: Install libcurl
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Verify packageSrc (detect cross-platform class name conflicts)
