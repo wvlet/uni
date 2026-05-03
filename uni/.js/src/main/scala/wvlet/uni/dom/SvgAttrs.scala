@@ -139,3 +139,17 @@ trait SvgAttrs:
   lazy val contentStyleType: DomAttributeOf  = attr("contentStyleType")
 
 end SvgAttrs
+
+/**
+  * Companion object that mixes in the trait, so `import wvlet.uni.dom.SvgAttrs.*` and
+  * `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` work — the airframe-rx-html migration path uses
+  * targeted-rename imports to selectively shadow SVG attribute names that collide with HTML
+  * attribute names already in scope.
+  *
+  * Note: a lowercase `object svgAttrs extends SvgAttrs` (matching airframe-rx-html naming) would
+  * collide with this trait on case-insensitive file systems (macOS / Windows): the compiler would
+  * try to write both `SvgAttrs.tasty` and `svgAttrs.tasty` to the same path. The PascalCase
+  * companion-object form avoids that collision while still giving migrating code a single name to
+  * import.
+  */
+object SvgAttrs extends SvgAttrs
