@@ -24,7 +24,7 @@ val SCALAJS_VERSION = sys.env.getOrElse("SCALAJS_VERSION", "1.21.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % SCALAJS_VERSION)
 
 // For running Scala.js tests in Node.js
-libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.5.0"
+libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.6.0"
 
 // For running Scala.js tests with JSDOM (provides DOM APIs)
 libraryDependencies += "org.scala-js" %% "scalajs-env-jsdom-nodejs" % "1.1.1"
