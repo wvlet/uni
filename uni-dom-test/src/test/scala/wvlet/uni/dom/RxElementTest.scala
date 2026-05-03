@@ -87,4 +87,27 @@ class RxElementTest extends UniTest:
     elem shouldMatch { case _: RxElement =>
     }
 
+  test("primitive literals convert to RxElement parameters"):
+    // Mirrors the airframe-rx-html pattern of helpers that take `RxElement` so they
+    // can accept either a typed element or a primitive literal at the call site.
+    def chip(label: RxElement): RxElement  = span(cls -> "chip", label)
+    def badge(count: RxElement): RxElement = span(cls -> "badge", count)
+    def toggle(on: RxElement): RxElement   = span(cls -> "toggle", on)
+    def initial(c: RxElement): RxElement   = span(cls -> "initial", c)
+
+    chip("Editor") shouldMatch { case _: RxElement =>
+    }
+    badge(7) shouldMatch { case _: RxElement =>
+    }
+    badge(7L) shouldMatch { case _: RxElement =>
+    }
+    badge(1.5f) shouldMatch { case _: RxElement =>
+    }
+    badge(1.5) shouldMatch { case _: RxElement =>
+    }
+    toggle(true) shouldMatch { case _: RxElement =>
+    }
+    initial('A') shouldMatch { case _: RxElement =>
+    }
+
 end RxElementTest

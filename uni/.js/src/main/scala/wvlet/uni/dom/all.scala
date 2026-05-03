@@ -175,6 +175,16 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   given seqToDomNode[A: EmbeddableNode]: Conversion[Seq[A], DomNode]       = seq => Embedded(seq)
   given listToDomNode[A: EmbeddableNode]: Conversion[List[A], DomNode]     = lst => Embedded(lst)
 
+  // RxElement-typed counterparts so call sites that declare an `RxElement` parameter
+  // (a common airframe-rx-html pattern) still accept primitive literals.
+  given stringToRxElement: Conversion[String, RxElement]   = s => Embedded(s)
+  given intToRxElement: Conversion[Int, RxElement]         = i => Embedded(i)
+  given longToRxElement: Conversion[Long, RxElement]       = l => Embedded(l)
+  given floatToRxElement: Conversion[Float, RxElement]     = f => Embedded(f)
+  given doubleToRxElement: Conversion[Double, RxElement]   = d => Embedded(d)
+  given booleanToRxElement: Conversion[Boolean, RxElement] = b => Embedded(b)
+  given charToRxElement: Conversion[Char, RxElement]       = c => Embedded(c)
+
   /**
     * Extension method to render an RxElement to the DOM.
     */
