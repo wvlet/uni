@@ -56,6 +56,7 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   export wvlet.uni.dom.DomAttribute
   export wvlet.uni.dom.DomNamespace
   export wvlet.uni.dom.RxElement
+  export wvlet.uni.dom.RxComponent
   export wvlet.uni.dom.RawHtml
   export wvlet.uni.dom.EntityRef
   export wvlet.uni.dom.Embedded
