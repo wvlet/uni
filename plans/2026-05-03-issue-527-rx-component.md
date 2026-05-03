@@ -30,7 +30,7 @@ addModifies works for one-offs but breaks the
 Add `wvlet.uni.dom.RxComponent` mirroring airframe's API:
 
 ```scala
-abstract class RxComponent:
+trait RxComponent:
   /** Render this component, wrapping the given content. */
   def render(content: RxElement): RxElement
 
@@ -40,6 +40,10 @@ abstract class RxComponent:
   /** Render with empty content (standalone form). */
   def apply(): RxElement = render(RxElement.empty)
 ```
+
+A `trait` (not `abstract class`) — airframe's was a trait, and migrating
+code that does `class Foo extends SomeBase with RxComponent` would not
+compile against an `abstract class` form. Per codex review on PR #533.
 
 `RxElement.empty` already exists (`RxElement.scala`). Both `apply`
 overloads return an `RxElement`, so the result chains cleanly into

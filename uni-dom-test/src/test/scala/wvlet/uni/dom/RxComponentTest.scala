@@ -69,4 +69,20 @@ class RxComponentTest extends UniTest:
     target.textContent shouldBe "no-content-needed"
     rendered.cancelable.cancel
 
+  test("RxComponent mixes into another base — `extends Base with RxComponent`"):
+    // airframe-rx-html's `RxComponent` was a trait, so migrating code like
+    // `class Foo extends SomeBase with RxComponent` is valid. This test pins that uni's
+    // `RxComponent` keeps the trait shape so those mixin sites still compile. (Suggested by
+    // codex review on PR #533.)
+    abstract class HasName(val name: String)
+
+    class NamedFrame(name: String) extends HasName(name) with RxComponent:
+      override def render(content: RxElement): RxElement = div(cls -> name, content)
+
+    val frame: HasName & RxComponent = NamedFrame("my-frame")
+    frame.name shouldBe "my-frame"
+    val wrapped = frame(span("inner"))
+    wrapped shouldMatch { case _: RxElement =>
+    }
+
 end RxComponentTest

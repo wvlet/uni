@@ -36,7 +36,7 @@ package wvlet.uni.dom
   *   MainFrame()                         // standalone with no inner content
   * }}}
   */
-abstract class RxComponent:
+trait RxComponent:
 
   /**
     * Render this component, wrapping the given content.
