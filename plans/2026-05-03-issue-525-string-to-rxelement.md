@@ -17,30 +17,32 @@ class NavBar extends RxElement:
 
 ## Approach
 
-Add `Conversion[String, RxElement]` (and the same for the other primitives that
-already have `String -> DomNode` conversions: `Int`, `Long`, `Float`, `Double`,
-`Boolean`, `Char`) to `wvlet.uni.dom.all`.
+For every existing `Conversion[X, DomNode]` in `wvlet.uni.dom.all`, add a
+matching `Conversion[X, RxElement]`. Covers the primitives (`String`, `Int`,
+`Long`, `Float`, `Double`, `Boolean`, `Char`) and the container shapes
+(`Rx[A]`, `RxOption[A]`, `Option[A]`, `Seq[A]`, `List[A]`).
 
-`Embedded(...)` already extends `RxElement`, so the implementation is
-identical to the existing `*ToDomNode` conversions, just with a different return
-type. The `String -> DomNode` conversions stay as-is so existing call sites keep
-working.
+`Embedded(...)` already extends `RxElement`, so each new conversion has the
+same body as its `DomNode` counterpart — only the target type differs. The
+`*ToDomNode` conversions stay as-is so existing call sites keep working.
 
-Adding both `String -> DomNode` and `String -> RxElement` is safe: the compiler
-picks whichever fits the expected type and there is no overlap because Scala 3
-selects conversions by the *expected* type, not by ambiguity.
+Adding both `X -> DomNode` and `X -> RxElement` is safe: Scala 3 picks the
+conversion by the expected type. At call sites typed as `RxElement` the new
+one fires; at call sites typed as `DomNode` the existing one fires (or the
+new one wins by subtyping — same observable behavior either way).
 
-## Files to change
+## Why include containers
 
-- `uni/.js/src/main/scala/wvlet/uni/dom/all.scala` — add `*ToRxElement` givens
-  alongside the existing `*ToDomNode` block (lines 165-176).
-- `uni-dom-test/src/test/scala/wvlet/uni/dom/RxElementTest.scala` — add a
-  regression test that calls a method taking `RxElement` with a string literal
-  and an integer literal.
+Helpers that take `RxElement` are a common airframe-rx-html migration target,
+and those helpers are commonly fed `Rx[String]`, `Option[A]`, or `Seq[A]` —
+not just primitive literals. Without the container variants, the migration
+ergonomics are still half-baked. (Per gemini-code-assist review on PR #529.)
 
-## Out of scope
+## Files changed
 
-The container givens (`Rx`, `RxOption`, `Option`, `Seq`, `List`) — these stay
-as `-> DomNode` because the only common consumer site is element children,
-where `DomNode` is already accepted. Promoting them would expand the surface
-area without a concrete migration use case.
+- `uni/.js/src/main/scala/wvlet/uni/dom/all.scala` — `*ToRxElement` givens
+  alongside the existing `*ToDomNode` block.
+- `uni-dom-test/src/test/scala/wvlet/uni/dom/RxElementTest.scala` —
+  regression tests that ascribe primitives, `Rx`, `Option`, `Seq`, and
+  `List` values to `RxElement` and assert the resulting `Embedded(...)`
+  payload.

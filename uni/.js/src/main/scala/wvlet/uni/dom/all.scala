@@ -176,14 +176,24 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   given listToDomNode[A: EmbeddableNode]: Conversion[List[A], DomNode]     = lst => Embedded(lst)
 
   // RxElement-typed counterparts so call sites that declare an `RxElement` parameter
-  // (a common airframe-rx-html pattern) still accept primitive literals.
-  given stringToRxElement: Conversion[String, RxElement]   = s => Embedded(s)
-  given intToRxElement: Conversion[Int, RxElement]         = i => Embedded(i)
-  given longToRxElement: Conversion[Long, RxElement]       = l => Embedded(l)
-  given floatToRxElement: Conversion[Float, RxElement]     = f => Embedded(f)
-  given doubleToRxElement: Conversion[Double, RxElement]   = d => Embedded(d)
-  given booleanToRxElement: Conversion[Boolean, RxElement] = b => Embedded(b)
-  given charToRxElement: Conversion[Char, RxElement]       = c => Embedded(c)
+  // (a common airframe-rx-html pattern) still accept primitive literals, reactive
+  // values, and collections.
+  given stringToRxElement: Conversion[String, RxElement]               = s => Embedded(s)
+  given intToRxElement: Conversion[Int, RxElement]                     = i => Embedded(i)
+  given longToRxElement: Conversion[Long, RxElement]                   = l => Embedded(l)
+  given floatToRxElement: Conversion[Float, RxElement]                 = f => Embedded(f)
+  given doubleToRxElement: Conversion[Double, RxElement]               = d => Embedded(d)
+  given booleanToRxElement: Conversion[Boolean, RxElement]             = b => Embedded(b)
+  given charToRxElement: Conversion[Char, RxElement]                   = c => Embedded(c)
+  given rxToRxElement[A: EmbeddableNode]: Conversion[Rx[A], RxElement] = rx => Embedded(rx)
+  given rxOptionToRxElement[A: EmbeddableNode]: Conversion[RxOption[A], RxElement] =
+    rx => Embedded(rx)
+
+  given optionToRxElement[A: EmbeddableNode]: Conversion[Option[A], RxElement] =
+    opt => Embedded(opt)
+
+  given seqToRxElement[A: EmbeddableNode]: Conversion[Seq[A], RxElement]   = seq => Embedded(seq)
+  given listToRxElement[A: EmbeddableNode]: Conversion[List[A], RxElement] = lst => Embedded(lst)
 
   /**
     * Extension method to render an RxElement to the DOM.

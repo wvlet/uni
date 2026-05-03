@@ -87,27 +87,50 @@ class RxElementTest extends UniTest:
     elem shouldMatch { case _: RxElement =>
     }
 
-  test("primitive literals convert to RxElement parameters"):
-    // Mirrors the airframe-rx-html pattern of helpers that take `RxElement` so they
-    // can accept either a typed element or a primitive literal at the call site.
-    def chip(label: RxElement): RxElement  = span(cls -> "chip", label)
-    def badge(count: RxElement): RxElement = span(cls -> "badge", count)
-    def toggle(on: RxElement): RxElement   = span(cls -> "toggle", on)
-    def initial(c: RxElement): RxElement   = span(cls -> "initial", c)
+  test("primitive literals convert to RxElement"):
+    // Mirrors the airframe-rx-html pattern of helpers taking `RxElement` so they
+    // accept primitive literals at the call site. The explicit `RxElement` type
+    // ascription is what forces the compiler to apply the new conversion (without
+    // it, the existing `String -> DomNode` conversion would satisfy the expression).
+    val s: RxElement = "Editor"
+    val i: RxElement = 7
+    val l: RxElement = 7L
+    val f: RxElement = 1.5f
+    val d: RxElement = 1.5
+    val b: RxElement = true
+    val c: RxElement = 'A'
 
-    chip("Editor") shouldMatch { case _: RxElement =>
+    s shouldMatch { case Embedded("Editor") =>
     }
-    badge(7) shouldMatch { case _: RxElement =>
+    i shouldMatch { case Embedded(7) =>
     }
-    badge(7L) shouldMatch { case _: RxElement =>
+    l shouldMatch { case Embedded(7L) =>
     }
-    badge(1.5f) shouldMatch { case _: RxElement =>
+    f shouldMatch { case Embedded(1.5f) =>
     }
-    badge(1.5) shouldMatch { case _: RxElement =>
+    d shouldMatch { case Embedded(1.5) =>
     }
-    toggle(true) shouldMatch { case _: RxElement =>
+    b shouldMatch { case Embedded(true) =>
     }
-    initial('A') shouldMatch { case _: RxElement =>
+    c shouldMatch { case Embedded('A') =>
+    }
+
+  test("reactive and collection values convert to RxElement"):
+    val rxVar         = Rx.variable(1)
+    val rx: RxElement = rxVar.map(_ + 1)
+    rx shouldMatch { case Embedded(_) =>
+    }
+
+    val opt: RxElement = Option("hello")
+    opt shouldMatch { case Embedded(Some("hello")) =>
+    }
+
+    val seq: RxElement = Seq("a", "b")
+    seq shouldMatch { case Embedded(Seq("a", "b")) =>
+    }
+
+    val lst: RxElement = List(1, 2, 3)
+    lst shouldMatch { case Embedded(List(1, 2, 3)) =>
     }
 
 end RxElementTest
