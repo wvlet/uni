@@ -177,23 +177,20 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
 
   // RxElement-typed counterparts so call sites that declare an `RxElement` parameter
   // (a common airframe-rx-html pattern) still accept primitive literals, reactive
-  // values, and collections.
-  given stringToRxElement: Conversion[String, RxElement]               = s => Embedded(s)
-  given intToRxElement: Conversion[Int, RxElement]                     = i => Embedded(i)
-  given longToRxElement: Conversion[Long, RxElement]                   = l => Embedded(l)
-  given floatToRxElement: Conversion[Float, RxElement]                 = f => Embedded(f)
-  given doubleToRxElement: Conversion[Double, RxElement]               = d => Embedded(d)
-  given booleanToRxElement: Conversion[Boolean, RxElement]             = b => Embedded(b)
-  given charToRxElement: Conversion[Char, RxElement]                   = c => Embedded(c)
-  given rxToRxElement[A: EmbeddableNode]: Conversion[Rx[A], RxElement] = rx => Embedded(rx)
-  given rxOptionToRxElement[A: EmbeddableNode]: Conversion[RxOption[A], RxElement] =
-    rx => Embedded(rx)
-
-  given optionToRxElement[A: EmbeddableNode]: Conversion[Option[A], RxElement] =
-    opt => Embedded(opt)
-
-  given seqToRxElement[A: EmbeddableNode]: Conversion[Seq[A], RxElement]   = seq => Embedded(seq)
-  given listToRxElement[A: EmbeddableNode]: Conversion[List[A], RxElement] = lst => Embedded(lst)
+  // values, and collections. Names use `RxElem` (not `RxElement`) so the longest
+  // entry — `rxOptionToRxElem` — fits on a single line under maxColumn=100.
+  given stringToRxElem: Conversion[String, RxElement]                           = s => Embedded(s)
+  given intToRxElem: Conversion[Int, RxElement]                                 = i => Embedded(i)
+  given longToRxElem: Conversion[Long, RxElement]                               = l => Embedded(l)
+  given floatToRxElem: Conversion[Float, RxElement]                             = f => Embedded(f)
+  given doubleToRxElem: Conversion[Double, RxElement]                           = d => Embedded(d)
+  given booleanToRxElem: Conversion[Boolean, RxElement]                         = b => Embedded(b)
+  given charToRxElem: Conversion[Char, RxElement]                               = c => Embedded(c)
+  given rxToRxElem[A: EmbeddableNode]: Conversion[Rx[A], RxElement]             = rx => Embedded(rx)
+  given rxOptionToRxElem[A: EmbeddableNode]: Conversion[RxOption[A], RxElement] = rx => Embedded(rx)
+  given optionToRxElem[A: EmbeddableNode]: Conversion[Option[A], RxElement] = opt => Embedded(opt)
+  given seqToRxElem[A: EmbeddableNode]: Conversion[Seq[A], RxElement]       = seq => Embedded(seq)
+  given listToRxElem[A: EmbeddableNode]: Conversion[List[A], RxElement]     = lst => Embedded(lst)
 
   /**
     * Extension method to render an RxElement to the DOM.
