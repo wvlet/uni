@@ -97,6 +97,20 @@ class DomElementTest extends UniTest:
     val d       = div(when(visible, span("Visible")))
     d.modifiers.flatten.head shouldBe DomNode.empty
 
+  // `when` / `unless` are top-level defs in `wvlet.uni.dom`, re-exported by
+  // `wvlet.uni.dom.all` so the airframe-rx-html → uni migration path
+  // (`import wvlet.uni.dom.all.*` then `when(cond, body)`) works without an
+  // extra import. These tests pin the contract — see issue #526.
+  test("conditional rendering with unless (false branch renders)"):
+    val hidden = false
+    val d      = div(unless(hidden, span("Visible")))
+    d.modifiers.flatten.size shouldBe 1
+
+  test("conditional rendering with unless (true branch yields empty)"):
+    val hidden = true
+    val d      = div(unless(hidden, span("Visible")))
+    d.modifiers.flatten.head shouldBe DomNode.empty
+
   test("element chaining"):
     val d = div.add(cls -> "a").add(id -> "b").add(span("content"))
     d.modifiers.flatten.size shouldBe 3
