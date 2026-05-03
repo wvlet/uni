@@ -45,14 +45,15 @@ trait RxComponent:
 
   /**
     * Wrap the given content using this component's chrome. Returns an [[RxElement]] that can be
-    * passed as a child or rendered with [[wvlet.uni.dom.all.renderTo]].
+    * passed as a child or rendered with [[wvlet.uni.dom.all.renderTo]]. `final` so subclasses can't
+    * accidentally bypass `render` by overriding the entry point.
     */
-  def apply(content: RxElement): RxElement = render(content)
+  final def apply(content: RxElement): RxElement = render(content)
 
   /**
     * Standalone render — equivalent to `apply(RxElement.empty)`. Useful when the component does not
     * actually slot any inner content (or when the slot is already wired internally).
     */
-  def apply(): RxElement = render(RxElement.empty)
+  final def apply(): RxElement = render(RxElement.empty)
 
 end RxComponent
