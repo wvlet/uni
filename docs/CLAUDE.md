@@ -38,4 +38,4 @@ If any of the above is unverified, drop the claim.
 
 - Every symbol appears in current source (verified, not recalled).
 - Sidebar updated in both `/guide/` and `/` entries.
-- `npm run docs:build` succeeds (catches dead links `dev` misses).
+- `pnpm docs:build` succeeds (catches dead links `dev` misses).

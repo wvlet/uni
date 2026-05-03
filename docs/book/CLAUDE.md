@@ -214,4 +214,4 @@ and matches the chapter-shape checklist above.
 - [ ] Is the "what you have, what comes next" recap present?
 - [ ] Are links into reference docs used instead of restating them?
 - [ ] Does the sidebar in `config.mts` include this file?
-- [ ] Does `npm run docs:build` succeed?
+- [ ] Does `pnpm docs:build` succeed?

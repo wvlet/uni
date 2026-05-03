@@ -23,7 +23,7 @@ Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-speci
 ./sbt "coreJVM/testOnly * -- -l debug"     # With debug logging
 ./sbt scalafmtAll                          # Format (CI checks this)
 ./sbt integrationTest/test                 # Integration tests (requires AWS creds)
-npm run docs:dev                           # Start docs server (http://localhost:5173)
+pnpm docs:dev                              # Start docs server (http://localhost:5173)
 ```
 
 ## Testing (UniTest)
