@@ -35,11 +35,25 @@ package wvlet.uni.dom
   * SVG elements inside an `svg` tag automatically inherit the SVG namespace during rendering. Tags
   * that exist in both HTML and SVG (like `title`, `a`, `style`) will use the appropriate namespace
   * based on their parent context.
+  *
+  * ==Migrating from airframe-rx-html==
+  *
+  * Where airframe used the same name for a tag and an attribute, uni picks the *tag* and exposes
+  * the attribute under a `*Attr` suffix:
+  *
+  *   - `style` is the `<style>` element (and the CSS-rule builder, see `wvlet.uni.dom.style`). Use
+  *     [[HtmlAttrs.styleAttr]] for the inline-CSS attribute:
+  *     {{{div(styleAttr -> s"height: 64px;")}}}
+  *   - `title` is the `<title>` element. Use [[HtmlAttrs.titleAttr]] for the tooltip attribute:
+  *     {{{button(titleAttr -> "Save changes")}}}
+  *
+  * Both `*Attr` symbols come in via the same `import wvlet.uni.dom.all.*` — no extra import needed.
   */
 object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
 
-  // Resolve conflicts between HtmlTags and HtmlAttrs by preferring tags
-  // Use styleAttr and titleAttr for the attribute versions
+  // Resolve conflicts between HtmlTags and HtmlAttrs by preferring tags.
+  // Use `styleAttr` (HtmlAttrs.scala:49) for inline CSS and `titleAttr` (line 50) for tooltips —
+  // see the migration note on this object's scaladoc.
   override lazy val title: DomElement = HtmlTags.tag("title")
   override lazy val form: DomElement  = HtmlTags.tag("form")
   override lazy val span: DomElement  = HtmlTags.tag("span")
