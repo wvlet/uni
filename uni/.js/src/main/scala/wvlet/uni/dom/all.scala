@@ -43,7 +43,7 @@ package wvlet.uni.dom
   *
   *   - `style` is the `<style>` element (and the CSS-rule builder, see `wvlet.uni.dom.style`). Use
   *     [[HtmlAttrs.styleAttr]] for the inline-CSS attribute:
-  *     {{{div(styleAttr -> s"height: 64px;")}}}
+  *     {{{div(styleAttr -> "height: 64px;")}}}
   *   - `title` is the `<title>` element. Use [[HtmlAttrs.titleAttr]] for the tooltip attribute:
   *     {{{button(titleAttr -> "Save changes")}}}
   *
@@ -52,8 +52,8 @@ package wvlet.uni.dom
 object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
 
   // Resolve conflicts between HtmlTags and HtmlAttrs by preferring tags.
-  // Use `styleAttr` (HtmlAttrs.scala:49) for inline CSS and `titleAttr` (line 50) for tooltips —
-  // see the migration note on this object's scaladoc.
+  // Use `styleAttr` for inline CSS and `titleAttr` for tooltips — see the migration note on
+  // this object's scaladoc.
   override lazy val title: DomElement = HtmlTags.tag("title")
   override lazy val form: DomElement  = HtmlTags.tag("form")
   override lazy val span: DomElement  = HtmlTags.tag("span")
