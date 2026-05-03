@@ -24,10 +24,11 @@ import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}
 
 /**
   * Pins the airframe-rx-html migration contract: `wvlet.uni.dom.SvgAttrs` is reachable as an
-  * *object* so `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` works, mirroring the airframe
+  * *object* (companion of the trait of the same name), so
+  * `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` works the same as the airframe
   * `import wvlet.airframe.rx.html.svgAttrs.{xmlns as _, ...}` style.
   *
-  * The contract is enforced by the compiler — if `SvgAttrs` ever stops being an object the import
+  * The contract is enforced by the compiler — if the companion object disappears the import
   * statement above fails to compile and this whole file fails to load.
   */
 class SvgAttrsImportTest extends UniTest:

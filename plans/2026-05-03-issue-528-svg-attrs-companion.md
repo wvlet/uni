@@ -1,4 +1,4 @@
-# #528 — `object SvgAttrs extends SvgAttrs` for partial imports
+# #528 — `object SvgAttrs extends SvgAttrs` for partial-import migration
 
 ## Problem
 
@@ -9,55 +9,68 @@ path uses targeted attribute imports:
 import wvlet.airframe.rx.html.svgAttrs.{xmlns as _, *}
 ```
 
-The uni equivalent fails to compile because traits cannot be imported
-with renames-and-wildcard:
+The naïve uni equivalent fails to compile because traits cannot be
+imported with renames-and-wildcard:
 
 ```scala
 import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}
 // [error] value SvgAttrs is not a member of wvlet.uni.dom
 ```
 
-(Note: the issue text mentioned `style` alongside `xmlns`, but uni's
-`SvgAttrs` trait does not currently define a `style` attribute, so only
-`xmlns` is a real collision target. The fix below addresses both today's
-`xmlns` use case and any future SVG attr that needs to be renamed out.)
+## What was already there
 
-`import wvlet.uni.dom.all.*` does work, but it pulls in HtmlTags +
-HtmlAttrs + SvgTags + SvgAttrs, which is too broad when a file only
-needs SVG attributes and wants to disambiguate `xmlns` / `style` from
-the HTML attribute names already in scope.
+`wvlet.uni.dom.svgProperties` (in `all.scala`) already extends `SvgAttrs`,
+and `import wvlet.uni.dom.svgProperties.{xmlns as _, *}` works today.
+But airframe-rx-html migrations naturally try `SvgAttrs` (the trait
+name) first and don't find this alias.
+
+## Why not `object svgAttrs` (lowercase, matching airframe naming)
+
+The issue text suggested either `object SvgAttrs` or lowercase
+`object svgAttrs`. **The lowercase form does not work on
+case-insensitive file systems** (default macOS APFS, Windows NTFS):
+the compiler tries to write both `SvgAttrs.tasty` (for the trait) and
+`svgAttrs.tasty` (for the object) at the same case-folded path. Only one
+ends up on disk and downstream `import wvlet.uni.dom.svgAttrs.*` fails
+with a "Not Found" at every call site.
+
+This is also why uni's existing convention has *distinct* names for
+its trait + alias pair — the alias `svgProperties` deliberately avoids
+the case-fold collision with the trait `SvgAttrs`.
 
 ## Approach
 
-Add a single line to `uni/.js/src/main/scala/wvlet/uni/dom/SvgAttrs.scala`:
+Add `object SvgAttrs extends SvgAttrs` next to the trait. Companion
+object + trait share the base name in Scala — the bytecode is
+`SvgAttrs.tasty` (the trait/object pair) and `SvgAttrs$.class` (the
+singleton instance), so there is no case-fold collision. Migrating
+code can write `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` and the
+trait keeps working as before.
 
-```scala
-object SvgAttrs extends SvgAttrs
-```
+This is a new pattern for this codebase (the existing `HtmlTags` /
+`SvgTags` companion objects contain *factory methods*, they don't
+extend their traits). The pattern is justified: the only collision-
+free alternative is renaming the trait, which would be a real breaking
+change for downstream users that already mix in `SvgAttrs`.
 
-This is exactly the change the issue text suggests, and it matches the
-existing `HtmlTags` / `SvgTags` pattern in the same package — both
-already have a trait *and* a companion `object` that mixes the trait in.
-After this change, `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` works
-the same as the airframe-rx-html flavor.
-
-Naming: stick with `SvgAttrs` (matches the trait + matches the existing
-`HtmlTags` / `SvgTags` companions). The issue's lowercase suggestion
-(`svgAttrs`) is for airframe parity, but uni uses the PascalCase form
-elsewhere — consistency wins.
-
-## Out of scope
-
-`HtmlAttrs` is also a trait without a companion. The issue does not
-mention it because the migration code uses `import wvlet.uni.dom.all.*`
-for the HTML side (mixes in HtmlAttrs). Leave it for a follow-up if the
-need arises.
+(Per gemini-code-assist review on PR #531: an earlier draft tried
+`object svgAttrs extends SvgAttrs` in `all.scala`. Reverted after the
+case-insensitive FS collision broke 97 test compiles locally.)
 
 ## Files to change
 
 - `uni/.js/src/main/scala/wvlet/uni/dom/SvgAttrs.scala` — append
-  `object SvgAttrs extends SvgAttrs` after the `end SvgAttrs` marker.
+  `object SvgAttrs extends SvgAttrs` after the `end SvgAttrs` marker,
+  with a scaladoc note explaining the case-fold-collision rationale.
 - `uni-dom-test/src/test/scala/example/dom/SvgAttrsImportTest.scala` —
   new test in a sibling package that exercises the targeted-rename
-  import. Must compile to pass; if the companion object disappears, the
-  test fails to compile (regression guard).
+  import. Lives in `package example.dom` so the renames-and-wildcard
+  form has to go through the new companion object — a regression of
+  the alias fails to *compile* the test file.
+
+## Out of scope
+
+- An `object HtmlAttrs extends HtmlAttrs` for HTML attribute partial
+  imports. Same case-fold problem as the SVG side, but the issue does
+  not call it out and the migration path through `import all.*` covers
+  most cases. Add when a concrete need surfaces.
