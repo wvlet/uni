@@ -32,11 +32,18 @@ class AllExportsTest extends UniTest:
   test("when reachable through import wvlet.uni.dom.all.*"):
     val visible = true
     val d       = div(when(visible, span("Visible")))
-    d.modifiers.flatten.size shouldBe 1
+    // Verify the actual rendered element, not just modifier count — `DomNode.empty`
+    // also occupies a slot, so size=1 alone wouldn't distinguish success from a
+    // regression where `when(true, _)` returned empty.
+    d.modifiers.flatten.head shouldMatch { case e: DomElement =>
+      e.name shouldBe "span"
+    }
 
   test("unless reachable through import wvlet.uni.dom.all.*"):
     val hidden = false
     val d      = div(unless(hidden, span("Visible")))
-    d.modifiers.flatten.size shouldBe 1
+    d.modifiers.flatten.head shouldMatch { case e: DomElement =>
+      e.name shouldBe "span"
+    }
 
 end AllExportsTest

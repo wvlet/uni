@@ -4,12 +4,13 @@
 
 The exports already work as documented:
 
-- `wvlet/uni/dom/all.scala:155-156` exports `wvlet.uni.dom.when` and
-  `wvlet.uni.dom.unless`.
-- `uni-dom-test/.../DomElementTest.scala:90-98` already exercises `when` /
-  `when false` through `import wvlet.uni.dom.all.*` and passes.
-- Running `./sbt 'domTest/testOnly wvlet.uni.dom.DomElementTest'` is green
-  (18/18) on a clean checkout.
+- `wvlet.uni.dom.all` re-exports `wvlet.uni.dom.when` and
+  `wvlet.uni.dom.unless` from its `Re-export helper functions` block.
+- `wvlet.uni.dom.DomElementTest` (in `uni-dom-test`) already has
+  `conditional rendering with when` / `... with when false` cases that
+  exercise that path through `import wvlet.uni.dom.all.*` and pass.
+- Running `./sbt 'domTest/testOnly wvlet.uni.dom.DomElementTest'` is
+  green on a clean checkout.
 
 So the issue's first option applies: "Confirm `when` / `unless` are in
 scope through `import wvlet.uni.dom.all.*`".

@@ -104,7 +104,12 @@ class DomElementTest extends UniTest:
   test("conditional rendering with unless (false branch renders)"):
     val hidden = false
     val d      = div(unless(hidden, span("Visible")))
-    d.modifiers.flatten.size shouldBe 1
+    // Don't just assert size=1 — DomNode.empty also occupies a slot, so size=1
+    // alone wouldn't distinguish a real element from a regression where
+    // `unless(false, _)` returned empty. Verify the head is a real element.
+    d.modifiers.flatten.head shouldMatch { case e: DomElement =>
+      e.name shouldBe "span"
+    }
 
   test("conditional rendering with unless (true branch yields empty)"):
     val hidden = true
