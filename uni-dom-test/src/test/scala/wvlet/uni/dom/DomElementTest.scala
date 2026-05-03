@@ -97,10 +97,10 @@ class DomElementTest extends UniTest:
     val d       = div(when(visible, span("Visible")))
     d.modifiers.flatten.head shouldBe DomNode.empty
 
-  // `when` / `unless` are top-level defs in `wvlet.uni.dom`, re-exported by
-  // `wvlet.uni.dom.all` so the airframe-rx-html → uni migration path
-  // (`import wvlet.uni.dom.all.*` then `when(cond, body)`) works without an
-  // extra import. These tests pin the contract — see issue #526.
+  // Runtime behavior tests for `unless`. These pin the *runtime semantics*; the
+  // separate `example.dom.AllExportsTest` pins the migration-path *visibility*
+  // contract (since this test class lives in `wvlet.uni.dom`, top-level
+  // package members are reachable here even without the `all.*` export).
   test("conditional rendering with unless (false branch renders)"):
     val hidden = false
     val d      = div(unless(hidden, span("Visible")))

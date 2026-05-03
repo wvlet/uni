@@ -27,8 +27,15 @@ This is a "works as designed" fix:
 
 ## Files to change
 
+- `uni-dom-test/src/test/scala/example/dom/AllExportsTest.scala` —
+  **new** file in package `example.dom` that pins the export contract.
+  Lives in a sibling package so the test only sees `when` / `unless`
+  through `import wvlet.uni.dom.all.*`; tests in `package wvlet.uni.dom`
+  would still pass via package-level visibility even if the `all.*`
+  export were removed. (Suggested by codex review on PR #530.)
 - `uni-dom-test/src/test/scala/wvlet/uni/dom/DomElementTest.scala` — add
-  two `unless` tests mirroring the existing `when` ones.
+  two `unless` tests for runtime semantics, mirroring the existing
+  `when` ones.
 - `uni/.js/src/main/scala/wvlet/uni/dom/all.scala` — replace the bare
   `Re-export helper functions` doc with a hint that names the
   airframe-rx-html → uni migration path.
