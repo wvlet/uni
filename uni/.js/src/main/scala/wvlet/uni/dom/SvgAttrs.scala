@@ -139,3 +139,11 @@ trait SvgAttrs:
   lazy val contentStyleType: DomAttributeOf  = attr("contentStyleType")
 
 end SvgAttrs
+
+/**
+  * Companion object that mixes in the trait, so `import wvlet.uni.dom.SvgAttrs.*` and
+  * `import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}` work — the airframe-rx-html migration path uses
+  * targeted-rename imports to selectively shadow SVG attribute names that collide with HTML
+  * attribute names already in scope.
+  */
+object SvgAttrs extends SvgAttrs
