@@ -43,9 +43,13 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
   // match how ResponseConverter unwraps these wrappers before encoding the value. We use
   // `fromSurfaceOpt` so routes whose return type isn't covered by a built-in factory (e.g.
   // `Either`, JVM-only `LocalDate`, `Path`) fall through to ResponseConverter's no-weaver path
-  // instead of getting silently encoded as the empty-object fallback. We also skip `Response` /
-  // `Rx[Response]` returns since ResponseConverter short-circuits on those before consulting
-  // any weaver.
+  // instead of getting silently encoded as the empty-object fallback. We also skip:
+  //   - `Response` / `Rx[Response]` — ResponseConverter short-circuits before any weaver call.
+  //   - Primitive surfaces (Int/Long/Boolean/Double/etc.) — the no-weaver path produces a
+  //     toString-quoted JSON string (`"42"`) for these, while the weaver path would emit a
+  //     bare JSON scalar (`42`). Skipping preserves wire format for existing scalar-returning
+  //     endpoints; case classes / collections / ULID / Instant / UUID still flow through the
+  //     weaver and benefit from proper JSON encoding.
   // IdentityHashMap keys on reference equality — every Route returned by RouteMatcher is a
   // direct reference into router.routes, so this avoids walking case-class equals/hashCode on
   // every request.
@@ -55,7 +59,7 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
       .routes
       .foreach { r =>
         val element = RouterHandler.elementSurface(r.methodSurface.returnType)
-        if element.rawType != classOf[Response] then
+        if element.rawType != classOf[Response] && !element.isPrimitive then
           Weaver.fromSurfaceOpt(element).foreach(m.put(r, _))
       }
     m

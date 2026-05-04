@@ -376,6 +376,17 @@ class NettyServerTest extends UniTest:
         rOpaque.statusCode() shouldBe 200
         rOpaque.headers().firstValue("Content-Type").orElse("") shouldContain "application/json"
         rOpaque.body() shouldBe """"Wrap(Opaque(x))""""
+
+        // Primitive scalar returns: preserve the previous toString-quoted JSON form so
+        // existing clients consuming bare-scalar endpoints aren't broken by the wire-format
+        // change a Weaver path would introduce (e.g. `42` vs `"42"`).
+        val rInt = get(s"http://localhost:${server.localPort}/answer")
+        rInt.statusCode() shouldBe 200
+        rInt.body() shouldBe "\"42\""
+
+        val rBool = get(s"http://localhost:${server.localPort}/flag")
+        rBool.statusCode() shouldBe 200
+        rBool.body() shouldBe "\"true\""
       }
   }
 
@@ -442,5 +453,13 @@ object NettyServerTest:
 
     @Endpoint(HttpMethod.GET, "/opaque")
     def opaque: NettyServerTest.Wrap = NettyServerTest.Wrap(NettyServerTest.Opaque("x"))
+
+    @Endpoint(HttpMethod.GET, "/answer")
+    def answer: Int = 42
+
+    @Endpoint(HttpMethod.GET, "/flag")
+    def flag: Boolean = true
+
+  end HelloController
 
 end NettyServerTest
