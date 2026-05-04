@@ -208,17 +208,23 @@ object Weaver:
   /**
     * Like [[fromSurface]], but returns `None` when the resulting weaver tree contains the lossy
     * empty-object fallback at any position — top-level or nested inside a collection / case class.
-    * Callers that want to fall back to a different encoding strategy (e.g. toString-quoted JSON)
-    * when a type isn't directly supported can use this overload to detect the gap, including cases
-    * like `Seq[Either[A, B]]` or `case class Foo(d: LocalDate)` where `fromSurface` would otherwise
+    * Also returns `None` when [[fromSurface]] itself throws because no factory matches (e.g. a
+    * primitive surface like `java.math.BigInteger` that has no built-in branch). Callers that want
+    * to fall back to a different encoding strategy (e.g. toString-quoted JSON) when a type isn't
+    * directly supported can use this overload to detect the gap, including cases like
+    * `Seq[Either[A, B]]` or `case class Foo(d: LocalDate)` where `fromSurface` would otherwise
     * embed an empty fallback inside an outer composite weaver.
     */
   def fromSurfaceOpt(surface: Surface): Option[Weaver[?]] =
-    val w = fromSurface(surface)
-    if containsEmptyFallback(w) then
-      None
-    else
-      Some(w)
+    try
+      val w = fromSurface(surface)
+      if containsEmptyFallback(w) then
+        None
+      else
+        Some(w)
+    catch
+      case _: IllegalArgumentException =>
+        None
 
   private def containsEmptyFallback(w: Weaver[?]): Boolean =
     val visited = java

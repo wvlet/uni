@@ -636,6 +636,16 @@ class WeaverTest extends UniTest:
     Weaver.fromSurfaceOpt(Surface.of[Map[String, WeaverTest.Greeting]]).isDefined shouldBe true
   }
 
+  test("fromSurfaceOpt returns None when fromSurface itself throws") {
+    // java.math.BigInteger is marked primitive in Surface but has no primitiveFactory branch,
+    // so fromSurface throws IllegalArgumentException. fromSurfaceOpt must convert that to None
+    // so RouterHandler doesn't fail at handler-construction time for routes returning a type
+    // that transitively contains BigInteger.
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[java.math.BigInteger]) shouldBe None
+    Weaver.fromSurfaceOpt(Surface.of[Seq[java.math.BigInteger]]) shouldBe None
+  }
+
 end WeaverTest
 
 object WeaverTest:
