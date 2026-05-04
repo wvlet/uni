@@ -379,32 +379,19 @@ class AdditionalTypeWeaverTest extends UniTest:
     tinyBack.unit shouldBe tiny.unit
   }
 
-  test("ElapsedTime accepts legacy string form for backward compatibility") {
+  test("ElapsedTime accepts legacy %.2f-formatted string form") {
     val legacy = "\"2.50ms\""
     val v      = Weaver.fromJson[ElapsedTime](legacy)
     v.value shouldBe 2.5
     v.unit shouldBe TimeUnit.MILLISECONDS
   }
 
-  test("ElapsedTime rejects map missing value or unit") {
-    val noValue = """{"unit":"ms"}"""
-    val e1      = intercept[IllegalArgumentException] {
-      Weaver.fromJson[ElapsedTime](noValue)
-    }
-    e1.getMessage shouldContain "value"
-
-    val noUnit = """{"value":5.0}"""
-    val e2     = intercept[IllegalArgumentException] {
-      Weaver.fromJson[ElapsedTime](noUnit)
-    }
-    e2.getMessage shouldContain "unit"
-  }
-
-  test("ElapsedTime accepts integer value literal") {
-    // JSON producers commonly emit whole numbers without a fractional part. Accept both.
-    val v = Weaver.fromJson[ElapsedTime]("""{"value":5,"unit":"ms"}""")
-    v.value shouldBe 5.0
-    v.unit shouldBe TimeUnit.MILLISECONDS
+  test("ElapsedTime parse accepts exponent form so Double.toString round-trips") {
+    // 1.0E-9 is what `(1.0e-9).toString` produces — the encoder uses Double.toString so the
+    // parse regex must accept this form to avoid losing very small values.
+    val v = ElapsedTime.parse("1.0E-9ns")
+    v.value shouldBe 1.0e-9
+    v.unit shouldBe TimeUnit.NANOSECONDS
   }
 
   // ====== Composite: case class with new types ======
