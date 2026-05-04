@@ -40,9 +40,12 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
 
   // Pre-compute Weavers for each route's return type so case-class results are encoded as JSON.
   // The weaver is derived against the inner element surface (Rx[A] / Option[A] are peeled) to
-  // match how ResponseConverter unwraps these wrappers before encoding the value. We skip
-  // building a weaver for `Response`/`Rx[Response]` returns since ResponseConverter
-  // short-circuits on those before consulting any weaver.
+  // match how ResponseConverter unwraps these wrappers before encoding the value. We use
+  // `fromSurfaceOpt` so routes whose return type isn't covered by a built-in factory (e.g.
+  // `Either`, JVM-only `LocalDate`, `Path`) fall through to ResponseConverter's no-weaver path
+  // instead of getting silently encoded as the empty-object fallback. We also skip `Response` /
+  // `Rx[Response]` returns since ResponseConverter short-circuits on those before consulting
+  // any weaver.
   // IdentityHashMap keys on reference equality — every Route returned by RouteMatcher is a
   // direct reference into router.routes, so this avoids walking case-class equals/hashCode on
   // every request.
@@ -53,7 +56,7 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
       .foreach { r =>
         val element = RouterHandler.elementSurface(r.methodSurface.returnType)
         if element.rawType != classOf[Response] then
-          m.put(r, Weaver.fromSurface(element))
+          Weaver.fromSurfaceOpt(element).foreach(m.put(r, _))
       }
     m
 

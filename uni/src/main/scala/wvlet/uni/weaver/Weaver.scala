@@ -199,6 +199,19 @@ object Weaver:
       override def initialValue() = scala.collection.mutable.LinkedHashMap.empty
 
   /**
+    * Like [[fromSurface]], but returns `None` when the resulting weaver is the lossy empty-object
+    * fallback used for surfaces that no built-in factory can handle. Callers that want to fall back
+    * to a different encoding strategy (e.g. tagged-string toString) when a type isn't directly
+    * supported can use this overload to detect the gap.
+    */
+  def fromSurfaceOpt(surface: Surface): Option[Weaver[?]] =
+    val w = fromSurface(surface)
+    if w eq emptyObjectWeaver then
+      None
+    else
+      Some(w)
+
+  /**
     * Create a Weaver from Surface at runtime. Uses Surface type information to look up or build
     * appropriate Weaver by composing existing weavers.
     *

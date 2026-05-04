@@ -362,6 +362,12 @@ class NettyServerTest extends UniTest:
         val rRxOpt = get(s"http://localhost:${server.localPort}/rx-opt")
         rRxOpt.statusCode() shouldBe 200
         rRxOpt.body() shouldBe """{"message":"both"}"""
+
+        // Either has no built-in fromSurface factory, so it must fall through to the
+        // no-weaver toString-quoted path rather than the empty-object {} fallback.
+        val rEither = get(s"http://localhost:${server.localPort}/either")
+        rEither.statusCode() shouldBe 200
+        rEither.body() shouldBe """"Right(42)""""
       }
   }
 
@@ -412,3 +418,6 @@ object NettyServerTest:
 
     @Endpoint(HttpMethod.GET, "/rx-opt")
     def rxOpt: Rx[Option[Greeting]] = Rx.single(Some(Greeting("both")))
+
+    @Endpoint(HttpMethod.GET, "/either")
+    def either: Either[String, Int] = Right(42)
