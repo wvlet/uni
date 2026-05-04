@@ -3,6 +3,8 @@ package wvlet.uni.weaver.codec
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
+import wvlet.uni.util.ElapsedTime
+import wvlet.uni.util.ULID
 import wvlet.uni.weaver.CollectionWeaver
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
@@ -774,6 +776,50 @@ object PrimitiveWeaver:
           case other =>
             u.skipValue
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to URI"))
+
+  given ulidWeaver: Weaver[ULID] =
+    new Weaver[ULID]:
+      override def pack(p: Packer, v: ULID, config: WeaverConfig): Unit =
+        if v == null then
+          p.packNil
+        else
+          p.packString(v.toString)
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(context, u, ULID(_), context.setObject, "ULID")
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(new IllegalArgumentException(s"Cannot convert ${other} to ULID"))
+
+  given elapsedTimeWeaver: Weaver[ElapsedTime] =
+    new Weaver[ElapsedTime]:
+      override def pack(p: Packer, v: ElapsedTime, config: WeaverConfig): Unit =
+        if v == null then
+          p.packNil
+        else
+          p.packString(v.toString)
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(
+              context,
+              u,
+              ElapsedTime.parse(_),
+              context.setObject,
+              "ElapsedTime"
+            )
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(
+              new IllegalArgumentException(s"Cannot convert ${other} to ElapsedTime")
+            )
 
   // Tuple support via recursive given resolution
   trait TupleElementWeaver[T <: Tuple]:

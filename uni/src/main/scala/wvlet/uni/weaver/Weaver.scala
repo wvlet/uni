@@ -7,6 +7,8 @@ import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
 import wvlet.uni.surface.*
+import wvlet.uni.util.ElapsedTime
+import wvlet.uni.util.ULID
 import wvlet.uni.weaver.codec.AnyWeaver
 import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
@@ -157,6 +159,8 @@ object Weaver:
     instantWeaver,
     uuidWeaver,
     uriWeaver,
+    ulidWeaver,
+    elapsedTimeWeaver,
     scalaDurationWeaver,
     optionWeaver,
     listWeaver,
@@ -286,6 +290,10 @@ object Weaver:
         uuidWeaver
       case s if s.rawType == classOf[Instant] =>
         instantWeaver
+      case s if s.rawType == classOf[ULID] =>
+        ulidWeaver
+      case s if s.rawType == classOf[ElapsedTime] =>
+        elapsedTimeWeaver
     }
 
   end primitiveFactory

@@ -1,11 +1,14 @@
 package wvlet.uni.weaver.codec
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.util.ElapsedTime
+import wvlet.uni.util.ULID
 import wvlet.uni.weaver.Weaver
 import scala.concurrent.duration.Duration as ScalaDuration
 import java.net.URI
 import java.time.Instant
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class AdditionalTypeWeaverTest extends UniTest:
 
@@ -294,6 +297,71 @@ class AdditionalTypeWeaverTest extends UniTest:
     json shouldBe "\"file:///tmp/test.txt\""
     val v2 = Weaver.fromJson[URI](json)
     v2 shouldBe v
+  }
+
+  // ====== ULID ======
+
+  test("roundtrip ULID") {
+    val v       = ULID("01arz3ndektsv4rrffq69g5fav")
+    val msgpack = Weaver.weave(v)
+    val v2      = Weaver.unweave[ULID](msgpack)
+    v2 shouldBe v
+  }
+
+  test("ULID to/from JSON") {
+    val v    = ULID("01arz3ndektsv4rrffq69g5fav")
+    val json = Weaver.toJson(v)
+    json shouldBe "\"01arz3ndektsv4rrffq69g5fav\""
+    val v2 = Weaver.fromJson[ULID](json)
+    v2 shouldBe v
+  }
+
+  test("ULID via fromSurface") {
+    import wvlet.uni.surface.Surface
+    val w  = Weaver.fromSurface(Surface.of[ULID]).asInstanceOf[Weaver[ULID]]
+    val v  = ULID("01arz3ndektsv4rrffq69g5fav")
+    val s  = w.toJson(v)
+    val v2 = w.fromJson(s)
+    v2 shouldBe v
+  }
+
+  test("ULID invalid string") {
+    val e = intercept[IllegalArgumentException] {
+      Weaver.fromJson[ULID]("\"not-a-ulid\"")
+    }
+    e.getMessage shouldContain "ULID"
+  }
+
+  // ====== ElapsedTime ======
+
+  test("roundtrip ElapsedTime") {
+    val v       = ElapsedTime(5.0, TimeUnit.MILLISECONDS)
+    val msgpack = Weaver.weave(v)
+    val v2      = Weaver.unweave[ElapsedTime](msgpack)
+    v2 shouldBe v
+  }
+
+  test("ElapsedTime to/from JSON") {
+    val v    = ElapsedTime(2.5, TimeUnit.SECONDS)
+    val json = Weaver.toJson(v)
+    val v2   = Weaver.fromJson[ElapsedTime](json)
+    v2 shouldBe v
+  }
+
+  test("ElapsedTime via fromSurface") {
+    import wvlet.uni.surface.Surface
+    val w  = Weaver.fromSurface(Surface.of[ElapsedTime]).asInstanceOf[Weaver[ElapsedTime]]
+    val v  = ElapsedTime(123.0, TimeUnit.MILLISECONDS)
+    val s  = w.toJson(v)
+    val v2 = w.fromJson(s)
+    v2 shouldBe v
+  }
+
+  test("ElapsedTime invalid string") {
+    val e = intercept[IllegalArgumentException] {
+      Weaver.fromJson[ElapsedTime]("\"not-a-duration\"")
+    }
+    e.getMessage shouldContain "duration"
   }
 
   // ====== Composite: case class with new types ======
