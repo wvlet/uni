@@ -59,7 +59,7 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
       .routes
       .foreach { r =>
         val element = RouterHandler.elementSurface(r.methodSurface.returnType)
-        if element.rawType != classOf[Response] && !element.isPrimitive then
+        if !classOf[Response].isAssignableFrom(element.rawType) && !element.isPrimitive then
           Weaver.fromSurfaceOpt(element).foreach(m.put(r, _))
       }
     m
