@@ -14,6 +14,7 @@
 package wvlet.uni.http.netty
 
 import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, ServerSentEvent}
+import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -333,6 +334,29 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("should encode case class returns from @Endpoint controllers as JSON") {
+    NettyServer
+      .withPort(0)
+      .withRxHandler(RouterHandler(Router.of[NettyServerTest.HelloController]))
+      .start { server =>
+        val r = get(s"http://localhost:${server.localPort}/hello")
+        r.statusCode() shouldBe 200
+        r.body() shouldBe """{"message":"world"}"""
+        r.headers().firstValue("Content-Type").orElse("") shouldContain "application/json"
+
+        val rOpt = get(s"http://localhost:${server.localPort}/maybe")
+        rOpt.statusCode() shouldBe 200
+        rOpt.body() shouldBe """{"message":"some"}"""
+
+        val rRx = get(s"http://localhost:${server.localPort}/rx")
+        rRx.statusCode() shouldBe 200
+        rRx.body() shouldBe """{"message":"reactive"}"""
+
+        val rNone = get(s"http://localhost:${server.localPort}/none")
+        rNone.statusCode() shouldBe 204
+      }
+  }
+
   test("should detect benign I/O exceptions") {
     import java.io.IOException
     import java.nio.channels.ClosedChannelException
@@ -358,3 +382,19 @@ class NettyServerTest extends UniTest:
   }
 
 end NettyServerTest
+
+object NettyServerTest:
+  case class Greeting(message: String)
+
+  class HelloController:
+    @Endpoint(HttpMethod.GET, "/hello")
+    def hello: Greeting = Greeting("world")
+
+    @Endpoint(HttpMethod.GET, "/maybe")
+    def maybe: Option[Greeting] = Some(Greeting("some"))
+
+    @Endpoint(HttpMethod.GET, "/none")
+    def none: Option[Greeting] = None
+
+    @Endpoint(HttpMethod.GET, "/rx")
+    def rx: Rx[Greeting] = Rx.single(Greeting("reactive"))

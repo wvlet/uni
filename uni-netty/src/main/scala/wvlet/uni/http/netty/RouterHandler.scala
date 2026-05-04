@@ -17,6 +17,8 @@ import wvlet.uni.http.{Request, Response}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.{OptionSurface, Surface}
+import wvlet.uni.weaver.Weaver
 
 /**
   * An RxHttpHandler implementation that dispatches requests to controller methods based on route
@@ -33,6 +35,17 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
 
   private val matcher = RouteMatcher(router.routes)
   private val mapper  = HttpRequestMapper()
+
+  // Pre-compute Weavers for each route's return type so case-class results are encoded as JSON.
+  // The weaver is derived against the inner element surface (Rx[A] / Option[A] are peeled) to
+  // match how ResponseConverter unwraps these wrappers before encoding the value.
+  private val returnWeavers: Map[Route, Weaver[?]] =
+    router
+      .routes
+      .map { r =>
+        r -> Weaver.fromSurface(RouterHandler.elementSurface(r.methodSurface.returnType))
+      }
+      .toMap
 
   // Lazily initialized filter instance (thread-safe)
   private lazy val filterInstance: Option[RxHttpFilter] = router
@@ -61,7 +74,7 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
             Some(controller)
           )
           val result = routeMatch.route.methodSurface.call(controller, args*)
-          ResponseConverter.toResponse(result)
+          ResponseConverter.toResponse(result, returnWeavers(routeMatch.route))
         catch
           case e: HttpRequestMappingException =>
             debug(s"Parameter mapping error: ${e.getMessage}")
@@ -76,6 +89,20 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
 end RouterHandler
 
 object RouterHandler:
+
+  /**
+    * Peel `Rx[_]` and `Option[_]` from a return-type surface, since [[ResponseConverter]] unwraps
+    * these wrappers before encoding the inner value. The weaver derived from the resulting surface
+    * is what eventually handles JSON serialization for case classes, sequences, etc.
+    */
+  private[netty] def elementSurface(surface: Surface): Surface =
+    surface match
+      case opt: OptionSurface =>
+        elementSurface(opt.elementSurface)
+      case s if classOf[Rx[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
+        elementSurface(s.typeArgs.head)
+      case other =>
+        other
 
   /**
     * Create a RouterHandler with a SimpleControllerProvider.

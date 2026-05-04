@@ -16,6 +16,7 @@ package wvlet.uni.http.router
 import wvlet.uni.http.{HttpContent, Response}
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.rx.Rx
+import wvlet.uni.weaver.Weaver
 
 /**
   * Converts controller method return values to HTTP responses.
@@ -39,19 +40,40 @@ object ResponseConverter:
     * @return
     *   An Rx that emits the HTTP response
     */
-  def toResponse(result: Any): Rx[Response] =
+  def toResponse(result: Any): Rx[Response] = toResponse(result, None)
+
+  /**
+    * Convert a method return value to an Rx[Response] using the given Weaver to encode case classes
+    * and other complex types as JSON.
+    *
+    * The weaver is expected to be derived for the inner element type, after peeling [[Rx]] and
+    * [[Option]] from the controller method's declared return type.
+    *
+    * @param result
+    *   The return value from a controller method
+    * @param returnWeaver
+    *   Weaver for the inner element type
+    * @return
+    *   An Rx that emits the HTTP response
+    */
+  def toResponse(result: Any, returnWeaver: Weaver[?]): Rx[Response] = toResponse(
+    result,
+    Some(returnWeaver)
+  )
+
+  private def toResponse(result: Any, weaverOpt: Option[Weaver[?]]): Rx[Response] =
     result match
       case r: Response =>
         Rx.single(r)
       case rx: Rx[?] =>
-        rx.map(convertToResponse)
+        rx.map(convertToResponse(_, weaverOpt))
       case other =>
-        Rx.single(convertToResponse(other))
+        Rx.single(convertToResponse(other, weaverOpt))
 
   /**
     * Convert a single value to an HTTP response.
     */
-  private def convertToResponse(value: Any): Response =
+  private def convertToResponse(value: Any, weaverOpt: Option[Weaver[?]]): Response =
     value match
       case r: Response =>
         r
@@ -65,27 +87,34 @@ object ResponseConverter:
         Response.ok.withContent(HttpContent.json(json))
       case bytes: Array[Byte] =>
         Response.ok.withBytesContent(bytes)
-      case seq: Seq[?] =>
-        // Convert sequences to JSON arrays
-        Response.ok.withContent(HttpContent.json(seqToJson(seq)))
-      case map: Map[?, ?] =>
-        // Convert maps to JSON objects
-        Response.ok.withContent(HttpContent.json(mapToJson(map)))
       case opt: Option[?] =>
         opt match
           case Some(v) =>
-            convertToResponse(v)
+            convertToResponse(v, weaverOpt)
           case None =>
             Response.noContent
       case other =>
-        // Try to serialize as JSON
-        try
-          val jsonStr = toJsonString(other)
-          Response.ok.withJsonContent(jsonStr)
-        catch
-          case e: Exception =>
-            // Fall back to toString
-            Response.ok.withTextContent(other.toString)
+        weaverOpt match
+          case Some(weaver) =>
+            try
+              val jsonStr = weaver.asInstanceOf[Weaver[Any]].toJson(other)
+              Response.ok.withJsonContent(jsonStr)
+            catch
+              case e: Exception =>
+                Response.ok.withTextContent(other.toString)
+          case None =>
+            other match
+              case seq: Seq[?] =>
+                Response.ok.withContent(HttpContent.json(seqToJson(seq)))
+              case map: Map[?, ?] =>
+                Response.ok.withContent(HttpContent.json(mapToJson(map)))
+              case _ =>
+                try
+                  val jsonStr = toJsonString(other)
+                  Response.ok.withJsonContent(jsonStr)
+                catch
+                  case e: Exception =>
+                    Response.ok.withTextContent(other.toString)
 
   /**
     * Convert a sequence to a JSON array string.
