@@ -96,22 +96,30 @@ object ResponseConverter:
       case other =>
         weaverOpt match
           case Some(weaver) =>
-            jsonOrText(other, weaver.asInstanceOf[Weaver[Any]].toJson(other))
+            // If the weaver throws (e.g. opaque wrapper type with un-readable fields),
+            // fall through to the no-weaver path rather than text/plain so the response
+            // stays application/json — preserves content-type stability for existing
+            // clients that expect a JSON content-type even when the body shape changes.
+            try
+              Response.ok.withJsonContent(weaver.asInstanceOf[Weaver[Any]].toJson(other))
+            catch
+              case _: Exception =>
+                noWeaverJson(other)
           case None =>
-            other match
-              case seq: Seq[?] =>
-                Response.ok.withContent(HttpContent.json(seqToJson(seq)))
-              case map: Map[?, ?] =>
-                Response.ok.withContent(HttpContent.json(mapToJson(map)))
-              case _ =>
-                jsonOrText(other, toJsonString(other))
+            noWeaverJson(other)
 
-  private def jsonOrText(value: Any, encode: => String): Response =
-    try
-      Response.ok.withJsonContent(encode)
-    catch
-      case _: Exception =>
-        Response.ok.withTextContent(value.toString)
+  private def noWeaverJson(other: Any): Response =
+    other match
+      case seq: Seq[?] =>
+        Response.ok.withContent(HttpContent.json(seqToJson(seq)))
+      case map: Map[?, ?] =>
+        Response.ok.withContent(HttpContent.json(mapToJson(map)))
+      case _ =>
+        try
+          Response.ok.withJsonContent(toJsonString(other))
+        catch
+          case _: Exception =>
+            Response.ok.withTextContent(other.toString)
 
   /**
     * Convert a sequence to a JSON array string.

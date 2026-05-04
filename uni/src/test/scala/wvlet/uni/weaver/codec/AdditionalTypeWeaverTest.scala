@@ -386,6 +386,20 @@ class AdditionalTypeWeaverTest extends UniTest:
     v.unit shouldBe TimeUnit.MILLISECONDS
   }
 
+  test("ElapsedTime rejects map missing value or unit") {
+    val noValue = """{"unit":"ms"}"""
+    val e1      = intercept[IllegalArgumentException] {
+      Weaver.fromJson[ElapsedTime](noValue)
+    }
+    e1.getMessage shouldContain "value"
+
+    val noUnit = """{"value":5.0}"""
+    val e2     = intercept[IllegalArgumentException] {
+      Weaver.fromJson[ElapsedTime](noUnit)
+    }
+    e2.getMessage shouldContain "unit"
+  }
+
   // ====== Composite: case class with new types ======
 
   case class Record(id: UUID, tags: Set[String], amount: BigDecimal, createdAt: Instant)

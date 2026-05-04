@@ -832,18 +832,20 @@ object PrimitiveWeaver:
             try
               val mapSize                             = u.unpackMapHeader
               var value: Double                       = 0.0
+              var hasValue                            = false
               var unit: java.util.concurrent.TimeUnit = null
               var i                                   = 0
               while i < mapSize do
                 u.unpackString match
                   case "value" =>
                     value = u.unpackDouble
+                    hasValue = true
                   case "unit" =>
                     unit = ElapsedTime.valueOfTimeUnit(u.unpackString)
                   case _ =>
                     u.skipValue
                 i += 1
-              if unit == null then
+              if !hasValue || unit == null then
                 context.setError(
                   IllegalArgumentException("ElapsedTime requires both 'value' and 'unit' fields")
                 )

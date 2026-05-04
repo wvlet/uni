@@ -368,6 +368,14 @@ class NettyServerTest extends UniTest:
         val rEither = get(s"http://localhost:${server.localPort}/either")
         rEither.statusCode() shouldBe 200
         rEither.body() shouldBe """"Right(42)""""
+
+        // Opaque wrapper: Surface exposes a constructor param but no readable accessor,
+        // so CaseClassWeaver throws at pack time. The handler must keep responding with
+        // application/json (not fall to text/plain) for content-type stability.
+        val rOpaque = get(s"http://localhost:${server.localPort}/opaque")
+        rOpaque.statusCode() shouldBe 200
+        rOpaque.headers().firstValue("Content-Type").orElse("") shouldContain "application/json"
+        rOpaque.body() shouldBe """"Wrap(Opaque(x))""""
       }
   }
 
@@ -400,6 +408,16 @@ end NettyServerTest
 object NettyServerTest:
   case class Greeting(message: String)
 
+  // Opaque wrapper: Surface sees a constructor param `value` but the field is private and
+  // unreadable, so CaseClassWeaver fails at pack time when fromSurface picks it up.
+  final class Opaque(private val value: String):
+    override def toString = s"Opaque($value)"
+
+  object Opaque:
+    def apply(v: String) = new Opaque(v)
+
+  case class Wrap(o: Opaque)
+
   class HelloController:
     @Endpoint(HttpMethod.GET, "/hello")
     def hello: Greeting = Greeting("world")
@@ -421,3 +439,8 @@ object NettyServerTest:
 
     @Endpoint(HttpMethod.GET, "/either")
     def either: Either[String, Int] = Right(42)
+
+    @Endpoint(HttpMethod.GET, "/opaque")
+    def opaque: NettyServerTest.Wrap = NettyServerTest.Wrap(NettyServerTest.Opaque("x"))
+
+end NettyServerTest
