@@ -611,4 +611,33 @@ class WeaverTest extends UniTest:
     v2 shouldBe v
   }
 
+  // Regression coverage for fromSurfaceOpt: ensure unsupported nested types are detected even
+  // when wrapped inside collections or case classes — otherwise callers that key behavior on
+  // "is this weaver lossless" would silently emit `[{}]` / `{"d":{}}`.
+  test("fromSurfaceOpt returns None for top-level Either") {
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[Either[String, Int]]) shouldBe None
+  }
+
+  test("fromSurfaceOpt returns None for Seq with unsupported element type") {
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[Seq[Either[String, Int]]]) shouldBe None
+  }
+
+  test("fromSurfaceOpt returns None for case class with unsupported field type") {
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[WeaverTest.HasEither]) shouldBe None
+  }
+
+  test("fromSurfaceOpt returns Some for fully-supported types") {
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[WeaverTest.Greeting]).isDefined shouldBe true
+    Weaver.fromSurfaceOpt(Surface.of[Seq[WeaverTest.Greeting]]).isDefined shouldBe true
+    Weaver.fromSurfaceOpt(Surface.of[Map[String, WeaverTest.Greeting]]).isDefined shouldBe true
+  }
+
 end WeaverTest
+
+object WeaverTest:
+  case class HasEither(e: Either[String, Int])
+  case class Greeting(message: String)

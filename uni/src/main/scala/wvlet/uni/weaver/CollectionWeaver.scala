@@ -13,6 +13,8 @@ import scala.jdk.CollectionConverters.*
   */
 
 class OptionWeaver(inner: Weaver[?]) extends Weaver[Option[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(inner)
+
   override def pack(p: Packer, v: Option[?], config: WeaverConfig): Unit =
     v match
       case Some(value) =>
@@ -36,6 +38,8 @@ class OptionWeaver(inner: Weaver[?]) extends Weaver[Option[?]]:
           context.setObject(Some(elementContext.getLastValue))
 
 class SeqWeaver(elem: Weaver[?], targetType: Class[?]) extends Weaver[Seq[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(elem)
+
   override def pack(p: Packer, v: Seq[?], config: WeaverConfig): Unit =
     p.packArrayHeader(v.size)
     v.foreach(e => elem.asInstanceOf[Weaver[Any]].pack(p, e, config))
@@ -64,6 +68,8 @@ class SeqWeaver(elem: Weaver[?], targetType: Class[?]) extends Weaver[Seq[?]]:
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to Seq"))
 
 class SetWeaver(elem: Weaver[?]) extends Weaver[Set[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(elem)
+
   override def pack(p: Packer, v: Set[?], config: WeaverConfig): Unit =
     p.packArrayHeader(v.size)
     v.foreach(e => elem.asInstanceOf[Weaver[Any]].pack(p, e, config))
@@ -83,6 +89,8 @@ class SetWeaver(elem: Weaver[?]) extends Weaver[Set[?]]:
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to Set"))
 
 class MapWeaver(keyWeaver: Weaver[?], valueWeaver: Weaver[?]) extends Weaver[Map[?, ?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(keyWeaver, valueWeaver)
+
   override def pack(p: Packer, v: Map[?, ?], config: WeaverConfig): Unit =
     p.packMapHeader(v.size)
     v.foreach { case (key, value) =>
@@ -105,6 +113,8 @@ class MapWeaver(keyWeaver: Weaver[?], valueWeaver: Weaver[?]) extends Weaver[Map
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to Map"))
 
 class ArrayWeaver(elem: Weaver[?], elemClass: Class[?]) extends Weaver[Array[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(elem)
+
   override def pack(p: Packer, v: Array[?], config: WeaverConfig): Unit =
     p.packArrayHeader(v.length)
     v.foreach(e => elem.asInstanceOf[Weaver[Any]].pack(p, e, config))
@@ -130,6 +140,8 @@ class ArrayWeaver(elem: Weaver[?], elemClass: Class[?]) extends Weaver[Array[?]]
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to Array"))
 
 class JavaListWeaver(elem: Weaver[?]) extends Weaver[java.util.List[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(elem)
+
   override def pack(p: Packer, v: java.util.List[?], config: WeaverConfig): Unit =
     p.packArrayHeader(v.size)
     v.forEach(e => elem.asInstanceOf[Weaver[Any]].pack(p, e, config))
@@ -149,6 +161,8 @@ class JavaListWeaver(elem: Weaver[?]) extends Weaver[java.util.List[?]]:
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to java.util.List"))
 
 class JavaSetWeaver(elem: Weaver[?]) extends Weaver[java.util.Set[?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(elem)
+
   override def pack(p: Packer, v: java.util.Set[?], config: WeaverConfig): Unit =
     p.packArrayHeader(v.size)
     v.forEach(e => elem.asInstanceOf[Weaver[Any]].pack(p, e, config))
@@ -169,6 +183,8 @@ class JavaSetWeaver(elem: Weaver[?]) extends Weaver[java.util.Set[?]]:
 
 class JavaMapWeaver(keyWeaver: Weaver[?], valueWeaver: Weaver[?])
     extends Weaver[java.util.Map[?, ?]]:
+  override def innerWeavers: Seq[Weaver[?]] = Seq(keyWeaver, valueWeaver)
+
   override def pack(p: Packer, v: java.util.Map[?, ?], config: WeaverConfig): Unit =
     p.packMapHeader(v.size)
     v.forEach { (key, value) =>

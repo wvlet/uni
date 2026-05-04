@@ -804,11 +804,63 @@ object PrimitiveWeaver:
 
   given ulidWeaver: Weaver[ULID] = stringBasedWeaver("ULID", _.toString, ULID(_))
 
-  given elapsedTimeWeaver: Weaver[ElapsedTime] = stringBasedWeaver(
-    "ElapsedTime",
-    _.toString,
-    ElapsedTime.parse(_)
-  )
+  // ElapsedTime.toString is %.2f-formatted (lossy on the value), and a `${value}${unit}` string
+  // form would only round-trip cleanly when Double.toString avoids exponential notation. Encode
+  // as a structured `{value, unit}` map instead so the original (Double, TimeUnit) pair is
+  // preserved exactly for any value the user could construct.
+  given elapsedTimeWeaver: Weaver[ElapsedTime] =
+    new Weaver[ElapsedTime]:
+      override def pack(p: Packer, v: ElapsedTime, config: WeaverConfig): Unit =
+        p.packMapHeader(2)
+        p.packString("value")
+        p.packDouble(v.value)
+        p.packString("unit")
+        p.packString(ElapsedTime.timeUnitToString(v.unit))
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            // Backward-compatibility for legacy "<value><unit>" string form (e.g. "2.50ms").
+            safeConvertFromString(
+              context,
+              u,
+              ElapsedTime.parse(_),
+              context.setObject,
+              "ElapsedTime"
+            )
+          case ValueType.MAP =>
+            try
+              val mapSize                             = u.unpackMapHeader
+              var value: Double                       = 0.0
+              var unit: java.util.concurrent.TimeUnit = null
+              var i                                   = 0
+              while i < mapSize do
+                u.unpackString match
+                  case "value" =>
+                    value = u.unpackDouble
+                  case "unit" =>
+                    unit = ElapsedTime.valueOfTimeUnit(u.unpackString)
+                  case _ =>
+                    u.skipValue
+                i += 1
+              if unit == null then
+                context.setError(
+                  IllegalArgumentException("ElapsedTime requires both 'value' and 'unit' fields")
+                )
+              else
+                context.setObject(ElapsedTime(value, unit))
+            catch
+              case e: Exception =>
+                context.setError(e)
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(
+              IllegalArgumentException(
+                s"Cannot convert ${other} to ElapsedTime, expected STRING or MAP"
+              )
+            )
 
   // Tuple support via recursive given resolution
   trait TupleElementWeaver[T <: Tuple]:

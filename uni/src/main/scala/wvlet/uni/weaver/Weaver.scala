@@ -101,6 +101,13 @@ trait Weaver[A]:
     */
   def unpack(u: Unpacker, context: WeaverContext): Unit
 
+  /**
+    * Composite weavers (collections, case classes, etc.) override this to expose the weavers they
+    * delegate to. Used by [[Weaver.fromSurfaceOpt]] to detect when any nested weaver in the tree is
+    * the lossy empty-object fallback. Default: no inner weavers.
+    */
+  def innerWeavers: Seq[Weaver[?]] = Seq.empty
+
 end Weaver
 
 object Weaver:
@@ -199,17 +206,33 @@ object Weaver:
       override def initialValue() = scala.collection.mutable.LinkedHashMap.empty
 
   /**
-    * Like [[fromSurface]], but returns `None` when the resulting weaver is the lossy empty-object
-    * fallback used for surfaces that no built-in factory can handle. Callers that want to fall back
-    * to a different encoding strategy (e.g. tagged-string toString) when a type isn't directly
-    * supported can use this overload to detect the gap.
+    * Like [[fromSurface]], but returns `None` when the resulting weaver tree contains the lossy
+    * empty-object fallback at any position — top-level or nested inside a collection / case class.
+    * Callers that want to fall back to a different encoding strategy (e.g. toString-quoted JSON)
+    * when a type isn't directly supported can use this overload to detect the gap, including cases
+    * like `Seq[Either[A, B]]` or `case class Foo(d: LocalDate)` where `fromSurface` would otherwise
+    * embed an empty fallback inside an outer composite weaver.
     */
   def fromSurfaceOpt(surface: Surface): Option[Weaver[?]] =
     val w = fromSurface(surface)
-    if w eq emptyObjectWeaver then
+    if containsEmptyFallback(w) then
       None
     else
       Some(w)
+
+  private def containsEmptyFallback(w: Weaver[?]): Boolean =
+    val visited = java
+      .util
+      .Collections
+      .newSetFromMap(new java.util.IdentityHashMap[Weaver[?], java.lang.Boolean])
+    def walk(x: Weaver[?]): Boolean =
+      if !visited.add(x) then
+        false
+      else if x eq emptyObjectWeaver then
+        true
+      else
+        x.innerWeavers.exists(walk)
+    walk(w)
 
   /**
     * Create a Weaver from Surface at runtime. Uses Surface type information to look up or build
@@ -410,6 +433,13 @@ object Weaver:
     private var ref: Weaver[Any] = null
 
     def resolve(w: Weaver[?]): Unit = ref = w.asInstanceOf[Weaver[Any]]
+
+    override def innerWeavers: Seq[Weaver[?]] =
+      val w = ref
+      if w == null then
+        Seq.empty
+      else
+        Seq(w)
 
     override def pack(p: Packer, v: Any, config: WeaverConfig): Unit =
       val w = ref

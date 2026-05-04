@@ -364,6 +364,28 @@ class AdditionalTypeWeaverTest extends UniTest:
     e.getMessage shouldContain "duration"
   }
 
+  test("ElapsedTime preserves full Double precision") {
+    // Regression: toString-based encoding rounded to 2 decimals and lost extreme values.
+    val v       = ElapsedTime(2.555, TimeUnit.SECONDS)
+    val msgpack = Weaver.weave(v)
+    val v2      = Weaver.unweave[ElapsedTime](msgpack)
+    v2.value shouldBe v.value
+    v2.unit shouldBe v.unit
+
+    val tiny     = ElapsedTime(1.0e-5, TimeUnit.NANOSECONDS)
+    val tinyJson = Weaver.toJson(tiny)
+    val tinyBack = Weaver.fromJson[ElapsedTime](tinyJson)
+    tinyBack.value shouldBe tiny.value
+    tinyBack.unit shouldBe tiny.unit
+  }
+
+  test("ElapsedTime accepts legacy string form for backward compatibility") {
+    val legacy = "\"2.50ms\""
+    val v      = Weaver.fromJson[ElapsedTime](legacy)
+    v.value shouldBe 2.5
+    v.unit shouldBe TimeUnit.MILLISECONDS
+  }
+
   // ====== Composite: case class with new types ======
 
   case class Record(id: UUID, tags: Set[String], amount: BigDecimal, createdAt: Instant)
