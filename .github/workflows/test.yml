@@ -75,7 +75,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '23'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -126,7 +126,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '23'
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
