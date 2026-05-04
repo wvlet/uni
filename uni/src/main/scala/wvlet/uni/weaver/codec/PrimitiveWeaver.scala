@@ -838,7 +838,14 @@ object PrimitiveWeaver:
               while i < mapSize do
                 u.unpackString match
                   case "value" =>
-                    value = u.unpackDouble
+                    // Accept integer literals like `{"value":5,...}` from JSON producers that
+                    // omit the `.0` for whole-number durations.
+                    value =
+                      u.getNextValueType match
+                        case ValueType.INTEGER =>
+                          u.unpackLong.toDouble
+                        case _ =>
+                          u.unpackDouble
                     hasValue = true
                   case "unit" =>
                     unit = ElapsedTime.valueOfTimeUnit(u.unpackString)

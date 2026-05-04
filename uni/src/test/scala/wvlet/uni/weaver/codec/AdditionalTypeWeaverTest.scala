@@ -400,6 +400,13 @@ class AdditionalTypeWeaverTest extends UniTest:
     e2.getMessage shouldContain "unit"
   }
 
+  test("ElapsedTime accepts integer value literal") {
+    // JSON producers commonly emit whole numbers without a fractional part. Accept both.
+    val v = Weaver.fromJson[ElapsedTime]("""{"value":5,"unit":"ms"}""")
+    v.value shouldBe 5.0
+    v.unit shouldBe TimeUnit.MILLISECONDS
+  }
+
   // ====== Composite: case class with new types ======
 
   case class Record(id: UUID, tags: Set[String], amount: BigDecimal, createdAt: Instant)
