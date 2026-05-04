@@ -17,31 +17,7 @@ import java.time.ZonedDateTime
 
 object JvmWeaver:
 
-  private def stringBasedWeaver[A](
-      typeName: String,
-      serialize: A => String,
-      deserialize: String => A
-  ): Weaver[A] =
-    new Weaver[A]:
-      override def pack(p: Packer, v: A, config: WeaverConfig): Unit = p.packString(serialize(v))
-
-      override def unpack(u: Unpacker, context: WeaverContext): Unit =
-        u.getNextValueType match
-          case ValueType.STRING =>
-            PrimitiveWeaver.safeConvertFromString(
-              context,
-              u,
-              deserialize,
-              context.setObject,
-              typeName
-            )
-          case ValueType.NIL =>
-            PrimitiveWeaver.safeUnpackNil(context, u)
-          case other =>
-            u.skipValue
-            context.setError(
-              IllegalArgumentException(s"Cannot convert ${other} to ${typeName}, expected STRING")
-            )
+  import PrimitiveWeaver.stringBasedWeaver
 
   given zonedDateTimeWeaver: Weaver[ZonedDateTime] = stringBasedWeaver(
     "ZonedDateTime",

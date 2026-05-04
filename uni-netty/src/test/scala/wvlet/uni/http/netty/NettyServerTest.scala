@@ -354,6 +354,14 @@ class NettyServerTest extends UniTest:
 
         val rNone = get(s"http://localhost:${server.localPort}/none")
         rNone.statusCode() shouldBe 204
+
+        val rList = get(s"http://localhost:${server.localPort}/list")
+        rList.statusCode() shouldBe 200
+        rList.body() shouldBe """[{"message":"a"},{"message":"b"}]"""
+
+        val rRxOpt = get(s"http://localhost:${server.localPort}/rx-opt")
+        rRxOpt.statusCode() shouldBe 200
+        rRxOpt.body() shouldBe """{"message":"both"}"""
       }
   }
 
@@ -398,3 +406,9 @@ object NettyServerTest:
 
     @Endpoint(HttpMethod.GET, "/rx")
     def rx: Rx[Greeting] = Rx.single(Greeting("reactive"))
+
+    @Endpoint(HttpMethod.GET, "/list")
+    def list: Seq[Greeting] = Seq(Greeting("a"), Greeting("b"))
+
+    @Endpoint(HttpMethod.GET, "/rx-opt")
+    def rxOpt: Rx[Option[Greeting]] = Rx.single(Some(Greeting("both")))

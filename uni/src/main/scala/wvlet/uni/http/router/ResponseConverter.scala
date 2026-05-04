@@ -96,12 +96,7 @@ object ResponseConverter:
       case other =>
         weaverOpt match
           case Some(weaver) =>
-            try
-              val jsonStr = weaver.asInstanceOf[Weaver[Any]].toJson(other)
-              Response.ok.withJsonContent(jsonStr)
-            catch
-              case e: Exception =>
-                Response.ok.withTextContent(other.toString)
+            jsonOrText(other, weaver.asInstanceOf[Weaver[Any]].toJson(other))
           case None =>
             other match
               case seq: Seq[?] =>
@@ -109,12 +104,14 @@ object ResponseConverter:
               case map: Map[?, ?] =>
                 Response.ok.withContent(HttpContent.json(mapToJson(map)))
               case _ =>
-                try
-                  val jsonStr = toJsonString(other)
-                  Response.ok.withJsonContent(jsonStr)
-                catch
-                  case e: Exception =>
-                    Response.ok.withTextContent(other.toString)
+                jsonOrText(other, toJsonString(other))
+
+  private def jsonOrText(value: Any, encode: => String): Response =
+    try
+      Response.ok.withJsonContent(encode)
+    catch
+      case _: Exception =>
+        Response.ok.withTextContent(value.toString)
 
   /**
     * Convert a sequence to a JSON array string.

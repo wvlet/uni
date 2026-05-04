@@ -56,6 +56,31 @@ object PrimitiveWeaver:
       case e: Exception =>
         context.setError(e)
 
+  /**
+    * Build a Weaver for a type that round-trips through a single string. `pack` writes
+    * `serialize(v)` as a MessagePack STRING; `unpack` reads STRING via `deserialize` and passes NIL
+    * through as null.
+    */
+  private[codec] def stringBasedWeaver[A](
+      typeName: String,
+      serialize: A => String,
+      deserialize: String => A
+  ): Weaver[A] =
+    new Weaver[A]:
+      override def pack(p: Packer, v: A, config: WeaverConfig): Unit = p.packString(serialize(v))
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(context, u, deserialize, context.setObject, typeName)
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(
+              IllegalArgumentException(s"Cannot convert ${other} to ${typeName}, expected STRING")
+            )
+
   private def collectionWeaver[A, C](
       elementWeaver: Weaver[A],
       typeName: String,
@@ -777,49 +802,13 @@ object PrimitiveWeaver:
             u.skipValue
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to URI"))
 
-  given ulidWeaver: Weaver[ULID] =
-    new Weaver[ULID]:
-      override def pack(p: Packer, v: ULID, config: WeaverConfig): Unit =
-        if v == null then
-          p.packNil
-        else
-          p.packString(v.toString)
+  given ulidWeaver: Weaver[ULID] = stringBasedWeaver("ULID", _.toString, ULID(_))
 
-      override def unpack(u: Unpacker, context: WeaverContext): Unit =
-        u.getNextValueType match
-          case ValueType.STRING =>
-            safeConvertFromString(context, u, ULID(_), context.setObject, "ULID")
-          case ValueType.NIL =>
-            safeUnpackNil(context, u)
-          case other =>
-            u.skipValue
-            context.setError(new IllegalArgumentException(s"Cannot convert ${other} to ULID"))
-
-  given elapsedTimeWeaver: Weaver[ElapsedTime] =
-    new Weaver[ElapsedTime]:
-      override def pack(p: Packer, v: ElapsedTime, config: WeaverConfig): Unit =
-        if v == null then
-          p.packNil
-        else
-          p.packString(v.toString)
-
-      override def unpack(u: Unpacker, context: WeaverContext): Unit =
-        u.getNextValueType match
-          case ValueType.STRING =>
-            safeConvertFromString(
-              context,
-              u,
-              ElapsedTime.parse(_),
-              context.setObject,
-              "ElapsedTime"
-            )
-          case ValueType.NIL =>
-            safeUnpackNil(context, u)
-          case other =>
-            u.skipValue
-            context.setError(
-              new IllegalArgumentException(s"Cannot convert ${other} to ElapsedTime")
-            )
+  given elapsedTimeWeaver: Weaver[ElapsedTime] = stringBasedWeaver(
+    "ElapsedTime",
+    _.toString,
+    ElapsedTime.parse(_)
+  )
 
   // Tuple support via recursive given resolution
   trait TupleElementWeaver[T <: Tuple]:
