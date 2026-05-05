@@ -3,6 +3,8 @@ package wvlet.uni.weaver.codec
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
+import wvlet.uni.util.ElapsedTime
+import wvlet.uni.util.ULID
 import wvlet.uni.weaver.CollectionWeaver
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
@@ -53,6 +55,31 @@ object PrimitiveWeaver:
     catch
       case e: Exception =>
         context.setError(e)
+
+  /**
+    * Build a Weaver for a type that round-trips through a single string. `pack` writes
+    * `serialize(v)` as a MessagePack STRING; `unpack` reads STRING via `deserialize` and passes NIL
+    * through as null.
+    */
+  private[codec] def stringBasedWeaver[A](
+      typeName: String,
+      serialize: A => String,
+      deserialize: String => A
+  ): Weaver[A] =
+    new Weaver[A]:
+      override def pack(p: Packer, v: A, config: WeaverConfig): Unit = p.packString(serialize(v))
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(context, u, deserialize, context.setObject, typeName)
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(
+              IllegalArgumentException(s"Cannot convert ${other} to ${typeName}, expected STRING")
+            )
 
   private def collectionWeaver[A, C](
       elementWeaver: Weaver[A],
@@ -774,6 +801,19 @@ object PrimitiveWeaver:
           case other =>
             u.skipValue
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to URI"))
+
+  given ulidWeaver: Weaver[ULID] = stringBasedWeaver("ULID", _.toString, ULID(_))
+
+  // Encode as `<value><unit>` (e.g. "2.555s", "1.0E-9ns") rather than `et.toString`, which is
+  // %.2f-rounded and would lose precision on round-trip. ElapsedTime.parse accepts the value
+  // in plain decimal *and* exponent form so any Double.toString output round-trips exactly,
+  // and the wire shape stays a JSON string — matching the pre-PR Router fallback for this
+  // type and avoiding a content-shape change for clients already on the wire.
+  given elapsedTimeWeaver: Weaver[ElapsedTime] = stringBasedWeaver(
+    "ElapsedTime",
+    et => s"${et.value}${ElapsedTime.timeUnitToString(et.unit)}",
+    ElapsedTime.parse(_)
+  )
 
   // Tuple support via recursive given resolution
   trait TupleElementWeaver[T <: Tuple]:

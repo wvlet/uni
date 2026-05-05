@@ -14,6 +14,7 @@
 package wvlet.uni.http.netty
 
 import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, ServerSentEvent}
+import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -333,6 +334,62 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("should encode case class returns from @Endpoint controllers as JSON") {
+    NettyServer
+      .withPort(0)
+      .withRxHandler(RouterHandler(Router.of[NettyServerTest.HelloController]))
+      .start { server =>
+        val r = get(s"http://localhost:${server.localPort}/hello")
+        r.statusCode() shouldBe 200
+        r.body() shouldBe """{"message":"world"}"""
+        r.headers().firstValue("Content-Type").orElse("") shouldContain "application/json"
+
+        val rOpt = get(s"http://localhost:${server.localPort}/maybe")
+        rOpt.statusCode() shouldBe 200
+        rOpt.body() shouldBe """{"message":"some"}"""
+
+        val rRx = get(s"http://localhost:${server.localPort}/rx")
+        rRx.statusCode() shouldBe 200
+        rRx.body() shouldBe """{"message":"reactive"}"""
+
+        val rNone = get(s"http://localhost:${server.localPort}/none")
+        rNone.statusCode() shouldBe 204
+
+        val rList = get(s"http://localhost:${server.localPort}/list")
+        rList.statusCode() shouldBe 200
+        rList.body() shouldBe """[{"message":"a"},{"message":"b"}]"""
+
+        val rRxOpt = get(s"http://localhost:${server.localPort}/rx-opt")
+        rRxOpt.statusCode() shouldBe 200
+        rRxOpt.body() shouldBe """{"message":"both"}"""
+
+        // Either has no built-in fromSurface factory, so it must fall through to the
+        // no-weaver toString-quoted path rather than the empty-object {} fallback.
+        val rEither = get(s"http://localhost:${server.localPort}/either")
+        rEither.statusCode() shouldBe 200
+        rEither.body() shouldBe """"Right(42)""""
+
+        // Opaque wrapper: Surface exposes a constructor param but no readable accessor,
+        // so CaseClassWeaver throws at pack time. The handler must keep responding with
+        // application/json (not fall to text/plain) for content-type stability.
+        val rOpaque = get(s"http://localhost:${server.localPort}/opaque")
+        rOpaque.statusCode() shouldBe 200
+        rOpaque.headers().firstValue("Content-Type").orElse("") shouldContain "application/json"
+        rOpaque.body() shouldBe """"Wrap(Opaque(x))""""
+
+        // Primitive scalar returns: preserve the previous toString-quoted JSON form so
+        // existing clients consuming bare-scalar endpoints aren't broken by the wire-format
+        // change a Weaver path would introduce (e.g. `42` vs `"42"`).
+        val rInt = get(s"http://localhost:${server.localPort}/answer")
+        rInt.statusCode() shouldBe 200
+        rInt.body() shouldBe "\"42\""
+
+        val rBool = get(s"http://localhost:${server.localPort}/flag")
+        rBool.statusCode() shouldBe 200
+        rBool.body() shouldBe "\"true\""
+      }
+  }
+
   test("should detect benign I/O exceptions") {
     import java.io.IOException
     import java.nio.channels.ClosedChannelException
@@ -356,5 +413,53 @@ class NettyServerTest extends UniTest:
     NettyRequestHandler.isBenignIOException(IOException("Some other error")) shouldBe false
     NettyRequestHandler.isBenignIOException(RuntimeException("not IO")) shouldBe false
   }
+
+end NettyServerTest
+
+object NettyServerTest:
+  case class Greeting(message: String)
+
+  // Opaque wrapper: Surface sees a constructor param `value` but the field is private and
+  // unreadable, so CaseClassWeaver fails at pack time when fromSurface picks it up.
+  final class Opaque(private val value: String):
+    override def toString = s"Opaque($value)"
+
+  object Opaque:
+    def apply(v: String) = new Opaque(v)
+
+  case class Wrap(o: Opaque)
+
+  class HelloController:
+    @Endpoint(HttpMethod.GET, "/hello")
+    def hello: Greeting = Greeting("world")
+
+    @Endpoint(HttpMethod.GET, "/maybe")
+    def maybe: Option[Greeting] = Some(Greeting("some"))
+
+    @Endpoint(HttpMethod.GET, "/none")
+    def none: Option[Greeting] = None
+
+    @Endpoint(HttpMethod.GET, "/rx")
+    def rx: Rx[Greeting] = Rx.single(Greeting("reactive"))
+
+    @Endpoint(HttpMethod.GET, "/list")
+    def list: Seq[Greeting] = Seq(Greeting("a"), Greeting("b"))
+
+    @Endpoint(HttpMethod.GET, "/rx-opt")
+    def rxOpt: Rx[Option[Greeting]] = Rx.single(Some(Greeting("both")))
+
+    @Endpoint(HttpMethod.GET, "/either")
+    def either: Either[String, Int] = Right(42)
+
+    @Endpoint(HttpMethod.GET, "/opaque")
+    def opaque: NettyServerTest.Wrap = NettyServerTest.Wrap(NettyServerTest.Opaque("x"))
+
+    @Endpoint(HttpMethod.GET, "/answer")
+    def answer: Int = 42
+
+    @Endpoint(HttpMethod.GET, "/flag")
+    def flag: Boolean = true
+
+  end HelloController
 
 end NettyServerTest

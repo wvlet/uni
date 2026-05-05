@@ -16,6 +16,8 @@ import wvlet.uni.weaver.WeaverContext
   */
 class CaseClassWeaver[A](surface: Surface, fieldWeavers: IndexedSeq[Weaver[?]]) extends Weaver[A]:
 
+  override def innerWeavers: Seq[Weaver[?]] = fieldWeavers
+
   // Pre-compute canonicalized name lookup for flexible field matching
   private val paramsByCanonicalName: Map[String, (Int, Parameter)] =
     surface

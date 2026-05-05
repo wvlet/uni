@@ -17,6 +17,10 @@ import wvlet.uni.http.{Request, Response}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.{OptionSurface, Surface}
+import wvlet.uni.weaver.Weaver
+
+import java.util.IdentityHashMap
 
 /**
   * An RxHttpHandler implementation that dispatches requests to controller methods based on route
@@ -33,6 +37,32 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
 
   private val matcher = RouteMatcher(router.routes)
   private val mapper  = HttpRequestMapper()
+
+  // Pre-compute Weavers for each route's return type so case-class results are encoded as JSON.
+  // The weaver is derived against the inner element surface (Rx[A] / Option[A] are peeled) to
+  // match how ResponseConverter unwraps these wrappers before encoding the value. We use
+  // `fromSurfaceOpt` so routes whose return type isn't covered by a built-in factory (e.g.
+  // `Either`, JVM-only `LocalDate`, `Path`) fall through to ResponseConverter's no-weaver path
+  // instead of getting silently encoded as the empty-object fallback. We also skip:
+  //   - `Response` / `Rx[Response]` — ResponseConverter short-circuits before any weaver call.
+  //   - Primitive surfaces (Int/Long/Boolean/Double/etc.) — the no-weaver path produces a
+  //     toString-quoted JSON string (`"42"`) for these, while the weaver path would emit a
+  //     bare JSON scalar (`42`). Skipping preserves wire format for existing scalar-returning
+  //     endpoints; case classes / collections / ULID / Instant / UUID still flow through the
+  //     weaver and benefit from proper JSON encoding.
+  // IdentityHashMap keys on reference equality — every Route returned by RouteMatcher is a
+  // direct reference into router.routes, so this avoids walking case-class equals/hashCode on
+  // every request.
+  private val returnWeavers: IdentityHashMap[Route, Weaver[?]] =
+    val m = new IdentityHashMap[Route, Weaver[?]](router.routes.size * 2)
+    router
+      .routes
+      .foreach { r =>
+        val element = RouterHandler.elementSurface(r.methodSurface.returnType)
+        if !classOf[Response].isAssignableFrom(element.rawType) && !element.isPrimitive then
+          Weaver.fromSurfaceOpt(element).foreach(m.put(r, _))
+      }
+    m
 
   // Lazily initialized filter instance (thread-safe)
   private lazy val filterInstance: Option[RxHttpFilter] = router
@@ -61,7 +91,11 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
             Some(controller)
           )
           val result = routeMatch.route.methodSurface.call(controller, args*)
-          ResponseConverter.toResponse(result)
+          val weaver = returnWeavers.get(routeMatch.route)
+          if weaver == null then
+            ResponseConverter.toResponse(result)
+          else
+            ResponseConverter.toResponse(result, weaver)
         catch
           case e: HttpRequestMappingException =>
             debug(s"Parameter mapping error: ${e.getMessage}")
@@ -76,6 +110,34 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
 end RouterHandler
 
 object RouterHandler:
+
+  /**
+    * Peel wrapper types from a return-type surface to derive the surface of the value that the
+    * Weaver actually has to encode.
+    *
+    * Peeling rules mirror what [[ResponseConverter]] does at runtime: it unwraps `Rx[_]` only at
+    * the top level (`toResponse`'s `case rx: Rx[?] => rx.map(...)` branch), then unwraps `Option`
+    * recursively inside the per-value path. We follow the same shape — peel at most one `Rx`, then
+    * peel any number of nested `Option`s — so the weaver lines up with the value the converter
+    * eventually hands it. Nested `Rx[Rx[_]]` is not supported by the converter and is left as-is
+    * here too.
+    */
+  private def elementSurface(surface: Surface): Surface =
+    val afterRx =
+      surface match
+        case s if classOf[Rx[?]].isAssignableFrom(s.rawType) && s.typeArgs.nonEmpty =>
+          s.typeArgs.head
+        case other =>
+          other
+    unwrapOption(afterRx)
+
+  @scala.annotation.tailrec
+  private def unwrapOption(surface: Surface): Surface =
+    surface match
+      case opt: OptionSurface =>
+        unwrapOption(opt.elementSurface)
+      case other =>
+        other
 
   /**
     * Create a RouterHandler with a SimpleControllerProvider.

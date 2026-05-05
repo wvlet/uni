@@ -67,3 +67,7 @@ Save plan documents to plans/YYYY-MM-DD-(topic).md files
 
 ### Code Reviews
 Gemini reviews PRs. Address feedback before merging.
+
+## Architecture decisions
+
+- [`adr/2026-05-04-fromsurfaceopt-and-innerweavers.md`](adr/2026-05-04-fromsurfaceopt-and-innerweavers.md) — `Weaver.fromSurfaceOpt` + `Weaver.innerWeavers` for detecting lossy fallbacks anywhere in a derived weaver tree. Read before adding new composite weaver classes.

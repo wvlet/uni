@@ -56,7 +56,11 @@ object ElapsedTime:
 
   def units = List(NANOSECONDS, MICROSECONDS, MILLISECONDS, SECONDS, MINUTES, HOURS, DAYS)
 
-  private val strReprPattern = Pattern.compile("^\\s*(\\d+(?:\\.\\d+)?)\\s*([a-zA-Z]+)\\s*$")
+  // Number pattern allows decimal, optional fractional part, and optional exponent so the
+  // Weaver round-trip via Double.toString (which can emit "1.0E-9") parses back losslessly.
+  private val strReprPattern = Pattern.compile(
+    "^\\s*(\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?)\\s*([a-zA-Z]+)\\s*$"
+  )
 
   def nanosSince(start: Long): ElapsedTime    = succinctNanos(System.nanoTime - start)
   def succinctNanos(nanos: Long): ElapsedTime = succinctDuration(nanos.toDouble, NANOSECONDS)
