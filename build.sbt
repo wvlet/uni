@@ -245,7 +245,7 @@ lazy val bedrock = project
       Seq(
         "software.amazon.awssdk" % "bedrockruntime" % AWS_SDK_VERSION,
         // Redirect slf4j to airframe-log
-        "org.slf4j" % "slf4j-jdk14" % "2.0.17",
+        "org.slf4j" % "slf4j-jdk14" % "2.0.18",
         // Add langchain4j as a reference implementation
         "dev.langchain4j" % "langchain4j"         % "1.14.1" % Test,
         "dev.langchain4j" % "langchain4j-bedrock" % "1.14.1" % Test
