@@ -71,3 +71,4 @@ Gemini reviews PRs. Address feedback before merging.
 ## Architecture decisions
 
 - [`adr/2026-05-04-fromsurfaceopt-and-innerweavers.md`](adr/2026-05-04-fromsurfaceopt-and-innerweavers.md) — `Weaver.fromSurfaceOpt` + `Weaver.innerWeavers` for detecting lossy fallbacks anywhere in a derived weaver tree. Read before adding new composite weaver classes.
+- [`adr/2026-05-14-nodejs-sync-http.md`](adr/2026-05-14-nodejs-sync-http.md) — Synchronous HTTP on Node.js via `worker_threads` + `Atomics.wait`. Read before touching `NodeSyncHttpChannel` or the JS HTTP channels (covers the `worker_threads` runtime-load, the `Long`-to-JS trap, and why tests run their server in a worker thread).
