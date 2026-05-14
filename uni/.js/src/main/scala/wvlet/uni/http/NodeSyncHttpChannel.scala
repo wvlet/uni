@@ -15,7 +15,6 @@ package wvlet.uni.http
 
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
-import scala.scalajs.js.annotation.JSImport
 import scala.scalajs.js.typedarray.*
 
 /**
@@ -34,14 +33,15 @@ import scala.scalajs.js.typedarray.*
   *   - Node.js only. Browser sync HTTP is unrecoverable (sync XHR is deprecated and
   *     `worker_threads` doesn't exist on the web). `JSHttpChannelFactory.newChannel` should detect
   *     non-Node environments and throw before constructing this channel.
-  *   - Response size is capped by the `SharedArrayBuffer` (default 16 MB). Larger responses surface
-  *     as `HttpException` from the worker.
+  *   - Response size is capped by the `SharedArrayBuffer` (`HttpClientConfig.maxResponseBytes`,
+  *     default 16 MB). Larger responses surface as `HttpException` from the worker.
   */
-class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends HttpChannel:
+class NodeSyncHttpChannel extends HttpChannel:
 
   import NodeSyncHttpChannel.*
 
   override def send(request: HttpRequest, config: HttpClientConfig): HttpResponse =
+    val maxResponseBytes = config.maxResponseBytes
     val sab       = js.Dynamic.newInstance(SharedArrayBufferCtor)(HeaderBytes + maxResponseBytes)
     val stateWord = Int32Array(sab.asInstanceOf[ArrayBuffer], OffsetState, 1)
 
@@ -193,14 +193,17 @@ object NodeSyncHttpChannel:
   // thread gives up waiting.
   private final val WorkerGraceMillis = 5000
 
-  // `worker_threads` is imported statically rather than lazily: Scala.js has no synchronous
-  // dynamic require, and a static import is exactly what Node ESModule consumers need. Trade-off:
-  // a *browser* ESModule bundle that links `JSHttpChannelFactory` (only to reach the browser
-  // `NotImplementedError` path) will fail to resolve this Node-only import at load time, so that
-  // fallback is never actually reached. That is acceptable — browsers never supported sync HTTP.
-  @js.native
-  @JSImport("worker_threads", JSImport.Namespace)
-  private[http] val workerThreads: js.Dynamic = js.native
+  // Load Node's `worker_threads` lazily at call time rather than via a static `@JSImport`.
+  // `process.getBuiltinModule` (Node 20.16+ / 22.3+) works in both CommonJS and ESM; the global
+  // `require` is the fallback for older Node / NoModule builds. Being a runtime call, this is
+  // invisible to browser bundlers — a browser bundle that links `JSHttpChannelFactory` still
+  // builds, and simply never reaches here because `isNode` is false.
+  private[http] def workerThreads: js.Dynamic =
+    val process = js.Dynamic.global.process
+    if !js.isUndefined(process) && !js.isUndefined(process.getBuiltinModule) then
+      process.applyDynamic("getBuiltinModule")("worker_threads")
+    else
+      js.Dynamic.global.applyDynamic("require")("worker_threads")
 
   /**
     * Detects Node by the presence of `process.versions.node`. Browser environments — including web
@@ -260,7 +263,28 @@ object NodeSyncHttpChannel:
           setTimeout(() => controller.abort(), timeoutMillis);
         }
         const resp = await fetch(uri, init);
-        const bodyBuf = new Uint8Array(await resp.arrayBuffer());
+
+        // Stream the body so an oversized response is rejected before it is fully buffered,
+        // rather than letting `arrayBuffer()` materialise it all and risk an OOM.
+        let bodyBuf = new Uint8Array(0);
+        if (resp.body) {
+          const reader = resp.body.getReader();
+          const parts = [];
+          let received = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            received += value.length;
+            if (received > maxResponseBytes) {
+              finishError(`response too large: exceeded ${maxResponseBytes} bytes`);
+              return;
+            }
+            parts.push(value);
+          }
+          bodyBuf = new Uint8Array(received);
+          let offset = 0;
+          for (const part of parts) { bodyBuf.set(part, offset); offset += part.length; }
+        }
 
         // Header list preserves duplicate keys.
         const headerList = [];

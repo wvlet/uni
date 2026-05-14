@@ -84,6 +84,29 @@ class NodeSyncHttpChannelTest extends UniTest:
     }
   }
 
+  test("HttpSyncClient rejects a response larger than maxResponseBytes") {
+    withLocalServer { port =>
+      Http.setDefaultChannelFactory(JSHttpChannelFactory)
+      val client =
+        Http
+          .client
+          .withBaseUri(s"http://localhost:${port}")
+          .withMaxResponseBytes(8)
+          .newSyncClient
+          .noRetry
+      try
+        var thrown = false
+        try
+          client.send(Request(method = HttpMethod.GET, uri = "/get"))
+        catch
+          case _: Throwable =>
+            thrown = true
+        thrown shouldBe true
+      finally
+        client.close()
+    }
+  }
+
   /**
     * Runs `body` with a throwaway echo HTTP server bound to an ephemeral port. The server runs in
     * its own worker thread on purpose: the sync client blocks the main thread's event loop while

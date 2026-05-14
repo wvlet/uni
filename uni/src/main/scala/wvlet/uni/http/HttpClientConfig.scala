@@ -25,6 +25,9 @@ case class HttpClientConfig(
     readTimeoutMillis: Long = 60000,
     followRedirects: Boolean = true,
     maxRedirects: Int = 10,
+    // Upper bound on a single response size. Currently enforced only by the Node.js sync HTTP
+    // channel, which must size a fixed SharedArrayBuffer up front; other channels ignore it.
+    maxResponseBytes: Int = 16 * 1024 * 1024,
     retryContext: RetryContext =
       Retry
         .withBackOff(maxRetry = 3, initialIntervalMillis = 1000, maxIntervalMillis = 30000)
@@ -42,6 +45,8 @@ case class HttpClientConfig(
   def noFollowRedirects: HttpClientConfig   = copy(followRedirects = false)
 
   def withMaxRedirects(max: Int): HttpClientConfig = copy(maxRedirects = max)
+
+  def withMaxResponseBytes(bytes: Int): HttpClientConfig = copy(maxResponseBytes = bytes)
 
   def withRetryContext(ctx: RetryContext): HttpClientConfig = copy(retryContext = ctx)
   def noRetry: HttpClientConfig = copy(retryContext = retryContext.noRetry)
