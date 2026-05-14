@@ -16,6 +16,7 @@ package wvlet.uni.http
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.annotation.JSImport
+import scala.scalajs.js.typedarray.*
 
 /**
   * Synchronous HTTP channel for Node.js, implemented via `worker_threads` + `Atomics.wait` on a
@@ -85,10 +86,30 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
           js.Dynamic.literal(eval = true, workerData = requestData)
         )
 
+    // Cap the wait with a safety timeout so a crashed or hung worker can't block the main
+    // thread forever. The worker aborts its fetch at max(connect, read) timeout, so give it
+    // a 5s grace period on top of that before we give up. `js.undefined` means "wait forever"
+    // when no timeout is configured.
+    val workerTimeoutMillis = math.max(config.connectTimeoutMillis, config.readTimeoutMillis)
+    val waitTimeout: js.Any =
+      if workerTimeoutMillis > 0 then
+        workerTimeoutMillis + 5000
+      else
+        js.undefined
+
     try
       // Block until the worker stores a non-zero value at stateWord[0]. `applyDynamic` is
       // needed because plain `.wait(...)` resolves to `java.lang.Object.wait` on Scala 3.
-      js.Dynamic.global.Atomics.applyDynamic("wait")(stateWord, 0, 0)
+      val waitResult = js
+        .Dynamic
+        .global
+        .Atomics
+        .applyDynamic("wait")(stateWord, 0, 0, waitTimeout)
+        .asInstanceOf[String]
+      if waitResult == "timed-out" then
+        throw HttpException.connectionFailed(
+          s"sync HTTP request timed out after ${workerTimeoutMillis + 5000} ms"
+        )
 
       val state = stateWord.selectDynamic("0").asInstanceOf[Int]
 
@@ -125,22 +146,25 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
   end send
 
   private def asUint8Array(bytes: Array[Byte]): js.Any =
+    // `.set` with a typed array does a bulk native copy; element-by-element `updateDynamic`
+    // with stringified indices is far slower in Scala.js. Int8 -> Uint8 wraps as expected.
     val arr = js.Dynamic.newInstance(Uint8ArrayCtor)(bytes.length)
-    var i   = 0
-    while i < bytes.length do
-      arr.updateDynamic(i.toString)(bytes(i).toShort & 0xff)
-      i += 1
+    arr.set(bytes.toTypedArray)
     arr
 
   private def readBytes(sab: js.Dynamic, offset: Int, length: Int): Array[Byte] =
     if length == 0 then
       Array.emptyByteArray
     else
-      val u8    = js.Dynamic.newInstance(Uint8ArrayCtor)(sab, offset, length)
+      // Cast to js.Array[Int] so the loop uses numeric indexing instead of stringified keys.
+      val u8 = js
+        .Dynamic
+        .newInstance(Uint8ArrayCtor)(sab, offset, length)
+        .asInstanceOf[js.Array[Int]]
       val bytes = new Array[Byte](length)
       var i     = 0
       while i < length do
-        bytes(i) = u8.selectDynamic(i.toString).asInstanceOf[Int].toByte
+        bytes(i) = u8(i).toByte
         i += 1
       bytes
 
