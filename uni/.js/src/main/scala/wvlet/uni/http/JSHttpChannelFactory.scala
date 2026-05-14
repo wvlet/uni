@@ -14,16 +14,24 @@
 package wvlet.uni.http
 
 /**
-  * JavaScript-specific HTTP channel factory using the Fetch API.
+  * JavaScript-specific HTTP channel factory.
   *
-  * Note: Synchronous HTTP is not supported in JavaScript. Use async client instead.
+  *   - `newAsyncChannel` uses the Fetch API (works in browsers and Node alike).
+  *   - `newChannel` (synchronous) uses `worker_threads` + `Atomics.wait` on a `SharedArrayBuffer`.
+  *     Node.js only — there is no recovery path for sync HTTP in modern browsers (sync XHR is
+  *     deprecated, and `worker_threads` doesn't exist on the web). On browser-like environments we
+  *     throw a `NotImplementedError` recommending the async client.
   */
 object JSHttpChannelFactory extends HttpChannelFactory:
 
   override def newChannel: HttpChannel =
-    throw NotImplementedError(
-      "Synchronous HTTP is not supported in JavaScript. Use Http.client.newAsyncClient instead."
-    )
+    if NodeSyncHttpChannel.isNode then
+      NodeSyncHttpChannel()
+    else
+      throw NotImplementedError(
+        "Synchronous HTTP is not supported in browser JavaScript. " +
+          "Use Http.client.newAsyncClient instead, or run on Node.js."
+      )
 
   override def newAsyncChannel: HttpAsyncChannel = FetchChannel()
 
