@@ -27,8 +27,9 @@ Implement `NodeSyncHttpChannel` using the `worker_threads` + `Atomics.wait` on
    buffer, then `Atomics.store` + `Atomics.notify` wakes the parent.
 3. The main thread decodes the buffer and returns `HttpResponse` synchronously.
 
-Node.js only. Browser environments still throw `NotImplementedError`;
-`JSHttpChannelFactory.newChannel` detects Node via `process.versions.node` first.
+Works on any Node-compatible runtime — verified on Node.js, Bun, and Deno. Browser
+environments still throw `NotImplementedError`; `JSHttpChannelFactory.newChannel` detects
+a Node-compatible runtime via `process.versions.node` first (Bun and Deno both set it).
 
 ## Non-obvious points a future reader would otherwise reverse-engineer
 
@@ -46,13 +47,19 @@ Scala.js has no synchronous dynamic `require`. The fix is `process.getBuiltinMod
 as a fallback for older Node / `NoModule` builds. Being a plain runtime call it is
 invisible to bundlers — browser bundles build fine and hit the `isNode == false` path.
 
-### The eval'd worker string runs as CommonJS regardless of the parent's module kind
+### The worker gets `workerData` via `await import`, not `require`
 
-uni links as `ModuleKind.ESModule`. It is tempting to assume a worker spawned from an
-ESM parent is itself ESM and lacks `require`. It is not: `new Worker(code, {eval:true})`
-evaluates `code` as CommonJS, so `require('worker_threads')` inside `WorkerScript` works
-even though the surrounding artifact is an ES module. (Verified directly on Node 25.)
-The worker's own module kind is independent of the parent's.
+The worker's module kind is independent of the parent artifact's. Node's
+`new Worker(code, {eval:true})` evaluates `code` as CommonJS — `require('worker_threads')`
+works there even though uni links as `ModuleKind.ESModule`. **Deno's** eval workers,
+however, run as ESM and have no `require`, so `require('worker_threads')` throws and the
+worker never notifies — the main thread then blocks until the safety timeout.
+
+`WorkerScript` therefore obtains `workerData` via `await import('node:worker_threads')`
+inside its async IIFE. Dynamic `import('node:...')` works in Node, Bun, and Deno alike,
+which is why this channel runs on all three (Bun and Deno both set `process.versions.node`,
+so `isNode` accepts them). Verified directly: a GET against `https://example.com` through
+the exact `WorkerScript` succeeds on Node 25, Bun 1.2, and Deno 2.2.
 
 ### The test server must run in its own worker thread
 

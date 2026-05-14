@@ -14,8 +14,8 @@ sync HTTP client on JVM, Node, and Native to give its Trino client the same shap
 
 `NodeSyncHttpChannel` — `worker_threads` + `Atomics.wait` on a `SharedArrayBuffer`.
 Main thread blocks in `Atomics.wait`; a worker runs `await fetch(...)`, writes the
-response into the shared buffer, and `Atomics.notify`s the parent. Node.js only;
-browsers continue to throw with a message pointing at the async client.
+response into the shared buffer, and `Atomics.notify`s the parent. Works on Node.js,
+Bun, and Deno; browsers continue to throw with a message pointing at the async client.
 
 See `adr/2026-05-14-nodejs-sync-http.md` for the design rationale and the non-obvious
 points (they are the bulk of the value here).
@@ -47,8 +47,12 @@ These all came out of review (Gemini + Codex) and are captured in the ADR:
 4. **`redirect: 'manual'`** so `DefaultHttpSyncClient` keeps owning redirect handling.
 5. **Stream the worker response body** and abort past `maxResponseBytes` rather than
    buffering it all with `arrayBuffer()` (worker OOM risk).
-6. The eval'd worker string runs as CommonJS regardless of the parent module kind, so
-   `require(...)` inside `WorkerScript` is fine even though uni links as ESModule.
+6. **Worker uses `await import('node:worker_threads')`, not `require`.** Node's eval
+   workers are CommonJS (so `require` works), but Deno's are ESM and have no `require` —
+   `require('worker_threads')` there throws and the worker never notifies. Dynamic
+   `import('node:...')` works on Node, Bun, and Deno. With this, the channel was verified
+   end-to-end on all three runtimes (Bun and Deno both set `process.versions.node`, so
+   `isNode` already accepts them).
 
 ## Known follow-ups (not in this PR)
 

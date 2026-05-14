@@ -18,9 +18,10 @@ import scala.scalajs.js.JSConverters.*
 import scala.scalajs.js.typedarray.*
 
 /**
-  * Synchronous HTTP channel for Node.js, implemented via `worker_threads` + `Atomics.wait` on a
-  * `SharedArrayBuffer`. Node.js has no native sync HTTP API; this is the modern "wait until a
-  * worker signals" pattern that production libraries (e.g. `sync-fetch`) use internally.
+  * Synchronous HTTP channel for Node-compatible runtimes, implemented via `worker_threads` +
+  * `Atomics.wait` on a `SharedArrayBuffer`. JavaScript has no native sync HTTP API; this is the
+  * modern "wait until a worker signals" pattern that production libraries (e.g. `sync-fetch`) use
+  * internally. Verified on Node.js, Bun, and Deno.
   *
   * Flow:
   *   - Main thread allocates a `SharedArrayBuffer`, spawns a `new Worker(code, { eval: true })`,
@@ -30,9 +31,10 @@ import scala.scalajs.js.typedarray.*
   *   - Main thread decodes the response and returns it synchronously.
   *
   * Limitations:
-  *   - Node.js only. Browser sync HTTP is unrecoverable (sync XHR is deprecated and
-  *     `worker_threads` doesn't exist on the web). `JSHttpChannelFactory.newChannel` should detect
-  *     non-Node environments and throw before constructing this channel.
+  *   - Requires a Node-compatible runtime (`worker_threads`, `SharedArrayBuffer`, `Atomics`).
+  *     Browser sync HTTP is unrecoverable (sync XHR is deprecated and `worker_threads` doesn't
+  *     exist on the web). `JSHttpChannelFactory.newChannel` detects browsers and throws before
+  *     constructing this channel.
   *   - Response size is capped by the `SharedArrayBuffer` (`HttpClientConfig.maxResponseBytes`,
   *     default 16 MB). Larger responses surface as `HttpException` from the worker.
   */
@@ -206,7 +208,8 @@ object NodeSyncHttpChannel:
       js.Dynamic.global.applyDynamic("require")("worker_threads")
 
   /**
-    * Detects Node by the presence of `process.versions.node`. Browser environments — including web
+    * True on a Node-compatible runtime, detected by `process.versions.node`. Bun and Deno both set
+    * it (they target Node compatibility) and run this channel fine; browsers — including web
     * workers — lack it.
     */
   def isNode: Boolean =
@@ -223,6 +226,10 @@ object NodeSyncHttpChannel:
     * response into the shared buffer, then calls `Atomics.notify` to wake the parent. The leading
     * constants block is interpolated from the Scala-side layout constants so the buffer contract
     * stays single-sourced.
+    *
+    * `workerData` is obtained via `await import('node:worker_threads')` rather than `require(...)`:
+    * Node's `eval` workers are CommonJS (so `require` works there), but Deno's `eval` workers are
+    * ESM and have no `require`. Dynamic `import('node:...')` works in Node, Bun, and Deno alike.
     */
   private val WorkerScript =
     s"""
@@ -233,24 +240,24 @@ object NodeSyncHttpChannel:
     const STATE_SUCCESS = ${StateSuccess};
     const STATE_ERROR = ${StateError};
     """ + """
-    const { workerData } = require('worker_threads');
-    const { method, uri, headers, body, sab, timeoutMillis, maxResponseBytes } = workerData;
-    const stateView = new Int32Array(sab, 0, 1);
-    const ints = new DataView(sab);
-    const encoder = new TextEncoder();
-
-    function setI32(offset, value) { ints.setInt32(offset, value, true); }
-
-    function finishError(message) {
-      const bytes = encoder.encode(String(message));
-      const len = Math.min(bytes.length, sab.byteLength - HEADER_BYTES);
-      new Uint8Array(sab, HEADER_BYTES, len).set(bytes.subarray(0, len));
-      setI32(OFF_STATUS, len);
-      Atomics.store(stateView, 0, STATE_ERROR);
-      Atomics.notify(stateView, 0);
-    }
-
     (async () => {
+      const { workerData } = await import('node:worker_threads');
+      const { method, uri, headers, body, sab, timeoutMillis, maxResponseBytes } = workerData;
+      const stateView = new Int32Array(sab, 0, 1);
+      const ints = new DataView(sab);
+      const encoder = new TextEncoder();
+
+      const setI32 = (offset, value) => ints.setInt32(offset, value, true);
+
+      const finishError = (message) => {
+        const bytes = encoder.encode(String(message));
+        const len = Math.min(bytes.length, sab.byteLength - HEADER_BYTES);
+        new Uint8Array(sab, HEADER_BYTES, len).set(bytes.subarray(0, len));
+        setI32(OFF_STATUS, len);
+        Atomics.store(stateView, 0, STATE_ERROR);
+        Atomics.notify(stateView, 0);
+      };
+
       try {
         // redirect: 'manual' so DefaultHttpSyncClient owns redirect handling
         // (noFollowRedirects / maxRedirects / method rewriting), matching FetchChannel.
