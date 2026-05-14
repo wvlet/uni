@@ -182,6 +182,11 @@ end NodeSyncHttpChannel
 
 object NodeSyncHttpChannel:
 
+  // `worker_threads` is imported statically rather than lazily: Scala.js has no synchronous
+  // dynamic require, and a static import is exactly what Node ESModule consumers need. Trade-off:
+  // a *browser* ESModule bundle that links `JSHttpChannelFactory` (only to reach the browser
+  // `NotImplementedError` path) will fail to resolve this Node-only import at load time, so that
+  // fallback is never actually reached. That is acceptable — browsers never supported sync HTTP.
   @js.native
   @JSImport("worker_threads", JSImport.Namespace)
   private[http] val workerThreads: js.Dynamic = js.native
@@ -230,7 +235,10 @@ object NodeSyncHttpChannel:
 
     (async () => {
       try {
-        const init = { method, headers: new Headers(headers) };
+        // redirect: 'manual' so DefaultHttpSyncClient owns redirect handling
+        // (noFollowRedirects / maxRedirects / method rewriting), matching FetchChannel.
+        // Node's fetch exposes the real 3xx status + Location on a manual redirect.
+        const init = { method, headers: new Headers(headers), redirect: 'manual' };
         if (body !== undefined && body !== null) init.body = body;
         if (connectTimeoutMillis > 0 || readTimeoutMillis > 0) {
           const controller = new AbortController();
