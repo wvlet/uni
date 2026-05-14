@@ -55,6 +55,35 @@ class NodeSyncHttpChannelTest extends UniTest:
     }
   }
 
+  test("HttpSyncClient aborts a stalled request at readTimeoutMillis") {
+    withLocalServer { port =>
+      Http.setDefaultChannelFactory(JSHttpChannelFactory)
+      val client =
+        Http
+          .client
+          .withBaseUri(s"http://localhost:${port}")
+          .withReadTimeoutMillis(500)
+          .newSyncClient
+          .noRetry
+      try
+        val start  = System.currentTimeMillis()
+        var thrown = false
+        try
+          client.send(Request(method = HttpMethod.GET, uri = "/slow"))
+        catch
+          case _: Throwable =>
+            thrown = true
+        val elapsed = System.currentTimeMillis() - start
+        info(s"stalled request aborted after ${elapsed}ms")
+        thrown shouldBe true
+        // The worker's own fetch abort fires near 500ms; well before the parent's
+        // safety-net wait (readTimeout + grace). A broken timeout would blow past this.
+        (elapsed < 4000) shouldBe true
+      finally
+        client.close()
+    }
+  }
+
   /**
     * Runs `body` with a throwaway echo HTTP server bound to an ephemeral port. The server runs in
     * its own worker thread on purpose: the sync client blocks the main thread's event loop while
@@ -92,6 +121,10 @@ object NodeSyncHttpChannelTest:
     const http = require('http');
     const state = new Int32Array(workerData, 0, 2);
     const server = http.createServer((req, res) => {
+      if (req.url === '/slow') {
+        // Never respond, so the client read timeout has to fire.
+        return;
+      }
       const chunks = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {

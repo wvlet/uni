@@ -45,6 +45,17 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
     val sab       = js.Dynamic.newInstance(SharedArrayBufferCtor)(HeaderBytes + maxResponseBytes)
     val stateWord = Int32Array(sab.asInstanceOf[ArrayBuffer], OffsetState, 1)
 
+    // A single overall request timeout. `fetch`'s AbortController can't separate connect from
+    // read, so mirror JavaHttpChannel (which applies readTimeoutMillis as the request timeout):
+    // prefer readTimeoutMillis, fall back to connectTimeoutMillis, 0 means no timeout.
+    val effectiveTimeoutMillis =
+      (
+        if config.readTimeoutMillis > 0 then
+          config.readTimeoutMillis
+        else
+          config.connectTimeoutMillis
+      ).toInt
+
     val requestData = js
       .Dynamic
       .literal(
@@ -67,8 +78,7 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
             request.content.toContentBytes.toTypedArray
         ,
         sab = sab,
-        connectTimeoutMillis = config.connectTimeoutMillis,
-        readTimeoutMillis = config.readTimeoutMillis,
+        timeoutMillis = effectiveTimeoutMillis,
         maxResponseBytes = maxResponseBytes
       )
 
@@ -80,13 +90,12 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
         )
 
     // Cap the wait with a safety timeout so a crashed or hung worker can't block the main
-    // thread forever. The worker aborts its fetch at max(connect, read) timeout, so give it
-    // a grace period on top of that before we give up. A non-positive value means no timeout
-    // is configured, so wait forever (`js.undefined`).
-    val workerTimeoutMillis = math.max(config.connectTimeoutMillis, config.readTimeoutMillis)
-    val waitTimeoutMillis   =
-      if workerTimeoutMillis > 0 then
-        workerTimeoutMillis + WorkerGraceMillis
+    // thread forever. The worker aborts its fetch at effectiveTimeoutMillis, so give it a
+    // grace period on top of that before we give up. 0 means no timeout was configured, so
+    // wait forever (`js.undefined`).
+    val waitTimeoutMillis =
+      if effectiveTimeoutMillis > 0 then
+        effectiveTimeoutMillis + WorkerGraceMillis
       else
         0
     val waitTimeout: js.Any =
@@ -220,10 +229,9 @@ object NodeSyncHttpChannel:
     const OFF_BODY_LEN = ${OffsetBodyLen};
     const STATE_SUCCESS = ${StateSuccess};
     const STATE_ERROR = ${StateError};
-    """ +
-      """
+    """ + """
     const { workerData } = require('worker_threads');
-    const { method, uri, headers, body, sab, connectTimeoutMillis, readTimeoutMillis, maxResponseBytes } = workerData;
+    const { method, uri, headers, body, sab, timeoutMillis, maxResponseBytes } = workerData;
     const stateView = new Int32Array(sab, 0, 1);
     const ints = new DataView(sab);
     const encoder = new TextEncoder();
@@ -246,11 +254,10 @@ object NodeSyncHttpChannel:
         // Node's fetch exposes the real 3xx status + Location on a manual redirect.
         const init = { method, headers: new Headers(headers), redirect: 'manual' };
         if (body !== undefined && body !== null) init.body = body;
-        if (connectTimeoutMillis > 0 || readTimeoutMillis > 0) {
+        if (timeoutMillis > 0) {
           const controller = new AbortController();
           init.signal = controller.signal;
-          const timeout = Math.max(connectTimeoutMillis, readTimeoutMillis);
-          if (timeout > 0) setTimeout(() => controller.abort(), timeout);
+          setTimeout(() => controller.abort(), timeoutMillis);
         }
         const resp = await fetch(uri, init);
         const bodyBuf = new Uint8Array(await resp.arrayBuffer());
