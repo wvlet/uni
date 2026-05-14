@@ -42,15 +42,8 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
   import NodeSyncHttpChannel.*
 
   override def send(request: HttpRequest, config: HttpClientConfig): HttpResponse =
-    // Shared buffer layout (little-endian):
-    //   [0..4)   stateWord (i32):    0 pending, 1 success, 2 error
-    //   [4..8)   statusOrErrLen:     on success — HTTP status; on error — error msg byte length
-    //   [8..12)  headersJsonLen:     length of headers-JSON UTF-8 bytes (success only)
-    //   [12..16) bodyLen:            length of body bytes (success only)
-    //   [16..)   headersJson || body (success) | errorMsg (error)
-    val headerBytes = 16
-    val sab         = js.Dynamic.newInstance(SharedArrayBufferCtor)(headerBytes + maxResponseBytes)
-    val stateWord   = js.Dynamic.newInstance(Int32ArrayCtor)(sab, 0, 1)
+    val sab       = js.Dynamic.newInstance(SharedArrayBufferCtor)(HeaderBytes + maxResponseBytes)
+    val stateWord = Int32Array(sab.asInstanceOf[ArrayBuffer], OffsetState, 1)
 
     val requestData = js
       .Dynamic
@@ -69,14 +62,14 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
           if request.content.isEmpty then
             js.undefined
           else
-            // Need a stable typed-array view — toTypedArray gives a fresh Uint8Array backed
-            // by an ArrayBuffer (not the shared one). The worker's `fetch` accepts it.
-            asUint8Array(request.content.toContentBytes)
+            // toTypedArray yields a fresh Int8Array backed by its own ArrayBuffer (not the
+            // shared one); the worker's `fetch` accepts any ArrayBufferView as a body.
+            request.content.toContentBytes.toTypedArray
         ,
         sab = sab,
         connectTimeoutMillis = config.connectTimeoutMillis,
         readTimeoutMillis = config.readTimeoutMillis,
-        maxBodyBytes = maxResponseBytes
+        maxResponseBytes = maxResponseBytes
       )
 
     val worker =
@@ -88,12 +81,17 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
 
     // Cap the wait with a safety timeout so a crashed or hung worker can't block the main
     // thread forever. The worker aborts its fetch at max(connect, read) timeout, so give it
-    // a 5s grace period on top of that before we give up. `js.undefined` means "wait forever"
-    // when no timeout is configured.
+    // a grace period on top of that before we give up. A non-positive value means no timeout
+    // is configured, so wait forever (`js.undefined`).
     val workerTimeoutMillis = math.max(config.connectTimeoutMillis, config.readTimeoutMillis)
-    val waitTimeout: js.Any =
+    val waitTimeoutMillis   =
       if workerTimeoutMillis > 0 then
-        workerTimeoutMillis + 5000
+        workerTimeoutMillis + WorkerGraceMillis
+      else
+        0
+    val waitTimeout: js.Any =
+      if waitTimeoutMillis > 0 then
+        waitTimeoutMillis
       else
         js.undefined
 
@@ -104,32 +102,31 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
         .Dynamic
         .global
         .Atomics
-        .applyDynamic("wait")(stateWord, 0, 0, waitTimeout)
+        .applyDynamic("wait")(stateWord, 0, StatePending, waitTimeout)
         .asInstanceOf[String]
       if waitResult == "timed-out" then
         throw HttpException.connectionFailed(
-          s"sync HTTP request timed out after ${workerTimeoutMillis + 5000} ms"
+          s"sync HTTP request timed out after ${waitTimeoutMillis} ms"
         )
 
-      val state = stateWord.selectDynamic("0").asInstanceOf[Int]
+      val state = stateWord(0)
 
       // DataView over the shared buffer for reading the small header (status, lengths).
-      val view = js.Dynamic.newInstance(DataViewCtor)(sab)
+      val view = DataView(sab.asInstanceOf[ArrayBuffer])
 
-      if state == 2 then
-        val errLen   = view.getInt32(4, true).asInstanceOf[Int]
-        val errBytes = readBytes(sab, headerBytes, errLen)
-        throw HttpException.connectionFailed(new String(errBytes, "UTF-8"))
+      if state == StateError then
+        val errLen = view.getInt32(OffsetStatusOrErrLen, littleEndian = true)
+        throw HttpException.connectionFailed(String(readBytes(sab, HeaderBytes, errLen), "UTF-8"))
 
-      if state != 1 then
+      if state != StateSuccess then
         throw HttpException.connectionFailed(s"worker returned unexpected state ${state}")
 
-      val status         = view.getInt32(4, true).asInstanceOf[Int]
-      val headersJsonLen = view.getInt32(8, true).asInstanceOf[Int]
-      val bodyLen        = view.getInt32(12, true).asInstanceOf[Int]
+      val status         = view.getInt32(OffsetStatusOrErrLen, littleEndian = true)
+      val headersJsonLen = view.getInt32(OffsetHeadersLen, littleEndian = true)
+      val bodyLen        = view.getInt32(OffsetBodyLen, littleEndian = true)
 
-      val headersJson = new String(readBytes(sab, headerBytes, headersJsonLen), "UTF-8")
-      val bodyBytes   = readBytes(sab, headerBytes + headersJsonLen, bodyLen)
+      val headersJson = String(readBytes(sab, HeaderBytes, headersJsonLen), "UTF-8")
+      val bodyBytes   = readBytes(sab, HeaderBytes + headersJsonLen, bodyLen)
 
       val headers = decodeHeaders(headersJson)
       val content =
@@ -145,28 +142,12 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
     end try
   end send
 
-  private def asUint8Array(bytes: Array[Byte]): js.Any =
-    // `.set` with a typed array does a bulk native copy; element-by-element `updateDynamic`
-    // with stringified indices is far slower in Scala.js. Int8 -> Uint8 wraps as expected.
-    val arr = js.Dynamic.newInstance(Uint8ArrayCtor)(bytes.length)
-    arr.set(bytes.toTypedArray)
-    arr
-
   private def readBytes(sab: js.Dynamic, offset: Int, length: Int): Array[Byte] =
     if length == 0 then
       Array.emptyByteArray
     else
-      // Cast to js.Array[Int] so the loop uses numeric indexing instead of stringified keys.
-      val u8 = js
-        .Dynamic
-        .newInstance(Uint8ArrayCtor)(sab, offset, length)
-        .asInstanceOf[js.Array[Int]]
-      val bytes = new Array[Byte](length)
-      var i     = 0
-      while i < length do
-        bytes(i) = u8(i).toByte
-        i += 1
-      bytes
+      // Int8Array view over the shared buffer; `.toArray` does a bulk copy into a JVM array.
+      Int8Array(sab.asInstanceOf[ArrayBuffer], offset, length).toArray
 
   private def decodeHeaders(json: String): HttpMultiMap =
     // The worker serialises headers as a flat `[[k,v],[k,v],…]` array (not an object) so
@@ -181,6 +162,27 @@ class NodeSyncHttpChannel(maxResponseBytes: Int = 16 * 1024 * 1024) extends Http
 end NodeSyncHttpChannel
 
 object NodeSyncHttpChannel:
+
+  // Shared buffer layout (little-endian). The Scala side reads these; the worker writes them.
+  // The values are single-sourced into the worker via the constants block in WorkerScript.
+  //   [0..4)   state (i32):          StatePending / StateSuccess / StateError
+  //   [4..8)   statusOrErrLen (i32): HTTP status (success) | error-message byte length (error)
+  //   [8..12)  headersJsonLen (i32): headers-JSON UTF-8 byte length (success only)
+  //   [12..16) bodyLen (i32):        body byte length (success only)
+  //   [16..)   headersJson ++ body (success) | errorMessage (error)
+  private final val OffsetState          = 0
+  private final val OffsetStatusOrErrLen = 4
+  private final val OffsetHeadersLen     = 8
+  private final val OffsetBodyLen        = 12
+  private final val HeaderBytes          = 16
+
+  private final val StatePending = 0
+  private final val StateSuccess = 1
+  private final val StateError   = 2
+
+  // Extra time granted to the worker beyond its own fetch-abort timeout before the main
+  // thread gives up waiting.
+  private final val WorkerGraceMillis = 5000
 
   // `worker_threads` is imported statically rather than lazily: Scala.js has no synchronous
   // dynamic require, and a static import is exactly what Node ESModule consumers need. Trade-off:
@@ -200,24 +202,28 @@ object NodeSyncHttpChannel:
       !js.isUndefined(js.Dynamic.global.process.versions) &&
       !js.isUndefined(js.Dynamic.global.process.versions.node)
 
-  // `SharedArrayBuffer`, `Atomics`, `DataView`, `Int32Array`, `Uint8Array` are all standard
-  // ES globals — accessed via js.Dynamic since scalajs-library doesn't ship typed bindings
-  // for SharedArrayBuffer / Atomics. Scala.js disallows loading `js.Dynamic.global` itself
-  // as a value, so resolve lazily on every reference.
+  // `SharedArrayBuffer` has no typed binding in scalajs-library, so it's accessed via js.Dynamic.
+  // Scala.js disallows loading `js.Dynamic.global` itself as a value, so resolve it lazily.
   private def SharedArrayBufferCtor = js.Dynamic.global.SharedArrayBuffer
-  private def Int32ArrayCtor        = js.Dynamic.global.Int32Array
-  private def Uint8ArrayCtor        = js.Dynamic.global.Uint8Array
-  private def DataViewCtor          = js.Dynamic.global.DataView
 
   /**
     * Worker source. Receives the request via `workerData`, performs an async fetch, encodes the
-    * response into the shared buffer, then calls `Atomics.notify` to wake the parent.
+    * response into the shared buffer, then calls `Atomics.notify` to wake the parent. The leading
+    * constants block is interpolated from the Scala-side layout constants so the buffer contract
+    * stays single-sourced.
     */
   private val WorkerScript =
-    """
+    s"""
+    const HEADER_BYTES = ${HeaderBytes};
+    const OFF_STATUS = ${OffsetStatusOrErrLen};
+    const OFF_HEADERS_LEN = ${OffsetHeadersLen};
+    const OFF_BODY_LEN = ${OffsetBodyLen};
+    const STATE_SUCCESS = ${StateSuccess};
+    const STATE_ERROR = ${StateError};
+    """ +
+      """
     const { workerData } = require('worker_threads');
-    const { method, uri, headers, body, sab, connectTimeoutMillis, readTimeoutMillis, maxBodyBytes } = workerData;
-    const HEADER_BYTES = 16;
+    const { method, uri, headers, body, sab, connectTimeoutMillis, readTimeoutMillis, maxResponseBytes } = workerData;
     const stateView = new Int32Array(sab, 0, 1);
     const ints = new DataView(sab);
     const encoder = new TextEncoder();
@@ -228,8 +234,8 @@ object NodeSyncHttpChannel:
       const bytes = encoder.encode(String(message));
       const len = Math.min(bytes.length, sab.byteLength - HEADER_BYTES);
       new Uint8Array(sab, HEADER_BYTES, len).set(bytes.subarray(0, len));
-      setI32(4, len);
-      Atomics.store(stateView, 0, 2);
+      setI32(OFF_STATUS, len);
+      Atomics.store(stateView, 0, STATE_ERROR);
       Atomics.notify(stateView, 0);
     }
 
@@ -255,18 +261,18 @@ object NodeSyncHttpChannel:
         const headersJson = encoder.encode(JSON.stringify(headerList));
 
         const totalLen = headersJson.length + bodyBuf.length;
-        if (totalLen > maxBodyBytes) {
-          finishError(`response too large: ${totalLen} > ${maxBodyBytes} bytes`);
+        if (totalLen > maxResponseBytes) {
+          finishError(`response too large: ${totalLen} > ${maxResponseBytes} bytes`);
           return;
         }
 
-        setI32(4, resp.status);
-        setI32(8, headersJson.length);
-        setI32(12, bodyBuf.length);
+        setI32(OFF_STATUS, resp.status);
+        setI32(OFF_HEADERS_LEN, headersJson.length);
+        setI32(OFF_BODY_LEN, bodyBuf.length);
         new Uint8Array(sab, HEADER_BYTES, headersJson.length).set(headersJson);
         new Uint8Array(sab, HEADER_BYTES + headersJson.length, bodyBuf.length).set(bodyBuf);
 
-        Atomics.store(stateView, 0, 1);
+        Atomics.store(stateView, 0, STATE_SUCCESS);
         Atomics.notify(stateView, 0);
       } catch (e) {
         finishError(e && e.stack ? e.stack : (e && e.message ? e.message : String(e)));

@@ -16,7 +16,6 @@ package wvlet.uni.http
 import wvlet.uni.test.UniTest
 
 import scala.scalajs.js
-import scala.scalajs.js.annotation.JSImport
 
 class NodeSyncHttpChannelTest extends UniTest:
 
@@ -68,7 +67,7 @@ class NodeSyncHttpChannelTest extends UniTest:
     val state  = js.Dynamic.newInstance(js.Dynamic.global.Int32Array)(sab, 0, 2)
     val worker =
       js.Dynamic
-        .newInstance(workerThreads.Worker)(
+        .newInstance(NodeSyncHttpChannel.workerThreads.Worker)(
           ServerScript,
           js.Dynamic.literal(eval = true, workerData = sab)
         )
@@ -83,10 +82,6 @@ class NodeSyncHttpChannelTest extends UniTest:
 end NodeSyncHttpChannelTest
 
 object NodeSyncHttpChannelTest:
-
-  @js.native
-  @JSImport("worker_threads", JSImport.Namespace)
-  private val workerThreads: js.Dynamic = js.native
 
   /**
     * Worker source for the test echo server. Listens on an ephemeral port, then reports the port
