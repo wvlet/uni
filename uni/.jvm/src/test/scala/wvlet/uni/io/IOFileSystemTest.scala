@@ -102,7 +102,7 @@ class IOFileSystemTest extends UniTest:
 
   test("IO should accept plain String paths for read/write") {
     val tmpDir   = IO.createTempDirectory("io-string-test", None)
-    val filePath = s"${tmpDir.posixPath}/string-path.txt"
+    val filePath = (tmpDir / "string-path.txt").posixPath
     try
       IO.writeString(filePath, "hello string path")
       IO.readString(filePath) shouldBe "hello string path"
@@ -114,7 +114,7 @@ class IOFileSystemTest extends UniTest:
 
   test("IO should accept plain String paths for write modes") {
     val tmpDir   = IO.createTempDirectory("io-string-modes", None)
-    val filePath = s"${tmpDir.posixPath}/modes.txt"
+    val filePath = (tmpDir / "modes.txt").posixPath
     try
       IO.writeString(filePath, "first", WriteMode.Create)
       IO.appendString(filePath, "-second")
@@ -125,13 +125,15 @@ class IOFileSystemTest extends UniTest:
 
   test("IO should accept plain String paths for listing and delete") {
     val tmpDir = IO.createTempDirectory("io-string-list", None)
+    val a      = (tmpDir / "a.txt").posixPath
+    val b      = (tmpDir / "b.txt").posixPath
     try
-      IO.writeString(s"${tmpDir.posixPath}/a.txt", "a")
-      IO.writeString(s"${tmpDir.posixPath}/b.txt", "b")
+      IO.writeString(a, "a")
+      IO.writeString(b, "b")
       val names = IO.list(tmpDir.posixPath).map(_.fileName).toSet
       names shouldBe Set("a.txt", "b.txt")
-      IO.delete(s"${tmpDir.posixPath}/a.txt") shouldBe true
-      IO.exists(s"${tmpDir.posixPath}/a.txt") shouldBe false
+      IO.delete(a) shouldBe true
+      IO.exists(a) shouldBe false
     finally
       IO.deleteRecursively(tmpDir)
   }
@@ -139,9 +141,9 @@ class IOFileSystemTest extends UniTest:
   test("IO should accept plain String paths for copy and move") {
     val tmpDir = IO.createTempDirectory("io-string-copy", None)
     try
-      val src = s"${tmpDir.posixPath}/src.txt"
-      val dst = s"${tmpDir.posixPath}/dst.txt"
-      val mv  = s"${tmpDir.posixPath}/moved.txt"
+      val src = (tmpDir / "src.txt").posixPath
+      val dst = (tmpDir / "dst.txt").posixPath
+      val mv  = (tmpDir / "moved.txt").posixPath
       IO.writeString(src, "data")
       IO.copy(src, dst)
       IO.readString(dst) shouldBe "data"

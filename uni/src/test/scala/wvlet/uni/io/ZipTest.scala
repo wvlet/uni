@@ -130,9 +130,9 @@ class ZipTest extends UniTest:
     val entries = Zip.list(archivePath)
     entries.map(_.name).toSet shouldContain "hello.txt"
 
-    val extractDir = (tempDir / "string-single-out").posixPath
-    Zip.extract(archivePath, extractDir)
-    FileSystem.readString(s"${extractDir}/hello.txt") shouldBe "string overload"
+    val extractDir = tempDir / "string-single-out"
+    Zip.extract(archivePath, extractDir.posixPath)
+    FileSystem.readString((extractDir / "hello.txt").posixPath) shouldBe "string overload"
   }
 
   test("round-trip preserves file content") {

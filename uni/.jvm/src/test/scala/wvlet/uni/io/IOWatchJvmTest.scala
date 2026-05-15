@@ -166,7 +166,7 @@ class IOWatchJvmTest extends UniTest:
     try
       Thread.sleep(200)
 
-      FileSystem.writeString(s"${dir.posixPath}/via-string.txt", "test")
+      FileSystem.writeString((dir / "via-string.txt").posixPath, "test")
 
       waitForEvents(events, 1)
       (events.size() >= 1) shouldBe true
