@@ -220,9 +220,13 @@ end ProcessApi
   * {{{
   * import wvlet.uni.io.IO
   *
-  * // File operations
-  * val content = IO.readString(IO.path("file.txt"))
-  * IO.writeString(IO.path("out.txt"), "hello")
+  * // File operations — plain String paths are accepted directly
+  * val content = IO.readString("file.txt")
+  * IO.writeString("out.txt", "hello")
+  *
+  * // Use IO.path(...) when you need an IOPath value for composition or queries
+  * val nested = IO.path("dir") / "child" / "file.txt"
+  * IO.writeString(nested, "hello")
   *
   * // Process execution
   * val result = IO.run("ls -la")
@@ -231,7 +235,9 @@ end ProcessApi
 object IO extends IOCompat:
 
   /**
-    * Creates an [[IOPath]] from a path string, or by joining multiple path segments.
+    * Creates an [[IOPath]] from a path string, or by joining multiple path segments. Most `IO`
+    * operations accept a plain `String` path directly; use this when you need an `IOPath` value for
+    * composition (`/`) or to query parts of the path (`fileName`, `parent`, `extension`, ...).
     *
     * {{{
     * IO.path("/home/user/file.txt")       // parsed as an absolute path

@@ -66,4 +66,19 @@ class GzipTest extends UniTest:
     recovered shouldBe content
   }
 
+  test("compressFile and decompressFile with String paths") {
+    val originalPath   = (tempDir / "string-original.txt").posixPath
+    val compressedPath = (tempDir / "string-original.txt.gz").posixPath
+    val recoveredPath  = (tempDir / "string-recovered.txt").posixPath
+
+    val content = "String-path round-trip."
+    FileSystem.writeString(originalPath, content)
+
+    Gzip.compressFile(originalPath, compressedPath)
+    FileSystem.exists(compressedPath) shouldBe true
+
+    Gzip.decompressFile(compressedPath, recoveredPath)
+    FileSystem.readString(recoveredPath) shouldBe content
+  }
+
 end GzipTest

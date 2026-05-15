@@ -100,4 +100,58 @@ class IOFileSystemTest extends UniTest:
       IO.deleteRecursively(tmpDir)
   }
 
+  test("IO should accept plain String paths for read/write") {
+    val tmpDir   = IO.createTempDirectory("io-string-test", None)
+    val filePath = (tmpDir / "string-path.txt").posixPath
+    try
+      IO.writeString(filePath, "hello string path")
+      IO.readString(filePath) shouldBe "hello string path"
+      IO.exists(filePath) shouldBe true
+      IO.isFile(filePath) shouldBe true
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for write modes") {
+    val tmpDir   = IO.createTempDirectory("io-string-modes", None)
+    val filePath = (tmpDir / "modes.txt").posixPath
+    try
+      IO.writeString(filePath, "first", WriteMode.Create)
+      IO.appendString(filePath, "-second")
+      IO.readString(filePath) shouldBe "first-second"
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for listing and delete") {
+    val tmpDir = IO.createTempDirectory("io-string-list", None)
+    val a      = (tmpDir / "a.txt").posixPath
+    val b      = (tmpDir / "b.txt").posixPath
+    try
+      IO.writeString(a, "a")
+      IO.writeString(b, "b")
+      val names = IO.list(tmpDir.posixPath).map(_.fileName).toSet
+      names shouldBe Set("a.txt", "b.txt")
+      IO.delete(a) shouldBe true
+      IO.exists(a) shouldBe false
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for copy and move") {
+    val tmpDir = IO.createTempDirectory("io-string-copy", None)
+    try
+      val src = (tmpDir / "src.txt").posixPath
+      val dst = (tmpDir / "dst.txt").posixPath
+      val mv  = (tmpDir / "moved.txt").posixPath
+      IO.writeString(src, "data")
+      IO.copy(src, dst)
+      IO.readString(dst) shouldBe "data"
+      IO.move(dst, mv)
+      IO.exists(dst) shouldBe false
+      IO.readString(mv) shouldBe "data"
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
 end IOFileSystemTest

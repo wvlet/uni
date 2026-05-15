@@ -151,20 +151,32 @@ trait FileSystemBase:
     */
   def exists(path: IOPath): Boolean
 
+  /** String-path overload of [[exists]]. */
+  def exists(path: String): Boolean = exists(IOPath.parse(path))
+
   /**
     * Returns true if the path is a regular file.
     */
   def isFile(path: IOPath): Boolean
+
+  /** String-path overload of [[isFile]]. */
+  def isFile(path: String): Boolean = isFile(IOPath.parse(path))
 
   /**
     * Returns true if the path is a directory.
     */
   def isDirectory(path: IOPath): Boolean
 
+  /** String-path overload of [[isDirectory]]. */
+  def isDirectory(path: String): Boolean = isDirectory(IOPath.parse(path))
+
   /**
     * Returns file information for the given path.
     */
   def info(path: IOPath): FileInfo
+
+  /** String-path overload of [[info]]. */
+  def info(path: String): FileInfo = info(IOPath.parse(path))
 
   // ============================================================
   // Synchronous read operations
@@ -177,6 +189,9 @@ trait FileSystemBase:
     */
   def readString(path: IOPath): String
 
+  /** String-path overload of [[readString]]. */
+  def readString(path: String): String = readString(IOPath.parse(path))
+
   /**
     * Reads the entire file as a byte array.
     * @throws UnsupportedOperationException
@@ -184,12 +199,18 @@ trait FileSystemBase:
     */
   def readBytes(path: IOPath): Array[Byte]
 
+  /** String-path overload of [[readBytes]]. */
+  def readBytes(path: String): Array[Byte] = readBytes(IOPath.parse(path))
+
   /**
     * Reads the file line by line.
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def readLines(path: IOPath): Seq[String]
+
+  /** String-path overload of [[readLines]]. */
+  def readLines(path: String): Seq[String] = readLines(IOPath.parse(path))
 
   // ============================================================
   // Streaming read operations
@@ -206,6 +227,15 @@ trait FileSystemBase:
     */
   def readChunks(path: IOPath, chunkSize: Int = 8192): Iterator[Array[Byte]]
 
+  /** String-path overload of [[readChunks]]. */
+  def readChunks(path: String, chunkSize: Int): Iterator[Array[Byte]] = readChunks(
+    IOPath.parse(path),
+    chunkSize
+  )
+
+  /** String-path overload of [[readChunks]] with default chunk size. */
+  def readChunks(path: String): Iterator[Array[Byte]] = readChunks(IOPath.parse(path))
+
   /**
     * Opens a file and returns an InputStream for streaming reads. The caller is responsible for
     * closing the stream.
@@ -215,6 +245,9 @@ trait FileSystemBase:
     */
   def readStream(path: IOPath): InputStream
 
+  /** String-path overload of [[readStream]]. */
+  def readStream(path: String): InputStream = readStream(IOPath.parse(path))
+
   /**
     * Opens a file and returns an OutputStream for streaming writes. The caller is responsible for
     * closing the stream.
@@ -223,6 +256,15 @@ trait FileSystemBase:
     *   in browser environments
     */
   def writeStream(path: IOPath, mode: WriteMode = WriteMode.Create): OutputStream
+
+  /** String-path overload of [[writeStream]]. */
+  def writeStream(path: String, mode: WriteMode): OutputStream = writeStream(
+    IOPath.parse(path),
+    mode
+  )
+
+  /** String-path overload of [[writeStream]] with default write mode. */
+  def writeStream(path: String): OutputStream = writeStream(IOPath.parse(path))
 
   // ============================================================
   // Synchronous write operations
@@ -235,12 +277,32 @@ trait FileSystemBase:
     */
   def writeString(path: IOPath, content: String, mode: WriteMode = WriteMode.Create): Unit
 
+  /** String-path overload of [[writeString]]. */
+  def writeString(path: String, content: String, mode: WriteMode): Unit = writeString(
+    IOPath.parse(path),
+    content,
+    mode
+  )
+
+  /** String-path overload of [[writeString]] with default write mode. */
+  def writeString(path: String, content: String): Unit = writeString(IOPath.parse(path), content)
+
   /**
     * Writes a byte array to a file.
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def writeBytes(path: IOPath, content: Array[Byte], mode: WriteMode = WriteMode.Create): Unit
+
+  /** String-path overload of [[writeBytes]]. */
+  def writeBytes(path: String, content: Array[Byte], mode: WriteMode): Unit = writeBytes(
+    IOPath.parse(path),
+    content,
+    mode
+  )
+
+  /** String-path overload of [[writeBytes]] with default write mode. */
+  def writeBytes(path: String, content: Array[Byte]): Unit = writeBytes(IOPath.parse(path), content)
 
   /**
     * Appends a string to a file (UTF-8 encoding).
@@ -253,6 +315,9 @@ trait FileSystemBase:
     WriteMode.Append
   )
 
+  /** String-path overload of [[appendString]]. */
+  def appendString(path: String, content: String): Unit = appendString(IOPath.parse(path), content)
+
   /**
     * Appends a byte array to a file.
     * @throws UnsupportedOperationException
@@ -262,6 +327,12 @@ trait FileSystemBase:
     path,
     content,
     WriteMode.Append
+  )
+
+  /** String-path overload of [[appendBytes]]. */
+  def appendBytes(path: String, content: Array[Byte]): Unit = appendBytes(
+    IOPath.parse(path),
+    content
   )
 
   // ============================================================
@@ -275,12 +346,21 @@ trait FileSystemBase:
     */
   def list(path: IOPath, options: ListOptions = ListOptions.default): Seq[IOPath]
 
+  /** String-path overload of [[list]]. */
+  def list(path: String, options: ListOptions): Seq[IOPath] = list(IOPath.parse(path), options)
+
+  /** String-path overload of [[list]] with default options. */
+  def list(path: String): Seq[IOPath] = list(IOPath.parse(path))
+
   /**
     * Creates a directory (and parent directories if needed).
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def createDirectory(path: IOPath): Unit
+
+  /** String-path overload of [[createDirectory]]. */
+  def createDirectory(path: String): Unit = createDirectory(IOPath.parse(path))
 
   /**
     * Creates a directory only if it doesn't exist.
@@ -290,6 +370,11 @@ trait FileSystemBase:
   def createDirectoryIfNotExists(path: IOPath): Unit =
     if !exists(path) then
       createDirectory(path)
+
+  /** String-path overload of [[createDirectoryIfNotExists]]. */
+  def createDirectoryIfNotExists(path: String): Unit = createDirectoryIfNotExists(
+    IOPath.parse(path)
+  )
 
   // ============================================================
   // Delete operations
@@ -302,12 +387,18 @@ trait FileSystemBase:
     */
   def delete(path: IOPath): Boolean
 
+  /** String-path overload of [[delete]]. */
+  def delete(path: String): Boolean = delete(IOPath.parse(path))
+
   /**
     * Deletes a file or directory recursively.
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def deleteRecursively(path: IOPath): Boolean
+
+  /** String-path overload of [[deleteRecursively]]. */
+  def deleteRecursively(path: String): Boolean = deleteRecursively(IOPath.parse(path))
 
   /**
     * Deletes a file if it exists.
@@ -320,6 +411,9 @@ trait FileSystemBase:
     else
       false
 
+  /** String-path overload of [[deleteIfExists]]. */
+  def deleteIfExists(path: String): Boolean = deleteIfExists(IOPath.parse(path))
+
   // ============================================================
   // Copy and move operations
   // ============================================================
@@ -331,12 +425,32 @@ trait FileSystemBase:
     */
   def copy(source: IOPath, target: IOPath, options: CopyOptions = CopyOptions.default): Unit
 
+  /** String-path overload of [[copy]]. */
+  def copy(source: String, target: String, options: CopyOptions): Unit = copy(
+    IOPath.parse(source),
+    IOPath.parse(target),
+    options
+  )
+
+  /** String-path overload of [[copy]] with default options. */
+  def copy(source: String, target: String): Unit = copy(IOPath.parse(source), IOPath.parse(target))
+
   /**
     * Moves (renames) a file or directory.
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def move(source: IOPath, target: IOPath, overwrite: Boolean = false): Unit
+
+  /** String-path overload of [[move]]. */
+  def move(source: String, target: String, overwrite: Boolean): Unit = move(
+    IOPath.parse(source),
+    IOPath.parse(target),
+    overwrite
+  )
+
+  /** String-path overload of [[move]] with default overwrite=false. */
+  def move(source: String, target: String): Unit = move(IOPath.parse(source), IOPath.parse(target))
 
   // ============================================================
   // Temporary file operations
@@ -369,10 +483,16 @@ trait FileSystemBase:
     */
   def readStringAsync(path: IOPath): Future[String]
 
+  /** String-path overload of [[readStringAsync]]. */
+  def readStringAsync(path: String): Future[String] = readStringAsync(IOPath.parse(path))
+
   /**
     * Reads the entire file as a byte array asynchronously.
     */
   def readBytesAsync(path: IOPath): Future[Array[Byte]]
+
+  /** String-path overload of [[readBytesAsync]]. */
+  def readBytesAsync(path: String): Future[Array[Byte]] = readBytesAsync(IOPath.parse(path))
 
   /**
     * Writes a string to a file asynchronously.
@@ -383,6 +503,16 @@ trait FileSystemBase:
       mode: WriteMode = WriteMode.Create
   ): Future[Unit]
 
+  /** String-path overload of [[writeStringAsync]]. */
+  def writeStringAsync(path: String, content: String, mode: WriteMode): Future[Unit] =
+    writeStringAsync(IOPath.parse(path), content, mode)
+
+  /** String-path overload of [[writeStringAsync]] with default write mode. */
+  def writeStringAsync(path: String, content: String): Future[Unit] = writeStringAsync(
+    IOPath.parse(path),
+    content
+  )
+
   /**
     * Writes a byte array to a file asynchronously.
     */
@@ -392,20 +522,45 @@ trait FileSystemBase:
       mode: WriteMode = WriteMode.Create
   ): Future[Unit]
 
+  /** String-path overload of [[writeBytesAsync]]. */
+  def writeBytesAsync(path: String, content: Array[Byte], mode: WriteMode): Future[Unit] =
+    writeBytesAsync(IOPath.parse(path), content, mode)
+
+  /** String-path overload of [[writeBytesAsync]] with default write mode. */
+  def writeBytesAsync(path: String, content: Array[Byte]): Future[Unit] = writeBytesAsync(
+    IOPath.parse(path),
+    content
+  )
+
   /**
     * Lists the contents of a directory asynchronously.
     */
   def listAsync(path: IOPath, options: ListOptions = ListOptions.default): Future[Seq[IOPath]]
+
+  /** String-path overload of [[listAsync]]. */
+  def listAsync(path: String, options: ListOptions): Future[Seq[IOPath]] = listAsync(
+    IOPath.parse(path),
+    options
+  )
+
+  /** String-path overload of [[listAsync]] with default options. */
+  def listAsync(path: String): Future[Seq[IOPath]] = listAsync(IOPath.parse(path))
 
   /**
     * Returns file information asynchronously.
     */
   def infoAsync(path: IOPath): Future[FileInfo]
 
+  /** String-path overload of [[infoAsync]]. */
+  def infoAsync(path: String): Future[FileInfo] = infoAsync(IOPath.parse(path))
+
   /**
     * Checks if a path exists asynchronously.
     */
   def existsAsync(path: IOPath): Future[Boolean]
+
+  /** String-path overload of [[existsAsync]]. */
+  def existsAsync(path: String): Future[Boolean] = existsAsync(IOPath.parse(path))
 
   // ============================================================
   // Symlink operations
@@ -418,12 +573,21 @@ trait FileSystemBase:
     */
   def createSymlink(link: IOPath, target: IOPath): Unit
 
+  /** String-path overload of [[createSymlink]]. */
+  def createSymlink(link: String, target: String): Unit = createSymlink(
+    IOPath.parse(link),
+    IOPath.parse(target)
+  )
+
   /**
     * Reads the target of a symbolic link without following it.
     * @throws UnsupportedOperationException
     *   in browser environments
     */
   def readSymlink(link: IOPath): IOPath
+
+  /** String-path overload of [[readSymlink]]. */
+  def readSymlink(link: String): IOPath = readSymlink(IOPath.parse(link))
 
   // ============================================================
   // Permission operations
@@ -437,6 +601,9 @@ trait FileSystemBase:
   def permissions(path: IOPath): PermSet =
     throw UnsupportedOperationException("POSIX permissions are not supported on this platform")
 
+  /** String-path overload of [[permissions]]. */
+  def permissions(path: String): PermSet = permissions(IOPath.parse(path))
+
   /**
     * Sets the POSIX file permissions for the given path.
     * @throws UnsupportedOperationException
@@ -444,6 +611,12 @@ trait FileSystemBase:
     */
   def setPermissions(path: IOPath, permissions: PermSet): Unit =
     throw UnsupportedOperationException("POSIX permissions are not supported on this platform")
+
+  /** String-path overload of [[setPermissions]]. */
+  def setPermissions(path: String, permissions: PermSet): Unit = setPermissions(
+    IOPath.parse(path),
+    permissions
+  )
 
   /**
     * Returns the file owner name for the given path.
@@ -453,6 +626,9 @@ trait FileSystemBase:
   def owner(path: IOPath): String =
     throw UnsupportedOperationException("File owner is not supported on this platform")
 
+  /** String-path overload of [[owner]]. */
+  def owner(path: String): String = owner(IOPath.parse(path))
+
   /**
     * Returns the file group name for the given path.
     * @throws UnsupportedOperationException
@@ -460,6 +636,9 @@ trait FileSystemBase:
     */
   def group(path: IOPath): String =
     throw UnsupportedOperationException("File group is not supported on this platform")
+
+  /** String-path overload of [[group]]. */
+  def group(path: String): String = group(IOPath.parse(path))
 
 end FileSystemBase
 
