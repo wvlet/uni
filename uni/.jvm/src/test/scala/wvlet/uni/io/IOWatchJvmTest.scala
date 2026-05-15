@@ -155,4 +155,24 @@ class IOWatchJvmTest extends UniTest:
       FileSystem.deleteRecursively(dir)
   }
 
+  test("IO.watch accepts a String path") {
+    val dir    = FileSystem.createTempDirectory("io-watch-string")
+    val events = CopyOnWriteArrayList[WatchEvent]()
+
+    val watcher =
+      IO.watch(dir.posixPath, WatchOptions.default.withPollingIntervalMs(100)) { event =>
+        events.add(event)
+      }
+    try
+      Thread.sleep(200)
+
+      FileSystem.writeString(s"${dir.posixPath}/via-string.txt", "test")
+
+      waitForEvents(events, 1)
+      (events.size() >= 1) shouldBe true
+    finally
+      watcher.close()
+      FileSystem.deleteRecursively(dir)
+  }
+
 end IOWatchJvmTest

@@ -69,6 +69,14 @@ trait IOWatchBase:
       handler: WatchEvent => Unit
   ): IOWatcher
 
+  /** String-path overload of [[watch]]. */
+  def watch(path: String, options: WatchOptions)(handler: WatchEvent => Unit): IOWatcher =
+    watch(IOPath.parse(path), options)(handler)
+
+  /** String-path overload of [[watch]] with default options. */
+  def watch(path: String)(handler: WatchEvent => Unit): IOWatcher =
+    watch(IOPath.parse(path))(handler)
+
 /**
   * Cross-platform file system watcher. Watches a directory for file creation, modification, and
   * deletion events.
@@ -77,7 +85,7 @@ trait IOWatchBase:
   * {{{
   * import wvlet.uni.io.*
   *
-  * val watcher = IOWatch.watch(IOPath("my-dir")) { event =>
+  * val watcher = IOWatch.watch("my-dir") { event =>
   *   println(s"${event.eventType}: ${event.path}")
   * }
   * // ... later

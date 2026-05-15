@@ -21,12 +21,14 @@ println(path.extension)  // "txt"
 
 ## Paths
 
-Every `IO` operation that takes a path accepts a plain `String`, so for the
-common "I have a path string, I want to read/write/list it" case you can
-skip the wrapper entirely. `IOPath` is uni's cross-platform path abstraction
-— reach for it (via `IO.path(...)`) when you need composition (`/`), path
-queries (`fileName`, `parent`, `extension`, ...), or path arithmetic
-(`normalize`, `relativeTo`).
+For most `IO` operations — read/write, list, copy, move, delete, exists,
+watch, and the gzip/zip helpers — you can pass paths as plain `String`s
+and skip the `IO.path(...)` wrapper. `IOPath` is uni's cross-platform path
+abstraction — reach for it (via `IO.path(...)`) when you need composition
+(`/`), path queries (`fileName`, `parent`, `extension`, ...), or path
+arithmetic (`normalize`, `relativeTo`). A few APIs that take an
+`Option[IOPath]` (such as the `directory` parameter of
+[`createTempFile`](#temporary-files)) still expect an `IOPath`.
 
 ### Creating Paths
 
