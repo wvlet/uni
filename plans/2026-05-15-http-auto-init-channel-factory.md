@@ -71,9 +71,9 @@ Existing callers that *do* call `Http.setDefaultChannelFactory` explicitly (e.g.
 ## Files
 
 - `uni/src/main/scala/wvlet/uni/http/Http.scala` — touch `HttpCompat` from object init.
-- `uni/.jvm/src/test/scala/wvlet/uni/http/HttpDefaultChannelFactoryTest.scala` — new
-  JVM test asserting that `Http.defaultChannelFactory` resolves to a non-NoOp factory
-  immediately, and that `Http.client.newSyncClient` succeeds without any other warm-up.
+- `uni/src/test/scala/wvlet/uni/http/HttpDefaultChannelFactoryTest.scala` — shared (JVM/JS/Native)
+  test asserting that `Http.defaultChannelFactory` resolves to a non-NoOp factory immediately
+  after merely touching `Http`, without any other warm-up.
 
 ## Risks and mitigations
 

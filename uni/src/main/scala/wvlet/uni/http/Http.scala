@@ -52,5 +52,6 @@ object Http:
   // Touch the platform's HttpCompat object so its class-init side-effect runs, registering the
   // platform default channel factory before any caller reaches `Http.client.newSyncClient`. Without
   // this, downstream code has to call `Http.setDefaultChannelFactory(...)` itself in per-platform
-  // sources, because HttpCompat only loads when the error-classifier path runs.
+  // sources, because HttpCompat only loads when the error-classifier path runs. Keep this line at
+  // the end of the object body: HttpCompat's <clinit> calls back into Http.setDefaultChannelFactory.
   private val _httpCompatInit = HttpCompat
