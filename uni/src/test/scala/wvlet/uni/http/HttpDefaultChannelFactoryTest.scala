@@ -15,16 +15,10 @@ package wvlet.uni.http
 
 import wvlet.uni.test.UniTest
 
-/**
-  * Touching `Http` must be enough to register the platform-specific default channel factory. Before
-  * this contract existed, downstream cross-platform code had to call
-  * `Http.setDefaultChannelFactory(...)` itself once per platform (.jvm/.js/.native) because the
-  * side-effect lived in `HttpCompat`, which only loaded via the error-classifier path.
-  */
 class HttpDefaultChannelFactoryTest extends UniTest:
 
   test("Http object registers a platform default channel factory at load time") {
-    (Http.defaultChannelFactory ne HttpClientConfig.NoOpChannelFactory) shouldBe true
+    Http.defaultChannelFactory shouldNotBe HttpClientConfig.NoOpChannelFactory
   }
 
 end HttpDefaultChannelFactoryTest
