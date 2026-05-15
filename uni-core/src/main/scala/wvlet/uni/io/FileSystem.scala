@@ -480,11 +480,21 @@ object FileSystem extends FileSystemBase:
   private[io] def setImplementation(impl: FileSystemBase): Unit = _impl = impl
 
   private def impl: FileSystemBase =
-    if _impl == null then
-      throw IllegalStateException(
-        "FileSystem not initialized. Platform-specific initialization required."
-      )
-    _impl
+    val current = _impl
+    if current != null then
+      current
+    else
+      // First touch: trigger the platform-specific FileSystemInit, which writes back via
+      // setImplementation as part of its own static initializer. Lazy (rather than in the
+      // object body) so a partly-initialized platform object can't observe FileSystem
+      // mid-bootstrap.
+      FileSystemInit.init()
+      val after = _impl
+      if after == null then
+        throw IllegalStateException(
+          "FileSystem not initialized. Platform-specific initialization required."
+        )
+      after
 
   override def currentDirectory: IOPath = impl.currentDirectory
   override def homeDirectory: IOPath    = impl.homeDirectory

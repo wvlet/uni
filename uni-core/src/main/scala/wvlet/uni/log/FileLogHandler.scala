@@ -138,10 +138,36 @@ class FileLogHandler(config: FileLogHandlerConfig)
   // Lock for thread-safe file operations
   private val lock = new Object
 
+  private def rotatingTempPath: IOPath = logDir.resolve(s".${logPath.fileName}.rotating")
+
+  // Recover a temp file left behind by a previous run that crashed mid-rotation.
+  // The .rotating temp holds the pre-compression log content; if logPath is absent we restore
+  // it as the active log, otherwise we archive it under a unique recovery name so log data
+  // isn't silently lost (cleanupOldFiles ignores the suffix).
+  private def recoverRotatingFile(): Unit =
+    val tempPath = rotatingTempPath
+    if FileSystem.exists(tempPath) then
+      val target =
+        if !FileSystem.exists(logPath) then
+          logPath
+        else
+          logDir.resolve(s"${fileNameStem}-recovered-${config.clock()}${config.logFileExt}")
+      Try(FileSystem.move(tempPath, target)) match
+        case Failure(e) =>
+          reportError(
+            s"Failed to recover rotating temp file ${tempPath} to ${target}",
+            toException(e),
+            ErrorManager.OPEN_FAILURE
+          )
+        case Success(_) =>
+        // recovered
+
   private def init(): Unit = lock.synchronized:
     if !initialized then
       // Create directory if it doesn't exist
       FileSystem.createDirectoryIfNotExists(logDir)
+      // Recover any leftover .rotating temp file before reading logPath's size/date
+      recoverRotatingFile()
 
       if FileSystem.exists(logPath) then
         val info = FileSystem.info(logPath)
@@ -225,7 +251,7 @@ class FileLogHandler(config: FileLogHandlerConfig)
         if config.compressRotated then
           // Move first for atomicity, then compress
           // This ensures we don't lose data if compression fails
-          val tempPath = logDir.resolve(s".${logPath.fileName}.rotating")
+          val tempPath = rotatingTempPath
           FileSystem.move(logPath, tempPath)
           try
             Gzip.compressFile(tempPath, rotatedPath)
