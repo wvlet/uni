@@ -62,12 +62,8 @@ trait ZipApi:
     */
   def create(target: IOPath, sources: Seq[IOPath]): Unit
 
-  /**
-    * String-path overload of [[create]]. The `using DummyImplicit` parameter shifts the JVM erasure
-    * so this overload does not clash with `create(IOPath, Seq[IOPath])` — both erase to
-    * `(Object, Seq)`.
-    */
-  def create(target: String, sources: Seq[String])(using DummyImplicit): Unit = create(
+  /** String-path overload of [[create]]. */
+  def create(target: String, sources: Seq[String]): Unit = create(
     IOPath.parse(target),
     sources.map(IOPath.parse)
   )
