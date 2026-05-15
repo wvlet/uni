@@ -39,19 +39,15 @@ object Http:
   def client: HttpClientConfig = HttpClientConfig.default.withChannelFactory(defaultChannelFactory)
 
   /**
-    * Platform-specific default channel factory. This will be provided by platform-specific modules
-    * (.jvm, .js, .native).
+    * Default HTTP channel factory. Initialized from the platform-specific
+    * `HttpCompat.defaultHttpChannelFactory` so cross-platform callers can use
+    * `Http.client.newSyncClient` without per-platform setup. Callers that need a non-default
+    * factory can override via `setDefaultChannelFactory`.
     */
-  private[http] var defaultChannelFactory: HttpChannelFactory = HttpClientConfig.NoOpChannelFactory
+  private[http] var defaultChannelFactory: HttpChannelFactory = HttpCompat.defaultHttpChannelFactory
 
   /**
-    * Set the default channel factory. Called by platform-specific initialization.
+    * Override the default channel factory. The default is the platform-specific factory from
+    * `HttpCompat`; callers (e.g., `wvlet-server`) can substitute their own implementation.
     */
   def setDefaultChannelFactory(factory: HttpChannelFactory): Unit = defaultChannelFactory = factory
-
-  // Touch the platform's HttpCompat object so its class-init side-effect runs, registering the
-  // platform default channel factory before any caller reaches `Http.client.newSyncClient`. Without
-  // this, downstream code has to call `Http.setDefaultChannelFactory(...)` itself in per-platform
-  // sources, because HttpCompat only loads when the error-classifier path runs. Keep this line at
-  // the end of the object body: HttpCompat's <clinit> calls back into Http.setDefaultChannelFactory.
-  private val _httpCompatInit = HttpCompat

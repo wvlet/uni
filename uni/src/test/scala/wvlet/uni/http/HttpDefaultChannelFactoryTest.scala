@@ -18,7 +18,11 @@ import wvlet.uni.test.UniTest
 class HttpDefaultChannelFactoryTest extends UniTest:
 
   test("Http object registers a platform default channel factory at load time") {
-    Http.defaultChannelFactory shouldNotBe HttpClientConfig.NoOpChannelFactory
+    // Use reference identity (`shouldNotBeTheSameInstanceAs`) rather than `shouldNotBe`. On
+    // Scala.js the deep-equality matcher compares js.Object values by JSON-stringifying them, and
+    // two field-less Scala objects both stringify to "{}" — so `shouldNotBe` reports any two
+    // empty-shape singletons as equal, which is exactly what we'd hit here.
+    Http.defaultChannelFactory shouldNotBeTheSameInstanceAs HttpClientConfig.NoOpChannelFactory
   }
 
 end HttpDefaultChannelFactoryTest
