@@ -98,6 +98,10 @@ object IOWatch extends IOWatchBase:
 
   private[io] def setImplementation(impl: IOWatchBase): Unit = _impl = impl
 
+  // FileSystemInit also registers the platform IOWatch implementation, so touching IOWatch
+  // first (without going through FileSystem) still self-bootstraps.
+  FileSystemInit.init()
+
   private def impl: IOWatchBase =
     if _impl == null then
       throw IllegalStateException(

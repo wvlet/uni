@@ -479,6 +479,11 @@ object FileSystem extends FileSystemBase:
     */
   private[io] def setImplementation(impl: FileSystemBase): Unit = _impl = impl
 
+  // Touch FileSystemInit so the platform-specific implementation registers itself the first
+  // time anyone uses FileSystem. FileSystemInit lives in .jvm / .js / .native source sets and
+  // writes back via setImplementation as part of its own static initializer.
+  FileSystemInit.init()
+
   private def impl: FileSystemBase =
     if _impl == null then
       throw IllegalStateException(

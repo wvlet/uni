@@ -100,12 +100,7 @@ It runs unchanged on JVM, Scala.js (Node.js), and Scala Native, using
 the [FileSystem](/core/filesystem) abstraction underneath.
 
 ```scala
-import wvlet.uni.io.FileSystemInit
 import wvlet.uni.log.{FileLogHandler, FileLogHandlerConfig, Logger}
-
-// On Scala.js / Native, register the file system implementation once
-// at startup. No-op on JVM.
-FileSystemInit.init()
 
 val handler = FileLogHandler("app.log")
 Logger.setDefaultHandler(handler)
@@ -156,14 +151,6 @@ val handler = FileLogHandler(
   FileLogHandlerConfig("debug.log").noRotation
 )
 ```
-
-::: tip Cross-platform note
-`FileLogHandler` itself lives in shared sources, but it talks to disk
-through `wvlet.uni.io.FileSystem`. Call `FileSystemInit.init()` once
-during startup on Scala.js and Scala Native so the platform-specific
-file-system implementation is registered. On JVM the call is a no-op
-and can be omitted.
-:::
 
 ## Best Practices
 
