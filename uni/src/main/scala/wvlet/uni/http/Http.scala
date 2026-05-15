@@ -48,3 +48,9 @@ object Http:
     * Set the default channel factory. Called by platform-specific initialization.
     */
   def setDefaultChannelFactory(factory: HttpChannelFactory): Unit = defaultChannelFactory = factory
+
+  // Touch the platform's HttpCompat object so its class-init side-effect runs, registering the
+  // platform default channel factory before any caller reaches `Http.client.newSyncClient`. Without
+  // this, downstream code has to call `Http.setDefaultChannelFactory(...)` itself in per-platform
+  // sources, because HttpCompat only loads when the error-classifier path runs.
+  private val _httpCompatInit = HttpCompat
