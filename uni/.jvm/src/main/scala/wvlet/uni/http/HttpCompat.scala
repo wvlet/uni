@@ -32,6 +32,8 @@ import javax.net.ssl.{
   */
 private[http] object HttpCompat extends HttpCompatApi:
 
+  override val defaultHttpChannelFactory: HttpChannelFactory = JVMHttpChannelFactory
+
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] =
     case e: SSLException =>
       e match
@@ -80,8 +82,5 @@ private[http] object HttpCompat extends HttpCompatApi:
       HttpExceptionClassifier.classifyExecutionFailure(e.getTargetException)
     case e if e.getCause != null =>
       HttpExceptionClassifier.classifyExecutionFailure(e.getCause)
-
-  // Auto-register JVM channel factory when this object is loaded
-  Http.setDefaultChannelFactory(JVMHttpChannelFactory)
 
 end HttpCompat

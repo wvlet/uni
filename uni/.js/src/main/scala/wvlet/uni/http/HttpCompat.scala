@@ -21,6 +21,8 @@ import wvlet.uni.control.ResultClass.Failed
   */
 private[http] object HttpCompat extends HttpCompatApi:
 
+  override val defaultHttpChannelFactory: HttpChannelFactory = JSHttpChannelFactory
+
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] = PartialFunction.empty
 
   override def connectionExceptionClassifier: PartialFunction[Throwable, Failed] =
@@ -28,8 +30,5 @@ private[http] object HttpCompat extends HttpCompatApi:
 
   override def rootCauseExceptionClassifier: PartialFunction[Throwable, Failed] =
     HttpExceptionClassifier.rootCauseExceptionClassifierSimple
-
-  // Auto-register JS channel factory when this object is loaded
-  Http.setDefaultChannelFactory(JSHttpChannelFactory)
 
 end HttpCompat
