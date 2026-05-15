@@ -152,6 +152,66 @@ val handler = FileLogHandler(
 )
 ```
 
+## Combining Multiple Handlers
+
+A `Logger` can fan log records out to several handlers at once — each
+with its own formatter and (optionally) its own level. Use this when
+you want, say, terminal-friendly output for humans and a rotated file
+for forensics on the same logger.
+
+```scala
+import wvlet.uni.log.{
+  ConsoleLogHandler, FileLogHandler, FileLogHandlerConfig,
+  LogFormatter, LogLevel, Logger
+}
+
+val console = ConsoleLogHandler(LogFormatter.AppLogFormatter)
+val file = FileLogHandler(
+  FileLogHandlerConfig("app.log").withFormatter(LogFormatter.SourceCodeLogFormatter)
+)
+
+val root = Logger.rootLogger
+root.clearHandlers
+root.addHandler(console)
+root.addHandler(file)
+```
+
+`addHandler` accepts any `java.util.logging.Handler`, so the same
+pattern wires up `BufferedLogHandler` (for tests), `NullHandler`, or
+any custom handler you write.
+
+### Different formats per sink
+
+Each handler carries its own `LogFormatter`. The bundled ones are:
+
+| Formatter | Shape | Typical use |
+|-----------|-------|-------------|
+| `AppLogFormatter` | Color, timestamp, level, logger | Default for interactive consoles. |
+| `SourceCodeLogFormatter` | Adds the `(file:line)` source pin | Files / forensic logs where you'll grep later. |
+| `IntelliJLogFormatter` | Renders source as an IntelliJ-clickable link | Local dev runs inside IntelliJ. |
+| `PlainSourceCodeLogFormatter` | Like `SourceCodeLogFormatter` without ANSI color | Files / CI logs that mangle ANSI. |
+| `SimpleLogFormatter` | Level + message only | Smoke tests, prototypes. |
+| `BareFormatter` | Message only | When the surrounding tool already adds context. |
+| `TSVLogFormatter` | Tab-separated fields | Quick offline analysis with `cut` / `awk`. |
+| `ThreadLogFormatter` | Adds the thread name | Debugging concurrency. |
+
+### Different levels per sink
+
+Handlers respect `java.util.logging.Handler#setLevel`, so you can let
+the logger itself be permissive and let each handler decide what to
+keep. `LogLevel.jlLevel` bridges to the underlying `java.util.logging`
+level:
+
+```scala
+root.setLogLevel(LogLevel.DEBUG)   // permissive at the source
+
+console.setLevel(LogLevel.INFO.jlLevel)   // console stays quiet
+file.setLevel(LogLevel.DEBUG.jlLevel)     // file captures everything
+```
+
+This is the right way to keep a noisy `DEBUG` trail on disk without
+flooding the terminal a human is reading.
+
 ## Best Practices
 
 1. **Use appropriate levels** - Don't log everything as INFO
