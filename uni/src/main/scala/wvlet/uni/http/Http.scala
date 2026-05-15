@@ -43,7 +43,11 @@ object Http:
     * `HttpCompat.defaultHttpChannelFactory` so cross-platform callers can use
     * `Http.client.newSyncClient` without per-platform setup. Callers that need a non-default
     * factory can override via `setDefaultChannelFactory`.
+    *
+    * `@volatile` so `setDefaultChannelFactory` writes are visible across threads on the JVM. No-op
+    * on Scala.js / Native.
     */
+  @volatile
   private[http] var defaultChannelFactory: HttpChannelFactory = HttpCompat.defaultHttpChannelFactory
 
   /**
