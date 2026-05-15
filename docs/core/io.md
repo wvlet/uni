@@ -11,37 +11,37 @@ import wvlet.uni.io.IO
 `IO` exposes all cross-platform file system operations from `FileSystem`:
 
 ```scala
-// Construct paths
-val path = IO.path("file.txt")
-val dir  = IO.path("some", "nested", "dir")
-
-// Read and write files
-val content = IO.readString(path)
-IO.writeString(path, "hello", WriteMode.Create)
+// Read and write files — paths can be plain strings
+val content = IO.readString("file.txt")
+IO.writeString("file.txt", "hello", WriteMode.Create)
 
 // Check existence and type
-IO.exists(path)      // true
-IO.isFile(path)      // true
-IO.isDirectory(path) // false
+IO.exists("file.txt")      // true
+IO.isFile("file.txt")      // true
+IO.isDirectory("some/dir") // false
 
 // Directory operations
-IO.list(dir, ListOptions.default)
-IO.createDirectory(dir)
+IO.list("some/dir")
+IO.createDirectory("some/nested/dir")
 
 // Copy, move, delete
-IO.copy(src, dst, CopyOptions.default)
-IO.move(src, dst)
-IO.delete(path)
-IO.deleteRecursively(dir)
+IO.copy("src.txt", "dst.txt")
+IO.move("old.txt", "new.txt")
+IO.delete("file.txt")
+IO.deleteRecursively("some/dir")
 
 // Temporary files
-val tmp = IO.createTempFile("prefix", ".txt", None)
+val tmp    = IO.createTempFile("prefix", ".txt", None)
 val tmpDir = IO.createTempDirectory("prefix", None)
 
 // Platform info
 IO.currentDirectory
 IO.homeDirectory
 IO.tempDirectory
+
+// Use IO.path(...) to build an IOPath for composition or to inspect parts
+val path = IO.path("some") / "nested" / "dir" / "file.txt"
+println(path.fileName)   // "file.txt"
 ```
 
 See [FileSystem](filesystem.md) for the full file system API reference.

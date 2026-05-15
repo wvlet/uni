@@ -60,6 +60,12 @@ trait GzipApi:
     */
   def compressFile(source: IOPath, target: IOPath): Unit
 
+  /** String-path overload of [[compressFile]]. */
+  def compressFile(source: String, target: String): Unit = compressFile(
+    IOPath.parse(source),
+    IOPath.parse(target)
+  )
+
   /**
     * Decompresses a gzip file.
     *
@@ -72,5 +78,11 @@ trait GzipApi:
     *   The target file path for decompressed content
     */
   def decompressFile(source: IOPath, target: IOPath): Unit
+
+  /** String-path overload of [[decompressFile]]. */
+  def decompressFile(source: String, target: String): Unit = decompressFile(
+    IOPath.parse(source),
+    IOPath.parse(target)
+  )
 
 end GzipApi

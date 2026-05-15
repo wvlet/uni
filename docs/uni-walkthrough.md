@@ -257,15 +257,13 @@ val tmp  = IO.tempDirectory
 ```scala
 import wvlet.uni.io.{IO, WriteMode}
 
-val path = IO.path("data.txt")
-
-// Synchronous read/write (JVM, Node.js, Native)
-val text: String = IO.readString(path)
-IO.writeString(path, "hello")
+// Synchronous read/write (JVM, Node.js, Native) — paths can be plain strings
+val text: String = IO.readString("data.txt")
+IO.writeString("data.txt", "hello")
 
 // Create-new and append modes
-IO.writeString(path, "content", WriteMode.CreateNew)
-IO.writeString(path, "more", WriteMode.Append)
+IO.writeString("data.txt", "content", WriteMode.CreateNew)
+IO.writeString("data.txt", "more", WriteMode.Append)
 ```
 
 ### Directory Listing
@@ -274,7 +272,7 @@ IO.writeString(path, "more", WriteMode.Append)
 import wvlet.uni.io.{IO, ListOptions}
 
 val scalaSources = IO.list(
-  IO.path("src"),
+  "src",
   ListOptions().withRecursive(true).withExtensions("scala")
 )
 ```
@@ -288,7 +286,7 @@ variants for code that must work everywhere, including in a browser.
 import wvlet.uni.io.IO
 import scala.concurrent.Future
 
-val content: Future[String] = IO.readStringAsync(IO.path("data.txt"))
+val content: Future[String] = IO.readStringAsync("data.txt")
 ```
 
 See [FileSystem](/core/filesystem) for the full reference, including

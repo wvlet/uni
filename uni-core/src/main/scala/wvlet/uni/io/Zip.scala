@@ -62,6 +62,12 @@ trait ZipApi:
     */
   def create(target: IOPath, sources: Seq[IOPath]): Unit
 
+  /** String-path overload of [[create]]. */
+  def create(target: String, sources: Seq[String])(using DummyImplicit): Unit = create(
+    IOPath.parse(target),
+    sources.map(IOPath.parse)
+  )
+
   /**
     * Extracts all entries from a zip archive to the given destination directory.
     *
@@ -74,6 +80,12 @@ trait ZipApi:
     */
   def extract(archive: IOPath, destination: IOPath): Unit
 
+  /** String-path overload of [[extract]]. */
+  def extract(archive: String, destination: String): Unit = extract(
+    IOPath.parse(archive),
+    IOPath.parse(destination)
+  )
+
   /**
     * Lists all entries in a zip archive without extracting.
     *
@@ -83,6 +95,9 @@ trait ZipApi:
     *   The list of zip entries
     */
   def list(archive: IOPath): Seq[ZipEntry]
+
+  /** String-path overload of [[list]]. */
+  def list(archive: String): Seq[ZipEntry] = list(IOPath.parse(archive))
 
 end ZipApi
 

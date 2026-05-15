@@ -9,11 +9,11 @@ uniformly across platforms.
 ```scala
 import wvlet.uni.io.IO
 
-// Read and write files
-val content = IO.readString(IO.path("config.json"))
-IO.writeString(IO.path("output.txt"), "hello")
+// Read and write files — pass paths as plain strings
+val content = IO.readString("config.json")
+IO.writeString("output.txt", "hello")
 
-// Path operations
+// Use IO.path(...) to build an IOPath for composition or to inspect parts
 val path = IO.path("/home/user") / "documents" / "file.txt"
 println(path.fileName)   // "file.txt"
 println(path.extension)  // "txt"
@@ -21,8 +21,12 @@ println(path.extension)  // "txt"
 
 ## Paths
 
-`IOPath` is uni's cross-platform path abstraction. Construct one through
-`IO.path(...)` and use it as the path type everywhere in the API.
+Every `IO` operation that takes a path accepts a plain `String`, so for the
+common "I have a path string, I want to read/write/list it" case you can
+skip the wrapper entirely. `IOPath` is uni's cross-platform path abstraction
+— reach for it (via `IO.path(...)`) when you need composition (`/`), path
+queries (`fileName`, `parent`, `extension`, ...), or path arithmetic
+(`normalize`, `relativeTo`).
 
 ### Creating Paths
 
@@ -84,16 +88,14 @@ path.endsWith(IO.path("README.md"))  // true
 ```scala
 import wvlet.uni.io.IO
 
-val path = IO.path("data.txt")
-
 // Read as string (UTF-8)
-val text: String = IO.readString(path)
+val text: String = IO.readString("data.txt")
 
 // Read as bytes
-val bytes: Array[Byte] = IO.readBytes(path)
+val bytes: Array[Byte] = IO.readBytes("data.txt")
 
 // Read line by line
-val lines: Seq[String] = IO.readLines(path)
+val lines: Seq[String] = IO.readLines("data.txt")
 ```
 
 ### Writing Files
@@ -101,22 +103,20 @@ val lines: Seq[String] = IO.readLines(path)
 ```scala
 import wvlet.uni.io.{IO, WriteMode}
 
-val path = IO.path("output.txt")
-
 // Create or overwrite (default)
-IO.writeString(path, "hello world")
+IO.writeString("output.txt", "hello world")
 
 // Create new file, fail if exists
-IO.writeString(path, "content", WriteMode.CreateNew)
+IO.writeString("output.txt", "content", WriteMode.CreateNew)
 
 // Append to file
-IO.writeString(path, "more content", WriteMode.Append)
+IO.writeString("output.txt", "more content", WriteMode.Append)
 
 // Write bytes
-IO.writeBytes(path, Array[Byte](1, 2, 3))
+IO.writeBytes("output.bin", Array[Byte](1, 2, 3))
 
 // Append shorthand
-IO.appendString(path, "\nnew line")
+IO.appendString("output.txt", "\nnew line")
 ```
 
 ### WriteMode
@@ -134,37 +134,35 @@ IO.appendString(path, "\nnew line")
 ```scala
 import wvlet.uni.io.{IO, ListOptions}
 
-val dir = IO.path("src")
-
 // List immediate children
-val files = IO.list(dir)
+val files = IO.list("src")
 
 // Recursive listing
-val allFiles = IO.list(dir, ListOptions().withRecursive(true))
+val allFiles = IO.list("src", ListOptions().withRecursive(true))
 
 // Filter by extension
-val scalaFiles = IO.list(dir,
+val scalaFiles = IO.list("src",
   ListOptions()
     .withRecursive(true)
     .withExtensions("scala")
 )
 
 // Filter by glob pattern
-val testFiles = IO.list(dir,
+val testFiles = IO.list("src",
   ListOptions()
     .withRecursive(true)
     .withGlob("**/*Test.scala")
 )
 
 // Limit depth
-val shallow = IO.list(dir,
+val shallow = IO.list("src",
   ListOptions()
     .withRecursive(true)
     .withMaxDepth(2)
 )
 
 // Include hidden files
-val withHidden = IO.list(dir, ListOptions().withIncludeHidden(true))
+val withHidden = IO.list("src", ListOptions().withIncludeHidden(true))
 ```
 
 ### Creating, Deleting, Copying, Moving
@@ -173,29 +171,29 @@ val withHidden = IO.list(dir, ListOptions().withIncludeHidden(true))
 import wvlet.uni.io.{IO, CopyOptions}
 
 // Create directory (including parents)
-IO.createDirectory(IO.path("a/b/c"))
+IO.createDirectory("a/b/c")
 
 // Create only if it doesn't exist
-IO.createDirectoryIfNotExists(IO.path("output"))
+IO.createDirectoryIfNotExists("output")
 
 // Delete file or empty directory
-IO.delete(IO.path("temp.txt"))
+IO.delete("temp.txt")
 
 // Delete recursively
-IO.deleteRecursively(IO.path("build"))
+IO.deleteRecursively("build")
 
 // Delete if exists (no error if missing)
-IO.deleteIfExists(IO.path("maybe.txt"))
+IO.deleteIfExists("maybe.txt")
 
 // Copy
-IO.copy(IO.path("src.txt"), IO.path("dst.txt"))
-IO.copy(IO.path("srcDir"), IO.path("dstDir"),
+IO.copy("src.txt", "dst.txt")
+IO.copy("srcDir", "dstDir",
   CopyOptions().withOverwrite(true).withPreserveAttributes(true)
 )
 
 // Move / rename
-IO.move(IO.path("old.txt"), IO.path("new.txt"))
-IO.move(IO.path("old.txt"), IO.path("new.txt"), overwrite = true)
+IO.move("old.txt", "new.txt")
+IO.move("old.txt", "new.txt", overwrite = true)
 ```
 
 ### Temporary Files
@@ -220,7 +218,7 @@ val custom = IO.createTempFile(
 ```scala
 import wvlet.uni.io.{IO, FileType}
 
-val info = IO.info(IO.path("README.md"))
+val info = IO.info("README.md")
 
 info.fileType      // FileType.File
 info.size          // file size in bytes
@@ -234,9 +232,9 @@ info.isExecutable  // false
 info.isHidden      // false
 
 // Existence checks
-IO.exists(IO.path("README.md"))       // true
-IO.isFile(IO.path("README.md"))       // true
-IO.isDirectory(IO.path("src"))        // true
+IO.exists("README.md")       // true
+IO.isFile("README.md")       // true
+IO.isDirectory("src")        // true
 ```
 
 ### FileType
@@ -258,19 +256,17 @@ import wvlet.uni.io.{IO, IOPath, FileInfo}
 import scala.concurrent.Future
 
 // Async read/write
-val content: Future[String] = IO.readStringAsync(IO.path("data.txt"))
-val bytes: Future[Array[Byte]] = IO.readBytesAsync(IO.path("image.png"))
+val content: Future[String] = IO.readStringAsync("data.txt")
+val bytes: Future[Array[Byte]] = IO.readBytesAsync("image.png")
 
-val written: Future[Unit] = IO.writeStringAsync(
-  IO.path("output.txt"), "hello"
-)
+val written: Future[Unit] = IO.writeStringAsync("output.txt", "hello")
 
 // Async directory listing
-val files: Future[Seq[IOPath]] = IO.listAsync(IO.path("src"))
+val files: Future[Seq[IOPath]] = IO.listAsync("src")
 
 // Async metadata
-val info: Future[FileInfo] = IO.infoAsync(IO.path("file.txt"))
-val exists: Future[Boolean] = IO.existsAsync(IO.path("file.txt"))
+val info: Future[FileInfo] = IO.infoAsync("file.txt")
+val exists: Future[Boolean] = IO.existsAsync("file.txt")
 ```
 
 `IOPath` and `FileInfo` are the underlying types — import them when you need
@@ -289,8 +285,8 @@ val compressed = Gzip.compress(data)
 val decompressed = Gzip.decompress(compressed)
 
 // File-based compression (streaming)
-Gzip.compressFile(IO.path("large.txt"), IO.path("large.txt.gz"))
-Gzip.decompressFile(IO.path("large.txt.gz"), IO.path("large.txt"))
+Gzip.compressFile("large.txt", "large.txt.gz")
+Gzip.decompressFile("large.txt.gz", "large.txt")
 ```
 
 ## Cross-Platform Support
@@ -308,7 +304,7 @@ Sync operations throw `UnsupportedOperationException` in browser environments. U
 
 ## Best Practices
 
-1. **Use `IO` as the single entry point** — `IO.path(...)`, `IO.readString(...)`, `IO.list(...)`, etc.
+1. **Use `IO` as the single entry point** — `IO.readString(...)`, `IO.list(...)`, etc. Pass paths as plain strings, and use `IO.path(...)` only when you need an `IOPath` value.
 2. **Prefer async operations** for code that must run on all platforms
 3. **Use `ListOptions`** with glob or extension filters instead of filtering results manually
 4. **Use `WriteMode.CreateNew`** when you want to avoid overwriting existing files

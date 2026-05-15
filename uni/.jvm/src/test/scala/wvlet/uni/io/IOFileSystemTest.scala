@@ -100,4 +100,56 @@ class IOFileSystemTest extends UniTest:
       IO.deleteRecursively(tmpDir)
   }
 
+  test("IO should accept plain String paths for read/write") {
+    val tmpDir   = IO.createTempDirectory("io-string-test", None)
+    val filePath = s"${tmpDir.posixPath}/string-path.txt"
+    try
+      IO.writeString(filePath, "hello string path")
+      IO.readString(filePath) shouldBe "hello string path"
+      IO.exists(filePath) shouldBe true
+      IO.isFile(filePath) shouldBe true
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for write modes") {
+    val tmpDir   = IO.createTempDirectory("io-string-modes", None)
+    val filePath = s"${tmpDir.posixPath}/modes.txt"
+    try
+      IO.writeString(filePath, "first", WriteMode.Create)
+      IO.appendString(filePath, "-second")
+      IO.readString(filePath) shouldBe "first-second"
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for listing and delete") {
+    val tmpDir = IO.createTempDirectory("io-string-list", None)
+    try
+      IO.writeString(s"${tmpDir.posixPath}/a.txt", "a")
+      IO.writeString(s"${tmpDir.posixPath}/b.txt", "b")
+      val names = IO.list(tmpDir.posixPath).map(_.fileName).toSet
+      names shouldBe Set("a.txt", "b.txt")
+      IO.delete(s"${tmpDir.posixPath}/a.txt") shouldBe true
+      IO.exists(s"${tmpDir.posixPath}/a.txt") shouldBe false
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
+  test("IO should accept plain String paths for copy and move") {
+    val tmpDir = IO.createTempDirectory("io-string-copy", None)
+    try
+      val src = s"${tmpDir.posixPath}/src.txt"
+      val dst = s"${tmpDir.posixPath}/dst.txt"
+      val mv  = s"${tmpDir.posixPath}/moved.txt"
+      IO.writeString(src, "data")
+      IO.copy(src, dst)
+      IO.readString(dst) shouldBe "data"
+      IO.move(dst, mv)
+      IO.exists(dst) shouldBe false
+      IO.readString(mv) shouldBe "data"
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
 end IOFileSystemTest
