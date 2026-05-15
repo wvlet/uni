@@ -39,12 +39,19 @@ object Http:
   def client: HttpClientConfig = HttpClientConfig.default.withChannelFactory(defaultChannelFactory)
 
   /**
-    * Platform-specific default channel factory. This will be provided by platform-specific modules
-    * (.jvm, .js, .native).
+    * Default HTTP channel factory. Initialized from the platform-specific
+    * `HttpCompat.defaultHttpChannelFactory` so cross-platform callers can use
+    * `Http.client.newSyncClient` without per-platform setup. Callers that need a non-default
+    * factory can override via `setDefaultChannelFactory`.
+    *
+    * `@volatile` so `setDefaultChannelFactory` writes are visible across threads on the JVM. No-op
+    * on Scala.js / Native.
     */
-  private[http] var defaultChannelFactory: HttpChannelFactory = HttpClientConfig.NoOpChannelFactory
+  @volatile
+  private[http] var defaultChannelFactory: HttpChannelFactory = HttpCompat.defaultHttpChannelFactory
 
   /**
-    * Set the default channel factory. Called by platform-specific initialization.
+    * Override the default channel factory. The default is the platform-specific factory from
+    * `HttpCompat`; callers (e.g., `wvlet-server`) can substitute their own implementation.
     */
   def setDefaultChannelFactory(factory: HttpChannelFactory): Unit = defaultChannelFactory = factory

@@ -23,6 +23,14 @@ import wvlet.uni.control.ResultClass.Failed
   */
 private[http] trait HttpCompatApi:
   /**
+    * Platform-specific default HTTP channel factory. `Http.defaultChannelFactory` reads this at
+    * init time so cross-platform callers can use `Http.client` without per-platform setup. The
+    * value-based handoff (rather than a callback that mutates `Http`'s state) avoids an `Http` ↔
+    * `HttpCompat` init cycle that the Scala.js linker resolves differently from the JVM.
+    */
+  def defaultHttpChannelFactory: HttpChannelFactory
+
+  /**
     * Platform-specific SSL exception classifier for retry logic. JVM provides full SSL exception
     * handling; Native/JS return empty classifier since javax.net.ssl is not available.
     */

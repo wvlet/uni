@@ -93,6 +93,125 @@ Log messages automatically include source location at the end of the message:
 
 The source code location `(file:line)` is captured at compile time using Scala macros.
 
+## Writing Logs to a File
+
+`FileLogHandler` writes log records to a file with automatic rotation.
+It runs unchanged on JVM, Scala.js (Node.js), and Scala Native, using
+the [FileSystem](/core/filesystem) abstraction underneath.
+
+```scala
+import wvlet.uni.log.{FileLogHandler, FileLogHandlerConfig, Logger}
+
+val handler = FileLogHandler("app.log")
+Logger.setDefaultHandler(handler)
+```
+
+By default, `FileLogHandler` rotates daily and whenever the active file
+exceeds 100 MB, keeps the most recent 100 rotated files, and gzips
+each rotated file. Rotated files are named
+`{stem}-YYYY-MM-DD.{index}.log.gz` and sit next to the active log.
+
+### Tuning rotation
+
+Configure the handler through `FileLogHandlerConfig`:
+
+```scala
+import wvlet.uni.log.{FileLogHandler, FileLogHandlerConfig}
+
+val config =
+  FileLogHandlerConfig("app.log")
+    .withMaxSizeInBytes(10 * 1024 * 1024) // 10 MB per file
+    .withMaxNumberOfFiles(30)             // keep 30 rotated files
+    .withCompressRotated(true)            // gzip rotated files
+
+val handler = FileLogHandler(config)
+```
+
+`FileLogHandlerConfig` ships with both `withXxx` setters and these
+escape hatches:
+
+| Builder | Effect |
+|---------|--------|
+| `withPath(p)` | Change the active log file path. |
+| `withMaxSizeInBytes(n)` | Rotate once the active file exceeds `n` bytes. Default 100 MB. |
+| `withMaxNumberOfFiles(n)` | Keep at most `n` rotated files; oldest are deleted on rotation. Default 100. |
+| `withFormatter(f)` | Override the log formatter. Default `AppLogFormatter`. |
+| `withLogFileExt(ext)` | Override the active-log extension (default `".log"`). |
+| `withCompressRotated(b)` | Toggle gzip of rotated files. Default `true`. |
+| `noCompression` | Disable gzip; rotated files keep their configured extension (default `.log`). |
+| `noRotation` | Disable both size and count limits — write a single file forever. |
+
+### Writing without rotation
+
+When you just want a plain file sink (for example, a short-lived CLI
+that appends to a debug log), use `noRotation`:
+
+```scala
+val handler = FileLogHandler(
+  FileLogHandlerConfig("debug.log").noRotation
+)
+```
+
+## Combining Multiple Handlers
+
+A `Logger` can fan log records out to several handlers at once — each
+with its own formatter and (optionally) its own level. Use this when
+you want, say, terminal-friendly output for humans and a rotated file
+for forensics on the same logger.
+
+```scala
+import wvlet.uni.log.{
+  ConsoleLogHandler, FileLogHandler, FileLogHandlerConfig,
+  LogFormatter, LogLevel, Logger
+}
+
+val console = ConsoleLogHandler(LogFormatter.AppLogFormatter)
+val file = FileLogHandler(
+  FileLogHandlerConfig("app.log").withFormatter(LogFormatter.SourceCodeLogFormatter)
+)
+
+val root = Logger.rootLogger
+root.clearHandlers
+root.addHandler(console)
+root.addHandler(file)
+```
+
+`addHandler` accepts any `java.util.logging.Handler`, so the same
+pattern wires up `BufferedLogHandler` (for tests), `NullHandler`, or
+any custom handler you write.
+
+### Different formats per sink
+
+Each handler carries its own `LogFormatter`. The bundled ones are:
+
+| Formatter | Shape | Typical use |
+|-----------|-------|-------------|
+| `AppLogFormatter` | Color, timestamp, level, logger | Default for interactive consoles. |
+| `SourceCodeLogFormatter` | Adds the `(file:line)` source pin | Files / forensic logs where you'll grep later. |
+| `IntelliJLogFormatter` | Renders source as an IntelliJ-clickable link | Local dev runs inside IntelliJ. |
+| `PlainSourceCodeLogFormatter` | Like `SourceCodeLogFormatter` without ANSI color | Files / CI logs that mangle ANSI. |
+| `SimpleLogFormatter` | Level + message only | Smoke tests, prototypes. |
+| `BareFormatter` | Message only | When the surrounding tool already adds context. |
+| `TSVLogFormatter` | Tab-separated fields | Quick offline analysis with `cut` / `awk`. |
+| `ThreadLogFormatter` | Adds the thread name | Debugging concurrency. |
+
+### Different levels per sink
+
+Handlers respect `java.util.logging.Handler#setLevel`, so you can let
+the logger itself be permissive and let each handler decide what to
+keep. `LogLevel.jlLevel` bridges to the underlying `java.util.logging`
+level:
+
+```scala
+root.setLogLevel(LogLevel.DEBUG)   // permissive at the source
+
+console.setLevel(LogLevel.INFO.jlLevel)   // console stays quiet
+file.setLevel(LogLevel.DEBUG.jlLevel)     // file captures everything
+```
+
+This is the right way to keep a noisy `DEBUG` trail on disk without
+flooding the terminal a human is reading.
+
 ## Best Practices
 
 1. **Use appropriate levels** - Don't log everything as INFO
