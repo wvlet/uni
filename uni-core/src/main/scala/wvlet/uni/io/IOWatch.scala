@@ -98,16 +98,20 @@ object IOWatch extends IOWatchBase:
 
   private[io] def setImplementation(impl: IOWatchBase): Unit = _impl = impl
 
-  // FileSystemInit also registers the platform IOWatch implementation, so touching IOWatch
-  // first (without going through FileSystem) still self-bootstraps.
-  FileSystemInit.init()
-
   private def impl: IOWatchBase =
-    if _impl == null then
-      throw IllegalStateException(
-        "IOWatch not initialized. Platform-specific initialization required."
-      )
-    _impl
+    val current = _impl
+    if current != null then
+      current
+    else
+      // FileSystemInit also registers the platform IOWatch implementation, so triggering it
+      // here lets IOWatch.watch self-bootstrap even when FileSystem hasn't been touched yet.
+      FileSystemInit.init()
+      val after = _impl
+      if after == null then
+        throw IllegalStateException(
+          "IOWatch not initialized. Platform-specific initialization required."
+        )
+      after
 
   override def watch(path: IOPath, options: WatchOptions = WatchOptions.default)(
       handler: WatchEvent => Unit

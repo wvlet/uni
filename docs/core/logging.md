@@ -138,7 +138,7 @@ escape hatches:
 | `withFormatter(f)` | Override the log formatter. Default `AppLogFormatter`. |
 | `withLogFileExt(ext)` | Override the active-log extension (default `".log"`). |
 | `withCompressRotated(b)` | Toggle gzip of rotated files. Default `true`. |
-| `noCompression` | Disable gzip; rotated files keep their `.log` extension. |
+| `noCompression` | Disable gzip; rotated files keep their configured extension (default `.log`). |
 | `noRotation` | Disable both size and count limits — write a single file forever. |
 
 ### Writing without rotation

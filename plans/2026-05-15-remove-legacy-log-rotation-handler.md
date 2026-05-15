@@ -22,17 +22,19 @@ No tests, no docs, no callers.
 
 ## Decision
 
-Delete `uni-core/.jvm/src/main/scala/wvlet/uni/log/LogRotationHandler.scala`. Single canonical answer for "how do I rotate logs in uni": `FileLogHandler`.
+Delete `uni-core/.jvm/src/main/scala/wvlet/uni/log/LogRotationHandler.scala`. Single canonical answer for "how do I rotate logs in uni": `FileLogHandler`. Surface the existing cross-platform handler in the reference docs at the same time so users don't have to re-discover it from source.
 
 ## Scope
 
 - Remove `uni-core/.jvm/src/main/scala/wvlet/uni/log/LogRotationHandler.scala` (contains both `LogRotationHandler` and its `FileHandler` wrapper).
 - No replacements needed — `FileLogHandler` already covers both rotation and no-rotation use cases (via `.noRotation`).
+- Add a "Writing Logs to a File" section to `docs/core/logging.md` documenting `FileLogHandler` / `FileLogHandlerConfig` (defaults, builder API, `.noRotation` / `.noCompression`).
+- Self-bootstrap the platform `FileSystem` / `IOWatch` implementation lazily on first touch so callers (`FileLogHandler`, `IO.readAsString`, app code) no longer need an explicit `FileSystemInit.init()` startup step. Drop the now-redundant call from `IO.scala` and the docs caveat.
+- Add `.rotating` temp-file recovery to `FileLogHandler.init()` so a crash mid-rotation no longer leaves dangling log data unarchived.
 
 ## Out of scope
 
-- Any new feature in `FileLogHandler`.
-- Documentation site changes — the docs don't currently mention either handler.
+- Any other new feature in `FileLogHandler`.
 
 ## Verification
 

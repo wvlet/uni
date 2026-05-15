@@ -184,4 +184,55 @@ class FileLogHandlerTest extends UniTest:
     currentContent shouldContain "Day 2 message"
   }
 
+  test("recover .rotating temp file when active log is missing") {
+    val logPath  = tempDir / "test6.log"
+    val tempPath = tempDir / ".test6.log.rotating"
+
+    // Simulate a crash mid-rotation: the active log was moved to the temp path and the
+    // process died before compression could finish.
+    FileSystem.writeString(tempPath, "log line that survived the crash\n")
+    FileSystem.exists(logPath) shouldBe false
+
+    // Touching FileLogHandler must surface the orphaned content as the active log.
+    val handler = FileLogHandler(FileLogHandlerConfig(logPath).noCompression)
+    val logger  = Logger("test6")
+    logger.resetHandler(handler)
+    logger.setLogLevel(LogLevel.INFO)
+    logger.info("first message after restart")
+
+    handler.close()
+
+    FileSystem.exists(tempPath) shouldBe false
+    val content = FileSystem.readString(logPath)
+    content shouldContain "log line that survived the crash"
+    content shouldContain "first message after restart"
+  }
+
+  test("archive .rotating temp file when active log already exists") {
+    val logPath  = tempDir / "test7.log"
+    val tempPath = tempDir / ".test7.log.rotating"
+
+    // Active log already has fresh content (e.g. process restarted then started logging
+    // before recovery ran in a different handler).
+    FileSystem.writeString(logPath, "post-restart content\n")
+    FileSystem.writeString(tempPath, "pre-crash content\n")
+
+    val handler = FileLogHandler(FileLogHandlerConfig(logPath).noCompression)
+    val logger  = Logger("test7")
+    logger.resetHandler(handler)
+    logger.setLogLevel(LogLevel.INFO)
+    logger.info("logged after recovery")
+    handler.close()
+
+    FileSystem.exists(tempPath) shouldBe false
+    FileSystem.readString(logPath) shouldContain "post-restart content"
+
+    // The orphan must be archived under a recovered-* name, not silently dropped.
+    val recovered = FileSystem
+      .list(tempDir)
+      .filter(p => p.fileName.startsWith("test7-recovered-") && p.fileName.endsWith(".log"))
+    recovered.size shouldBe 1
+    FileSystem.readString(recovered.head) shouldContain "pre-crash content"
+  }
+
 end FileLogHandlerTest
