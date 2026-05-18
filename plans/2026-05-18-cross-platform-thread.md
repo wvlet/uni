@@ -117,11 +117,13 @@ Notes on the shape:
 
 ## Platform implementations
 
-### JVM (`uni/.jvm/.../bgTaskCompat.scala`)
+### JVM (`uni/.jvm/.../taskCompat.scala`)
 
-- Worker: `Thread` from `ThreadUtil.newDaemonThreadFactory("bg-task")`.
-  (Optionally back by a shared `Executor` for cheap reuse — the
-  blocking scheduler's cached pool is the obvious candidate.)
+- Worker: `Thread` from `ThreadUtil.newDaemonThreadFactory("uni-task")`.
+  One thread per `Task.run` call. Acceptable for the long-running-query
+  use cases (DuckDB / Trino / Snowflake); a shared `Executor` /
+  `TaskScheduler` opt-in is the right enhancement when a high-frequency
+  caller appears — Gemini flagged this in PR review.
 - Cancel signal: `AtomicBoolean` read by `isCancelled`; `cancel()`
   also calls `Thread.interrupt()` so blocking JDK calls
   (`InputStream.read`, `Socket.connect`, `Thread.sleep`) unblock.
