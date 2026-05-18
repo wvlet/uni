@@ -32,8 +32,11 @@ import wvlet.uni.rx.compat as rxCompat
   *   - JVM / Scala Native run the body on a fresh daemon thread, so `await()` blocks the caller
   *     until the body returns. Cancel additionally `Thread.interrupt`s so blocking JDK calls
   *     (`Thread.sleep`, blocking IO) unwedge.
-  *   - Scala.js runs the body cooperatively on the event loop. `await()` is unsupported
-  *     (`UnsupportedOperationException`) — use `awaitRx` instead.
+  *   - Scala.js `Task.run { body }` runs cooperatively on the event-loop microtask queue; `await()`
+  *     is unsupported (would deadlock), use `awaitRx`.
+  *   - Scala.js `Task.runRegistered("id")` on Node spawns a `worker_threads` worker so the main
+  *     thread can `Atomics.wait` — blocking `await()` works. On the browser this falls back to the
+  *     microtask path (no main-thread `Atomics.wait`); use `awaitRx`.
   *
   * See `plans/2026-05-18-cross-platform-thread.md` and uni#552 for the design rationale.
   */
@@ -47,16 +50,23 @@ trait Task:
 
   /**
     * Request cooperative cancellation. Idempotent. Returns immediately. The body observes the
-    * request via [[TaskContext.isCancelled]] / [[TaskContext.checkCancelled]] at safe points.
+    * request via [[TaskContext.isCancelled]] / [[TaskContext.checkCancelled]] at safe points; the
+    * optional `reason` is carried into the `InterruptedException` that `checkCancelled` throws and
+    * that `await()` rethrows, so it surfaces in stack traces and `awaitRx` error events.
+    *
+    * Only the first call records a reason; subsequent calls are no-ops.
     */
-  def cancel(): Unit
+  def cancel(reason: String = ""): Unit
 
   /**
     * Block the calling thread until the task reaches a terminal state.
     *
     *   - On JVM / Scala Native: blocks; rethrows the body's exception on `Failed`; throws
     *     `InterruptedException` on `Cancelled`.
-    *   - On Scala.js: throws `UnsupportedOperationException` — use [[awaitRx]] instead.
+    *   - On Scala.js + Node via [[Task.runRegistered]]: blocks the main thread on `Atomics.wait`
+    *     while the body runs in a `worker_threads` worker; rethrows / throws as above.
+    *   - On Scala.js via [[Task.run]] (microtask) or on browser: throws
+    *     `UnsupportedOperationException` — use [[awaitRx]] instead.
     */
   def await(): Unit
 
@@ -84,6 +94,44 @@ object Task:
     */
   def run(body: TaskContext => Unit): Task = taskCompat.run(body)
 
+  // ---- Registry-based bodies ----
+  // Why a registry: on Scala.js + Node, blocking `Task.await()` requires running the body in a
+  // `worker_threads` worker so the main thread can use `Atomics.wait` (deadlocks otherwise — see
+  // plans/2026-05-18-cross-platform-thread.md). Closures can't be transferred across V8 isolates,
+  // so the worker has to look up the body by name in its own Scala.js bundle re-import. JVM and
+  // Native have no such constraint, but the API is uniform across platforms so callers can write
+  // one body and run it anywhere.
+
+  private val registry = scala.collection.mutable.HashMap.empty[String, TaskContext => Unit]
+
+  /**
+    * Register a task body under a stable id. Required for Node-only blocking `await()` via
+    * `runRegistered`. Bodies should be registered at module-init time (inside an `object` body) so
+    * the worker's bundle re-import re-populates the registry in the worker isolate.
+    */
+  def register(taskId: String)(body: TaskContext => Unit): Unit = registry.synchronized {
+    registry.update(taskId, body)
+  }
+
+  /**
+    * Look up a registered body. Throws `NoSuchElementException` if `taskId` isn't registered in the
+    * current isolate (most commonly because the registering object hasn't been initialised yet —
+    * see [[register]] for the module-init pattern).
+    */
+  def lookup(taskId: String): TaskContext => Unit = registry.synchronized {
+    registry.getOrElse(
+      taskId,
+      throw new NoSuchElementException(s"No task registered with id '${taskId}'")
+    )
+  }
+
+  /**
+    * Run a previously-registered body. On Node, the body runs in a `worker_threads` worker so
+    * blocking `await()` works; on JVM / Native / browser this behaves the same as `run` with the
+    * looked-up body.
+    */
+  def runRegistered(taskId: String): Task = taskCompat.runRegistered(taskId)
+
 end Task
 
 /**
@@ -95,10 +143,12 @@ trait TaskContext:
   /** True iff cancellation has been requested. Check at safe points in the body. */
   def isCancelled: Boolean
 
-  /** Throws `InterruptedException` if cancellation has been requested; no-op otherwise. */
-  def checkCancelled(): Unit =
-    if isCancelled then
-      throw new InterruptedException("Task cancelled")
+  /**
+    * Throws `InterruptedException` carrying the cancel reason if cancellation has been requested;
+    * no-op otherwise. Default message ("Task cancelled") is used when `cancel()` was called without
+    * a reason.
+    */
+  def checkCancelled(): Unit
 
 end TaskContext
 
@@ -118,6 +168,10 @@ private[control] abstract class TaskImpl extends Task with TaskContext:
   @volatile
   private var failure: Throwable = null
 
+  // Recorded on the first `cancel(reason)` call; read by checkCancelled. Null until cancelled.
+  @volatile
+  private var cancelReason: String = null
+
   // Memoised so repeated `awaitRx` calls share the same Rx instance (and the same Promise→Rx
   // subscription chain underneath).
   private lazy val cachedAwaitRx: Rx[Unit] =
@@ -128,9 +182,19 @@ private[control] abstract class TaskImpl extends Task with TaskContext:
   final override def awaitRx: Rx[Unit]    = cachedAwaitRx
   final override def await(): Unit        = awaitTerminal()
 
-  final override def cancel(): Unit =
+  final override def cancel(reason: String = ""): Unit =
     if cancelFlag.compareAndSet(false, true) then
+      cancelReason = reason
       onCancelRequested()
+
+  final override def checkCancelled(): Unit =
+    if isCancelled then
+      val msg =
+        if cancelReason == null || cancelReason.isEmpty then
+          "Task cancelled"
+        else
+          cancelReason
+      throw new InterruptedException(msg)
 
   protected def scheduleBody(body: TaskContext => Unit): Unit
   protected def awaitTerminal(): Unit

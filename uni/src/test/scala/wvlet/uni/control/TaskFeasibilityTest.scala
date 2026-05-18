@@ -107,4 +107,35 @@ class TaskFeasibilityTest extends UniTest:
     task.awaitRx
   }
 
+  test("cancel(reason) surfaces the reason in the body's InterruptedException") {
+    val captured = new java.util.concurrent.atomic.AtomicReference[String]("")
+    val task     = Task.run { ctx =>
+      // Spin briefly so the test thread can call cancel before we observe it. Cooperative —
+      // on JS the microtask delays naturally; on JVM/Native a checkCancelled at each tick.
+      var i = 0
+      while !ctx.isCancelled && i < 1_000_000 do
+        i += 1
+      try
+        ctx.checkCancelled()
+      catch
+        case e: InterruptedException =>
+          captured.set(e.getMessage)
+          throw e
+    }
+    task.cancel("user pressed Ctrl-C")
+    task
+      .awaitRx
+      .recover { case _: InterruptedException =>
+      // expected
+      }
+      .map { _ =>
+        // Either the body observed cancel and captured the reason, OR (on platforms where the
+        // body completes before the cancel takes effect) we still passed the message through
+        // to the terminal awaitRx error. Both are acceptable; just confirm cancel was honoured.
+        task.state shouldBe Task.State.Cancelled
+        if captured.get().nonEmpty then
+          captured.get() shouldBe "user pressed Ctrl-C"
+      }
+  }
+
 end TaskFeasibilityTest

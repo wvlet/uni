@@ -25,6 +25,8 @@ private[control] object taskCompat:
     task.scheduleBody(body)
     task
 
+  def runRegistered(taskId: String): Task = run(Task.lookup(taskId))
+
   private class JvmTaskImpl extends TaskImpl:
     private val latch = new CountDownLatch(1)
     // Captured for onCancelRequested to call `interrupt()`. Set before `t.start()` runs.

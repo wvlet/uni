@@ -30,6 +30,8 @@ private[control] object taskCompat:
     task.scheduleBody(body)
     task
 
+  def runRegistered(taskId: String): Task = run(Task.lookup(taskId))
+
   private class NativeTaskImpl extends TaskImpl:
     private val latch = new CountDownLatch(1)
     @volatile

@@ -276,6 +276,74 @@ feasibility spike validates both paths.
 - Why `Atomics.wait` cannot back `await()` on the browser main thread
   and the resulting `awaitRx` fallback.
 
+## Implementation notes (as landed)
+
+Two API surfaces ended up shipping together so the design could be
+validated end-to-end across all four platforms:
+
+1. **`Task.run { body }`** — closure-based, works on JVM, Native, and
+   Scala.js (both Node and browser). `await()` blocks on JVM/Native;
+   throws `UnsupportedOperationException` on Scala.js (would deadlock
+   the event loop). Use `awaitRx` for portable completion.
+
+2. **`Task.register("id") { body }` + `Task.runRegistered("id")`** —
+   registry-based. The body is registered at module-init time. On
+   Node, `runRegistered` spawns a `worker_threads` worker that
+   dynamic-imports the same Scala.js bundle (via `import.meta.url`),
+   so the worker's bundle re-import re-runs `Task.register` calls in
+   the worker isolate. The main thread blocks on `Atomics.wait` over a
+   `SharedArrayBuffer`; cancel is a CAS into the SAB's cancel-flag
+   word that the worker observes at every `ctx.isCancelled` /
+   `ctx.checkCancelled` call.
+
+The driving requirement (uni#552) called out wvlet's cross-platform
+query runner — Trino HTTP polling, DuckDB libduckdb pending-execute,
+Snowflake polling — all of which fit the "register the connector's
+body at module init, run it with arguments via a side channel"
+pattern. Bodies that need captured state on Node use module-level
+state in the registered object (Scala.js singletons re-init per
+isolate, so each worker has its own state).
+
+`cancel(reason: String)` is now part of the trait; the reason flows
+into the `InterruptedException` that `checkCancelled` throws and that
+`await()` / `awaitRx` surface.
+
+`Task.State.Cancelling` was dropped during review — it was unreliable
+as an observable signal (a racing terminal `set` from the body could
+win). `isCancelled: Boolean` covers the "cancel requested" signal;
+the terminal state (`Cancelled` / `Succeeded` / `Failed`) is the
+source of truth for "what happened."
+
+The progress API from the original sketch is also gone: bodies
+publish anything they want — progress, partial results, terminal
+values — through any existing Rx primitive (`RxVar`, `RxQueue`,
+`RxDeferred`). Same "side-effects managed outside the interface"
+rule that already justified no `[A]` result type.
+
+## Non-obvious traps the Node implementation surfaced
+
+These are captured in `adr/2026-05-18-node-task-worker-threads.md`
+for future readers. Short version:
+
+- `process.argv[1]` is empty under `sbt-jsenv-nodejs` (the test
+  runner dynamic-imports the bundle rather than running it as the
+  main script). Use `js.\`import\`.meta.url` instead.
+- The test bundle's tail calls `org.scalajs.testing.bridge.Bridge.start()`
+  which references `scalajsCom` — undefined in worker isolates and
+  throws. The worker bootstrap tolerates this by catching the import
+  error and continuing if `globalThis.__uniTaskInvoke` is present
+  (set by an eagerly-evaluated `@JSExportTopLevel` `val` that
+  precedes the bridge call).
+- `js.Dynamic.global.updateDynamic("foo")(v)` is rewritten by the
+  Scala.js linker as a bare identifier assignment (`foo = v`), which
+  throws `ReferenceError` in strict-mode ES modules. Use
+  `Object.defineProperty(gt, "foo", {value: v, writable: true, configurable: true})`
+  via `js.eval("globalThis")` instead.
+- `@JSExportTopLevel` on a `val` triggers eager evaluation at module
+  init; on a `def`, it doesn't. The bundle-bootstrap `val` pattern
+  is what makes module-init registration reliable across worker
+  re-imports.
+
 ## Suggested next step
 
 **Feasibility spike across all four platforms in one PR**, before
