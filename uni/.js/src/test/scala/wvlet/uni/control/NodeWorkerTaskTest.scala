@@ -20,14 +20,14 @@ import wvlet.uni.test.UniTest
 /**
   * Force-init shim: the @JSExportTopLevel `val` is computed eagerly at module load, which
   * initialises this object in *both* the main isolate and the worker isolate (the worker
-  * dynamically imports the same bundle, re-running module init). Result: `Task.register` calls here
-  * populate the registry on whichever side looks them up — main for the test, worker for the actual
-  * body execution.
+  * dynamically imports the same bundle, re-running module init). Result: `TaskRegistry.register`
+  * calls here populate the registry on whichever side looks them up — main for the test, worker for
+  * the actual body execution.
   */
 private object NodeWorkerTaskTestRegistry:
 
   // Body 1: a no-op that exits cleanly.
-  Task.register("nwt-no-op") { _ =>
+  TaskRegistry.register("nwt-no-op") { _ =>
     ()
   }
 
@@ -36,7 +36,7 @@ private object NodeWorkerTaskTestRegistry:
   // (b) `cancel` crosses the isolate boundary via SAB and is observed inside the worker. The
   // throwing path ensures the worker reports `StateCancelled` rather than `StateSuccess` (which
   // is what a cooperative early-return loop would produce).
-  Task.register("nwt-counter") { ctx =>
+  TaskRegistry.register("nwt-counter") { ctx =>
     var i = 0
     while i < 200_000_000 do
       // Check every ~10ms-worth of iterations so cancel observation is quick.
@@ -46,18 +46,19 @@ private object NodeWorkerTaskTestRegistry:
   }
 
   // Body 3: throws — exercises the error-propagation path through the SAB.
-  Task.register("nwt-boom") { _ =>
+  TaskRegistry.register("nwt-boom") { _ =>
     throw new RuntimeException("nwt-boom message")
   }
 
   // Body 4: cooperatively self-cancels via `checkCancelled` after we set the flag.
-  Task.register("nwt-checked") { ctx =>
+  TaskRegistry.register("nwt-checked") { ctx =>
     ctx.checkCancelled() // throws if cancel arrived first
   }
 
   /**
     * Forces eager init of this object at bundle load. The `val`'s body runs at module load time, so
-    * the `Task.register` side effects above complete before any test code or worker code runs.
+    * the `TaskRegistry.register` side effects above complete before any test code or worker code
+    * runs.
     */
   @JSExportTopLevel("__uniTaskNodeTestRegistered")
   val isRegistered: Boolean = true

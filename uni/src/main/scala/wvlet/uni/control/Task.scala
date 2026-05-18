@@ -28,6 +28,12 @@ import wvlet.uni.rx.compat as rxCompat
   * `RxQueue`, `RxDeferred`, …). `Task`'s job is the lifecycle: start, cancel, observe terminal
   * state.
   *
+  * Two scheduling entry points:
+  *   - [[Task.run]] with a closure — natural on JVM/Native, microtask-scheduled on Scala.js. On
+  *     Scala.js `await()` throws (would deadlock the event loop) — use `awaitRx`.
+  *   - [[Task.runRegistered]] with a body id from [[TaskRegistry]] — required for blocking
+  *     `await()` on Scala.js + Node, where the body runs in a `worker_threads` worker.
+  *
   * Platform notes:
   *   - JVM / Scala Native run the body on a fresh daemon thread, so `await()` blocks the caller
   *     until the body returns. Cancel additionally `Thread.interrupt`s so blocking JDK calls
@@ -94,23 +100,46 @@ object Task:
     */
   def run(body: TaskContext => Unit): Task = taskCompat.run(body)
 
-  // ---- Registry-based bodies ----
-  // Why a registry: on Scala.js + Node, blocking `Task.await()` requires running the body in a
-  // `worker_threads` worker so the main thread can use `Atomics.wait` (deadlocks otherwise — see
-  // plans/2026-05-18-cross-platform-thread.md). Closures can't be transferred across V8 isolates,
-  // so the worker has to look up the body by name in its own Scala.js bundle re-import. JVM and
-  // Native have no such constraint, but the API is uniform across platforms so callers can write
-  // one body and run it anywhere.
+  /**
+    * Run a body previously registered with [[TaskRegistry.register]]. On Node, the body runs in a
+    * `worker_threads` worker so blocking `await()` works; on JVM / Native / browser this behaves
+    * the same as `run` with the looked-up body.
+    */
+  def runRegistered(taskId: String): Task = taskCompat.runRegistered(taskId)
 
-  private val registry = scala.collection.mutable.HashMap.empty[String, TaskContext => Unit]
+end Task
+
+/**
+  * Named-body registry for [[Task.runRegistered]].
+  *
+  * Separate from [[Task]] because the two concerns are different: `Task` represents *a handle to a
+  * running task*; `TaskRegistry` holds *templates of work that can be looked up by id*. They happen
+  * to be linked through `runRegistered` but otherwise share no state.
+  *
+  * **Why a registry exists at all.** On Scala.js + Node, blocking `Task.await()` requires running
+  * the body in a `worker_threads` worker (the main thread can't use `Atomics.wait` while also
+  * hosting the body via the event loop — that would deadlock). Worker threads are separate V8
+  * isolates with no shared closures, so the body cannot be passed by reference; the worker has to
+  * dynamically import the Scala.js bundle into its own isolate and look up the body by a stable id.
+  * JVM and Native have no such constraint, but the API is uniform across platforms so callers can
+  * write one body and run it anywhere.
+  *
+  * **Registration must run at module-init time.** Scala.js singletons initialise lazily, but the
+  * worker's bundle re-import only re-runs module-init code. Place `TaskRegistry.register` calls
+  * inside an `object` body and ensure the object is eagerly initialised (typically via a
+  * `@JSExportTopLevel val` marker, or by being referenced from one).
+  */
+object TaskRegistry:
+
+  private val bodies = scala.collection.mutable.HashMap.empty[String, TaskContext => Unit]
 
   /**
-    * Register a task body under a stable id. Required for Node-only blocking `await()` via
-    * `runRegistered`. Bodies should be registered at module-init time (inside an `object` body) so
-    * the worker's bundle re-import re-populates the registry in the worker isolate.
+    * Register a task body under a stable id. Required for Node blocking `await()` via
+    * [[Task.runRegistered]]. Bodies should be registered at module-init time so the worker's bundle
+    * re-import re-populates the registry in the worker isolate.
     */
-  def register(taskId: String)(body: TaskContext => Unit): Unit = registry.synchronized {
-    registry.update(taskId, body)
+  def register(taskId: String)(body: TaskContext => Unit): Unit = bodies.synchronized {
+    bodies.update(taskId, body)
   }
 
   /**
@@ -118,21 +147,14 @@ object Task:
     * current isolate (most commonly because the registering object hasn't been initialised yet —
     * see [[register]] for the module-init pattern).
     */
-  def lookup(taskId: String): TaskContext => Unit = registry.synchronized {
-    registry.getOrElse(
+  private[control] def lookup(taskId: String): TaskContext => Unit = bodies.synchronized {
+    bodies.getOrElse(
       taskId,
       throw new NoSuchElementException(s"No task registered with id '${taskId}'")
     )
   }
 
-  /**
-    * Run a previously-registered body. On Node, the body runs in a `worker_threads` worker so
-    * blocking `await()` works; on JVM / Native / browser this behaves the same as `run` with the
-    * looked-up body.
-    */
-  def runRegistered(taskId: String): Task = taskCompat.runRegistered(taskId)
-
-end Task
+end TaskRegistry
 
 /**
   * The handle passed to the body of [[Task.run]] so the body can check cancellation without

@@ -32,9 +32,9 @@ import wvlet.uni.rx.compat as rxCompat
   *     thread can block on `Atomics.wait`. Blocking `await()` works. Required for the wvlet
   *     cross-platform query-runner use case. On the browser this falls back to the microtask path
   *     (browsers don't allow `Atomics.wait` on the main thread). Bodies must be registered at
-  *     module-init time (see [[Task.register]]); the worker re-imports the same Scala.js bundle
-  *     into its own isolate, so module-level `Task.register` calls re-run there and populate the
-  *     worker-side registry.
+  *     module-init time (see [[TaskRegistry.register]]); the worker re-imports the same Scala.js
+  *     bundle into its own isolate, so module-level `TaskRegistry.register` calls re-run there and
+  *     populate the worker-side registry.
   *
   * See `plans/2026-05-18-cross-platform-thread.md` for the design rationale and uni#552 for the
   * driving requirement.
@@ -74,7 +74,7 @@ private[control] object taskCompat:
     else
       // Browser: no worker_threads, no main-thread `Atomics.wait`. Fall back to the microtask
       // path with the looked-up body. `await()` still throws; callers use `awaitRx`.
-      run(Task.lookup(taskId))
+      run(TaskRegistry.lookup(taskId))
 
   // ---- Microtask-scheduled Task (browser fallback, and the Task.run path everywhere on JS) ----
 
@@ -237,7 +237,7 @@ private[control] object taskCompat:
         i += 1
 
     try
-      val body = Task.lookup(taskId)
+      val body = TaskRegistry.lookup(taskId)
       body(ctx)
       atomicsStore(stateView, 0, StateSuccess)
     catch
@@ -394,7 +394,7 @@ private[control] object taskCompat:
         // main-thread globals (e.g. the sbt test bridge expects `scalajsCom`, which only the
         // test runner provides). Tolerate that: in ESM, side effects that completed *before*
         // the error are persistent, including our `@JSExportTopLevel` registrations and any
-        // `Task.register` calls in eagerly-initialised objects. If `__uniTaskInvoke` is present
+        // `TaskRegistry.register` calls in eagerly-initialised objects. If `__uniTaskInvoke` is present
         // after the (partial) import, the registry was populated and we can dispatch.
         let importError = null;
         try {

@@ -25,7 +25,7 @@ private[control] object taskCompat:
     task.scheduleBody(body)
     task
 
-  def runRegistered(taskId: String): Task = run(Task.lookup(taskId))
+  def runRegistered(taskId: String): Task = run(TaskRegistry.lookup(taskId))
 
   private class JvmTaskImpl extends TaskImpl:
     private val latch = new CountDownLatch(1)
