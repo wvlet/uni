@@ -11,15 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.concurrent
+package wvlet.uni.control
 
 import java.util.concurrent.atomic.AtomicInteger
 import wvlet.uni.test.UniTest
 
 /**
-  * Scala.js-specific Task tests — exercises blocking-`await` rejection and the deterministic
-  * "cancel before the body starts" path that Scala.js gives us because the body is queued as a
-  * microtask, not a thread.
+  * Scala.js-specific Task tests — blocking-`await` rejection plus the deterministic
+  * "cancel-before-the-body-starts" path that microtask scheduling gives us.
   */
 class JsTaskTest extends UniTest:
 

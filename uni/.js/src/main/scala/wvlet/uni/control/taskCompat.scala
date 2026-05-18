@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.concurrent
+package wvlet.uni.control
 
 import scala.scalajs.js
 
@@ -20,10 +20,9 @@ import scala.scalajs.js
   *
   * The body runs cooperatively on the event loop (queued via a resolved Promise), not on an OS
   * thread — JavaScript has no portable threading primitive that works in both Node and the browser.
-  * Cancellation, progress reporting, and `awaitRx` work the same as on JVM. Blocking `await()` is
-  * intentionally unsupported: the event loop cannot block on local progress without a
-  * `worker_threads`-style shared-memory channel, which is a Node-only opt-in we may add later (see
-  * uni#552).
+  * Cancellation and `awaitRx` work the same as on JVM. Blocking `await()` is intentionally
+  * unsupported: the event loop cannot block on local progress without a `worker_threads`-style
+  * shared-memory channel, which is a Node-only opt-in we may add later (see uni#552).
   *
   * Practical implications for body authors:
   *   - The body runs synchronously once dispatched. A long-running CPU loop will block the event
@@ -32,21 +31,21 @@ import scala.scalajs.js
   *   - `Task.run` returns synchronously, so a caller may call `cancel()` (or install `awaitRx`
   *     subscribers) before the body starts.
   */
-private[concurrent] object taskCompat:
+private[control] object taskCompat:
 
   def run(body: TaskContext => Unit): Task =
     val task = new JsTaskImpl()
-    task.start(body)
+    task.scheduleBody(body)
     task
 
   private class JsTaskImpl extends TaskImpl:
 
-    override protected def scheduleBody(body: TaskContext => Unit): Unit =
+    override def scheduleBody(body: TaskContext => Unit): Unit =
       // Microtask scheduling: matches `schedulerCompat.execute` in uni-core. The body sees any
-      // `cancel()` made between `Task.run` returning and this turn firing.
+      // `cancel()` issued between `Task.run` returning and this turn firing.
       js.Promise.resolve(()).`then`(_ => runBody(body))
 
-    override protected def awaitTerminal(): Unit =
+    override def awaitTerminal(): Unit =
       throw new UnsupportedOperationException(
         "Task.await() is unsupported on Scala.js; use Task.awaitRx instead."
       )

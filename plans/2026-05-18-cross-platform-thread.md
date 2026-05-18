@@ -18,10 +18,22 @@ monad, structured concurrency (`scope { … }`). `RxFiber` already gives
 us Rx-level fiber semantics — this primitive is one level below it, the
 "actually run on a separate OS thread" piece.
 
-## Naming and shape: `Task`, not `Task[A]`
+## Naming, shape, and package: `wvlet.uni.control.Task`
 
 Decision (post-review): the abstraction is **`Task` with no result
-type**. Body is `TaskContext => Unit`. Rationale:
+type** and **no progress API**. Body is `TaskContext => Unit`. The
+progress channel from the original sketch is gone — bodies publish
+whatever they want (progress, stages, partial results) through any
+existing uni-rx primitive (`RxVar`, `RxQueue`, `RxDeferred`), the same
+way they'd publish a result. Task focuses entirely on lifecycle.
+
+Package: `wvlet.uni.control`, alongside `Retry`, `CircuitBreaker`,
+`RateLimiter`, `Guard`, `Resource`, `Ticker` — the existing home for
+lifecycle / reliability primitives. No new `concurrent` package
+needed; `control` is the right fit. Physical location: `uni/`, not
+`uni-core/`, so `Task` is available wherever `RxVar` and friends are.
+
+Rationale for no progress API:
 
 - The issue says "the worker body is just a regular block that touches
   FFI" and "side-effects are managed outside the interface." That
@@ -38,23 +50,23 @@ type**. Body is `TaskContext => Unit`. Rationale:
 - If a caller wants the value-returning convenience, it's a one-liner
   on top: `Task.run { ctx => d.complete(Try(body(ctx))) }` with a
   user-supplied `RxDeferred[A]`.
+- Same logic kills the progress API: any "progress" channel is just an
+  Rx the body writes to. uni already ships `RxVar` (latest-value-wins),
+  `RxQueue` (event stream), `RxDeferred` (one-shot). Building it into
+  `Task` would force callers to convert between the Task progress type
+  and whatever Rx they already use elsewhere.
 
-`Task` is free in uni today (no collision). Drop the `Bg` prefix.
+`Task` is free in `wvlet.uni.control` (no collision). The `Bg` prefix
+was a working-name; dropped.
 
 ## Surface
 
 ```scala
-package wvlet.uni.concurrent  // new sub-package; not rx, not util
+package wvlet.uni.control
 
 trait Task:
   /** Current observable state. */
   def state: Task.State
-
-  /** Latest progress snapshot, or None if the body hasn't reported any. */
-  def progress: Option[Task.Progress]
-
-  /** Push-style progress stream; completes when the task reaches a terminal state. */
-  def progressStream: Rx[Task.Progress]
 
   /** True once state is terminal (Succeeded / Failed / Cancelled). Non-blocking. */
   def isDone: Boolean
@@ -64,27 +76,21 @@ trait Task:
 
   /**
    * Block until terminal state. Throws InterruptedException if cancelled,
-   * rethrows the body's exception if Failed. Not supported on browser main
-   * thread — use awaitRx there.
+   * rethrows the body's exception if Failed. Throws UnsupportedOperationException
+   * on Scala.js — use awaitRx there.
    */
   def await(): Unit
 
   /** Rx-completion of the task. Emits OnNext(()) on Succeeded, OnError on Failed
-    * or Cancelled. Works on all platforms, including browser. */
+    * or Cancelled. Works on every platform. */
   def awaitRx: Rx[Unit]
 
 object Task:
   enum State:
-    case Running, Cancelling, Succeeded, Failed, Cancelled
-    def isTerminal: Boolean = this match
-      case Succeeded | Failed | Cancelled => true
-      case _ => false
-
-  /** Caller-defined progress payload. uni provides no semantics beyond "latest snapshot wins." */
-  type Progress  // typed as a parameter on Task once we have a concrete shape; see Open Questions
+    case Running, Succeeded, Failed, Cancelled
+    def isTerminal: Boolean = this != Running
 
   def run(body: TaskContext => Unit): Task = taskCompat.run(body)
-  def runOn(scheduler: TaskScheduler)(body: TaskContext => Unit): Task = ...
 
 trait TaskContext:
   /** True iff cancellation has been requested. Check at safe points in the loop. */
@@ -92,21 +98,20 @@ trait TaskContext:
 
   /** Throws InterruptedException if cancellation has been requested. */
   def checkCancelled(): Unit
-
-  /** Publish a progress snapshot. Cheap; OK to call from a tight loop. */
-  def reportProgress(p: Task.Progress): Unit
 ```
 
 Notes on the shape:
 
-- No `[A]` parameter. Body is `TaskContext => Unit`. If the body's
-  intentional output is a value, the caller wires an `RxDeferred[V]`
-  (or similar) and the body writes to it — the same channel they'd
-  use for progress.
+- No `[A]` parameter, no progress API. Bodies publish anything they
+  want — progress, stages, partial results — through any existing Rx
+  primitive (`RxVar`, `RxQueue`, `RxDeferred`).
 - `await()` is provided where blocking is possible; `awaitRx` is the
   universal path. Both report cancel/failure faithfully.
-- `Progress` is intentionally caller-defined. The wvlet `QueryStats`
-  shape shouldn't leak into uni; concrete consumers parameterise.
+- No `Cancelling` state. It was unreliable as an observable signal (a
+  racing terminal `set` from the body could win), so observers would
+  see it nondeterministically. `isCancelled: Boolean` covers the
+  "cancel requested" signal; the terminal state is the source of
+  truth for "what happened."
 - No `flatMap`/`map` on `Task` — composition happens via Rx
   (`task.awaitRx.flatMap(_ => …)`).
 

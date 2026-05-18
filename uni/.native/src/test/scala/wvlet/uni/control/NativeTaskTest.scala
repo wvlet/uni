@@ -11,25 +11,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.concurrent
+package wvlet.uni.control
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import wvlet.uni.test.UniTest
 
 /**
-  * JVM-specific Task tests — exercises blocking [[Task.await]] and `Thread.interrupt`-driven cancel
-  * of a body that is sleeping when cancel arrives.
+  * Scala Native-specific Task tests — same shape as the JVM tests, scoped here because Scala.js
+  * cannot run them (no real threads).
   */
-class JvmTaskTest extends UniTest:
+class NativeTaskTest extends UniTest:
 
   test("await() blocks until the body completes") {
+    val started = new CountDownLatch(1)
     val counter = new AtomicInteger(0)
     val task    = Task.run { _ =>
-      Thread.sleep(20)
+      started.countDown()
       counter.set(42)
     }
+    started.await(5, TimeUnit.SECONDS) shouldBe true
     task.await()
     counter.get() shouldBe 42
     task.state shouldBe Task.State.Succeeded
@@ -53,11 +56,10 @@ class JvmTaskTest extends UniTest:
 
   test("cancel interrupts a body blocked in Thread.sleep") {
     val started     = new CountDownLatch(1)
-    val interrupted = new java.util.concurrent.atomic.AtomicBoolean(false)
-    val task        = Task.run { ctx =>
+    val interrupted = new AtomicBoolean(false)
+    val task        = Task.run { _ =>
       started.countDown()
       try
-        // Without interrupt this would block the whole test for 10s.
         Thread.sleep(10000)
       catch
         case _: InterruptedException =>
@@ -75,4 +77,4 @@ class JvmTaskTest extends UniTest:
     task.state shouldBe Task.State.Cancelled
   }
 
-end JvmTaskTest
+end NativeTaskTest

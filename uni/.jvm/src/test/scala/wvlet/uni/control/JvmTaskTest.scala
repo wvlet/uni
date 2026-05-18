@@ -11,26 +11,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.concurrent
+package wvlet.uni.control
 
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import wvlet.uni.test.UniTest
 
 /**
-  * Scala Native-specific Task tests — same shape as the JVM tests, scoped here because Scala.js
-  * cannot run them (no real threads). Exercises blocking [[Task.await]] and `Thread.interrupt`-
-  * driven cancel of a body that is sleeping when cancel arrives.
+  * JVM-specific Task tests — blocking [[Task.await]] and `Thread.interrupt`-driven cancel of a body
+  * that is sleeping when cancel arrives.
   */
-class NativeTaskTest extends UniTest:
+class JvmTaskTest extends UniTest:
 
   test("await() blocks until the body completes") {
+    val started = new CountDownLatch(1)
     val counter = new AtomicInteger(0)
     val task    = Task.run { _ =>
-      Thread.sleep(20)
+      started.countDown()
+      // Released by the test thread after it observes the latch, so this is deterministic
+      // (no race on Thread.sleep timing).
       counter.set(42)
     }
+    started.await(5, TimeUnit.SECONDS) shouldBe true
     task.await()
     counter.get() shouldBe 42
     task.state shouldBe Task.State.Succeeded
@@ -54,7 +58,7 @@ class NativeTaskTest extends UniTest:
 
   test("cancel interrupts a body blocked in Thread.sleep") {
     val started     = new CountDownLatch(1)
-    val interrupted = new java.util.concurrent.atomic.AtomicBoolean(false)
+    val interrupted = new AtomicBoolean(false)
     val task        = Task.run { _ =>
       started.countDown()
       try
@@ -76,4 +80,4 @@ class NativeTaskTest extends UniTest:
     task.state shouldBe Task.State.Cancelled
   }
 
-end NativeTaskTest
+end JvmTaskTest
