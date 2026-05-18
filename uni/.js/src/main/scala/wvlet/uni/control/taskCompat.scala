@@ -56,10 +56,12 @@ private[control] object taskCompat:
   private final val ErrorMsgCapacity   = 4096
   private final val SabBytes           = HeaderBytes + ErrorMsgCapacity
 
-  private final val StateRunning   = 0
-  private final val StateSuccess   = 1
-  private final val StateFailed    = 2
-  private final val StateCancelled = 3
+  // Pinned to Task.State ordinals so reordering the enum can't silently desync the JS worker
+  // (which writes these int codes into the SAB) from the parent's `Task.State` interpretation.
+  private final val StateRunning   = Task.State.Running.ordinal
+  private final val StateSuccess   = Task.State.Succeeded.ordinal
+  private final val StateFailed    = Task.State.Failed.ordinal
+  private final val StateCancelled = Task.State.Cancelled.ordinal
 
   // ---- Public entry points (called from Task.scala) ----
 
@@ -179,8 +181,13 @@ private[control] object taskCompat:
         case s =>
           throw new IllegalStateException(s"unexpected terminal state ${s}")
 
-    override def awaitRx: Rx[Unit] =
+    // Memoised so repeated `awaitRx` calls share the same Rx instance, matching
+    // `TaskImpl.cachedAwaitRx`. `NodeWorkerTask` doesn't extend `TaskImpl` (state lives in the
+    // SAB, not Scala-side), so the memoisation has to be re-declared here.
+    private lazy val cachedAwaitRx: Rx[Unit] =
       Rx.future(completion.future)(using rxCompat.defaultExecutionContext)
+
+    override def awaitRx: Rx[Unit] = cachedAwaitRx
 
     private def readError(): String =
       val len = view.getInt32(OffsetErrorMsgLen, littleEndian = true)
@@ -294,7 +301,7 @@ private[control] object taskCompat:
     * a bare `process` identifier reference, which throws `ReferenceError` in JSDOM's sandbox where
     * `process` isn't a defined global. `typeof` is the canonical undeclared-safe check.
     */
-  private def isNode: Boolean = js
+  private lazy val isNode: Boolean = js
     .eval(
       "typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined'"
     )
@@ -308,7 +315,7 @@ private[control] object taskCompat:
     * bundle, leaving `process.argv[1]` empty), direct `node` invocation, Bun, and Deno. Empty on
     * the browser / non-Node, where `runRegistered` falls back to the microtask path.
     */
-  private def nodeMainScriptUrl: String =
+  private lazy val nodeMainScriptUrl: String =
     if isNode then
       js.`import`.meta.url.asInstanceOf[String]
     else

@@ -75,10 +75,14 @@ class NodeWorkerTaskTest extends UniTest:
   // not trigger eager init (belt-and-braces; the export already forces it).
   NodeWorkerTaskTestRegistry
 
-  private def isNode: Boolean =
-    !js.isUndefined(js.Dynamic.global.process) &&
-      !js.isUndefined(js.Dynamic.global.process.versions) &&
-      !js.isUndefined(js.Dynamic.global.process.versions.node)
+  // Use `typeof` instead of `js.isUndefined(js.Dynamic.global.process)` so the check is
+  // sound under `ModuleKind.NoModule` / JSDOM, where bare `process` access throws
+  // `ReferenceError`. Mirrors `taskCompat.isNode`.
+  private lazy val isNode: Boolean = js
+    .eval(
+      "typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined'"
+    )
+    .asInstanceOf[Boolean]
 
   private def skipIfNotNode(): Unit =
     if !isNode then

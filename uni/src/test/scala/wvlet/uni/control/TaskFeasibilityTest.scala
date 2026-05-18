@@ -70,18 +70,33 @@ class TaskFeasibilityTest extends UniTest:
       }
   }
 
-  test("double cancel is idempotent") {
-    val task = Task.run { _ =>
-      ()
+  test("double cancel is idempotent — second call doesn't change state or overwrite reason") {
+    val task = Task.run { ctx =>
+      // Loop until cancelled so the cancel races land while the task is still Running.
+      while !ctx.isCancelled do
+        (
+      )
+      ctx.checkCancelled()
     }
-    task.cancel()
-    task.cancel() // must not throw or alter the terminal state once observed
+    task.cancel("first")
+    val stateAfterFirst = task.state
+    task.cancel("second") // must not overwrite the recorded reason or flip terminal state
     task
       .awaitRx
-      .transform { _ =>
-        // Don't care if Succeeded (race won by the body) or Cancelled (race won by cancel) —
-        // just need the second cancel to be a no-op against any terminal state.
+      .recover { case e: InterruptedException =>
+        // The first cancel's reason wins — the second is a no-op.
+        e.getMessage shouldBe "first"
+      }
+      .map { _ =>
+        // After the second cancel, isDone holds (terminal state reached).
         task.isDone shouldBe true
+        // The state is Cancelled — the second cancel can't have transitioned it to Succeeded
+        // since the body threw on the first cancel's signal.
+        task.state shouldBe Task.State.Cancelled
+        // Sanity: at least one of the two cancels was observed at the moment of `cancel("first")`
+        // returning, so `stateAfterFirst` should be either Cancelling-style (Running here, since
+        // we dropped the Cancelling state) or already terminal.
+        (stateAfterFirst == Task.State.Running || stateAfterFirst.isTerminal) shouldBe true
       }
   }
 
