@@ -74,7 +74,7 @@ private[control] object taskCompat:
     else
       // Browser: no worker_threads, no main-thread `Atomics.wait`. Fall back to the microtask
       // path with the looked-up body. `await()` still throws; callers use `awaitRx`.
-      run(TaskRegistry.lookup(taskId))
+      run(TaskRegistry.default.lookup(taskId))
 
   // ---- Microtask-scheduled Task (browser fallback, and the Task.run path everywhere on JS) ----
 
@@ -237,7 +237,7 @@ private[control] object taskCompat:
         i += 1
 
     try
-      val body = TaskRegistry.lookup(taskId)
+      val body = TaskRegistry.default.lookup(taskId)
       body(ctx)
       atomicsStore(stateView, 0, StateSuccess)
     catch

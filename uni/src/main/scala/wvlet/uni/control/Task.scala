@@ -116,43 +116,72 @@ end Task
   * running task*; `TaskRegistry` holds *templates of work that can be looked up by id*. They happen
   * to be linked through `runRegistered` but otherwise share no state.
   *
+  * **Instantiable for tests.** A fresh `TaskRegistry()` gives a clean, isolated map — useful for
+  * unit tests that need to verify registration / lookup without leaking into other tests. The
+  * production-default singleton is [[TaskRegistry.default]] and is what [[Task.runRegistered]]
+  * uses; the companion's `register` is a shortcut for `default.register`. This split keeps tests
+  * isolatable without breaking the Node worker-thread mechanism, which requires a globally findable
+  * registry per isolate (see below).
+  *
   * **Why a registry exists at all.** On Scala.js + Node, blocking `Task.await()` requires running
   * the body in a `worker_threads` worker (the main thread can't use `Atomics.wait` while also
   * hosting the body via the event loop — that would deadlock). Worker threads are separate V8
   * isolates with no shared closures, so the body cannot be passed by reference; the worker has to
-  * dynamically import the Scala.js bundle into its own isolate and look up the body by a stable id.
-  * JVM and Native have no such constraint, but the API is uniform across platforms so callers can
-  * write one body and run it anywhere.
+  * dynamically import the Scala.js bundle into its own isolate and look up the body in
+  * [[TaskRegistry.default]] there. JVM and Native have no such constraint, but the API is uniform
+  * across platforms so callers can write one body and run it anywhere.
   *
-  * **Registration must run at module-init time.** Scala.js singletons initialise lazily, but the
-  * worker's bundle re-import only re-runs module-init code. Place `TaskRegistry.register` calls
-  * inside an `object` body and ensure the object is eagerly initialised (typically via a
-  * `@JSExportTopLevel val` marker, or by being referenced from one).
+  * **Registration must run at module-init time** (when using [[TaskRegistry.default]] for
+  * Node-blocking-await use cases). Scala.js singletons initialise lazily, but the worker's bundle
+  * re-import only re-runs module-init code. Place `TaskRegistry.register` calls inside an `object`
+  * body and ensure the object is eagerly initialised (typically via a `@JSExportTopLevel val`
+  * marker, or by being referenced from one).
   */
-object TaskRegistry:
+class TaskRegistry:
 
   private val bodies = scala.collection.mutable.HashMap.empty[String, TaskContext => Unit]
 
   /**
-    * Register a task body under a stable id. Required for Node blocking `await()` via
-    * [[Task.runRegistered]]. Bodies should be registered at module-init time so the worker's bundle
-    * re-import re-populates the registry in the worker isolate.
+    * Register a task body under a stable id. If the id was previously registered, the new body
+    * replaces the old one.
     */
   def register(taskId: String)(body: TaskContext => Unit): Unit = bodies.synchronized {
     bodies.update(taskId, body)
   }
 
   /**
-    * Look up a registered body. Throws `NoSuchElementException` if `taskId` isn't registered in the
-    * current isolate (most commonly because the registering object hasn't been initialised yet —
-    * see [[register]] for the module-init pattern).
+    * Look up a registered body. Throws `NoSuchElementException` if `taskId` isn't registered in
+    * this registry (most commonly because the registering object hasn't been initialised yet — see
+    * the companion's class scaladoc for the module-init pattern).
     */
-  private[control] def lookup(taskId: String): TaskContext => Unit = bodies.synchronized {
+  def lookup(taskId: String): TaskContext => Unit = bodies.synchronized {
     bodies.getOrElse(
       taskId,
       throw new NoSuchElementException(s"No task registered with id '${taskId}'")
     )
   }
+
+  /** True iff a body is registered under this id. Non-throwing. */
+  def isRegistered(taskId: String): Boolean = bodies.synchronized {
+    bodies.contains(taskId)
+  }
+
+end TaskRegistry
+
+object TaskRegistry:
+
+  /** Create a fresh, isolated registry. Mainly useful for unit tests. */
+  def apply(): TaskRegistry = new TaskRegistry()
+
+  /**
+    * The process-default registry. [[Task.runRegistered]] always looks up bodies here, including
+    * the Scala.js worker-thread implementation (the worker reads `TaskRegistry.default` in its own
+    * isolate, repopulated by the worker's bundle re-import).
+    */
+  val default: TaskRegistry = new TaskRegistry()
+
+  /** Shortcut for `TaskRegistry.default.register(taskId)(body)`. */
+  def register(taskId: String)(body: TaskContext => Unit): Unit = default.register(taskId)(body)
 
 end TaskRegistry
 

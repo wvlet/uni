@@ -107,6 +107,38 @@ class TaskFeasibilityTest extends UniTest:
     task.awaitRx
   }
 
+  test("TaskRegistry instances are isolated from each other") {
+    // The whole point of TaskRegistry being a class, not a singleton: tests can spin up a fresh
+    // registry, exercise it, and not leak into other tests or into TaskRegistry.default.
+    val a = TaskRegistry()
+    val b = TaskRegistry()
+    a.register("only-in-a") { _ =>
+      ()
+    }
+    b.register("only-in-b") { _ =>
+      ()
+    }
+
+    a.isRegistered("only-in-a") shouldBe true
+    a.isRegistered("only-in-b") shouldBe false
+    b.isRegistered("only-in-a") shouldBe false
+    b.isRegistered("only-in-b") shouldBe true
+
+    // And neither leaks into the default that `Task.runRegistered` uses.
+    TaskRegistry.default.isRegistered("only-in-a") shouldBe false
+    TaskRegistry.default.isRegistered("only-in-b") shouldBe false
+
+    // Lookup on a fresh registry that doesn't have the id throws.
+    val caught =
+      try
+        TaskRegistry().lookup("missing")
+        null
+      catch
+        case e: NoSuchElementException =>
+          e
+    (caught != null) shouldBe true
+  }
+
   test("cancel(reason) surfaces the reason in the body's InterruptedException") {
     val captured = new java.util.concurrent.atomic.AtomicReference[String]("")
     val task     = Task.run { ctx =>
