@@ -211,11 +211,28 @@ private[control] abstract class TaskImpl extends Task with TaskContext:
       completion.success(())
     catch
       case e: Throwable if cancelFlag.get() =>
-        // Cancel was requested before the body finished — classify the throw as Cancelled even
-        // if the exception type would otherwise be Failed (e.g. a JDBC InterruptedIOException).
+        // Cancel was requested before the body finished — classify the throw as Cancelled and
+        // ensure the surfaced exception is the canonical `InterruptedException` (carrying the
+        // cancel reason). If the body itself threw something else (e.g. a JDBC
+        // `InterruptedIOException` from a cancelled query), attach it as the cause so debugging
+        // info isn't lost.
         stateRef.set(Task.State.Cancelled)
-        failure = e
-        completion.failure(e)
+        val ie =
+          e match
+            case ie: InterruptedException =>
+              ie
+            case other =>
+              val wrapped =
+                new InterruptedException(
+                  if cancelReason == null || cancelReason.isEmpty then
+                    "Task cancelled"
+                  else
+                    cancelReason
+                )
+              wrapped.initCause(other)
+              wrapped
+        failure = ie
+        completion.failure(ie)
       case e: Throwable =>
         stateRef.set(Task.State.Failed)
         failure = e

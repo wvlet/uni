@@ -123,7 +123,7 @@ private[control] object taskCompat:
         if s == StateRunning then
           // Worker crashed before writing — synthesise a Failed terminal state.
           writeError("Worker exited without producing a result")
-          stateView(0) = StateFailed
+          atomicsStore(stateView, 0, StateFailed)
           atomicsNotify(stateView, 0)
         finalizeCompletion()
       }: js.Function1[Int, Unit]
@@ -239,10 +239,10 @@ private[control] object taskCompat:
     try
       val body = Task.lookup(taskId)
       body(ctx)
-      stateView(0) = StateSuccess
+      atomicsStore(stateView, 0, StateSuccess)
     catch
       case _: InterruptedException if ctx.isCancelled =>
-        stateView(0) = StateCancelled
+        atomicsStore(stateView, 0, StateCancelled)
       case e: Throwable =>
         val msg =
           if e.getMessage != null then
@@ -250,7 +250,7 @@ private[control] object taskCompat:
           else
             e.getClass.getName
         writeError(msg)
-        stateView(0) = StateFailed
+        atomicsStore(stateView, 0, StateFailed)
     finally
       atomicsNotify(stateView, 0)
 
@@ -335,6 +335,14 @@ private[control] object taskCompat:
     .Atomics
     .applyDynamic("load")(view, index)
     .asInstanceOf[Int]
+
+  // `Atomics.store` is the memory-barriered counterpart to `Atomics.load` — required so the
+  // parent thread blocking on `Atomics.wait` reliably observes the worker's terminal-state
+  // write. Plain `view(0) = x` assignments to a SAB-backed typed array are visible across
+  // threads in practice on V8/SpiderMonkey, but the spec only guarantees that visibility for
+  // `Atomics.*` accesses.
+  private def atomicsStore(view: Int32Array, index: Int, value: Int): Unit =
+    val _ = js.Dynamic.global.Atomics.applyDynamic("store")(view, index, value)
 
   private def atomicsCompareExchange(
       view: Int32Array,
