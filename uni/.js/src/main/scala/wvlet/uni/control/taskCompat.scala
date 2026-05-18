@@ -290,15 +290,15 @@ private[control] object taskCompat:
     * Browsers (including Web Workers and JSDOM script sandboxes) lack it.
     *
     * Uses `js.eval("typeof process …")` instead of `js.isUndefined(js.Dynamic.global.process)`
-    * because in `ModuleKind.NoModule` (e.g. the `uni-dom-test` JSDOM bundle) the latter
-    * compiles to a bare `process` identifier reference, which throws `ReferenceError` in JSDOM's
-    * sandbox where `process` isn't a defined global. `typeof` is the canonical undeclared-safe
-    * check.
+    * because in `ModuleKind.NoModule` (e.g. the `uni-dom-test` JSDOM bundle) the latter compiles to
+    * a bare `process` identifier reference, which throws `ReferenceError` in JSDOM's sandbox where
+    * `process` isn't a defined global. `typeof` is the canonical undeclared-safe check.
     */
-  private def isNode: Boolean =
-    js.eval(
+  private def isNode: Boolean = js
+    .eval(
       "typeof process !== 'undefined' && typeof process.versions !== 'undefined' && typeof process.versions.node !== 'undefined'"
-    ).asInstanceOf[Boolean]
+    )
+    .asInstanceOf[Boolean]
 
   /**
     * URL of the current Scala.js module — `import.meta.url`. The worker uses this in its dynamic
