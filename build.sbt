@@ -25,7 +25,7 @@ addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
 val SCALA_3                             = "3.8.4"
 val AIRFRAME_VERSION                    = "2026.1.6"
-val AWS_SDK_VERSION                     = "2.44.14"
+val AWS_SDK_VERSION                     = "2.46.7"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
 val JUNIT_PLATFORM_VERSION              = "6.1.0"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.12"
