@@ -16,9 +16,6 @@ addSbtPlugin("org.portable-scala"  % "sbt-scalajs-crossproject" % "1.3.2")
 addSbtPlugin("com.eed3si9n"        % "sbt-buildinfo"            % "0.13.1")
 addSbtPlugin("org.jetbrains.scala" % "sbt-ide-settings"         % "1.1.4")
 
-// For developing server applications
-addSbtPlugin("io.spray" % "sbt-revolver" % "0.10.0")
-
 // For Scala.js
 val SCALAJS_VERSION = sys.env.getOrElse("SCALAJS_VERSION", "1.21.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % SCALAJS_VERSION)
