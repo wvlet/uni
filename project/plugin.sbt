@@ -34,6 +34,6 @@ addDependencyTreePlugin
 
 // For setting explicit versions for each commit
 addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.1")
-addSbtPlugin("org.xerial.sbt" % "sbt-pack"   % "0.23")
+addSbtPlugin("org.xerial.sbt" % "sbt-pack"   % "1.0.0")
 
 scalacOptions ++= Seq("-deprecation", "-feature")
