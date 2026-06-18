@@ -105,6 +105,25 @@ class WebSocketTest extends UniTest:
           loop(attempt + 1)
     loop(0)
 
+  test("isWebSocketUpgrade accepts a comma-separated Connection header") {
+    import io.netty.handler.codec.http.{
+      DefaultFullHttpRequest,
+      HttpHeaderNames,
+      HttpMethod as NettyMethod,
+      HttpVersion
+    }
+    // Browsers/proxies commonly send `Connection: keep-alive, Upgrade`; Netty's containsValue with
+    // ignoreCase=true matches per comma-separated token, so the upgrade must still be detected.
+    val req = DefaultFullHttpRequest(HttpVersion.HTTP_1_1, NettyMethod.GET, "/ws")
+    req.headers().set(HttpHeaderNames.CONNECTION, "keep-alive, Upgrade")
+    req.headers().set(HttpHeaderNames.UPGRADE, "websocket")
+    NettyRequestHandler.isWebSocketUpgrade(req) shouldBe true
+
+    val noUpgrade = DefaultFullHttpRequest(HttpVersion.HTTP_1_1, NettyMethod.GET, "/ws")
+    noUpgrade.headers().set(HttpHeaderNames.CONNECTION, "keep-alive")
+    NettyRequestHandler.isWebSocketUpgrade(noUpgrade) shouldBe false
+  }
+
   test("echo text messages") {
     NettyServer
       .withPort(0)

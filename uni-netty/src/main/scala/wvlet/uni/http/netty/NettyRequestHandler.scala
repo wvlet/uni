@@ -136,9 +136,10 @@ class NettyRequestHandler(
     val handled = AtomicBoolean(false)
     // Release the retained request exactly once: the success path hands ownership to
     // doWebSocketHandshake (released in its finally / on a rejected event-loop task); every other
-    // path — including a synchronous failure inside RxRunner.run — releases here.
+    // path — including a synchronous failure inside RxRunner.runOnce — releases here. runOnce (not
+    // run) suffices: we only need the filter's first response (or its completion) to decide.
     try
-      RxRunner.run(filtered) {
+      RxRunner.runOnce(filtered) {
         case OnNext(resp) =>
           if handled.compareAndSet(false, true) then
             val response = resp.asInstanceOf[Response]
@@ -202,7 +203,10 @@ class NettyRequestHandler(
                 pipeline.addLast("wsHandler", wsHandler)
             pipeline.remove(this)
             // onOpen runs on the WS handler's own (serialized) executor, so it precedes any frame.
-            pipeline.context("wsHandler").executor().execute(() => wsHandler.notifyOpen())
+            // Look the context up by handler instance (type-safe) and null-guard defensively.
+            Option(pipeline.context(wsHandler)).foreach { wsCtx =>
+              wsCtx.executor().execute(() => wsHandler.notifyOpen())
+            }
             future.addListener(
               new ChannelFutureListener:
                 override def operationComplete(f: ChannelFuture): Unit =
