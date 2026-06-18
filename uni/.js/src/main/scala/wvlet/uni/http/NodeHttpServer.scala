@@ -37,7 +37,10 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   private val handler: RxHttpHandler = config.effectiveHandler
 
   private var server: js.Dynamic = null
-  private var running: Boolean   = false
+  // Set synchronously in start() so a second start() before the async bind completes is rejected.
+  private var started: Boolean = false
+  // Set on the async `listening` event; cleared on stop().
+  private var running: Boolean = false
 
   private val readyPromise = Promise[NodeHttpServer]()
 
@@ -45,8 +48,9 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   override def whenReady: Rx[NodeHttpServer] = Rx.future(readyPromise.future)
 
   def start(): Unit =
-    if running then
-      throw IllegalStateException("Server is already running")
+    if started then
+      throw IllegalStateException("Server is already started")
+    started = true
 
     val http = NodeModules.builtin("http")
     server =
@@ -58,20 +62,40 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         ]
       )
 
+    // A bind failure (EADDRINUSE/EACCES) emits `error`, not `listening`. Without this handler the
+    // error is uncaught (process crash) and readyPromise never completes, hanging startAndAwait.
+    val onError: js.Function1[js.Dynamic, Unit] =
+      (err: js.Dynamic) =>
+        val message =
+          if js.isUndefined(err) || err == null then
+            "unknown error"
+          else
+            s"${err}"
+        warn(s"Node server error: ${message}")
+        if !readyPromise.isCompleted then
+          readyPromise.failure(RuntimeException(s"Node server failed to start: ${message}"))
+
     val onListening: js.Function0[Unit] =
       () =>
         running = true
         debug(s"Node server started at ${localAddress}")
         readyPromise.success(this)
 
+    server.applyDynamic("on")("error", onError)
     server.applyDynamic("listen")(config.port, config.host, onListening)
 
   end start
 
   private def handleRequest(req: js.Dynamic, res: js.Dynamic): Unit =
-    val method = HttpMethod
-      .of(req.method.asInstanceOf[String])
-      .getOrElse(throw IllegalArgumentException(s"Unsupported HTTP method: ${req.method}"))
+    // Node accepts arbitrary verbs; an unknown method must not crash the process (the throw would
+    // be uncaught here, outside the onEnd try). Respond with 400 instead.
+    val method =
+      HttpMethod.of(req.method.asInstanceOf[String]) match
+        case Some(m) =>
+          m
+        case None =>
+          writeResponse(res, Response.badRequest(s"Unsupported HTTP method: ${req.method}"))
+          return
     val uri = req.url.asInstanceOf[String]
 
     // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names.
@@ -107,14 +131,22 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   end handleRequest
 
   private def runResponse(res: js.Dynamic, rx: Rx[Response]): Unit =
-    RxRunner.runOnce(rx) {
-      case OnNext(response) =>
-        writeResponse(res, response.asInstanceOf[Response])
-      case OnError(e) =>
-        warn(s"Error in Rx handler: ${e.getMessage}", e)
-        writeResponse(res, Response.internalServerError(e.getMessage))
-      case OnCompletion =>
-        writeResponse(res, Response.notFound)
+    RxRunner.runOnce(rx) { event =>
+      // For async handlers this runs later on the microtask queue, outside handleRequest's
+      // try/catch, so guard the write itself: a failed write (e.g. client gone, headers already
+      // sent) must be logged, not thrown uncaught (which would crash the Node process).
+      try
+        event match
+          case OnNext(response) =>
+            writeResponse(res, response.asInstanceOf[Response])
+          case OnError(e) =>
+            warn(s"Error in Rx handler: ${e.getMessage}", e)
+            writeResponse(res, Response.internalServerError(e.getMessage))
+          case OnCompletion =>
+            writeResponse(res, Response.notFound)
+      catch
+        case e: Throwable =>
+          warn(s"Failed to write response: ${e.getMessage}", e)
     }
 
   private def writeResponse(res: js.Dynamic, response: Response): Unit =
@@ -206,17 +238,33 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
   override def isRunning: Boolean = running
 
-  override def localPort: Int =
+  // The bound address object (`{address, port, family}`), or null before start() / before the
+  // `listening` event fires (Node's `server.address()` returns null until then).
+  private def boundAddress: js.Dynamic =
     if server == null then
-      -1
+      null
     else
       val addr = server.applyDynamic("address")()
-      if js.isUndefined(addr) || addr == null then
-        -1
+      if js.isUndefined(addr) then
+        null
       else
-        addr.port.asInstanceOf[Int]
+        addr
 
-  override def localAddress: String = s"${config.host}:${localPort}"
+  override def localPort: Int =
+    val addr = boundAddress
+    if addr == null then
+      -1
+    else
+      addr.port.asInstanceOf[Int]
+
+  // Report the actually-bound host:port (matching Netty), falling back to the configured host
+  // before the server is listening.
+  override def localAddress: String =
+    val addr = boundAddress
+    if addr == null then
+      s"${config.host}:${localPort}"
+    else
+      s"${addr.address.asInstanceOf[String]}:${addr.port.asInstanceOf[Int]}"
 
 end NodeHttpServer
 

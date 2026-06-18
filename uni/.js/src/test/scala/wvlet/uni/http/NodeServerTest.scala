@@ -23,6 +23,9 @@ import wvlet.uni.test.UniTest
   */
 class NodeServerTest extends UniTest:
 
+  private given scala.concurrent.ExecutionContext =
+    scala.scalajs.concurrent.JSExecutionContext.queue
+
   private def asyncClient(server: HttpServer): HttpAsyncClient =
     Http.client.withBaseUri(s"http://localhost:${server.localPort}").newAsyncClient
 
@@ -96,6 +99,36 @@ class NodeServerTest extends UniTest:
           (server.localPort > 0) shouldBe true
           server.isRunning shouldBe true
         }
+      }
+  }
+
+  test("should stream Server-Sent Events") {
+    import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+    import scala.concurrent.Promise
+
+    val events = Seq(ServerSentEvent.data("hello"), ServerSentEvent.data("world"))
+    NodeServer
+      .withRxHandler { _ =>
+        Rx.single(Response.eventStream(Rx.fromSeq(events)))
+      }
+      .withPort(0)
+      .startAndAwait { server =>
+        // Collect the streamed events into a single terminal value (the test framework completes
+        // on the first emission, so aggregate via the stream's OnCompletion).
+        val received = Promise[Seq[String]]()
+        val buffer   = scala.collection.mutable.ListBuffer.empty[String]
+        RxRunner.run(asyncClient(server).sendSSE(Request.get("/events"))) {
+          case OnNext(event) =>
+            buffer += event.asInstanceOf[ServerSentEvent].data
+          case OnError(e) =>
+            received.failure(e)
+          case OnCompletion =>
+            received.success(buffer.toSeq)
+        }
+        Rx.future(received.future)
+          .map { data =>
+            data shouldBe Seq("hello", "world")
+          }
       }
   }
 

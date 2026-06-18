@@ -66,11 +66,16 @@ trait HttpServerConfig:
     */
   def startAndAwait[A](block: HttpServer => Rx[A]): Rx[A] =
     val server = start()
-    server
-      .whenReady
-      .flatMap(block)
-      .tapOn { case _ =>
+    // Stop the server once the block's stream TERMINATES, not on each emitted value:
+    //  - on failure: tapOnFailure stops (concat won't run a failed source's tail)
+    //  - on normal completion (including zero emissions): the appended cleanup runs stop and emits
+    //    nothing, so a block returning Rx.empty still shuts the server down.
+    val cleanup = Rx
+      .single(())
+      .flatMap { _ =>
         server.stop()
+        Rx.empty[A]
       }
+    server.whenReady.flatMap(block).tapOnFailure(_ => server.stop()).concat(cleanup)
 
 end HttpServerConfig
