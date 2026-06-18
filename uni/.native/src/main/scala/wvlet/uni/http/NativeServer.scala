@@ -55,7 +55,9 @@ case class NativeServerConfig(
     // Maximum size (bytes) of request headers + body
     maxRequestSize: Int = 1024 * 1024,
     // Size of the worker thread pool that handles connections
-    workerThreads: Int = 16
+    workerThreads: Int = 16,
+    // Max time to wait for a handler's Rx to produce a response before returning 503
+    handlerTimeoutMillis: Long = 30000
 ) extends HttpServerConfig:
 
   def withName(name: String): NativeServerConfig = copy(name = name)
@@ -93,6 +95,10 @@ case class NativeServerConfig(
   def withWorkerThreads(threads: Int): NativeServerConfig =
     require(threads > 0, "workerThreads must be positive")
     copy(workerThreads = threads)
+
+  def withHandlerTimeoutMillis(millis: Long): NativeServerConfig =
+    require(millis > 0, "handlerTimeoutMillis must be positive")
+    copy(handlerTimeoutMillis = millis)
 
   /**
     * Start the server and return the running instance. Binding is synchronous, so the inherited

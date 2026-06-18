@@ -145,9 +145,23 @@ Reuse: shared `HttpServer`/`HttpServerConfig`/`RxHttpHandler`/`Request`/`Respons
   therefore uses a raw POSIX-socket client** (a stronger end-to-end check anyway). Fixing/auditing
   the Native curl client is a separate follow-up (see below).
 
+- **Review hardening (/code-review + Gemini):** reject unparseable/oversized and conflicting
+  duplicate `Content-Length` headers (request-smuggling defense); suppress the body for HEAD and
+  204/304/1xx responses; bound the handler `Rx` await with a timeout (→503) so a never-completing
+  handler can't wedge a worker; guard the accept-loop `execute` against `RejectedExecutionException`
+  (close the fd, don't kill the accept thread); validate the port range and reject an unparseable
+  bind host (`inet_addr` INADDR_NONE); switch the per-connection read buffer to an `ArrayBuffer`
+  (amortized O(1)) to kill an O(n²) DoS amplifier. Added regression tests for the security fixes.
+- **SO_RCVTIMEO read timeout attempted and dropped:** posixlib declares `suseconds_t = CLong`, but
+  macOS's `timeval.tv_usec` is a 4-byte `__int32_t`, so the posixlib `timeval` is the wrong layout
+  there and `setsockopt(SO_RCVTIMEO, ...)` made `recv` return immediately. Dropped for the MVP
+  (worker threads are daemon threads, so shutdown can't hang the process; handler-await is bounded).
+  A portable read/idle timeout is a follow-up.
+
 ## Out of scope (follow-ups)
 - **Investigate the Native libcurl client `CURLE_URL_MALFORMAT` bug** (variadic `curl_easy_setopt`
   binding) discovered while testing — likely affects all Native client requests.
+- A portable per-connection **read/idle timeout** (the posixlib `timeval` layout is wrong on macOS).
 - SSE (`Response.events`) + chunked transfer encoding on Native (parallel to Netty/Node).
 - WebSocket on Native (would build on this server, like the JVM WS server builds on Netty).
 - A `poll`-based non-blocking event loop / TLS.

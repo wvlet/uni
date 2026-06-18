@@ -81,7 +81,12 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
       else
         val pool = workerPool
         if pool != null && running.get() then
-          pool.execute(() => handleConnection(clientFd))
+          // execute can be rejected if stop() raced in between; close the fd rather than leak it.
+          try
+            pool.execute(() => handleConnection(clientFd))
+          catch
+            case NonFatal(_) =>
+              NativeSocket.close(clientFd)
         else
           NativeSocket.close(clientFd)
 
@@ -99,15 +104,21 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           case ReadResult.BadRequest(message) =>
             NativeSocket.sendAll(
               clientFd,
-              HttpResponseWriter.serialize(Response.badRequest(message), keepAlive = false)
+              HttpResponseWriter.serialize(
+                Response.badRequest(message),
+                keepAlive = false,
+                includeBody = true
+              )
             )
             continue = false
           case ReadResult.Req(request) =>
             val response  = runHandler(request)
             val keepAlive = clientWantsKeepAlive(request)
-            val sent      = NativeSocket.sendAll(
+            // A HEAD response carries headers (incl. Content-Length) but no body.
+            val includeBody = request.method != HttpMethod.HEAD
+            val sent        = NativeSocket.sendAll(
               clientFd,
-              HttpResponseWriter.serialize(response, keepAlive)
+              HttpResponseWriter.serialize(response, keepAlive, includeBody)
             )
             if !keepAlive || !sent then
               continue = false
@@ -141,8 +152,12 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           result.compareAndSet(null, Response.notFound)
           latch.countDown()
       }
-      latch.await()
-      result.get()
+      // Bound the wait so a handler whose Rx never completes can't wedge the worker thread forever.
+      if latch.await(config.handlerTimeoutMillis, TimeUnit.MILLISECONDS) then
+        result.get()
+      else
+        warn(s"Handler timed out after ${config.handlerTimeoutMillis} ms")
+        Response.serviceUnavailable
     catch
       case NonFatal(e) =>
         warn(s"Error handling request: ${e.getMessage}", e)

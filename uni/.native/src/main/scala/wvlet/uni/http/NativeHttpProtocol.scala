@@ -14,6 +14,7 @@
 package wvlet.uni.http
 
 import java.nio.charset.StandardCharsets
+import scala.collection.mutable
 
 /**
   * Result of reading one request from a keep-alive connection.
@@ -33,7 +34,9 @@ private[http] enum ReadResult:
   */
 private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxRequestSize: Int):
 
-  private var buf: Array[Byte] = Array.emptyByteArray
+  // Amortized-O(1) append buffer (indexed scan, single slice per request) — avoids the O(n^2) of
+  // repeatedly concatenating Array[Byte].
+  private val buf = mutable.ArrayBuffer.empty[Byte]
 
   /** Append another chunk to the buffer. Returns false on EOF. */
   private def fill(): Boolean =
@@ -41,7 +44,7 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
     if chunk.isEmpty then
       false
     else
-      buf = buf ++ chunk
+      buf ++= chunk
       true
 
   /** Index just past the `\r\n\r\n` header terminator, or -1 if not yet present. */
@@ -69,7 +72,7 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
       endIdx = headerEnd
 
     // Header block is bytes [0, endIdx-4); headers are ASCII/Latin-1.
-    val headerText = new String(buf, 0, endIdx - 4, StandardCharsets.ISO_8859_1)
+    val headerText = new String(buf.slice(0, endIdx - 4).toArray, StandardCharsets.ISO_8859_1)
     val lines      = headerText.split("\r\n", -1)
     if lines.isEmpty || lines(0).isEmpty then
       return ReadResult.BadRequest("Empty request line")
@@ -94,18 +97,30 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
     if headers.get(HttpHeader.TransferEncoding).exists(_.toLowerCase.contains("chunked")) then
       return ReadResult.BadRequest("Chunked request bodies are not supported")
 
-    val contentLength = headers.get(HttpHeader.ContentLength).flatMap(_.toIntOption).getOrElse(0)
-    if contentLength < 0 || contentLength > maxRequestSize then
-      return ReadResult.BadRequest("Invalid Content-Length")
+    // Resolve Content-Length defensively: reject an unparseable/oversized value or conflicting
+    // duplicate headers, rather than silently treating the body as empty (which would leave the
+    // declared body in the buffer and desync the next keep-alive read — request smuggling).
+    val contentLengthValues = headers.getAll(HttpHeader.ContentLength).distinct
+    val contentLength       =
+      if contentLengthValues.isEmpty then
+        0
+      else if contentLengthValues.sizeIs > 1 then
+        return ReadResult.BadRequest("Conflicting Content-Length headers")
+      else
+        contentLengthValues.head.toIntOption match
+          case Some(n) if n >= 0 && n <= maxRequestSize =>
+            n
+          case _ =>
+            return ReadResult.BadRequest("Invalid Content-Length")
 
     // Ensure the full body is buffered.
     while buf.length - endIdx < contentLength do
       if !fill() then
         return ReadResult.BadRequest("Incomplete request body")
 
-    val body = buf.slice(endIdx, endIdx + contentLength)
-    // Retain any bytes past this request for the next (pipelined/keep-alive) read.
-    buf = buf.drop(endIdx + contentLength)
+    val body = buf.slice(endIdx, endIdx + contentLength).toArray
+    // Drop the consumed bytes, retaining any leftover for the next (pipelined/keep-alive) request.
+    buf.remove(0, endIdx + contentLength)
 
     HttpMethod.of(methodName) match
       case Some(method) =>
@@ -123,14 +138,19 @@ end HttpConnectionReader
   */
 private[http] object HttpResponseWriter:
 
-  def serialize(response: Response, keepAlive: Boolean): Array[Byte] =
-    val body = response.content.toContentBytes
-    val sb   = StringBuilder()
-    sb.append("HTTP/1.1 ")
-      .append(response.status.code)
-      .append(" ")
-      .append(response.status.reason)
-      .append("\r\n")
+  /**
+    * @param includeBody
+    *   false for responses to HEAD requests — headers (incl. Content-Length) are written but the
+    *   body bytes are omitted, per RFC 9110.
+    */
+  def serialize(response: Response, keepAlive: Boolean, includeBody: Boolean): Array[Byte] =
+    val code = response.status.code
+    // 1xx, 204, and 304 responses must not carry a message body or Content-Length.
+    val bodyForbidden = code == 204 || code == 304 || (code >= 100 && code < 200)
+    val body          = response.content.toContentBytes
+
+    val sb = StringBuilder()
+    sb.append("HTTP/1.1 ").append(code).append(" ").append(response.status.reason).append("\r\n")
 
     // Copy response headers, but skip the ones we set explicitly below to avoid duplicates.
     response
@@ -141,13 +161,15 @@ private[http] object HttpResponseWriter:
           sb.append(name).append(": ").append(value).append("\r\n")
       }
 
-    response
-      .content
-      .contentType
-      .foreach { ct =>
-        sb.append(HttpHeader.ContentType).append(": ").append(ct.value).append("\r\n")
-      }
-    sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n")
+    if !bodyForbidden then
+      response
+        .content
+        .contentType
+        .foreach { ct =>
+          sb.append(HttpHeader.ContentType).append(": ").append(ct.value).append("\r\n")
+        }
+      sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n")
+
     sb.append(HttpHeader.Connection)
       .append(": ")
       .append(
@@ -160,10 +182,10 @@ private[http] object HttpResponseWriter:
     sb.append("\r\n")
 
     val head = sb.toString.getBytes(StandardCharsets.ISO_8859_1)
-    if body.isEmpty then
-      head
-    else
+    if includeBody && !bodyForbidden && body.nonEmpty then
       head ++ body
+    else
+      head
 
   end serialize
 

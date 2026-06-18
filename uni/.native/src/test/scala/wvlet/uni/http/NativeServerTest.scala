@@ -167,6 +167,48 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should not send a body for a HEAD request") {
+    NativeServer
+      .withHandler(req => Response.ok(s"Hello from ${req.path}"))
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "HEAD /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 200
+        // Content-Length reflects the would-be body, but no body is sent (RFC 9110).
+        response.headers.get("content-length") shouldBe Some("16")
+        response.body shouldBe ""
+      }
+  }
+
+  test("should reject conflicting Content-Length headers with 400") {
+    NativeServer
+      .withHandler(_ => Response.ok("ok"))
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nContent-Length: 5\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 400
+      }
+  }
+
+  test("should reject a non-numeric Content-Length with 400") {
+    NativeServer
+      .withHandler(_ => Response.ok("ok"))
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "POST /x HTTP/1.1\r\nHost: localhost\r\nContent-Length: abc\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 400
+      }
+  }
+
   test("should report a bound ephemeral port") {
     NativeServer
       .withPort(0)

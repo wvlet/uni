@@ -36,6 +36,8 @@ private[http] object NativeSocket:
     * and the actually-bound port.
     */
   def bindAndListen(host: String, port: Int, backlog: Int): (Int, Int) =
+    if port < 0 || port > 65535 then
+      throw HttpException.connectionFailed(s"Invalid port: ${port}")
     val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
     if fd < 0 then
       throw HttpException.connectionFailed("Failed to create socket")
@@ -82,7 +84,11 @@ private[http] object NativeSocket:
       val ia = stackalloc[in_addr]()
       Zone.acquire { implicit z =>
         // in_addr is CStruct1[in_addr_t]; its single field is s_addr.
-        ia._1 = inet.inet_addr(toCString(normalized))
+        val parsed = inet.inet_addr(toCString(normalized))
+        // inet_addr returns INADDR_NONE (0xFFFFFFFF) for an unparseable address (no DNS here).
+        if parsed == 0xffffffff.toUInt then
+          throw HttpException.connectionFailed(s"Invalid bind host: ${host}")
+        ia._1 = parsed
       }
       addr.sin_addr = !ia
 
