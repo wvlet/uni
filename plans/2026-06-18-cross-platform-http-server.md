@@ -149,6 +149,17 @@ cross-project `.js` tree alongside `FetchChannel`/`NodeSyncHttpChannel`.
 - `start[A](block)` lives on the shared trait; backends override only `start(): HttpServer` with a
   covariant return type (`NettyHttpServer` / `NodeHttpServer`). Netty's previous bespoke
   `start[A](block)` and `effectiveHandler` were removed in favor of the shared ones.
+- Readiness was promoted to a first-class cross-platform concept (`HttpServer.whenReady: Rx[...]`,
+  `HttpServerConfig.startAndAwait`) after review: Netty completes immediately (sync bind), Node on
+  the `listening` event. The sync `start[A](block)` is documented as safe only for sync-binding
+  backends.
+- **Node hardening (from `/code-review` + Gemini):** wrap the whole synchronous request-init in
+  try/catch (unknown verb → 400, other init errors → 500) so a bad request can't crash the process;
+  register `server.on("error")` so a bind failure fails `whenReady` instead of crashing/hanging;
+  guard double-start with a synchronous `started` flag; guard the async response write; cancel the
+  SSE `response.events` subscription on the client `close` event; and make `startAndAwait` stop the
+  server on stream *termination* (incl. zero-emission completion) rather than per emitted value
+  (`tapOn` does not fire on `OnCompletion`, so an `Rx.empty` block would otherwise leak the server).
 
 ## Out of scope (follow-up PRs)
 - WebSocket handlers/routes (server + cross-platform client).
