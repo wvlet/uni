@@ -29,6 +29,14 @@ trait HttpServerConfig:
   def filters: Seq[RxHttpFilter]
 
   /**
+    * WebSocket routes registered on this server, matched by path during the HTTP upgrade handshake.
+    * Defaults to none; backends that support WebSocket (currently the JVM Netty backend) consume
+    * this list. Kept separate from [[handler]]/[[filters]] because WebSocket connections are
+    * stateful and bidirectional rather than request/response.
+    */
+  def webSocketRoutes: Seq[WebSocketRoute] = Nil
+
+  /**
     * The request handler with all configured filters applied, in order. Shared by every backend so
     * filter semantics stay consistent across platforms.
     */

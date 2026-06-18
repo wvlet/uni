@@ -19,7 +19,9 @@ import wvlet.uni.http.{
   Request,
   Response,
   RxHttpFilter,
-  RxHttpHandler
+  RxHttpHandler,
+  WebSocketHandler,
+  WebSocketRoute
 }
 import wvlet.uni.rx.Rx
 
@@ -67,7 +69,12 @@ case class NettyServerConfig(
     // run on a separate thread pool instead of Netty's event loop threads.
     // Set this to match expected concurrent long-running requests (e.g., upstream
     // proxy calls) to prevent them from starving the event loop.
-    handlerExecutorThreads: Option[Int] = None
+    handlerExecutorThreads: Option[Int] = None,
+    // WebSocket routes, matched by path during the HTTP upgrade handshake.
+    override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
+    // Maximum size (in bytes) of an inbound WebSocket payload. Bounds both a single frame's payload
+    // and the aggregated message (continuation frames are coalesced).
+    webSocketMaxFrameSize: Int = 1024 * 1024
 ) extends HttpServerConfig:
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
@@ -130,6 +137,28 @@ case class NettyServerConfig(
   def withFilters(filters: Seq[RxHttpFilter]): NettyServerConfig = copy(filters =
     this.filters ++ filters
   )
+
+  /**
+    * Register a WebSocket route at the given path. The handler factory creates a fresh
+    * [[WebSocketHandler]] per accepted connection.
+    */
+  def withWebSocketRoute(path: String)(
+      handlerFactory: Request => WebSocketHandler
+  ): NettyServerConfig = withWebSocketRoute(path, RxHttpFilter.identity)(handlerFactory)
+
+  /**
+    * Register a WebSocket route with a filter that gates the upgrade handshake (e.g. for auth).
+    * Returning a non-2xx response (or an empty `Rx`) from the filter rejects the upgrade.
+    */
+  def withWebSocketRoute(path: String, filter: RxHttpFilter)(
+      handlerFactory: Request => WebSocketHandler
+  ): NettyServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  )
+
+  def withWebSocketMaxFrameSize(sizeInBytes: Int): NettyServerConfig =
+    require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
+    copy(webSocketMaxFrameSize = sizeInBytes)
 
   /**
     * Start the server and return the running server instance
