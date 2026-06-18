@@ -72,7 +72,8 @@ case class NettyServerConfig(
     handlerExecutorThreads: Option[Int] = None,
     // WebSocket routes, matched by path during the HTTP upgrade handshake.
     override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
-    // Maximum size (in bytes) of a single inbound WebSocket message (frames are aggregated).
+    // Maximum size (in bytes) of an inbound WebSocket payload. Bounds both a single frame's payload
+    // and the aggregated message (continuation frames are coalesced).
     webSocketMaxFrameSize: Int = 1024 * 1024
 ) extends HttpServerConfig:
 

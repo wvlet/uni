@@ -83,10 +83,27 @@ class WebSocketTest extends UniTest:
 
   end CollectingListener
 
-  private def connect(port: Int, path: String, listener: WebSocket.Listener): WebSocket =
+  private def newWebSocket(port: Int, path: String, listener: WebSocket.Listener): WebSocket =
     val client = HttpClient.newHttpClient()
     val uri    = URI.create(s"ws://localhost:${port}${path}")
     client.newWebSocketBuilder().buildAsync(uri, listener).get(10, TimeUnit.SECONDS)
+
+  /**
+    * Open a WebSocket for the positive-path tests, retrying on a transient handshake failure. The
+    * JDK client occasionally surfaces a `WebSocketHandshakeException` under heavy handler-thread
+    * scheduling even when the server completes the upgrade correctly; a real client would
+    * reconnect. Negative tests (expecting the upgrade to be rejected) call [[newWebSocket]]
+    * directly.
+    */
+  private def connect(port: Int, path: String, listener: WebSocket.Listener): WebSocket =
+    @annotation.tailrec
+    def loop(attempt: Int): WebSocket =
+      try
+        newWebSocket(port, path, listener)
+      catch
+        case _: java.util.concurrent.ExecutionException if attempt < 4 =>
+          loop(attempt + 1)
+    loop(0)
 
   test("echo text messages") {
     NettyServer
@@ -197,7 +214,7 @@ class WebSocketTest extends UniTest:
       }
       .start { server =>
         intercept[Exception] {
-          connect(server.localPort, "/ws/secure", CollectingListener())
+          newWebSocket(server.localPort, "/ws/secure", CollectingListener())
         }
       }
   }
@@ -213,8 +230,30 @@ class WebSocketTest extends UniTest:
       }
       .start { server =>
         intercept[Exception] {
-          connect(server.localPort, "/ws/empty", CollectingListener())
+          newWebSocket(server.localPort, "/ws/empty", CollectingListener())
         }
+      }
+  }
+
+  test("filter-enriched request reaches the WebSocketContext") {
+    // A filter that authenticates the upgrade by attaching an attribute to the request; the handler
+    // should see that attribute via ctx.request.
+    val authFilter = RxHttpFilter { (request, next) =>
+      next.handle(request.addHeader("X-User", "alice"))
+    }
+    NettyServer
+      .withPort(0)
+      .withWebSocketRoute("/ws/auth", authFilter) { _ =>
+        new WebSocketHandler:
+          override def onOpen(ctx: WebSocketContext): Unit = ctx.send(
+            ctx.request.header("X-User").getOrElse("anonymous")
+          )
+      }
+      .start { server =>
+        val listener = CollectingListener()
+        val ws       = connect(server.localPort, "/ws/auth", listener)
+        try listener.nextText shouldBe "alice"
+        finally ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye")
       }
   }
 

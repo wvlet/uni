@@ -110,6 +110,7 @@ private[netty] class NettyWebSocketHandler(
       try
         handler.onClose(wsContext)
       catch
+        // onClose errors are logged, not routed to onError, to avoid re-entrancy during teardown.
         case NonFatal(e) =>
           warn(e)
 
