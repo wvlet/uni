@@ -296,19 +296,21 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       else
         addr
 
+  // Before the server is listening, fall back to the configured port (matching NettyHttpServer,
+  // which returns config.port pre-bind) rather than a -1 sentinel, for cross-backend consistency.
   override def localPort: Int =
     val addr = boundAddress
     if addr == null then
-      -1
+      config.port
     else
       addr.port.asInstanceOf[Int]
 
-  // Report the actually-bound host:port (matching Netty), falling back to the configured host
-  // before the server is listening.
+  // Report the actually-bound host:port (matching Netty), falling back to the configured host:port
+  // before the server is listening. Reads boundAddress once rather than via localPort.
   override def localAddress: String =
     val addr = boundAddress
     if addr == null then
-      s"${config.host}:${localPort}"
+      s"${config.host}:${config.port}"
     else
       s"${addr.address.asInstanceOf[String]}:${addr.port.asInstanceOf[Int]}"
 
