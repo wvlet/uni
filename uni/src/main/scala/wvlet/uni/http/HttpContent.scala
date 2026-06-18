@@ -120,6 +120,21 @@ object HttpContent:
     else
       ByteContent(b, Some(contentType))
 
+  /**
+    * Build byte content from a request/response body and its headers, resolving the content type
+    * from the `Content-Type` header (falling back to `application/octet-stream`). Shared by HTTP
+    * server backends when converting an inbound request body.
+    */
+  def fromBytes(data: Array[Byte], headers: HttpMultiMap): HttpContent =
+    if data.isEmpty then
+      Empty
+    else
+      val ct = headers
+        .get(HttpHeader.ContentType)
+        .flatMap(ContentType.parse)
+        .getOrElse(ContentType.ApplicationOctetStream)
+      ByteContent(data, Some(ct))
+
   def json(j: JSONValue): HttpContent = JsonContent(j)
 
   def multipart(mp: Multipart): HttpContent = MultipartContent(mp)

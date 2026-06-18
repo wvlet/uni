@@ -195,27 +195,14 @@ object NodeSyncHttpChannel:
   // thread gives up waiting.
   private final val WorkerGraceMillis = 5000
 
-  // Load Node's `worker_threads` lazily at call time rather than via a static `@JSImport`.
-  // `process.getBuiltinModule` (Node 20.16+ / 22.3+) works in both CommonJS and ESM; the global
-  // `require` is the fallback for older Node / NoModule builds. Being a runtime call, this is
-  // invisible to browser bundlers — a browser bundle that links `JSHttpChannelFactory` still
-  // builds, and simply never reaches here because `isNode` is false.
-  private[http] def workerThreads: js.Dynamic =
-    val process = js.Dynamic.global.process
-    if !js.isUndefined(process) && !js.isUndefined(process.getBuiltinModule) then
-      process.applyDynamic("getBuiltinModule")("worker_threads")
-    else
-      js.Dynamic.global.applyDynamic("require")("worker_threads")
+  // Load Node's `worker_threads` lazily at call time (see NodeModules.builtin for why).
+  private[http] def workerThreads: js.Dynamic = NodeModules.builtin("worker_threads")
 
   /**
-    * True on a Node-compatible runtime, detected by `process.versions.node`. Bun and Deno both set
-    * it (they target Node compatibility) and run this channel fine; browsers — including web
-    * workers — lack it.
+    * True on a Node-compatible runtime (Node, Bun, Deno). Browsers — including web workers — lack
+    * it.
     */
-  def isNode: Boolean =
-    !js.isUndefined(js.Dynamic.global.process) &&
-      !js.isUndefined(js.Dynamic.global.process.versions) &&
-      !js.isUndefined(js.Dynamic.global.process.versions.node)
+  def isNode: Boolean = NodeModules.isNode
 
   // `SharedArrayBuffer` has no typed binding in scalajs-library, so it's accessed via js.Dynamic.
   // Scala.js disallows loading `js.Dynamic.global` itself as a value, so resolve it lazily.

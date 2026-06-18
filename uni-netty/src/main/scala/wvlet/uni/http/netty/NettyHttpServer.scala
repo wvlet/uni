@@ -28,7 +28,9 @@ import io.netty.handler.codec.http.{
 }
 import io.netty.handler.stream.ChunkedWriteHandler
 import io.netty.util.concurrent.DefaultEventExecutorGroup
+import wvlet.uni.http.HttpServer
 import wvlet.uni.log.LogSupport
+import wvlet.uni.rx.Rx
 import wvlet.uni.util.ThreadUtil
 
 import java.net.InetSocketAddress
@@ -38,7 +40,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /**
   * Netty-based HTTP server implementation
   */
-class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
+class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupport:
   private var bossGroup: EventLoopGroup                               = null
   private var workerGroup: EventLoopGroup                             = null
   private var handlerExecutorGroup: Option[DefaultEventExecutorGroup] = None
@@ -55,15 +57,6 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
 
   @volatile
   private var shutdownHook: Option[Thread] = None
-
-  private def effectiveHandler: RxHttpHandler =
-    if config.filters.isEmpty then
-      config.handler
-    else
-      val chained = RxHttpFilter.chain(config.filters)
-      RxHttpHandler { request =>
-        chained.apply(request, config.handler)
-      }
 
   def start(): Unit =
     if stopped.get() then
@@ -96,7 +89,7 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
         )
       }
 
-    val handler = effectiveHandler
+    val handler = config.effectiveHandler
 
     val bootstrap = ServerBootstrap()
     bootstrap
@@ -142,7 +135,7 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
 
   end start
 
-  def stop(): Unit =
+  override def stop(): Unit =
     if !stopped.compareAndSet(false, true) then
       return
 
@@ -221,19 +214,30 @@ class NettyHttpServer(config: NettyServerConfig) extends LogSupport:
     shutdownHook = None
   }
 
-  def awaitTermination(): Unit =
+  override def awaitTermination(): Unit =
     if channel != null then
       channel.closeFuture().sync()
 
-  def isRunning: Boolean = started.get() && !stopped.get()
+  override def isRunning: Boolean = started.get() && !stopped.get()
 
-  def localAddress: InetSocketAddress =
+  // Netty binds synchronously in start() (bootstrap.bind(...).sync()), so the server is ready as
+  // soon as this instance is returned.
+  override def whenReady: Rx[HttpServer] = Rx.single(this)
+
+  /**
+    * The bound socket address. JVM-specific accessor exposing the underlying `InetSocketAddress`.
+    */
+  def localSocketAddress: InetSocketAddress =
     if channel != null then
       channel.localAddress().asInstanceOf[InetSocketAddress]
     else
       InetSocketAddress(config.host, config.port)
 
-  def localPort: Int = localAddress.getPort
+  override def localAddress: String =
+    val addr = localSocketAddress
+    s"${addr.getHostString}:${addr.getPort}"
+
+  override def localPort: Int = localSocketAddress.getPort
 
 end NettyHttpServer
 
