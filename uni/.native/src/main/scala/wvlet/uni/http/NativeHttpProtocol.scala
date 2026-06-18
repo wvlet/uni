@@ -47,6 +47,8 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
       buf ++= chunk
       true
 
+  private def isHttpWhitespace(b: Byte): Boolean = b == '\r' || b == '\n' || b == ' ' || b == '\t'
+
   /** Index just past the `\r\n\r\n` header terminator, or -1 if not yet present. */
   private def headerEnd: Int =
     var i = 0
@@ -64,8 +66,9 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
       if buf.length > maxRequestSize then
         return ReadResult.BadRequest("Request header too large")
       if !fill() then
-        // Clean EOF with no pending bytes = connection closed; partial data = malformed.
-        return if buf.isEmpty then
+        // Clean EOF: an empty or whitespace-only buffer (e.g. a trailing CRLF after a keep-alive
+        // request) means the connection closed; anything else is a truncated request.
+        return if buf.forall(isHttpWhitespace) then
           ReadResult.Closed
         else
           ReadResult.BadRequest("Incomplete request")
@@ -73,8 +76,9 @@ private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxReques
 
     // Header block is bytes [0, endIdx-4); headers are ASCII/Latin-1.
     val headerText = new String(buf.slice(0, endIdx - 4).toArray, StandardCharsets.ISO_8859_1)
-    val lines      = headerText.split("\r\n", -1)
-    if lines.isEmpty || lines(0).isEmpty then
+    // Per RFC 7230, tolerate empty line(s) before the request line.
+    val lines = headerText.split("\r\n", -1).dropWhile(_.isEmpty)
+    if lines.isEmpty then
       return ReadResult.BadRequest("Empty request line")
 
     val requestLine = lines(0).split(" ")
@@ -162,12 +166,14 @@ private[http] object HttpResponseWriter:
       }
 
     if !bodyForbidden then
-      response
-        .content
-        .contentType
-        .foreach { ct =>
-          sb.append(HttpHeader.ContentType).append(": ").append(ct.value).append("\r\n")
-        }
+      // Prefer an explicitly-set Content-Type header over the content's default type.
+      val contentType = response
+        .headers
+        .get(HttpHeader.ContentType)
+        .orElse(response.content.contentType.map(_.value))
+      contentType.foreach { ct =>
+        sb.append(HttpHeader.ContentType).append(": ").append(ct).append("\r\n")
+      }
       sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n")
 
     sb.append(HttpHeader.Connection)

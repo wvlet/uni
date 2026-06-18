@@ -209,6 +209,20 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should honor an explicitly-set response Content-Type") {
+    NativeServer
+      .withHandler(_ => Response.ok("{}").withContentType(ContentType.ApplicationJson))
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "GET /j HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 200
+        response.headers.get("content-type") shouldBe Some("application/json")
+      }
+  }
+
   test("should report a bound ephemeral port") {
     NativeServer
       .withPort(0)

@@ -99,7 +99,11 @@ private[http] object NativeSocket:
       val outAddr = stackalloc[sockaddr_in]()
       val outLen  = stackalloc[socklen_t]()
       !outLen = sizeof[sockaddr_in].toUInt
-      csocket.getsockname(fd, outAddr.asInstanceOf[Ptr[sockaddr]], outLen)
+      // Check the return: on failure outAddr is unpopulated (stackalloc isn't zeroed), so reading
+      // sin_port would yield a garbage port.
+      if csocket.getsockname(fd, outAddr.asInstanceOf[Ptr[sockaddr]], outLen) < 0 then
+        unistd.close(fd)
+        throw HttpException.connectionFailed("Failed to resolve the bound port (getsockname)")
       inet.ntohs(outAddr.sin_port).toInt
 
   /**

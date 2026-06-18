@@ -75,9 +75,11 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
       val clientFd = NativeSocket.accept(serverFd)
       if clientFd < 0 then
         // A failed accept while still running is logged; while stopping it means the listening
-        // socket was closed, so exit the loop.
+        // socket was closed, so exit the loop. Sleep briefly to avoid a 100% CPU spin on a
+        // persistent error (e.g. EMFILE — too many open files).
         if running.get() then
-          debug("accept() failed; continuing")
+          debug("accept() failed; retrying")
+          Thread.sleep(NativeHttpServer.AcceptErrorBackoffMillis)
       else
         val pool = workerPool
         if pool != null && running.get() then
@@ -182,9 +184,14 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     if !stopped.compareAndSet(false, true) then
       return
     running.set(false)
-    // Closing the listening socket unblocks accept() so the accept thread can exit.
+    // Closing the listening socket unblocks accept() so the accept thread can exit. Guard it so a
+    // close failure can't abort the rest of shutdown.
     if serverFd >= 0 then
-      NativeSocket.close(serverFd)
+      try
+        NativeSocket.close(serverFd)
+      catch
+        case NonFatal(e) =>
+          debug(s"Error closing server socket: ${e.getMessage}")
     Option(workerPool).foreach { pool =>
       pool.shutdown()
       if !pool.awaitTermination(NativeHttpServer.ShutdownTimeoutMillis, TimeUnit.MILLISECONDS) then
@@ -198,4 +205,5 @@ end NativeHttpServer
 
 object NativeHttpServer:
   private final val ShutdownTimeoutMillis                 = 5000L
+  private final val AcceptErrorBackoffMillis              = 10L
   def apply(config: NativeServerConfig): NativeHttpServer = new NativeHttpServer(config)
