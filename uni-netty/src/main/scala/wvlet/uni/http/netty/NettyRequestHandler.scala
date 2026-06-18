@@ -36,6 +36,7 @@ import wvlet.uni.http.{
   HttpStatus,
   Request,
   Response,
+  RxHttpHandler,
   ServerSentEvent
 }
 import wvlet.uni.log.LogSupport

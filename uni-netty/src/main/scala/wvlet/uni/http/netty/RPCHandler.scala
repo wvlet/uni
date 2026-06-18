@@ -17,6 +17,7 @@ import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
+import wvlet.uni.http.RxHttpHandler
 import wvlet.uni.http.rpc.RPCException
 import wvlet.uni.http.rpc.RPCRoute
 import wvlet.uni.http.rpc.RPCRouter

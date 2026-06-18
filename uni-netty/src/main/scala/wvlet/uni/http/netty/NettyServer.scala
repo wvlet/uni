@@ -13,7 +13,14 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpHandler, Request, Response}
+import wvlet.uni.http.{
+  HttpHandler,
+  HttpServerConfig,
+  Request,
+  Response,
+  RxHttpFilter,
+  RxHttpHandler
+}
 import wvlet.uni.rx.Rx
 
 import java.net.InetSocketAddress
@@ -61,7 +68,7 @@ case class NettyServerConfig(
     // Set this to match expected concurrent long-running requests (e.g., upstream
     // proxy calls) to prevent them from starving the event loop.
     handlerExecutorThreads: Option[Int] = None
-):
+) extends HttpServerConfig:
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
   def withHost(host: String): NettyServerConfig                      = copy(host = host)
@@ -127,17 +134,9 @@ case class NettyServerConfig(
   /**
     * Start the server and return the running server instance
     */
-  def start(): NettyHttpServer =
+  override def start(): NettyHttpServer =
     val server = NettyHttpServer(this)
     server.start()
     server
-
-  /**
-    * Start the server and run the given block, then stop the server
-    */
-  def start[A](block: NettyHttpServer => A): A =
-    val server = start()
-    try block(server)
-    finally server.stop()
 
 end NettyServerConfig

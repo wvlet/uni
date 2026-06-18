@@ -11,13 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.http.netty
+package wvlet.uni.http
 
-import wvlet.uni.http.{HttpFilter, HttpHandler, Request, Response}
 import wvlet.uni.rx.Rx
 
 /**
-  * Async HTTP handler that returns Rx[Response]
+  * Async HTTP handler that returns Rx[Response]. This is the platform-neutral server-side contract
+  * implemented by every backend (Netty on JVM, Node.js on Scala.js, ...).
   */
 trait RxHttpHandler:
   def handle(request: Request): Rx[Response]

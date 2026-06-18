@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{Request, Response}
+import wvlet.uni.http.{Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx

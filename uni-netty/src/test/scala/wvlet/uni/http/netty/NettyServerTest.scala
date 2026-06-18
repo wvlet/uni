@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, ServerSentEvent}
+import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, RxHttpFilter, ServerSentEvent}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
