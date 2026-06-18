@@ -178,7 +178,7 @@ class DataController:
 Use `RxHttpFilter` to intercept requests and responses:
 
 ```scala
-import wvlet.uni.http.netty.{RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{RxHttpFilter, RxHttpHandler}
 
 val loggingFilter = RxHttpFilter { (request, next) =>
   println(s"Request: ${request.method} ${request.path}")
@@ -303,6 +303,102 @@ NettyServer
   .start()
 ```
 
+## WebSocket
+
+The Netty server supports WebSocket connections. WebSocket routes are registered by path,
+separately from the REST router, because connections are stateful and bidirectional rather than
+request/response. A fresh `WebSocketHandler` is created per connection, so it may hold
+per-connection state; all of its callbacks have no-op defaults, so you override only what you need.
+
+```scala
+import wvlet.uni.http.{WebSocketContext, WebSocketHandler}
+import wvlet.uni.http.netty.NettyServer
+
+NettyServer
+  .withPort(8080)
+  .withWebSocketRoute("/ws/echo") { request =>
+    new WebSocketHandler:
+      override def onOpen(ctx: WebSocketContext): Unit =
+        ctx.send("welcome")
+      override def onTextMessage(ctx: WebSocketContext, message: String): Unit =
+        ctx.send(s"echo: ${message}")
+      override def onBinaryMessage(ctx: WebSocketContext, message: Array[Byte]): Unit =
+        ctx.send(message)
+      override def onClose(ctx: WebSocketContext): Unit =
+        println("connection closed")
+      override def onError(ctx: WebSocketContext, e: Throwable): Unit =
+        println(s"error: ${e.getMessage}")
+  }
+  .start()
+```
+
+### WebSocketHandler Callbacks
+
+| Callback | When it fires |
+|----------|---------------|
+| `onOpen(ctx)` | After the handshake completes, before any message |
+| `onTextMessage(ctx, message)` | A complete text message arrived |
+| `onBinaryMessage(ctx, message)` | A complete binary message arrived |
+| `onClose(ctx)` | The connection closed (client- or server-initiated); delivered exactly once |
+| `onError(ctx, e)` | A callback or the connection raised an error |
+
+### WebSocketContext
+
+The `ctx` passed to each callback controls the connection. Its `send`/`close` methods are safe to
+call from any thread:
+
+```scala
+ctx.request                      // the original HTTP upgrade request
+ctx.send("hello")                // send a text message
+ctx.send(Array[Byte](1, 2, 3))   // send a binary message
+ctx.close()                      // close with 1000 (normal closure)
+ctx.close(1001, "going away")    // close with a status code and reason
+```
+
+### Gating the Upgrade With a Filter
+
+Pass an `RxHttpFilter` to authenticate or otherwise gate the upgrade handshake. A 2xx response
+allows the upgrade; a non-2xx response (or an empty `Rx`) rejects it. Attributes the filter adds to
+the request are visible via `ctx.request`:
+
+```scala
+import wvlet.uni.http.{Response, RxHttpFilter, WebSocketContext, WebSocketHandler}
+import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.rx.Rx
+
+val authFilter = RxHttpFilter { (request, next) =>
+  request.header("Authorization") match
+    case Some(token) if isValid(token) =>
+      next.handle(request.addHeader("X-User", userOf(token)))
+    case _ =>
+      Rx.single(Response.unauthorized)
+}
+
+NettyServer
+  .withPort(8080)
+  .withWebSocketRoute("/ws/secure", authFilter) { request =>
+    new WebSocketHandler:
+      override def onOpen(ctx: WebSocketContext): Unit =
+        ctx.send(s"hello ${ctx.request.header("X-User").getOrElse("anonymous")}")
+  }
+  .start()
+```
+
+### Frame Size
+
+Inbound messages are aggregated from continuation frames up to a configurable limit (1 MB by
+default):
+
+```scala
+NettyServer
+  .withWebSocketMaxFrameSize(4 * 1024 * 1024)  // 4 MB
+  .withWebSocketRoute("/ws") { _ => new WebSocketHandler {} }
+  .start()
+```
+
+WebSocket support is server-side and JVM (Netty) only. WebSocket routes coexist with REST endpoints
+on the same server and port.
+
 ## Combining Controllers
 
 Combine multiple controllers into a single router:
@@ -327,7 +423,8 @@ val handler = RouterHandler(router)
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.http.netty.{NettyServer, RouterHandler, RxHttpFilter}
+import wvlet.uni.http.RxHttpFilter
+import wvlet.uni.http.netty.{NettyServer, RouterHandler}
 import wvlet.uni.rx.Rx
 
 case class User(id: String, name: String)
