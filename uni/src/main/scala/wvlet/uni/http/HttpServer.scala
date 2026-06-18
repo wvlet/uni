@@ -13,12 +13,23 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.rx.Rx
+
 /**
   * Platform-neutral HTTP server lifecycle. Each backend (Netty on JVM, Node.js on Scala.js, and a
   * future posix-socket server on Native) provides its own implementation, but applications interact
   * with the server through this common interface.
   */
 trait HttpServer extends AutoCloseable:
+
+  /**
+    * Completes once the server is listening and ready to accept connections, yielding this server
+    * with [[localPort]] resolved. Backends that bind synchronously (Netty) complete immediately;
+    * backends that bind asynchronously (Node.js) complete on the underlying `listening` event. Use
+    * this (or `HttpServerConfig.startAndAwait`) before reading [[localPort]] or connecting a
+    * client.
+    */
+  def whenReady: Rx[HttpServer]
 
   /**
     * The bound local address as `host:port`. On an ephemeral binding (port 0) this reflects the

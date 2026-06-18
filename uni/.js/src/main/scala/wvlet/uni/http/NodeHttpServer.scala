@@ -41,11 +41,8 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
   private val readyPromise = Promise[NodeHttpServer]()
 
-  /**
-    * Completes once the server is listening (after the asynchronous bind), yielding this server
-    * with its [[localPort]] resolved.
-    */
-  def whenReady: Rx[NodeHttpServer] = Rx.future(readyPromise.future)
+  // Node binds asynchronously, so readiness is signaled on the `listening` event (see start()).
+  override def whenReady: Rx[NodeHttpServer] = Rx.future(readyPromise.future)
 
   def start(): Unit =
     if running then
@@ -96,17 +93,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     val onEnd: js.Function0[Unit] =
       () =>
         try
-          val body    = bodyChunks.result()
-          val content =
-            if body.isEmpty then
-              HttpContent.Empty
-            else
-              val ct = headers
-                .get(HttpHeader.ContentType)
-                .flatMap(ContentType.parse)
-                .getOrElse(ContentType.ApplicationOctetStream)
-              HttpContent.bytes(body, ct)
-
+          val content = HttpContent.fromBytes(bodyChunks.result(), headers)
           val request = Request(method = method, uri = uri, headers = headers, content = content)
           runResponse(res, handler.handle(request))
         catch
@@ -153,9 +140,9 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   private def writeSseResponse(res: js.Dynamic, response: Response): Unit =
     // Stream Server-Sent Events. Node uses chunked transfer encoding automatically when no
     // Content-Length is set. This mirrors NettyRequestHandler.sendSseResponse.
-    res.applyDynamic("setHeader")("Content-Type", "text/event-stream")
-    res.applyDynamic("setHeader")("Cache-Control", "no-cache")
-    res.applyDynamic("setHeader")("Connection", "keep-alive")
+    res.applyDynamic("setHeader")(HttpHeader.ContentType, ContentType.TextEventStream.value)
+    res.applyDynamic("setHeader")(HttpHeader.CacheControl, "no-cache")
+    res.applyDynamic("setHeader")(HttpHeader.Connection, "keep-alive")
     response
       .headers
       .entries

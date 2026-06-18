@@ -28,7 +28,6 @@ import io.netty.handler.codec.http.{
   LastHttpContent
 }
 import wvlet.uni.http.{
-  ContentType,
   HttpContent,
   HttpHeader,
   HttpMethod,
@@ -196,12 +195,7 @@ class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ExecutorService)
       if buf.readableBytes() > 0 then
         val bytes = new Array[Byte](buf.readableBytes())
         buf.readBytes(bytes)
-        val ct = headersBuilder
-          .result()
-          .get(HttpHeader.ContentType)
-          .flatMap(ContentType.parse)
-          .getOrElse(ContentType.ApplicationOctetStream)
-        HttpContent.bytes(bytes, ct)
+        HttpContent.fromBytes(bytes, headersBuilder.result())
       else
         HttpContent.Empty
 

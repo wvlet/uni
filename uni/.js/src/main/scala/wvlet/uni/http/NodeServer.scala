@@ -82,13 +82,4 @@ case class NodeServerConfig(
     server.start()
     server
 
-  /**
-    * Start the server, wait until it is listening, run the given async block, then stop the server
-    * once the block's Rx completes (or fails). This is the recommended way to use a Node server,
-    * since binding is asynchronous.
-    */
-  def startAndAwait[A](block: NodeHttpServer => Rx[A]): Rx[A] =
-    val server = start()
-    server.whenReady.flatMap(block).tap(_ => server.stop()).tapOnFailure(_ => server.stop())
-
 end NodeServerConfig

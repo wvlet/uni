@@ -30,6 +30,7 @@ import io.netty.handler.stream.ChunkedWriteHandler
 import io.netty.util.concurrent.DefaultEventExecutorGroup
 import wvlet.uni.http.HttpServer
 import wvlet.uni.log.LogSupport
+import wvlet.uni.rx.Rx
 import wvlet.uni.util.ThreadUtil
 
 import java.net.InetSocketAddress
@@ -218,6 +219,10 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
       channel.closeFuture().sync()
 
   override def isRunning: Boolean = started.get() && !stopped.get()
+
+  // Netty binds synchronously in start() (bootstrap.bind(...).sync()), so the server is ready as
+  // soon as this instance is returned.
+  override def whenReady: Rx[HttpServer] = Rx.single(this)
 
   /**
     * The bound socket address. JVM-specific accessor exposing the underlying `InetSocketAddress`.

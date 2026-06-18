@@ -23,7 +23,7 @@ import wvlet.uni.test.UniTest
   */
 class NodeServerTest extends UniTest:
 
-  private def asyncClient(server: NodeHttpServer): HttpAsyncClient =
+  private def asyncClient(server: HttpServer): HttpAsyncClient =
     Http.client.withBaseUri(s"http://localhost:${server.localPort}").newAsyncClient
 
   test("should handle a GET request") {
