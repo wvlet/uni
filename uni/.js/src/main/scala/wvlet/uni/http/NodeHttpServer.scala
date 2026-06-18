@@ -87,46 +87,54 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   end start
 
   private def handleRequest(req: js.Dynamic, res: js.Dynamic): Unit =
-    // Node accepts arbitrary verbs; an unknown method must not crash the process (the throw would
-    // be uncaught here, outside the onEnd try). Respond with 400 instead.
-    val method =
-      HttpMethod.of(req.method.asInstanceOf[String]) match
-        case Some(m) =>
-          m
-        case None =>
-          writeResponse(res, Response.badRequest(s"Unsupported HTTP method: ${req.method}"))
-          return
-    val uri = req.url.asInstanceOf[String]
+    // The whole synchronous setup runs in the createServer callback, outside any later async
+    // try/catch, so guard it: an error here (an unknown verb, a null/missing field, ...) must
+    // produce a response, not an uncaught exception that crashes the Node process.
+    try
+      // Node accepts arbitrary verbs; an unknown method is a client error, not a server crash.
+      val method =
+        HttpMethod.of(req.method.asInstanceOf[String]) match
+          case Some(m) =>
+            m
+          case None =>
+            writeResponse(res, Response.badRequest(s"Unsupported HTTP method: ${req.method}"))
+            return
 
-    // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names.
-    val headersBuilder = HttpMultiMap.newBuilder
-    val rawHeaders     = req.rawHeaders.asInstanceOf[js.Array[String]]
-    var i              = 0
-    while i + 1 < rawHeaders.length do
-      headersBuilder.add(rawHeaders(i), rawHeaders(i + 1))
-      i += 2
-    val headers = headersBuilder.result()
+      val uri = req.url.asInstanceOf[String]
 
-    val bodyChunks = Array.newBuilder[Byte]
+      // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names.
+      val headersBuilder = HttpMultiMap.newBuilder
+      val rawHeaders     = req.rawHeaders.asInstanceOf[js.Array[String]]
+      var i              = 0
+      while i + 1 < rawHeaders.length do
+        headersBuilder.add(rawHeaders(i), rawHeaders(i + 1))
+        i += 2
+      val headers = headersBuilder.result()
 
-    val onData: js.Function1[js.Dynamic, Unit] =
-      (chunk: js.Dynamic) =>
-        bodyChunks ++= toBytes(chunk)
-        ()
+      val bodyChunks = Array.newBuilder[Byte]
 
-    val onEnd: js.Function0[Unit] =
-      () =>
-        try
-          val content = HttpContent.fromBytes(bodyChunks.result(), headers)
-          val request = Request(method = method, uri = uri, headers = headers, content = content)
-          runResponse(res, handler.handle(request))
-        catch
-          case e: Throwable =>
-            warn(s"Error handling request: ${e.getMessage}", e)
-            writeResponse(res, Response.internalServerError(e.getMessage))
+      val onData: js.Function1[js.Dynamic, Unit] =
+        (chunk: js.Dynamic) =>
+          bodyChunks ++= toBytes(chunk)
+          ()
 
-    req.applyDynamic("on")("data", onData)
-    req.applyDynamic("on")("end", onEnd)
+      val onEnd: js.Function0[Unit] =
+        () =>
+          try
+            val content = HttpContent.fromBytes(bodyChunks.result(), headers)
+            val request = Request(method = method, uri = uri, headers = headers, content = content)
+            runResponse(res, handler.handle(request))
+          catch
+            case e: Throwable =>
+              warn(s"Error handling request: ${e.getMessage}", e)
+              writeResponse(res, Response.internalServerError(e.getMessage))
+
+      req.applyDynamic("on")("data", onData)
+      req.applyDynamic("on")("end", onEnd)
+    catch
+      case e: Throwable =>
+        warn(s"Error initializing request: ${e.getMessage}", e)
+        writeResponse(res, Response.internalServerError(e.getMessage))
 
   end handleRequest
 
@@ -184,15 +192,23 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       }
     res.updateDynamic("statusCode")(response.status.code)
 
-    RxRunner.run(response.events) {
-      case OnNext(event) =>
-        res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
-      case OnError(e) =>
-        warn(s"SSE stream error: ${e.getMessage}", e)
-        res.applyDynamic("end")()
-      case OnCompletion =>
-        res.applyDynamic("end")()
-    }
+    val subscription =
+      RxRunner.run(response.events) {
+        case OnNext(event) =>
+          res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
+        case OnError(e) =>
+          warn(s"SSE stream error: ${e.getMessage}", e)
+          res.applyDynamic("end")()
+        case OnCompletion =>
+          res.applyDynamic("end")()
+      }
+
+    // If the client disconnects before the stream finishes, cancel the subscription so the
+    // publisher stops running and we don't write to a closed response.
+    val onClose: js.Function0[Unit] = () => subscription.cancel
+    res.applyDynamic("on")("close", onClose)
+
+  end writeSseResponse
 
   /**
     * Set response headers, preserving duplicate header names (e.g. multiple `Set-Cookie`) by
