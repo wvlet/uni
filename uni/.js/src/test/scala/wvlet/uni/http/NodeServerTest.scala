@@ -102,6 +102,17 @@ class NodeServerTest extends UniTest:
       }
   }
 
+  test("should reject the synchronous start(block) on Node") {
+    // Node binds asynchronously, so the sync block form would run before the server is listening.
+    intercept[UnsupportedOperationException] {
+      NodeServer
+        .withPort(0)
+        .start { _ =>
+          ()
+        }
+    }
+  }
+
   test("should stream Server-Sent Events") {
     import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
     import scala.concurrent.Promise

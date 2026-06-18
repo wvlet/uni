@@ -14,7 +14,7 @@
 package wvlet.uni.http
 
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import scala.concurrent.{ExecutionContext, Promise}
 import scala.scalajs.js
@@ -41,6 +41,8 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   private var started: Boolean = false
   // Set on the async `listening` event; cleared on stop().
   private var running: Boolean = false
+  // Guards stop() so it is idempotent (avoids a double `server.close()`).
+  private var stopped: Boolean = false
 
   private val readyPromise = Promise[NodeHttpServer]()
 
@@ -139,43 +141,43 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
   end handleRequest
 
   private def runResponse(res: js.Dynamic, rx: Rx[Response]): Unit =
-    RxRunner.runOnce(rx) { event =>
-      // For async handlers this runs later on the microtask queue, outside handleRequest's
-      // try/catch, so guard the write itself: a failed write (e.g. client gone, headers already
-      // sent) must be logged, not thrown uncaught (which would crash the Node process).
-      try
-        event match
-          case OnNext(response) =>
-            writeResponse(res, response.asInstanceOf[Response])
-          case OnError(e) =>
-            warn(s"Error in Rx handler: ${e.getMessage}", e)
-            writeResponse(res, Response.internalServerError(e.getMessage))
-          case OnCompletion =>
-            writeResponse(res, Response.notFound)
-      catch
-        case e: Throwable =>
-          warn(s"Failed to write response: ${e.getMessage}", e)
+    RxRunner.runOnce(rx) {
+      case OnNext(response) =>
+        writeResponse(res, response.asInstanceOf[Response])
+      case OnError(e) =>
+        warn(s"Error in Rx handler: ${e.getMessage}", e)
+        writeResponse(res, Response.internalServerError(e.getMessage))
+      case OnCompletion =>
+        writeResponse(res, Response.notFound)
     }
 
   private def writeResponse(res: js.Dynamic, response: Response): Unit =
-    if response.isEventStream then
-      writeSseResponse(res, response)
-    else
-      setHeaders(res, response.headers)
-      response
-        .content
-        .contentType
-        .foreach { ct =>
-          res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
-        }
-      res.updateDynamic("statusCode")(response.status.code)
-      val bytes = response.content.toContentBytes
-      if bytes.isEmpty then
-        res.applyDynamic("end")()
+    // setHeader/end can throw if the client already disconnected (destroyed socket, headers
+    // already sent). For async handlers this runs on the event loop outside any caller's try, so
+    // an uncaught throw would crash the Node process — guard the whole write here. Every caller
+    // (runResponse, handleRequest's catch blocks, the 400 path) relies on this not throwing.
+    try
+      if response.isEventStream then
+        writeSseResponse(res, response)
       else
-        // Node sets Content-Length automatically for a buffered body. The body must be a
-        // Uint8Array/Buffer (Node rejects Int8Array), so view the bytes as unsigned.
-        res.applyDynamic("end")(toUint8Array(bytes))
+        setHeaders(res, response.headers)
+        response
+          .content
+          .contentType
+          .foreach { ct =>
+            res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
+          }
+        res.updateDynamic("statusCode")(response.status.code)
+        val bytes = response.content.toContentBytes
+        if bytes.isEmpty then
+          res.applyDynamic("end")()
+        else
+          // Node sets Content-Length automatically for a buffered body. The body must be a
+          // Uint8Array/Buffer (Node rejects Int8Array), so view the bytes as unsigned.
+          res.applyDynamic("end")(toUint8Array(bytes))
+    catch
+      case e: Throwable =>
+        warn(s"Failed to write response: ${e.getMessage}", e)
 
   private def writeSseResponse(res: js.Dynamic, response: Response): Unit =
     // Stream Server-Sent Events. Node uses chunked transfer encoding automatically when no
@@ -192,15 +194,33 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       }
     res.updateDynamic("statusCode")(response.status.code)
 
-    val subscription =
+    def endQuietly(): Unit =
+      try
+        res.applyDynamic("end")()
+      catch
+        case e: Throwable =>
+          debug(s"SSE end failed: ${e.getMessage}")
+
+    // A `var` (not `lazy val`): RxRunner.run can emit synchronously (e.g. Rx.fromSeq), so a
+    // callback that touches `subscription` during construction sees the no-op placeholder rather
+    // than triggering lazy-val re-entrancy.
+    var subscription: Cancelable = Cancelable.empty
+    subscription =
       RxRunner.run(response.events) {
         case OnNext(event) =>
-          res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
+          // write can throw ("write after end"/destroyed socket) if the client left mid-stream;
+          // on the event loop that would crash the process, so cancel the stream instead.
+          try
+            res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
+          catch
+            case e: Throwable =>
+              warn(s"SSE write failed, cancelling stream: ${e.getMessage}", e)
+              subscription.cancel
         case OnError(e) =>
           warn(s"SSE stream error: ${e.getMessage}", e)
-          res.applyDynamic("end")()
+          endQuietly()
         case OnCompletion =>
-          res.applyDynamic("end")()
+          endQuietly()
       }
 
     // If the client disconnects before the stream finishes, cancel the subscription so the
@@ -243,9 +263,19 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     Uint8Array(i8.buffer, i8.byteOffset, i8.length)
 
   override def stop(): Unit =
-    if running && server != null then
-      server.applyDynamic("close")()
+    // Check `started`, not `running`: stop() may race a pending bind (started but not yet
+    // listening), and the server handle must still be closed and any whenReady waiter unblocked.
+    if started && !stopped && server != null then
+      stopped = true
+      try
+        server.applyDynamic("close")()
+      catch
+        case e: Throwable =>
+          debug(s"Node server close failed: ${e.getMessage}")
       running = false
+      // If stopped before the bind completed, fail readiness so startAndAwait/whenReady don't hang.
+      if !readyPromise.isCompleted then
+        readyPromise.failure(IllegalStateException("Server stopped before it finished starting"))
       debug(s"Node server stopped")
 
   override def awaitTermination(): Unit =

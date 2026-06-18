@@ -82,4 +82,13 @@ case class NodeServerConfig(
     server.start()
     server
 
+  /**
+    * Unsupported on Node.js: the synchronous `start(block)` runs the block before the asynchronous
+    * bind completes, so the server would not yet be listening. Use [[startAndAwait]] instead.
+    */
+  override def start[A](block: HttpServer => A): A =
+    throw UnsupportedOperationException(
+      "NodeServer binds asynchronously; use startAndAwait { server => Rx[...] } instead of start(block)."
+    )
+
 end NodeServerConfig
