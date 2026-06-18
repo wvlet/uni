@@ -104,10 +104,15 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
       val uri = req.url.asInstanceOf[String]
 
-      // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names.
+      // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names. Guard
+      // against a non-standard/mock request object that lacks it.
       val headersBuilder = HttpMultiMap.newBuilder
-      val rawHeaders     = req.rawHeaders.asInstanceOf[js.Array[String]]
-      var i              = 0
+      val rawHeaders     =
+        if js.isUndefined(req.rawHeaders) || req.rawHeaders == null then
+          js.Array[String]()
+        else
+          req.rawHeaders.asInstanceOf[js.Array[String]]
+      var i = 0
       while i + 1 < rawHeaders.length do
         headersBuilder.add(rawHeaders(i), rawHeaders(i + 1))
         i += 2
@@ -201,21 +206,29 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         case e: Throwable =>
           debug(s"SSE end failed: ${e.getMessage}")
 
-    // A `var` (not `lazy val`): RxRunner.run can emit synchronously (e.g. Rx.fromSeq), so a
-    // callback that touches `subscription` during construction sees the no-op placeholder rather
-    // than triggering lazy-val re-entrancy.
-    var subscription: Cancelable = Cancelable.empty
-    subscription =
+    // RxRunner.run can emit synchronously (e.g. Rx.fromSeq), so a write failure may fire a callback
+    // before run() returns and the real subscription is assigned. A delegate Cancelable lets us
+    // both flip a `cancelled` flag (so subsequent synchronous events are skipped) and forward to
+    // the real subscription once it exists — covering both the sync and async cases.
+    var realSubscription: Cancelable = Cancelable.empty
+    var cancelled                    = false
+    val subscription: Cancelable     = Cancelable { () =>
+      cancelled = true
+      realSubscription.cancel
+    }
+
+    realSubscription =
       RxRunner.run(response.events) {
         case OnNext(event) =>
           // write can throw ("write after end"/destroyed socket) if the client left mid-stream;
           // on the event loop that would crash the process, so cancel the stream instead.
-          try
-            res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
-          catch
-            case e: Throwable =>
-              warn(s"SSE write failed, cancelling stream: ${e.getMessage}", e)
-              subscription.cancel
+          if !cancelled then
+            try
+              res.applyDynamic("write")(event.asInstanceOf[ServerSentEvent].toContent)
+            catch
+              case e: Throwable =>
+                warn(s"SSE write failed, cancelling stream: ${e.getMessage}", e)
+                subscription.cancel
         case OnError(e) =>
           warn(s"SSE stream error: ${e.getMessage}", e)
           endQuietly()
