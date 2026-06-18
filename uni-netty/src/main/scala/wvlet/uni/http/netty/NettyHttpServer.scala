@@ -117,7 +117,14 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
             pipeline.addLast(NettyHttpServer.CompressorHandler, HttpContentCompressor())
             pipeline.addLast("expectContinue", HttpServerExpectContinueHandler())
             pipeline.addLast("chunkedWriter", ChunkedWriteHandler())
-            val reqHandler = NettyRequestHandler(handler, sseExecutor)
+            val reqHandler = NettyRequestHandler(
+              handler,
+              sseExecutor,
+              config.webSocketRoutes,
+              config.filters,
+              config.webSocketMaxFrameSize,
+              handlerExecutorGroup
+            )
             handlerExecutorGroup match
               case Some(executor) =>
                 pipeline.addLast(executor, "handler", reqHandler)

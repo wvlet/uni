@@ -14,7 +14,12 @@
 package wvlet.uni.http.netty
 
 import io.netty.buffer.Unpooled
-import io.netty.channel.{ChannelFutureListener, ChannelHandlerContext, SimpleChannelInboundHandler}
+import io.netty.channel.{
+  ChannelFuture,
+  ChannelFutureListener,
+  ChannelHandlerContext,
+  SimpleChannelInboundHandler
+}
 import io.netty.handler.codec.http.{
   DefaultFullHttpResponse,
   DefaultHttpContent,
@@ -22,11 +27,18 @@ import io.netty.handler.codec.http.{
   FullHttpRequest,
   HttpHeaderNames,
   HttpHeaderValues,
+  HttpRequest as NettyHttpRequest,
   HttpResponseStatus,
   HttpUtil,
   HttpVersion,
   LastHttpContent
 }
+import io.netty.handler.codec.http.websocketx.{
+  WebSocketFrameAggregator,
+  WebSocketServerHandshaker,
+  WebSocketServerHandshakerFactory
+}
+import io.netty.util.concurrent.EventExecutorGroup
 import wvlet.uni.http.{
   HttpContent,
   HttpHeader,
@@ -35,15 +47,19 @@ import wvlet.uni.http.{
   HttpStatus,
   Request,
   Response,
+  RxHttpFilter,
   RxHttpHandler,
-  ServerSentEvent
+  ServerSentEvent,
+  WebSocketRoute
 }
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.jdk.CollectionConverters.*
+import scala.util.control.NonFatal
 
 /**
   * Netty channel handler that processes HTTP requests using RxHttpHandler
@@ -51,8 +67,14 @@ import scala.jdk.CollectionConverters.*
   * @param sseExecutor
   *   shared thread pool for SSE stream consumption, managed by NettyHttpServer
   */
-class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ExecutorService)
-    extends SimpleChannelInboundHandler[FullHttpRequest]
+class NettyRequestHandler(
+    handler: RxHttpHandler,
+    sseExecutor: ExecutorService,
+    webSocketRoutes: Seq[WebSocketRoute],
+    serverFilters: Seq[RxHttpFilter],
+    webSocketMaxFrameSize: Int,
+    wsHandlerExecutor: Option[EventExecutorGroup]
+) extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
 
   override def channelReadComplete(ctx: ChannelHandlerContext): Unit = ctx.flush()
@@ -60,13 +82,129 @@ class NettyRequestHandler(handler: RxHttpHandler, sseExecutor: ExecutorService)
   override def channelRead0(ctx: ChannelHandlerContext, nettyRequest: FullHttpRequest): Unit =
     val keepAlive = HttpUtil.isKeepAlive(nettyRequest)
     try
-      val request  = toUniRequest(nettyRequest)
-      val response = handler.handle(request)
-      runRxResponse(ctx, response, keepAlive)
+      val request = toUniRequest(nettyRequest)
+      webSocketRouteFor(request, nettyRequest) match
+        case Some(route) =>
+          handleWebSocketUpgrade(ctx, nettyRequest, request, route)
+        case None =>
+          val response = handler.handle(request)
+          runRxResponse(ctx, response, keepAlive)
     catch
       case e: Exception =>
         warn(s"Error handling request: ${e.getMessage}", e)
         sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive)
+
+  private def webSocketRouteFor(
+      request: Request,
+      nettyRequest: FullHttpRequest
+  ): Option[WebSocketRoute] =
+    if webSocketRoutes.isEmpty || !NettyRequestHandler.isWebSocketUpgrade(nettyRequest) then
+      None
+    else
+      webSocketRoutes.find(_.path == request.path)
+
+  /**
+    * Run the WebSocket upgrade request through the server + route filters. A 2xx result allows the
+    * handshake; a non-2xx response rejects it; an empty `Rx` closes the connection. The Netty
+    * request is retained across the (possibly async) filter and released exactly once on every
+    * path.
+    */
+  private def handleWebSocketUpgrade(
+      ctx: ChannelHandlerContext,
+      nettyRequest: FullHttpRequest,
+      request: Request,
+      route: WebSocketRoute
+  ): Unit =
+    val gate                  = RxHttpHandler(_ => Rx.single(Response.ok))
+    val chained: RxHttpFilter = RxHttpFilter.chain(serverFilters :+ route.filter)
+    // Build (apply) the filter chain before retaining: a synchronous failure here writes a 500 and
+    // returns without leaking the retained buffer.
+    val filtered: Rx[Response] =
+      try
+        chained.apply(request, gate)
+      catch
+        case NonFatal(e) =>
+          warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+          sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive = false)
+          return
+
+    nettyRequest.retain()
+    val handled = AtomicBoolean(false)
+    RxRunner.run(filtered) {
+      case OnNext(resp) =>
+        if handled.compareAndSet(false, true) then
+          val response = resp.asInstanceOf[Response]
+          if response.isSuccessful then
+            doWebSocketHandshake(ctx, nettyRequest, request, route)
+          else
+            sendResponse(ctx, response, keepAlive = false)
+            nettyRequest.release()
+      case OnError(e) =>
+        if handled.compareAndSet(false, true) then
+          warn(s"WebSocket upgrade error: ${e.getMessage}", e)
+          sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive = false)
+          nettyRequest.release()
+      case OnCompletion =>
+        // The filter completed without emitting a response: release and close so the client doesn't
+        // hang waiting for a handshake that won't come.
+        if handled.compareAndSet(false, true) then
+          nettyRequest.release()
+          ctx.close()
+    }
+  end handleWebSocketUpgrade
+
+  private def doWebSocketHandshake(
+      ctx: ChannelHandlerContext,
+      nettyRequest: FullHttpRequest,
+      request: Request,
+      route: WebSocketRoute
+  ): Unit =
+    // Pipeline mutation must run on the channel event loop.
+    ctx
+      .channel()
+      .eventLoop()
+      .execute { () =>
+        try
+          val location  = NettyRequestHandler.webSocketLocation(ctx, nettyRequest)
+          val wsFactory = WebSocketServerHandshakerFactory(
+            location,
+            null,
+            true,
+            webSocketMaxFrameSize
+          )
+          val handshaker: WebSocketServerHandshaker = wsFactory.newHandshaker(nettyRequest)
+          if handshaker == null then
+            WebSocketServerHandshakerFactory.sendUnsupportedVersionResponse(ctx.channel())
+          else
+            val wsContext   = NettyWebSocketContext(ctx.channel(), request, handshaker)
+            val userHandler = route.handlerFactory(request)
+            val wsHandler   = NettyWebSocketHandler(userHandler, wsContext)
+            val future      = handshaker.handshake(ctx.channel(), nettyRequest)
+            val pipeline    = ctx.pipeline()
+            // Coalesce continuation frames so the handler sees whole messages.
+            pipeline.addLast("wsAggregator", WebSocketFrameAggregator(webSocketMaxFrameSize))
+            wsHandlerExecutor match
+              case Some(executor) =>
+                pipeline.addLast(executor, "wsHandler", wsHandler)
+              case None =>
+                pipeline.addLast("wsHandler", wsHandler)
+            pipeline.remove(this)
+            // onOpen runs on the WS handler's own (serialized) executor, so it precedes any frame.
+            pipeline.context("wsHandler").executor().execute(() => wsHandler.notifyOpen())
+            future.addListener(
+              new ChannelFutureListener:
+                override def operationComplete(f: ChannelFuture): Unit =
+                  if !f.isSuccess then
+                    ctx.close()
+            )
+        catch
+          case NonFatal(e) =>
+            warn(s"Failed to perform WebSocket handshake: ${e.getMessage}", e)
+            ctx.close()
+        finally
+          nettyRequest.release()
+      }
+  end doWebSocketHandshake
 
   private def runRxResponse(
       ctx: ChannelHandlerContext,
@@ -240,8 +378,41 @@ end NettyRequestHandler
 
 object NettyRequestHandler:
 
-  def apply(handler: RxHttpHandler, sseExecutor: ExecutorService): NettyRequestHandler =
-    new NettyRequestHandler(handler, sseExecutor)
+  def apply(
+      handler: RxHttpHandler,
+      sseExecutor: ExecutorService,
+      webSocketRoutes: Seq[WebSocketRoute],
+      serverFilters: Seq[RxHttpFilter],
+      webSocketMaxFrameSize: Int,
+      wsHandlerExecutor: Option[EventExecutorGroup]
+  ): NettyRequestHandler =
+    new NettyRequestHandler(
+      handler,
+      sseExecutor,
+      webSocketRoutes,
+      serverFilters,
+      webSocketMaxFrameSize,
+      wsHandlerExecutor
+    )
+
+  /**
+    * Whether the request is a WebSocket upgrade (`Connection: Upgrade` + `Upgrade: websocket`).
+    * Uses `containsValue(..., ignoreCase=true)` so a comma-separated
+    * `Connection: keep-alive, Upgrade` still matches per token.
+    */
+  private[netty] def isWebSocketUpgrade(msg: NettyHttpRequest): Boolean =
+    val headers = msg.headers()
+    headers.containsValue(HttpHeaderNames.CONNECTION, HttpHeaderValues.UPGRADE, true) &&
+    headers.containsValue(HttpHeaderNames.UPGRADE, HttpHeaderValues.WEBSOCKET, true)
+
+  private[netty] def webSocketLocation(ctx: ChannelHandlerContext, req: NettyHttpRequest): String =
+    val scheme =
+      if ctx.pipeline().get(classOf[io.netty.handler.ssl.SslHandler]) != null then
+        "wss"
+      else
+        "ws"
+    val host = Option(req.headers().get(HttpHeaderNames.HOST)).getOrElse("localhost")
+    s"${scheme}://${host}${req.uri()}"
 
   // "Connection reset" also matches "Connection reset by peer" via contains check
   private val benignIOExceptionMessages = Set("Connection reset", "Broken pipe")
