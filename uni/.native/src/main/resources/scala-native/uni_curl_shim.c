@@ -37,6 +37,7 @@ int uni_curl_easy_setopt_long(void *handle, int option, long value) {
   return curl_easy_setopt(handle, option, value);
 }
 
-int uni_curl_easy_getinfo_ptr(void *handle, int info, void *value) {
+/* Typed long* out-parameter for CURLINFO_*_RESPONSE_CODE and other `long` infos. */
+int uni_curl_easy_getinfo_long(void *handle, int info, long *value) {
   return curl_easy_getinfo(handle, info, value);
 }

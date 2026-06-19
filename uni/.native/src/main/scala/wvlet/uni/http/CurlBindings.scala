@@ -104,7 +104,7 @@ object CurlBindings:
     // src/main/resources/scala-native/uni_curl_shim.c, which forward to the real variadic functions.
     def uni_curl_easy_setopt_ptr(curl: CURL, option: CInt, value: Ptr[Byte]): CInt = extern
     def uni_curl_easy_setopt_long(curl: CURL, option: CInt, value: Long): CInt     = extern
-    def uni_curl_easy_getinfo_ptr(curl: CURL, info: CInt, value: Ptr[Byte]): CInt  = extern
+    def uni_curl_easy_getinfo_long(curl: CURL, info: CInt, value: Ptr[Long]): CInt = extern
 
     @name("curl_easy_strerror")
     def easyStrerror(code: CInt): CString = extern
@@ -134,7 +134,7 @@ object CurlBindings:
     .uni_curl_easy_setopt_ptr(curl, option, parameter)
 
   def curl_easy_setopt_str(curl: CURL, option: CInt, parameter: CString): CInt = Extern
-    .uni_curl_easy_setopt_ptr(curl, option, parameter)
+    .uni_curl_easy_setopt_ptr(curl, option, parameter.asInstanceOf[Ptr[Byte]])
 
   def curl_easy_setopt_callback(
       curl: CURL,
@@ -150,7 +150,7 @@ object CurlBindings:
     .uni_curl_easy_setopt_ptr(curl, option, parameter.asInstanceOf[Ptr[Byte]])
 
   def curl_easy_getinfo_long(curl: CURL, info: CInt, result: Ptr[Long]): CInt = Extern
-    .uni_curl_easy_getinfo_ptr(curl, info, result.asInstanceOf[Ptr[Byte]])
+    .uni_curl_easy_getinfo_long(curl, info, result)
 
   def curl_easy_strerror(code: CInt): CString = Extern.easyStrerror(code)
   def curl_slist_append(list: Ptr[CurlSlist], str: CString): Ptr[CurlSlist] = Extern.slistAppend(
