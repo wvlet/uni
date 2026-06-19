@@ -95,8 +95,23 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
 
   private def handleConnection(clientFd: Int): Unit =
     try
+      NativeSocket.enableKeepAlive(clientFd)
+      // Poll before recv so an idle/slow/disconnected client can't pin a worker forever: an idle
+      // keep-alive connection waits up to idleTimeoutMillis for the next request; once a request has
+      // started arriving, subsequent reads wait up to readTimeoutMillis. A timeout (or hangup) maps
+      // to an empty chunk, which the reader treats as end-of-connection.
       val reader = HttpConnectionReader(
-        () => NativeSocket.recvChunk(clientFd),
+        idle =>
+          val timeout =
+            if idle then
+              config.idleTimeoutMillis
+            else
+              config.readTimeoutMillis
+          if NativeSocket.waitReadable(clientFd, timeout) == 1 then
+            NativeSocket.recvChunk(clientFd)
+          else
+            Array.emptyByteArray
+        ,
         config.maxRequestSize
       )
       var continue = true
@@ -164,10 +179,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     * long-lived by design, so no handler-await timeout is applied here). A failed chunk write
     * cancels the subscription. Returns whether the connection is still usable for keep-alive.
     *
-    * Limitation (blocking model): a client that disconnects while the stream is *idle* (no event to
-    * write) is not detected until the next event fails to write, so the worker stays parked in
-    * `done.await()` — each live stream pins one worker thread. A portable idle/read timeout is a
-    * follow-up (see the SSE-streaming plan).
+    * The worker is parked until the stream terminates, but it periodically probes the socket (every
+    * idleTimeoutMillis) so a client that disconnects while the stream is *idle* is detected and the
+    * subscription cancelled, rather than leaking the worker until the next event fails to write.
     */
   private def streamSse(clientFd: Int, response: Response, keepAlive: Boolean): Boolean =
     if !NativeSocket.sendAll(clientFd, HttpResponseWriter.serializeSseHeaders(response, keepAlive))
@@ -205,9 +219,23 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             done.countDown()
         }
       )
-      done.await()
+      // Wait for the stream to terminate, but probe the socket between waits so an idle client
+      // disconnect is detected promptly (a disconnected peer reads as readable-then-EOF or a hangup).
+      var alive = true
+      while alive && !done.await(config.idleTimeoutMillis.toLong, TimeUnit.MILLISECONDS) do
+        NativeSocket.waitReadable(clientFd, 0) match
+          case -1 =>
+            alive = false // peer hung up
+          case 1 =>
+            // SSE clients shouldn't send; a readable socket that yields no bytes is EOF (disconnect).
+            if NativeSocket.recvChunk(clientFd).isEmpty then
+              alive = false
+          case _ =>
+            () // genuinely idle but still connected
+      if !alive then
+        subscription.cancel
       // Terminate the chunked body if the client is still there.
-      ok.get() && NativeSocket.sendAll(clientFd, HttpResponseWriter.finalChunk)
+      ok.get() && alive && NativeSocket.sendAll(clientFd, HttpResponseWriter.finalChunk)
 
   /**
     * Run the handler and block for its single response. The handler may be asynchronous (Rx), so

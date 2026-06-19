@@ -292,6 +292,44 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should close an idle keep-alive connection after the idle timeout") {
+    NativeServer
+      .withHandler(_ => Response.ok("ok"))
+      .withIdleTimeoutMillis(300)
+      .withPort(0)
+      .start { server =>
+        val fd = connectLoopback(server.localPort)
+        try
+          // Keep-alive request (no Connection: close), so the server waits for a follow-up request.
+          NativeSocket.sendAll(
+            fd,
+            "GET /x HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
+          )
+          NativeSocket.recvChunk(fd).nonEmpty shouldBe true // the 200 response
+          // Now stay idle; the server should close the connection after the idle timeout.
+          val start = System.currentTimeMillis()
+          var chunk = NativeSocket.recvChunk(fd)
+          while chunk.nonEmpty do
+            chunk = NativeSocket.recvChunk(fd)
+          val elapsed = System.currentTimeMillis() - start
+          (elapsed < 5000) shouldBe true
+        finally
+          NativeSocket.close(fd)
+      }
+  }
+
+  test("should close a connection with an incomplete request after the read timeout") {
+    NativeServer
+      .withHandler(_ => Response.ok("ok"))
+      .withReadTimeoutMillis(300)
+      .withPort(0)
+      .start { server =>
+        // Headers are never terminated, so the read times out mid-request.
+        val response = request(server.localPort, "GET /x HTTP/1.1\r\nHost: localhost\r\n")
+        response.status shouldBe 400
+      }
+  }
+
   // ---- WebSocket ----
 
   /**
