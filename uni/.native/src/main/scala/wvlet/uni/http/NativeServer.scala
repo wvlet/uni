@@ -58,6 +58,10 @@ case class NativeServerConfig(
     workerThreads: Int = 16,
     // Max time to wait for a handler's Rx to produce a response before returning 503
     handlerTimeoutMillis: Long = 30000,
+    // Max time a kept-alive connection may sit idle (awaiting the next request) before it is closed
+    idleTimeoutMillis: Int = 30000,
+    // Max time to wait for more bytes once a request has started arriving before closing
+    readTimeoutMillis: Int = 30000,
     // WebSocket routes, matched by path during the HTTP upgrade handshake
     override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
     // Maximum size (bytes) of an inbound WebSocket message
@@ -103,6 +107,14 @@ case class NativeServerConfig(
   def withHandlerTimeoutMillis(millis: Long): NativeServerConfig =
     require(millis > 0, "handlerTimeoutMillis must be positive")
     copy(handlerTimeoutMillis = millis)
+
+  def withIdleTimeoutMillis(millis: Int): NativeServerConfig =
+    require(millis > 0, "idleTimeoutMillis must be positive")
+    copy(idleTimeoutMillis = millis)
+
+  def withReadTimeoutMillis(millis: Int): NativeServerConfig =
+    require(millis > 0, "readTimeoutMillis must be positive")
+    copy(readTimeoutMillis = millis)
 
   /** Register a WebSocket route; the factory creates a fresh handler per accepted connection. */
   def withWebSocketRoute(path: String)(

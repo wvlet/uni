@@ -30,17 +30,19 @@ private[http] enum ReadResult:
   * by `Content-Length`; chunked request bodies are not supported (MVP) and yield a `BadRequest`.
   *
   * @param readChunk
-  *   reads the next batch of bytes from the socket; an empty array means EOF.
+  *   reads the next batch of bytes from the socket; an empty array means EOF or timeout. The `idle`
+  *   argument is true when waiting for the first bytes of a new request (the buffer is empty) and
+  *   false once a request has started arriving, so the caller can apply an idle vs a read timeout.
   */
-private[http] class HttpConnectionReader(readChunk: () => Array[Byte], maxRequestSize: Int):
+private[http] class HttpConnectionReader(readChunk: Boolean => Array[Byte], maxRequestSize: Int):
 
   // Amortized-O(1) append buffer (indexed scan, single slice per request) — avoids the O(n^2) of
   // repeatedly concatenating Array[Byte].
   private val buf = mutable.ArrayBuffer.empty[Byte]
 
-  /** Append another chunk to the buffer. Returns false on EOF. */
+  /** Append another chunk to the buffer. Returns false on EOF/timeout. */
   private def fill(): Boolean =
-    val chunk = readChunk()
+    val chunk = readChunk(buf.isEmpty)
     if chunk.isEmpty then
       false
     else
