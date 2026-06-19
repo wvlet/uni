@@ -17,6 +17,7 @@ import wvlet.uni.rx.{OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.scalajs.js
 
 /**
   * Verifies the JS WebSocket client (global `WebSocket`, Node.js >= 22) against the in-process Node
@@ -37,6 +38,12 @@ class JSWebSocketClientTest extends UniTest:
       case _ =>
     }
     opened.future
+
+  /** A Future that completes after `millis` (via the JS event loop). */
+  private def delay(millis: Int): Future[Unit] =
+    val p = Promise[Unit]()
+    js.Dynamic.global.setTimeout((() => p.trySuccess(())): js.Function0[Unit], millis)
+    p.future
 
   test("JS WebSocket client echoes text messages") {
     NodeServer
@@ -85,6 +92,31 @@ class JSWebSocketClientTest extends UniTest:
           yield
             ctx.close()
             message shouldBe "welcome"
+        Rx.future(result)
+      }
+  }
+
+  test("server heartbeat keeps an idle connection alive via ping/pong") {
+    NodeServer
+      .withPort(0)
+      .withWebSocketPingIntervalMillis(150)
+      .withWebSocketRoute("/ws/idle") { _ =>
+        new WebSocketHandler {}
+      }
+      .startAndAwait { server =>
+        val closed  = Promise[Unit]()
+        val handler =
+          new WebSocketHandler:
+            override def onClose(ctx: WebSocketContext): Unit = closed.trySuccess(())
+        val result =
+          for
+            ctx <- connect(s"ws://127.0.0.1:${server.localPort}/ws/idle", handler)
+            // The server pings every 150ms; the Node runtime auto-pongs, so over ~5 intervals the
+            // heartbeat must NOT reap this live-but-idle connection.
+            _ <- delay(800)
+          yield
+            ctx.close()
+            closed.isCompleted shouldBe false
         Rx.future(result)
       }
   }

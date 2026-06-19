@@ -93,7 +93,8 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
             socket,
             head,
             config.webSocketRoutes,
-            config.webSocketMaxFrameSize
+            config.webSocketMaxFrameSize,
+            config.webSocketPingIntervalMillis
           )
       server.applyDynamic("on")("upgrade", onUpgrade)
 

@@ -39,7 +39,8 @@ private[http] object NodeWebSocket extends LogSupport:
       socket: js.Dynamic,
       head: js.Dynamic,
       routes: Seq[WebSocketRoute],
-      maxFrameSize: Int
+      maxFrameSize: Int,
+      pingIntervalMillis: Int
   ): Unit =
     try
       val request = buildRequest(req)
@@ -52,7 +53,7 @@ private[http] object NodeWebSocket extends LogSupport:
               // Malformed handshake: missing key (400), or unsupported Sec-WebSocket-Version (426).
               writeHttpClose(socket, rejection)
             case Right(key) =>
-              gateAndAccept(socket, head, key, route, request, maxFrameSize)
+              gateAndAccept(socket, head, key, route, request, maxFrameSize, pingIntervalMillis)
     catch
       case NonFatal(e) =>
         warn(s"WebSocket upgrade error: ${e.getMessage}")
@@ -64,7 +65,8 @@ private[http] object NodeWebSocket extends LogSupport:
       key: String,
       route: WebSocketRoute,
       request: Request,
-      maxFrameSize: Int
+      maxFrameSize: Int,
+      pingIntervalMillis: Int
   ): Unit =
     // Capture the request as threaded through the filter, so attributes a filter adds during the
     // handshake reach the WebSocketContext (matching the Netty/Native backends).
@@ -77,7 +79,7 @@ private[http] object NodeWebSocket extends LogSupport:
       case OnNext(response) =>
         val resp = response.asInstanceOf[Response]
         if resp.isSuccessful then
-          accept(socket, head, key, route, upgradeRequest, maxFrameSize)
+          accept(socket, head, key, route, upgradeRequest, maxFrameSize, pingIntervalMillis)
         else
           writeHttpClose(socket, resp)
       case OnError(e) =>
@@ -88,27 +90,42 @@ private[http] object NodeWebSocket extends LogSupport:
         destroyQuietly(socket)
     }
 
+  end gateAndAccept
+
   private def accept(
       socket: js.Dynamic,
       head: js.Dynamic,
       key: String,
       route: WebSocketRoute,
       request: Request,
-      maxFrameSize: Int
+      maxFrameSize: Int,
+      pingIntervalMillis: Int
   ): Unit =
     // The route filter may be asynchronous; if the client disconnected while it ran, the socket is
     // already gone — skip the upgrade entirely (no onOpen, so no dangling onClose).
     if isDestroyed(socket) then
       return
 
-    val handler = route.handlerFactory(request)
-    val ctx     = NodeWebSocketContext(socket, request)
-    val decoder = WebSocketFrameDecoder(maxFrameSize)
-    var closed  = false
+    val handler   = route.handlerFactory(request)
+    val ctx       = NodeWebSocketContext(socket, request)
+    val decoder   = WebSocketFrameDecoder(maxFrameSize)
+    var closed    = false
+    val heartbeat =
+      if pingIntervalMillis > 0 then
+        WebSocketHeartbeat()
+      else
+        null
+    var intervalHandle: js.Dynamic = null
 
     def notifyClose(): Unit =
       if !closed then
         closed = true
+        if intervalHandle != null then
+          try
+            js.Dynamic.global.clearInterval(intervalHandle)
+          catch
+            case NonFatal(_) =>
+              ()
         try
           handler.onClose(ctx)
         catch
@@ -119,7 +136,16 @@ private[http] object NodeWebSocket extends LogSupport:
       if !closed then
         try
           if !decoder.feed(bytes)(ev =>
-              WebSocketDispatcher.dispatch(handler, ctx, ctx.sendPong, () => notifyClose(), ev)
+              WebSocketDispatcher.dispatch(
+                handler,
+                ctx,
+                ctx.sendPong,
+                () => notifyClose(),
+                ev,
+                () =>
+                  if heartbeat != null then
+                    heartbeat.onActivity()
+              )
             )
           then
             // A terminal event (peer close / protocol failure) was emitted. Fire onClose now (the
@@ -173,6 +199,20 @@ private[http] object NodeWebSocket extends LogSupport:
         socket.applyDynamic("pause")()
       if !js.isUndefined(head) && head != null && head.length.asInstanceOf[Int] > 0 then
         drive(NodeBytes.toBytes(head))
+
+      // Ping/pong heartbeat: ping an idle connection and close it if the peer stops responding.
+      if heartbeat != null then
+        val tick: js.Function0[Unit] =
+          () =>
+            if !closed then
+              heartbeat.onTick() match
+                case WebSocketHeartbeat.Decision.SendPing =>
+                  ctx.sendPing(Array.emptyByteArray)
+                case WebSocketHeartbeat.Decision.Close =>
+                  ctx.close(1011, "ping timeout")
+                case WebSocketHeartbeat.Decision.Idle =>
+                  ()
+        intervalHandle = js.Dynamic.global.setInterval(tick, pingIntervalMillis)
     catch
       case NonFatal(e) =>
         warn(s"WebSocket accept error: ${e.getMessage}")
@@ -323,6 +363,10 @@ private[http] class NodeWebSocketContext(socket: js.Dynamic, override val reques
   private[http] def sendPong(payload: Array[Byte]): Unit =
     if !closed then
       writeFrame(WebSocketFrame.OpPong, payload)
+
+  private[http] def sendPing(payload: Array[Byte]): Unit =
+    if !closed then
+      writeFrame(WebSocketFrame.OpPing, payload)
 
   private def writeIfOpen(opcode: Int, payload: Array[Byte]): Unit =
     if !closed then
