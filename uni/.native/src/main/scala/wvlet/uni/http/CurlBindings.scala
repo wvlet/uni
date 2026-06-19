@@ -97,24 +97,14 @@ object CurlBindings:
     @name("curl_easy_perform")
     def easyPerform(curl: CURL): CInt = extern
 
-    @name("curl_easy_setopt")
-    def easySetoptLong(curl: CURL, option: CInt, parameter: Long): CInt = extern
-
-    @name("curl_easy_setopt")
-    def easySetoptPtr(curl: CURL, option: CInt, parameter: Ptr[Byte]): CInt = extern
-
-    @name("curl_easy_setopt")
-    def easySetoptCallback(
-        curl: CURL,
-        option: CInt,
-        parameter: CFuncPtr4[Ptr[Byte], CSize, CSize, Ptr[Byte], CSize]
-    ): CInt = extern
-
-    @name("curl_easy_setopt")
-    def easySetoptSlist(curl: CURL, option: CInt, parameter: Ptr[CurlSlist]): CInt = extern
-
-    @name("curl_easy_getinfo")
-    def easyGetinfoLong(curl: CURL, info: CInt, result: Ptr[Long]): CInt = extern
+    // curl_easy_setopt / curl_easy_getinfo are C variadic functions that Scala Native cannot call
+    // correctly (a fixed-arity extern uses the wrong calling convention for the variadic arg, and a
+    // CVarArg* extern doesn't pass it through on this toolchain) — curl then reads garbage for the
+    // value (a valid URL becomes CURLE_URL_MALFORMAT). These resolve to fixed-arity C shims in
+    // src/main/resources/scala-native/uni_curl_shim.c, which forward to the real variadic functions.
+    def uni_curl_easy_setopt_ptr(curl: CURL, option: CInt, value: Ptr[Byte]): CInt = extern
+    def uni_curl_easy_setopt_long(curl: CURL, option: CInt, value: Long): CInt     = extern
+    def uni_curl_easy_getinfo_long(curl: CURL, info: CInt, value: Ptr[Long]): CInt = extern
 
     @name("curl_easy_strerror")
     def easyStrerror(code: CInt): CString = extern
@@ -138,25 +128,29 @@ object CurlBindings:
   def curl_easy_perform(curl: CURL): CInt = Extern.easyPerform(curl)
 
   def curl_easy_setopt_long(curl: CURL, option: CInt, parameter: Long): CInt = Extern
-    .easySetoptLong(curl, option, parameter)
+    .uni_curl_easy_setopt_long(curl, option, parameter)
 
   def curl_easy_setopt_ptr(curl: CURL, option: CInt, parameter: Ptr[Byte]): CInt = Extern
-    .easySetoptPtr(curl, option, parameter)
+    .uni_curl_easy_setopt_ptr(curl, option, parameter)
 
   def curl_easy_setopt_str(curl: CURL, option: CInt, parameter: CString): CInt = Extern
-    .easySetoptPtr(curl, option, parameter.asInstanceOf[Ptr[Byte]])
+    .uni_curl_easy_setopt_ptr(curl, option, parameter.asInstanceOf[Ptr[Byte]])
 
   def curl_easy_setopt_callback(
       curl: CURL,
       option: CInt,
       parameter: CFuncPtr4[Ptr[Byte], CSize, CSize, Ptr[Byte], CSize]
-  ): CInt = Extern.easySetoptCallback(curl, option, parameter)
+  ): CInt = Extern.uni_curl_easy_setopt_ptr(
+    curl,
+    option,
+    CFuncPtr.toPtr(parameter).asInstanceOf[Ptr[Byte]]
+  )
 
   def curl_easy_setopt_slist(curl: CURL, option: CInt, parameter: Ptr[CurlSlist]): CInt = Extern
-    .easySetoptSlist(curl, option, parameter)
+    .uni_curl_easy_setopt_ptr(curl, option, parameter.asInstanceOf[Ptr[Byte]])
 
   def curl_easy_getinfo_long(curl: CURL, info: CInt, result: Ptr[Long]): CInt = Extern
-    .easyGetinfoLong(curl, info, result)
+    .uni_curl_easy_getinfo_long(curl, info, result)
 
   def curl_easy_strerror(code: CInt): CString = Extern.easyStrerror(code)
   def curl_slist_append(list: Ptr[CurlSlist], str: CString): Ptr[CurlSlist] = Extern.slistAppend(
