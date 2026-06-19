@@ -96,6 +96,11 @@ private[http] object NodeWebSocket extends LogSupport:
       request: Request,
       maxFrameSize: Int
   ): Unit =
+    // The route filter may be asynchronous; if the client disconnected while it ran, the socket is
+    // already gone — skip the upgrade entirely (no onOpen, so no dangling onClose).
+    if isDestroyed(socket) then
+      return
+
     val handler = route.handlerFactory(request)
     val ctx     = NodeWebSocketContext(socket, request)
     val decoder = WebSocketFrameDecoder(maxFrameSize)
@@ -113,8 +118,14 @@ private[http] object NodeWebSocket extends LogSupport:
     def drive(bytes: Array[Byte]): Unit =
       if !closed then
         try
-          if !decoder.feed(bytes)(ev => dispatch(handler, ctx, () => notifyClose(), ev)) then
-            // A terminal event (peer close / protocol failure) was emitted; flush and close.
+          if !decoder.feed(bytes)(ev =>
+              WebSocketDispatcher.dispatch(handler, ctx, ctx.sendPong, () => notifyClose(), ev)
+            )
+          then
+            // A terminal event (peer close / protocol failure) was emitted. Fire onClose now (the
+            // Native backend does this via its read-loop's `finally`; the socket 'close' event may
+            // not arrive for a half-open peer), then flush our close frame and FIN.
+            notifyClose()
             endQuietly(socket)
         catch
           case NonFatal(e) =>
@@ -131,18 +142,20 @@ private[http] object NodeWebSocket extends LogSupport:
         NodeBytes.toUint8Array(handshake.getBytes(StandardCharsets.ISO_8859_1))
       )
 
-      try
-        handler.onOpen(ctx)
-      catch
-        case NonFatal(e) =>
-          safeOnError(handler, ctx, e)
-
-      // Wire teardown, then feed any bytes already read past the request headers before live data.
+      // Wire teardown before onOpen so a disconnect during the handshake can't slip through; then
+      // call onOpen, attach data, and feed any bytes already read past the request headers.
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) => drive(NodeBytes.toBytes(chunk))
       val onClose: js.Function1[js.Dynamic, Unit] = (_: js.Dynamic) => notifyClose()
       socket.applyDynamic("on")("close", onClose)
       socket.applyDynamic("on")("error", onClose)
+
+      try
+        handler.onOpen(ctx)
+      catch
+        case NonFatal(e) =>
+          WebSocketDispatcher.safeOnError(handler, ctx, e)
+
       socket.applyDynamic("on")("data", onData)
       if !js.isUndefined(head) && head != null && head.length.asInstanceOf[Int] > 0 then
         drive(NodeBytes.toBytes(head))
@@ -151,58 +164,13 @@ private[http] object NodeWebSocket extends LogSupport:
         warn(s"WebSocket accept error: ${e.getMessage}")
         notifyClose()
         destroyQuietly(socket)
+    end try
 
   end accept
 
-  private def dispatch(
-      handler: WebSocketHandler,
-      ctx: NodeWebSocketContext,
-      notifyClose: () => Unit,
-      event: WsEvent
-  ): Unit =
-    event match
-      case WsEvent.Message(WebSocketFrame.OpText, data) =>
-        deliverText(handler, ctx, data)
-      case WsEvent.Message(_, data) =>
-        deliverBinary(handler, ctx, data)
-      case WsEvent.Ping(data) =>
-        ctx.sendPong(data)
-      case WsEvent.Pong(_) =>
-      // ignore unsolicited pongs
-      case WsEvent.PeerClose(code, _) =>
-        notifyClose()
-        ctx.close(code, "") // echo the peer's close code (RFC 6455 §5.5.1)
-      case WsEvent.Fail(code, reason) =>
-        ctx.close(code, reason)
-
-  private def deliverText(
-      handler: WebSocketHandler,
-      ctx: NodeWebSocketContext,
-      data: Array[Byte]
-  ): Unit =
-    try
-      handler.onTextMessage(ctx, new String(data, StandardCharsets.UTF_8))
-    catch
-      case NonFatal(e) =>
-        safeOnError(handler, ctx, e)
-
-  private def deliverBinary(
-      handler: WebSocketHandler,
-      ctx: NodeWebSocketContext,
-      data: Array[Byte]
-  ): Unit =
-    try
-      handler.onBinaryMessage(ctx, data)
-    catch
-      case NonFatal(e) =>
-        safeOnError(handler, ctx, e)
-
-  private def safeOnError(handler: WebSocketHandler, ctx: WebSocketContext, e: Throwable): Unit =
-    try
-      handler.onError(ctx, e)
-    catch
-      case NonFatal(e2) =>
-        warn(s"onError error: ${e2.getMessage}")
+  private def isDestroyed(socket: js.Dynamic): Boolean =
+    val d = socket.destroyed
+    !js.isUndefined(d) && d != null && d.asInstanceOf[Boolean]
 
   private def buildRequest(req: js.Dynamic): Request =
     val method     = HttpMethod.of(req.method.asInstanceOf[String]).getOrElse(HttpMethod.GET)

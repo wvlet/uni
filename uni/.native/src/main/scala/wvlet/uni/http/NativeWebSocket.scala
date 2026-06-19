@@ -46,7 +46,7 @@ private[http] object NativeWebSocket extends LogSupport:
         handler.onOpen(ctx)
       catch
         case NonFatal(e) =>
-          safeOnError(handler, ctx, e)
+          WebSocketDispatcher.safeOnError(handler, ctx, e)
 
       val decoder = WebSocketFrameDecoder(maxFrameSize)
       var open    = true
@@ -55,65 +55,17 @@ private[http] object NativeWebSocket extends LogSupport:
         if chunk.isEmpty then
           open = false // clean EOF
         else
-          open = decoder.feed(chunk)(ev => dispatch(handler, ctx, notifyClose, ev))
+          open =
+            decoder.feed(chunk)(ev =>
+              WebSocketDispatcher.dispatch(handler, ctx, ctx.sendPong, () => notifyClose(), ev)
+            )
     catch
       case NonFatal(e) =>
-        safeOnError(handler, ctx, e)
+        WebSocketDispatcher.safeOnError(handler, ctx, e)
     finally
       notifyClose()
 
   end serve
-
-  private def dispatch(
-      handler: WebSocketHandler,
-      ctx: NativeWebSocketContext,
-      notifyClose: () => Unit,
-      event: WsEvent
-  ): Unit =
-    event match
-      case WsEvent.Message(WebSocketFrame.OpText, data) =>
-        deliverText(handler, ctx, data)
-      case WsEvent.Message(_, data) =>
-        deliverBinary(handler, ctx, data)
-      case WsEvent.Ping(data) =>
-        ctx.sendPong(data)
-      case WsEvent.Pong(_) =>
-      // ignore unsolicited pongs
-      case WsEvent.PeerClose(code, _) =>
-        notifyClose()
-        // Echo the peer's close code (RFC 6455 §5.5.1).
-        ctx.close(code, "")
-      case WsEvent.Fail(code, reason) =>
-        ctx.close(code, reason)
-
-  private def deliverText(
-      handler: WebSocketHandler,
-      ctx: NativeWebSocketContext,
-      data: Array[Byte]
-  ): Unit =
-    try
-      handler.onTextMessage(ctx, new String(data, StandardCharsets.UTF_8))
-    catch
-      case NonFatal(e) =>
-        safeOnError(handler, ctx, e)
-
-  private def deliverBinary(
-      handler: WebSocketHandler,
-      ctx: NativeWebSocketContext,
-      data: Array[Byte]
-  ): Unit =
-    try
-      handler.onBinaryMessage(ctx, data)
-    catch
-      case NonFatal(e) =>
-        safeOnError(handler, ctx, e)
-
-  private def safeOnError(handler: WebSocketHandler, ctx: WebSocketContext, e: Throwable): Unit =
-    try
-      handler.onError(ctx, e)
-    catch
-      case NonFatal(e2) =>
-        warn(s"onError error: ${e2.getMessage}")
 
 end NativeWebSocket
 
