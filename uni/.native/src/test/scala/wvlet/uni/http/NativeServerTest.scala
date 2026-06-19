@@ -121,6 +121,7 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok(s"Hello from ${req.path}")
       }
+      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
@@ -136,6 +137,7 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok(s"Received: ${req.content.toContentString}")
       }
+      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
@@ -151,6 +153,7 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok("ok").addHeader("X-Echoed", req.header("X-Echo").getOrElse("none"))
       }
+      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
