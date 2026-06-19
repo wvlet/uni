@@ -264,6 +264,24 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should not stream a body for HEAD on an SSE endpoint") {
+    import wvlet.uni.rx.Rx
+    NativeServer
+      .withRxHandler(_ =>
+        Rx.single(Response.eventStream(Rx.fromSeq(Seq(ServerSentEvent.data("x")))))
+      )
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "HEAD /events HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 200
+        response.headers.get("content-type") shouldBe Some("text/event-stream")
+        response.body shouldBe ""
+      }
+  }
+
   test("should report a bound ephemeral port") {
     NativeServer
       .withPort(0)
