@@ -14,8 +14,9 @@
 package wvlet.uni.http
 
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
 
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CountDownLatch, ExecutorService, Executors, ThreadFactory, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.util.control.NonFatal
@@ -116,14 +117,26 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           case ReadResult.Req(request) =>
             val response  = runHandler(request)
             val keepAlive = clientWantsKeepAlive(request)
-            // A HEAD response carries headers (incl. Content-Length) but no body.
-            val includeBody = request.method != HttpMethod.HEAD
-            val sent        = NativeSocket.sendAll(
-              clientFd,
-              HttpResponseWriter.serialize(response, keepAlive, includeBody)
-            )
+            val isHead    = request.method == HttpMethod.HEAD
+            val sent      =
+              if response.isEventStream then
+                if isHead then
+                  // HEAD: send the streaming response headers but no event body.
+                  NativeSocket.sendAll(
+                    clientFd,
+                    HttpResponseWriter.serializeSseHeaders(response, keepAlive)
+                  )
+                else
+                  streamSse(clientFd, response, keepAlive)
+              else
+                // A HEAD response carries headers (incl. Content-Length) but no body.
+                NativeSocket.sendAll(
+                  clientFd,
+                  HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
+                )
             if !keepAlive || !sent then
               continue = false
+      end while
     catch
       case NonFatal(e) =>
         debug(s"Connection handling error: ${e.getMessage}")
@@ -132,6 +145,57 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
 
   private def clientWantsKeepAlive(request: Request): Boolean =
     !request.header(HttpHeader.Connection).exists(_.equalsIgnoreCase("close"))
+
+  /**
+    * Stream a Server-Sent Events response with chunked transfer encoding. Each `ServerSentEvent` is
+    * written as one chunk; the worker thread blocks until the event stream terminates (SSE is
+    * long-lived by design, so no handler-await timeout is applied here). A failed chunk write
+    * cancels the subscription. Returns whether the connection is still usable for keep-alive.
+    *
+    * Limitation (blocking model): a client that disconnects while the stream is *idle* (no event to
+    * write) is not detected until the next event fails to write, so the worker stays parked in
+    * `done.await()` — each live stream pins one worker thread. A portable idle/read timeout is a
+    * follow-up (see the SSE-streaming plan).
+    */
+  private def streamSse(clientFd: Int, response: Response, keepAlive: Boolean): Boolean =
+    if !NativeSocket.sendAll(clientFd, HttpResponseWriter.serializeSseHeaders(response, keepAlive))
+    then
+      false
+    else
+      val done = CountDownLatch(1)
+      val ok   = AtomicBoolean(true)
+      // Delegate Cancelable: RxRunner.run can emit synchronously (Rx.fromSeq) before the real
+      // subscription handle is assigned, and an async source may emit on another thread — so the
+      // cancel flag and handle are atomics for correct cross-thread visibility.
+      val cancelled                = AtomicBoolean(false)
+      val realSubscription         = AtomicReference[Cancelable](Cancelable.empty)
+      val subscription: Cancelable = Cancelable { () =>
+        cancelled.set(true)
+        realSubscription.get().cancel
+      }
+      realSubscription.set(
+        RxRunner.run(response.events) {
+          case OnNext(event) =>
+            if !cancelled.get() then
+              val data = event
+                .asInstanceOf[ServerSentEvent]
+                .toContent
+                .getBytes(StandardCharsets.UTF_8)
+              if !NativeSocket.sendAll(clientFd, HttpResponseWriter.chunk(data)) then
+                ok.set(false)
+                subscription.cancel
+                done.countDown()
+          case OnError(e) =>
+            warn(s"SSE stream error: ${e.getMessage}", e)
+            ok.set(false)
+            done.countDown()
+          case OnCompletion =>
+            done.countDown()
+        }
+      )
+      done.await()
+      // Terminate the chunked body if the client is still there.
+      ok.get() && NativeSocket.sendAll(clientFd, HttpResponseWriter.finalChunk)
 
   /**
     * Run the handler and block for its single response. The handler may be asynchronous (Rx), so

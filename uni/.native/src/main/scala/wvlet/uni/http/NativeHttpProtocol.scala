@@ -200,4 +200,61 @@ private[http] object HttpResponseWriter:
       name.equalsIgnoreCase(HttpHeader.ContentLength) ||
       name.equalsIgnoreCase(HttpHeader.Connection)
 
+  /**
+    * Serialize the status line + headers for a streaming (SSE) response: `text/event-stream` with
+    * `Transfer-Encoding: chunked` and no `Content-Length`. The body is then written as chunks via
+    * [[chunk]] / [[finalChunk]]. Mirrors the Netty/Node SSE response.
+    */
+  def serializeSseHeaders(response: Response, keepAlive: Boolean): Array[Byte] =
+    val sb = StringBuilder()
+    sb.append("HTTP/1.1 ")
+      .append(response.status.code)
+      .append(" ")
+      .append(response.status.reason)
+      .append("\r\n")
+    response
+      .headers
+      .entries
+      .foreach { case (name, value) =>
+        if !isManagedHeader(name) && !name.equalsIgnoreCase(HttpHeader.TransferEncoding) &&
+          !name.equalsIgnoreCase(HttpHeader.CacheControl)
+        then
+          sb.append(name).append(": ").append(value).append("\r\n")
+      }
+    sb.append(HttpHeader.ContentType)
+      .append(": ")
+      .append(ContentType.TextEventStream.value)
+      .append("\r\n")
+    sb.append(HttpHeader.CacheControl).append(": no-cache\r\n")
+    sb.append(HttpHeader.TransferEncoding).append(": chunked\r\n")
+    sb.append(HttpHeader.Connection)
+      .append(": ")
+      .append(
+        if keepAlive then
+          "keep-alive"
+        else
+          "close"
+      )
+      .append("\r\n")
+    sb.append("\r\n")
+    sb.toString.getBytes(StandardCharsets.ISO_8859_1)
+
+  end serializeSseHeaders
+
+  /**
+    * One HTTP chunked-transfer chunk: `<hex-length>\r\n<data>\r\n`. Empty data yields no bytes (a
+    * zero-length chunk would prematurely terminate the body).
+    */
+  def chunk(data: Array[Byte]): Array[Byte] =
+    if data.isEmpty then
+      Array.emptyByteArray
+    else
+      val header = s"${Integer.toHexString(data.length)}\r\n".getBytes(StandardCharsets.ISO_8859_1)
+      header ++ data ++ CRLF
+
+  /** The terminating zero-length chunk that ends a chunked body. */
+  val finalChunk: Array[Byte] = "0\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
+
+  private val CRLF: Array[Byte] = "\r\n".getBytes(StandardCharsets.ISO_8859_1)
+
 end HttpResponseWriter
