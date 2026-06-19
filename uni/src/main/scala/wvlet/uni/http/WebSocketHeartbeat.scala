@@ -13,8 +13,6 @@
  */
 package wvlet.uni.http
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 /**
   * Platform-neutral ping/pong heartbeat policy for detecting a half-open WebSocket peer.
   *
@@ -27,27 +25,31 @@ import java.util.concurrent.atomic.AtomicBoolean
 private[http] class WebSocketHeartbeat:
   import WebSocketHeartbeat.Decision
 
-  // Set by the reader on any inbound frame; consumed (and cleared) by each tick.
-  private val sawActivity  = AtomicBoolean(false)
-  private val awaitingPong = AtomicBoolean(false)
+  // onActivity (reader thread) and onTick (timer thread) can race on multi-threaded backends, so the
+  // compound state transition is guarded by the instance lock (uncontended: ~one tick per interval).
+  private var sawActivity  = false
+  private var awaitingPong = false
 
   /** Record inbound activity (any frame). Clears a pending ping. */
-  def onActivity(): Unit =
-    sawActivity.set(true)
-    awaitingPong.set(false)
+  def onActivity(): Unit = synchronized {
+    sawActivity = true
+    awaitingPong = false
+  }
 
   /** Decide what to do at a heartbeat interval. */
-  def onTick(): Decision =
-    if sawActivity.getAndSet(false) then
+  def onTick(): Decision = synchronized {
+    if sawActivity then
       // Recent traffic already proves liveness; no ping needed this interval.
-      awaitingPong.set(false)
+      sawActivity = false
+      awaitingPong = false
       Decision.Idle
-    else if awaitingPong.get() then
+    else if awaitingPong then
       // We pinged last interval and saw nothing since → the peer is gone.
       Decision.Close
     else
-      awaitingPong.set(true)
+      awaitingPong = true
       Decision.SendPing
+  }
 
 end WebSocketHeartbeat
 
