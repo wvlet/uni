@@ -201,7 +201,9 @@ private[http] object NodeWebSocket extends LogSupport:
         drive(NodeBytes.toBytes(head))
 
       // Ping/pong heartbeat: ping an idle connection and close it if the peer stops responding.
-      if heartbeat != null then
+      // Guard on `!closed` so we don't schedule an interval after onOpen/drive(head) already closed
+      // (notifyClose ran before intervalHandle was set, so it couldn't have cleared it).
+      if heartbeat != null && !closed then
         val tick: js.Function0[Unit] =
           () =>
             if !closed then
