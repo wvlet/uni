@@ -31,7 +31,12 @@ class JavaWebSocketClient extends WebSocketClient:
 
   private given ExecutionContext = ExecutionContext.parasitic
 
-  override def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext] =
+  // pingIntervalMillis (client heartbeat) is wired in a follow-up PR; ignored for now.
+  override def connect(
+      uri: String,
+      handler: WebSocketHandler,
+      pingIntervalMillis: Int
+  ): Rx[WebSocketContext] =
     val opened   = Promise[WebSocketContext]()
     val listener = JavaWebSocketListener(handler, Request.get(uri), opened)
     JavaWebSocketClient

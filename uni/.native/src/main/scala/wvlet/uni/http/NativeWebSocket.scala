@@ -30,7 +30,13 @@ private[http] object NativeWebSocket extends LogSupport:
     * Run a WebSocket connection: deliver `onOpen`, then read/dispatch frames until the peer closes
     * or the socket ends, guaranteeing `onClose` exactly once. Runs on the calling worker thread.
     */
-  def serve(clientFd: Int, request: Request, handler: WebSocketHandler, maxFrameSize: Int): Unit =
+  def serve(
+      clientFd: Int,
+      request: Request,
+      handler: WebSocketHandler,
+      maxFrameSize: Int,
+      pingIntervalMillis: Int
+  ): Unit =
     val ctx                 = NativeWebSocketContext(clientFd, request)
     val closeNotified       = AtomicBoolean(false)
     def notifyClose(): Unit =
@@ -48,17 +54,18 @@ private[http] object NativeWebSocket extends LogSupport:
         case NonFatal(e) =>
           WebSocketDispatcher.safeOnError(handler, ctx, e)
 
-      val decoder = WebSocketFrameDecoder(maxFrameSize)
-      var open    = true
-      while open do
-        val chunk = NativeSocket.recvChunk(clientFd)
-        if chunk.isEmpty then
-          open = false // clean EOF
-        else
-          open =
-            decoder.feed(chunk)(ev =>
-              WebSocketDispatcher.dispatch(handler, ctx, ctx.sendPong, () => notifyClose(), ev)
-            )
+      runReadLoop(
+        clientFd,
+        maxFrameSize,
+        pingIntervalMillis,
+        expectMasked = true,
+        initial = Array.emptyByteArray,
+        handler,
+        ctx,
+        ctx.sendPong,
+        ctx.sendPing,
+        () => notifyClose()
+      )
     catch
       case NonFatal(e) =>
         WebSocketDispatcher.safeOnError(handler, ctx, e)
@@ -66,6 +73,74 @@ private[http] object NativeWebSocket extends LogSupport:
       notifyClose()
 
   end serve
+
+  /**
+    * Poll/read/dispatch loop shared by the Native server and client. Uses `poll` so a periodic
+    * heartbeat (when `pingIntervalMillis > 0`) can ping an idle peer and close it if a Ping goes
+    * unanswered; with the heartbeat off it blocks (poll timeout -1) like a plain `recv`. `initial`
+    * is any bytes already read past the handshake (client side). Exceptions propagate to the
+    * caller.
+    */
+  private[http] def runReadLoop(
+      fd: Int,
+      maxFrameSize: Int,
+      pingIntervalMillis: Int,
+      expectMasked: Boolean,
+      initial: Array[Byte],
+      handler: WebSocketHandler,
+      ctx: WebSocketContext,
+      sendPong: Array[Byte] => Unit,
+      sendPing: Array[Byte] => Unit,
+      notifyClose: () => Unit
+  ): Unit =
+    val decoder   = WebSocketFrameDecoder(maxFrameSize, expectMasked)
+    val heartbeat =
+      if pingIntervalMillis > 0 then
+        WebSocketHeartbeat()
+      else
+        null
+    val pollTimeout =
+      if pingIntervalMillis > 0 then
+        pingIntervalMillis
+      else
+        -1
+    def feed(bytes: Array[Byte]): Boolean =
+      decoder.feed(bytes)(ev =>
+        WebSocketDispatcher.dispatch(
+          handler,
+          ctx,
+          sendPong,
+          notifyClose,
+          ev,
+          () =>
+            if heartbeat != null then
+              heartbeat.onActivity()
+        )
+      )
+    var open = initial.isEmpty || feed(initial)
+    while open do
+      NativeSocket.waitReadable(fd, pollTimeout) match
+        case 1 =>
+          val chunk = NativeSocket.recvChunk(fd)
+          if chunk.isEmpty then
+            open = false
+          else
+            open = feed(chunk)
+        case 0 =>
+          // Heartbeat tick (only reached when pingIntervalMillis > 0).
+          if heartbeat != null then
+            heartbeat.onTick() match
+              case WebSocketHeartbeat.Decision.SendPing =>
+                sendPing(Array.emptyByteArray)
+              case WebSocketHeartbeat.Decision.Close =>
+                ctx.close(1011, "ping timeout")
+                open = false
+              case WebSocketHeartbeat.Decision.Idle =>
+                ()
+        case _ =>
+          open = false // hangup/error
+
+  end runReadLoop
 
 end NativeWebSocket
 
@@ -95,6 +170,10 @@ private[http] class NativeWebSocketContext(clientFd: Int, override val request: 
   private[http] def sendPong(payload: Array[Byte]): Unit =
     if !closed.get() then
       writeFrame(WebSocketFrame.OpPong, payload)
+
+  private[http] def sendPing(payload: Array[Byte]): Unit =
+    if !closed.get() then
+      writeFrame(WebSocketFrame.OpPing, payload)
 
   private def sendFrameIfOpen(opcode: Int, payload: Array[Byte]): Unit =
     if !closed.get() then

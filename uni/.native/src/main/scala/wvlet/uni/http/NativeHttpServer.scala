@@ -340,7 +340,8 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
               clientFd,
               accepted,
               route.handlerFactory(accepted),
-              config.webSocketMaxFrameSize
+              config.webSocketMaxFrameSize,
+              config.webSocketPingIntervalMillis
             )
 
   private def daemonThreadFactory(name: String): ThreadFactory =

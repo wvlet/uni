@@ -46,7 +46,12 @@ class JSWebSocketClient extends WebSocketClient:
 
   private given ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
 
-  override def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext] =
+  // pingIntervalMillis is ignored: the browser/Node global WebSocket can't send protocol pings.
+  override def connect(
+      uri: String,
+      handler: WebSocketHandler,
+      pingIntervalMillis: Int
+  ): Rx[WebSocketContext] =
     val opened = Promise[WebSocketContext]()
     val ws     = new JsWebSocket(uri)
     ws.binaryType = "arraybuffer"
