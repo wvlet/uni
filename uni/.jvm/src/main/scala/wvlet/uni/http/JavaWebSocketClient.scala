@@ -18,7 +18,7 @@ import wvlet.uni.rx.Rx
 import java.net.URI
 import java.net.http.{HttpClient, WebSocket}
 import java.nio.ByteBuffer
-import java.util.concurrent.CompletionStage
+import java.util.concurrent.{CompletableFuture, CompletionStage}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.{ExecutionContext, Promise}
 
@@ -29,13 +29,13 @@ import scala.concurrent.{ExecutionContext, Promise}
   */
 class JavaWebSocketClient extends WebSocketClient:
 
-  private val httpClient         = HttpClient.newHttpClient()
   private given ExecutionContext = ExecutionContext.parasitic
 
   override def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext] =
     val opened   = Promise[WebSocketContext]()
     val listener = JavaWebSocketListener(handler, Request.get(uri), opened)
-    httpClient
+    JavaWebSocketClient
+      .sharedHttpClient
       .newWebSocketBuilder()
       .buildAsync(URI.create(uri), listener)
       .exceptionally { e =>
@@ -48,6 +48,10 @@ class JavaWebSocketClient extends WebSocketClient:
 end JavaWebSocketClient
 
 object JavaWebSocketClient:
+  // One HttpClient (and its thread pools) shared across all client instances — Http.webSocketClient
+  // builds a new JavaWebSocketClient per call, so a per-instance HttpClient would leak threads.
+  private lazy val sharedHttpClient: HttpClient = HttpClient.newHttpClient()
+
   def apply(): JavaWebSocketClient = new JavaWebSocketClient()
 
 /**
@@ -101,10 +105,9 @@ private class JavaWebSocketListener(
     null
 
   override def onError(webSocket: WebSocket, error: Throwable): Unit =
-    val c = ctx
-    if c != null then
-      WebSocketDispatcher.safeOnError(handler, c, error)
-    // No-op if the handshake already completed successfully.
+    // Transport/protocol errors map to onClose (not onError), matching the server backends — onError
+    // is reserved for exceptions thrown by handler callbacks (see WebSocketDispatcher). A pre-open
+    // failure still surfaces on the connect Rx via the promise.
     opened.tryFailure(error)
     notifyClose()
 
@@ -127,22 +130,30 @@ end JavaWebSocketListener
 
 /**
   * [[WebSocketContext]] over a JDK `java.net.http.WebSocket`. `request` is the connect request.
-  *
-  * Note: the JDK requires each send to complete before the next is issued; this fire-and-forget
-  * adapter is intended for typical request/response style use, not high-rate concurrent sends.
+  * Sends are serialized through a future chain (the JDK forbids overlapping sends).
   */
 private class JavaWebSocketContext(webSocket: WebSocket, override val request: Request)
     extends WebSocketContext:
 
-  override def send(text: String): Unit = webSocket.sendText(text, true)
+  // The JDK WebSocket requires each send to complete before the next is issued (else it throws
+  // IllegalStateException), so serialize sends through a single CompletableFuture chain. The
+  // `exceptionally` keeps the chain alive after a failed send rather than wedging all later sends.
+  private val sendLock                                = Object()
+  private var sendChain: CompletableFuture[WebSocket] = CompletableFuture.completedFuture(webSocket)
 
-  override def send(data: Array[Byte]): Unit = webSocket.sendBinary(ByteBuffer.wrap(data), true)
+  private def enqueue(send: WebSocket => CompletableFuture[WebSocket]): Unit = sendLock
+    .synchronized {
+      sendChain = sendChain.thenCompose(ws => send(ws)).exceptionally(_ => webSocket)
+    }
+
+  override def send(text: String): Unit = enqueue(_.sendText(text, true))
+
+  override def send(data: Array[Byte]): Unit = enqueue(_.sendBinary(ByteBuffer.wrap(data), true))
 
   override def close(): Unit = close(WebSocket.NORMAL_CLOSURE, "")
 
-  override def close(statusCode: Int, reason: String): Unit = webSocket.sendClose(
-    statusCode,
-    reason
+  override def close(statusCode: Int, reason: String): Unit = enqueue(
+    _.sendClose(statusCode, reason)
   )
 
 end JavaWebSocketContext
