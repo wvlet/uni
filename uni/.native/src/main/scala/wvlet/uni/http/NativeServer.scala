@@ -65,7 +65,10 @@ case class NativeServerConfig(
     // WebSocket routes, matched by path during the HTTP upgrade handshake
     override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
     // Maximum size (bytes) of an inbound WebSocket message
-    webSocketMaxFrameSize: Int = 1024 * 1024
+    webSocketMaxFrameSize: Int = 1024 * 1024,
+    // Ping/pong heartbeat interval for WebSocket connections (0 disables it): the server pings an
+    // idle connection and closes it if the peer stops responding to pings.
+    webSocketPingIntervalMillis: Int = 0
 ) extends HttpServerConfig:
 
   def withName(name: String): NativeServerConfig = copy(name = name)
@@ -131,6 +134,10 @@ case class NativeServerConfig(
   def withWebSocketMaxFrameSize(sizeInBytes: Int): NativeServerConfig =
     require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
     copy(webSocketMaxFrameSize = sizeInBytes)
+
+  def withWebSocketPingIntervalMillis(millis: Int): NativeServerConfig =
+    require(millis >= 0, "webSocketPingIntervalMillis must be >= 0")
+    copy(webSocketPingIntervalMillis = millis)
 
   /**
     * Start the server and return the running instance. Binding is synchronous, so the inherited

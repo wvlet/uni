@@ -30,8 +30,11 @@ private[http] object WebSocketDispatcher extends LogSupport:
       ctx: WebSocketContext,
       sendPong: Array[Byte] => Unit,
       notifyClose: () => Unit,
-      event: WsEvent
+      event: WsEvent,
+      onActivity: () => Unit = () => ()
   ): Unit =
+    // Any decoded frame proves the peer is alive — reset the heartbeat.
+    onActivity()
     event match
       case WsEvent.Message(WebSocketFrame.OpText, data) =>
         deliver(
@@ -52,6 +55,8 @@ private[http] object WebSocketDispatcher extends LogSupport:
       case WsEvent.Fail(code, reason) =>
         // onClose is driven by the connection teardown after this terminal event.
         ctx.close(code, reason)
+
+  end dispatch
 
   private def deliver(handler: WebSocketHandler, ctx: WebSocketContext, action: () => Unit): Unit =
     try

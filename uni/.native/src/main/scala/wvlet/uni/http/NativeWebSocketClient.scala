@@ -33,7 +33,11 @@ import scala.util.control.NonFatal
   */
 class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
-  override def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext] =
+  override def connect(
+      uri: String,
+      handler: WebSocketHandler,
+      pingIntervalMillis: Int
+  ): Rx[WebSocketContext] =
     try
       val target = NativeWebSocketClient.parse(uri)
       val fd     = NativeSocket.connect(target.host, target.port)
@@ -72,21 +76,18 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
         val reader = Thread(() =>
           try
-            val decoder = WebSocketFrameDecoder(
+            NativeWebSocket.runReadLoop(
+              fd,
               NativeWebSocketClient.MaxFrameSize,
-              expectMasked = false
+              pingIntervalMillis,
+              expectMasked = false,
+              initial = handshake.leftover,
+              handler,
+              ctx,
+              ctx.sendPong,
+              ctx.sendPing,
+              () => notifyClose()
             )
-            def feed(bytes: Array[Byte]): Boolean =
-              decoder.feed(bytes)(ev =>
-                WebSocketDispatcher.dispatch(handler, ctx, ctx.sendPong, () => notifyClose(), ev)
-              )
-            var open = handshake.leftover.isEmpty || feed(handshake.leftover)
-            while open do
-              val chunk = NativeSocket.recvChunk(fd)
-              if chunk.isEmpty then
-                open = false
-              else
-                open = feed(chunk)
           catch
             case NonFatal(e) =>
               // Transport/read errors surface as onClose (via the finally), not onError — onError is
@@ -243,6 +244,10 @@ private class NativeWebSocketClientContext(clientFd: Int, override val request: 
   private[http] def sendPong(payload: Array[Byte]): Unit =
     if !closed.get() then
       writeFrame(WebSocketFrame.OpPong, payload)
+
+  private[http] def sendPing(payload: Array[Byte]): Unit =
+    if !closed.get() then
+      writeFrame(WebSocketFrame.OpPing, payload)
 
   private def sendFrameIfOpen(opcode: Int, payload: Array[Byte]): Unit =
     if !closed.get() then

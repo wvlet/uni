@@ -26,7 +26,18 @@ trait WebSocketClient:
     * callbacks (`onOpen`/`onTextMessage`/`onBinaryMessage`/`onClose`/`onError`). The returned `Rx`
     * emits the open [[WebSocketContext]] — used to `send`/`close` — once the handshake completes,
     * or fails with the handshake error. (`handler.onOpen` fires for the same event.)
+    *
+    * `pingIntervalMillis` enables a client-side ping/pong heartbeat (0 disables it): the client
+    * pings an idle connection and closes it if the peer stops responding. Not supported on the JS
+    * backend (the browser/Node `WebSocket` API cannot send protocol pings), where it is ignored.
     */
-  def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext]
+  def connect(uri: String, handler: WebSocketHandler, pingIntervalMillis: Int): Rx[WebSocketContext]
+
+  /** Connect with the client heartbeat disabled. */
+  final def connect(uri: String, handler: WebSocketHandler): Rx[WebSocketContext] = connect(
+    uri,
+    handler,
+    0
+  )
 
 end WebSocketClient

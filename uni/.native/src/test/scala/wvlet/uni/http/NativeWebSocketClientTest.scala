@@ -89,6 +89,27 @@ class NativeWebSocketClientTest extends UniTest:
       }
   }
 
+  test("server heartbeat keeps an idle connection alive via ping/pong") {
+    NativeServer
+      .withPort(0)
+      .withWebSocketPingIntervalMillis(150)
+      .withWebSocketRoute("/ws/idle") { _ =>
+        new WebSocketHandler {}
+      }
+      .start { server =>
+        val closed  = CountDownLatch(1)
+        val handler =
+          new WebSocketHandler:
+            override def onClose(ctx: WebSocketContext): Unit = closed.countDown()
+        val ctx = connect(s"ws://127.0.0.1:${server.localPort}/ws/idle", handler)
+        try
+          // The server pings every 150ms; the client auto-pongs, so the heartbeat must NOT reap this
+          // live-but-idle connection over several intervals.
+          closed.await(800, TimeUnit.MILLISECONDS) shouldBe false
+        finally ctx.close()
+      }
+  }
+
   test("Native WebSocket client fires onClose when the connection ends") {
     NativeServer
       .withPort(0)
