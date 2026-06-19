@@ -23,7 +23,7 @@ jobs:
           cache: sbt
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
       - name: Setup GPG
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}

@@ -35,4 +35,6 @@ object JSHttpChannelFactory extends HttpChannelFactory:
 
   override def newAsyncChannel: HttpAsyncChannel = FetchChannel()
 
+  override def newWebSocketClient: WebSocketClient = JSWebSocketClient()
+
 end JSHttpChannelFactory
