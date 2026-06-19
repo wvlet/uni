@@ -115,33 +115,45 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             )
             continue = false
           case ReadResult.Req(request) =>
-            val response  = runHandler(request)
-            val keepAlive = clientWantsKeepAlive(request)
-            val isHead    = request.method == HttpMethod.HEAD
-            val sent      =
-              if response.isEventStream then
-                if isHead then
-                  // HEAD: send the streaming response headers but no event body.
-                  NativeSocket.sendAll(
-                    clientFd,
-                    HttpResponseWriter.serializeSseHeaders(response, keepAlive)
-                  )
-                else
-                  streamSse(clientFd, response, keepAlive)
-              else
-                // A HEAD response carries headers (incl. Content-Length) but no body.
-                NativeSocket.sendAll(
-                  clientFd,
-                  HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
-                )
-            if !keepAlive || !sent then
-              continue = false
+            webSocketRouteFor(request) match
+              case Some(route) =>
+                // WebSocket upgrade: the WS handler owns the connection until it closes.
+                handleWebSocketUpgrade(clientFd, request, route)
+                continue = false
+              case None =>
+                if !handleHttpRequest(clientFd, request) then
+                  continue = false
       end while
     catch
       case NonFatal(e) =>
         debug(s"Connection handling error: ${e.getMessage}")
     finally
       NativeSocket.close(clientFd)
+
+  /**
+    * Handle one non-WebSocket request. Returns whether the connection may stay open (keep-alive).
+    */
+  private def handleHttpRequest(clientFd: Int, request: Request): Boolean =
+    val response  = runHandler(request)
+    val keepAlive = clientWantsKeepAlive(request)
+    val isHead    = request.method == HttpMethod.HEAD
+    val sent      =
+      if response.isEventStream then
+        if isHead then
+          // HEAD: send the streaming response headers but no event body.
+          NativeSocket.sendAll(
+            clientFd,
+            HttpResponseWriter.serializeSseHeaders(response, keepAlive)
+          )
+        else
+          streamSse(clientFd, response, keepAlive)
+      else
+        // A HEAD response carries headers (incl. Content-Length) but no body.
+        NativeSocket.sendAll(
+          clientFd,
+          HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
+        )
+    keepAlive && sent
 
   private def clientWantsKeepAlive(request: Request): Boolean =
     !request.header(HttpHeader.Connection).exists(_.equalsIgnoreCase("close"))
@@ -203,31 +215,98 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     */
   private def runHandler(request: Request): Response =
     try
-      val latch  = CountDownLatch(1)
-      val result = AtomicReference[Response]()
-      RxRunner.runOnce(handler.handle(request)) {
-        case OnNext(response) =>
-          result.set(response.asInstanceOf[Response])
-          latch.countDown()
-        case OnError(e) =>
-          warn(s"Error in handler: ${e.getMessage}", e)
-          result.set(Response.internalServerError(e.getMessage))
-          latch.countDown()
-        case OnCompletion =>
-          // Completed without emitting a response.
-          result.compareAndSet(null, Response.notFound)
-          latch.countDown()
-      }
-      // Bound the wait so a handler whose Rx never completes can't wedge the worker thread forever.
-      if latch.await(config.handlerTimeoutMillis, TimeUnit.MILLISECONDS) then
-        result.get()
-      else
-        warn(s"Handler timed out after ${config.handlerTimeoutMillis} ms")
-        Response.serviceUnavailable
+      awaitRx(handler.handle(request))
     catch
       case NonFatal(e) =>
         warn(s"Error handling request: ${e.getMessage}", e)
         Response.internalServerError(e.getMessage)
+
+  /**
+    * Block for the single Response produced by an Rx (the request handler, or a WebSocket upgrade
+    * filter gate), bounded by the handler timeout so a never-completing Rx can't wedge the worker.
+    */
+  private def awaitRx(rx: Rx[Response]): Response =
+    val latch  = CountDownLatch(1)
+    val result = AtomicReference[Response]()
+    RxRunner.runOnce(rx) {
+      case OnNext(response) =>
+        result.set(response.asInstanceOf[Response])
+        latch.countDown()
+      case OnError(e) =>
+        warn(s"Error in handler: ${e.getMessage}", e)
+        result.set(Response.internalServerError(e.getMessage))
+        latch.countDown()
+      case OnCompletion =>
+        // Completed without emitting a response.
+        result.compareAndSet(null, Response.notFound)
+        latch.countDown()
+    }
+    if latch.await(config.handlerTimeoutMillis, TimeUnit.MILLISECONDS) then
+      result.get()
+    else
+      warn(s"Handler timed out after ${config.handlerTimeoutMillis} ms")
+      Response.serviceUnavailable
+
+  private def webSocketRouteFor(request: Request): Option[WebSocketRoute] =
+    if config.webSocketRoutes.isEmpty || !isWebSocketUpgrade(request) then
+      None
+    else
+      config.webSocketRoutes.find(_.path == request.path)
+
+  private def isWebSocketUpgrade(request: Request): Boolean =
+    request.header(HttpHeader.Connection).exists(_.toLowerCase.contains("upgrade")) &&
+      request.header(HttpHeader.Upgrade).exists(_.equalsIgnoreCase("websocket"))
+
+  /**
+    * Gate the upgrade through the route's filter (2xx allows; anything else rejects), then write
+    * the 101 handshake and hand the connection to [[NativeWebSocket.serve]] (which blocks this
+    * worker for the WebSocket's lifetime).
+    */
+  private def handleWebSocketUpgrade(clientFd: Int, request: Request, route: WebSocketRoute): Unit =
+    request.header(HttpHeader.SecWebSocketKey).filter(_.nonEmpty) match
+      case None =>
+        // A WebSocket upgrade without a Sec-WebSocket-Key is a malformed handshake (RFC 6455 §4.2.1).
+        NativeSocket.sendAll(
+          clientFd,
+          HttpResponseWriter.serialize(
+            Response.badRequest("Missing Sec-WebSocket-Key"),
+            keepAlive = false,
+            includeBody = true
+          )
+        )
+      case Some(key) =>
+        // Capture the request as threaded through the filter, so attributes a filter adds during
+        // the handshake reach the WebSocketContext (matching the Netty backend).
+        val upgradeRequest = AtomicReference[Request](request)
+        val gate           = RxHttpHandler { req =>
+          upgradeRequest.set(req)
+          Rx.single(Response.ok)
+        }
+        val verdict =
+          try
+            awaitRx(route.filter.apply(request, gate))
+          catch
+            case NonFatal(e) =>
+              warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+              Response.internalServerError(e.getMessage)
+        if !verdict.isSuccessful then
+          NativeSocket.sendAll(
+            clientFd,
+            HttpResponseWriter.serialize(verdict, keepAlive = false, includeBody = true)
+          )
+        else
+          val handshake =
+            s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
+              s"${HttpHeader.Connection}: Upgrade\r\n" +
+              s"${HttpHeader.SecWebSocketAccept}: ${NativeWebSocket.acceptKey(key)}\r\n\r\n"
+          if NativeSocket.sendAll(clientFd, handshake.getBytes(StandardCharsets.ISO_8859_1)) then
+            val accepted = upgradeRequest.get()
+            NativeWebSocket.serve(
+              clientFd,
+              accepted,
+              route.handlerFactory(accepted),
+              config.webSocketMaxFrameSize
+            )
 
   private def daemonThreadFactory(name: String): ThreadFactory =
     (r: Runnable) =>

@@ -57,7 +57,11 @@ case class NativeServerConfig(
     // Size of the worker thread pool that handles connections
     workerThreads: Int = 16,
     // Max time to wait for a handler's Rx to produce a response before returning 503
-    handlerTimeoutMillis: Long = 30000
+    handlerTimeoutMillis: Long = 30000,
+    // WebSocket routes, matched by path during the HTTP upgrade handshake
+    override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
+    // Maximum size (bytes) of an inbound WebSocket message
+    webSocketMaxFrameSize: Int = 1024 * 1024
 ) extends HttpServerConfig:
 
   def withName(name: String): NativeServerConfig = copy(name = name)
@@ -99,6 +103,22 @@ case class NativeServerConfig(
   def withHandlerTimeoutMillis(millis: Long): NativeServerConfig =
     require(millis > 0, "handlerTimeoutMillis must be positive")
     copy(handlerTimeoutMillis = millis)
+
+  /** Register a WebSocket route; the factory creates a fresh handler per accepted connection. */
+  def withWebSocketRoute(path: String)(
+      handlerFactory: Request => WebSocketHandler
+  ): NativeServerConfig = withWebSocketRoute(path, RxHttpFilter.identity)(handlerFactory)
+
+  /** Register a WebSocket route with a filter that gates the upgrade handshake (e.g. for auth). */
+  def withWebSocketRoute(path: String, filter: RxHttpFilter)(
+      handlerFactory: Request => WebSocketHandler
+  ): NativeServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  )
+
+  def withWebSocketMaxFrameSize(sizeInBytes: Int): NativeServerConfig =
+    require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
+    copy(webSocketMaxFrameSize = sizeInBytes)
 
   /**
     * Start the server and return the running instance. Binding is synchronous, so the inherited

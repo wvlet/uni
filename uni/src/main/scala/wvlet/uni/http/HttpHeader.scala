@@ -36,6 +36,12 @@ object HttpHeader:
   val Via: String              = "Via"
   val Warning: String          = "Warning"
 
+  // WebSocket handshake headers (RFC 6455)
+  val SecWebSocketKey: String      = "Sec-WebSocket-Key"
+  val SecWebSocketAccept: String   = "Sec-WebSocket-Accept"
+  val SecWebSocketVersion: String  = "Sec-WebSocket-Version"
+  val SecWebSocketProtocol: String = "Sec-WebSocket-Protocol"
+
   // Request headers
   val Accept: String             = "Accept"
   val AcceptCharset: String      = "Accept-Charset"
