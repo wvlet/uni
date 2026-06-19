@@ -103,3 +103,9 @@ trait HttpChannelFactory:
     * Create a new asynchronous HTTP channel
     */
   def newAsyncChannel: HttpAsyncChannel
+
+  /**
+    * Create a WebSocket client. Platforms that don't yet implement one throw.
+    */
+  def newWebSocketClient: WebSocketClient =
+    throw NotImplementedError("WebSocket client is not supported on this platform")

@@ -39,6 +39,12 @@ object Http:
   def client: HttpClientConfig = HttpClientConfig.default.withChannelFactory(defaultChannelFactory)
 
   /**
+    * Entry point for opening WebSocket client connections, using the default platform-specific
+    * channel factory. Currently implemented on the JVM.
+    */
+  def webSocketClient: WebSocketClient = defaultChannelFactory.newWebSocketClient
+
+  /**
     * Default HTTP channel factory. Initialized from the platform-specific
     * `HttpCompat.defaultHttpChannelFactory` so cross-platform callers can use
     * `Http.client.newSyncClient` without per-platform setup. Callers that need a non-default

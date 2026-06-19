@@ -25,4 +25,6 @@ object JVMHttpChannelFactory extends HttpChannelFactory:
 
   override def newAsyncChannel: HttpAsyncChannel = JavaHttpAsyncChannel()
 
+  override def newWebSocketClient: WebSocketClient = JavaWebSocketClient()
+
 end JVMHttpChannelFactory
