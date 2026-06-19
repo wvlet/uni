@@ -121,7 +121,6 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok(s"Hello from ${req.path}")
       }
-      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
@@ -137,7 +136,6 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok(s"Received: ${req.content.toContentString}")
       }
-      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
@@ -153,7 +151,6 @@ class NativeServerTest extends UniTest:
       .withHandler { req =>
         Response.ok("ok").addHeader("X-Echoed", req.header("X-Echo").getOrElse("none"))
       }
-      .withPort(0)
       .start { server =>
         val response = request(
           server.localPort,
@@ -372,13 +369,13 @@ class NativeServerTest extends UniTest:
 
   test("WebSocket echoes text messages") {
     NativeServer
+      .withPort(0)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
           override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
             s"echo:${message}"
           )
       }
-      .withPort(0)
       .start { server =>
         val client = WsClient(connectLoopback(server.localPort))
         try
@@ -394,11 +391,11 @@ class NativeServerTest extends UniTest:
 
   test("WebSocket can push a message on open") {
     NativeServer
+      .withPort(0)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
           override def onOpen(ctx: WebSocketContext): Unit = ctx.send("welcome")
       }
-      .withPort(0)
       .start { server =>
         val client = WsClient(connectLoopback(server.localPort))
         try
@@ -413,12 +410,12 @@ class NativeServerTest extends UniTest:
     val opened = CountDownLatch(1)
     val closed = CountDownLatch(1)
     NativeServer
+      .withPort(0)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler:
           override def onOpen(ctx: WebSocketContext): Unit  = opened.countDown()
           override def onClose(ctx: WebSocketContext): Unit = closed.countDown()
       }
-      .withPort(0)
       .start { server =>
         val client = WsClient(connectLoopback(server.localPort))
         client.handshake("/ws/life", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 101
@@ -428,15 +425,30 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("WebSocket upgrade without a key is rejected with 400") {
+    NativeServer
+      .withPort(0)
+      .withWebSocketRoute("/ws") { _ =>
+        new WebSocketHandler {}
+      }
+      .start { server =>
+        val resp = request(
+          server.localPort,
+          "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n"
+        )
+        resp.status shouldBe 400
+      }
+  }
+
   test("WebSocket upgrade can be rejected by a filter") {
     val deny = RxHttpFilter { (_, _) =>
       wvlet.uni.rx.Rx.single(Response.forbidden)
     }
     NativeServer
+      .withPort(0)
       .withWebSocketRoute("/ws/secure", deny) { _ =>
         new WebSocketHandler {}
       }
-      .withPort(0)
       .start { server =>
         val client = WsClient(connectLoopback(server.localPort))
         try client.handshake("/ws/secure", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 403

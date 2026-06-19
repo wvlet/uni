@@ -40,14 +40,6 @@ object NativeServer:
   def withRxHandler(f: Request => Rx[Response]): NativeServerConfig = NativeServerConfig()
     .withRxHandler(f)
 
-  def withWebSocketRoute(path: String)(
-      handlerFactory: Request => WebSocketHandler
-  ): NativeServerConfig = NativeServerConfig().withWebSocketRoute(path)(handlerFactory)
-
-  def withWebSocketRoute(path: String, filter: RxHttpFilter)(
-      handlerFactory: Request => WebSocketHandler
-  ): NativeServerConfig = NativeServerConfig().withWebSocketRoute(path, filter)(handlerFactory)
-
 /**
   * Configuration for [[NativeHttpServer]], mirroring `NettyServerConfig`/`NodeServerConfig`'s
   * common surface plus a few Native-specific knobs.

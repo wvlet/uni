@@ -109,13 +109,15 @@ private[http] object NativeWebSocket extends LogSupport:
         if !ensure(2) then
           open = false
         else
-          val b0     = buf(0) & 0xff
-          val b1     = buf(1) & 0xff
-          val fin    = (b0 & 0x80) != 0
-          val opcode = b0 & 0x0f
-          val masked = (b1 & 0x80) != 0
-          var len    = b1 & 0x7f
-          var header = 2
+          val b0        = buf(0) & 0xff
+          val b1        = buf(1) & 0xff
+          val fin       = (b0 & 0x80) != 0
+          val rsv       = b0 & 0x70
+          val opcode    = b0 & 0x0f
+          val masked    = (b1 & 0x80) != 0
+          val isControl = (opcode & 0x8) != 0
+          var len       = b1 & 0x7f
+          var header    = 2
           if len == 126 then
             if !ensure(4) then
               open = false
@@ -140,51 +142,67 @@ private[http] object NativeWebSocket extends LogSupport:
           if open && (len < 0 || len > maxFrameSize) then
             ctx.close(1009, "message too big")
             open = false
+          else if open && (rsv != 0 || !masked) then
+            // RSV must be 0 (no extension negotiated); client frames MUST be masked (RFC 6455 §5).
+            ctx.close(1002, "protocol error")
+            open = false
+          else if open && isControl && (!fin || len > 125) then
+            // Control frames must be final and at most 125 bytes (RFC 6455 §5.5).
+            ctx.close(1002, "invalid control frame")
+            open = false
           else if open then
-            val maskLen =
-              if masked then
-                4
-              else
-                0
-            if !ensure(header + maskLen + len) then
+            if !ensure(header + 4 + len) then
               open = false
             else
               buf.remove(0, header)
-              val mask =
-                if masked then
-                  take(4)
-                else
-                  Array.emptyByteArray
+              val mask    = take(4) // client frames are masked (validated above)
               val payload = take(len)
-              if masked then
-                var i = 0
-                while i < payload.length do
-                  payload(i) = (payload(i) ^ mask(i % 4)).toByte
-                  i += 1
+              var i       = 0
+              while i < payload.length do
+                payload(i) = (payload(i) ^ mask(i % 4)).toByte
+                i += 1
               opcode match
                 case OpText | OpBinary =>
-                  if fin then
+                  if fragmentOpcode != -1 then
+                    ctx.close(1002, "data frame during a fragmented message")
+                    open = false
+                  else if fin then
                     deliver(handler, ctx, opcode, payload)
                   else
                     fragmentOpcode = opcode
                     fragments.clear()
                     fragments ++= payload
                 case OpContinuation =>
-                  fragments ++= payload
-                  if fin then
-                    deliver(handler, ctx, fragmentOpcode, fragments.toArray)
-                    fragments.clear()
-                    fragmentOpcode = -1
+                  if fragmentOpcode == -1 then
+                    ctx.close(1002, "continuation without a start frame")
+                    open = false
+                  else
+                    fragments ++= payload
+                    if fragments.length > maxFrameSize then
+                      ctx.close(1009, "message too big")
+                      open = false
+                    else if fin then
+                      deliver(handler, ctx, fragmentOpcode, fragments.toArray)
+                      fragments.clear()
+                      fragmentOpcode = -1
                 case OpClose =>
                   notifyClose()
-                  ctx.close()
+                  // Echo the peer's close code (RFC 6455 §5.5.1).
+                  val code =
+                    if payload.length >= 2 then
+                      ((payload(0) & 0xff) << 8) | (payload(1) & 0xff)
+                    else
+                      1000
+                  ctx.close(code, "")
                   open = false
                 case OpPing =>
                   ctx.sendPong(payload)
                 case OpPong =>
                 // ignore unsolicited pongs
                 case _ =>
-                  debug(s"Ignoring unsupported WebSocket opcode: ${opcode}")
+                  ctx.close(1002, s"unsupported opcode ${opcode}")
+                  open = false
+              end match
             end if
           end if
       end while
