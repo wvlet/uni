@@ -166,6 +166,10 @@ private[http] object NodeWebSocket extends LogSupport:
           WebSocketDispatcher.safeOnError(handler, ctx, e)
 
       socket.applyDynamic("on")("data", onData)
+      // Attaching 'data' switches the socket to flowing mode, undoing a pause from a back-pressured
+      // onOpen write; re-apply it if the write buffer is still full ('drain' will resume).
+      if needsDrain(socket) then
+        socket.applyDynamic("pause")()
       if !js.isUndefined(head) && head != null && head.length.asInstanceOf[Int] > 0 then
         drive(NodeBytes.toBytes(head))
     catch
@@ -180,6 +184,13 @@ private[http] object NodeWebSocket extends LogSupport:
   private def isDestroyed(socket: js.Dynamic): Boolean =
     val d = socket.destroyed
     !js.isUndefined(d) && d != null && d.asInstanceOf[Boolean]
+
+  /**
+    * True if the socket's write buffer is full (a prior write() returned false, not yet drained).
+    */
+  private def needsDrain(socket: js.Dynamic): Boolean =
+    val n = socket.writableNeedDrain
+    !js.isUndefined(n) && n != null && n.asInstanceOf[Boolean]
 
   private def buildRequest(req: js.Dynamic): Request =
     val method     = HttpMethod.of(req.method.asInstanceOf[String]).getOrElse(HttpMethod.GET)
@@ -229,9 +240,18 @@ private[http] object NodeWebSocket extends LogSupport:
         .entries
         .foreach { case (name, value) =>
           if !name.equalsIgnoreCase(HttpHeader.Connection) &&
-            !name.equalsIgnoreCase(HttpHeader.ContentLength)
+            !name.equalsIgnoreCase(HttpHeader.ContentLength) &&
+            !name.equalsIgnoreCase(HttpHeader.ContentType)
           then
             sb.append(name).append(": ").append(value).append("\r\n")
+        }
+      // Content-Type from an explicit header or the body's type (matching the Native serializer).
+      response
+        .headers
+        .get(HttpHeader.ContentType)
+        .orElse(response.content.contentType.map(_.value))
+        .foreach { ct =>
+          sb.append(HttpHeader.ContentType).append(": ").append(ct).append("\r\n")
         }
       sb.append(HttpHeader.Connection).append(": close\r\n")
       sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n\r\n")
