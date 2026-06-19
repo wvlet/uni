@@ -17,8 +17,9 @@ import scala.collection.mutable
 
 /**
   * A small, dependency-free SHA-1 (RFC 3174) used for the WebSocket handshake accept key.
-  * `java.security.MessageDigest` is not available on Scala Native, so this provides the digest; the
-  * result is base64-encoded with `java.util.Base64` (which is available on Native).
+  * `java.security.MessageDigest` is not available on Scala Native, so this provides the digest on
+  * all platforms (the result is base64-encoded with `java.util.Base64`, which is available on JVM,
+  * Scala.js, and Native).
   */
 private[http] object Sha1:
 

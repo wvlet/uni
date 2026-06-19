@@ -19,7 +19,6 @@ import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
 import scala.concurrent.{ExecutionContext, Promise}
 import scala.scalajs.js
 import scala.scalajs.js.JSConverters.*
-import scala.scalajs.js.typedarray.*
 
 /**
   * Node.js-based HTTP server implementation, backed by the built-in `http` module. It implements
@@ -84,6 +83,20 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         readyPromise.success(this)
 
     server.applyDynamic("on")("error", onError)
+
+    // Node's http server has no built-in WebSocket; handle the raw `upgrade` event ourselves.
+    if config.webSocketRoutes.nonEmpty then
+      val onUpgrade: js.Function3[js.Dynamic, js.Dynamic, js.Dynamic, Unit] =
+        (req: js.Dynamic, socket: js.Dynamic, head: js.Dynamic) =>
+          NodeWebSocket.handleUpgrade(
+            req,
+            socket,
+            head,
+            config.webSocketRoutes,
+            config.webSocketMaxFrameSize
+          )
+      server.applyDynamic("on")("upgrade", onUpgrade)
+
     server.applyDynamic("listen")(config.port, config.host, onListening)
 
   end start
@@ -122,7 +135,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) =>
-          bodyChunks ++= toBytes(chunk)
+          bodyChunks ++= NodeBytes.toBytes(chunk)
           ()
 
       val onEnd: js.Function0[Unit] =
@@ -179,7 +192,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         else
           // Node sets Content-Length automatically for a buffered body. The body must be a
           // Uint8Array/Buffer (Node rejects Int8Array), so view the bytes as unsigned.
-          res.applyDynamic("end")(toUint8Array(bytes))
+          res.applyDynamic("end")(NodeBytes.toUint8Array(bytes))
     catch
       case e: Throwable =>
         warn(s"Failed to write response: ${e.getMessage}", e)
@@ -257,23 +270,6 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       else
         res.applyDynamic("setHeader")(name, values.toJSArray)
     }
-
-  /**
-    * Copy a Node `Buffer`/`Uint8Array` chunk into a JVM byte array. The chunk may be a view into a
-    * larger pooled buffer, so honor its `byteOffset`/`length`.
-    */
-  private def toBytes(chunk: js.Dynamic): Array[Byte] =
-    val u8 = chunk.asInstanceOf[Uint8Array]
-    Int8Array(u8.buffer, u8.byteOffset, u8.length).toArray
-
-  /**
-    * View a JVM byte array as a Node-compatible `Uint8Array` (Node rejects `Int8Array` response
-    * bodies). The two share the same underlying bytes; only the signed/unsigned interpretation
-    * differs, which Node ignores when writing raw bytes.
-    */
-  private def toUint8Array(bytes: Array[Byte]): Uint8Array =
-    val i8 = bytes.toTypedArray
-    Uint8Array(i8.buffer, i8.byteOffset, i8.length)
 
   override def stop(): Unit =
     // Check `started`, not `running`: stop() may race a pending bind (started but not yet

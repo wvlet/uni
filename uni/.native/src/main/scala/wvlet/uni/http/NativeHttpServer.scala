@@ -298,7 +298,7 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           val handshake =
             s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
               s"${HttpHeader.Connection}: Upgrade\r\n" +
-              s"${HttpHeader.SecWebSocketAccept}: ${NativeWebSocket.acceptKey(key)}\r\n\r\n"
+              s"${HttpHeader.SecWebSocketAccept}: ${WebSocketFrame.acceptKey(key)}\r\n\r\n"
           if NativeSocket.sendAll(clientFd, handshake.getBytes(StandardCharsets.ISO_8859_1)) then
             val accepted = upgradeRequest.get()
             NativeWebSocket.serve(
