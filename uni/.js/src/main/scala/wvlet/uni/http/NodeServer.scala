@@ -46,7 +46,11 @@ case class NodeServerConfig(
     host: String = "0.0.0.0",
     port: Int = 8080,
     handler: RxHttpHandler = RxHttpHandler.notFound,
-    filters: Seq[RxHttpFilter] = Seq.empty
+    filters: Seq[RxHttpFilter] = Seq.empty,
+    // WebSocket routes, matched by path during the HTTP upgrade handshake
+    override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
+    // Maximum size (bytes) of an inbound WebSocket message
+    webSocketMaxFrameSize: Int = 1024 * 1024
 ) extends HttpServerConfig:
 
   def withName(name: String): NodeServerConfig = copy(name = name)
@@ -70,6 +74,22 @@ case class NodeServerConfig(
   def withFilters(filters: Seq[RxHttpFilter]): NodeServerConfig = copy(filters =
     this.filters ++ filters
   )
+
+  /** Register a WebSocket route; the factory creates a fresh handler per accepted connection. */
+  def withWebSocketRoute(path: String)(
+      handlerFactory: Request => WebSocketHandler
+  ): NodeServerConfig = withWebSocketRoute(path, RxHttpFilter.identity)(handlerFactory)
+
+  /** Register a WebSocket route with a filter that gates the upgrade handshake (e.g. for auth). */
+  def withWebSocketRoute(path: String, filter: RxHttpFilter)(
+      handlerFactory: Request => WebSocketHandler
+  ): NodeServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  )
+
+  def withWebSocketMaxFrameSize(sizeInBytes: Int): NodeServerConfig =
+    require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
+    copy(webSocketMaxFrameSize = sizeInBytes)
 
   /**
     * Start the server and return the running server instance. Note that on Node.js the socket bind

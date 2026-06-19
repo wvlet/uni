@@ -367,7 +367,7 @@ class NativeServerTest extends UniTest:
   end WsClient
 
   test("acceptKey matches the RFC 6455 example") {
-    NativeWebSocket.acceptKey("dGhlIHNhbXBsZSBub25jZQ==") shouldBe "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+    WebSocketFrame.acceptKey("dGhlIHNhbXBsZSBub25jZQ==") shouldBe "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
   }
 
   test("WebSocket echoes text messages") {
