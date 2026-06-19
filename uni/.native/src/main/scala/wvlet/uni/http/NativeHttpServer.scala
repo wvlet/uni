@@ -263,18 +263,14 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     * worker for the WebSocket's lifetime).
     */
   private def handleWebSocketUpgrade(clientFd: Int, request: Request, route: WebSocketRoute): Unit =
-    request.header(HttpHeader.SecWebSocketKey).filter(_.nonEmpty) match
-      case None =>
-        // A WebSocket upgrade without a Sec-WebSocket-Key is a malformed handshake (RFC 6455 §4.2.1).
+    WebSocketHandshake.validate(request) match
+      case Left(rejection) =>
+        // Malformed handshake: missing key (400), or unsupported Sec-WebSocket-Version (426).
         NativeSocket.sendAll(
           clientFd,
-          HttpResponseWriter.serialize(
-            Response.badRequest("Missing Sec-WebSocket-Key"),
-            keepAlive = false,
-            includeBody = true
-          )
+          HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
         )
-      case Some(key) =>
+      case Right(key) =>
         // Capture the request as threaded through the filter, so attributes a filter adds during
         // the handshake reach the WebSocketContext (matching the Netty backend).
         val upgradeRequest = AtomicReference[Request](request)

@@ -47,11 +47,11 @@ private[http] object NodeWebSocket extends LogSupport:
         case None =>
           destroyQuietly(socket)
         case Some(route) =>
-          request.header(HttpHeader.SecWebSocketKey).filter(_.nonEmpty) match
-            case None =>
-              // A WebSocket upgrade without a Sec-WebSocket-Key is malformed (RFC 6455 §4.2.1).
-              writeHttpClose(socket, Response.badRequest("Missing Sec-WebSocket-Key"))
-            case Some(key) =>
+          WebSocketHandshake.validate(request) match
+            case Left(rejection) =>
+              // Malformed handshake: missing key (400), or unsupported Sec-WebSocket-Version (426).
+              writeHttpClose(socket, rejection)
+            case Right(key) =>
               gateAndAccept(socket, head, key, route, request, maxFrameSize)
     catch
       case NonFatal(e) =>
@@ -147,8 +147,17 @@ private[http] object NodeWebSocket extends LogSupport:
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) => drive(NodeBytes.toBytes(chunk))
       val onClose: js.Function1[js.Dynamic, Unit] = (_: js.Dynamic) => notifyClose()
+      // Resume reading once a back-pressured write has drained (see NodeWebSocketContext.writeFrame).
+      val onDrain: js.Function0[Unit] =
+        () =>
+          try
+            socket.applyDynamic("resume")()
+          catch
+            case NonFatal(_) =>
+              ()
       socket.applyDynamic("on")("close", onClose)
       socket.applyDynamic("on")("error", onClose)
+      socket.applyDynamic("on")("drain", onDrain)
 
       try
         handler.onOpen(ctx)
@@ -213,6 +222,17 @@ private[http] object NodeWebSocket extends LogSupport:
         .append(" ")
         .append(response.status.reason)
         .append("\r\n")
+      // Copy the response's own headers (e.g. Sec-WebSocket-Version on a 426), minus the ones set
+      // explicitly below.
+      response
+        .headers
+        .entries
+        .foreach { case (name, value) =>
+          if !name.equalsIgnoreCase(HttpHeader.Connection) &&
+            !name.equalsIgnoreCase(HttpHeader.ContentLength)
+          then
+            sb.append(name).append(": ").append(value).append("\r\n")
+        }
       sb.append(HttpHeader.Connection).append(": close\r\n")
       sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n\r\n")
       val head = sb.toString.getBytes(StandardCharsets.ISO_8859_1)
@@ -279,9 +299,14 @@ private[http] class NodeWebSocketContext(socket: js.Dynamic, override val reques
 
   private def writeFrame(opcode: Int, payload: Array[Byte]): Unit =
     try
-      socket.applyDynamic("write")(
-        NodeBytes.toUint8Array(WebSocketFrame.encodeFrame(opcode, payload))
-      )
+      val accepted =
+        socket.applyDynamic("write")(
+          NodeBytes.toUint8Array(WebSocketFrame.encodeFrame(opcode, payload))
+        )
+      // Backpressure: write() returns false when the kernel send buffer is full. Pause reading so a
+      // slow consumer can't make us buffer unbounded; the 'drain' listener (wired in accept) resumes.
+      if !accepted.asInstanceOf[Boolean] then
+        socket.applyDynamic("pause")()
     catch
       case NonFatal(e) =>
         debug(s"WebSocket write failed: ${e.getMessage}")

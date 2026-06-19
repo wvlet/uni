@@ -63,13 +63,13 @@ class NodeWebSocketTest extends UniTest:
     socket.applyDynamic("on")("error", onError)
 
     /** Send the upgrade request; resolves with the parsed handshake response. */
-    def connect(path: String): Future[Handshake] =
+    def connect(path: String, version: String = "13"): Future[Handshake] =
       val onConnect: js.Function0[Unit] =
         () =>
           val req =
             s"GET ${path} HTTP/1.1\r\nHost: localhost\r\n" +
               s"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-              s"Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+              s"Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: ${version}\r\n\r\n"
           socket.applyDynamic("write")(
             NodeBytes.toUint8Array(req.getBytes(StandardCharsets.ISO_8859_1))
           )
@@ -309,6 +309,23 @@ class NodeWebSocketTest extends UniTest:
               case _: Throwable =>
                 ()
             status shouldBe 400
+          }
+      }
+  }
+
+  test("WebSocket upgrade with an unsupported version is rejected with 426") {
+    NodeServer
+      .withPort(0)
+      .withWebSocketRoute("/ws") { _ =>
+        new WebSocketHandler {}
+      }
+      .startAndAwait { server =>
+        val client = NodeWsClient(server.localPort)
+        Rx.future(client.connect("/ws", version = "8"))
+          .map { hs =>
+            client.close()
+            hs.status shouldBe 426
+            hs.headers.get("sec-websocket-version") shouldBe Some("13")
           }
       }
   }

@@ -443,6 +443,23 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("WebSocket upgrade with an unsupported version is rejected with 426") {
+    NativeServer
+      .withPort(0)
+      .withWebSocketRoute("/ws") { _ =>
+        new WebSocketHandler {}
+      }
+      .start { server =>
+        val resp = request(
+          server.localPort,
+          "GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n" +
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 8\r\n\r\n"
+        )
+        resp.status shouldBe 426
+        resp.headers.get("sec-websocket-version") shouldBe Some("13")
+      }
+  }
+
   test("WebSocket upgrade can be rejected by a filter") {
     val deny = RxHttpFilter { (_, _) =>
       wvlet.uni.rx.Rx.single(Response.forbidden)
