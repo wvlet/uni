@@ -150,11 +150,12 @@ private[http] object NodeWebSocket extends LogSupport:
       // Resume reading once a back-pressured write has drained (see NodeWebSocketContext.writeFrame).
       val onDrain: js.Function0[Unit] =
         () =>
-          try
-            socket.applyDynamic("resume")()
-          catch
-            case NonFatal(_) =>
-              ()
+          if !closed then
+            try
+              socket.applyDynamic("resume")()
+            catch
+              case NonFatal(_) =>
+                ()
       socket.applyDynamic("on")("close", onClose)
       socket.applyDynamic("on")("error", onClose)
       socket.applyDynamic("on")("drain", onDrain)
@@ -243,7 +244,7 @@ private[http] object NodeWebSocket extends LogSupport:
             !name.equalsIgnoreCase(HttpHeader.ContentLength) &&
             !name.equalsIgnoreCase(HttpHeader.ContentType)
           then
-            sb.append(name).append(": ").append(value).append("\r\n")
+            appendHeader(sb, name, value)
         }
       // Content-Type from an explicit header or the body's type (matching the Native serializer).
       response
@@ -251,7 +252,7 @@ private[http] object NodeWebSocket extends LogSupport:
         .get(HttpHeader.ContentType)
         .orElse(response.content.contentType.map(_.value))
         .foreach { ct =>
-          sb.append(HttpHeader.ContentType).append(": ").append(ct).append("\r\n")
+          appendHeader(sb, HttpHeader.ContentType, ct)
         }
       sb.append(HttpHeader.Connection).append(": close\r\n")
       sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n\r\n")
@@ -261,6 +262,16 @@ private[http] object NodeWebSocket extends LogSupport:
     catch
       case NonFatal(e) =>
         destroyQuietly(socket)
+
+  /**
+    * Append a header line, dropping it if the name or value contains CR/LF (defends the raw-socket
+    * write against HTTP response splitting / CRLF injection from a filter-supplied header).
+    */
+  private def appendHeader(sb: StringBuilder, name: String, value: String): Unit =
+    if !containsCrlf(name) && !containsCrlf(value) then
+      sb.append(name).append(": ").append(value).append("\r\n")
+
+  private def containsCrlf(s: String): Boolean = s.indexOf('\r') >= 0 || s.indexOf('\n') >= 0
 
   private def endQuietly(socket: js.Dynamic): Unit =
     try
