@@ -199,18 +199,24 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
         cancelled.set(true)
         realSubscription.get().cancel
       }
+      // The event source may emit on another thread (e.g. a timer), so socket writes happen there
+      // while this worker probes/closes the connection. Serialize writes with the teardown under a
+      // lock so the fd is never closed mid-send (which could leak bytes into a reused fd).
+      val writeLock = Object()
       realSubscription.set(
         RxRunner.run(response.events) {
           case OnNext(event) =>
-            if !cancelled.get() then
-              val data = event
-                .asInstanceOf[ServerSentEvent]
-                .toContent
-                .getBytes(StandardCharsets.UTF_8)
-              if !NativeSocket.sendAll(clientFd, HttpResponseWriter.chunk(data)) then
-                ok.set(false)
-                subscription.cancel
-                done.countDown()
+            writeLock.synchronized {
+              if !cancelled.get() then
+                val data = event
+                  .asInstanceOf[ServerSentEvent]
+                  .toContent
+                  .getBytes(StandardCharsets.UTF_8)
+                if !NativeSocket.sendAll(clientFd, HttpResponseWriter.chunk(data)) then
+                  ok.set(false)
+                  subscription.cancel
+                  done.countDown()
+            }
           case OnError(e) =>
             warn(s"SSE stream error: ${e.getMessage}", e)
             ok.set(false)
@@ -233,6 +239,11 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           case _ =>
             () // genuinely idle but still connected
       if !alive then
+        // Set cancelled under the lock so any in-flight emitter write finishes first and no new write
+        // starts; the connection can then be closed safely after this returns.
+        writeLock.synchronized {
+          cancelled.set(true)
+        }
         subscription.cancel
       // Terminate the chunked body if the client is still there.
       ok.get() && alive && NativeSocket.sendAll(clientFd, HttpResponseWriter.finalChunk)

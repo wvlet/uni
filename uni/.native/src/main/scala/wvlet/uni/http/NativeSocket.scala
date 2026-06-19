@@ -13,8 +13,10 @@
  */
 package wvlet.uni.http
 
+import scala.scalanative.libc.errno as libcErrno
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.posix.arpa.inet
+import scala.scalanative.posix.errno as posixErrno
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
 import scala.scalanative.posix.netinet.inOps.*
 import scala.scalanative.posix.poll.*
@@ -140,17 +142,23 @@ private[http] object NativeSocket:
     fds.fd = fd
     fds.events = POLLIN.toShort
     fds.revents = 0.toShort
-    val rc = poll(fds, 1.toUInt, timeoutMillis)
+    var rc = poll(fds, 1.toUInt, timeoutMillis)
+    // Retry on EINTR (a signal) rather than mistaking it for a dead peer.
+    while rc < 0 && libcErrno.errno == posixErrno.EINTR do
+      fds.revents = 0.toShort
+      rc = poll(fds, 1.toUInt, timeoutMillis)
     if rc < 0 then
       -1
     else if rc == 0 then
       0
     else
       val re = fds.revents.toInt
-      if (re & (POLLHUP | POLLERR | POLLNVAL)) != 0 then
-        -1
-      else if (re & POLLIN) != 0 then
+      // Prefer draining pending data over reporting a hangup: a peer that sent a final request then
+      // closed shows POLLIN (+ possibly POLLHUP); returning 1 lets recv read the data, then EOF.
+      if (re & POLLIN) != 0 then
         1
+      else if (re & (POLLHUP | POLLERR | POLLNVAL)) != 0 then
+        -1
       else
         0
 
