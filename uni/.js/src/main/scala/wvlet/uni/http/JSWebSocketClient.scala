@@ -18,7 +18,7 @@ import wvlet.uni.rx.Rx
 import scala.concurrent.{ExecutionContext, Promise}
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSGlobal
-import scala.scalajs.js.typedarray.{ArrayBuffer, Int8Array, Uint8Array}
+import scala.scalajs.js.typedarray.*
 import scala.util.control.NonFatal
 
 /**
@@ -34,7 +34,7 @@ private class JsWebSocket(url: String) extends js.Object:
   var onclose: js.Function1[js.Any, Unit]       = js.native
   var onerror: js.Function1[js.Any, Unit]       = js.native
   def send(data: String): Unit                  = js.native
-  def send(data: Uint8Array): Unit              = js.native
+  def send(data: Int8Array): Unit               = js.native
   def close(code: Int, reason: String): Unit    = js.native
   def close(): Unit                             = js.native
 
@@ -105,7 +105,9 @@ private class JSWebSocketContext(ws: JsWebSocket, override val request: Request)
 
   override def send(text: String): Unit = ws.send(text)
 
-  override def send(data: Array[Byte]): Unit = ws.send(NodeBytes.toUint8Array(data))
+  // Standard Scala.js conversion (no Node-specific helper) so this works in browsers too. ws.send
+  // accepts any ArrayBufferView; the signed Int8Array shares the same bytes.
+  override def send(data: Array[Byte]): Unit = ws.send(data.toTypedArray)
 
   override def close(): Unit = ws.close()
 
