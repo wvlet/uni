@@ -75,6 +75,25 @@ private[http] object NativeSocket:
 
   end bindAndListen
 
+  /**
+    * Open a TCP connection to host:port (IPv4 dotted-quad or "localhost"). Returns the client fd.
+    */
+  def connect(host: String, port: Int): Int =
+    if port < 0 || port > 65535 then
+      throw HttpException.connectionFailed(s"Invalid port: ${port}")
+    val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
+    if fd < 0 then
+      throw HttpException.connectionFailed("Failed to create socket")
+    val addr = stackalloc[sockaddr_in]()
+    cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
+    addr.sin_family = csocket.AF_INET.toUShort
+    addr.sin_port = inet.htons(port.toUShort)
+    setBindAddress(addr, host)
+    if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
+      unistd.close(fd)
+      throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
+    fd
+
   private def setBindAddress(addr: Ptr[sockaddr_in], host: String): Unit =
     // INADDR_ANY (0) for wildcard; otherwise parse a dotted-quad. "localhost" maps to loopback.
     val normalized =

@@ -207,6 +207,41 @@ class WebSocketFrameDecoderTest extends UniTest:
     }
   }
 
+  /** Build an unmasked server frame (for client-mode decoding). */
+  private def serverFrame(opcode: Int, payload: Array[Byte]): Array[Byte] =
+    val len    = payload.length
+    val header =
+      if len < 126 then
+        Array[Byte]((0x80 | opcode).toByte, len.toByte)
+      else
+        Array[Byte](
+          (0x80 | opcode).toByte,
+          126.toByte,
+          ((len >>> 8) & 0xff).toByte,
+          (len & 0xff).toByte
+        )
+    header ++ payload
+
+  test("client mode decodes an unmasked server text frame") {
+    val events  = mutable.ArrayBuffer.empty[WsEvent]
+    val decoder = WebSocketFrameDecoder(1024 * 1024, expectMasked = false)
+    decoder.feed(serverFrame(WebSocketFrame.OpText, "hi".getBytes(StandardCharsets.UTF_8)))(
+      events += _
+    )
+    events.toSeq shouldMatch { case Seq(WsEvent.Message(WebSocketFrame.OpText, data)) =>
+      new String(data, StandardCharsets.UTF_8) shouldBe "hi"
+    }
+  }
+
+  test("client mode rejects a masked frame with 1002") {
+    val events  = mutable.ArrayBuffer.empty[WsEvent]
+    val decoder = WebSocketFrameDecoder(1024 * 1024, expectMasked = false)
+    // A masked text frame (what a server must never send) — the client must reject it.
+    decoder.feed(textFrame("nope"))(events += _)
+    events.toSeq shouldMatch { case Seq(WsEvent.Fail(1002, _)) =>
+    }
+  }
+
   test("input after a terminal event is ignored") {
     val decoder = WebSocketFrameDecoder(1024 * 1024)
     val events  = mutable.ArrayBuffer.empty[WsEvent]

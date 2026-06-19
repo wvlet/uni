@@ -38,26 +38,55 @@ private[http] object WebSocketFrame:
     .getEncoder
     .encodeToString(Sha1.digest((key + MagicGuid).getBytes(StandardCharsets.US_ASCII)))
 
+  /**
+    * A fresh `Sec-WebSocket-Key` for a client handshake: base64 of 16 random bytes (RFC 6455 §4.1).
+    */
+  def newClientKey(): String =
+    val nonce = new Array[Byte](16)
+    scala.util.Random.nextBytes(nonce)
+    Base64.getEncoder.encodeToString(nonce)
+
   /** Encode an unmasked server frame (FIN set). */
   def encodeFrame(opcode: Int, payload: Array[Byte]): Array[Byte] =
-    val len    = payload.length
-    val b0     = (0x80 | opcode).toByte
-    val header =
-      if len < 126 then
-        Array[Byte](b0, len.toByte)
-      else if len < 65536 then
-        Array[Byte](b0, 126.toByte, ((len >>> 8) & 0xff).toByte, (len & 0xff).toByte)
+    frameHeader(opcode, payload.length, masked = false) ++ payload
+
+  /** Encode a masked client frame (FIN set) with a 4-byte masking key (RFC 6455 §5.3). */
+  def encodeMaskedFrame(opcode: Int, payload: Array[Byte], mask: Array[Byte]): Array[Byte] =
+    val masked = new Array[Byte](payload.length)
+    var i      = 0
+    while i < payload.length do
+      masked(i) = (payload(i) ^ mask(i % 4)).toByte
+      i += 1
+    frameHeader(opcode, payload.length, masked = true) ++ mask ++ masked
+
+  /** A fresh 4-byte masking key for client frames. */
+  def newMaskingKey(): Array[Byte] =
+    val mask = new Array[Byte](4)
+    scala.util.Random.nextBytes(mask)
+    mask
+
+  /** Frame header bytes (b0 + length, with the mask bit when `masked`); excludes the mask key. */
+  private def frameHeader(opcode: Int, len: Int, masked: Boolean): Array[Byte] =
+    val b0      = (0x80 | opcode).toByte
+    val maskBit =
+      if masked then
+        0x80
       else
-        val h = new Array[Byte](10)
-        h(0) = b0
-        h(1) = 127.toByte
-        val l = len.toLong
-        var i = 0
-        while i < 8 do
-          h(2 + i) = ((l >>> ((7 - i) * 8)) & 0xff).toByte
-          i += 1
-        h
-    header ++ payload
+        0x00
+    if len < 126 then
+      Array[Byte](b0, (maskBit | len).toByte)
+    else if len < 65536 then
+      Array[Byte](b0, (maskBit | 126).toByte, ((len >>> 8) & 0xff).toByte, (len & 0xff).toByte)
+    else
+      val h = new Array[Byte](10)
+      h(0) = b0
+      h(1) = (maskBit | 127).toByte
+      val l = len.toLong
+      var i = 0
+      while i < 8 do
+        h(2 + i) = ((l >>> ((7 - i) * 8)) & 0xff).toByte
+        i += 1
+      h
 
   /** A Close-frame payload: a 2-byte big-endian status code followed by the UTF-8 reason. */
   def closePayload(statusCode: Int, reason: String): Array[Byte] =
