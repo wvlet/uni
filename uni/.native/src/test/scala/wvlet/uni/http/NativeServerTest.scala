@@ -16,6 +16,7 @@ package wvlet.uni.http
 import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.posix.arpa.inet
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
@@ -288,6 +289,158 @@ class NativeServerTest extends UniTest:
       .start { server =>
         (server.localPort > 0) shouldBe true
         server.isRunning shouldBe true
+      }
+  }
+
+  // ---- WebSocket ----
+
+  /**
+    * A minimal raw-socket WebSocket client: upgrade handshake, masked text send, server-frame read.
+    */
+  private class WsClient(fd: Int):
+    private val buf = scala.collection.mutable.ArrayBuffer.empty[Byte]
+
+    private def ensure(n: Int): Unit =
+      while buf.length < n do
+        val c = NativeSocket.recvChunk(fd)
+        if c.isEmpty then
+          throw RuntimeException("WebSocket connection closed unexpectedly")
+        buf ++= c
+
+    private def headerEnd: Int =
+      var i = 0
+      while i + 3 < buf.length do
+        if buf(i) == '\r' && buf(i + 1) == '\n' && buf(i + 2) == '\r' && buf(i + 3) == '\n' then
+          return i
+        i += 1
+      -1
+
+    /**
+      * Send the upgrade request and return the parsed handshake response (leftover frames
+      * buffered).
+      */
+    def handshake(path: String, key: String): RawResponse =
+      val req =
+        s"GET ${path} HTTP/1.1\r\nHost: localhost\r\n" +
+          s"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
+          s"Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+      NativeSocket.sendAll(fd, req.getBytes(StandardCharsets.ISO_8859_1))
+      var idx = headerEnd
+      while idx < 0 do
+        val c = NativeSocket.recvChunk(fd)
+        if c.isEmpty then
+          throw RuntimeException("no handshake response")
+        buf ++= c
+        idx = headerEnd
+      val head = new String(buf.slice(0, idx).toArray, StandardCharsets.ISO_8859_1)
+      buf.remove(0, idx + 4)
+      parse(head)
+
+    def sendText(text: String): Unit =
+      val payload = text.getBytes(StandardCharsets.UTF_8)
+      val mask    = Array[Byte](0x12, 0x34, 0x56, 0x78)
+      val masked  = new Array[Byte](payload.length)
+      var i       = 0
+      while i < payload.length do
+        masked(i) = (payload(i) ^ mask(i % 4)).toByte
+        i += 1
+      val header = Array[Byte](0x81.toByte, (0x80 | payload.length).toByte)
+      NativeSocket.sendAll(fd, header ++ mask ++ masked)
+
+    /** Read one server frame and return its UTF-8 text payload. */
+    def readText(): String =
+      ensure(2)
+      var len    = buf(1) & 0x7f
+      var header = 2
+      if len == 126 then
+        ensure(4)
+        len = ((buf(2) & 0xff) << 8) | (buf(3) & 0xff)
+        header = 4
+      ensure(header + len)
+      buf.remove(0, header)
+      val payload = buf.slice(0, len).toArray
+      buf.remove(0, len)
+      new String(payload, StandardCharsets.UTF_8)
+
+    def close(): Unit = NativeSocket.close(fd)
+
+  end WsClient
+
+  test("acceptKey matches the RFC 6455 example") {
+    NativeWebSocket.acceptKey("dGhlIHNhbXBsZSBub25jZQ==") shouldBe "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
+  }
+
+  test("WebSocket echoes text messages") {
+    NativeServer
+      .withWebSocketRoute("/ws/echo") { _ =>
+        new WebSocketHandler:
+          override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
+            s"echo:${message}"
+          )
+      }
+      .withPort(0)
+      .start { server =>
+        val client = WsClient(connectLoopback(server.localPort))
+        try
+          val resp = client.handshake("/ws/echo", "dGhlIHNhbXBsZSBub25jZQ==")
+          resp.status shouldBe 101
+          resp.headers.get("sec-websocket-accept") shouldBe Some("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=")
+          client.sendText("hello")
+          client.readText() shouldBe "echo:hello"
+        finally
+          client.close()
+      }
+  }
+
+  test("WebSocket can push a message on open") {
+    NativeServer
+      .withWebSocketRoute("/ws/push") { _ =>
+        new WebSocketHandler:
+          override def onOpen(ctx: WebSocketContext): Unit = ctx.send("welcome")
+      }
+      .withPort(0)
+      .start { server =>
+        val client = WsClient(connectLoopback(server.localPort))
+        try
+          client.handshake("/ws/push", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 101
+          client.readText() shouldBe "welcome"
+        finally
+          client.close()
+      }
+  }
+
+  test("WebSocket fires onOpen and onClose") {
+    val opened = CountDownLatch(1)
+    val closed = CountDownLatch(1)
+    NativeServer
+      .withWebSocketRoute("/ws/life") { _ =>
+        new WebSocketHandler:
+          override def onOpen(ctx: WebSocketContext): Unit  = opened.countDown()
+          override def onClose(ctx: WebSocketContext): Unit = closed.countDown()
+      }
+      .withPort(0)
+      .start { server =>
+        val client = WsClient(connectLoopback(server.localPort))
+        client.handshake("/ws/life", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 101
+        opened.await(5, TimeUnit.SECONDS) shouldBe true
+        client.close()
+        closed.await(5, TimeUnit.SECONDS) shouldBe true
+      }
+  }
+
+  test("WebSocket upgrade can be rejected by a filter") {
+    val deny = RxHttpFilter { (_, _) =>
+      wvlet.uni.rx.Rx.single(Response.forbidden)
+    }
+    NativeServer
+      .withWebSocketRoute("/ws/secure", deny) { _ =>
+        new WebSocketHandler {}
+      }
+      .withPort(0)
+      .start { server =>
+        val client = WsClient(connectLoopback(server.localPort))
+        try client.handshake("/ws/secure", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 403
+        finally client.close()
       }
   }
 
