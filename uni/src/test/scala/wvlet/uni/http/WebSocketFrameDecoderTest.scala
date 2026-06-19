@@ -182,6 +182,13 @@ class WebSocketFrameDecoderTest extends UniTest:
     }
   }
 
+  test("an 8-byte length with the high bit set fails with 1009") {
+    // FIN+text, masked, 127 extended length whose MSB is set (a negative signed Long).
+    val frame = Array[Byte](0x81.toByte, 0xff.toByte, 0xff.toByte, 0, 0, 0, 0, 0, 0, 1)
+    decode(frame) shouldMatch { case Seq(WsEvent.Fail(1009, _)) =>
+    }
+  }
+
   test("a stream split one byte per feed decodes identically") {
     val stream  = textFrame("hello") ++ frame(WebSocketFrame.OpBinary, Array[Byte](9, 8, 7))
     val events  = mutable.ArrayBuffer.empty[WsEvent]

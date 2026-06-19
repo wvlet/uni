@@ -92,8 +92,10 @@ private[http] class WebSocketFrameDecoder(maxFrameSize: Int):
       while i < 8 do
         l = (l << 8) | (buf(2 + i) & 0xff).toLong
         i += 1
+      // `l < 0` guards an 8-byte length with the high bit set (a signed Long), which would
+      // otherwise slip past `l > maxFrameSize` and truncate to a small Int → framing desync.
       len =
-        if l > maxFrameSize then
+        if l < 0 || l > maxFrameSize then
           -1
         else
           l.toInt
