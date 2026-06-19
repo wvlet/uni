@@ -53,4 +53,6 @@ object NativeHttpChannelFactory extends HttpChannelFactory:
       )
     CurlAsyncChannel()
 
+  override def newWebSocketClient: WebSocketClient = NativeWebSocketClient()
+
 end NativeHttpChannelFactory

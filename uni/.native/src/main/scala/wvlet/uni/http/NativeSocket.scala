@@ -75,6 +75,30 @@ private[http] object NativeSocket:
 
   end bindAndListen
 
+  /**
+    * Open a TCP connection to host:port (IPv4 dotted-quad or "localhost"). Returns the client fd.
+    */
+  def connect(host: String, port: Int): Int =
+    if port < 0 || port > 65535 then
+      throw HttpException.connectionFailed(s"Invalid port: ${port}")
+    val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
+    if fd < 0 then
+      throw HttpException.connectionFailed("Failed to create socket")
+    val addr = stackalloc[sockaddr_in]()
+    cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
+    addr.sin_family = csocket.AF_INET.toUShort
+    addr.sin_port = inet.htons(port.toUShort)
+    // Close the fd on any failure (e.g. setBindAddress rejecting an invalid host) — don't leak it.
+    try
+      setBindAddress(addr, host)
+      if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
+        throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
+      fd
+    catch
+      case e: Throwable =>
+        unistd.close(fd)
+        throw e
+
   private def setBindAddress(addr: Ptr[sockaddr_in], host: String): Unit =
     // INADDR_ANY (0) for wildcard; otherwise parse a dotted-quad. "localhost" maps to loopback.
     val normalized =
@@ -205,5 +229,8 @@ private[http] object NativeSocket:
     ok
 
   def close(fd: Int): Unit = unistd.close(fd)
+
+  /** Shut down both directions, unblocking any thread parked in `recv` on this fd. */
+  def shutdown(fd: Int): Unit = csocket.shutdown(fd, csocket.SHUT_RDWR)
 
 end NativeSocket

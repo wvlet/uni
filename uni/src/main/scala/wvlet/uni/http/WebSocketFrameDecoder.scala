@@ -35,7 +35,7 @@ private[http] enum WsEvent:
   *
   * `maxFrameSize` bounds both a single frame and a reassembled fragmented message (close 1009).
   */
-private[http] class WebSocketFrameDecoder(maxFrameSize: Int):
+private[http] class WebSocketFrameDecoder(maxFrameSize: Int, expectMasked: Boolean = true):
   import WebSocketFrame.*
 
   private val buf            = mutable.ArrayBuffer.empty[Byte]
@@ -103,23 +103,33 @@ private[http] class WebSocketFrameDecoder(maxFrameSize: Int):
     // Validation order matches the wire behavior: size, then RSV/mask, then control-frame rules.
     if len < 0 || len > maxFrameSize then
       return fail(emit, 1009, "message too big")
-    if rsv != 0 || !masked then
-      // RSV must be 0 (no extension negotiated); client frames MUST be masked (RFC 6455 §5).
+    if rsv != 0 || masked != expectMasked then
+      // RSV must be 0 (no extension negotiated). Client->server frames MUST be masked and
+      // server->client frames MUST NOT be (RFC 6455 §5); `expectMasked` selects the side.
       return fail(emit, 1002, "protocol error")
     if isControl && (!fin || len > 125) then
       // Control frames must be final and at most 125 bytes (RFC 6455 §5.5).
       return fail(emit, 1002, "invalid control frame")
 
-    val total = headerLen + 4 + len // + 4-byte mask key
+    val maskLen =
+      if masked then
+        4
+      else
+        0
+    val total = headerLen + maskLen + len
     if buf.length < total then
       return false
 
     val payload = new Array[Byte](len)
-    val maskOff = headerLen
-    val dataOff = headerLen + 4
+    val dataOff = headerLen + maskLen
     var i       = 0
     while i < len do
-      payload(i) = (buf(dataOff + i) ^ buf(maskOff + (i % 4))).toByte
+      // Unmask only when masked; server->client frames carry no masking key.
+      payload(i) =
+        if masked then
+          (buf(dataOff + i) ^ buf(headerLen + (i % 4))).toByte
+        else
+          buf(dataOff + i)
       i += 1
     buf.remove(0, total)
 
