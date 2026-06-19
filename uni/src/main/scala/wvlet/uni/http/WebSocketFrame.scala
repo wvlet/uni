@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.SecureRandom
+
 import java.nio.charset.StandardCharsets
 import java.util.Base64
 
@@ -43,7 +45,7 @@ private[http] object WebSocketFrame:
     */
   def newClientKey(): String =
     val nonce = new Array[Byte](16)
-    scala.util.Random.nextBytes(nonce)
+    SecureRandom.getInstance.nextBytes(nonce)
     Base64.getEncoder.encodeToString(nonce)
 
   /** Encode an unmasked server frame (FIN set). */
@@ -62,7 +64,7 @@ private[http] object WebSocketFrame:
   /** A fresh 4-byte masking key for client frames. */
   def newMaskingKey(): Array[Byte] =
     val mask = new Array[Byte](4)
-    scala.util.Random.nextBytes(mask)
+    SecureRandom.getInstance.nextBytes(mask)
     mask
 
   /** Frame header bytes (b0 + length, with the mask bit when `masked`); excludes the mask key. */

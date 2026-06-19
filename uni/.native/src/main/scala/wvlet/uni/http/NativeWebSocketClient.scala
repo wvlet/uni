@@ -89,7 +89,9 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
                 open = feed(chunk)
           catch
             case NonFatal(e) =>
-              WebSocketDispatcher.safeOnError(handler, ctx, e)
+              // Transport/read errors surface as onClose (via the finally), not onError — onError is
+              // reserved for handler-callback exceptions (those are wrapped in WebSocketDispatcher).
+              warn(s"WebSocket client read error: ${e.getMessage}")
           finally
             notifyClose()
             NativeSocket.close(fd)
@@ -125,8 +127,13 @@ object NativeWebSocketClient:
   private case class Handshake(status: Int, headers: Map[String, String], leftover: Array[Byte])
 
   private def parse(uri: String): Target =
-    if uri.startsWith("wss://") then
-      throw HttpException.connectionFailed("wss:// (TLS) is not supported by the Native client")
+    // Reject CR/LF so a crafted URI can't inject extra request lines/headers (HTTP request splitting).
+    if uri.indexOf('\r') >= 0 || uri.indexOf('\n') >= 0 then
+      throw HttpException.connectionFailed("Invalid characters in WebSocket URI")
+    if !uri.startsWith("ws://") then
+      throw HttpException.connectionFailed(
+        s"Only ws:// URLs are supported by the Native client: ${uri}"
+      )
     val rest      = uri.stripPrefix("ws://")
     val slash     = rest.indexOf('/')
     val authority =
@@ -152,6 +159,8 @@ object NativeWebSocketClient:
         80
     Target(host, port, path)
 
+  end parse
+
   /**
     * Read the HTTP upgrade response up to the header terminator; retain any frame bytes that
     * follow.
@@ -173,8 +182,14 @@ object NativeWebSocketClient:
     val head     = new String(buf.slice(0, end).toArray, StandardCharsets.ISO_8859_1)
     val leftover = buf.slice(end + 4, buf.length).toArray
     val lines    = head.split("\r\n")
-    val status   = lines(0).split(" ")(1).toInt
-    val headers  =
+    // Robust against a malformed status line ("HTTP/1.1 101 ..."); a bad line yields -1 -> rejected.
+    val status = lines
+      .headOption
+      .map(_.split(" "))
+      .filter(_.length >= 2)
+      .flatMap(_(1).toIntOption)
+      .getOrElse(-1)
+    val headers =
       lines
         .drop(1)
         .flatMap { line =>

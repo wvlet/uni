@@ -88,11 +88,16 @@ private[http] object NativeSocket:
     cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
     addr.sin_family = csocket.AF_INET.toUShort
     addr.sin_port = inet.htons(port.toUShort)
-    setBindAddress(addr, host)
-    if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
-      unistd.close(fd)
-      throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
-    fd
+    // Close the fd on any failure (e.g. setBindAddress rejecting an invalid host) — don't leak it.
+    try
+      setBindAddress(addr, host)
+      if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
+        throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
+      fd
+    catch
+      case e: Throwable =>
+        unistd.close(fd)
+        throw e
 
   private def setBindAddress(addr: Ptr[sockaddr_in], host: String): Unit =
     // INADDR_ANY (0) for wildcard; otherwise parse a dotted-quad. "localhost" maps to loopback.
