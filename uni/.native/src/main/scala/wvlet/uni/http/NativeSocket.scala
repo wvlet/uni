@@ -225,4 +225,7 @@ private[http] object NativeSocket:
 
   def close(fd: Int): Unit = unistd.close(fd)
 
+  /** Shut down both directions, unblocking any thread parked in `recv` on this fd. */
+  def shutdown(fd: Int): Unit = csocket.shutdown(fd, csocket.SHUT_RDWR)
+
 end NativeSocket

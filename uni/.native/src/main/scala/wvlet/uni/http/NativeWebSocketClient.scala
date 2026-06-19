@@ -25,7 +25,11 @@ import scala.util.control.NonFatal
   * Scala Native WebSocket client over a raw POSIX socket: connects, performs the handshake, then
   * drives the shared [[WebSocketFrameDecoder]] (client mode — server frames are unmasked) on a
   * daemon reader thread, bridging to a [[WebSocketHandler]]. Outbound frames are masked (RFC 6455
-  * §5.3). Only `ws://` is supported (no TLS on the raw socket).
+  * §5.3).
+  *
+  * Limitations: `ws://` only (no TLS on the raw socket); the host must be a dotted-quad IP or
+  * `localhost` (no DNS); `connect` blocks the caller through the TCP connect + handshake (the
+  * handshake read is bounded/timed, but the TCP connect itself has no timeout).
   */
 class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
@@ -107,7 +111,9 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 end NativeWebSocketClient
 
 object NativeWebSocketClient:
-  private final val MaxFrameSize = 1024 * 1024
+  private final val MaxFrameSize           = 1024 * 1024
+  private final val MaxHandshakeBytes      = 64 * 1024
+  private final val HandshakeTimeoutMillis = 30000
 
   def apply(): NativeWebSocketClient = new NativeWebSocketClient()
 
@@ -154,6 +160,11 @@ object NativeWebSocketClient:
     val buf = mutable.ArrayBuffer.empty[Byte]
     var end = -1
     while end < 0 do
+      if buf.length > MaxHandshakeBytes then
+        throw HttpException.connectionFailed("WebSocket handshake response too large")
+      // Bound the wait so a connected-but-silent server can't hang the caller indefinitely.
+      if NativeSocket.waitReadable(fd, HandshakeTimeoutMillis) != 1 then
+        throw HttpException.connectionFailed("Timed out during the WebSocket handshake")
       val chunk = NativeSocket.recvChunk(fd)
       if chunk.isEmpty then
         throw HttpException.connectionFailed("Connection closed during the WebSocket handshake")
@@ -175,6 +186,8 @@ object NativeWebSocketClient:
         }
         .toMap
     Handshake(status, headers, leftover)
+
+  end readHandshake
 
   private def headerEnd(buf: mutable.ArrayBuffer[Byte]): Int =
     var i = 0
@@ -208,6 +221,9 @@ private class NativeWebSocketClientContext(clientFd: Int, override val request: 
   override def close(statusCode: Int, reason: String): Unit =
     if closed.compareAndSet(false, true) then
       writeFrame(WebSocketFrame.OpClose, WebSocketFrame.closePayload(statusCode, reason))
+      // Unblock the reader thread (parked in recv) so it exits and fires onClose promptly, rather
+      // than waiting for an unresponsive server to echo the close or drop the connection.
+      NativeSocket.shutdown(clientFd)
 
   private[http] def sendPong(payload: Array[Byte]): Unit =
     if !closed.get() then
