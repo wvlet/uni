@@ -76,6 +76,27 @@ class NativeServerTest extends UniTest:
         .toMap
     RawResponse(statusCode, headers, body)
 
+  /**
+    * Decode an HTTP chunked-transfer body (`<hex>\r\n<data>\r\n` … `0\r\n\r\n`) into its payload.
+    */
+  private def dechunk(body: String): String =
+    val sb       = StringBuilder()
+    var rest     = body
+    var continue = true
+    while continue do
+      val nl = rest.indexOf("\r\n")
+      if nl < 0 then
+        continue = false
+      else
+        val size = Integer.parseInt(rest.substring(0, nl).trim, 16)
+        if size == 0 then
+          continue = false
+        else
+          val dataStart = nl + 2
+          sb.append(rest.substring(dataStart, dataStart + size))
+          rest = rest.substring(dataStart + size + 2) // skip the chunk data + its trailing CRLF
+    sb.toString
+
   private def connectLoopback(port: Int): Int =
     val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
     if fd < 0 then
@@ -220,6 +241,26 @@ class NativeServerTest extends UniTest:
         )
         response.status shouldBe 200
         response.headers.get("content-type") shouldBe Some("application/json")
+      }
+  }
+
+  test("should stream Server-Sent Events with chunked encoding") {
+    import wvlet.uni.rx.Rx
+    val events = Seq(ServerSentEvent.data("hello"), ServerSentEvent.data("world"))
+    NativeServer
+      .withRxHandler(_ => Rx.single(Response.eventStream(Rx.fromSeq(events))))
+      .withPort(0)
+      .start { server =>
+        val response = request(
+          server.localPort,
+          "GET /events HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 200
+        response.headers.get("content-type") shouldBe Some("text/event-stream")
+        response.headers.get("transfer-encoding") shouldBe Some("chunked")
+        val decoded = dechunk(response.body)
+        decoded shouldContain "data: hello"
+        decoded shouldContain "data: world"
       }
   }
 
