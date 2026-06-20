@@ -18,6 +18,42 @@ val client = Http.client.newSyncClient
 val asyncClient = Http.client.newAsyncClient
 ```
 
+## Platform Backends
+
+The same `Http.client` API runs on all three Scala platforms. uni selects the
+right transport for the runtime automatically — you write the request once and
+it works on JVM, Scala.js, and Scala Native.
+
+| Platform | Sync (`newSyncClient`) | Async (`newAsyncClient`) | Underlying transport |
+|----------|------------------------|--------------------------|----------------------|
+| **JVM** | `JavaHttpChannel` | `JavaHttpAsyncChannel` | `java.net.http.HttpClient` (Java 11+) |
+| **Scala.js** | `NodeSyncHttpChannel` *(Node.js only)* | `FetchChannel` | Fetch API (browser + Node), Node `worker_threads` for sync |
+| **Scala Native** | `CurlChannel` | `CurlAsyncChannel` | libcurl |
+
+Both client types share the same `send` / `sendStreaming` interface, so most
+code is platform-agnostic. A few platform constraints are worth knowing:
+
+- **Browsers have no synchronous HTTP.** On Scala.js, `newSyncClient` works
+  only under Node.js (it uses `worker_threads` + `Atomics.wait` on a
+  `SharedArrayBuffer`). In a browser, calling it throws `NotImplementedError` —
+  use `newAsyncClient`, which returns `Rx[HttpResponse]`, instead. For the
+  background on the Node sync implementation, see the
+  [ADR](https://github.com/wvlet/uni/blob/main/adr/2026-05-14-nodejs-sync-http.md).
+- **Scala Native requires libcurl** to be available at runtime; the factory
+  initializes it globally the first time a client is created.
+- **The async client is the cross-platform common denominator.** If you target
+  the browser, prefer the async API everywhere so the same code compiles for
+  every platform.
+
+To plug in a custom transport (testing, a different HTTP library), set a
+channel factory globally:
+
+```scala
+import wvlet.uni.http.Http
+
+Http.setDefaultChannelFactory(myChannelFactory)
+```
+
 ## Making Requests
 
 ### GET Request

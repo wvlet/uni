@@ -161,6 +161,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
+            { text: 'Weaver (Serialization)', link: '/core/weaver' },
             { text: 'Type Introspection', link: '/core/surface' },
             { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
@@ -176,7 +177,8 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
             { text: 'Rate Limiter', link: '/control/rate-limiter' },
             { text: 'Caching', link: '/control/cache' },
-            { text: 'Resource Management', link: '/control/resource' }
+            { text: 'Resource Management', link: '/control/resource' },
+            { text: 'Background Task', link: '/control/background-task' }
           ]
         },
         {
@@ -188,6 +190,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'Server-Sent Events', link: '/http/sse' },
+            { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
@@ -207,6 +210,12 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Terminal Styling', link: '/cli/tint' },
             { text: 'Progress Indicators', link: '/cli/progress' },
             { text: 'Command Launcher', link: '/cli/launcher' }
+          ]
+        },
+        {
+          text: 'Web UI (Scala.js)',
+          items: [
+            { text: 'RxElement', link: '/dom/' }
           ]
         }
       ],
@@ -228,6 +237,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Logging', link: '/core/logging' },
             { text: 'JSON Processing', link: '/core/json' },
             { text: 'MessagePack', link: '/core/msgpack' },
+            { text: 'Weaver (Serialization)', link: '/core/weaver' },
             { text: 'Type Introspection', link: '/core/surface' },
             { text: 'IO', link: '/core/io' },
             { text: 'FileSystem', link: '/core/filesystem' },
@@ -243,7 +253,8 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
             { text: 'Rate Limiter', link: '/control/rate-limiter' },
             { text: 'Caching', link: '/control/cache' },
-            { text: 'Resource Management', link: '/control/resource' }
+            { text: 'Resource Management', link: '/control/resource' },
+            { text: 'Background Task', link: '/control/background-task' }
           ]
         },
         {
@@ -255,6 +266,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'Server-Sent Events', link: '/http/sse' },
+            { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
@@ -274,6 +286,12 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Terminal Styling', link: '/cli/tint' },
             { text: 'Progress Indicators', link: '/cli/progress' },
             { text: 'Command Launcher', link: '/cli/launcher' }
+          ]
+        },
+        {
+          text: 'Web UI (Scala.js)',
+          items: [
+            { text: 'RxElement', link: '/dom/' }
           ]
         }
       ]

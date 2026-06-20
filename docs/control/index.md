@@ -11,6 +11,7 @@ uni provides utilities for handling failures gracefully and managing resources p
 | [Rate Limiter](./rate-limiter) | Throttle operation throughput (JVM) |
 | [Cache](./cache) | TTL and LRU caching |
 | [Resource](./resource) | Safe resource acquisition and release |
+| [Background Task](./background-task) | Cancellable, progress-pollable background worker |
 
 ## Quick Example
 

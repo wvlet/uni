@@ -1,14 +1,19 @@
 # HTTP Framework
 
-uni provides a cross-platform HTTP client and a Netty-based HTTP server with automatic retry, streaming support, and reactive integration.
+uni provides a cross-platform HTTP client and server — running on the JVM
+(Netty), Scala.js (Fetch / Node.js), and Scala Native (libcurl) — with
+automatic retry, streaming support, and reactive integration.
 
 ## Overview
 
 | Component | Description |
 |-----------|-------------|
 | [HTTP Client](./client) | Sync and async HTTP clients |
-| [REST Server](./server) | Netty-based HTTP server with routing |
+| [REST Server](./server) | Cross-platform HTTP server (Netty / Node.js / Native) with routing |
 | [Router](./router) | Type-safe route definitions |
+| [RPC](./rpc) | Type-safe remote calls over HTTP, with client code generation |
+| [Server-Sent Events](./sse) | One-way server→client streaming |
+| [WebSocket Client](./websocket) | Cross-platform bidirectional WebSocket client |
 | [Retry Strategies](./retry) | Automatic retry for transient failures |
 
 ## Quick Start

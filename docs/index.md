@@ -27,6 +27,9 @@ features:
   - title: CLI Utilities
     details: Terminal styling, progress indicators, and type-safe command-line argument parsing.
     link: /cli/
+  - title: Web UI (Scala.js)
+    details: Build reactive browser UIs with RxElement — type-checked HTML/SVG, Rx-driven updates, and browser integrations (Router, Storage, Keyboard, and more).
+    link: /dom/
   - title: UniTest
     details: Lightweight testing framework with expressive assertions, property-based testing, and cross-platform support.
     link: /core/unitest

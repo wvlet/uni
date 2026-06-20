@@ -83,6 +83,89 @@ Parameters are sent as JSON in the request body:
 
 Parameter names are matched flexibly — `userId`, `user_id`, and `user-id` all match the same parameter. Missing optional parameters (`Option[T]`) default to `None`, and parameters with default values use those defaults.
 
+## Generating a Client
+
+Instead of hand-writing request URLs and JSON, generate a **type-safe client**
+from the same service trait with the `sbt-uni` plugin. The generated client
+mirrors the trait's methods, so calls are checked by the compiler.
+
+::: tip JVM build-time only
+Client generation runs at build time on the JVM via sbt. The *generated* client
+is ordinary code that compiles for any platform the trait supports.
+:::
+
+### Enable the plugin
+
+In `project/plugins.sbt`:
+
+```scala
+addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "__UNI_VERSION__")
+```
+
+In `build.sbt`, enable `UniPlugin` on the project that should contain the
+generated client, depend on the project that defines the service trait, and list
+your generation targets:
+
+```scala
+lazy val app = project
+  .enablePlugins(UniPlugin)
+  .dependsOn(api) // project containing UserService
+  .settings(
+    uniHttpClients := Seq("com.example.api.UserService:rpc")
+  )
+```
+
+`uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
+regenerated and compiled automatically on the next `compile`. Generation runs
+in-process (no forked JVM) and skips files whose content is unchanged.
+
+### Target spec format
+
+Each entry is `"fullyQualifiedTrait:clientType[:targetPackage]"`:
+
+| Part | Values | Notes |
+|------|--------|-------|
+| `clientType` | `sync`, `async`, `both`, `rpc` | `rpc` is an alias for `sync` |
+| `targetPackage` | optional | defaults to the trait's package + `.client` |
+
+```scala
+uniHttpClients := Seq(
+  "com.example.api.UserService:rpc",                       // SyncClient, default package
+  "com.example.api.OrderService:both:com.example.client"   // Sync + Async clients
+)
+```
+
+Override the output directory with `uniHttpCodegenOutDir` (defaults to
+`Compile / sourceManaged`).
+
+### Using the generated client
+
+Generation produces an `object <ServiceName>Client` containing a `SyncClient`
+and/or `AsyncClient`, each wrapping an [HTTP client](./client). Construct one
+over a configured client pointed at the server's base URL:
+
+```scala
+import wvlet.uni.http.Http
+import com.example.client.UserServiceClient
+
+// Sync — methods return the declared types directly
+val sync = UserServiceClient.SyncClient(
+  Http.client.withBaseUri("http://localhost:8080").newSyncClient
+)
+val user: User = sync.getUser(42)
+
+// Async — methods return Rx[...]
+val async = UserServiceClient.AsyncClient(
+  Http.client.withBaseUri("http://localhost:8080").newAsyncClient
+)
+async.getUser(42).map(user => println(user.name))
+```
+
+Under the hood the generated methods delegate to `RPCClient`, which serializes
+arguments and decodes responses with [Weaver](../core/weaver) — the same wire
+format the [RPC router](#creating-an-rpc-router) expects, so client and server
+stay in sync.
+
 ## RPC Status Codes
 
 `RPCStatus` provides structured error codes organized by category:

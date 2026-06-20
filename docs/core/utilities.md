@@ -71,6 +71,30 @@ val (hi, low): (Long, Long) = Base62.decode128bits(raw)
 Base62.isValid("0K9mFb3xYz1Qw5Rv8NpJ2a")  // true
 ```
 
+## CrockfordBase32
+
+[Crockford's Base32](https://www.crockford.com/base32.html) encoding — the
+case-insensitive, human-friendly alphabet (it excludes `I`, `L`, `O`, `U` to
+avoid ambiguity) that backs [ULID](#ulid). Use it directly when you need to
+encode raw 128-bit or 48-bit values in the same format.
+
+```scala
+import wvlet.uni.util.CrockfordBase32
+
+// Encode / decode a 128-bit value (26 characters)
+val s: String = CrockfordBase32.encode128bits(hi = 0x0123456789abcdefL, low = 0xfedcba9876543210L)
+val (hi, low): (Long, Long) = CrockfordBase32.decode128bits(s)
+
+// Decode a 48-bit value (e.g. a ULID timestamp prefix)
+val millis: Long = CrockfordBase32.decode48bits("01ARZ3NDEK")
+
+// Validate
+CrockfordBase32.isValidBase32("01arz3ndektsv4rrffq69g5fav")  // true
+```
+
+For ID generation prefer [ULID](#ulid) (which encodes with this alphabet) or
+[Base62](#base62); reach for `CrockfordBase32` only when you need the raw codec.
+
 ## NanoId
 
 Compact, URL-safe random IDs for cases where time-ordering is not needed. Useful as user-facing tokens, short links, or external keys that map back to an internal UUIDv7.
@@ -138,6 +162,31 @@ val fromBytes: ULID = ULID.fromBytes(bytes)
 ```
 
 </details>
+
+## PrefixedULID
+
+A [ULID](#ulid) tagged with a human-readable type prefix — handy for
+self-describing IDs like `user:01arz3ndektsv4rrffq69g5fav` where the prefix
+identifies the entity. The string form is `<prefix>:<ulid>` (delimiter `:`), and
+values sort by prefix first, then by the embedded ULID timestamp.
+
+```scala
+import wvlet.uni.util.PrefixedULID
+
+// Generate
+val id: PrefixedULID = PrefixedULID.newPrefixedULID("user")
+println(id)                    // "user:01arz3ndektsv4rrffq69g5fav"
+
+// Or directly as a string
+val s: String = PrefixedULID.newPrefixedULIDString("order")
+
+// Access parts
+id.prefix                      // "user"
+id.ulid                        // the underlying ULID
+
+// Parse back (splits on the last ':' so prefixes may contain ':')
+val parsed = PrefixedULID.fromString("user:01arz3ndektsv4rrffq69g5fav")
+```
 
 ## DataSize
 
@@ -265,6 +314,51 @@ duration.convertToMostSuccinctTimeUnit                  // ElapsedTime(1.50, MIN
 | `MINUTES` | m | `"5m"` |
 | `HOURS` | h | `"2.5h"` |
 | `DAYS` | d | `"1d"` |
+
+## StopWatch
+
+A simple elapsed-time timer. It starts running on creation and reports seconds
+as a `Double`.
+
+```scala
+import wvlet.uni.util.StopWatch
+
+val sw = StopWatch()
+// ... do work ...
+val seconds: Double = sw.getElapsedTime   // elapsed since creation/reset
+
+sw.stop                                   // pause; returns the last interval
+sw.resume                                 // continue measuring
+sw.reset                                  // restart from zero
+println(sw.reportElapsedTime)             // e.g. "0.42 sec."
+```
+
+## Timer
+
+For micro-benchmarking, extend the `Timer` trait and wrap code in `time` /
+nested `block`. A `TimeReport` captures total and per-block timing, and `repeat`
+runs blocks multiple times to smooth out JIT/GC noise.
+
+```scala
+import wvlet.uni.util.Timer
+
+class Benchmark extends Timer:
+  val report = time("search", repeat = 10) {
+    block("linear") {
+      // candidate A
+    }
+    block("binary") {
+      // candidate B
+    }
+  }
+
+  // Inspect per-block statistics
+  report("linear").average   // average seconds over the repeats
+  report("binary").min       // min / max / median / elapsedSeconds also available
+
+val b = Benchmark()
+println(b.report)            // formatted multi-line timing report
+```
 
 ## Best Practices
 
