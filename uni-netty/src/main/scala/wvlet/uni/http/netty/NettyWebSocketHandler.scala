@@ -25,7 +25,7 @@ import io.netty.handler.codec.http.websocketx.{
   WebSocketFrame,
   WebSocketServerHandshaker
 }
-import io.netty.handler.timeout.IdleStateEvent
+import io.netty.handler.timeout.{IdleState, IdleStateEvent}
 import wvlet.uni.http.{Request, WebSocketContext, WebSocketHandler, WebSocketHeartbeat}
 import wvlet.uni.log.LogSupport
 
@@ -112,13 +112,15 @@ private[netty] class NettyWebSocketHandler(
 
   override def userEventTriggered(ctx: ChannelHandlerContext, evt: Any): Unit =
     evt match
-      case _: IdleStateEvent if heartbeat != null =>
+      case e: IdleStateEvent if heartbeat != null && e.state() == IdleState.READER_IDLE =>
         // Reader-idle tick: ping an idle connection, or close it if a prior ping went unanswered.
         heartbeat.onTick() match
           case WebSocketHeartbeat.Decision.SendPing =>
             ctx.writeAndFlush(PingWebSocketFrame())
           case WebSocketHeartbeat.Decision.Close =>
-            wsContext.close(1011, "ping timeout")
+            // The peer is unresponsive (likely half-open). Force-close the channel rather than a
+            // graceful WS close, whose close-frame write could linger on a full/dead send buffer.
+            ctx.close()
           case WebSocketHeartbeat.Decision.Idle =>
             ()
       case _ =>
