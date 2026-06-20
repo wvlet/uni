@@ -2,10 +2,11 @@
 
 **Uni is the standard library Scala 3 didn't ship with.**
 
-Logging, dependency injection, JSON & MessagePack, reactive streams, HTTP
+Logging, object wiring, JSON & MessagePack, reactive streams, HTTP
 clients and servers, RPC, and a browser UI toolkit — small, composable pieces
-that work *identically* on the **JVM**, in the **browser** (Scala.js), and as
-**native binaries** (Scala Native), with almost no external dependencies.
+that work *identically* on the **JVM**, in the **browser and Node.js**
+(Scala.js), and as **native binaries** (Scala Native), with almost no external
+dependencies.
 
 It distills the most-used building blocks of the
 [Airframe](https://github.com/wvlet/airframe) ecosystem into one cohesive,
@@ -18,8 +19,8 @@ no à-la-carte modules to assemble.
 
 ## A quick taste
 
-Dependency injection, structured logging, and lifecycle management — three
-things you usually reach for three libraries for — in a handful of lines:
+Object wiring, structured logging, and lifecycle management — three things you
+usually reach for three libraries for — in a handful of lines:
 
 ```scala
 import wvlet.uni.design.Design
@@ -55,7 +56,7 @@ class GreeterService extends LogSupport:
 
 | Module | Description |
 |--------|-------------|
-| [Design](/core/design) | Object wiring (DI) with lifecycle management |
+| [Design](/core/design) | Object wiring with lifecycle management |
 | [Logging](/core/logging) | Logging with source-location tracking |
 | [Surface](/core/surface) | Compile-time type introspection |
 | [FileSystem](/core/filesystem) | Cross-platform file I/O with `IOPath` |
