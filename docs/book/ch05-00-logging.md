@@ -1,4 +1,4 @@
-# 4. Logging That Finds You
+# 5. Logging That Finds You
 
 A log line that reads `save failed` is almost useless if your codebase
 has twenty `save` methods. The first question you ask is always the same:
@@ -136,8 +136,8 @@ Logging is now a one-line, zero-ceremony tool:
 - Logs are **human context** by design; `error(msg, e)` keeps the cause
   attached.
 
-Next, [Chapter 5](./ch05-00-data) turns to data crossing your program's
+Next, [Chapter 6](./ch06-00-data) turns to data crossing your program's
 edges — parsing JSON, writing MessagePack, and deriving both from your
 case classes with one line.
 
-[← 3. Wiring with Design](./ch03-00-design) | [Next → 5. Data In, Data Out](./ch05-00-data)
+[← 4. Testing with UniTest](./ch04-00-testing) | [Next → 6. Data In, Data Out](./ch06-00-data)

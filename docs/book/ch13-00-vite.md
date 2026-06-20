@@ -163,11 +163,11 @@ You can now ship a Scala.js app that uses the npm ecosystem:
 - **`@JSGlobal` + `window`** bridges stubborn modules, and
   **`resolve.alias`** swaps out browser-hostile dependencies.
 
-That completes Part VIII — Scala.js is now a full participant in the
+That completes Part VII — Scala.js is now a full participant in the
 JavaScript ecosystem, with types on your side of the boundary and npm on
 the other.
 
-Next, [Part IX](./ch14-00-calling-c) does the mirror image for the other
+Next, [Part VIII](./ch14-00-calling-c) does the mirror image for the other
 end of the platform spectrum: Scala Native and the C/Rust world — calling
 C libraries from Scala, and exposing your Scala as a library that C, C++,
 and Rust can call.

@@ -40,33 +40,30 @@ are, and the Book links into them when you need depth.
 ### Part III — Core Concepts
 
 - [Chapter 3: Wiring with Design](./ch03-00-design)
-- [Chapter 4: Logging That Finds You](./ch04-00-logging)
-- [Chapter 5: Data In, Data Out — JSON & MessagePack](./ch05-00-data)
+- [Chapter 4: Testing with UniTest](./ch04-00-testing)
+- [Chapter 5: Logging That Finds You](./ch05-00-logging)
+- [Chapter 6: Data In, Data Out — JSON & MessagePack](./ch06-00-data)
 
 ### Part IV — Async & Control Flow
 
-- [Chapter 6: Rx, the Composable Stream](./ch06-00-rx)
-- [Chapter 7: Living With Failure — Retry, Circuit Breakers, Resources](./ch07-00-control)
+- [Chapter 7: Rx, the Composable Stream](./ch07-00-rx)
+- [Chapter 8: Living With Failure — Retry, Circuit Breakers, Resources](./ch08-00-control)
 
 ### Part V — HTTP & RPC
 
-- [Chapter 8: HTTP Clients and Servers](./ch08-00-http)
-- [Chapter 9: Typed RPC](./ch09-00-rpc)
+- [Chapter 9: HTTP Clients and Servers](./ch09-00-http)
+- [Chapter 10: Typed RPC](./ch10-00-rpc)
 
 ### Part VI — Cross-Platform Development
 
-- [Chapter 10: One Codebase, Three Runtimes](./ch10-00-cross-platform)
+- [Chapter 11: One Codebase, Three Runtimes](./ch11-00-cross-platform)
 
-### Part VII — Testing
-
-- [Chapter 11: Testing with UniTest](./ch11-00-testing)
-
-### Part VIII — Scala.js in the JavaScript Ecosystem
+### Part VII — Scala.js in the JavaScript Ecosystem
 
 - [Chapter 12: Calling NPM Modules from Scala.js](./ch12-00-npm-facades)
 - [Chapter 13: Bundling with Vite](./ch13-00-vite)
 
-### Part IX — Scala Native and the C/Rust World
+### Part VIII — Scala Native and the C/Rust World
 
 - [Chapter 14: Calling C from Scala Native](./ch14-00-calling-c)
 - [Chapter 15: Exposing Scala Native to C and Rust](./ch15-00-exposing-native)

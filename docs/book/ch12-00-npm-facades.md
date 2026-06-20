@@ -1,6 +1,6 @@
 # 12. Calling NPM Modules from Scala.js
 
-You're building a browser app with Uni ([Chapter 10](./ch10-00-cross-platform)),
+You're building a browser app with Uni ([Chapter 11](./ch11-00-cross-platform)),
 and you need something the JavaScript world already solved: a Markdown
 renderer, a charting library, a date picker. It's on npm, written in
 JavaScript, with no Scala types. How do you call it from Scala 3 without
@@ -137,4 +137,4 @@ nothing has *installed* `marked` or resolved that import for the browser.
 That is the bundler's job. Next, [Chapter 13](./ch13-00-vite) wires it all
 together with Vite.
 
-[← 11. Testing with UniTest](./ch11-00-testing) | [Next → 13. Bundling with Vite](./ch13-00-vite)
+[← 11. One Codebase, Three Runtimes](./ch11-00-cross-platform) | [Next → 13. Bundling with Vite](./ch13-00-vite)

@@ -1,6 +1,6 @@
-# 9. Typed RPC
+# 10. Typed RPC
 
-In Chapter 8 both ends of the call wrote out the contract by hand: the
+In Chapter 9 both ends of the call wrote out the contract by hand: the
 server picked the path `/users/:id` and shaped the JSON; the client typed
 the same path and parsed the same JSON back. Nothing connects those two
 copies. Rename a field on the server and the client keeps compiling — and
@@ -82,8 +82,8 @@ error.
 
 ## What crosses the wire
 
-Arguments and return values are serialized with [Weaver](./ch05-00-data),
-the same derivation you met in Chapter 5 — which is why `User` has
+Arguments and return values are serialized with [Weaver](./ch06-00-data),
+the same derivation you met in Chapter 6 — which is why `User` has
 `derives Weaver`. Over the wire RPC uses MessagePack by default: it is
 compact and fast, and since both ends were generated from one trait,
 there is no human reading the bytes who would prefer JSON. The encoding
@@ -104,7 +104,7 @@ trait is a feature: it keeps them in lockstep.
 It is the *wrong* tool when the other end is not yours to recompile. A
 public API consumed by third parties, a webhook, anything that must speak
 a stable, language-neutral contract — that wants plain
-[HTTP/REST](./ch08-00-http), where the wire format *is* the interface and
+[HTTP/REST](./ch09-00-http), where the wire format *is* the interface and
 no client needs your trait. Use RPC inside your system; use REST at its
 public edge.
 
@@ -120,9 +120,9 @@ You can now connect two services without hand-written glue:
   **`RPCStatus`**.
 - Reach for RPC when you own both ends, REST at the public edge.
 
-That closes Part V. Next, [Part VI](./ch10-00-cross-platform) steps back
+That closes Part V. Next, [Part VI](./ch11-00-cross-platform) steps back
 to the property that has been quietly true this whole time: nearly
 everything you've written runs on three different runtimes from one
 codebase.
 
-[← 8. HTTP Clients and Servers](./ch08-00-http) | [Next → 10. One Codebase, Three Runtimes](./ch10-00-cross-platform)
+[← 9. HTTP Clients and Servers](./ch09-00-http) | [Next → 11. One Codebase, Three Runtimes](./ch11-00-cross-platform)

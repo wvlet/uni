@@ -159,13 +159,13 @@ everyone shares lives at the module root under `src/main/scala` and
 > `.<platform>/src/main/scala` folders stay empty unless you reach for
 > a genuinely platform-only dependency — a JVM-only Java library, a
 > browser DOM API, a native syscall. You will see examples of that in
-> Chapter 10.
+> Chapter 11.
 
 The `%%%` operator tells sbt: *pick the version of `uni` that was built
 for whichever platform I am compiling for right now*. Your Scala source
 does not change between platforms; only the build setting does.
 
-We will build a real cross-platform codebase in Chapter 10. For now
+We will build a real cross-platform codebase in Chapter 11. For now
 know that it is one cross-plugin, one `CrossType.Pure`, and a `%%%`
 away — and that everything you write goes in `src/main/scala`.
 

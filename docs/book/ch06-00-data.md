@@ -1,4 +1,4 @@
-# 5. Data In, Data Out — JSON & MessagePack
+# 6. Data In, Data Out — JSON & MessagePack
 
 Every service eats and produces data. A request arrives as a JSON body;
 a cache stores a MessagePack frame; a config file is a blob of text. This
@@ -104,7 +104,7 @@ the two formats cannot drift apart, because they are the same `Weaver`.
 That is what lets the identical codec run on the JVM, in the browser
 (Scala.js), and as a native binary. A reflection-based serializer would
 not survive the trip to Scala.js or Native; a derived one does. We return
-to this theme in [Chapter 10](./ch10-00-cross-platform).
+to this theme in [Chapter 11](./ch11-00-cross-platform).
 :::
 
 ## What you have, what comes next
@@ -120,8 +120,8 @@ You can now move data across your program's edges:
 - Derivation is compile-time, so the codec is cross-platform.
 
 That closes Part III: you can wire a program ([Design](./ch03-00-design)),
-see what it does ([Logging](./ch04-00-logging)), and move data through it.
-Next, [Part IV](./ch06-00-rx) makes those services *react* — `Rx`, Uni's
+see what it does ([Logging](./ch05-00-logging)), and move data through it.
+Next, [Part IV](./ch07-00-rx) makes those services *react* — `Rx`, Uni's
 composable stream, for values that change over time.
 
-[← 4. Logging That Finds You](./ch04-00-logging) | [Next → 6. Rx, the Composable Stream](./ch06-00-rx)
+[← 5. Logging That Finds You](./ch05-00-logging) | [Next → 7. Rx, the Composable Stream](./ch07-00-rx)

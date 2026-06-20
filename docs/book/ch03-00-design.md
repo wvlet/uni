@@ -190,7 +190,7 @@ testDesign.build[UserService] { users =>
 
 `UserService` does not know or care that its `Database` was replaced —
 it asked for a `Database`, and it got one. This is the override
-mechanism Chapter 11 builds on to test services without their real
+mechanism Chapter 4 builds on to test services without their real
 dependencies. See [Testing with Design](/core/design#testing) for the
 patterns.
 
@@ -207,8 +207,8 @@ You can now read and write a `Design`:
 - **`+`** overrides a design, which is how tests swap real dependencies
   for fakes.
 
-Next, [Chapter 4](./ch04-00-logging) adds the first thing every one of
-these services wants — logging that tells you not just *what* happened
-but *where*.
+Next, [Chapter 4](./ch04-00-testing) puts that override seam to work
+immediately: now that you can wire a program, you can *test* it — swapping
+a real dependency for a fake without touching the code under test.
 
-[← 2. A URL Fetcher](./ch02-00-cli-app) | [Next → 4. Logging That Finds You](./ch04-00-logging)
+[← 2. A URL Fetcher](./ch02-00-cli-app) | [Next → 4. Testing with UniTest](./ch04-00-testing)

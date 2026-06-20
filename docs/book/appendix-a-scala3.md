@@ -49,7 +49,7 @@ def toJson[A](a: A)(using weaver: Weaver[A]): String = weaver.toJson(a)
 toJson(user)   // the Weaver[User] given is found and passed for you
 ```
 
-This is how [Weaver](./ch05-00-data) codecs and other typeclass-style
+This is how [Weaver](./ch06-00-data) codecs and other typeclass-style
 values travel through the code without cluttering every signature. A
 `derives` clause (`case class User(...) derives Weaver`) generates the
 `given` for you.
@@ -85,7 +85,7 @@ extension (s: String)
 ```
 
 Several Uni APIs read fluently because of extensions — the `shouldBe` in
-[Chapter 11](./ch11-00-testing)'s tests is an extension method on any
+[Chapter 4](./ch04-00-testing)'s tests is an extension method on any
 value.
 
 ## Why `new` is almost never needed
