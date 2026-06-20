@@ -1,6 +1,8 @@
 # HTTP Framework
 
-uni provides a cross-platform HTTP client and a Netty-based HTTP server with automatic retry, streaming support, and reactive integration.
+uni provides a cross-platform HTTP client and server — running on the JVM
+(Netty), Scala.js (Fetch / Node.js), and Scala Native (libcurl) — with
+automatic retry, streaming support, and reactive integration.
 
 ## Overview
 

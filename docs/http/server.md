@@ -1,6 +1,16 @@
 # REST Server
 
-uni provides a Netty-based HTTP server with a type-safe router framework for building REST APIs.
+uni provides HTTP servers on all three Scala platforms — Netty on the JVM,
+the Node.js `http` module on Scala.js, and a native socket server on Scala
+Native — behind one shared configuration API. On the JVM you additionally get a
+type-safe, annotation-based router framework for building REST APIs.
+
+::: tip Which API is cross-platform?
+**Functional handlers** (`withHandler` / `withRxHandler`) and **filters** work
+on every platform. The **annotation router** (`@Endpoint`, `Router.of[T]`,
+`RouterHandler`) and **WebSocket routes** are **JVM/Netty-only** today — see
+[Cross-Platform Servers](#cross-platform-servers).
+:::
 
 ## Quick Start
 
@@ -29,6 +39,73 @@ NettyServer
     // Server runs until the block completes
   }
 ```
+
+## Cross-Platform Servers
+
+Each platform has its own server entry point, but they expose the **same
+configuration API** and all start an [`HttpServer`](#server-lifecycle):
+
+| Platform | Entry point | Import | Backend |
+|----------|-------------|--------|---------|
+| **JVM** | `NettyServer` | `wvlet.uni.http.netty.NettyServer` (module `uni-netty`) | Netty |
+| **Scala.js** | `NodeServer` | `wvlet.uni.http.NodeServer` | Node.js `http` |
+| **Scala Native** | `NativeServer` | `wvlet.uni.http.NativeServer` | native sockets |
+
+All three share these builder methods:
+
+```scala
+.withPort(8080)                       // 0 picks a random free port
+.withHost("0.0.0.0")
+.withName("my-server")
+.withHandler(f: Request => Response)        // sync handler
+.withRxHandler(f: Request => Rx[Response])  // async handler
+.withFilter(filter)                         // RxHttpFilter
+.start { server => ... }                    // block form, auto-stops
+.start()                                    // returns the HttpServer
+```
+
+A handler that compiles and runs identically on every platform:
+
+```scala
+// JVM example — swap NettyServer for NodeServer / NativeServer on JS / Native
+import wvlet.uni.http.{Request, Response}
+import wvlet.uni.http.netty.NettyServer
+
+NettyServer
+  .withPort(8080)
+  .withRxHandler { request =>
+    Rx.single(Response.ok(s"Hello from ${request.path}"))
+  }
+  .start { server =>
+    println(s"Listening on ${server.localAddress}")
+  }
+```
+
+::: warning JVM-only features
+The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
+[server-side WebSocket](#websocket), and the Netty tuning knobs
+(`withMaxContentLength`, native transport, graceful shutdown) exist only on the
+JVM. On Scala.js / Scala Native, route requests yourself inside a functional
+handler:
+
+```scala
+import wvlet.uni.http.NodeServer  // or NativeServer
+
+NodeServer
+  .withPort(8080)
+  .withRxHandler { request =>
+    request.path match
+      case "/health"      => Rx.single(Response.ok("ok"))
+      case s"/users/${id}" => Rx.single(Response.ok(s"user ${id}"))
+      case _              => Rx.single(Response.notFound)
+  }
+  .start()
+```
+:::
+
+The rest of this page uses `NettyServer` and the JVM annotation router, which is
+the richest path. The request/response model, response conversion, and filters
+described below apply to functional handlers on every platform.
 
 ## Defining Endpoints
 
