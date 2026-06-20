@@ -115,7 +115,7 @@ produces a client with sensible defaults: connection pooling, JSON
 content negotiation, and — importantly — a retry policy. If
 `httpbin.org` returns a 5xx or the TCP connection flakes, the client
 retries with exponential backoff before giving up. We lean on that in
-Chapter 7.
+Chapter 8.
 
 `response.status` is a typed `HttpStatus` (not a number), so you can
 pattern-match on it without digging through strings.
@@ -250,7 +250,7 @@ way.
 
 For testing `UrlFetcher` itself *without* the network, we would
 replace its HTTP client with a stand-in via a test-only `Design`. We
-will do exactly that in Chapter 11 once we have met `Design`'s
+will do exactly that in Chapter 4 once we have met `Design`'s
 override mechanism.
 
 ## What you have, what comes next

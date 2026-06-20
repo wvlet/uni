@@ -1,4 +1,4 @@
-# 11. Testing with UniTest
+# 4. Testing with UniTest
 
 A service under test needs a database, a payment gateway, and the current
 time. The reflex is to mock all three. Uni pushes you the other way: run
@@ -86,7 +86,7 @@ from one. The tool you need is `Design` override, which you already have.
 
 Because `UniTest` is itself cross-platform, a test you write once runs
 under the JVM, Scala.js, and Scala Native — the same `sbt test` story as
-[Chapter 10](./ch10-00-cross-platform), now for your tests. A suite over
+[Chapter 11](./ch11-00-cross-platform), now for your tests. A suite over
 shared logic verifies all three builds at once, so "compiles on Native"
 becomes "*passes* on Native" without a second test to write.
 
@@ -111,15 +111,14 @@ You can now test a Uni application the way it's meant to be tested:
 - One suite runs on **all three platforms**, and stays **fast** because
   it's in-process.
 
-That completes the book's core path. You have built, wired, logged,
-serialized, reacted, recovered, served, connected, ported, and tested a
-Uni application — the full arc from `Design.build` to a green test suite
-on three runtimes.
+Testing comes this early in the book on purpose. With `Design` from
+[Chapter 3](./ch03-00-design) in one hand and `UniTest` in the other, you
+can now *prove* a service works — before you've even met logging. Every
+feature the rest of the book introduces is something you can immediately
+write a fast, dependency-free test for.
 
-Next, [Part VIII](./ch12-00-npm-facades) follows the Scala.js thread out
-into the wider JavaScript world: calling npm packages from Scala through
-small hand-written facades, and bundling the result with Vite. After that,
-the appendices collect supporting material — Scala 3 syntax, the Airframe
-relationship, and a glossary.
+Next, [Chapter 5](./ch05-00-logging) adds the other thing every service
+wants from the start: logging that tells you not just *what* happened but
+*where*.
 
-[← 10. One Codebase, Three Runtimes](./ch10-00-cross-platform) | [Next → 12. Calling NPM Modules](./ch12-00-npm-facades)
+[← 3. Wiring with Design](./ch03-00-design) | [Next → 5. Logging That Finds You](./ch05-00-logging)

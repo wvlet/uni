@@ -1,4 +1,4 @@
-# 8. HTTP Clients and Servers
+# 9. HTTP Clients and Servers
 
 Chapter 2 made a single HTTP call to get a CLI tool working. This chapter
 takes HTTP seriously from both sides: the **client** that calls out, and
@@ -32,7 +32,7 @@ concurrency.
 ## The client, asynchronously
 
 The async client returns the value-over-time version of the response — an
-`Rx[HttpResponse]`, exactly the shape from [Chapter 6](./ch06-00-rx):
+`Rx[HttpResponse]`, exactly the shape from [Chapter 7](./ch07-00-rx):
 
 ```scala
 import wvlet.uni.http.{Http, Request}
@@ -50,7 +50,7 @@ instead of blocking. The same operators you learned for streams work
 here — async HTTP is not a separate world.
 
 Both clients come configured with sensible defaults, including the retry
-policy from [Chapter 7](./ch07-00-control). Tune them with `withXxx`
+policy from [Chapter 8](./ch08-00-control). Tune them with `withXxx`
 setters before creating the client:
 
 ```scala
@@ -114,7 +114,7 @@ NettyServer
 `Router.of[UserController]` reads the annotations at compile time and
 builds the route table; path parameters like `:id` bind to method
 parameters by name, and a returned `Seq` or case class is serialized to
-JSON for you (via the [Weaver](./ch05-00-data) machinery from Chapter 5).
+JSON for you (via the [Weaver](./ch06-00-data) machinery from Chapter 6).
 The [server reference](/http/server) covers query parameters, filters,
 and combining controllers.
 
@@ -132,7 +132,7 @@ the JVM, in the browser and Node.js (Scala.js), and as a native binary —
 because `Http.client` resolves to the right transport for each runtime
 (`java.net.http`, the Fetch API, or libcurl). You write the request once.
 The one constraint worth knowing: browsers have no synchronous HTTP, so
-in browser code use `newAsyncClient`. [Chapter 10](./ch10-00-cross-platform)
+in browser code use `newAsyncClient`. [Chapter 11](./ch11-00-cross-platform)
 is about this property in general; the [client reference](/http/client)
 has the per-platform backend table.
 
@@ -149,8 +149,8 @@ You can now build both ends of an HTTP exchange:
   **annotation router** (`@Endpoint` + `Router.of`, JVM).
 - The same client source runs on JVM, Scala.js, and Native.
 
-Next, [Chapter 9](./ch09-00-rpc) removes the hand-written URLs and JSON
+Next, [Chapter 10](./ch10-00-rpc) removes the hand-written URLs and JSON
 entirely: define a trait once and get a typed client and server that
 speak it.
 
-[← 7. Living With Failure](./ch07-00-control) | [Next → 9. Typed RPC](./ch09-00-rpc)
+[← 8. Living With Failure](./ch08-00-control) | [Next → 10. Typed RPC](./ch10-00-rpc)

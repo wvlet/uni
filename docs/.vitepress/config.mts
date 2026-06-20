@@ -104,45 +104,40 @@ export default defineConfig<UniThemeConfig>({
           text: 'Part III — Core Concepts',
           items: [
             { text: '3. Wiring with Design', link: '/book/ch03-00-design' },
-            { text: '4. Logging That Finds You', link: '/book/ch04-00-logging' },
-            { text: '5. JSON & MessagePack', link: '/book/ch05-00-data' }
+            { text: '4. Testing with UniTest', link: '/book/ch04-00-testing' },
+            { text: '5. Logging That Finds You', link: '/book/ch05-00-logging' },
+            { text: '6. JSON & MessagePack', link: '/book/ch06-00-data' }
           ]
         },
         {
           text: 'Part IV — Async & Control Flow',
           items: [
-            { text: '6. Rx, the Composable Stream', link: '/book/ch06-00-rx' },
-            { text: '7. Retry, Circuit Breakers, Resources', link: '/book/ch07-00-control' }
+            { text: '7. Rx, the Composable Stream', link: '/book/ch07-00-rx' },
+            { text: '8. Retry, Circuit Breakers, Resources', link: '/book/ch08-00-control' }
           ]
         },
         {
           text: 'Part V — HTTP & RPC',
           items: [
-            { text: '8. HTTP Clients and Servers', link: '/book/ch08-00-http' },
-            { text: '9. Typed RPC', link: '/book/ch09-00-rpc' }
+            { text: '9. HTTP Clients and Servers', link: '/book/ch09-00-http' },
+            { text: '10. Typed RPC', link: '/book/ch10-00-rpc' }
           ]
         },
         {
           text: 'Part VI — Cross-Platform',
           items: [
-            { text: '10. One Codebase, Three Runtimes', link: '/book/ch10-00-cross-platform' }
+            { text: '11. One Codebase, Three Runtimes', link: '/book/ch11-00-cross-platform' }
           ]
         },
         {
-          text: 'Part VII — Testing',
-          items: [
-            { text: '11. Testing with UniTest', link: '/book/ch11-00-testing' }
-          ]
-        },
-        {
-          text: 'Part VIII — Scala.js & the JS Ecosystem',
+          text: 'Part VII — Scala.js & the JS Ecosystem',
           items: [
             { text: '12. Calling NPM Modules', link: '/book/ch12-00-npm-facades' },
             { text: '13. Bundling with Vite', link: '/book/ch13-00-vite' }
           ]
         },
         {
-          text: 'Part IX — Scala Native & the C/Rust World',
+          text: 'Part VIII — Scala Native & the C/Rust World',
           items: [
             { text: '14. Calling C from Scala Native', link: '/book/ch14-00-calling-c' },
             { text: '15. Exposing Scala Native to C & Rust', link: '/book/ch15-00-exposing-native' }

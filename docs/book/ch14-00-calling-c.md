@@ -1,6 +1,6 @@
 # 14. Calling C from Scala Native
 
-Compile a Uni app with Scala Native ([Chapter 10](./ch10-00-cross-platform))
+Compile a Uni app with Scala Native ([Chapter 11](./ch11-00-cross-platform))
 and you get a real native binary — and with it, direct access to the
 entire C ecosystem: `libcurl`, `sqlite`, `openssl`, anything with a C
 ABI. No JNI, no subprocess, no serialization across a boundary. You call
@@ -107,7 +107,7 @@ overhead.
 This is not a toy capability. Uni's Scala Native HTTP client *is* a
 `libcurl` binding written exactly this way — the same `@link` / `@extern`
 / `Zone` pattern above, in production, behind the same `Http.client` API
-you used on the JVM in [Chapter 8](./ch08-00-http). The cross-platform
+you used on the JVM in [Chapter 9](./ch09-00-http). The cross-platform
 client works on Native because someone wrote this facade once; you can
 wrap any C library the same way.
 

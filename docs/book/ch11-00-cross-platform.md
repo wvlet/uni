@@ -1,4 +1,4 @@
-# 10. One Codebase, Three Runtimes
+# 11. One Codebase, Three Runtimes
 
 Here is something that has been quietly true for the whole book: almost
 every snippet you've written — `Design`, `Rx`, `Weaver`, the HTTP client —
@@ -53,7 +53,7 @@ platform-specific pieces behind cross-platform APIs:
 - File I/O goes through the [FileSystem](/core/filesystem) abstraction
   (`IOPath`), not `java.nio.file.Path` — so reading a file is the same
   call everywhere.
-- The [HTTP client](./ch08-00-http) resolves to `java.net.http`, the
+- The [HTTP client](./ch09-00-http) resolves to `java.net.http`, the
   Fetch API, or libcurl depending on the runtime, behind one
   `Http.client`.
 - `Rx`, `Design`, and `Weaver` are pure Scala with no platform
@@ -100,6 +100,25 @@ only exists on one platform, keep the code that uses it in that platform's
 folder.
 :::
 
+## Reaching into a platform's ecosystem
+
+A platform folder isn't only for the JDK or a syscall — it's the door to
+that runtime's whole *foreign* ecosystem. The `.js` folder is where you
+call JavaScript packages from npm; the `.native` folder is where you call
+C, C++, and Rust. Both use the same idea as the `Clock` above — a typed
+Scala declaration of the foreign code you use, kept in the platform folder
+that has it — and each gets a dedicated Part later in this book:
+
+- **[Part VII](./ch12-00-npm-facades)** — wiring Scala.js to npm modules
+  with hand-written facades, bundled by Vite.
+- **[Part VIII](./ch14-00-calling-c)** — calling C libraries from Scala
+  Native, and exposing your Scala Native code *as* a library that C, C++,
+  and Rust can call.
+
+So the shared folder holds your portable logic, and each platform folder
+can reach as deep into that platform's native world as you need — without
+either concern leaking into the other.
+
 ## What you have, what comes next
 
 You can now ship one codebase to three runtimes:
@@ -113,8 +132,13 @@ You can now ship one codebase to three runtimes:
 - Unshareable primitives hide behind a **shared interface with a
   per-platform implementation**, and missing platforms fail at compile
   time.
+- Each platform folder is also the door to that runtime's ecosystem — npm
+  ([Part VII](./ch12-00-npm-facades)) from `.js`, C/Rust
+  ([Part VIII](./ch14-00-calling-c)) from `.native`.
 
-Next, the final chapter, [Chapter 11](./ch11-00-testing), tests all of
-this — and the same suite runs on all three runtimes.
+Next, [Part VII](./ch12-00-npm-facades) follows the Scala.js side of this
+story out into the JavaScript ecosystem — calling npm packages from Scala
+— and [Part VIII](./ch14-00-calling-c) does the same for Scala Native and
+the C/Rust world.
 
-[← 9. Typed RPC](./ch09-00-rpc) | [Next → 11. Testing with UniTest](./ch11-00-testing)
+[← 10. Typed RPC](./ch10-00-rpc) | [Next → 12. Calling NPM Modules from Scala.js](./ch12-00-npm-facades)

@@ -1,4 +1,4 @@
-# 7. Living With Failure — Retry, Circuit Breakers, Resources
+# 8. Living With Failure — Retry, Circuit Breakers, Resources
 
 A call across a network will fail. Not *if* — *when*. The interesting
 question is what you do about it, and there are three different answers
@@ -149,9 +149,9 @@ You can now write code that survives the network:
 - **`Resource.withResource(r) { }`** closes resources on every path, the
   block-scoped cousin of `Design`'s `onShutdown`.
 
-That closes Part IV: your services can react ([Rx](./ch06-00-rx)) and
-recover (this chapter). Next, [Part V](./ch08-00-http) puts them on the
+That closes Part IV: your services can react ([Rx](./ch07-00-rx)) and
+recover (this chapter). Next, [Part V](./ch09-00-http) puts them on the
 network for real — building HTTP clients and servers, then typed RPC on
 top.
 
-[← 6. Rx, the Composable Stream](./ch06-00-rx) | [Next → 8. HTTP Clients and Servers](./ch08-00-http)
+[← 7. Rx, the Composable Stream](./ch07-00-rx) | [Next → 9. HTTP Clients and Servers](./ch09-00-http)

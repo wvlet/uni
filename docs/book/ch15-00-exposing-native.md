@@ -167,9 +167,9 @@ You can now ship Scala Native code to the systems world:
   produce a `.so` / `.dylib` / `.a` and a C header.
 - **`-L<dir> -l<name>`** links it from Rust, C, or C++ alike.
 
-That closes Part IX — and, with it, Uni's reach into both neighboring
+That closes Part VIII — and, with it, Uni's reach into both neighboring
 ecosystems: the JavaScript world through Scala.js
-([Part VIII](./ch12-00-npm-facades)) and the C/Rust world through Scala
+([Part VII](./ch12-00-npm-facades)) and the C/Rust world through Scala
 Native. One library, three runtimes, and a door into each runtime's
 native ecosystem.
 
