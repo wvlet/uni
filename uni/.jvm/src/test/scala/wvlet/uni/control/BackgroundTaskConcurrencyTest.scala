@@ -13,10 +13,12 @@
  */
 package wvlet.uni.control
 
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
 import wvlet.uni.util.{Result, ThreadUtil}
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.{CountDownLatch, TimeUnit}
+import scala.collection.mutable.ArrayBuffer
 
 /**
   * True-concurrency behavior of [[BackgroundTask]] on the JVM (a real background thread). Mirrored
@@ -82,6 +84,31 @@ class BackgroundTaskConcurrencyTest extends UniTest:
     registered.await(5, TimeUnit.SECONDS) shouldBe true
     task.cancel()
     hookRan.await(5, TimeUnit.SECONDS) shouldBe true
+    task.await().isSuccess shouldBe true
+  }
+
+  test("progressStream pushes reported progress and completes") {
+    val canReport = CountDownLatch(1)
+    val task      = BackgroundTask.start[Int, Int] { ctx =>
+      canReport.await() // wait until the subscriber is attached, so emissions are deterministic
+      ctx.reportProgress(1)
+      ctx.reportProgress(2)
+      ctx.reportProgress(3)
+      0
+    }
+    val seen      = ArrayBuffer.empty[Int]
+    val completed = CountDownLatch(1)
+    RxRunner.run(task.progressStream) {
+      case OnNext(v) =>
+        seen += v.asInstanceOf[Int]
+      case OnCompletion =>
+        completed.countDown()
+      case OnError(_) =>
+        completed.countDown()
+    }
+    canReport.countDown()
+    completed.await(5, TimeUnit.SECONDS) shouldBe true // stream completed when the task finished
+    seen.toSeq shouldBe Seq(1, 2, 3)
     task.await().isSuccess shouldBe true
   }
 
