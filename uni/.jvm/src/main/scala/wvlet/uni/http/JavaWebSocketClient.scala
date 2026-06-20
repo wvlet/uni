@@ -18,7 +18,14 @@ import wvlet.uni.rx.Rx
 import java.net.URI
 import java.net.http.{HttpClient, WebSocket}
 import java.nio.ByteBuffer
-import java.util.concurrent.{CompletableFuture, CompletionStage}
+import java.util.concurrent.{
+  CompletableFuture,
+  CompletionStage,
+  Executors,
+  ScheduledExecutorService,
+  ScheduledFuture,
+  TimeUnit
+}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.concurrent.{ExecutionContext, Promise}
 
@@ -31,14 +38,13 @@ class JavaWebSocketClient extends WebSocketClient:
 
   private given ExecutionContext = ExecutionContext.parasitic
 
-  // pingIntervalMillis (client heartbeat) is wired in a follow-up PR; ignored for now.
   override def connect(
       uri: String,
       handler: WebSocketHandler,
       pingIntervalMillis: Int
   ): Rx[WebSocketContext] =
     val opened   = Promise[WebSocketContext]()
-    val listener = JavaWebSocketListener(handler, Request.get(uri), opened)
+    val listener = JavaWebSocketListener(handler, Request.get(uri), opened, pingIntervalMillis)
     JavaWebSocketClient
       .sharedHttpClient
       .newWebSocketBuilder()
@@ -57,6 +63,14 @@ object JavaWebSocketClient:
   // builds a new JavaWebSocketClient per call, so a per-instance HttpClient would leak threads.
   private lazy val sharedHttpClient: HttpClient = HttpClient.newHttpClient()
 
+  // One daemon scheduler drives the heartbeat ticks for all client connections.
+  private[http] lazy val heartbeatScheduler: ScheduledExecutorService = Executors
+    .newSingleThreadScheduledExecutor { r =>
+      val t = Thread(r, "uni-ws-client-heartbeat")
+      t.setDaemon(true)
+      t
+    }
+
   def apply(): JavaWebSocketClient = new JavaWebSocketClient()
 
 /**
@@ -66,7 +80,8 @@ object JavaWebSocketClient:
 private class JavaWebSocketListener(
     handler: WebSocketHandler,
     connectRequest: Request,
-    opened: Promise[WebSocketContext]
+    opened: Promise[WebSocketContext],
+    pingIntervalMillis: Int
 ) extends WebSocket.Listener:
 
   private val textBuffer   = StringBuilder()
@@ -74,6 +89,17 @@ private class JavaWebSocketListener(
   private val closed       = AtomicBoolean(false)
   @volatile
   private var ctx: WebSocketContext = null
+
+  // Heartbeat: the scheduler thread ticks, the listener thread records activity — onTick/onActivity
+  // are lock-guarded (see WebSocketHeartbeat).
+  private val heartbeat =
+    if pingIntervalMillis > 0 then
+      WebSocketHeartbeat()
+    else
+      null
+
+  @volatile
+  private var heartbeatFuture: ScheduledFuture[?] = null
 
   override def onOpen(webSocket: WebSocket): Unit =
     // Request all messages up front so the JDK keeps delivering without per-message request() calls.
@@ -86,8 +112,38 @@ private class JavaWebSocketListener(
       case scala.util.control.NonFatal(e) =>
         WebSocketDispatcher.safeOnError(handler, c, e)
     opened.trySuccess(c)
+    if heartbeat != null then
+      heartbeatFuture = JavaWebSocketClient
+        .heartbeatScheduler
+        .scheduleAtFixedRate(
+          () => tick(c),
+          pingIntervalMillis.toLong,
+          pingIntervalMillis.toLong,
+          TimeUnit.MILLISECONDS
+        )
+      // Close the schedule-vs-cancel race: if notifyClose ran while we were scheduling (it saw a
+      // null future and couldn't cancel), cancel here now that the future is assigned.
+      if closed.get() then
+        heartbeatFuture.cancel(false)
+
+  private def tick(c: JavaWebSocketContext): Unit =
+    try
+      heartbeat.onTick() match
+        case WebSocketHeartbeat.Decision.SendPing =>
+          c.sendPing()
+        case WebSocketHeartbeat.Decision.Close =>
+          c.close(1011, "ping timeout")
+        case WebSocketHeartbeat.Decision.Idle =>
+          ()
+    catch
+      // scheduleAtFixedRate suppresses all future runs if a task throws — swallow so the heartbeat
+      // keeps ticking (a transient send failure surfaces as a close via the JDK listener anyway).
+      case scala.util.control.NonFatal(_) =>
+        ()
 
   override def onText(webSocket: WebSocket, data: CharSequence, last: Boolean): CompletionStage[?] =
+    if heartbeat != null then
+      heartbeat.onActivity()
     textBuffer.append(data)
     if last then
       val message = textBuffer.toString
@@ -96,6 +152,8 @@ private class JavaWebSocketListener(
     null
 
   override def onBinary(webSocket: WebSocket, data: ByteBuffer, last: Boolean): CompletionStage[?] =
+    if heartbeat != null then
+      heartbeat.onActivity()
     val chunk = new Array[Byte](data.remaining)
     data.get(chunk)
     binaryBuffer.write(chunk)
@@ -103,6 +161,11 @@ private class JavaWebSocketListener(
       val message = binaryBuffer.toByteArray
       binaryBuffer.reset()
       deliver(() => handler.onBinaryMessage(ctx, message))
+    null
+
+  override def onPong(webSocket: WebSocket, message: ByteBuffer): CompletionStage[?] =
+    if heartbeat != null then
+      heartbeat.onActivity()
     null
 
   override def onClose(webSocket: WebSocket, statusCode: Int, reason: String): CompletionStage[?] =
@@ -124,12 +187,15 @@ private class JavaWebSocketListener(
         WebSocketDispatcher.safeOnError(handler, ctx, e)
 
   private def notifyClose(): Unit =
-    if closed.compareAndSet(false, true) && ctx != null then
-      try
-        handler.onClose(ctx)
-      catch
-        case scala.util.control.NonFatal(_) =>
-          ()
+    if closed.compareAndSet(false, true) then
+      if heartbeatFuture != null then
+        heartbeatFuture.cancel(false)
+      if ctx != null then
+        try
+          handler.onClose(ctx)
+        catch
+          case scala.util.control.NonFatal(_) =>
+            ()
 
 end JavaWebSocketListener
 
@@ -154,6 +220,8 @@ private class JavaWebSocketContext(webSocket: WebSocket, override val request: R
   override def send(text: String): Unit = enqueue(_.sendText(text, true))
 
   override def send(data: Array[Byte]): Unit = enqueue(_.sendBinary(ByteBuffer.wrap(data), true))
+
+  private[http] def sendPing(): Unit = enqueue(_.sendPing(ByteBuffer.allocate(0)))
 
   override def close(): Unit = close(WebSocket.NORMAL_CLOSURE, "")
 
