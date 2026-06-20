@@ -11,7 +11,7 @@ but *why* its pieces are shaped the way they are.
 The Book is narrative. It is meant to be read front to back at first,
 and used as a jumping-off point afterwards. The short-form API
 documentation under [Guide](/guide/) and the module references
-(e.g. [Core](/core/), [HTTP](/http/), [Agent](/agent/)) stay where they
+(e.g. [Core](/core/), [HTTP](/http/)) stay where they
 are, and the Book links into them when you need depth.
 
 ## How to read it
@@ -57,13 +57,9 @@ are, and the Book links into them when you need depth.
 
 - [Chapter 10: One Codebase, Three Runtimes](./ch10-00-cross-platform)
 
-### Part VII — Agent Framework
+### Part VII — Testing
 
-- [Chapter 11: Building LLM Agents with uni-agent](./ch11-00-agent)
-
-### Part VIII — Testing
-
-- [Chapter 12: Testing with UniTest](./ch12-00-testing)
+- [Chapter 11: Testing with UniTest](./ch11-00-testing)
 
 ### Appendices
 

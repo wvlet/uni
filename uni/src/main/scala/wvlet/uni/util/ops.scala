@@ -1,7 +1,7 @@
-package wvlet.uni.agent.core
+package wvlet.uni.util
 
 /**
-  * Utility functions for Scala
+  * Utility extension methods for fluent, builder-style code
   */
 object ops:
   extension [A](self: A)

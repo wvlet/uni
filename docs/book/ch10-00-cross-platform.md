@@ -29,4 +29,4 @@ Concepts introduced:
 - [Design Principles — Cross-Platform First](/guide/principles#cross-platform-first)
 - [HTTP Client — platform notes](/http/client)
 
-[← 9. Typed RPC](./ch09-00-rpc) | [Next → 11. Building LLM Agents](./ch11-00-agent)
+[← 9. Typed RPC](./ch09-00-rpc) | [Next → 11. Testing with UniTest](./ch11-00-testing)

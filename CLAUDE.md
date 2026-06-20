@@ -9,7 +9,6 @@
 - **uni-core**: Pure-Scala essential libraries shared with uni-test
 - **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
 - **uni-test**: Unit testing framework
-- **uni-agent**: LLM agent interface, orchestration, and tool integration
 
 Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-specific code in `.jvm`, `.js`, `.native` folders.
 
@@ -19,10 +18,9 @@ Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-speci
 ./sbt compile                              # Compile all
 ./sbt test                                 # Test all
 ./sbt coreJVM/test                         # Test specific module
-./sbt "agent/testOnly *LLMAgentTest"       # Test specific class
+./sbt "coreJVM/testOnly *DesignTest"       # Test specific class
 ./sbt "coreJVM/testOnly * -- -l debug"     # With debug logging
 ./sbt scalafmtAll                          # Format (CI checks this)
-./sbt integrationTest/test                 # Integration tests (requires AWS creds)
 pnpm docs:dev                              # Start docs server (http://localhost:5173)
 ```
 

@@ -24,8 +24,6 @@ addCommandAlias("publishJSSigned", s"projectJS/publishSigned")
 addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
 val SCALA_3                             = "3.8.4"
-val AIRFRAME_VERSION                    = "2026.1.7"
-val AWS_SDK_VERSION                     = "2.46.12"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
 val JUNIT_PLATFORM_VERSION              = "6.1.0"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.12"
@@ -129,8 +127,6 @@ lazy val root = project
 lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
   uni.jvm,
-  agent,
-  bedrock,
   netty,
   test.jvm
 )
@@ -221,38 +217,6 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .dependsOn(core)
 
-lazy val agent = project
-  .in(file("uni-agent"))
-  .settings(
-    buildSettings,
-    name        := "uni-agent",
-    description := "Core interface for agent applications",
-    libraryDependencies ++=
-      Seq(
-        "org.wvlet.airframe" %% "airframe"       % AIRFRAME_VERSION,
-        "org.wvlet.airframe" %% "airframe-codec" % AIRFRAME_VERSION
-      )
-  )
-  .dependsOn(uni.jvm, test.jvm % Test)
-
-lazy val bedrock = project
-  .in(file("uni-agent-bedrock"))
-  .settings(
-    buildSettings,
-    name        := "uni-bedrock",
-    description := "AWS Bedrock integration",
-    libraryDependencies ++=
-      Seq(
-        "software.amazon.awssdk" % "bedrockruntime" % AWS_SDK_VERSION,
-        // Redirect slf4j to airframe-log
-        "org.slf4j" % "slf4j-jdk14" % "2.0.18",
-        // Add langchain4j as a reference implementation
-        "dev.langchain4j" % "langchain4j"         % "1.16.3" % Test,
-        "dev.langchain4j" % "langchain4j-bedrock" % "1.16.3" % Test
-      )
-  )
-  .dependsOn(agent, test.jvm % Test)
-
 val NETTY_VERSION = "4.2.15.Final"
 
 lazy val netty = project
@@ -289,14 +253,3 @@ lazy val domTest = project
     }
   )
   .dependsOn(uni.js, test.js % Test)
-
-lazy val integrationTest = project
-  .in(file("uni-integration-test"))
-  .settings(
-    buildSettings,
-    noPublish,
-    name           := "uni-integration-test",
-    description    := "Integration test for agent applications",
-    ideSkipProject := false
-  )
-  .dependsOn(bedrock, test.jvm % Test)

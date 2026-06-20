@@ -24,7 +24,7 @@ Concepts introduced:
   the whole process vs. per-request.
 - Lifecycle hooks (`onStart`, `onShutdown`) and how they compose with
   sessions.
-- Overriding a design for tests (the foundation for Chapter 12).
+- Overriding a design for tests (the foundation for Chapter 11).
 - Common mistakes and how to read the error messages Design produces.
 
 ## Reference you can read now

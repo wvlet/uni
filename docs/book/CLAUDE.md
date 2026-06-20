@@ -11,7 +11,7 @@ real applications with Scala 3 and Uni. It is modeled after
 *[The Rust Programming Language](https://doc.rust-lang.org/book/)* ("the
 Rust Book").
 
-- `/guide/`, `/core/`, `/http/`, `/agent/`, etc. are **reference**:
+- `/guide/`, `/core/`, `/http/`, etc. are **reference**:
   shaped around *APIs*.
 - `/book/` is **narrative**: shaped around *tasks, concepts, and
   reasoning*.

@@ -250,7 +250,7 @@ way.
 
 For testing `UrlFetcher` itself *without* the network, we would
 replace its HTTP client with a stand-in via a test-only `Design`. We
-will do exactly that in Chapter 12 once we have met `Design`'s
+will do exactly that in Chapter 11 once we have met `Design`'s
 override mechanism.
 
 ## What you have, what comes next

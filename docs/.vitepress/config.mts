@@ -129,15 +129,9 @@ export default defineConfig<UniThemeConfig>({
           ]
         },
         {
-          text: 'Part VII — Agent Framework',
+          text: 'Part VII — Testing',
           items: [
-            { text: '11. Building LLM Agents', link: '/book/ch11-00-agent' }
-          ]
-        },
-        {
-          text: 'Part VIII — Testing',
-          items: [
-            { text: '12. Testing with UniTest', link: '/book/ch12-00-testing' }
+            { text: '11. Testing with UniTest', link: '/book/ch11-00-testing' }
           ]
         },
         {
@@ -214,16 +208,6 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Progress Indicators', link: '/cli/progress' },
             { text: 'Command Launcher', link: '/cli/launcher' }
           ]
-        },
-        {
-          text: 'Agent Framework',
-          items: [
-            { text: 'Overview', link: '/agent/' },
-            { text: 'LLM Agent', link: '/agent/llm-agent' },
-            { text: 'Chat Sessions', link: '/agent/chat-session' },
-            { text: 'Tool Integration', link: '/agent/tools' },
-            { text: 'AWS Bedrock', link: '/agent/bedrock' }
-          ]
         }
       ],
       '/': [
@@ -290,16 +274,6 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Terminal Styling', link: '/cli/tint' },
             { text: 'Progress Indicators', link: '/cli/progress' },
             { text: 'Command Launcher', link: '/cli/launcher' }
-          ]
-        },
-        {
-          text: 'Agent Framework',
-          items: [
-            { text: 'Overview', link: '/agent/' },
-            { text: 'LLM Agent', link: '/agent/llm-agent' },
-            { text: 'Chat Sessions', link: '/agent/chat-session' },
-            { text: 'Tool Integration', link: '/agent/tools' },
-            { text: 'AWS Bedrock', link: '/agent/bedrock' }
           ]
         }
       ]

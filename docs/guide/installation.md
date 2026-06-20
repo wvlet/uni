@@ -12,12 +12,6 @@ Add uni to your `build.sbt`:
 ```scala
 // Core utilities (DI, logging, JSON, HTTP, Rx, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
-
-// LLM agent framework (optional)
-libraryDependencies += "org.wvlet.uni" %% "uni-agent" % "__UNI_VERSION__"
-
-// AWS Bedrock integration (optional)
-libraryDependencies += "org.wvlet.uni" %% "uni-bedrock" % "__UNI_VERSION__"
 ```
 
 ## Cross-Platform Projects
