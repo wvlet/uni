@@ -1,4 +1,4 @@
-# 12. Testing with UniTest
+# 11. Testing with UniTest
 
 ::: warning Coming soon
 This chapter is an outline. The full draft ships in a follow-up PR.
@@ -26,4 +26,4 @@ Concepts introduced:
 
 - [UniTest (module reference)](/core/unitest)
 
-[← 11. Building LLM Agents](./ch11-00-agent) | [Next → Appendix A: Scala 3 Syntax Notes](./appendix-a-scala3)
+[← 10. One Codebase, Three Runtimes](./ch10-00-cross-platform) | [Next → Appendix A: Scala 3 Syntax Notes](./appendix-a-scala3)

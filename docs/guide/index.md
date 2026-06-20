@@ -45,15 +45,6 @@ uni follows these principles:
 | [Control](/control/) | Retry logic, circuit breakers, and caching |
 | [CLI](/cli/) | Terminal styling, progress bars, and command launching |
 
-### uni-agent — LLM Agent Framework
-
-| Module | Description |
-|--------|-------------|
-| [LLM Agent](/agent/llm-agent) | Core agent abstraction for AI workflows |
-| [Chat Sessions](/agent/chat-session) | Conversation state management |
-| [Tool Integration](/agent/tools) | Function calling and external tools |
-| [AWS Bedrock](/agent/bedrock) | Bedrock chat model integration |
-
 ## Next Steps
 
 - [Installation](./installation) - Add uni to your project
