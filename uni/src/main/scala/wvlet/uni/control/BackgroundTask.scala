@@ -13,6 +13,7 @@
  */
 package wvlet.uni.control
 
+import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.util.Result
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
@@ -56,6 +57,14 @@ trait BackgroundTask[A, P]:
   /** Latest progress the body reported, or `None` if none yet. Non-blocking. */
   def progress: Option[P]
 
+  /**
+    * A push stream of progress updates that completes when the task finishes. On JVM/Native it is a
+    * live feed; on Scala.js the body runs inline during [[BackgroundTask.start]], so a subscriber
+    * attached afterwards sees only the final reported value (not a live feed) — use [[progress]]
+    * there.
+    */
+  def progressStream: Rx[P]
+
   /** Terminal snapshot: `None` while running, `Some(result)` once finished/failed. Non-blocking. */
   def poll: Option[Result[A]]
 
@@ -93,8 +102,12 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
     extends BackgroundTask[A, P]
     with TaskContext[P]:
 
-  private val cancelled   = AtomicBoolean(false)
+  private val cancelled = AtomicBoolean(false)
+  // progressRef is the source of truth for the non-blocking snapshot: RxVar.get reads a non-volatile
+  // var outside any lock, so it is not safe for cross-thread polling. progressVar is only the push
+  // notification channel for progressStream (its propagateEvent is synchronized = thread-safe).
   private val progressRef = AtomicReference[Option[P]](None)
+  private val progressVar = RxVar[Option[P]](None)
   private val resultRef   = AtomicReference[Option[Result[A]]](None)
   private val gate        = BackgroundTaskCompat.newGate()
 
@@ -123,7 +136,10 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
         hooksDrained = true
         hooks = Nil
       }
-      gate.signal()
+      // gate.signal() must run even if a progressStream subscriber throws during completion, or
+      // await() would hang forever — so complete the stream inside a try whose finally signals.
+      try progressVar.stop() // complete the progress stream
+      finally gate.signal()
   }
 
   // --- TaskContext (body side) ---
@@ -134,7 +150,9 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
     if cancelled.get() then
       throw TaskCancelledException()
 
-  override def reportProgress(p: P): Unit = progressRef.set(Some(p))
+  override def reportProgress(p: P): Unit =
+    progressRef.set(Some(p)) // visibility-safe snapshot
+    progressVar.set(Some(p)) // notify progressStream subscribers
 
   override def onCancel(hook: () => Unit): Unit =
     val runNow = hookLock.synchronized {
@@ -150,7 +168,17 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
 
   // --- BackgroundTask (caller side) ---
 
-  override def progress: Option[P]     = progressRef.get()
+  override def progress: Option[P] = progressRef.get()
+  // flatMap (not filter): the initial replayed None maps to Rx.empty, which flatMap skips — whereas
+  // a false `filter` predicate emits OnCompletion downstream (RxRunner FilterOp), prematurely
+  // ending the stream. RxVar holds only the latest value, so unconsumed progress doesn't accumulate.
+  override def progressStream: Rx[P] = progressVar.flatMap {
+    case Some(p) =>
+      Rx.single(p)
+    case None =>
+      Rx.empty
+  }
+
   override def poll: Option[Result[A]] = resultRef.get()
   override def isDone: Boolean         = resultRef.get().isDefined
 
