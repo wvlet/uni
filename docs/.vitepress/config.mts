@@ -135,6 +135,13 @@ export default defineConfig<UniThemeConfig>({
           ]
         },
         {
+          text: 'Part VIII — Scala.js & the JS Ecosystem',
+          items: [
+            { text: '12. Calling NPM Modules', link: '/book/ch12-00-npm-facades' },
+            { text: '13. Bundling with Vite', link: '/book/ch13-00-vite' }
+          ]
+        },
+        {
           text: 'Appendices',
           items: [
             { text: 'A. Scala 3 Syntax Notes', link: '/book/appendix-a-scala3' },
