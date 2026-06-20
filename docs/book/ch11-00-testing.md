@@ -111,15 +111,15 @@ You can now test a Uni application the way it's meant to be tested:
 - One suite runs on **all three platforms**, and stays **fast** because
   it's in-process.
 
-That completes the book's main path. You have built, wired, logged,
+That completes the book's core path. You have built, wired, logged,
 serialized, reacted, recovered, served, connected, ported, and tested a
 Uni application — the full arc from `Design.build` to a green test suite
 on three runtimes.
 
-The appendices go sideways from here: [Appendix A](./appendix-a-scala3)
-collects the Scala 3 syntax the book leans on, [Appendix
-B](./appendix-b-airframe) traces Uni's relationship to Airframe, and
-[Appendix C](./appendix-c-glossary) is a glossary of the terms you've
-met.
+Next, [Part VIII](./ch12-00-npm-facades) follows the Scala.js thread out
+into the wider JavaScript world: calling npm packages from Scala through
+small hand-written facades, and bundling the result with Vite. After that,
+the appendices collect supporting material — Scala 3 syntax, the Airframe
+relationship, and a glossary.
 
-[← 10. One Codebase, Three Runtimes](./ch10-00-cross-platform) | [Next → Appendix A: Scala 3 Syntax Notes](./appendix-a-scala3)
+[← 10. One Codebase, Three Runtimes](./ch10-00-cross-platform) | [Next → 12. Calling NPM Modules](./ch12-00-npm-facades)

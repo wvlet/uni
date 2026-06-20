@@ -61,6 +61,11 @@ are, and the Book links into them when you need depth.
 
 - [Chapter 11: Testing with UniTest](./ch11-00-testing)
 
+### Part VIII — Scala.js in the JavaScript Ecosystem
+
+- [Chapter 12: Calling NPM Modules from Scala.js](./ch12-00-npm-facades)
+- [Chapter 13: Bundling with Vite](./ch13-00-vite)
+
 ### Appendices
 
 - [Appendix A: Scala 3 Syntax Notes for This Book](./appendix-a-scala3)

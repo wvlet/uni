@@ -97,4 +97,4 @@ anonymous-class case (overriding methods inline, as with a
 `WebSocketHandler`). If you wrote Scala 2, dropping `new` is the habit to
 unlearn first.
 
-[← 11. Testing with UniTest](./ch11-00-testing) | [Next → Appendix B: Uni and Airframe](./appendix-b-airframe)
+[← 13. Bundling with Vite](./ch13-00-vite) | [Next → Appendix B: Uni and Airframe](./appendix-b-airframe)
