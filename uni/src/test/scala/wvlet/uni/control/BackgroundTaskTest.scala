@@ -16,6 +16,8 @@ package wvlet.uni.control
 import wvlet.uni.util.Result
 import wvlet.uni.test.UniTest
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 /**
   * Cross-platform behavior of [[BackgroundTask]]. These assert outcomes (not concurrency), so they
   * hold on JS too, where the body runs inline during `start`. Concurrency (live cancel/progress) is
@@ -53,6 +55,17 @@ class BackgroundTaskTest extends UniTest:
     val awaited = task.await()
     awaited shouldBe Result.Success("ok")
     task.poll shouldBe Some(awaited)
+  }
+
+  test("cancel after normal completion does not run onCancel hooks") {
+    val hookRan = AtomicBoolean(false)
+    val task    = BackgroundTask.start[Int, Unit] { ctx =>
+      ctx.onCancel(() => hookRan.set(true))
+      42
+    }
+    task.await() shouldBe Result.Success(42)
+    task.cancel() // the task already finished — hooks must not fire
+    hookRan.get() shouldBe false
   }
 
 end BackgroundTaskTest

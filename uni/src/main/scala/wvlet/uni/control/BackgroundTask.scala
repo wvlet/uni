@@ -105,14 +105,25 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
 
   /** Start the worker. Called after construction so `this` does not escape mid-initialization. */
   private[control] def launch(): Unit = BackgroundTaskCompat.runWorker { () =>
-    val r =
-      try
-        Result.Success(body(this))
-      catch
-        case NonFatal(e) =>
-          Result.Failure(e)
-    resultRef.set(Some(r))
-    gate.signal()
+    try
+      // Catch every Throwable (not just NonFatal): a fatal error or InterruptedException must still
+      // become a result, or `await` would hang on the gate forever. (Inline on JS, so we record the
+      // failure rather than rethrow — that keeps `start` from throwing there.)
+      val r =
+        try
+          Result.Success(body(this))
+        catch
+          case e: Throwable =>
+            Result.Failure(e)
+      resultRef.set(Some(r))
+    finally
+      // The task is finished: drain the cancel hooks so a later cancel() can't fire them against an
+      // unrelated operation, and release their captured closures. No-op if cancel() already drained.
+      hookLock.synchronized {
+        hooksDrained = true
+        hooks = Nil
+      }
+      gate.signal()
   }
 
   // --- TaskContext (body side) ---
@@ -128,7 +139,8 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
   override def onCancel(hook: () => Unit): Unit =
     val runNow = hookLock.synchronized {
       if hooksDrained then
-        true
+        // Drained by cancel() → run now; drained by normal completion → don't (task already done).
+        cancelled.get()
       else
         hooks = hook :: hooks
         false
