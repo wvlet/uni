@@ -38,6 +38,7 @@ import io.netty.handler.codec.http.websocketx.{
   WebSocketServerHandshaker,
   WebSocketServerHandshakerFactory
 }
+import io.netty.handler.timeout.IdleStateHandler
 import io.netty.util.concurrent.EventExecutorGroup
 import wvlet.uni.http.{
   HttpContent,
@@ -55,7 +56,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.ExecutorService
+import java.util.concurrent.{ExecutorService, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
@@ -71,6 +72,7 @@ class NettyRequestHandler(
     sseExecutor: ExecutorService,
     webSocketRoutes: Seq[WebSocketRoute],
     webSocketMaxFrameSize: Int,
+    webSocketPingIntervalMillis: Int,
     wsHandlerExecutor: Option[EventExecutorGroup]
 ) extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
@@ -191,11 +193,22 @@ class NettyRequestHandler(
           else
             val wsContext   = NettyWebSocketContext(ctx.channel(), request, handshaker)
             val userHandler = route.handlerFactory(request)
-            val wsHandler   = NettyWebSocketHandler(userHandler, wsContext)
-            val future      = handshaker.handshake(ctx.channel(), nettyRequest)
-            val pipeline    = ctx.pipeline()
+            val wsHandler   = NettyWebSocketHandler(
+              userHandler,
+              wsContext,
+              webSocketPingIntervalMillis
+            )
+            val future   = handshaker.handshake(ctx.channel(), nettyRequest)
+            val pipeline = ctx.pipeline()
             // Coalesce continuation frames so the handler sees whole messages.
             pipeline.addLast("wsAggregator", WebSocketFrameAggregator(webSocketMaxFrameSize))
+            // Reader-idle heartbeat: fire userEventTriggered after pingIntervalMillis of no inbound
+            // frame, so the WS handler can ping and reap an unresponsive peer.
+            if webSocketPingIntervalMillis > 0 then
+              pipeline.addLast(
+                "wsIdle",
+                IdleStateHandler(webSocketPingIntervalMillis.toLong, 0, 0, TimeUnit.MILLISECONDS)
+              )
             wsHandlerExecutor match
               case Some(executor) =>
                 pipeline.addLast(executor, "wsHandler", wsHandler)
@@ -213,6 +226,7 @@ class NettyRequestHandler(
                   if !f.isSuccess then
                     ctx.close()
             )
+          end if
         catch
           case NonFatal(e) =>
             warn(s"Failed to perform WebSocket handshake: ${e.getMessage}", e)
@@ -408,6 +422,7 @@ object NettyRequestHandler:
       sseExecutor: ExecutorService,
       webSocketRoutes: Seq[WebSocketRoute],
       webSocketMaxFrameSize: Int,
+      webSocketPingIntervalMillis: Int,
       wsHandlerExecutor: Option[EventExecutorGroup]
   ): NettyRequestHandler =
     new NettyRequestHandler(
@@ -415,6 +430,7 @@ object NettyRequestHandler:
       sseExecutor,
       webSocketRoutes,
       webSocketMaxFrameSize,
+      webSocketPingIntervalMillis,
       wsHandlerExecutor
     )
 

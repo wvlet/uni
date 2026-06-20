@@ -74,7 +74,10 @@ case class NettyServerConfig(
     override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
     // Maximum size (in bytes) of an inbound WebSocket payload. Bounds both a single frame's payload
     // and the aggregated message (continuation frames are coalesced).
-    webSocketMaxFrameSize: Int = 1024 * 1024
+    webSocketMaxFrameSize: Int = 1024 * 1024,
+    // Ping/pong heartbeat interval for WebSocket connections (0 disables it): the server pings an
+    // idle connection and closes it if the peer stops responding to pings.
+    webSocketPingIntervalMillis: Int = 0
 ) extends HttpServerConfig:
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
@@ -159,6 +162,10 @@ case class NettyServerConfig(
   def withWebSocketMaxFrameSize(sizeInBytes: Int): NettyServerConfig =
     require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
     copy(webSocketMaxFrameSize = sizeInBytes)
+
+  def withWebSocketPingIntervalMillis(millis: Int): NettyServerConfig =
+    require(millis >= 0, "webSocketPingIntervalMillis must be >= 0")
+    copy(webSocketPingIntervalMillis = millis)
 
   /**
     * Start the server and return the running server instance

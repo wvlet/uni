@@ -122,6 +122,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               sseExecutor,
               config.webSocketRoutes,
               config.webSocketMaxFrameSize,
+              config.webSocketPingIntervalMillis,
               handlerExecutorGroup
             )
             handlerExecutorGroup match
