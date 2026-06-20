@@ -100,6 +100,25 @@ only exists on one platform, keep the code that uses it in that platform's
 folder.
 :::
 
+## Reaching into a platform's ecosystem
+
+A platform folder isn't only for the JDK or a syscall — it's the door to
+that runtime's whole *foreign* ecosystem. The `.js` folder is where you
+call JavaScript packages from npm; the `.native` folder is where you call
+C, C++, and Rust. Both use the same idea as the `Clock` above — a typed
+Scala declaration of the foreign code you use, kept in the platform folder
+that has it — and each gets a dedicated Part later in this book:
+
+- **[Part VIII](./ch12-00-npm-facades)** — wiring Scala.js to npm modules
+  with hand-written facades, bundled by Vite.
+- **[Part IX](./ch14-00-calling-c)** — calling C libraries from Scala
+  Native, and exposing your Scala Native code *as* a library that C, C++,
+  and Rust can call.
+
+So the shared folder holds your portable logic, and each platform folder
+can reach as deep into that platform's native world as you need — without
+either concern leaking into the other.
+
 ## What you have, what comes next
 
 You can now ship one codebase to three runtimes:
@@ -113,8 +132,11 @@ You can now ship one codebase to three runtimes:
 - Unshareable primitives hide behind a **shared interface with a
   per-platform implementation**, and missing platforms fail at compile
   time.
+- Each platform folder is also the door to that runtime's ecosystem — npm
+  ([Part VIII](./ch12-00-npm-facades)) from `.js`, C/Rust
+  ([Part IX](./ch14-00-calling-c)) from `.native`.
 
-Next, the final chapter, [Chapter 11](./ch11-00-testing), tests all of
-this — and the same suite runs on all three runtimes.
+Next, [Chapter 11](./ch11-00-testing) tests all of this — and the same
+suite runs on all three runtimes.
 
 [← 9. Typed RPC](./ch09-00-rpc) | [Next → 11. Testing with UniTest](./ch11-00-testing)
