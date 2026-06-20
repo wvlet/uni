@@ -107,4 +107,35 @@ class WebSocketClientTest extends UniTest:
       }
   }
 
+  test("client heartbeat keeps an idle connection alive via ping/pong") {
+    NettyServer
+      .withPort(0)
+      .withWebSocketRoute("/ws/idle") { _ =>
+        new WebSocketHandler {}
+      }
+      .start { server =>
+        val closed  = CountDownLatch(1)
+        val handler =
+          new WebSocketHandler:
+            override def onClose(ctx: WebSocketContext): Unit = closed.countDown()
+        // The client pings every 150ms; the server auto-pongs, so the heartbeat must NOT reap this
+        // live-but-idle connection over several intervals.
+        val ref   = AtomicReference[WebSocketContext]()
+        val ready = CountDownLatch(1)
+        RxRunner.runOnce(
+          Http.webSocketClient.connect(s"ws://localhost:${server.localPort}/ws/idle", handler, 150)
+        ) {
+          case OnNext(ctx) =>
+            ref.set(ctx.asInstanceOf[WebSocketContext]);
+            ready.countDown()
+          case OnError(_) =>
+            ready.countDown()
+          case _ =>
+        }
+        ready.await(10, TimeUnit.SECONDS) shouldBe true
+        try closed.await(800, TimeUnit.MILLISECONDS) shouldBe false
+        finally Option(ref.get()).foreach(_.close())
+      }
+  }
+
 end WebSocketClientTest
