@@ -112,7 +112,7 @@ private class JavaWebSocketListener(
       case scala.util.control.NonFatal(e) =>
         WebSocketDispatcher.safeOnError(handler, c, e)
     opened.trySuccess(c)
-    if heartbeat != null && !closed.get() then
+    if heartbeat != null then
       heartbeatFuture = JavaWebSocketClient
         .heartbeatScheduler
         .scheduleAtFixedRate(
@@ -121,14 +121,24 @@ private class JavaWebSocketListener(
           pingIntervalMillis.toLong,
           TimeUnit.MILLISECONDS
         )
+      // Close the schedule-vs-cancel race: if notifyClose ran while we were scheduling (it saw a
+      // null future and couldn't cancel), cancel here now that the future is assigned.
+      if closed.get() then
+        heartbeatFuture.cancel(false)
 
   private def tick(c: JavaWebSocketContext): Unit =
-    heartbeat.onTick() match
-      case WebSocketHeartbeat.Decision.SendPing =>
-        c.sendPing()
-      case WebSocketHeartbeat.Decision.Close =>
-        c.close(1011, "ping timeout")
-      case WebSocketHeartbeat.Decision.Idle =>
+    try
+      heartbeat.onTick() match
+        case WebSocketHeartbeat.Decision.SendPing =>
+          c.sendPing()
+        case WebSocketHeartbeat.Decision.Close =>
+          c.close(1011, "ping timeout")
+        case WebSocketHeartbeat.Decision.Idle =>
+          ()
+    catch
+      // scheduleAtFixedRate suppresses all future runs if a task throws — swallow so the heartbeat
+      // keeps ticking (a transient send failure surfaces as a close via the JDK listener anyway).
+      case scala.util.control.NonFatal(_) =>
         ()
 
   override def onText(webSocket: WebSocket, data: CharSequence, last: Boolean): CompletionStage[?] =
