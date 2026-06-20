@@ -69,6 +69,6 @@ are, and the Book links into them when you need depth.
 
 ## Status
 
-Parts I and II are drafted. Parts III through VIII are stubs with
+Parts I through III are drafted. Parts IV through VII are stubs with
 outlines; they will ship in follow-up pull requests. If a link leads to
 a "Coming soon" page, that is working as intended.
