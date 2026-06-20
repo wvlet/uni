@@ -142,6 +142,13 @@ export default defineConfig<UniThemeConfig>({
           ]
         },
         {
+          text: 'Part IX — Scala Native & the C/Rust World',
+          items: [
+            { text: '14. Calling C from Scala Native', link: '/book/ch14-00-calling-c' },
+            { text: '15. Exposing Scala Native to C & Rust', link: '/book/ch15-00-exposing-native' }
+          ]
+        },
+        {
           text: 'Appendices',
           items: [
             { text: 'A. Scala 3 Syntax Notes', link: '/book/appendix-a-scala3' },

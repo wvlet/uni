@@ -66,6 +66,11 @@ are, and the Book links into them when you need depth.
 - [Chapter 12: Calling NPM Modules from Scala.js](./ch12-00-npm-facades)
 - [Chapter 13: Bundling with Vite](./ch13-00-vite)
 
+### Part IX — Scala Native and the C/Rust World
+
+- [Chapter 14: Calling C from Scala Native](./ch14-00-calling-c)
+- [Chapter 15: Exposing Scala Native to C and Rust](./ch15-00-exposing-native)
+
 ### Appendices
 
 - [Appendix A: Scala 3 Syntax Notes for This Book](./appendix-a-scala3)

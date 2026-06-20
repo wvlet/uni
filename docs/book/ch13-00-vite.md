@@ -167,9 +167,9 @@ That completes Part VIII — Scala.js is now a full participant in the
 JavaScript ecosystem, with types on your side of the boundary and npm on
 the other.
 
-From here the appendices collect the supporting material:
-[Appendix A](./appendix-a-scala3) on Scala 3 syntax,
-[Appendix B](./appendix-b-airframe) on Uni's relationship to Airframe, and
-[Appendix C](./appendix-c-glossary), the glossary.
+Next, [Part IX](./ch14-00-calling-c) does the mirror image for the other
+end of the platform spectrum: Scala Native and the C/Rust world — calling
+C libraries from Scala, and exposing your Scala as a library that C, C++,
+and Rust can call.
 
-[← 12. Calling NPM Modules from Scala.js](./ch12-00-npm-facades) | [Next → Appendix A: Scala 3 Syntax Notes](./appendix-a-scala3)
+[← 12. Calling NPM Modules from Scala.js](./ch12-00-npm-facades) | [Next → 14. Calling C from Scala Native](./ch14-00-calling-c)
