@@ -335,4 +335,22 @@ class WebSocketTest extends UniTest:
       }
   }
 
+  test("heartbeat keeps an idle connection alive via ping/pong") {
+    NettyServer
+      .withPort(0)
+      .withWebSocketPingIntervalMillis(150)
+      .withWebSocketRoute("/ws/idle") { _ =>
+        new WebSocketHandler {}
+      }
+      .start { server =>
+        val listener = CollectingListener()
+        val ws       = connect(server.localPort, "/ws/idle", listener)
+        try
+          // The server pings every 150ms; the JDK client auto-pongs, so the heartbeat must NOT reap
+          // this live-but-idle connection over several intervals.
+          listener.closeLatch.await(800, TimeUnit.MILLISECONDS) shouldBe false
+        finally ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye")
+      }
+  }
+
 end WebSocketTest

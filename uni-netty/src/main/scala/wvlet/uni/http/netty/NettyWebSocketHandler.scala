@@ -25,7 +25,8 @@ import io.netty.handler.codec.http.websocketx.{
   WebSocketFrame,
   WebSocketServerHandshaker
 }
-import wvlet.uni.http.{Request, WebSocketContext, WebSocketHandler}
+import io.netty.handler.timeout.IdleStateEvent
+import wvlet.uni.http.{Request, WebSocketContext, WebSocketHandler, WebSocketHeartbeat}
 import wvlet.uni.log.LogSupport
 
 import java.util.concurrent.atomic.AtomicBoolean
@@ -66,7 +67,8 @@ end NettyWebSocketContext
   */
 private[netty] class NettyWebSocketHandler(
     handler: WebSocketHandler,
-    wsContext: NettyWebSocketContext
+    wsContext: NettyWebSocketContext,
+    pingIntervalMillis: Int
 ) extends SimpleChannelInboundHandler[WebSocketFrame]
     with LogSupport:
 
@@ -74,9 +76,19 @@ private[netty] class NettyWebSocketHandler(
   // channelInactive.
   private val closeNotified = AtomicBoolean(false)
 
+  // Heartbeat is driven by an IdleStateHandler in the pipeline (added only when pingInterval > 0).
+  private val heartbeat =
+    if pingIntervalMillis > 0 then
+      WebSocketHeartbeat()
+    else
+      null
+
   private[netty] def notifyOpen(): Unit = safeInvoke(handler.onOpen(wsContext))
 
   override def channelRead0(ctx: ChannelHandlerContext, frame: WebSocketFrame): Unit =
+    // Any inbound frame proves the peer is alive — reset the heartbeat.
+    if heartbeat != null then
+      heartbeat.onActivity()
     frame match
       case t: TextWebSocketFrame =>
         safeInvoke(handler.onTextMessage(wsContext, t.text()))
@@ -97,6 +109,20 @@ private[netty] class NettyWebSocketHandler(
   override def channelInactive(ctx: ChannelHandlerContext): Unit =
     notifyClose()
     super.channelInactive(ctx)
+
+  override def userEventTriggered(ctx: ChannelHandlerContext, evt: Any): Unit =
+    evt match
+      case _: IdleStateEvent if heartbeat != null =>
+        // Reader-idle tick: ping an idle connection, or close it if a prior ping went unanswered.
+        heartbeat.onTick() match
+          case WebSocketHeartbeat.Decision.SendPing =>
+            ctx.writeAndFlush(PingWebSocketFrame())
+          case WebSocketHeartbeat.Decision.Close =>
+            wsContext.close(1011, "ping timeout")
+          case WebSocketHeartbeat.Decision.Idle =>
+            ()
+      case _ =>
+        super.userEventTriggered(ctx, evt)
 
   override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit =
     if NettyRequestHandler.isBenignIOException(cause) then
