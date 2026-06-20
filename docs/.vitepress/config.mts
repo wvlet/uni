@@ -226,6 +226,12 @@ export default defineConfig<UniThemeConfig>({
           items: [
             { text: 'RxElement', link: '/dom/' }
           ]
+        },
+        {
+          text: 'Build Tooling',
+          items: [
+            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' }
+          ]
         }
       ],
       '/': [
@@ -301,6 +307,12 @@ export default defineConfig<UniThemeConfig>({
           text: 'Web UI (Scala.js)',
           items: [
             { text: 'RxElement', link: '/dom/' }
+          ]
+        },
+        {
+          text: 'Build Tooling',
+          items: [
+            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' }
           ]
         }
       ]
