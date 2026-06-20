@@ -1,0 +1,20 @@
+# Start the app in a background forked JVM.
+# Program arg "first" => marker file name; JVM arg "-Duni.test.enabled=true" (after ---) gates the write,
+# so the marker appearing proves both arg channels reach the forked JVM.
+> app/uniRestart first --- -Duni.test.enabled=true
+$ sleep 8000
+$ exists app/target/first.txt
+
+# uniStatus must succeed while the app is running.
+> app/uniStatus
+
+# Restart while still running: this should stop the "first" process and start a "second" one.
+> app/uniRestart second --- -Duni.test.enabled=true
+$ sleep 8000
+$ exists app/target/second.txt
+
+# Stop the background app.
+> app/uniStop
+
+# uniStatus must still succeed after the app has stopped.
+> app/uniStatus

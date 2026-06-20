@@ -1,0 +1,9 @@
+# The app writes its marker to "target/<name>.txt" relative to the forked JVM's working directory.
+# With `uniRestart / baseDirectory := baseDirectory.value / "run-dir"`, the working directory is the
+# run-dir subdirectory, so the marker must appear under app/run-dir/target (not app/target).
+$ mkdir app/run-dir
+> app/uniRestart marker --- -Duni.test.enabled=true
+$ sleep 8000
+$ exists app/run-dir/target/marker.txt
+$ absent app/target/marker.txt
+> app/uniStop
