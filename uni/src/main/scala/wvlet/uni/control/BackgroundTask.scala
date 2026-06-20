@@ -136,8 +136,10 @@ private[control] class BackgroundTaskImpl[A, P](body: TaskContext[P] => A)
         hooksDrained = true
         hooks = Nil
       }
-      progressVar.stop() // complete the progress stream
-      gate.signal()
+      // gate.signal() must run even if a progressStream subscriber throws during completion, or
+      // await() would hang forever — so complete the stream inside a try whose finally signals.
+      try progressVar.stop() // complete the progress stream
+      finally gate.signal()
   }
 
   // --- TaskContext (body side) ---
