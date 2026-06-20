@@ -69,6 +69,6 @@ are, and the Book links into them when you need depth.
 
 ## Status
 
-Parts I and II are drafted. Parts III through VIII are stubs with
-outlines; they will ship in follow-up pull requests. If a link leads to
-a "Coming soon" page, that is working as intended.
+All parts are drafted, Foreword through the appendices. The book is best
+read front to back the first time; afterwards, use it as a jumping-off
+point into the [reference docs](/guide/).
