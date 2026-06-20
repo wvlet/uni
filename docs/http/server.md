@@ -474,7 +474,8 @@ NettyServer
 ```
 
 WebSocket support is server-side and JVM (Netty) only. WebSocket routes coexist with REST endpoints
-on the same server and port.
+on the same server and port. For connecting *to* a WebSocket endpoint, see the cross-platform
+[WebSocket Client](./websocket).
 
 ## Combining Controllers
 

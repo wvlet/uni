@@ -190,6 +190,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'Server-Sent Events', link: '/http/sse' },
+            { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
@@ -265,6 +266,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'Server-Sent Events', link: '/http/sse' },
+            { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
           ]
         },
