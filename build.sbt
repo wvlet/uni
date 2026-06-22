@@ -124,12 +124,7 @@ lazy val root = project
   .settings(buildSettings, name := "uni", publish / skip := true)
   .aggregate((jvmProjects ++ jsProjects ++ nativeProjects): _*)
 
-lazy val jvmProjects: Seq[ProjectReference] = Seq(
-  core.jvm,
-  uni.jvm,
-  netty,
-  test.jvm
-)
+lazy val jvmProjects: Seq[ProjectReference] = Seq(core.jvm, uni.jvm, netty, bookExamples, test.jvm)
 
 lazy val jsProjects: Seq[ProjectReference]     = Seq(core.js, uni.js, domTest, test.js)
 lazy val nativeProjects: Seq[ProjectReference] = Seq(core.native, uni.native, test.native)
@@ -234,6 +229,18 @@ lazy val netty = project
       )
   )
   .dependsOn(uni.jvm, test.jvm % Test)
+
+// Compile-checked code examples from The Uni Book (docs/book). Not published;
+// exists so CI catches API drift in the book's runnable snippets.
+lazy val bookExamples = project
+  .in(file("book-examples"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-book-examples",
+    description := "Compile-checked code examples from The Uni Book"
+  )
+  .dependsOn(uni.jvm, netty, test.jvm % Test)
 
 // uni-dom-test - Tests for uni-dom using JSDOM environment
 lazy val domTest = project

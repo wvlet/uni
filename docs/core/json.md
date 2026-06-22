@@ -5,7 +5,7 @@ uni includes a pure Scala JSON parser with a convenient DSL for querying and man
 ## Parsing JSON
 
 ```scala
-import wvlet.uni.json.JSON
+import wvlet.uni.json.*
 
 val jsonString = """
 {

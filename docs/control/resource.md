@@ -5,9 +5,9 @@ Safely acquire and release resources with automatic cleanup.
 ## Basic Usage
 
 ```scala
-import wvlet.uni.control.Resource
+import wvlet.uni.control.Control
 
-Resource.withResource(openFile("data.txt")) { file =>
+Control.withResource(openFile("data.txt")) { file =>
   processFile(file)
 } // File is automatically closed
 ```
@@ -15,7 +15,7 @@ Resource.withResource(openFile("data.txt")) { file =>
 ## Multiple Resources
 
 ```scala
-Resource.withResources(
+Control.withResources(
   openDatabase(),
   openFile("config.txt")
 ) { (db, file) =>
@@ -30,7 +30,7 @@ Works with any `AutoCloseable`:
 ```scala
 import java.io.{BufferedReader, FileReader}
 
-Resource.withResource(BufferedReader(FileReader("data.txt"))) { reader =>
+Control.withResource(BufferedReader(FileReader("data.txt"))) { reader =>
   reader.lines().forEach(println)
 }
 ```
@@ -38,9 +38,9 @@ Resource.withResource(BufferedReader(FileReader("data.txt"))) { reader =>
 ## Nested Resources
 
 ```scala
-Resource.withResource(openConnection()) { conn =>
-  Resource.withResource(conn.createStatement()) { stmt =>
-    Resource.withResource(stmt.executeQuery(sql)) { rs =>
+Control.withResource(openConnection()) { conn =>
+  Control.withResource(conn.createStatement()) { stmt =>
+    Control.withResource(stmt.executeQuery(sql)) { rs =>
       processResultSet(rs)
     }
   }
@@ -53,7 +53,7 @@ Resources are closed even if an exception occurs:
 
 ```scala
 try
-  Resource.withResource(openFile("data.txt")) { file =>
+  Control.withResource(openFile("data.txt")) { file =>
     if someCondition then
       throw RuntimeException("Processing failed")
     processFile(file)
@@ -78,7 +78,7 @@ class DatabasePool extends AutoCloseable:
     // Release all connections
     connections.foreach(_.close())
 
-Resource.withResource(DatabasePool()) { pool =>
+Control.withResource(DatabasePool()) { pool =>
   val conn = pool.getConnection()
   // Use connection
 }
@@ -93,7 +93,7 @@ import wvlet.uni.rx.Rx
 
 def readLines(path: String): Rx[String] =
   Rx.single {
-    Resource.withResource(scala.io.Source.fromFile(path)) { source =>
+    Control.withResource(scala.io.Source.fromFile(path)) { source =>
       source.getLines().toList
     }
   }.flatMap(lines => Rx.fromSeq(lines))
@@ -105,7 +105,7 @@ The `withResource` method implements the loan pattern:
 
 ```scala
 def withDatabase[T](f: Database => T): T =
-  Resource.withResource(Database.connect()) { db =>
+  Control.withResource(Database.connect()) { db =>
     f(db)
   }
 

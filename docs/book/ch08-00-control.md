@@ -10,7 +10,7 @@ depending on the failure:
 - The call failed and left a connection open. **Clean it up anyway.**
 
 Uni gives you one primitive for each: `Retry`, `CircuitBreaker`, and
-`Resource`.
+`Control.withResource`.
 
 ## Retry a transient failure
 
@@ -89,12 +89,12 @@ and recovery policy.
 
 Both tools above can fail the call. When they do, anything the call
 opened — a file, a socket, a connection — still needs to close.
-`Resource.withResource` guarantees it:
+`Control.withResource` guarantees it:
 
 ```scala
-import wvlet.uni.control.Resource
+import wvlet.uni.control.Control
 
-Resource.withResource(openConnection()) { conn =>
+Control.withResource(openConnection()) { conn =>
   conn.query("select 1")
 }   // conn.close() runs here — even if query threw
 ```
@@ -106,26 +106,26 @@ you never wrote it.
 
 If that mechanism feels familiar, it should — it is the same guarantee
 `Design`'s `onShutdown` gives a whole session
-([Chapter 3](./ch03-00-design)). `Resource` is the local, block-scoped
+([Chapter 3](./ch03-00-design)). `Control.withResource` is the local, block-scoped
 version; `Design` is the application-scoped version. Reach for
-`Resource` when a resource lives for one operation, and for a `Design`
+`Control.withResource` when a resource lives for one operation, and for a `Design`
 lifecycle hook when it lives for the program.
 
 ## Putting them together
 
 A hardened call to a flaky dependency uses all three at once: a
-`Resource` for the connection, a `CircuitBreaker` to fail fast when the
+`Control.withResource` for the connection, a `CircuitBreaker` to fail fast when the
 dependency is down, and `Retry` to ride out the blips that get through:
 
 ```scala
-import wvlet.uni.control.{CircuitBreaker, Resource, Retry}
+import wvlet.uni.control.{CircuitBreaker, Control, Retry}
 
 val breaker = CircuitBreaker.withConsecutiveFailures(5)
 
 def fetch(url: String): String =
   breaker.run {
     Retry.withBackOff(maxRetry = 3).run {
-      Resource.withResource(openConnection()) { conn =>
+      Control.withResource(openConnection()) { conn =>
         conn.get(url)
       }
     }
@@ -146,7 +146,7 @@ You can now write code that survives the network:
   *only for idempotent operations*.
 - **`CircuitBreaker.run { }`** fails fast when a backend is down, so you
   stop making it worse.
-- **`Resource.withResource(r) { }`** closes resources on every path, the
+- **`Control.withResource(r) { }`** closes resources on every path, the
   block-scoped cousin of `Design`'s `onShutdown`.
 
 That closes Part IV: your services can react ([Rx](./ch07-00-rx)) and
