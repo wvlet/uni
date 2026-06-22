@@ -331,7 +331,7 @@ test("platform-specific behavior") {
 
 ## Design Integration
 
-Use Design for dependency injection in tests:
+Use Design for object wiring in tests:
 
 ```scala
 import wvlet.uni.test.UniTest
@@ -619,7 +619,7 @@ Test results are displayed with status symbols:
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions
-2. **Use Design for DI** - Leverage dependency injection for test isolation
+2. **Use Design for wiring** - Leverage object wiring for test isolation
 3. **Prefer `shouldMatch`** - Use pattern matching for type checks instead of `asInstanceOf`
 4. **One behavior per test** - Keep tests focused on a single behavior
 5. **Descriptive names** - Test names should describe the expected behavior

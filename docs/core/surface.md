@@ -82,7 +82,7 @@ Zero.of[Map[K, V]]     // Map.empty
 
 ## Use Cases
 
-### Dependency Injection
+### Object Wiring
 
 Surface powers uni's Design system:
 

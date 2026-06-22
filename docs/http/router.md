@@ -88,7 +88,7 @@ Controllers must have a no-argument constructor.
 
 ### MapControllerProvider
 
-For pre-configured instances (useful for testing or dependency injection):
+For pre-configured instances (useful for testing or object wiring):
 
 ```scala
 import wvlet.uni.http.router.MapControllerProvider

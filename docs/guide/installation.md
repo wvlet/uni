@@ -10,7 +10,7 @@
 Add uni to your `build.sbt`:
 
 ```scala
-// Core utilities (DI, logging, JSON, HTTP, Rx, etc.)
+// Core utilities (object wiring, logging, JSON, HTTP, Rx, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
@@ -31,7 +31,7 @@ libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
 Common imports for getting started:
 
 ```scala
-// Dependency injection
+// Object wiring
 import wvlet.uni.design.Design
 
 // Logging
