@@ -147,6 +147,41 @@ request. All parts are held in memory. Large-file or resumable uploads (S3
 multipart, tus.io) use separate protocols and are out of scope for this
 API.
 
+## Content Types and Headers
+
+The examples above use two small helper types.
+
+`ContentType` is an `application/...`-style media type. It provides named
+constants for the common ones, so you avoid typo-prone string literals:
+
+```scala
+import wvlet.uni.http.ContentType
+
+ContentType.ApplicationJson   // "application/json"
+ContentType.ApplicationPdf    // "application/pdf"
+ContentType.ApplicationOctetStream
+ContentType.ImagePng          // "image/png"
+ContentType.TextPlain
+ContentType.TextEventStream    // "text/event-stream" (SSE)
+
+ContentType("application/vnd.api+json")  // any custom type
+```
+
+`HttpMultiMap` is the case-insensitive multi-valued map used for headers and
+form fields (a header can legitimately appear more than once). Build one from
+pairs, and add to it without mutating the original:
+
+```scala
+import wvlet.uni.http.HttpMultiMap
+
+val headers = HttpMultiMap("Accept" -> "application/json")
+val more    = headers + ("X-Request-Id" -> "abc123")
+```
+
+You rarely construct an `HttpMultiMap` directly — request builders like
+`withBearerToken` and `withAccept` manage headers for you — but it's the type
+you reach for when adding custom per-part headers to a multipart upload.
+
 ## Response Handling
 
 ```scala
