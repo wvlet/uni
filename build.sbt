@@ -124,13 +124,7 @@ lazy val root = project
   .settings(buildSettings, name := "uni", publish / skip := true)
   .aggregate((jvmProjects ++ jsProjects ++ nativeProjects): _*)
 
-lazy val jvmProjects: Seq[ProjectReference] = Seq(
-  core.jvm,
-  uni.jvm,
-  netty,
-  bookExamples,
-  test.jvm
-)
+lazy val jvmProjects: Seq[ProjectReference] = Seq(core.jvm, uni.jvm, netty, bookExamples, test.jvm)
 
 lazy val jsProjects: Seq[ProjectReference]     = Seq(core.js, uni.js, domTest, test.js)
 lazy val nativeProjects: Seq[ProjectReference] = Seq(core.native, uni.native, test.native)

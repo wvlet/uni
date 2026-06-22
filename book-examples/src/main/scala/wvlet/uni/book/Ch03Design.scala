@@ -26,9 +26,7 @@ object Ch03Design:
   class FakeDatabase extends Database
 
   def firstWiring(): Unit =
-    val design = Design.newDesign
-      .bindSingleton[Database]
-      .bindSingleton[UserService]
+    val design = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
     design.build[UserService] { users =>
       println(users.listUsers())
     }
@@ -37,21 +35,24 @@ object Ch03Design:
     Design.newDesign.bindSingleton[Database]
     Design.newDesign.bindInstance[Database](Database())
     Design.newDesign.bindImpl[UserRepo, InMemoryUserRepo]
-    Design.newDesign
+    Design
+      .newDesign
       .bindInstance[Config](Config("jdbc:db"))
-      .bindProvider[Config, Database] { config => Database() }
+      .bindProvider[Config, Database] { config =>
+        Database()
+      }
 
   def sessionsAndLifecycle(): Unit =
-    val design = Design.newDesign
-      .bindSingleton[Server]
-      .onStart(_.start())
-      .onShutdown(_.stop())
-    design.build[Server] { server => () }
+    val design = Design.newDesign.bindSingleton[Server].onStart(_.start()).onShutdown(_.stop())
+    design.build[Server] { server =>
+      ()
+    }
 
   def overriding(): Unit =
-    val appDesign = Design.newDesign
-      .bindSingleton[Database]
-      .bindSingleton[UserService]
-    val testDesign = appDesign +
-      Design.newDesign.bindInstance[Database](FakeDatabase())
-    testDesign.build[UserService] { users => () }
+    val appDesign  = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
+    val testDesign = appDesign + Design.newDesign.bindInstance[Database](FakeDatabase())
+    testDesign.build[UserService] { users =>
+      ()
+    }
+
+end Ch03Design

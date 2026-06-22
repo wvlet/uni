@@ -5,7 +5,7 @@ import wvlet.uni.control.{CircuitBreaker, CircuitBreakerOpenException, Control, 
 
 object Ch08Control:
   private def callFlakyService(): String = "ok"
-  private def useFallback(): String       = "fallback"
+  private def useFallback(): String      = "fallback"
 
   class Connection extends AutoCloseable:
     def query(sql: String): String = "rows"
@@ -40,9 +40,13 @@ object Ch08Control:
   def combined(url: String): String =
     val breaker = CircuitBreaker.withConsecutiveFailures(5)
     breaker.run {
-      Retry.withBackOff(maxRetry = 3).run {
-        Control.withResource(openConnection()) { conn =>
-          conn.get(url)
+      Retry
+        .withBackOff(maxRetry = 3)
+        .run {
+          Control.withResource(openConnection()) { conn =>
+            conn.get(url)
+          }
         }
-      }
     }
+
+end Ch08Control

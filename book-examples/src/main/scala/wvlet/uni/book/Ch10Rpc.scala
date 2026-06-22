@@ -14,13 +14,9 @@ object Ch10Rpc:
     def createUser(name: String, email: String): User
 
   class UserServiceImpl extends UserService:
-    def getUser(id: Long): User =
-      User(id, "Alice", "alice@example.com")
-    def createUser(name: String, email: String): User =
-      User(1L, name, email)
+    def getUser(id: Long): User                       = User(id, "Alice", "alice@example.com")
+    def createUser(name: String, email: String): User = User(1L, name, email)
 
   def serverConfig =
     val router = RPCRouter.of[UserService](UserServiceImpl())
-    NettyServer
-      .withPort(8080)
-      .withRxHandler(RPCHandler(router))
+    NettyServer.withPort(8080).withRxHandler(RPCHandler(router))

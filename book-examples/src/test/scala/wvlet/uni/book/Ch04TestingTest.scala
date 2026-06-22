@@ -18,18 +18,17 @@ class Ch04TestingTest extends UniTest:
   // Substitute, don't mock: take the real wiring and override one binding.
   class Database:
     def lookup(id: String): Option[String] = None
+
   class FakeDatabase extends Database:
     override def lookup(id: String): Option[String] = Some("Alice")
+
   class UserService(db: Database):
     def findUser(id: String): Option[String] = db.lookup(id)
 
   test("looks up a user via a Design override") {
-    val appDesign = Design.newDesign
-      .bindSingleton[Database]
-      .bindSingleton[UserService]
+    val appDesign = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
 
-    val testDesign = appDesign +
-      Design.newDesign.bindInstance[Database](FakeDatabase())
+    val testDesign = appDesign + Design.newDesign.bindInstance[Database](FakeDatabase())
 
     testDesign.build[UserService] { users =>
       users.findUser("123") shouldBe Some("Alice")

@@ -18,8 +18,9 @@ object Ch05Logging:
 
   class PaymentService extends LogSupport:
     private def gatewayCharge(amount: Int): Unit = ()
-    def charge(amount: Int): Unit =
-      try gatewayCharge(amount)
+    def charge(amount: Int): Unit                =
+      try
+        gatewayCharge(amount)
       catch
         case e: Exception =>
           error(s"Charge of ${amount} failed", e)
