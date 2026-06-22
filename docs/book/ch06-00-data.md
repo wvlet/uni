@@ -17,7 +17,7 @@ There are two situations, and Uni has a tool for each:
 `JSON.parse` turns text into a navigable tree:
 
 ```scala
-import wvlet.uni.json.JSON
+import wvlet.uni.json.*
 
 val doc = JSON.parse("""
   { "user": { "id": 123, "name": "Alice" },
