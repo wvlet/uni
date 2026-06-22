@@ -55,6 +55,16 @@ Each method becomes a `POST /UserService/{methodName}` endpoint. You
 never chose those paths — they fall out of the trait, which is the point:
 there is no path for the client and server to disagree about.
 
+```text
+                  trait UserService          ← the one contract
+                 ╱                 ╲
+     RPCRouter.of[T](impl)      generated client
+         (server side)            (caller side)
+                 ╲                 ╱
+            POST /UserService/getUser
+             (MessagePack on the wire)
+```
+
 ## Call it like a local method
 
 On the client side, the `sbt-uni` plugin generates a typed client from

@@ -161,6 +161,18 @@ same mechanism. For a type that is already `AutoCloseable`, Design can
 call `close()` for you; the [lifecycle reference](/core/design#lifecycle-management)
 lists every hook and the order they fire in.
 
+```text
+design.build[App] { app => … }
+   │
+   ├─ construct the graph (dependencies first)
+   ├─ onStart hooks run
+   │
+   ├──▶  your block runs            (the body of build { })
+   │
+   ├─ onShutdown hooks run          (even if the block threw)
+   └─ session closed
+```
+
 When you need the session itself — to open short-lived **child
 sessions**, say, one per web request, while singletons live for the whole
 process — use `design.withSession { session => … }` instead of `build`.
