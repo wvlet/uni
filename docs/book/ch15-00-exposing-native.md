@@ -178,4 +178,4 @@ From here, the appendices collect supporting material:
 [Appendix B](./appendix-b-airframe) on Uni and Airframe, and
 [Appendix C](./appendix-c-glossary), the glossary.
 
-[← 14. Calling C from Scala Native](./ch14-00-calling-c) | [Next → Appendix A: Scala 3 Syntax Notes](./appendix-a-scala3)
+[← 14. Calling C from Scala Native](./ch14-00-calling-c) | [Next → 16. Capstone — A Bookmarks Service](./ch16-00-capstone)

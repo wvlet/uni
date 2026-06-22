@@ -68,6 +68,10 @@ are, and the Book links into them when you need depth.
 - [Chapter 14: Calling C from Scala Native](./ch14-00-calling-c)
 - [Chapter 15: Exposing Scala Native to C and Rust](./ch15-00-exposing-native)
 
+### Part IX — Capstone
+
+- [Chapter 16: A Bookmarks Service](./ch16-00-capstone)
+
 ### Appendices
 
 - [Appendix A: Scala 3 Syntax Notes for This Book](./appendix-a-scala3)

@@ -97,4 +97,4 @@ anonymous-class case (overriding methods inline, as with a
 `WebSocketHandler`). If you wrote Scala 2, dropping `new` is the habit to
 unlearn first.
 
-[← 15. Exposing Scala Native to C and Rust](./ch15-00-exposing-native) | [Next → Appendix B: Uni and Airframe](./appendix-b-airframe)
+[← 16. Capstone — A Bookmarks Service](./ch16-00-capstone) | [Next → Appendix B: Uni and Airframe](./appendix-b-airframe)

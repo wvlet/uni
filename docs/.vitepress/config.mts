@@ -144,6 +144,12 @@ export default defineConfig<UniThemeConfig>({
           ]
         },
         {
+          text: 'Part IX — Capstone',
+          items: [
+            { text: '16. A Bookmarks Service', link: '/book/ch16-00-capstone' }
+          ]
+        },
+        {
           text: 'Appendices',
           items: [
             { text: 'A. Scala 3 Syntax Notes', link: '/book/appendix-a-scala3' },
