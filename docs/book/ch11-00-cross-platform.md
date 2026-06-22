@@ -45,6 +45,16 @@ three times. The `.jvm` / `.js` / `.native` folders hold only the code
 that *must* differ per platform. If you never need them, you never create
 them — and most application logic never does.
 
+```text
+                src/main/scala/      ← shared logic, compiled 3×
+                       │
+      ┌────────────────┼────────────────┐
+    + .jvm/          + .js/           + .native/   ← platform-only code
+      ▼                ▼                ▼
+     JVM            Scala.js        Scala Native
+  (Netty, JDK)   (browser, Node)   (native binary)
+```
+
 ## Why most code doesn't care
 
 The reason the shared folder stays large is that Uni already wraps the
