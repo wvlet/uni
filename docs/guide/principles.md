@@ -27,7 +27,7 @@ Platform-specific code is isolated in `.jvm`, `.js`, and `.native` directories.
 uni leverages Scala 3's type system for compile-time guarantees:
 
 ```scala
-// Dependency injection is type-safe
+// Object wiring is type-safe
 val design = Design.newDesign
   .bindImpl[UserRepository, PostgresUserRepository]
 
