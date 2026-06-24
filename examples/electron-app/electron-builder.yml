@@ -1,0 +1,14 @@
+appId: org.wvlet.uni.example.counter
+productName: Uni Counter
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+mac:
+  target: dmg
+win:
+  target: nsis
+linux:
+  target: AppImage

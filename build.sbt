@@ -73,8 +73,10 @@ val jsBuildSettings = Seq[Setting[?]](
   },
   libraryDependencies ++=
     Seq(
-      // For using java.util.UUID.randomUUID() in Scala.js
-      ("org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0" % Test).cross(
+      // For java.security.SecureRandom in Scala.js (used by ULID, reached through the Weaver
+      // derivation chain). Must be a compile dependency so downstream JS apps (e.g. Electron)
+      // can link uni's main code, not just uni's own tests.
+      ("org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0").cross(
         CrossVersion.for3Use2_13
       ),
       // For using java.time.Instant in Scala.js

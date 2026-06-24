@@ -1,0 +1,12 @@
+# Node / Vite / Electron
+node_modules/
+out/
+dist/
+
+# sbt / Scala.js
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.bloop/

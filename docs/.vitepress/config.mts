@@ -204,6 +204,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
@@ -286,6 +287,7 @@ export default defineConfig<UniThemeConfig>({
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }

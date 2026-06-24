@@ -76,7 +76,9 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
       .zip(args)
       .map { (param, value) =>
         val weaver = Weaver.fromSurface(param.surface)
-        param.name -> JSON.parse(weaver.asInstanceOf[Weaver[Any]].toJson(value))
+        // Use parseAny so scalar parameters (String, Int, Boolean, ...) serialize correctly:
+        // their JSON form is a bare value (e.g. "world", 42), which strict JSON.parse rejects.
+        param.name -> JSON.parseAny(weaver.asInstanceOf[Weaver[Any]].toJson(value))
       }
     val requestBody = JSONObject(Seq("request" -> JSONObject(paramFields)))
     Request.post(s"/${serviceName}/${methodName}").withJsonContent(requestBody)
