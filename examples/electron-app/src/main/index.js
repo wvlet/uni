@@ -9,9 +9,12 @@ function createWindow() {
     height: 380,
     webPreferences: {
       // The preload script exposes window.uniRPC via contextBridge.
-      preload: join(__dirname, '../preload/index.js'),
+      // electron-vite emits an ESM preload (.mjs) because package.json is "type": "module".
+      preload: join(__dirname, '../preload/index.mjs'),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      // ESM preloads require the sandbox off; the contextBridge boundary still isolates the renderer.
+      sandbox: false
     }
   })
 
