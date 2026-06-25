@@ -5,20 +5,15 @@ A minimal [Electron](https://www.electronjs.org/) desktop app built with **Uni +
 no HTTP server, no open ports.
 
 ```mermaid
-flowchart LR
-  subgraph R["Renderer · Chromium"]
-    A["RendererApp · Scala.js<br/>ElectronRenderer.install<br/>Http.client.newAsyncClient"]
-  end
-  subgraph PL["Preload · contextBridge"]
-    B["window.uniRPC.request"]
-  end
-  subgraph M["Main · Node.js"]
-    C["MainProcess · Scala.js<br/>ElectronRPCServer.serve<br/>RPCRouter.of CounterApi → CounterApiImpl"]
-  end
-  A -- "request payload" --> B
-  B -- "ipcRenderer.invoke uni-rpc" --> C
-  C -. "response payload" .-> B
-  B -. "Promise" .-> A
+sequenceDiagram
+    participant R as Renderer · Scala.js
+    participant P as Preload · contextBridge
+    participant M as Main · Scala.js
+    R->>P: window.uniRPC.request(payload)
+    P->>M: ipcRenderer.invoke('uni-rpc', payload)
+    Note over M: ElectronRPCServer.serve<br/>RPCRouter.of CounterApi → CounterApiImpl
+    M-->>P: response payload
+    P-->>R: Promise resolves
 ```
 
 The same `CounterApi` trait (in `api/`) is shared by both sides: the main process *implements* it,
