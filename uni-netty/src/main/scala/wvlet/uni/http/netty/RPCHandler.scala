@@ -13,22 +13,18 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.HttpHeader
-import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.http.RxHttpHandler
-import wvlet.uni.http.rpc.RPCException
-import wvlet.uni.http.rpc.RPCRoute
+import wvlet.uni.http.rpc.RPCDispatcher
 import wvlet.uni.http.rpc.RPCRouter
-import wvlet.uni.http.rpc.RPCStatus
-import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
 /**
   * HTTP handler for RPC requests.
   *
-  * Handles requests to RPC endpoints defined by RPCRouter:
+  * Adapts the transport-neutral [[RPCDispatcher]] to netty's [[RxHttpHandler]]. The dispatcher
+  * resolves the route defined by [[RPCRouter]]:
   *   - Only POST method is allowed
   *   - Path format: /{serviceName}/{methodName}
   *   - Request body: {"request": {...params...}}
@@ -37,69 +33,11 @@ import wvlet.uni.rx.Rx
   * @param router
   *   The RPC router containing route definitions
   */
-class RPCHandler(router: RPCRouter) extends RxHttpHandler with LogSupport:
+class RPCHandler(router: RPCRouter) extends RxHttpHandler:
 
-  // Pre-build route lookup map for O(1) access
-  private val routeMap: Map[String, RPCRoute] = router.routes.map(r => r.path -> r).toMap
+  private val dispatcher = RPCDispatcher(router)
 
-  override def handle(request: Request): Rx[Response] =
-    // Only POST method is allowed for RPC
-    if request.method != HttpMethod.POST then
-      Rx.single(
-        RPCStatus
-          .INVALID_REQUEST_U1
-          .newException(s"RPC requires POST method, got: ${request.method}")
-          .toResponse
-      )
-    else
-      routeMap.get(request.path) match
-        case Some(route) =>
-          handleRPC(request, route)
-        case None =>
-          debug(s"RPC method not found: ${request.path}")
-          Rx.single(
-            RPCStatus.NOT_FOUND_U5.newException(s"RPC method not found: ${request.path}").toResponse
-          )
-
-  private def handleRPC(request: Request, route: RPCRoute): Rx[Response] =
-    try
-      // Decode parameters from request body
-      val json = request.content.asString.getOrElse("")
-      val args = route.codec.decodeParams(json)
-
-      // Invoke the method
-      val result = route.codec.method.call(router.instance, args*)
-
-      // Handle result - may be Rx for async methods
-      result match
-        case rx: Rx[?] =>
-          rx.map(v => successResponse(v, route))
-            .recover { case e =>
-              errorResponse(e)
-            }
-        case value =>
-          Rx.single(successResponse(value, route))
-    catch
-      case e: RPCException =>
-        debug(s"RPC error: ${e.status} - ${e.message}")
-        Rx.single(e.toResponse)
-      case e: Exception =>
-        warn(s"Unexpected error in RPC handler: ${e.getMessage}", e)
-        Rx.single(errorResponse(e))
-
-  private def successResponse(value: Any, route: RPCRoute): Response =
-    val json = route.codec.encodeResult(value)
-    Response
-      .ok
-      .addHeader(HttpHeader.XRPCStatus, RPCStatus.SUCCESS_S0.code.toString)
-      .withJsonContent(json)
-
-  private def errorResponse(e: Throwable): Response =
-    e match
-      case rpc: RPCException =>
-        rpc.toResponse
-      case _ =>
-        RPCStatus.INTERNAL_ERROR_I0.newException(e.getMessage, e).toResponse
+  override def handle(request: Request): Rx[Response] = dispatcher.dispatch(request)
 
 end RPCHandler
 

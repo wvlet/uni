@@ -1,4 +1,5 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 import { fetchLatestVersion } from './fetchLatestVersion'
 
 const FALLBACK_VERSION = '2026.1.6'
@@ -9,7 +10,7 @@ interface UniThemeConfig extends DefaultTheme.Config {
   uniVersion: string
 }
 
-export default defineConfig<UniThemeConfig>({
+export default withMermaid(defineConfig<UniThemeConfig>({
   title: 'Uni',
   description: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies',
 
@@ -204,6 +205,8 @@ export default defineConfig<UniThemeConfig>({
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
+            { text: 'Electron Tutorial', link: '/http/electron-tutorial' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
@@ -286,6 +289,8 @@ export default defineConfig<UniThemeConfig>({
             { text: 'REST Server', link: '/http/server' },
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
+            { text: 'Electron Tutorial', link: '/http/electron-tutorial' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
@@ -337,4 +342,4 @@ export default defineConfig<UniThemeConfig>({
       copyright: 'Copyright © 2025 wvlet'
     }
   }
-})
+}))
