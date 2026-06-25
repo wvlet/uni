@@ -1,0 +1,8 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 scans for class names in source files. The renderer's UI is built in Scala.js, so
+ * point Tailwind at the Scala sources (where the className strings live) plus this folder's HTML.
+ */
+@source './index.html';
+@source '../../renderer/src/main/scala';

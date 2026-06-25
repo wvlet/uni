@@ -2,27 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+    />
     <title>Uni Electron Counter</title>
-    <style>
-      body {
-        font-family: system-ui, sans-serif;
-        text-align: center;
-        padding: 2rem;
-      }
-      #counter-value {
-        font-size: 3rem;
-        font-weight: 600;
-        margin: 1rem 0;
-      }
-      button {
-        font-size: 1rem;
-        margin: 0 0.25rem;
-        padding: 0.4rem 0.9rem;
-      }
-    </style>
   </head>
-  <body>
+  <body class="min-h-screen bg-slate-900 text-slate-100 flex items-center justify-center font-sans">
     <div id="app"></div>
     <script type="module" src="./index.js"></script>
   </body>

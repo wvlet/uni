@@ -38,33 +38,73 @@ object RendererApp:
     ElectronRenderer.install()
     renderUI()
 
+  // Small helper to create an element of a known HTML type with Tailwind classes + text.
+  private def el[E <: html.Element](tag: String, classes: String, text: String = ""): E =
+    val e = dom.document.createElement(tag).asInstanceOf[E]
+    e.className = classes
+    if text.nonEmpty then e.textContent = text
+    e
+
   private def renderUI(): Unit =
-    val app   = dom.document.getElementById("app")
-    val title = dom.document.createElement("h1")
-    title.textContent = "Uni Electron Counter"
+    val app = dom.document.getElementById("app")
 
-    val display = dom.document.createElement("p").asInstanceOf[html.Paragraph]
+    // Card container
+    val card = el[html.Div](
+      "div",
+      "w-80 rounded-2xl bg-slate-800 p-8 text-center shadow-2xl ring-1 ring-white/10"
+    )
+
+    val title    = el[html.Heading]("h1", "text-xl font-semibold text-slate-100", "Uni Counter")
+    val subtitle = el[html.Paragraph](
+      "p",
+      "mt-1 mb-7 text-xs uppercase tracking-widest text-slate-400",
+      "RPC over Electron IPC"
+    )
+
+    val display = el[html.Paragraph](
+      "p",
+      "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
+      "…"
+    )
     display.id = "counter-value"
-    display.textContent = "…"
 
-    def button(label: String)(onClick: => Unit): html.Button =
-      val b = dom.document.createElement("button").asInstanceOf[html.Button]
-      b.textContent = label
+    def button(label: String, classes: String)(onClick: => Unit): html.Button =
+      val b = el[html.Button](
+        "button",
+        s"cursor-pointer rounded-lg px-4 py-2 font-medium text-white shadow transition-colors ${classes}",
+        label
+      )
       b.onclick = _ => onClick
       b
 
-    // Reflect a state snapshot into the UI.
-    def show(state: CounterState): Unit = display.textContent = state.value.toString
+    // Reflect a state snapshot into the UI (with a tiny pop animation).
+    def show(state: CounterState): Unit =
+      display.textContent = state.value.toString
+      display.className =
+        "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform scale-110"
+      dom.window.setTimeout(
+        () =>
+          display.className =
+            "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
+        120
+      )
 
-    val incBtn   = button("+1")(increment(1).run(show))
-    val inc10Btn = button("+10")(increment(10).run(show))
-    val resetBtn = button("Reset")(reset().run(show))
+    val row = el[html.Div]("div", "flex items-center justify-center gap-3")
+    row.appendChild(button("+1", "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700")(
+      increment(1).run(show)
+    ))
+    row.appendChild(button("+10", "bg-indigo-700 hover:bg-indigo-600 active:bg-indigo-800")(
+      increment(10).run(show)
+    ))
+    row.appendChild(button("Reset", "bg-slate-600 hover:bg-slate-500 active:bg-slate-700")(
+      reset().run(show)
+    ))
 
-    app.appendChild(title)
-    app.appendChild(display)
-    app.appendChild(incBtn)
-    app.appendChild(inc10Btn)
-    app.appendChild(resetBtn)
+    card.appendChild(title)
+    card.appendChild(subtitle)
+    card.appendChild(display)
+    card.appendChild(row)
+    app.appendChild(card)
 
     // Load the initial value from the main process.
     get().run(show)
