@@ -17,14 +17,21 @@ directory. This page is the API reference for what the tutorial wires together.
 
 Electron runs three contexts. Uni occupies two of them; the third is a tiny hand-written bridge:
 
-```
-┌──────────── Renderer (Chromium) ────────────┐        ┌────────── Main (Node.js) ──────────┐
-│  Http.client.newAsyncClient                  │        │  ElectronRPCServer.serve(ipcMain,…) │
-│    └ ElectronRenderer.install()              │        │    └ RPCDispatcher → RPCRouter.of   │
-│         (RPC client over IPC)                │        │         (your service impl)          │
-└──────────────────────┬───────────────────────┘        └──────────────────▲──────────────────┘
-        window.uniRPC.request(payload)                     ipcMain.handle("uni-rpc", …)
-                       └──────── preload.js: ipcRenderer.invoke("uni-rpc", …) ────────┘
+```mermaid
+flowchart LR
+  subgraph R["Renderer · Chromium"]
+    A["RPC client<br/>Http.client.newAsyncClient<br/>ElectronRenderer.install"]
+  end
+  subgraph PL["Preload"]
+    B["contextBridge<br/>window.uniRPC.request"]
+  end
+  subgraph M["Main · Node.js"]
+    C["ElectronRPCServer.serve ipcMain<br/>RPCDispatcher → RPCRouter<br/>your service impl"]
+  end
+  A -- "request payload" --> B
+  B -- "ipcRenderer.invoke uni-rpc" --> C
+  C -. "response payload" .-> B
+  B -. "Promise" .-> A
 ```
 
 - **Renderer** serializes each RPC request to a plain object and calls the preload bridge.

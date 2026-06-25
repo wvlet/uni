@@ -13,14 +13,21 @@ to the main process. For the API reference behind each piece, see [Desktop Apps
 
 Electron runs three contexts; Uni occupies two and a tiny hand-written script bridges the third:
 
-```
-┌──────────── Renderer (Chromium) ────────────┐        ┌────────── Main (Node.js) ──────────┐
-│  RendererApp (Scala.js)                      │        │  MainProcess (Scala.js)             │
-│    Http.client.newAsyncClient                │        │    CounterApiImpl                    │
-│      └ ElectronRenderer.install()            │        │    ElectronRPCServer.serve(ipcMain) │
-└──────────────────────┬───────────────────────┘        └──────────────────▲──────────────────┘
-        window.uniRPC.request(payload)                     ipcMain.handle("uni-rpc", …)
-                       └──────── preload: ipcRenderer.invoke("uni-rpc", …) ─────────┘
+```mermaid
+flowchart LR
+  subgraph R["Renderer · Chromium"]
+    A["RendererApp · Scala.js<br/>ElectronRenderer.install<br/>Http.client.newAsyncClient"]
+  end
+  subgraph PL["Preload"]
+    B["contextBridge<br/>window.uniRPC.request"]
+  end
+  subgraph M["Main · Node.js"]
+    C["MainProcess · Scala.js<br/>ElectronRPCServer.serve ipcMain<br/>CounterApiImpl"]
+  end
+  A -- "request payload" --> B
+  B -- "ipcRenderer.invoke uni-rpc" --> C
+  C -. "response payload" .-> B
+  B -. "Promise" .-> A
 ```
 
 ## Prerequisites

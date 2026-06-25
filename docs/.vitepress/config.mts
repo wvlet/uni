@@ -1,4 +1,5 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
+import { withMermaid } from 'vitepress-plugin-mermaid'
 import { fetchLatestVersion } from './fetchLatestVersion'
 
 const FALLBACK_VERSION = '2026.1.6'
@@ -9,7 +10,7 @@ interface UniThemeConfig extends DefaultTheme.Config {
   uniVersion: string
 }
 
-export default defineConfig<UniThemeConfig>({
+export default withMermaid(defineConfig<UniThemeConfig>({
   title: 'Uni',
   description: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies',
 
@@ -341,4 +342,4 @@ export default defineConfig<UniThemeConfig>({
       copyright: 'Copyright © 2025 wvlet'
     }
   }
-})
+}))

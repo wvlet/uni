@@ -4,14 +4,21 @@ A minimal [Electron](https://www.electronjs.org/) desktop app built with **Uni +
 (renderer) calls a service running in the main process using Uni's RPC, tunneled over Electron IPC —
 no HTTP server, no open ports.
 
-```
-┌──────────────── Renderer (Chromium) ────────────────┐      ┌──────── Main (Node.js) ────────┐
-│  RendererApp (Scala.js)                              │      │  MainProcess (Scala.js)         │
-│    Http.client.newAsyncClient                        │      │    CounterApiImpl               │
-│      └ ElectronRenderer.install()  ── window.uniRPC ─┼─IPC─►┼─ ElectronRPCServer.serve(...)    │
-│           (RPC over IPC)            invoke('uni-rpc') │      │    RPCRouter.of[CounterApi]      │
-└──────────────────────────────────────────────────────┘      └─────────────────────────────────┘
-                          ▲ preload.js exposes the bridge via contextBridge
+```mermaid
+flowchart LR
+  subgraph R["Renderer · Chromium"]
+    A["RendererApp · Scala.js<br/>ElectronRenderer.install<br/>Http.client.newAsyncClient"]
+  end
+  subgraph PL["Preload · contextBridge"]
+    B["window.uniRPC.request"]
+  end
+  subgraph M["Main · Node.js"]
+    C["MainProcess · Scala.js<br/>ElectronRPCServer.serve<br/>RPCRouter.of CounterApi → CounterApiImpl"]
+  end
+  A -- "request payload" --> B
+  B -- "ipcRenderer.invoke uni-rpc" --> C
+  C -. "response payload" .-> B
+  B -. "Promise" .-> A
 ```
 
 The same `CounterApi` trait (in `api/`) is shared by both sides: the main process *implements* it,
