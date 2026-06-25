@@ -8,6 +8,11 @@ The transport lives in the `wvlet.uni.electron` package and is **Scala.js only**
 (`uni/.js`). A complete, runnable reference app is in
 [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app).
 
+::: tip New to this?
+Start with the [Electron Tutorial](/http/electron-tutorial) — a step-by-step setup from an empty
+directory. This page is the API reference for what the tutorial wires together.
+:::
+
 ## How it fits together
 
 Electron runs three contexts. Uni occupies two of them; the third is a tiny hand-written bridge:
