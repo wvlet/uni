@@ -15,30 +15,37 @@ package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
 import wvlet.uni.dom.all.*
-import wvlet.uni.rx.Rx
 
 class MediaQueryTest extends UniTest:
 
-  // Note: Full integration tests for MediaQuery require a browser environment.
-  // jsdom doesn't support window.matchMedia. These tests verify the API surface
-  // compiles correctly. The actual functionality works in real browsers.
+  // These run in a real headless Chromium (Playwright), so window.matchMedia is
+  // available and the matchers can be evaluated at runtime, not just compiled.
 
   test("MediaQuery object exists"):
     MediaQuery shouldNotBe null
 
-  // The following tests verify that the API compiles correctly.
-  // Runtime tests for matches/isMobile/etc. require a browser with matchMedia support.
-  // jsdom doesn't support window.matchMedia, so we can't call these methods.
+  test("a tautological query matches"):
+    // (min-width: 0px) is true for any viewport, so this is deterministic.
+    MediaQuery.matches("(min-width: 0px)").get shouldBe true
 
-  // Compile-time API verification:
-  // - MediaQuery.matches(query: String): MediaQueryMatcher
-  // - MediaQuery.isMobile: Rx[Boolean]
-  // - MediaQuery.isTablet: Rx[Boolean]
-  // - MediaQuery.isDesktop: Rx[Boolean]
-  // - MediaQuery.prefersDarkMode: Rx[Boolean]
-  // - MediaQuery.prefersReducedMotion: Rx[Boolean]
-  // - MediaQuery.prefersHighContrast: Rx[Boolean]
-  // - MediaQuery.isPortrait: Rx[Boolean]
-  // - MediaQuery.isLandscape: Rx[Boolean]
+  test("the `all` media type always matches"):
+    MediaQuery.matches("all").get shouldBe true
+
+  test("an impossibly wide query does not match"):
+    // No real viewport is this wide, so matchMedia must evaluate this to false —
+    // proving the query is checked against the viewport, not blindly accepted.
+    MediaQuery.matches("(min-width: 999999px)").get shouldBe false
+
+  test("rx is seeded with the current match state"):
+    val matcher = MediaQuery.matches("(min-width: 0px)")
+    var seeded  = false
+    val c       = matcher.rx.run(seeded = _)
+    seeded shouldBe matcher.get
+    c.cancel
+    matcher.cancel
+
+  test("matcher can be cancelled without error"):
+    val matcher = MediaQuery.matches("(min-width: 0px)")
+    matcher.cancel
 
 end MediaQueryTest

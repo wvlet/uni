@@ -82,6 +82,12 @@ jobs:
           cache: 'pnpm'
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
+      # uni-dom-test runs in a real headless Chromium via Playwright (replaces jsdom, so ES
+      # modules work). Pin to the same version as the Java Playwright runtime (1.49.0) so the
+      # installed Chromium build matches what com.microsoft.playwright expects, and pull in the
+      # OS-level libraries Chromium needs on the runner.
+      - name: Install Playwright Chromium
+        run: pnpm dlx playwright@1.49.0 install --with-deps chromium
       - name: Scala.js test
         run: NODE_OPTIONS=--max-old-space-size=4096 JVM_OPTS=-Xmx4g ./sbt "projectJS/test"
       - name: Publish Test Report

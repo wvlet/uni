@@ -76,9 +76,7 @@ val jsBuildSettings = Seq[Setting[?]](
       // For java.security.SecureRandom in Scala.js (used by ULID, reached through the Weaver
       // derivation chain). Must be a compile dependency so downstream JS apps (e.g. Electron)
       // can link uni's main code, not just uni's own tests.
-      ("org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0").cross(
-        CrossVersion.for3Use2_13
-      ),
+      ("org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0").cross(CrossVersion.for3Use2_13),
       // For using java.time.Instant in Scala.js
       ("org.scala-js" %%% "scalajs-java-time" % "1.0.0").cross(CrossVersion.for3Use2_13),
       // For scheduling with timer
@@ -244,7 +242,7 @@ lazy val bookExamples = project
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
 
-// uni-dom-test - Tests for uni-dom using JSDOM environment
+// uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project
   .in(file("uni-dom-test"))
   .enablePlugins(ScalaJSPlugin)
@@ -253,12 +251,17 @@ lazy val domTest = project
     jsBuildSettings,
     noPublish,
     name        := "uni-dom-test",
-    description := "Tests for uni-dom using JSDOM",
-    // Use JSDOM for testing (provides DOM APIs in Node.js)
-    Test / jsEnv := new org.scalajs.jsenv.jsdomnodejs.JSDOMNodeJSEnv(),
-    // JSDOM only supports plain scripts (no modules)
-    Test / scalaJSLinkerConfig ~= {
-      _.withModuleKind(ModuleKind.NoModule)
-    }
+    description := "Tests for uni-dom in a headless browser (Playwright)",
+    // Run DOM tests in a real headless Chromium via Playwright. This provides a faithful
+    // browser DOM AND supports ES modules (jsBuildSettings sets ModuleKind.ESModule),
+    // unlike the outdated jsdom which only supports plain scripts. Chromium also matches
+    // the Electron renderer, so these tests exercise web and Electron app code alike.
+    // Playwright's logs are quiet by default; set PLAYWRIGHT_SHOW_LOGS=true to debug locally.
+    Test / jsEnv :=
+      new jsenv.playwright.PWEnv(
+        browserName = "chromium",
+        headless = true,
+        showLogs = sys.env.get("PLAYWRIGHT_SHOW_LOGS").exists(_.equalsIgnoreCase("true"))
+      )
   )
   .dependsOn(uni.js, test.js % Test)
