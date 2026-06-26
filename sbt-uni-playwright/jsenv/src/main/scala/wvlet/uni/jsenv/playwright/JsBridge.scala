@@ -123,14 +123,15 @@ private[playwright] object JsBridge:
 
   private def scriptTag(input: Input): String =
     input match
-      case Input.Script(path) =>
-        s"""<script defer type="text/javascript" src="${srcOf(path)}"></script>"""
-      case Input.CommonJSModule(path) =>
-        s"""<script defer type="text/javascript" src="${srcOf(path)}"></script>"""
+      case Input.Script(path)         => classicTag(path)
+      case Input.CommonJSModule(path) => classicTag(path)
       case Input.ESModule(path) =>
         s"""<script defer type="module" src="${srcOf(path)}"></script>"""
       case other =>
         throw UnsupportedInputException(other)
+
+  private def classicTag(path: java.nio.file.Path): String =
+    s"""<script defer type="text/javascript" src="${srcOf(path)}"></script>"""
 
   private def srcOf(path: java.nio.file.Path): String = attr(path.toUri.toURL.toString)
 

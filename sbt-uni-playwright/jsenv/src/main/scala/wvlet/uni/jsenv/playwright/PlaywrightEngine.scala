@@ -44,6 +44,11 @@ private[playwright] class PlaywrightEngine(
   private val pollIntervalMs = 100L
   private val readyTimeoutMs = 30000L
 
+  // Constant JS expressions evaluated each poll cycle (the control interface name is a constant).
+  private val readyExpr = s"() => !!${JsBridge.controlInterface}"
+  private val fetchExpr = s"() => ${JsBridge.controlInterface}.fetch()"
+  private val sendExpr  = s"arg => ${JsBridge.controlInterface}.send(arg)"
+
   private val sendQueue   = ConcurrentLinkedQueue[String]()
   private val wantToClose = AtomicBoolean(false)
   private val promise     = Promise[Unit]()
@@ -108,7 +113,7 @@ private[playwright] class PlaywrightEngine(
     false
 
   private def isReady(session: BrowserSession): Boolean =
-    session.page.evaluate(s"() => !!${JsBridge.controlInterface}") match
+    session.page.evaluate(readyExpr) match
       case b: java.lang.Boolean => b.booleanValue()
       case _                    => false
 
@@ -117,12 +122,12 @@ private[playwright] class PlaywrightEngine(
     // JVM -> JS
     var msg = sendQueue.poll()
     while msg != null do
-      session.page.evaluate(s"arg => ${JsBridge.controlInterface}.send(arg)", msg)
+      session.page.evaluate(sendExpr, msg)
       msg = sendQueue.poll()
 
     // JS -> JVM
     val resp =
-      session.page.evaluate(s"() => ${JsBridge.controlInterface}.fetch()") match
+      session.page.evaluate(fetchExpr) match
         case m: java.util.Map[?, ?] => m.asInstanceOf[java.util.Map[String, Object]]
         case _                      => java.util.Collections.emptyMap[String, Object]()
 
@@ -175,12 +180,6 @@ private[playwright] object RunStreams:
   private class Unowned(underlying: OutputStream) extends FilterOutputStream(underlying):
     override def close(): Unit = flush()
 
-  // Discards output. Used when a stream is neither inherited nor captured via onOutputStream —
-  // writing to an unread pipe would eventually block the worker thread and hang the run.
-  private object NullOutputStream extends OutputStream:
-    override def write(b: Int): Unit                             = ()
-    override def write(b: Array[Byte], off: Int, len: Int): Unit = ()
-
   def prepare(runConfig: RunConfig): RunStreams =
     // Only create a pipe when there is a consumer (onOutputStream) to read its other end.
     val capture = runConfig.onOutputStream.isDefined
@@ -205,7 +204,8 @@ private[playwright] object RunStreams:
     else
       pipe match
         case Some((_, w)) => PrintStream(w, true)
-        case None         => PrintStream(NullOutputStream, true)
+        // Neither inherited nor captured: discard, so an unread pipe can never block the worker.
+        case None => PrintStream(OutputStream.nullOutputStream(), true)
 
   private def pipe(): (PipedInputStream, PipedOutputStream) =
     val in  = PipedInputStream()

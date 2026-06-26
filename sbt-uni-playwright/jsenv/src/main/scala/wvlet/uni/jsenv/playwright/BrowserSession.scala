@@ -15,7 +15,6 @@ package wvlet.uni.jsenv.playwright
 
 import com.microsoft.playwright.{Browser, BrowserContext, BrowserType, Page, Playwright, Tracing}
 
-import java.nio.file.Path
 import java.util.{List as JList}
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
@@ -33,28 +32,23 @@ private[playwright] class BrowserSession(
     tracingEnabled: Boolean
 ):
   /** Save the current page as a screenshot (best-effort). */
-  def screenshot(path: Path): Unit =
+  def screenshot(path: java.nio.file.Path): Unit =
     try page.screenshot(Page.ScreenshotOptions().setPath(path).setFullPage(true))
     catch
       case NonFatal(_) =>
 
   /** Stop tracing and write the trace zip if tracing was enabled (best-effort). */
-  def stopTracing(path: Path): Unit =
+  def stopTracing(path: java.nio.file.Path): Unit =
     if tracingEnabled then
       try context.tracing().stop(Tracing.StopOptions().setPath(path))
       catch
         case NonFatal(_) =>
 
   def close(): Unit =
-    closeQuietly(() => page.close())
-    closeQuietly(() => context.close())
-    closeQuietly(() => browser.close())
-    closeQuietly(() => playwright.close())
-
-  private def closeQuietly(f: () => Unit): Unit =
-    try f()
-    catch
-      case NonFatal(_) =>
+    BrowserSession.closeQuietly(page)
+    BrowserSession.closeQuietly(context)
+    BrowserSession.closeQuietly(browser)
+    BrowserSession.closeQuietly(playwright)
 
 end BrowserSession
 
@@ -73,6 +67,21 @@ private[playwright] object BrowserSession:
   private val firefoxArgs = List("--disable-web-security")
   private val webkitArgs  = chromiumArgs.filterNot(_ == "--disable-gpu")
 
+  /** Resolve a browser name to its Playwright type and default launch flags (single source of truth). */
+  private def resolve(playwright: Playwright, browserName: String): (BrowserType, List[String]) =
+    browserName.toLowerCase match
+      case "chromium" | "chrome" => (playwright.chromium(), chromiumArgs)
+      case "firefox"             => (playwright.firefox(), firefoxArgs)
+      case "webkit"              => (playwright.webkit(), webkitArgs)
+      case other => throw IllegalArgumentException(s"Unknown Playwright browser: ${other}")
+
+  /** Close an AutoCloseable, swallowing errors and nulls. */
+  private def closeQuietly(c: AutoCloseable): Unit =
+    if c != null then
+      try c.close()
+      catch
+        case NonFatal(_) =>
+
   /**
     * Create the Playwright runtime with the thread context classloader temporarily set to the one
     * that loaded this class. Playwright's bundled driver loader resolves the `driver/` resources
@@ -88,13 +97,6 @@ private[playwright] object BrowserSession:
     try Playwright.create()
     finally thread.setContextClassLoader(prev)
 
-  private def defaultArgs(browserName: String): List[String] =
-    browserName.toLowerCase match
-      case "chromium" | "chrome" => chromiumArgs
-      case "firefox"             => firefoxArgs
-      case "webkit"              => webkitArgs
-      case other => throw IllegalArgumentException(s"Unknown Playwright browser: ${other}")
-
   /** Create a fresh Playwright session. Java Playwright downloads the browser on first use. */
   def launch(
       browserName: String,
@@ -102,18 +104,12 @@ private[playwright] object BrowserSession:
       extraArgs: List[String],
       tracingEnabled: Boolean
   ): BrowserSession =
-    val playwright = createPlaywright()
-    var browser: Browser       = null
+    val playwright              = createPlaywright()
+    var browser: Browser        = null
     var context: BrowserContext = null
     try
-      val browserType: BrowserType =
-        browserName.toLowerCase match
-          case "chromium" | "chrome" => playwright.chromium()
-          case "firefox"             => playwright.firefox()
-          case "webkit"              => playwright.webkit()
-          case other => throw IllegalArgumentException(s"Unknown Playwright browser: ${other}")
-
-      val args: JList[String] = (defaultArgs(browserName) ++ extraArgs).asJava
+      val (browserType, defaultArgs) = resolve(playwright, browserName)
+      val args: JList[String]        = (defaultArgs ++ extraArgs).asJava
       browser = browserType.launch(BrowserType.LaunchOptions().setHeadless(headless).setArgs(args))
       context = browser.newContext()
       if tracingEnabled then
@@ -125,14 +121,9 @@ private[playwright] object BrowserSession:
     catch
       case e: Throwable =>
         // Unwind anything already created before rethrowing.
-        if context != null then
-          try context.close()
-          catch { case NonFatal(_) => }
-        if browser != null then
-          try browser.close()
-          catch { case NonFatal(_) => }
-        try playwright.close()
-        catch { case NonFatal(_) => }
+        closeQuietly(context)
+        closeQuietly(browser)
+        closeQuietly(playwright)
         throw e
   end launch
 
