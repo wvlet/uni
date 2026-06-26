@@ -191,14 +191,28 @@ private[playwright] object RunStreams:
     val capture = runConfig.onOutputStream.isDefined
     val outPipe = if capture && !runConfig.inheritOutput then Some(pipe()) else None
     val errPipe = if capture && !runConfig.inheritError then Some(pipe()) else None
+    try
+      runConfig
+        .onOutputStream
+        .foreach(f => f(outPipe.map(_._1), errPipe.map(_._1)))
 
-    runConfig
-      .onOutputStream
-      .foreach(f => f(outPipe.map(_._1), errPipe.map(_._1)))
+      val out = printStream(runConfig.inheritOutput, outPipe, System.out)
+      val err = printStream(runConfig.inheritError, errPipe, System.err)
+      RunStreams(out, err, () => { out.close(); err.close() })
+    catch
+      case t: Throwable =>
+        // The pipes aren't owned by a RunStreams yet, so close them here if setup fails.
+        List(outPipe, errPipe).flatten.foreach { (in, w) =>
+          closeQuietly(in)
+          closeQuietly(w)
+        }
+        throw t
 
-    val out = printStream(runConfig.inheritOutput, outPipe, System.out)
-    val err = printStream(runConfig.inheritError, errPipe, System.err)
-    RunStreams(out, err, () => { out.close(); err.close() })
+  private def closeQuietly(c: AutoCloseable): Unit =
+    try c.close()
+    catch
+      case NonFatal(_) =>
+
 
   // autoFlush so console output appears incrementally rather than only at close.
   private def printStream(
