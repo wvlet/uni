@@ -13,28 +13,46 @@
  */
 package wvlet.uni.dom
 
+import org.scalajs.dom
 import wvlet.uni.test.UniTest
 import wvlet.uni.dom.all.*
 import wvlet.uni.rx.Cancelable
 
+import scala.concurrent.{ExecutionContext, Promise}
+
 class AnimationFrameTest extends UniTest:
 
-  // Note: Full integration tests for AnimationFrame require a browser environment.
-  // jsdom doesn't provide requestAnimationFrame. These tests verify the API surface
-  // compiles correctly. The actual functionality works in real browsers.
+  private given ExecutionContext = org.scalajs.macrotaskexecutor.MacrotaskExecutor
+
+  // These run in a real headless Chromium (Playwright), so requestAnimationFrame is
+  // available and the callbacks actually fire — not just compile.
 
   test("AnimationFrame object exists"):
     AnimationFrame shouldNotBe null
 
-  // The following tests verify that the API compiles correctly.
-  // Runtime tests for loop/once/etc. require a browser with RAF support.
-  // jsdom doesn't support requestAnimationFrame, so we can't call these methods.
+  test("once schedules a callback that fires on the next frame"):
+    val fired = Promise[Boolean]()
+    AnimationFrame.once {
+      fired.trySuccess(true)
+    }
+    // Safety net so the test fails fast instead of hanging if RAF never fires.
+    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
+    fired.future.map(_ shouldBe true)
 
-  // Compile-time API verification:
-  // - AnimationFrame.loop(callback: Double => Unit): Cancelable
-  // - AnimationFrame.once(callback: => Unit): Cancelable
-  // - AnimationFrame.fixedStep(stepMs: Double)(callback: () => Unit): Cancelable
-  // - AnimationFrame.withElapsed(callback: (Double, Double) => Unit): Cancelable
-  // - AnimationFrame.timed(durationMs, callback, onComplete): Cancelable
+  test("loop invokes the callback and can be stopped"):
+    val fired            = Promise[Boolean]()
+    var loop: Cancelable = Cancelable.empty
+    loop = AnimationFrame.loop { _ =>
+      fired.trySuccess(true)
+      loop.cancel
+    }
+    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
+    fired.future.map(_ shouldBe true)
+
+  test("once can be cancelled before it fires without error"):
+    val c = AnimationFrame.once {
+      throw new AssertionError("cancelled callback must not run")
+    }
+    c.cancel
 
 end AnimationFrameTest

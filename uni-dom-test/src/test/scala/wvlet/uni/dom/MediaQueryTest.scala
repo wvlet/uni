@@ -19,26 +19,40 @@ import wvlet.uni.rx.Rx
 
 class MediaQueryTest extends UniTest:
 
-  // Note: Full integration tests for MediaQuery require a browser environment.
-  // jsdom doesn't support window.matchMedia. These tests verify the API surface
-  // compiles correctly. The actual functionality works in real browsers.
+  // These run in a real headless Chromium (Playwright), so window.matchMedia is
+  // available and the matchers can be evaluated at runtime, not just compiled.
 
   test("MediaQuery object exists"):
     MediaQuery shouldNotBe null
 
-  // The following tests verify that the API compiles correctly.
-  // Runtime tests for matches/isMobile/etc. require a browser with matchMedia support.
-  // jsdom doesn't support window.matchMedia, so we can't call these methods.
+  test("a tautological query matches"):
+    // (min-width: 0px) is true for any viewport, so this is deterministic.
+    MediaQuery.matches("(min-width: 0px)").get shouldBe true
 
-  // Compile-time API verification:
-  // - MediaQuery.matches(query: String): MediaQueryMatcher
-  // - MediaQuery.isMobile: Rx[Boolean]
-  // - MediaQuery.isTablet: Rx[Boolean]
-  // - MediaQuery.isDesktop: Rx[Boolean]
-  // - MediaQuery.prefersDarkMode: Rx[Boolean]
-  // - MediaQuery.prefersReducedMotion: Rx[Boolean]
-  // - MediaQuery.prefersHighContrast: Rx[Boolean]
-  // - MediaQuery.isPortrait: Rx[Boolean]
-  // - MediaQuery.isLandscape: Rx[Boolean]
+  test("the `all` media type always matches"):
+    MediaQuery.matches("all").get shouldBe true
+
+  test("matcher exposes a reactive Boolean stream"):
+    val matcher = MediaQuery.matches("(min-width: 0px)")
+    matcher.rx shouldMatch { case _: Rx[?] =>
+    }
+    matcher.get shouldBe true
+
+  test("device-class queries evaluate to a Boolean"):
+    // Exact values depend on the headless viewport, but each must resolve to a Boolean.
+    MediaQuery.matches("(max-width: 767px)").get shouldMatch { case _: Boolean =>
+    }
+    MediaQuery.matches("(min-width: 1024px)").get shouldMatch { case _: Boolean =>
+    }
+
+  test("preference queries evaluate to a Boolean"):
+    MediaQuery.matches("(prefers-color-scheme: dark)").get shouldMatch { case _: Boolean =>
+    }
+    MediaQuery.matches("(prefers-reduced-motion: reduce)").get shouldMatch { case _: Boolean =>
+    }
+
+  test("matcher can be cancelled without error"):
+    val matcher = MediaQuery.matches("(min-width: 0px)")
+    matcher.cancel
 
 end MediaQueryTest

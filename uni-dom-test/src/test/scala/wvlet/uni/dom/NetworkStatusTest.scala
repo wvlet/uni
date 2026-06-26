@@ -20,7 +20,7 @@ import wvlet.uni.rx.Rx
 class NetworkStatusTest extends UniTest:
 
   test("NetworkStatus.isOnline returns current status"):
-    // In jsdom, navigator.onLine is typically true
+    // In a headless browser, navigator.onLine is typically true
     val status = NetworkStatus.isOnline
     status shouldMatch { case _: Boolean =>
     }
