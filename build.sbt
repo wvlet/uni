@@ -261,7 +261,7 @@ lazy val domTest = project
       new jsenv.playwright.PWEnv(
         browserName = "chromium",
         headless = true,
-        showLogs = sys.env.get("PLAYWRIGHT_SHOW_LOGS").exists(_.toBoolean)
+        showLogs = sys.env.get("PLAYWRIGHT_SHOW_LOGS").exists(_.equalsIgnoreCase("true"))
       )
   )
   .dependsOn(uni.js, test.js % Test)

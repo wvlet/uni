@@ -34,8 +34,13 @@ class AnimationFrameTest extends UniTest:
   private def firesWithin5s(arm: Promise[Boolean] => Unit) =
     val fired = Promise[Boolean]()
     arm(fired)
-    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
-    fired.future.map(_ shouldBe true)
+    val handle = dom.window.setTimeout(() => fired.trySuccess(false), 5000)
+    fired
+      .future
+      .map { result =>
+        dom.window.clearTimeout(handle)
+        result shouldBe true
+      }
 
   test("AnimationFrame object exists"):
     AnimationFrame shouldNotBe null

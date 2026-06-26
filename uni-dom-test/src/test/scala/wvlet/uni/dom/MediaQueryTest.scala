@@ -39,8 +39,10 @@ class MediaQueryTest extends UniTest:
   test("rx is seeded with the current match state"):
     val matcher = MediaQuery.matches("(min-width: 0px)")
     var seeded  = false
-    matcher.rx.run(seeded = _)
+    val c       = matcher.rx.run(seeded = _)
     seeded shouldBe matcher.get
+    c.cancel
+    matcher.cancel
 
   test("matcher can be cancelled without error"):
     val matcher = MediaQuery.matches("(min-width: 0px)")
