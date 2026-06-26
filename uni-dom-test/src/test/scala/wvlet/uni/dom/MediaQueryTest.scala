@@ -15,7 +15,6 @@ package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
 import wvlet.uni.dom.all.*
-import wvlet.uni.rx.Rx
 
 class MediaQueryTest extends UniTest:
 
@@ -32,24 +31,16 @@ class MediaQueryTest extends UniTest:
   test("the `all` media type always matches"):
     MediaQuery.matches("all").get shouldBe true
 
-  test("matcher exposes a reactive Boolean stream"):
+  test("an impossibly wide query does not match"):
+    // No real viewport is this wide, so matchMedia must evaluate this to false —
+    // proving the query is checked against the viewport, not blindly accepted.
+    MediaQuery.matches("(min-width: 999999px)").get shouldBe false
+
+  test("rx is seeded with the current match state"):
     val matcher = MediaQuery.matches("(min-width: 0px)")
-    matcher.rx shouldMatch { case _: Rx[?] =>
-    }
-    matcher.get shouldBe true
-
-  test("device-class queries evaluate to a Boolean"):
-    // Exact values depend on the headless viewport, but each must resolve to a Boolean.
-    MediaQuery.matches("(max-width: 767px)").get shouldMatch { case _: Boolean =>
-    }
-    MediaQuery.matches("(min-width: 1024px)").get shouldMatch { case _: Boolean =>
-    }
-
-  test("preference queries evaluate to a Boolean"):
-    MediaQuery.matches("(prefers-color-scheme: dark)").get shouldMatch { case _: Boolean =>
-    }
-    MediaQuery.matches("(prefers-reduced-motion: reduce)").get shouldMatch { case _: Boolean =>
-    }
+    var seeded  = false
+    matcher.rx.run(seeded = _)
+    seeded shouldBe matcher.get
 
   test("matcher can be cancelled without error"):
     val matcher = MediaQuery.matches("(min-width: 0px)")

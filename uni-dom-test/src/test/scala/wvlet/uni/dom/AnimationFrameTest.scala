@@ -27,27 +27,30 @@ class AnimationFrameTest extends UniTest:
   // These run in a real headless Chromium (Playwright), so requestAnimationFrame is
   // available and the callbacks actually fire — not just compile.
 
+  /**
+    * Assert that `arm` completes its promise with `true` from a RAF callback. A setTimeout fallback
+    * fails the test fast instead of hanging if RAF never fires.
+    */
+  private def firesWithin5s(arm: Promise[Boolean] => Unit) =
+    val fired = Promise[Boolean]()
+    arm(fired)
+    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
+    fired.future.map(_ shouldBe true)
+
   test("AnimationFrame object exists"):
     AnimationFrame shouldNotBe null
 
   test("once schedules a callback that fires on the next frame"):
-    val fired = Promise[Boolean]()
-    AnimationFrame.once {
-      fired.trySuccess(true)
-    }
-    // Safety net so the test fails fast instead of hanging if RAF never fires.
-    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
-    fired.future.map(_ shouldBe true)
+    firesWithin5s(fired => AnimationFrame.once(fired.trySuccess(true)))
 
   test("loop invokes the callback and can be stopped"):
-    val fired            = Promise[Boolean]()
-    var loop: Cancelable = Cancelable.empty
-    loop = AnimationFrame.loop { _ =>
-      fired.trySuccess(true)
-      loop.cancel
+    firesWithin5s { fired =>
+      var loop: Cancelable = Cancelable.empty
+      loop = AnimationFrame.loop { _ =>
+        fired.trySuccess(true)
+        loop.cancel
+      }
     }
-    dom.window.setTimeout(() => fired.trySuccess(false), 5000)
-    fired.future.map(_ shouldBe true)
 
   test("once can be cancelled before it fires without error"):
     val c = AnimationFrame.once {
