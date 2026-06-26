@@ -1,0 +1,4 @@
+# Pre-download the pinned browser, then run the Scala.js tests in headless Chromium.
+> uniPlaywrightInstall
+> Test/compile
+> test
