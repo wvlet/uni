@@ -1,0 +1,43 @@
+name: Release sbt-uni-playwright
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  publish_sbt_uni_playwright:
+    name: Publish sbt-uni-playwright
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Fetch all tags so that sbt-dynver can find the previous release version
+          fetch-depth: 0
+      - run: git fetch --tags -f
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      - name: Setup GPG
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
+      # Publishes both uni-jsenv-playwright and sbt-uni-playwright. Unlike sbt-uni, this build does
+      # not depend on the uni library, so no local publish of uni is needed first.
+      - name: Publish sbt-uni-playwright to Sonatype
+        working-directory: sbt-uni-playwright
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+        # Scope publishSigned to the two published modules (this is a multi-module build; a bare
+        # publishSigned would also stage the empty aggregate root). Run with sonaRelease in one sbt
+        # invocation so they share the same server process: sbt 2.x keeps a persistent server and
+        # routes subsequent `sbt <cmd>` calls through a thin client, so env vars set only on a later
+        # step are invisible to the server and sonaRelease could not see SONATYPE_USERNAME/PASSWORD.
+        run: sbt "jsenv/publishSigned; plugin/publishSigned; sonaRelease"
