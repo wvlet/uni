@@ -99,6 +99,11 @@ private[playwright] object JsBridge:
        |    },
        |    send: function(msg) {
        |      if (inMessages !== null) { inMessages.push(msg); } else if (onMessage) { onMessage(msg); }
+       |    },
+       |    // Batched form of send(), so the JVM can deliver a whole poll cycle's messages in one
+       |    // page.evaluate round-trip instead of one per message.
+       |    sendBatch: function(msgs) {
+       |      for (var i = 0; i < msgs.length; i++) { this.send(msgs[i]); }
        |    }
        |  };
        |})();

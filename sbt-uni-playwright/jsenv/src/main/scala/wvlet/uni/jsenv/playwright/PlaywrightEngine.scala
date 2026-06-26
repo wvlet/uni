@@ -45,9 +45,9 @@ private[playwright] class PlaywrightEngine(
   private val readyTimeoutMs = 30000L
 
   // Constant JS expressions evaluated each poll cycle (the control interface name is a constant).
-  private val readyExpr = s"() => !!${JsBridge.controlInterface}"
-  private val fetchExpr = s"() => ${JsBridge.controlInterface}.fetch()"
-  private val sendExpr  = s"arg => ${JsBridge.controlInterface}.send(arg)"
+  private val readyExpr     = s"() => !!${JsBridge.controlInterface}"
+  private val fetchExpr     = s"() => ${JsBridge.controlInterface}.fetch()"
+  private val sendBatchExpr = s"args => ${JsBridge.controlInterface}.sendBatch(args)"
 
   private val sendQueue   = ConcurrentLinkedQueue[String]()
   private val wantToClose = AtomicBoolean(false)
@@ -119,11 +119,14 @@ private[playwright] class PlaywrightEngine(
 
   /** One poll cycle: push outbound messages, drain console/errors/inbound messages. */
   private def pump(session: BrowserSession, streams: RunStreams): Unit =
-    // JVM -> JS
-    var msg = sendQueue.poll()
+    // JVM -> JS: drain the queue and deliver in a single round-trip.
+    val outbound = java.util.ArrayList[String]()
+    var msg      = sendQueue.poll()
     while msg != null do
-      session.page.evaluate(sendExpr, msg)
+      outbound.add(msg)
       msg = sendQueue.poll()
+    if !outbound.isEmpty then
+      session.page.evaluate(sendBatchExpr, outbound)
 
     // JS -> JVM
     val resp =
@@ -176,9 +179,11 @@ private[playwright] class RunStreams(val out: PrintStream, val err: PrintStream,
 private[playwright] object RunStreams:
   import java.io.{FilterOutputStream, OutputStream}
 
-  // A stream that flushes but never closes the wrapped (shared) stream.
+  // A stream that flushes but never closes the wrapped (shared) stream. Overrides the bulk write so
+  // it delegates directly instead of FilterOutputStream's byte-at-a-time default.
   private class Unowned(underlying: OutputStream) extends FilterOutputStream(underlying):
-    override def close(): Unit = flush()
+    override def write(b: Array[Byte], off: Int, len: Int): Unit = underlying.write(b, off, len)
+    override def close(): Unit                                   = flush()
 
   def prepare(runConfig: RunConfig): RunStreams =
     // Only create a pipe when there is a consumer (onOutputStream) to read its other end.
