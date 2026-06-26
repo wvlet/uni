@@ -34,7 +34,7 @@ import scala.util.control.NonFatal
   *   - On an uncaught JS error (or any failure), it captures a screenshot and (if enabled) a trace
   *     before tearing down, then fails [[future]].
   */
-private[playwright] class PlaywrightEngine(
+private[playwright] final class PlaywrightEngine(
     config: PlaywrightConfig,
     input: Seq[Input],
     runConfig: RunConfig,
@@ -96,8 +96,9 @@ private[playwright] class PlaywrightEngine(
         captureArtifacts(session)
     finally
       if streams != null then streams.close()
-      materializer.close()
+      // Close the browser before deleting the temp files it loaded.
       if session != null then session.close()
+      materializer.close()
   end runLoop
 
   /** Wait until the page's control interface is installed. Returns false if close() came first. */
@@ -213,7 +214,8 @@ private[playwright] object RunStreams:
         case None => PrintStream(OutputStream.nullOutputStream(), true)
 
   private def pipe(): (PipedInputStream, PipedOutputStream) =
-    val in  = PipedInputStream()
+    // 64 KiB buffer (vs the 1 KiB default) to reduce writer backpressure on bursty console output.
+    val in  = PipedInputStream(64 * 1024)
     val out = PipedOutputStream(in)
     (in, out)
 
