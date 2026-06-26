@@ -26,8 +26,11 @@ addSbtPlugin("org.scala-js" % "sbt-scalajs" % SCALAJS_VERSION)
 // For running Scala.js tests in Node.js
 libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.6.0"
 
-// For running Scala.js tests with JSDOM (provides DOM APIs)
-libraryDependencies += "org.scala-js" %% "scalajs-env-jsdom-nodejs" % "1.1.1"
+// For running Scala.js DOM tests in a real headless browser (Chromium via Playwright).
+// Unlike jsdom, this supports ES modules and a faithful DOM, and Chromium matches the
+// Electron renderer. The Java Playwright runtime bundles its own driver and downloads
+// browsers on demand, so no Node.js or npm packages are required to run these tests.
+libraryDependencies += "io.github.gmkumar2005" %% "scala-js-env-playwright" % "0.1.18"
 
 // For Scala native
 addSbtPlugin("org.portable-scala" % "sbt-scala-native-crossproject" % "1.3.2")
