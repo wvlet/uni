@@ -256,7 +256,12 @@ lazy val domTest = project
     // browser DOM AND supports ES modules (jsBuildSettings sets ModuleKind.ESModule),
     // unlike the outdated jsdom which only supports plain scripts. Chromium also matches
     // the Electron renderer, so these tests exercise web and Electron app code alike.
+    // Playwright's logs are quiet by default; set PLAYWRIGHT_SHOW_LOGS=true to debug locally.
     Test / jsEnv :=
-      new jsenv.playwright.PWEnv(browserName = "chromium", headless = true, showLogs = true)
+      new jsenv.playwright.PWEnv(
+        browserName = "chromium",
+        headless = true,
+        showLogs = sys.env.get("PLAYWRIGHT_SHOW_LOGS").exists(_.toBoolean)
+      )
   )
   .dependsOn(uni.js, test.js % Test)
