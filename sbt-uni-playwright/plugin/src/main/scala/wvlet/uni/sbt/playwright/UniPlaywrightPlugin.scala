@@ -51,7 +51,7 @@ object UniPlaywrightPlugin extends AutoPlugin:
       wvlet.uni.jsenv.playwright.PlaywrightConfig
 
     val uniPlaywrightBrowser =
-      settingKey[String]("Browser for Test/jsEnv: chromium (default), chrome, firefox, or webkit")
+      settingKey[String]("Browser for Test/jsEnv: chromium (default), firefox, or webkit")
     val uniPlaywrightHeadless = settingKey[Boolean]("Run the browser headless (default true)")
 
     val uniPlaywrightBrowsers =
@@ -69,7 +69,7 @@ object UniPlaywrightPlugin extends AutoPlugin:
       uniPlaywrightBrowsers := Seq(uniPlaywrightBrowser.value),
       // A JSEnv is not serializable, so opt out of sbt 2.x's setting-value caching.
       Test / jsEnv := Def.uncached(
-        new PlaywrightJSEnv(
+        PlaywrightJSEnv(
           PlaywrightConfig(
             browserName = uniPlaywrightBrowser.value,
             headless = uniPlaywrightHeadless.value

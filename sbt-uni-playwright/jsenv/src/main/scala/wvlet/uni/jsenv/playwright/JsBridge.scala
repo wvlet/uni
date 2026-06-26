@@ -44,7 +44,10 @@ private[playwright] object JsBridge:
           |      onMessage = onMsg;
           |      // Flush any messages that arrived from the JVM before init ran.
           |      setTimeout(function() {
-          |        if (inMessages !== null) { inMessages.forEach(onMessage); inMessages = null; }
+          |        if (inMessages !== null) {
+          |          inMessages.forEach(function(m) { onMessage(m); });
+          |          inMessages = null;
+          |        }
           |      }, 0);
           |    },
           |    send: function(msg) { outMessages.push(msg); },
@@ -112,7 +115,7 @@ private[playwright] object JsBridge:
        |<html>
        |  <head><meta charset="UTF-8"></head>
        |  <body>
-       |    <script defer type="text/javascript" src="${shimUrl}"></script>
+       |    <script defer type="text/javascript" src="${attr(shimUrl.toString)}"></script>
        |    $tags
        |  </body>
        |</html>
@@ -121,13 +124,19 @@ private[playwright] object JsBridge:
   private def scriptTag(input: Input): String =
     input match
       case Input.Script(path) =>
-        s"""<script defer type="text/javascript" src="${path.toUri.toURL}"></script>"""
+        s"""<script defer type="text/javascript" src="${srcOf(path)}"></script>"""
       case Input.CommonJSModule(path) =>
-        s"""<script defer type="text/javascript" src="${path.toUri.toURL}"></script>"""
+        s"""<script defer type="text/javascript" src="${srcOf(path)}"></script>"""
       case Input.ESModule(path) =>
-        s"""<script defer type="module" src="${path.toUri.toURL}"></script>"""
+        s"""<script defer type="module" src="${srcOf(path)}"></script>"""
       case other =>
         throw UnsupportedInputException(other)
+
+  private def srcOf(path: java.nio.file.Path): String = attr(path.toUri.toURL.toString)
+
+  // toURI/toURL percent-encode most unsafe characters but NOT `&`, which the HTML parser would read
+  // as the start of an entity reference inside an attribute. Escape what matters for an attribute.
+  private def attr(url: String): String = url.replace("&", "&amp;").replace("\"", "&quot;")
 
 end JsBridge
 

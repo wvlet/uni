@@ -29,10 +29,11 @@ private[playwright] class Materializer extends AutoCloseable:
   /** Write `content` to a fresh temp file ending in `suffix` (e.g. ".js", ".html") and return its URL. */
   def write(suffix: String, content: String): URL =
     val tmp = Files.createTempFile("uni-playwright-", suffix)
-    Files.write(tmp, content.getBytes(StandardCharsets.UTF_8))
+    // Track before writing so a write failure still leaves the temp file scheduled for cleanup.
     synchronized {
       tmpFiles = tmp :: tmpFiles
     }
+    Files.write(tmp, content.getBytes(StandardCharsets.UTF_8))
     tmp.toUri.toURL
 
   override def close(): Unit =

@@ -75,35 +75,37 @@ private[playwright] class PlaywrightEngine(
       val shimUrl = materializer.write(".js", JsBridge.setupScript(enableCom))
       val htmlUrl = materializer.write(".html", JsBridge.htmlPage(shimUrl, input))
       session.page.navigate(htmlUrl.toString)
-      awaitReady(session)
 
-      while !wantToClose.get() do
+      if awaitReady(session) then
+        while !wantToClose.get() do
+          pump(session, streams)
+          Thread.sleep(pollIntervalMs)
+        // Final drain so output/messages produced right before close are not lost.
         pump(session, streams)
-        Thread.sleep(pollIntervalMs)
-      // Final drain so output/messages produced right before close are not lost.
-      pump(session, streams)
 
       promise.trySuccess(())
     catch
-      case NonFatal(t) =>
-        captureArtifacts(session)
-        promise.tryFailure(t)
       case t: Throwable =>
+        // Complete the future first, so a failure inside artifact capture can never leave it hanging.
         promise.tryFailure(t)
+        captureArtifacts(session)
     finally
       if streams != null then streams.close()
       materializer.close()
       if session != null then session.close()
   end runLoop
 
-  private def awaitReady(session: BrowserSession): Unit =
+  /** Wait until the page's control interface is installed. Returns false if close() came first. */
+  private def awaitReady(session: BrowserSession): Boolean =
     val deadline = System.currentTimeMillis() + readyTimeoutMs
-    while !isReady(session) do
+    while !wantToClose.get() do
+      if isReady(session) then return true
       if System.currentTimeMillis() > deadline then
         throw RuntimeException(
           s"Timed out after ${readyTimeoutMs}ms waiting for the Playwright page to load the Scala.js bridge"
         )
       Thread.sleep(pollIntervalMs)
+    false
 
   private def isReady(session: BrowserSession): Boolean =
     session.page.evaluate(s"() => !!${JsBridge.controlInterface}") match
@@ -173,17 +175,37 @@ private[playwright] object RunStreams:
   private class Unowned(underlying: OutputStream) extends FilterOutputStream(underlying):
     override def close(): Unit = flush()
 
+  // Discards output. Used when a stream is neither inherited nor captured via onOutputStream —
+  // writing to an unread pipe would eventually block the worker thread and hang the run.
+  private object NullOutputStream extends OutputStream:
+    override def write(b: Int): Unit                             = ()
+    override def write(b: Array[Byte], off: Int, len: Int): Unit = ()
+
   def prepare(runConfig: RunConfig): RunStreams =
-    val outPipe = if runConfig.inheritOutput then None else Some(pipe())
-    val errPipe = if runConfig.inheritError then None else Some(pipe())
+    // Only create a pipe when there is a consumer (onOutputStream) to read its other end.
+    val capture = runConfig.onOutputStream.isDefined
+    val outPipe = if capture && !runConfig.inheritOutput then Some(pipe()) else None
+    val errPipe = if capture && !runConfig.inheritError then Some(pipe()) else None
 
     runConfig
       .onOutputStream
       .foreach(f => f(outPipe.map(_._1), errPipe.map(_._1)))
 
-    val out = outPipe.map(p => PrintStream(p._2)).getOrElse(PrintStream(Unowned(System.out)))
-    val err = errPipe.map(p => PrintStream(p._2)).getOrElse(PrintStream(Unowned(System.err)))
+    val out = printStream(runConfig.inheritOutput, outPipe, System.out)
+    val err = printStream(runConfig.inheritError, errPipe, System.err)
     RunStreams(out, err, () => { out.close(); err.close() })
+
+  // autoFlush so console output appears incrementally rather than only at close.
+  private def printStream(
+      inherit: Boolean,
+      pipe: Option[(PipedInputStream, PipedOutputStream)],
+      inherited: OutputStream
+  ): PrintStream =
+    if inherit then PrintStream(Unowned(inherited), true)
+    else
+      pipe match
+        case Some((_, w)) => PrintStream(w, true)
+        case None         => PrintStream(NullOutputStream, true)
 
   private def pipe(): (PipedInputStream, PipedOutputStream) =
     val in  = PipedInputStream()

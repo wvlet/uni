@@ -22,7 +22,7 @@ import scala.concurrent.Future
   * Configuration for [[PlaywrightJSEnv]].
   *
   * @param browserName
-  *   "chromium" (default), "chrome", "firefox", or "webkit"
+  *   "chromium" (default), "firefox", or "webkit"
   * @param headless
   *   run without a visible window (default true)
   * @param captureArtifactsOnFailure
@@ -77,7 +77,7 @@ class PlaywrightJSEnv(val config: PlaywrightConfig) extends JSEnv:
   /** Start a non-com run (used by `run`). */
   override def start(input: Seq[Input], runConfig: RunConfig): JSRun =
     validator.validate(runConfig)
-    new PlaywrightRun(config, input, runConfig)
+    PlaywrightRun(config, input, runConfig)
 
   /** Start a run with a bidirectional message channel (used by `test`). */
   override def startWithCom(
@@ -86,7 +86,7 @@ class PlaywrightJSEnv(val config: PlaywrightConfig) extends JSEnv:
       onMessage: String => Unit
   ): JSComRun =
     validator.validate(runConfig)
-    new PlaywrightComRun(config, input, runConfig, onMessage)
+    PlaywrightComRun(config, input, runConfig, onMessage)
 
 end PlaywrightJSEnv
 
