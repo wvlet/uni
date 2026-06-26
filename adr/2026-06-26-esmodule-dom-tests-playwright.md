@@ -43,6 +43,12 @@ Run `uni-dom-test` in a **real headless Chromium via Playwright**, dropping jsdo
 - `./sbt domTest/test` (and `projectJS/test`, which aggregates it) launches a headless Chromium. The
   browser is downloaded once to `~/.cache/ms-playwright` (`~/Library/Caches/ms-playwright` on macOS)
   and cached; the first run pays a one-time download (~tens of seconds), later runs are fast.
+- Playwright's logs are off by default; set `PLAYWRIGHT_SHOW_LOGS=true` to surface the browser
+  bring-up logs when debugging a flaky DOM test locally.
+- Tests that needed a real browser API (e.g. `MediaQueryTest`, `AnimationFrameTest`) were upgraded
+  from compile-only "API surface" stubs to actual runtime assertions, since `window.matchMedia` /
+  `requestAnimationFrame` now exist. Async DOM tests return a `Future` (UniTest auto-awaits) and use
+  a `setTimeout` fallback so they fail fast instead of hanging if a browser callback never fires.
 - All 366 `uni-dom-test` tests pass under ESM + Chromium; the full `projectJS/test` suite is green.
 - **Version coupling**: the CI `playwright@<ver>` install must track the Java Playwright version that
   `scala-js-env-playwright` pulls in. When bumping `scala-js-env-playwright`, check the transitive
