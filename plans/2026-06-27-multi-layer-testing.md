@@ -54,11 +54,17 @@ get it for free:
 - New tests that actually drive interaction (button click increments a counter, typing into
   an input updates reactive state) to prove the toolkit and close the biggest gap.
 
-### PR 2 — Electron integration test harness
-Promote the fake-IPC scaffolding from `ElectronRPCTest` into a reusable
-`wvlet.uni.electron.testing` harness (in-memory IPC pair: server + renderer channel) so apps
-can integration-test their `CounterApi`-style services without a real Electron runtime. Add
-tests to `examples/electron-app` using it.
+### PR 2 — Electron integration test harness  ✅ done (this branch)
+Promoted the fake-IPC scaffolding from `ElectronRPCTest` into a reusable
+`wvlet.uni.electron.testing.ElectronTestbed` (in the published `uni` JS artifact): an
+in-memory `ipcMain` + preload-bridge pair that routes renderer requests to served routers,
+mirroring the renderer→main hop with no Electron runtime. Provides `serve(routers*)`,
+`bridge(channel)`, `channelFactory(channel)`, and `newAsyncClient`. `ElectronRPCTest` now
+dogfoods it; `ElectronTestbedTest` adds a stateful `CounterApi` integration test +
+unserved-channel error case.
+
+Follow-up: wire `ElectronTestbed` into the `examples/electron-app` so the reference app ships
+with an integration test.
 
 ### PR 3 — uni-test layer ergonomics
 Add **test tags** to `UniTest` (e.g. `test("...", tags = Seq("ui"))`) + sbt filtering, so the
