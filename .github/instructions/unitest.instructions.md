@@ -116,13 +116,18 @@ test("hits the real database", Integration, Slow) {
   // ...
 }
 
+// Smoke is a built-in category tag: a quick sanity check run as a fast pre-merge subset.
+test("end-to-end happy path", Smoke) {
+  // ...
+}
+
 // Flaky is itself a tag: a failure is reported as skipped instead of failing the build.
 test("retried under load", Flaky) {
   // ...
 }
 
-// Custom tag
-test("smoke check", TestTag("smoke")) {
+// Custom tag (or a bare string with `import scala.language.implicitConversions`)
+test("legacy path", TestTag("legacy")) {
   // ...
 }
 ```
@@ -132,6 +137,7 @@ Select layers from sbt (args after `--`):
 ```bash
 ./sbt "coreJVM/testOnly * -- --tags:ui"             # run only tests tagged `ui`
 ./sbt "coreJVM/testOnly * -- --tags:ui,electron"    # run tests tagged `ui` OR `electron`
+./sbt "coreJVM/testOnly * -- --tags:smoke"          # fast pre-merge smoke subset
 ./sbt "coreJVM/testOnly * -- --exclude-tags:slow"   # run everything except `slow` tests
 ```
 
