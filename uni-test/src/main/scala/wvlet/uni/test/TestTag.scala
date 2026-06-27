@@ -27,35 +27,31 @@ package wvlet.uni.test
   *   test("smoke check", TestTag("smoke")) { ... }     // custom tag
   * }}}
   *
-  * Define your own semantic tags by extending this trait (e.g. `object Smoke extends TestTag`).
+  * The name is a trait parameter, so defining your own semantic tag is a one-liner:
+  * `case object Smoke extends TestTag("smoke")`.
   */
-trait TestTag:
-  /** The tag's name, used for `--tags`/`--exclude-tags` filtering. */
-  def name: String
+trait TestTag(val name: String):
+  override def toString: String = s"TestTag(${name})"
 
 object TestTag:
 
-  /** A tag identified purely by name. */
-  case class Named(name: String) extends TestTag
-
   /** Create a custom tag by name, e.g. `TestTag("smoke")`. */
-  def apply(name: String): TestTag = Named(name)
+  def apply(name: String): TestTag = new TestTag(name) {}
 
   /**
     * Treat a bare string as a custom tag, so `test("x", "smoke")` works. Requires
     * `import scala.language.implicitConversions` at the call site.
     */
-  given Conversion[String, TestTag] = Named(_)
+  given Conversion[String, TestTag] = apply(_)
 
   /**
     * Marks a test as flaky: a failure is reported as `Skipped` (with a `[flaky]` prefix) instead of
     * failing the build. Replaces the old `test(name, flaky = true)` boolean.
     */
-  case object Flaky extends TestTag:
-    override def name: String = "flaky"
+  case object Flaky extends TestTag("flaky")
 
   // Common testing-layer tags (see plans/2026-06-27-multi-layer-testing.md).
-  val UI: TestTag          = Named("ui")
-  val Electron: TestTag    = Named("electron")
-  val Integration: TestTag = Named("integration")
-  val Slow: TestTag        = Named("slow")
+  case object UI          extends TestTag("ui")
+  case object Electron    extends TestTag("electron")
+  case object Integration extends TestTag("integration")
+  case object Slow        extends TestTag("slow")
