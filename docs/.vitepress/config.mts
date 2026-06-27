@@ -239,7 +239,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         {
           text: 'Build Tooling',
           items: [
-            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' }
+            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
+            { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' }
           ]
         }
       ],
@@ -323,7 +324,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         {
           text: 'Build Tooling',
           items: [
-            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' }
+            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
+            { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' }
           ]
         }
       ]

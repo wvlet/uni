@@ -603,6 +603,12 @@ sbt "test -- -l:wvlet.uni.*=trace"
 sbt "test -- -t:ChatSession"
 ```
 
+::: tip Scala.js tests in a real browser
+To run Scala.js tests in a real browser (headless Chromium/Firefox/WebKit) with
+ES module support — for DOM, web, and Electron code — see the
+[sbt-uni-playwright Plugin](/build/sbt-uni-playwright).
+:::
+
 ### Test Output
 
 Test results are displayed with status symbols:
