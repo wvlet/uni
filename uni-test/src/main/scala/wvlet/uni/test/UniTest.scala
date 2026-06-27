@@ -84,10 +84,11 @@ trait UniTest
     *   the test name
     * @param tags
     *   zero or more [[TestTag]]s. Layer tags ([[TestTag.UI]], [[TestTag.Electron]], …) select tests
-    *   at run time — filter from sbt with `--tags:<a>,<b>` (run tests with any of these tags) and
-    *   `--exclude-tags:<a>,<b>` (skip them) — so one suite can be run layer-by-layer like VSCode's
-    *   separate unit/integration/UI test commands. [[TestTag.Flaky]] additionally downgrades a
-    *   failure to skipped. Pass a custom tag via `TestTag("name")` or a bare string.
+    *   at run time — filter from sbt with `--tags <tag>` (run tests carrying the tag) and
+    *   `--exclude-tags <tag>` (skip them), each repeatable to list several — so one suite can be
+    *   run layer-by-layer like VSCode's separate unit/integration/UI test commands.
+    *   [[TestTag.Flaky]] additionally downgrades a failure to skipped. Pass a custom tag via
+    *   `TestTag("name")` or a bare string.
     * @param body
     *   the test body
     */

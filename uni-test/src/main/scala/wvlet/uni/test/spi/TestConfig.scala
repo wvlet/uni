@@ -24,8 +24,9 @@ import wvlet.uni.log.LogLevel
   *   - `-l:pattern=level` : Set log level for classes matching pattern (e.g.,
   *     `-l:wvlet.uni.*=debug`)
   *   - `-t:filter` : Run only tests whose full name contains `filter`
-  *   - `--tags:a,b` : Run only tests tagged with any of `a`, `b` (include filter)
-  *   - `--exclude-tags:a,b` : Skip tests tagged with any of `a`, `b` (exclude filter)
+  *   - `--tags <tag>` : Run only tests carrying `tag` (include filter); repeat to add more, e.g.
+  *     `--tags ui --tags electron`
+  *   - `--exclude-tags <tag>` : Skip tests carrying `tag` (exclude filter); repeatable
   */
 case class TestConfig(
     defaultLogLevel: Option[LogLevel] = None,
@@ -45,9 +46,6 @@ case class TestConfig(
     included && !excluded
 
 object TestConfig:
-  /** Split a comma-separated tag list, trimming whitespace and dropping empties. */
-  private def parseTags(spec: String): Set[String] =
-    spec.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
 
   /**
     * Parse command-line arguments into TestConfig
@@ -86,15 +84,19 @@ object TestConfig:
                 .println(s"Invalid log level pattern: ${s}. Expected format: -l:pattern=level")
           i += 1
 
-        case s if s.startsWith("--tags:") =>
-          // --tags:a,b include filter — run only tests carrying any of these tags
-          config = config.copy(includeTags = config.includeTags ++ parseTags(s.substring(7)))
-          i += 1
+        case "--tags" if i + 1 < args.length =>
+          // --tags <tag> include filter; repeat to add more (e.g. --tags ui --tags electron)
+          val tag = args(i + 1).trim
+          if tag.nonEmpty then
+            config = config.copy(includeTags = config.includeTags + tag)
+          i += 2
 
-        case s if s.startsWith("--exclude-tags:") =>
-          // --exclude-tags:a,b exclude filter — skip tests carrying any of these tags
-          config = config.copy(excludeTags = config.excludeTags ++ parseTags(s.substring(15)))
-          i += 1
+        case "--exclude-tags" if i + 1 < args.length =>
+          // --exclude-tags <tag> exclude filter; repeatable
+          val tag = args(i + 1).trim
+          if tag.nonEmpty then
+            config = config.copy(excludeTags = config.excludeTags + tag)
+          i += 2
 
         case s if s.startsWith("-t:") =>
           // -t:testFilter for filtering tests by name

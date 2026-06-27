@@ -15,7 +15,7 @@ package wvlet.uni.test
 
 /**
   * A tag attached to a test via `test(name, tags*)`. Tags both select tests at run time
-  * (`--tags:`/`--exclude-tags:`) and, for built-ins like [[TestTag.Flaky]], alter how a result is
+  * (`--tags`/`--exclude-tags`) and, for built-ins like [[TestTag.Flaky]], alter how a result is
   * reported. Built-in layer tags ([[TestTag.UI]], [[TestTag.Electron]], …) let one suite span
   * multiple testing layers and still be run layer-by-layer, as in VSCode's separate
   * unit/integration/UI test commands.
