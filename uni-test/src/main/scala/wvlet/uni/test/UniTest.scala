@@ -26,7 +26,8 @@ case class TestDef(
     name: String,
     body: () => Any,
     parent: List[String] = Nil,
-    isFlaky: Boolean = false
+    isFlaky: Boolean = false,
+    tags: Set[String] = Set.empty
 ):
   /**
     * Full test name including parent context
@@ -72,18 +73,34 @@ trait UniTest
   // Current nesting context for nested tests
   private var _context: List[String] = Nil
 
+  // Common test tags usable unqualified in test bodies; the full set lives in
+  // wvlet.uni.test.TestTag (custom tags via TestTag("name") or a String literal).
+  export wvlet.uni.test.TestTag.{Flaky, UI, Electron, Integration, Smoke, Slow}
+
   /**
-    * Register a test case with the given name and body
+    * Register a test case with the given name and body.
     *
     * @param name
     *   the test name
-    * @param flaky
-    *   if true, test failures will be reported as skipped instead of failures
+    * @param tags
+    *   zero or more [[TestTag]]s. Layer tags ([[TestTag.UI]], [[TestTag.Electron]], …) select tests
+    *   at run time — filter from sbt with `--tags <tag>` (repeat to narrow further: each tag is
+    *   ANDed, like GitHub label filters) and `--exclude-tags <tag>` (skip) — so one suite can be
+    *   run layer-by-layer like VSCode's separate unit/integration/UI test commands.
+    *   [[TestTag.Flaky]] additionally downgrades a failure to skipped. Pass a custom tag via
+    *   `TestTag("name")` or a bare string.
     * @param body
     *   the test body
     */
-  protected def test(name: String, flaky: Boolean = false)(body: => Any): Unit =
-    _tests += TestDef(name, () => body, _context, isFlaky = flaky)
+  protected def test(name: String, tags: TestTag*)(body: => Any): Unit =
+    _tests +=
+      TestDef(
+        name,
+        () => body,
+        _context,
+        isFlaky = tags.contains(TestTag.Flaky),
+        tags = tags.map(_.name).toSet
+      )
 
   /**
     * Lifecycle hook invoked once before any test in this spec runs. Override to perform setup work
