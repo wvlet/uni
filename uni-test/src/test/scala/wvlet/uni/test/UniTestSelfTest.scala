@@ -132,7 +132,7 @@ class UniTestSelfTest extends UniTest:
   }
 
   // Flaky test that passes - should succeed normally
-  test("flaky test that passes", flaky = true) {
+  test("flaky test that passes", Flaky) {
     1 + 1 shouldBe 2
   }
 

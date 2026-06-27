@@ -102,16 +102,27 @@ class MyTest extends UniTest:
 
 ## Tagging tests for multi-layer runs
 
-Tag a test to mark which testing layer it belongs to (unit, UI, electron, integration, slow,
-…), then run or skip a layer at a time — the same way VSCode keeps separate unit/integration/UI
-test commands.
+Pass one or more `TestTag`s to `test(...)` to mark which testing layer it belongs to, then run or
+skip a layer at a time — the same way VSCode keeps separate unit/integration/UI test commands.
+Built-in tags (`UI`, `Electron`, `Integration`, `Slow`, `Flaky`) are in scope in any `UniTest`;
+custom tags are `TestTag("name")` or a bare string.
 
 ```scala
-test("renders the toolbar", tags = Seq("ui")) {
+test("renders the toolbar", UI) {
   // ...
 }
 
-test("hits the real database", tags = Seq("integration", "slow")) {
+test("hits the real database", Integration, Slow) {
+  // ...
+}
+
+// Flaky is itself a tag: a failure is reported as skipped instead of failing the build.
+test("retried under load", Flaky) {
+  // ...
+}
+
+// Custom tag
+test("smoke check", TestTag("smoke")) {
   // ...
 }
 ```

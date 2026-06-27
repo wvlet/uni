@@ -66,10 +66,34 @@ class TagFilterTest extends UniTest:
     c.includesTags(Set("ui", "slow")) shouldBe false
   }
 
-  // The `tags` argument on test() flows through to the registered TestDef.
-  test("tagged test registers its tags", tags = Seq("meta", "self")) {
+  // The TestTag varargs on test() flow through to the registered TestDef.
+  test("tagged test registers its tags", TestTag("meta"), TestTag("self")) {
     val tagged = registeredTests.find(_.name == "tagged test registers its tags").get
     tagged.tags shouldBe Set("meta", "self")
+  }
+
+  test("built-in layer tags carry their lowercase names", UI, Electron) {
+    val t = registeredTests.find(_.name == "built-in layer tags carry their lowercase names").get
+    t.tags shouldBe Set("ui", "electron")
+    t.isFlaky shouldBe false
+  }
+
+  test("the Flaky tag sets isFlaky and is filterable as 'flaky'", Flaky, Slow) {
+    val t = registeredTests.find(_.name.startsWith("the Flaky tag")).get
+    t.isFlaky shouldBe true
+    t.tags shouldBe Set("flaky", "slow")
+  }
+
+  test("TestTag values expose stable names") {
+    TestTag.Flaky.name shouldBe "flaky"
+    TestTag.UI.name shouldBe "ui"
+    TestTag("custom").name shouldBe "custom"
+  }
+
+  test("a String literal is accepted as a custom tag") {
+    import scala.language.implicitConversions
+    val tag: TestTag = "smoke"
+    tag.name shouldBe "smoke"
   }
 
 end TagFilterTest

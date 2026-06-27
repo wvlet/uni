@@ -73,25 +73,33 @@ trait UniTest
   // Current nesting context for nested tests
   private var _context: List[String] = Nil
 
+  // Common test tags usable unqualified in test bodies; the full set lives in
+  // wvlet.uni.test.TestTag (custom tags via TestTag("name") or a String literal).
+  export wvlet.uni.test.TestTag.{Flaky, UI, Electron, Integration, Slow}
+
   /**
-    * Register a test case with the given name and body
+    * Register a test case with the given name and body.
     *
     * @param name
     *   the test name
-    * @param flaky
-    *   if true, test failures will be reported as skipped instead of failures
     * @param tags
-    *   labels for selecting/excluding this test at run time (e.g. `"ui"`, `"electron"`, `"slow"`).
-    *   Filter from sbt with `--tags:<a>,<b>` (run tests with any of these tags) and
-    *   `--exclude-tags:<a>,<b>` (skip tests with any of these tags). Tags let one suite span
-    *   multiple testing layers and still be run layer-by-layer, as in VSCode's separate
-    *   unit/integration/UI test commands.
+    *   zero or more [[TestTag]]s. Layer tags ([[TestTag.UI]], [[TestTag.Electron]], …) select tests
+    *   at run time — filter from sbt with `--tags:<a>,<b>` (run tests with any of these tags) and
+    *   `--exclude-tags:<a>,<b>` (skip them) — so one suite can be run layer-by-layer like VSCode's
+    *   separate unit/integration/UI test commands. [[TestTag.Flaky]] additionally downgrades a
+    *   failure to skipped. Pass a custom tag via `TestTag("name")` or a bare string.
     * @param body
     *   the test body
     */
-  protected def test(name: String, flaky: Boolean = false, tags: Seq[String] = Nil)(
-      body: => Any
-  ): Unit = _tests += TestDef(name, () => body, _context, isFlaky = flaky, tags = tags.toSet)
+  protected def test(name: String, tags: TestTag*)(body: => Any): Unit =
+    _tests +=
+      TestDef(
+        name,
+        () => body,
+        _context,
+        isFlaky = tags.contains(TestTag.Flaky),
+        tags = tags.map(_.name).toSet
+      )
 
   /**
     * Lifecycle hook invoked once before any test in this spec runs. Override to perform setup work
