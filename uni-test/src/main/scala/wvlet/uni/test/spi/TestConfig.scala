@@ -24,8 +24,9 @@ import wvlet.uni.log.LogLevel
   *   - `-l:pattern=level` : Set log level for classes matching pattern (e.g.,
   *     `-l:wvlet.uni.*=debug`)
   *   - `-t:filter` : Run only tests whose full name contains `filter`
-  *   - `--tags <tag>` : Run only tests carrying `tag` (include filter); repeat to add more, e.g.
-  *     `--tags ui --tags electron`
+  *   - `--tags <tag>` : Run only tests carrying `tag`; repeat to narrow further — each added tag is
+  *     ANDed, like GitHub issue label filters, e.g. `--tags ui --tags slow` runs tests tagged both
+  *     `ui` and `slow`
   *   - `--exclude-tags <tag>` : Skip tests carrying `tag` (exclude filter); repeatable
   */
 case class TestConfig(
@@ -37,13 +38,12 @@ case class TestConfig(
 ):
   /**
     * Whether a test with the given tags should run under this config. A test runs when it carries
-    * at least one included tag (or no include filter is set) and carries none of the excluded tags.
-    * Exclusion wins over inclusion.
+    * every `--tags` tag (AND — each added tag narrows the selection) and none of the
+    * `--exclude-tags` tags. With no `--tags`, all tests are included. Exclusion wins over
+    * inclusion.
     */
   def includesTags(tags: Set[String]): Boolean =
-    val included = includeTags.isEmpty || tags.exists(includeTags.contains)
-    val excluded = tags.exists(excludeTags.contains)
-    included && !excluded
+    includeTags.subsetOf(tags) && !tags.exists(excludeTags.contains)
 
 object TestConfig:
 
@@ -85,7 +85,9 @@ object TestConfig:
           i += 1
 
         case "--tags" if i + 1 < args.length =>
-          // --tags <tag> include filter; repeat to add more (e.g. --tags ui --tags electron)
+          // --tags <tag> include filter; repeat to narrow by AND (e.g. --tags ui --tags slow).
+          // If a union (OR) is ever needed, this is the natural place to also accept an expression
+          // form (e.g. `--tags "ui|electron"`) without breaking the plain single-tag usage.
           val tag = args(i + 1).trim
           if tag.nonEmpty then
             config = config.copy(includeTags = config.includeTags + tag)

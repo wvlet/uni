@@ -135,15 +135,17 @@ test("legacy path", TestTag("legacy")) {
 Select layers from sbt (args after `--`):
 
 ```bash
-./sbt "coreJVM/testOnly * -- --tags ui"                 # run only tests tagged `ui`
-./sbt "coreJVM/testOnly * -- --tags ui --tags electron" # run tests tagged `ui` OR `electron`
-./sbt "coreJVM/testOnly * -- --tags smoke"              # fast pre-merge smoke subset
-./sbt "coreJVM/testOnly * -- --exclude-tags slow"       # run everything except `slow` tests
+./sbt "coreJVM/testOnly * -- --tags ui"             # run only tests tagged `ui`
+./sbt "coreJVM/testOnly * -- --tags ui --tags slow" # tests tagged BOTH `ui` and `slow` (narrows)
+./sbt "coreJVM/testOnly * -- --tags smoke"          # fast pre-merge smoke subset
+./sbt "coreJVM/testOnly * -- --exclude-tags slow"   # run everything except `slow` tests
 ```
 
-`--tags` is an include filter (any listed tag matches) and `--exclude-tags` is an exclude filter;
-both are repeatable (`--tags ui --tags electron`), and exclusion wins over inclusion. Tags apply to
-top-level tests; nested tests run with their parent.
+`--tags` selects tests carrying the tag; repeat it to **narrow** further — each added tag is ANDed,
+like GitHub issue label filters (`--tags ui --tags slow` = tests tagged both). `--exclude-tags`
+drops tests carrying the tag; exclusion wins over inclusion. Tags apply to top-level tests; nested
+tests run with their parent. (A future `--tags <expr>` may accept explicit AND/OR expressions if a
+union is ever needed; today repeated `--tags` is AND-only.)
 
 ## Logging
 

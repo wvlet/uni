@@ -18,7 +18,7 @@ import wvlet.uni.test.spi.TestConfig
 /**
   * Tag-based layer selection: `--tags`/`--exclude-tags` (each repeatable) let one suite span
   * multiple testing layers (unit, UI, electron) and still be run layer-by-layer, mirroring VSCode's
-  * per-layer test commands.
+  * per-layer test commands. Repeated `--tags` narrows by AND (GitHub-label-filter style).
   */
 class TagFilterTest extends UniTest:
 
@@ -26,6 +26,15 @@ class TagFilterTest extends UniTest:
     val c = TestConfig.parse(Array("--tags", "ui", "--tags", "electron"))
     c.includeTags shouldBe Set("ui", "electron")
     c.excludeTags shouldBe Set.empty
+  }
+
+  test("repeated --tags narrows by AND: a test must carry every listed tag") {
+    val c = TestConfig.parse(Array("--tags", "ui", "--tags", "slow"))
+    c.includesTags(Set("ui", "slow")) shouldBe true // has both
+    c.includesTags(Set("ui", "slow", "electron")) shouldBe true
+    c.includesTags(Set("ui")) shouldBe false   // missing slow
+    c.includesTags(Set("slow")) shouldBe false // missing ui
+    c.includesTags(Set.empty) shouldBe false
   }
 
   test("parses --exclude-tags as a repeatable exclude filter") {
