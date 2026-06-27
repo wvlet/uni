@@ -16,25 +16,26 @@ package wvlet.uni.test
 import wvlet.uni.test.spi.TestConfig
 
 /**
-  * Tag-based layer selection: `-tag:`/`-xtag:` let one suite span multiple testing layers (unit,
-  * UI, electron) and still be run layer-by-layer, mirroring VSCode's per-layer test commands.
+  * Tag-based layer selection: `--tags:`/`--exclude-tags:` let one suite span multiple testing
+  * layers (unit, UI, electron) and still be run layer-by-layer, mirroring VSCode's per-layer test
+  * commands.
   */
 class TagFilterTest extends UniTest:
 
-  test("parses -tag: as an include filter") {
-    val c = TestConfig.parse(Array("-tag:ui,electron"))
+  test("parses --tags: as an include filter") {
+    val c = TestConfig.parse(Array("--tags:ui,electron"))
     c.includeTags shouldBe Set("ui", "electron")
     c.excludeTags shouldBe Set.empty
   }
 
-  test("parses -xtag: as an exclude filter") {
-    val c = TestConfig.parse(Array("-xtag:slow"))
+  test("parses --exclude-tags: as an exclude filter") {
+    val c = TestConfig.parse(Array("--exclude-tags:slow"))
     c.excludeTags shouldBe Set("slow")
     c.includeTags shouldBe Set.empty
   }
 
   test("trims whitespace and drops empty tags") {
-    val c = TestConfig.parse(Array("-tag: ui , , electron "))
+    val c = TestConfig.parse(Array("--tags: ui , , electron "))
     c.includeTags shouldBe Set("ui", "electron")
   }
 
@@ -45,7 +46,7 @@ class TagFilterTest extends UniTest:
   }
 
   test("include filter keeps only tests carrying a listed tag") {
-    val c = TestConfig.parse(Array("-tag:ui"))
+    val c = TestConfig.parse(Array("--tags:ui"))
     c.includesTags(Set("ui")) shouldBe true
     c.includesTags(Set("ui", "slow")) shouldBe true
     c.includesTags(Set("electron")) shouldBe false
@@ -53,14 +54,14 @@ class TagFilterTest extends UniTest:
   }
 
   test("exclude filter drops tests carrying a listed tag") {
-    val c = TestConfig.parse(Array("-xtag:slow"))
+    val c = TestConfig.parse(Array("--exclude-tags:slow"))
     c.includesTags(Set("slow")) shouldBe false
     c.includesTags(Set("ui")) shouldBe true
     c.includesTags(Set.empty) shouldBe true
   }
 
   test("exclusion wins over inclusion") {
-    val c = TestConfig.parse(Array("-tag:ui", "-xtag:slow"))
+    val c = TestConfig.parse(Array("--tags:ui", "--exclude-tags:slow"))
     c.includesTags(Set("ui")) shouldBe true
     c.includesTags(Set("ui", "slow")) shouldBe false
   }

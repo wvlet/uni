@@ -119,13 +119,13 @@ test("hits the real database", tags = Seq("integration", "slow")) {
 Select layers from sbt (args after `--`):
 
 ```bash
-./sbt "coreJVM/testOnly * -- -tag:ui"            # run only tests tagged `ui`
-./sbt "coreJVM/testOnly * -- -tag:ui,electron"   # run tests tagged `ui` OR `electron`
-./sbt "coreJVM/testOnly * -- -xtag:slow"         # run everything except `slow` tests
+./sbt "coreJVM/testOnly * -- --tags:ui"             # run only tests tagged `ui`
+./sbt "coreJVM/testOnly * -- --tags:ui,electron"    # run tests tagged `ui` OR `electron`
+./sbt "coreJVM/testOnly * -- --exclude-tags:slow"   # run everything except `slow` tests
 ```
 
-`-tag:` is an include filter (any listed tag matches); `-xtag:` is an exclude filter; exclusion
-wins over inclusion. Tags apply to top-level tests; nested tests run with their parent.
+`--tags:` is an include filter (any listed tag matches); `--exclude-tags:` is an exclude filter;
+exclusion wins over inclusion. Tags apply to top-level tests; nested tests run with their parent.
 
 ## Logging
 

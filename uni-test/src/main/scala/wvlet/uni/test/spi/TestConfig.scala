@@ -24,8 +24,8 @@ import wvlet.uni.log.LogLevel
   *   - `-l:pattern=level` : Set log level for classes matching pattern (e.g.,
   *     `-l:wvlet.uni.*=debug`)
   *   - `-t:filter` : Run only tests whose full name contains `filter`
-  *   - `-tag:a,b` : Run only tests tagged with any of `a`, `b` (include filter)
-  *   - `-xtag:a,b` : Skip tests tagged with any of `a`, `b` (exclude filter)
+  *   - `--tags:a,b` : Run only tests tagged with any of `a`, `b` (include filter)
+  *   - `--exclude-tags:a,b` : Skip tests tagged with any of `a`, `b` (exclude filter)
   */
 case class TestConfig(
     defaultLogLevel: Option[LogLevel] = None,
@@ -86,14 +86,14 @@ object TestConfig:
                 .println(s"Invalid log level pattern: ${s}. Expected format: -l:pattern=level")
           i += 1
 
-        case s if s.startsWith("-tag:") =>
-          // -tag:a,b include filter — run only tests carrying any of these tags
-          config = config.copy(includeTags = config.includeTags ++ parseTags(s.substring(5)))
+        case s if s.startsWith("--tags:") =>
+          // --tags:a,b include filter — run only tests carrying any of these tags
+          config = config.copy(includeTags = config.includeTags ++ parseTags(s.substring(7)))
           i += 1
 
-        case s if s.startsWith("-xtag:") =>
-          // -xtag:a,b exclude filter — skip tests carrying any of these tags
-          config = config.copy(excludeTags = config.excludeTags ++ parseTags(s.substring(6)))
+        case s if s.startsWith("--exclude-tags:") =>
+          // --exclude-tags:a,b exclude filter — skip tests carrying any of these tags
+          config = config.copy(excludeTags = config.excludeTags ++ parseTags(s.substring(15)))
           i += 1
 
         case s if s.startsWith("-t:") =>

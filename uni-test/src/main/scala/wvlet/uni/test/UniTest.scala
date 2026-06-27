@@ -82,9 +82,10 @@ trait UniTest
     *   if true, test failures will be reported as skipped instead of failures
     * @param tags
     *   labels for selecting/excluding this test at run time (e.g. `"ui"`, `"electron"`, `"slow"`).
-    *   Filter from sbt with `-tag:<a>,<b>` (run tests with any of these tags) and `-xtag:<a>,<b>`
-    *   (skip tests with any of these tags). Tags let one suite span multiple testing layers and
-    *   still be run layer-by-layer, as in VSCode's separate unit/integration/UI test commands.
+    *   Filter from sbt with `--tags:<a>,<b>` (run tests with any of these tags) and
+    *   `--exclude-tags:<a>,<b>` (skip tests with any of these tags). Tags let one suite span
+    *   multiple testing layers and still be run layer-by-layer, as in VSCode's separate
+    *   unit/integration/UI test commands.
     * @param body
     *   the test body
     */
