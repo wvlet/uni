@@ -104,8 +104,8 @@ class MyTest extends UniTest:
 
 Pass one or more `TestTag`s to `test(...)` to mark which testing layer it belongs to, then run or
 skip a layer at a time — the same way VSCode keeps separate unit/integration/UI test commands.
-Built-in tags (`UI`, `Electron`, `Integration`, `Slow`, `Flaky`) are in scope in any `UniTest`;
-custom tags are `TestTag("name")` or a bare string.
+Built-in tags (`UI`, `Electron`, `Integration`, `Smoke`, `Slow`, `Flaky`) are in scope in any
+`UniTest`; custom tags are `TestTag("name")` or a bare string.
 
 ```scala
 test("renders the toolbar", UI) {

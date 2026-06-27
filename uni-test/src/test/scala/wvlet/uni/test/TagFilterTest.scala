@@ -87,6 +87,7 @@ class TagFilterTest extends UniTest:
   test("TestTag values expose stable names") {
     TestTag.Flaky.name shouldBe "flaky"
     TestTag.UI.name shouldBe "ui"
+    TestTag.Smoke.name shouldBe "smoke"
     TestTag("custom").name shouldBe "custom"
   }
 

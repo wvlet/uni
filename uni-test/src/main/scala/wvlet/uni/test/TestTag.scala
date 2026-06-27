@@ -24,11 +24,12 @@ package wvlet.uni.test
   *   test("renders the toolbar", UI) { ... }          // layer tag
   *   test("hits the network", Electron, Slow) { ... } // multiple tags
   *   test("retried under load", Flaky) { ... }         // failure -> skipped
-  *   test("smoke check", TestTag("smoke")) { ... }     // custom tag
+  *   test("end-to-end happy path", Smoke) { ... }      // category tag
+  *   test("legacy path", TestTag("legacy")) { ... }    // custom tag
   * }}}
   *
   * The name is a trait parameter, so defining your own semantic tag is a one-liner:
-  * `case object Smoke extends TestTag("smoke")`.
+  * `case object Gpu extends TestTag("gpu")`.
   */
 trait TestTag(val name: String):
   override def toString: String = s"TestTag(${name})"
@@ -54,4 +55,9 @@ object TestTag:
   case object UI          extends TestTag("ui")
   case object Electron    extends TestTag("electron")
   case object Integration extends TestTag("integration")
-  case object Slow        extends TestTag("slow")
+
+  /** A quick sanity check across the stack; typically run as a fast pre-merge subset. */
+  case object Smoke extends TestTag("smoke")
+
+  /** A slow test, usually excluded from the fast inner-loop run via `--exclude-tags:slow`. */
+  case object Slow extends TestTag("slow")

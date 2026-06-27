@@ -75,7 +75,7 @@ trait UniTest
 
   // Common test tags usable unqualified in test bodies; the full set lives in
   // wvlet.uni.test.TestTag (custom tags via TestTag("name") or a String literal).
-  export wvlet.uni.test.TestTag.{Flaky, UI, Electron, Integration, Slow}
+  export wvlet.uni.test.TestTag.{Flaky, UI, Electron, Integration, Smoke, Slow}
 
   /**
     * Register a test case with the given name and body.
