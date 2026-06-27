@@ -100,6 +100,33 @@ class MyTest extends UniTest:
   }
 ```
 
+## Tagging tests for multi-layer runs
+
+Tag a test to mark which testing layer it belongs to (unit, UI, electron, integration, slow,
+…), then run or skip a layer at a time — the same way VSCode keeps separate unit/integration/UI
+test commands.
+
+```scala
+test("renders the toolbar", tags = Seq("ui")) {
+  // ...
+}
+
+test("hits the real database", tags = Seq("integration", "slow")) {
+  // ...
+}
+```
+
+Select layers from sbt (args after `--`):
+
+```bash
+./sbt "coreJVM/testOnly * -- -tag:ui"            # run only tests tagged `ui`
+./sbt "coreJVM/testOnly * -- -tag:ui,electron"   # run tests tagged `ui` OR `electron`
+./sbt "coreJVM/testOnly * -- -xtag:slow"         # run everything except `slow` tests
+```
+
+`-tag:` is an include filter (any listed tag matches); `-xtag:` is an exclude filter; exclusion
+wins over inclusion. Tags apply to top-level tests; nested tests run with their parent.
+
 ## Logging
 
 To add debug messages, use `debug` and `trace` methods.

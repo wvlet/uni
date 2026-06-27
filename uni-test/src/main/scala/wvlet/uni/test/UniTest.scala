@@ -26,7 +26,8 @@ case class TestDef(
     name: String,
     body: () => Any,
     parent: List[String] = Nil,
-    isFlaky: Boolean = false
+    isFlaky: Boolean = false,
+    tags: Set[String] = Set.empty
 ):
   /**
     * Full test name including parent context
@@ -79,11 +80,17 @@ trait UniTest
     *   the test name
     * @param flaky
     *   if true, test failures will be reported as skipped instead of failures
+    * @param tags
+    *   labels for selecting/excluding this test at run time (e.g. `"ui"`, `"electron"`, `"slow"`).
+    *   Filter from sbt with `-tag:<a>,<b>` (run tests with any of these tags) and `-xtag:<a>,<b>`
+    *   (skip tests with any of these tags). Tags let one suite span multiple testing layers and
+    *   still be run layer-by-layer, as in VSCode's separate unit/integration/UI test commands.
     * @param body
     *   the test body
     */
-  protected def test(name: String, flaky: Boolean = false)(body: => Any): Unit =
-    _tests += TestDef(name, () => body, _context, isFlaky = flaky)
+  protected def test(name: String, flaky: Boolean = false, tags: Seq[String] = Nil)(
+      body: => Any
+  ): Unit = _tests += TestDef(name, () => body, _context, isFlaky = flaky, tags = tags.toSet)
 
   /**
     * Lifecycle hook invoked once before any test in this spec runs. Override to perform setup work

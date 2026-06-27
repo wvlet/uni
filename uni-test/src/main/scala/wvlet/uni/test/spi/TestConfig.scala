@@ -23,14 +23,32 @@ import wvlet.uni.log.LogLevel
   *   - `-l debug` or `-l trace` : Set default log level
   *   - `-l:pattern=level` : Set log level for classes matching pattern (e.g.,
   *     `-l:wvlet.uni.*=debug`)
+  *   - `-t:filter` : Run only tests whose full name contains `filter`
+  *   - `-tag:a,b` : Run only tests tagged with any of `a`, `b` (include filter)
+  *   - `-xtag:a,b` : Skip tests tagged with any of `a`, `b` (exclude filter)
   */
 case class TestConfig(
     defaultLogLevel: Option[LogLevel] = None,
     logLevelPatterns: List[(String, LogLevel)] = Nil,
-    testFilter: Option[String] = None
-)
+    testFilter: Option[String] = None,
+    includeTags: Set[String] = Set.empty,
+    excludeTags: Set[String] = Set.empty
+):
+  /**
+    * Whether a test with the given tags should run under this config. A test runs when it carries
+    * at least one included tag (or no include filter is set) and carries none of the excluded tags.
+    * Exclusion wins over inclusion.
+    */
+  def includesTags(tags: Set[String]): Boolean =
+    val included = includeTags.isEmpty || tags.exists(includeTags.contains)
+    val excluded = tags.exists(excludeTags.contains)
+    included && !excluded
 
 object TestConfig:
+  /** Split a comma-separated tag list, trimming whitespace and dropping empties. */
+  private def parseTags(spec: String): Set[String] =
+    spec.split(",").iterator.map(_.trim).filter(_.nonEmpty).toSet
+
   /**
     * Parse command-line arguments into TestConfig
     */
@@ -66,6 +84,16 @@ object TestConfig:
               Console
                 .err
                 .println(s"Invalid log level pattern: ${s}. Expected format: -l:pattern=level")
+          i += 1
+
+        case s if s.startsWith("-tag:") =>
+          // -tag:a,b include filter — run only tests carrying any of these tags
+          config = config.copy(includeTags = config.includeTags ++ parseTags(s.substring(5)))
+          i += 1
+
+        case s if s.startsWith("-xtag:") =>
+          // -xtag:a,b exclude filter — skip tests carrying any of these tags
+          config = config.copy(excludeTags = config.excludeTags ++ parseTags(s.substring(6)))
           i += 1
 
         case s if s.startsWith("-t:") =>
