@@ -13,6 +13,7 @@
  */
 package wvlet.uni.electron
 
+import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.rx.Rx
@@ -39,27 +40,10 @@ class GreetingServiceImpl extends GreetingService:
 class ElectronRPCTest extends UniTest:
 
   /**
-    * Wire a server router to a renderer-facing bridge through fake Electron IPC objects. Returns
-    * the bridge the renderer channel would call.
+    * Wire a server router to a renderer-facing bridge through the in-memory [[ElectronTestbed]]
+    * harness. Returns the bridge the renderer channel would call.
     */
-  private def fakeBridge(routers: RPCRouter*): js.Dynamic =
-    var captured: js.Function2[js.Any, js.Any, js.Promise[js.Object]] = null
-    val ipcMain                                                       = js
-      .Dynamic
-      .literal(handle =
-        (
-            (_channel: js.Any, fn: js.Any) =>
-              captured = fn.asInstanceOf[js.Function2[js.Any, js.Any, js.Promise[js.Object]]]
-        ): js.Function2[js.Any, js.Any, Unit]
-      )
-    ElectronRPCServer.serve(ipcMain, routers*)
-    js.Dynamic
-      .literal(request =
-        ((payload: js.Any) => captured(js.undefined.asInstanceOf[js.Any], payload)): js.Function1[
-          js.Any,
-          js.Promise[js.Object]
-        ]
-      )
+  private def fakeBridge(routers: RPCRouter*): js.Dynamic = ElectronTestbed.serve(routers*).bridge()
 
   private def rpcClient: RPCClient = RPCClient.build(
     Surface.of[GreetingService],
