@@ -195,3 +195,22 @@ jobs:
       - name: Build and scripted-test the plugin (runs Scala.js tests in headless Chromium)
         working-directory: sbt-uni-playwright
         run: sbt "publishLocal; scripted"
+  test_sbt_uni_crossproject:
+    name: sbt-uni-crossproject scripted test
+    needs: changes
+    if: ${{ needs.changes.outputs.src == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      # The scripted test cross-compiles for JVM, Scala.js, and Scala Native. It only compiles the
+      # Native sources to NIR (no nativeLink/run), so no clang/LLVM toolchain or Node.js is needed.
+      - name: Build and scripted-test the plugin
+        working-directory: sbt-uni-crossproject
+        run: sbt "scalafmtCheckAll; publishLocal; scripted"
