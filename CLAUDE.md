@@ -10,7 +10,9 @@
 - **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
 - **uni-test**: Unit testing framework
 
-Cross-platform: JVM, Scala.js, Scala Native via sbt-crossproject. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via uni's own [`sbt-uni-crossproject`](sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+
+Note (sbt 2.x): use `%%` (not the old `%%%`) for Scala.js/Native deps, and wrap a non-serializable `Test / jsEnv` in `Def.uncached(...)`.
 
 ## Commands
 
@@ -76,3 +78,4 @@ Gemini reviews PRs. Address feedback before merging.
 - [`adr/2026-06-26-esmodule-dom-tests-playwright.md`](adr/2026-06-26-esmodule-dom-tests-playwright.md) — `uni-dom-test` runs in headless Chromium via Playwright (`scala-js-env-playwright`), replacing jsdom so DOM tests run under `ModuleKind.ESModule` like the rest of the JS build. Read before touching the `domTest` jsEnv or the Playwright CI step; covers the Java-Playwright-bundles-its-own-driver (no Node needed) point and the CI `playwright@<ver>` pin that must match the transitive `com.microsoft.playwright` version.
 - [`adr/2026-06-26-uni-jsenv-playwright.md`](adr/2026-06-26-uni-jsenv-playwright.md) — the `sbt-uni-playwright/` build: a uni-owned, cats-effect-free Playwright `JSEnv` (`uni-jsenv-playwright`) + an sbt 2.x plugin (`sbt-uni-playwright`), replacing the unmaintained Scala-2.12-only third-party env for sbt 2.x consumers. Read before touching that build; covers the polling com mechanism, the sbt-2.x `%%`/`Def.uncached` changes, and the Playwright driver thread-context-classloader fix in `BrowserSession`.
 - [`adr/2026-06-30-sbt-uni-crossproject.md`](adr/2026-06-30-sbt-uni-crossproject.md) — the `sbt-uni-crossproject/` build: a minimal, uni-owned sbt 2.x re-implementation of `portable-scala/sbt-crossproject` (which isn't ported to sbt 2.x), supporting only the `CrossType.Pure` layout uni uses. Read before touching that build; covers the single-plugin-for-all-three-platforms choice, the Scala 3 val-name macro replicating sbt's `KeyMacro.definingValName`, why internal materialization needs `new CrossProject(...)`, and the `given Conversion[Builder, CrossProject]` build trigger.
+- [`adr/2026-06-30-sbt2-main-build-migration.md`](adr/2026-06-30-sbt2-main-build-migration.md) — migrating the **main build** to sbt 2.x: swaps the unported third-party plugins for the uni-owned ones (`sbt-uni-crossproject`, `uni-jsenv-playwright`, `sbt-uni` for `sbt-revolver`). Read before touching `build.sbt` / `project/plugin.sbt`; covers the output-dir name collision (root → `uni-root`), `%%%`→`%%` and the `scalajs-test-interface_2.13` single-`%` exception, `Def.uncached` for `jsEnv`, and the `implicitConversions` import.
