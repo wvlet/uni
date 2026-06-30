@@ -23,8 +23,8 @@ import wvlet.uni.jsenv.playwright.{PlaywrightBrowsers, PlaywrightConfig, Playwri
   * sbt 2.x plugin for running Scala.js tests in a real browser via Playwright.
   *
   * It wires `Test / jsEnv` to a [[wvlet.uni.jsenv.playwright.PlaywrightJSEnv]] (configured via the
-  * `uniPlaywrightBrowser` / `uniPlaywrightHeadless` settings) and adds a `uniPlaywrightInstall` task
-  * to pre-download and pin the browser binaries. Java Playwright bundles its own driver and
+  * `uniPlaywrightBrowser` / `uniPlaywrightHeadless` settings) and adds a `uniPlaywrightInstall`
+  * task to pre-download and pin the browser binaries. Java Playwright bundles its own driver and
   * downloads browsers on demand, so no Node.js or npm package is required.
   *
   * Usage in build.sbt:
@@ -45,30 +45,34 @@ object UniPlaywrightPlugin extends AutoPlugin:
 
   object autoImport:
     // Re-exported so consumers can reference the JSEnv with only this plugin on the classpath.
-    type PlaywrightJSEnv = wvlet.uni.jsenv.playwright.PlaywrightJSEnv
+    type PlaywrightJSEnv  = wvlet.uni.jsenv.playwright.PlaywrightJSEnv
     type PlaywrightConfig = wvlet.uni.jsenv.playwright.PlaywrightConfig
     val PlaywrightConfig: wvlet.uni.jsenv.playwright.PlaywrightConfig.type =
       wvlet.uni.jsenv.playwright.PlaywrightConfig
 
-    val uniPlaywrightBrowser =
-      settingKey[String]("Browser for Test/jsEnv: chromium (default), firefox, or webkit")
+    val uniPlaywrightBrowser = settingKey[String](
+      "Browser for Test/jsEnv: chromium (default), firefox, or webkit"
+    )
+
     val uniPlaywrightHeadless = settingKey[Boolean]("Run the browser headless (default true)")
 
-    val uniPlaywrightBrowsers =
-      settingKey[Seq[String]]("Browsers to install via uniPlaywrightInstall")
+    val uniPlaywrightBrowsers = settingKey[Seq[String]](
+      "Browsers to install via uniPlaywrightInstall"
+    )
 
-    val uniPlaywrightInstall =
-      taskKey[Unit]("Download and pin the configured Playwright browser binaries")
+    val uniPlaywrightInstall = taskKey[Unit](
+      "Download and pin the configured Playwright browser binaries"
+    )
 
   import autoImport.*
 
-  override lazy val projectSettings: Seq[Setting[?]] =
-    Seq(
-      uniPlaywrightBrowser  := "chromium",
-      uniPlaywrightHeadless := true,
-      uniPlaywrightBrowsers := Seq(uniPlaywrightBrowser.value),
-      // A JSEnv is not serializable, so opt out of sbt 2.x's setting-value caching.
-      Test / jsEnv := Def.uncached(
+  override lazy val projectSettings: Seq[Setting[?]] = Seq(
+    uniPlaywrightBrowser  := "chromium",
+    uniPlaywrightHeadless := true,
+    uniPlaywrightBrowsers := Seq(uniPlaywrightBrowser.value),
+    // A JSEnv is not serializable, so opt out of sbt 2.x's setting-value caching.
+    Test / jsEnv :=
+      Def.uncached(
         PlaywrightJSEnv(
           PlaywrightConfig(
             browserName = uniPlaywrightBrowser.value,
@@ -76,14 +80,16 @@ object UniPlaywrightPlugin extends AutoPlugin:
           )
         )
       ),
-      uniPlaywrightInstall := {
-        val log = streams.value.log
-        uniPlaywrightBrowsers.value.foreach { browser =>
+    uniPlaywrightInstall := {
+      val log = streams.value.log
+      uniPlaywrightBrowsers
+        .value
+        .foreach { browser =>
           log.info(s"Installing Playwright browser: ${browser} ...")
           val version = PlaywrightBrowsers.install(browser)
           log.info(s"Installed ${browser} ${version}")
         }
-      }
-    )
+    }
+  )
 
 end UniPlaywrightPlugin

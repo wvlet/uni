@@ -27,7 +27,12 @@ object PlaywrightBrowsers:
     *   the resolved Chromium/Firefox/WebKit version string, for logging.
     */
   def install(browserName: String): String =
-    val session = BrowserSession.launch(browserName, headless = true, extraArgs = Nil, tracingEnabled = false)
+    val session = BrowserSession.launch(
+      browserName,
+      headless = true,
+      extraArgs = Nil,
+      tracingEnabled = false
+    )
     try session.browser.version()
     finally session.close()
 

@@ -168,7 +168,7 @@ jobs:
         working-directory: sbt-uni
         run: |
           echo "Using UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }}"
-          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "publishLocal; scripted"
+          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "scalafmtCheckAll; publishLocal; scripted"
   test_sbt_uni_playwright:
     name: sbt-uni-playwright scripted test
     needs: changes
@@ -194,7 +194,7 @@ jobs:
         run: pnpm dlx playwright@1.49.0 install --with-deps chromium
       - name: Build and scripted-test the plugin (runs Scala.js tests in headless Chromium)
         working-directory: sbt-uni-playwright
-        run: sbt "publishLocal; scripted"
+        run: sbt "scalafmtCheckAll; publishLocal; scripted"
   test_sbt_uni_crossproject:
     name: sbt-uni-crossproject scripted test
     needs: changes
