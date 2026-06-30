@@ -7,10 +7,8 @@ package wvlet.uni.sbt.crossproject
 import sbt.*
 
 /**
- * A dependency of one cross-project on another, optionally scoped to a configuration (e.g. `Test`).
- * Built via `someCrossProject % "test"`; a bare cross-project converts to an unscoped dependency.
- */
-final class CrossClasspathDependency(
-    val project: CrossProject,
-    val configuration: Option[String]
-)
+  * A dependency of one cross-project on another, optionally scoped to a configuration (e.g.
+  * `Test`). Built via `someCrossProject % "test"`; a bare cross-project converts to an unscoped
+  * dependency.
+  */
+final class CrossClasspathDependency(val project: CrossProject, val configuration: Option[String])

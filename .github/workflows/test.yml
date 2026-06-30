@@ -213,4 +213,4 @@ jobs:
       # Native sources to NIR (no nativeLink/run), so no clang/LLVM toolchain or Node.js is needed.
       - name: Build and scripted-test the plugin
         working-directory: sbt-uni-crossproject
-        run: sbt "publishLocal; scripted"
+        run: sbt "scalafmtCheckAll; publishLocal; scripted"

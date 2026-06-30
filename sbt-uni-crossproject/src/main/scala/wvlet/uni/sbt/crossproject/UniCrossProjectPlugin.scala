@@ -7,10 +7,10 @@ package wvlet.uni.sbt.crossproject
 import sbt.*
 
 /**
- * The sbt 2.x AutoPlugin entry point. Triggered on all projects so its `autoImport` (the
- * `crossProject` macro, the platforms, `CrossType`, and the builder/dependency conversions) is
- * available in every build without an explicit `enablePlugins`.
- */
+  * The sbt 2.x AutoPlugin entry point. Triggered on all projects so its `autoImport` (the
+  * `crossProject` macro, the platforms, `CrossType`, and the builder/dependency conversions) is
+  * available in every build without an explicit `enablePlugins`.
+  */
 object UniCrossProjectPlugin extends AutoPlugin:
 
   override def trigger = allRequirements
@@ -35,13 +35,18 @@ object UniCrossProjectPlugin extends AutoPlugin:
       wvlet.uni.sbt.crossproject.NativePlatform
 
     /**
-     * Creates a cross-project for the given platforms. Must be assigned directly to a `val`; the val
-     * name becomes the project id (e.g. `val core = crossProject(...)` => `coreJVM`, `coreJS`, ...).
-     */
+      * Creates a cross-project for the given platforms. Must be assigned directly to a `val`; the
+      * val name becomes the project id (e.g. `val core = crossProject(...)` => `coreJVM`, `coreJS`,
+      * ...).
+      */
     inline def crossProject(inline platforms: Platform*): CrossProject.Builder =
-      ${ CrossProjectMacro.crossProjectImpl('platforms) }
+      ${
+        CrossProjectMacro.crossProjectImpl('platforms)
+      }
 
-    /** Materialise a builder into a cross-project when a [[CrossProject]] method is called on it. */
+    /**
+      * Materialise a builder into a cross-project when a [[CrossProject]] method is called on it.
+      */
     given Conversion[CrossProject.Builder, CrossProject] = _.build()
 
     /** Allow a bare cross-project to be used as an (unscoped) classpath dependency. */

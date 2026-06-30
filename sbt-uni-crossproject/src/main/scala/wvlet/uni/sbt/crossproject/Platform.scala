@@ -7,10 +7,10 @@ package wvlet.uni.sbt.crossproject
 import sbt.*
 
 /**
- * A target platform a cross-project is built for. `sbtSuffix` is appended to the cross-project id to
- * form each sub-project's id (e.g. `coreJVM`), and `enable` turns a plain sbt `Project` into one for
- * that platform (e.g. by enabling `ScalaJSPlugin`).
- */
+  * A target platform a cross-project is built for. `sbtSuffix` is appended to the cross-project id
+  * to form each sub-project's id (e.g. `coreJVM`), and `enable` turns a plain sbt `Project` into
+  * one for that platform (e.g. by enabling `ScalaJSPlugin`).
+  */
 sealed trait Platform:
   def identifier: String
   def sbtSuffix: String
@@ -25,9 +25,7 @@ case object JSPlatform extends Platform:
   def identifier: String = "js"
   def sbtSuffix: String  = "JS"
 
-  def enable(project: Project): Project = project.enablePlugins(
-    org.scalajs.sbtplugin.ScalaJSPlugin
-  )
+  def enable(project: Project): Project = project.enablePlugins(org.scalajs.sbtplugin.ScalaJSPlugin)
 
 case object NativePlatform extends Platform:
   def identifier: String = "native"

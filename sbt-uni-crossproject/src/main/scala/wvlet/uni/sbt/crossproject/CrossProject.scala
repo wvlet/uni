@@ -8,12 +8,13 @@ import sbt.*
 import sbt.Keys.*
 
 /**
- * A group of sbt projects, one per target platform, that share sources. Created with the
- * `crossProject(...)` macro and materialised through the `Builder => CrossProject` conversion.
- *
- * Only the surface used by uni is provided; in particular the layout is fixed to [[CrossType.Pure]]
- * by default and per-platform source layouts other than Pure/Full are not supported.
- */
+  * A group of sbt projects, one per target platform, that share sources. Created with the
+  * `crossProject(...)` macro and materialised through the `Builder => CrossProject` conversion.
+  *
+  * Only the surface used by uni is provided; in particular the layout is fixed to
+  * [[CrossType.Pure]] by default and per-platform source layouts other than Pure/Full are not
+  * supported.
+  */
 final class CrossProject private[crossproject] (
     private[crossproject] val id: String,
     private[crossproject] val crossType: CrossType,
@@ -34,8 +35,9 @@ final class CrossProject private[crossproject] (
 
   def nativeSettings(ss: Def.SettingsDefinition*): CrossProject = nativeConfigure(_.settings(ss*))
 
-  def configure(transforms: (Project => Project)*): CrossProject =
-    transform(_.configure(transforms*))
+  def configure(transforms: (Project => Project)*): CrossProject = transform(
+    _.configure(transforms*)
+  )
 
   def jvmConfigure(transformer: Project => Project): CrossProject =
     configurePlatforms(JVMPlatform)(transformer)
@@ -53,36 +55,36 @@ final class CrossProject private[crossproject] (
   def configs(cs: Configuration*): CrossProject = transform(_.configs(cs*))
 
   def configurePlatforms(platforms: Platform*)(transformer: Project => Project): CrossProject =
-    val updated = platforms.foldLeft(projects): (acc, platform) =>
-      acc.get(platform).fold(acc)(p => acc.updated(platform, transformer(p)))
+    val updated =
+      platforms.foldLeft(projects): (acc, platform) =>
+        acc.get(platform).fold(acc)(p => acc.updated(platform, transformer(p)))
     new CrossProject(id, crossType, updated)
 
   def dependsOn(deps: CrossClasspathDependency*): CrossProject =
     requireDependencies(deps.toList.map(_.project))
-    val byPlatform: Map[Platform, Seq[ClasspathDep[ProjectReference]]] = deps
-      .toSeq
-      .flatMap: dep =>
-        dep.project.projects.map: (platform, project) =>
-          platform ->
-            (ClasspathDep
-              .ClasspathDependency(LocalProject(project.id), dep.configuration): ClasspathDep[
-              ProjectReference
-            ])
-      .groupBy(_._1)
-      .view
-      .mapValues(_.map(_._2))
-      .toMap
+    val byPlatform: Map[Platform, Seq[ClasspathDep[ProjectReference]]] =
+      deps
+        .toSeq
+        .flatMap: dep =>
+          dep
+            .project
+            .projects
+            .map: (platform, project) =>
+              platform -> (
+                ClasspathDep.ClasspathDependency(
+                  LocalProject(project.id),
+                  dep.configuration
+                ): ClasspathDep[ProjectReference]
+              )
+        .groupBy(_._1)
+        .view
+        .mapValues(_.map(_._2))
+        .toMap
     mapProjectsByPlatform: (platform, project) =>
       project.dependsOn(byPlatform.getOrElse(platform, Nil)*)
 
   def aggregate(refs: CrossProject*): CrossProject =
-    val byPlatform = refs
-      .toSeq
-      .flatMap(_.projects)
-      .groupBy(_._1)
-      .view
-      .mapValues(_.map(_._2))
-      .toMap
+    val byPlatform = refs.toSeq.flatMap(_.projects).groupBy(_._1).view.mapValues(_.map(_._2)).toMap
     mapProjectsByPlatform: (platform, project) =>
       project.aggregate(
         byPlatform.getOrElse(platform, Nil).map(p => (LocalProject(p.id): ProjectReference))*
@@ -104,10 +106,15 @@ final class CrossProject private[crossproject] (
   private def platformSet: Set[Platform] = projects.keySet
 
   private def mapProjectsByPlatform(f: (Platform, Project) => Project): CrossProject =
-    new CrossProject(id, crossType, projects.map((platform, project) => platform -> f(platform, project)))
+    new CrossProject(
+      id,
+      crossType,
+      projects.map((platform, project) => platform -> f(platform, project))
+    )
 
-  private def transform(f: Project => Project): CrossProject =
-    mapProjectsByPlatform((_, project) => f(project))
+  private def transform(f: Project => Project): CrossProject = mapProjectsByPlatform((_, project) =>
+    f(project)
+  )
 
   private def requireDependencies(refs: List[CrossProject]): Unit =
     for ref <- refs do
@@ -123,10 +130,10 @@ end CrossProject
 object CrossProject:
 
   /**
-   * Accumulates the configuration needed before the platform projects can be created (the id, base
-   * directory, platforms and cross-type). Methods of [[CrossProject]] called on a `Builder` trigger
-   * `build()` through the `Builder => CrossProject` conversion in the plugin's autoImport.
-   */
+    * Accumulates the configuration needed before the platform projects can be created (the id, base
+    * directory, platforms and cross-type). Methods of [[CrossProject]] called on a `Builder`
+    * trigger `build()` through the `Builder => CrossProject` conversion in the plugin's autoImport.
+    */
   final class Builder private[crossproject] (
       id: String,
       base: File,
@@ -141,14 +148,17 @@ object CrossProject:
       // baseDirectory at load time, so e.g. coreJVM (base uni-core/.jvm) picks up uni-core/src.
       val shared = sharedSrcSettings(_crossType) ++ sharedResourcesSettings(_crossType)
 
-      val projects = platforms.map: platform =>
-        val projectID = id + platform.sbtSuffix
-        val project = platform.enable(
-          Project(projectID, _crossType.platformDir(base, platform))
-            .settings((name := id) +: shared*)
-        )
-        platform -> project
-      .toMap
+      val projects =
+        platforms
+          .map: platform =>
+            val projectID = id + platform.sbtSuffix
+            val project   = platform.enable(
+              Project(projectID, _crossType.platformDir(base, platform)).settings(
+                (name := id) +: shared*
+              )
+            )
+            platform -> project
+          .toMap
 
       new CrossProject(id, _crossType, projects)
 
@@ -177,10 +187,10 @@ object CrossProject:
   end Builder
 
   /**
-   * Expands a shared source directory into the directory plus its Scala cross-version variants
-   * (e.g. `src/main/scala-3`, `src/main/scala-2.13`) when `crossPaths` is enabled, matching the
-   * convention sbt uses for version-specific shared sources.
-   */
+    * Expands a shared source directory into the directory plus its Scala cross-version variants
+    * (e.g. `src/main/scala-3`, `src/main/scala-2.13`) when `crossPaths` is enabled, matching the
+    * convention sbt uses for version-specific shared sources.
+    */
   private def makeCrossSources(
       sharedSrcDir: Option[File],
       scalaBinaryVersion: String,
@@ -195,7 +205,8 @@ object CrossProject:
             if scalaEpochVersion != scalaBinaryVersion then
               Some(dir.getParentFile / s"${dir.getName}-$scalaEpochVersion")
             else
-              None,
+              None
+            ,
             Some(dir)
           ).flatten
         else
@@ -203,7 +214,11 @@ object CrossProject:
       case None =>
         Seq()
 
-  def apply(id: String, base: File)(platforms: Platform*): Builder =
-    Builder(id, base, platforms, CrossType.Pure)
+  def apply(id: String, base: File)(platforms: Platform*): Builder = Builder(
+    id,
+    base,
+    platforms,
+    CrossType.Pure
+  )
 
 end CrossProject
