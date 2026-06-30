@@ -26,9 +26,9 @@ import scala.util.control.NonFatal
 /**
   * Drives a single Scala.js run in a real browser on one worker thread.
   *
-  *   - It serves the linked inputs (plus the [[JsBridge]] shim) to a Playwright page, then polls the
-  *     page every `pollIntervalMs` for console output, errors, and com-messages, and pushes queued
-  *     outbound messages back in.
+  *   - It serves the linked inputs (plus the [[JsBridge]] shim) to a Playwright page, then polls
+  *     the page every `pollIntervalMs` for console output, errors, and com-messages, and pushes
+  *     queued outbound messages back in.
   *   - `send` and `close` are safe to call from other threads (they only touch a concurrent queue
   *     and an atomic flag); all Playwright calls stay on the worker thread.
   *   - On an uncaught JS error (or any failure), it captures a screenshot and (if enabled) a trace
@@ -66,7 +66,7 @@ private[playwright] final class PlaywrightEngine(
   def close(): Unit = wantToClose.set(true)
 
   private def runLoop(): Unit =
-    val materializer        = Materializer()
+    val materializer            = Materializer()
     var session: BrowserSession = null
     var streams: RunStreams     = null
     try
@@ -95,17 +95,21 @@ private[playwright] final class PlaywrightEngine(
         promise.tryFailure(t)
         captureArtifacts(session)
     finally
-      if streams != null then streams.close()
+      if streams != null then
+        streams.close()
       // Close the browser before deleting the temp files it loaded.
-      if session != null then session.close()
+      if session != null then
+        session.close()
       materializer.close()
+    end try
   end runLoop
 
   /** Wait until the page's control interface is installed. Returns false if close() came first. */
   private def awaitReady(session: BrowserSession): Boolean =
     val deadline = System.currentTimeMillis() + readyTimeoutMs
     while !wantToClose.get() do
-      if isReady(session) then return true
+      if isReady(session) then
+        return true
       if System.currentTimeMillis() > deadline then
         throw RuntimeException(
           s"Timed out after ${readyTimeoutMs}ms waiting for the Playwright page to load the Scala.js bridge"
@@ -115,8 +119,10 @@ private[playwright] final class PlaywrightEngine(
 
   private def isReady(session: BrowserSession): Boolean =
     session.page.evaluate(readyExpr) match
-      case b: java.lang.Boolean => b.booleanValue()
-      case _                    => false
+      case b: java.lang.Boolean =>
+        b.booleanValue()
+      case _ =>
+        false
 
   /** One poll cycle: push outbound messages, drain console/errors/inbound messages. */
   private def pump(session: BrowserSession, streams: RunStreams): Unit =
@@ -132,8 +138,10 @@ private[playwright] final class PlaywrightEngine(
     // JS -> JVM
     val resp =
       session.page.evaluate(fetchExpr) match
-        case m: java.util.Map[?, ?] => m.asInstanceOf[java.util.Map[String, Object]]
-        case _                      => java.util.Collections.emptyMap[String, Object]()
+        case m: java.util.Map[?, ?] =>
+          m.asInstanceOf[java.util.Map[String, Object]]
+        case _ =>
+          java.util.Collections.emptyMap[String, Object]()
 
     strings(resp, "consoleLog").foreach(streams.out.println)
     strings(resp, "consoleError").foreach(streams.err.println)
@@ -146,8 +154,10 @@ private[playwright] final class PlaywrightEngine(
 
   private def strings(resp: java.util.Map[String, Object], key: String): List[String] =
     resp.get(key) match
-      case l: java.util.List[?] => l.asScala.iterator.map(String.valueOf).toList
-      case _                    => Nil
+      case l: java.util.List[?] =>
+        l.asScala.iterator.map(String.valueOf).toList
+      case _ =>
+        Nil
 
   private def captureArtifacts(session: BrowserSession): Unit =
     if config.captureArtifactsOnFailure && session != null then
@@ -174,7 +184,11 @@ end PlaywrightEngine
   * streams (`onOutputStream`), we hand it the read end of a pipe; otherwise we inherit the JVM's
   * stdout/stderr (without owning them, so closing never closes the real streams).
   */
-private[playwright] class RunStreams(val out: PrintStream, val err: PrintStream, closer: () => Unit):
+private[playwright] class RunStreams(
+    val out: PrintStream,
+    val err: PrintStream,
+    closer: () => Unit
+):
   def close(): Unit = closer()
 
 private[playwright] object RunStreams:
@@ -189,30 +203,46 @@ private[playwright] object RunStreams:
   def prepare(runConfig: RunConfig): RunStreams =
     // Only create a pipe when there is a consumer (onOutputStream) to read its other end.
     val capture = runConfig.onOutputStream.isDefined
-    val outPipe = if capture && !runConfig.inheritOutput then Some(pipe()) else None
-    val errPipe = if capture && !runConfig.inheritError then Some(pipe()) else None
+    val outPipe =
+      if capture && !runConfig.inheritOutput then
+        Some(pipe())
+      else
+        None
+    val errPipe =
+      if capture && !runConfig.inheritError then
+        Some(pipe())
+      else
+        None
     try
-      runConfig
-        .onOutputStream
-        .foreach(f => f(outPipe.map(_._1), errPipe.map(_._1)))
+      runConfig.onOutputStream.foreach(f => f(outPipe.map(_._1), errPipe.map(_._1)))
 
       val out = printStream(runConfig.inheritOutput, outPipe, System.out)
       val err = printStream(runConfig.inheritError, errPipe, System.err)
-      RunStreams(out, err, () => { out.close(); err.close() })
+      RunStreams(
+        out,
+        err,
+        () =>
+          out.close();
+          err.close()
+      )
     catch
       case t: Throwable =>
         // The pipes aren't owned by a RunStreams yet, so close them here if setup fails.
-        List(outPipe, errPipe).flatten.foreach { (in, w) =>
-          closeQuietly(in)
-          closeQuietly(w)
-        }
+        List(outPipe, errPipe)
+          .flatten
+          .foreach { (in, w) =>
+            closeQuietly(in)
+            closeQuietly(w)
+          }
         throw t
 
+  end prepare
+
   private def closeQuietly(c: AutoCloseable): Unit =
-    try c.close()
+    try
+      c.close()
     catch
       case NonFatal(_) =>
-
 
   // autoFlush so console output appears incrementally rather than only at close.
   private def printStream(
@@ -220,12 +250,15 @@ private[playwright] object RunStreams:
       pipe: Option[(PipedInputStream, PipedOutputStream)],
       inherited: OutputStream
   ): PrintStream =
-    if inherit then PrintStream(Unowned(inherited), true)
+    if inherit then
+      PrintStream(Unowned(inherited), true)
     else
       pipe match
-        case Some((_, w)) => PrintStream(w, true)
+        case Some((_, w)) =>
+          PrintStream(w, true)
         // Neither inherited nor captured: discard, so an unread pipe can never block the worker.
-        case None => PrintStream(OutputStream.nullOutputStream(), true)
+        case None =>
+          PrintStream(OutputStream.nullOutputStream(), true)
 
   private def pipe(): (PipedInputStream, PipedOutputStream) =
     // 64 KiB buffer (vs the 1 KiB default) to reduce writer backpressure on bursty console output.
