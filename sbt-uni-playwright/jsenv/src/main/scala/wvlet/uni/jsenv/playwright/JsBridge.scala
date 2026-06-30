@@ -26,7 +26,9 @@ import java.net.URL
   */
 private[playwright] object JsBridge:
 
-  /** Name of the control object the Java side polls (must match the calls in [[PlaywrightEngine]]). */
+  /**
+    * Name of the control object the Java side polls (must match the calls in [[PlaywrightEngine]]).
+    */
   val controlInterface: String = "globalThis.__uniPlaywrightControl"
 
   /**
@@ -128,8 +130,10 @@ private[playwright] object JsBridge:
 
   private def scriptTag(input: Input): String =
     input match
-      case Input.Script(path)         => classicTag(path)
-      case Input.CommonJSModule(path) => classicTag(path)
+      case Input.Script(path) =>
+        classicTag(path)
+      case Input.CommonJSModule(path) =>
+        classicTag(path)
       case Input.ESModule(path) =>
         s"""<script defer type="module" src="${srcOf(path)}"></script>"""
       case other =>
