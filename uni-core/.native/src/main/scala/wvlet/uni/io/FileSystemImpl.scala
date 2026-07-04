@@ -23,6 +23,7 @@ import java.time.Instant
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Future
 import scala.collection.mutable.ArrayBuffer
+import scala.scalanative.meta.LinktimeInfo
 import scalanative.posix.grp
 import scalanative.posix.pwd
 import scalanative.posix.pwdOps.*
@@ -61,10 +62,18 @@ private[io] object FileSystemNative extends FileSystemBase:
   override def isDirectory(path: IOPath): Boolean = toJavaFile(path).isDirectory
 
   // Returns true if the path is a symbolic link (without following it).
-  private def isSymlinkPath(path: IOPath): Boolean = Zone {
-    val buf = stackalloc[Byte](1)
-    unistd.readlink(toCString(path.path), buf, 1.toUSize) >= 0
-  }
+  //
+  // MSVC's CRT doesn't export POSIX `readlink`, so on Windows this returns `false` and
+  // the caller treats the path as a regular file. `LinktimeInfo.isWindows` is resolved at
+  // link time, so the `unistd.readlink` symbol is DCE'd on Windows builds.
+  private def isSymlinkPath(path: IOPath): Boolean =
+    if LinktimeInfo.isWindows then
+      false
+    else
+      Zone {
+        val buf = stackalloc[Byte](1)
+        unistd.readlink(toCString(path.path), buf, 1.toUSize) >= 0
+      }
 
   override def info(path: IOPath): FileInfo =
     val file = toJavaFile(path)
@@ -373,35 +382,51 @@ private[io] object FileSystemNative extends FileSystemBase:
 
   override def existsAsync(path: IOPath): Future[Boolean] = Future(exists(path))
 
-  override def createSymlink(link: IOPath, target: IOPath): Unit = Zone {
-    val ret = unistd.symlink(toCString(target.path), toCString(link.path))
-    if ret != 0 then
-      throw java.io.IOException(s"Failed to create symlink: ${link.path} -> ${target.path}")
-  }
+  override def createSymlink(link: IOPath, target: IOPath): Unit =
+    if LinktimeInfo.isWindows then
+      throw UnsupportedOperationException(
+        "createSymlink is not supported on Scala Native + Windows"
+      )
+    else
+      Zone {
+        val ret = unistd.symlink(toCString(target.path), toCString(link.path))
+        if ret != 0 then
+          throw java.io.IOException(s"Failed to create symlink: ${link.path} -> ${target.path}")
+      }
 
-  override def readSymlink(link: IOPath): IOPath = Zone {
-    // Buffer sized to PATH_MAX (4096). readlink truncates silently if the target
-    // were longer, so we treat a full buffer as an error rather than returning
-    // a corrupt path. In practice symlink targets cannot exceed PATH_MAX.
-    val bufSize = 4096
-    val buf     = stackalloc[Byte](bufSize)
-    val len     = unistd.readlink(toCString(link.path), buf, (bufSize - 1).toUSize)
-    if len < 0 then
-      throw java.io.IOException(s"Failed to read symlink: ${link.path}")
-    if len.toInt == bufSize - 1 then
-      throw java.io.IOException(s"Symlink target too long: ${link.path}")
-    buf(len.toInt) = 0.toByte
-    IOPath.parse(fromCString(buf))
-  }
+  override def readSymlink(link: IOPath): IOPath =
+    if LinktimeInfo.isWindows then
+      throw UnsupportedOperationException("readSymlink is not supported on Scala Native + Windows")
+    else
+      Zone {
+        // Buffer sized to PATH_MAX (4096). readlink truncates silently if the target
+        // were longer, so we treat a full buffer as an error rather than returning
+        // a corrupt path. In practice symlink targets cannot exceed PATH_MAX.
+        val bufSize = 4096
+        val buf     = stackalloc[Byte](bufSize)
+        val len     = unistd.readlink(toCString(link.path), buf, (bufSize - 1).toUSize)
+        if len < 0 then
+          throw java.io.IOException(s"Failed to read symlink: ${link.path}")
+        if len.toInt == bufSize - 1 then
+          throw java.io.IOException(s"Symlink target too long: ${link.path}")
+        buf(len.toInt) = 0.toByte
+        IOPath.parse(fromCString(buf))
+      }
 
   override def permissions(path: IOPath): PermSet = statFileInfo(path)
     ._1
     .getOrElse(throw java.io.IOException(s"Failed to stat: ${path.path}"))
 
-  override def setPermissions(path: IOPath, permissions: PermSet): Unit = Zone {
-    if statMod.chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
-      throw java.io.IOException(s"Failed to chmod: ${path.path}")
-  }
+  override def setPermissions(path: IOPath, permissions: PermSet): Unit =
+    if LinktimeInfo.isWindows then
+      throw UnsupportedOperationException(
+        "POSIX permissions are not supported on Scala Native + Windows"
+      )
+    else
+      Zone {
+        if statMod.chmod(toCString(path.path), permissions.bits.toUInt) != 0 then
+          throw java.io.IOException(s"Failed to chmod: ${path.path}")
+      }
 
   override def owner(path: IOPath): String = statFileInfo(path)
     ._2
@@ -421,31 +446,38 @@ private[io] object FileSystemNative extends FileSystemBase:
   private def doStatFileInfo(
       path: IOPath,
       followLinks: Boolean
-  ): (Option[PermSet], Option[String], Option[String]) = Zone {
-    val buf = stackalloc[statMod.stat]()
-    val ret =
-      if followLinks then
-        statMod.stat(toCString(path.path), buf)
-      else
-        statMod.lstat(toCString(path.path), buf)
-    if ret != 0 then
+  ): (Option[PermSet], Option[String], Option[String]) =
+    // POSIX perms/owner/group don't map to Windows (ACL-based). Return `None`s so the
+    // Windows branch doesn't reference the `scalanative_stat`/`_lstat`/`_getpwuid`/`_getgrgid`
+    // shims, which are POSIX-only.
+    if LinktimeInfo.isWindows then
       (None, None, None)
     else
-      val perms     = Some(PermSet(buf.st_mode.toInt & PermSet.PermissionMask))
-      val ownerName =
-        val pwBuf = stackalloc[pwd.passwd]()
-        if pwd.getpwuid(buf.st_uid, pwBuf) == 0 then
-          Some(fromCString(pwBuf.pw_name))
+      Zone {
+        val buf = stackalloc[statMod.stat]()
+        val ret =
+          if followLinks then
+            statMod.stat(toCString(path.path), buf)
+          else
+            statMod.lstat(toCString(path.path), buf)
+        if ret != 0 then
+          (None, None, None)
         else
-          None
-      val groupName =
-        val grBuf = stackalloc[grp.group]()
-        if grp.getgrgid(buf.st_gid, grBuf) == 0 then
-          Some(fromCString(grBuf._1)) // _1 is gr_name
-        else
-          None
-      (perms, ownerName, groupName)
-  }
+          val perms     = Some(PermSet(buf.st_mode.toInt & PermSet.PermissionMask))
+          val ownerName =
+            val pwBuf = stackalloc[pwd.passwd]()
+            if pwd.getpwuid(buf.st_uid, pwBuf) == 0 then
+              Some(fromCString(pwBuf.pw_name))
+            else
+              None
+          val groupName =
+            val grBuf = stackalloc[grp.group]()
+            if grp.getgrgid(buf.st_gid, grBuf) == 0 then
+              Some(fromCString(grBuf._1)) // _1 is gr_name
+            else
+              None
+          (perms, ownerName, groupName)
+      }
 
 end FileSystemNative
 
