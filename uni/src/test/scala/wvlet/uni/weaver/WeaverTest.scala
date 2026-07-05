@@ -636,6 +636,47 @@ class WeaverTest extends UniTest:
     Weaver.fromSurfaceOpt(Surface.of[Map[String, WeaverTest.Greeting]]).isDefined shouldBe true
   }
 
+  // Regression coverage for issue #632: Any-typed values (e.g. Map[String, Any] fields) must
+  // decode via AnyWeaver instead of the lossy empty-object fallback that silently yields null.
+  test("fromSurface resolves Any to AnyWeaver") {
+    import wvlet.uni.surface.Surface
+    val w       = Weaver.fromSurface(Surface.of[Any]).asInstanceOf[Weaver[Any]]
+    val decoded = w.unweave(w.weave("hello"))
+    decoded shouldBe "hello"
+    w.unweave(w.weave(true)) shouldBe true
+    w.unweave(w.weave(3)) shouldBe 3L
+  }
+
+  test("fromSurface resolves AnyRef and java.lang.Object to AnyWeaver") {
+    import wvlet.uni.surface.Surface
+    for surface <- Seq(Surface.of[AnyRef], Surface.of[Object]) do
+      val w = Weaver.fromSurface(surface).asInstanceOf[Weaver[Any]]
+      w.unweave(w.weave("hello")) shouldBe "hello"
+      w.unweave(w.weave(3)) shouldBe 3L
+  }
+
+  test("case class with Map[String, Any] field decodes values from JSON") {
+    val decoded = Weaver
+      .of[WeaverTest.ConfigWithAnyMap]
+      .fromJson("""{"name": "c", "properties": {"useSSL": false, "retries": 3}}""")
+    decoded.name shouldBe "c"
+    decoded.properties shouldBe Map("useSSL" -> false, "retries" -> 3L)
+  }
+
+  test("nested case class with Map[String, Any] decodes without per-level givens") {
+    val decoded = Weaver
+      .of[WeaverTest.OuterConfig]
+      .fromJson("""{"configs": [{"name": "c", "properties": {"useSSL": false}}]}""")
+    decoded shouldBe
+      WeaverTest.OuterConfig(List(WeaverTest.ConfigWithAnyMap("c", Map("useSSL" -> false))))
+  }
+
+  test("fromSurfaceOpt returns Some for Any-containing types") {
+    import wvlet.uni.surface.Surface
+    Weaver.fromSurfaceOpt(Surface.of[Map[String, Any]]).isDefined shouldBe true
+    Weaver.fromSurfaceOpt(Surface.of[WeaverTest.ConfigWithAnyMap]).isDefined shouldBe true
+  }
+
   test("fromSurfaceOpt returns None when fromSurface itself throws") {
     // java.math.BigInteger is marked primitive in Surface but has no primitiveFactory branch,
     // so fromSurface throws IllegalArgumentException. fromSurfaceOpt must convert that to None
@@ -651,3 +692,5 @@ end WeaverTest
 object WeaverTest:
   case class HasEither(e: Either[String, Int])
   case class Greeting(message: String)
+  case class ConfigWithAnyMap(name: String, properties: Map[String, Any] = Map.empty)
+  case class OuterConfig(configs: List[ConfigWithAnyMap])

@@ -387,6 +387,17 @@ object Weaver:
       CaseClassWeaver(s, fieldWeavers)
   }
 
+  // Any/AnyRef have a well-defined generic codec: AnyWeaver packs values by their runtime type
+  // and unpacks to generic values (Long, Double, String, Seq, Map, ...). Resolve them ahead of
+  // the lossy empty-object fallback so fields like Map[String, Any] round-trip out of the box.
+  // The rawType check covers the `scala.Any` alias, `AnyRef`/`java.lang.Object`, and the
+  // AnyRefSurface placeholders Surface uses for erased type parameters; case classes never
+  // reach here because complexTypeFactory matches first.
+  private val anyFactory: WeaverFactory = {
+    case s if s.rawType == classOf[AnyRef] =>
+      AnyWeaver.default
+  }
+
   // Fallback for surfaces with no objectFactory (open abstract types). Lossy by design:
   // a custom `given Weaver[A]` is required to preserve subtype data on round-trip.
   private val emptyObjectWeaver: Weaver[Any] =
@@ -415,6 +426,7 @@ object Weaver:
     collectionFactory,
     javaCollectionFactory,
     complexTypeFactory,
+    anyFactory,
     emptyObjectFallbackFactory
   )
 
