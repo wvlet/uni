@@ -647,6 +647,14 @@ class WeaverTest extends UniTest:
     w.unweave(w.weave(3)) shouldBe 3L
   }
 
+  test("fromSurface resolves AnyRef and java.lang.Object to AnyWeaver") {
+    import wvlet.uni.surface.Surface
+    for surface <- Seq(Surface.of[AnyRef], Surface.of[Object]) do
+      val w = Weaver.fromSurface(surface).asInstanceOf[Weaver[Any]]
+      w.unweave(w.weave("hello")) shouldBe "hello"
+      w.unweave(w.weave(3)) shouldBe 3L
+  }
+
   test("case class with Map[String, Any] field decodes values from JSON") {
     val decoded = Weaver
       .of[WeaverTest.ConfigWithAnyMap]
