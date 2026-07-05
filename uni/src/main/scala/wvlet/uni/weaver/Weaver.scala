@@ -387,6 +387,14 @@ object Weaver:
       CaseClassWeaver(s, fieldWeavers)
   }
 
+  // Any has a well-defined generic codec: AnyWeaver packs values by their runtime type and
+  // unpacks to generic values (Long, Double, String, Seq, Map, ...). Resolve it ahead of the
+  // lossy empty-object fallback so fields like Map[String, Any] round-trip out of the box.
+  private val anyFactory: WeaverFactory = {
+    case s if s.fullName == "scala.Any" =>
+      AnyWeaver.default
+  }
+
   // Fallback for surfaces with no objectFactory (open abstract types). Lossy by design:
   // a custom `given Weaver[A]` is required to preserve subtype data on round-trip.
   private val emptyObjectWeaver: Weaver[Any] =
@@ -415,6 +423,7 @@ object Weaver:
     collectionFactory,
     javaCollectionFactory,
     complexTypeFactory,
+    anyFactory,
     emptyObjectFallbackFactory
   )
 
