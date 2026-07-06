@@ -1,5 +1,9 @@
 import sbtide.Keys.ideSkipProject
 
+// `core.jvm` / `.js` / `.native` (Project) are used where a ProjectReference is expected (e.g. the
+// jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
+import scala.language.implicitConversions
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
@@ -25,7 +29,7 @@ addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
 val SCALA_3                             = "3.8.4"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
-val JUNIT_PLATFORM_VERSION              = "6.1.0"
+val JUNIT_PLATFORM_VERSION              = "6.1.1"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.12"
 val SBT_TEST_INTERFACE_VERSION          = "1.0"
 
@@ -65,8 +69,9 @@ val buildSettings = Seq[Setting[?]](
 )
 
 val jsBuildSettings = Seq[Setting[?]](
-  // Use Node.js environment for tests (required for FileSystem tests)
-  Test / jsEnv := new org.scalajs.jsenv.nodejs.NodeJSEnv(),
+  // Use Node.js environment for tests (required for FileSystem tests).
+  // sbt 2.x caches setting values and a JSEnv is not serializable, so wrap it in Def.uncached.
+  Test / jsEnv := Def.uncached(new org.scalajs.jsenv.nodejs.NodeJSEnv()),
   // Enable ES modules for Node.js module imports
   scalaJSLinkerConfig ~= {
     _.withModuleKind(ModuleKind.ESModule)
@@ -76,13 +81,13 @@ val jsBuildSettings = Seq[Setting[?]](
       // For java.security.SecureRandom in Scala.js (used by ULID, reached through the Weaver
       // derivation chain). Must be a compile dependency so downstream JS apps (e.g. Electron)
       // can link uni's main code, not just uni's own tests.
-      ("org.scala-js" %%% "scalajs-java-securerandom" % "1.0.0").cross(CrossVersion.for3Use2_13),
+      ("org.scala-js" %% "scalajs-java-securerandom" % "1.0.0").cross(CrossVersion.for3Use2_13),
       // For using java.time.Instant in Scala.js
-      ("org.scala-js" %%% "scalajs-java-time" % "1.0.0").cross(CrossVersion.for3Use2_13),
+      ("org.scala-js" %% "scalajs-java-time" % "1.0.0").cross(CrossVersion.for3Use2_13),
       // For scheduling with timer
-      "org.scala-js" %%% "scala-js-macrotask-executor" % "1.1.1",
+      "org.scala-js" %% "scala-js-macrotask-executor" % "1.1.1",
       // For Fetch API and DOM access
-      "org.scala-js" %%% "scalajs-dom" % "2.8.1"
+      "org.scala-js" %% "scalajs-dom" % "2.8.1"
     )
 )
 
@@ -91,7 +96,7 @@ val nativeBuildSettings = Seq[Setting[?]](
   libraryDependencies ++=
     Seq(
       // For using java.time libraries
-      "org.ekrich" %%% "sjavatime" % "1.5.0"
+      "org.ekrich" %% "sjavatime" % "1.5.0"
     ),
   // Link against libcurl for HTTP client support, and zlib for gzip compression
   nativeConfig ~= {
@@ -121,8 +126,10 @@ Global / excludeLintKeys ++= Set(ideSkipProject)
 // Root project aggregating others
 lazy val root = project
   .in(file("."))
-  .settings(buildSettings, name := "uni", publish / skip := true)
-  .aggregate((jvmProjects ++ jsProjects ++ nativeProjects): _*)
+  // sbt 2.x derives each project's output dir from its name, so the root must not reuse the
+  // `uni` library project's name (they would collide on target/out/jvm/.../uni).
+  .settings(buildSettings, name := "uni-root", publish / skip := true)
+  .aggregate((jvmProjects ++ jsProjects ++ nativeProjects) *)
 
 lazy val jvmProjects: Seq[ProjectReference] = Seq(core.jvm, uni.jvm, netty, bookExamples, test.jvm)
 
@@ -135,11 +142,11 @@ lazy val projectJVM = project
     // Use a stable coverage directory name without containing scala version
     // coverageDataDir := target.value
   )
-  .aggregate(jvmProjects: _*)
+  .aggregate(jvmProjects *)
 
-lazy val projectJS = project.settings(noPublish).aggregate(jsProjects: _*)
+lazy val projectJS = project.settings(noPublish).aggregate(jsProjects *)
 
-lazy val projectNative = project.settings(noPublish).aggregate(nativeProjects: _*)
+lazy val projectNative = project.settings(noPublish).aggregate(nativeProjects *)
 
 // Core library with logging and reactive streams
 lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
@@ -154,7 +161,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     jsBuildSettings,
     libraryDependencies ++=
       Seq(
-        ("org.scala-js" %%% "scalajs-java-logging" % JS_JAVA_LOGGING_VERSION).cross(
+        ("org.scala-js" %% "scalajs-java-logging" % JS_JAVA_LOGGING_VERSION).cross(
           CrossVersion.for3Use2_13
         )
       )
@@ -196,10 +203,11 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     jsBuildSettings,
     libraryDependencies ++=
       Seq(
-        // Scala.js uses scalajs-test-interface for proper test discovery
-        ("org.scala-js" %% "scalajs-test-interface" % scalaJSVersion).cross(
-          CrossVersion.for3Use2_13
-        )
+        // Scala.js uses scalajs-test-interface for proper test discovery. This is the JVM-side
+        // test interface, published only as scalajs-test-interface_2.13. In a Scala.js project on
+        // sbt 2.x any cross-version (`%%` or `.cross(for3Use2_13)`) injects the _sjs1 platform
+        // suffix, so name the fixed _2.13 artifact directly with a single `%`.
+        "org.scala-js" % "scalajs-test-interface_2.13" % scalaJSVersion
       )
   )
   .nativeSettings(
@@ -207,7 +215,7 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     libraryDependencies ++=
       Seq(
         // Scala Native uses native test-interface
-        "org.scala-native" %%% "test-interface" % SCALA_NATIVE_TEST_INTERFACE_VERSION
+        "org.scala-native" %% "test-interface" % SCALA_NATIVE_TEST_INTERFACE_VERSION
       )
   )
   .dependsOn(core)
@@ -222,10 +230,10 @@ lazy val netty = project
     description := "Netty-based HTTP server for uni",
     libraryDependencies ++=
       Seq(
-        "io.netty" % "netty-handler"                % NETTY_VERSION,
-        "io.netty" % "netty-codec-http"             % NETTY_VERSION,
-        "io.netty" % "netty-transport-native-epoll" % NETTY_VERSION classifier "linux-x86_64",
-        "io.netty" % "netty-transport-native-epoll" % NETTY_VERSION classifier "linux-aarch_64"
+        "io.netty"  % "netty-handler"                % NETTY_VERSION,
+        "io.netty"  % "netty-codec-http"             % NETTY_VERSION,
+        ("io.netty" % "netty-transport-native-epoll" % NETTY_VERSION).classifier("linux-x86_64"),
+        ("io.netty" % "netty-transport-native-epoll" % NETTY_VERSION).classifier("linux-aarch_64")
       )
   )
   .dependsOn(uni.jvm, test.jvm % Test)
@@ -256,12 +264,10 @@ lazy val domTest = project
     // browser DOM AND supports ES modules (jsBuildSettings sets ModuleKind.ESModule),
     // unlike the outdated jsdom which only supports plain scripts. Chromium also matches
     // the Electron renderer, so these tests exercise web and Electron app code alike.
-    // Playwright's logs are quiet by default; set PLAYWRIGHT_SHOW_LOGS=true to debug locally.
+    // sbt 2.x caches setting values and a JSEnv is not serializable, so wrap it in Def.uncached.
     Test / jsEnv :=
-      new jsenv.playwright.PWEnv(
-        browserName = "chromium",
-        headless = true,
-        showLogs = sys.env.get("PLAYWRIGHT_SHOW_LOGS").exists(_.equalsIgnoreCase("true"))
+      Def.uncached(
+        new wvlet.uni.jsenv.playwright.PlaywrightJSEnv(browserName = "chromium", headless = true)
       )
   )
   .dependsOn(uni.js, test.js % Test)

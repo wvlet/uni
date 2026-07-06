@@ -1,0 +1,22 @@
+# The val-name macro must produce the ids coreJVM / coreJS / coreNative and appJVM / ... .
+# Compiling each of these (referenced by id) proves the macro derived ids from the `val` names,
+# that CrossType.Pure picked up shared + platform-specific sources, and that the cross dependsOn
+# wired app -> core on every platform. (Native only compiles to NIR; no clang toolchain needed.)
+> coreJVM/compile
+> coreJS/compile
+> coreNative/compile
+
+# The per-platform jvmSettings / jsSettings / nativeSettings must each reach only their platform.
+> checkVersions
+
+# Shared test sources (<base>/src/test/scala) must be on the Test source path.
+> coreJVM/Test/compile
+
+> appJVM/compile
+> appJS/compile
+> appNative/compile
+
+# Run the JVM app: the assertion inside fails the build unless the shared (Shared), per-platform
+# (Platform), and cross-version (Versioned, in src/main/scala-3) sources all resolve at runtime.
+> appJVM/run
+$ exists app-ran.txt

@@ -20,13 +20,16 @@ import scala.util.control.NonFatal
 
 /**
   * Writes generated content (the JS shim, the launcher HTML) to real temp files so the browser can
-  * load them over `file://`, and deletes them on [[close]]. Linked Scala.js inputs are referenced in
-  * place (their own paths), so only generated files are tracked here.
+  * load them over `file://`, and deletes them on [[close]]. Linked Scala.js inputs are referenced
+  * in place (their own paths), so only generated files are tracked here.
   */
 private[playwright] class Materializer extends AutoCloseable:
   private var tmpFiles: List[Path] = Nil
 
-  /** Write `content` to a fresh temp file ending in `suffix` (e.g. ".js", ".html") and return its URL. */
+  /**
+    * Write `content` to a fresh temp file ending in `suffix` (e.g. ".js", ".html") and return its
+    * URL.
+    */
   def write(suffix: String, content: String): URL =
     val tmp = Files.createTempFile("uni-playwright-", suffix)
     // Track before writing so a write failure still leaves the temp file scheduled for cleanup.
@@ -37,14 +40,14 @@ private[playwright] class Materializer extends AutoCloseable:
     tmp.toUri.toURL
 
   override def close(): Unit =
-    val files =
-      synchronized {
-        val fs = tmpFiles
-        tmpFiles = Nil
-        fs
-      }
+    val files = synchronized {
+      val fs = tmpFiles
+      tmpFiles = Nil
+      fs
+    }
     files.foreach { f =>
-      try Files.deleteIfExists(f)
+      try
+        Files.deleteIfExists(f)
       catch
         case NonFatal(_) => // best-effort cleanup
     }

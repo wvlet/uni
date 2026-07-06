@@ -15,7 +15,7 @@ package wvlet.uni.jsenv.playwright
 
 import com.microsoft.playwright.{Browser, BrowserContext, BrowserType, Page, Playwright, Tracing}
 
-import java.util.{List as JList}
+import java.util.List as JList
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
@@ -33,14 +33,16 @@ private[playwright] class BrowserSession(
 ):
   /** Save the current page as a screenshot (best-effort). */
   def screenshot(path: java.nio.file.Path): Unit =
-    try page.screenshot(Page.ScreenshotOptions().setPath(path).setFullPage(true))
+    try
+      page.screenshot(Page.ScreenshotOptions().setPath(path).setFullPage(true))
     catch
       case NonFatal(_) =>
 
   /** Stop tracing and write the trace zip if tracing was enabled (best-effort). */
   def stopTracing(path: java.nio.file.Path): Unit =
     if tracingEnabled then
-      try context.tracing().stop(Tracing.StopOptions().setPath(path))
+      try
+        context.tracing().stop(Tracing.StopOptions().setPath(path))
       catch
         case NonFatal(_) =>
 
@@ -55,30 +57,38 @@ end BrowserSession
 private[playwright] object BrowserSession:
 
   // Flags that let Chromium load ES modules and sibling files over file://.
-  private val chromiumArgs =
-    List(
-      "--disable-extensions",
-      "--disable-web-security",
-      "--allow-running-insecure-content",
-      "--disable-site-isolation-trials",
-      "--allow-file-access-from-files",
-      "--disable-gpu"
-    )
+  private val chromiumArgs = List(
+    "--disable-extensions",
+    "--disable-web-security",
+    "--allow-running-insecure-content",
+    "--disable-site-isolation-trials",
+    "--allow-file-access-from-files",
+    "--disable-gpu"
+  )
+
   private val firefoxArgs = List("--disable-web-security")
   private val webkitArgs  = chromiumArgs.filterNot(_ == "--disable-gpu")
 
-  /** Resolve a browser name to its Playwright type and default launch flags (single source of truth). */
+  /**
+    * Resolve a browser name to its Playwright type and default launch flags (single source of
+    * truth).
+    */
   private def resolve(playwright: Playwright, browserName: String): (BrowserType, List[String]) =
     browserName.toLowerCase match
-      case "chromium" | "chrome" => (playwright.chromium(), chromiumArgs)
-      case "firefox"             => (playwright.firefox(), firefoxArgs)
-      case "webkit"              => (playwright.webkit(), webkitArgs)
-      case other => throw IllegalArgumentException(s"Unknown Playwright browser: ${other}")
+      case "chromium" | "chrome" =>
+        (playwright.chromium(), chromiumArgs)
+      case "firefox" =>
+        (playwright.firefox(), firefoxArgs)
+      case "webkit" =>
+        (playwright.webkit(), webkitArgs)
+      case other =>
+        throw IllegalArgumentException(s"Unknown Playwright browser: ${other}")
 
   /** Close an AutoCloseable, swallowing errors and nulls. */
   private def closeQuietly(c: AutoCloseable): Unit =
     if c != null then
-      try c.close()
+      try
+        c.close()
       catch
         case NonFatal(_) =>
 

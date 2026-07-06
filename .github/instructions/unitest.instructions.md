@@ -100,6 +100,53 @@ class MyTest extends UniTest:
   }
 ```
 
+## Tagging tests for multi-layer runs
+
+Pass one or more `TestTag`s to `test(...)` to mark which testing layer it belongs to, then run or
+skip a layer at a time — the same way VSCode keeps separate unit/integration/UI test commands.
+Built-in tags (`UI`, `Electron`, `Integration`, `Smoke`, `Slow`, `Flaky`) are in scope in any
+`UniTest`; custom tags are `TestTag("name")` or a bare string.
+
+```scala
+test("renders the toolbar", UI) {
+  // ...
+}
+
+test("hits the real database", Integration, Slow) {
+  // ...
+}
+
+// Smoke is a built-in category tag: a quick sanity check run as a fast pre-merge subset.
+test("end-to-end happy path", Smoke) {
+  // ...
+}
+
+// Flaky is itself a tag: a failure is reported as skipped instead of failing the build.
+test("retried under load", Flaky) {
+  // ...
+}
+
+// Custom tag (or a bare string with `import scala.language.implicitConversions`)
+test("legacy path", TestTag("legacy")) {
+  // ...
+}
+```
+
+Select layers from sbt (args after `--`):
+
+```bash
+./sbt "coreJVM/testOnly * -- --tags ui"             # run only tests tagged `ui`
+./sbt "coreJVM/testOnly * -- --tags ui --tags slow" # tests tagged BOTH `ui` and `slow` (narrows)
+./sbt "coreJVM/testOnly * -- --tags smoke"          # fast pre-merge smoke subset
+./sbt "coreJVM/testOnly * -- --exclude-tags slow"   # run everything except `slow` tests
+```
+
+`--tags` selects tests carrying the tag; repeat it to **narrow** further — each added tag is ANDed,
+like GitHub issue label filters (`--tags ui --tags slow` = tests tagged both). `--exclude-tags`
+drops tests carrying the tag; exclusion wins over inclusion. Tags apply to top-level tests; nested
+tests run with their parent. (A future `--tags <expr>` may accept explicit AND/OR expressions if a
+union is ever needed; today repeated `--tags` is AND-only.)
+
 ## Logging
 
 To add debug messages, use `debug` and `trace` methods.

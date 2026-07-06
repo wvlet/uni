@@ -99,27 +99,25 @@ dependencies. Subsequent runs are fast.
 ## Cross-platform projects
 
 Most Uni code works unchanged on **JVM**, **Scala.js**, and **Scala
-Native**. For a cross-build project, use
-[sbt-crossproject](https://github.com/portable-scala/sbt-crossproject)
-and reference Uni with `%%%` instead of `%%`:
+Native**. On **sbt 2.x**, cross-build with Uni's own
+[sbt-uni-crossproject](/build/sbt-uni-crossproject) plugin (the
+portable-scala plugins are not published for sbt 2.x):
 
 ```scala
-addSbtPlugin("org.portable-scala" % "sbt-scala-native-crossproject" % "1.3.2")
-addSbtPlugin("org.portable-scala" % "sbt-scalajs-crossproject"       % "1.3.2")
-addSbtPlugin("org.scala-js"       % "sbt-scalajs"                    % "1.16.0")
-addSbtPlugin("org.scala-native"   % "sbt-scala-native"               % "0.5.7")
+// project/plugins.sbt
+addSbtPlugin("org.scala-js"     % "sbt-scalajs"          % "1.22.0")
+addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.12")
+addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "__UNI_VERSION__")
 ```
 
 ```scala
 // build.sbt
-import sbtcrossproject.CrossPlugin.autoImport.CrossType
-
 lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
   .settings(
     scalaVersion := "3.3.4",
-    libraryDependencies += "org.wvlet.uni" %%% "uni" % "2026.1.0"
+    libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
   )
 ```
 
@@ -161,12 +159,14 @@ everyone shares lives at the module root under `src/main/scala` and
 > browser DOM API, a native syscall. You will see examples of that in
 > Chapter 11.
 
-The `%%%` operator tells sbt: *pick the version of `uni` that was built
-for whichever platform I am compiling for right now*. Your Scala source
-does not change between platforms; only the build setting does.
+On sbt 2.x the `%%` operator tells sbt: *pick the version of `uni` that
+was built for whichever platform I am compiling for right now* (it
+encodes the platform suffix, so the older `%%%` is no longer needed).
+Your Scala source does not change between platforms; only the build
+setting does.
 
 We will build a real cross-platform codebase in Chapter 11. For now
-know that it is one cross-plugin, one `CrossType.Pure`, and a `%%%`
+know that it is one cross-plugin, one `CrossType.Pure`, and a `%%`
 away — and that everything you write goes in `src/main/scala`.
 
 ## IDE setup

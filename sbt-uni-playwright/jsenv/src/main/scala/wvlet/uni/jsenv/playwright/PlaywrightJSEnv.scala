@@ -39,13 +39,14 @@ case class PlaywrightConfig(
     artifactDir: Path = Paths.get("target", "uni-playwright"),
     launchArgs: List[String] = Nil
 ):
-  def withBrowserName(name: String): PlaywrightConfig = copy(browserName = name)
+  def withBrowserName(name: String): PlaywrightConfig  = copy(browserName = name)
   def withHeadless(enabled: Boolean): PlaywrightConfig = copy(headless = enabled)
 
-  def withCaptureArtifactsOnFailure(enabled: Boolean): PlaywrightConfig =
-    copy(captureArtifactsOnFailure = enabled)
+  def withCaptureArtifactsOnFailure(enabled: Boolean): PlaywrightConfig = copy(
+    captureArtifactsOnFailure = enabled
+  )
 
-  def withArtifactDir(dir: Path): PlaywrightConfig = copy(artifactDir = dir)
+  def withArtifactDir(dir: Path): PlaywrightConfig         = copy(artifactDir = dir)
   def withLaunchArgs(args: List[String]): PlaywrightConfig = copy(launchArgs = args)
   def noArtifactCapture: PlaywrightConfig                  = copy(captureArtifactsOnFailure = false)
 
@@ -54,8 +55,8 @@ end PlaywrightConfig
 /**
   * A Scala.js `org.scalajs.jsenv.JSEnv` that runs tests in a real browser via the Java Playwright
   * runtime. Unlike jsdom it supports ES modules and a faithful DOM, and Chromium matches the
-  * Electron renderer. Java Playwright bundles its own driver and downloads browsers on demand, so no
-  * Node.js or npm package is required.
+  * Electron renderer. Java Playwright bundles its own driver and downloads browsers on demand, so
+  * no Node.js or npm package is required.
   *
   * Usage in build.sbt (with the dependency added to `project/plugins.sbt`):
   * {{{
@@ -66,8 +67,9 @@ class PlaywrightJSEnv(val config: PlaywrightConfig) extends JSEnv:
 
   def this() = this(PlaywrightConfig())
 
-  def this(browserName: String, headless: Boolean) =
-    this(PlaywrightConfig(browserName = browserName, headless = headless))
+  def this(browserName: String, headless: Boolean) = this(
+    PlaywrightConfig(browserName = browserName, headless = headless)
+  )
 
   /** Human-readable environment name (shown in sbt's test output). */
   override val name: String = s"PlaywrightJSEnv(${config.browserName})"
@@ -90,14 +92,11 @@ class PlaywrightJSEnv(val config: PlaywrightConfig) extends JSEnv:
 
 end PlaywrightJSEnv
 
-private final class PlaywrightRun(
-    config: PlaywrightConfig,
-    input: Seq[Input],
-    runConfig: RunConfig
-) extends JSRun:
+private final class PlaywrightRun(config: PlaywrightConfig, input: Seq[Input], runConfig: RunConfig)
+    extends JSRun:
   private val engine = PlaywrightEngine(config, input, runConfig, enableCom = false, _ => ())
   override def future: Future[Unit] = engine.future
-  override def close(): Unit         = engine.close()
+  override def close(): Unit        = engine.close()
 
 private final class PlaywrightComRun(
     config: PlaywrightConfig,
@@ -106,6 +105,6 @@ private final class PlaywrightComRun(
     onMessage: String => Unit
 ) extends JSComRun:
   private val engine = PlaywrightEngine(config, input, runConfig, enableCom = true, onMessage)
-  override def future: Future[Unit]  = engine.future
-  override def close(): Unit          = engine.close()
+  override def future: Future[Unit]    = engine.future
+  override def close(): Unit           = engine.close()
   override def send(msg: String): Unit = engine.send(msg)

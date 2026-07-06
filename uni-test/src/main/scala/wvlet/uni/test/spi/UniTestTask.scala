@@ -183,13 +183,16 @@ class UniTestTask(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
   )(using ExecutionContext): Future[Unit] =
-    val allTests      = testInstance.registeredTests
-    val filteredTests =
+    val allTests     = testInstance.registeredTests
+    val nameFiltered =
       config.testFilter match
         case Some(filter) =>
           allTests.filter(_.fullName.contains(filter))
         case None =>
           allTests
+    // Tag filtering selects whole testing layers (e.g. -tag:ui, -xtag:slow). Applied to top-level
+    // tests; nested tests run with their enclosing parent.
+    val filteredTests = nameFiltered.filter(t => config.includesTags(t.tags))
 
     if filteredTests.isEmpty then
       loggers.foreach(_.info(s"No tests found in ${className}"))

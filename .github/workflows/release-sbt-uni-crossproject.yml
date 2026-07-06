@@ -1,0 +1,40 @@
+name: Release sbt-uni-crossproject
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+
+jobs:
+  publish_sbt_uni_crossproject:
+    name: Publish sbt-uni-crossproject
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # Fetch all tags so that sbt-dynver can find the previous release version
+          fetch-depth: 0
+      - run: git fetch --tags -f
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      - name: Setup GPG
+        env:
+          PGP_SECRET: ${{ secrets.PGP_SECRET }}
+        run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
+      # A single-module build with no dependency on the uni library, so no local publish of uni is
+      # needed first. Run publishSigned and sonaRelease in one sbt invocation so they share the same
+      # server process: sbt 2.x routes later `sbt <cmd>` calls through a thin client, so env vars set
+      # only on a later step would be invisible to the server.
+      - name: Publish sbt-uni-crossproject to Sonatype
+        working-directory: sbt-uni-crossproject
+        env:
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+        run: sbt "publishSigned; sonaRelease"
