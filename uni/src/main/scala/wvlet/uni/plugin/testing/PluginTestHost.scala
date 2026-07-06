@@ -20,12 +20,14 @@ import wvlet.uni.plugin.{Plugin, PluginHost}
   * → Electron → plugin).
   *
   * Each helper builds a fresh [[PluginHost]] and activates the given plugin(s) through the real
-  * activation path, returning the host so a test can assert on its contributions (`commandIds`,
-  * `routers`), invoke commands (`executeCommand`), build the `dispatcher`, and verify teardown
-  * (`deactivate()`). Because the host is cross-platform, plugin tests run on the JVM with no
-  * browser or Electron runtime.
+  * activation path, returning the host so a test can assert on its extension-point contributions
+  * (`host.contributions(point)`, or point-specific views such as `commandIds` / `rpcRouters`),
+  * invoke commands (`executeCommand`), and verify teardown (`deactivate()`). Because the host is
+  * cross-platform, plugin tests run on the JVM with no browser or Electron runtime.
   *
   * {{{
+  *   import wvlet.uni.plugin.Command.*
+  *
   *   val host = PluginTestHost.activate(NotesPlugin())
   *   host.commandIds shouldContain "notes.new"
   *   host.executeCommand("notes.new") shouldBe expectedNote

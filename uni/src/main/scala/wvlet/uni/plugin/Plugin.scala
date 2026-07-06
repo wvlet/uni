@@ -13,35 +13,37 @@
  */
 package wvlet.uni.plugin
 
-import wvlet.uni.http.rpc.RPCRouter
-
 /**
   * Context handed to a [[Plugin]]'s [[Plugin.activate]], through which the plugin contributes
-  * commands and RPC services to the host. Modeled on VSCode's `ExtensionContext` + registration
+  * values to the host's [[ExtensionPoint]]s. Modeled on VSCode's `ExtensionContext` + registration
   * API: a plugin does not return its contributions, it registers them on the context.
+  *
+  * The context itself is deliberately minimal — a single generic [[contribute]] plus a teardown
+  * hook. Ergonomic registration methods for specific contribution kinds are provided as extension
+  * methods next to their extension points (e.g. `registerCommand` via [[wvlet.uni.plugin.Command]],
+  * `registerRpcRouter` via `wvlet.uni.http.rpc.RPCPlugin`).
   */
 trait PluginContext:
   /**
-    * Register a command callable by `id` via [[PluginHost.executeCommand]]. Command ids are
-    * host-global; registering a duplicate id (within or across plugins) is an error.
+    * Contribute a value to an extension point. For keyed points, a duplicate key (within or across
+    * plugins) is an error.
     */
-  def registerCommand(id: String)(handler: Seq[Any] => Any): Unit
-
-  /** Contribute an RPC service router, typically built with `RPCRouter.of[T](impl)`. */
-  def registerRpcRouter(router: RPCRouter): Unit
+  def contribute[A](point: ExtensionPoint[A])(value: A): Unit
 
   /** Register a hook to run when the host is deactivated. Hooks run in reverse (FILO) order. */
   def onDeactivate(hook: () => Unit): Unit
 
 /**
-  * A pluggable unit of a Uni desktop app — the extension model underpinning Uni's plugin testing
-  * layer.
+  * A pluggable unit of a Uni application.
   *
-  * Mirrors VSCode's `activate(context)` contract: at activation time the plugin contributes its
-  * commands, RPC services, and teardown hooks through the supplied [[PluginContext]]. The host
-  * ([[PluginHost]]) owns the registries; the plugin only registers into them.
+  * Mirrors VSCode's `activate(context)` contract: at activation time the plugin contributes to the
+  * host's extension points and registers teardown hooks through the supplied [[PluginContext]]. The
+  * host ([[PluginHost]]) owns the registries; the plugin only registers into them.
   *
   * {{{
+  *   import wvlet.uni.plugin.Command.registerCommand
+  *   import wvlet.uni.http.rpc.RPCPlugin.registerRpcRouter
+  *
   *   class NotesPlugin extends Plugin:
   *     def id = "notes"
   *     def activate(ctx: PluginContext): Unit =
@@ -54,5 +56,5 @@ trait Plugin:
   /** Stable, unique identifier for this plugin. */
   def id: String
 
-  /** Contribute commands, RPC services, and deactivation hooks through the context. */
+  /** Contribute to the host's extension points through the context. */
   def activate(context: PluginContext): Unit

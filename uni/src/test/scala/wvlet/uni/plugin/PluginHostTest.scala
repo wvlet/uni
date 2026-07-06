@@ -13,7 +13,9 @@
  */
 package wvlet.uni.plugin
 
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCPlugin, RPCRouter}
+import wvlet.uni.http.rpc.RPCPlugin.*
+import wvlet.uni.plugin.Command.*
 import wvlet.uni.plugin.testing.PluginTestHost
 import wvlet.uni.test.UniTest
 
@@ -35,8 +37,8 @@ class NotesPlugin extends Plugin:
 
 /**
   * Tests the plugin model the way an app developer would test their own plugin: activate it in
-  * isolation via [[PluginTestHost]] and assert on its contributions and lifecycle. Runs on the JVM
-  * with no Electron/browser runtime.
+  * isolation via [[PluginTestHost]] and assert on its extension-point contributions and lifecycle.
+  * Runs on the JVM with no Electron/browser runtime.
   */
 class PluginHostTest extends UniTest:
 
@@ -65,11 +67,36 @@ class PluginHostTest extends UniTest:
 
   test("a plugin contributes its RPC service router") {
     val host = PluginTestHost.activate(NotesPlugin())
-    host.routers.size shouldBe 1
-    val paths = host.routers.flatMap(_.routes.map(_.path))
+    host.rpcRouters.size shouldBe 1
+    val paths = host.rpcRouters.flatMap(_.routes.map(_.path))
     paths.exists(_.endsWith("/list")) shouldBe true
-    host.dispatcher shouldMatch { case _: RPCDispatcher =>
+    host.rpcDispatcher shouldMatch { case _: RPCDispatcher =>
     }
+  }
+
+  test("plugins contribute to app-defined extension points") {
+    val viewPoint = ExtensionPoint[String]("app.view")
+    val plugin    =
+      new Plugin:
+        override def id: String                             = "views"
+        override def activate(context: PluginContext): Unit =
+          context.contribute(viewPoint)("sidebar")
+          context.contribute(viewPoint)("statusbar")
+    val host = PluginTestHost.activate(plugin)
+    host.contributions(viewPoint) shouldBe Seq("sidebar", "statusbar")
+    // An unkeyed point has no keyed lookup, and unrelated points stay empty
+    host.contribution(viewPoint, "sidebar") shouldBe None
+    host.contributions(ExtensionPoint[String]("app.other")) shouldBe Seq.empty[String]
+  }
+
+  test("an unkeyed point accepts equal contributions from different plugins") {
+    def contributor(pluginId: String): Plugin =
+      new Plugin:
+        override def id: String                             = pluginId
+        override def activate(context: PluginContext): Unit =
+          context.contribute(RPCPlugin.routerPoint)(RPCRouter.of[NotesApi](NotesApiImpl()))
+    val host = PluginTestHost.activateAll(contributor("p1"), contributor("p2"))
+    host.rpcRouters.size shouldBe 2
   }
 
   test("deactivate runs onDeactivate hooks and clears contributions") {
@@ -79,7 +106,7 @@ class PluginHostTest extends UniTest:
     host.deactivate()
     plugin.deactivated shouldBe true
     host.commandIds shouldBe Set.empty[String]
-    host.routers shouldBe Seq.empty[RPCRouter]
+    host.rpcRouters shouldBe Seq.empty[RPCRouter]
     host.activatedPlugins shouldBe Seq.empty[String]
   }
 
@@ -106,9 +133,11 @@ class PluginHostTest extends UniTest:
         override def id: String                             = "p2"
         override def activate(context: PluginContext): Unit =
           context.registerCommand("shared")(_ => 2)
-    intercept[IllegalArgumentException] {
+    val e = intercept[IllegalArgumentException] {
       PluginTestHost.activateAll(p1, p2)
     }
+    e.getMessage shouldContain "p1"
+    e.getMessage shouldContain "p2"
   }
 
   test("activating the same plugin id twice is rejected") {

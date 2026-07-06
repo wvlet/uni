@@ -13,36 +13,42 @@
  */
 package wvlet.uni.plugin
 
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
-
 import scala.collection.mutable
 
 /**
-  * Activates [[Plugin]]s and owns the registries they contribute to: a host-global command registry
-  * and the set of RPC routers. This is the runtime an app embeds; the plugin testing harness
+  * Activates [[Plugin]]s and owns the typed registries they contribute to, one per
+  * [[ExtensionPoint]]. This is the runtime an app embeds; the plugin testing harness
   * ([[wvlet.uni.plugin.testing.PluginTestHost]]) drives the very same host so tests exercise the
   * real activation path.
   *
-  * Activation is eager and synchronous (as in VSCode's `activate`). Contributions are flat and
-  * host-global, so a duplicate command id — within a plugin or across plugins — is rejected, which
+  * Activation is eager and synchronous (as in VSCode's `activate`). Contributions to a keyed point
+  * are host-global, so a duplicate key — within a plugin or across plugins — is rejected, which
   * surfaces plugin conflicts in tests instead of at runtime.
   */
 class PluginHost:
-  private val commands        = mutable.LinkedHashMap.empty[String, Seq[Any] => Any]
-  private val _routers        = mutable.ListBuffer.empty[RPCRouter]
+  private case class Contribution(pluginId: String, key: Option[String], value: Any)
+
+  private val contributionMap = mutable
+    .LinkedHashMap
+    .empty[ExtensionPoint[?], mutable.ListBuffer[Contribution]]
+
   private val deactivateHooks = mutable.ListBuffer.empty[() => Unit]
   private val _activated      = mutable.ListBuffer.empty[String]
 
   private def contextFor(pluginId: String): PluginContext =
     new PluginContext:
-      override def registerCommand(id: String)(handler: Seq[Any] => Any): Unit =
-        if commands.contains(id) then
+      override def contribute[A](point: ExtensionPoint[A])(value: A): Unit =
+        val entries = contributionMap.getOrElseUpdate(point, mutable.ListBuffer.empty)
+        val key     = point.keyOf.map(_(value))
+        for
+          k        <- key
+          existing <- entries.find(_.key.contains(k))
+        do
           throw IllegalArgumentException(
-            s"Command '${id}' is already registered (attempted by plugin '${pluginId}')"
+            s"${point.name} '${k}' is already contributed by plugin '${existing
+                .pluginId}' (attempted by plugin '${pluginId}')"
           )
-        commands(id) = handler
-
-      override def registerRpcRouter(router: RPCRouter): Unit = _routers += router
+        entries += Contribution(pluginId, key, value)
 
       override def onDeactivate(hook: () => Unit): Unit = deactivateHooks += hook
 
@@ -62,36 +68,17 @@ class PluginHost:
   /** Ids of plugins activated so far, in activation order. */
   def activatedPlugins: Seq[String] = _activated.toSeq
 
-  /** All registered command ids. */
-  def commandIds: Set[String] = commands.keySet.toSet
+  /** All values contributed to the given extension point, in contribution order. */
+  def contributions[A](point: ExtensionPoint[A]): Seq[A] = contributionMap
+    .get(point)
+    .map(_.map(_.value.asInstanceOf[A]).toSeq)
+    .getOrElse(Seq.empty)
 
-  def hasCommand(id: String): Boolean = commands.contains(id)
-
-  /**
-    * Invoke a registered command by id with the given arguments, returning its result.
-    *
-    * @throws java.util.NoSuchElementException
-    *   if no command is registered under `id`.
-    */
-  def executeCommand(id: String, args: Any*): Any =
-    commands.get(id) match
-      case Some(handler) =>
-        handler(args.toSeq)
-      case None =>
-        throw java
-          .util
-          .NoSuchElementException(
-            s"No command registered with id '${id}'. Available: ${commandIds
-                .toSeq
-                .sorted
-                .mkString(", ")}"
-          )
-
-  /** All RPC routers contributed by activated plugins, in registration order. */
-  def routers: Seq[RPCRouter] = _routers.toSeq
-
-  /** An [[RPCDispatcher]] over all contributed routers, ready to serve (e.g. via Electron IPC). */
-  def dispatcher: RPCDispatcher = RPCDispatcher(routers*)
+  /** Look up a keyed point's contribution by key. Always `None` for unkeyed points. */
+  def contribution[A](point: ExtensionPoint[A], key: String): Option[A] = contributionMap
+    .get(point)
+    .flatMap(_.find(_.key.contains(key)))
+    .map(_.value.asInstanceOf[A])
 
   /**
     * Run deactivation hooks (FILO) and clear all contributions, returning the host to a pristine,
@@ -108,8 +95,7 @@ class PluginHost:
             ()
       }
     deactivateHooks.clear()
-    commands.clear()
-    _routers.clear()
+    contributionMap.clear()
     _activated.clear()
 
 end PluginHost
