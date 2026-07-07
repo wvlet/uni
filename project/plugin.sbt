@@ -2,7 +2,7 @@
 // not been ported to sbt 2.x: sbt-uni-crossproject replaces sbt-scalajs-crossproject +
 // sbt-scala-native-crossproject; uni-jsenv-playwright replaces io.github.gmkumar2005's env; sbt-uni
 // (uniRestart/uniStop/uniStatus) replaces sbt-revolver.
-val UNI_PLUGIN_VERSION = "2026.1.16"
+val UNI_PLUGIN_VERSION = "2026.1.17"
 
 // For GPG signing published artifacts
 addSbtPlugin("com.github.sbt" % "sbt-pgp" % "2.3.1")
