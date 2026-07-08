@@ -72,7 +72,10 @@ different checks:
   native test suite on Windows. Nothing in this repo compiled the Windows half of
   the `#if` before, which is how v2026.1.17's POSIX-only `#include <dlfcn.h>`
   shipped. It runs `NativeCurlClientTest` too, so the Windows lookup path is
-  exercised at runtime, not merely compiled.
+  exercised at runtime, not merely compiled. Standing up the toolchain costs
+  ~15 minutes, so it runs on every push to `main` but only on the pull requests
+  that touch native code (the `native` paths-filter) — a `.c` file, anything under
+  a `.native/` source tree, or the Scala Native version in `project/`.
 - **`.github/scripts/check-curl-shim.sh`**, a step in the Linux Native job, which
   compiles the shim standalone and asserts via `nm -u` that the object names no
   `curl_easy_*` symbol. No Scala Native job can catch that regression on any OS:

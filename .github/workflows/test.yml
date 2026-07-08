@@ -14,12 +14,21 @@ jobs:
       pull-requests: read
     outputs:
       src: ${{ steps.filter.outputs.src }}
+      native: ${{ steps.filter.outputs.native }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
+            # Building Scala Native on Windows costs ~15 minutes, mostly toolchain setup, so the
+            # Windows job sits behind this narrower filter: the C sources Scala Native compiles into
+            # every downstream binary, the Native-only Scala, and the Scala Native version itself.
+            native:
+              - '.github/workflows/test.yml'
+              - '**.c'
+              - '**/.native/**'
+              - 'project/**'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -135,7 +144,9 @@ jobs:
     # `#include <dlfcn.h>` and broke those consumers instead of this repo's CI.
     name: Scala Native (Windows)
     needs: changes
-    if: ${{ needs.changes.outputs.src == 'true' }}
+    # ~15 minutes, nearly all of it toolchain setup, so don't spend it on every PR: run it on every
+    # push to main, and on the pull requests that can actually break it — those touching native code.
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
