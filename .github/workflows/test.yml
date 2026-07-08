@@ -152,18 +152,24 @@ jobs:
         id: vcpkg-cache
         with:
           path: C:\vcpkg\installed
-          key: vcpkg-windows-x64-curl-zlib-v1
-      - name: Install libcurl and zlib
+          key: vcpkg-windows-x64-curl-zlib-openssl-v2
+      - name: Install libcurl, zlib and OpenSSL
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
-        run: vcpkg install curl:x64-windows zlib:x64-windows
+        run: vcpkg install curl:x64-windows zlib:x64-windows openssl:x64-windows
         shell: pwsh
-      - name: Expose libcurl and zlib to the compiler, the linker and the test binary
-        # build.sbt links with `-lcurl -lz`, which clang in MSVC mode resolves as curl.lib / z.lib.
+      - name: Expose the native libraries to the compiler, the linker and the test binary
+        # Each `-lfoo` / @link("foo") reaches clang in MSVC mode as a request for `foo.lib`:
+        # `-lcurl -lz` from this build, and `-lcrypto -lssl` from Scala Native's own javalib.
         # vcpkg installs those import libraries under their upstream names, so alias them across.
         run: |
           $root   = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
           $libDir = "$root\lib"
-          @{ "curl.lib" = "libcurl.lib"; "z.lib" = "zlib.lib" }.GetEnumerator() | ForEach-Object {
+          @{
+            "curl.lib"   = "libcurl.lib"
+            "z.lib"      = "zlib.lib"
+            "crypto.lib" = "libcrypto.lib"
+            "ssl.lib"    = "libssl.lib"
+          }.GetEnumerator() | ForEach-Object {
             $dst = Join-Path $libDir $_.Key
             $src = Join-Path $libDir $_.Value
             if (-not (Test-Path $dst) -and (Test-Path $src)) {
