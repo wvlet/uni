@@ -109,7 +109,20 @@ same on both platforms. `winsock2.h` also supplies `POLLERR`, `POLLHUP` and
 - uni's Scala Native test binary links and runs on Windows, so CI gained a real
   `Scala Native (Windows)` job. That job — not a standalone `clang` compile — is
   now what would have caught v2026.1.17's `<dlfcn.h>` regression, and it exercises
-  both shims at runtime.
+  both shims at runtime. `NativeServerTest` passes 21/21 there, keep-alive and
+  read timeouts (the `WSAPoll` timeout paths) and WebSocket upgrade included.
+- That job runs `uniNative/testOnly wvlet.uni.http.*`, not the full
+  `projectNative/test`. `testOnly` still links the entire test binary, so both
+  shims are compiled and linked for Windows either way. Six tests outside `http`
+  fail there, all predating the job and none socket-related — they are what stands
+  between this and the full suite:
+  - `IOSymlinkTest` (3): uni raises `createSymlink is not supported on Scala Native
+    + Windows`; the tests need skipping on that platform.
+  - `IOPathTest.resolve child path`: the expectation is Windows-naive.
+  - `JSONTest` / `YAMLFormatterTest`: their `stripMargin` literals arrive CRLF (the
+    repo has no `.gitattributes`, and `actions/checkout` leaves Windows'
+    `core.autocrlf=true`), while the formatters emit LF. `* text=auto eol=lf` would
+    fix both.
 - `NativeSocket` no longer imports `scalanative.posix.poll` or
   `scalanative.posix.unistd`. Re-adding either would re-break Windows; the CI job
   is what notices.
