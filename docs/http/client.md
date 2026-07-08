@@ -39,8 +39,9 @@ code is platform-agnostic. A few platform constraints are worth knowing:
   use `newAsyncClient`, which returns `Rx[HttpResponse]`, instead. For the
   background on the Node sync implementation, see the
   [ADR](https://github.com/wvlet/uni/blob/main/adr/2026-05-14-nodejs-sync-http.md).
-- **Scala Native requires libcurl** to be available at runtime; the factory
-  initializes it globally the first time a client is created.
+- **Scala Native requires libcurl**, both to link and at runtime; the factory
+  initializes it globally the first time a client is created. See
+  [Linking libcurl on Scala Native](#linking-libcurl-on-scala-native) below.
 - **The async client is the cross-platform common denominator.** If you target
   the browser, prefer the async API everywhere so the same code compiles for
   every platform.
@@ -53,6 +54,65 @@ import wvlet.uni.http.Http
 
 Http.setDefaultChannelFactory(myChannelFactory)
 ```
+
+## Linking libcurl on Scala Native
+
+You need libcurl **only if your binary actually uses the HTTP client.** The
+`@link("curl")` annotation that pulls libcurl in rides on `CurlBindings`, which
+Scala Native's dead-code elimination drops when nothing reaches it. A Native
+project that only uses, say, `LogSupport` links with no libcurl installed at all.
+
+When you do use the client, install libcurl as a **shared library** and Scala
+Native adds `-lcurl` for you — no `nativeConfig` entry needed.
+
+::: warning libcurl must be dynamically linked
+uni looks `curl_easy_setopt` and `curl_easy_getinfo` up at runtime, among the
+modules already loaded into the process. A statically linked libcurl (`libcurl.a`,
+or vcpkg's `*-windows-static` triplets) exports no symbols to find, so the binary
+links but aborts on its first request with `uni_curl_shim: libcurl symbol
+'curl_easy_setopt' not found in this process`. Use the shared library.
+
+Why the lookup happens at runtime rather than through an ordinary `extern` is the
+subject of [this ADR](https://github.com/wvlet/uni/blob/main/adr/2026-07-06-curl-shim-weak-linking.md)
+— in short, it is what lets curl-free Native projects link at all.
+:::
+
+### Installing libcurl
+
+::: code-group
+
+```bash [Debian / Ubuntu]
+# The -dev package is what provides the unversioned libcurl.so symlink
+# that `-lcurl` resolves against.
+sudo apt-get install -y libcurl4-openssl-dev
+```
+
+```bash [macOS]
+# libcurl ships with the system; nothing to install.
+# For a newer version than Apple's:
+brew install curl
+```
+
+```powershell [Windows]
+vcpkg install curl:x64-windows   # or arm64-windows
+
+# Scala Native turns @link("curl") into `curl.lib`, but vcpkg installs the
+# import library as `libcurl.lib`, so give the linker the name it looks for.
+$root = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+Copy-Item "$root\lib\libcurl.lib" "$root\lib\curl.lib" -Force
+
+# `lib` is where the linker searches; `bin` is where the built binary finds
+# libcurl.dll at runtime.
+$env:LIB  = "$root\lib;$env:LIB"
+$env:PATH = "$root\bin;$env:PATH"
+```
+
+:::
+
+Alpine and other musl images need `curl-dev`. Distroless or `scratch` runtime
+images must still carry `libcurl.so` and its TLS dependencies, since the lookup
+resolves against the loaded shared library — statically linking your Scala Native
+binary does not fold libcurl into it.
 
 ## Making Requests
 
