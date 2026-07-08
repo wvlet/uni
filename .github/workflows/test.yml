@@ -14,17 +14,28 @@ jobs:
       pull-requests: read
     outputs:
       src: ${{ steps.filter.outputs.src }}
+      native: ${{ steps.filter.outputs.native }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
+            # Building Scala Native on Windows costs ~15 minutes, mostly toolchain setup, so the
+            # Windows job sits behind this narrower filter: the C sources Scala Native compiles into
+            # every downstream binary, the Native-only Scala, and the Scala Native version itself.
+            native:
+              - '.github/workflows/test.yml'
+              - '**.c'
+              - '**/.native/**'
+              - 'project/**'
             src:
               - '.github/workflows/test.yml'
+              - '.github/scripts/**'
               - 'project/**'
               - '**.scala'
               - '**.sbt'
+              - '**.c'
               - '**.conf'
               - '**.json'
               - '**.js'
@@ -113,6 +124,11 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Scala Native test
         run: JVM_OPTS=-Xmx4g ./sbt "projectNative/test"
+      # This build passes -lcurl unconditionally, so no Scala Native job here — on any OS — can
+      # notice uni_curl_shim.c growing a reference to a libcurl symbol. Downstream projects that
+      # never link libcurl can, and their build breaks (issue #622). Check the object directly.
+      - name: Assert the curl shim references no libcurl symbol
+        run: .github/scripts/check-curl-shim.sh
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6
         if: always() # always run even if the previous step fails
@@ -121,6 +137,25 @@ jobs:
           check_name: Test Report Scala Native
           annotate_only: true
           detailed_summary: true
+  curl_shim_c_windows:
+    # Scala Native compiles every .c under resources/scala-native/ from every jar on the classpath,
+    # so uni's uni_curl_shim.c lands in each downstream Windows binary — including ones that never
+    # call curl. Nothing else here compiles that file for Windows, which is how v2026.1.17 shipped a
+    # POSIX-only `#include <dlfcn.h>` and broke those consumers rather than this repo's CI.
+    #
+    # A full Windows Scala Native job would be the broader guard, but uni cannot run one: NativeServer
+    # uses POSIX poll(), and Scala Native's posixlib only builds poll.c on unix/Apple, so uni's native
+    # test binary fails to link on Windows with `unresolved external symbol scalanative_pollin`.
+    # Compiling this one file with the same clang/MSVC toolchain is the coverage available today.
+    name: curl shim C (Windows)
+    needs: changes
+    if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile the shim and check for libcurl symbol references
+        shell: bash
+        run: .github/scripts/check-curl-shim.sh
   package_src:
     name: Verify packageSrc
     needs: changes

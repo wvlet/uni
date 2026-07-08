@@ -26,6 +26,13 @@ libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
 libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
 ```
 
+::: tip Scala Native and libcurl
+No system libraries are needed to build a Scala Native binary against uni. Only
+reaching for the HTTP client pulls in libcurl, which must then be present as a
+shared library — see
+[Linking libcurl on Scala Native](../http/client.md#linking-libcurl-on-scala-native).
+:::
+
 ## Imports
 
 Common imports for getting started:
