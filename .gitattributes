@@ -1,0 +1,5 @@
+# Normalize line endings to LF in every working tree, Windows included. Without this,
+# `actions/checkout` honours Windows' default `core.autocrlf=true` and checks out CRLF, so tests
+# that compare formatter output (LF) against a `stripMargin` source literal (CRLF) fail — e.g.
+# JSONTest and YAMLFormatterTest on the Scala Native (Windows) CI job.
+* text=auto eol=lf

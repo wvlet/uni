@@ -59,7 +59,11 @@ class IOPathTest extends UniTest:
   test("resolve child path") {
     val base  = IOPath.parse("/home/user")
     val child = base.resolve("docs/file.txt")
-    child.path shouldBe s"/home/user${IOPath.separator}docs${IOPath.separator}file.txt"
+    // `.path` renders every separator with the platform one, the leading segment included, so build
+    // the expectation the same way — on Windows this is `\home\user\docs\file.txt`. `.posixPath` is
+    // the forward-slash form.
+    val sep = IOPath.separator
+    child.path shouldBe s"${sep}home${sep}user${sep}docs${sep}file.txt"
     child.posixPath shouldBe "/home/user/docs/file.txt"
   }
 
