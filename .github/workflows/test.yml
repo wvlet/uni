@@ -157,7 +157,7 @@ jobs:
         if: steps.vcpkg-cache.outputs.cache-hit != 'true'
         run: vcpkg install curl:x64-windows zlib:x64-windows
         shell: pwsh
-      - name: Expose libcurl and zlib to the linker and the test binary
+      - name: Expose libcurl and zlib to the compiler, the linker and the test binary
         # build.sbt links with `-lcurl -lz`, which clang in MSVC mode resolves as curl.lib / z.lib.
         # vcpkg installs those import libraries under their upstream names, so alias them across.
         run: |
@@ -172,6 +172,10 @@ jobs:
             }
           }
           Get-ChildItem $libDir -Filter *.lib | Select-Object -ExpandProperty Name | Sort-Object
+          # Scala Native's own javalib ships a z.c that includes <zlib.h>, so the headers must be
+          # reachable too, not just the import libraries.
+          echo "C_INCLUDE_PATH=$root\include" >> $env:GITHUB_ENV
+          echo "INCLUDE=$root\include;$env:INCLUDE" >> $env:GITHUB_ENV
           # LIB is where lld-link searches; bin is where the linked test binary finds libcurl.dll.
           echo "LIB=$libDir;$env:LIB" >> $env:GITHUB_ENV
           echo "$root\bin" >> $env:GITHUB_PATH
