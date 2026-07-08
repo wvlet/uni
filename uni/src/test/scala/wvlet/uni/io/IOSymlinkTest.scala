@@ -20,7 +20,15 @@ class IOSymlinkTest extends UniTest:
 
   private lazy val testDir: IOPath = FileSystem.createTempDirectory("symlink-test")
 
+  // Scala Native on Windows has no POSIX symlink support: FileSystem.createSymlink / readSymlink
+  // throw UnsupportedOperationException there by design (MSVC's CRT exports no `symlink`/`readlink`).
+  // `inline` so `skip`'s TestSource resolves to the calling test, not this helper.
+  private inline def requireSymlinkSupport(): Unit =
+    if IOPath.isWindows then
+      skip("Symlinks are not supported on Scala Native + Windows")
+
   test("createSymlink and readSymlink for a file") {
+    requireSymlinkSupport()
     val target = testDir / "target.txt"
     val link   = testDir / "link.txt"
 
@@ -33,6 +41,7 @@ class IOSymlinkTest extends UniTest:
   }
 
   test("info reports SymbolicLink type") {
+    requireSymlinkSupport()
     val target = testDir / "info-target.txt"
     val link   = testDir / "info-link.txt"
 
@@ -44,6 +53,7 @@ class IOSymlinkTest extends UniTest:
   }
 
   test("createSymlink for a directory") {
+    requireSymlinkSupport()
     val targetDir = testDir / "target-dir"
     val linkDir   = testDir / "link-dir"
 

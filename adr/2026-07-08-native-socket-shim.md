@@ -128,18 +128,20 @@ same on both platforms. `winsock2.h` also supplies `POLLERR`, `POLLHUP` and
   now what would have caught v2026.1.17's `<dlfcn.h>` regression, and it exercises
   both shims at runtime. `NativeServerTest` passes 21/21 there, keep-alive and
   read timeouts (the `WSAPoll` timeout paths) and WebSocket upgrade included.
-- That job runs `uniNative/testOnly wvlet.uni.http.*`, not the full
-  `projectNative/test`. `testOnly` still links the entire test binary, so both
-  shims are compiled and linked for Windows either way. Six tests outside `http`
-  fail there, all predating the job and none socket-related — they are what stands
-  between this and the full suite:
-  - `IOSymlinkTest` (3): uni raises `createSymlink is not supported on Scala Native
-    + Windows`; the tests need skipping on that platform.
-  - `IOPathTest.resolve child path`: the expectation is Windows-naive.
-  - `JSONTest` / `YAMLFormatterTest`: their `stripMargin` literals arrive CRLF (the
-    repo has no `.gitattributes`, and `actions/checkout` leaves Windows'
-    `core.autocrlf=true`), while the formatters emit LF. `* text=auto eol=lf` would
-    fix both.
+- That job runs the full `projectNative/test`. It first landed scoped to
+  `wvlet.uni.http.*`, because six non-socket tests failed on Windows — all
+  predating the job, surfaced only once the binary could run there. They were then
+  fixed so the job could widen:
+  - `IOSymlinkTest` (3): symlinks are unsupported on Scala Native + Windows (uni's
+    own `createSymlink` / `readSymlink` throw there), so the tests `skip` when
+    `IOPath.isWindows`.
+  - `IOPathTest.resolve child path`: the expectation mixed a literal `/` prefix with
+    `IOPath.separator`; `.path` renders every separator with the platform's, so on
+    Windows it is `\home\user\...`. Built the expectation with `separator`
+    throughout, matching the sibling assertion.
+  - `JSONTest` / `YAMLFormatterTest`: their `stripMargin` literals arrived CRLF
+    (`actions/checkout` honours Windows' `core.autocrlf=true`) while the formatters
+    emit LF. A repo `.gitattributes` (`* text=auto eol=lf`) forces LF everywhere.
 - `NativeSocket` no longer imports `scalanative.posix.poll` or
   `scalanative.posix.unistd`. Re-adding either would re-break Windows; the CI job
   is what notices.
