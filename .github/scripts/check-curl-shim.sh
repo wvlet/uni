@@ -1,36 +1,33 @@
 #!/usr/bin/env bash
 #
-# Guards uni_curl_shim.c, which Scala Native compiles into every downstream binary on every platform
-# it supports — including Windows, where uni itself has no Scala Native build to catch breakage.
+# Assert that uni_curl_shim.c compiles to an object referencing no libcurl symbol.
 #
-# Two things can go wrong, and both have:
-#   1. The file fails to compile at all (v2026.1.17 included <dlfcn.h>, which MSVC does not ship).
-#   2. The object file references a libcurl symbol, which breaks the link of downstream projects that
-#      never pull in -lcurl. See issue #622 and adr/2026-07-06-curl-shim-weak-linking.md.
+# Scala Native compiles this file into every downstream binary, whether or not the project uses
+# CurlBindings. A project that never links libcurl then fails to link with "undefined reference to
+# curl_easy_setopt" if the object names one (issue #622, adr/2026-07-06-curl-shim-weak-linking.md).
 #
-# Compiling the file standalone checks both, and needs no Scala Native toolchain to do it.
+# No Scala Native job in this repo can catch that: build.sbt passes -lcurl unconditionally, so every
+# uni native binary resolves those symbols and links happily. Only a consumer without -lcurl breaks.
+# Inspecting the object directly is what stands in for that consumer.
 set -euo pipefail
 
 shim="uni/.native/src/main/resources/scala-native/uni_curl_shim.c"
-obj="uni_curl_shim.o"
+obj="$(mktemp -d)/uni_curl_shim.o"
 
 echo "== Compiling ${shim} with $(clang --version | head -1)"
 clang -c "${shim}" -o "${obj}" -Wall -Wextra -Werror
 
-echo "== Undefined symbols in ${obj}"
-case "${RUNNER_OS:-}" in
-  Windows) llvm-nm --undefined-only "${obj}" | tee undefined-symbols.txt ;;
-  *) nm -u "${obj}" | tee undefined-symbols.txt ;;
-esac
+echo "== Undefined symbols"
+nm -u "${obj}"
 
-if grep -qi 'curl_easy' undefined-symbols.txt; then
+if nm -u "${obj}" | grep -qi 'curl_easy'; then
   echo
-  echo "ERROR: ${obj} references libcurl symbols. Downstream Scala Native projects that do not use"
-  echo "CurlBindings never link -lcurl, so their build fails with 'undefined reference to"
+  echo "ERROR: the shim object references libcurl symbols. Downstream Scala Native projects that do"
+  echo "not use CurlBindings never link -lcurl, so their build fails with 'undefined reference to"
   echo "curl_easy_setopt'. Resolve the symbols at runtime instead — see issue #622 and"
   echo "adr/2026-07-06-curl-shim-weak-linking.md."
   exit 1
 fi
 
 echo
-echo "OK: compiles cleanly and references no libcurl symbols."
+echo "OK: references no libcurl symbol."

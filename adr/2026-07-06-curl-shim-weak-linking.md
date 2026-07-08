@@ -65,12 +65,20 @@ If the lookup returns NULL (the shim is called from a build that somehow got the
 wrappers linked in without libcurl present), the shim prints a pointer to #622
 on stderr and `abort()`s rather than jumping to NULL.
 
-A CI job (`curl_shim_c` in `.github/workflows/test.yml`, driving
-`.github/scripts/check-curl-shim.sh`) compiles the file standalone with `clang`
-on Linux, macOS **and Windows**, then asserts via `nm -u` that the object
-references no `curl_easy_*` symbol. uni has no Scala Native build on Windows, so
-without that job nothing in this repo exercises the Windows half of the `#if`,
-and downstream consumers find the breakage for us.
+Two CI additions guard this, because the file's two failure modes need two
+different checks:
+
+- **`test_native_3_windows`** ("Scala Native (Windows)") builds and runs the
+  native test suite on Windows. Nothing in this repo compiled the Windows half of
+  the `#if` before, which is how v2026.1.17's POSIX-only `#include <dlfcn.h>`
+  shipped. It runs `NativeCurlClientTest` too, so the Windows lookup path is
+  exercised at runtime, not merely compiled.
+- **`.github/scripts/check-curl-shim.sh`**, a step in the Linux Native job, which
+  compiles the shim standalone and asserts via `nm -u` that the object names no
+  `curl_easy_*` symbol. No Scala Native job can catch that regression on any OS:
+  `build.sbt` passes `-lcurl` unconditionally, so uni's own binaries always
+  resolve those symbols. Only a consumer that doesn't link libcurl breaks — the
+  object inspection stands in for that consumer.
 
 ## Non-obvious points a future reader would otherwise reverse-engineer
 
@@ -180,4 +188,4 @@ signature — that reintroduces the CURLE_URL_MALFORMAT bug from #580.
   on any platform, Windows included; see above.
 - Removing the shim `.c` file, or any of its includes, would regress either the
   ABI fix, the link-error fix, or the Windows build; keep all three. The
-  `curl_shim_c` CI job is what notices.
+  "Scala Native (Windows)" job and `check-curl-shim.sh` are what notice.
