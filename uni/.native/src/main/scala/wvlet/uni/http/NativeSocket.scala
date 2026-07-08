@@ -31,9 +31,17 @@ import scala.scalanative.unsigned.*
   */
 @extern
 private[http] object SocketShim:
-  def uni_socket_startup(): CInt                                    = extern
+  def uni_socket_startup(): CInt = extern
+
+  /**
+    * `@blocking` parks this thread at a GC safepoint for the duration of the call, exactly as Scala
+    * Native annotates `posix.poll.poll`. Without it the garbage collector waits on a thread sitting
+    * inside `poll`, times out after 60s and aborts the process.
+    */
+  @blocking
   def uni_socket_wait_readable(fd: CInt, timeoutMillis: CInt): CInt = extern
-  def uni_socket_close(fd: CInt): CInt                              = extern
+
+  def uni_socket_close(fd: CInt): CInt = extern
 
 /**
   * Thin wrappers over POSIX TCP sockets (libc, via Scala Native's posixlib) for the Native HTTP

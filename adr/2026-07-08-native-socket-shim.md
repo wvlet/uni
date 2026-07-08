@@ -90,6 +90,21 @@ with `EBADF` and leak the socket. Sockets must be closed with `closesocket`. Not
 this applies to the error-cleanup paths in `bindAndListen` / `connect` too, not
 only the public `close`.
 
+### `uni_socket_wait_readable` must be annotated `@blocking`
+
+`scala.scalanative.unsafe.blocking` marks an `extern` that may park the calling
+thread, so Scala Native leaves it at a GC safepoint for the duration. Scala
+Native annotates its own `posix.poll.poll` that way. Dropping the annotation while
+moving the call into this shim does not fail to compile and does not fail on
+macOS — it makes the collector wait on a thread sitting inside `poll`, until:
+
+    [ScalaNative GC|Warning] Waiting for 1 thread(s) to reach safepoint (60.0s elapsed)
+    [ScalaNative GC|Error] FATAL: Timeout after 60.0s waiting for 1 thread(s)
+    Test runner interrupted by fatal signal 6
+
+Any future blocking call added here needs the same annotation. `uni_socket_close`
+and `uni_socket_startup` do not: neither parks the thread.
+
 ### Narrowing `SOCKET` to `int` is safe
 
 Scala Native stores a socket as `CInt`, having narrowed the `SOCKET` winsock
