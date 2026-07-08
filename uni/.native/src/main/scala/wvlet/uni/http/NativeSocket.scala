@@ -13,19 +13,27 @@
  */
 package wvlet.uni.http
 
-import scala.scalanative.libc.errno as libcErrno
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.posix.arpa.inet
-import scala.scalanative.posix.errno as posixErrno
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
 import scala.scalanative.posix.netinet.inOps.*
-import scala.scalanative.posix.poll.*
-import scala.scalanative.posix.pollOps.*
 import scala.scalanative.posix.sys.socket as csocket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
-import scala.scalanative.posix.unistd
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
+
+/**
+  * The three socket calls that differ on Windows, from `uni_socket_shim.c`: winsock startup, the
+  * readable-wait (`poll` vs `WSAPoll`), and closing a socket (`close` vs `closesocket`). Scala
+  * Native's posixlib builds `poll.c` only on unix/Apple, so referencing `scalanative.posix.poll`
+  * here would break every Windows Native build reaching this object. See
+  * `adr/2026-07-08-native-socket-shim.md`.
+  */
+@extern
+private[http] object SocketShim:
+  def uni_socket_startup(): CInt                                    = extern
+  def uni_socket_wait_readable(fd: CInt, timeoutMillis: CInt): CInt = extern
+  def uni_socket_close(fd: CInt): CInt                              = extern
 
 /**
   * Thin wrappers over POSIX TCP sockets (libc, via Scala Native's posixlib) for the Native HTTP
@@ -36,12 +44,22 @@ private[http] object NativeSocket:
   private final val ChunkSize = 8192
 
   /**
+    * Initialize the socket subsystem. A no-op on unix; on Windows, winsock rejects every `socket()`
+    * until `WSAStartup` has run, and Scala Native only calls it from its own `java.net` code, which
+    * uni's posixlib-based sockets never reach. Idempotent, so callers need not track it.
+    */
+  private def ensureStarted(): Unit =
+    if SocketShim.uni_socket_startup() != 0 then
+      throw HttpException.connectionFailed("Failed to initialize the socket subsystem")
+
+  /**
     * Create a listening TCP socket bound to host:port (port 0 = OS-assigned). Returns the socket fd
     * and the actually-bound port.
     */
   def bindAndListen(host: String, port: Int, backlog: Int): (Int, Int) =
     if port < 0 || port > 65535 then
       throw HttpException.connectionFailed(s"Invalid port: ${port}")
+    ensureStarted()
     val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
     if fd < 0 then
       throw HttpException.connectionFailed("Failed to create socket")
@@ -64,11 +82,11 @@ private[http] object NativeSocket:
     setBindAddress(addr, host)
 
     if csocket.bind(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
-      unistd.close(fd)
+      SocketShim.uni_socket_close(fd)
       throw HttpException.connectionFailed(s"Failed to bind to ${host}:${port}")
 
     if csocket.listen(fd, backlog) < 0 then
-      unistd.close(fd)
+      SocketShim.uni_socket_close(fd)
       throw HttpException.connectionFailed(s"Failed to listen on ${host}:${port}")
 
     (fd, resolveBoundPort(fd, port))
@@ -81,6 +99,7 @@ private[http] object NativeSocket:
   def connect(host: String, port: Int): Int =
     if port < 0 || port > 65535 then
       throw HttpException.connectionFailed(s"Invalid port: ${port}")
+    ensureStarted()
     val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
     if fd < 0 then
       throw HttpException.connectionFailed("Failed to create socket")
@@ -96,7 +115,7 @@ private[http] object NativeSocket:
       fd
     catch
       case e: Throwable =>
-        unistd.close(fd)
+        SocketShim.uni_socket_close(fd)
         throw e
 
   private def setBindAddress(addr: Ptr[sockaddr_in], host: String): Unit =
@@ -130,7 +149,7 @@ private[http] object NativeSocket:
       // Check the return: on failure outAddr is unpopulated (stackalloc isn't zeroed), so reading
       // sin_port would yield a garbage port.
       if csocket.getsockname(fd, outAddr.asInstanceOf[Ptr[sockaddr]], outLen) < 0 then
-        unistd.close(fd)
+        SocketShim.uni_socket_close(fd)
         throw HttpException.connectionFailed("Failed to resolve the bound port (getsockname)")
       inet.ntohs(outAddr.sin_port).toInt
 
@@ -160,31 +179,15 @@ private[http] object NativeSocket:
     * Wait until `fd` is readable or `timeoutMillis` elapses, using `poll` (a portable millisecond
     * timeout — avoids the macOS `SO_RCVTIMEO`/`timeval` layout trap). Returns 1 if readable, 0 on
     * timeout, -1 if the peer hung up or `poll` errored.
+    *
+    * The `poll` call, its EINTR retry and the `revents` interpretation all live in
+    * `uni_socket_shim.c`, because Windows needs `WSAPoll` and Scala Native offers no per-OS source
+    * directory.
     */
-  def waitReadable(fd: Int, timeoutMillis: Int): Int =
-    val fds = stackalloc[struct_pollfd]()
-    fds.fd = fd
-    fds.events = POLLIN.toShort
-    fds.revents = 0.toShort
-    var rc = poll(fds, 1.toUInt, timeoutMillis)
-    // Retry on EINTR (a signal) rather than mistaking it for a dead peer.
-    while rc < 0 && libcErrno.errno == posixErrno.EINTR do
-      fds.revents = 0.toShort
-      rc = poll(fds, 1.toUInt, timeoutMillis)
-    if rc < 0 then
-      -1
-    else if rc == 0 then
-      0
-    else
-      val re = fds.revents.toInt
-      // Prefer draining pending data over reporting a hangup: a peer that sent a final request then
-      // closed shows POLLIN (+ possibly POLLHUP); returning 1 lets recv read the data, then EOF.
-      if (re & POLLIN) != 0 then
-        1
-      else if (re & (POLLHUP | POLLERR | POLLNVAL)) != 0 then
-        -1
-      else
-        0
+  def waitReadable(fd: Int, timeoutMillis: Int): Int = SocketShim.uni_socket_wait_readable(
+    fd,
+    timeoutMillis
+  )
 
   /**
     * Receive up to ChunkSize bytes. Returns an empty array on EOF or error (caller treats both as
@@ -228,7 +231,8 @@ private[http] object NativeSocket:
       pos += n
     ok
 
-  def close(fd: Int): Unit = unistd.close(fd)
+  /** `closesocket` on Windows: the CRT's `close` links there but only knows file descriptors. */
+  def close(fd: Int): Unit = SocketShim.uni_socket_close(fd)
 
   /** Shut down both directions, unblocking any thread parked in `recv` on this fd. */
   def shutdown(fd: Int): Unit = csocket.shutdown(fd, csocket.SHUT_RDWR)

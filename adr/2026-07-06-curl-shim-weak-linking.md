@@ -68,12 +68,16 @@ on stderr and `abort()`s rather than jumping to NULL.
 Two CI additions guard this, because the file's two failure modes need two
 different checks:
 
-- **`curl_shim_c_windows`** ("curl shim C (Windows)") compiles the file standalone
-  with clang on `windows-latest`. Nothing else here compiles the Windows half of
-  the `#if`, which is how v2026.1.17's POSIX-only `#include <dlfcn.h>` shipped. It
-  runs on every push to `main` and on pull requests touching native code (the
-  `native` paths-filter): a `.c` file, anything under a `.native/` source tree, or
-  the Scala Native version in `project/`.
+- **`test_native_3_windows`** ("Scala Native (Windows)") builds and runs the native
+  test suite on Windows, compiling this shim for real. Nothing here compiled the
+  Windows half of the `#if` when v2026.1.17 shipped its POSIX-only
+  `#include <dlfcn.h>`; uni had no Windows Native build at all, because
+  `NativeServer` could not link there — see
+  [`2026-07-08-native-socket-shim.md`](2026-07-08-native-socket-shim.md), which
+  fixed that and made this job possible. ~15 minutes, so it runs on every push to
+  `main` and only on pull requests touching native code (the `native`
+  paths-filter): a `.c` file, anything under a `.native/` source tree, or the Scala
+  Native version in `project/`.
 - **`.github/scripts/check-curl-shim.sh`**, a step in the Linux Native job, which
   compiles the shim standalone and asserts via `nm -u` that the object names no
   `curl_easy_*` symbol. No Scala Native job can catch that regression on any OS:
@@ -112,27 +116,6 @@ in libSystem (always linked). On modern Linux (glibc 2.34+, released 2021)
 separate — but Scala Native's own `nativelib` already links both, so the shim
 inherits them. No extra linker option is required from consumers. Verified by
 inspecting Scala Native's link line (`[pthread, dl, m, crypto, curl, z]`).
-
-### A real "Scala Native on Windows" CI job would be better, and is not possible yet
-
-The obvious guard — build and run the native test suite on Windows, which would
-cover this break and any future one — was tried and abandoned. It gets the whole
-toolchain up (LLVM, vcpkg libcurl/zlib/OpenSSL, aliasing each `foo.lib` that
-`-lfoo` asks for), compiles every source *including this shim*, and then fails at
-the final link:
-
-    error LNK2019: unresolved external symbol scalanative_pollin
-      referenced in function ...wvlet.uni.http.NativeServerTest...
-    fatal error LNK1120: 5 unresolved externals
-
-`NativeServer` uses POSIX `poll()`, and Scala Native's `posixlib/poll.c` is wrapped
-in `#if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__))` — the
-symbols do not exist on Windows. Every native HTTP test spins up a server, so uni's
-native test binary cannot link there at all. Giving `NativeServer` a Windows path
-(`WSAPoll`) would unblock it; until then, compiling the shim standalone is the
-Windows coverage available. Notably, that abandoned run *did* prove the shim
-compiles and links clean under clang/MSVC: none of the unresolved symbols were
-`curl_easy_*`.
 
 ### Windows: why module enumeration, and why `PSAPI_VERSION 2`
 
