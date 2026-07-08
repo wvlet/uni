@@ -137,25 +137,95 @@ jobs:
           check_name: Test Report Scala Native
           annotate_only: true
           detailed_summary: true
-  curl_shim_c_windows:
-    # Scala Native compiles every .c under resources/scala-native/ from every jar on the classpath,
-    # so uni's uni_curl_shim.c lands in each downstream Windows binary — including ones that never
-    # call curl. Nothing else here compiles that file for Windows, which is how v2026.1.17 shipped a
-    # POSIX-only `#include <dlfcn.h>` and broke those consumers rather than this repo's CI.
-    #
-    # A full Windows Scala Native job would be the broader guard, but uni cannot run one: NativeServer
-    # uses POSIX poll(), and Scala Native's posixlib only builds poll.c on unix/Apple, so uni's native
-    # test binary fails to link on Windows with `unresolved external symbol scalanative_pollin`.
-    # Compiling this one file with the same clang/MSVC toolchain is the coverage available today.
-    name: curl shim C (Windows)
+  test_native_3_windows:
+    # Scala Native compiles every .c under resources/scala-native/ from every jar on the classpath, so
+    # uni's C (uni_curl_shim.c, uni_socket_shim.c) lands in each downstream Windows binary — including
+    # ones that never call curl or open a socket. uni had no Windows Native build, so v2026.1.17
+    # shipped a POSIX-only `#include <dlfcn.h>` and broke those consumers rather than this repo's CI.
+    name: Scala Native (Windows)
     needs: changes
+    # ~15 minutes, nearly all of it toolchain setup, so don't spend it on every PR: run it on every
+    # push to main, and on the pull requests that can actually break it — those touching native code.
     if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Compile the shim and check for libcurl symbol references
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+      - uses: ilammy/msvc-dev-cmd@v1
+      - name: Install LLVM
+        run: choco install llvm -y
+        shell: pwsh
+      - name: Cache vcpkg artifacts
+        uses: actions/cache@v4
+        id: vcpkg-cache
+        with:
+          path: C:\vcpkg\installed
+          key: vcpkg-windows-x64-curl-zlib-openssl-v2
+      - name: Install libcurl, zlib and OpenSSL
+        if: steps.vcpkg-cache.outputs.cache-hit != 'true'
+        run: vcpkg install curl:x64-windows zlib:x64-windows openssl:x64-windows
+        shell: pwsh
+      - name: Expose the native libraries to the compiler, the linker and the test binary
+        # Each `-lfoo` / @link("foo") reaches clang in MSVC mode as a request for `foo.lib`:
+        # `-lcurl -lz` from this build, and `-lcrypto -lssl -lzlib` from Scala Native's own javalib
+        # (zlib under both names). vcpkg installs the import libraries under their upstream names,
+        # which vary by port revision, so for each name asked for take the first candidate that exists.
+        run: |
+          $root   = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
+          $libDir = "$root\lib"
+          $wanted = [ordered]@{
+            "curl.lib"   = @("libcurl.lib")
+            "crypto.lib" = @("libcrypto.lib")
+            "ssl.lib"    = @("libssl.lib")
+            "z.lib"      = @("zlib.lib", "zlib1.lib", "libz.lib")
+            "zlib.lib"   = @("z.lib", "zlib1.lib", "libz.lib")
+          }
+          foreach ($dst in $wanted.Keys) {
+            $dstPath = Join-Path $libDir $dst
+            if (Test-Path $dstPath) { continue }
+            foreach ($src in $wanted[$dst]) {
+              $srcPath = Join-Path $libDir $src
+              if (Test-Path $srcPath) {
+                Write-Host "Copying $src -> $dst"
+                Copy-Item $srcPath $dstPath -Force
+                break
+              }
+            }
+            if (-not (Test-Path $dstPath)) { Write-Host "WARNING: no candidate found for $dst" }
+          }
+          Get-ChildItem $libDir -Filter *.lib | Select-Object -ExpandProperty Name | Sort-Object
+          # Scala Native's own javalib ships a z.c that includes <zlib.h>, so the headers must be
+          # reachable too, not just the import libraries.
+          echo "C_INCLUDE_PATH=$root\include" >> $env:GITHUB_ENV
+          echo "INCLUDE=$root\include;$env:INCLUDE" >> $env:GITHUB_ENV
+          # LIB is where lld-link searches; bin is where the linked test binary finds libcurl.dll.
+          echo "LIB=$libDir;$env:LIB" >> $env:GITHUB_ENV
+          echo "$root\bin" >> $env:GITHUB_PATH
+        shell: pwsh
+      # `testOnly` still links the whole native test binary, so both of uni's C shims get compiled and
+      # linked for Windows here; running the http suite then exercises uni_socket_shim.c (WSAStartup /
+      # WSAPoll / closesocket) and uni_curl_shim.c (GetProcAddress over EnumProcessModules) for real.
+      #
+      # Deliberately not the full `projectNative/test` yet. Six tests outside http fail on Windows, all
+      # of them predating this job and none socket-related: IOSymlinkTest (3 — uni itself raises
+      # `createSymlink is not supported on Scala Native + Windows`, so they want skipping there),
+      # IOPathTest's `resolve child path` (a Windows-naive expectation), and JSONTest /
+      # YAMLFormatterTest (their `stripMargin` literals arrive CRLF, as the repo has no .gitattributes,
+      # while the formatters emit LF). Fix those, then widen this step to projectNative/test.
+      - name: Scala Native test (http)
+        run: JVM_OPTS=-Xmx4g ./sbt "uniNative/testOnly wvlet.uni.http.*"
         shell: bash
-        run: .github/scripts/check-curl-shim.sh
+      - name: Publish Test Report
+        uses: mikepenz/action-junit-report@v6
+        if: always() # always run even if the previous step fails
+        with:
+          report_paths: '**/target/test-reports/TEST-*.xml'
+          check_name: Test Report Scala Native (Windows)
+          annotate_only: true
+          detailed_summary: true
   package_src:
     name: Verify packageSrc
     needs: changes
