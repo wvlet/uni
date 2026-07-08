@@ -108,9 +108,11 @@ and `uni_socket_startup` do not: neither parks the thread.
 ### Narrowing `SOCKET` to `int` is safe
 
 Scala Native stores a socket as `CInt`, having narrowed the `SOCKET` winsock
-returned. Widening it back with `(SOCKET)(UINT_PTR)fd` is sound: Windows keeps
-socket handles inside the low 32 bits precisely so they can be passed through
-`int` for interoperability.
+returned. Widening it back is sound: Windows keeps socket handles inside the low
+32 bits precisely so they can be passed through `int` for interoperability. Cast
+through `unsigned int` — `(SOCKET)(unsigned int)fd` — not straight to `UINT_PTR`:
+a signed `int` with bit 31 set would sign-extend to `0xFFFFFFFF........` and hand
+winsock an invalid `SOCKET`.
 
 ### `POLLIN` still works on Windows
 

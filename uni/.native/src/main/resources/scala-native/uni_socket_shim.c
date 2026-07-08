@@ -40,6 +40,11 @@
 
 #if defined(_WIN32)
 
+/* InitOnceExecuteOnce needs Vista+. Modern SDKs already target well above that; this only fills in a
+ * baseline for toolchains that leave _WIN32_WINNT unset (some MinGW header sets default lower). */
+#ifndef _WIN32_WINNT
+#define _WIN32_WINNT 0x0600
+#endif
 #include <winsock2.h>
 
 /* Embeds "ws2_32.lib" in this object's linker directives, so anything that links this object gets
@@ -58,8 +63,10 @@ typedef WSAPOLLFD uni_pollfd;
 
 /* Scala Native stores a socket as CInt, having narrowed the SOCKET winsock handed back. Widening it
  * again is safe: Windows keeps socket handles inside the low 32 bits for exactly this reason (they
- * are kernel handles, documented as safely castable to int for interoperability). */
-#define UNI_POLL_FD(fd) ((SOCKET)(UINT_PTR)(fd))
+ * are kernel handles, documented as safely castable to int for interoperability). Go through
+ * `unsigned int` so a handle with bit 31 set zero-extends; a direct `int`->`UINT_PTR` cast would
+ * sign-extend it to 0xFFFFFFFF........ and hand winsock an invalid SOCKET. */
+#define UNI_POLL_FD(fd) ((SOCKET)(unsigned int)(fd))
 #define uni_poll(fds, n, timeout) WSAPoll((fds), (ULONG)(n), (INT)(timeout))
 
 static INIT_ONCE uni_socket_startup_once = INIT_ONCE_STATIC_INIT;

@@ -72,32 +72,37 @@ private[http] object NativeSocket:
     if fd < 0 then
       throw HttpException.connectionFailed("Failed to create socket")
 
-    // SO_REUSEADDR so a restart can rebind the port immediately.
-    val optval = stackalloc[CInt]()
-    !optval = 1
-    csocket.setsockopt(
-      fd,
-      csocket.SOL_SOCKET,
-      csocket.SO_REUSEADDR,
-      optval.asInstanceOf[Ptr[Byte]],
-      sizeof[CInt].toUInt
-    )
+    // Close the fd on any failure — setBindAddress rejecting an invalid host, or a failed
+    // bind/listen/getsockname — rather than leaking it.
+    try
+      // SO_REUSEADDR so a restart can rebind the port immediately.
+      val optval = stackalloc[CInt]()
+      !optval = 1
+      csocket.setsockopt(
+        fd,
+        csocket.SOL_SOCKET,
+        csocket.SO_REUSEADDR,
+        optval.asInstanceOf[Ptr[Byte]],
+        sizeof[CInt].toUInt
+      )
 
-    val addr = stackalloc[sockaddr_in]()
-    cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
-    addr.sin_family = csocket.AF_INET.toUShort
-    addr.sin_port = inet.htons(port.toUShort)
-    setBindAddress(addr, host)
+      val addr = stackalloc[sockaddr_in]()
+      cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
+      addr.sin_family = csocket.AF_INET.toUShort
+      addr.sin_port = inet.htons(port.toUShort)
+      setBindAddress(addr, host)
 
-    if csocket.bind(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
-      SocketShim.uni_socket_close(fd)
-      throw HttpException.connectionFailed(s"Failed to bind to ${host}:${port}")
+      if csocket.bind(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
+        throw HttpException.connectionFailed(s"Failed to bind to ${host}:${port}")
 
-    if csocket.listen(fd, backlog) < 0 then
-      SocketShim.uni_socket_close(fd)
-      throw HttpException.connectionFailed(s"Failed to listen on ${host}:${port}")
+      if csocket.listen(fd, backlog) < 0 then
+        throw HttpException.connectionFailed(s"Failed to listen on ${host}:${port}")
 
-    (fd, resolveBoundPort(fd, port))
+      (fd, resolveBoundPort(fd, port))
+    catch
+      case e: Throwable =>
+        SocketShim.uni_socket_close(fd)
+        throw e
 
   end bindAndListen
 
@@ -155,9 +160,8 @@ private[http] object NativeSocket:
       val outLen  = stackalloc[socklen_t]()
       !outLen = sizeof[sockaddr_in].toUInt
       // Check the return: on failure outAddr is unpopulated (stackalloc isn't zeroed), so reading
-      // sin_port would yield a garbage port.
+      // sin_port would yield a garbage port. The caller's catch closes fd — don't double-close here.
       if csocket.getsockname(fd, outAddr.asInstanceOf[Ptr[sockaddr]], outLen) < 0 then
-        SocketShim.uni_socket_close(fd)
         throw HttpException.connectionFailed("Failed to resolve the bound port (getsockname)")
       inet.ntohs(outAddr.sin_port).toInt
 
