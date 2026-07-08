@@ -170,23 +170,31 @@ jobs:
         shell: pwsh
       - name: Expose the native libraries to the compiler, the linker and the test binary
         # Each `-lfoo` / @link("foo") reaches clang in MSVC mode as a request for `foo.lib`:
-        # `-lcurl -lz` from this build, and `-lcrypto -lssl` from Scala Native's own javalib.
-        # vcpkg installs those import libraries under their upstream names, so alias them across.
+        # `-lcurl -lz` from this build, and `-lcrypto -lssl -lzlib` from Scala Native's own javalib
+        # (zlib under both names). vcpkg installs the import libraries under their upstream names,
+        # which vary by port revision, so for each name asked for take the first candidate that exists.
         run: |
           $root   = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows"
           $libDir = "$root\lib"
-          @{
-            "curl.lib"   = "libcurl.lib"
-            "z.lib"      = "zlib.lib"
-            "crypto.lib" = "libcrypto.lib"
-            "ssl.lib"    = "libssl.lib"
-          }.GetEnumerator() | ForEach-Object {
-            $dst = Join-Path $libDir $_.Key
-            $src = Join-Path $libDir $_.Value
-            if (-not (Test-Path $dst) -and (Test-Path $src)) {
-              Write-Host "Copying $($_.Value) -> $($_.Key)"
-              Copy-Item $src $dst -Force
+          $wanted = [ordered]@{
+            "curl.lib"   = @("libcurl.lib")
+            "crypto.lib" = @("libcrypto.lib")
+            "ssl.lib"    = @("libssl.lib")
+            "z.lib"      = @("zlib.lib", "zlib1.lib", "libz.lib")
+            "zlib.lib"   = @("z.lib", "zlib1.lib", "libz.lib")
+          }
+          foreach ($dst in $wanted.Keys) {
+            $dstPath = Join-Path $libDir $dst
+            if (Test-Path $dstPath) { continue }
+            foreach ($src in $wanted[$dst]) {
+              $srcPath = Join-Path $libDir $src
+              if (Test-Path $srcPath) {
+                Write-Host "Copying $src -> $dst"
+                Copy-Item $srcPath $dstPath -Force
+                break
+              }
             }
+            if (-not (Test-Path $dstPath)) { Write-Host "WARNING: no candidate found for $dst" }
           }
           Get-ChildItem $libDir -Filter *.lib | Select-Object -ExpandProperty Name | Sort-Object
           # Scala Native's own javalib ships a z.c that includes <zlib.h>, so the headers must be
