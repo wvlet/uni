@@ -22,9 +22,11 @@ jobs:
           filters: |
             src:
               - '.github/workflows/test.yml'
+              - '.github/scripts/**'
               - 'project/**'
               - '**.scala'
               - '**.sbt'
+              - '**.c'
               - '**.conf'
               - '**.json'
               - '**.js'
@@ -121,6 +123,23 @@ jobs:
           check_name: Test Report Scala Native
           annotate_only: true
           detailed_summary: true
+  curl_shim_c:
+    # Scala Native compiles uni_curl_shim.c into every downstream binary, on platforms uni has no
+    # Scala Native build of its own for. Compiling it standalone here is the only thing that catches a
+    # Windows-only break (v2026.1.17 shipped a POSIX-only #include <dlfcn.h>) before consumers hit it.
+    name: curl shim C (${{ matrix.os }})
+    needs: changes
+    if: ${{ needs.changes.outputs.src == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compile shim and check for libcurl symbol references
+        shell: bash
+        run: .github/scripts/check-curl-shim.sh
   package_src:
     name: Verify packageSrc
     needs: changes

@@ -33,13 +33,27 @@ either: Scala Native has no jar-level knob to conditionally include a resource
 
 ## Decision
 
-Resolve the libcurl symbols lazily via
-`dlsym(RTLD_DEFAULT, "curl_easy_setopt")` — not via C-level `extern` — inside a
-`pthread_once` initialiser that stores each pointer in a `static` cache. The
-shim's `.o` then has zero references to libcurl symbols; downstream projects
-that don't use CurlBindings link cleanly. Projects that do use CurlBindings
-still pull libcurl in via `@link("curl")` on `CurlBindings.Extern`, and
-`RTLD_DEFAULT` finds the symbols inside the already-loaded libcurl at runtime.
+Resolve the libcurl symbols lazily, at first call, from whatever is already
+loaded into the process — not via C-level `extern` — inside a run-once
+initialiser that stores each pointer in a `static` cache. The shim's `.o` then
+has zero references to libcurl symbols; downstream projects that don't use
+CurlBindings link cleanly. Projects that do use CurlBindings still pull libcurl
+in via `@link("curl")` on `CurlBindings.Extern`, and the lookup finds the
+symbols inside the already-loaded libcurl at runtime.
+
+The two primitives this needs — a lookup over all loaded modules, and a
+thread-safe run-once — are spelled differently per platform, so the file carries
+a `#if defined(_WIN32)` split:
+
+| | POSIX | Windows |
+|---|---|---|
+| lookup | `dlsym(RTLD_DEFAULT, name)` | `GetProcAddress` over `EnumProcessModules` |
+| run-once | `pthread_once` | `InitOnceExecuteOnce` |
+
+The Windows half exists because MSVC ships neither `<dlfcn.h>` nor
+`<pthread.h>`; the first version of this shim (v2026.1.17) included both
+unconditionally and broke every downstream Windows Scala Native build with
+`fatal error: 'dlfcn.h' file not found`.
 
 The function-pointer typedefs are declared variadic
 (`typedef int (*fn)(void *, int, ...)`) so the call at the shim's own call site
@@ -47,9 +61,16 @@ still emits the correct variadic calling convention — that's what fixes the
 original CURLE_URL_MALFORMAT bug from #580, and it works exactly the same via a
 variadic function-pointer as via a variadic extern.
 
-If `dlsym` returns NULL (the shim is called from a build that somehow got the
+If the lookup returns NULL (the shim is called from a build that somehow got the
 wrappers linked in without libcurl present), the shim prints a pointer to #622
 on stderr and `abort()`s rather than jumping to NULL.
+
+A CI job (`curl_shim_c` in `.github/workflows/test.yml`, driving
+`.github/scripts/check-curl-shim.sh`) compiles the file standalone with `clang`
+on Linux, macOS **and Windows**, then asserts via `nm -u` that the object
+references no `curl_easy_*` symbol. uni has no Scala Native build on Windows, so
+without that job nothing in this repo exercises the Windows half of the `#if`,
+and downstream consumers find the breakage for us.
 
 ## Non-obvious points a future reader would otherwise reverse-engineer
 
@@ -83,6 +104,40 @@ separate — but Scala Native's own `nativelib` already links both, so the shim
 inherits them. No extra linker option is required from consumers. Verified by
 inspecting Scala Native's link line (`[pthread, dl, m, crypto, curl, z]`).
 
+### Windows: why module enumeration, and why `PSAPI_VERSION 2`
+
+Windows has no `RTLD_DEFAULT`. `GetProcAddress` takes one `HMODULE` at a time,
+so the shim asks `EnumProcessModules` for every module loaded into the process
+and walks them in order — the process image comes first, matching `dlsym`'s
+search order. `GetModuleHandleA(NULL)` alone would only see the executable's own
+exports and would miss `libcurl.dll`.
+
+`#define PSAPI_VERSION 2` before `<psapi.h>` redirects `EnumProcessModules` to
+`K32EnumProcessModules`, which lives in `kernel32.dll` and so is always linked.
+Under the default (version 1) the symbol resolves out of `psapi.lib`, and a
+jar-resource `.c` file cannot make downstream binaries pass an extra linker
+flag — the exact constraint that kills the weak-symbol approach on macOS.
+`_WIN32_WINNT` is floored at `0x0600` for `InitOnceExecuteOnce` (Vista+), for
+MinGW header sets that leave it unset.
+
+`GetProcAddress` returns `FARPROC`; casting it straight to `void *` trips
+`-Wcast-function-type`, so the shim rounds it through `uintptr_t`.
+
+### Windows: libcurl must be a DLL, not a static `.lib`
+
+Runtime symbol lookup can only find *exported* symbols. A statically linked
+libcurl (vcpkg's `*-windows-static` triplets) exports nothing, so
+`GetProcAddress` returns NULL and the shim aborts with its diagnostic. Consumers
+must link libcurl dynamically — vcpkg's default `x64-windows` / `arm64-windows`
+triplets do exactly that, producing `libcurl.lib` as an import library for
+`libcurl.dll`.
+
+This is not a Windows quirk so much as the price of the whole approach: a static
+libcurl on Linux (`libcurl.a`, no `--export-dynamic`) is invisible to
+`dlsym(RTLD_DEFAULT, ...)` in precisely the same way. The old `extern`-based shim
+worked with static libcurl on both — that capability is what was traded away to
+fix #622.
+
 ### `_GNU_SOURCE` is required on glibc
 
 `RTLD_DEFAULT` is a GNU extension: glibc's `<dlfcn.h>` only defines it when
@@ -90,34 +145,39 @@ inspecting Scala Native's link line (`[pthread, dl, m, crypto, curl, z]`).
 is harmless there. The file defines `_GNU_SOURCE` at the top — dropping it
 would silently break Linux builds with `error: 'RTLD_DEFAULT' undeclared`.
 
-### Lazy init needs `pthread_once`, not "same value written twice"
+### Lazy init needs a run-once guard, not "same value written twice"
 
 An earlier draft argued no lock was needed because racing threads would race to
 write the same pointer value. That reasoning is wrong under C11: concurrent
 unsynchronised accesses to a non-atomic object where at least one is a write is
 a data race, i.e. undefined behaviour, regardless of the value written. The
 compiler is entitled to assume no such race exists and to re-order/eliminate
-the loads and stores accordingly. `pthread_once` gives a proper
-happens-before edge between the resolver's writes and every subsequent reader,
-at negligible cost after the first call (a plain "already done" flag check).
+the loads and stores accordingly. `pthread_once` (and `InitOnceExecuteOnce` on
+Windows) gives a proper happens-before edge between the resolver's writes and
+every subsequent reader, at negligible cost after the first call (a plain
+"already done" flag check).
 
 ### The variadic-typedef trick is the whole variadic story
 
 The C ABI's variadic calling convention is determined by the *type at the call
 site*, not by whatever the symbol on the other end was compiled as. That is why
 calling through `uni_curl_setopt_fn` (declared variadic) reproduces #580's fix
-even though the pointer was obtained from `dlsym` (which has no type
-information). Do not "simplify" the typedef to a fixed-arity signature — that
-reintroduces the CURLE_URL_MALFORMAT bug from #580.
+even though the pointer was obtained from `dlsym` / `GetProcAddress` (neither of
+which carries type information). Do not "simplify" the typedef to a fixed-arity
+signature — that reintroduces the CURLE_URL_MALFORMAT bug from #580.
 
 ## Consequences
 
 - Downstream Scala Native projects that don't use CurlBindings link cleanly
   again — #622 fixed.
-- Downstream projects that do use CurlBindings pay one `dlsym` per unique
-  wrapper on first call (three lookups total across the process's lifetime);
-  every subsequent call is a plain indirect function call.
+- Downstream projects that do use CurlBindings pay one symbol lookup per unique
+  wrapper on first call (two lookups total across the process's lifetime); every
+  subsequent call is a plain indirect function call. On Windows a lookup also
+  walks the loaded-module list, which is still a once-per-process cost.
 - CurlBindings' `@link("curl")` remains load-bearing — it's how libcurl actually
   gets into the process. Do not remove it.
-- Removing the shim `.c` file, or any `dlfcn`/`stdio` include, would regress
-  either the ABI fix or the link-error fix; keep both.
+- libcurl must be linked dynamically. Statically linked libcurl no longer works
+  on any platform, Windows included; see above.
+- Removing the shim `.c` file, or any of its includes, would regress either the
+  ABI fix, the link-error fix, or the Windows build; keep all three. The
+  `curl_shim_c` CI job is what notices.
