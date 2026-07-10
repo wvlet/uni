@@ -60,8 +60,8 @@ lazy val jsenv = project
     scalaVersion := SCALA_3,
     libraryDependencies ++=
       Seq(
-        "org.scala-js"             %% "scalajs-js-envs" % SCALAJS_JS_ENVS_VERSION,
-        "com.microsoft.playwright" % "playwright"       % PLAYWRIGHT_VERSION
+        "org.scala-js"            %% "scalajs-js-envs" % SCALAJS_JS_ENVS_VERSION,
+        "com.microsoft.playwright" % "playwright"      % PLAYWRIGHT_VERSION
       )
   )
 
@@ -82,7 +82,4 @@ lazy val plugin = project
     scriptedBufferLog := false
   )
 
-lazy val root = project
-  .in(file("."))
-  .settings(publish / skip := true)
-  .aggregate(jsenv, plugin)
+lazy val root = project.in(file(".")).settings(publish / skip := true).aggregate(jsenv, plugin)

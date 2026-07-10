@@ -13,8 +13,8 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 
 /**
   * The renderer (UI) process. It installs the Electron IPC channel so that every Uni HTTP/RPC call
-  * is tunneled to the main process through the preload bridge, then renders a small counter UI whose
-  * buttons drive the [[CounterApi]].
+  * is tunneled to the main process through the preload bridge, then renders a small counter UI
+  * whose buttons drive the [[CounterApi]].
   */
 object RendererApp:
 
@@ -28,8 +28,12 @@ object RendererApp:
   private lazy val client = Http.client.newAsyncClient
 
   private def get(): Rx[CounterState] = rpc.callAsync[CounterState](client, "get", Seq.empty)
-  private def increment(amount: Int): Rx[CounterState] =
-    rpc.callAsync[CounterState](client, "increment", Seq(amount))
+  private def increment(amount: Int): Rx[CounterState] = rpc.callAsync[CounterState](
+    client,
+    "increment",
+    Seq(amount)
+  )
+
   private def reset(): Rx[CounterState] = rpc.callAsync[CounterState](client, "reset", Seq.empty)
 
   @JSExportTopLevel("main")
@@ -42,7 +46,8 @@ object RendererApp:
   private def el[E <: html.Element](tag: String, classes: String, text: String = ""): E =
     val e = dom.document.createElement(tag).asInstanceOf[E]
     e.className = classes
-    if text.nonEmpty then e.textContent = text
+    if text.nonEmpty then
+      e.textContent = text
     e
 
   private def renderUI(): Unit =
@@ -82,23 +87,27 @@ object RendererApp:
       display.textContent = state.value.toString
       display.className =
         "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform scale-110"
-      dom.window.setTimeout(
-        () =>
-          display.className =
-            "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
-        120
-      )
+      dom
+        .window
+        .setTimeout(
+          () =>
+            display.className =
+              "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
+          120
+        )
 
     val row = el[html.Div]("div", "flex items-center justify-center gap-3")
-    row.appendChild(button("+1", "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700")(
-      increment(1).run(show)
-    ))
-    row.appendChild(button("+10", "bg-indigo-700 hover:bg-indigo-600 active:bg-indigo-800")(
-      increment(10).run(show)
-    ))
-    row.appendChild(button("Reset", "bg-slate-600 hover:bg-slate-500 active:bg-slate-700")(
-      reset().run(show)
-    ))
+    row.appendChild(
+      button("+1", "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700")(increment(1).run(show))
+    )
+    row.appendChild(
+      button("+10", "bg-indigo-700 hover:bg-indigo-600 active:bg-indigo-800")(
+        increment(10).run(show)
+      )
+    )
+    row.appendChild(
+      button("Reset", "bg-slate-600 hover:bg-slate-500 active:bg-slate-700")(reset().run(show))
+    )
 
     card.appendChild(title)
     card.appendChild(subtitle)

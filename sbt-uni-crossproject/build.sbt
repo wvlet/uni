@@ -23,8 +23,8 @@ ThisBuild / publishTo := {
 // Both plugins are published for sbt 2.x under the `_sbt2_3` coordinate suffix. The plugin enables
 // ScalaJSPlugin / ScalaNativePlugin on the JS / Native platform projects, so it compiles against
 // these and consumers get them transitively.
-val SCALAJS_VERSION       = "1.22.0"
-val SCALA_NATIVE_VERSION  = "0.5.12"
+val SCALAJS_VERSION      = "1.22.0"
+val SCALA_NATIVE_VERSION = "0.5.12"
 
 lazy val sbtUniCrossProject = project
   .in(file("."))
