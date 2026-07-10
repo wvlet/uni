@@ -15,9 +15,6 @@ lazy val app = project
     // On sbt 2.x, `%%` encodes both the Scala version and the Scala.js platform suffix (_sjs1),
     // so the old `%%%` operator is no longer used.
     libraryDependencies ++=
-      Seq(
-        "org.scala-js"  %% "scalajs-dom" % "2.8.1",
-        "org.scalameta" %% "munit"       % "1.1.0" % Test
-      ),
+      Seq("org.scala-js" %% "scalajs-dom" % "2.8.1", "org.scalameta" %% "munit" % "1.1.0" % Test),
     testFrameworks += new TestFramework("munit.Framework")
   )

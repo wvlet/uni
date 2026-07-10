@@ -26,5 +26,8 @@ lazy val app = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 TaskKey[Unit]("checkVersions") := {
   assert((core.jvm / version).value == "0.1.0-jvm", s"jvm: ${(core.jvm / version).value}")
   assert((core.js / version).value == "0.1.0-js", s"js: ${(core.js / version).value}")
-  assert((core.native / version).value == "0.1.0-native", s"native: ${(core.native / version).value}")
+  assert(
+    (core.native / version).value == "0.1.0-native",
+    s"native: ${(core.native / version).value}"
+  )
 }

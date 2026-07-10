@@ -19,14 +19,11 @@ lazy val commonSettings = Seq(
     _.withModuleKind(ModuleKind.ESModule)
   },
   // Neither module has a `main` entry point; both export functions instead.
-  scalaJSUseMainModuleInitializer := false,
+  scalaJSUseMainModuleInitializer         := false,
   libraryDependencies += "org.wvlet.uni" %%% "uni" % uniVersion
 )
 
-lazy val api = project
-  .in(file("api"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(commonSettings)
+lazy val api = project.in(file("api")).enablePlugins(ScalaJSPlugin).settings(commonSettings)
 
 lazy val main = project
   .in(file("main"))

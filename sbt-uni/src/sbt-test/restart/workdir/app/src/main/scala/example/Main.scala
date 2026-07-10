@@ -5,8 +5,8 @@ import java.nio.file.{Files, Paths}
 /**
   * Test app for `uniRestart`. Writes a marker file named after its first program argument, but only
   * when the system property `uni.test.enabled=true` is set. This lets the scripted test assert that
-  * BOTH program args (the file name) AND JVM args after `---` (the system property) are forwarded to
-  * the forked JVM. It then stays alive so the test can observe a running background process and
+  * BOTH program args (the file name) AND JVM args after `---` (the system property) are forwarded
+  * to the forked JVM. It then stays alive so the test can observe a running background process and
   * later stop it.
   */
 object Main:
