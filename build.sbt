@@ -29,7 +29,7 @@ addCommandAlias("publishNativeSigned", s"projectNative/publishSigned")
 
 val SCALA_3                             = "3.8.4"
 val JS_JAVA_LOGGING_VERSION             = "1.0.0"
-val JUNIT_PLATFORM_VERSION              = "6.1.1"
+val JUNIT_PLATFORM_VERSION              = "6.1.2"
 val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.12"
 val SBT_TEST_INTERFACE_VERSION          = "1.0"
 
