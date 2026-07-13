@@ -137,9 +137,9 @@ class WebSocketTest extends UniTest:
         val listener = CollectingListener()
         val ws       = connect(server.localPort, "/ws/echo", listener)
         try
-          ws.sendText("hello", true)
+          ws.sendText("hello", true).get(10, TimeUnit.SECONDS)
           listener.nextText shouldBe "echo:hello"
-          ws.sendText("world", true)
+          ws.sendText("world", true).get(10, TimeUnit.SECONDS)
           listener.nextText shouldBe "echo:world"
         finally
           ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye")
@@ -213,9 +213,11 @@ class WebSocketTest extends UniTest:
         val listener = CollectingListener()
         val ws       = connect(server.localPort, "/ws/frag", listener)
         try
-          // Send across two fragments; the server should see one coalesced message.
-          ws.sendText("first-", false)
-          ws.sendText("second", true)
+          // Send across two fragments; the server should see one coalesced message. Each send must
+          // complete before the next: the JDK client rejects a send while one is pending, which
+          // would silently drop the final fragment and leave the aggregator waiting forever.
+          ws.sendText("first-", false).get(10, TimeUnit.SECONDS)
+          ws.sendText("second", true).get(10, TimeUnit.SECONDS)
           listener.nextText shouldBe s"len:${"first-second".length}"
         finally
           ws.sendClose(WebSocket.NORMAL_CLOSURE, "bye")
