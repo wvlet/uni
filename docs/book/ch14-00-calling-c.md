@@ -30,6 +30,15 @@ object curl:
 
   @name("curl_easy_perform")
   def easyPerform(handle: Ptr[Byte]): CInt = extern
+
+  @name("curl_easy_strerror")
+  def easyStrError(code: CInt): CString = extern
+
+  @name("curl_easy_cleanup")
+  def easyCleanup(handle: Ptr[Byte]): Unit = extern
+
+// Option codes come from curl.h; 10002 is CURLOPT_URL
+val CURLOPT_URL: CInt = 10002
 ```
 
 Four pieces, mirroring the JavaScript facade from Chapter 12:
@@ -45,6 +54,8 @@ Four pieces, mirroring the JavaScript facade from Chapter 12:
 
 You declare only the handful of functions you call, exactly as with a JS
 facade. `libcurl` exports hundreds; a working HTTP client needs a dozen.
+C constants (like `CURLOPT_URL`) don't cross the boundary at all — you
+copy their values out of the header file into ordinary Scala `val`s.
 
 ## C types in Scala
 
@@ -96,6 +107,87 @@ can't be used after they're freed. (You'll see the one case where `Zone`
 is *wrong* — a value handed back to C that must outlive the call — in
 [Chapter 15](./ch15-00-exposing-native).)
 
+## A Uni service over the binding
+
+The binding compiles, but nothing about it feels like the code you've
+written in the rest of this book: it traffics in pointers and integer
+return codes, and a failure is a `CInt` you have to remember to check.
+Don't spread that through your application. Wrap the binding in one
+ordinary Scala class, and let Uni take over from there.
+
+```scala
+import scala.scalanative.unsafe.*
+import wvlet.uni.log.LogSupport
+
+class CurlError(code: Int, message: String)
+    extends Exception(s"curl error ${code}: ${message}")
+
+class Downloader extends LogSupport with AutoCloseable:
+  private val handle = curl.easyInit()
+
+  def fetch(url: String): Unit = Zone.acquire { implicit z =>
+    curl.easySetOpt(handle, CURLOPT_URL, toCString(url))
+    val code = curl.easyPerform(handle)
+    if code != 0 then
+      val message = fromCString(curl.easyStrError(code))
+      error(s"GET ${url} failed: ${message}")
+      throw CurlError(code, message)
+    debug(s"GET ${url} succeeded")
+  }
+
+  override def close(): Unit = curl.easyCleanup(handle)
+```
+
+This one class is the whole unsafe surface. Everything C-shaped is
+translated at the edge:
+
+- **Error codes become exceptions.** C reports failure by returning a
+  nonzero `CInt`; the compiler doesn't force anyone to look at it. The
+  wrapper checks once, converts the code to a message with
+  `easyStrError`, and throws — callers can't silently ignore a failed
+  download.
+- **`LogSupport` works here like everywhere else.** The logging you
+  learned in [Chapter 5](./ch05-00-logging) is pure Scala, so it
+  cross-compiles to Native unchanged — `error` and `debug` at the C
+  boundary behave exactly as they did on the JVM. When a native binary
+  misbehaves in production, the log line with curl's own error message
+  is what you'll want.
+- **Callers see `fetch(url: String)`.** No `Ptr`, no `CString`, no
+  `Zone`. The rest of the application cannot tell — and should not care —
+  that a C library sits underneath.
+
+## Give the C handle a lifecycle
+
+There is one problem left: `handle` is C memory. Scala's garbage
+collector doesn't know about it, so nothing frees it unless `close()`
+runs. That is precisely what `Design`'s lifecycle hooks from
+[Chapter 3](./ch03-00-design) are for:
+
+```scala
+import wvlet.uni.design.Design
+
+val design = Design
+  .newDesign
+  .bindSingleton[Downloader]
+  .onShutdown(_.close())
+
+design.build[Downloader] { downloader =>
+  downloader.fetch("https://example.com")
+}   // session ends here: close() runs, curl_easy_cleanup frees the handle
+```
+
+The session guarantees `close()` runs exactly once, when the session
+ends — the same deterministic teardown you'd want for a database
+connection, applied to a C resource. And because `Downloader` is now
+just a binding in a design, tests can substitute it the way
+[Chapter 3](./ch03-00-design) substituted a database: put a trait in
+front of it, `bindImpl` the C-backed class in the production design, and
+bind a stub in the test design — no test ever opens a real curl handle.
+
+This layering — raw `@extern` facade at the bottom, one safe wrapper
+class, Uni services on top — is how Uni's own Native HTTP client is
+built, and it is the shape to copy for any C library you bind.
+
 ## Why bind C directly?
 
 On the JVM, reaching a C library means JNI: a separate C shim, a build
@@ -113,7 +205,8 @@ wrap any C library the same way.
 
 ## What you have, what comes next
 
-You can now call C libraries from Scala Native:
+You can now call C libraries from Scala Native — and make them feel
+like Uni code:
 
 - An **`@extern` object** with **`@link`** and **`@name`** declares the C
   functions you use — a facade, like Chapter 12's, but for C.
@@ -121,6 +214,11 @@ You can now call C libraries from Scala Native:
   a `CString` is not a Scala `String`.
 - **`Zone.acquire`** + **`toCString`** allocate temporary arguments with a
   scoped lifetime; **`fromCString`** reads results back.
+- **One wrapper class** turns error codes into exceptions and logs
+  through `LogSupport`; the rest of the app never sees a `Ptr`.
+- **`Design` + `onShutdown`** give the C handle a deterministic
+  lifecycle, and a trait in front of the wrapper keeps it swappable in
+  tests.
 
 Next, [Chapter 15](./ch15-00-exposing-native) turns the arrow around:
 instead of Scala calling C, you'll expose your Scala Native code *as* a C

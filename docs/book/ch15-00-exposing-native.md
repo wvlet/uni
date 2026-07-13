@@ -39,19 +39,84 @@ with `malloc` and hand ownership across the boundary:
 
 ```scala
 import scala.scalanative.unsafe.*
+import scala.scalanative.unsigned.*
 import scala.scalanative.libc.stdlib
 
-private def toCStringHeap(str: String): CString =
+def toCStringHeap(str: String): CString =
   val bytes  = str.getBytes("UTF-8")
-  val buffer = stdlib.malloc(bytes.length + 1).asInstanceOf[CString]
-  // copy bytes into buffer and null-terminate...
-  buffer
+  val buffer = stdlib.malloc((bytes.length + 1).toCSize)
+  var i      = 0
+  while i < bytes.length do
+    buffer(i) = bytes(i)
+    i += 1
+  buffer(bytes.length) = 0.toByte
+  buffer.asInstanceOf[CString]
 ```
 
 This is the one genuinely subtle rule of exporting: **arguments use a
 `Zone`, return values use the heap.** Wvlet's real C library uses exactly
 this split — `fromCString` on the way in, a `malloc`-backed `toCString` on
 the way out.
+
+Heap memory raises the question a `Zone` answered for you: who frees it?
+The answer at a C boundary is a convention — the library that `malloc`s
+must be the one that `free`s — so a well-behaved library also exports a
+matching free function. You'll see one in the next section.
+
+## Ship Uni logic, not toy strings
+
+`greet` shows the mechanics, but nobody builds a library to concatenate
+strings. The real question is: your Scala logic works on *rich* values —
+case classes, collections — and the C ABI only speaks integers and
+pointers. How do you get a `PriceRequest` across?
+
+You don't define C structs for it. You pass **JSON strings** and let
+[Weaver](./ch06-00-data) do the translating. The exported function
+becomes a thin shell: decode the argument, run ordinary Uni code, encode
+the result.
+
+```scala
+import scala.scalanative.unsafe.*
+import scala.scalanative.libc.stdlib
+import wvlet.uni.log.LogSupport
+import wvlet.uni.weaver.Weaver
+
+case class PriceRequest(product: String, quantity: Int) derives Weaver
+case class PriceQuote(product: String, quantity: Int, total: Double) derives Weaver
+
+object PricingLib extends LogSupport:
+  @exported("pricing_quote")
+  def quote(requestJson: CString): CString =
+    val request = Weaver.fromJson[PriceRequest](fromCString(requestJson))
+    debug(s"Quoting ${request.quantity} x ${request.product}")
+    val response = PriceQuote(request.product, request.quantity, request.quantity * 9.99)
+    toCStringHeap(Weaver.toJson(response))
+
+  @exported("pricing_free")
+  def free(str: CString): Unit = stdlib.free(str)
+```
+
+Three things to notice:
+
+- **Everything between decode and encode is ordinary Uni code.** The
+  logging from [Chapter 5](./ch05-00-logging), the `derives Weaver`
+  codecs from [Chapter 6](./ch06-00-data), `Design`-built services if
+  the logic needs them — all of it cross-compiles to Native, so all of
+  it is available inside an exported function. The C boundary is two
+  lines; Uni is everything in between.
+- **JSON is the boundary contract.** Every language that can call C can
+  also build a JSON string, so callers get rich structured input and
+  output without you maintaining a C struct layout for each type. Add a
+  field to `PriceQuote` and existing callers keep working.
+- **`pricing_free` completes the ownership story.** The returned string
+  was `malloc`ed inside the Scala library, so the Scala library exports
+  the function that frees it. Callers treat the pair as
+  open/close: call `pricing_quote`, read the result, call
+  `pricing_free`.
+
+Only static object methods can be exported, and their parameter and
+return types must be C-representable (primitives and pointers) — which
+is exactly why the JSON-string shape works so well.
 
 ## Build it as a library
 
@@ -66,67 +131,89 @@ import scala.scalanative.build.BuildTarget
 lazy val mylib = project
   .enablePlugins(ScalaNativePlugin)
   .settings(
-    nativeConfig ~= { _.withBuildTarget(BuildTarget.libraryDynamic) }
-  )
-
-// Static library: libmylib.a (and .withBaseName to set the lib name)
-lazy val mylibStatic = project
-  .enablePlugins(ScalaNativePlugin)
-  .settings(
+    libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__",
     nativeConfig ~= {
-      _.withBuildTarget(BuildTarget.libraryStatic).withBaseName("mylib")
+      _.withBuildTarget(BuildTarget.libraryDynamic).withBaseName("mylib")
     }
   )
 ```
+
+The `uni` dependency is the same line as any Native project from
+[Chapter 11](./ch11-00-cross-platform) — Weaver and logging compile into
+the library like any other Scala code. Swap `libraryDynamic` for
+`BuildTarget.libraryStatic` to get a static `libmylib.a` instead.
 
 `sbt mylib/nativeLink` then emits the shared library, and Scala Native
 also generates a C header declaring your exported functions.
 
+One initialization rule: the Scala Native runtime must start before the
+first exported call. A *dynamic* library does this itself — Scala Native
+generates a constructor that runs when the library loads. A *static*
+library can't, so C callers linking `libmylib.a` must call the generated
+`ScalaNativeInit()` once (it returns `0` on success) before anything
+else.
+
 ## Call it from Rust
 
-Rust links the library and declares the function in an `extern "C"`
-block:
+Rust links the library and declares the exported functions in an
+`extern "C"` block — its native equivalent of Chapter 14's `@extern`
+object, pointing the other way:
 
 ```rust
-use std::ffi::CString;
+use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 
 extern "C" {
-    fn greet(name: *const c_char) -> *const c_char;
+    fn pricing_quote(request_json: *const c_char) -> *mut c_char;
+    fn pricing_free(response_json: *mut c_char);
 }
 
 fn main() {
-    let name = CString::new("Rust").unwrap();
+    let request = CString::new(r#"{"product":"keyboard","quantity":3}"#).unwrap();
     unsafe {
-        let reply = greet(name.as_ptr());
-        // ... read the returned C string ...
+        let response = pricing_quote(request.as_ptr());
+        println!("{}", CStr::from_ptr(response).to_str().unwrap());
+        pricing_free(response);
     }
 }
 ```
 
+The Rust side mirrors the memory rules from the Scala side exactly:
+`CString::new` plays the role of `toCString` for the argument (freed by
+Rust when `request` drops), and the response — `malloc`ed inside the
+Scala library — goes back through `pricing_free`.
+
 Compile it against the library by pointing the linker at the output
-directory and naming the lib:
+directory and naming the lib, then run it with the shared library on
+the loader's path:
 
 ```bash
 $ sbt mylib/nativeLink
 $ rustc -L target/scala-3.x -lmylib test.rs -o test
+$ LD_LIBRARY_PATH=target/scala-3.x ./test    # DYLD_LIBRARY_PATH on macOS
+{"product":"keyboard","quantity":3,"total":29.97}
 ```
 
 `-L` is the search path (where `libmylib.so` lives) and `-lmylib` is the
-library — the same two flags whatever the consuming language is.
+library — the same two flags whatever the consuming language is. At run
+time the dynamic loader needs the same directory, hence
+`LD_LIBRARY_PATH`.
 
 ## Call it from C and C++
 
-C and C++ are the same story: declare the function, link the library.
+C and C++ are the same story: declare the functions, link the library.
 
 ```c
 // test.c
 #include <stdio.h>
 
-const char* greet(const char* name);   // declare the exported function
+char* pricing_quote(const char* request_json);
+void  pricing_free(char* response_json);
 
 int main() {
-    printf("%s\n", greet("C"));
+    char* response = pricing_quote("{\"product\":\"keyboard\",\"quantity\":3}");
+    printf("%s\n", response);
+    pricing_free(response);
     return 0;
 }
 ```
@@ -135,8 +222,11 @@ int main() {
 $ gcc -L target/scala-3.x -lmylib test.c -o test   # g++ for C++
 ```
 
-Wvlet ships its query compiler this way: one Scala Native module exports
-`wvlet_compile_query`, builds to `libwvlet`, and its
+Wvlet ships its query compiler this way, in exactly the JSON-in/JSON-out
+shape you just built: one Scala Native module exports
+`wvlet_compile_query_json`, which takes a JSON string of arguments and
+returns a `char*` of JSON (`{"success":true,"sql":...}`), builds to
+`libwvlet`, and its
 [test suite](https://github.com/wvlet/wvlet/tree/main/wvc-lib) links the
 same `.so` from Rust, C, *and* C++ — three languages, one implementation,
 no ports.
@@ -157,14 +247,19 @@ you prefer, and hand it to everyone else as a `.so`.
 
 ## What you have, what comes next
 
-You can now ship Scala Native code to the systems world:
+You can now ship Uni-powered Scala to the systems world:
 
 - **`@exported("name")`** gives a method a C ABI; **`fromCString`** reads
   arguments.
-- Return values go on the **heap** (`malloc`), never a `Zone` — the one
-  subtle rule.
+- Return values go on the **heap** (`malloc`), never a `Zone` — and the
+  library exports the matching **free function**, because whoever
+  `malloc`s must `free`.
+- **JSON strings are the boundary contract**: `Weaver.fromJson` on the
+  way in, ordinary Uni code (logging, codecs, `Design`) in the middle,
+  `Weaver.toJson` on the way out.
 - **`BuildTarget.libraryDynamic` / `libraryStatic`** + `nativeLink`
-  produce a `.so` / `.dylib` / `.a` and a C header.
+  produce a `.so` / `.dylib` / `.a` and a C header; static libraries
+  need one **`ScalaNativeInit()`** call before use.
 - **`-L<dir> -l<name>`** links it from Rust, C, or C++ alike.
 
 That closes Part VIII — and, with it, Uni's reach into both neighboring
