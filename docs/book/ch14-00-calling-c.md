@@ -138,8 +138,11 @@ class Downloader extends LogSupport with AutoCloseable:
   override def close(): Unit = curl.easyCleanup(handle)
 ```
 
-This one class is the whole unsafe surface. Everything C-shaped is
-translated at the edge:
+Notice what this class is: the *only* place where both vocabularies
+appear. Above it, pure Scala (`fetch(url: String)`, exceptions,
+`LogSupport`); below it, pure C (`Ptr`, `CString`, return codes). The
+mixing of the two worlds is the wrapper's entire job, and it happens
+here and nowhere else — everything C-shaped is translated at this edge:
 
 - **Error codes become exceptions.** C reports failure by returning a
   nonzero `CInt`; the compiler doesn't force anyone to look at it. The

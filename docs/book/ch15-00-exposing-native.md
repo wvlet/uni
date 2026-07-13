@@ -71,39 +71,65 @@ case classes, collections — and the C ABI only speaks integers and
 pointers. How do you get a `PriceRequest` across?
 
 You don't define C structs for it. You pass **JSON strings** and let
-[Weaver](./ch06-00-data) do the translating. The exported function
-becomes a thin shell: decode the argument, run ordinary Uni code, encode
-the result.
+[Weaver](./ch06-00-data) do the translating — and you keep the two
+worlds in two separate files, meeting at a plain Scala `String`.
+
+The first file is your actual library. It is pure Uni code: no
+`CString`, no `Ptr`, no `unsafe` import. Following
+[Chapter 11](./ch11-00-cross-platform)'s layout it lives in the shared
+`src/` folder, because nothing in it is native-specific:
 
 ```scala
-import scala.scalanative.unsafe.*
-import scala.scalanative.libc.stdlib
+// src/ — shared code. Compiles on JVM, JS, and Native alike.
 import wvlet.uni.log.LogSupport
 import wvlet.uni.weaver.Weaver
 
 case class PriceRequest(product: String, quantity: Int) derives Weaver
 case class PriceQuote(product: String, quantity: Int, total: Double) derives Weaver
 
-object PricingLib extends LogSupport:
-  @exported("pricing_quote")
-  def quote(requestJson: CString): CString =
-    val request = Weaver.fromJson[PriceRequest](fromCString(requestJson))
+object PricingService extends LogSupport:
+  def quote(requestJson: String): String =
+    val request = Weaver.fromJson[PriceRequest](requestJson)
     debug(s"Quoting ${request.quantity} x ${request.product}")
     val response = PriceQuote(request.product, request.quantity, request.quantity * 9.99)
-    toCStringHeap(Weaver.toJson(response))
+    Weaver.toJson(response)
+```
+
+The second file is the C bridge, and it is *only* the bridge. Each
+exported function is one line: convert, delegate, convert back. It goes
+in the `.native` folder, because it can compile nowhere else:
+
+```scala
+// .native/ — the C bridge. Conversions only; no logic lives here.
+import scala.scalanative.unsafe.*
+import scala.scalanative.libc.stdlib
+
+object PricingLib:
+  @exported("pricing_quote")
+  def quote(requestJson: CString): CString =
+    toCStringHeap(PricingService.quote(fromCString(requestJson)))
 
   @exported("pricing_free")
   def free(str: CString): Unit = stdlib.free(str)
 ```
 
-Three things to notice:
+The split is the point:
 
-- **Everything between decode and encode is ordinary Uni code.** The
-  logging from [Chapter 5](./ch05-00-logging), the `derives Weaver`
-  codecs from [Chapter 6](./ch06-00-data), `Design`-built services if
-  the logic needs them — all of it cross-compiles to Native, so all of
-  it is available inside an exported function. The C boundary is two
-  lines; Uni is everything in between.
+- **The two worlds meet in exactly one file.** `PricingService` speaks
+  Scala (`String` in, `String` out); `PricingLib` speaks C (`CString`
+  in, `CString` out); `fromCString` / `toCStringHeap` are the only
+  words they exchange. When something goes wrong at the boundary, there
+  is one short file to look in — the same one-place rule Chapter 14
+  applied to the `Downloader` wrapper, pointing the other way.
+- **The service never left the ordinary Uni world.** The logging from
+  [Chapter 5](./ch05-00-logging), the `derives Weaver` codecs from
+  [Chapter 6](./ch06-00-data), `Design`-built services if the logic
+  needs them — all available, because `PricingService` is just Scala.
+  And because it lives in shared `src/`, you can unit-test it with
+  UniTest on the JVM ([Chapter 4](./ch04-00-testing)) — no native
+  toolchain, no C caller — or serve the same logic over RPC
+  ([Chapter 10](./ch10-00-rpc)). The C ABI is one more front door, not
+  a fork of your code.
 - **JSON is the boundary contract.** Every language that can call C can
   also build a JSON string, so callers get rich structured input and
   output without you maintaining a C struct layout for each type. Add a
@@ -254,9 +280,12 @@ You can now ship Uni-powered Scala to the systems world:
 - Return values go on the **heap** (`malloc`), never a `Zone` — and the
   library exports the matching **free function**, because whoever
   `malloc`s must `free`.
-- **JSON strings are the boundary contract**: `Weaver.fromJson` on the
-  way in, ordinary Uni code (logging, codecs, `Design`) in the middle,
-  `Weaver.toJson` on the way out.
+- **Two files, one meeting point**: a pure-Scala service (`String` in,
+  `String` out, Uni everywhere) in shared `src/`, and a
+  conversions-only C bridge in `.native/` — `fromCString` /
+  `toCStringHeap` are the only words the two worlds exchange.
+- **JSON strings are the boundary contract**: `Weaver.fromJson` inside
+  the service on the way in, `Weaver.toJson` on the way out.
 - **`BuildTarget.libraryDynamic` / `libraryStatic`** + `nativeLink`
   produce a `.so` / `.dylib` / `.a` and a C header; static libraries
   need one **`ScalaNativeInit()`** call before use.
