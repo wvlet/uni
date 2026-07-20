@@ -130,7 +130,7 @@ case class MethodCodec(
       if !found(i)
     do
       val param = method.args(i)
-      MethodCodec.defaultValueOf(param, methodOwner) match
+      param.resolveDefaultValue(methodOwner) match
         case Some(default) =>
           results(i) = default
         case None =>
@@ -147,22 +147,3 @@ case class MethodCodec(
   end decodeFromMap
 
 end MethodCodec
-
-object MethodCodec:
-  /**
-    * Resolve a parameter's default value: the statically captured one if present, else the
-    * method-argument default evaluated on the service instance (trait/class method defaults are
-    * compiled as instance methods, so they need the owner).
-    */
-  private[uni] def defaultValueOf(param: MethodParameter, methodOwner: Option[Any]): Option[Any] =
-    param
-      .getDefaultValue
-      .orElse(
-        methodOwner.flatMap { owner =>
-          try
-            param.getMethodArgDefaultValue(owner)
-          catch
-            case _: Exception =>
-              None
-        }
-      )

@@ -89,18 +89,15 @@ case class MCPServer(
     copy(routers = routers :+ router)
 
   /**
-    * All tools exposed by this server, sorted by name.
+    * All tools exposed by this server, sorted by name. Derived once per server instance.
     */
-  def tools: Seq[MCPTool] = routers
+  lazy val tools: Seq[MCPTool] = routers
     .flatMap(router => router.routes.map(route => (router.instance, route)))
     .map { (instance, route) =>
       val method = route.codec.method
       MCPTool(
         name = route.methodName,
-        description = method
-          .findAnnotation("description")
-          .flatMap(_.getAs[String]("value"))
-          .filter(_.nonEmpty),
+        description = description.value(method.findAnnotation("description")),
         inputSchema = JsonSchema.ofMethodArgs(method, Some(instance)),
         route = route
       )
@@ -126,7 +123,7 @@ case class MCPServer(
 
   private lazy val dispatcher: RPCDispatcher         = RPCDispatcher(routers*)
   private lazy val toolsByName: Map[String, MCPTool] = tools.map(t => t.name -> t).toMap
-  private def emptyObject: JSONObject                = JSONObject(Seq.empty)
+  private val emptyObject: JSONObject                = JSONObject(Seq.empty)
 
   private def handleRequest(id: JSONValue, request: JsonRpcRequest): Rx[Option[String]] =
     try
@@ -166,7 +163,7 @@ case class MCPServer(
       )
     )
 
-  private def toolsListResult: JSONObject = JSONObject(
+  private lazy val toolsListResult: JSONObject = JSONObject(
     Seq(
       "tools" ->
         JSONArray(

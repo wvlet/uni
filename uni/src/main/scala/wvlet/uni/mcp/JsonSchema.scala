@@ -13,7 +13,6 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.http.rpc.MethodCodec
 import wvlet.uni.json.JSON.{JSONArray, JSONObject, JSONString, JSONValue}
 import wvlet.uni.surface.{
   EnumSurface,
@@ -55,10 +54,12 @@ private[mcp] object JsonSchema:
     // Option (mirrors MethodCodec.decodeFromMap)
     val required = method
       .args
-      .filter(p => MethodCodec.defaultValueOf(p, methodOwner).isEmpty && !p.surface.isOption)
+      .filter(p => p.resolveDefaultValue(methodOwner).isEmpty && !p.surface.isOption)
       .map(p => JSONString(p.name))
     objectSchema(properties, required)
 
+  // Constructor-parameter variant of the required check above: case-class field defaults are
+  // captured statically, so no owner instance is needed
   private def isRequiredParam(p: Parameter): Boolean =
     p.getDefaultValue.isEmpty && !p.surface.isOption
 
@@ -142,10 +143,9 @@ private[mcp] object JsonSchema:
       case _ =>
         Surface.of[Any]
 
-  private def descriptionOf(p: Parameter): Option[String] = p
-    .findAnnotation("description")
-    .flatMap(_.getAs[String]("value"))
-    .filter(_.nonEmpty)
+  private def descriptionOf(p: Parameter): Option[String] = description.value(
+    p.findAnnotation("description")
+  )
 
   private def withDescription(schema: JSONObject, description: Option[String]): JSONObject =
     description match

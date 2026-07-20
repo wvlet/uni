@@ -37,13 +37,18 @@ private[mcp] object StdioTransport extends LogSupport:
     val onData: js.Function1[String, Unit] =
       (chunk: String) =>
         buffer += chunk
-        var newlineIndex = buffer.indexOf("\n")
+        // Scan with a moving offset and slice the unconsumed tail once, so a chunk carrying many
+        // messages costs O(buffer) instead of O(messages x buffer)
+        var start        = 0
+        var newlineIndex = buffer.indexOf("\n", start)
         while newlineIndex >= 0 do
-          val line = buffer.substring(0, newlineIndex).trim
-          buffer = buffer.substring(newlineIndex + 1)
+          val line = buffer.substring(start, newlineIndex).trim
+          start = newlineIndex + 1
           if line.nonEmpty then
             dispatchLine(handle, line)
-          newlineIndex = buffer.indexOf("\n")
+          newlineIndex = buffer.indexOf("\n", start)
+        if start > 0 then
+          buffer = buffer.substring(start)
     stdin.on("data", onData)
 
   private def dispatchLine(handle: String => Rx[Option[String]], line: String): Unit =

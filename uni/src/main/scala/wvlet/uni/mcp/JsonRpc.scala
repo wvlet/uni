@@ -44,30 +44,22 @@ private[mcp] object JsonRpc:
     * message shape prevented reading an id).
     */
   def parseRequest(line: String): Either[(JSONValue, Int, String), JsonRpcRequest] =
-    val json =
+    val parsed =
       try
-        JSON.parse(line)
+        Right(JSON.parse(line))
       catch
         case e: Exception =>
-          return Left((JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}"))
-    json match
+          Left((JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}"))
+    parsed.flatMap {
       case obj: JSONObject =>
         val id = obj.get("id")
         obj.get("method") match
           case Some(JSONString(method)) =>
             obj.get("params") match
-              case None | Some(_: JSONObject) =>
-                Right(
-                  JsonRpcRequest(
-                    id,
-                    method,
-                    obj
-                      .get("params")
-                      .collect { case o: JSONObject =>
-                        o
-                      }
-                  )
-                )
+              case None =>
+                Right(JsonRpcRequest(id, method, None))
+              case Some(params: JSONObject) =>
+                Right(JsonRpcRequest(id, method, Some(params)))
               case Some(_) =>
                 Left((id.getOrElse(JSONNull()), InvalidRequest, "'params' must be an object"))
           case _ =>
@@ -77,6 +69,7 @@ private[mcp] object JsonRpc:
         Left((JSONNull(), InvalidRequest, "Batch requests are not supported"))
       case _ =>
         Left((JSONNull(), InvalidRequest, "Request must be a JSON object"))
+    }
 
   end parseRequest
 

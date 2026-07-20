@@ -17,6 +17,21 @@ trait MethodParameter extends Parameter:
     */
   def getMethodArgDefaultValue(methodOwner: Any): Option[Any] = getDefaultValue
 
+  /**
+    * Resolve the effective default value of this parameter: the statically captured one if present,
+    * otherwise the method-argument default evaluated on the owner instance (trait/class method
+    * defaults are compiled as instance methods, so they are unreachable without it).
+    */
+  def resolveDefaultValue(methodOwner: Option[Any]): Option[Any] = getDefaultValue.orElse(
+    methodOwner.flatMap { owner =>
+      try
+        getMethodArgDefaultValue(owner)
+      catch
+        case _: Exception =>
+          None
+    }
+  )
+
 object MethodParameter:
   def accessor[A, B](cl: Class[A])(body: A => B): Any => B = (x: Any) => body(cl.cast(x))
 
