@@ -51,8 +51,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+          cache: sbt
       - name: scalafmt
         run: ./sbt scalafmtCheckAll
+      # The sbt plugin sub-builds have their own .scalafmt.conf, which the root scalafmtCheckAll
+      # never sees. Their scripted-test jobs also check formatting, but those are not required
+      # status checks, so a scalafmt bump could auto-merge with unformatted plugin code and leave
+      # main red (#654, #655). Check them here, inside the required Code format check.
+      - name: scalafmt (sbt plugin sub-builds)
+        run: |
+          for dir in sbt-uni sbt-uni-playwright sbt-uni-crossproject; do
+            (cd "$dir" && ../sbt scalafmtCheckAll)
+          done
   test_scala_3:
     name: Scala 3
     needs: changes
