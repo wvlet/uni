@@ -158,11 +158,56 @@ $ ./weather-server
 {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\"city\":\"Tokyo\",\"temperature\":22.5,\"condition\":\"sunny\"}"}],"isError":false}}
 ```
 
+## HTTP transport
+
+The same server can speak MCP's **Streamable HTTP** transport: one endpoint
+that answers each POSTed JSON-RPC message with `application/json` (202 for
+notifications). `httpHandler` exposes it as a standard uni
+[`RxHttpHandler`](/http/server), so it mounts on the HTTP server of every
+platform:
+
+```scala
+val mcp = MCPServer()
+  .withName("weather")
+  .withTools[WeatherService](WeatherServiceImpl())
+
+// JVM (uni-netty)
+NettyServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+// Scala.js (Node.js)
+NodeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+// Scala Native
+NativeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+```
+
+Register an HTTP server in `.mcp.json` with `"url"` instead of `"command"`:
+
+```json
+{
+  "mcpServers": {
+    "weather": { "url": "http://localhost:8080/mcp" }
+  }
+}
+```
+
+::: warning Origin checking
+As required by the MCP spec (DNS-rebinding protection), when a request carries
+an `Origin` header only localhost origins are accepted by default. Serving
+browser-based clients from another origin requires registering it explicitly:
+
+```scala
+MCPServer().withAllowedOrigins("https://app.example.com")
+```
+:::
+
+The server is stateless: no `Mcp-Session-Id` is issued, and since a tools-only
+server never initiates messages, the optional SSE streaming and GET event
+stream are not offered (GET returns 405).
+
 ## Scope and roadmap
 
 The current implementation covers the MCP **tools** capability over the
-**stdio** transport (protocol version `2025-06-18`; `2025-03-26` clients are
-also accepted). Resources, prompts, and an HTTP transport are planned as
-follow-ups. Under the hood, dispatch reuses uni's transport-neutral
-[RPC](/http/rpc) layer, so behavior (parameter matching, default values, error
-statuses) is identical to uni RPC.
+**stdio** and **Streamable HTTP** transports (protocol version `2025-06-18`;
+`2025-03-26` clients are also accepted). Resources, prompts, and SSE streaming
+for server-initiated notifications are planned as follow-ups. Under the hood,
+dispatch reuses uni's transport-neutral [RPC](/http/rpc) layer, so behavior
+(parameter matching, default values, error statuses) is identical to uni RPC.

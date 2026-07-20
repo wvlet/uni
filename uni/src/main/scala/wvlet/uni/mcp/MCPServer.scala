@@ -60,11 +60,18 @@ case class MCPTool(
 case class MCPServer(
     name: String = "uni-mcp",
     version: String = "0.1.0",
-    routers: List[RPCRouter] = Nil
+    routers: List[RPCRouter] = Nil,
+    allowedOrigins: List[String] = Nil
 ) extends LogSupport:
 
   def withName(name: String): MCPServer       = copy(name = name)
   def withVersion(version: String): MCPServer = copy(version = version)
+
+  /**
+    * Origins (e.g. "https://app.example.com") accepted by the HTTP transport in addition to
+    * localhost. See [[httpHandler]].
+    */
+  def withAllowedOrigins(origins: String*): MCPServer = copy(allowedOrigins = origins.toList)
 
   /**
     * Register every public method of service trait T as an MCP tool. Fails fast on tool-name
@@ -273,6 +280,19 @@ case class MCPServer(
     val toolCount = toolsByName.size
     debug(s"Serving ${toolCount} MCP tool(s) over stdio")
     StdioTransport.serve(handleMessage)
+
+  /**
+    * MCP Streamable HTTP transport as an [[wvlet.uni.http.RxHttpHandler]]: mount it on any uni HTTP
+    * server, e.g. `NettyServer.withPort(8080).withRxHandler(mcp.httpHandler).start()` (JVM), or the
+    * same with `NodeServer` (Scala.js) / `NativeServer` (Scala Native). Each POSTed JSON-RPC
+    * message is answered with `application/json` (202 for notifications); when an `Origin` header
+    * is present, only localhost origins plus [[allowedOrigins]] are accepted.
+    */
+  def httpHandler: wvlet.uni.http.RxHttpHandler =
+    // Force tool derivation so invalid setups fail when the handler is created, not per request
+    val toolCount = toolsByName.size
+    debug(s"Serving ${toolCount} MCP tool(s) over HTTP")
+    MCPHttpHandler(this)
 
 end MCPServer
 
