@@ -63,17 +63,21 @@ case class MethodCodec(
     * }}}
     *
     * Uses CName for flexible matching - userId, user_id, user-id all match.
+    *
+    * @param methodOwner
+    *   the service instance, used to evaluate method-argument default values (e.g. `def f(x: Int =
+    *   10)` on a trait), which are compiled as instance methods and unreachable without it
     */
-  def decodeParams(json: String): Seq[Any] =
+  def decodeParams(json: String, methodOwner: Option[Any] = None): Seq[Any] =
     if json == null || json.isBlank then
-      decodeFromMap(Map.empty)
+      decodeFromMap(Map.empty, methodOwner)
     else
       try
         JSON.parse(json) match
           case obj: JSONObject =>
             obj.get("request") match
               case Some(req: JSONObject) =>
-                decodeFromMap(req.v.toMap)
+                decodeFromMap(req.v.toMap, methodOwner)
               case Some(_) =>
                 throw RPCStatus.INVALID_REQUEST_U1.newException("'request' field must be an object")
               case None =>
@@ -100,7 +104,7 @@ case class MethodCodec(
     else
       returnWeaver.asInstanceOf[Weaver[Any]].toJson(value)
 
-  private def decodeFromMap(map: Map[String, JSONValue]): Seq[Any] =
+  private def decodeFromMap(map: Map[String, JSONValue], methodOwner: Option[Any]): Seq[Any] =
     val numParams = method.args.size
     val results   = Array.ofDim[Any](numParams)
     val found     = Array.fill(numParams)(false)
@@ -126,7 +130,7 @@ case class MethodCodec(
       if !found(i)
     do
       val param = method.args(i)
-      param.getDefaultValue match
+      MethodCodec.defaultValueOf(param, methodOwner) match
         case Some(default) =>
           results(i) = default
         case None =>
@@ -143,3 +147,22 @@ case class MethodCodec(
   end decodeFromMap
 
 end MethodCodec
+
+object MethodCodec:
+  /**
+    * Resolve a parameter's default value: the statically captured one if present, else the
+    * method-argument default evaluated on the service instance (trait/class method defaults are
+    * compiled as instance methods, so they need the owner).
+    */
+  private[uni] def defaultValueOf(param: MethodParameter, methodOwner: Option[Any]): Option[Any] =
+    param
+      .getDefaultValue
+      .orElse(
+        methodOwner.flatMap { owner =>
+          try
+            param.getMethodArgDefaultValue(owner)
+          catch
+            case _: Exception =>
+              None
+        }
+      )

@@ -55,7 +55,9 @@ class RPCRouter(methods: Seq[MethodSurface], val instance: Any, val serviceName:
     */
   val codecs: Map[String, MethodCodec] =
     val filteredMethods = methods.filter(m =>
-      m.isPublic && !excludedOwners.contains(m.owner.rawType)
+      // Synthetic methods (default-value getters like `f$default$1`, setters, operators) are
+      // not RPC endpoints
+      m.isPublic && !excludedOwners.contains(m.owner.rawType) && !m.name.contains("$")
     )
 
     // Detect overloaded methods (same name, different signatures)

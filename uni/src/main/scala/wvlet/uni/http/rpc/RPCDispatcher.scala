@@ -67,7 +67,7 @@ class RPCDispatcher(routers: Seq[RPCRouter]) extends LogSupport:
     try
       // Decode parameters from the request body
       val json = request.content.asString.getOrElse("")
-      val args = route.codec.decodeParams(json)
+      val args = route.codec.decodeParams(json, Some(instance))
 
       // Invoke the method
       val result = route.codec.method.call(instance, args*)
