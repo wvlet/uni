@@ -23,6 +23,46 @@
 
 Cross-platform: JVM, Scala.js, and Scala Native.
 
+## sbt 2.x Plugins
+
+Uni also ships sbt plugins for **sbt 2.x**, usable in any sbt 2.x project
+(with or without the uni library):
+
+| Plugin | Description |
+|--------|-------------|
+| [`sbt-uni`](https://wvlet.org/uni/build/sbt-uni) | Type-safe HTTP/RPC client generation from service traits, plus `~uniRestart` — background fork-run on every code change (an sbt 2.x port of sbt-revolver's `reStart`) |
+| [`sbt-uni-crossproject`](https://wvlet.org/uni/build/sbt-uni-crossproject) | `crossProject(...)` for building one source tree for JVM, Scala.js, and Scala Native — a single-plugin replacement for portable-scala's `sbt-crossproject`, which is not available for sbt 2.x |
+| [`sbt-uni-playwright`](https://wvlet.org/uni/build/sbt-uni-playwright) | Run Scala.js tests in a real headless browser (Chromium, Firefox, or WebKit) via Playwright — ES module support and a faithful DOM, with no Node.js installation required |
+
+Add the ones you need to `project/plugins.sbt`:
+
+```scala
+// HTTP/RPC client generation + background fork-run (~uniRestart)
+addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
+
+// Cross-build one source tree for JVM, Scala.js, and Scala Native
+addSbtPlugin("org.scala-js"     % "sbt-scalajs"          % "1.22.0")
+addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.12")
+addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "<version>")
+
+// Run Scala.js tests in a real browser
+addSbtPlugin("org.wvlet.uni" % "sbt-uni-playwright" % "<version>")
+```
+
+For example, `sbt-uni-crossproject` defines cross-platform projects with
+shared sources in `src/` and platform-specific code in `.jvm/`, `.js/`,
+and `.native/` folders:
+
+```scala
+lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("core"))
+  .settings(/* shared settings */)
+```
+
+See the [build plugin docs](https://wvlet.org/uni/build/sbt-uni) for
+details.
+
 ## Using `uni`
 
 Add the dependency to your `build.sbt` (replace `<version>` with the
