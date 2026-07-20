@@ -13,7 +13,7 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.http.{HttpMethod, HttpStatus, Request, Response, RxHttpHandler}
+import wvlet.uni.http.{HttpHeader, HttpMethod, Request, Response, RxHttpHandler}
 import wvlet.uni.rx.Rx
 
 /**
@@ -34,17 +34,13 @@ private[mcp] class MCPHttpHandler(server: MCPServer) extends RxHttpHandler:
 
   override def handle(request: Request): Rx[Response] =
     if request.method != HttpMethod.POST then
-      Rx.single(Response(HttpStatus.MethodNotAllowed_405))
-    else if !originAllowed(request.header("Origin"), server.allowedOrigins) then
-      Rx.single(Response(HttpStatus.Forbidden_403).withTextContent("Origin not allowed"))
+      Rx.single(Response.methodNotAllowed)
+    else if !originAllowed(request.header(HttpHeader.Origin), server.allowedOrigins) then
+      Rx.single(Response.forbidden.withTextContent("Origin not allowed"))
     else
       request.header(ProtocolVersionHeader) match
         case Some(v) if !MCPServer.SupportedProtocolVersions.contains(v) =>
-          Rx.single(
-            Response(HttpStatus.BadRequest_400).withTextContent(
-              s"Unsupported MCP protocol version: ${v}"
-            )
-          )
+          Rx.single(Response.badRequest(s"Unsupported MCP protocol version: ${v}"))
         case _ =>
           server
             .handleMessage(request.content.asString.getOrElse(""))
@@ -53,7 +49,7 @@ private[mcp] class MCPHttpHandler(server: MCPServer) extends RxHttpHandler:
                 Response.ok.withJsonContent(json)
               case None =>
                 // Notifications produce no JSON-RPC response
-                Response(HttpStatus.Accepted_202)
+                Response.accepted
             }
 
 end MCPHttpHandler
@@ -95,14 +91,14 @@ private[mcp] object MCPHttpHandler:
         case i =>
           afterScheme.substring(0, i)
     if authority.startsWith("[") then
-      authority.indexOf(']') match
-        case -1 =>
-          authority
-        case i =>
-          if i + 1 < authority.length && authority.charAt(i + 1) != ':' then
-            authority
-          else
-            authority.substring(0, i + 1)
+      val close = authority.indexOf(']')
+      // A valid IPv6 literal closes its bracket and is followed only by a port or end-of-authority
+      val isValidLiteral =
+        close >= 0 && (close + 1 == authority.length || authority.charAt(close + 1) == ':')
+      if isValidLiteral then
+        authority.substring(0, close + 1)
+      else
+        authority
     else
       authority.indexOf(':') match
         case -1 =>
