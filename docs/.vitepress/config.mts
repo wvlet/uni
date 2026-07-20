@@ -213,6 +213,12 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           ]
         },
         {
+          text: 'MCP',
+          items: [
+            { text: 'Build an MCP Server', link: '/mcp/' }
+          ]
+        },
+        {
           text: 'Reactive Streams',
           items: [
             { text: 'Overview', link: '/rx/' },
@@ -296,6 +302,12 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
+          ]
+        },
+        {
+          text: 'MCP',
+          items: [
+            { text: 'Build an MCP Server', link: '/mcp/' }
           ]
         },
         {

@@ -1537,7 +1537,9 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
       }
       .filter { x =>
         val name = x.name
-        !name.startsWith("$") && name != "<init>"
+        // Default-argument getters (f$default$1) neither start with $ nor carry the
+        // Synthetic flag, so they need their own exclusion
+        !name.startsWith("$") && name != "<init>" && !name.contains("$default$")
       }
 
     allMethods.filter(m => isOwnedByTargetClass(m, t))
