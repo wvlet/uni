@@ -101,7 +101,7 @@ jobs:
           distribution: 'temurin'
           java-version: '23'
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -244,7 +244,7 @@ jobs:
           distribution: 'temurin'
           java-version: '23'
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
           cache: 'pnpm'
@@ -295,7 +295,7 @@ jobs:
       - name: Install sbt
         uses: sbt/setup-sbt@v1
       - uses: pnpm/action-setup@v6
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       # The scripted test downloads Chromium via the Java Playwright runtime, which needs the
