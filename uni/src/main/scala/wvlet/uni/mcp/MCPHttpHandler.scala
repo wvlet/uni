@@ -77,6 +77,9 @@ private[mcp] object MCPHttpHandler:
 
   /**
     * Extract the host part of an origin like `http://localhost:3000` or `https://[::1]:8080`.
+    * Anything malformed is returned whole so it cannot match an allowed host: in particular, an
+    * IPv6 literal must be followed only by a port or the end of the authority — otherwise
+    * `[::1].evil.com` would be validated as `[::1]` (origin-bypass, flagged by review).
     */
   private def hostOf(origin: String): String =
     val afterScheme =
@@ -85,19 +88,26 @@ private[mcp] object MCPHttpHandler:
           origin
         case i =>
           origin.substring(i + 3)
-    // Keep the brackets of an IPv6 literal; cut at the port colon after ']' or the first '/' or,
-    // for non-bracketed hosts, the first ':'
-    val end =
-      if afterScheme.startsWith("[") then
-        afterScheme.indexOf(']') match
-          case -1 =>
-            afterScheme.length
-          case i =>
-            i + 1
-      else
-        val colon = afterScheme.indexOf(':')
-        val slash = afterScheme.indexOf('/')
-        Seq(colon, slash, afterScheme.length).filter(_ >= 0).min
-    afterScheme.substring(0, end)
+    val authority =
+      afterScheme.indexOf('/') match
+        case -1 =>
+          afterScheme
+        case i =>
+          afterScheme.substring(0, i)
+    if authority.startsWith("[") then
+      authority.indexOf(']') match
+        case -1 =>
+          authority
+        case i =>
+          if i + 1 < authority.length && authority.charAt(i + 1) != ':' then
+            authority
+          else
+            authority.substring(0, i + 1)
+    else
+      authority.indexOf(':') match
+        case -1 =>
+          authority
+        case i =>
+          authority.substring(0, i)
 
 end MCPHttpHandler

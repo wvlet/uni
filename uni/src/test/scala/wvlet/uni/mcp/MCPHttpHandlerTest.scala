@@ -101,6 +101,20 @@ class MCPHttpHandlerTest extends UniTest:
       }
   }
 
+  test("reject IPv6-literal origin-bypass attempts with 403") {
+    val handler = newServer.httpHandler
+    Rx.zip(
+        handler.handle(post(initializeMessage).addHeader("Origin", "http://[::1].evil.com")),
+        handler.handle(post(initializeMessage).addHeader("Origin", "http://[::1]evil.com:80")),
+        handler.handle(post(initializeMessage).addHeader("Origin", "http://localhost.evil.com"))
+      )
+      .map { (bracketDot, bracketPlain, subdomain) =>
+        bracketDot.status shouldBe HttpStatus.Forbidden_403
+        bracketPlain.status shouldBe HttpStatus.Forbidden_403
+        subdomain.status shouldBe HttpStatus.Forbidden_403
+      }
+  }
+
   test("allow origins registered via withAllowedOrigins") {
     newServer
       .withAllowedOrigins("https://app.example.com")
