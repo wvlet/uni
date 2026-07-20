@@ -1,6 +1,7 @@
-# MCP server (`wvlet.uni.mcp`): a thin JSON-RPC stdio layer over the existing RPC dispatcher
+# MCP server (`wvlet.uni.mcp`): a thin JSON-RPC layer over the existing RPC dispatcher
 
-Date: 2026-07-20 · PR: [#659](https://github.com/wvlet/uni/pull/659)
+Date: 2026-07-20 · PRs: [#659](https://github.com/wvlet/uni/pull/659) (stdio),
+[#660](https://github.com/wvlet/uni/pull/660) (Streamable HTTP)
 
 ## Context
 
@@ -49,6 +50,23 @@ already had Surface (compile-time method metadata), Weaver (JSON codecs), and th
    outside `[a-zA-Z0-9_-]{1,128}`, and param/return types `Weaver.fromSurfaceOpt` cannot encode all
    throw at registration, not at call time. Note the case-class constructor bypasses this; the
    documented API is `withTools`/`withRouter`.
+
+## HTTP transport (#660)
+
+9. **Streamable HTTP as a thin `RxHttpHandler`** (`MCPHttpHandler`): each POSTed message runs
+   through `handleMessage` and is answered with `application/json` (202 for notifications) — fully
+   spec-compliant for a stateless tools-only server. SSE streaming, `Mcp-Session-Id`, and the GET
+   event stream exist for server-initiated messages and are deliberately not offered (GET → 405)
+   until resources/prompts introduce notifications. Mounts unchanged on `NettyServer` (uni-netty),
+   `NodeServer` (JS), and `NativeServer` (Native) via `withRxHandler`.
+
+10. **Origin validation is strict-by-default** (spec's DNS-rebinding protection): a present
+    `Origin` must be a localhost origin (`localhost`/`127.0.0.1`/`[::1]`) or registered via
+    `withAllowedOrigins`; absent Origin (non-browser clients) passes. Parsing lesson learned in
+    review: the host extractor must reject malformed authorities *whole* — cutting a bracketed
+    IPv6 host at `]` let `http://[::1].evil.com` validate as `[::1]`. A bracketed host must be
+    followed only by a port or the end of the authority. An unsupported `MCP-Protocol-Version`
+    header gets 400.
 
 ## Surface/RPC fixes the work surfaced
 
