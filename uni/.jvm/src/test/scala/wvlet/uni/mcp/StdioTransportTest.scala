@@ -53,7 +53,7 @@ class StdioTransportTest extends UniTest:
 
     val callResponse = JSON.parse(lines(1)).asInstanceOf[JSONObject]
     val content      = callResponse.get("result").get.asInstanceOf[JSONObject].get("content").get
-    content.toJSON shouldContain "\\\"hi\\\""
+    content.toJSON shouldContain "\"text\":\"hi\""
   }
 
 end StdioTransportTest

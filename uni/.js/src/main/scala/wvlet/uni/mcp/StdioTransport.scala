@@ -29,8 +29,10 @@ private[mcp] object StdioTransport extends LogSupport:
 
   def serve(handle: String => Rx[Option[String]]): Unit =
     // The default JS log handler writes to console.log (stdout on Node), which would corrupt the
-    // protocol stream: route all logs to stderr instead.
+    // protocol stream: route all logs to stderr instead. Same for accidental println calls in
+    // tool code, which go through System.out.
     Logger.setDefaultHandler(new ConsoleLogHandler(SourceCodeLogFormatter, Console.err))
+    System.setOut(System.err)
     val stdin = g.process.stdin
     stdin.setEncoding("utf8")
     var buffer                             = ""
@@ -50,6 +52,16 @@ private[mcp] object StdioTransport extends LogSupport:
         if start > 0 then
           buffer = buffer.substring(start)
     stdin.on("data", onData)
+    // Handle a final message that arrives without a trailing newline before stdin closes
+    val onEnd: js.Function0[Unit] =
+      () =>
+        val line = buffer.trim
+        buffer = ""
+        if line.nonEmpty then
+          dispatchLine(handle, line)
+    stdin.on("end", onEnd)
+
+  end serve
 
   private def dispatchLine(handle: String => Rx[Option[String]], line: String): Unit =
     RxRunner.run(handle(line)) {

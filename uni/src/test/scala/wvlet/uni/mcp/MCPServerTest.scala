@@ -199,8 +199,15 @@ class MCPServerTest extends UniTest:
 
   test("apply default parameter values") {
     parseResponse(newServer.handleMessage(toolCall(5, "greet"))).map { response =>
-      firstContentText(resultOf(response)) shouldBe "\"Hello, world!\""
+      firstContentText(resultOf(response)) shouldBe "Hello, world!"
     }
+  }
+
+  test("string results are unwrapped to plain text, preserving escapes") {
+    parseResponse(newServer.handleMessage(toolCall(12, "greet", "name" -> JSONString("a\"b\nc"))))
+      .map { response =>
+        firstContentText(resultOf(response)) shouldBe "Hello, a\"b\nc!"
+      }
   }
 
   test("return a structured result as JSON text") {

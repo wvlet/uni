@@ -28,27 +28,39 @@ private[mcp] object StdioTransport extends LogSupport:
   private val writeLock = new Object
 
   def serve(handle: String => Rx[Option[String]]): Unit =
-    val reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
-    var line   = reader.readLine()
-    while line != null do
-      val message = line.trim
-      if message.nonEmpty then
-        dispatchLine(handle, message)
-      line = reader.readLine()
+    // Keep the real stdout for protocol responses and point System.out at stderr while serving,
+    // so accidental println calls in tool code cannot corrupt the protocol stream
+    val protocolOut = System.out
+    System.setOut(System.err)
+    try
+      val reader = new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8))
+      var line   = reader.readLine()
+      while line != null do
+        val message = line.trim
+        if message.nonEmpty then
+          dispatchLine(handle, protocolOut, message)
+        line = reader.readLine()
+    finally
+      System.setOut(protocolOut)
 
-  private def dispatchLine(handle: String => Rx[Option[String]], line: String): Unit =
+  private def dispatchLine(
+      handle: String => Rx[Option[String]],
+      protocolOut: java.io.PrintStream,
+      line: String
+  ): Unit =
     RxRunner.run(handle(line)) {
       case OnNext(v) =>
-        v.asInstanceOf[Option[String]].foreach(writeLine)
+        v.asInstanceOf[Option[String]].foreach(writeLine(protocolOut, _))
       case OnError(e) =>
         // handleMessage encodes its own errors; this is defensive only
         warn(s"Failed to handle MCP message: ${e.getMessage}", e)
       case OnCompletion =>
     }
 
-  private def writeLine(message: String): Unit = writeLock.synchronized {
-    System.out.println(message)
-    System.out.flush()
-  }
+  private def writeLine(protocolOut: java.io.PrintStream, message: String): Unit = writeLock
+    .synchronized {
+      protocolOut.println(message)
+      protocolOut.flush()
+    }
 
 end StdioTransport

@@ -89,9 +89,10 @@ to stderr (on Scala.js it replaces the default `console.log` handler), so
   everything else is listed in `required`.
 - A method returning `Rx[A]` is awaited and serialized like `A` — use it for
   async tools.
-- Results are returned to the client as JSON text content. Exceptions thrown by
-  a tool become `isError: true` results; malformed arguments are reported as
-  JSON-RPC `-32602` errors.
+- Results are returned to the client as text content: `String` results as plain
+  text, everything else as JSON. Exceptions thrown by a tool become
+  `isError: true` results; malformed arguments are reported as JSON-RPC `-32602`
+  errors.
 
 Multiple services can be registered on one server with repeated
 `withTools[...]` calls.

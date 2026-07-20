@@ -15,6 +15,7 @@ package wvlet.uni.mcp
 
 import wvlet.uni.http.{HttpHeader, HttpMethod, Request, Response}
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCException, RPCRoute, RPCRouter, RPCStatus}
+import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{JSONArray, JSONBoolean, JSONObject, JSONString, JSONValue}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.mcp.JsonRpc.JsonRpcRequest
@@ -224,7 +225,22 @@ case class MCPServer(
       .contains(RPCStatus.SUCCESS_S0.code.toString)
     if isSuccess then
       val body = response.contentAsString.getOrElse("null")
-      JsonRpc.resultResponse(id, toolResult(body, isError = false))
+      // A tool returning String is JSON-encoded as "..." by the RPC layer; unwrap it so MCP
+      // clients receive the plain text rather than a quoted string
+      val text =
+        if body.startsWith("\"") then
+          try
+            JSON.parseAny(body) match
+              case JSONString(v) =>
+                v
+              case _ =>
+                body
+          catch
+            case _: Exception =>
+              body
+        else
+          body
+      JsonRpc.resultResponse(id, toolResult(text, isError = false))
     else
       val e = RPCException.fromResponse(response)
       e.status match
@@ -234,6 +250,8 @@ case class MCPServer(
         case _ =>
           // Tool execution failures are reported as results with isError = true
           JsonRpc.resultResponse(id, toolResult(e.message, isError = true))
+
+  end toolCallResponse
 
   private def toolResult(text: String, isError: Boolean): JSONObject = JSONObject(
     Seq(
