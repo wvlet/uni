@@ -45,6 +45,14 @@ NativeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()  // Scala Nat
 - JVM integration test in uni-netty: real `NettyServer` + HTTP client POSTing a session.
 - Docs: "HTTP transport" section in `docs/mcp/index.md` (mount snippets, `.mcp.json` `"url"` form).
 
+## Learnings from the PR cycle (#660)
+
+- **Origin parsing must be strict, not permissive**: the first `hostOf` cut a bracketed IPv6 host
+  at `]`, so `http://[::1].evil.com` validated as `[::1]` (flagged security-critical by Gemini).
+  Fixed by requiring that a bracketed host be followed only by a port separator or the end of the
+  authority; anything malformed is returned whole so it can never match an allowed host.
+  Regression tests pin `[::1].evil.com`, `[::1]evil.com:80`, and `localhost.evil.com`.
+
 ## Deferred
 
 SSE streaming + sessions (needed only when server-initiated notifications exist — resources/prompts
