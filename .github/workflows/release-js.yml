@@ -21,7 +21,7 @@ jobs:
           distribution: 'zulu'
           java-version: '23'
           cache: sbt
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: '22'
       - name: Setup GPG
