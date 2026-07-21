@@ -127,18 +127,34 @@ Run the emitted script (path printed by sbt) with `node`.
 
 ## 5. Register with an MCP client
 
-For Claude Code, add the server to `.mcp.json` in your project (or register it
-with `claude mcp add`):
+Any MCP client can launch the server; each has its own registration flow.
+
+**Claude Code** — register the command with the `claude mcp add` CLI:
+
+```
+claude mcp add weather -- /path/to/weather-server
+```
+
+To share the server with everyone working on a repository, use the project
+scope (`claude mcp add --scope project ...`), which records it in a `.mcp.json`
+file at the project root:
 
 ```json
 {
   "mcpServers": {
     "weather": {
+      "type": "stdio",
       "command": "/path/to/weather-server"
     }
   }
 }
 ```
+
+**Claude Desktop** — add the same `mcpServers` entry to
+`claude_desktop_config.json` (Settings → Developer → Edit Config).
+
+Other clients (VS Code, Cursor, ...) have equivalent settings; consult their
+documentation for the file location and exact schema.
 
 ## 6. Try it out
 
@@ -179,12 +195,21 @@ NodeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
 NativeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
-Register an HTTP server in `.mcp.json` with `"url"` instead of `"command"`:
+Register an HTTP server by its URL instead of a command — in Claude Code:
+
+```
+claude mcp add --transport http weather http://localhost:8080/mcp
+```
+
+or in a project-scope `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
-    "weather": { "url": "http://localhost:8080/mcp" }
+    "weather": {
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
+    }
   }
 }
 ```
