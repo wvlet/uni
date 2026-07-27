@@ -20,21 +20,44 @@ private[crossproject] object CrossProjectMacro:
       "crossProject must be directly assigned to a val, " +
         "such as `val x = crossProject(JVMPlatform, JSPlatform)`."
     )
-    '{ CrossProject(${ name }, new java.io.File(${ name }))(${ platforms }*) }
+    '{
+      CrossProject(
+        ${
+          name
+        },
+        new java.io.File(
+          ${
+            name
+          }
+        )
+      )(
+        ${
+          platforms
+        }*
+      )
+    }
 
   private def definingValName(errorMsg: String)(using Quotes): Expr[String] =
     import quotes.reflect.*
     val term = enclosingTerm
-    if term.isValDef then Expr(term.name) else report.errorAndAbort(errorMsg)
+    if term.isValDef then
+      Expr(term.name)
+    else
+      report.errorAndAbort(errorMsg)
 
   private def enclosingTerm(using qctx: Quotes): qctx.reflect.Symbol =
     import qctx.reflect.*
     @tailrec
-    def enclosingTerm0(sym: Symbol): Symbol = sym match
-      case sym if sym.flags.is(Flags.Macro)     => enclosingTerm0(sym.owner)
-      case sym if sym.flags.is(Flags.Synthetic) => enclosingTerm0(sym.owner)
-      case sym if !sym.isTerm                   => enclosingTerm0(sym.owner)
-      case _                                    => sym
+    def enclosingTerm0(sym: Symbol): Symbol =
+      sym match
+        case sym if sym.flags.is(Flags.Macro) =>
+          enclosingTerm0(sym.owner)
+        case sym if sym.flags.is(Flags.Synthetic) =>
+          enclosingTerm0(sym.owner)
+        case sym if !sym.isTerm =>
+          enclosingTerm0(sym.owner)
+        case _ =>
+          sym
     enclosingTerm0(Symbol.spliceOwner)
 
 end CrossProjectMacro
