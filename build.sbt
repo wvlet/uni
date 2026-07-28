@@ -40,12 +40,12 @@ val buildSettings = Seq[Setting[?]](
   crossScalaVersions := List(SCALA_3),
   crossPaths         := true,
   publishMavenStyle  := true,
-  licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
-  homepage := Some(url("https://github.com/wvlet/uni")),
+  licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
+  homepage := Some(uri("https://github.com/wvlet/uni")),
   scmInfo  :=
     Some(
       ScmInfo(
-        browseUrl = url("https://github.com/wvlet/uni"),
+        browseUrl = uri("https://github.com/wvlet/uni"),
         connection = "scm:git:git@github.com:wvlet/uni.git"
       )
     ),
@@ -55,7 +55,7 @@ val buildSettings = Seq[Setting[?]](
         id = "leo",
         name = "Taro L. Saito",
         email = "leo@xerial.org",
-        url = url("http://xerial.org/leo")
+        url = uri("http://xerial.org/leo")
       )
     ),
   Test / parallelExecution := false,
