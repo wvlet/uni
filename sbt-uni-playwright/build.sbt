@@ -28,12 +28,12 @@ val SCALAJS_JS_ENVS_VERSION = "1.6.0"
 val SCALA_3 = "3.8.2"
 
 val commonSettings = Seq[Setting[?]](
-  licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0.html")),
-  homepage := Some(url("https://github.com/wvlet/uni")),
+  licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
+  homepage := Some(uri("https://github.com/wvlet/uni")),
   scmInfo  :=
     Some(
       ScmInfo(
-        browseUrl = url("https://github.com/wvlet/uni"),
+        browseUrl = uri("https://github.com/wvlet/uni"),
         connection = "scm:git:git@github.com:wvlet/uni.git"
       )
     ),
@@ -43,7 +43,7 @@ val commonSettings = Seq[Setting[?]](
         id = "leo",
         name = "Taro L. Saito",
         email = "leo@xerial.org",
-        url = url("http://xerial.org/leo")
+        url = uri("http://xerial.org/leo")
       )
     )
 )
