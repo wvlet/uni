@@ -220,7 +220,7 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .dependsOn(core)
 
-val NETTY_VERSION = "4.2.16.Final"
+val NETTY_VERSION = "4.2.17.Final"
 
 lazy val netty = project
   .in(file("uni-netty"))
