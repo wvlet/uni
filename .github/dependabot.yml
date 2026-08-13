@@ -14,14 +14,16 @@ updates:
     schedule:
       interval: "daily"
   - package-ecosystem: "npm"
-    directory: "/docs"
+    directory: "/examples/electron-app"
     schedule:
       interval: "weekly"
     groups:
-      # Grouping Docusaurus module updates into a single PR
-      docusaurus:
+      # Electron desktop app example: major-version updates (electron, vite,
+      # electron-builder, ...) can pull in breaking changes, so keep them as
+      # separate reviewable PRs and only group small transitive fixes.
+      minor-and-patch:
         patterns:
-          - "@docusaurus/*"
-      react:
-        patterns:
-          - "@react/react(-dom)?"
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
