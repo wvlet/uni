@@ -1,0 +1,7 @@
+allowBuilds:
+  electron: true
+  electron-winstaller: false
+  esbuild: true
+
+overrides:
+  tar: ^7.5.16
