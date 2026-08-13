@@ -2,13 +2,15 @@ package example.renderer
 
 import example.api.{CounterApi, CounterState}
 import org.scalajs.dom
-import org.scalajs.dom.html
+import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.surface.Surface
 
+import scala.language.implicitConversions
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 /**
@@ -17,6 +19,20 @@ import scala.scalajs.js.annotation.JSExportTopLevel
   * whose buttons drive the [[CounterApi]].
   */
 object RendererApp:
+
+  @JSExportTopLevel("main")
+  def main(): Unit =
+    // Point Uni's HTTP client at the Electron IPC bridge exposed by the preload script.
+    ElectronRenderer.install()
+    CounterUI().renderTo("app")
+
+end RendererApp
+
+/**
+  * The counter UI, built with Rx HTML (`wvlet.uni.dom`). The count is held in an [[RxVar]] and
+  * embedded in the markup, so the display re-renders in place whenever an RPC result updates it.
+  */
+class CounterUI extends RxElement:
 
   // A reusable RPC engine for CounterApi. The generated/manual stub below adds typed methods.
   private val rpc: RPCClient = RPCClient.build(
@@ -36,88 +52,56 @@ object RendererApp:
 
   private def reset(): Rx[CounterState] = rpc.callAsync[CounterState](client, "reset", Seq.empty)
 
-  @JSExportTopLevel("main")
-  def main(): Unit =
-    // Point Uni's HTTP client at the Electron IPC bridge exposed by the preload script.
-    ElectronRenderer.install()
-    renderUI()
+  // The counter value shown in the display. Updating it re-renders the number in place.
+  private val count = Rx.variable(0)
 
-  // Small helper to create an element of a known HTML type with Tailwind classes + text.
-  private def el[E <: html.Element](tag: String, classes: String, text: String = ""): E =
-    val e = dom.document.createElement(tag).asInstanceOf[E]
-    e.className = classes
-    if text.nonEmpty then
-      e.textContent = text
-    e
+  // Handle to the display element, used to briefly scale it up on each change.
+  private val displayRef = DomRef[dom.html.Paragraph]()
 
-  private def renderUI(): Unit =
-    val app = dom.document.getElementById("app")
-
-    // Card container
-    val card = el[html.Div](
-      "div",
-      "w-80 rounded-2xl bg-slate-800 p-8 text-center shadow-2xl ring-1 ring-white/10"
-    )
-
-    val title    = el[html.Heading]("h1", "text-xl font-semibold text-slate-100", "Uni Counter")
-    val subtitle = el[html.Paragraph](
-      "p",
-      "mt-1 mb-7 text-xs uppercase tracking-widest text-slate-400",
-      "RPC over Electron IPC"
-    )
-
-    val display = el[html.Paragraph](
-      "p",
-      "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
-      "…"
-    )
-    display.id = "counter-value"
-
-    def button(label: String, classes: String)(onClick: => Unit): html.Button =
-      val b = el[html.Button](
-        "button",
-        s"cursor-pointer rounded-lg px-4 py-2 font-medium text-white shadow transition-colors ${classes}",
+  override def render: RxElement =
+    def actionButton(label: String, colorClasses: String)(action: Rx[CounterState]): RxElement =
+      button(
+        cls ->
+          s"cursor-pointer rounded-lg px-4 py-2 font-medium text-white shadow transition-colors ${colorClasses}",
+        onclick -> { () =>
+          action.run(show)
+        },
         label
       )
-      b.onclick = _ => onClick
-      b
 
-    // Reflect a state snapshot into the UI (with a tiny pop animation).
-    def show(state: CounterState): Unit =
-      display.textContent = state.value.toString
-      display.className =
-        "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform scale-110"
-      dom
-        .window
-        .setTimeout(
-          () =>
-            display.className =
-              "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
-          120
-        )
-
-    val row = el[html.Div]("div", "flex items-center justify-center gap-3")
-    row.appendChild(
-      button("+1", "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700")(increment(1).run(show))
-    )
-    row.appendChild(
-      button("+10", "bg-indigo-700 hover:bg-indigo-600 active:bg-indigo-800")(
-        increment(10).run(show)
+    div(
+      cls -> "w-80 rounded-2xl bg-slate-800 p-8 text-center shadow-2xl ring-1 ring-white/10",
+      h1(cls -> "text-xl font-semibold text-slate-100", "Uni Counter"),
+      p(
+        cls -> "mt-1 mb-7 text-xs uppercase tracking-widest text-slate-400",
+        "RPC over Electron IPC"
+      ),
+      p(
+        ref -> displayRef,
+        cls -> "mb-8 text-7xl font-bold tabular-nums text-indigo-400 transition-transform",
+        count.map(c => c.toString)
+      ),
+      div(
+        cls -> "flex items-center justify-center gap-3",
+        actionButton("+1", "bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700")(increment(1)),
+        actionButton("+10", "bg-indigo-700 hover:bg-indigo-600 active:bg-indigo-800")(
+          increment(10)
+        ),
+        actionButton("Reset", "bg-slate-600 hover:bg-slate-500 active:bg-slate-700")(reset())
       )
     )
-    row.appendChild(
-      button("Reset", "bg-slate-600 hover:bg-slate-500 active:bg-slate-700")(reset().run(show))
-    )
 
-    card.appendChild(title)
-    card.appendChild(subtitle)
-    card.appendChild(display)
-    card.appendChild(row)
-    app.appendChild(card)
+  end render
 
-    // Load the initial value from the main process.
-    get().run(show)
+  // Reflect a state snapshot into the reactive count (with a tiny pop animation).
+  private def show(state: CounterState): Unit =
+    count := state.value
+    displayRef.foreach { display =>
+      display.classList.add("scale-110")
+      dom.window.setTimeout(() => display.classList.remove("scale-110"), 120)
+    }
 
-  end renderUI
+  // Load the initial value from the main process once the UI is mounted.
+  override def onMount(node: Any): Unit = get().run(show)
 
-end RendererApp
+end CounterUI

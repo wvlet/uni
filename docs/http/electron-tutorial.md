@@ -162,32 +162,49 @@ contextBridge.exposeInMainWorld('uniRPC', {
 ## Step 5: the renderer
 
 Call `ElectronRenderer.install()` once at startup; afterward every async client (including generated
-RPC stubs) rides over IPC. Here we build the client directly from the shared trait:
+RPC stubs) rides over IPC. Here we build the client directly from the shared trait and render the
+UI with uni's reactive DOM toolkit (`wvlet.uni.dom`):
 
 ```scala
 // renderer/src/main/scala/example/renderer/RendererApp.scala
 package example.renderer
 
 import example.api.{CounterApi, CounterState}
-import org.scalajs.dom
+import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
+import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.surface.Surface
+import scala.language.implicitConversions
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 object RendererApp:
-  private val rpc         = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
-  private lazy val client = Http.client.newAsyncClient
-
   @JSExportTopLevel("main")
   def main(): Unit =
     ElectronRenderer.install() // wire window.uniRPC as the HTTP channel factory
-    val display = dom.document.getElementById("counter-value")
-    def show(s: CounterState): Unit = display.textContent = s.value.toString
+    CounterUI().renderTo("app")
 
+class CounterUI extends RxElement:
+  private val rpc         = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+  private lazy val client = Http.client.newAsyncClient
+
+  private val count = Rx.variable(0)
+
+  override def render: RxElement = div(
+    h1("Uni Counter"),
+    p(count.map(_.toString)), // re-renders when count changes
+    button(
+      onclick -> { () => rpc.callAsync[CounterState](client, "increment", Seq(1)).run(show) },
+      "+1"
+    )
+  )
+
+  private def show(s: CounterState): Unit = count := s.value
+
+  override def onMount(node: Any): Unit =
     rpc.callAsync[CounterState](client, "get", Seq.empty).run(show)
-    // wire buttons → rpc.callAsync[CounterState](client, "increment", Seq(1)).run(show), etc.
 ```
 
 The renderer HTML loads the Scala.js module and provides the mount point:
@@ -201,7 +218,7 @@ The renderer HTML loads the Scala.js module and provides the mount point:
     <title>Uni Electron Counter</title>
   </head>
   <body>
-    <p id="counter-value">…</p>
+    <div id="app"></div>
     <script type="module" src="./index.js"></script>
   </body>
 </html>
@@ -215,7 +232,7 @@ main()
 
 ::: tip Styling
 The example styles the renderer with [Tailwind CSS](https://tailwindcss.com/) v4 via
-`@tailwindcss/vite`, pointing `@source` at the Scala sources so Tailwind finds the `className`
+`@tailwindcss/vite`, pointing `@source` at the Scala sources so Tailwind finds the `cls` class
 strings used in `RendererApp.scala`. It's optional — plain CSS works too.
 :::
 

@@ -26,7 +26,7 @@ transport (`wvlet.uni.electron`) carries the JSON envelope across the process bo
 | --------------------- | ---------------------------------------------------------------------- |
 | `api/`                | Scala.js: shared RPC service trait + models (`CounterApi`)              |
 | `main/`               | Scala.js: service impl + `ElectronRPCServer.serve(ipcMain, ...)`        |
-| `renderer/`           | Scala.js: UI + RPC client (`ElectronRenderer.install()`)               |
+| `renderer/`           | Scala.js: Rx HTML UI (`wvlet.uni.dom`) + RPC client (`ElectronRenderer.install()`) |
 | `src/main/index.js`   | Electron main entry — creates the window, hands `ipcMain` to Scala      |
 | `src/preload/index.js`| `contextBridge` bridge: `window.uniRPC.request → ipcRenderer.invoke`    |
 | `src/renderer/`       | `index.html` + the JS entry that imports the Scala.js renderer module   |

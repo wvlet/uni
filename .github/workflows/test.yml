@@ -67,6 +67,11 @@ jobs:
           for dir in sbt-uni sbt-uni-playwright sbt-uni-crossproject; do
             (cd "$dir" && ../sbt scalafmtCheckAll)
           done
+      # The electron-app example is a standalone sbt build too, with its own .scalafmt.conf
+      # symlink; the root scalafmtCheckAll never sees it. Check it here so the required Code
+      # format check covers the example as well.
+      - name: scalafmt (electron-app example)
+        run: (cd examples/electron-app && ../../sbt scalafmtCheckAll)
   test_scala_3:
     name: Scala 3
     needs: changes
