@@ -9,14 +9,14 @@ importers:
   .:
     devDependencies:
       mermaid:
-        specifier: ^11.17.1
-        version: 11.17.1
+        specifier: ^11.17.2
+        version: 11.17.2
       vitepress:
         specifier: ^2.0.0-alpha.19
         version: 2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25)
       vitepress-plugin-mermaid:
         specifier: ^2.0.17
-        version: 2.0.17(mermaid@11.17.1)(vitepress@2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25))
+        version: 2.0.17(mermaid@11.17.2)(vitepress@2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25))
 
 packages:
 
@@ -793,8 +793,8 @@ packages:
     resolution: {integrity: sha512-TWrgLOFUQTH994YUyl1yT4uyavY5nNB5muff+RtWaqNVCAK408b5ZnnbNAUEWLTCpum9w6arT70i1XdQ4UeOPA==}
     engines: {node: '>=0.12'}
 
-  es-toolkit@1.51.0:
-    resolution: {integrity: sha512-zC2lQGkM7QX+Gm6iM3+WIdZJzthsEd14LvRNJneSO2hzyz/zNBENR8+YXWo1cKxgPBtV6ksPYHELbcwBRzmdCw==}
+  es-toolkit@1.52.0:
+    resolution: {integrity: sha512-XTNEJQh1tY1ZJVcf6ayP/2n4ZPyaHlW2FWs7xvw5ddPuhUVjLD3olQVQS7kf58JbAB48iL0uL/jerTrjtV3lDA==}
 
   esbuild@0.28.1:
     resolution: {integrity: sha512-HrJrvZv5ayxBzPfwphOoNzkzOIIlifzk0KJrGK2c8R4+LKpMtpYLQeUdjnwjWv/LZlkH2laZk+4w78pi99D4Vw==}
@@ -953,8 +953,8 @@ packages:
   mdast-util-to-hast@13.2.1:
     resolution: {integrity: sha512-cctsq2wp5vTsLIcaymblUriiTcZd0CwWtCbLvrOzYCDZoWyMNV8sZ7krj09FSnsiJi3WVsHLM4k6Dq/yaPyCXA==}
 
-  mermaid@11.17.1:
-    resolution: {integrity: sha512-G1BP6qU4BRwEGk2SdsxgDk1cSuApimT32Nkb52YRSv+856FrmB8qo28BaNk9Ee8Fvuon3OxpXDJ4L6cD5AykXg==}
+  mermaid@11.17.2:
+    resolution: {integrity: sha512-V6K3C8EBdEsPFZXSKMJe6ppQOENxuHARr9GvHX4hh47lAbhMRD9qf4oEK7LoaRQxULMa80/qt5gHO73aCleBBg==}
 
   micromark-util-character@2.1.1:
     resolution: {integrity: sha512-wv8tdUTJ3thSFFFJKtpYKOYiGP2+v96Hvk4Tu8KpCAsTMs6yi+nVmGh1syvSCsaxz45J6Jbw+9DD6g97+NV67Q==}
@@ -1881,7 +1881,7 @@ snapshots:
 
   entities@7.0.1: {}
 
-  es-toolkit@1.51.0: {}
+  es-toolkit@1.52.0: {}
 
   esbuild@0.28.1:
     optionalDependencies:
@@ -2045,7 +2045,7 @@ snapshots:
       unist-util-visit: 5.1.0
       vfile: 6.0.3
 
-  mermaid@11.17.1:
+  mermaid@11.17.2:
     dependencies:
       '@braintree/sanitize-url': 7.1.2
       '@iconify/utils': 3.1.4
@@ -2060,7 +2060,7 @@ snapshots:
       dagre-d3-es: 7.0.14
       dayjs: 1.11.23
       dompurify: 3.4.14
-      es-toolkit: 1.51.0
+      es-toolkit: 1.52.0
       fastdom: 1.0.12
       katex: 0.16.47
       khroma: 2.1.0
@@ -2253,9 +2253,9 @@ snapshots:
       esbuild: 0.28.1
       fsevents: 2.3.3
 
-  vitepress-plugin-mermaid@2.0.17(mermaid@11.17.1)(vitepress@2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25)):
+  vitepress-plugin-mermaid@2.0.17(mermaid@11.17.2)(vitepress@2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25)):
     dependencies:
-      mermaid: 11.17.1
+      mermaid: 11.17.2
       vitepress: 2.0.0-alpha.19(esbuild@0.28.1)(postcss@8.5.25)
     optionalDependencies:
       '@mermaid-js/mermaid-mindmap': 9.3.0
