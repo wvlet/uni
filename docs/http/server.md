@@ -14,6 +14,15 @@ on every platform. The **annotation router** (`@Endpoint`, `Router.of[T]`,
 
 ## Quick Start
 
+On the JVM, add the `uni-netty` module to your build (it pulls in `uni`
+transitively). On Scala.js and Scala Native, the server backends are included
+in `uni` itself:
+
+```scala
+// JVM only: Netty-based HTTP server
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+```
+
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}

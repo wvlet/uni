@@ -18,10 +18,94 @@
 | Module | Description |
 |--------|-------------|
 | `uni` | Core utilities: Design (DI), logging, JSON, MessagePack, Rx, HTTP client, control flow |
+| `uni-netty` | Netty-based HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
-| `uni-netty` | Netty-based HTTP server |
 
-Cross-platform: JVM, Scala.js, and Scala Native.
+`uni` and `uni-test` are cross-platform: JVM, Scala.js, and Scala Native.
+
+## Getting Started
+
+Add the dependencies you need to your `build.sbt` (replace `<version>`
+with the version shown in the Maven Central badge above):
+
+```scala
+// Core utilities (Design, logging, JSON, MessagePack, Rx, HTTP client, etc.)
+libraryDependencies += "org.wvlet.uni" %% "uni" % "<version>"
+
+// Netty-based HTTP server (JVM only; pulls in uni transitively)
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
+
+// Testing framework
+libraryDependencies += "org.wvlet.uni" %% "uni-test" % "<version>" % Test
+testFrameworks += new TestFramework("wvlet.uni.test.Framework")
+```
+
+On sbt 1.x, use `%%%` for `uni` and `uni-test` in Scala.js or Scala
+Native projects (sbt 2.x uses `%%` for all platforms):
+
+```scala
+libraryDependencies += "org.wvlet.uni" %%% "uni" % "<version>"
+libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
+```
+
+### Using `uni`
+
+A minimal example using the logging API:
+
+```scala
+import wvlet.uni.log.LogSupport
+
+class MyService extends LogSupport:
+  def greet(name: String): String =
+    info(s"Greeting ${name}")
+    s"Hello, ${name}!"
+
+@main def hello =
+  val service = MyService()
+  println(service.greet("World"))
+```
+
+See the [reference docs](https://wvlet.org/uni/) for Design, Rx,
+JSON/MessagePack, HTTP, and more.
+
+### Using `uni-netty` (HTTP server on the JVM)
+
+`uni-netty` provides a Netty-based HTTP server:
+
+```scala
+import wvlet.uni.http.{Request, Response}
+import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.rx.Rx
+
+NettyServer
+  .withPort(8080)
+  .withRxHandler { request =>
+    Rx.single(Response.ok(s"Hello from ${request.path}"))
+  }
+  .start { server =>
+    println(s"Listening on ${server.localAddress}")
+  }
+```
+
+See the [REST Server guide](https://wvlet.org/uni/http/server) for the
+annotation-based router, filters, and the Scala.js / Scala Native
+server backends (which need only `uni`).
+
+### Using `uni-test`
+
+Write a test by extending `UniTest`:
+
+```scala
+import wvlet.uni.test.UniTest
+
+class MyTest extends UniTest:
+  test("addition works") {
+    (1 + 1) shouldBe 2
+  }
+```
+
+Run with `sbt test`. See the [UniTest guide](https://wvlet.org/uni/core/unitest)
+for assertions, property-based testing, and more.
 
 ## sbt 2.x Plugins
 
@@ -62,69 +146,6 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 
 See the [build plugin docs](https://wvlet.org/uni/build/sbt-uni) for
 details.
-
-## Using `uni`
-
-Add the dependency to your `build.sbt` (replace `<version>` with the
-version shown in the Maven Central badge above):
-
-```scala
-libraryDependencies += "org.wvlet.uni" %% "uni" % "<version>"
-```
-
-For Scala.js or Scala Native, use `%%%`:
-
-```scala
-libraryDependencies += "org.wvlet.uni" %%% "uni" % "<version>"
-```
-
-A minimal example using the logging API:
-
-```scala
-import wvlet.uni.log.LogSupport
-
-class MyService extends LogSupport:
-  def greet(name: String): String =
-    info(s"Greeting ${name}")
-    s"Hello, ${name}!"
-
-@main def hello =
-  val service = MyService()
-  println(service.greet("World"))
-```
-
-See the [reference docs](https://wvlet.org/uni/) for Design, Rx,
-JSON/MessagePack, HTTP, and more.
-
-## Using `uni-test`
-
-`uni-test` is a lightweight test framework. Add it as a test
-dependency and register the framework:
-
-```scala
-libraryDependencies += "org.wvlet.uni" %% "uni-test" % "<version>" % Test
-testFrameworks += new TestFramework("wvlet.uni.test.Framework")
-```
-
-For Scala.js or Scala Native projects, use `%%%`:
-
-```scala
-libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
-```
-
-Write a test by extending `UniTest`:
-
-```scala
-import wvlet.uni.test.UniTest
-
-class MyTest extends UniTest:
-  test("addition works") {
-    (1 + 1) shouldBe 2
-  }
-```
-
-Run with `sbt test`. See the [UniTest guide](https://wvlet.org/uni/core/unitest)
-for assertions, property-based testing, and more.
 
 ## License
 

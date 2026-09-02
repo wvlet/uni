@@ -157,7 +157,7 @@ import scala.scalanative.build.BuildTarget
 lazy val mylib = project
   .enablePlugins(ScalaNativePlugin)
   .settings(
-    libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__",
+    libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__",
     nativeConfig ~= {
       _.withBuildTarget(BuildTarget.libraryDynamic).withBaseName("mylib")
     }

@@ -18,15 +18,16 @@ import sbtcrossproject.CrossPlugin.autoImport.{crossProject, CrossType}
 lazy val app = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .settings(
-    libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
+    libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
   )
 ```
 
 That one declaration produces three projects — `appJVM`, `appJS`,
-`appNative`. The `%%%` (three percent signs) is the cross-platform
-dependency operator: it pulls in the build of `uni` that matches each
-target. `sbt appJVM/run`, `sbt appJS/fastLinkJS`, and `sbt appNative/run`
-build the same source three ways.
+`appNative`. On sbt 2.x the familiar `%%` operator already encodes the
+platform: it pulls in the build of `uni` that matches each target
+(`_sjs1` for Scala.js, `_native0.5` for Native). (On sbt 1.x you would
+write `%%%` instead.) `sbt appJVM/run`, `sbt appJS/fastLinkJS`, and
+`sbt appNative/run` build the same source three ways.
 
 ## Where code lives
 
@@ -133,7 +134,7 @@ either concern leaking into the other.
 
 You can now ship one codebase to three runtimes:
 
-- **`crossProject(JVMPlatform, JSPlatform, NativePlatform)`** with `%%%`
+- **`crossProject(JVMPlatform, JSPlatform, NativePlatform)`** with `%%`
   dependencies builds the same source three ways.
 - Shared code lives in **`src/`**; only genuinely platform-specific code
   goes in **`.jvm` / `.js` / `.native`**.
