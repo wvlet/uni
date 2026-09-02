@@ -3,7 +3,7 @@
 ## Requirements
 
 - Scala 3.3+
-- sbt 1.9+
+- sbt 1.9+ or sbt 2.x
 
 ## Adding Dependencies
 
@@ -14,17 +14,42 @@ Add uni to your `build.sbt`:
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
-## Cross-Platform Projects
+### HTTP Server on the JVM
 
-For Scala.js or Scala Native projects:
+To run an HTTP server on the JVM, add the Netty-based server module
+(it pulls in `uni` transitively):
 
 ```scala
-// Scala.js
-libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
-
-// Scala Native
-libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
+// Netty-based HTTP server (JVM only)
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
+
+See the [REST Server guide](../http/server.md) for usage. On Scala.js and
+Scala Native, the HTTP server backends (`NodeServer` / `NativeServer`) are
+included in `uni` itself — no extra module is needed.
+
+### Testing Framework
+
+Add [UniTest](../core/unitest.md) as a test dependency and register its
+test framework:
+
+```scala
+libraryDependencies += "org.wvlet.uni" %% "uni-test" % "__UNI_VERSION__" % Test
+testFrameworks += new TestFramework("wvlet.uni.test.Framework")
+```
+
+## Cross-Platform Projects
+
+For Scala.js or Scala Native projects on sbt 1.x, use `%%%`:
+
+```scala
+// Scala.js / Scala Native (sbt 1.x)
+libraryDependencies += "org.wvlet.uni" %%% "uni" % "__UNI_VERSION__"
+libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "__UNI_VERSION__" % Test
+```
+
+On sbt 2.x, `%%` resolves the platform-specific artifact for all
+platforms, so `%%%` is not needed.
 
 ::: tip Scala Native and libcurl
 No system libraries are needed to build a Scala Native binary against uni. Only

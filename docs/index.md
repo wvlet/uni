@@ -40,11 +40,20 @@ features:
 ::: code-group
 
 ```scala [sbt]
+// Core utilities (Design, logging, JSON, MessagePack, Rx, HTTP client, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
+
+// Netty-based HTTP server (JVM only)
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+
+// Testing framework
+libraryDependencies += "org.wvlet.uni" %% "uni-test" % "__UNI_VERSION__" % Test
+testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 ```
 
 ```scala [Scala CLI]
 //> using dep org.wvlet.uni::uni:__UNI_VERSION__
+//> using dep org.wvlet.uni::uni-netty:__UNI_VERSION__
 ```
 
 :::
@@ -69,6 +78,7 @@ class MyService extends LogSupport:
 | Module | Description |
 |--------|-------------|
 | `uni` | Core utilities: Design, logging, JSON, MessagePack, Rx, HTTP client |
+| `uni-netty` | Netty-based HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
 
 ## Cross-Platform Support

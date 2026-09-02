@@ -195,6 +195,13 @@ NodeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
 NativeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
+On the JVM, `NettyServer` lives in the `uni-netty` module — add it to your
+build (Scala.js and Scala Native servers are included in `uni` itself):
+
+```scala
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+```
+
 Register an HTTP server by its URL instead of a command — in Claude Code:
 
 ```
