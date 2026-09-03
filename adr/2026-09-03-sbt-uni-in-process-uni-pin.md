@@ -78,6 +78,16 @@ Alternatives rejected or deferred:
   combination.
 - The codegen package had no functional change between v2026.1.21 and the pin.
 
+## Worked examples
+
+- `493aff3` (#688): Scala Steward bumps `SCALA_3` to 3.9.0; every required check
+  passes, the non-required scripted job fails with TASTy 28.9, the PR auto-merges.
+- `5fb0f70` (#689): the pin, scripted apps moved to uni's Scala version, the
+  metabuild `uni` dependency dropped from the scripted tests, docs minimum raised.
+- `3ec6bbe` (#689): `scala-steward:off/on` around the pin; `sbt-uni/build.sbt`
+  reads `SCALA_3` from the root `build.sbt` for the scripted apps; docs fences use
+  `__SCALA_VERSION__`.
+
 ## Consequences and constraints
 
 - **The generated code's API surface is frozen.** The pinned generator emits code
