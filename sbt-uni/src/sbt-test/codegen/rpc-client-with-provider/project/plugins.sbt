@@ -5,7 +5,3 @@ sys.props.get("plugin.version") match {
     sys.error("""|The system property 'plugin.version' is not defined.
          |Specify this property using the scriptedLaunchOpts -D.""".stripMargin)
 }
-
-val uniVersion = sys.props.getOrElse("uni.version", "0.0.1-SNAPSHOT")
-// uni runtime dependency for generated client code
-libraryDependencies += "org.wvlet.uni" %% "uni" % uniVersion
