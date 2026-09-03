@@ -8,7 +8,7 @@
 // The Uni version defaults to the locally published snapshot; override with
 //   sbt -Duni.version=<version>
 val uniVersion = sys.props.getOrElse("uni.version", "2026.1.13-SNAPSHOT")
-val scala3     = "3.8.4"
+val scala3     = "3.9.0"
 
 ThisBuild / scalaVersion := scala3
 
