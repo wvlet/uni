@@ -1,10 +1,22 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import { fetchLatestVersion } from './fetchLatestVersion'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 
 const FALLBACK_VERSION = '2026.1.6'
 const VERSION_TOKEN = '__UNI_VERSION__'
 const uniVersion = await fetchLatestVersion(FALLBACK_VERSION)
+
+// The Scala version uni is built with (SCALA_3 in the root build.sbt). uni's artifacts need a
+// compiler of at least that minor, so samples must not drift behind it.
+const SCALA_VERSION_TOKEN = '__SCALA_VERSION__'
+const scalaVersion = (() => {
+  const rootBuild = readFileSync(fileURLToPath(new URL('../../build.sbt', import.meta.url)), 'utf8')
+  const m = /val SCALA_3\s*=\s*"([^"]+)"/.exec(rootBuild)
+  if (!m) throw new Error('Could not find `val SCALA_3 = "..."` in the root build.sbt')
+  return m[1]
+})()
 
 interface UniThemeConfig extends DefaultTheme.Config {
   uniVersion: string
@@ -27,7 +39,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
     },
     config(md) {
       const replace = (text: string): string =>
-        text.includes(VERSION_TOKEN) ? text.split(VERSION_TOKEN).join(uniVersion) : text
+        text.split(VERSION_TOKEN).join(uniVersion).split(SCALA_VERSION_TOKEN).join(scalaVersion)
       for (const rule of ['fence', 'code_inline'] as const) {
         const original = md.renderer.rules[rule]
         md.renderer.rules[rule] = (tokens, idx, options, env, self) => {

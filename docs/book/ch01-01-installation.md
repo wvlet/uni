@@ -60,7 +60,7 @@ hello-uni/
 `build.sbt`:
 
 ```scala
-val scala3Version = "3.9.0"
+val scala3Version = "__SCALA_VERSION__"
 
 ThisBuild / scalaVersion := scala3Version
 
@@ -116,7 +116,7 @@ lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
   .settings(
-    scalaVersion := "3.9.0",
+    scalaVersion := "__SCALA_VERSION__",
     libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
   )
 ```

@@ -11,8 +11,11 @@
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
 plugin call uni directly as a library). It is not published for sbt 1.x.
 
-The uni build the plugin calls in-process follows sbt's own metabuild Scala
-version, independently of the uni and Scala versions your project depends on.
+The uni build the plugin calls in-process is pinned to a release built with sbt
+2.0.x's metabuild Scala (3.8), independently of the uni and Scala versions your
+project depends on. Declare `uni` only in `build.sbt`: adding it to
+`project/plugins.sbt` would replace the plugin's pinned uni with one sbt's
+metabuild cannot load.
 :::
 
 ## Installation

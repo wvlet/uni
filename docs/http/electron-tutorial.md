@@ -38,7 +38,7 @@ Three Scala.js modules: a shared `api`, the `main` process, and the `renderer`. 
 ```scala
 // build.sbt
 val uniVersion = sys.props.getOrElse("uni.version", "__UNI_VERSION__")
-val scala3     = "3.9.0"
+val scala3     = "__SCALA_VERSION__"
 
 ThisBuild / scalaVersion := scala3
 

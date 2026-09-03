@@ -17,18 +17,27 @@ ThisBuild / publishTo := {
     localStaging.value
 }
 
-// The uni version the scripted test apps depend on (the locally published snapshot in CI), and the
-// Scala version those apps compile with. The apps must use uni's own Scala minor (SCALA_3 in the
-// root build.sbt) to read that snapshot's TASTy; CI passes it via SCALA_VERSION.
-val UNI_VERSION   = sys.env.getOrElse("UNI_VERSION", "0.0.1-SNAPSHOT")
-val SCALA_VERSION = sys.env.getOrElse("SCALA_VERSION", "3.9.0")
+// The uni version the scripted test apps depend on (the locally published snapshot in CI).
+val UNI_VERSION = sys.env.getOrElse("UNI_VERSION", "0.0.1-SNAPSHOT")
+
+// The Scala version the scripted test apps compile with: uni's own SCALA_3, read from the root
+// build.sbt, because the apps must be on uni's Scala minor to read that snapshot's TASTy.
+val SCALA_VERSION: String = {
+  val rootBuild = IO.read(file("..") / "build.sbt")
+  """val SCALA_3\s*=\s*"([^"]+)"""".r
+    .findFirstMatchIn(rootBuild)
+    .map(_.group(1))
+    .getOrElse(sys.error("""Could not find `val SCALA_3 = "..."` in the root build.sbt"""))
+}
 
 // The uni the plugin calls in-process. Pinned to the last uni release built with sbt 2.0.x's
 // metabuild Scala (3.8); uni itself now compiles with 3.9, whose TASTy that metabuild cannot read.
 // Unlike UNI_PLUGIN_VERSION in the root project/plugin.sbt, this must not advance to a 3.9-built
 // release. Revert to UNI_VERSION once sbt's metabuild moves to Scala 3.9.
 // See adr/2026-09-03-sbt-uni-in-process-uni-pin.md
+// scala-steward:off
 val UNI_IN_PROCESS_VERSION = "2026.1.21"
+// scala-steward:on
 
 lazy val sbtUni = project
   .in(file("."))
