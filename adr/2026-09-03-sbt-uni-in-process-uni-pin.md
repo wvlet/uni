@@ -36,6 +36,11 @@ matches sbt's metabuild (`UNI_IN_PROCESS_VERSION = "2026.1.21"`, built with Scal
 because the scripted test *apps* compile with Scala 3.9 and must consume the
 3.9-built local snapshot.
 
+The scripted test apps take their `scalaVersion` from a `scala.version` system
+property that `scriptedLaunchOpts` passes next to `uni.version` (CI computes both
+from `uniJVM/version` and `uniJVM/scalaVersion`), so a future `SCALA_3` bump
+cannot leave the apps on a compiler that is too old to read the snapshot.
+
 The scripted tests' `project/plugins.sbt` no longer add `uni` to the metabuild
 classpath. That line was redundant (the plugin already brings its own uni
 transitively; the generated client is compiled in the `app` project, which

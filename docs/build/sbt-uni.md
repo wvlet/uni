@@ -11,9 +11,8 @@
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
 plugin call uni directly as a library). It is not published for sbt 1.x.
 
-The uni build the plugin calls in-process is compiled with the same Scala minor
-version as sbt's metabuild (Scala 3.8 for sbt 2.0.x), so the plugin loads
-regardless of which uni version (or Scala 3.9) your project itself depends on.
+The uni build the plugin calls in-process follows sbt's own metabuild Scala
+version, independently of the uni and Scala versions your project depends on.
 :::
 
 ## Installation
