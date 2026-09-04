@@ -1,14 +1,23 @@
 val uniVersion = sys.props.getOrElse("uni.version", "0.0.1-SNAPSHOT")
+// Passed by sbt-uni's scriptedLaunchOpts: the Scala version uni (and so this app) compiles with.
+val scala3 = sys
+  .props
+  .getOrElse(
+    "scala.version",
+    sys.error(
+      "The system property 'scala.version' is not defined. Run this test through sbt-uni's `scripted`, which passes it via scriptedLaunchOpts."
+    )
+  )
 
 lazy val api = project
   .in(file("api"))
-  .settings(scalaVersion := "3.8.3", libraryDependencies += "org.wvlet.uni" %% "uni" % uniVersion)
+  .settings(scalaVersion := scala3, libraryDependencies += "org.wvlet.uni" %% "uni" % uniVersion)
 
 lazy val app = project
   .in(file("app"))
   .enablePlugins(UniPlugin)
   .settings(
-    scalaVersion                           := "3.8.3",
+    scalaVersion                           := scala3,
     uniHttpClients                         := Seq("example.api.GreetingService:rpc:example.client"),
     libraryDependencies += "org.wvlet.uni" %% "uni" % uniVersion
   )

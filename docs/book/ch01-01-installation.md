@@ -16,7 +16,7 @@ You need three things:
 |------|-----------------|-----|
 | JDK | 17 | Scala 3 targets modern JVMs. 17 is the LTS floor most of the ecosystem is on. |
 | sbt | 1.9 | The build tool. Anything older may not know about current Scala.js / Native plugins. |
-| Scala 3 | 3.3 or newer | Uni uses Scala 3 features (match types, given imports, `extends` with indentation). |
+| Scala 3 | 3.9 or newer | Uni is compiled with Scala 3.9 (the current LTS), and an older compiler cannot read its TASTy. |
 
 A JDK 17+ and sbt 1.9+ will pull the right Scala 3 compiler on demand.
 
@@ -60,7 +60,7 @@ hello-uni/
 `build.sbt`:
 
 ```scala
-val scala3Version = "3.3.4"
+val scala3Version = "__SCALA_VERSION__"
 
 ThisBuild / scalaVersion := scala3Version
 
@@ -116,7 +116,7 @@ lazy val hello = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("."))
   .settings(
-    scalaVersion := "3.3.4",
+    scalaVersion := "__SCALA_VERSION__",
     libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
   )
 ```

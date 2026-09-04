@@ -16,7 +16,7 @@ No extra dependency is needed beyond `uni` itself.
 
 ```scala
 // build.sbt
-scalaVersion := "3.8.4"
+scalaVersion := "__SCALA_VERSION__"
 
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```

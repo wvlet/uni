@@ -2,7 +2,8 @@
 
 ## Requirements
 
-- Scala 3.3+
+- Scala 3.9 (LTS) or later. uni's artifacts are compiled with Scala 3.9, and
+  older compilers cannot read their TASTy.
 - sbt 1.9+ or sbt 2.x
 
 ## Adding Dependencies

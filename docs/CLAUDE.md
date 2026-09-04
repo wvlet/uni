@@ -25,7 +25,8 @@ If any of the above is unverified, drop the claim.
 - **`__UNI_VERSION__`** inside code fences is replaced at build time
   with the latest release (`docs/.vitepress/fetchLatestVersion.ts`).
   Use it in `libraryDependencies` examples instead of a hardcoded
-  version.
+  version. Likewise **`__SCALA_VERSION__`** is replaced with `SCALA_3`
+  from the root `build.sbt`; use it for `scalaVersion` in samples.
 - **Sidebars are duplicated.** `docs/.vitepress/config.mts` defines
   sidebars for `/guide/` **and** `/`. Adding a page requires updating
   both — a single-location edit silently leaves the page un-navigable.
