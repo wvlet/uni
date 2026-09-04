@@ -21,9 +21,9 @@ import org.scalajs.dom
   * Type class evidence for types that can be used as attribute values.
   */
 @implicitNotFound(msg = "Cannot use ${X} as an attribute value")
-private[dom] trait EmbeddableAttribute[X]
+trait EmbeddableAttribute[X]
 
-private[dom] object EmbeddableAttribute:
+object EmbeddableAttribute:
   type EA[A] = EmbeddableAttribute[A]
 
   // Primitive types
@@ -54,9 +54,9 @@ end EmbeddableAttribute
   * Type class evidence for types that can be embedded as DOM nodes (children).
   */
 @implicitNotFound(msg = "Cannot use ${A} as a DOM node")
-private[dom] trait EmbeddableNode[A]
+trait EmbeddableNode[A]
 
-private[dom] object EmbeddableNode:
+object EmbeddableNode:
   type EN[A] = EmbeddableNode[A]
 
   // Empty types
