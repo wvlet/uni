@@ -4,7 +4,7 @@ import { fetchLatestVersion } from './fetchLatestVersion'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
-const FALLBACK_VERSION = '2026.1.6'
+const FALLBACK_VERSION = '2026.1.22'
 const VERSION_TOKEN = '__UNI_VERSION__'
 const uniVersion = await fetchLatestVersion(FALLBACK_VERSION)
 
