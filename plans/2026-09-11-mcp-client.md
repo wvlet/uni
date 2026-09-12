@@ -1,6 +1,6 @@
 # MCP client (`MCPClient`): consume MCP servers from Scala
 
-Date: 2026-09-11 · Status: Proposed
+Date: 2026-09-11 · Status: Accepted · PR: #697
 
 ## Goals
 

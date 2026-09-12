@@ -22,8 +22,10 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    is no compile-time contract unless the server is a Uni trait. `MCPClient.connect(url)` returns
    `Rx[MCPClient]` after the handshake (`initialize` + `notifications/initialized`);
    `listTools(): Rx[Seq[MCPToolInfo]]` and `callTool(name, JSONObject): Rx[MCPToolResult]` are
-   the public surface. A typed `sbt-uni` generated client for known Uni-server traits is a later
-   increment, not part of this change.
+   the public surface; `initialize`/`notifyInitialized` are `private[mcp]` because the spec
+   allows only one `initialize` per session, so the handshake happens inside `connect` and is not
+   re-invokable from outside. A typed `sbt-uni` generated client for known Uni-server traits is a
+   later increment, not part of this change.
 
 3. **Sync HTTP channel behind an Rx API.** The JVM `HttpAsyncClient` is not runnable today: its
    `JavaHttpAsyncChannel` returns `RxDeferred.get`, an anonymous `Rx` that `RxRunner.run` matches
@@ -53,13 +55,16 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
 6. **Error taxonomy mirrors the server**: JSON-RPC `{code, message}` and HTTP failures are thrown
    as `MCPClientException(code, message)`; `tools/call` results with `isError: true` are returned
    as data (the spec's distinction between protocol errors and tool execution failures).
+   Responses are matched against the request id, and malformed `result`/`error` shapes are
+   rejected instead of silently accepted.
 
 7. **Resource-managed sessions.** `MCPClient` is an `AutoCloseable`, and the idiomatic session
    shape is bracket-based: `RxResource.fromAutoCloseable(MCPClient.connect(url)).use { client =>
    ... }`, so `close()` runs on both the success and error paths (an exception before `close`
    must not leak the HTTP client). To support this on every platform, `RxResource.use` was
    rewritten to compose its release/finalizers as an `Rx` chain instead of blocking with
-   `Rx.await`, which is unsupported on Scala.js.
+   `Rx.await`, which is unsupported on Scala.js. `connect` also closes the client when the
+   handshake itself fails, because a resource is only released after a successful acquire.
 
 ## Consequences
 
