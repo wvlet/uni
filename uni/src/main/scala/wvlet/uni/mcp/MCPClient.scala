@@ -122,15 +122,16 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String) ext
             .getOrElse("")}"
       )
     else
-      JsonRpc.parseResponse(response.contentAsString.getOrElse("")) match
-        case Right(rpc) =>
-          rpc.error match
-            case Some(e) =>
-              throw MCPClientException(e.code, e.message)
-            case None =>
-              rpc.result
-        case Left((_, code, message)) =>
-          throw MCPClientException(code, message)
+      try
+        val rpc = JsonRpc.parseResponse(response.contentAsString.getOrElse(""))
+        rpc.error match
+          case Some(e) =>
+            throw MCPClientException(e.code, e.message)
+          case None =>
+            rpc.result
+      catch
+        case e: JsonRpc.JsonRpcParseException =>
+          throw MCPClientException(e.code, e.message)
 
   /**
     * Send a JSON-RPC request (with id) and return its result. Notifications (HTTP 202) yield None.

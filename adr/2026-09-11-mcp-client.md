@@ -39,7 +39,11 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
 4. **Message layer shares one code path.** `JsonRpc` gained the client counterparts of its
    existing server helpers: `request(...)` renders a request/notification compact JSON, and
    `parseResponse(...)` extracts `result`/`error` and validates the shape, so message framing and
-   standard error codes stay in one place.
+   standard error codes stay in one place. Parse failures are **thrown** as
+   `JsonRpcParseException(id, code, message)` (the pre-existing `parseRequest` was refactored from
+   `Either` to match): uni keeps `throw`/`try` inside internal code and reserves `Result` for API
+   boundaries that represent failure as a value — `Either[(...), ...]` is not used for exception
+   propagation.
 
 5. **Protocol** (matching the server): one POST per message with `Content-Type: application/json`,
    `Accept: application/json, text/event-stream`, `MCP-Protocol-Version: 2025-06-18`; `202`

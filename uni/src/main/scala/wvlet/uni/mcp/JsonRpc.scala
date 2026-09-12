@@ -39,37 +39,52 @@ private[mcp] object JsonRpc:
   case class JsonRpcRequest(id: Option[JSONValue], method: String, params: Option[JSONObject])
 
   /**
-    * Parse one JSON-RPC message. Returns Left((id, code, message)) when the message cannot be
+    * Thrown when a JSON-RPC message cannot be parsed. Carries the request id when it was readable
+    * from the message (else JSONNull), together with a standard JSON-RPC error code, so the caller
+    * can render an error response.
+    */
+  case class JsonRpcParseException(id: JSONValue, code: Int, message: String)
+      extends Exception(message)
+
+  /**
+    * Parse one JSON-RPC message. Throws [[JsonRpcParseException]] when the message cannot be
     * dispatched; the caller must still swallow errors for notifications (id = None only when the
     * message shape prevented reading an id).
     */
-  def parseRequest(line: String): Either[(JSONValue, Int, String), JsonRpcRequest] =
+  def parseRequest(line: String): JsonRpcRequest =
     val parsed =
       try
-        Right(JSON.parse(line))
+        JSON.parse(line)
       catch
         case e: Exception =>
-          Left((JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}"))
-    parsed.flatMap {
+          throw JsonRpcParseException(JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}")
+    parsed match
       case obj: JSONObject =>
         val id = obj.get("id")
         obj.get("method") match
           case Some(JSONString(method)) =>
             obj.get("params") match
               case None =>
-                Right(JsonRpcRequest(id, method, None))
+                JsonRpcRequest(id, method, None)
               case Some(params: JSONObject) =>
-                Right(JsonRpcRequest(id, method, Some(params)))
+                JsonRpcRequest(id, method, Some(params))
               case Some(_) =>
-                Left((id.getOrElse(JSONNull()), InvalidRequest, "'params' must be an object"))
+                throw JsonRpcParseException(
+                  id.getOrElse(JSONNull()),
+                  InvalidRequest,
+                  "'params' must be an object"
+                )
           case _ =>
-            Left((id.getOrElse(JSONNull()), InvalidRequest, "Missing 'method' field"))
+            throw JsonRpcParseException(
+              id.getOrElse(JSONNull()),
+              InvalidRequest,
+              "Missing 'method' field"
+            )
       case _: JSONArray =>
         // JSON-RPC batching was removed from MCP in the 2025-06-18 protocol revision
-        Left((JSONNull(), InvalidRequest, "Batch requests are not supported"))
+        throw JsonRpcParseException(JSONNull(), InvalidRequest, "Batch requests are not supported")
       case _ =>
-        Left((JSONNull(), InvalidRequest, "Request must be a JSON object"))
-    }
+        throw JsonRpcParseException(JSONNull(), InvalidRequest, "Request must be a JSON object")
 
   end parseRequest
 
@@ -99,17 +114,17 @@ private[mcp] object JsonRpc:
   )
 
   /**
-    * Parse a JSON-RPC response line (client side). Returns Right when the message has exactly one
-    * of `result`/`error`; Left((id, code, message)) for unparseable or malformed messages.
+    * Parse a JSON-RPC response line (client side). The message must have exactly one of
+    * `result`/`error`; throws [[JsonRpcParseException]] for unparseable or malformed messages.
     */
-  def parseResponse(line: String): Either[(JSONValue, Int, String), JsonRpcResponse] =
+  def parseResponse(line: String): JsonRpcResponse =
     val parsed =
       try
-        Right(JSON.parse(line))
+        JSON.parse(line)
       catch
         case e: Exception =>
-          Left((JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}"))
-    parsed.flatMap {
+          throw JsonRpcParseException(JSONNull(), ParseError, s"Invalid JSON: ${e.getMessage}")
+    parsed match
       case obj: JSONObject =>
         val error = obj
           .get("error")
@@ -129,18 +144,14 @@ private[mcp] object JsonRpc:
           }
         val result = obj.get("result")
         if error.isEmpty && result.isEmpty then
-          Left(
-            (
-              obj.get("id").getOrElse(JSONNull()),
-              InvalidRequest,
-              "Response must have 'result' or 'error'"
-            )
+          throw JsonRpcParseException(
+            obj.get("id").getOrElse(JSONNull()),
+            InvalidRequest,
+            "Response must have 'result' or 'error'"
           )
-        else
-          Right(JsonRpcResponse(obj.get("id"), result, error))
+        JsonRpcResponse(obj.get("id"), result, error)
       case _ =>
-        Left((JSONNull(), InvalidRequest, "Response must be a JSON object"))
-    }
+        throw JsonRpcParseException(JSONNull(), InvalidRequest, "Response must be a JSON object")
 
   end parseResponse
 
