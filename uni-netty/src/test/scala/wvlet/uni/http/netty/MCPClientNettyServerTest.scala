@@ -15,6 +15,7 @@ package wvlet.uni.http.netty
 
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
 import wvlet.uni.mcp.{MCPClient, MCPContent, MCPServer, description}
+import wvlet.uni.rx.RxResource
 import wvlet.uni.test.UniTest
 
 trait NettyGreeterService:
@@ -40,15 +41,17 @@ class MCPClientNettyServerTest extends UniTest:
       .withPort(0)
       .withRxHandler(mcp.httpHandler)
       .startAndAwait { server =>
-        for
-          client <- MCPClient.connect(s"http://localhost:${server.localPort}/mcp")
-          tools  <- client.listTools()
-          result <- client.callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
-        yield
-          tools.map(_.name) shouldContain "hello"
-          result.isError shouldBe false
-          result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
-          client.close()
+        RxResource
+          .fromAutoCloseable(MCPClient.connect(s"http://localhost:${server.localPort}/mcp"))
+          .use { client =>
+            for
+              tools  <- client.listTools()
+              result <- client.callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
+            yield
+              tools.map(_.name) shouldContain "hello"
+              result.isError shouldBe false
+              result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
+          }
       }
   }
 

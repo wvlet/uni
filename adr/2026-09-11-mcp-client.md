@@ -54,6 +54,13 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    as `MCPClientException(code, message)`; `tools/call` results with `isError: true` are returned
    as data (the spec's distinction between protocol errors and tool execution failures).
 
+7. **Resource-managed sessions.** `MCPClient` is an `AutoCloseable`, and the idiomatic session
+   shape is bracket-based: `RxResource.fromAutoCloseable(MCPClient.connect(url)).use { client =>
+   ... }`, so `close()` runs on both the success and error paths (an exception before `close`
+   must not leak the HTTP client). To support this on every platform, `RxResource.use` was
+   rewritten to compose its release/finalizers as an `Rx` chain instead of blocking with
+   `Rx.await`, which is unsupported on Scala.js.
+
 ## Consequences
 
 - Each call blocks the thread that runs the Rx; a true async path (a runnable `RxDeferred` or

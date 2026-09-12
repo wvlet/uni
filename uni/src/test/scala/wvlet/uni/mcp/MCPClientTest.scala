@@ -23,7 +23,7 @@ import wvlet.uni.http.{
   RxHttpHandler
 }
 import wvlet.uni.json.JSON.{JSONLong, JSONObject, JSONString}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxResource, RxRunner}
 import wvlet.uni.test.UniTest
 
 /**
@@ -86,103 +86,100 @@ class MCPClientTest extends UniTest:
         .newSyncClient
     MCPClient.connect(httpClient, "http://test/mcp")
 
+  /**
+    * Run `body` with a connected MCP client. `close()` is guaranteed to run even when `body` fails,
+    * so a failed assertion cannot leak the HTTP client.
+    */
+  private def withMCPClient[U](body: MCPClient => Rx[U]): Rx[U] = RxResource
+    .fromAutoCloseable(connect())
+    .use(body)
+
   test("connect performs the MCP handshake and exposes server info") {
-    for
-      client <- connect()
-      info   <- client.initialize()
-    yield
-      info.name shouldBe "greeter"
-      info.version shouldBe "0.0.1"
-      info.protocolVersion shouldBe MCPServer.LatestProtocolVersion
-      info.capabilities shouldContain "tools"
-      client.close()
+    withMCPClient { client =>
+      for info <- client.initialize()
+      yield
+        info.name shouldBe "greeter"
+        info.version shouldBe "0.0.1"
+        info.protocolVersion shouldBe MCPServer.LatestProtocolVersion
+        info.capabilities shouldContain "tools"
+    }
   }
 
   test("list tools returned by the server") {
-    for
-      client <- connect()
-      tools  <- client.listTools()
-    yield
-      tools.map(_.name).toSet shouldBe Set("add", "explode", "hello")
-      tools.find(_.name == "hello").flatMap(_.description) shouldBe Some("Greet a person by name")
-      tools.find(_.name == "add").flatMap(_.inputSchema.get("properties")).isDefined shouldBe true
-      client.close()
+    withMCPClient { client =>
+      for tools <- client.listTools()
+      yield
+        tools.map(_.name).toSet shouldBe Set("add", "explode", "hello")
+        tools.find(_.name == "hello").flatMap(_.description) shouldBe Some("Greet a person by name")
+        tools.find(_.name == "add").flatMap(_.inputSchema.get("properties")).isDefined shouldBe true
+    }
   }
 
   test("call a tool and get its result") {
-    for
-      client <- connect()
-      result <- client.callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
-    yield
-      result.isError shouldBe false
-      result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
-      client.close()
+    withMCPClient { client =>
+      for result <- client.callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
+      yield
+        result.isError shouldBe false
+        result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
+    }
   }
 
   test("call a tool with numeric arguments") {
-    for
-      client <- connect()
-      result <- client.callTool("add", JSONObject(Seq("x" -> JSONLong(1), "y" -> JSONLong(2))))
-    yield
-      result.isError shouldBe false
-      result.content shouldBe Seq(MCPContent.Text("3"))
-      client.close()
+    withMCPClient { client =>
+      for result <- client.callTool("add", JSONObject(Seq("x" -> JSONLong(1), "y" -> JSONLong(2))))
+      yield
+        result.isError shouldBe false
+        result.content shouldBe Seq(MCPContent.Text("3"))
+    }
   }
 
   test("tool execution failures are isError results, not exceptions") {
-    for
-      client <- connect()
-      result <- client.callTool("explode", JSONObject(Seq("message" -> JSONString("boom"))))
-    yield
-      result.isError shouldBe true
-      result.content shouldMatch { case Seq(MCPContent.Text(text)) =>
-        text shouldContain "boom"
-      }
-      client.close()
+    withMCPClient { client =>
+      for result <- client.callTool("explode", JSONObject(Seq("message" -> JSONString("boom"))))
+      yield
+        result.isError shouldBe true
+        result.content shouldMatch { case Seq(MCPContent.Text(text)) =>
+          text shouldContain "boom"
+        }
+    }
   }
 
   test("invalid arguments are reported as JSON-RPC errors") {
-    for
-      client <- connect()
-      error  <- client
-        .callTool("add", JSONObject(Seq.empty))
-        .recover { case e: MCPClientException =>
-          e
-        }
-    yield
-      error shouldMatch { case e: MCPClientException =>
+    withMCPClient { client =>
+      for error <- client
+          .callTool("add", JSONObject(Seq.empty))
+          .recover { case e: MCPClientException =>
+            e
+          }
+      yield error shouldMatch { case e: MCPClientException =>
         e.code shouldBe JsonRpc.InvalidParams
       }
-      client.close()
+    }
   }
 
   test("calling an unknown tool is a JSON-RPC error") {
-    for
-      client <- connect()
-      error  <- client
-        .callTool("no_such_tool", JSONObject(Seq.empty))
-        .recover { case e: MCPClientException =>
-          e
-        }
-    yield
-      error shouldMatch { case e: MCPClientException =>
+    withMCPClient { client =>
+      for error <- client
+          .callTool("no_such_tool", JSONObject(Seq.empty))
+          .recover { case e: MCPClientException =>
+            e
+          }
+      yield error shouldMatch { case e: MCPClientException =>
         e.code shouldBe JsonRpc.InvalidParams
       }
-      client.close()
+    }
   }
 
   test("ping keeps the session alive") {
-    for
-      client <- connect()
-      _      <- client.ping()
-    yield client.close()
+    withMCPClient { client =>
+      client.ping()
+    }
   }
 
   test("notifications/initialized is answered with 202 and no body") {
-    for
-      client <- connect()
-      _      <- client.notifyInitialized()
-    yield client.close()
+    withMCPClient { client =>
+      client.notifyInitialized()
+    }
   }
 
 end MCPClientTest

@@ -243,33 +243,39 @@ MCP server — Uni-built or third-party. No extra dependency is needed beyond `u
 
 ```scala
 import wvlet.uni.mcp.MCPClient
+import wvlet.uni.rx.RxResource
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
 
 @main def run(): Unit =
-  val session =
-    for
+  val session = RxResource
+    .fromAutoCloseable(
       // performs initialize + notifications/initialized
-      client <- MCPClient.connect("http://localhost:8080/mcp")
-      tools  <- client.listTools()
-      result <- client.callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
-    yield
-      println(tools.map(_.name)) // List(forecast)
-      println(result.isError) // false — tool failures are results, not exceptions
-      println(result.content) // Seq(MCPContent.Text(...))
-      client.close()
+      MCPClient.connect("http://localhost:8080/mcp")
+    )
+    .use { client =>
+      for
+        tools  <- client.listTools()
+        result <- client.callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
+      yield
+        println(tools.map(_.name)) // List(forecast)
+        println(result.isError) // false — tool failures are results, not exceptions
+        println(result.content) // Seq(MCPContent.Text(...))
+    }
   session.run()
 ```
 
 `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
-with uni's reactive streams (`map`/`flatMap`). The client covers the same scope as the server —
-`initialize`, `tools/list`, `tools/call`, `ping` — and discovers tools **dynamically**, so no
-client code generation is needed: names, descriptions, and input schemas arrive from `tools/list`
-as `MCPToolInfo`.
+with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
+server — `initialize`, `tools/list`, `tools/call`, `ping` — and discovers tools **dynamically**,
+so no client code generation is needed: names, descriptions, and input schemas arrive from
+`tools/list` as `MCPToolInfo`.
 
-Each call performs a blocking HTTP POST when the returned `Rx` is run (uni's synchronous HTTP
-channel), so `connect(...).run()` drives a full session on the current thread. To customize the
-HTTP client (base URI, retry, filters), build an `HttpSyncClient` from `Http.client` and pass it
-to `MCPClient.connect(client, url)`.
+Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close()` run even when
+the session fails (or an exception is thrown): the resource is released after `use`'s body
+completes, on both success and error paths. Each call performs a blocking HTTP POST when the
+returned `Rx` is run (uni's synchronous HTTP channel), so `session.run()` drives a full session on
+the current thread. To customize the HTTP client (base URI, retry, filters), build an
+`HttpSyncClient` from `Http.client` and pass it to `MCPClient.connect(client, url)`.
 
 A `Mcp-Session-Id` issued by the server is captured from `initialize` and echoed on subsequent
 requests; session-less servers (such as uni's own `MCPServer`) do not issue one. Errors follow the

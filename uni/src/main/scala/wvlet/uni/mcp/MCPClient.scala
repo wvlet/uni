@@ -91,7 +91,9 @@ case class MCPClientException(code: Int, message: String) extends Exception(mess
   * `Mcp-Session-Id` returned by the server on initialize is captured and echoed on subsequent
   * requests (session-less servers such as [[MCPServer]] do not issue one).
   */
-class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String) extends LogSupport:
+class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
+    extends LogSupport
+    with AutoCloseable:
 
   private val nextId = new AtomicLong(1L)
   @volatile
