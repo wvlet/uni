@@ -28,6 +28,9 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
 import java.util.concurrent.atomic.AtomicLong
+import scala.util.Failure
+import scala.util.Success
+import scala.util.control.NonFatal
 
 /**
   * A content block returned by `tools/call` (MCP spec: `text` / `image`).
@@ -73,12 +76,14 @@ case class MCPClientException(code: Int, message: String) extends Exception(mess
   * An MCP (Model Context Protocol) client over the Streamable HTTP transport.
   *
   * {{{
-  * val client = MCPClient.connect("http://localhost:8080/mcp").flatMap { client =>
-  *   client.listTools().map { tools =>
-  *     // discover and call tools
-  *     ???
+  * RxResource
+  *   .fromAutoCloseable(MCPClient.connect("http://localhost:8080/mcp"))
+  *   .use { client =>
+  *     for tools <- client.listTools()
+  *     yield
+  *       // discover and call tools
+  *       ???
   *   }
-  * }
   * }}}
   *
   * `connect` performs the MCP handshake (initialize + notifications/initialized); every call
@@ -104,7 +109,7 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
       .post(serverUri)
       .addHeader(HttpHeader.ContentType, "application/json")
       .addHeader(HttpHeader.Accept, MCPClient.AcceptHeader)
-      .addHeader(MCPClient.ProtocolVersionHeader, MCPClient.ProtocolVersion)
+      .addHeader(MCPHttpHandler.ProtocolVersionHeader, MCPClient.ProtocolVersion)
       .withJsonContent(message)
     debug(s"Sending MCP request to ${serverUri}: ${message}")
     httpClient.send(sessionId.fold(request)(id => request.addHeader(MCPClient.SessionIdHeader, id)))
@@ -113,19 +118,22 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
     * Parse a JSON-RPC response. HTTP 202 (notifications) yields None; JSON-RPC errors and non-2xx
     * statuses throw [[MCPClientException]].
     */
-  private def parseResult(response: Response): Option[JSONValue] =
+  private def parseResult(response: Response, expectedId: JSONValue): Option[JSONValue] =
     if response.status.code == 202 then
       None
     else if !response.status.isSuccessful then
-      throw MCPClientException(
-        response.status.code,
-        s"MCP server returned HTTP ${response.status.code}: ${response
-            .contentAsString
-            .getOrElse("")}"
-      )
+      httpFailure(response)
     else
       try
         val rpc = JsonRpc.parseResponse(response.contentAsString.getOrElse(""))
+        if rpc.id != Some(expectedId) then
+          throw MCPClientException(
+            JsonRpc.InternalError,
+            s"Response id mismatch: expected ${expectedId.toJSON}, got ${rpc
+                .id
+                .map(_.toJSON)
+                .getOrElse("none")}"
+          )
         rpc.error match
           case Some(e) =>
             throw MCPClientException(e.code, e.message)
@@ -135,12 +143,19 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
         case e: JsonRpc.JsonRpcParseException =>
           throw MCPClientException(e.code, e.message)
 
+  /** Report a non-2xx HTTP response as an [[MCPClientException]]. */
+  private def httpFailure(response: Response): Nothing =
+    throw MCPClientException(
+      response.status.code,
+      s"MCP server returned HTTP ${response.status.code}: ${response.contentAsString.getOrElse("")}"
+    )
+
   /**
     * Send a JSON-RPC request (with id) and return its result. Notifications (HTTP 202) yield None.
     */
   private def call(method: String, params: Option[JSONObject]): Rx[Option[JSONValue]] =
     val id = JSONLong(nextId.getAndIncrement())
-    Rx.single(parseResult(sendMessage(JsonRpc.request(Some(id), method, params))))
+    Rx.single(parseResult(sendMessage(JsonRpc.request(Some(id), method, params)), id))
 
   /**
     * Send a JSON-RPC notification (no id). The server answers 202 with no body.
@@ -148,19 +163,17 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
   private def notify(method: String, params: Option[JSONObject]): Rx[Unit] = Rx.single {
     val response = sendMessage(JsonRpc.request(None, method, params))
     if !response.status.isSuccessful then
-      throw MCPClientException(
-        response.status.code,
-        s"MCP server returned HTTP ${response.status.code}: ${response
-            .contentAsString
-            .getOrElse("")}"
-      )
+      httpFailure(response)
   }
 
   /**
     * Perform the `initialize` handshake and return the server info. Captures `Mcp-Session-Id` if
-    * the server issues one.
+    * the server issues one. Called by [[MCPClient.connect]]; MCP allows only one initialize per
+    * session, so this is not part of the public surface.
     */
-  def initialize(protocolVersion: String = MCPClient.ProtocolVersion): Rx[MCPServerInfo] =
+  private[mcp] def initialize(
+      protocolVersion: String = MCPClient.ProtocolVersion
+  ): Rx[MCPServerInfo] =
     val params = JSONObject(
       Seq(
         "protocolVersion" -> JSONString(protocolVersion),
@@ -174,18 +187,17 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
           )
       )
     )
+    val id = JSONLong(nextId.getAndIncrement())
     Rx.single {
-      val response = sendMessage(
-        JsonRpc.request(Some(JSONLong(nextId.getAndIncrement())), "initialize", Some(params))
-      )
-      response.header(MCPClient.SessionIdHeader).foreach(id => sessionId = Some(id))
-      parseServerInfo(asObject(parseResult(response).getOrElse(JSONNull())))
+      val response = sendMessage(JsonRpc.request(Some(id), "initialize", Some(params)))
+      response.header(MCPClient.SessionIdHeader).foreach(s => sessionId = Some(s))
+      parseServerInfo(asObject(parseResult(response, id).getOrElse(JSONNull())))
     }
 
   /**
     * Send `notifications/initialized` after a successful initialize (part of the MCP handshake).
     */
-  def notifyInitialized(): Rx[Unit] = notify("notifications/initialized", None)
+  private[mcp] def notifyInitialized(): Rx[Unit] = notify("notifications/initialized", None)
 
   /**
     * Keepalive: check that the server is still reachable.
@@ -353,9 +365,8 @@ object MCPClient:
   /** Version reported in the initialize `clientInfo`. */
   val ClientVersion: String = "0.1.0"
 
-  private[mcp] val AcceptHeader: String          = "application/json, text/event-stream"
-  private[mcp] val ProtocolVersionHeader: String = "MCP-Protocol-Version"
-  private[mcp] val SessionIdHeader: String       = "Mcp-Session-Id"
+  private[mcp] val AcceptHeader: String    = "application/json, text/event-stream"
+  private[mcp] val SessionIdHeader: String = "Mcp-Session-Id"
 
   /**
     * Connect to an MCP server over Streamable HTTP and perform the MCP handshake (initialize +
@@ -377,6 +388,19 @@ object MCPClient:
       .initialize()
       .flatMap { _ =>
         client.notifyInitialized().map(_ => client)
+      }
+      .transform {
+        case Success(c) =>
+          c
+        case Failure(e) =>
+          // A failed handshake must not leak the HTTP client, even when the caller wraps
+          // connect in RxResource (the resource is only released after a successful acquire).
+          try
+            client.close()
+          catch
+            case NonFatal(closeError) =>
+              e.addSuppressed(closeError)
+          throw e
       }
 
 end MCPClient

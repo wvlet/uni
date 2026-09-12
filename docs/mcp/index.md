@@ -266,9 +266,10 @@ import wvlet.uni.json.JSON.{JSONObject, JSONString}
 
 `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
 with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
-server — `initialize`, `tools/list`, `tools/call`, `ping` — and discovers tools **dynamically**,
-so no client code generation is needed: names, descriptions, and input schemas arrive from
-`tools/list` as `MCPToolInfo`.
+server — `tools/list`, `tools/call`, `ping` (the `initialize` handshake happens inside `connect`,
+as the spec allows only one per session) — and discovers tools **dynamically**, so no client code
+generation is needed: names, descriptions, and input schemas arrive from `tools/list` as
+`MCPToolInfo`.
 
 Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close()` run even when
 the session fails (or an exception is thrown): the resource is released after `use`'s body

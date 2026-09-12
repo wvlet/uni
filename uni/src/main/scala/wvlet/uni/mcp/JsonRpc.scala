@@ -128,19 +128,26 @@ private[mcp] object JsonRpc:
       case obj: JSONObject =>
         val error = obj
           .get("error")
-          .collect { case e: JSONObject =>
-            JsonRpcError(
-              e.get("code")
-                .collect { case JSONLong(c) =>
-                  c.toInt
-                }
-                .getOrElse(InternalError),
-              e.get("message")
-                .collect { case JSONString(m) =>
-                  m
-                }
-                .getOrElse("")
-            )
+          .map {
+            case e: JSONObject =>
+              JsonRpcError(
+                e.get("code")
+                  .collect { case JSONLong(c) =>
+                    c.toInt
+                  }
+                  .getOrElse(InternalError),
+                e.get("message")
+                  .collect { case JSONString(m) =>
+                    m
+                  }
+                  .getOrElse("")
+              )
+            case _ =>
+              throw JsonRpcParseException(
+                obj.get("id").getOrElse(JSONNull()),
+                InvalidRequest,
+                "'error' must be an object"
+              )
           }
         val result = obj.get("result")
         if error.isEmpty && result.isEmpty then
@@ -149,9 +156,16 @@ private[mcp] object JsonRpc:
             InvalidRequest,
             "Response must have 'result' or 'error'"
           )
+        if error.nonEmpty && result.nonEmpty then
+          throw JsonRpcParseException(
+            obj.get("id").getOrElse(JSONNull()),
+            InvalidRequest,
+            "Response must not have both 'result' and 'error'"
+          )
         JsonRpcResponse(obj.get("id"), result, error)
       case _ =>
         throw JsonRpcParseException(JSONNull(), InvalidRequest, "Response must be a JSON object")
+    end match
 
   end parseResponse
 

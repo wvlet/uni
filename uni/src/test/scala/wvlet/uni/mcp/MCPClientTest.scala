@@ -18,6 +18,7 @@ import wvlet.uni.http.{
   HttpChannel,
   HttpChannelFactory,
   HttpClientConfig,
+  HttpSyncClient,
   Request,
   Response,
   RxHttpHandler
@@ -40,6 +41,8 @@ private class InMemoryChannel(handler: RxHttpHandler) extends HttpChannel:
     RxRunner.runOnce(handler.handle(request)) {
       case OnNext(r: Response) =>
         result = r
+      case OnNext(_) =>
+        throw IllegalStateException("MCP handler must produce a Response")
       case OnError(e) =>
         error = e
       case OnCompletion =>
@@ -77,14 +80,21 @@ class MCPClientTest extends UniTest:
     .withVersion("0.0.1")
     .withTools[GreeterService](GreeterServiceImpl())
 
-  private def connect(server: MCPServer = newServer): Rx[MCPClient] =
-    val httpClient =
-      Http
-        .client
-        .withChannelFactory(InMemoryChannelFactory(server.httpHandler))
-        .withMaxRetry(0)
-        .newSyncClient
-    MCPClient.connect(httpClient, "http://test/mcp")
+  private def newHttpClient(server: MCPServer = newServer): HttpSyncClient =
+    Http
+      .client
+      .withChannelFactory(InMemoryChannelFactory(server.httpHandler))
+      .withMaxRetry(0)
+      .newSyncClient
+
+  private def connect(server: MCPServer = newServer): Rx[MCPClient] = MCPClient.connect(
+    newHttpClient(server),
+    "http://test/mcp"
+  )
+
+  /** A client before the handshake, to drive `initialize`/`notifications/initialized` directly. */
+  private def rawClient(server: MCPServer = newServer): MCPClient =
+    new MCPClient(newHttpClient(server), "http://test/mcp")
 
   /**
     * Run `body` with a connected MCP client. `close()` is guaranteed to run even when `body` fails,
@@ -94,8 +104,22 @@ class MCPClientTest extends UniTest:
     .fromAutoCloseable(connect())
     .use(body)
 
+  /** Like [[withMCPClient]] but with a not-yet-handshaken client. */
+  private def withRawClient[U](body: MCPClient => Rx[U]): Rx[U] = RxResource
+    .make(Rx.single(rawClient()))(c => Rx.single(c.close()))
+    .use(body)
+
   test("connect performs the MCP handshake and exposes server info") {
     withMCPClient { client =>
+      for tools <- client.listTools()
+      yield
+        // A usable session after connect: the handshake (initialize + initialized) completed
+        tools.map(_.name).toSet shouldBe Set("add", "explode", "hello")
+    }
+  }
+
+  test("initialize returns the server info from the handshake") {
+    withRawClient { client =>
       for info <- client.initialize()
       yield
         info.name shouldBe "greeter"
@@ -177,7 +201,7 @@ class MCPClientTest extends UniTest:
   }
 
   test("notifications/initialized is answered with 202 and no body") {
-    withMCPClient { client =>
+    withRawClient { client =>
       client.notifyInitialized()
     }
   }
