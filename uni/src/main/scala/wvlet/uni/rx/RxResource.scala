@@ -92,40 +92,47 @@ object RxResource:
   ) extends RxResource[A]:
 
     override def use[B](body: A => Rx[B]): Rx[B] = acquire.flatMap { a =>
-      body(a).transform { result =>
-        // Always run cleanup
-        var errors = List.empty[Throwable]
-
-        // Run the main release
-        try
-          release(a).await
-        catch
-          case NonFatal(e) =>
-            errors = e :: errors
-
-        // Run additional finalizers
-        finalizers.foreach { fin =>
+      body(a).transformRx { result =>
+        // Always run cleanup: the main release, then the finalizers, collecting their errors.
+        // This is composed as an Rx chain (not Rx.await) so that it works on every platform,
+        // including Scala.js where blocking is unsupported.
+        val releaseRx: Rx[Unit] =
           try
-            fin.await
+            release(a)
           catch
             case NonFatal(e) =>
-              errors = e :: errors
-        }
-
-        // Handle errors
-        result match
-          case Success(b) =>
-            if errors.isEmpty then
-              b
-            else
-              val combined = errors.reduceLeft { (a, b) =>
-                a.addSuppressed(b)
-                a
+              Rx.exception(e)
+        val cleanups: Seq[Rx[Unit]] = releaseRx +: finalizers
+        cleanups
+          .foldLeft(Rx.single(List.empty[Throwable])) { (acc, cleanup) =>
+            acc.flatMap { errors =>
+              cleanup.transform {
+                case Success(_) =>
+                  errors
+                case Failure(e) =>
+                  e :: errors
               }
-              throw combined
-          case Failure(e) =>
-            errors.foreach(e.addSuppressed)
-            throw e
+            }
+          }
+          .transform {
+            case Success(errors) =>
+              // Handle errors
+              result match
+                case Success(b) =>
+                  if errors.isEmpty then
+                    b
+                  else
+                    val combined = errors.reduceLeft { (a, b) =>
+                      a.addSuppressed(b)
+                      a
+                    }
+                    throw combined
+                case Failure(e) =>
+                  errors.foreach(e.addSuppressed)
+                  throw e
+            case Failure(e) =>
+              throw e
+          }
       }
     }
 

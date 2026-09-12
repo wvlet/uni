@@ -118,16 +118,17 @@ case class MCPServer(
     * in tests.
     */
   def handleMessage(line: String): Rx[Option[String]] =
-    JsonRpc.parseRequest(line) match
-      case Left((id, code, message)) =>
-        Rx.single(Some(JsonRpc.errorResponse(id, code, message)))
-      case Right(request) =>
-        request.id match
-          case None =>
-            // Notifications (e.g. notifications/initialized) expect no response, even on error
-            Rx.single(None)
-          case Some(id) =>
-            handleRequest(id, request)
+    try
+      val request = JsonRpc.parseRequest(line)
+      request.id match
+        case None =>
+          // Notifications (e.g. notifications/initialized) expect no response, even on error
+          Rx.single(None)
+        case Some(id) =>
+          handleRequest(id, request)
+    catch
+      case e: JsonRpc.JsonRpcParseException =>
+        Rx.single(Some(JsonRpc.errorResponse(e.id, e.code, e.message)))
 
   private lazy val dispatcher: RPCDispatcher         = RPCDispatcher(routers*)
   private lazy val toolsByName: Map[String, MCPTool] = tools.map(t => t.name -> t).toMap
