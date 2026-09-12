@@ -40,23 +40,15 @@ class MCPClientNettyServerTest extends UniTest:
       .withPort(0)
       .withRxHandler(mcp.httpHandler)
       .startAndAwait { server =>
-        MCPClient
-          .connect(s"http://localhost:${server.localPort}/mcp")
-          .flatMap { client =>
-            client
-              .listTools()
-              .flatMap { tools =>
-                tools.map(_.name) shouldContain "hello"
-                client
-                  .callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
-                  .map { result =>
-                    result.isError shouldBe false
-                    result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
-                    client.close()
-                    ()
-                  }
-              }
-          }
+        for
+          client <- MCPClient.connect(s"http://localhost:${server.localPort}/mcp")
+          tools  <- client.listTools()
+          result <- client.callTool("hello", JSONObject(Seq("name" -> JSONString("MCP"))))
+        yield
+          tools.map(_.name) shouldContain "hello"
+          result.isError shouldBe false
+          result.content shouldBe Seq(MCPContent.Text("Hello, MCP!"))
+          client.close()
       }
   }
 

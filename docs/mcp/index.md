@@ -246,21 +246,18 @@ import wvlet.uni.mcp.MCPClient
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
 
 @main def run(): Unit =
-  MCPClient
-    .connect("http://localhost:8080/mcp") // performs initialize + notifications/initialized
-    .flatMap { client =>
-      client.listTools().flatMap { tools =>
-        println(tools.map(_.name)) // List(forecast)
-        client
-          .callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
-          .map { result =>
-            println(result.isError) // false — tool failures are results, not exceptions
-            println(result.content) // Seq(MCPContent.Text(...))
-            client.close()
-          }
-      }
-    }
-    .run()
+  val session =
+    for
+      // performs initialize + notifications/initialized
+      client <- MCPClient.connect("http://localhost:8080/mcp")
+      tools  <- client.listTools()
+      result <- client.callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
+    yield
+      println(tools.map(_.name)) // List(forecast)
+      println(result.isError) // false — tool failures are results, not exceptions
+      println(result.content) // Seq(MCPContent.Text(...))
+      client.close()
+  session.run()
 ```
 
 `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
