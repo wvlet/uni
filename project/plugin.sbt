@@ -34,6 +34,6 @@ addSbtPlugin("org.scala-native" % "sbt-scala-native" % "0.5.12")
 
 // For setting explicit versions for each commit
 addSbtPlugin("com.github.sbt" % "sbt-dynver" % "5.1.1")
-addSbtPlugin("org.xerial.sbt" % "sbt-pack"   % "1.0.0")
+addSbtPlugin("org.xerial.sbt" % "sbt-pack"   % "1.0.1")
 
 scalacOptions ++= Seq("-deprecation", "-feature")
