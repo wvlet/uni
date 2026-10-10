@@ -235,6 +235,55 @@ The server is stateless: no `Mcp-Session-Id` is issued, and since a tools-only
 server never initiates messages, the optional SSE streaming and GET event
 stream are not offered (GET returns 405).
 
+## Call an MCP server from Scala
+
+Uni can also be the MCP **client**: `MCPClient` speaks the same Streamable HTTP transport, so any
+Scala program (JVM / Scala.js on Node.js / Scala Native) can discover and call the tools of any
+MCP server — Uni-built or third-party. No extra dependency is needed beyond `uni` itself.
+
+```scala
+import wvlet.uni.mcp.MCPClient
+import wvlet.uni.rx.RxResource
+import wvlet.uni.json.JSON.{JSONObject, JSONString}
+
+@main def run(): Unit =
+  val session = RxResource
+    .fromAutoCloseable(
+      // performs initialize + notifications/initialized
+      MCPClient.connect("http://localhost:8080/mcp")
+    )
+    .use { client =>
+      for
+        tools  <- client.listTools()
+        result <- client.callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
+      yield
+        println(tools.map(_.name)) // List(forecast)
+        println(result.isError) // false — tool failures are results, not exceptions
+        println(result.content) // Seq(MCPContent.Text(...))
+    }
+  session.run()
+```
+
+`connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
+with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
+server — `tools/list`, `tools/call`, `ping` (the `initialize` handshake happens inside `connect`,
+as the spec allows only one per session) — and discovers tools **dynamically**, so no client code
+generation is needed: names, descriptions, and input schemas arrive from `tools/list` as
+`MCPToolInfo`.
+
+Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close()` run even when
+the session fails (or an exception is thrown): the resource is released after `use`'s body
+completes, on both success and error paths. Each call performs a blocking HTTP POST when the
+returned `Rx` is run (uni's synchronous HTTP channel), so `session.run()` drives a full session on
+the current thread. To customize the HTTP client (base URI, retry, filters), build an
+`HttpSyncClient` from `Http.client` and pass it to `MCPClient.connect(client, url)`.
+
+A `Mcp-Session-Id` issued by the server is captured from `initialize` and echoed on subsequent
+requests; session-less servers (such as uni's own `MCPServer`) do not issue one. Errors follow the
+server's taxonomy: JSON-RPC errors and HTTP failures are thrown as
+`MCPClientException(code, message)`, while a failing tool returns `MCPToolResult(isError = true)`
+instead of throwing.
+
 ## Scope and roadmap
 
 The current implementation covers the MCP **tools** capability over the
