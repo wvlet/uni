@@ -85,6 +85,19 @@ class RouterTest extends UniTest:
     args(1) shouldBe 20
   }
 
+  test("HttpRequestMapper should report a malformed parameter as a mapping error") {
+    val matcher = RouteMatcher(router.routes)
+    val mapper  = HttpRequestMapper()
+    val request = Request.get("/search").setQueryParam("query", "q").setQueryParam("limit", "abc")
+    val routeMatch = matcher.findRoute(request).get
+    val e          = intercept[HttpRequestMappingException] {
+      mapper.bindParameters(request, routeMatch.route.methodSurface, routeMatch.pathParams)
+    }
+    e.getMessage shouldContain "limit"
+    // The rejected value is not echoed back
+    e.getMessage.contains("abc") shouldBe false
+  }
+
   test("ControllerProvider should provide instances") {
     val provider   = SimpleControllerProvider()
     val controller = provider.get(router.routes.head.controllerSurface)

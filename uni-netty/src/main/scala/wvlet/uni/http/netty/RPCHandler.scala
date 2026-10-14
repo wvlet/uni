@@ -32,10 +32,12 @@ import wvlet.uni.rx.Rx
   *
   * @param router
   *   The RPC router containing route definitions
+  * @param detailedErrors
+  *   Include the messages of unexpected exceptions in error responses (for development only)
   */
-class RPCHandler(router: RPCRouter) extends RxHttpHandler:
+class RPCHandler(router: RPCRouter, detailedErrors: Boolean = false) extends RxHttpHandler:
 
-  private val dispatcher = RPCDispatcher(router)
+  private val dispatcher = RPCDispatcher(router).withDetailedErrors(detailedErrors)
 
   override def handle(request: Request): Rx[Response] = dispatcher.dispatch(request)
 
@@ -47,5 +49,8 @@ object RPCHandler:
     * Create an RPC handler from a router.
     */
   def apply(router: RPCRouter): RPCHandler = new RPCHandler(router)
+
+  def apply(router: RPCRouter, detailedErrors: Boolean): RPCHandler =
+    new RPCHandler(router, detailedErrors)
 
 end RPCHandler

@@ -94,7 +94,9 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
             head,
             config.webSocketRoutes,
             config.webSocketMaxFrameSize,
-            config.webSocketPingIntervalMillis
+            config.webSocketPingIntervalMillis,
+            config.allowedOrigins,
+            config.detailedErrors
           )
       server.applyDynamic("on")("upgrade", onUpgrade)
 
@@ -132,32 +134,78 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         i += 2
       val headers = headersBuilder.result()
 
+      val maxContentLength = config.maxContentLength
+      val declaredLength   = headers.get(HttpHeader.ContentLength).flatMap(_.trim.toLongOption)
+      if declaredLength.exists(_ > maxContentLength) then
+        rejectTooLarge(req, res)
+        return
+
+      // Count bytes as they arrive: a chunked body declares no length up front
       val bodyChunks = Array.newBuilder[Byte]
+      var bodySize   = 0L
+      var tooLarge   = false
+
+      def handleBody(): Unit =
+        try
+          val content = HttpContent.fromBytes(bodyChunks.result(), headers)
+          val request = Request(method = method, uri = uri, headers = headers, content = content)
+          runResponse(res, handler.handle(request))
+        catch
+          case e: Throwable =>
+            warn(s"Error handling request: ${e.getMessage}", e)
+            writeResponse(res, errorResponse(e))
 
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) =>
-          bodyChunks ++= NodeBytes.toBytes(chunk)
+          if !tooLarge then
+            val bytes = NodeBytes.toBytes(chunk)
+            bodySize += bytes.length
+            if bodySize > maxContentLength then
+              tooLarge = true
+              bodyChunks.clear()
+              rejectTooLarge(req, res)
+            else
+              bodyChunks ++= bytes
           ()
 
       val onEnd: js.Function0[Unit] =
         () =>
-          try
-            val content = HttpContent.fromBytes(bodyChunks.result(), headers)
-            val request = Request(method = method, uri = uri, headers = headers, content = content)
-            runResponse(res, handler.handle(request))
-          catch
-            case e: Throwable =>
-              warn(s"Error handling request: ${e.getMessage}", e)
-              writeResponse(res, Response.internalServerError(e.getMessage))
+          if !tooLarge then
+            handleBody()
 
       req.applyDynamic("on")("data", onData)
       req.applyDynamic("on")("end", onEnd)
     catch
       case e: Throwable =>
         warn(s"Error initializing request: ${e.getMessage}", e)
-        writeResponse(res, Response.internalServerError(e.getMessage))
+        writeResponse(res, errorResponse(e))
 
   end handleRequest
+
+  private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
+    e,
+    config.detailedErrors
+  )
+
+  /**
+    * Answer 413 and close the connection: the rest of the oversized body is never read, so the
+    * connection cannot be reused for another request.
+    */
+  private def rejectTooLarge(req: js.Dynamic, res: js.Dynamic): Unit =
+    debug(s"Rejecting request body larger than ${config.maxContentLength} bytes")
+    try
+      res.applyDynamic("setHeader")(HttpHeader.Connection, "close")
+    catch
+      case _: Throwable =>
+        ()
+    writeResponse(res, Response(HttpStatus.PayloadTooLarge_413))
+    try
+      // Stop buffering; destroy the socket once the 413 has been flushed
+      req.applyDynamic("pause")()
+      res.applyDynamic("on")("finish", (() => req.applyDynamic("destroy")()): js.Function0[Unit])
+    catch
+      case _: Throwable =>
+        ()
 
   private def runResponse(res: js.Dynamic, rx: Rx[Response]): Unit =
     RxRunner.runOnce(rx) {
@@ -165,12 +213,21 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         writeResponse(res, response.asInstanceOf[Response])
       case OnError(e) =>
         warn(s"Error in Rx handler: ${e.getMessage}", e)
-        writeResponse(res, Response.internalServerError(e.getMessage))
+        writeResponse(res, errorResponse(e))
       case OnCompletion =>
         writeResponse(res, Response.notFound)
     }
 
-  private def writeResponse(res: js.Dynamic, response: Response): Unit =
+  private def writeResponse(res: js.Dynamic, unchecked: Response): Unit =
+    // Reject CR/LF in headers before anything is written (response splitting)
+    val response =
+      try
+        HttpServerSecurity.validateHeaders(unchecked.headers)
+        unchecked
+      catch
+        case e: IllegalArgumentException =>
+          warn(s"Invalid response: ${e.getMessage}", e)
+          errorResponse(e)
     // setHeader/end can throw if the client already disconnected (destroyed socket, headers
     // already sent). For async handlers this runs on the event loop outside any caller's try, so
     // an uncaught throw would crash the Node process — guard the whole write here. Every caller
@@ -197,6 +254,8 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     catch
       case e: Throwable =>
         warn(s"Failed to write response: ${e.getMessage}", e)
+
+  end writeResponse
 
   private def writeSseResponse(res: js.Dynamic, response: Response): Unit =
     // Stream Server-Sent Events. Node uses chunked transfer encoding automatically when no

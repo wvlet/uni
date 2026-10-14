@@ -74,9 +74,13 @@ case class Response(
   def withHeaders(h: HttpMultiMap): Response = copy(headers = h)
   def withContent(c: HttpContent): Response  = copy(content = c)
 
-  def addHeader(name: String, value: String): Response = copy(headers = headers.add(name, value))
+  def addHeader(name: String, value: String): Response =
+    HttpServerSecurity.validateHeader(name, value)
+    copy(headers = headers.add(name, value))
 
-  def setHeader(name: String, value: String): Response = copy(headers = headers.set(name, value))
+  def setHeader(name: String, value: String): Response =
+    HttpServerSecurity.validateHeader(name, value)
+    copy(headers = headers.set(name, value))
 
   def removeHeader(name: String): Response = copy(headers = headers.remove(name))
 

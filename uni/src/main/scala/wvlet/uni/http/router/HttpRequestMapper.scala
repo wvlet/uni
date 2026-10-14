@@ -69,11 +69,11 @@ class HttpRequestMapper:
       request
     // Try path parameters first
     else if pathParams.contains(paramName) then
-      convertValue(pathParams(paramName), param.surface)
+      convertParam(paramName, pathParams(paramName), param.surface)
     // Try query parameters
     else if request.getQueryParam(paramName).isDefined then
       val queryValue = request.getQueryParam(paramName).get
-      convertValue(queryValue, param.surface)
+      convertParam(paramName, queryValue, param.surface)
     // Try method arg default value (requires controller instance)
     else
       controllerOpt.flatMap(ctrl => param.getMethodArgDefaultValue(ctrl)) match
@@ -90,6 +90,19 @@ class HttpRequestMapper:
           null
 
   end bindParameter
+
+  /**
+    * Convert a client-supplied value, reporting a malformed one (e.g. `"abc"` for an Int) as a bad
+    * request rather than a server error.
+    */
+  private def convertParam(paramName: String, value: String, surface: Surface): Any =
+    try
+      convertValue(value, surface)
+    catch
+      case _: IllegalArgumentException =>
+        throw HttpRequestMappingException(
+          s"Invalid value for parameter '${paramName}': expected ${surface.name}"
+        )
 
   /**
     * Convert a string value to the expected type based on Surface.

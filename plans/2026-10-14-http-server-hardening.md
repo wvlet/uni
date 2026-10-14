@@ -40,12 +40,15 @@ The limits live on the backend configs (`NettyServerConfig`, `NativeServerConfig
    - `withAllowedOrigins(Seq("https://app.example.com", ...))` allows the listed origins; `"*"` restores today's behavior.
    - The policy is enforced before the route filter on all three backends. A rejected request gets a 403.
 3. **Generic internal errors (M1, L2).**
-   - A non-`HttpException`/non-`RPCException` failure becomes `500 Internal Server Error` (RPC: `INTERNAL_ERROR_I0` with the message "Internal error"). The full exception is logged at WARN on the server.
-   - `HttpException` and `RPCException` keep their messages, because app code throws these on purpose to talk to the client.
+   - Any failure other than an `RPCException` becomes `500 Internal Server Error` (RPC: `INTERNAL_ERROR_I0` with the message "Internal error"). The full exception is logged at WARN on the server.
+   - `RPCException` keeps its message, because app code throws it on purpose to talk to the client. `HttpException` is hidden too, because it can come from an upstream call the handler made.
    - An opt-in `withDetailedErrors(true)` on each server config (or a shared flag) restores today's messages for development.
    - The ~15 call sites go through one helper, `Response.internalError(e, detailed)`.
    - Parameter conversion failures in `HttpRequestMapper` are wrapped as 400 Bad Request.
-4. **Netty timeouts (M2).** Add `withIdleTimeoutMillis` (default 60s) and `withReadTimeoutMillis` (default 30s) to `NettyServerConfig`. Install an `IdleStateHandler` in the HTTP pipeline that closes the channel on timeout. SSE and WebSocket channels are exempt; WebSocket keeps its own ping handling.
+4. **Netty request read timeout (M2).** Add `withRequestReadTimeoutMillis` (default 30s) to `NettyServerConfig`. A `RequestReadTimeoutHandler` closes a connection that does not deliver a complete request within the timeout, measured from connection open or the end of the previous response.
+   - This covers both slowloris clients and idle keep-alive connections.
+   - It does not cut off slow handlers or SSE streams, which an `IdleStateHandler` would.
+   - It is removed on WebSocket upgrade.
 5. **Header CR/LF validation (M6).** Reject CR, LF and NUL in header names and values when they are added to `Response` and `Request` (`HttpMultiMap` add/set path), by throwing `IllegalArgumentException`. Response splitting is then impossible on every backend, not only on Netty and Node, whose libraries already validate.
 6. **Default bind address (M3).** Change the default `host` of `NettyServerConfig`, `NativeServerConfig` and `NodeServerConfig` to `127.0.0.1`. Deployments that need external access (Docker, Kubernetes) call `withHost("0.0.0.0")`. This is a breaking change, which is acceptable for uni.
 7. **Tests.** One UniTest per item: oversized Node body gives 413; a cross-origin WebSocket upgrade gives 403 and a same-origin one succeeds; a thrown `RuntimeException("secret")` produces a body without `secret`; an idle Netty connection is closed; a header containing CRLF throws; `?n=abc` gives 400.

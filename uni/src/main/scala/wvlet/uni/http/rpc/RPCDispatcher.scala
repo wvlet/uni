@@ -32,8 +32,14 @@ import wvlet.uni.rx.Rx
   * @param routers
   *   service routers to dispatch across. Paths are unique per service, so multiple services can be
   *   served through a single dispatcher.
+  * @param detailedErrors
+  *   include the messages of unexpected (non-[[RPCException]]) exceptions in error responses. Off
+  *   by default because such messages can leak internals; they are always logged on the server.
   */
-class RPCDispatcher(routers: Seq[RPCRouter]) extends LogSupport:
+class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) extends LogSupport:
+
+  /** Include the messages of unexpected exceptions in error responses (for development only). */
+  def withDetailedErrors(enabled: Boolean): RPCDispatcher = new RPCDispatcher(routers, enabled)
 
   // Pre-build a path -> (instance, route) lookup for O(1) dispatch across all routers.
   private val routeMap: Map[String, (Any, RPCRoute)] =
@@ -76,8 +82,12 @@ class RPCDispatcher(routers: Seq[RPCRouter]) extends LogSupport:
       result match
         case rx: Rx[?] =>
           rx.map(v => successResponse(v, route))
-            .recover { case e =>
-              errorResponse(e)
+            .recover {
+              case e: RPCException =>
+                e.toResponse
+              case e =>
+                warn(s"Unexpected error in RPC handler: ${e.getMessage}", e)
+                errorResponse(e)
             }
         case value =>
           Rx.single(successResponse(value, route))
@@ -101,7 +111,12 @@ class RPCDispatcher(routers: Seq[RPCRouter]) extends LogSupport:
       case rpc: RPCException =>
         rpc.toResponse
       case _ =>
-        RPCStatus.INTERNAL_ERROR_I0.newException(e.getMessage, e).toResponse
+        val message =
+          if detailedErrors then
+            String.valueOf(e.getMessage)
+          else
+            "Internal error"
+        RPCStatus.INTERNAL_ERROR_I0.newException(message, e).toResponse
 
 end RPCDispatcher
 

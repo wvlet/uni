@@ -40,7 +40,9 @@ private[http] object NodeWebSocket extends LogSupport:
       head: js.Dynamic,
       routes: Seq[WebSocketRoute],
       maxFrameSize: Int,
-      pingIntervalMillis: Int
+      pingIntervalMillis: Int,
+      allowedOrigins: Seq[String],
+      detailedErrors: Boolean
   ): Unit =
     try
       val request = buildRequest(req)
@@ -48,12 +50,21 @@ private[http] object NodeWebSocket extends LogSupport:
         case None =>
           destroyQuietly(socket)
         case Some(route) =>
-          WebSocketHandshake.validate(request) match
+          WebSocketHandshake.validate(request, allowedOrigins) match
             case Left(rejection) =>
-              // Malformed handshake: missing key (400), or unsupported Sec-WebSocket-Version (426).
+              // Disallowed origin (403), missing key (400), or unsupported version (426)
               writeHttpClose(socket, rejection)
             case Right(key) =>
-              gateAndAccept(socket, head, key, route, request, maxFrameSize, pingIntervalMillis)
+              gateAndAccept(
+                socket,
+                head,
+                key,
+                route,
+                request,
+                maxFrameSize,
+                pingIntervalMillis,
+                detailedErrors
+              )
     catch
       case NonFatal(e) =>
         warn(s"WebSocket upgrade error: ${e.getMessage}")
@@ -66,7 +77,8 @@ private[http] object NodeWebSocket extends LogSupport:
       route: WebSocketRoute,
       request: Request,
       maxFrameSize: Int,
-      pingIntervalMillis: Int
+      pingIntervalMillis: Int,
+      detailedErrors: Boolean
   ): Unit =
     // Capture the request as threaded through the filter, so attributes a filter adds during the
     // handshake reach the WebSocketContext (matching the Netty/Native backends).
@@ -84,7 +96,7 @@ private[http] object NodeWebSocket extends LogSupport:
           writeHttpClose(socket, resp)
       case OnError(e) =>
         warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
-        writeHttpClose(socket, Response.internalServerError(e.getMessage))
+        writeHttpClose(socket, HttpServerSecurity.errorResponse(e, detailedErrors))
       case OnCompletion =>
         // Filter completed without a verdict: close the connection rather than leave it hanging.
         destroyQuietly(socket)

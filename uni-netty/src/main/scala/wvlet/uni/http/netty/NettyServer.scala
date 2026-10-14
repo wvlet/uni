@@ -52,7 +52,8 @@ object NettyServer:
   */
 case class NettyServerConfig(
     name: String = "netty-server",
-    host: String = "0.0.0.0",
+    // Loopback by default; use withHost("0.0.0.0") to accept connections from other hosts
+    host: String = "127.0.0.1",
     port: Int = 8080,
     handler: RxHttpHandler = RxHttpHandler.notFound,
     filters: Seq[RxHttpFilter] = Seq.empty,
@@ -77,7 +78,15 @@ case class NettyServerConfig(
     webSocketMaxFrameSize: Int = 1024 * 1024,
     // Ping/pong heartbeat interval for WebSocket connections (0 disables it): the server pings an
     // idle connection and closes it if the peer stops responding to pings.
-    webSocketPingIntervalMillis: Int = 0
+    webSocketPingIntervalMillis: Int = 0,
+    // Close a connection that does not deliver a complete request within this time, measured from
+    // connection open or the end of the previous response (0 disables). Bounds slowloris and idle
+    // keep-alive connections.
+    requestReadTimeoutMillis: Int = 30000,
+    // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
+    override val allowedOrigins: Seq[String] = Nil,
+    // Include exception messages in 500 responses (for development only)
+    override val detailedErrors: Boolean = false
 ) extends HttpServerConfig:
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
@@ -166,6 +175,21 @@ case class NettyServerConfig(
   def withWebSocketPingIntervalMillis(millis: Int): NettyServerConfig =
     require(millis >= 0, "webSocketPingIntervalMillis must be >= 0")
     copy(webSocketPingIntervalMillis = millis)
+
+  def withRequestReadTimeoutMillis(millis: Int): NettyServerConfig =
+    require(millis >= 0, "requestReadTimeoutMillis must be >= 0")
+    copy(requestReadTimeoutMillis = millis)
+
+  def noRequestReadTimeout: NettyServerConfig = withRequestReadTimeoutMillis(0)
+
+  /**
+    * Allow WebSocket connections from these browser origins (e.g. `https://app.example.com`) in
+    * addition to same-origin pages. Pass `"*"` to allow every origin.
+    */
+  def withAllowedOrigins(origins: String*): NettyServerConfig = copy(allowedOrigins = origins.toSeq)
+
+  def withDetailedErrors(enabled: Boolean): NettyServerConfig = copy(detailedErrors = enabled)
+  def noDetailedErrors: NettyServerConfig                     = withDetailedErrors(false)
 
   /**
     * Start the server and return the running server instance

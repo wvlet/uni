@@ -76,7 +76,8 @@ object ElectronRPCServer:
         case OnNext(v) =>
           resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
         case OnError(e) =>
-          val errorResponse = RPCStatus.INTERNAL_ERROR_I0.newException(e.getMessage, e).toResponse
+          val errorResponse =
+            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
         case OnCompletion =>
         // No value emitted: nothing to resolve with (should not happen for RPC).

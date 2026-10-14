@@ -37,6 +37,19 @@ trait HttpServerConfig:
   def webSocketRoutes: Seq[WebSocketRoute] = Nil
 
   /**
+    * Browser origins (e.g. `https://app.example.com`) allowed to open a WebSocket on this server,
+    * in addition to same-origin pages. Requests without an `Origin` header (non-browser clients)
+    * are always allowed; `"*"` allows every origin.
+    */
+  def allowedOrigins: Seq[String] = Nil
+
+  /**
+    * Whether 500 responses include the exception message. Disabled by default because messages can
+    * leak internals (paths, SQL, hostnames); the full exception is always logged on the server.
+    */
+  def detailedErrors: Boolean = false
+
+  /**
     * The request handler with all configured filters applied, in order. Shared by every backend so
     * filter semantics stay consistent across platforms.
     */

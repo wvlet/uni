@@ -26,10 +26,19 @@ private[http] object WebSocketHandshake:
   /**
     * Validate the upgrade headers. `Right(key)` carries the `Sec-WebSocket-Key` when the handshake
     * is acceptable; `Left(response)` is the rejection to send:
+    *   - 403 if the browser `Origin` is not allowed (see
+    *     [[HttpServerSecurity.checkWebSocketOrigin]]),
     *   - 400 if `Sec-WebSocket-Key` is missing/empty or `Sec-WebSocket-Version` is absent,
     *   - 426 (advertising `Sec-WebSocket-Version: 13`) if the requested version is not 13.
     */
-  def validate(request: Request): Either[Response, String] =
+  def validate(request: Request, allowedOrigins: Seq[String]): Either[Response, String] =
+    HttpServerSecurity.checkWebSocketOrigin(request, allowedOrigins) match
+      case Some(rejection) =>
+        Left(rejection)
+      case None =>
+        validateKeyAndVersion(request)
+
+  private def validateKeyAndVersion(request: Request): Either[Response, String] =
     request.header(HttpHeader.SecWebSocketKey).filter(_.nonEmpty) match
       case None =>
         Left(Response.badRequest("Missing Sec-WebSocket-Key"))

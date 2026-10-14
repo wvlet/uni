@@ -192,7 +192,8 @@ class NettyServerTest extends UniTest:
       .start { server =>
         val response = get(s"http://localhost:${server.localPort}/error")
         response.statusCode() shouldBe 500
-        response.body() shouldContain "Test error"
+        // The exception message is logged, not sent to the client
+        response.body() shouldBe "Internal Server Error"
       }
   }
 

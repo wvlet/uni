@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{HttpServerSecurity, Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
@@ -30,10 +30,19 @@ import java.util.IdentityHashMap
   *   The router containing route definitions
   * @param controllerProvider
   *   Provider for obtaining controller instances
+  * @param detailedErrors
+  *   Include exception messages in 500 responses (for development only)
   */
-class RouterHandler(router: Router, controllerProvider: ControllerProvider)
-    extends RxHttpHandler
+class RouterHandler(
+    router: Router,
+    controllerProvider: ControllerProvider,
+    detailedErrors: Boolean = false
+) extends RxHttpHandler
     with LogSupport:
+
+  /** Include exception messages in 500 responses (for development only). */
+  def withDetailedErrors(enabled: Boolean): RouterHandler =
+    new RouterHandler(router, controllerProvider, enabled)
 
   private val matcher = RouteMatcher(router.routes)
   private val mapper  = HttpRequestMapper()
@@ -102,7 +111,7 @@ class RouterHandler(router: Router, controllerProvider: ControllerProvider)
             Rx.single(Response.badRequest(e.getMessage))
           case e: Exception =>
             warn(s"Error handling request: ${e.getMessage}", e)
-            Rx.single(Response.internalServerError(e.getMessage))
+            Rx.single(HttpServerSecurity.errorResponse(e, detailedErrors))
       case None =>
         debug(s"No route found for ${request.method} ${request.path}")
         Rx.single(Response.notFound(s"Not found: ${request.method} ${request.path}"))
