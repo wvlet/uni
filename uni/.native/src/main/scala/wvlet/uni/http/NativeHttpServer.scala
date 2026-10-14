@@ -254,11 +254,29 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     */
   private def runHandler(request: Request): Response =
     try
-      awaitRx(handler.handle(request))
+      checkHeaders(awaitRx(handler.handle(request)))
     catch
       case NonFatal(e) =>
         warn(s"Error handling request: ${e.getMessage}", e)
-        Response.internalServerError(e.getMessage)
+        errorResponse(e)
+
+  private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
+    e,
+    config.detailedErrors
+  )
+
+  /**
+    * Replace a response whose headers contain CR/LF with a 500: the writer copies header values
+    * verbatim, so such a value would split the response.
+    */
+  private def checkHeaders(response: Response): Response =
+    try
+      HttpServerSecurity.validateHeaders(response.headers)
+      response
+    catch
+      case e: IllegalArgumentException =>
+        warn(s"Invalid response: ${e.getMessage}", e)
+        errorResponse(e)
 
   /**
     * Block for the single Response produced by an Rx (the request handler, or a WebSocket upgrade
@@ -273,7 +291,7 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
         latch.countDown()
       case OnError(e) =>
         warn(s"Error in handler: ${e.getMessage}", e)
-        result.set(Response.internalServerError(e.getMessage))
+        result.set(errorResponse(e))
         latch.countDown()
       case OnCompletion =>
         // Completed without emitting a response.
@@ -302,9 +320,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     * worker for the WebSocket's lifetime).
     */
   private def handleWebSocketUpgrade(clientFd: Int, request: Request, route: WebSocketRoute): Unit =
-    WebSocketHandshake.validate(request) match
+    WebSocketHandshake.validate(request, config.allowedOrigins) match
       case Left(rejection) =>
-        // Malformed handshake: missing key (400), or unsupported Sec-WebSocket-Version (426).
+        // Disallowed origin (403), missing key (400), or unsupported version (426)
         NativeSocket.sendAll(
           clientFd,
           HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
@@ -319,11 +337,11 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
         }
         val verdict =
           try
-            awaitRx(route.filter.apply(request, gate))
+            checkHeaders(awaitRx(route.filter.apply(request, gate)))
           catch
             case NonFatal(e) =>
               warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
-              Response.internalServerError(e.getMessage)
+              errorResponse(e)
         if !verdict.isSuccessful then
           NativeSocket.sendAll(
             clientFd,

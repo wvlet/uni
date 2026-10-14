@@ -13,6 +13,7 @@
  */
 package wvlet.uni.electron
 
+import wvlet.uni.log.LogSupport
 import wvlet.uni.http.Response
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
@@ -38,7 +39,7 @@ import scala.scalajs.js
   * )
   * }}}
   */
-object ElectronRPCServer:
+object ElectronRPCServer extends LogSupport:
 
   /**
     * Register an RPC handler on the default channel ([[ElectronIPC.DefaultChannel]]).
@@ -76,7 +77,9 @@ object ElectronRPCServer:
         case OnNext(v) =>
           resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
         case OnError(e) =>
-          val errorResponse = RPCStatus.INTERNAL_ERROR_I0.newException(e.getMessage, e).toResponse
+          warn(s"Unexpected error in RPC dispatch: ${e.getMessage}", e)
+          val errorResponse =
+            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
         case OnCompletion =>
         // No value emitted: nothing to resolve with (should not happen for RPC).

@@ -43,7 +43,8 @@ object NodeServer:
   */
 case class NodeServerConfig(
     name: String = "node-server",
-    host: String = "0.0.0.0",
+    // Loopback by default; use withHost("0.0.0.0") to accept connections from other hosts
+    host: String = "127.0.0.1",
     port: Int = 8080,
     handler: RxHttpHandler = RxHttpHandler.notFound,
     filters: Seq[RxHttpFilter] = Seq.empty,
@@ -53,7 +54,13 @@ case class NodeServerConfig(
     webSocketMaxFrameSize: Int = 1024 * 1024,
     // Ping/pong heartbeat interval for WebSocket connections (0 disables it): the server pings an
     // idle connection and closes it if the peer stops responding to pings.
-    webSocketPingIntervalMillis: Int = 0
+    webSocketPingIntervalMillis: Int = 0,
+    // Maximum size (bytes) of a request body; larger requests get 413
+    maxContentLength: Int = 1024 * 1024,
+    // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
+    override val allowedOrigins: Seq[String] = Nil,
+    // Include exception messages in 500 responses (for development only)
+    override val detailedErrors: Boolean = false
 ) extends HttpServerConfig:
 
   def withName(name: String): NodeServerConfig = copy(name = name)
@@ -97,6 +104,19 @@ case class NodeServerConfig(
   def withWebSocketPingIntervalMillis(millis: Int): NodeServerConfig =
     require(millis >= 0, "webSocketPingIntervalMillis must be >= 0")
     copy(webSocketPingIntervalMillis = millis)
+
+  def withMaxContentLength(sizeInBytes: Int): NodeServerConfig =
+    require(sizeInBytes > 0, "maxContentLength must be positive")
+    copy(maxContentLength = sizeInBytes)
+
+  /**
+    * Allow WebSocket connections from these browser origins (e.g. `https://app.example.com`) in
+    * addition to same-origin pages. Pass `"*"` to allow every origin.
+    */
+  def withAllowedOrigins(origins: String*): NodeServerConfig = copy(allowedOrigins = origins.toSeq)
+
+  def withDetailedErrors(enabled: Boolean): NodeServerConfig = copy(detailedErrors = enabled)
+  def noDetailedErrors: NodeServerConfig                     = withDetailedErrors(false)
 
   /**
     * Start the server and return the running server instance. Note that on Node.js the socket bind

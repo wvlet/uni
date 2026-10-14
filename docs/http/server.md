@@ -64,7 +64,7 @@ All three share these builder methods:
 
 ```scala
 .withPort(8080)                       // 0 picks a random free port
-.withHost("0.0.0.0")
+.withHost("0.0.0.0")                  // default 127.0.0.1 (loopback only)
 .withName("my-server")
 .withHandler(f: Request => Response)        // sync handler
 .withRxHandler(f: Request => Rx[Response])  // async handler
@@ -322,15 +322,33 @@ val router = Router
 ```scala
 NettyServer
   .withPort(8080)                      // Port to listen on (0 for random)
-  .withHost("0.0.0.0")                 // Bind address
+  .withHost("0.0.0.0")                 // Bind address (default: 127.0.0.1)
   .withName("my-server")               // Server name for logging
-  .withMaxContentLength(1024 * 1024)   // Max request body size (1MB)
+  .withMaxContentLength(1024 * 1024)   // Max request body size (default: 64KB)
   .withMaxHeaderSize(8192)             // Max header size
   .withMaxInitialLineLength(4096)      // Max request line length
+  .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
   .noNativeTransport                   // Disable native transport (epoll/kqueue)
   .withHandler(handler)
   .start()
 ```
+
+### Security Defaults
+
+All three backends start with these defaults:
+
+| Default | Why | Opt out |
+|---------|-----|---------|
+| Bind to `127.0.0.1` | An unauthenticated dev or sidecar server is not reachable from the network | `.withHost("0.0.0.0")` for Docker, Kubernetes, or any server other hosts must reach |
+| 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config; `RPCHandler(router).withDetailedErrors(true)`, `RouterHandler(...).withDetailedErrors(true)` for those handlers |
+| WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
+| Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength`, Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
+| Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. The Native backend has its own `idleTimeoutMillis`/`readTimeoutMillis` |
+| CR, LF, or NUL in a header name or value is rejected | Prevents HTTP response splitting when a header echoes user input | — (`addHeader`/`setHeader` throw `IllegalArgumentException`) |
+
+Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
+
+TLS is not built in: terminate HTTPS at a reverse proxy or load balancer.
 
 ### Server Lifecycle
 
@@ -439,6 +457,19 @@ ctx.send("hello")                // send a text message
 ctx.send(Array[Byte](1, 2, 3))   // send a binary message
 ctx.close()                      // close with 1000 (normal closure)
 ctx.close(1001, "going away")    // close with a status code and reason
+```
+
+### Allowed Origins
+
+Before the route filter runs, the server checks the browser `Origin` of the upgrade. Same-origin
+pages and clients that send no `Origin` are accepted; any other origin gets 403. Allow a front end
+served from another origin (e.g. a Vite dev server) explicitly:
+
+```scala
+NettyServer
+  .withPort(8080)
+  .withAllowedOrigins("http://localhost:5173", "https://app.example.com")
+  .withWebSocketRoute("/ws") { _ => handler }
 ```
 
 ### Gating the Upgrade With a Filter

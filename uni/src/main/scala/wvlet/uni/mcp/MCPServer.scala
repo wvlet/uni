@@ -129,7 +129,9 @@ case class MCPServer(
           case Some(id) =>
             handleRequest(id, request)
 
-  private lazy val dispatcher: RPCDispatcher         = RPCDispatcher(routers*)
+  // MCP reports tool failures to the model as isError results so it can correct its call, so the
+  // message is part of the protocol here (and the stdio transport is local to the client).
+  private lazy val dispatcher: RPCDispatcher = RPCDispatcher(routers*).withDetailedErrors(true)
   private lazy val toolsByName: Map[String, MCPTool] = tools.map(t => t.name -> t).toMap
   private val emptyObject: JSONObject                = JSONObject(Seq.empty)
 

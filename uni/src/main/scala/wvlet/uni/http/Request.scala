@@ -100,9 +100,13 @@ case class Request(
   def withContent(c: HttpContent): Request                       = copy(content = c)
   def withQueryParams(params: Map[String, Seq[String]]): Request = copy(queryParams = params)
 
-  def addHeader(name: String, value: String): Request = copy(headers = headers.add(name, value))
+  def addHeader(name: String, value: String): Request =
+    HttpServerSecurity.validateHeader(name, value)
+    copy(headers = headers.add(name, value))
 
-  def setHeader(name: String, value: String): Request = copy(headers = headers.set(name, value))
+  def setHeader(name: String, value: String): Request =
+    HttpServerSecurity.validateHeader(name, value)
+    copy(headers = headers.set(name, value))
 
   def removeHeader(name: String): Request = copy(headers = headers.remove(name))
 

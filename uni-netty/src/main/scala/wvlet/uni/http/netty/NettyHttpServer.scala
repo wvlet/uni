@@ -123,6 +123,11 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
                 config.maxContentLength
               )
             )
+            if config.requestReadTimeoutMillis > 0 then
+              pipeline.addLast(
+                NettyHttpServer.RequestReadTimeoutHandlerName,
+                RequestReadTimeoutHandler(config.requestReadTimeoutMillis.toLong)
+              )
             pipeline.addLast("keepAlive", HttpServerKeepAliveHandler())
             pipeline.addLast("aggregator", HttpObjectAggregator(config.maxContentLength))
             pipeline.addLast(NettyHttpServer.CompressorHandler, HttpContentCompressor())
@@ -134,7 +139,9 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               config.webSocketRoutes,
               config.webSocketMaxFrameSize,
               config.webSocketPingIntervalMillis,
-              handlerExecutorGroup
+              handlerExecutorGroup,
+              config.allowedOrigins,
+              config.detailedErrors
             )
             handlerExecutorGroup match
               case Some(executor) =>
@@ -263,6 +270,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
 end NettyHttpServer
 
 object NettyHttpServer:
-  private[netty] val CompressorHandler = "compressor"
+  private[netty] val CompressorHandler             = "compressor"
+  private[netty] val RequestReadTimeoutHandlerName = "requestReadTimeout"
 
   def apply(config: NettyServerConfig): NettyHttpServer = new NettyHttpServer(config)

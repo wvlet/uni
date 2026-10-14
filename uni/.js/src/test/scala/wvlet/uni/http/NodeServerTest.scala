@@ -13,7 +13,10 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
+
+import scala.concurrent.{Future, Promise}
 
 /**
   * Verifies the Node.js HTTP server backend against the cross-platform async (Fetch) client. Each
@@ -59,6 +62,84 @@ class NodeServerTest extends UniTest:
             response.contentAsString shouldBe Some("Received: payload")
           }
       }
+  }
+
+  /**
+    * The first value of an Rx as a Future. Unlike `startAndAwait` (which runs via `runOnce`), this
+    * ignores the interim OnCompletion that `Rx.future` emits while the future is still pending, so
+    * a failed assertion actually fails the test.
+    */
+  private def firstValue[A](rx: Rx[A]): Future[A] =
+    val p = Promise[A]()
+    RxRunner.run(rx) {
+      case OnNext(v) =>
+        p.trySuccess(v.asInstanceOf[A])
+      case OnError(e) =>
+        p.tryFailure(e)
+      case OnCompletion =>
+        ()
+    }
+    p.future
+
+  /** Start a server, run the async block once it is listening, then stop the server. */
+  private def withNodeServer[A](config: NodeServerConfig)(
+      block: HttpServer => Future[A]
+  ): Future[A] =
+    val server = config.withPort(0).start()
+    firstValue(server.whenReady)
+      .flatMap(block)
+      .andThen { case _ =>
+        server.stop()
+      }
+
+  /** Send a request and return (status, body), including non-2xx responses. */
+  private def statusAndBody(server: HttpServer, request: Request): Future[(Int, Option[String])] =
+    firstValue(
+      asyncClient(server)
+        .noRetry
+        .send(request)
+        .map(r => (r.statusCode, r.contentAsString))
+        .recover {
+          case e: HttpMaxRetryException =>
+            (e.statusCode, e.response.contentAsString)
+          case e: HttpException =>
+            (e.statusCode.getOrElse(-1), e.contentAsString)
+        }
+    )
+
+  test("should reject a request body over maxContentLength with 413") {
+    val config = NodeServer
+      .withHandler { request =>
+        Response.ok(s"Received: ${request.content.toContentString}")
+      }
+      .withMaxContentLength(16)
+    withNodeServer(config) { server =>
+      for
+        (okStatus, okBody) <- statusAndBody(
+          server,
+          Request.post("/data").withContent(HttpContent.text("small"))
+        )
+        (status, _) <- statusAndBody(
+          server,
+          Request.post("/data").withContent(HttpContent.text("x" * 1024))
+        )
+      yield
+        okStatus shouldBe 200
+        okBody shouldBe Some("Received: small")
+        status shouldBe 413
+    }
+  }
+
+  test("should hide exception messages in 500 responses") {
+    val config = NodeServer.withHandler { _ =>
+      throw IllegalStateException("password=hunter2")
+    }
+    withNodeServer(config) { server =>
+      statusAndBody(server, Request.get("/")).map { (status, body) =>
+        status shouldBe 500
+        body shouldBe Some("Internal Server Error")
+      }
+    }
   }
 
   test("should round-trip request and response headers") {

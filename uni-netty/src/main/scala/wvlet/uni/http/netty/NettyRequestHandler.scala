@@ -45,6 +45,7 @@ import wvlet.uni.http.{
   HttpHeader,
   HttpMethod,
   HttpMultiMap,
+  HttpServerSecurity,
   HttpStatus,
   Request,
   Response,
@@ -74,7 +75,9 @@ class NettyRequestHandler(
     webSocketRoutes: Seq[WebSocketRoute],
     webSocketMaxFrameSize: Int,
     webSocketPingIntervalMillis: Int,
-    wsHandlerExecutor: Option[EventExecutorGroup]
+    wsHandlerExecutor: Option[EventExecutorGroup],
+    allowedOrigins: Seq[String],
+    detailedErrors: Boolean
 ) extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
 
@@ -82,6 +85,9 @@ class NettyRequestHandler(
 
   override def channelRead0(ctx: ChannelHandlerContext, nettyRequest: FullHttpRequest): Unit =
     val keepAlive = HttpUtil.isKeepAlive(nettyRequest)
+    if HttpMethod.of(nettyRequest.method().name()).isEmpty then
+      sendResponse(ctx, Response.notImplemented, keepAlive)
+      return
     try
       val request = toUniRequest(nettyRequest)
       webSocketRouteFor(request, nettyRequest) match
@@ -93,7 +99,12 @@ class NettyRequestHandler(
     catch
       case e: Exception =>
         warn(s"Error handling request: ${e.getMessage}", e)
-        sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive)
+        sendResponse(ctx, errorResponse(e), keepAlive)
+
+  private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
+    e,
+    detailedErrors
+  )
 
   private def webSocketRouteFor(
       request: Request,
@@ -117,6 +128,12 @@ class NettyRequestHandler(
       request: Request,
       route: WebSocketRoute
   ): Unit =
+    HttpServerSecurity.checkWebSocketOrigin(request, allowedOrigins) match
+      case Some(rejection) =>
+        debug(s"Rejected WebSocket upgrade from origin ${request.header(HttpHeader.Origin)}")
+        sendResponse(ctx, rejection, keepAlive = false)
+        return
+      case None =>
     // Capture the request as threaded through the filter, so attributes a filter adds during the
     // handshake (e.g. an authenticated principal) reach the WebSocketContext.
     val upgradeRequest = AtomicReference[Request](request)
@@ -132,7 +149,7 @@ class NettyRequestHandler(
       catch
         case NonFatal(e) =>
           warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
-          sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive = false)
+          sendResponse(ctx, errorResponse(e), keepAlive = false)
           return
 
     nettyRequest.retain()
@@ -154,7 +171,7 @@ class NettyRequestHandler(
         case OnError(e) =>
           if handled.compareAndSet(false, true) then
             warn(s"WebSocket upgrade error: ${e.getMessage}", e)
-            sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive = false)
+            sendResponse(ctx, errorResponse(e), keepAlive = false)
             nettyRequest.release()
         case OnCompletion =>
           // The filter completed without emitting a response: release and close so the client
@@ -167,7 +184,7 @@ class NettyRequestHandler(
       case NonFatal(e) =>
         if handled.compareAndSet(false, true) then
           warn(s"WebSocket upgrade failed: ${e.getMessage}", e)
-          sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive = false)
+          sendResponse(ctx, errorResponse(e), keepAlive = false)
           nettyRequest.release()
   end handleWebSocketUpgrade
 
@@ -199,8 +216,11 @@ class NettyRequestHandler(
               wsContext,
               webSocketPingIntervalMillis
             )
-            val future   = handshaker.handshake(ctx.channel(), nettyRequest)
             val pipeline = ctx.pipeline()
+            // A WebSocket connection is long-lived: stop waiting for the next HTTP request
+            if pipeline.get(NettyHttpServer.RequestReadTimeoutHandlerName) != null then
+              pipeline.remove(NettyHttpServer.RequestReadTimeoutHandlerName)
+            val future = handshaker.handshake(ctx.channel(), nettyRequest)
             // Coalesce continuation frames so the handler sees whole messages.
             pipeline.addLast("wsAggregator", WebSocketFrameAggregator(webSocketMaxFrameSize))
             // Reader-idle heartbeat: fire userEventTriggered after pingIntervalMillis of no inbound
@@ -256,13 +276,19 @@ class NettyRequestHandler(
     RxRunner.runOnce(rx) {
       case OnNext(response) =>
         val resp = response.asInstanceOf[Response]
-        if resp.isEventStream then
-          sendSseResponse(ctx, resp)
-        else
-          sendResponse(ctx, resp, keepAlive)
+        try
+          if resp.isEventStream then
+            sendSseResponse(ctx, resp)
+          else
+            sendResponse(ctx, resp, keepAlive)
+        catch
+          case e: IllegalArgumentException =>
+            // e.g. a header value containing CR/LF, rejected before anything was written
+            warn(s"Invalid response: ${e.getMessage}", e)
+            sendResponse(ctx, errorResponse(e), keepAlive = false)
       case OnError(e) =>
         warn(s"Error in Rx handler: ${e.getMessage}", e)
-        sendResponse(ctx, Response.internalServerError(e.getMessage), keepAlive)
+        sendResponse(ctx, errorResponse(e), keepAlive)
       case OnCompletion =>
         sendResponse(ctx, Response.notFound, keepAlive)
     }
@@ -279,6 +305,7 @@ class NettyRequestHandler(
     nettyResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE)
 
     // Copy custom headers from response (skip Content-Type as it's already set)
+    HttpServerSecurity.validateHeaders(response.headers)
     response
       .headers
       .entries
@@ -384,6 +411,7 @@ class NettyRequestHandler(
   end toUniRequest
 
   private def toNettyResponse(response: Response): DefaultFullHttpResponse =
+    HttpServerSecurity.validateHeaders(response.headers)
     val status = HttpResponseStatus.valueOf(response.status.code)
 
     val content      = response.content
@@ -426,7 +454,9 @@ object NettyRequestHandler:
       webSocketRoutes: Seq[WebSocketRoute],
       webSocketMaxFrameSize: Int,
       webSocketPingIntervalMillis: Int,
-      wsHandlerExecutor: Option[EventExecutorGroup]
+      wsHandlerExecutor: Option[EventExecutorGroup],
+      allowedOrigins: Seq[String] = Nil,
+      detailedErrors: Boolean = false
   ): NettyRequestHandler =
     new NettyRequestHandler(
       handler,
@@ -434,7 +464,9 @@ object NettyRequestHandler:
       webSocketRoutes,
       webSocketMaxFrameSize,
       webSocketPingIntervalMillis,
-      wsHandlerExecutor
+      wsHandlerExecutor,
+      allowedOrigins,
+      detailedErrors
     )
 
   /**
