@@ -28,7 +28,7 @@ An `Origin` check on every request was rejected: non-browser clients send no `Or
 
 ## Bounded long-lived connections
 
-SSE streams (and WebSockets on Native) hold resources for their whole lifetime. Netty caps open SSE streams with a counter released on channel close (default 256), and the SSE executor has as many threads as stream slots. A thread-pool bound alone is not enough, because a non-blocking `Rx` source releases its thread while the stream stays open. Native counts SSE and WebSocket connections, because each parks a worker. Its default keeps `min(4, workerThreads / 2)` workers for ordinary requests. Over the limit, the request gets 503.
+SSE streams (and WebSockets on Native) hold resources for their whole lifetime. Netty caps open SSE streams with a counter released on channel close (default 256), and the SSE executor has as many threads as stream slots. A thread-pool bound alone is not enough, because a non-blocking `Rx` source releases its thread while the stream stays open. A freed slot can briefly outlive its consumer thread, e.g. a blocking source still running after the client left. The executor task therefore writes the SSE headers itself, so a rejected task still gets 503 rather than an empty 200. Native counts SSE and WebSocket connections, because each parks a worker. Its default keeps `min(4, workerThreads / 2)` workers for ordinary requests. Over the limit, the request gets 503.
 
 ## RPC endpoint selection and Electron senders
 

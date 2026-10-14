@@ -43,7 +43,7 @@ Priority, all in this PR:
 
 ### P4. Bounded long-lived connections
 
-- Netty: replace the cached pool with a `ThreadPoolExecutor(0, maxStreams, 60s, SynchronousQueue)`. It is configured by `withMaxStreamingConnections(n)` (default 256) and covers SSE streams. Over the limit, the request gets `503 Service Unavailable` before any headers are written. WebSockets run on the event loop and need no executor change.
+- Netty: count open SSE streams with a `ConnectionLimiter`, released on channel close, configured by `withMaxStreamingConnections(n)` (default 256). Bound the SSE executor (previously `newCachedThreadPool`) to the same size. The executor task writes the headers, so over the limit, or with every thread busy, the request gets `503 Service Unavailable` instead of a stream. WebSockets run on the event loop and need no executor change.
 - Native: count active SSE/WebSocket connections and reject new ones with 503 above `maxStreamingConnections`. The default is `workerThreads - 4`, so at least 4 workers stay free for ordinary requests. Validate that `workerThreads` exceeds the reserve.
 - Node.js is event-driven and unaffected.
 
