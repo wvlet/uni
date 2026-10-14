@@ -13,6 +13,9 @@ ThisBuild / dynverSonatypeSnapshots := true
 // Use coursier friendly version separator
 ThisBuild / dynverSeparator := "-"
 
+// Versions are YYYY.(milestone).patch, so the first two components form the binary-compatible series
+ThisBuild / versionScheme := Some("pvp")
+
 // For Sonatype
 ThisBuild / publishTo := {
   val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
@@ -58,6 +61,7 @@ val buildSettings = Seq[Setting[?]](
         url = uri("http://xerial.org/leo")
       )
     ),
+  scalacOptions ++= Seq("-deprecation", "-feature"),
   Test / parallelExecution := false,
   // Use UniTest for testing
   libraryDependencies ++=
@@ -101,7 +105,9 @@ val nativeBuildSettings = Seq[Setting[?]](
   // Link against libcurl for HTTP client support, and zlib for gzip compression
   nativeConfig ~= {
     _.withLinkingOptions(_ ++ Seq("-lcurl", "-lz"))
-  }
+  },
+  // Scaladoc does not support compiler plugins and warns about the Scala Native nscplugin
+  Compile / doc / scalacOptions ~= (_.filterNot(_.startsWith("-Xplugin")))
 )
 
 val noPublish = Seq(

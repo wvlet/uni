@@ -405,7 +405,7 @@ class RoundTripTest extends UniTest:
       OffsetUnpacker.unpackInt(_)
     }
 
-    roundtrip(-1.toLong) { (cursor, v) =>
+    roundtrip((-1).toLong) { (cursor, v) =>
       OffsetPacker.packLong(cursor, v)
     } {
       OffsetUnpacker.unpackLong(_)

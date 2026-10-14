@@ -30,7 +30,7 @@ import wvlet.uni.rx.{Cancelable, Rx}
   *
   *     override def render: RxElement =
   *       div(
-  *         p(count.map(c => s"Count: ${c}")),
+  *         p(count.map(c => s"Count: \${c}")),
   *         button(onclick -> { () => count.update(_ + 1) }, "Increment")
   *       )
   *

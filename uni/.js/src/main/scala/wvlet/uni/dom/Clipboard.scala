@@ -42,7 +42,7 @@ import scala.util.{Failure, Success}
   *   button(
   *     onclick -> { () =>
   *       Clipboard.readText().foreach { text =>
-  *         println(s"Pasted: ${text}")
+  *         println(s"Pasted: \${text}")
   *       }
   *     },
   *     "Paste"
@@ -51,10 +51,10 @@ import scala.util.{Failure, Success}
   *   // Listen to clipboard events
   *   div(
   *     Clipboard.onCopy { text =>
-  *       println(s"User copied: ${text}")
+  *       println(s"User copied: \${text}")
   *     },
   *     Clipboard.onPaste { text =>
-  *       println(s"User pasted: ${text}")
+  *       println(s"User pasted: \${text}")
   *     },
   *     input(placeholder -> "Try copy/paste here")
   *   )

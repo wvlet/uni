@@ -105,7 +105,7 @@ trait HttpAsyncClient extends AutoCloseable:
     * Example:
     * {{{
     * val handler = ServerSentEventHandler { event =>
-    *   println(s"Received: ${event.data}")
+    *   println(s"Received: \${event.data}")
     * }
     *
     * client.sendSSE(Request.get("/events").withEventHandler(handler))

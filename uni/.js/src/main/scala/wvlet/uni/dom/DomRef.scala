@@ -44,7 +44,7 @@ case class RefBinding[E <: dom.Element](ref: DomRef[E]) extends DomNode
   *
   *   // Access the element when needed
   *   inputRef.foreach { elem =>
-  *     println(s"Input value: ${elem.value}")
+  *     println(s"Input value: \${elem.value}")
   *   }
   * }}}
   *

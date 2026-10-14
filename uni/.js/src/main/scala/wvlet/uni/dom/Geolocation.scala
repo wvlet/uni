@@ -91,15 +91,15 @@ case class GeoOptions(
   *
   *   // One-shot position request
   *   Geolocation.getCurrentPosition(
-  *     onSuccess = pos => println(s"Location: ${pos.latitude}, ${pos.longitude}"),
-  *     onError = err => println(s"Error: ${err}")
+  *     onSuccess = pos => println(s"Location: \${pos.latitude}, \${pos.longitude}"),
+  *     onError = err => println(s"Error: \${err}")
   *   )
   *
   *   // Continuous watching
   *   val watcher = Geolocation.watch()
   *   div(
   *     watcher.position.map {
-  *       case Some(pos) => span(s"${pos.latitude}, ${pos.longitude}")
+  *       case Some(pos) => span(s"\${pos.latitude}, \${pos.longitude}")
   *       case None => span("Waiting for location...")
   *     }
   *   )

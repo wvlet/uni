@@ -86,7 +86,7 @@ trait IOWatchBase:
   * import wvlet.uni.io.*
   *
   * val watcher = IOWatch.watch("my-dir") { event =>
-  *   println(s"${event.eventType}: ${event.path}")
+  *   println(s"\${event.eventType}: \${event.path}")
   * }
   * // ... later
   * watcher.close()
