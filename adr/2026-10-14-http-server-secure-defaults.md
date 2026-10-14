@@ -34,6 +34,13 @@ SSE streams (and WebSockets on Native) hold resources for their whole lifetime. 
 
 `RPCMethodFilter` (shared by `RPCRouter` and `RPCClient`) drops `@rpcIgnore` methods and methods declared in `scala.*`, `java.*` or `wvlet.uni.log.*`, using the new `MethodSurface.declaringType`. Methods inherited from the application's own base traits stay exposed, so API trait composition keeps working; "declared on T only" was rejected for that reason. `ElectronRPCServer` accepts calls only from top-level frames by default (`ElectronRPCServerConfig`), with optional origin and custom sender checks.
 
-## Known gap: `startAndAwait` tests on Scala.js
+## Resolved: `startAndAwait` tests on Scala.js
 
-`Rx.future(f)` is `filter(_.isDefined)` over an `RxVar`. While `f` is pending, the filter emits `OnCompletion`, and `RxRunner.runOnce` treats that as terminal. A Node.js test returning `startAndAwait { ... }` therefore finishes before its assertions run. The new Node server tests use `RxRunner.run` (`firstValue` in `NodeServerTest`) so they assert for real. Fixing `runOnce`/`Rx.future` is a separate change.
+`Rx.future(f)` is `filter(_.isDefined)` over an `RxVar`. `FilterOp` used to emit `OnCompletion` for every rejected value, so while `f` was pending, `RxRunner.runOnce` saw a spurious terminal event, and a Node.js test returning `startAndAwait { ... }` finished before its assertions ran. The same spurious completion made `NodeHttpServer` answer async handlers with 404. It is now fixed in `RxRunner` (plan: `plans/2026-10-14-rx-filter-completion.md`):
+
+- `filter` skips rejected values; `OnCompletion` means the upstream completed.
+- `Rx.const`/`Rx.fromTry` complete after their value, so a rejected constant still terminates.
+- `flatMap` completes only after both its input and the current nested stream complete, so `startAndAwait`'s cleanup no longer stops the server while the block is pending.
+- `runOnce` delivers only the first event. The Netty `runRxResponse` guard is now redundant but kept for now.
+
+The previously vacuous Node tests now assert. They surfaced a missing half-open `'end'` handler in `NodeWebSocket` (no `onClose` on a client FIN), which is fixed. The `firstValue` workaround in `NodeServerTest` has been removed.

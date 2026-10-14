@@ -78,6 +78,8 @@ Rx.empty }` instead maps `None` to `Rx.empty`, whose inner completion `flatMap` 
 holds only the latest value, so an unconsumed `progressStream` doesn't accumulate (no buffering leak,
 unlike `Rx.queue`).
 
+Update (2026-10-14): `filter` no longer completes on rejection (see `2026-10-14-rx-completion-semantics.md`), so `filter(_.isDefined)` would now work; the `flatMap` form is kept.
+
 ## Consequences
 
 - `wvlet/wvlet` can give its DuckDB `SqlConnector` real progress + cancel against one cross-platform

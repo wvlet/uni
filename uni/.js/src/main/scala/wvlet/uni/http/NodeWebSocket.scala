@@ -190,6 +190,12 @@ private[http] object NodeWebSocket extends LogSupport:
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) => drive(NodeBytes.toBytes(chunk))
       val onClose: js.Function1[js.Dynamic, Unit] = (_: js.Dynamic) => notifyClose()
+      // http.Server sockets are half-open, so a peer FIN without a close frame emits only 'end'
+      // ('close' waits for our side to end too): fire onClose and finish the socket here
+      val onEnd: js.Function0[Unit] =
+        () =>
+          notifyClose()
+          endQuietly(socket)
       // Resume reading once a back-pressured write has drained (see NodeWebSocketContext.writeFrame).
       val onDrain: js.Function0[Unit] =
         () =>
@@ -201,6 +207,7 @@ private[http] object NodeWebSocket extends LogSupport:
                 ()
       socket.applyDynamic("on")("close", onClose)
       socket.applyDynamic("on")("error", onClose)
+      socket.applyDynamic("on")("end", onEnd)
       socket.applyDynamic("on")("drain", onDrain)
 
       try
