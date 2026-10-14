@@ -41,7 +41,7 @@
    ```
    `Global` scope is required: sbt defines `localStaging` as `Global / localStaging`, so it reads
    `Global / stagingDirectory`. A `ThisBuild` override is ignored, as verified locally.
-2. **Merge the six workflows into a single `release.yml` job**:
+2. **Merge the six workflows into a single `release.yml` job**. The four staging steps run in an Actions `parallel:` step group (GA since 2026-06-25):
    - Setup: checkout (fetch-depth 0), Java 23, Node 22, libcurl, `sbt/setup-sbt`, and GPG import.
    - `./sbt "projectJVM/publishSigned; projectJS/publishSigned; projectNative/publishSigned"`
    - `sbt publishSigned` in `sbt-uni` and `sbt-uni-crossproject`, and
