@@ -1,4 +1,4 @@
-name: Release Scala JVM
+name: Release
 
 on:
   push:
@@ -7,9 +7,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  publish_jvm:
-    name: Publish Scala JVM
+  publish:
+    name: Publish to Sonatype
     runs-on: ubuntu-latest
+    # Every build below stages its signed artifacts into the root's target/sona-staging (the plugin
+    # builds point their stagingDirectory there), and a single sonaRelease at the end uploads them as
+    # one Sonatype deployment. A release thus publishes completely or not at all, instead of risking
+    # a partial release across several separate deployments.
+    #
+    # Credentials are scoped to the steps that launch sbt, never exposed to third-party actions. Each
+    # sbt step carries both PGP and Sonatype vars: sbt 2.x may keep a persistent server per build, and
+    # env vars are captured when that server starts, so the root server started for staging must
+    # already see SONATYPE_* for the final sonaRelease.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -21,17 +30,43 @@ jobs:
           distribution: 'zulu'
           java-version: '23'
           cache: sbt
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      - name: Install native dependencies
+        run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Setup GPG
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
         run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
-      - name: Build bundle
-        env:
-          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
-        run: |
-          ./sbt "projectJVM/publishSigned"
+      # The four builds live in separate directories with their own sbt servers and write to disjoint
+      # paths under the shared staging dir, so they can stage concurrently. `parallel` waits for all
+      # of them (and fails if any failed) before sonaRelease runs.
+      - parallel:
+        - name: Stage uni (JVM, Scala.js, Scala Native)
+          env: &sbt-env
+            PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+            SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+            SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+          run: ./sbt "projectJVM/publishSigned; projectJS/publishSigned; projectNative/publishSigned"
+        # The plugin builds do not depend on the uni version being released, so no local publish of uni
+        # is needed first.
+        - name: Stage sbt-uni
+          env: *sbt-env
+          working-directory: sbt-uni
+          run: sbt publishSigned
+        - name: Stage sbt-uni-crossproject
+          env: *sbt-env
+          working-directory: sbt-uni-crossproject
+          run: sbt publishSigned
+        # Scope publishSigned to the two published modules (a bare publishSigned would also stage the
+        # empty aggregate root).
+        - name: Stage sbt-uni-playwright
+          env: *sbt-env
+          working-directory: sbt-uni-playwright
+          run: sbt "jsenv/publishSigned; plugin/publishSigned"
       - name: Release to Sonatype
-        env:
-          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
-          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+        env: *sbt-env
         run: ./sbt sonaRelease

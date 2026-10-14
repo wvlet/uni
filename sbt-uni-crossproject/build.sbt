@@ -20,6 +20,11 @@ ThisBuild / publishTo := {
     localStaging.value
 }
 
+// Stage releases into the uni root build's staging directory, so a single `sonaRelease` from the
+// root uploads this plugin together with every other uni artifact as one Sonatype deployment.
+// Global scope, because sbt defines `localStaging` (which `publishTo` uses) as `Global / localStaging`.
+Global / stagingDirectory := (ThisBuild / baseDirectory).value.getParentFile / "target" / "sona-staging"
+
 // Both plugins are published for sbt 2.x under the `_sbt2_3` coordinate suffix. The plugin enables
 // ScalaJSPlugin / ScalaNativePlugin on the JS / Native platform projects, so it compiles against
 // these and consumers get them transitively.

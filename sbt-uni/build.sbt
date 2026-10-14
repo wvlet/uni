@@ -17,6 +17,11 @@ ThisBuild / publishTo := {
     localStaging.value
 }
 
+// Stage releases into the uni root build's staging directory, so a single `sonaRelease` from the
+// root uploads this plugin together with every other uni artifact as one Sonatype deployment.
+// Global scope, because sbt defines `localStaging` (which `publishTo` uses) as `Global / localStaging`.
+Global / stagingDirectory := (ThisBuild / baseDirectory).value.getParentFile / "target" / "sona-staging"
+
 // The uni version the scripted test apps depend on (the locally published snapshot in CI).
 val UNI_VERSION = sys.env.getOrElse("UNI_VERSION", "0.0.1-SNAPSHOT")
 
