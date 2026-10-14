@@ -51,17 +51,17 @@ object RxRunner extends LogSupport:
     }
 
   /**
-    * Run until the first event is observed
+    * Run until the first event is observed. Only the first event (OnNext, OnError, or OnCompletion)
+    * is passed to the effect: some sources (e.g., RxVar, Rx.single) keep emitting after the
+    * downstream returns Stop, and later events are dropped here. The upstream subscription is not
+    * cancelled, so its own completion still drives operators such as concat.
     */
   def runOnce[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
+    val observed = AtomicBoolean(false)
     defaultRunner.run(rx) { ev =>
-      ev match
-        case v @ OnNext(_) =>
-          effect(v)
-          RxResult.Stop
-        case other =>
-          effect(other)
-          RxResult.Stop
+      if observed.compareAndSet(false, true) then
+        effect(ev)
+      RxResult.Stop
     }
 
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
@@ -113,7 +113,13 @@ class RxRunner(
       case fm @ FlatMapOp(in, f) =>
         // This var is a placeholder to remember the preceding Cancelable operator, which will be updated later
         var c1 = Cancelable.empty
-        val c2 =
+        // The stream completes only after both the input and the current nested stream complete, so
+        // an asynchronous nested stream (e.g., Rx.future) is not cut off by the input's completion
+        var inputCompleted = false
+        var nestedActive   = false
+        // Identifies the current nested stream; events from a replaced (cancelled) one are ignored
+        var generation = 0
+        val c2         =
           run(fm.input) {
             case OnNext(x) =>
               var toContinue: RxResult = RxResult.Continue
@@ -121,14 +127,20 @@ class RxRunner(
                 case Success(rxb) =>
                   // This code is necessary to properly cancel the effect if this operator is evaluated before
                   c1.cancel
+                  generation += 1
+                  val current = generation
+                  nestedActive = true
                   c1 =
                     run(rxb) {
                       case n @ OnNext(x) =>
                         toContinue = effect(n)
                         toContinue
                       case OnCompletion =>
-                        // skip the end of the nested flatMap body stream
-                        RxResult.Continue
+                        if current == generation then
+                          nestedActive = false
+                          if inputCompleted then
+                            toContinue = effect(OnCompletion)
+                        toContinue
                       case ev @ OnError(e) =>
                         toContinue = effect(ev)
                         toContinue
@@ -136,6 +148,13 @@ class RxRunner(
                   toContinue
                 case Failure(e) =>
                   effect(OnError(e))
+            case OnCompletion =>
+              inputCompleted = true
+              if nestedActive then
+                // Report the completion when the nested stream completes
+                RxResult.Continue
+              else
+                effect(OnCompletion)
             case other =>
               effect(other)
           }
@@ -151,8 +170,9 @@ class RxRunner(
                 case Success(true) =>
                   effect(OnNext(x))
                 case Success(false) =>
-                  // Notify the completion of the stream, but continue subscription to the upstream
-                  effect(OnCompletion)
+                  // Skip the rejected value. OnCompletion is reported only when the upstream
+                  // completes; emitting it here would end runOnce/await (and trigger concat) before
+                  // a later value, e.g. a pending Rx.future, arrives
                   RxResult.Continue
                 case Failure(e) =>
                   effect(OnError(e))
@@ -454,7 +474,12 @@ class RxRunner(
       case TryOp(e) =>
         e.eval match
           case Success(x) =>
-            effect(OnNext(x))
+            // A single-value source: complete after the value, as SingleOp does
+            Try(effect(OnNext(x))) match
+              case Success(_) =>
+                effect(OnCompletion)
+              case Failure(e) =>
+                effect(OnError(e))
           case Failure(e) =>
             effect(OnError(e))
         Cancelable.empty

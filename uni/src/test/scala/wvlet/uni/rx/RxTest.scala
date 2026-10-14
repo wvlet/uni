@@ -1094,8 +1094,7 @@ object RxTest extends UniTest:
     }
 
     test("filter") {
-      eval(Rx.sequence(1, 2, 3).filter(_ % 2 == 1)) shouldBe
-        Seq(OnNext(1), OnCompletion, OnNext(3), OnCompletion)
+      eval(Rx.sequence(1, 2, 3).filter(_ % 2 == 1)) shouldBe Seq(OnNext(1), OnNext(3), OnCompletion)
     }
 
     test("filter with error") {
@@ -1199,7 +1198,7 @@ object RxTest extends UniTest:
 
       val events = b.result()
       debug(events)
-      events shouldBe Seq(OnNext(1), OnError(ex), OnNext(3), OnCompletion, OnNext(5))
+      events shouldBe Seq(OnNext(1), OnError(ex), OnNext(3), OnNext(5))
     }
 
     test("zip") {

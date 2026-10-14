@@ -13,7 +13,7 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 
 /**
   * Self-test for UniTest framework
@@ -244,6 +244,25 @@ class UniTestSelfTest extends UniTest:
     snippet shouldBe defined
     snippet.get shouldContain "1 shouldBe 2"
     snippet.get shouldContain "^"
+  }
+
+  test("Rx over a pending Future runs its assertions") {
+    // Rx.future used to emit an interim OnCompletion while the future was pending, so the test
+    // resolved before the value arrived and a failing assertion passed vacuously
+    val p       = Promise[Int]()
+    val testDef = TestDef(
+      "pending-rx-future",
+      () => wvlet.uni.rx.Rx.future(p.future).map(x => x shouldBe 2),
+      Nil,
+      isFlaky = false
+    )
+    val result = executeTest(testDef)
+    p.success(1)
+    result.map { r =>
+      r shouldMatch { case TestResult.Failure(_, msg, _) =>
+        msg shouldContain "1"
+      }
+    }
   }
 
 end UniTestSelfTest
