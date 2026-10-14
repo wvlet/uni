@@ -93,6 +93,7 @@ private[test] object compat:
   /**
     * Convert an Rx stream to a Future for async test execution.
     */
-  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] = Future(rx.await)(executionContext)
+  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] =
+    Future(rx.await)(using executionContext)
 
 end compat

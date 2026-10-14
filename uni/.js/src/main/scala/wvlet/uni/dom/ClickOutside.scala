@@ -46,7 +46,7 @@ case class ClickOutsideBinding(callback: dom.MouseEvent => Unit) extends DomNode
   *   // Custom callback
   *   div(
   *     ClickOutside.detect { event =>
-  *       println(s"Clicked outside at (${event.clientX}, ${event.clientY})")
+  *       println(s"Clicked outside at (\${event.clientX}, \${event.clientY})")
   *     },
   *     "Click outside me"
   *   )

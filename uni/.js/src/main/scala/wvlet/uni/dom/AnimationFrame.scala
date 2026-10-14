@@ -31,7 +31,7 @@ import wvlet.uni.rx.Cancelable
   *   // One-time DOM measurement after render
   *   AnimationFrame.once {
   *     val height = element.getBoundingClientRect().height
-  *     println(s"Element height: $height")
+  *     println(s"Element height: \${height}")
   *   }
   *
   *   // Fixed timestep updates (60 FPS)

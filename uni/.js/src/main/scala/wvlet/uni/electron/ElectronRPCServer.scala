@@ -23,8 +23,8 @@ import scala.scalajs.js
   * Main-process side of the Electron RPC transport.
   *
   * Registers an `ipcMain.handle(channel, ...)` listener that dispatches incoming requests through a
-  * transport-neutral [[RPCDispatcher]] and returns a `Promise` of the response payload — exactly
-  * what [[ElectronRendererChannel]] on the other end awaits.
+  * transport-neutral [[wvlet.uni.http.rpc.RPCDispatcher]] and returns a `Promise` of the response
+  * payload — exactly what [[ElectronRendererChannel]] on the other end awaits.
   *
   * Electron's `ipcMain` is passed in as a value (rather than `require("electron")`-ed here) so this
   * code never couples to a particular Scala.js module/bundler setup; the thin JS main entry obtains

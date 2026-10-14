@@ -43,7 +43,7 @@ object ElectronIPC:
     */
   val DefaultBridgeName: String = "uniRPC"
 
-  /** Marshal an outgoing [[Request]] into an IPC payload object (renderer side). */
+  /** Marshal an outgoing [[wvlet.uni.http.Request]] into an IPC payload object (renderer side). */
   def toPayload(request: Request): js.Object = js
     .Dynamic
     .literal(
@@ -53,7 +53,7 @@ object ElectronIPC:
       body = request.content.asString.getOrElse("")
     )
 
-  /** Reconstruct a [[Request]] from an IPC payload object (main side). */
+  /** Reconstruct a [[wvlet.uni.http.Request]] from an IPC payload object (main side). */
   def toRequest(payload: js.Dynamic): Request =
     val method = HttpMethod.of(asString(payload.method)).getOrElse(HttpMethod.POST)
     val uri    = asString(payload.uri)
@@ -64,7 +64,7 @@ object ElectronIPC:
     else
       base.withJsonContent(body)
 
-  /** Marshal a [[Response]] into an IPC payload object (main side). */
+  /** Marshal a [[wvlet.uni.http.Response]] into an IPC payload object (main side). */
   def fromResponse(response: Response): js.Object = js
     .Dynamic
     .literal(
@@ -73,7 +73,7 @@ object ElectronIPC:
       body = response.contentAsString.getOrElse("")
     )
 
-  /** Reconstruct a [[Response]] from an IPC payload object (renderer side). */
+  /** Reconstruct a [[wvlet.uni.http.Response]] from an IPC payload object (renderer side). */
   def toResponse(payload: js.Dynamic): Response =
     val status  = HttpStatus.ofCode(asInt(payload.status))
     val headers = jsToHeaders(payload.headers)

@@ -36,7 +36,7 @@ import scala.scalajs.js
   *
   *   // Track combined dimensions
   *   WindowDimensions.dimensions.run { case (width, height) =>
-  *     println(s"Viewport: ${width}x${height}")
+  *     println(s"Viewport: \${width}x\${height}")
   *   }
   * }}}
   */

@@ -36,7 +36,7 @@ import scala.scalajs.js
   *
   *   // Track scroll position
   *   WindowScroll.scroll.run { case (x, y) =>
-  *     println(s"Scrolled to: ${x}, ${y}")
+  *     println(s"Scrolled to: \${x}, \${y}")
   *   }
   * }}}
   */

@@ -46,8 +46,8 @@ object ResponseConverter:
     * Convert a method return value to an Rx[Response] using the given Weaver to encode case classes
     * and other complex types as JSON.
     *
-    * The weaver is expected to be derived for the inner element type, after peeling [[Rx]] and
-    * [[Option]] from the controller method's declared return type.
+    * The weaver is expected to be derived for the inner element type, after peeling
+    * [[wvlet.uni.rx.Rx]] and [[Option]] from the controller method's declared return type.
     *
     * @param result
     *   The return value from a controller method

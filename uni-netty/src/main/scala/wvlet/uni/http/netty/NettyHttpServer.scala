@@ -14,9 +14,16 @@
 package wvlet.uni.http.netty
 
 import io.netty.bootstrap.ServerBootstrap
-import io.netty.channel.{Channel, ChannelInitializer, ChannelOption, EventLoopGroup}
-import io.netty.channel.epoll.{Epoll, EpollEventLoopGroup, EpollServerSocketChannel}
-import io.netty.channel.nio.NioEventLoopGroup
+import io.netty.channel.{
+  Channel,
+  ChannelInitializer,
+  ChannelOption,
+  EventLoopGroup,
+  IoHandlerFactory,
+  MultiThreadIoEventLoopGroup
+}
+import io.netty.channel.epoll.{Epoll, EpollIoHandler, EpollServerSocketChannel}
+import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.http.{
@@ -36,6 +43,7 @@ import wvlet.uni.util.ThreadUtil
 import java.net.InetSocketAddress
 import java.util.concurrent.{ExecutorService, Executors, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.annotation.nowarn
 
 /**
   * Netty-based HTTP server implementation
@@ -67,18 +75,21 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
 
     val useEpoll = config.useNativeTransport && Epoll.isAvailable
 
-    if useEpoll then
-      bossGroup = EpollEventLoopGroup(1, ThreadUtil.newDaemonThreadFactory(s"${config.name}-boss"))
-      workerGroup = EpollEventLoopGroup(
-        0,
-        ThreadUtil.newDaemonThreadFactory(s"${config.name}-worker")
-      )
-    else
-      bossGroup = NioEventLoopGroup(1, ThreadUtil.newDaemonThreadFactory(s"${config.name}-boss"))
-      workerGroup = NioEventLoopGroup(
-        0,
-        ThreadUtil.newDaemonThreadFactory(s"${config.name}-worker")
-      )
+    val ioHandlerFactory: IoHandlerFactory =
+      if useEpoll then
+        EpollIoHandler.newFactory()
+      else
+        NioIoHandler.newFactory()
+    bossGroup = MultiThreadIoEventLoopGroup(
+      1,
+      ThreadUtil.newDaemonThreadFactory(s"${config.name}-boss"),
+      ioHandlerFactory
+    )
+    workerGroup = MultiThreadIoEventLoopGroup(
+      0,
+      ThreadUtil.newDaemonThreadFactory(s"${config.name}-worker"),
+      ioHandlerFactory
+    )
 
     handlerExecutorGroup = config
       .handlerExecutorThreads
@@ -127,9 +138,12 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
             )
             handlerExecutorGroup match
               case Some(executor) =>
-                pipeline.addLast(executor, "handler", reqHandler)
+                // Netty 4.2 deprecates per-handler executors without a drop-in replacement; keep them
+                // so blocking handlers stay off the event loop.
+                pipeline.addLast(executor, "handler", reqHandler): @nowarn("cat=deprecation")
               case None =>
                 pipeline.addLast("handler", reqHandler)
+          end initChannel
       )
       .option(ChannelOption.SO_BACKLOG, Integer.valueOf(128))
       .childOption(ChannelOption.SO_KEEPALIVE, java.lang.Boolean.TRUE)

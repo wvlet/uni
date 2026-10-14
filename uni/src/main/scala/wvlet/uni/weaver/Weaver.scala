@@ -46,8 +46,8 @@ trait Weaver[A]:
   /**
     * Hydrate a value of type `A` from a `Map[String, Any]`. This is convenient when working with
     * loosely typed sources such as YAML/HOCON parsers that produce `Map[String, Any]`. Nested Maps,
-    * Seqs/Arrays, primitives, and `Option` values are all packed via [[AnyWeaver]] before being
-    * decoded by this Weaver.
+    * Seqs/Arrays, primitives, and `Option` values are all packed via
+    * [[wvlet.uni.weaver.codec.AnyWeaver]] before being decoded by this Weaver.
     */
   def fromMap(map: Map[String, Any], config: WeaverConfig = WeaverConfig()): A =
     val packer = MessagePack.newPacker()

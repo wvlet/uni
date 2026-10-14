@@ -343,7 +343,7 @@ class PrimitiveWeaverTest extends UniTest:
   }
 
   test("Byte weaver basic operations") {
-    val byteValues = Seq(0.toByte, 1.toByte, -1.toByte, Byte.MaxValue, Byte.MinValue)
+    val byteValues = Seq(0.toByte, 1.toByte, (-1).toByte, Byte.MaxValue, Byte.MinValue)
 
     for byteValue <- byteValues do
       val packed   = Weaver.weave(byteValue)
@@ -411,7 +411,7 @@ class PrimitiveWeaverTest extends UniTest:
   }
 
   test("Short weaver basic operations") {
-    val shortValues = Seq(0.toShort, 1.toShort, -1.toShort, Short.MaxValue, Short.MinValue)
+    val shortValues = Seq(0.toShort, 1.toShort, (-1).toShort, Short.MaxValue, Short.MinValue)
 
     for shortValue <- shortValues do
       val packed   = Weaver.weave(shortValue)

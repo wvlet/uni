@@ -30,7 +30,7 @@ import wvlet.uni.log.LogSupport
   * {{{
   * val handler = new ServerSentEventHandler {
   *   override def onEvent(e: ServerSentEvent): Unit = {
-  *     println(s"Received event: ${e.data}")
+  *     println(s"Received event: \${e.data}")
   *   }
   * }
   *

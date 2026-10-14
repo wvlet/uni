@@ -64,7 +64,7 @@ object DragState:
   *   // Create a drop zone
   *   div(
   *     DragDrop.dropZone("item") { data =>
-  *       println(s"Dropped: ${data.data}")
+  *       println(s"Dropped: \${data.data}")
   *     },
   *     cls -> "drop-area",
   *     "Drop here"
@@ -73,7 +73,7 @@ object DragState:
   *   // File drop zone
   *   div(
   *     DragDrop.fileDropZone { files =>
-  *       files.foreach(f => println(s"File: ${f.name}"))
+  *       files.foreach(f => println(s"File: \${f.name}"))
   *     },
   *     "Drop files here"
   *   )

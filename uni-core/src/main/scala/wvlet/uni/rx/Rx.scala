@@ -63,7 +63,7 @@ trait RxOps[+A]:
     *
     * {{{
     *   rx.tapOn {
-    *     case Success(v) => debug(s"received ${v}")
+    *     case Success(v) => debug(s"received \${v}")
     *     case Failure(e) => error(s"request failed", e)
     *   }
     * }}}

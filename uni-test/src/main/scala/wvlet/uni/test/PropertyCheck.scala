@@ -28,9 +28,10 @@ import wvlet.uni.test.check.Shrink
   * Already mixed into [[UniTest]], so any test class picks up [[forAll]] automatically. Mixing it
   * in explicitly is harmless and kept for backward compatibility.
   *
-  * Each property runs [[PropertyConfig.minSuccessfulTests]] random samples; a failing sample is
-  * shrunk to a minimal counter-example (see [[Shrink]]), and the failing input plus the RNG seed
-  * are reported so the run can be replayed by overriding [[propertyConfig]] with `withSeed(...)`.
+  * Each property runs `minSuccessfulTests` (see [[wvlet.uni.test.check.PropertyConfig]]) random
+  * samples; a failing sample is shrunk to a minimal counter-example (see
+  * [[wvlet.uni.test.check.Shrink]]), and the failing input plus the RNG seed are reported so the
+  * run can be replayed by overriding [[propertyConfig]] with `withSeed(...)`.
   *
   * Example:
   * {{{

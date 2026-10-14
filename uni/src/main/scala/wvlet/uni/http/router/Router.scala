@@ -88,7 +88,7 @@ object Router:
     * {{{
     * class LogFilter extends RxHttpFilter:
     *   def apply(request: Request, next: RxHttpHandler): Rx[Response] =
-    *     info(s"Request: ${request.method} ${request.uri}")
+    *     info(s"Request: \${request.method} \${request.uri}")
     *     next.handle(request)
     *
     * val router = Router

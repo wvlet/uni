@@ -23,8 +23,8 @@ import wvlet.uni.rx.Rx
 /**
   * HTTP handler for RPC requests.
   *
-  * Adapts the transport-neutral [[RPCDispatcher]] to netty's [[RxHttpHandler]]. The dispatcher
-  * resolves the route defined by [[RPCRouter]]:
+  * Adapts the transport-neutral [[wvlet.uni.http.rpc.RPCDispatcher]] to netty's [[RxHttpHandler]].
+  * The dispatcher resolves the route defined by [[wvlet.uni.http.rpc.RPCRouter]]:
   *   - Only POST method is allowed
   *   - Path format: /{serviceName}/{methodName}
   *   - Request body: {"request": {...params...}}

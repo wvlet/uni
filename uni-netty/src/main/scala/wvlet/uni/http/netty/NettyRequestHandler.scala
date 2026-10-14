@@ -58,6 +58,7 @@ import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ExecutorService, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
+import scala.annotation.nowarn
 import scala.jdk.CollectionConverters.*
 import scala.util.control.NonFatal
 
@@ -211,7 +212,9 @@ class NettyRequestHandler(
               )
             wsHandlerExecutor match
               case Some(executor) =>
-                pipeline.addLast(executor, "wsHandler", wsHandler)
+                // Netty 4.2 deprecates per-handler executors without a drop-in replacement; keep them
+                // so blocking handlers stay off the event loop.
+                pipeline.addLast(executor, "wsHandler", wsHandler): @nowarn("cat=deprecation")
               case None =>
                 pipeline.addLast("wsHandler", wsHandler)
             pipeline.remove(this)

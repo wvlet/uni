@@ -68,8 +68,8 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
 end ElectronRendererChannel
 
 /**
-  * [[HttpChannelFactory]] producing [[ElectronRendererChannel]]s. There is no synchronous channel
-  * in a renderer, so `newChannel` throws — use `Http.client.newAsyncClient`.
+  * [[wvlet.uni.http.HttpChannelFactory]] producing [[ElectronRendererChannel]]s. There is no
+  * synchronous channel in a renderer, so `newChannel` throws — use `Http.client.newAsyncClient`.
   */
 class ElectronChannelFactory(bridge: js.Dynamic) extends HttpChannelFactory:
   override def newChannel: HttpChannel =
