@@ -120,7 +120,7 @@ class NettyServerSecurityTest extends UniTest:
     response.contentAsString.get shouldContain RPCStatus.INTERNAL_ERROR_I0.name
     response.contentAsString.get.contains("db.internal") shouldBe false
 
-    val detailed = RPCHandler(router, detailedErrors = true).handle(req).toSeq.head
+    val detailed = RPCHandler(router).withDetailedErrors(true).handle(req).toSeq.head
     detailed.contentAsString.get shouldContain "db.internal"
   }
 
@@ -185,6 +185,37 @@ class NettyServerSecurityTest extends UniTest:
                 -2
           result shouldBe -1
           (System.currentTimeMillis() - start < 4000) shouldBe true
+        finally
+          socket.close()
+      }
+  }
+
+  test("still time out an idle connection after an early 413") {
+    NettyServer
+      .withPort(0)
+      .withMaxContentLength(16)
+      .withRequestReadTimeoutMillis(300)
+      .withHandler(_ => Response.ok("ok"))
+      .start { server =>
+        val socket = Socket("127.0.0.1", server.localPort)
+        try
+          socket.setSoTimeout(5000)
+          val out = socket.getOutputStream
+          out.write(
+            "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 100\r\n\r\n".getBytes(
+              StandardCharsets.US_ASCII
+            )
+          )
+          out.flush()
+          readHead(socket.getInputStream) shouldContain " 413 "
+          // Finish the rejected body, then stay idle: the server must still close the connection
+          out.write(("x" * 100).getBytes(StandardCharsets.US_ASCII))
+          out.flush()
+          val in = socket.getInputStream
+          var b  = 0
+          while b >= 0 do
+            b = in.read()
+          b shouldBe -1
         finally
           socket.close()
       }

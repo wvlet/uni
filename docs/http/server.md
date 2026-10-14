@@ -340,7 +340,7 @@ All three backends start with these defaults:
 | Default | Why | Opt out |
 |---------|-----|---------|
 | Bind to `127.0.0.1` | An unauthenticated dev or sidecar server is not reachable from the network | `.withHost("0.0.0.0")` for Docker, Kubernetes, or any server other hosts must reach |
-| 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config; `RPCHandler(router, detailedErrors = true)`, `RouterHandler(...).withDetailedErrors(true)` for those handlers |
+| 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config; `RPCHandler(router).withDetailedErrors(true)`, `RouterHandler(...).withDetailedErrors(true)` for those handlers |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
 | Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength`, Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
 | Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. The Native backend has its own `idleTimeoutMillis`/`readTimeoutMillis` |

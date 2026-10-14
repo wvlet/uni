@@ -31,7 +31,9 @@ import java.util.concurrent.{ScheduledFuture, TimeUnit}
 class RequestReadTimeoutHandler(timeoutMillis: Long) extends ChannelDuplexHandler with LogSupport:
   // Only touched on the channel's event loop
   private var timer: ScheduledFuture[?] = null
-  // Requests received but not yet answered (HTTP pipelining can make this exceed 1)
+  // Requests received minus responses written. Pipelining can make it exceed 1, and it can dip
+  // below 0 when a response precedes its request's end (e.g. the aggregator's early 413 for an
+  // oversized body). The connection is waiting for a request whenever it is <= 0.
   private var pendingRequests = 0
 
   override def handlerAdded(ctx: ChannelHandlerContext): Unit =
@@ -51,19 +53,23 @@ class RequestReadTimeoutHandler(timeoutMillis: Long) extends ChannelDuplexHandle
   override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
     if msg.isInstanceOf[LastHttpContent] then
       pendingRequests += 1
-      disarm()
+      if pendingRequests > 0 then
+        disarm()
+      else
+        // Already answered: restart the clock for the next request
+        arm(ctx)
     ctx.fireChannelRead(msg)
 
   override def write(ctx: ChannelHandlerContext, msg: Any, promise: ChannelPromise): Unit =
     if msg.isInstanceOf[LastHttpContent] then
-      pendingRequests = math.max(0, pendingRequests - 1)
+      pendingRequests -= 1
       // Once every received request is answered, wait for the next one
-      if pendingRequests == 0 then
+      if pendingRequests <= 0 then
         if promise.isVoid then
           arm(ctx)
         else
           promise.addListener { (f: io.netty.util.concurrent.Future[?]) =>
-            if f.isSuccess && pendingRequests == 0 && ctx.channel().isActive && !ctx.isRemoved then
+            if f.isSuccess && pendingRequests <= 0 && ctx.channel().isActive && !ctx.isRemoved then
               arm(ctx)
           }
     ctx.write(msg, promise)

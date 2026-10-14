@@ -39,6 +39,9 @@ class RPCHandler(router: RPCRouter, detailedErrors: Boolean = false) extends RxH
 
   private val dispatcher = RPCDispatcher(router).withDetailedErrors(detailedErrors)
 
+  /** Include the messages of unexpected exceptions in error responses (for development only). */
+  def withDetailedErrors(enabled: Boolean): RPCHandler = new RPCHandler(router, enabled)
+
   override def handle(request: Request): Rx[Response] = dispatcher.dispatch(request)
 
 end RPCHandler
@@ -49,8 +52,5 @@ object RPCHandler:
     * Create an RPC handler from a router.
     */
   def apply(router: RPCRouter): RPCHandler = new RPCHandler(router)
-
-  def apply(router: RPCRouter, detailedErrors: Boolean): RPCHandler =
-    new RPCHandler(router, detailedErrors)
 
 end RPCHandler
