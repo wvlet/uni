@@ -11,7 +11,7 @@ uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an 
   - The MCP server keeps detailed errors, because MCP returns tool failures to the model as `isError` content so the model can correct its call.
 - **WebSocket origin check.** A browser `Origin` must be same-origin (its host:port equals the `Host` header, ignoring default ports) or listed in `allowedOrigins`. `"*"` allows all. A request without `Origin` (non-browser clients) is allowed. The check runs before the route filter, so a cookie-authenticating filter is never consulted for a cross-site page.
 - **Header CR/LF/NUL rejection.** It is enforced in `Request`/`Response.addHeader`/`setHeader` for early failure, and again in every backend's writer, because a `Response` can be built with a raw `HttpMultiMap`. The writer substitutes a 500.
-- **Request read timeout on Netty.** `RequestReadTimeoutHandler` (30s) bounds the time to receive a complete request, measured from connection open or the end of the previous response. It does not limit handler time; it counts pipelined requests so a slow handler is never cut off, and it is removed on WebSocket upgrade. An `IdleStateHandler` was rejected because all-idle would close slow handlers and quiet SSE streams.
+- **Request read timeout on Netty.** `RequestReadTimeoutHandler` (30s) bounds the time to receive a complete request, measured from connection open or the end of the previous response. It does not limit handler time; it counts pipelined requests so a slow handler is never cut off, and it is removed on WebSocket upgrade. The count is signed (requests read minus responses written): the aggregator can answer 413 before the oversized body finishes, and a clamped counter then left the timer disarmed forever. An `IdleStateHandler` was rejected because all-idle would close slow handlers and quiet SSE streams.
 - **Node.js body limit.** `maxContentLength` defaults to 1MiB, matching Native's `maxRequestSize`. The server checks `Content-Length` up front and counts chunked bytes while reading, then answers 413 and closes the socket.
 
 ## Why the settings live on each backend config
@@ -19,6 +19,10 @@ uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an 
 `HttpServerConfig` exposes `allowedOrigins` and `detailedErrors` as members with defaults, so shared code can read them. Each backend config declares the fields and `withXXX` builders, as with `webSocketRoutes`. The logic itself lives once, in `HttpServerSecurity`.
 
 `RouterHandler` and `RPCHandler`/`RPCDispatcher` are built independently of the server config, so they take their own `detailedErrors` flag.
+
+## Known gap: DNS rebinding
+
+Same-origin compares `Origin` to the client-supplied `Host`, so a rebinding page (hostname resolving to 127.0.0.1) passes. Fixing it needs a `Host` allowlist, which would also protect plain HTTP/RPC requests; left as a follow-up.
 
 ## Known gap: `startAndAwait` tests on Scala.js
 
