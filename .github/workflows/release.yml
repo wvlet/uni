@@ -15,13 +15,10 @@ jobs:
     # one Sonatype deployment. A release thus publishes completely or not at all, instead of risking
     # a partial release across several separate deployments.
     #
-    # Credentials are set at the job level: sbt 2.x keeps a persistent server per build and routes
-    # later `sbt <cmd>` calls through a thin client, so env vars set only on a later step would be
-    # invisible to an already-running server.
-    env:
-      PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
-      SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
-      SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+    # Credentials are scoped to the steps that launch sbt, never exposed to third-party actions. Each
+    # sbt step carries both PGP and Sonatype vars: sbt 2.x may keep a persistent server per build, and
+    # env vars are captured when that server starts, so the root server started for staging must
+    # already see SONATYPE_* for the final sonaRelease.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -45,19 +42,27 @@ jobs:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
         run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
       - name: Stage uni (JVM, Scala.js, Scala Native)
+        env: &sbt-env
+          PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
+          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
         run: ./sbt "projectJVM/publishSigned; projectJS/publishSigned; projectNative/publishSigned"
       # The plugin builds do not depend on the uni version being released, so no local publish of uni
       # is needed first.
       - name: Stage sbt-uni
+        env: *sbt-env
         working-directory: sbt-uni
         run: sbt publishSigned
       - name: Stage sbt-uni-crossproject
+        env: *sbt-env
         working-directory: sbt-uni-crossproject
         run: sbt publishSigned
       # Scope publishSigned to the two published modules (a bare publishSigned would also stage the
       # empty aggregate root).
       - name: Stage sbt-uni-playwright
+        env: *sbt-env
         working-directory: sbt-uni-playwright
         run: sbt "jsenv/publishSigned; plugin/publishSigned"
       - name: Release to Sonatype
+        env: *sbt-env
         run: ./sbt sonaRelease
