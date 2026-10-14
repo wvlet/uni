@@ -292,6 +292,56 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should reject a foreign Host on a loopback server with 403") {
+    NativeServer
+      .withHandler(_ => Response.ok("ok"))
+      .withPort(0)
+      .start { server =>
+        val port = server.localPort
+        request(port, s"GET / HTTP/1.1\r\nHost: localhost:${port}\r\nConnection: close\r\n\r\n")
+          .status shouldBe 200
+        request(port, s"GET / HTTP/1.1\r\nHost: evil.example:${port}\r\nConnection: close\r\n\r\n")
+          .status shouldBe 403
+      }
+  }
+
+  test("should reject streaming connections over the limit with 503") {
+    import wvlet.uni.rx.Rx
+    NativeServer
+      .withRxHandler { req =>
+        if req.path == "/events" then
+          Rx.single(Response.eventStream(Rx.variable(ServerSentEvent.data("hi"))))
+        else
+          Rx.single(Response.ok("ok"))
+      }
+      .withMaxStreamingConnections(1)
+      .withPort(0)
+      .start { server =>
+        val port = server.localPort
+        val fd   = connectLoopback(port)
+        try
+          NativeSocket.sendAll(
+            fd,
+            "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
+          )
+          // The open stream's headers (and first event) arrive
+          String(NativeSocket.recvChunk(fd), StandardCharsets.ISO_8859_1) shouldContain " 200 "
+          request(port, "GET /events HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .status shouldBe 503
+          // Ordinary requests are still served
+          request(port, "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .status shouldBe 200
+        finally
+          NativeSocket.close(fd)
+      }
+  }
+
+  test("should keep workers free for ordinary requests by default") {
+    NativeServerConfig().effectiveMaxStreamingConnections shouldBe 12
+    NativeServerConfig().withWorkerThreads(4).effectiveMaxStreamingConnections shouldBe 2
+    NativeServerConfig().withWorkerThreads(1).effectiveMaxStreamingConnections shouldBe 1
+  }
+
   test("should close an idle keep-alive connection after the idle timeout") {
     NativeServer
       .withHandler(_ => Response.ok("ok"))

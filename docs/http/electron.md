@@ -81,6 +81,25 @@ object MainProcess:
 Pass several routers to serve multiple services over the one channel:
 `ElectronRPCServer.serve(ipcMain, RPCRouter.of[A](a), RPCRouter.of[B](b))`.
 
+Electron delivers IPC calls from every frame of every window, including embedded iframes. By
+default the server accepts calls only from top-level frames; a rejected call fails with
+`PERMISSION_DENIED_U14`. Restrict callers to your own pages with `ElectronRPCServerConfig`:
+
+```scala
+import wvlet.uni.electron.ElectronRPCServerConfig
+
+ElectronRPCServer.serve(
+  ipcMain,
+  ElectronRPCServerConfig()
+    .withAllowedOrigins("file://", "http://localhost:5173"), // packaged app + Vite dev server
+  RPCRouter.of[CounterApi](CounterApiImpl())
+)
+```
+
+An origin matches the sender frame URL as a prefix at a path boundary, so `http://localhost:5173`
+does not match `http://localhost:51730`. `withSenderFilter(frame => ...)` adds a custom check of the
+`WebFrameMain`, and `withAllowSubFrames(true)` lets iframes call.
+
 The JS main entry hands `ipcMain` over once the app is ready:
 
 ```js

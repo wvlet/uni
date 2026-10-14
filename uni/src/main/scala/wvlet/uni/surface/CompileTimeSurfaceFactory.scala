@@ -1410,6 +1410,7 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
           val args              = methodArgsOf(targetType, m)
           val methodCaller      = createMethodCaller(targetType, m, args)
           val methodAnnotations = extractAnnotations(m)
+          val declaringType     = Expr(Some(m.owner.fullName))
           '{
             ClassMethodSurface(
               ${
@@ -1432,6 +1433,9 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
               },
               ${
                 methodAnnotations
+              },
+              ${
+                declaringType
               }
             )
           }

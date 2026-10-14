@@ -13,7 +13,12 @@
  */
 package wvlet.uni.electron.testing
 
-import wvlet.uni.electron.{ElectronChannelFactory, ElectronIPC, ElectronRPCServer}
+import wvlet.uni.electron.{
+  ElectronChannelFactory,
+  ElectronIPC,
+  ElectronRPCServer,
+  ElectronRPCServerConfig
+}
 import wvlet.uni.http.{Http, HttpAsyncClient}
 import wvlet.uni.http.rpc.RPCRouter
 
@@ -71,15 +76,21 @@ class ElectronTestbed:
     * @param channel
     *   the IPC channel name; defaults to [[ElectronIPC.DefaultChannel]] (what `serve` uses by
     *   default).
+    * @param senderUrl
+    *   URL of the (top-level) frame the simulated calls come from, checked against the server's
+    *   [[ElectronRPCServerConfig]].
     */
-  def bridge(channel: String = ElectronIPC.DefaultChannel): js.Dynamic = js
+  def bridge(
+      channel: String = ElectronIPC.DefaultChannel,
+      senderUrl: String = ElectronTestbed.DefaultSenderUrl
+  ): js.Dynamic = js
     .Dynamic
     .literal(request =
       (
           (payload: js.Any) =>
             handlers.get(channel) match
               case Some(fn) =>
-                fn(js.undefined.asInstanceOf[js.Any], payload)
+                fn(ElectronTestbed.ipcEvent(senderUrl), payload)
               case None =>
                 js.Promise
                   .reject(js.Error(s"No Electron RPC handler registered on channel '${channel}'"))
@@ -98,6 +109,24 @@ end ElectronTestbed
 
 object ElectronTestbed:
 
+  /** Frame URL of the simulated renderer. */
+  val DefaultSenderUrl: String = "file:///app/index.html"
+
+  /** A fake `ipcMain.handle` event whose `senderFrame` is a top-level frame at `url`. */
+  def ipcEvent(url: String, isTopLevel: Boolean = true): js.Dynamic =
+    val parent: js.Any =
+      if isTopLevel then
+        null
+      else
+        js.Dynamic.literal(url = url)
+    js.Dynamic.literal(senderFrame = js.Dynamic.literal(url = url, parent = parent))
+
+  /** Create a testbed and serve the given routers with an explicit server configuration. */
+  def serve(config: ElectronRPCServerConfig, routers: RPCRouter*): ElectronTestbed =
+    val testbed = ElectronTestbed()
+    ElectronRPCServer.serve(testbed.ipcMain, config, routers*)
+    testbed
+
   /** Create a testbed and serve the given routers on the default channel. */
   def serve(routers: RPCRouter*): ElectronTestbed =
     val testbed = ElectronTestbed()
@@ -109,3 +138,5 @@ object ElectronTestbed:
     val testbed = ElectronTestbed()
     ElectronRPCServer.serve(testbed.ipcMain, channel, routers*)
     testbed
+
+end ElectronTestbed

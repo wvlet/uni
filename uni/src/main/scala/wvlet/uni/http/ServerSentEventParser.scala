@@ -43,13 +43,26 @@ import scala.collection.mutable.ArrayBuffer
   * val events = parser.feed("data: hello\n\ndata: world\n\n")
   * // events contains two ServerSentEvent objects
   * }}}
+  *
+  * The stream comes from a remote server, so the parser bounds the memory it holds: a line longer
+  * than `maxLineLength`, or an event whose `data` exceeds `maxEventSize`, fails with
+  * [[ServerSentEventParser.EventTooLargeException]].
+  *
+  * @param maxLineLength
+  *   maximum length (chars) of a single line
+  * @param maxEventSize
+  *   maximum total length (chars) of the `data` lines of one event
   */
-class ServerSentEventParser:
+class ServerSentEventParser(
+    maxLineLength: Int = ServerSentEventParser.DefaultMaxLineLength,
+    maxEventSize: Int = ServerSentEventParser.DefaultMaxEventSize
+):
   private var currentId: Option[String]         = None
   private var currentEvent: Option[String]      = None
   private var currentRetry: Option[Long]        = None
   private val currentData: ArrayBuffer[String]  = ArrayBuffer.empty
-  private var buffer: String                    = ""
+  private var currentDataSize: Int              = 0
+  private val buffer                            = java.lang.StringBuilder()
   private var hasFieldsForCurrentEvent: Boolean = false
 
   /**
@@ -64,40 +77,25 @@ class ServerSentEventParser:
     *   A sequence of complete events
     */
   def feed(chunk: String): Seq[ServerSentEvent] =
-    buffer = buffer + chunk
     val events = ArrayBuffer.empty[ServerSentEvent]
-
-    // Split into lines, keeping track of incomplete final line
-    val lines      = buffer.split("\r?\n", -1)
-    val lastIndex  = lines.length - 1
-    val isComplete = buffer.endsWith("\n") || buffer.endsWith("\r\n")
-
-    // Process all complete lines (drop the last element if content ends with newline
-    // since that's just an artifact of split)
-    val completeLines =
-      if isComplete then
-        // Drop the trailing empty string from split if present
-        if lines.nonEmpty && lines.last.isEmpty then
-          lines.dropRight(1)
-        else
-          lines
-      else
-        lines.dropRight(1)
-
-    for line <- completeLines do
-      parseLine(line) match
-        case Some(event) =>
-          events += event
-        case None =>
-        // Continue accumulating
-
-    // Keep incomplete line in buffer
-    buffer =
-      if isComplete then
-        ""
-      else
-        lines(lastIndex)
-
+    // Scan only the new chunk for line ends; the incomplete line carried in `buffer` is never
+    // re-scanned, so feeding a long line in small chunks stays linear.
+    var lineStart = 0
+    var i         = 0
+    while i < chunk.length do
+      if chunk.charAt(i) == '\n' then
+        buffer.append(chunk, lineStart, i)
+        // A CRLF line end leaves the CR at the end of the line
+        if buffer.length > 0 && buffer.charAt(buffer.length - 1) == '\r' then
+          buffer.setLength(buffer.length - 1)
+        checkLineLength()
+        val line = buffer.toString
+        buffer.setLength(0)
+        parseLine(line).foreach(events += _)
+        lineStart = i + 1
+      i += 1
+    buffer.append(chunk, lineStart, chunk.length)
+    checkLineLength()
     events.toSeq
 
   end feed
@@ -112,9 +110,10 @@ class ServerSentEventParser:
     *   The final event if there is pending data, None otherwise
     */
   def flush(): Option[ServerSentEvent] =
-    if buffer.nonEmpty then
-      parseLine(buffer)
-      buffer = ""
+    if buffer.length > 0 then
+      val line = buffer.toString
+      buffer.setLength(0)
+      parseLine(line)
     emitEvent()
 
   /**
@@ -125,8 +124,26 @@ class ServerSentEventParser:
     currentEvent = None
     currentRetry = None
     currentData.clear()
-    buffer = ""
+    currentDataSize = 0
+    buffer.setLength(0)
     hasFieldsForCurrentEvent = false
+
+  private def checkLineLength(): Unit =
+    if buffer.length > maxLineLength then
+      buffer.setLength(0)
+      throw ServerSentEventParser.EventTooLargeException(
+        s"SSE line exceeds the maximum length of ${maxLineLength} chars"
+      )
+
+  private def addData(value: String): Unit =
+    currentDataSize += value.length
+    if currentDataSize > maxEventSize then
+      currentData.clear()
+      currentDataSize = 0
+      throw ServerSentEventParser.EventTooLargeException(
+        s"SSE event data exceeds the maximum size of ${maxEventSize} chars"
+      )
+    currentData += value
 
   private def parseLine(line: String): Option[ServerSentEvent] =
     if line.isEmpty then
@@ -161,7 +178,7 @@ class ServerSentEventParser:
                 hasFieldsForCurrentEvent = true
               }
           case "data" =>
-            currentData += value
+            addData(value)
             hasFieldsForCurrentEvent = true
           case _ =>
           // Unknown field, ignore
@@ -172,7 +189,7 @@ class ServerSentEventParser:
         // Line with no colon, treat entire line as field name with empty value
         line match
           case "data" =>
-            currentData += ""
+            addData("")
             hasFieldsForCurrentEvent = true
           case _ =>
           // Unknown field, ignore
@@ -191,6 +208,7 @@ class ServerSentEventParser:
       currentEvent = None
       currentRetry = None
       currentData.clear()
+      currentDataSize = 0
       hasFieldsForCurrentEvent = false
       Some(event)
     else
@@ -199,10 +217,22 @@ class ServerSentEventParser:
 end ServerSentEventParser
 
 object ServerSentEventParser:
+  /** Default maximum length of one SSE line: 1Mi chars. */
+  final val DefaultMaxLineLength: Int = 1024 * 1024
+
+  /** Default maximum total `data` length of one SSE event: 8Mi chars. */
+  final val DefaultMaxEventSize: Int = 8 * 1024 * 1024
+
+  /** Thrown when an SSE stream exceeds the parser's line or event size limit. */
+  class EventTooLargeException(message: String) extends IllegalStateException(message)
+
   /**
     * Creates a new SSE parser.
     */
-  def apply(): ServerSentEventParser = new ServerSentEventParser()
+  def apply(
+      maxLineLength: Int = DefaultMaxLineLength,
+      maxEventSize: Int = DefaultMaxEventSize
+  ): ServerSentEventParser = new ServerSentEventParser(maxLineLength, maxEventSize)
 
   /**
     * Parses a complete SSE stream and returns all events.

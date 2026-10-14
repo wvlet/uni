@@ -57,6 +57,80 @@ private[uni] object HttpServerSecurity:
         else
           Some(Response.forbidden.withTextContent("Origin not allowed"))
 
+  /** Host names a loopback-bound server accepts by default. See [[defaultAllowedHosts]]. */
+  final val LoopbackHosts: Seq[String] = Seq("localhost", "*.localhost", "127.0.0.1", "[::1]")
+
+  /**
+    * The `Host` allowlist used when the config sets none: [[LoopbackHosts]] for a server bound to a
+    * loopback address, otherwise every host (`"*"`), since a server on `0.0.0.0` cannot know the
+    * names clients use to reach it.
+    */
+  def defaultAllowedHosts(bindHost: String): Seq[String] =
+    if isLoopbackAddress(bindHost) then
+      LoopbackHosts
+    else
+      Seq("*")
+
+  private[http] def isLoopbackAddress(host: String): Boolean =
+    val h = host.trim.toLowerCase.stripPrefix("[").stripSuffix("]")
+    // IPv6 loopback in any zero-compressed form: ::1, 0:0:0:0:0:0:0:1, 0000::0001, ...
+    h == "localhost" || h.startsWith("127.") || h.matches("(0{0,4}:)+0{0,3}1")
+
+  /**
+    * Check the `Host` header against an allowlist to prevent DNS rebinding: a web page can make its
+    * own host name resolve to 127.0.0.1, and the browser then treats requests to a local server as
+    * same-origin. The browser still sends the attacker's name in `Host`, so rejecting unknown names
+    * keeps such pages out. Returns `None` when the request may proceed, or the 403 response to
+    * send.
+    *
+    *   - No `Host` header: allowed. Browsers always send one; only HTTP/1.0 clients omit it.
+    *   - `allowedHosts` contains `"*"`: every host is allowed.
+    *   - Otherwise the host name (port ignored, case-insensitive) must equal an entry, or end with
+    *     `.suffix` for an entry `*.suffix`.
+    */
+  def checkHost(request: Request, allowedHosts: Seq[String]): Option[Response] = checkHost(
+    request.header(HttpHeader.Host),
+    allowedHosts
+  )
+
+  /** [[checkHost]] for a backend that has the `Host` header before building a [[Request]]. */
+  def checkHost(hostHeader: Option[String], allowedHosts: Seq[String]): Option[Response] =
+    hostHeader match
+      case Some(host) if !isHostAllowed(host, allowedHosts) =>
+        Some(Response.forbidden.withTextContent("Host not allowed"))
+      case _ =>
+        None
+
+  private[http] def isHostAllowed(host: String, allowedHosts: Seq[String]): Boolean =
+    allowedHosts.contains("*") || {
+      val name = hostName(host)
+      allowedHosts.exists { entry =>
+        val e = entry.trim.toLowerCase
+        if e.startsWith("*.") then
+          name.endsWith(e.substring(1))
+        else
+          name == hostName(e)
+      }
+    }
+
+  /** The host name of a `Host` value, without the port, lower-cased. IPv6 keeps its brackets. */
+  private def hostName(host: String): String =
+    val h    = host.trim.toLowerCase
+    val name =
+      if h.startsWith("[") then
+        h.indexOf(']') match
+          case -1 =>
+            h
+          case end =>
+            h.substring(0, end + 1)
+      else
+        h.lastIndexOf(':') match
+          case -1 =>
+            h
+          case colon =>
+            h.substring(0, colon)
+    name.stripSuffix(".")
+
   private[http] def isOriginAllowed(
       origin: String,
       host: Option[String],

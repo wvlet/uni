@@ -83,8 +83,14 @@ case class NettyServerConfig(
     // connection open or the end of the previous response (0 disables). Bounds slowloris and idle
     // keep-alive connections.
     requestReadTimeoutMillis: Int = 30000,
+    // Maximum number of concurrently open Server-Sent Events streams; more get 503. Also bounds the
+    // threads consuming the streams.
+    maxStreamingConnections: Int = 256,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
+    // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
+    // a loopback-bound server, every host otherwise ("*" allows all)
+    override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
 ) extends HttpServerConfig:
@@ -187,6 +193,25 @@ case class NettyServerConfig(
     * addition to same-origin pages. Pass `"*"` to allow every origin.
     */
   def withAllowedOrigins(origins: String*): NettyServerConfig = copy(allowedOrigins = origins.toSeq)
+
+  /**
+    * Accept only requests whose `Host` header names one of these hosts (port ignored), to prevent
+    * DNS rebinding. Entries are exact names or `*.suffix`; `"*"` allows every host. Replaces the
+    * default, which for a loopback-bound server is `localhost`, `*.localhost`, `127.0.0.1` and
+    * `[::1]`.
+    */
+  def withAllowedHosts(hosts: String*): NettyServerConfig = copy(allowedHosts = hosts.toSeq)
+
+  /** Accept every `Host` header. Exposes a loopback server to DNS rebinding from web pages. */
+  def noHostCheck: NettyServerConfig = withAllowedHosts("*")
+
+  /**
+    * Limit the number of concurrently open Server-Sent Events streams; further stream requests get
+    * 503. It also bounds the threads that consume the streams' events.
+    */
+  def withMaxStreamingConnections(n: Int): NettyServerConfig =
+    require(n > 0, "maxStreamingConnections must be positive")
+    copy(maxStreamingConnections = n)
 
   def withDetailedErrors(enabled: Boolean): NettyServerConfig = copy(detailedErrors = enabled)
   def noDetailedErrors: NettyServerConfig                     = withDetailedErrors(false)

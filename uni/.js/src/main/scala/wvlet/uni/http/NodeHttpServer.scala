@@ -96,6 +96,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
             config.webSocketMaxFrameSize,
             config.webSocketPingIntervalMillis,
             config.allowedOrigins,
+            allowedHosts,
             config.detailedErrors
           )
       server.applyDynamic("on")("upgrade", onUpgrade)
@@ -103,6 +104,8 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     server.applyDynamic("listen")(config.port, config.host, onListening)
 
   end start
+
+  private val allowedHosts = config.effectiveAllowedHosts
 
   private def handleRequest(req: js.Dynamic, res: js.Dynamic): Unit =
     // The whole synchronous setup runs in the createServer callback, outside any later async
@@ -133,6 +136,13 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
         headersBuilder.add(rawHeaders(i), rawHeaders(i + 1))
         i += 2
       val headers = headersBuilder.result()
+
+      HttpServerSecurity.checkHost(headers.get(HttpHeader.Host), allowedHosts) match
+        case Some(rejection) =>
+          debug(s"Rejected request for host ${headers.get(HttpHeader.Host)}")
+          writeResponse(res, rejection)
+          return
+        case None =>
 
       val maxContentLength = config.maxContentLength
       val declaredLength   = headers.get(HttpHeader.ContentLength).flatMap(_.trim.toLongOption)

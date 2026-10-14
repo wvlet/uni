@@ -69,6 +69,20 @@ val route = router.findRoute("getUser")
 
 All routes use `POST` with the path format `/{serviceName}/{methodName}`.
 
+Every public method of `T` becomes an endpoint, including methods inherited from your own base
+traits (`trait UserService extends CrudApi[User]` serves the `CrudApi` methods too). Methods
+inherited from library traits (`scala.*`, `java.*`, uni's logging mixins such as `LogSupport`) are
+never exposed. Annotate a method with `@rpcIgnore` to keep it out of the RPC endpoints:
+
+```scala
+trait UserService:
+  def getUser(id: Long): User
+  @rpcIgnore
+  def cacheStats: String = "..." // callable in-process only
+```
+
+`RPCClient` applies the same rules, so client and server agree on the endpoint set.
+
 ### Request Format
 
 Parameters are sent as JSON in the request body:
