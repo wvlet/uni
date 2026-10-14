@@ -121,6 +121,9 @@ class HttpServerSecurityTest extends UniTest:
     HttpServerSecurity.defaultAllowedHosts("0.0.0.0") shouldBe Seq("*")
     HttpServerSecurity.defaultAllowedHosts("localhost") shouldBe HttpServerSecurity.LoopbackHosts
     HttpServerSecurity.defaultAllowedHosts("::1") shouldBe HttpServerSecurity.LoopbackHosts
+    HttpServerSecurity.defaultAllowedHosts("[0:0:0:0:0:0:0:1]") shouldBe
+      HttpServerSecurity.LoopbackHosts
+    HttpServerSecurity.defaultAllowedHosts("::2") shouldBe Seq("*")
   }
 
   test("match exact and wildcard host entries, ignoring the port") {

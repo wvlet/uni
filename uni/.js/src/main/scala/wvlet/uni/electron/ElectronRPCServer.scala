@@ -19,6 +19,7 @@ import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
 
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
 /**
   * Main-process side of the Electron RPC transport.
@@ -166,12 +167,21 @@ case class ElectronRPCServerConfig(
           val url = ElectronRPCServerConfig.frameUrl(frame)
           allowedOrigins.exists(o => ElectronRPCServerConfig.matchesOrigin(url, o))
         }
-      ) && senderFilter.forall(_(frame))
+      ) && senderFilter.forall(f => ElectronRPCServerConfig.safeCheck(f, frame))
 
 end ElectronRPCServerConfig
 
-object ElectronRPCServerConfig:
+object ElectronRPCServerConfig extends LogSupport:
   private def isNullish(v: js.Any): Boolean = js.isUndefined(v) || v == null
+
+  /** Run a user filter, treating a throw as a rejection so the renderer still gets a reply. */
+  private def safeCheck(filter: js.Dynamic => Boolean, frame: js.Dynamic): Boolean =
+    try
+      filter(frame)
+    catch
+      case NonFatal(e) =>
+        warn(s"Electron RPC sender filter failed: ${e.getMessage}", e)
+        false
 
   private def frameUrl(frame: js.Dynamic): String =
     val url = frame.url

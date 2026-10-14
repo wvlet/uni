@@ -72,8 +72,9 @@ private[uni] object HttpServerSecurity:
       Seq("*")
 
   private[http] def isLoopbackAddress(host: String): Boolean =
-    val h = host.trim.toLowerCase
-    h == "localhost" || h == "::1" || h == "[::1]" || h.startsWith("127.")
+    val h = host.trim.toLowerCase.stripPrefix("[").stripSuffix("]")
+    // IPv6 loopback in any zero-compressed form: ::1, 0:0:0:0:0:0:0:1, 0000::0001, ...
+    h == "localhost" || h.startsWith("127.") || h.matches("(0{0,4}:)+0{0,3}1")
 
   /**
     * Check the `Host` header against an allowlist to prevent DNS rebinding: a web page can make its

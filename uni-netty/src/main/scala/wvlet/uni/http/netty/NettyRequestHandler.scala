@@ -285,25 +285,33 @@ class NettyRequestHandler(
       rx: Rx[Response],
       keepAlive: Boolean
   ): Unit =
+    // runOnce can still report OnCompletion after the first OnNext; answer only the first event so
+    // a completed handler never appends a 404 to the response (or to an SSE stream) it already sent
+    val responded = AtomicBoolean(false)
     RxRunner.runOnce(rx) {
       case OnNext(response) =>
-        val resp = response.asInstanceOf[Response]
-        try
-          if resp.isEventStream then
-            sendSseResponse(ctx, resp)
-          else
-            sendResponse(ctx, resp, keepAlive)
-        catch
-          case e: IllegalArgumentException =>
-            // e.g. a header value containing CR/LF, rejected before anything was written
-            warn(s"Invalid response: ${e.getMessage}", e)
-            sendResponse(ctx, errorResponse(e), keepAlive = false)
+        if responded.compareAndSet(false, true) then
+          val resp = response.asInstanceOf[Response]
+          try
+            if resp.isEventStream then
+              sendSseResponse(ctx, resp)
+            else
+              sendResponse(ctx, resp, keepAlive)
+          catch
+            case e: IllegalArgumentException =>
+              // e.g. a header value containing CR/LF, rejected before anything was written
+              warn(s"Invalid response: ${e.getMessage}", e)
+              sendResponse(ctx, errorResponse(e), keepAlive = false)
       case OnError(e) =>
-        warn(s"Error in Rx handler: ${e.getMessage}", e)
-        sendResponse(ctx, errorResponse(e), keepAlive)
+        if responded.compareAndSet(false, true) then
+          warn(s"Error in Rx handler: ${e.getMessage}", e)
+          sendResponse(ctx, errorResponse(e), keepAlive)
       case OnCompletion =>
-        sendResponse(ctx, Response.notFound, keepAlive)
+        if responded.compareAndSet(false, true) then
+          sendResponse(ctx, Response.notFound, keepAlive)
     }
+
+  end runRxResponse
 
   private def sendSseResponse(ctx: ChannelHandlerContext, response: Response): Unit =
     if !streamLimiter.tryAcquire() then
@@ -343,14 +351,14 @@ class NettyRequestHandler(
       case _: java.util.NoSuchElementException =>
         ()
 
-    ctx.writeAndFlush(nettyResponse)
-
     // Offload SSE stream consumption to a separate thread pool to avoid blocking
-    // the Netty event loop with long-running streams.
+    // the Netty event loop with long-running streams. The task writes the headers, so a stream the
+    // pool rejects can still be answered with 503.
     // ctx.writeAndFlush() is thread-safe in Netty and can be called from any thread.
     try
       sseExecutor.execute { () =>
         try
+          ctx.writeAndFlush(nettyResponse)
           RxRunner.run(response.events) {
             case OnNext(event) =>
               val sse     = event.asInstanceOf[ServerSentEvent]
@@ -377,12 +385,11 @@ class NettyRequestHandler(
                 .addListener(ChannelFutureListener.CLOSE)
       }
     catch
-      case e: java.util.concurrent.RejectedExecutionException =>
-        // The pool has as many threads as stream slots, so this happens only during shutdown
-        warn(s"SSE executor rejected the stream; closing it", e)
-        ctx
-          .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-          .addListener(ChannelFutureListener.CLOSE)
+      case _: java.util.concurrent.RejectedExecutionException =>
+        // Every pool thread is busy: a stream whose slot was just freed by a closed channel can
+        // still have its consumer task running (e.g. a blocking source), or the pool is shutting down
+        warn("SSE executor is saturated; rejecting the stream with 503")
+        sendResponse(ctx, Response.serviceUnavailable, keepAlive = false)
     end try
 
   end sendSseResponse

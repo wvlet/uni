@@ -145,9 +145,7 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
                 webSocketRouteFor(request) match
                   case Some(route) =>
                     // WebSocket upgrade: the WS handler owns the connection until it closes.
-                    withStreamingSlot(clientFd) {
-                      handleWebSocketUpgrade(clientFd, request, route)
-                    }
+                    handleWebSocketUpgrade(clientFd, request, route)
                     continue = false
                   case None =>
                     if !handleHttpRequest(clientFd, request) then
@@ -388,19 +386,23 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             HttpResponseWriter.serialize(verdict, keepAlive = false, includeBody = true)
           )
         else
-          val handshake =
-            s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
-              s"${HttpHeader.Connection}: Upgrade\r\n" +
-              s"${HttpHeader.SecWebSocketAccept}: ${WebSocketFrame.acceptKey(key)}\r\n\r\n"
-          if NativeSocket.sendAll(clientFd, handshake.getBytes(StandardCharsets.ISO_8859_1)) then
-            val accepted = upgradeRequest.get()
-            NativeWebSocket.serve(
-              clientFd,
-              accepted,
-              route.handlerFactory(accepted),
-              config.webSocketMaxFrameSize,
-              config.webSocketPingIntervalMillis
-            )
+          // Take a streaming slot only for a valid, accepted upgrade, so a rejected handshake gets
+          // its own status (403/400/426) and never holds a slot
+          withStreamingSlot(clientFd) {
+            val handshake =
+              s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
+                s"${HttpHeader.Connection}: Upgrade\r\n" +
+                s"${HttpHeader.SecWebSocketAccept}: ${WebSocketFrame.acceptKey(key)}\r\n\r\n"
+            if NativeSocket.sendAll(clientFd, handshake.getBytes(StandardCharsets.ISO_8859_1)) then
+              val accepted = upgradeRequest.get()
+              NativeWebSocket.serve(
+                clientFd,
+                accepted,
+                route.handlerFactory(accepted),
+                config.webSocketMaxFrameSize,
+                config.webSocketPingIntervalMillis
+              )
+          }
 
   private def daemonThreadFactory(name: String): ThreadFactory =
     (r: Runnable) =>
