@@ -46,17 +46,12 @@ object RPCRouter:
     new RPCRouter(Surface.methodsOf[T], instance, surface.fullName)
 
 class RPCRouter(methods: Seq[MethodSurface], val instance: Any, val serviceName: String):
-  // Classes whose methods should not be exposed as RPC endpoints
-  private val excludedOwners: Set[Class[?]] = Set(classOf[Object], classOf[Any])
-
   /**
     * Method codecs derived from Surface. Each codec combines Weavers for parameter types and return
     * type.
     */
   val codecs: Map[String, MethodCodec] =
-    val filteredMethods = methods.filter(m =>
-      m.isPublic && !excludedOwners.contains(m.owner.rawType)
-    )
+    val filteredMethods = RPCMethodFilter.rpcMethods(methods)
 
     // Detect overloaded methods (same name, different signatures)
     val methodsByName = filteredMethods.groupBy(_.name)

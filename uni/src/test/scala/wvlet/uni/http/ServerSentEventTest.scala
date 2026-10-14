@@ -235,6 +235,30 @@ class ServerSentEventParserTest extends UniTest:
     events2.head.id shouldBe Some("1")
   }
 
+  test("parse lines split across chunks, including a CRLF split between chunks") {
+    val parser = ServerSentEventParser()
+    parser.feed("data: hel") shouldBe Seq.empty
+    parser.feed("lo\r") shouldBe Seq.empty
+    val events = parser.feed("\n\r\ndata: next\n\n")
+    events.map(_.data) shouldBe Seq("hello", "next")
+  }
+
+  test("reject a line longer than the limit") {
+    val parser = ServerSentEventParser(maxLineLength = 16)
+    parser.feed("data: 0123456789") shouldBe Seq.empty
+    intercept[ServerSentEventParser.EventTooLargeException] {
+      parser.feed("abcdef")
+    }
+  }
+
+  test("reject an event whose data exceeds the limit") {
+    val parser = ServerSentEventParser(maxEventSize = 10)
+    parser.feed("data: 01234\ndata: 5678\n\n").map(_.data) shouldBe Seq("01234\n5678")
+    intercept[ServerSentEventParser.EventTooLargeException] {
+      parser.feed("data: 01234\ndata: 567890\n")
+    }
+  }
+
 end ServerSentEventParserTest
 
 class ServerSentEventHandlerTest extends UniTest:

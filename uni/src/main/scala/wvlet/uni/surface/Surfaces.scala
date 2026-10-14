@@ -312,7 +312,8 @@ case class ClassMethodSurface(
     returnType: Surface,
     args: Seq[MethodParameter],
     methodCaller: Option[(Any, Seq[Any]) => Any],
-    override val annotations: Seq[Annotation] = Seq.empty
+    override val annotations: Seq[Annotation] = Seq.empty,
+    override val declaringType: Option[String] = None
 ) extends MethodSurface:
   override def call(obj: Any, x: Any*) =
     def unsupported =

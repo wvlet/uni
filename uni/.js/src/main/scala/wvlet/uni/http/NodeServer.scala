@@ -59,6 +59,9 @@ case class NodeServerConfig(
     maxContentLength: Int = 1024 * 1024,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
+    // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
+    // a loopback-bound server, every host otherwise ("*" allows all)
+    override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
 ) extends HttpServerConfig:
@@ -114,6 +117,17 @@ case class NodeServerConfig(
     * addition to same-origin pages. Pass `"*"` to allow every origin.
     */
   def withAllowedOrigins(origins: String*): NodeServerConfig = copy(allowedOrigins = origins.toSeq)
+
+  /**
+    * Accept only requests whose `Host` header names one of these hosts (port ignored), to prevent
+    * DNS rebinding. Entries are exact names or `*.suffix`; `"*"` allows every host. Replaces the
+    * default, which for a loopback-bound server is `localhost`, `*.localhost`, `127.0.0.1` and
+    * `[::1]`.
+    */
+  def withAllowedHosts(hosts: String*): NodeServerConfig = copy(allowedHosts = hosts.toSeq)
+
+  /** Accept every `Host` header. Exposes a loopback server to DNS rebinding from web pages. */
+  def noHostCheck: NodeServerConfig = withAllowedHosts("*")
 
   def withDetailedErrors(enabled: Boolean): NodeServerConfig = copy(detailedErrors = enabled)
   def noDetailedErrors: NodeServerConfig                     = withDetailedErrors(false)

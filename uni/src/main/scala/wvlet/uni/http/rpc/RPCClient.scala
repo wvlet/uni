@@ -98,11 +98,7 @@ object RPCClient:
     * Build an RPCClient from Surface metadata. Call this with inline Surface.methodsOf[T].
     */
   def build(serviceSurface: Surface, methods: Seq[MethodSurface]): RPCClient =
-    val excludedOwners: Set[Class[?]] = Set(classOf[Object], classOf[Any])
-
-    val filteredMethods = methods.filter(m =>
-      m.isPublic && !excludedOwners.contains(m.owner.rawType)
-    )
+    val filteredMethods = RPCMethodFilter.rpcMethods(methods)
 
     val codecs =
       filteredMethods

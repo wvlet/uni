@@ -14,6 +14,7 @@
 package wvlet.uni.http.rpc
 
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.Surface
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
@@ -119,6 +120,14 @@ class RPCRouterTest extends UniTest:
     }
     ex.getMessage shouldContain "overloading"
     ex.getMessage shouldContain "process"
+  }
+
+  test("RPCRouter should skip @rpcIgnore methods and library mixins but keep API base traits") {
+    val router = RPCRouter.of[ExtendedApi](ExtendedApiImpl())
+    router.codecs.keySet shouldBe Set("get", "list")
+
+    val client = RPCClient.build(Surface.of[ExtendedApi], Surface.methodsOf[ExtendedApi])
+    client.codecs.keySet shouldBe router.codecs.keySet
   }
 
   test("RPCRouter should handle Rx return types") {
@@ -294,3 +303,16 @@ class MethodCodecTest extends UniTest:
   }
 
 end MethodCodecTest
+
+trait BaseApi:
+  def list(): Seq[String]
+
+trait ExtendedApi extends BaseApi with scala.Equals:
+  def get(id: Long): String
+  @rpcIgnore
+  def cacheStats: String = "internal"
+
+class ExtendedApiImpl extends ExtendedApi:
+  override def list(): Seq[String]          = Seq("a")
+  override def get(id: Long): String        = s"item-${id}"
+  override def canEqual(that: Any): Boolean = false

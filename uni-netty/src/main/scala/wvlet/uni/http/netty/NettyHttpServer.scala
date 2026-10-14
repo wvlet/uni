@@ -35,13 +35,13 @@ import io.netty.handler.codec.http.{
 }
 import io.netty.handler.stream.ChunkedWriteHandler
 import io.netty.util.concurrent.DefaultEventExecutorGroup
-import wvlet.uni.http.HttpServer
+import wvlet.uni.http.{ConnectionLimiter, HttpServer}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 import wvlet.uni.util.ThreadUtil
 
 import java.net.InetSocketAddress
-import java.util.concurrent.{ExecutorService, Executors, TimeUnit}
+import java.util.concurrent.{ExecutorService, SynchronousQueue, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.annotation.nowarn
 
@@ -54,9 +54,17 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
   private var handlerExecutorGroup: Option[DefaultEventExecutorGroup] = None
   private var channel: Channel                                        = null
 
-  // Shared cached thread pool for SSE stream consumption across all connections.
-  // Threads are created on demand and reclaimed after 60s idle.
-  private val sseExecutor: ExecutorService = Executors.newCachedThreadPool(
+  // Caps open SSE streams across all connections; a stream over the limit gets 503
+  private val streamLimiter = ConnectionLimiter(config.maxStreamingConnections)
+
+  // Shared thread pool for SSE stream consumption across all connections. Threads are created on
+  // demand, at most one per stream slot, and reclaimed after 60s idle.
+  private val sseExecutor: ExecutorService = ThreadPoolExecutor(
+    0,
+    config.maxStreamingConnections,
+    60L,
+    TimeUnit.SECONDS,
+    SynchronousQueue[Runnable](),
     ThreadUtil.newDaemonThreadFactory(s"${config.name}-sse")
   )
 
@@ -140,7 +148,9 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               config.webSocketMaxFrameSize,
               config.webSocketPingIntervalMillis,
               handlerExecutorGroup,
+              streamLimiter,
               config.allowedOrigins,
+              config.effectiveAllowedHosts,
               config.detailedErrors
             )
             handlerExecutorGroup match

@@ -70,8 +70,14 @@ case class NativeServerConfig(
     // Ping/pong heartbeat interval for WebSocket connections (0 disables it): the server pings an
     // idle connection and closes it if the peer stops responding to pings.
     webSocketPingIntervalMillis: Int = 0,
+    // Maximum number of concurrent long-lived connections (Server-Sent Events, WebSocket); more get
+    // 503. None: workerThreads minus a reserve of up to 4 workers kept for ordinary requests
+    maxStreamingConnections: Option[Int] = None,
     // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
     override val allowedOrigins: Seq[String] = Nil,
+    // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
+    // a loopback-bound server, every host otherwise ("*" allows all)
+    override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
 ) extends HttpServerConfig:
@@ -150,6 +156,34 @@ case class NativeServerConfig(
     */
   def withAllowedOrigins(origins: String*): NativeServerConfig = copy(allowedOrigins =
     origins.toSeq
+  )
+
+  /**
+    * Accept only requests whose `Host` header names one of these hosts (port ignored), to prevent
+    * DNS rebinding. Entries are exact names or `*.suffix`; `"*"` allows every host. Replaces the
+    * default, which for a loopback-bound server is `localhost`, `*.localhost`, `127.0.0.1` and
+    * `[::1]`.
+    */
+  def withAllowedHosts(hosts: String*): NativeServerConfig = copy(allowedHosts = hosts.toSeq)
+
+  /** Accept every `Host` header. Exposes a loopback server to DNS rebinding from web pages. */
+  def noHostCheck: NativeServerConfig = withAllowedHosts("*")
+
+  /**
+    * Limit the number of concurrently open Server-Sent Events streams and WebSocket connections;
+    * further ones get 503. Each occupies a worker thread while open, so the limit must stay below
+    * `workerThreads` to leave workers for ordinary requests.
+    */
+  def withMaxStreamingConnections(n: Int): NativeServerConfig =
+    require(n > 0, "maxStreamingConnections must be positive")
+    copy(maxStreamingConnections = Some(n))
+
+  /**
+    * The effective limit on long-lived connections: [[maxStreamingConnections]] if set, otherwise
+    * `workerThreads` minus a reserve of `min(4, workerThreads / 2)` workers.
+    */
+  def effectiveMaxStreamingConnections: Int = maxStreamingConnections.getOrElse(
+    workerThreads - math.min(4, workerThreads / 2)
   )
 
   def withDetailedErrors(enabled: Boolean): NativeServerConfig = copy(detailedErrors = enabled)

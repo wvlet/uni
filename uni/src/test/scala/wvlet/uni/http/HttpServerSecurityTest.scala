@@ -102,4 +102,40 @@ class HttpServerSecurityTest extends UniTest:
       Some("/next?a=1&b=2")
   }
 
+  private def hostRequest(host: String): Request = Request.get("/").addHeader(HttpHeader.Host, host)
+
+  test("allow only loopback host names on a loopback server by default") {
+    val allowed = HttpServerSecurity.defaultAllowedHosts("127.0.0.1")
+    Seq("localhost:8080", "LOCALHOST", "127.0.0.1:8080", "[::1]:8080", "app.localhost:3000")
+      .foreach { host =>
+        HttpServerSecurity.checkHost(hostRequest(host), allowed) shouldBe None
+      }
+    Seq("evil.example:8080", "evil.example", "localhost.evil.example", "127.0.0.1.nip.io").foreach {
+      host =>
+        val rejection = HttpServerSecurity.checkHost(hostRequest(host), allowed)
+        rejection.map(_.status) shouldBe Some(HttpStatus.Forbidden_403)
+    }
+  }
+
+  test("allow every host on a non-loopback server by default") {
+    HttpServerSecurity.defaultAllowedHosts("0.0.0.0") shouldBe Seq("*")
+    HttpServerSecurity.defaultAllowedHosts("localhost") shouldBe HttpServerSecurity.LoopbackHosts
+    HttpServerSecurity.defaultAllowedHosts("::1") shouldBe HttpServerSecurity.LoopbackHosts
+  }
+
+  test("match exact and wildcard host entries, ignoring the port") {
+    val allowed = Seq("api.example.com", "*.internal.example")
+    HttpServerSecurity.isHostAllowed("api.example.com:443", allowed) shouldBe true
+    HttpServerSecurity.isHostAllowed("API.Example.Com.", allowed) shouldBe true
+    HttpServerSecurity.isHostAllowed("a.internal.example:8080", allowed) shouldBe true
+    HttpServerSecurity.isHostAllowed("internal.example", allowed) shouldBe false
+    HttpServerSecurity.isHostAllowed("evilinternal.example", allowed) shouldBe false
+    HttpServerSecurity.isHostAllowed("other.example.com", allowed) shouldBe false
+    HttpServerSecurity.isHostAllowed("anything", Seq("*")) shouldBe true
+  }
+
+  test("allow a request without a Host header") {
+    HttpServerSecurity.checkHost(Request.get("/"), HttpServerSecurity.LoopbackHosts) shouldBe None
+  }
+
 end HttpServerSecurityTest

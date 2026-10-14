@@ -49,6 +49,12 @@ trait MethodSurface extends ParameterBase:
   def annotations: Seq[Annotation] = Seq.empty
 
   /**
+    * Fully qualified name of the class or trait that declares this method, which differs from
+    * [[owner]] for a method inherited from a base trait. `None` when unknown.
+    */
+  def declaringType: Option[String] = None
+
+  /**
     * Find an annotation by name (simple name or fully qualified name)
     */
   def findAnnotation(name: String): Option[Annotation] = annotations.find(_.is(name))
@@ -64,6 +70,8 @@ trait MethodSurface extends ParameterBase:
   def isStatic: Boolean    = (mod & MethodModifier.STATIC) != 0
   def isFinal: Boolean     = (mod & MethodModifier.FINAL) != 0
   def isAbstract: Boolean  = (mod & MethodModifier.ABSTRACT) != 0
+
+end MethodSurface
 
 /**
   * Parameters of a Surface. Renamed from StdMethodParameter to StaticMethodParameter for binary

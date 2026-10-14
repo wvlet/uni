@@ -41,6 +41,7 @@ import io.netty.handler.codec.http.websocketx.{
 import io.netty.handler.timeout.IdleStateHandler
 import io.netty.util.concurrent.EventExecutorGroup
 import wvlet.uni.http.{
+  ConnectionLimiter,
   HttpContent,
   HttpHeader,
   HttpMethod,
@@ -67,16 +68,22 @@ import scala.util.control.NonFatal
   * Netty channel handler that processes HTTP requests using RxHttpHandler
   *
   * @param sseExecutor
-  *   shared thread pool for SSE stream consumption, managed by NettyHttpServer
+  *   shared, bounded thread pool for SSE stream consumption, managed by NettyHttpServer
+  * @param streamLimiter
+  *   caps the number of open SSE streams; a stream over the limit gets 503
+  * @param allowedHosts
+  *   accepted `Host` header names; see [[HttpServerSecurity.checkHost]]
   */
 class NettyRequestHandler(
     handler: RxHttpHandler,
     sseExecutor: ExecutorService,
+    streamLimiter: ConnectionLimiter,
     webSocketRoutes: Seq[WebSocketRoute],
     webSocketMaxFrameSize: Int,
     webSocketPingIntervalMillis: Int,
     wsHandlerExecutor: Option[EventExecutorGroup],
     allowedOrigins: Seq[String],
+    allowedHosts: Seq[String],
     detailedErrors: Boolean
 ) extends SimpleChannelInboundHandler[FullHttpRequest]
     with LogSupport:
@@ -90,12 +97,17 @@ class NettyRequestHandler(
       return
     try
       val request = toUniRequest(nettyRequest)
-      webSocketRouteFor(request, nettyRequest) match
-        case Some(route) =>
-          handleWebSocketUpgrade(ctx, nettyRequest, request, route)
+      HttpServerSecurity.checkHost(request, allowedHosts) match
+        case Some(rejection) =>
+          debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
+          sendResponse(ctx, rejection, keepAlive)
         case None =>
-          val response = handler.handle(request)
-          runRxResponse(ctx, response, keepAlive)
+          webSocketRouteFor(request, nettyRequest) match
+            case Some(route) =>
+              handleWebSocketUpgrade(ctx, nettyRequest, request, route)
+            case None =>
+              val response = handler.handle(request)
+              runRxResponse(ctx, response, keepAlive)
     catch
       case e: Exception =>
         warn(s"Error handling request: ${e.getMessage}", e)
@@ -294,6 +306,14 @@ class NettyRequestHandler(
     }
 
   private def sendSseResponse(ctx: ChannelHandlerContext, response: Response): Unit =
+    if !streamLimiter.tryAcquire() then
+      warn(s"Too many concurrent SSE streams (limit ${streamLimiter.limit}); rejecting with 503")
+      sendResponse(ctx, Response.serviceUnavailable, keepAlive = false)
+      return
+    // The stream ends by closing the connection, so the slot is held until then
+    val releaseSlot: ChannelFutureListener = _ => streamLimiter.release()
+    ctx.channel().closeFuture().addListener(releaseSlot)
+
     // Send initial SSE response headers with chunked transfer encoding
     val nettyResponse = DefaultHttpResponse(
       HttpVersion.HTTP_1_1,
@@ -358,7 +378,8 @@ class NettyRequestHandler(
       }
     catch
       case e: java.util.concurrent.RejectedExecutionException =>
-        warn(s"SSE executor is saturated; closing stream", e)
+        // The pool has as many threads as stream slots, so this happens only during shutdown
+        warn(s"SSE executor rejected the stream; closing it", e)
         ctx
           .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
           .addListener(ChannelFutureListener.CLOSE)
@@ -455,17 +476,21 @@ object NettyRequestHandler:
       webSocketMaxFrameSize: Int,
       webSocketPingIntervalMillis: Int,
       wsHandlerExecutor: Option[EventExecutorGroup],
+      streamLimiter: ConnectionLimiter = ConnectionLimiter(Int.MaxValue),
       allowedOrigins: Seq[String] = Nil,
+      allowedHosts: Seq[String] = Seq("*"),
       detailedErrors: Boolean = false
   ): NettyRequestHandler =
     new NettyRequestHandler(
       handler,
       sseExecutor,
+      streamLimiter,
       webSocketRoutes,
       webSocketMaxFrameSize,
       webSocketPingIntervalMillis,
       wsHandlerExecutor,
       allowedOrigins,
+      allowedHosts,
       detailedErrors
     )
 

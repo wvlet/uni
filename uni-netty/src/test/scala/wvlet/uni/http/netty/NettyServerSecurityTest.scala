@@ -13,7 +13,14 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpMultiMap, HttpStatus, Request, Response, WebSocketHandler}
+import wvlet.uni.http.{
+  HttpMultiMap,
+  HttpStatus,
+  Request,
+  Response,
+  ServerSentEvent,
+  WebSocketHandler
+}
 import wvlet.uni.http.rpc.{RPCRouter, RPCStatus}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
@@ -239,6 +246,79 @@ class NettyServerSecurityTest extends UniTest:
           readHead(socket.getInputStream) shouldContain " 200 "
         finally
           socket.close()
+      }
+  }
+
+  test("reject requests for a foreign Host on a loopback server") {
+    NettyServer
+      .withPort(0)
+      .withHandler(_ => Response.ok)
+      .start { server =>
+        val port = server.localPort
+        rawRequest(port, s"GET / HTTP/1.1\r\nHost: localhost:${port}\r\n\r\n") shouldContain " 200 "
+        rawRequest(port, s"GET / HTTP/1.1\r\nHost: evil.example:${port}\r\n\r\n") shouldContain
+          " 403 "
+        // The WebSocket upgrade path is covered too: a rebinding page is "same-origin"
+        val rebinding = upgradeRequest(port, Some(s"http://evil.example:${port}")).replace(
+          s"Host: 127.0.0.1:${port}",
+          s"Host: evil.example:${port}"
+        )
+        rawRequest(port, rebinding) shouldContain " 403 "
+      }
+  }
+
+  test("accept configured hosts, or every host with noHostCheck") {
+    NettyServer
+      .withPort(0)
+      .withHandler(_ => Response.ok)
+      .withAllowedHosts("api.example.com")
+      .start { server =>
+        val port = server.localPort
+        rawRequest(port, "GET / HTTP/1.1\r\nHost: api.example.com\r\n\r\n") shouldContain " 200 "
+        rawRequest(port, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n") shouldContain " 403 "
+      }
+    NettyServer
+      .withPort(0)
+      .withHandler(_ => Response.ok)
+      .noHostCheck
+      .start { server =>
+        rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: evil.example\r\n\r\n") shouldContain
+          " 200 "
+      }
+  }
+
+  test("reject SSE streams over the limit with 503") {
+    NettyServer
+      .withPort(0)
+      .withHandler(_ => Response.eventStream(Rx.variable(ServerSentEvent.data("hello"))))
+      .withMaxStreamingConnections(1)
+      .start { server =>
+        val port   = server.localPort
+        val first  = Socket("127.0.0.1", port)
+        val stream = s"GET /events HTTP/1.1\r\nHost: localhost:${port}\r\n\r\n"
+        try
+          first.setSoTimeout(10000)
+          first.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
+          first.getOutputStream.flush()
+          readHead(first.getInputStream) shouldContain " 200 "
+          rawRequest(port, stream) shouldContain " 503 "
+        finally
+          first.close()
+        // Closing the first stream frees its slot
+        var head  = ""
+        var tries = 0
+        while !head.contains(" 200 ") && tries < 50 do
+          Thread.sleep(100)
+          tries += 1
+          val socket = Socket("127.0.0.1", port)
+          try
+            socket.setSoTimeout(10000)
+            socket.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
+            socket.getOutputStream.flush()
+            head = readHead(socket.getInputStream)
+          finally
+            socket.close()
+        head shouldContain " 200 "
       }
   }
 

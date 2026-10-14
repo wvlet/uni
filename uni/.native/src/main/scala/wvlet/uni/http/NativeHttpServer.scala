@@ -48,6 +48,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
   @volatile
   private var workerPool: ExecutorService = null
 
+  private val allowedHosts  = config.effectiveAllowedHosts
+  private val streamLimiter = ConnectionLimiter(config.effectiveMaxStreamingConnections)
+
   def start(): Unit =
     if !started.compareAndSet(false, true) then
       throw IllegalStateException("Server is already started")
@@ -130,14 +133,25 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             )
             continue = false
           case ReadResult.Req(request) =>
-            webSocketRouteFor(request) match
-              case Some(route) =>
-                // WebSocket upgrade: the WS handler owns the connection until it closes.
-                handleWebSocketUpgrade(clientFd, request, route)
+            HttpServerSecurity.checkHost(request, allowedHosts) match
+              case Some(rejection) =>
+                debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
+                NativeSocket.sendAll(
+                  clientFd,
+                  HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
+                )
                 continue = false
               case None =>
-                if !handleHttpRequest(clientFd, request) then
-                  continue = false
+                webSocketRouteFor(request) match
+                  case Some(route) =>
+                    // WebSocket upgrade: the WS handler owns the connection until it closes.
+                    withStreamingSlot(clientFd) {
+                      handleWebSocketUpgrade(clientFd, request, route)
+                    }
+                    continue = false
+                  case None =>
+                    if !handleHttpRequest(clientFd, request) then
+                      continue = false
       end while
     catch
       case NonFatal(e) =>
@@ -161,7 +175,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             HttpResponseWriter.serializeSseHeaders(response, keepAlive)
           )
         else
-          streamSse(clientFd, response, keepAlive)
+          withStreamingSlot(clientFd) {
+            streamSse(clientFd, response, keepAlive)
+          }.getOrElse(false)
       else
         // A HEAD response carries headers (incl. Content-Length) but no body.
         NativeSocket.sendAll(
@@ -169,6 +185,30 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
           HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
         )
     keepAlive && sent
+
+  /**
+    * Run a long-lived connection (SSE stream, WebSocket) in one of the limited streaming slots.
+    * Each one parks a worker until it closes, so without a cap a few idle clients would occupy
+    * every worker and starve ordinary requests. Over the limit, answer 503 and return `None`.
+    */
+  private def withStreamingSlot[A](clientFd: Int)(body: => A): Option[A] =
+    if !streamLimiter.tryAcquire() then
+      warn(
+        s"Too many concurrent streaming connections (limit ${streamLimiter
+            .limit}); rejecting with 503"
+      )
+      NativeSocket.sendAll(
+        clientFd,
+        HttpResponseWriter.serialize(
+          Response.serviceUnavailable,
+          keepAlive = false,
+          includeBody = true
+        )
+      )
+      None
+    else
+      try Some(body)
+      finally streamLimiter.release()
 
   private def clientWantsKeepAlive(request: Request): Boolean =
     !request.header(HttpHeader.Connection).exists(_.equalsIgnoreCase("close"))

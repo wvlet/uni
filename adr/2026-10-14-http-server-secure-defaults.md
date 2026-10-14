@@ -20,9 +20,19 @@ uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an 
 
 `RouterHandler` and `RPCHandler`/`RPCDispatcher` are built independently of the server config, so they take their own `detailedErrors` flag.
 
-## Known gap: DNS rebinding
+## Host allowlist (DNS rebinding)
 
-Same-origin compares `Origin` to the client-supplied `Host`, so a rebinding page (hostname resolving to 127.0.0.1) passes. Fixing it needs a `Host` allowlist, which would also protect plain HTTP/RPC requests; left as a follow-up.
+Same-origin compares `Origin` with the client-supplied `Host`, so a rebinding page (its host name resolves to 127.0.0.1) passes it. Every request, not only WebSocket upgrades, is therefore checked against `allowedHosts` before routing. Empty means the default derived from the bind address: a loopback bind accepts `localhost`, `*.localhost`, `127.0.0.1` and `[::1]`, and any other bind accepts every host, because a server on `0.0.0.0` cannot know the names clients use to reach it. A rejected request gets 403. A request without `Host` is allowed, because browsers always send one.
+
+An `Origin` check on every request was rejected: non-browser clients send no `Origin`, and a rebinding page is same-origin, so only `Host` reveals it.
+
+## Bounded long-lived connections
+
+SSE streams (and WebSockets on Native) hold resources for their whole lifetime. Netty caps open SSE streams with a counter released on channel close (default 256), and the SSE executor has as many threads as stream slots. A thread-pool bound alone is not enough, because a non-blocking `Rx` source releases its thread while the stream stays open. Native counts SSE and WebSocket connections, because each parks a worker. Its default keeps `min(4, workerThreads / 2)` workers for ordinary requests. Over the limit, the request gets 503.
+
+## RPC endpoint selection and Electron senders
+
+`RPCMethodFilter` (shared by `RPCRouter` and `RPCClient`) drops `@rpcIgnore` methods and methods declared in `scala.*`, `java.*` or `wvlet.uni.log.*`, using the new `MethodSurface.declaringType`. Methods inherited from the application's own base traits stay exposed, so API trait composition keeps working; "declared on T only" was rejected for that reason. `ElectronRPCServer` accepts calls only from top-level frames by default (`ElectronRPCServerConfig`), with optional origin and custom sender checks.
 
 ## Known gap: `startAndAwait` tests on Scala.js
 

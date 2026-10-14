@@ -44,6 +44,22 @@ trait HttpServerConfig:
   def allowedOrigins: Seq[String] = Nil
 
   /**
+    * Host names (the `Host` header, port ignored) this server answers, to prevent DNS rebinding.
+    * Entries are exact names or `*.suffix`; `"*"` allows every host. When empty, the default
+    * depends on the bind address: a loopback server accepts only `localhost`, `*.localhost`,
+    * `127.0.0.1` and `[::1]`, and any other server accepts every host. See
+    * [[effectiveAllowedHosts]].
+    */
+  def allowedHosts: Seq[String] = Nil
+
+  /** [[allowedHosts]], or the default derived from [[host]] when it is empty. */
+  def effectiveAllowedHosts: Seq[String] =
+    if allowedHosts.nonEmpty then
+      allowedHosts
+    else
+      HttpServerSecurity.defaultAllowedHosts(host)
+
+  /**
     * Whether 500 responses include the exception message. Disabled by default because messages can
     * leak internals (paths, SQL, hostnames); the full exception is always logged on the server.
     */

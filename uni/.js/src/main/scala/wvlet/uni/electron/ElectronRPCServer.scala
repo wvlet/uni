@@ -38,6 +38,18 @@ import scala.scalajs.js
   *   RPCRouter.of[CounterApi](CounterApiImpl())
   * )
   * }}}
+  *
+  * Every call is checked against the sender frame (see [[ElectronRPCServerConfig]]): by default
+  * only top-level frames may call, so an embedded third-party iframe cannot reach the services.
+  * Restrict the callers further with `withAllowedOrigins`:
+  *
+  * {{{
+  * ElectronRPCServer.serve(
+  *   ipcMain,
+  *   ElectronRPCServerConfig().withAllowedOrigins("file://", "http://localhost:5173"),
+  *   RPCRouter.of[CounterApi](CounterApiImpl())
+  * )
+  * }}}
   */
 object ElectronRPCServer extends LogSupport:
 
@@ -58,11 +70,27 @@ object ElectronRPCServer extends LogSupport:
   /**
     * Register an RPC handler on an explicit channel name.
     */
-  def serve(ipcMain: js.Dynamic, channel: String, routers: RPCRouter*): Unit =
+  def serve(ipcMain: js.Dynamic, channel: String, routers: RPCRouter*): Unit = serve(
+    ipcMain,
+    ElectronRPCServerConfig().withChannel(channel),
+    routers*
+  )
+
+  /**
+    * Register an RPC handler with an explicit configuration (channel, allowed senders).
+    */
+  def serve(ipcMain: js.Dynamic, config: ElectronRPCServerConfig, routers: RPCRouter*): Unit =
     val dispatcher = new RPCDispatcher(routers.toSeq)
     val handler: js.Function2[js.Any, js.Any, js.Promise[js.Object]] =
-      (_event: js.Any, payload: js.Any) => dispatch(dispatcher, payload.asInstanceOf[js.Dynamic])
-    ipcMain.applyDynamic("handle")(channel, handler)
+      (event: js.Any, payload: js.Any) =>
+        if config.isAllowedSender(event.asInstanceOf[js.Dynamic]) then
+          dispatch(dispatcher, payload.asInstanceOf[js.Dynamic])
+        else
+          warn(s"Rejected Electron RPC call from ${ElectronRPCServerConfig.senderUrl(event)}")
+          val rejection =
+            RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
+          js.Promise.resolve[js.Object](ElectronIPC.fromResponse(rejection))
+    ipcMain.applyDynamic("handle")(config.channel, handler)
 
   /**
     * Run a single request through the dispatcher and bridge the resulting `Rx[Response]` into a JS
@@ -87,3 +115,85 @@ object ElectronRPCServer extends LogSupport:
     )
 
 end ElectronRPCServer
+
+/**
+  * Configuration of [[ElectronRPCServer]].
+  *
+  * Electron delivers `ipcMain.handle` calls from every frame of every renderer, including embedded
+  * iframes and pages the window navigated to, so each call is checked against its
+  * `event.senderFrame`:
+  *   - A call whose frame is gone (destroyed or navigated away) is rejected.
+  *   - Unless `allowSubFrames` is set, only top-level frames may call.
+  *   - When `allowedOrigins` is non-empty, the frame URL must start with one of them, at a path
+  *     boundary: `"http://localhost:5173"` matches `http://localhost:5173/index.html` but not
+  *     `http://localhost:51730/`. `"file://"` matches every local file.
+  *   - `senderFilter` adds an application-specific check of the frame (`WebFrameMain`).
+  *
+  * A rejected call resolves with a `PERMISSION_DENIED_U14` RPC error.
+  */
+case class ElectronRPCServerConfig(
+    channel: String = ElectronIPC.DefaultChannel,
+    allowedOrigins: Seq[String] = Nil,
+    allowSubFrames: Boolean = false,
+    senderFilter: Option[js.Dynamic => Boolean] = None
+):
+  def withChannel(channel: String): ElectronRPCServerConfig = copy(channel = channel)
+
+  /** Accept calls only from frames whose URL starts with one of these origins or URL prefixes. */
+  def withAllowedOrigins(origins: String*): ElectronRPCServerConfig = copy(allowedOrigins =
+    origins.toSeq
+  )
+
+  /** Also accept calls from embedded frames (iframes), not only top-level frames. */
+  def withAllowSubFrames(enabled: Boolean): ElectronRPCServerConfig = copy(allowSubFrames = enabled)
+
+  /** An additional check of the sender frame (`event.senderFrame`, a `WebFrameMain`). */
+  def withSenderFilter(filter: js.Dynamic => Boolean): ElectronRPCServerConfig = copy(senderFilter =
+    Some(filter)
+  )
+
+  def noSenderFilter: ElectronRPCServerConfig = copy(senderFilter = None)
+
+  /** Whether the IPC `event` comes from a frame allowed to call the services. */
+  def isAllowedSender(event: js.Dynamic): Boolean =
+    if ElectronRPCServerConfig.isNullish(event) then
+      false
+    else
+      val frame = event.senderFrame
+      !ElectronRPCServerConfig.isNullish(frame) &&
+      (allowSubFrames || ElectronRPCServerConfig.isNullish(frame.parent)) && (
+        allowedOrigins.isEmpty || {
+          val url = ElectronRPCServerConfig.frameUrl(frame)
+          allowedOrigins.exists(o => ElectronRPCServerConfig.matchesOrigin(url, o))
+        }
+      ) && senderFilter.forall(_(frame))
+
+end ElectronRPCServerConfig
+
+object ElectronRPCServerConfig:
+  private def isNullish(v: js.Any): Boolean = js.isUndefined(v) || v == null
+
+  private def frameUrl(frame: js.Dynamic): String =
+    val url = frame.url
+    if isNullish(url) then
+      ""
+    else
+      url.toString
+
+  private[electron] def senderUrl(event: js.Any): String =
+    val e = event.asInstanceOf[js.Dynamic]
+    if isNullish(e) || isNullish(e.senderFrame) then
+      "(unknown frame)"
+    else
+      frameUrl(e.senderFrame)
+
+  private[electron] def matchesOrigin(url: String, origin: String): Boolean =
+    val prefix = origin.stripSuffix("/")
+    url.startsWith(prefix) && (
+      url.length == prefix.length || {
+        val next = url.charAt(prefix.length)
+        next == '/' || next == '?' || next == '#'
+      }
+    )
+
+end ElectronRPCServerConfig

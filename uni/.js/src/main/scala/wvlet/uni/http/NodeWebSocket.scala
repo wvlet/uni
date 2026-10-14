@@ -42,6 +42,7 @@ private[http] object NodeWebSocket extends LogSupport:
       maxFrameSize: Int,
       pingIntervalMillis: Int,
       allowedOrigins: Seq[String],
+      allowedHosts: Seq[String],
       detailedErrors: Boolean
   ): Unit =
     try
@@ -50,9 +51,13 @@ private[http] object NodeWebSocket extends LogSupport:
         case None =>
           destroyQuietly(socket)
         case Some(route) =>
-          WebSocketHandshake.validate(request, allowedOrigins) match
+          val validated = HttpServerSecurity
+            .checkHost(request, allowedHosts)
+            .toLeft(())
+            .flatMap(_ => WebSocketHandshake.validate(request, allowedOrigins))
+          validated match
             case Left(rejection) =>
-              // Disallowed origin (403), missing key (400), or unsupported version (426)
+              // Disallowed host or origin (403), missing key (400), or unsupported version (426)
               writeHttpClose(socket, rejection)
             case Right(key) =>
               gateAndAccept(

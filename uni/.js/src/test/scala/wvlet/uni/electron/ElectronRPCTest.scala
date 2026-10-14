@@ -14,8 +14,8 @@
 package wvlet.uni.electron
 
 import wvlet.uni.electron.testing.ElectronTestbed
-import wvlet.uni.http.Http
-import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
+import wvlet.uni.http.{Http, HttpException}
+import wvlet.uni.http.rpc.{RPCClient, RPCRouter, RPCStatus}
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.Surface
 import wvlet.uni.test.UniTest
@@ -103,6 +103,63 @@ class ElectronRPCTest extends UniTest:
     restored.status.code shouldBe 200
     restored.header(HttpHeader.XRPCStatus) shouldBe Some("0")
     restored.contentAsString shouldBe Some("""{"v":42}""")
+  }
+
+  test("accept only top-level sender frames by default") {
+    val config = ElectronRPCServerConfig()
+    config.isAllowedSender(ElectronTestbed.ipcEvent("https://any.example/")) shouldBe true
+    config.isAllowedSender(
+      ElectronTestbed.ipcEvent("https://ads.example/", isTopLevel = false)
+    ) shouldBe false
+    config.isAllowedSender(js.Dynamic.literal()) shouldBe false
+    config.isAllowedSender(js.Dynamic.literal(senderFrame = null)) shouldBe false
+    config.isAllowedSender(js.undefined.asInstanceOf[js.Dynamic]) shouldBe false
+    config
+      .withAllowSubFrames(true)
+      .isAllowedSender(
+        ElectronTestbed.ipcEvent("https://ads.example/", isTopLevel = false)
+      ) shouldBe true
+  }
+
+  test("match allowed origins at a path boundary") {
+    val config = ElectronRPCServerConfig().withAllowedOrigins("file://", "http://localhost:5173")
+    config.isAllowedSender(ElectronTestbed.ipcEvent("file:///app/index.html")) shouldBe true
+    config.isAllowedSender(ElectronTestbed.ipcEvent("http://localhost:5173")) shouldBe true
+    config.isAllowedSender(ElectronTestbed.ipcEvent("http://localhost:5173/#/home")) shouldBe true
+    config.isAllowedSender(ElectronTestbed.ipcEvent("http://localhost:51730/")) shouldBe false
+    config.isAllowedSender(ElectronTestbed.ipcEvent("https://evil.example/")) shouldBe false
+  }
+
+  test("apply a custom sender filter") {
+    val config = ElectronRPCServerConfig().withSenderFilter(_.url.toString.endsWith("/main.html"))
+    config.isAllowedSender(ElectronTestbed.ipcEvent("file:///app/main.html")) shouldBe true
+    config.isAllowedSender(ElectronTestbed.ipcEvent("file:///app/other.html")) shouldBe false
+    config
+      .noSenderFilter
+      .isAllowedSender(ElectronTestbed.ipcEvent("file:///app/other.html")) shouldBe true
+  }
+
+  test("reject calls from a disallowed sender with PERMISSION_DENIED") {
+    val testbed = ElectronTestbed.serve(
+      ElectronRPCServerConfig().withAllowedOrigins("app://trusted"),
+      RPCRouter.of[GreetingService](GreetingServiceImpl())
+    )
+    val client =
+      Http
+        .client
+        .withChannelFactory(
+          ElectronChannelFactory(testbed.bridge(senderUrl = "https://evil.example/"))
+        )
+        .newAsyncClient
+    rpcClient
+      .callAsync[Greeting](client, "hello", Seq("world"))
+      .map(_ => "unexpected success")
+      .recover { case e: HttpException =>
+        e.getMessage
+      }
+      .map { result =>
+        result shouldContain RPCStatus.PERMISSION_DENIED_U14.name
+      }
   }
 
 end ElectronRPCTest
