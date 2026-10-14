@@ -160,6 +160,21 @@ object RxRunnerTest extends UniTest:
     b.result() shouldBe Seq(OnNext(2), OnCompletion)
   }
 
+  test("flatMap completes after a recovered nested failure") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(
+      Rx.single(1)
+        .flatMap(_ => Rx.future(p.future))
+        .recover { case _ =>
+          0
+        }
+    )(b += _)
+    p.failure(ex)
+    b.result() shouldBe Seq(OnNext(0), OnCompletion)
+  }
+
   test("runOnce reports only the first event") {
     val b = Seq.newBuilder[RxEvent]
     RxRunner.runOnce(Rx.single(1))(b += _)
