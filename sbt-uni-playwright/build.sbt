@@ -17,6 +17,11 @@ ThisBuild / publishTo := {
     localStaging.value
 }
 
+// Stage releases into the uni root build's staging directory, so a single `sonaRelease` from the
+// root uploads this plugin together with every other uni artifact as one Sonatype deployment.
+// Global scope, because sbt defines `localStaging` (which `publishTo` uses) as `Global / localStaging`.
+Global / stagingDirectory := (ThisBuild / baseDirectory).value.getParentFile / "target" / "sona-staging"
+
 // The Java Playwright runtime. It bundles its own driver and downloads browsers on demand, so no
 // Node.js or npm package is required to run the tests.
 val PLAYWRIGHT_VERSION = "1.49.0"
