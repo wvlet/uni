@@ -13,21 +13,32 @@
  */
 package wvlet.uni.test.playwright
 
+import wvlet.uni.rx.Rx
+
 import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
+import scala.util.Failure
 
 /**
   * Calls JVM-side Playwright `Page` APIs from Scala.js tests running in a real browser under
   * `uni-jsenv-playwright` (or the `sbt-uni-playwright` plugin).
   *
-  * Each call is a round trip through the JSEnv's poll loop, so it returns a `Future`; return it
+  * Each call is a round trip through the JSEnv's poll loop, so it returns an `Rx`. The `Rx` is
+  * lazy: the command is sent when it runs (once per run), so chained steps run in order. Return it
   * from the test body:
   * {{{
-  *   test("dialog renders") {
-  *     mount(dialog)
-  *     Playwright.expectScreenshot("dialog-open", selector = "#dialog")
+  *   test("submits on Enter") {
+  *     mount(form)
+  *     for
+  *       _ <- Playwright.click("#name")
+  *       _ <- Playwright.typeText("uni")
+  *       _ <- Playwright.press("Enter")
+  *     yield submitted shouldBe true
   *   }
   * }}}
+  *
+  * Input commands produce trusted browser events (`isTrusted`) with their default actions (focus,
+  * text input, form submission), unlike `dispatchEvent`.
   *
   * Outside that JSEnv (e.g. on Node.js) every call fails; check [[isAvailable]] to skip instead.
   */
@@ -35,6 +46,9 @@ object Playwright:
 
   /** The page-command protocol version this client speaks. */
   val protocolVersion: Int = 1
+
+  /** Default wait (ms) for the element of an input command. */
+  val defaultTimeoutMillis: Int = 5000
 
   private given ExecutionContext = wvlet.uni.test.compat.executionContext
 
@@ -53,8 +67,10 @@ object Playwright:
     * @return
     *   the absolute path of the written file
     */
-  def screenshot(name: String, selector: String = "", fullPage: Boolean = false): Future[String] =
-    call("screenshot", args(name, selector, fullPage)).map(_.toString)
+  def screenshot(name: String, selector: String = "", fullPage: Boolean = false): Rx[String] = call(
+    "screenshot",
+    screenshotArgs(name, selector, fullPage)
+  ).map(_.toString)
 
   /**
     * Compare a screenshot with the golden image `<name>-<browser>-<os>.png` in the snapshot
@@ -73,13 +89,70 @@ object Playwright:
       fullPage: Boolean = false,
       maxDiffPixelRatio: Double = 0.0,
       threshold: Double = 0.1
-  ): Future[Unit] =
-    val a = args(name, selector, fullPage)
+  ): Rx[Unit] =
+    val a = screenshotArgs(name, selector, fullPage)
     a.updateDynamic("maxDiffPixelRatio")(maxDiffPixelRatio)
     a.updateDynamic("threshold")(threshold)
     call("expectScreenshot", a).map(_ => ())
 
-  private def args(name: String, selector: String, fullPage: Boolean): js.Dynamic =
+  /**
+    * Click the element matching `selector` (a Playwright selector; CSS by default) with a real
+    * mouse click, after waiting up to `timeoutMillis` for it to be visible, stable and enabled.
+    * Fails if the selector matches more than one element.
+    */
+  def click(selector: String, timeoutMillis: Int = defaultTimeoutMillis): Rx[Unit] = call(
+    "click",
+    js.Dynamic.literal(selector = selector, timeout = timeoutMillis)
+  ).map(_ => ())
+
+  /** Move the mouse over the element matching `selector`, so `:hover` and mouse events apply. */
+  def hover(selector: String, timeoutMillis: Int = defaultTimeoutMillis): Rx[Unit] = call(
+    "hover",
+    js.Dynamic.literal(selector = selector, timeout = timeoutMillis)
+  ).map(_ => ())
+
+  /** Replace the value of the input, textarea or contenteditable element matching `selector`. */
+  def fill(selector: String, text: String, timeoutMillis: Int = defaultTimeoutMillis): Rx[Unit] =
+    call("fill", js.Dynamic.literal(selector = selector, text = text, timeout = timeoutMillis)).map(
+      _ => ()
+    )
+
+  /** Type `text` key by key into the focused element (focus it first, e.g. with [[click]]). */
+  def typeText(text: String): Rx[Unit] = call("type", js.Dynamic.literal(text = text)).map(_ => ())
+
+  /**
+    * Press a key or key combination on the focused element, e.g. `"Enter"`, `"ArrowLeft"`,
+    * `"Control+A"` or `"Shift+Tab"` (Playwright key names).
+    */
+  def press(key: String): Rx[Unit] = call("press", js.Dynamic.literal(key = key)).map(_ => ())
+
+  /**
+    * Resize the viewport, so media queries and `resize` listeners see the new size. The size stays
+    * for the rest of the run (all tests share one page); prefer [[withViewportSize]], which
+    * restores it.
+    *
+    * @return
+    *   the previous (width, height)
+    */
+  def setViewportSize(width: Int, height: Int): Rx[(Int, Int)] = call(
+    "setViewportSize",
+    js.Dynamic.literal(width = width, height = height)
+  ).map { v =>
+    val prev = v.asInstanceOf[js.Dynamic]
+    (prev.width.asInstanceOf[Int], prev.height.asInstanceOf[Int])
+  }
+
+  /** Run `body` at the given viewport size, then restore the previous size whatever the outcome. */
+  def withViewportSize[A](width: Int, height: Int)(body: Rx[A]): Rx[A] = setViewportSize(
+    width,
+    height
+  ).flatMap { (prevWidth, prevHeight) =>
+    body.transformRx { result =>
+      setViewportSize(prevWidth, prevHeight).flatMap(_ => Rx.fromTry(result))
+    }
+  }
+
+  private def screenshotArgs(name: String, selector: String, fullPage: Boolean): js.Dynamic =
     val a = js.Dynamic.literal(name = name, fullPage = fullPage)
     if selector.nonEmpty then
       a.updateDynamic("selector")(selector)
@@ -96,7 +169,12 @@ object Playwright:
     .toOption
     .flatMap(b => b.version.asInstanceOf[js.UndefOr[Int]].toOption)
 
-  private def call(cmd: String, a: js.Dynamic): Future[js.Any] =
+  /** A lazy `Rx` that sends the command each time it runs. */
+  private def call(cmd: String, a: => js.Dynamic): Rx[js.Any] = Rx
+    .single(())
+    .flatMap(_ => Rx.future(send(cmd, a)))
+
+  private def send(cmd: String, a: js.Dynamic): Future[js.Any] =
     bridgeVersion match
       case None =>
         Future.failed(
@@ -114,6 +192,21 @@ object Playwright:
           )
         )
       case Some(_) =>
-        bridge.get.call(cmd, a).asInstanceOf[js.Promise[js.Any]].toFuture
+        bridge
+          .get
+          .call(cmd, a)
+          .asInstanceOf[js.Promise[js.Any]]
+          .toFuture
+          .transform {
+            // Commands added within the same protocol version are missing from older JSEnvs.
+            case Failure(e) if Option(e.getMessage).exists(_.contains("Unknown page command")) =>
+              Failure(
+                UnsupportedOperationException(
+                  s"Playwright.${cmd} requires a newer uni-jsenv-playwright: ${e.getMessage}"
+                )
+              )
+            case other =>
+              other
+          }
 
 end Playwright

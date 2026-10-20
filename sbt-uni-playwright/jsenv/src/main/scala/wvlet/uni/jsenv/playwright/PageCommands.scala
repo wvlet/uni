@@ -25,6 +25,9 @@ import scala.util.control.NonFatal
   * (see [[JsBridge]]). [[PlaywrightEngine]] drains them each poll cycle and runs them here on its
   * worker thread, so every Playwright call stays on one thread.
   *
+  * Input commands (`click`, `hover`, `fill`, `type`, `press`) go through Playwright, so the page
+  * sees trusted events (`isTrusted`) with their default actions, unlike `dispatchEvent`.
+  *
   * Commands may write files, so names are restricted to `[A-Za-z0-9._-]+` and every path is checked
   * to stay under the configured directory.
   */
@@ -38,6 +41,24 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
         screenshot(args)
       case "expectScreenshot" =>
         expectScreenshot(args)
+      case "click" =>
+        locator(args).click(Locator.ClickOptions().setTimeout(timeout(args)))
+        null
+      case "hover" =>
+        locator(args).hover(Locator.HoverOptions().setTimeout(timeout(args)))
+        null
+      case "fill" =>
+        val text = required(args, "text")
+        locator(args).fill(text, Locator.FillOptions().setTimeout(timeout(args)))
+        null
+      case "type" =>
+        page.keyboard().`type`(required(args, "text"))
+        null
+      case "press" =>
+        page.keyboard().press(required(args, "key"))
+        null
+      case "setViewportSize" =>
+        setViewportSize(args)
       case other =>
         throw IllegalArgumentException(s"Unknown page command: ${other}")
 
@@ -51,6 +72,26 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
       case NonFatal(e) =>
         result.put("error", s"${cmd} failed: ${Option(e.getMessage).getOrElse(e.toString)}")
     result
+
+  /**
+    * The element for an input command. Locators are strict, so a selector matching several elements
+    * rejects instead of acting on an arbitrary one.
+    */
+  private def locator(args: JMap[String, Object]): Locator = page.locator(
+    required(args, "selector")
+  )
+
+  /** Resize the viewport and return the previous size, so the caller can restore it. */
+  private def setViewportSize(args: JMap[String, Object]): Object =
+    val width  = dimension(args, "width")
+    val height = dimension(args, "height")
+    val prev   = java.util.HashMap[String, Object]()
+    Option(page.viewportSize()).foreach { v =>
+      prev.put("width", Integer.valueOf(v.width))
+      prev.put("height", Integer.valueOf(v.height))
+    }
+    page.setViewportSize(width, height)
+    prev
 
   private def screenshot(args: JMap[String, Object]): Object =
     val name = validName(args)
@@ -138,7 +179,13 @@ end PageCommands
 
 private[playwright] object PageCommands:
   private val maxStableCaptures = 10
-  private val namePattern       = "[A-Za-z0-9._-]+".r
+
+  /**
+    * Default wait for an input command's element. Shorter than Playwright's 30s, because a waiting
+    * command blocks the engine's poll loop (including console output).
+    */
+  val defaultTimeoutMillis: Double = 5000
+  private val namePattern          = "[A-Za-z0-9._-]+".r
 
   /** The `name` argument, restricted to a plain file-name stem. */
   def validName(args: JMap[String, Object]): String =
@@ -151,6 +198,34 @@ private[playwright] object PageCommands:
         )
       case None =>
         throw IllegalArgumentException("Missing 'name' argument")
+
+  /** A non-empty string argument. */
+  def required(args: JMap[String, Object], key: String): String =
+    string(args, key) match
+      case Some(v) if v.nonEmpty =>
+        v
+      case _ =>
+        throw IllegalArgumentException(s"Missing '${key}' argument")
+
+  /** A positive integer viewport dimension. */
+  def dimension(args: JMap[String, Object], key: String): Int =
+    number(args, key) match
+      case Some(d) if d >= 1 && d <= 100000 && d == d.floor =>
+        d.toInt
+      case Some(d) =>
+        throw IllegalArgumentException(s"Invalid '${key}': ${d} (use a positive integer)")
+      case None =>
+        throw IllegalArgumentException(s"Missing '${key}' argument")
+
+  /** The input wait in milliseconds; 0 waits forever, as in Playwright. */
+  def timeout(args: JMap[String, Object]): Double =
+    number(args, "timeout") match
+      case Some(t) if t >= 0 =>
+        t
+      case Some(t) =>
+        throw IllegalArgumentException(s"Invalid 'timeout': ${t}")
+      case None =>
+        defaultTimeoutMillis
 
   /** Resolve `file` under `dir`, rejecting anything that would escape it. */
   def within(dir: Path, file: String): Path =

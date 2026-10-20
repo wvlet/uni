@@ -99,7 +99,8 @@ pnpm dlx playwright@1.49.0 install --with-deps chromium
 
 Tests running in the browser can call JVM-side Playwright through
 `wvlet.uni.test.playwright.Playwright` (in `uni-test`, Scala.js only). Each call
-returns a `Future`, so return it from the test body:
+returns a lazy `Rx`: the command is sent when the `Rx` runs, so return it from
+the test body and chain steps with `flatMap` or a `for` comprehension:
 
 ```scala
 import wvlet.uni.test.UniTest
@@ -114,8 +115,8 @@ class DialogTest extends UniTest:
 
 | Method | Description |
 | ------ | ----------- |
-| `screenshot(name, selector = "", fullPage = false): Future[String]` | Write `<name>.png` to the screenshot dir; returns its absolute path |
-| `expectScreenshot(name, selector = "", fullPage = false, maxDiffPixelRatio = 0.0, threshold = 0.1): Future[Unit]` | Compare with the golden `<name>-<browser>-<os>.png` in the snapshot dir |
+| `screenshot(name, selector = "", fullPage = false): Rx[String]` | Write `<name>.png` to the screenshot dir; returns its absolute path |
+| `expectScreenshot(name, selector = "", fullPage = false, maxDiffPixelRatio = 0.0, threshold = 0.1): Rx[Unit]` | Compare with the golden `<name>-<browser>-<os>.png` in the snapshot dir |
 | `isAvailable: Boolean` | Whether the page runs under a compatible Playwright JSEnv |
 
 - `name` may contain only letters, digits, `.`, `_`, and `-`.
@@ -134,6 +135,52 @@ class DialogTest extends UniTest:
 
 Outside this JSEnv (e.g. on Node.js) the calls fail with an explanatory error;
 use `Playwright.isAvailable` to skip instead.
+
+## Trusted input and viewport
+
+Events created with `dispatchEvent` have `isTrusted = false` and skip default
+actions such as moving focus, inserting text, or submitting a form on Enter.
+These methods drive the browser through Playwright instead, so the page gets
+real input:
+
+```scala
+test("submits on Enter") {
+  mountForm()
+  for
+    _ <- Playwright.click("#name")
+    _ <- Playwright.typeText("uni")
+    _ <- Playwright.press("Enter")
+  yield submitted shouldBe true
+}
+
+test("collapses the menu on narrow screens") {
+  mountMenu()
+  Playwright.withViewportSize(500, 800) {
+    Playwright.expectScreenshot("menu-narrow", selector = "#menu")
+  }
+}
+```
+
+| Method | Description |
+| ------ | ----------- |
+| `click(selector, timeoutMillis = 5000): Rx[Unit]` | Click the matching element |
+| `hover(selector, timeoutMillis = 5000): Rx[Unit]` | Move the mouse over the matching element (`:hover` applies) |
+| `fill(selector, text, timeoutMillis = 5000): Rx[Unit]` | Replace the value of an input, textarea, or contenteditable element |
+| `typeText(text): Rx[Unit]` | Type `text` key by key into the focused element |
+| `press(key): Rx[Unit]` | Press a key or combination on the focused element, e.g. `"Enter"`, `"Control+A"` |
+| `setViewportSize(width, height): Rx[(Int, Int)]` | Resize the viewport; returns the previous size |
+| `withViewportSize(width, height)(body: Rx[A]): Rx[A]` | Run `body` at that size, then restore the previous size |
+
+- Selectors are [Playwright selectors](https://playwright.dev/java/docs/locators)
+  (CSS by default). A selector matching more than one element fails rather than
+  picking one.
+- Element commands wait up to `timeoutMillis` for the element to be actionable
+  (visible, stable, enabled). The default is 5s, shorter than Playwright's 30s,
+  because a waiting command pauses the test run's console output.
+- All tests in a run share one page, so a viewport change persists. Prefer
+  `withViewportSize`, which keeps the 1280×720 baseline that screenshots rely on.
+- These commands need a `uni-jsenv-playwright` newer than 2026.1.26; an older one
+  fails the call with "requires a newer uni-jsenv-playwright".
 
 ## Failure artifacts
 

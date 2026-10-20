@@ -45,13 +45,14 @@ sbt uniPlaywrightInstall   # optional: pre-download & pin the browser
 sbt test                   # runs in a real browser
 ```
 
-Tests can also take screenshots and assert against golden images through
+Tests can also take screenshots, assert against golden images, and drive trusted input
+(`click`, `hover`, `fill`, `typeText`, `press`) and the viewport through
 `wvlet.uni.test.playwright.Playwright` (in `uni-test`, Scala.js):
 
 ```scala
 test("dialog renders") {
   mountDialog()
-  Playwright.expectScreenshot("dialog-open", selector = "#dialog") // Future[Unit]
+  Playwright.expectScreenshot("dialog-open", selector = "#dialog") // Rx[Unit]
 }
 ```
 
