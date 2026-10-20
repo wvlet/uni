@@ -48,8 +48,9 @@ sequenceDiagram
      `{id, cmd, args}` onto a `commands` buffer and returns a Promise kept in a pending map.
    - `fetch()` also returns `commands`. A new `resolveBatch(results)` settles the pending
      Promises with `{id, value}` or `{id, error}`.
-   - `version` is a protocol integer (starting at `1`). The client checks it so that an old
-     JSEnv paired with a newer client fails with a clear message instead of hanging.
+   - `version` is a protocol integer (starting at `1`), bumped only on incompatible changes. The
+     client requires an exact match, so mismatched releases fail with a clear message instead of
+     hanging or misreading results.
 2. **Engine (`PlaywrightEngine`)**
    - In `pump`, run each drained command on `session.page` on the worker thread, then deliver
      all results in one `resolveBatch` evaluate.
@@ -65,6 +66,8 @@ sequenceDiagram
    - `expectScreenshot {name, selector?, maxDiffPixelRatio?, threshold?}`:
      - The golden file is `<snapshotDir>/<name>-<browser>-<os>.png`. Font rendering differs by
        OS and browser, as in `@playwright/test`.
+     - The actual image is captured until two consecutive shots are identical (up to 10), as
+       `toHaveScreenshot` does, so late-loading fonts or images do not cause flaky failures.
      - The diff decodes both PNGs with `ImageIO` and compares pixels with a per-channel
        `threshold` (default 0.1). It passes when the differing-pixel ratio is at most
        `maxDiffPixelRatio` (default 0) and the sizes match.
