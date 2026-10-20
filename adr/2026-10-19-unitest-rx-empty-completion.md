@@ -22,4 +22,4 @@ Rejected alternatives:
 ## Consequences
 
 - This is a breaking change for uni-test users who return an intentionally empty `Rx`.
-- On JS, `NodeServerTest` "should hide exception messages in 500 responses" fails until `transformRx` stops forwarding its input's completion while a retry is pending (#717). The test is a real silent pass, not a false alarm.
+- The stricter rule surfaced one silent pass, JS `NodeServerTest` "should hide exception messages in 500 responses". The cause was `transformRx` forwarding its input's completion while a retry was pending. That bug is fixed in #717, which this change builds on.
