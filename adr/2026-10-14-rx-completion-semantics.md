@@ -31,5 +31,5 @@ The alternatives considered, fixing only `Rx.future` or only `runOnce`, are comp
 - This is a breaking change. Code that relied on filter-rejection completing a stream behaves differently, for example a `runOnce`/`await` over a filtered `RxVar` that used to resolve to `()`. `Rx.const(...).concat(...)` now proceeds to the second stream.
 - Async tests on Scala.js now assert for real. The first run surfaced a missing half-open `'end'` handler in `NodeWebSocket`, which is fixed.
 - The Netty `runRxResponse` `AtomicBoolean` guard is now redundant. It can be removed in a follow-up.
-- `transformRx` (`TransformRxOp`) still forwards its input's completion while its nested stream is pending, the same issue `flatMap` had. Fix it the same way if it causes problems.
+- `transformRx` (`TransformRxOp`) follows the same rule as `flatMap`; both share `NestedStreamTracker`. An input `OnError` that `f` turns into a nested stream counts as the input's termination, so the operator completes when that nested stream ends (except in continuous mode, where an `RxVar` may emit again).
 - The `filter` caveat in `2026-06-20-background-task.md` (`progressStream` uses `flatMap`) no longer applies. The `flatMap` form still works.
