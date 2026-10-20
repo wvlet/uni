@@ -91,9 +91,11 @@ private[test] object compat:
         e
 
   /**
-    * Convert an Rx stream to a Future for async test execution.
+    * Convert an Rx stream to a Future for async test execution. Subscribes on the execution context
+    * to keep the subscription off the caller thread.
     */
   def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] =
-    Future(rx.await)(using executionContext)
+    given ExecutionContext = executionContext
+    Future.unit.flatMap(_ => RxTestRunner.firstValue(rx))
 
 end compat

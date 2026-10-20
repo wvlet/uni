@@ -194,6 +194,8 @@ trait UniTest
           e match
             case af: AssertionFailure =>
               TestResult.Failure(testDef.fullName, af.getMessage, Some(af))
+            case e: RxCompletedWithoutValue =>
+              TestResult.Failure(testDef.fullName, e.getMessage, Some(e))
             case _ =>
               TestResult.Error(testDef.fullName, e.getMessage, e)
 
