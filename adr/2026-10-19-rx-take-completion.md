@@ -15,4 +15,4 @@
 
 - `take(n)` streams complete earlier but emit the same values. `filter(p).take(1)` is now a valid way to await the first matching value; `uni-dom-test`'s `awaitValue` uses it with `timeout`.
 - During an update, an `RxVar` still delivers that update to a subscriber that another subscriber cancelled in the same pass. `take` and `flatMap` guard against this themselves.
-- When the downstream returns `Stop` before the nth value (for example `runOnce`), `take` forwards nothing more but does not cancel the upstream. `runOnce` relies on the upstream's own completion to drive `concat` cleanup, so an `RxVar` subscription there is released only when the caller cancels.
+- When the downstream returns `Stop` before the nth value (for example `runOnce`), `take` forwards nothing more but does not cancel the upstream. Continuous mode is exempt, because there `Stop` after a downstream error is transient. `runOnce` relies on the upstream's own completion to drive `concat` cleanup, so an `RxVar` subscription there is released only when the caller cancels.
