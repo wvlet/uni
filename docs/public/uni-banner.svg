@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640">
-  <!-- Source for uni-banner-1280x640.png: resvg --resources-dir docs/public -w 1280 -h 640 docs/public/uni-banner.svg docs/public/uni-banner-1280x640.png -->
+  <!-- Source of uni-banner-1280x640.png; plans/2026-10-20-svg-logo.md has the render command. -->
   <defs><linearGradient id="uni" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#08707c"/><stop offset="1" stop-color="#10b6c8"/></linearGradient></defs>
   <rect width="1280" height="640" fill="#ffffff"/>
   <g font-family="Helvetica Neue" fill="#404047">
