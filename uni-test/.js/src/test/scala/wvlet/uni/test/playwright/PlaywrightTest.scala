@@ -48,10 +48,13 @@ class PlaywrightTest extends UniTest:
             respond(cmd, args)
       )
     js.Dynamic.global.globalThis.__uniPlaywright = bridge
-    body(calls).transformRx { result =>
-      js.special.delete(js.Dynamic.global.globalThis, "__uniPlaywright")
-      Rx.fromTry(result)
-    }
+    // Build the body inside the Rx, so an exception thrown while building it still removes the bridge
+    Rx.single(())
+      .flatMap(_ => body(calls))
+      .transformRx { result =>
+        js.special.delete(js.Dynamic.global.globalThis, "__uniPlaywright")
+        Rx.fromTry(result)
+      }
 
   test("is unavailable outside the Playwright JSEnv") {
     Playwright.isAvailable shouldBe false
