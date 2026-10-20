@@ -968,6 +968,27 @@ object RxTest extends UniTest:
     events.result() shouldBe Seq(OnNext(1))
   }
 
+  test("take(n) keeps reading after a downstream error in continuous mode") {
+    val ex     = IllegalArgumentException("test error")
+    val v      = Rx.variable(1)
+    val events = Seq.newBuilder[RxEvent]
+    val rx     = v
+      .take(5)
+      .map { x =>
+        if x == 3 then
+          throw ex
+        x * 2
+      }
+    RxRunner.runContinuously(rx)(events += _)
+    v := 2
+    v := 3
+    v := 4
+    v := 5
+    events.result() shouldBe
+      Seq(OnNext(2), OnNext(4), OnError(ex), OnNext(8), OnNext(10), OnCompletion)
+  }
+
+  // Guards runOnce's contract: take must not cancel an upstream whose completion runs cleanup
   test("take(n) keeps the upstream running after runOnce stops") {
     var cleanedUp = false
     val rx        = Rx

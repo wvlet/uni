@@ -332,9 +332,10 @@ class RxRunner(
                 count += 1
                 val result = effect(OnNext(v.asInstanceOf[A]))
                 if count < n then
-                  if !result.toContinue then
+                  if !continuous && !result.toContinue then
                     // The downstream stopped early. Forward nothing more, but keep the upstream
-                    // subscribed so that its own completion still drives operators such as concat
+                    // subscribed so that its own completion still drives operators such as concat.
+                    // In continuous mode, Stop after a downstream error is transient.
                     done.set(true)
                   result
                 else
