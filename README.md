@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://wvlet.org/uni/uni-logo-128x128.png" alt="Uni Logo" width="120">
+  <img src="https://wvlet.org/uni/uni-logo.svg" alt="Uni Logo" width="120">
 </p>
 
 # Uni
