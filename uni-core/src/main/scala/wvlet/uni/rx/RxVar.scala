@@ -77,7 +77,10 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
   private def propagateEvent(e: RxEvent): Unit =
     // Wrap with a synchrnoized block to avoid concurrent modification of subscribers
     synchronized {
-      subscribers.foreach { s =>
+      // Iterate over a snapshot as a subscriber may unsubscribe while handling the event,
+      // e.g., take(n) cancels its subscription right after the nth value
+      val currentSubscribers = subscribers.toList
+      currentSubscribers.foreach { s =>
         // The subscriber instance might be null if it is cleaned up in JS
         Option(s).foreach { subscriber =>
           try

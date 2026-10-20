@@ -574,7 +574,9 @@ trait Rx[+A] extends RxOps[A]:
 
   /**
     * Take an event up to <i>n</i> elements. This may receive fewer events than n if the upstream
-    * operator completes before generating <i>n</i> elements.
+    * operator completes before generating <i>n</i> elements. The stream completes right after the
+    * <i>n</i>-th element, and the upstream subscription is cancelled. If n <= 0, it completes
+    * immediately without subscribing to the upstream.
     */
   def take(n: Long): Rx[A] = TakeOp(this, n)
 
