@@ -53,7 +53,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
   },
 
   head: [
-    ['link', { rel: 'icon', href: '/uni/favicon.ico' }],
+    ['link', { rel: 'icon', href: '/uni/favicon.ico', sizes: 'any' }],
+    ['link', { rel: 'icon', href: '/uni/uni-logo.svg', type: 'image/svg+xml' }],
     // Google Analytics
     ['script', { async: '', src: 'https://www.googletagmanager.com/gtag/js?id=G-55G099WF5N' }],
     [
@@ -79,7 +80,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
 
   themeConfig: {
     uniVersion,
-    logo: '/uni-logo-1024x1024.png',
+    logo: '/uni-logo.svg',
     nav: [
       { text: 'Guide', link: '/guide/' },
       { text: 'Book', link: '/book/' },

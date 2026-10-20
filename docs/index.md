@@ -7,7 +7,7 @@ hero:
   text: Essential Scala Utilities
   tagline: Refined for Scala 3 with minimal dependencies
   image:
-    src: /uni-logo-1024x1024.png
+    src: /uni-logo.svg
     alt: Uni
   actions:
     - theme: brand

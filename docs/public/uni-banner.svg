@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="1280" height="640" viewBox="0 0 1280 640">
+  <!-- Source of uni-banner-1280x640.png; plans/2026-10-20-svg-logo.md has the render command. -->
+  <defs><linearGradient id="uni" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#08707c"/><stop offset="1" stop-color="#10b6c8"/></linearGradient></defs>
+  <rect width="1280" height="640" fill="#ffffff"/>
+  <g font-family="Helvetica Neue" fill="#404047">
+    <text x="120" y="272" font-size="84" font-weight="700" fill="url(#uni)">Uni</text>
+    <text x="120" y="332" font-size="47" font-weight="700">Essential Scala Utilities</text>
+    <text x="120" y="398" font-size="29" fill="#69696e">Refined for Scala 3 with minimal</text>
+    <text x="120" y="436" font-size="29" fill="#69696e">dependencies</text>
+  </g>
+  <!-- Logo content spans x 77..878, y 96..927 of its 1024 viewBox; scale it to 380px tall. -->
+  <svg x="770" y="130" width="366" height="380" viewBox="77 96 801 831">
+    <image width="1024" height="1024" href="uni-logo.svg"/>
+  </svg>
+</svg>
