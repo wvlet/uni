@@ -147,10 +147,9 @@ object Playwright:
     width,
     height
   ).flatMap { (prevWidth, prevHeight) =>
-    // materialize + flatMap rather than transformRx: flatMap waits for the async restore to emit
-    body
-      .materialize
-      .flatMap(result => setViewportSize(prevWidth, prevHeight).flatMap(_ => Rx.fromResult(result)))
+    body.transformRx(result =>
+      setViewportSize(prevWidth, prevHeight).flatMap(_ => Rx.fromTry(result))
+    )
   }
 
   private def screenshotArgs(name: String, selector: String, fullPage: Boolean): js.Dynamic =
