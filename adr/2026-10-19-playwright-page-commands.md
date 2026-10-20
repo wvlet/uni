@@ -38,8 +38,11 @@ exists only in Node's `@playwright/test`. Design note: `plans/2026-10-19-playwri
 
 ## Consequences
 
-- The main build loads the **released** `uni-jsenv-playwright`, so `uni-dom-test` can use the
-  client only after the next release bumps `UNI_PLUGIN_VERSION`. Until then the protocol is
-  covered by the `sbt-uni-playwright` scripted test and the client's "unavailable" path by a
-  Node.js test in `uni-test`.
+- The main build loads the **released** `uni-jsenv-playwright`, so a new page command reaches
+  `uni-dom-test` only after a release bumps `UNI_PLUGIN_VERSION` (the bridge landed in 2026.1.26).
+  Before that, cover it with the `sbt-uni-playwright` scripted test.
+- `uni-dom-test` keeps goldens for both `darwin` (local) and `linux` (CI) in
+  `uni-dom-test/src/test/screenshots`. To add or update the Linux ones without a Linux machine, let
+  the CI "Scala.js" job fail: it uploads a `playwright-screenshots` artifact containing the golden
+  written for a missing image (and actual/diff images on a mismatch).
 - New commands (trusted input, viewport) go into `PageCommands.run` plus a client method.

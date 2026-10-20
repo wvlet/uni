@@ -3,6 +3,7 @@ import sbtide.Keys.ideSkipProject
 // `core.jvm` / `.js` / `.native` (Project) are used where a ProjectReference is expected (e.g. the
 // jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
 import scala.language.implicitConversions
+import wvlet.uni.jsenv.playwright.{PlaywrightConfig, PlaywrightJSEnv}
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -271,9 +272,17 @@ lazy val domTest = project
     // unlike the outdated jsdom which only supports plain scripts. Chromium also matches
     // the Electron renderer, so these tests exercise web and Electron app code alike.
     // sbt 2.x caches setting values and a JSEnv is not serializable, so wrap it in Def.uncached.
+    // Screenshot goldens (wvlet.uni.test.playwright.Playwright.expectScreenshot) live in
+    // src/test/screenshots. Paths are absolute so they don't depend on the JVM's working directory.
     Test / jsEnv :=
       Def.uncached(
-        new wvlet.uni.jsenv.playwright.PlaywrightJSEnv(browserName = "chromium", headless = true)
+        PlaywrightJSEnv(
+          PlaywrightConfig(browserName = "chromium", headless = true)
+            .withScreenshotDir(
+              (target.value / "uni-playwright" / "screenshots").toPath.toAbsolutePath
+            )
+            .withSnapshotDir(((Test / sourceDirectory).value / "screenshots").toPath.toAbsolutePath)
+        )
       )
   )
   .dependsOn(uni.js, test.js % Test)
