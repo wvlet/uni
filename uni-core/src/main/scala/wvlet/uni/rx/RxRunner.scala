@@ -335,14 +335,16 @@ class RxRunner(
                   result
                 else
                   // Complete right after the nth value without waiting for the next upstream event
-                  done.set(true)
-                  if result.toContinue then
+                  if done.compareAndSet(false, true) && result.toContinue then
                     effect(OnCompletion)
                   c.cancel
                   RxResult.Stop
               case other =>
-                done.set(true)
-                effect(other)
+                if done.compareAndSet(false, true) then
+                  c.cancel
+                  effect(other)
+                else
+                  RxResult.Stop
             }
           // The nth value may arrive synchronously before run(in) returns
           if done.get() then

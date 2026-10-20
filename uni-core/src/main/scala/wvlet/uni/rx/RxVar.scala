@@ -75,23 +75,22 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
   override def stop(): Unit = propagateEvent(OnCompletion)
 
   private def propagateEvent(e: RxEvent): Unit =
-    // Wrap with a synchrnoized block to avoid concurrent modification of subscribers.
-    // Iterate over a snapshot because a subscriber may (un)subscribe while handling the event,
-    // e.g., take(n) cancels its subscription right after the nth value.
+    // Wrap with a synchrnoized block to avoid concurrent modification of subscribers
     synchronized {
-      subscribers
-        .toList
-        .foreach { s =>
-          // The subscriber instance might be null if it is cleaned up in JS
-          Option(s).foreach { subscriber =>
-            try
-              subscriber(e)
-            catch
-              case NonFatal(e) =>
-                // This is an unusual path because errors should be propagated to the downstream subscribers
-                subscriber(OnError(e))
-          }
+      // Iterate over a snapshot as a subscriber may unsubscribe while handling the event,
+      // e.g., take(n) cancels its subscription right after the nth value
+      val currentSubscribers = subscribers.toList
+      currentSubscribers.foreach { s =>
+        // The subscriber instance might be null if it is cleaned up in JS
+        Option(s).foreach { subscriber =>
+          try
+            subscriber(e)
+          catch
+            case NonFatal(e) =>
+              // This is an unusual path because errors should be propagated to the downstream subscribers
+              subscriber(OnError(e))
         }
+      }
     }
 
   override def setException(e: Throwable): Unit = propagateEvent(OnError(e))
