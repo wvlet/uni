@@ -14,7 +14,10 @@
 package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.playwright.Playwright
 import wvlet.uni.dom.all.*
+import wvlet.uni.dom.testing.awaitValue
+import wvlet.uni.rx.Rx
 
 class MediaQueryTest extends UniTest:
 
@@ -47,5 +50,16 @@ class MediaQueryTest extends UniTest:
   test("matcher can be cancelled without error"):
     val matcher = MediaQuery.matches("(min-width: 0px)")
     matcher.cancel
+
+  test("a matcher follows a real viewport resize"):
+    val narrow = MediaQuery.matches("(max-width: 600px)")
+    narrow.get shouldBe false
+    Playwright
+      .withViewportSize(500, 400)(awaitValue(narrow.rx)(identity))
+      .flatMap(_ => awaitValue(narrow.rx)(!_))
+      .transformRx { result =>
+        narrow.cancel
+        Rx.fromTry(result).map(_ => ())
+      }
 
 end MediaQueryTest
