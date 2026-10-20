@@ -63,12 +63,9 @@
 <linearGradient id="part-face-light" gradientUnits="userSpaceOnUse" x1="693.5" y1="263.8" x2="871.9" y2="331.8"><stop offset="0" stop-color="#1195a0"/><stop offset="1" stop-color="#0ab8c7"/></linearGradient>
 <linearGradient id="part-ear-gray" gradientUnits="userSpaceOnUse" x1="687.2" y1="146.8" x2="693.9" y2="185.8"><stop offset="0" stop-color="#777e7e"/><stop offset="1" stop-color="#a2aaa6"/></linearGradient>
 <linearGradient id="part-horn" gradientUnits="userSpaceOnUse" x1="767.9" y1="166.0" x2="790.0" y2="188.8"><stop offset="0" stop-color="#7c807a"/><stop offset="1" stop-color="#acb0ab"/></linearGradient>
-<linearGradient id="part-horn-band2" gradientUnits="userSpaceOnUse" x1="756.6" y1="179.5" x2="771.7" y2="203.0"><stop offset="0.13" stop-color="#858882"/><stop offset="0.38" stop-color="#929690"/><stop offset="0.63" stop-color="#a4a7a3"/><stop offset="0.88" stop-color="#b3b9b6"/></linearGradient>
-<linearGradient id="part-horn-band1" gradientUnits="userSpaceOnUse" x1="792.2" y1="156.8" x2="802.2" y2="172.3"><stop offset="0.13" stop-color="#91928e"/><stop offset="0.38" stop-color="#999a97"/><stop offset="0.63" stop-color="#9c9d99"/><stop offset="0.88" stop-color="#969793"/></linearGradient>
-<linearGradient id="part-horn-tip" gradientUnits="userSpaceOnUse" x1="833.9" y1="125.8" x2="840.4" y2="135.9"><stop offset="0.17" stop-color="#09a3b0"/><stop offset="0.50" stop-color="#139eaa"/><stop offset="0.83" stop-color="#2c9fa9"/></linearGradient>
-<linearGradient id="part-horn-gloss2" gradientUnits="userSpaceOnUse" x1="785.5" y1="174" x2="788.5" y2="190"><stop offset="0" stop-color="#e8eae5" stop-opacity="0.9"/><stop offset="1" stop-color="#e8eae5" stop-opacity="0"/></linearGradient>
-<linearGradient id="part-horn-gloss1" gradientUnits="userSpaceOnUse" x1="820" y1="143" x2="823" y2="157"><stop offset="0" stop-color="#e8eae5" stop-opacity="0.9"/><stop offset="1" stop-color="#e8eae5" stop-opacity="0"/></linearGradient>
-<linearGradient id="part-horn-gloss0" gradientUnits="userSpaceOnUse" x1="750.5" y1="201" x2="750.5" y2="193"><stop offset="0" stop-color="#e2e4df" stop-opacity="0.9"/><stop offset="1" stop-color="#e2e4df" stop-opacity="0"/></linearGradient>
+<linearGradient id="part-horn-band2" gradientUnits="userSpaceOnUse" x1="758.2" y1="178.6" x2="773.3" y2="201.9"><stop offset="0.13" stop-color="#868983"/><stop offset="0.38" stop-color="#959893"/><stop offset="0.63" stop-color="#a6a9a4"/><stop offset="0.88" stop-color="#b3b9b5"/></linearGradient>
+<linearGradient id="part-horn-band1" gradientUnits="userSpaceOnUse" x1="796.8" y1="153.9" x2="806.5" y2="169.0"><stop offset="0.13" stop-color="#969895"/><stop offset="0.38" stop-color="#9fa3a1"/><stop offset="0.63" stop-color="#9fa3a0"/><stop offset="0.88" stop-color="#979794"/></linearGradient>
+<linearGradient id="part-horn-tip" gradientUnits="userSpaceOnUse" x1="837.2" y1="123.6" x2="843.1" y2="132.7"><stop offset="0.17" stop-color="#07a4b3"/><stop offset="0.50" stop-color="#0ba0ac"/><stop offset="0.83" stop-color="#0d96a2"/></linearGradient>
 <linearGradient id="base-u" gradientUnits="userSpaceOnUse" x1="534.2" y1="894.8" x2="403.4" y2="456.2"><stop offset="0" stop-color="#0d8591"/><stop offset="1" stop-color="#0ebacb"/></linearGradient>
 <linearGradient id="base-head" gradientUnits="userSpaceOnUse" x1="652.1" y1="449.5" x2="620.5" y2="200.2"><stop offset="0" stop-color="#949892"/><stop offset="1" stop-color="#a0a49f"/></linearGradient>
 </defs>
@@ -101,11 +98,8 @@
 <path id="face-light" fill="url(#part-face-light)" d="M677 190C735.5 273 791.7 350 830 445C853.3 450 876.7 455 900 460C900 346.7 900 233.3 900 120C833.3 120 766.7 120 700 120C692.3 143.3 684.7 166.7 677 190Z"/>
 <path id="ear-gray" fill="url(#part-ear-gray)" d="M705 128C682.4 156.6 680.8 153.6 676 190C683.7 190.7 691.3 191.3 699 192C701 170.7 703 149.3 705 128Z"/>
 <path id="horn" fill="url(#part-horn)" d="M716 200C744.5 206.5 756.1 206.6 785 202C823.3 202.3 861.7 202.7 900 203C900 148.7 900 94.3 900 40C840 73.3 780 106.7 720 140C718.7 160 717.3 180 716 200Z"/>
-<path id="horn-band2" fill="url(#part-horn-band2)" d="M761 175C784.7 179.7 786.8 179.8 810 173C801.7 182.7 793.3 192.3 785 202C756.1 206.6 744.5 206.5 716 200C731 191.7 746 183.3 761 175Z"/>
-<path id="horn-band1" fill="url(#part-horn-band1)" d="M800 146C828.1 153.6 815 155 840 140C830 151 820 162 810 173C786.8 179.8 784.7 179.7 761 175C774 165.3 787 155.7 800 146Z"/>
-<path id="horn-tip" fill="url(#part-horn-tip)" d="M840 140C815 155 828.1 153.6 800 146C820 110.7 840 75.3 860 40C880 46.7 900 53.3 920 60C893.3 86.7 866.7 113.3 840 140Z"/>
-<path id="horn-gloss2" fill="url(#part-horn-gloss2)" d="M761 175C790.5 183.4 781.3 184 810 173C775.2 201.6 797.4 201.2 761 175Z"/>
-<path id="horn-gloss1" fill="url(#part-horn-gloss1)" d="M800 146C828.1 153.6 815 155 840 140C812.7 169 831.3 169.2 800 146Z"/>
-<path id="horn-gloss0" fill="url(#part-horn-gloss0)" d="M716 200C741.9 204.7 758.9 205 785 202C758.3 197 742.9 196.3 716 200Z"/>
+<path id="horn-band2" fill="url(#part-horn-band2)" d="M761 175C777.7 175.4 793.4 174.7 810 173C801.7 182.7 793.3 192.3 785 202C756.1 206.6 744.5 206.5 716 200C731 191.7 746 183.3 761 175Z"/>
+<path id="horn-band1" fill="url(#part-horn-band1)" d="M800 146C814.5 145.5 826 143.6 840 140C830 151 820 162 810 173C793.4 174.7 777.7 175.4 761 175C774 165.3 787 155.7 800 146Z"/>
+<path id="horn-tip" fill="url(#part-horn-tip)" d="M840 140C826 143.6 814.5 145.5 800 146C820 110.7 840 75.3 860 40C880 46.7 900 53.3 920 60C893.3 86.7 866.7 113.3 840 140Z"/>
 </g>
 </svg>
