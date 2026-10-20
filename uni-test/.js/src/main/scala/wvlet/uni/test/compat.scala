@@ -113,11 +113,4 @@ private[test] object compat:
     */
   def findCause(e: Throwable): Throwable = e
 
-  /**
-    * Convert an Rx stream to a Future for async test execution. Uses RxRunner callbacks since JS
-    * cannot block.
-    */
-  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] =
-    RxTestRunner.firstValue(rx)(using executionContext)
-
 end compat

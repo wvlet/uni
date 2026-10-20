@@ -167,8 +167,8 @@ trait UniTest
         case f: Future[?] =>
           f.transform(toTestResult)
         case rx: RxOps[?] =>
-          // Use fully qualified name to avoid shadowing by wvlet.uni.rx.compat
-          wvlet.uni.test.compat.runRxAsFuture(rx).transform(toTestResult)
+          // Subscribe on the execution context to keep the subscription off the caller thread
+          Future.delegate(RxTestRunner.firstValue(rx)).transform(toTestResult)
         case _ =>
           Future.successful(TestResult.Success(testDef.fullName))
     catch
