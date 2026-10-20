@@ -15,26 +15,12 @@ package wvlet.uni.dom.testing
 
 import wvlet.uni.rx.Rx
 
-import scala.concurrent.Promise
-import scala.scalajs.concurrent.JSExecutionContext
-
 /**
   * Wait for the first value of `rx` that satisfies `p`, failing with `Rx.TimeoutException` after
   * `timeoutMillis`. Browser events such as `resize` or a media-query `change` arrive in a later
   * rendering step, not synchronously with the action that caused them.
   */
-def awaitValue[A](rx: Rx[A], timeoutMillis: Long = 2000)(p: A => Boolean): Rx[A] = Rx
-  .single(())
-  .flatMap { _ =>
-    val found = Promise[A]()
-    val c     = rx.run(v =>
-      if p(v) then
-        found.trySuccess(v)
-    )
-    Rx.future(found.future)(using JSExecutionContext.queue)
-      .timeout(timeoutMillis)
-      .transformRx { result =>
-        c.cancel
-        Rx.fromTry(result)
-      }
-  }
+def awaitValue[A](rx: Rx[A], timeoutMillis: Long = 2000)(p: A => Boolean): Rx[A] = rx
+  .filter(p)
+  .take(1)
+  .timeout(timeoutMillis)

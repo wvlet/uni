@@ -315,20 +315,39 @@ class RxRunner(
             effect(other)
         }
       case TakeOp(in, n) =>
-        var count = 0
-        run(in) {
-          case OnNext(v) =>
-            if count < n then
-              count += 1
-              effect(OnNext(v.asInstanceOf[A]))
-            else
-              effect(OnCompletion)
-              RxResult.Stop
-          case err @ OnError(e) =>
-            effect(err)
-          case OnCompletion =>
-            effect(OnCompletion)
-        }
+        if n <= 0 then
+          effect(OnCompletion)
+          Cancelable.empty
+        else
+          var count = 0L
+          val done  = AtomicBoolean(false)
+          // A placeholder for the upstream Cancelable, which is set after run(in) returns
+          var c = Cancelable.empty
+          c =
+            run(in) {
+              case _ if done.get() =>
+                // Some sources (e.g., RxVar, Rx.single) keep emitting after Stop
+                RxResult.Stop
+              case OnNext(v) =>
+                count += 1
+                val result = effect(OnNext(v.asInstanceOf[A]))
+                if count < n then
+                  result
+                else
+                  // Complete right after the nth value without waiting for the next upstream event
+                  done.set(true)
+                  if result.toContinue then
+                    effect(OnCompletion)
+                  c.cancel
+                  RxResult.Stop
+              case other =>
+                done.set(true)
+                effect(other)
+            }
+          // The nth value may arrive synchronously before run(in) returns
+          if done.get() then
+            c.cancel
+          c
       case IntervalOp(interval, unit) =>
         val intervalMillis = TimeUnit.MILLISECONDS.convert(interval, unit).max(1)
         val timer: Timer   = compat.newTimer

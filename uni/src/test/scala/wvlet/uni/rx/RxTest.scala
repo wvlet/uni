@@ -904,6 +904,63 @@ object RxTest extends UniTest:
     b.result() shouldBe Seq(1, 2, 3)
   }
 
+  test("take(1) on RxVar completes right after the first value") {
+    val v           = Rx.variable(1)
+    var upstreamObs = 0
+    val rx          = v
+      .map { x =>
+        upstreamObs += 1
+        x
+      }
+      .take(1)
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.run(rx)(events += _)
+    events.result() shouldBe Seq(OnNext(1), OnCompletion)
+
+    // The upstream is unsubscribed after completion
+    v := 2
+    upstreamObs shouldBe 1
+    events.result() shouldBe Seq(OnNext(1), OnCompletion)
+  }
+
+  test("take(n) on a source with exactly n values completes once") {
+    eval(Rx.sequence(1, 2, 3).take(3)) shouldBe Seq(OnNext(1), OnNext(2), OnNext(3), OnCompletion)
+    eval(Rx.single(1).take(1)) shouldBe Seq(OnNext(1), OnCompletion)
+  }
+
+  test("take(n) with fewer upstream values") {
+    eval(Rx.sequence(1, 2).take(3)) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
+  }
+
+  test("take(0) completes without emitting or subscribing") {
+    var subscribed = false
+    val rx         = Rx
+      .single(1)
+      .map { x =>
+        subscribed = true
+        x
+      }
+      .take(0)
+    eval(rx) shouldBe Seq(OnCompletion)
+    subscribed shouldBe false
+    eval(Rx.variable(1).take(-1)) shouldBe Seq(OnCompletion)
+  }
+
+  test("take(1) can complete while RxVar is propagating an update") {
+    val v      = Rx.variable(1)
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.run(v.filter(_ == 2).take(1))(events += _)
+    // The take operator unsubscribes from v during v's own update propagation
+    v := 2
+    v := 3
+    events.result() shouldBe Seq(OnNext(2), OnCompletion)
+  }
+
+  test("take(1) on RxVar completes inside flatMap") {
+    val rx = Rx.single(()).flatMap(_ => Rx.variable(1).take(1)).map(_ * 2)
+    eval(rx) shouldBe Seq(OnNext(2), OnCompletion)
+  }
+
   test("concat") {
     val rx = Rx.single(1).concat(Rx.single(2)).map(_ * 2)
     val b  = Seq.newBuilder[Int]
