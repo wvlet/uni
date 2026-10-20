@@ -14,7 +14,9 @@
 package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.playwright.Playwright
 import wvlet.uni.dom.all.*
+import wvlet.uni.dom.testing.awaitValue
 import wvlet.uni.rx.Rx
 
 class WindowDimensionsTest extends UniTest:
@@ -94,5 +96,12 @@ class WindowDimensionsTest extends UniTest:
 
     (widthResult >= 0) shouldBe true
     (heightResult >= 0) shouldBe true
+
+  test("WindowDimensions.dimensions follows a real viewport resize"):
+    val initial = (WindowDimensions.innerWidth, WindowDimensions.innerHeight)
+    Playwright
+      .withViewportSize(500, 400)(awaitValue(WindowDimensions.dimensions)(_ == (500, 400)))
+      .flatMap(_ => awaitValue(WindowDimensions.dimensions)(_ == initial))
+      .map(_ => ())
 
 end WindowDimensionsTest

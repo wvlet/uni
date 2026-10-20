@@ -179,7 +179,7 @@ test("collapses the menu on narrow screens") {
   because a waiting command pauses the test run's console output.
 - All tests in a run share one page, so a viewport change persists. Prefer
   `withViewportSize`, which keeps the 1280×720 baseline that screenshots rely on.
-- These commands need a `uni-jsenv-playwright` newer than 2026.1.26; an older one
+- These commands need `uni-jsenv-playwright` 2026.1.27 or later; an older one
   fails the call with "requires a newer uni-jsenv-playwright".
 
 ## Failure artifacts

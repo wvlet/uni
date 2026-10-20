@@ -14,12 +14,14 @@
 package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.playwright.Playwright
 import wvlet.uni.rx.Rx
+import wvlet.uni.dom.testing.DomTestSupport
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import scala.language.implicitConversions
 
-class ClickOutsideTest extends UniTest:
+class ClickOutsideTest extends UniTest with DomTestSupport:
 
   test("ClickOutside.detect creates ClickOutsideBinding"):
     val binding = ClickOutside.detect(_ => ())
@@ -57,9 +59,18 @@ class ClickOutsideTest extends UniTest:
     elem shouldMatch { case _: DomElement =>
     }
 
-  // Note: Full integration tests for click outside detection require a browser
-  // environment with real mouse events. The bindings are created correctly
-  // (tested above) and the handler code in DomRenderer will work in a real
-  // browser environment.
+  test("ClickOutside.hide reacts to real clicks outside the element only"):
+    val visible = Rx.variable(true)
+    mount(
+      div(
+        div(id    -> "co-panel", ClickOutside.hide(visible), button(id -> "co-inside", "inside")),
+        button(id -> "co-outside", "outside")
+      )
+    )
+    for
+      _ <- Playwright.click("#co-inside")
+      _ = visible.get shouldBe true
+      _ <- Playwright.click("#co-outside")
+    yield visible.get shouldBe false
 
 end ClickOutsideTest

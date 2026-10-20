@@ -14,6 +14,7 @@
 package wvlet.uni.dom
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.playwright.Playwright
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
@@ -143,5 +144,29 @@ class KeyboardTest extends UniTest:
     combo.key shouldBe "s"
     combo.ctrl shouldBe true
     combo.alt shouldBe false
+
+  test("Keyboard.bind fires on a real key press until cancelled"):
+    var count  = 0
+    val cancel = Keyboard.bind("ctrl+shift+k", () => count += 1)
+    for
+      _ <- Playwright.press("Control+Shift+K")
+      _ = count shouldBe 1
+      _ <- Playwright.press("Control+K")
+      _ = count shouldBe 1
+      _ = cancel.cancel
+      _ <- Playwright.press("Control+Shift+K")
+    yield count shouldBe 1
+
+  test("Keyboard.modifiers tracks a real modifier key"):
+    var seen   = List.empty[Modifiers]
+    val cancel = Keyboard.modifiers.run(m => seen = m :: seen)
+    Playwright
+      .press("Shift+A")
+      .map { _ =>
+        cancel.cancel
+        seen.exists(_.shift) shouldBe true
+        Keyboard.currentModifiers shouldBe Modifiers.none
+        Keyboard.isPressedNow("shift") shouldBe false
+      }
 
 end KeyboardTest
