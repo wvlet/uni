@@ -13,7 +13,7 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
 import scala.scalajs.reflect.Reflect
 
@@ -112,26 +112,5 @@ private[test] object compat:
     * Find the root cause of an exception. Scala.js doesn't have InvocationTargetException.
     */
   def findCause(e: Throwable): Throwable = e
-
-  /**
-    * Convert an Rx stream to a Future for async test execution. Uses Promise + RxRunner callbacks
-    * since JS cannot block.
-    */
-  def runRxAsFuture(rx: wvlet.uni.rx.RxOps[?]): Future[Any] =
-    import wvlet.uni.rx.*
-    val p          = Promise[Any]()
-    val cancelable =
-      RxRunner.runOnce(rx) {
-        case OnNext(v) =>
-          if !p.isCompleted then
-            p.success(v)
-        case OnError(e) =>
-          if !p.isCompleted then
-            p.failure(e)
-        case OnCompletion =>
-          if !p.isCompleted then
-            p.success(())
-      }
-    p.future
 
 end compat

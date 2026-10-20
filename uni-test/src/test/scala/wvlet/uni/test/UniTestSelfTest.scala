@@ -265,4 +265,53 @@ class UniTestSelfTest extends UniTest:
     }
   }
 
+  test("Rx test body") {
+    import wvlet.uni.rx.Rx
+
+    def run(body: => Any): Future[TestResult] = executeTest(TestDef("rx", () => body, Nil))
+
+    test("emitting a value succeeds") {
+      run(Rx.single(1).map(x => x shouldBe 1)).map { r =>
+        r shouldBe TestResult.Success("rx")
+      }
+    }
+
+    test("failing assertion is reported") {
+      run(Rx.single(1).map(x => x shouldBe 2)).map { r =>
+        r shouldMatch { case TestResult.Failure(_, _, Some(_: AssertionFailure)) =>
+        }
+      }
+    }
+
+    test("error is reported") {
+      run(Rx.exception(RuntimeException("rx error"))).map { r =>
+        r shouldMatch { case TestResult.Error(_, msg, _) =>
+          msg shouldContain "rx error"
+        }
+      }
+    }
+
+    test("completing without a value fails") {
+      run(Rx.empty).map { r =>
+        r shouldMatch { case TestResult.Failure(_, msg, Some(_: RxCompletedWithoutValue)) =>
+          msg shouldContain "without emitting a value"
+        }
+      }
+    }
+
+    test("skipped assertions in map fail the test") {
+      // The map body never runs because the filter rejects the only value
+      run(Rx.single(1).filter(_ => false).map(x => x shouldBe 2)).map { r =>
+        r shouldMatch { case TestResult.Failure(_, _, Some(_: RxCompletedWithoutValue)) =>
+        }
+      }
+    }
+
+    test("lastOption tests an empty stream explicitly") {
+      run(Rx.empty.lastOption.toRx.map(x => x shouldBe None)).map { r =>
+        r shouldBe TestResult.Success("rx")
+      }
+    }
+  }
+
 end UniTestSelfTest
