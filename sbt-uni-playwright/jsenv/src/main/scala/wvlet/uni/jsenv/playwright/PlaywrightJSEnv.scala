@@ -31,13 +31,23 @@ import scala.concurrent.Future
   *   where failure screenshots/traces are written (default `target/uni-playwright`)
   * @param launchArgs
   *   extra browser CLI flags appended to the defaults
+  * @param screenshotDir
+  *   where `screenshot` commands and `expectScreenshot` actual/diff images are written
+  * @param snapshotDir
+  *   where `expectScreenshot` golden images are read from (and written to in update mode)
+  * @param updateSnapshots
+  *   overwrite golden images instead of comparing against them. Also enabled by the
+  *   `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1` environment variable.
   */
 case class PlaywrightConfig(
     browserName: String = "chromium",
     headless: Boolean = true,
     captureArtifactsOnFailure: Boolean = true,
     artifactDir: Path = Paths.get("target", "uni-playwright"),
-    launchArgs: List[String] = Nil
+    launchArgs: List[String] = Nil,
+    screenshotDir: Path = Paths.get("target", "uni-playwright", "screenshots"),
+    snapshotDir: Path = Paths.get("src", "test", "screenshots"),
+    updateSnapshots: Boolean = false
 ):
   def withBrowserName(name: String): PlaywrightConfig  = copy(browserName = name)
   def withHeadless(enabled: Boolean): PlaywrightConfig = copy(headless = enabled)
@@ -49,6 +59,15 @@ case class PlaywrightConfig(
   def withArtifactDir(dir: Path): PlaywrightConfig         = copy(artifactDir = dir)
   def withLaunchArgs(args: List[String]): PlaywrightConfig = copy(launchArgs = args)
   def noArtifactCapture: PlaywrightConfig                  = copy(captureArtifactsOnFailure = false)
+  def withScreenshotDir(dir: Path): PlaywrightConfig       = copy(screenshotDir = dir)
+  def withSnapshotDir(dir: Path): PlaywrightConfig         = copy(snapshotDir = dir)
+
+  def withUpdateSnapshots(enabled: Boolean): PlaywrightConfig = copy(updateSnapshots = enabled)
+
+  /** Whether update mode is on, via [[updateSnapshots]] or the environment variable. */
+  def isUpdatingSnapshots: Boolean =
+    updateSnapshots ||
+      sys.env.get("UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS").exists(v => v == "1" || v == "true")
 
 end PlaywrightConfig
 

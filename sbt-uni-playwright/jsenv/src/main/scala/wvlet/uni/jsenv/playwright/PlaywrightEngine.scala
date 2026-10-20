@@ -27,8 +27,10 @@ import scala.util.control.NonFatal
   * Drives a single Scala.js run in a real browser on one worker thread.
   *
   *   - It serves the linked inputs (plus the [[JsBridge]] shim) to a Playwright page, then polls
-  *     the page every `pollIntervalMs` for console output, errors, and com-messages, and pushes
-  *     queued outbound messages back in.
+  *     the page every `pollIntervalMs` for console output, errors, com-messages, and page commands
+  *     (run via [[PageCommands]]), and pushes queued outbound messages and command results back in.
+  *     Polling speeds up to `fastPollIntervalMs` right after a command, so chained commands do not
+  *     each wait a full interval.
   *   - `send` and `close` are safe to call from other threads (they only touch a concurrent queue
   *     and an atomic flag); all Playwright calls stay on the worker thread.
   *   - On an uncaught JS error (or any failure), it captures a screenshot and (if enabled) a trace
@@ -42,12 +44,16 @@ private[playwright] final class PlaywrightEngine(
     onMessage: String => Unit
 ):
   private val pollIntervalMs = 100L
-  private val readyTimeoutMs = 30000L
+  // Poll interval while page commands are active, for `fastPollWindowMs` after the last one.
+  private val fastPollIntervalMs = 10L
+  private val fastPollWindowMs   = 1000L
+  private val readyTimeoutMs     = 30000L
 
   // Constant JS expressions evaluated each poll cycle (the control interface name is a constant).
   private val readyExpr     = s"() => !!${JsBridge.controlInterface}"
   private val fetchExpr     = s"() => ${JsBridge.controlInterface}.fetch()"
   private val sendBatchExpr = s"args => ${JsBridge.controlInterface}.sendBatch(args)"
+  private val resolveExpr   = s"rs => ${JsBridge.controlInterface}.resolveBatch(rs)"
 
   private val sendQueue   = ConcurrentLinkedQueue[String]()
   private val wantToClose = AtomicBoolean(false)
@@ -80,13 +86,23 @@ private[playwright] final class PlaywrightEngine(
       val shimUrl = materializer.write(".js", JsBridge.setupScript(enableCom))
       val htmlUrl = materializer.write(".html", JsBridge.htmlPage(shimUrl, input))
       session.page.navigate(htmlUrl.toString)
+      val commands = PageCommands(config, session.page)
 
       if awaitReady(session) then
+        var lastCommandAt = Long.MinValue
         while !wantToClose.get() do
-          pump(session, streams)
-          Thread.sleep(pollIntervalMs)
+          val now = System.currentTimeMillis()
+          if pump(session, streams, commands) then
+            lastCommandAt = now
+          val fast = lastCommandAt != Long.MinValue && now - lastCommandAt < fastPollWindowMs
+          Thread.sleep(
+            if fast then
+              fastPollIntervalMs
+            else
+              pollIntervalMs
+          )
         // Final drain so output/messages produced right before close are not lost.
-        pump(session, streams)
+        pump(session, streams, commands)
 
       promise.trySuccess(())
     catch
@@ -124,8 +140,11 @@ private[playwright] final class PlaywrightEngine(
       case _ =>
         false
 
-  /** One poll cycle: push outbound messages, drain console/errors/inbound messages. */
-  private def pump(session: BrowserSession, streams: RunStreams): Unit =
+  /**
+    * One poll cycle: push outbound messages, drain console/errors/inbound messages, and run page
+    * commands. Returns true if any page command ran.
+    */
+  private def pump(session: BrowserSession, streams: RunStreams, commands: PageCommands): Boolean =
     // JVM -> JS: drain the queue and deliver in a single round-trip.
     val outbound = java.util.ArrayList[String]()
     var msg      = sendQueue.poll()
@@ -150,7 +169,37 @@ private[playwright] final class PlaywrightEngine(
     val errs = strings(resp, "errors")
     if errs.nonEmpty then
       throw RuntimeException(s"Uncaught JS error(s): ${errs.mkString("; ")}")
+
+    val cmds = maps(resp, "commands")
+    if cmds.nonEmpty then
+      val results = java.util.ArrayList[Object]()
+      cmds.foreach { c =>
+        val args =
+          c.get("args") match
+            case m: java.util.Map[?, ?] =>
+              m.asInstanceOf[java.util.Map[String, Object]]
+            case _ =>
+              java.util.Collections.emptyMap[String, Object]()
+        results.add(commands.runToResult(c.get("id"), String.valueOf(c.get("cmd")), args))
+      }
+      session.page.evaluate(resolveExpr, results)
+    cmds.nonEmpty
   end pump
+
+  private def maps(
+      resp: java.util.Map[String, Object],
+      key: String
+  ): List[java.util.Map[String, Object]] =
+    resp.get(key) match
+      case l: java.util.List[?] =>
+        l.asScala
+          .iterator
+          .collect { case m: java.util.Map[?, ?] =>
+            m.asInstanceOf[java.util.Map[String, Object]]
+          }
+          .toList
+      case _ =>
+        Nil
 
   private def strings(resp: java.util.Map[String, Object], key: String): List[String] =
     resp.get(key) match

@@ -69,6 +69,9 @@ uniPlaywrightHeadless := true
 | `uniPlaywrightBrowser`   | `String`      | `"chromium"` | Browser for `Test / jsEnv`: `chromium`, `firefox`, `webkit` |
 | `uniPlaywrightHeadless`  | `Boolean`     | `true`       | Run the browser without a visible window                 |
 | `uniPlaywrightBrowsers`  | `Seq[String]` | the single `uniPlaywrightBrowser` | Browsers that `uniPlaywrightInstall` downloads |
+| `uniPlaywrightScreenshotDir`   | `File`    | `target.value / "uni-playwright" / "screenshots"` | Where `screenshot` files and `expectScreenshot` actual/diff images are written |
+| `uniPlaywrightSnapshotDir`     | `File`    | `src/test/screenshots` | Golden images for `expectScreenshot` |
+| `uniPlaywrightUpdateSnapshots` | `Boolean` | `false` | Overwrite goldens instead of comparing (also `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1`) |
 
 ## Installing browsers
 
@@ -91,6 +94,46 @@ the same Playwright version the runtime uses so the cached build matches:
 pnpm dlx playwright@1.49.0 install --with-deps chromium
 ```
 :::
+
+## Screenshots and visual regression
+
+Tests running in the browser can call JVM-side Playwright through
+`wvlet.uni.test.playwright.Playwright` (in `uni-test`, Scala.js only). Each call
+returns a `Future`, so return it from the test body:
+
+```scala
+import wvlet.uni.test.UniTest
+import wvlet.uni.test.playwright.Playwright
+
+class DialogTest extends UniTest:
+  test("dialog renders") {
+    mountDialog()
+    Playwright.expectScreenshot("dialog-open", selector = "#dialog")
+  }
+```
+
+| Method | Description |
+| ------ | ----------- |
+| `screenshot(name, selector = "", fullPage = false): Future[String]` | Write `<name>.png` to the screenshot dir; returns its absolute path |
+| `expectScreenshot(name, selector = "", fullPage = false, maxDiffPixelRatio = 0.0, threshold = 0.1): Future[Unit]` | Compare with the golden `<name>-<browser>-<os>.png` in the snapshot dir |
+| `isAvailable: Boolean` | Whether the page runs under a compatible Playwright JSEnv |
+
+- `name` may contain only letters, digits, `.`, `_`, and `-`.
+- A pixel differs when any color channel differs by more than `threshold × 255`;
+  the test fails when the differing-pixel ratio exceeds `maxDiffPixelRatio` or
+  the image size changed. On failure, `<name>-actual.png` and `<name>-diff.png`
+  (differences in red) are written to the screenshot dir.
+- A **missing golden** is written from the actual screenshot and the test
+  **fails**, so review and commit it, then re-run.
+- Golden names include the browser and OS (`linux`, `darwin`, `win32`) because
+  font rendering differs across them. Generate the goldens CI compares against
+  on the CI OS.
+- To accept intended changes, run once with `uniPlaywrightUpdateSnapshots := true`
+  or `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1`.
+- The viewport is fixed at 1280×720 with device scale factor 1.
+
+Outside this JSEnv (e.g. on Node.js) the calls fail with an explanatory error;
+use `Playwright.isAvailable` to skip instead.
 
 ## Failure artifacts
 
