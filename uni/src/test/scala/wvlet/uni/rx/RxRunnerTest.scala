@@ -6,6 +6,8 @@ import wvlet.uni.test.defined
 import java.util.concurrent.TimeUnit
 import scala.concurrent.ExecutionContext
 import scala.concurrent.Promise
+import scala.util.Failure
+import scala.util.Success
 
 object RxRunnerTest extends UniTest:
 
@@ -173,6 +175,109 @@ object RxRunnerTest extends UniTest:
     )(b += _)
     p.failure(ex)
     b.result() shouldBe Seq(OnNext(0), OnCompletion)
+  }
+
+  test("transformRx completes after an asynchronous nested stream") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(Rx.single(1).transformRx(_ => Rx.future(p.future)).map(_ * 10))(b += _)
+    // The input has completed, but the nested stream is still pending
+    b.result() shouldBe Seq.empty
+    p.success(2)
+    b.result() shouldBe Seq(OnNext(20), OnCompletion)
+  }
+
+  test("transformRx completes after a recovered asynchronous nested failure") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(
+      Rx.single(1)
+        .transformRx(_ => Rx.future(p.future))
+        .recover { case _ =>
+          0
+        }
+    )(b += _)
+    b.result() shouldBe Seq.empty
+    p.failure(ex)
+    b.result() shouldBe Seq(OnNext(0), OnCompletion)
+  }
+
+  test("transformRx reports an asynchronous nested failure") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(Rx.single(1).transformRx(_ => Rx.future(p.future)))(b += _)
+    p.failure(ex)
+    b.result() shouldBe Seq(OnError(ex))
+  }
+
+  test("flatMap after transformRx with an asynchronous nested stream") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p1                 = Promise[Int]()
+    val p2                 = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(
+      Rx.single(1)
+        .transformRx(_ => Rx.future(p1.future))
+        .flatMap(x => Rx.future(p2.future).map(_ + x))
+    )(b += _)
+    p1.success(2)
+    b.result() shouldBe Seq.empty
+    p2.success(3)
+    b.result() shouldBe Seq(OnNext(5), OnCompletion)
+  }
+
+  test("transformRx turns a failed input into an asynchronous nested stream") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(
+      Rx.exception[Int](ex)
+        .transformRx {
+          case Success(x) =>
+            Rx.single(x)
+          case Failure(e) =>
+            Rx.future(p.future)
+        }
+    )(b += _)
+    b.result() shouldBe Seq.empty
+    p.success(-1)
+    b.result() shouldBe Seq(OnNext(-1), OnCompletion)
+  }
+
+  test("transformRx with a synchronous nested stream") {
+    test("success") {
+      val b = Seq.newBuilder[RxEvent]
+      RxRunner.run(Rx.single(1).transformRx(t => Rx.fromTry(t.map(_ * 10))))(b += _)
+      b.result() shouldBe Seq(OnNext(10), OnCompletion)
+    }
+    test("failed input") {
+      val b = Seq.newBuilder[RxEvent]
+      RxRunner.run(Rx.exception[Int](ex).transformRx(_ => Rx.single(0)))(b += _)
+      b.result() shouldBe Seq(OnNext(0), OnCompletion)
+    }
+    test("multiple input values") {
+      val b = Seq.newBuilder[RxEvent]
+      RxRunner.run(Rx.fromSeq(Seq(1, 2)).transformRx(t => Rx.fromTry(t)))(b += _)
+      b.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
+    }
+  }
+
+  test("recoverWith completes after an asynchronous recovery stream") {
+    given ExecutionContext = ExecutionContext.parasitic
+    val p                  = Promise[Int]()
+    val b                  = Seq.newBuilder[RxEvent]
+    RxRunner.run(
+      Rx.exception[Int](ex)
+        .recoverWith { case _ =>
+          Rx.future(p.future)
+        }
+    )(b += _)
+    b.result() shouldBe Seq.empty
+    p.success(1)
+    b.result() shouldBe Seq(OnNext(1), OnCompletion)
   }
 
   test("runOnce reports only the first event") {

@@ -112,24 +112,9 @@ class RxRunner(
         }
       case fm @ FlatMapOp(in, f) =>
         // This var is a placeholder to remember the preceding Cancelable operator, which will be updated later
-        var c1 = Cancelable.empty
-        // The stream completes only after both the input and the current nested stream terminate,
-        // so an asynchronous nested stream (e.g., Rx.future) is not cut off by the input's
-        // completion. The two may terminate on different threads, so guard the state with a lock.
-        val lock           = Object()
-        var inputCompleted = false
-        var nestedActive   = false
-        // Identifies the current nested stream, so a replaced (cancelled) one cannot end it
-        var generation = 0
-        // Mark the nested stream `current` as terminated; true if the input has already completed
-        def endNested(current: Int): Boolean = lock.synchronized {
-          if current == generation then
-            nestedActive = false
-            inputCompleted
-          else
-            false
-        }
-        val c2 =
+        var c1      = Cancelable.empty
+        val tracker = NestedStreamTracker()
+        val c2      =
           run(fm.input) {
             case OnNext(x) =>
               var toContinue: RxResult = RxResult.Continue
@@ -137,28 +122,18 @@ class RxRunner(
                 case Success(rxb) =>
                   // This code is necessary to properly cancel the effect if this operator is evaluated before
                   c1.cancel
-                  val current = lock.synchronized {
-                    generation += 1
-                    nestedActive = true
-                    generation
-                  }
+                  val current = tracker.startNested()
                   c1 =
                     run(rxb) {
                       case n @ OnNext(x) =>
                         toContinue = effect(n)
                         toContinue
                       case OnCompletion =>
-                        if endNested(current) then
+                        if tracker.endNested(current) then
                           toContinue = effect(OnCompletion)
                         toContinue
                       case ev @ OnError(e) =>
-                        // An error also terminates the nested stream (e.g., a failed Rx.future
-                        // reports no OnCompletion); if the downstream recovered from it, complete
-                        // here when the input has already completed
-                        val inputDone = endNested(current)
-                        toContinue = effect(ev)
-                        if inputDone && toContinue.toContinue then
-                          toContinue = effect(OnCompletion)
+                        toContinue = tracker.nestedError(current, ev, effect)
                         toContinue
                     }
                   toContinue
@@ -166,15 +141,7 @@ class RxRunner(
                   effect(OnError(e))
               end match
             case OnCompletion =>
-              val waitForNested = lock.synchronized {
-                inputCompleted = true
-                nestedActive
-              }
-              if waitForNested then
-                // Report the completion when the nested stream terminates
-                RxResult.Continue
-              else
-                effect(OnCompletion)
+              tracker.completeInput(effect)
             case other =>
               effect(other)
           }
@@ -241,17 +208,22 @@ class RxRunner(
         val tryFunc = f.asInstanceOf[Try[?] => RxOps[?]]
         // A place holder for properly cancel the subscription against the result of Try[?] => Rx[?]
         var c1: Cancelable = Cancelable.empty
+        val tracker        = NestedStreamTracker()
 
         def evalRx(rxb: RxOps[?]): RxResult =
           c1.cancel
+          val current = tracker.startNested()
           c1 =
             run(rxb) {
               case OnNext(x) =>
                 effect(OnNext(x))
               case OnCompletion =>
-                RxResult.Continue
-              case OnError(e) =>
-                effect(OnError(e))
+                if tracker.endNested(current) then
+                  effect(OnCompletion)
+                else
+                  RxResult.Continue
+              case ev @ OnError(e) =>
+                tracker.nestedError(current, ev, effect)
             }
           RxResult.Continue
 
@@ -268,10 +240,17 @@ class RxRunner(
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
                   evalRx(rxb)
+                  // An error terminates the input (e.g., a failed Rx.future reports no
+                  // OnCompletion), so complete once the nested stream built from it ends.
+                  // A continuous source (RxVar) may emit again after an error, so keep waiting.
+                  if continuous then
+                    RxResult.Continue
+                  else
+                    tracker.completeInput(effect)
                 case Failure(e) =>
                   effect(OnError(e))
-            case other =>
-              effect(other)
+            case OnCompletion =>
+              tracker.completeInput(effect)
           }
         Cancelable { () =>
           c1.cancel;
@@ -841,5 +820,66 @@ class RxRunner(
 
   private def join[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new JoinStream(input)
     .run(effect)
+
+  /**
+    * Tracks an input stream and its current nested stream (flatMap, transformRx), so that the
+    * operator completes only after both terminate: an asynchronous nested stream (e.g., Rx.future)
+    * must not be cut off by the input's completion. The two may terminate on different threads, so
+    * the state is guarded by a lock.
+    */
+  private class NestedStreamTracker:
+    private var inputDone    = false
+    private var nestedActive = false
+    // Identifies the current nested stream, so a replaced (cancelled) one cannot end it
+    private var generation = 0
+
+    /**
+      * Register a new nested stream and return its generation
+      */
+    def startNested(): Int = synchronized {
+      generation += 1
+      nestedActive = true
+      generation
+    }
+
+    /**
+      * Mark the nested stream `current` as terminated; true if the input has already completed
+      */
+    def endNested(current: Int): Boolean = synchronized {
+      if current == generation then
+        nestedActive = false
+        inputDone
+      else
+        false
+    }
+
+    /**
+      * An error also terminates the nested stream (e.g., a failed Rx.future reports no
+      * OnCompletion). If the downstream recovered from it, complete here when the input has already
+      * completed.
+      */
+    def nestedError(current: Int, ev: OnError, effect: RxEvent => RxResult): RxResult =
+      val done   = endNested(current)
+      val result = effect(ev)
+      if done && result.toContinue then
+        effect(OnCompletion)
+      else
+        result
+
+    /**
+      * Mark the input as completed. Report the completion now unless the nested stream is still
+      * active, in which case it is reported when the nested stream terminates.
+      */
+    def completeInput(effect: RxEvent => RxResult): RxResult =
+      val waitForNested = synchronized {
+        inputDone = true
+        nestedActive
+      }
+      if waitForNested then
+        RxResult.Continue
+      else
+        effect(OnCompletion)
+
+  end NestedStreamTracker
 
 end RxRunner
