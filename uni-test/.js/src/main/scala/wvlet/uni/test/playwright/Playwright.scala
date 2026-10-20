@@ -39,7 +39,7 @@ object Playwright:
   private given ExecutionContext = wvlet.uni.test.compat.executionContext
 
   /** True when running in a page served by a compatible Playwright JSEnv. */
-  def isAvailable: Boolean = bridgeVersion.exists(_ >= protocolVersion)
+  def isAvailable: Boolean = bridgeVersion.contains(protocolVersion)
 
   /**
     * Save a screenshot to the JSEnv's screenshot directory as `<name>.png`.
@@ -105,11 +105,12 @@ object Playwright:
               "(sbt-uni-playwright); this environment has no Playwright bridge"
           )
         )
-      case Some(v) if v < protocolVersion =>
+      // Versions change only on incompatible changes, so any mismatch is an error.
+      case Some(v) if v != protocolVersion =>
         Future.failed(
           IllegalStateException(
             s"Playwright.${cmd} needs page-command protocol ${protocolVersion}, but the JSEnv " +
-              s"provides ${v}; upgrade uni-jsenv-playwright"
+              s"provides ${v}; use matching uni-test and uni-jsenv-playwright versions"
           )
         )
       case Some(_) =>

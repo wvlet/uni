@@ -61,9 +61,15 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
   private def expectScreenshot(args: JMap[String, Object]): Object =
     val name      = validName(args)
     val golden    = within(config.snapshotDir, s"${name}-${config.browserName}-${osName}.png")
-    val actual    = capture(args)
+    val actual    = stableCapture(args)
     val threshold = number(args, "threshold").getOrElse(0.1)
     val maxRatio  = number(args, "maxDiffPixelRatio").getOrElse(0.0)
+
+    val actualPath = within(config.screenshotDir, s"${name}-actual.png")
+    val diffPath   = within(config.screenshotDir, s"${name}-diff.png")
+    // Clear artifacts from an earlier failed run, so only the current outcome's files remain.
+    Files.deleteIfExists(actualPath)
+    Files.deleteIfExists(diffPath)
 
     if config.isUpdatingSnapshots then
       write(golden, actual)
@@ -79,13 +85,11 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
       if diff.isMatch(maxRatio) then
         "matched"
       else
-        val actualPath = within(config.screenshotDir, s"${name}-actual.png")
         write(actualPath, actual)
         val detail =
           if diff.sizeMismatch then
             "image size differs from the golden"
           else
-            val diffPath = within(config.screenshotDir, s"${name}-diff.png")
             diff.diffImage.foreach(write(diffPath, _))
             f"${diff.diffPixels}%d of ${diff.totalPixels}%d pixels differ (ratio ${diff
                 .diffRatio}%.5f > ${maxRatio}%.5f); diff: ${diffPath.toAbsolutePath}"
@@ -96,6 +100,21 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
     end if
 
   end expectScreenshot
+
+  /**
+    * Capture until two consecutive screenshots are identical (as `toHaveScreenshot` does), so a
+    * still-loading font or image does not make the comparison flaky. Gives up after a few tries and
+    * returns the last capture.
+    */
+  private def stableCapture(args: JMap[String, Object]): Array[Byte] =
+    var prev    = capture(args)
+    var current = capture(args)
+    var tries   = 2
+    while !java.util.Arrays.equals(prev, current) && tries < maxStableCaptures do
+      prev = current
+      current = capture(args)
+      tries += 1
+    current
 
   private def capture(args: JMap[String, Object]): Array[Byte] =
     string(args, "selector") match
@@ -118,7 +137,8 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
 end PageCommands
 
 private[playwright] object PageCommands:
-  private val namePattern = "[A-Za-z0-9._-]+".r
+  private val maxStableCaptures = 10
+  private val namePattern       = "[A-Za-z0-9._-]+".r
 
   /** The `name` argument, restricted to a plain file-name stem. */
   def validName(args: JMap[String, Object]): String =

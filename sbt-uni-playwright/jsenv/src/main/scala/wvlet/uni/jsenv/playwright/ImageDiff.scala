@@ -32,7 +32,7 @@ private[playwright] object ImageDiff:
     *   number of differing pixels (all pixels when the sizes differ)
     * @param diffImage
     *   PNG bytes highlighting differing pixels in red over a faded copy of the expected image, or
-    *   None when the sizes differ
+    *   None when the sizes differ or no pixel differs
     */
   case class Result(
       width: Int,
@@ -60,19 +60,38 @@ private[playwright] object ImageDiff:
       Result(w, h, sizeMismatch = true, diffPixels = w.toLong * h, diffImage = None)
     else
       val limit = (threshold.max(0.0).min(1.0) * 255).toInt
-      val diff  = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
-      var count = 0L
-      for
-        y <- 0 until h
-        x <- 0 until w
-      do
-        val e = expected.getRGB(x, y)
-        if differs(e, actual.getRGB(x, y), limit) then
-          count += 1
-          diff.setRGB(x, y, 0xffff0000)
+      val count =
+        (
+          for
+            y <- 0 until h
+            x <- 0 until w
+            if differs(expected.getRGB(x, y), actual.getRGB(x, y), limit)
+          yield 1L
+        ).sum
+      // Build the diff image only on a difference, so a passing comparison stays cheap.
+      val diffImage =
+        if count == 0 then
+          None
         else
-          diff.setRGB(x, y, faded(e))
-      Result(w, h, sizeMismatch = false, diffPixels = count, diffImage = Some(encode(diff)))
+          val diff = BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB)
+          for
+            y <- 0 until h
+            x <- 0 until w
+          do
+            val e = expected.getRGB(x, y)
+            diff.setRGB(
+              x,
+              y,
+              if differs(e, actual.getRGB(x, y), limit) then
+                0xffff0000
+              else
+                faded(e)
+            )
+          Some(encode(diff))
+      Result(w, h, sizeMismatch = false, diffPixels = count, diffImage = diffImage)
+    end if
+
+  end compare
 
   private def differs(a: Int, b: Int, limit: Int): Boolean = (0 until 32 by 8).exists { shift =>
     math.abs(((a >>> shift) & 0xff) - ((b >>> shift) & 0xff)) > limit

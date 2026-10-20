@@ -18,8 +18,9 @@ exists only in Node's `@playwright/test`. Design note: `plans/2026-10-19-playwri
   `page.screenshot` from there is reentrant. Reusing the poll loop keeps every Playwright call on
   one thread, as the original JSEnv design requires.
 - **Errors reject, they do not fail the run.** A failed `expectScreenshot` fails only its test.
-- **Protocol version** (`JsBridge.protocolVersion`, now 1): the client checks it, so a newer client
-  with an older JSEnv fails with "upgrade uni-jsenv-playwright" instead of hanging. Bump it on any
+- **Protocol version** (`JsBridge.protocolVersion`, now 1): the client requires an exact match, so
+  a client and JSEnv from incompatible releases fail with a clear error instead of hanging or
+  misreading results. Bump it on any
   incompatible command or result change.
 - **Path safety:** page code can make the JVM write files. `name` must match `[A-Za-z0-9._-]+`
   without `..`, and `PageCommands.within` rejects any path that escapes its directory.
@@ -28,7 +29,9 @@ exists only in Node's `@playwright/test`. Design note: `plans/2026-10-19-playwri
   uses only JDK `ImageIO`, with a per-channel threshold (simpler than pixelmatch's YIQ metric, but
   deterministic and dependency-free). A **missing golden is written and fails**, so it is never
   accepted silently. Update mode (setting or `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1`) overwrites.
-  The context pins a 1280×720 viewport and device scale factor 1.
+  The context pins a 1280×720 viewport and device scale factor 1. `expectScreenshot` captures until
+  two consecutive shots are identical (up to 10), like `toHaveScreenshot`, to avoid flakiness from
+  late-loading fonts or images.
 - **Client in `uni-test` (`.js`):** `wvlet.uni.test.playwright.Playwright`, a thin `Future`
   wrapper. It reads the bridge via `globalThis` (a bare global reference throws a ReferenceError
   under ES modules when the bridge is absent).
