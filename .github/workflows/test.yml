@@ -122,6 +122,10 @@ jobs:
         run: NODE_OPTIONS=--max-old-space-size=4096 JVM_OPTS=-Xmx4g ./sbt "projectJS/test"
       # On failure, keep Playwright screenshots (actual/diff images, failure traces) and any golden
       # images written for a missing golden, so they can be inspected or committed.
+      # The artifact also holds the committed goldens; list the newly written ones.
+      - name: List new golden images
+        if: failure()
+        run: git status --porcelain --untracked-files=all uni-dom-test/src/test/screenshots
       - name: Upload Playwright screenshots
         if: failure()
         uses: actions/upload-artifact@v7

@@ -3,6 +3,7 @@ import sbtide.Keys.ideSkipProject
 // `core.jvm` / `.js` / `.native` (Project) are used where a ProjectReference is expected (e.g. the
 // jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
 import scala.language.implicitConversions
+import wvlet.uni.jsenv.playwright.{PlaywrightConfig, PlaywrightJSEnv}
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -275,13 +276,11 @@ lazy val domTest = project
     // src/test/screenshots. Paths are absolute so they don't depend on the JVM's working directory.
     Test / jsEnv :=
       Def.uncached(
-        new wvlet.uni.jsenv.playwright.PlaywrightJSEnv(
-          wvlet
-            .uni
-            .jsenv
-            .playwright
-            .PlaywrightConfig(browserName = "chromium", headless = true)
-            .withScreenshotDir((target.value / "uni-playwright" / "screenshots").toPath.toAbsolutePath)
+        PlaywrightJSEnv(
+          PlaywrightConfig(browserName = "chromium", headless = true)
+            .withScreenshotDir(
+              (target.value / "uni-playwright" / "screenshots").toPath.toAbsolutePath
+            )
             .withSnapshotDir(((Test / sourceDirectory).value / "screenshots").toPath.toAbsolutePath)
         )
       )
