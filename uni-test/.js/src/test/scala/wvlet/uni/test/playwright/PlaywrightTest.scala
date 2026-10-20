@@ -13,36 +13,15 @@
  */
 package wvlet.uni.test.playwright
 
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.scalajs.js
-import scala.util.{Failure, Success, Try}
+import scala.util.{Failure, Success}
 
 class PlaywrightTest extends UniTest:
 
-  private given ExecutionContext = wvlet.uni.test.compat.executionContext
-
-  /**
-    * The outcome of the first event of `rx`. Completing without a value fails, whereas an `Rx` test
-    * body that completes early would pass without running its assertions.
-    */
-  private def outcome[A](rx: Rx[A]): Future[Try[A]] =
-    val p = Promise[Try[A]]()
-    RxRunner.runOnce(rx) {
-      case OnNext(v) =>
-        p.trySuccess(Success(v.asInstanceOf[A]))
-      case OnError(e) =>
-        p.trySuccess(Failure(e))
-      case OnCompletion =>
-        p.tryFailure(AssertionError("Rx completed without a value"))
-    }
-    p.future
-
-  private def value[A](rx: Rx[A]): Future[A] = outcome(rx).map(_.get)
-
-  private def failsWith(rx: Rx[?], fragment: String): Future[Throwable] = outcome(rx).map {
+  private def failsWith[A](rx: Rx[A], fragment: String): Rx[Throwable] = rx.transform {
     case Failure(e) =>
       e.getMessage shouldContain fragment
       e
@@ -56,8 +35,8 @@ class PlaywrightTest extends UniTest:
     * protocol.
     */
   private def withBridge[A](respond: (String, js.Dynamic) => js.Promise[js.Any])(
-      body: js.Array[String] => Future[A]
-  ): Future[A] =
+      body: js.Array[String] => Rx[A]
+  ): Rx[A] =
     val calls  = js.Array[String]()
     val bridge = js
       .Dynamic
@@ -69,38 +48,38 @@ class PlaywrightTest extends UniTest:
             respond(cmd, args)
       )
     js.Dynamic.global.globalThis.__uniPlaywright = bridge
-    Future
-      .unit
+    // Build the body inside the Rx, so an exception thrown while building it still removes the bridge
+    Rx.single(())
       .flatMap(_ => body(calls))
-      .andThen(_ => js.special.delete(js.Dynamic.global.globalThis, "__uniPlaywright"))
+      .transformRx { result =>
+        js.special.delete(js.Dynamic.global.globalThis, "__uniPlaywright")
+        Rx.fromTry(result)
+      }
 
   test("is unavailable outside the Playwright JSEnv") {
     Playwright.isAvailable shouldBe false
   }
 
   test("calls fail with a message naming the required JSEnv") {
-    Future
-      .sequence(
-        Seq[Rx[?]](
-          Playwright.screenshot("x"),
-          Playwright.click("#a"),
-          Playwright.typeText("t"),
-          Playwright.setViewportSize(100, 100)
-        ).map(failsWith(_, "uni-jsenv-playwright"))
-      )
-      .map(
-        _.foreach { e =>
+    Seq[Rx[?]](
+      Playwright.screenshot("x"),
+      Playwright.click("#a"),
+      Playwright.typeText("t"),
+      Playwright.setViewportSize(100, 100)
+    ).map(rx =>
+        failsWith(rx, "uni-jsenv-playwright").map { e =>
           e shouldMatch { case _: IllegalStateException =>
           }
         }
       )
+      .reduce((a, b) => a.flatMap(_ => b))
   }
 
   test("commands are sent only when the Rx runs") {
     withBridge((_, _) => js.Promise.resolve[js.Any](null)) { calls =>
       val rx = Playwright.click("#a").flatMap(_ => Playwright.press("Enter"))
       calls.length shouldBe 0
-      value(rx).map(_ => calls.toList shouldBe List("click", "press"))
+      rx.map(_ => calls.toList shouldBe List("click", "press"))
     }
   }
 
@@ -124,15 +103,14 @@ class PlaywrightTest extends UniTest:
         sizes.push(s"${args.width}x${args.height}")
       js.Promise.resolve[js.Any](js.Dynamic.literal(width = 1280, height = 720))
     } { calls =>
-      value(
-        Playwright
-          .withViewportSize(400, 300)(Playwright.click("#a").map(_ => 42))
-          .flatMap(v => Playwright.press("Enter").map(_ => v))
-      ).map { v =>
-        v shouldBe 42
-        sizes.toList shouldBe List("400x300", "1280x720")
-        calls.toList shouldBe List("setViewportSize", "click", "setViewportSize", "press")
-      }
+      Playwright
+        .withViewportSize(400, 300)(Playwright.click("#a").map(_ => 42))
+        .flatMap(v => Playwright.press("Enter").map(_ => v))
+        .map { v =>
+          v shouldBe 42
+          sizes.toList shouldBe List("400x300", "1280x720")
+          calls.toList shouldBe List("setViewportSize", "click", "setViewportSize", "press")
+        }
     }
   }
 
