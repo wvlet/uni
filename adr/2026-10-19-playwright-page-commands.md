@@ -45,4 +45,21 @@ exists only in Node's `@playwright/test`. Design note: `plans/2026-10-19-playwri
   `uni-dom-test/src/test/screenshots`. To add or update the Linux ones without a Linux machine, let
   the CI "Scala.js" job fail: it uploads a `playwright-screenshots` artifact containing the golden
   written for a missing image (and actual/diff images on a mismatch).
-- New commands (trusted input, viewport) go into `PageCommands.run` plus a client method.
+- New commands go into `PageCommands.run` plus a client method.
+
+## Addendum: trusted input, viewport, and an `Rx` client
+
+Design note: `plans/2026-10-19-playwright-input-viewport-commands.md`.
+
+- **Commands** `click`, `hover`, `fill` (Playwright locators, strict mode), `type`, `press`
+  (`page.keyboard()`), and `setViewportSize` (returns the previous size). Element waits default to
+  5s instead of Playwright's 30s, because a waiting command blocks the poll loop.
+- **Protocol version stays 1.** Adding commands is backward compatible; an older JSEnv rejects
+  them with "Unknown page command", which the client rewrites to "requires a newer
+  uni-jsenv-playwright". A bump would break `screenshot` against older JSEnvs for no gain.
+- **The client returns `Rx`, not `Future`**, matching uni's other async APIs (`HttpClient`). `Rx`
+  is lazy, so a command is sent when it runs, ordered step chains are plain `flatMap`s, and
+  `withViewportSize(w, h)(body)` can restore the size after `body` succeeds or fails. This
+  changed `screenshot`/`expectScreenshot` from `Future` (2026.1.26) to `Rx`.
+- The viewport persists across tests (one page per run), so `withViewportSize` is the
+  recommended form.

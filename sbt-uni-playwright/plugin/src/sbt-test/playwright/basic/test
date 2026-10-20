@@ -1,7 +1,7 @@
 # Pre-download the pinned browser, then run the Scala.js tests in headless Chromium.
 > uniPlaywrightInstall
 > Test/compile
-> testOnly example.BasicTest example.BridgeTest
+> testOnly example.BasicTest example.BridgeTest example.InputTest
 $ exists shots/shot.png
 $ exists shots/golden-actual.png
 $ exists shots/golden-diff.png

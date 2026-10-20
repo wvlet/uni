@@ -20,7 +20,6 @@ import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.playwright.Playwright
 
-import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 
 /**
@@ -30,20 +29,19 @@ import scala.language.implicitConversions
   */
 class VisualTest extends UniTest:
 
-  private given ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
-
   private def box(color: String): RxElement = div(
     style := s"width: 40px; height: 40px; background: ${color};"
   )
 
   /** Mount the element into the page, run the check, then unmount whatever the outcome. */
-  private def mounted(elem: RxElement)(check: => Future[Unit]): Future[Unit] =
+  private def mounted(elem: RxElement)(check: Rx[Unit]): Rx[Unit] =
     val (node, c) = DomRenderer.createNode(elem)
     dom.document.body.appendChild(node)
-    check.andThen(_ =>
+    check.transformRx { result =>
       c.cancel
       dom.document.body.removeChild(node)
-    )
+      Rx.fromTry(result)
+    }
 
   test("runs under the Playwright JSEnv"):
     Playwright.isAvailable shouldBe true
