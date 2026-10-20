@@ -56,6 +56,18 @@ object UniPlaywrightPlugin extends AutoPlugin:
 
     val uniPlaywrightHeadless = settingKey[Boolean]("Run the browser headless (default true)")
 
+    val uniPlaywrightScreenshotDir = settingKey[File](
+      "Where screenshots and expectScreenshot actual/diff images are written"
+    )
+
+    val uniPlaywrightSnapshotDir = settingKey[File](
+      "Where expectScreenshot golden images are stored (default src/test/screenshots)"
+    )
+
+    val uniPlaywrightUpdateSnapshots = settingKey[Boolean](
+      "Overwrite expectScreenshot golden images instead of comparing (default false)"
+    )
+
     val uniPlaywrightBrowsers = settingKey[Seq[String]](
       "Browsers to install via uniPlaywrightInstall"
     )
@@ -64,19 +76,28 @@ object UniPlaywrightPlugin extends AutoPlugin:
       "Download and pin the configured Playwright browser binaries"
     )
 
+  end autoImport
+
   import autoImport.*
 
   override lazy val projectSettings: Seq[Setting[?]] = Seq(
-    uniPlaywrightBrowser  := "chromium",
-    uniPlaywrightHeadless := true,
-    uniPlaywrightBrowsers := Seq(uniPlaywrightBrowser.value),
+    uniPlaywrightBrowser         := "chromium",
+    uniPlaywrightHeadless        := true,
+    uniPlaywrightBrowsers        := Seq(uniPlaywrightBrowser.value),
+    uniPlaywrightScreenshotDir   := target.value / "uni-playwright" / "screenshots",
+    uniPlaywrightSnapshotDir     := (Test / sourceDirectory).value / "screenshots",
+    uniPlaywrightUpdateSnapshots := false,
     // A JSEnv is not serializable, so opt out of sbt 2.x's setting-value caching.
     Test / jsEnv :=
       Def.uncached(
         PlaywrightJSEnv(
           PlaywrightConfig(
             browserName = uniPlaywrightBrowser.value,
-            headless = uniPlaywrightHeadless.value
+            headless = uniPlaywrightHeadless.value,
+            // Absolute paths, so results do not depend on the JVM's working directory.
+            screenshotDir = uniPlaywrightScreenshotDir.value.toPath.toAbsolutePath,
+            snapshotDir = uniPlaywrightSnapshotDir.value.toPath.toAbsolutePath,
+            updateSnapshots = uniPlaywrightUpdateSnapshots.value
           )
         )
       ),

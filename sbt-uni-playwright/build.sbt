@@ -66,7 +66,8 @@ lazy val jsenv = project
     libraryDependencies ++=
       Seq(
         "org.scala-js"            %% "scalajs-js-envs" % SCALAJS_JS_ENVS_VERSION,
-        "com.microsoft.playwright" % "playwright"      % PLAYWRIGHT_VERSION
+        "com.microsoft.playwright" % "playwright"      % PLAYWRIGHT_VERSION,
+        "org.scalameta"           %% "munit"           % "1.1.0" % Test
       )
   )
 

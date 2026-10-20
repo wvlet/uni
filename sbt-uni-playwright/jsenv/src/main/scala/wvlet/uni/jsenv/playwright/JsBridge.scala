@@ -32,6 +32,12 @@ private[playwright] object JsBridge:
   val controlInterface: String = "globalThis.__uniPlaywrightControl"
 
   /**
+    * Version of the page-command protocol exposed as `globalThis.__uniPlaywright`. Bump it when a
+    * command or its result shape changes incompatibly, so a client can detect an older JSEnv.
+    */
+  val protocolVersion: Int = 1
+
+  /**
     * The shim, injected as the first script so it installs `scalajsCom` and the control interface
     * before any application code runs.
     *
@@ -66,6 +72,9 @@ private[playwright] object JsBridge:
        |  var outMessages = [];   // JS -> JVM, drained by the control interface's fetch()
        |  var inMessages = [];    // JVM -> JS, buffered until scalajsCom.init() flushes them
        |  var onMessage = null;
+       |  var commands = [];       // page commands (test code -> JVM Playwright), drained by fetch()
+       |  var pending = {};        // command id -> {resolve, reject}, settled by resolveBatch()
+       |  var nextId = 0;
        |
        |  var origLog = console.log.bind(console);
        |  var origErr = console.error.bind(console);
@@ -85,18 +94,32 @@ private[playwright] object JsBridge:
        |  });
        |
        |$comSetup
+       |  // Lets test code in the page call JVM-side Playwright Page APIs (see PageCommands).
+       |  globalThis.__uniPlaywright = {
+       |    version: ${protocolVersion},
+       |    call: function(cmd, args) {
+       |      return new Promise(function(resolve, reject) {
+       |        var id = nextId++;
+       |        pending[id] = { resolve: resolve, reject: reject };
+       |        commands.push({ id: id, cmd: String(cmd), args: args || {} });
+       |      });
+       |    }
+       |  };
+       |
        |  ${controlInterface} = {
        |    fetch: function() {
        |      var r = {
        |        consoleLog: consoleLog.slice(),
        |        consoleError: consoleError.slice(),
        |        errors: errors.slice(),
-       |        msgs: outMessages.slice()
+       |        msgs: outMessages.slice(),
+       |        commands: commands.slice()
        |      };
        |      consoleLog.length = 0;
        |      consoleError.length = 0;
        |      errors.length = 0;
        |      outMessages.length = 0;
+       |      commands.length = 0;
        |      return r;
        |    },
        |    send: function(msg) {
@@ -106,6 +129,17 @@ private[playwright] object JsBridge:
        |    // page.evaluate round-trip instead of one per message.
        |    sendBatch: function(msgs) {
        |      for (var i = 0; i < msgs.length; i++) { this.send(msgs[i]); }
+       |    },
+       |    // Settle page commands with {id, value} or {id, error}.
+       |    resolveBatch: function(results) {
+       |      for (var i = 0; i < results.length; i++) {
+       |        var r = results[i];
+       |        var p = pending[r.id];
+       |        if (!p) { continue; }
+       |        delete pending[r.id];
+       |        if (r.error !== undefined && r.error !== null) { p.reject(new Error(r.error)); }
+       |        else { p.resolve(r.value); }
+       |      }
        |    }
        |  };
        |})();

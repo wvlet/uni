@@ -121,7 +121,10 @@ private[playwright] object BrowserSession:
       val (browserType, defaultArgs) = resolve(playwright, browserName)
       val args: JList[String]        = (defaultArgs ++ extraArgs).asJava
       browser = browserType.launch(BrowserType.LaunchOptions().setHeadless(headless).setArgs(args))
-      context = browser.newContext()
+      // Pin the viewport and scale so screenshots do not depend on the host's defaults.
+      context = browser.newContext(
+        Browser.NewContextOptions().setViewportSize(1280, 720).setDeviceScaleFactor(1)
+      )
       if tracingEnabled then
         context
           .tracing()

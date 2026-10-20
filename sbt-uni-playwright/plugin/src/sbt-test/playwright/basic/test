@@ -1,4 +1,15 @@
 # Pre-download the pinned browser, then run the Scala.js tests in headless Chromium.
 > uniPlaywrightInstall
 > Test/compile
-> test
+> testOnly example.BasicTest example.BridgeTest
+$ exists shots/shot.png
+$ exists shots/golden-actual.png
+$ exists shots/golden-diff.png
+$ absent shots/evil.png
+$ absent evil.png
+# Goldens go to the default snapshot dir (file names carry the browser and OS).
+$ exists src/test/screenshots
+
+# Update mode rewrites goldens instead of comparing.
+> set uniPlaywrightUpdateSnapshots := true
+> testOnly example.UpdateModeTest

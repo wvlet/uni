@@ -45,6 +45,20 @@ sbt uniPlaywrightInstall   # optional: pre-download & pin the browser
 sbt test                   # runs in a real browser
 ```
 
+Tests can also take screenshots and assert against golden images through
+`wvlet.uni.test.playwright.Playwright` (in `uni-test`, Scala.js):
+
+```scala
+test("dialog renders") {
+  mountDialog()
+  Playwright.expectScreenshot("dialog-open", selector = "#dialog") // Future[Unit]
+}
+```
+
+Goldens live in `src/test/screenshots` (`uniPlaywrightSnapshotDir`); accept changes with
+`uniPlaywrightUpdateSnapshots := true` or `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1`. See the
+[plugin docs](../docs/build/sbt-uni-playwright.md) for details.
+
 On an uncaught JS error, a screenshot and a Playwright trace are written under
 `target/uni-playwright` (open with `npx playwright show-trace <file>`).
 
