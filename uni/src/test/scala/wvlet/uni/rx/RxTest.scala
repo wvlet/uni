@@ -956,6 +956,36 @@ object RxTest extends UniTest:
     events.result() shouldBe Seq(OnNext(2), OnCompletion)
   }
 
+  test("take(n) forwards nothing after the downstream stops before the nth value") {
+    val v      = Rx.variable(1)
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner(continuous = false).run(v.take(3)) { ev =>
+      events += ev
+      RxResult.Stop
+    }
+    v := 2
+    v.stop()
+    events.result() shouldBe Seq(OnNext(1))
+  }
+
+  test("take(n) keeps the upstream running after runOnce stops") {
+    var cleanedUp = false
+    val rx        = Rx
+      .single(1)
+      .concat(
+        Rx.single(())
+          .map { _ =>
+            cleanedUp = true
+            0
+          }
+      )
+      .take(5)
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.runOnce(rx)(events += _)
+    events.result() shouldBe Seq(OnNext(1))
+    cleanedUp shouldBe true
+  }
+
   test("take(1) on RxVar completes inside flatMap") {
     val rx = Rx.single(()).flatMap(_ => Rx.variable(1).take(1)).map(_ * 2)
     eval(rx) shouldBe Seq(OnNext(2), OnCompletion)
