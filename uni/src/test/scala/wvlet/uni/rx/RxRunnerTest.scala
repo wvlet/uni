@@ -258,6 +258,18 @@ object RxRunnerTest extends UniTest:
       RxRunner.run(Rx.exception[Int](ex).transformRx(_ => Rx.single(0)))(b += _)
       b.result() shouldBe Seq(OnNext(0), OnCompletion)
     }
+    test("failed input that also reports completion") {
+      // MapOp turns the throw into OnError, and SingleOp still sends its OnCompletion
+      val b = Seq.newBuilder[RxEvent]
+      RxRunner.run(Rx.single(1).map[Int](_ => throw ex).transformRx(_ => Rx.single(0)))(b += _)
+      b.result() shouldBe Seq(OnNext(0), OnCompletion)
+    }
+    test("failed input transformed into a failure") {
+      val ex2 = IllegalStateException("dummy2")
+      val b   = Seq.newBuilder[RxEvent]
+      RxRunner.run(Rx.exception[Int](ex).transformRx(_ => Rx.exception[Int](ex2)))(b += _)
+      b.result() shouldBe Seq(OnError(ex2))
+    }
     test("multiple input values") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.fromSeq(Seq(1, 2)).transformRx(t => Rx.fromTry(t)))(b += _)

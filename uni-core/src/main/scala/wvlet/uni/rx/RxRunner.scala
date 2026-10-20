@@ -211,21 +211,23 @@ class RxRunner(
         val tracker        = NestedStreamTracker()
 
         def evalRx(rxb: RxOps[?]): RxResult =
+          var toContinue: RxResult = RxResult.Continue
           c1.cancel
           val current = tracker.startNested()
           c1 =
             run(rxb) {
-              case OnNext(x) =>
-                effect(OnNext(x))
+              case n @ OnNext(x) =>
+                toContinue = effect(n)
+                toContinue
               case OnCompletion =>
                 if tracker.endNested(current) then
-                  effect(OnCompletion)
-                else
-                  RxResult.Continue
+                  toContinue = effect(OnCompletion)
+                toContinue
               case ev @ OnError(e) =>
-                tracker.nestedError(current, ev, effect)
+                toContinue = tracker.nestedError(current, ev, effect)
+                toContinue
             }
-          RxResult.Continue
+          toContinue
 
         // Call f: Try[?] => Rx[?] using the input
         val c2: Cancelable =
@@ -239,12 +241,12 @@ class RxRunner(
             case OnError(e) =>
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
-                  evalRx(rxb)
+                  val result = evalRx(rxb)
                   // An error terminates the input (e.g., a failed Rx.future reports no
                   // OnCompletion), so complete once the nested stream built from it ends.
                   // A continuous source (RxVar) may emit again after an error, so keep waiting.
-                  if continuous then
-                    RxResult.Continue
+                  if continuous || !result.toContinue then
+                    result
                   else
                     tracker.completeInput(effect)
                 case Failure(e) =>
@@ -868,14 +870,19 @@ class RxRunner(
 
     /**
       * Mark the input as completed. Report the completion now unless the nested stream is still
-      * active, in which case it is reported when the nested stream terminates.
+      * active, in which case it is reported when the nested stream terminates. A repeated call is
+      * ignored: a source may report OnCompletion after an OnError that transformRx already treated
+      * as the input's end.
       */
     def completeInput(effect: RxEvent => RxResult): RxResult =
-      val waitForNested = synchronized {
+      val (alreadyDone, waitForNested) = synchronized {
+        val done = inputDone
         inputDone = true
-        nestedActive
+        (done, nestedActive)
       }
-      if waitForNested then
+      if alreadyDone then
+        RxResult.Stop
+      else if waitForNested then
         RxResult.Continue
       else
         effect(OnCompletion)
