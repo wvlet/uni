@@ -54,7 +54,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
 
   head: [
     ['link', { rel: 'icon', href: '/uni/favicon.ico', sizes: 'any' }],
-    ['link', { rel: 'icon', href: '/uni/uni-logo.svg', type: 'image/svg+xml' }],
+    ['link', { rel: 'icon', href: '/uni/favicon.svg', type: 'image/svg+xml' }],
     // Google Analytics
     ['script', { async: '', src: 'https://www.googletagmanager.com/gtag/js?id=G-55G099WF5N' }],
     [
