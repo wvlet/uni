@@ -147,9 +147,10 @@ object Playwright:
     width,
     height
   ).flatMap { (prevWidth, prevHeight) =>
-    body.transformRx { result =>
-      setViewportSize(prevWidth, prevHeight).flatMap(_ => Rx.fromTry(result))
-    }
+    // materialize + flatMap rather than transformRx: flatMap waits for the async restore to emit
+    body
+      .materialize
+      .flatMap(result => setViewportSize(prevWidth, prevHeight).flatMap(_ => Rx.fromResult(result)))
   }
 
   private def screenshotArgs(name: String, selector: String, fullPage: Boolean): js.Dynamic =
@@ -172,7 +173,7 @@ object Playwright:
   /** A lazy `Rx` that sends the command each time it runs. */
   private def call(cmd: String, a: => js.Dynamic): Rx[js.Any] = Rx
     .single(())
-    .flatMap(_ => Rx.future(send(cmd, a)))
+    .andThen(_ => send(cmd, a))
 
   private def send(cmd: String, a: js.Dynamic): Future[js.Any] =
     bridgeVersion match

@@ -48,11 +48,10 @@ private[playwright] class PageCommands(config: PlaywrightConfig, page: Page):
         locator(args).hover(Locator.HoverOptions().setTimeout(timeout(args)))
         null
       case "fill" =>
-        val text = required(args, "text")
-        locator(args).fill(text, Locator.FillOptions().setTimeout(timeout(args)))
+        locator(args).fill(text(args), Locator.FillOptions().setTimeout(timeout(args)))
         null
       case "type" =>
-        page.keyboard().`type`(required(args, "text"))
+        page.keyboard().`type`(text(args))
         null
       case "press" =>
         page.keyboard().press(required(args, "key"))
@@ -207,9 +206,24 @@ private[playwright] object PageCommands:
       case _ =>
         throw IllegalArgumentException(s"Missing '${key}' argument")
 
+  /** The `text` argument, which may be empty (e.g. `fill` with "" clears a field). */
+  def text(args: JMap[String, Object]): String = string(args, "text").getOrElse(
+    throw IllegalArgumentException("Missing 'text' argument")
+  )
+
+  /** A numeric argument; a value of another type is rejected rather than treated as absent. */
+  private def numberArg(args: JMap[String, Object], key: String): Option[Double] = Option(
+    args.get(key)
+  ).map {
+    case n: java.lang.Number =>
+      n.doubleValue()
+    case other =>
+      throw IllegalArgumentException(s"Invalid '${key}': ${other} (use a number)")
+  }
+
   /** A positive integer viewport dimension. */
   def dimension(args: JMap[String, Object], key: String): Int =
-    number(args, key) match
+    numberArg(args, key) match
       case Some(d) if d >= 1 && d <= 100000 && d == d.floor =>
         d.toInt
       case Some(d) =>
@@ -219,7 +233,7 @@ private[playwright] object PageCommands:
 
   /** The input wait in milliseconds; 0 waits forever, as in Playwright. */
   def timeout(args: JMap[String, Object]): Double =
-    number(args, "timeout") match
+    numberArg(args, "timeout") match
       case Some(t) if t >= 0 =>
         t
       case Some(t) =>

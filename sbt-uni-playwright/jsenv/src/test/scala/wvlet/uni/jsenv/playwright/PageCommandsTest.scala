@@ -45,6 +45,10 @@ class PageCommandsTest extends munit.FunSuite:
     intercept[IllegalArgumentException](PageCommands.required(kv(), "selector"))
     intercept[IllegalArgumentException](PageCommands.required(kv("text" -> ""), "text"))
 
+  test("text may be empty but not missing"):
+    assertEquals(PageCommands.text(kv("text" -> "")), "")
+    intercept[IllegalArgumentException](PageCommands.text(kv()))
+
   test("dimension accepts positive integers only"):
     assertEquals(PageCommands.dimension(kv("width" -> Integer.valueOf(640)), "width"), 640)
     assertEquals(
@@ -61,5 +65,6 @@ class PageCommandsTest extends munit.FunSuite:
     assertEquals(PageCommands.timeout(kv()), PageCommands.defaultTimeoutMillis)
     assertEquals(PageCommands.timeout(kv("timeout" -> Integer.valueOf(100))), 100.0)
     intercept[IllegalArgumentException](PageCommands.timeout(kv("timeout" -> Integer.valueOf(-1))))
+    intercept[IllegalArgumentException](PageCommands.timeout(kv("timeout" -> "200")))
 
 end PageCommandsTest
