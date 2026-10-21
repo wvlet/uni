@@ -330,15 +330,18 @@ class NettyRequestHandler(
     nettyResponse.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/event-stream")
     nettyResponse.headers().set(HttpHeaderNames.TRANSFER_ENCODING, HttpHeaderValues.CHUNKED)
     nettyResponse.headers().set(HttpHeaderNames.CACHE_CONTROL, HttpHeaderValues.NO_CACHE)
-    nettyResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.KEEP_ALIVE)
+    // The channel is closed after the last chunk of the stream, so the connection must not be reused
+    nettyResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE)
 
-    // Copy custom headers from response (skip Content-Type as it's already set)
+    // Copy custom headers from response (skip Content-Type and Connection as they're already set)
     HttpServerSecurity.validateHeaders(response.headers)
     response
       .headers
       .entries
       .foreach { case (name, value) =>
-        if !name.equalsIgnoreCase(HttpHeader.ContentType) then
+        if !name.equalsIgnoreCase(HttpHeader.ContentType) &&
+          !name.equalsIgnoreCase(HttpHeader.Connection)
+        then
           nettyResponse.headers().set(name, value)
       }
 

@@ -13,7 +13,15 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpHandler, HttpMethod, Request, Response, RxHttpFilter, ServerSentEvent}
+import wvlet.uni.http.{
+  HttpHandler,
+  HttpHeader,
+  HttpMethod,
+  Request,
+  Response,
+  RxHttpFilter,
+  ServerSentEvent
+}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
@@ -295,7 +303,10 @@ class NettyServerTest extends UniTest:
     NettyServer
       .withPort(0)
       .withRxHandler { _ =>
-        Rx.single(Response.eventStream(Rx.fromSeq(events)))
+        Rx.single(
+          // A handler-supplied Connection header must not override the server's
+          Response.eventStream(Rx.fromSeq(events)).setHeader(HttpHeader.Connection, "keep-alive")
+        )
       }
       .start { server =>
         // Use raw socket to read the SSE response
@@ -312,16 +323,16 @@ class NettyServerTest extends UniTest:
           val in  = socket.getInputStream
           val buf = new Array[Byte](8192)
           val sb  = StringBuilder()
-          try
-            var n = in.read(buf)
-            while n > 0 do
-              sb.append(String(buf, 0, n, StandardCharsets.UTF_8))
-              n = in.read(buf)
-          catch
-            case _: java.net.SocketTimeoutException =>
-              () // done reading
+          // The server closes the socket after the stream ends, so reading stops at EOF, not a timeout
+          var n = in.read(buf)
+          while n > 0 do
+            sb.append(String(buf, 0, n, StandardCharsets.UTF_8))
+            n = in.read(buf)
+          n shouldBe -1
 
           val raw = sb.toString()
+          raw.toLowerCase shouldContain "connection: close"
+          raw.toLowerCase shouldNotContain "keep-alive"
           // Check status line
           raw shouldContain "200"
           raw shouldContain "text/event-stream"
