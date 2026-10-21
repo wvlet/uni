@@ -16,7 +16,8 @@ package wvlet.uni.http
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.util.URLEncoder
 
-import java.nio.charset.StandardCharsets
+import java.nio.ByteBuffer
+import java.nio.charset.{CharacterCodingException, CodingErrorAction, StandardCharsets}
 
 /**
   * An immutable HTTP request representation
@@ -196,11 +197,16 @@ object Request:
     if target.forall(_ < 0x80) || target.exists(_ > 0xff) then
       target
     else
-      val decoded = String(target.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8)
-      if decoded.contains('\uFFFD') then
-        target
-      else
-        decoded
+      val decoder = StandardCharsets
+        .UTF_8
+        .newDecoder()
+        .onMalformedInput(CodingErrorAction.REPORT)
+        .onUnmappableCharacter(CodingErrorAction.REPORT)
+      try
+        decoder.decode(ByteBuffer.wrap(target.getBytes(StandardCharsets.ISO_8859_1))).toString
+      catch
+        case _: CharacterCodingException =>
+          target
 
   /**
     * Parse a URL query string (`a=1&b=x%20y&a=2`) into decoded parameter values, preserving their

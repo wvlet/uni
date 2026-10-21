@@ -141,6 +141,8 @@ class RequestTest extends UniTest:
     Request.decodeRequestTarget("/q=🐱") shouldBe "/q=🐱"
     // Not valid UTF-8 (a lone 0xE9 byte): left as-is
     Request.decodeRequestTarget("/caf\u00e9") shouldBe "/caf\u00e9"
+    // A real U+FFFD sent as raw UTF-8 is decoded, not treated as invalid
+    Request.decodeRequestTarget(wire("/q=\uFFFD")) shouldBe "/q=\uFFFD"
   }
 
   test("should read raw Unicode query parameters") {
