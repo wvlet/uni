@@ -14,6 +14,7 @@
 package wvlet.uni.surface
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.weaver.Weaver
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 import scala.jdk.CollectionConverters.*
@@ -30,12 +31,19 @@ object Scala3EnumTest extends UniTest:
     case Other(c: Int) extends Status(c)
 
   test("scala 3 enum with a parameterized case") {
-    // A parameterized case suppresses the synthesized valueOf, so names can't be resolved
+    // A parameterized case suppresses the synthesized valueOf; singleton cases still resolve
     val s = Surface.of[Status]
     s.isEnum shouldBe true
     s shouldMatch { case e: EnumSurface =>
-      e.stringExtractor(classOf[Status], "Ok") shouldBe None
+      e.stringExtractor(classOf[Status], "Ok") shouldBe Some(Status.Ok)
+      e.stringExtractor(classOf[Status], "Other") shouldBe None
+      e.stringExtractor(classOf[Status], "Unknown") shouldBe None
     }
+  }
+
+  test("round-trip singleton cases of an enum with a parameterized case through a Weaver") {
+    val w = Weaver.fromSurface(Surface.of[Status]).asInstanceOf[Weaver[Status]]
+    w.fromJson(w.toJson(Status.Ok)) shouldBe Status.Ok
   }
 
   test("surface of a type with a field of an enum with a parameterized case") {
