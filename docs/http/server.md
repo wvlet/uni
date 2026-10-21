@@ -328,10 +328,20 @@ NettyServer
   .withMaxHeaderSize(8192)             // Max header size
   .withMaxInitialLineLength(4096)      // Max request line length
   .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
+  .withMaxDecompressedRequestSize(64 * 1024 * 1024) // Max decoded size of a gzip/deflate body
   .noNativeTransport                   // Disable native transport (epoll/kqueue)
   .withHandler(handler)
   .start()
 ```
+
+### Request Decompression
+
+The Netty server decodes request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` / `x-deflate` aliases) before any filter or handler sees them, and removes the `Content-Encoding` header. Other encodings such as `br` pass through unchanged.
+
+- A compressed body that decodes to more than `withMaxDecompressedRequestSize` bytes (default 64 MiB) gets a plain-text `413`, and the connection is closed. Uncompressed requests are not counted against this limit.
+- A malformed compressed body gets a plain-text `400`, and the connection is closed.
+- The decoded body must also fit in `withMaxContentLength`, so raise both for large compressed uploads.
+- `.noRequestDecompression` passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it.
 
 ### Security Defaults
 
@@ -343,7 +353,7 @@ All three backends start with these defaults:
 | 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config; `RPCHandler(router).withDetailedErrors(true)`, `RouterHandler(...).withDetailedErrors(true)` for those handlers |
 | On a loopback server, requests whose `Host` is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` get 403 | DNS rebinding: a web page can point its own host name at 127.0.0.1 and then read the local server as same-origin. The browser still sends the page's host name in `Host` | `.withAllowedHosts("app.example.com", "*.internal.example")` to replace the list, `.noHostCheck` to accept any. A server bound to `0.0.0.0` accepts any host unless `withAllowedHosts` is set |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
-| Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength`, Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
+| Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength` (and `.withMaxDecompressedRequestSize` for gzip/deflate bodies, default 64 MiB), Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
 | Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. The Native backend has its own `idleTimeoutMillis`/`readTimeoutMillis` |
 | Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `.withMaxStreamingConnections(n)`. Netty default: 256 SSE streams. Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
 | CR, LF, or NUL in a header name or value is rejected | Prevents HTTP response splitting when a header echoes user input | — (`addHeader`/`setHeader` throw `IllegalArgumentException`) |
