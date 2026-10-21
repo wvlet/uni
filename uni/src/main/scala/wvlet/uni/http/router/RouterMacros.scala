@@ -61,30 +61,38 @@ object RouterMacros:
 
   /**
     * Extract routes from method surfaces at runtime. This method filters methods annotated with
-    * `@Endpoint` and creates Route instances.
+    * uni's `@Endpoint` and creates Route instances.
+    *
+    * The annotation is matched by its full name, so an `@Endpoint` from another framework on the
+    * same method (e.g., kept for documentation generation) is ignored. A uni `@Endpoint` whose
+    * method or path cannot be read fails instead of silently dropping the route.
     */
   def extractRoutes(controllerSurface: Surface, methodSurfaces: Seq[MethodSurface]): Seq[Route] =
     methodSurfaces.flatMap { ms =>
-      ms.findAnnotation("Endpoint")
-        .flatMap { annot =>
-          val methodOpt = annot
-            .get("method")
-            .flatMap {
-              case m: HttpMethod =>
-                Some(m)
-              case _ =>
-                None
-            }
-          val pathOpt = annot.getAs[String]("path")
-
-          (methodOpt, pathOpt) match
-            case (Some(method), Some(path)) =>
-              val pathComponents = PathComponent.parse(path)
-              Some(Route(method, path, pathComponents, controllerSurface, ms))
-            case _ =>
-              None
+      ms.annotations
+        .find(_.fullName == EndpointAnnotationName)
+        .map { annot =>
+          val method =
+            annot.get("method") match
+              case Some(m: HttpMethod) =>
+                m
+              case other =>
+                throw IllegalArgumentException(
+                  s"Invalid @Endpoint method on ${controllerSurface.name}.${ms.name}: ${other}"
+                )
+          val path =
+            annot.get("path") match
+              case Some(p: String) =>
+                p
+              case other =>
+                throw IllegalArgumentException(
+                  s"Invalid @Endpoint path on ${controllerSurface.name}.${ms.name}: ${other}"
+                )
+          Route(method, path, PathComponent.parse(path), controllerSurface, ms)
         }
     }
+
+  private val EndpointAnnotationName = classOf[Endpoint].getName
 
   // Members inherited from java.lang.Object / scala.Any / scala.Product. Surface.methodsOf
   // already filters them by owner, but we also exclude by name as belt-and-suspenders against

@@ -1121,6 +1121,10 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
             term.tpe.widenTermRefByName match
               case ConstantType(c) =>
                 extractPrimitiveValue(Literal(c))
+              case _ if term.symbol.flags.is(Flags.Enum) =>
+                // An imported enum case (e.g., `GET` after `import HttpMethod.*`). Refer to it by
+                // its symbol so the splice does not depend on the imports at the use site
+                Some(Ref(term.symbol).asExprOf[Any])
               case _ =>
                 None
           case _ =>

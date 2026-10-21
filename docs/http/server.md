@@ -142,6 +142,8 @@ class ApiController:
     Response.noContent
 ```
 
+Only `wvlet.uni.http.router.Endpoint` defines a route. An annotation from another framework with the same simple name (e.g., one kept on an API trait for documentation generation) is ignored, and a uni `@Endpoint` whose method or path cannot be read fails when the router is built.
+
 ### Path Parameters
 
 Use `:paramName` syntax in the path to capture path segments:
@@ -377,6 +379,18 @@ All three backends start with these defaults:
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
 
 TLS is not built in: terminate HTTPS at a reverse proxy or load balancer.
+
+### Tuning a Public API Server
+
+The defaults suit a small internal service. A public API server usually reviews these together:
+
+| Setting | Default | When to change |
+|---------|---------|----------------|
+| `.withMaxContentLength(n)` | 64 KB | Raise it to the largest request body the API accepts, e.g. LLM prompts with images. A decompressed body must also fit in this limit |
+| `.withRequestReadTimeoutMillis(ms)` | 30 s | The same timer closes idle keep-alive connections. Keep it longer than the idle timeout of the load balancer in front of the server, or the server closes connections the balancer still reuses |
+| `.withMaxStreamingConnections(n)` | 256 | The maximum number of concurrent SSE streams per server; streams beyond it get 503. Size it to the expected number of concurrent streaming clients |
+| `.withHost("0.0.0.0")` / `.withAllowedHosts(...)` | `127.0.0.1`, loopback host check | Required behind a load balancer or in a container |
+| `.withDetailedErrors(true)` | off | Keep it off in production; the full exception is logged on the server |
 
 ### Server Lifecycle
 
