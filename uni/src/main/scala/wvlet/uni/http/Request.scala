@@ -73,9 +73,23 @@ case class Request(
   def headerValues(name: String): Seq[String] = headers.getAll(name)
   def hasHeader(name: String): Boolean        = headers.contains(name)
 
-  def getQueryParam(name: String): Option[String] = queryParams.get(name).flatMap(_.headOption)
+  // Parameters in the URI's query string. Servers keep the query in `uri`, so routes read
+  // parameters from both this and `queryParams`
+  private lazy val uriQueryParams: Map[String, Seq[String]] = query
+    .map(Request.parseQueryString)
+    .getOrElse(Map.empty)
 
-  def getQueryParams(name: String): Seq[String] = queryParams.getOrElse(name, Seq.empty)
+  /**
+    * The first value of a query parameter, from the URI's query string or `queryParams`
+    */
+  def getQueryParam(name: String): Option[String] = getQueryParams(name).headOption
+
+  /**
+    * All values of a query parameter in wire order (see [[fullUri]]): those in the URI's query
+    * string, then those in `queryParams`
+    */
+  def getQueryParams(name: String): Seq[String] =
+    uriQueryParams.getOrElse(name, Seq.empty) ++ queryParams.getOrElse(name, Seq.empty)
 
   def fullUri: String =
     if queryParams.isEmpty then
@@ -169,6 +183,26 @@ case class Request(
 end Request
 
 object Request:
+
+  /**
+    * Parse a URL query string (`a=1&b=x%20y&a=2`) into decoded parameter values, preserving their
+    * order. A parameter without `=` has an empty value.
+    */
+  def parseQueryString(query: String): Map[String, Seq[String]] =
+    query
+      .split('&')
+      .iterator
+      .filter(_.nonEmpty)
+      .map { pair =>
+        pair.indexOf('=') match
+          case -1 =>
+            URLEncoder.decode(pair) -> ""
+          case i =>
+            URLEncoder.decode(pair.substring(0, i)) -> URLEncoder.decode(pair.substring(i + 1))
+      }
+      .toSeq
+      .groupMap(_._1)(_._2)
+
   def apply(method: HttpMethod, uri: String): Request = Request(
     method,
     uri,
@@ -185,3 +219,5 @@ object Request:
   def patch(uri: String): Request   = Request(HttpMethod.PATCH, uri)
   def head(uri: String): Request    = Request(HttpMethod.HEAD, uri)
   def options(uri: String): Request = Request(HttpMethod.OPTIONS, uri)
+
+end Request

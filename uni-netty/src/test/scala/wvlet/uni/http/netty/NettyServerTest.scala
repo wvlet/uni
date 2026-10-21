@@ -347,6 +347,21 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("should bind query parameters to @Endpoint method parameters") {
+    NettyServer
+      .withPort(0)
+      .withRxHandler(RouterHandler(Router.of[NettyServerTest.SearchController]))
+      .start { server =>
+        val base = s"http://localhost:${server.localPort}"
+        val r    = get(s"${base}/search?query=hello%20world&limit=20")
+        r.statusCode() shouldBe 200
+        r.body() shouldBe "hello world:20"
+
+        get(s"${base}/search?query=x").body() shouldBe "x:10"
+        get(s"${base}/search?query=x&limit=abc").statusCode() shouldBe 400
+      }
+  }
+
   test("should serve Response returns from @Endpoint controllers") {
     // Router.of used to fail at compile time: Response.status is an HttpStatus, an enum with a
     // parameterized case and hence no valueOf
@@ -491,6 +506,10 @@ object NettyServerTest:
     def flag: Boolean = true
 
   end HelloController
+
+  class SearchController:
+    @Endpoint(HttpMethod.GET, "/search")
+    def search(query: String, limit: Int = 10): String = s"${query}:${limit}"
 
   class ResponseController:
     @Endpoint(HttpMethod.GET, "/response")
