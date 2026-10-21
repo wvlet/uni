@@ -709,14 +709,8 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
         * Build a code for finding Enum instance from an input string value: {{ (cl: Class[?], s:
         * String) => Try(EnumType.valueOf(s)).toOption }}
         */
-      val enumType      = t.typeSymbol.companionModule
-      val valueOfMethod =
-        enumType.methodMember("valueOf").headOption match
-          case Some(m) =>
-            m
-          case None =>
-            sys.error(s"valueOf method not found in ${t}")
-      val newFn = Lambda(
+      val enumType   = t.typeSymbol.companionModule
+      lazy val newFn = Lambda(
         owner = Symbol.spliceOwner,
         tpe =
           MethodType(List("cl", "s"))(
@@ -747,6 +741,36 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
               ).asExprOf[Option[Any]].asTerm
             expr2.changeOwner(sym)
       )
+      val stringExtractor =
+        if enumType.methodMember("valueOf").nonEmpty then
+          newFn.asExprOf[(Class[?], String) => Option[Any]]
+        else
+          // An enum with a parameterized case (e.g., `case Other(code: Int)`) gets no synthesized
+          // `valueOf`, so look up its singleton cases by name instead
+          val cases = t
+            .typeSymbol
+            .children
+            .filter(_.isTerm)
+            .map { c =>
+              '{
+                (
+                  ${
+                    Expr(c.name)
+                  },
+                  ${
+                    Ref(c).asExprOf[Any]
+                  }
+                )
+              }
+            }
+          '{
+            val m = Map[String, Any](
+              ${
+                Varargs(cases)
+              }*
+            )
+            (_: Class[?], s: String) => m.get(s)
+          }
 
       '{
         EnumSurface(
@@ -754,7 +778,7 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
             clsOf(t)
           },
           ${
-            newFn.asExprOf[(Class[?], String) => Option[Any]]
+            stringExtractor
           }
         )
       }
