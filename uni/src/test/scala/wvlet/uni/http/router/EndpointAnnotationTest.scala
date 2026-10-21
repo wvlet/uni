@@ -29,12 +29,23 @@ class DualAnnotatedController:
   @foreign.Endpoint("GET", "/foreign/only")
   def foreignOnly(): String = "foreign"
 
+class ImportedMethodController:
+  import HttpMethod.*
+
+  @Endpoint(DELETE, "/v1/items/:id")
+  def deleteItem(id: String): String = s"deleted ${id}"
+
 class EndpointAnnotationTest extends UniTest:
 
   test("ignore an @Endpoint from another package, whatever the annotation order") {
     val routes = Router.of[DualAnnotatedController].routes
     routes.map(r => (r.method, r.pathPattern, r.methodSurface.name)).toSet shouldBe
       Set((HttpMethod.POST, "/v1/messages", "messages"), (HttpMethod.GET, "/v1/models", "models"))
+  }
+
+  test("read an imported HttpMethod case") {
+    Router.of[ImportedMethodController].routes.map(r => (r.method, r.pathPattern)) shouldBe
+      Seq((HttpMethod.DELETE, "/v1/items/:id"))
   }
 
   test("fail instead of dropping a route whose @Endpoint cannot be read") {
