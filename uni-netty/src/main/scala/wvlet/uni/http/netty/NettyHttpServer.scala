@@ -137,6 +137,10 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
                 RequestReadTimeoutHandler(config.requestReadTimeoutMillis.toLong)
               )
             pipeline.addLast("keepAlive", HttpServerKeepAliveHandler())
+            if config.requestDecompression then
+              val decompression = NettyRequestDecompression(config.maxDecompressedRequestSize)
+              pipeline.addLast("requestDecompressor", decompression.decompressor)
+              pipeline.addLast("requestDecompressionLimiter", decompression.limiter)
             pipeline.addLast("aggregator", HttpObjectAggregator(config.maxContentLength))
             pipeline.addLast(NettyHttpServer.CompressorHandler, HttpContentCompressor())
             pipeline.addLast("expectContinue", HttpServerExpectContinueHandler())

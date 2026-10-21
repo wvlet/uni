@@ -1,0 +1,146 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package wvlet.uni.http.netty
+
+import io.netty.buffer.Unpooled
+import io.netty.channel.embedded.EmbeddedChannel
+import io.netty.channel.{ChannelFutureListener, ChannelHandlerContext, ChannelInboundHandlerAdapter}
+import io.netty.handler.codec.compression.DecompressionException
+import io.netty.handler.codec.http.{
+  DefaultFullHttpResponse,
+  HttpContent,
+  HttpContentDecompressor,
+  HttpHeaderNames,
+  HttpHeaderValues,
+  HttpMessage,
+  HttpResponseStatus,
+  HttpVersion
+}
+import io.netty.util.ReferenceCountUtil
+import wvlet.uni.log.LogSupport
+
+import java.nio.charset.StandardCharsets
+
+/**
+  * Decodes request bodies sent with `Content-Encoding: gzip` or `deflate` (and their `x-` aliases)
+  * and bounds the decoded size of such requests.
+  *
+  * Netty's [[HttpContentDecompressor]] pushes decoded chunks downstream as they are inflated, and
+  * its `maxAllocation` option only caps a single decompression buffer, so a separate [[limiter]]
+  * placed right after it enforces the cumulative bound. Uncompressed requests are not counted, so
+  * this adds no global body limit. Rejections (400 for a malformed body, 413 over the limit) are
+  * sent from the pipeline before the request reaches any filter or handler, and close the
+  * connection.
+  *
+  * Create one instance per channel and add [[decompressor]] then [[limiter]] before
+  * `HttpObjectAggregator`.
+  */
+private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
+  require(maxDecompressedRequestSize > 0, "maxDecompressedRequestSize must be positive")
+
+  // Whether the current request body is being decoded. Set by the decompressor before it forwards
+  // the request headers
+  private var decoding: Boolean = false
+  // Set once the limiter has answered 400/413; the connection is closing
+  private var rejected: Boolean = false
+
+  // Other encodings (br, zstd, snappy, ...) pass through as raw bytes, so behavior never depends
+  // on optional native codecs on the classpath
+  val decompressor: HttpContentDecompressor =
+    new HttpContentDecompressor(false, 0):
+      // The aggregator may keep requesting reads until the close completes, so drop the rest of a
+      // rejected body here instead of inflating it
+      override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
+        if rejected then
+          ReferenceCountUtil.release(msg)
+        else
+          super.channelRead(ctx, msg)
+
+      override protected def newContentDecoder(contentEncoding: String): EmbeddedChannel =
+        val decoder =
+          if NettyRequestDecompression.isSupportedEncoding(contentEncoding) then
+            super.newContentDecoder(contentEncoding)
+          else
+            null
+        decoding = decoder != null
+        decoder
+
+  val limiter: ChannelInboundHandlerAdapter =
+    new ChannelInboundHandlerAdapter with LogSupport:
+      private var decodedBytes: Long = 0L
+
+      override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
+        if rejected then
+          // The connection is closing; drop the rest of the rejected request
+          ReferenceCountUtil.release(msg)
+        else
+          if msg.isInstanceOf[HttpMessage] then
+            decodedBytes = 0L
+          msg match
+            case c: HttpContent if decoding =>
+              decodedBytes += c.content().readableBytes()
+              if decodedBytes > maxDecompressedRequestSize then
+                ReferenceCountUtil.release(msg)
+                reject(
+                  ctx,
+                  HttpResponseStatus.REQUEST_ENTITY_TOO_LARGE,
+                  s"Decompressed request body exceeds ${maxDecompressedRequestSize} bytes"
+                )
+              else
+                ctx.fireChannelRead(msg)
+            case _ =>
+              ctx.fireChannelRead(msg)
+
+      override def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit =
+        if NettyRequestDecompression.isDecompressionFailure(cause) then
+          if !rejected then
+            reject(ctx, HttpResponseStatus.BAD_REQUEST, "Malformed compressed request body")
+        else
+          ctx.fireExceptionCaught(cause)
+
+      private def reject(
+          ctx: ChannelHandlerContext,
+          status: HttpResponseStatus,
+          message: String
+      ): Unit =
+        rejected = true
+        ctx.channel().config().setAutoRead(false)
+        debug(s"Rejecting a request from ${ctx.channel().remoteAddress()}: ${status} ${message}")
+        val resp = DefaultFullHttpResponse(
+          HttpVersion.HTTP_1_1,
+          status,
+          Unpooled.copiedBuffer(message, StandardCharsets.UTF_8)
+        )
+        resp.headers().set(HttpHeaderNames.CONTENT_TYPE, "text/plain; charset=utf-8")
+        resp.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, resp.content().readableBytes())
+        resp.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE)
+        ctx.writeAndFlush(resp).addListener(ChannelFutureListener.CLOSE)
+
+end NettyRequestDecompression
+
+private[netty] object NettyRequestDecompression:
+  private def isSupportedEncoding(contentEncoding: String): Boolean =
+    contentEncoding != null && {
+      val e = contentEncoding.trim
+      HttpHeaderValues.GZIP.contentEqualsIgnoreCase(e) ||
+      HttpHeaderValues.X_GZIP.contentEqualsIgnoreCase(e) ||
+      HttpHeaderValues.DEFLATE.contentEqualsIgnoreCase(e) ||
+      HttpHeaderValues.X_DEFLATE.contentEqualsIgnoreCase(e)
+    }
+
+  private def isDecompressionFailure(cause: Throwable): Boolean = Iterator
+    .iterate(cause)(_.getCause)
+    .takeWhile(_ != null)
+    .take(10)
+    .exists(_.isInstanceOf[DecompressionException])

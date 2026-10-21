@@ -57,6 +57,7 @@ case class NettyServerConfig(
     port: Int = 8080,
     handler: RxHttpHandler = RxHttpHandler.notFound,
     filters: Seq[RxHttpFilter] = Seq.empty,
+    // Maximum size of an aggregated request body, after request decompression
     maxContentLength: Int = 65536,
     maxInitialLineLength: Int = 4096,
     maxHeaderSize: Int = 8192,
@@ -83,6 +84,11 @@ case class NettyServerConfig(
     // connection open or the end of the previous response (0 disables). Bounds slowloris and idle
     // keep-alive connections.
     requestReadTimeoutMillis: Int = 30000,
+    // Decode request bodies sent with Content-Encoding gzip/deflate (and x- aliases) before any
+    // filter or handler sees them
+    requestDecompression: Boolean = true,
+    // Maximum decoded size of a compressed request body; uncompressed requests are not counted
+    maxDecompressedRequestSize: Int = 64 * 1024 * 1024,
     // Maximum number of concurrently open Server-Sent Events streams; more get 503. Also bounds the
     // threads consuming the streams.
     maxStreamingConnections: Int = 256,
@@ -187,6 +193,26 @@ case class NettyServerConfig(
     copy(requestReadTimeoutMillis = millis)
 
   def noRequestReadTimeout: NettyServerConfig = withRequestReadTimeoutMillis(0)
+
+  /**
+    * Decode request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` /
+    * `x-deflate` aliases) before any filter or handler sees them (enabled by default). The decoded
+    * size of a compressed request is bounded by [[withMaxDecompressedRequestSize]]; a malformed
+    * body gets a plain-text 400 and closes the connection. Other encodings pass through unchanged.
+    * To authenticate requests before inflating them, use [[noRequestDecompression]] and decode the
+    * body in a filter.
+    */
+  def withRequestDecompression: NettyServerConfig = copy(requestDecompression = true)
+  def noRequestDecompression: NettyServerConfig   = copy(requestDecompression = false)
+
+  /**
+    * Maximum decoded size (in bytes) of a compressed request body (default: 64 MiB). A larger body
+    * gets a plain-text 413 and closes the connection. Uncompressed requests are not limited by
+    * this; the decoded body must also fit in [[withMaxContentLength]].
+    */
+  def withMaxDecompressedRequestSize(sizeInBytes: Int): NettyServerConfig =
+    require(sizeInBytes > 0, "maxDecompressedRequestSize must be positive")
+    copy(maxDecompressedRequestSize = sizeInBytes)
 
   /**
     * Allow WebSocket connections from these browser origins (e.g. `https://app.example.com`) in
