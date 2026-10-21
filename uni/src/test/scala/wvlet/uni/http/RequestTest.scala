@@ -115,6 +115,27 @@ class RequestTest extends UniTest:
     request.getQueryParam("page") shouldBe Some("2")
   }
 
+  test("should read query parameters from the URI's query string") {
+    val request = Request.get("/api/users?page=2&tag=a%20b&tag=c+d&flag&=x&empty=")
+    request.path shouldBe "/api/users"
+    request.getQueryParam("page") shouldBe Some("2")
+    request.getQueryParams("tag") shouldBe Seq("a b", "c d")
+    request.getQueryParam("flag") shouldBe Some("")
+    request.getQueryParam("empty") shouldBe Some("")
+    request.getQueryParam("missing") shouldBe None
+    Request.get("/a?x=1#top").getQueryParam("x") shouldBe Some("1")
+  }
+
+  test("should decode UTF-8 query parameters") {
+    Request.get("/q?name=%E3%81%93%E3%82%93").getQueryParam("name") shouldBe Some("こん")
+  }
+
+  test("should list URI query parameters before added ones") {
+    val request = Request.get("/api/users?tag=a").addQueryParam("tag", "b")
+    request.getQueryParams("tag") shouldBe Seq("a", "b")
+    request.getQueryParam("tag") shouldBe Some("a")
+  }
+
   test("should build full URI with query parameters") {
     val request = Request.get("/api/users").addQueryParam("page", "1").addQueryParam("limit", "10")
     request.fullUri shouldContain "page=1"
