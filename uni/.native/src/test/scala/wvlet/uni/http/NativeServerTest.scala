@@ -132,6 +132,30 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should read a raw UTF-8 request target as UTF-8") {
+    NativeServer
+      .withHandler { req =>
+        // Code points as hex, so the response body stays ASCII
+        val q = req.getQueryParam("q").getOrElse("")
+        Response.ok(s"${req.path} ${q.codePoints().toArray.map(_.toHexString).mkString(",")}")
+      }
+      .withPort(0)
+      .start { server =>
+        // The raw helper writes one byte per char, so pass the UTF-8 bytes as ISO-8859-1 chars
+        val target = String(
+          "/café?q=é🐱".getBytes(StandardCharsets.UTF_8),
+          StandardCharsets.ISO_8859_1
+        )
+        val response = request(
+          server.localPort,
+          s"GET ${target} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        response.status shouldBe 200
+        String(response.body.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8) shouldBe
+          "/café e9,1f431"
+      }
+  }
+
   test("should handle a POST request with a body") {
     NativeServer
       .withHandler { req =>

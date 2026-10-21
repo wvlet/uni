@@ -362,6 +362,28 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("should read a raw UTF-8 request target as UTF-8") {
+    NettyServer
+      .withPort(0)
+      .withHandler(req => Response.ok(s"${req.path} ${req.getQueryParam("q").getOrElse("")}"))
+      .start { server =>
+        val socket = java.net.Socket("127.0.0.1", server.localPort)
+        try
+          socket
+            .getOutputStream
+            .write(
+              "GET /café?q=é🐱 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".getBytes(
+                StandardCharsets.UTF_8
+              )
+            )
+          val response = String(socket.getInputStream.readAllBytes(), StandardCharsets.UTF_8)
+          response shouldContain " 200 "
+          response.split("\r\n\r\n").last shouldBe "/café é🐱"
+        finally
+          socket.close()
+      }
+  }
+
   test("should serve Response returns from @Endpoint controllers") {
     // Router.of used to fail at compile time: Response.status is an HttpStatus, an enum with a
     // parameterized case and hence no valueOf

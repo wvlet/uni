@@ -87,7 +87,7 @@ private[http] class HttpConnectionReader(readChunk: Boolean => Array[Byte], maxR
     if requestLine.length < 2 then
       return ReadResult.BadRequest("Malformed request line")
     val methodName = requestLine(0)
-    val target     = requestLine(1)
+    val target     = Request.decodeRequestTarget(requestLine(1))
 
     val headerBuilder = HttpMultiMap.newBuilder
     var li            = 1

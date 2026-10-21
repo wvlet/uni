@@ -16,6 +16,8 @@ package wvlet.uni.http
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.util.URLEncoder
 
+import java.nio.charset.StandardCharsets
+
 /**
   * An immutable HTTP request representation
   */
@@ -183,6 +185,22 @@ case class Request(
 end Request
 
 object Request:
+
+  /**
+    * Read a request target as UTF-8. Servers decode the request line one byte per char
+    * (ISO-8859-1), so a client sending raw, not percent-encoded, UTF-8 (`/search?q=café`) would get
+    * mojibake. Returns the target unchanged when it is ASCII, already holds non-Latin-1 chars, or
+    * is not valid UTF-8.
+    */
+  def decodeRequestTarget(target: String): String =
+    if target.forall(_ < 0x80) || target.exists(_ > 0xff) then
+      target
+    else
+      val decoded = String(target.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8)
+      if decoded.contains('\uFFFD') then
+        target
+      else
+        decoded
 
   /**
     * Parse a URL query string (`a=1&b=x%20y&a=2`) into decoded parameter values, preserving their

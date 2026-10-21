@@ -130,6 +130,25 @@ class RequestTest extends UniTest:
     Request.get("/q?name=%E3%81%93%E3%82%93").getQueryParam("name") shouldBe Some("こん")
   }
 
+  test("should read a request target decoded as ISO-8859-1 as UTF-8") {
+    def wire(s: String): String = String(
+      s.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+      java.nio.charset.StandardCharsets.ISO_8859_1
+    )
+    Request.decodeRequestTarget(wire("/café?q=🐱")) shouldBe "/café?q=🐱"
+    Request.decodeRequestTarget("/ascii?q=%E3%81%93") shouldBe "/ascii?q=%E3%81%93"
+    // Already Unicode: unchanged
+    Request.decodeRequestTarget("/q=🐱") shouldBe "/q=🐱"
+    // Not valid UTF-8 (a lone 0xE9 byte): left as-is
+    Request.decodeRequestTarget("/caf\u00e9") shouldBe "/caf\u00e9"
+  }
+
+  test("should read raw Unicode query parameters") {
+    val request = Request.get("/search?q=café 🐱&tag=%F0%9F%90%B1")
+    request.getQueryParam("q") shouldBe Some("café 🐱")
+    request.getQueryParam("tag") shouldBe Some("🐱")
+  }
+
   test("should list URI query parameters before added ones") {
     val request = Request.get("/api/users?tag=a").addQueryParam("tag", "b")
     request.getQueryParams("tag") shouldBe Seq("a", "b")
