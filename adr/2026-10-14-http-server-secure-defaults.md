@@ -19,7 +19,9 @@ uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an 
 
 `HttpServerConfig` exposes `allowedOrigins` and `detailedErrors` as members with defaults, so shared code can read them. Each backend config declares the fields and `withXXX` builders, as with `webSocketRoutes`. The logic itself lives once, in `HttpServerSecurity`.
 
-`RouterHandler` and `RPCHandler`/`RPCDispatcher` are built independently of the server config, so they take their own `detailedErrors` flag.
+`RPCHandler`/`RPCDispatcher` are built independently of the server config, so they take their own `detailedErrors` flag: an RPC error is an RPC-encoded response body, not a plain 500.
+
+`RouterHandler` does not render 500s (2026-10-21). A controller exception is returned as a failed `Rx`, as an exception inside a returned `Rx` already was, so an app's `RxHttpFilter` can `recover` from the original exception and classify it (airframe-http apps migrating to uni rely on this). The server's `OnError` path renders whatever no filter recovered from as the generic 500, honoring the server's `detailedErrors`, so the secure default holds at the outermost layer. `RouterHandler.withDetailedErrors` is deprecated as a no-op. Parameter-mapping failures stay a local 400, since that is the router's own classification of client input.
 
 ## Host allowlist (DNS rebinding)
 

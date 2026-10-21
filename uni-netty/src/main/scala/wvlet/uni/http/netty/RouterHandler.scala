@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpServerSecurity, Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
@@ -26,12 +26,16 @@ import java.util.IdentityHashMap
   * An RxHttpHandler implementation that dispatches requests to controller methods based on route
   * matching.
   *
+  * A controller exception is returned as a failed `Rx` (as an exception inside a returned `Rx`
+  * already is), so an enclosing [[RxHttpFilter]] can `recover` from the original exception. When no
+  * filter recovers, the server renders it as a generic 500 response.
+  *
   * @param router
   *   The router containing route definitions
   * @param controllerProvider
   *   Provider for obtaining controller instances
   * @param detailedErrors
-  *   Include exception messages in 500 responses (for development only)
+  *   Unused: 500 responses are rendered by the server
   */
 class RouterHandler(
     router: Router,
@@ -40,7 +44,10 @@ class RouterHandler(
 ) extends RxHttpHandler
     with LogSupport:
 
-  /** Include exception messages in 500 responses (for development only). */
+  @deprecated(
+    "Controller exceptions now propagate to the server, which renders 500 responses. Use NettyServerConfig.withDetailedErrors instead",
+    "2026.1.29"
+  )
   def withDetailedErrors(enabled: Boolean): RouterHandler =
     new RouterHandler(router, controllerProvider, enabled)
 
@@ -110,8 +117,7 @@ class RouterHandler(
             debug(s"Parameter mapping error: ${e.getMessage}")
             Rx.single(Response.badRequest(e.getMessage))
           case e: Exception =>
-            warn(s"Error handling request: ${e.getMessage}", e)
-            Rx.single(HttpServerSecurity.errorResponse(e, detailedErrors))
+            Rx.exception(e)
       case None =>
         debug(s"No route found for ${request.method} ${request.path}")
         Rx.single(Response.notFound(s"Not found: ${request.method} ${request.path}"))

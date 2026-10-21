@@ -285,6 +285,22 @@ val authFilter = RxHttpFilter { (request, next) =>
 }
 ```
 
+### Handling Errors in a Filter
+
+An exception thrown by a controller method reaches the enclosing filters as a failed `Rx`, the same as an exception inside a returned `Rx`. A filter can `recover` from it and map the original exception to a response, so error classification can live in one place:
+
+```scala
+val errorFilter = RxHttpFilter { (request, next) =>
+  next
+    .handle(request)
+    .recover {
+      case e: IllegalArgumentException => Response.badRequest(e.getMessage)
+    }
+}
+```
+
+An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
+
 ### Applying Filters
 
 ```scala
@@ -350,7 +366,7 @@ All three backends start with these defaults:
 | Default | Why | Opt out |
 |---------|-----|---------|
 | Bind to `127.0.0.1` | An unauthenticated dev or sidecar server is not reachable from the network | `.withHost("0.0.0.0")` for Docker, Kubernetes, or any server other hosts must reach |
-| 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config; `RPCHandler(router).withDetailedErrors(true)`, `RouterHandler(...).withDetailedErrors(true)` for those handlers |
+| 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config, which also covers `RouterHandler` controller exceptions; `RPCHandler(router).withDetailedErrors(true)` for RPC |
 | On a loopback server, requests whose `Host` is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` get 403 | DNS rebinding: a web page can point its own host name at 127.0.0.1 and then read the local server as same-origin. The browser still sends the page's host name in `Host` | `.withAllowedHosts("app.example.com", "*.internal.example")` to replace the list, `.noHostCheck` to accept any. A server bound to `0.0.0.0` accepts any host unless `withAllowedHosts` is set |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
 | Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength` (and `.withMaxDecompressedRequestSize` for gzip/deflate bodies, default 64 MiB), Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
