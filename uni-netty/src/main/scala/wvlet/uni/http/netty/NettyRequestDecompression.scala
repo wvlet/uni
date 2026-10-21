@@ -52,11 +52,21 @@ private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
   // Whether the current request body is being decoded. Set by the decompressor before it forwards
   // the request headers
   private var decoding: Boolean = false
+  // Set once the limiter has answered 400/413; the connection is closing
+  private var rejected: Boolean = false
 
   // Other encodings (br, zstd, snappy, ...) pass through as raw bytes, so behavior never depends
   // on optional native codecs on the classpath
   val decompressor: HttpContentDecompressor =
     new HttpContentDecompressor(false, 0):
+      // The aggregator may keep requesting reads until the close completes, so drop the rest of a
+      // rejected body here instead of inflating it
+      override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
+        if rejected then
+          ReferenceCountUtil.release(msg)
+        else
+          super.channelRead(ctx, msg)
+
       override protected def newContentDecoder(contentEncoding: String): EmbeddedChannel =
         val decoder =
           if NettyRequestDecompression.isSupportedEncoding(contentEncoding) then
@@ -69,7 +79,6 @@ private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
   val limiter: ChannelInboundHandlerAdapter =
     new ChannelInboundHandlerAdapter with LogSupport:
       private var decodedBytes: Long = 0L
-      private var rejected: Boolean  = false
 
       override def channelRead(ctx: ChannelHandlerContext, msg: Any): Unit =
         if rejected then
@@ -106,7 +115,6 @@ private[netty] class NettyRequestDecompression(maxDecompressedRequestSize: Int):
           message: String
       ): Unit =
         rejected = true
-        // Stop reading so the decompressor does not keep inflating the rest of the rejected body
         ctx.channel().config().setAutoRead(false)
         debug(s"Rejecting a request from ${ctx.channel().remoteAddress()}: ${status} ${message}")
         val resp = DefaultFullHttpResponse(
