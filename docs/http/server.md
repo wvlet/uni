@@ -333,6 +333,34 @@ val router = Router
   .andThen(Router.of[UserController])
 ```
 
+### Passing Data from a Filter to Controllers
+
+A filter can attach server-side attributes to the request, e.g. the identity an authentication filter resolved. Attributes never come from the client: a request decoded by the server starts with none, so a client cannot spoof them with headers. Since `Request` is immutable, each attribute stays with the request it was set on.
+
+```scala
+import wvlet.uni.http.{Request, RequestAttribute, RequestAttributes, RxHttpFilter}
+
+object Auth:
+  // Keys compare by identity: share this instance rather than re-creating it by name
+  val Identity: RequestAttribute[User] = RequestAttribute("identity")
+
+  val filter = RxHttpFilter { (request, next) =>
+    authenticate(request) match
+      case Some(user) => next.handle(request.withAttribute(Identity, user))
+      case None       => Rx.single(Response.unauthorized)
+  }
+
+class ApiController:
+  @Endpoint(HttpMethod.GET, "/me")
+  def me(request: Request): User = request.attribute(Auth.Identity).get
+
+  // Or take the attributes alone
+  @Endpoint(HttpMethod.GET, "/me/name")
+  def name(attributes: RequestAttributes): String = attributes.get(Auth.Identity).get.name
+```
+
+The Netty server sets `RequestAttribute.RemoteAddress` (`host:port` of the connected peer, with IPv6 hosts in brackets, which is the load balancer when there is one). `RequestAttributes.toString` prints only the attribute names, so logging a request does not leak their values.
+
 ## Server Configuration
 
 ### NettyServerConfig Options

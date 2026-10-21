@@ -28,7 +28,8 @@ case class Request(
     headers: HttpMultiMap = HttpMultiMap.empty,
     content: HttpContent = HttpContent.Empty,
     queryParams: Map[String, Seq[String]] = Map.empty,
-    eventHandler: ServerSentEventHandler = ServerSentEventHandler.empty
+    eventHandler: ServerSentEventHandler = ServerSentEventHandler.empty,
+    attributes: RequestAttributes = RequestAttributes.empty
 ):
 
   def path: String =
@@ -180,6 +181,20 @@ case class Request(
     withAuthorization(s"Basic ${encoded}")
 
   def withEventHandler(handler: ServerSentEventHandler): Request = copy(eventHandler = handler)
+
+  /**
+    * A server-side attribute set by the server or a filter. See [[RequestAttributes]]
+    */
+  def attribute[A](key: RequestAttribute[A]): Option[A]             = attributes.get(key)
+  def withAttribute[A](key: RequestAttribute[A], value: A): Request = copy(attributes =
+    attributes.updated(key, value)
+  )
+
+  def withoutAttribute(key: RequestAttribute[?]): Request = copy(attributes =
+    attributes.removed(key)
+  )
+
+  def withAttributes(attrs: RequestAttributes): Request = copy(attributes = attrs)
 
   def withAcceptEventStream: Request = withAccept(ContentType.TextEventStream.value)
 

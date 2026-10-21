@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.router
 
-import wvlet.uni.http.Request
+import wvlet.uni.http.{Request, RequestAttributes}
 import wvlet.uni.surface.{MethodParameter, MethodSurface, Primitive, Surface}
 
 /**
@@ -23,7 +23,8 @@ import wvlet.uni.surface.{MethodParameter, MethodSurface, Primitive, Surface}
   *   1. Path parameters (from URL path, e.g., `:id` -> "123")
   *   2. Query parameters (from URL query string)
   *   3. Default values (if parameter has a default)
-  *   4. The Request object itself (if parameter type is Request)
+  *   4. The Request object itself (if parameter type is Request), or its attributes (if parameter
+  *      type is RequestAttributes)
   */
 class HttpRequestMapper:
 
@@ -67,6 +68,8 @@ class HttpRequestMapper:
     // Check if the parameter is the Request type itself
     if paramSurface.rawType == classOf[Request] then
       request
+    else if paramSurface.rawType == classOf[RequestAttributes] then
+      request.attributes
     // Try path parameters first
     else if pathParams.contains(paramName) then
       convertParam(paramName, pathParams(paramName), param.surface)

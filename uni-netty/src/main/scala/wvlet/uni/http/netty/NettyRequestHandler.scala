@@ -49,6 +49,7 @@ import wvlet.uni.http.{
   HttpServerSecurity,
   HttpStatus,
   Request,
+  RequestAttribute,
   Response,
   RxHttpHandler,
   ServerSentEvent,
@@ -57,6 +58,7 @@ import wvlet.uni.http.{
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
+import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ExecutorService, TimeUnit}
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicReference}
@@ -96,7 +98,7 @@ class NettyRequestHandler(
       sendResponse(ctx, Response.notImplemented, keepAlive)
       return
     try
-      val request = toUniRequest(nettyRequest)
+      val request = toUniRequest(ctx, nettyRequest)
       HttpServerSecurity.checkHost(request, allowedHosts) match
         case Some(rejection) =>
           debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
@@ -411,7 +413,7 @@ class NettyRequestHandler(
       nettyResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE)
       ctx.writeAndFlush(nettyResponse).addListener(ChannelFutureListener.CLOSE)
 
-  private def toUniRequest(nettyRequest: FullHttpRequest): Request =
+  private def toUniRequest(ctx: ChannelHandlerContext, nettyRequest: FullHttpRequest): Request =
     val method = HttpMethod
       .of(nettyRequest.method().name())
       .getOrElse {
@@ -437,7 +439,24 @@ class NettyRequestHandler(
       else
         HttpContent.Empty
 
-    Request(method = method, uri = uri, headers = headersBuilder.result(), content = content)
+    val request = Request(
+      method = method,
+      uri = uri,
+      headers = headersBuilder.result(),
+      content = content
+    )
+    ctx.channel().remoteAddress() match
+      case addr: InetSocketAddress =>
+        val host = addr.getHostString
+        // Bracket IPv6 hosts so the port stays unambiguous, as in a URI authority
+        val authority =
+          if host.contains(':') then
+            s"[${host}]:${addr.getPort}"
+          else
+            s"${host}:${addr.getPort}"
+        request.withAttribute(RequestAttribute.RemoteAddress, authority)
+      case _ =>
+        request
 
   end toUniRequest
 
