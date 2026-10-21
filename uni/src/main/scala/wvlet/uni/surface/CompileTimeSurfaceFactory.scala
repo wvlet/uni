@@ -709,55 +709,65 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
         * Build a code for finding Enum instance from an input string value: {{ (cl: Class[?], s:
         * String) => Try(EnumType.valueOf(s)).toOption }}
         */
-      val enumType      = t.typeSymbol.companionModule
-      val valueOfMethod =
-        enumType.methodMember("valueOf").headOption match
-          case Some(m) =>
-            m
-          case None =>
-            sys.error(s"valueOf method not found in ${t}")
-      val newFn = Lambda(
-        owner = Symbol.spliceOwner,
-        tpe =
-          MethodType(List("cl", "s"))(
-            _ => List(TypeRepr.of[Class[?]], TypeRepr.of[String]),
-            _ => TypeRepr.of[Option[Any]]
-          ),
-        rhsFn =
-          (sym: Symbol, paramRefs: List[Tree]) =>
-            val strVarRef  = paramRefs(1).asExprOf[String].asTerm
-            val expr: Term = Select
-              .unique(
-                Apply(Select.unique(Ref(t.typeSymbol.companionModule), "valueOf"), List(strVarRef)),
-                "asInstanceOf"
-              )
-              .appliedToType(TypeRepr.of[Any])
-            val expr2 =
-              (
-                '{
-                  scala
-                    .util
-                    .Try(
-                      ${
-                        expr.asExprOf[Any]
-                      }
-                    )
-                    .toOption
-                }
-              ).asExprOf[Option[Any]].asTerm
-            expr2.changeOwner(sym)
-      )
-
-      '{
-        EnumSurface(
-          ${
-            clsOf(t)
-          },
-          ${
-            newFn.asExprOf[(Class[?], String) => Option[Any]]
-          }
+      val enumType = t.typeSymbol.companionModule
+      // An enum with a parameterized case (e.g., `case Other(code: Int)`) gets no synthesized
+      // `valueOf`, so its instances can't be looked up by name
+      if enumType.methodMember("valueOf").isEmpty then
+        '{
+          EnumSurface(
+            ${
+              clsOf(t)
+            },
+            (_: Class[?], _: String) => None
+          )
+        }
+      else
+        val newFn = Lambda(
+          owner = Symbol.spliceOwner,
+          tpe =
+            MethodType(List("cl", "s"))(
+              _ => List(TypeRepr.of[Class[?]], TypeRepr.of[String]),
+              _ => TypeRepr.of[Option[Any]]
+            ),
+          rhsFn =
+            (sym: Symbol, paramRefs: List[Tree]) =>
+              val strVarRef  = paramRefs(1).asExprOf[String].asTerm
+              val expr: Term = Select
+                .unique(
+                  Apply(
+                    Select.unique(Ref(t.typeSymbol.companionModule), "valueOf"),
+                    List(strVarRef)
+                  ),
+                  "asInstanceOf"
+                )
+                .appliedToType(TypeRepr.of[Any])
+              val expr2 =
+                (
+                  '{
+                    scala
+                      .util
+                      .Try(
+                        ${
+                          expr.asExprOf[Any]
+                        }
+                      )
+                      .toOption
+                  }
+                ).asExprOf[Option[Any]].asTerm
+              expr2.changeOwner(sym)
         )
-      }
+
+        '{
+          EnumSurface(
+            ${
+              clsOf(t)
+            },
+            ${
+              newFn.asExprOf[(Class[?], String) => Option[Any]]
+            }
+          )
+        }
+      end if
     case t if hasStringUnapply(t) =>
       // Build EnumSurface.apply code
       // EnumSurface(classOf[t], { (cl: Class[?], s: String) => (companion object).unapply(s).asInstanceOf[Option[Any]] }

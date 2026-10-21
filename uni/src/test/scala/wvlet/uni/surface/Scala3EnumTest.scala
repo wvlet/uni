@@ -25,6 +25,25 @@ object Scala3EnumTest extends UniTest:
       Green,
       Blue
 
+  enum Status(val code: Int):
+    case Ok            extends Status(200)
+    case Other(c: Int) extends Status(c)
+
+  test("scala 3 enum with a parameterized case") {
+    // A parameterized case suppresses the synthesized valueOf, so names can't be resolved
+    val s = Surface.of[Status]
+    s.isEnum shouldBe true
+    s shouldMatch { case e: EnumSurface =>
+      e.stringExtractor(classOf[Status], "Ok") shouldBe None
+    }
+  }
+
+  test("surface of a type with a field of an enum with a parameterized case") {
+    case class Holder(status: Status)
+    val s = Surface.of[Holder]
+    s.params.map(_.surface.isEnum) shouldBe Seq(true)
+  }
+
   test("scala 3 enum") {
     val s = Surface.of[Color]
 
@@ -34,3 +53,5 @@ object Scala3EnumTest extends UniTest:
 
     s.isEnum shouldBe true
   }
+
+end Scala3EnumTest

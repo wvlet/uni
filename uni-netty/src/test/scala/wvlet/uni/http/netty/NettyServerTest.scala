@@ -17,6 +17,7 @@ import wvlet.uni.http.{
   HttpHandler,
   HttpHeader,
   HttpMethod,
+  HttpStatus,
   Request,
   Response,
   RxHttpFilter,
@@ -346,6 +347,23 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("should serve Response returns from @Endpoint controllers") {
+    // Router.of used to fail at compile time: Response.status is an HttpStatus, an enum with a
+    // parameterized case and hence no valueOf
+    NettyServer
+      .withPort(0)
+      .withRxHandler(RouterHandler(Router.of[NettyServerTest.ResponseController]))
+      .start { server =>
+        val r = get(s"http://localhost:${server.localPort}/response")
+        r.statusCode() shouldBe 201
+        r.body() shouldBe "created"
+
+        val rRx = get(s"http://localhost:${server.localPort}/rx-response")
+        rRx.statusCode() shouldBe 299
+        rRx.body() shouldBe "custom"
+      }
+  }
+
   test("should encode case class returns from @Endpoint controllers as JSON") {
     NettyServer
       .withPort(0)
@@ -473,5 +491,14 @@ object NettyServerTest:
     def flag: Boolean = true
 
   end HelloController
+
+  class ResponseController:
+    @Endpoint(HttpMethod.GET, "/response")
+    def response(): Response = Response(HttpStatus.Created_201).withTextContent("created")
+
+    @Endpoint(HttpMethod.GET, "/rx-response")
+    def rxResponse(): Rx[Response] = Rx.single(
+      Response(HttpStatus.Other(299)).withTextContent("custom")
+    )
 
 end NettyServerTest
