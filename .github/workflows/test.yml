@@ -109,6 +109,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          check-latest: true
           cache: 'pnpm'
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
@@ -267,6 +268,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          check-latest: true
           cache: 'pnpm'
       - name: Install Node dependencies
         run: pnpm install --frozen-lockfile
@@ -318,6 +320,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
+          check-latest: true
       # The scripted test downloads Chromium via the Java Playwright runtime, which needs the
       # OS-level libraries. Pin to the same version as the Playwright runtime so the cached build
       # matches; --with-deps also installs those libraries.
