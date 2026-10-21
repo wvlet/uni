@@ -417,7 +417,7 @@ class NettyRequestHandler(
       .getOrElse {
         throw IllegalArgumentException(s"Unsupported HTTP method: ${nettyRequest.method().name()}")
       }
-    val uri = nettyRequest.uri()
+    val uri = Request.decodeRequestTarget(nettyRequest.uri())
 
     val headersBuilder = HttpMultiMap.newBuilder
     nettyRequest

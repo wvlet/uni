@@ -68,10 +68,10 @@ object URLEncoder:
         bytes += ' '.toByte
         i += 1
       else
-        // Append UTF-8 bytes for multi-byte characters
-        val charBytes = c.toString.getBytes("UTF-8")
-        bytes ++= charBytes
-        i += 1
+        // Append UTF-8 bytes of the code point, keeping a surrogate pair (e.g., an emoji) together
+        val cp = s.codePointAt(i)
+        bytes ++= String(Character.toChars(cp)).getBytes("UTF-8")
+        i += Character.charCount(cp)
 
     String(bytes.result(), "UTF-8")
 

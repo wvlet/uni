@@ -261,7 +261,7 @@ private[http] object NodeWebSocket extends LogSupport:
 
   private def buildRequest(req: js.Dynamic): Request =
     val method     = HttpMethod.of(req.method.asInstanceOf[String]).getOrElse(HttpMethod.GET)
-    val uri        = req.url.asInstanceOf[String]
+    val uri        = Request.decodeRequestTarget(req.url.asInstanceOf[String])
     val builder    = HttpMultiMap.newBuilder
     val rawHeaders =
       if js.isUndefined(req.rawHeaders) || req.rawHeaders == null then

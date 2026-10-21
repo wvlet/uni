@@ -121,7 +121,7 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
             writeResponse(res, Response.badRequest(s"Unsupported HTTP method: ${req.method}"))
             return
 
-      val uri = req.url.asInstanceOf[String]
+      val uri = Request.decodeRequestTarget(req.url.asInstanceOf[String])
 
       // rawHeaders is a flat [k, v, k, v, ...] array, preserving duplicate header names. Guard
       // against a non-standard/mock request object that lacks it.
