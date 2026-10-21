@@ -76,7 +76,7 @@ case class Request(
   // Parameters in the URI's query string. Servers keep the query in `uri`, so routes read
   // parameters from both this and `queryParams`
   private lazy val uriQueryParams: Map[String, Seq[String]] = query
-    .map(Request.parseQueryString)
+    .map(q => Request.parseQueryString(q.takeWhile(_ != '#')))
     .getOrElse(Map.empty)
 
   /**

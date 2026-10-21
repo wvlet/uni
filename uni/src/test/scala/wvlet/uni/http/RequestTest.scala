@@ -123,6 +123,7 @@ class RequestTest extends UniTest:
     request.getQueryParam("flag") shouldBe Some("")
     request.getQueryParam("empty") shouldBe Some("")
     request.getQueryParam("missing") shouldBe None
+    Request.get("/a?x=1#top").getQueryParam("x") shouldBe Some("1")
   }
 
   test("should decode UTF-8 query parameters") {
