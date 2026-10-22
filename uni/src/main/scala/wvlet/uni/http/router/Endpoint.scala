@@ -24,6 +24,8 @@ import scala.annotation.StaticAnnotation
   * @param path
   *   The URL path pattern. Can include path parameters using `:paramName` syntax, e.g.,
   *   "/users/:id"
+  * @param description
+  *   A description of the endpoint for generated API documentation (see `OpenAPI`)
   *
   * Example usage:
   * {{{
@@ -38,4 +40,5 @@ import scala.annotation.StaticAnnotation
   *   def createUser(request: Request): User = ???
   * }}}
   */
-case class Endpoint(method: HttpMethod, path: String) extends StaticAnnotation
+case class Endpoint(method: HttpMethod, path: String, description: String = "")
+    extends StaticAnnotation

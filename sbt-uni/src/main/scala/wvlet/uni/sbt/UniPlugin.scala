@@ -62,6 +62,23 @@ object UniPlugin extends AutoPlugin:
 
     val uniHttpCodegenOutDir = settingKey[File]("Output directory for generated code")
 
+    // --- uniOpenAPI: OpenAPI document generation from @Endpoint routers ---
+    val uniOpenAPIRouters = settingKey[Seq[String]](
+      "Routers to document: Scala object members returning a wvlet.uni.http.router.Router, e.g. 'com.example.Api.router'"
+    )
+
+    val uniOpenAPITitle   = settingKey[String]("OpenAPI info.title (default: project name)")
+    val uniOpenAPIVersion = settingKey[String]("OpenAPI info.version (default: project version)")
+    val uniOpenAPISchemaPackagePrefix = settingKey[Option[String]](
+      "A package prefix stripped from schema names, e.g. Some(\"com.example.api.\")"
+    )
+
+    val uniOpenAPIFormat    = settingKey[String]("Output format: yaml (default) or json")
+    val uniOpenAPITargetDir = settingKey[File]("Directory for openapi.yaml / openapi.json")
+
+    @transient
+    val uniOpenAPI = taskKey[File]("Generate an OpenAPI document from uniOpenAPIRouters")
+
     // --- uniRestart (background fork-run), ported from sbt-revolver's reStart ---
 
     val uniRestart = inputKey[Unit](
@@ -133,7 +150,56 @@ object UniPlugin extends AutoPlugin:
       },
       // Hook into source generation so generated code is compiled with user code
       Compile / sourceGenerators += uniHttpGenerateClient
-    ) ++ uniRestartSettings
+    ) ++ uniOpenAPISettings ++ uniRestartSettings
+
+  /**
+    * uniOpenAPI forks a JVM that runs uni's OpenAPIGeneratorMain on the project's runtime
+    * classpath, so the generator is the uni version the app depends on, and the build never loads
+    * application classes.
+    */
+  private def uniOpenAPISettings: Seq[Setting[?]] = Seq(
+    uniOpenAPIRouters             := Seq.empty,
+    uniOpenAPITitle               := name.value,
+    uniOpenAPIVersion             := version.value,
+    uniOpenAPISchemaPackagePrefix := None,
+    uniOpenAPIFormat              := "yaml",
+    uniOpenAPITargetDir           := target.value / "openapi",
+    uniOpenAPI                    := {
+      given FileConverter = fileConverter.value
+      val log             = streams.value.log
+      val routers         = uniOpenAPIRouters.value
+      val format          = uniOpenAPIFormat.value
+      val out             = uniOpenAPITargetDir.value / s"openapi.${format}"
+      if routers.isEmpty then
+        sys.error("uniOpenAPIRouters is empty: set the routers to document")
+      val classpath = (Runtime / fullClasspath).value.files.map(_.toFile)
+      val args      =
+        routers.flatMap(r => Seq("--router", r)) ++
+          Seq(
+            "--title",
+            uniOpenAPITitle.value,
+            "--version",
+            uniOpenAPIVersion.value,
+            "--format",
+            format,
+            "--out",
+            out.getAbsolutePath
+          ) ++
+          uniOpenAPISchemaPackagePrefix.value.toSeq.flatMap(p => Seq("--schema-package-prefix", p))
+      val cp       = classpath.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+      val exitCode = Fork.java(
+        ForkOptions()
+          .withJavaHome(javaHome.value)
+          .withOutputStrategy(Some(LoggedOutput(log)))
+          .withWorkingDirectory(baseDirectory.value),
+        Seq("-classpath", cp, "wvlet.uni.http.openapi.OpenAPIGeneratorMain") ++ args
+      )
+      if exitCode != 0 then
+        sys.error(s"OpenAPI generation failed (exit code ${exitCode})")
+      log.info(s"Generated ${out}")
+      out
+    }
+  )
 
   /** uniRestart/uniStop/uniStatus settings, ported from sbt-revolver's reStart. */
   private def uniRestartSettings: Seq[Setting[?]] = Seq(

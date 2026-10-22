@@ -1,11 +1,13 @@
 # sbt-uni Plugin
 
-`sbt-uni` is uni's sbt 2.x plugin. It does two jobs:
+`sbt-uni` is uni's sbt 2.x plugin. It does three jobs:
 
 1. **HTTP/RPC client generation** — turn a Scala 3 service trait into a type-safe
    client at build time (see [RPC](/http/rpc) for the full guide).
 2. **Background fork-run** — start your application in a forked JVM and relaunch
    it on every code change with `~uniRestart`.
+3. **OpenAPI generation** — write `openapi.yaml` for your `@Endpoint` routers with
+   `uniOpenAPI`.
 
 ::: tip sbt 2.x
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
@@ -136,3 +138,27 @@ the target spec format and generated client API.
 | ---------------------- | ------------- | ------------------------ | -------------------------------------- |
 | `uniHttpClients`       | `Seq[String]` | `Seq.empty`              | Generation targets (`fqcn:type[:pkg]`) |
 | `uniHttpCodegenOutDir` | `File`        | `Compile / sourceManaged`| Output directory for generated code    |
+
+## OpenAPI Generation
+
+`uniOpenAPI` writes an OpenAPI document for your `@Endpoint` routers. It forks a JVM that runs uni's generator on the project's runtime classpath, so it uses the uni version your app depends on, and the build never loads your classes.
+
+```scala
+lazy val server = project
+  .enablePlugins(UniPlugin)
+  .settings(
+    uniOpenAPIRouters   := Seq("com.example.api.Routes.router"),
+    uniOpenAPITargetDir := baseDirectory.value / "doc"
+  )
+```
+
+`sbt server/uniOpenAPI` writes `doc/openapi.yaml`. See [OpenAPI](../http/openapi.md#with-sbt-uni) for all settings and for how routes map to the document.
+
+| Setting | Default | Description |
+|---|---|---|
+| `uniOpenAPIRouters` | empty (the task fails) | Scala object members (or objects) that return a `Router` |
+| `uniOpenAPITitle` | project `name` | `info.title` |
+| `uniOpenAPIVersion` | project `version` | `info.version` |
+| `uniOpenAPISchemaPackagePrefix` | `None` | Package prefix stripped from schema names |
+| `uniOpenAPIFormat` | `yaml` | `yaml` or `json` |
+| `uniOpenAPITargetDir` | `target/openapi` | Output directory |

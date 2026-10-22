@@ -1,0 +1,4 @@
+# Generate the OpenAPI document in a forked JVM and check its content
+> app/uniOpenAPI
+$ exists app/doc/openapi.yaml
+> app/checkOpenAPI
