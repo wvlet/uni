@@ -100,6 +100,13 @@ class FetchChannel extends HttpAsyncChannel:
       HttpContent.bytes(bytes)
 
   private def readChunks(resp: org.scalajs.dom.Response, source: RxVar[Option[Array[Byte]]]): Unit =
+    if resp.body == null then
+      // No body, e.g., 204 No Content
+      source.stop()
+    else
+      readBody(resp, source)
+
+  private def readBody(resp: org.scalajs.dom.Response, source: RxVar[Option[Array[Byte]]]): Unit =
     val reader = resp.body.getReader()
 
     def process(): Unit = reader
@@ -126,7 +133,7 @@ class FetchChannel extends HttpAsyncChannel:
 
     process()
 
-  end readChunks
+  end readBody
 
   override def close(): Unit = ()
 

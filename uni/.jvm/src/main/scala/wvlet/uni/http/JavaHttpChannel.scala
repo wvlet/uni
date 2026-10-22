@@ -217,33 +217,9 @@ class JavaHttpAsyncChannel extends HttpAsyncChannel:
     deferred.get
 
   override def sendStreaming(request: Request, config: HttpClientConfig): Rx[Array[Byte]] =
-    val source = Rx.variable[Option[Array[Byte]]](None)
-
-    RxScheduler
-      .blocking
-      .execute { () =>
-        try
-          val httpReq  = buildRequest(request, config)
-          val httpResp = javaClient.send(httpReq, BodyHandlers.ofInputStream())
-          val stream   = httpResp.body()
-
-          try
-            val buffer = new Array[Byte](8192)
-            var len    = stream.read(buffer)
-            while len != -1 do
-              source.set(Some(java.util.Arrays.copyOf(buffer, len)))
-              len = stream.read(buffer)
-            source.stop()
-          finally
-            stream.close()
-        catch
-          case e: Throwable =>
-            source.setException(e)
-      }
-
-    source.filter(_.isDefined).map(_.get)
-
-  end sendStreaming
+    streamChunks { () =>
+      javaClient.send(buildRequest(request, config), BodyHandlers.ofInputStream()).body()
+    }
 
   override def sendStreaming(
       request: Request,

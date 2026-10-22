@@ -33,7 +33,10 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
     val response        = sendWithRedirectHandling(resolvedRequest, redirectCount = 0)
     if resolvedRequest.eventHandler != ServerSentEventHandler.empty then
       dispatchEvents(resolvedRequest.eventHandler, response)
-    response
+      // The handler consumes the events; a streamed body cannot be read twice
+      response.withEvents(Rx.empty)
+    else
+      response
 
   private def prepareRequest(request: HttpRequest): HttpRequest =
     val uri = config.resolveUri(request.uri)
