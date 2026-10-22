@@ -17,7 +17,7 @@ import wvlet.uni.http.{HttpMethod, Response}
 import wvlet.uni.http.router.{HttpRequestMapper, PathComponent, Route, Router}
 import wvlet.uni.json.JSON.*
 import wvlet.uni.json.YAMLFormatter
-import wvlet.uni.mcp.JsonSchema
+import wvlet.uni.mcp.{JsonSchema, description}
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.{MethodParameter, OptionSurface, Primitive, StaticMethodParameter, Surface}
 
@@ -156,7 +156,7 @@ object OpenAPI:
 
       val op = Seq.newBuilder[(String, JSONValue)]
       op += "summary" -> JSONString(ms.name)
-      description(r).foreach(d => op += "description" -> JSONString(d))
+      operationDescription(r).foreach(d => op += "description" -> JSONString(d))
       op += "operationId" -> JSONString(ms.name)
       val params =
         ms.args
@@ -186,12 +186,15 @@ object OpenAPI:
 
     end operation
 
-    private def description(r: Route): Option[String] = r
+    // @Endpoint(description = ...), else the method's @description. Matching any annotation named
+    // `description` by its `value` also accepts Airframe's @description, kept during a migration
+    private def operationDescription(r: Route): Option[String] = r
       .methodSurface
       .annotations
       .find(_.fullName == classOf[wvlet.uni.http.router.Endpoint].getName)
       .flatMap(_.getAs[String]("description"))
       .filter(_.nonEmpty)
+      .orElse(description.value(r.methodSurface.findAnnotation("description")))
 
     private def parameter(p: MethodParameter, in: String, required: Boolean): JSONObject =
       JSONObject(
@@ -294,7 +297,9 @@ object OpenAPI:
           s
       afterRx.isOption
 
-    private def schemaOf(s: Surface): JSONObject = JsonSchema.ofSurface(s, Set.empty, refFor)
+    private val schemaOptions = JsonSchema.Options(refFor = refFor, formats = true, defaults = true)
+
+    private def schemaOf(s: Surface): JSONObject = JsonSchema.ofSurface(s, Set.empty, schemaOptions)
 
     // Register an object type in components/schemas and refer to it. The placeholder entry stops
     // recursion for self-referential types
@@ -310,7 +315,7 @@ object OpenAPI:
           schemaTypes(name) = s.fullName
       if !schemas.contains(name) then
         schemas(name) = JSONObject(Seq.empty)
-        schemas(name) = JsonSchema.objectSchemaOf(s, Set.empty, refFor)
+        schemas(name) = JsonSchema.objectSchemaOf(s, Set.empty, schemaOptions)
       Some(JSONObject(Seq("$ref" -> JSONString(s"#/components/schemas/${name}"))))
 
     // Component names may only use [A-Za-z0-9._-], so generic types such as Page[User] become

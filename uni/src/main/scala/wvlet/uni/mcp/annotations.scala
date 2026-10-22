@@ -31,6 +31,6 @@ object description:
   /**
     * Extract a non-empty @description value from Surface-captured annotations.
     */
-  private[mcp] def value(a: Option[wvlet.uni.surface.Annotation]): Option[String] = a
+  private[uni] def value(a: Option[wvlet.uni.surface.Annotation]): Option[String] = a
     .flatMap(_.getAs[String]("value"))
     .filter(_.nonEmpty)

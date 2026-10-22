@@ -73,11 +73,17 @@ object UniPlugin extends AutoPlugin:
       "A package prefix stripped from schema names, e.g. Some(\"com.example.api.\")"
     )
 
+    val uniOpenAPIErrorResponses = settingKey[Seq[Int]](
+      "Error statuses every operation lists (default: 400, 500), e.g. Seq(400, 500, 503)"
+    )
+
     val uniOpenAPIFormat    = settingKey[String]("Output format: yaml (default) or json")
     val uniOpenAPITargetDir = settingKey[File]("Directory for openapi.yaml / openapi.json")
 
     @transient
-    val uniOpenAPI = taskKey[File]("Generate an OpenAPI document from uniOpenAPIRouters")
+    val uniOpenAPI = taskKey[Seq[File]](
+      "Generate an OpenAPI document from uniOpenAPIRouters (no-op when empty); runs on package"
+    )
 
     // --- uniRestart (background fork-run), ported from sbt-revolver's reStart ---
 
@@ -108,6 +114,9 @@ object UniPlugin extends AutoPlugin:
     )
 
   end autoImport
+
+  @transient
+  private val uniOpenAPIGenerate = taskKey[Seq[File]]("Fork the OpenAPI generator")
 
   import autoImport.*
 
@@ -162,19 +171,21 @@ object UniPlugin extends AutoPlugin:
     uniOpenAPITitle               := name.value,
     uniOpenAPIVersion             := version.value,
     uniOpenAPISchemaPackagePrefix := None,
+    uniOpenAPIErrorResponses      := Seq(400, 500),
     uniOpenAPIFormat              := "yaml",
     uniOpenAPITargetDir           := target.value / "openapi",
-    uniOpenAPI                    := {
+    uniOpenAPIGenerate            := {
       given FileConverter = fileConverter.value
       val log             = streams.value.log
-      val routers         = uniOpenAPIRouters.value
       val format          = uniOpenAPIFormat.value
       val out             = uniOpenAPITargetDir.value / s"openapi.${format}"
-      if routers.isEmpty then
-        sys.error("uniOpenAPIRouters is empty: set the routers to document")
-      val classpath = (Runtime / fullClasspath).value.files.map(_.toFile)
-      val args      =
-        routers.flatMap(r => Seq("--router", r)) ++
+      // Classes of this project and of the projects it depends on, without this project's own
+      // jar: with exportJars, Runtime classpaths contain it, and this task runs after packageBin
+      val classpath = (Compile / products).value ++
+        (Compile / internalDependencyClasspath).value.files.map(_.toFile) ++
+        (Runtime / externalDependencyClasspath).value.files.map(_.toFile)
+      val args =
+        uniOpenAPIRouters.value.flatMap(r => Seq("--router", r)) ++
           Seq(
             "--title",
             uniOpenAPITitle.value,
@@ -182,6 +193,8 @@ object UniPlugin extends AutoPlugin:
             uniOpenAPIVersion.value,
             "--format",
             format,
+            "--error-responses",
+            uniOpenAPIErrorResponses.value.mkString(","),
             "--out",
             out.getAbsolutePath
           ) ++
@@ -197,8 +210,21 @@ object UniPlugin extends AutoPlugin:
       if exitCode != 0 then
         sys.error(s"OpenAPI generation failed (exit code ${exitCode})")
       log.info(s"Generated ${out}")
-      out
-    }
+      Seq(out)
+    },
+    // A project without routers resolves no classpath and forks nothing, which matters because
+    // the task runs on every package. It regenerates after packaging, as sbt-airframe does;
+    // triggering avoids overriding packageBin, whose result sbt 2 caches
+    uniOpenAPI :=
+      Def
+        .taskIf {
+          if uniOpenAPIRouters.value.isEmpty then
+            Seq.empty[File]
+          else
+            uniOpenAPIGenerate.value
+        }
+        .triggeredBy(Compile / packageBin)
+        .value
   )
 
   /** uniRestart/uniStop/uniStatus settings, ported from sbt-revolver's reStart. */

@@ -152,13 +152,14 @@ lazy val server = project
   )
 ```
 
-`sbt server/uniOpenAPI` writes `doc/openapi.yaml`. See [OpenAPI](../http/openapi.md#with-sbt-uni) for all settings and for how routes map to the document.
+`sbt server/uniOpenAPI` writes `doc/openapi.yaml`, and `package` regenerates it. See [OpenAPI](../http/openapi.md#with-sbt-uni) for all settings and for how routes map to the document.
 
 | Setting | Default | Description |
 |---|---|---|
-| `uniOpenAPIRouters` | empty (the task fails) | Scala object members (or objects) that return a `Router` |
+| `uniOpenAPIRouters` | empty (the task does nothing) | Scala object members (or objects) that return a `Router` |
 | `uniOpenAPITitle` | project `name` | `info.title` |
 | `uniOpenAPIVersion` | project `version` | `info.version` |
 | `uniOpenAPISchemaPackagePrefix` | `None` | Package prefix stripped from schema names |
+| `uniOpenAPIErrorResponses` | `Seq(400, 500)` | Error statuses every operation lists |
 | `uniOpenAPIFormat` | `yaml` | `yaml` or `json` |
 | `uniOpenAPITargetDir` | `target/openapi` | Output directory |

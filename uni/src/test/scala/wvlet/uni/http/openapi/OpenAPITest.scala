@@ -16,6 +16,7 @@ package wvlet.uni.http.openapi
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.json.JSON.*
+import wvlet.uni.mcp.description
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -34,7 +35,17 @@ object OpenAPITest:
       labels: Map[String, String] = Map.empty
   )
 
-  case class CreateUserRequest(name: String, role: Role)
+  case class CreateUserRequest(
+      name: String,
+      role: Role,
+      @description("Monthly token quota")
+      quota: Long = 1000L,
+      ratio: Double = 0.5,
+      note: String = "n/a",
+      active: Boolean = true,
+      tags: Seq[String] = Seq.empty
+  )
+
   case class Page[A](items: Seq[A])
 
   object other:
@@ -52,6 +63,7 @@ object OpenAPITest:
     def getUser(id: String, verbose: Boolean = false): Rx[User] = ???
 
     @Endpoint(HttpMethod.GET, "/v1/users")
+    @description("List users")
     def listUsers(limit: Int = 10, cursor: Option[String] = None): Seq[User] = ???
 
     @Endpoint(HttpMethod.POST, "/v1/users")
@@ -65,6 +77,7 @@ object OpenAPITest:
     def rename(id: String, name: String, tags: Seq[String]): Unit = ???
 
     @Endpoint(HttpMethod.GET, "/v1/health")
+    @foreign.description("Health check")
     def health(): String = "ok"
 
     @Endpoint(HttpMethod.GET, "/v1/events")
@@ -209,6 +222,27 @@ class OpenAPITest extends UniTest:
       OpenAPI.of(Router.of[Colliding])
     }
     e.getMessage shouldContain "withSchemaPackagePrefix"
+  }
+
+  test("take the description from the method's @description when @Endpoint has none") {
+    str(doc, "paths", "/v1/users", "get", "description") shouldBe "List users"
+    str(doc, "paths", "/v1/users/{id}", "get", "description") shouldBe "Get a user by id"
+    // Any annotation named description, e.g. Airframe's
+    str(doc, "paths", "/v1/health", "get", "description") shouldBe "Health check"
+  }
+
+  test("add number formats and primitive field defaults") {
+    val req = at(doc, "components", "schemas", "CreateUserRequest")
+    str(req, "properties", "quota", "format") shouldBe "int64"
+    str(req, "properties", "quota", "description") shouldBe "Monthly token quota"
+    at(req, "properties", "quota", "default") shouldBe JSONLong(1000)
+    str(req, "properties", "ratio", "format") shouldBe "double"
+    at(req, "properties", "ratio", "default") shouldBe JSONDouble(0.5)
+    at(req, "properties", "note", "default") shouldBe JSONString("n/a")
+    at(req, "properties", "active", "default") shouldBe JSONBoolean(true)
+    // Only primitive and String defaults are emitted
+    at(req, "properties", "tags").asInstanceOf[JSONObject].get("default") shouldBe None
+    str(doc, "paths", "/v1/users", "get", "parameters", 0, "schema", "format") shouldBe "int32"
   }
 
   test("render YAML") {

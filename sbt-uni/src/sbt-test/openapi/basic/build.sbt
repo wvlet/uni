@@ -19,14 +19,15 @@ lazy val app = project
     uniOpenAPIRouters                      := Seq("example.Api.router"),
     uniOpenAPITitle                        := "Example API",
     uniOpenAPISchemaPackagePrefix          := Some("example."),
-    uniOpenAPITargetDir                    := baseDirectory.value / "doc"
+    uniOpenAPITargetDir                    := baseDirectory.value / "doc",
+    uniOpenAPIErrorResponses               := Seq(400, 500, 503)
   )
 
 lazy val checkOpenAPI = taskKey[Unit]("Check the generated openapi.yaml")
 
 app / checkOpenAPI := {
   val yaml = IO.read((app / baseDirectory).value / "doc" / "openapi.yaml")
-  Seq("Example API", "1.2.3", "/greet/{name}:", "Greet someone", "Greeting:")
+  Seq("Example API", "1.2.3", "/greet/{name}:", "Greet someone", "Greeting:", "'503':", "Service Unavailable")
     .foreach { s =>
       if (!yaml.contains(s)) sys.error(s"openapi.yaml does not contain ${s}:\n${yaml}")
     }

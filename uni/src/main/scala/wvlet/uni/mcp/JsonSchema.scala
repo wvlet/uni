@@ -13,7 +13,15 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.json.JSON.{JSONArray, JSONObject, JSONString, JSONValue}
+import wvlet.uni.json.JSON.{
+  JSONArray,
+  JSONBoolean,
+  JSONDouble,
+  JSONLong,
+  JSONObject,
+  JSONString,
+  JSONValue
+}
 import wvlet.uni.surface.{
   EnumSurface,
   JavaEnumSurface,
@@ -64,21 +72,31 @@ private[uni] object JsonSchema:
     p.getDefaultValue.isEmpty && !p.surface.isOption
 
   /**
+    * Options for schemas outside MCP, e.g. OpenAPI. MCP uses the defaults, which keep its tool
+    * schemas unchanged.
+    *
     * @param refFor
     *   Returns a reference (e.g. an OpenAPI `$ref`) to use instead of inlining an object type, or
     *   None to inline it
+    * @param formats
+    *   Add `format` (int32, int64, float, double) to numeric schemas
+    * @param defaults
+    *   Add `default` for object fields whose default is a number (except BigInt), Boolean, Char, or
+    *   String
     */
-  def ofSurface(
-      surface: Surface,
-      seen: Set[String],
-      refFor: Surface => Option[JSONObject] = _ => None
-  ): JSONObject =
+  case class Options(
+      refFor: Surface => Option[JSONObject] = _ => None,
+      formats: Boolean = false,
+      defaults: Boolean = false
+  )
+
+  def ofSurface(surface: Surface, seen: Set[String], options: Options = Options()): JSONObject =
     val s = surface.dealias
     s match
       case o if o.isOption =>
-        ofSurface(o.typeArgs.head, seen, refFor)
+        ofSurface(o.typeArgs.head, seen, options)
       case p if p.isPrimitive =>
-        primitiveSchema(p)
+        primitiveSchema(p, options.formats)
       case _: EnumSurface | _: JavaEnumSurface =>
         // EnumSurface carries only a string decoder, not the case names; emit a plain string
         // schema with the enum type name as a hint
@@ -87,22 +105,24 @@ private[uni] object JsonSchema:
         )
       case a if a.isArray || a.isSeq || isSet(a) =>
         val element = elementSurface(a)
-        JSONObject(Seq("type" -> JSONString("array"), "items" -> ofSurface(element, seen, refFor)))
+        JSONObject(Seq("type" -> JSONString("array"), "items" -> ofSurface(element, seen, options)))
       case m if m.isMap =>
         val valueSchema =
           if m.typeArgs.size >= 2 then
-            ofSurface(m.typeArgs(1), seen, refFor)
+            ofSurface(m.typeArgs(1), seen, options)
           else
             JSONObject(Seq.empty)
         JSONObject(Seq("type" -> JSONString("object"), "additionalProperties" -> valueSchema))
       case c if c.params.nonEmpty =>
-        refFor(c).getOrElse {
-          if seen.contains(c.fullName) then
-            // Break recursion for self-referential types with an unconstrained object schema
-            JSONObject(Seq("type" -> JSONString("object")))
-          else
-            objectSchemaOf(c, seen + c.fullName, refFor)
-        }
+        options
+          .refFor(c)
+          .getOrElse {
+            if seen.contains(c.fullName) then
+              // Break recursion for self-referential types with an unconstrained object schema
+              JSONObject(Seq("type" -> JSONString("object")))
+            else
+              objectSchemaOf(c, seen + c.fullName, options)
+          }
       case _ =>
         // Opaque types (Instant, UUID, ULID, ...) are serialized as strings by their weavers
         JSONObject(Seq("type" -> JSONString("string")))
@@ -114,30 +134,66 @@ private[uni] object JsonSchema:
   def objectSchemaOf(
       c: Surface,
       seen: Set[String] = Set.empty,
-      refFor: Surface => Option[JSONObject] = _ => None
+      options: Options = Options()
   ): JSONObject =
     val properties = c
       .params
       .map { p =>
-        p.name -> withDescription(ofSurface(p.surface, seen, refFor), descriptionOf(p))
+        val schema = withDescription(ofSurface(p.surface, seen, options), descriptionOf(p))
+        p.name -> (
+          if options.defaults then
+            withDefault(schema, p)
+          else
+            schema
+        )
       }
     val required = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
     objectSchema(properties, required)
 
-  private def primitiveSchema(s: Surface): JSONObject =
-    val tpe =
+  private def primitiveSchema(s: Surface, formats: Boolean): JSONObject =
+    val (tpe, format) =
       s match
-        case Primitive.Int | Primitive.Long | Primitive.Short | Primitive.Byte | Primitive.BigInt |
-            Primitive.BigInteger =>
-          "integer"
-        case Primitive.Float | Primitive.Double =>
-          "number"
+        case Primitive.Int | Primitive.Short | Primitive.Byte =>
+          ("integer", Some("int32"))
+        case Primitive.Long =>
+          ("integer", Some("int64"))
+        case Primitive.BigInt | Primitive.BigInteger =>
+          ("integer", None)
+        case Primitive.Float =>
+          ("number", Some("float"))
+        case Primitive.Double =>
+          ("number", Some("double"))
         case Primitive.Boolean =>
-          "boolean"
+          ("boolean", None)
         case _ =>
           // String, Char, and any other primitive-like value serialized as a string
-          "string"
-    JSONObject(Seq("type" -> JSONString(tpe)))
+          ("string", None)
+    val fields =
+      Seq("type" -> JSONString(tpe)) ++
+        format.filter(_ => formats).map(f => "format" -> JSONString(f))
+    JSONObject(fields)
+
+  // A number (except BigInt/BigInteger), Boolean, Char, or String default as a JSON value; other
+  // defaults (None, collections, objects) are left out
+  private def withDefault(schema: JSONObject, p: Parameter): JSONObject =
+    val default: Option[JSONValue] = p
+      .getDefaultValue
+      .collect {
+        case v: String =>
+          JSONString(v)
+        case v: Boolean =>
+          JSONBoolean(v)
+        case v: (Int | Long | Short | Byte) =>
+          JSONLong(v.toString.toLong)
+        case v: Double if !v.isNaN && !v.isInfinite =>
+          JSONDouble(v)
+        case v: Float if !v.isNaN && !v.isInfinite =>
+          // Via its decimal form, so 0.1f stays 0.1 rather than 0.10000000149011612
+          JSONDouble(v.toString.toDouble)
+        case v: Char =>
+          JSONString(v.toString)
+      }
+    default.fold(schema)(d => JSONObject(schema.v :+ ("default" -> d)))
 
   private def objectSchema(
       properties: Seq[(String, JSONValue)],

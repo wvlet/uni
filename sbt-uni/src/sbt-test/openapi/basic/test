@@ -2,3 +2,8 @@
 > app/uniOpenAPI
 $ exists app/doc/openapi.yaml
 > app/checkOpenAPI
+
+# Packaging regenerates the document, as sbt-airframe does
+$ delete app/doc/openapi.yaml
+> app/package
+$ exists app/doc/openapi.yaml
