@@ -15,7 +15,11 @@ package wvlet.uni.http
 
 import wvlet.uni.control.ResultClass
 import wvlet.uni.control.Retry
+import wvlet.uni.rx.OnCompletion
+import wvlet.uni.rx.OnError
+import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxRunner
 
 /**
   * Default synchronous HTTP client implementation that wraps an HttpChannel with retry and redirect
@@ -26,11 +30,39 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
 
   override def send(request: HttpRequest): HttpResponse =
     val resolvedRequest = prepareRequest(request)
-    sendWithRedirectHandling(resolvedRequest, redirectCount = 0)
+    val response        = sendWithRedirectHandling(resolvedRequest, redirectCount = 0)
+    if resolvedRequest.eventHandler != ServerSentEventHandler.empty then
+      dispatchEvents(resolvedRequest.eventHandler, response)
+      // The handler consumes the events; a streamed body cannot be read twice
+      response.withEvents(Rx.empty)
+    else
+      response
 
   private def prepareRequest(request: HttpRequest): HttpRequest =
     val uri = config.resolveUri(request.uri)
     config.requestFilter(request.withUri(uri))
+
+  /**
+    * Report the final response to the request's event handler. For a 2xx event stream, the events
+    * are dispatched as they arrive when the channel streams them (returning before the stream
+    * ends), or before returning when the channel buffered the body.
+    */
+  private def dispatchEvents(handler: ServerSentEventHandler, response: HttpResponse): Unit =
+    handler.onConnect(response)
+    if response.isSuccessful && response.contentType.exists(_.isEventStream) then
+      val events =
+        if response.content.isEmpty then
+          response.events
+        else
+          Rx.fromSeq(ServerSentEventParser.parse(response.content.toContentString))
+      RxRunner.run(events) {
+        case OnNext(event) =>
+          handler.onEvent(event.asInstanceOf[ServerSentEvent])
+        case OnError(e) =>
+          handler.onError(e)
+        case OnCompletion =>
+          handler.onCompletion()
+      }
 
   private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): HttpResponse =
     val response = sendWithRetry(request)
@@ -130,38 +162,21 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
         request.withAcceptEventStream
 
     val resolvedRequest = prepareRequest(sseRequest)
-    val parser          = ServerSentEventParser()
-    val handler         = request.eventHandler
+    val handler         = resolvedRequest.eventHandler
 
-    // Note: onConnect callback is not invoked because sendStreaming doesn't provide
-    // access to the HttpResponse headers. This is a limitation of the current API.
-    // Similarly, charset detection from Content-Type header is not supported;
-    // UTF-8 is used as the default per SSE specification.
-
-    // Use sendStreaming and parse the chunks.
-    // After the stream completes, flush the parser to emit any remaining buffered data.
-    val streamEvents = sendStreaming(resolvedRequest).flatMap { chunk =>
-      val text   = String(chunk, "UTF-8")
-      val events = parser.feed(text)
-      Rx.fromSeq(events)
-    }
-
-    // Flush any remaining data after stream completes
-    val flushEvent = Rx
-      .single(parser.flush())
-      .flatMap {
-        case Some(event) =>
-          Rx.single(event)
-        case None =>
-          Rx.empty
-      }
-
-    streamEvents
-      .concat(flushEvent)
-      .tap { event =>
-        handler.onEvent(event)
-      }
+    // Not retried: a stream that has started cannot be replayed without sending the request again.
+    // UTF-8 is used per the SSE specification.
+    val chunks = channel.sendStreaming(resolvedRequest, config, handler.onConnect)
+    ServerSentEventParser
+      .parseStream(chunks)
+      .tap(handler.onEvent)
       .tapOnFailure(handler.onError)
+      .concat(
+        Rx.fromSeq {
+          handler.onCompletion()
+          Seq.empty
+        }
+      )
 
   end sendSSE
 

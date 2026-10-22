@@ -259,6 +259,21 @@ class ServerSentEventParserTest extends UniTest:
     }
   }
 
+  test("decode a multi-byte character split across byte chunks") {
+    val bytes  = "data: こんにちは🎉\n\n".getBytes("UTF-8")
+    val parser = ServerSentEventParser()
+    // Feed one byte at a time so every multi-byte character is split
+    val events = bytes.toSeq.flatMap(b => parser.feed(Array(b)))
+    events.map(_.data) shouldBe Seq("こんにちは🎉")
+    parser.flush() shouldBe None
+  }
+
+  test("flush a truncated multi-byte character at the end of the stream") {
+    val parser = ServerSentEventParser()
+    parser.feed("data: a".getBytes("UTF-8") ++ "あ".getBytes("UTF-8").take(2)) shouldBe Seq.empty
+    parser.flush().map(_.data) shouldBe Some("a�")
+  }
+
 end ServerSentEventParserTest
 
 class ServerSentEventHandlerTest extends UniTest:

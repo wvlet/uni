@@ -40,6 +40,13 @@ trait HttpSyncClient extends AutoCloseable:
 
   /**
     * Send an HTTP request and return the response. Retries automatically based on config.
+    *
+    * When the request has an event handler (`withEventHandler`), the handler's `onConnect` is
+    * called with the final response. For a 2xx `text/event-stream` response, the events are then
+    * delivered to `onEvent`, followed by `onCompletion` or `onError`. On platforms that stream the
+    * body (JVM), this method returns once the response headers arrive and the events are delivered
+    * on a background thread; the returned response has no content. A non-2xx response is returned
+    * (or thrown) as usual, with its body, and is not delivered to `onEvent`.
     */
   def send(request: HttpRequest): HttpResponse
 
@@ -59,6 +66,8 @@ trait HttpSyncClient extends AutoCloseable:
   def withConfig(config: HttpClientConfig): HttpSyncClient
 
   def close(): Unit = ()
+
+end HttpSyncClient
 
 /**
   * Asynchronous HTTP client interface using Rx.
@@ -98,8 +107,12 @@ trait HttpAsyncClient extends AutoCloseable:
     *
     * This method:
     *   - Sets the Accept header to "text/event-stream" if not already set
-    *   - Streams the response body and parses it as SSE
-    *   - Invokes the request's eventHandler callbacks for each event
+    *   - Calls the request's eventHandler `onConnect` with the response status and headers
+    *   - Streams the response body and parses it as SSE, calling `onEvent` for each event and
+    *     `onCompletion` at the end of the stream
+    *   - Fails with an [[HttpException]] carrying the response (status, headers, and error body)
+    *     for a non-2xx status, after calling `onError`
+    *   - Sends the request once, without retry
     *   - Returns an Rx stream of parsed ServerSentEvent objects
     *
     * Example:

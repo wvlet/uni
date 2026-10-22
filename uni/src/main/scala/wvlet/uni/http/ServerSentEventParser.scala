@@ -13,6 +13,9 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.rx.Rx
+
+import java.nio.charset.StandardCharsets
 import scala.collection.mutable.ArrayBuffer
 
 /**
@@ -64,6 +67,8 @@ class ServerSentEventParser(
   private var currentDataSize: Int              = 0
   private val buffer                            = java.lang.StringBuilder()
   private var hasFieldsForCurrentEvent: Boolean = false
+  // Trailing bytes of a UTF-8 character split across byte chunks
+  private var pendingBytes: Array[Byte] = Array.emptyByteArray
 
   /**
     * Feeds data into the parser and returns any complete events.
@@ -101,6 +106,20 @@ class ServerSentEventParser(
   end feed
 
   /**
+    * Feeds a chunk of UTF-8 bytes into the parser. A multi-byte character split across chunks is
+    * decoded once its remaining bytes arrive.
+    */
+  def feed(chunk: Array[Byte]): Seq[ServerSentEvent] =
+    val bytes =
+      if pendingBytes.isEmpty then
+        chunk
+      else
+        pendingBytes ++ chunk
+    val end = ServerSentEventParser.completeUtf8Length(bytes)
+    pendingBytes = bytes.drop(end)
+    feed(String(bytes, 0, end, StandardCharsets.UTF_8))
+
+  /**
     * Flushes any remaining buffered data and returns any pending event.
     *
     * Call this when the stream ends to ensure the last event is emitted even if it wasn't followed
@@ -110,6 +129,10 @@ class ServerSentEventParser(
     *   The final event if there is pending data, None otherwise
     */
   def flush(): Option[ServerSentEvent] =
+    if pendingBytes.nonEmpty then
+      // Decode a truncated character at the end of the stream as U+FFFD
+      buffer.append(String(pendingBytes, StandardCharsets.UTF_8))
+      pendingBytes = Array.emptyByteArray
     if buffer.length > 0 then
       val line = buffer.toString
       buffer.setLength(0)
@@ -126,6 +149,7 @@ class ServerSentEventParser(
     currentData.clear()
     currentDataSize = 0
     buffer.setLength(0)
+    pendingBytes = Array.emptyByteArray
     hasFieldsForCurrentEvent = false
 
   private def checkLineLength(): Unit =
@@ -250,5 +274,45 @@ object ServerSentEventParser:
         events :+ finalEvent
       case None =>
         events
+
+  /**
+    * Parses a stream of UTF-8 byte chunks into events. A new parser is created for each
+    * subscription, and the last event is flushed when the chunk stream completes.
+    */
+  def parseStream(chunks: Rx[Array[Byte]]): Rx[ServerSentEvent] = Rx
+    .single(ServerSentEventParser())
+    .flatMap { parser =>
+      chunks
+        .flatMap(chunk => Rx.fromSeq(parser.feed(chunk)))
+        .concat(Rx.fromSeq(parser.flush().toSeq))
+    }
+
+  /**
+    * Returns the length of the longest prefix of `bytes` that does not end in the middle of a UTF-8
+    * character.
+    */
+  private[http] def completeUtf8Length(bytes: Array[Byte]): Int =
+    // A UTF-8 character is at most 4 bytes, so only the last 3 bytes can be an incomplete tail
+    var i     = bytes.length - 1
+    val limit = math.max(0, bytes.length - 3)
+    while i >= limit && (bytes(i) & 0xc0) == 0x80 do
+      i -= 1
+    if i < 0 then
+      bytes.length
+    else
+      val lead           = bytes(i) & 0xff
+      val characterBytes =
+        if lead >= 0xf0 then
+          4
+        else if lead >= 0xe0 then
+          3
+        else if lead >= 0xc0 then
+          2
+        else
+          1
+      if i + characterBytes > bytes.length then
+        i
+      else
+        bytes.length
 
 end ServerSentEventParser
