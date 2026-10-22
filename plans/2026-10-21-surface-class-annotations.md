@@ -44,7 +44,7 @@ Lane: **Standard**: it changes the core Surface macro and the public `Surface` A
 ### JsonSchema / OpenAPI
 
 - `JsonSchema.Options` gets `classDescriptions: Boolean = false`, documented next to `formats` and `defaults`.
-- When the flag is on, `objectSchemaOf` adds `"description"` from `description.value(c.dealias.findAnnotation("description"))` after `"type"`, following Airframe's `Schema` field order (to be checked against the Airframe output during implementation). This also covers object schemas that are inlined through `ofSurface`.
+- When the flag is on, `objectSchemaOf` adds `"description"` from `description.value(c.dealias.findAnnotation("description"))` after `"type"`, following Airframe's `Schema` field order (as Airframe's `OpenAPIGenerator` does). This also covers object schemas that are inlined through `ofSurface`.
 - `OpenAPI` sets `classDescriptions = true` in its `schemaOptions`. MCP keeps `Options()`, so MCP tool schemas do not change.
 - A property's own `@description` still wins for that property. A `$ref` property is not merged with the class description.
 

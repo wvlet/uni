@@ -120,11 +120,13 @@ def validate[T](value: T)(using surface: Surface): List[String] =
 
 ## Annotations
 
-Surface captures annotations on parameters:
+Surface captures annotations, with their literal arguments, on parameters, methods, and classes
+with a public constructor:
 
 ```scala
 import wvlet.uni.surface.Annotation
 
+@label("account")
 case class User(
   @required id: Long,
   @maxLength(100) name: String
@@ -132,8 +134,11 @@ case class User(
 
 val surface = Surface.of[User]
 for param <- surface.params do
-  val annotations = param.findAnnotationOf[required]
   // Check if @required is present
+  val required = param.hasAnnotation("required")
+
+// Class-level annotations, matched by simple or full name
+surface.findAnnotation("label").flatMap(_.getAs[String]("value")) // Some("account")
 ```
 
 ## Performance
