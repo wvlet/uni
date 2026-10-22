@@ -62,12 +62,7 @@ class HttpRequestMapper:
       controllerOpt: Option[Any] = None,
       paramWeavers: Map[String, Weaver[?]] = Map.empty
   ): Seq[Any] =
-    val bodyParams = methodSurface
-      .args
-      .filter { p =>
-        val t = p.surface.rawType
-        t != classOf[Request] && t != classOf[RequestAttributes] && !pathParams.contains(p.name)
-      }
+    val bodyParams = HttpRequestMapper.bodyParams(methodSurface, pathParams.keySet)
     // A method that takes the Request may read the body itself, so a body that does not fit the
     // other parameters is an error only when a required one is left without a value
     val readsRawBody = methodSurface.args.exists(_.surface.rawType == classOf[Request])
@@ -185,6 +180,41 @@ class HttpRequestMapper:
 
 end HttpRequestMapper
 
+object HttpRequestMapper:
+
+  /**
+    * Parameters that may be read from the request body: all but `Request`, `RequestAttributes`, and
+    * path parameters. Query parameters take precedence over the body at request time.
+    */
+  def bodyParams(methodSurface: MethodSurface, pathParamNames: Set[String]): Seq[MethodParameter] =
+    methodSurface
+      .args
+      .filter { p =>
+        val t = p.surface.rawType
+        t != classOf[Request] && t != classOf[RequestAttributes] && !pathParamNames.contains(p.name)
+      }
+
+  /**
+    * The parameter that takes the whole body: the only one that is not a primitive. A collection or
+    * map takes it only when it is the only body parameter, since an object body is far more common
+    * than an array or map body next to other parameters. `None` means each parameter is read from
+    * the body object's field of its name.
+    */
+  def wholeBodyParam(bodyParams: Seq[MethodParameter]): Option[MethodParameter] =
+    bodyParams.filterNot(p => isSimple(p.surface)) match
+      case Seq(p) if bodyParams.size == 1 || !isCollection(p.surface) =>
+        Some(p)
+      case _ =>
+        None
+
+  /** A primitive (including String) or an Option of one, as read from a path or query string */
+  def isSimple(surface: Surface): Boolean =
+    surface.isPrimitive || (surface.isOption && surface.typeArgs.headOption.exists(_.isPrimitive))
+
+  private def isCollection(s: Surface): Boolean = s.isSeq || s.isMap || s.isArray
+
+end HttpRequestMapper
+
 /**
   * Parameter values decoded from a request body, computed on first use.
   *
@@ -259,23 +289,11 @@ private class RequestBody(
             )
           )
         case Some(f) =>
-          wholeBodyParam match
+          HttpRequestMapper.wholeBodyParam(bodyParams) match
             case Some(p) =>
               decodeWhole(p, f)
             case None =>
               decodeFields(f)
-
-  // The parameter that takes the whole body: the only one that is not a primitive. A collection or
-  // map takes it only when it is the only body parameter, since an object body is far more common
-  // than an array or map body next to other parameters
-  private def wholeBodyParam: Option[MethodParameter] =
-    bodyParams.filterNot(p => isSimple(p.surface)) match
-      case Seq(p) if bodyParams.size == 1 || !isCollection(p.surface) =>
-        Some(p)
-      case _ =>
-        None
-
-  private def isCollection(s: Surface): Boolean = s.isSeq || s.isMap || s.isArray
 
   private def weaverOf(p: MethodParameter): Weaver[Any] = paramWeavers
     .getOrElse(p.name, Weaver.fromSurface(p.surface))
@@ -358,9 +376,6 @@ private class RequestBody(
         )
 
   end decodeFields
-
-  private def isSimple(surface: Surface): Boolean =
-    surface.isPrimitive || (surface.isOption && surface.typeArgs.headOption.exists(_.isPrimitive))
 
 end RequestBody
 

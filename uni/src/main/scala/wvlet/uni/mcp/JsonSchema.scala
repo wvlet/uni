@@ -35,7 +35,7 @@ import wvlet.uni.surface.{
   *   - enums → string (Surface does not expose enum case names at runtime, so values cannot be
   *     enumerated cross-platform; weavers decode the case name string)
   */
-private[mcp] object JsonSchema:
+private[uni] object JsonSchema:
 
   /**
     * Schema for a tool's input: one JSON object whose properties are the method's parameters.
@@ -63,11 +63,20 @@ private[mcp] object JsonSchema:
   private def isRequiredParam(p: Parameter): Boolean =
     p.getDefaultValue.isEmpty && !p.surface.isOption
 
-  def ofSurface(surface: Surface, seen: Set[String]): JSONObject =
+  /**
+    * @param refFor
+    *   Returns a reference (e.g. an OpenAPI `$ref`) to use instead of inlining an object type, or
+    *   None to inline it
+    */
+  def ofSurface(
+      surface: Surface,
+      seen: Set[String],
+      refFor: Surface => Option[JSONObject] = _ => None
+  ): JSONObject =
     val s = surface.dealias
     s match
       case o if o.isOption =>
-        ofSurface(o.typeArgs.head, seen)
+        ofSurface(o.typeArgs.head, seen, refFor)
       case p if p.isPrimitive =>
         primitiveSchema(p)
       case _: EnumSurface | _: JavaEnumSurface =>
@@ -78,33 +87,42 @@ private[mcp] object JsonSchema:
         )
       case a if a.isArray || a.isSeq || isSet(a) =>
         val element = elementSurface(a)
-        JSONObject(Seq("type" -> JSONString("array"), "items" -> ofSurface(element, seen)))
+        JSONObject(Seq("type" -> JSONString("array"), "items" -> ofSurface(element, seen, refFor)))
       case m if m.isMap =>
         val valueSchema =
           if m.typeArgs.size >= 2 then
-            ofSurface(m.typeArgs(1), seen)
+            ofSurface(m.typeArgs(1), seen, refFor)
           else
             JSONObject(Seq.empty)
         JSONObject(Seq("type" -> JSONString("object"), "additionalProperties" -> valueSchema))
       case c if c.params.nonEmpty =>
-        if seen.contains(c.fullName) then
-          // Break recursion for self-referential types with an unconstrained object schema
-          JSONObject(Seq("type" -> JSONString("object")))
-        else
-          val nextSeen   = seen + c.fullName
-          val properties = c
-            .params
-            .map { p =>
-              p.name -> withDescription(ofSurface(p.surface, nextSeen), descriptionOf(p))
-            }
-          val required = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
-          objectSchema(properties, required)
+        refFor(c).getOrElse {
+          if seen.contains(c.fullName) then
+            // Break recursion for self-referential types with an unconstrained object schema
+            JSONObject(Seq("type" -> JSONString("object")))
+          else
+            objectSchemaOf(c, seen + c.fullName, refFor)
+        }
       case _ =>
         // Opaque types (Instant, UUID, ULID, ...) are serialized as strings by their weavers
         JSONObject(Seq("type" -> JSONString("string")))
     end match
 
   end ofSurface
+
+  /** The schema of an object type's fields, always inlined at the top level */
+  def objectSchemaOf(
+      c: Surface,
+      seen: Set[String] = Set.empty,
+      refFor: Surface => Option[JSONObject] = _ => None
+  ): JSONObject =
+    val properties = c
+      .params
+      .map { p =>
+        p.name -> withDescription(ofSurface(p.surface, seen, refFor), descriptionOf(p))
+      }
+    val required = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
+    objectSchema(properties, required)
 
   private def primitiveSchema(s: Surface): JSONObject =
     val tpe =
