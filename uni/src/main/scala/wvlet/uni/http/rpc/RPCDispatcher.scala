@@ -116,7 +116,10 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
         rpc.toResponse
       case _ =>
         if detailedErrors then
-          RPCStatus.INTERNAL_ERROR_I0.newException(String.valueOf(e.getMessage), e).toResponse
+          val wrapped = RPCStatus.INTERNAL_ERROR_I0.newException(String.valueOf(e.getMessage), e)
+          // Report where the handler failed, not where it was wrapped, as the cause is not sent
+          wrapped.setStackTrace(e.getStackTrace)
+          wrapped.toResponse
         else
           // Hide the stack trace as well as the message, as both can leak internals
           RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse

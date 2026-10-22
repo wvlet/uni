@@ -8,7 +8,7 @@
 
 - `RPCErrorMessage.stackTrace: Option[Seq[RPCStackTraceElement]]`, filled by `RPCException.toMessage` only when `shouldReportStackTrace` is true. The field names match Airframe's `GenericStackTraceElement`.
 - Airframe parity for explicitly thrown `RPCException`s: frames are sent by default per `RPCStatus.shouldReportStackTrace`, and not gated on the server's `detailedErrors`. Use `noStackTrace` to hide them for one error.
-- Unexpected (non-`RPCException`) exceptions wrapped by `RPCDispatcher` (and Electron's dispatch fallback) get `noStackTrace` unless `detailedErrors` is on. This keeps the secure default from `2026-10-14-http-server-secure-defaults.md`: no message and no frames.
+- Unexpected (non-`RPCException`) exceptions wrapped by `RPCDispatcher` (and Electron's dispatch fallback) get `noStackTrace` unless `detailedErrors` is on. This keeps the secure default from `2026-10-14-http-server-secure-defaults.md`: no message and no frames. With `detailedErrors` on, the wrapper carries the handler exception's frames, since `cause` is not sent.
 - `RPCException.fromJson` / `fromMsgPack` / `fromResponse` restore frames with `setStackTrace`.
 - `RPCErrorMessage` serializes with `omitNoneFields`, so unset `stackTrace` / `appErrorCode` keys are omitted rather than written as `null`, matching Airframe.
 - `cause` is not serialized. It needs a generic Throwable model and exposes more, so it is deferred.

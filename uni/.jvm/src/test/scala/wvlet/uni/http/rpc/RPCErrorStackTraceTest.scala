@@ -91,6 +91,8 @@ class RPCErrorStackTraceTest extends UniTest:
         .get
     detailed shouldContain "stackTrace"
     detailed shouldContain "secret internal detail"
+    // The frames are the handler's, not the dispatcher's wrapper
+    detailed shouldContain "FailingServiceImpl"
   }
 
 end RPCErrorStackTraceTest
