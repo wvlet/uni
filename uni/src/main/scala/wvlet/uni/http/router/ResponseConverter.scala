@@ -17,6 +17,7 @@ import wvlet.uni.http.{HttpContent, Response}
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.rx.Rx
 import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.WeaverConfig
 
 /**
   * Converts controller method return values to HTTP responses.
@@ -40,7 +41,7 @@ object ResponseConverter:
     * @return
     *   An Rx that emits the HTTP response
     */
-  def toResponse(result: Any): Rx[Response] = toResponse(result, None)
+  def toResponse(result: Any): Rx[Response] = toResponse(result, None, WeaverConfig())
 
   /**
     * Convert a method return value to an Rx[Response] using the given Weaver to encode case classes
@@ -53,27 +54,38 @@ object ResponseConverter:
     *   The return value from a controller method
     * @param returnWeaver
     *   Weaver for the inner element type
+    * @param config
+    *   WeaverConfig used when encoding the value with the weaver
     * @return
     *   An Rx that emits the HTTP response
     */
-  def toResponse(result: Any, returnWeaver: Weaver[?]): Rx[Response] = toResponse(
-    result,
-    Some(returnWeaver)
-  )
+  def toResponse(
+      result: Any,
+      returnWeaver: Weaver[?],
+      config: WeaverConfig = WeaverConfig()
+  ): Rx[Response] = toResponse(result, Some(returnWeaver), config)
 
-  private def toResponse(result: Any, weaverOpt: Option[Weaver[?]]): Rx[Response] =
+  private def toResponse(
+      result: Any,
+      weaverOpt: Option[Weaver[?]],
+      config: WeaverConfig
+  ): Rx[Response] =
     result match
       case r: Response =>
         Rx.single(r)
       case rx: Rx[?] =>
-        rx.map(convertToResponse(_, weaverOpt))
+        rx.map(convertToResponse(_, weaverOpt, config))
       case other =>
-        Rx.single(convertToResponse(other, weaverOpt))
+        Rx.single(convertToResponse(other, weaverOpt, config))
 
   /**
     * Convert a single value to an HTTP response.
     */
-  private def convertToResponse(value: Any, weaverOpt: Option[Weaver[?]]): Response =
+  private def convertToResponse(
+      value: Any,
+      weaverOpt: Option[Weaver[?]],
+      config: WeaverConfig
+  ): Response =
     value match
       case r: Response =>
         r
@@ -90,7 +102,7 @@ object ResponseConverter:
       case opt: Option[?] =>
         opt match
           case Some(v) =>
-            convertToResponse(v, weaverOpt)
+            convertToResponse(v, weaverOpt, config)
           case None =>
             Response.noContent
       case other =>
@@ -101,7 +113,7 @@ object ResponseConverter:
             // stays application/json — preserves content-type stability for existing
             // clients that expect a JSON content-type even when the body shape changes.
             try
-              Response.ok.withJsonContent(weaver.asInstanceOf[Weaver[Any]].toJson(other))
+              Response.ok.withJsonContent(weaver.asInstanceOf[Weaver[Any]].toJson(other, config))
             catch
               case _: Exception =>
                 noWeaverJson(other)
