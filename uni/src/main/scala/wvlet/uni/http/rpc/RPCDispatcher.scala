@@ -33,12 +33,16 @@ import wvlet.uni.rx.Rx
   *   service routers to dispatch across. Paths are unique per service, so multiple services can be
   *   served through a single dispatcher.
   * @param detailedErrors
-  *   include the messages of unexpected (non-[[RPCException]]) exceptions in error responses. Off
-  *   by default because such messages can leak internals; they are always logged on the server.
+  *   include the messages and stack traces of unexpected (non-[[RPCException]]) exceptions in error
+  *   responses. Off by default because such details can leak internals; they are always logged on
+  *   the server.
   */
 class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) extends LogSupport:
 
-  /** Include the messages of unexpected exceptions in error responses (for development only). */
+  /**
+    * Include the messages and stack traces of unexpected exceptions in error responses (for
+    * development only).
+    */
   def withDetailedErrors(enabled: Boolean): RPCDispatcher = new RPCDispatcher(routers, enabled)
 
   // Pre-build a path -> (instance, route) lookup for O(1) dispatch across all routers.
@@ -111,12 +115,14 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       case rpc: RPCException =>
         rpc.toResponse
       case _ =>
-        val message =
-          if detailedErrors then
-            String.valueOf(e.getMessage)
-          else
-            "Internal error"
-        RPCStatus.INTERNAL_ERROR_I0.newException(message, e).toResponse
+        if detailedErrors then
+          val wrapped = RPCStatus.INTERNAL_ERROR_I0.newException(String.valueOf(e.getMessage), e)
+          // Report where the handler failed, not where it was wrapped, as the cause is not sent
+          wrapped.setStackTrace(e.getStackTrace)
+          wrapped.toResponse
+        else
+          // Hide the stack trace as well as the message, as both can leak internals
+          RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
 
 end RPCDispatcher
 

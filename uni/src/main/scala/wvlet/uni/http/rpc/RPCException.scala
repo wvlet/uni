@@ -16,7 +16,7 @@ package wvlet.uni.http.rpc
 import wvlet.uni.http.{HttpHeader, Response}
 import wvlet.uni.json.JSON
 import wvlet.uni.msgpack.spi.MsgPack
-import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.{Weaver, WeaverConfig}
 
 import scala.util.Try
 
@@ -34,7 +34,8 @@ case class RPCException(
 ) extends Exception(s"[${status}] ${message}", cause.orNull):
 
   /**
-    * Suppress stack trace in the RPC error response
+    * Suppress stack trace in the RPC error response. Use this when the stack frames (class names,
+    * file names, line numbers) should not be exposed to clients.
     */
   def noStackTrace: RPCException = copy(includeStackTrace = Some(false))
 
@@ -46,12 +47,19 @@ case class RPCException(
   /**
     * Convert to serializable error message
     */
-  def toMessage: RPCErrorMessage = RPCErrorMessage(
-    code = status.code,
-    codeName = status.name,
-    message = message,
-    appErrorCode = appErrorCode
-  )
+  def toMessage: RPCErrorMessage =
+    val stackTrace =
+      if shouldReportStackTrace then
+        Some(getStackTrace.toSeq.map(RPCStackTraceElement.fromJava))
+      else
+        None
+    RPCErrorMessage(
+      code = status.code,
+      codeName = status.name,
+      message = message,
+      stackTrace = stackTrace,
+      appErrorCode = appErrorCode
+    )
 
   /**
     * Serialize to JSON
@@ -73,19 +81,51 @@ case class RPCException(
 end RPCException
 
 /**
+  * A stack frame reported in [[RPCErrorMessage]]. The field names match Airframe's
+  * `GenericStackTraceElement`, so error bodies are wire-compatible with Airframe RPC.
+  */
+case class RPCStackTraceElement(
+    className: String,
+    methodName: String,
+    fileName: Option[String] = None,
+    lineNumber: Int = -1
+):
+  def toJava: StackTraceElement = StackTraceElement(
+    className,
+    methodName,
+    fileName.orNull,
+    lineNumber
+  )
+
+object RPCStackTraceElement:
+  def fromJava(e: StackTraceElement): RPCStackTraceElement = RPCStackTraceElement(
+    className = e.getClassName,
+    methodName = e.getMethodName,
+    fileName = Option(e.getFileName),
+    lineNumber = e.getLineNumber
+  )
+
+/**
   * Serializable RPC error message model
+  *
+  * @param stackTrace
+  *   the server-side stack trace, present only when [[RPCException.shouldReportStackTrace]] is true
   */
 case class RPCErrorMessage(
     code: Int = RPCStatus.UNKNOWN_I1.code,
     codeName: String = RPCStatus.UNKNOWN_I1.name,
     message: String = "",
+    stackTrace: Option[Seq[RPCStackTraceElement]] = None,
     appErrorCode: Option[Int] = None
 ):
-  def toJson: String     = RPCErrorMessage.weaver.toJson(this)
-  def toMsgPack: MsgPack = RPCErrorMessage.weaver.weave(this)
+  def toJson: String     = RPCErrorMessage.weaver.toJson(this, RPCErrorMessage.weaverConfig)
+  def toMsgPack: MsgPack = RPCErrorMessage.weaver.weave(this, RPCErrorMessage.weaverConfig)
 
 object RPCErrorMessage:
   given weaver: Weaver[RPCErrorMessage] = Weaver.derived[RPCErrorMessage]
+
+  // Omit unset optional fields (e.g., stackTrace) instead of writing nulls, as Airframe does
+  private val weaverConfig = WeaverConfig().withOmitNoneFields(true)
 
   def fromJson(json: String): RPCErrorMessage        = weaver.fromJson(json)
   def fromMsgPack(msgpack: MsgPack): RPCErrorMessage = weaver.unweave(msgpack)
@@ -101,7 +141,15 @@ object RPCException:
       catch
         case _: IllegalArgumentException =>
           RPCStatus.UNKNOWN_I1
-    RPCException(status = status, message = m.message, cause = None, appErrorCode = m.appErrorCode)
+    val ex = RPCException(
+      status = status,
+      message = m.message,
+      cause = None,
+      appErrorCode = m.appErrorCode
+    )
+    // Recover the server-side stack trace
+    m.stackTrace.foreach(frames => ex.setStackTrace(frames.map(_.toJava).toArray))
+    ex
 
   def fromJson(json: String): RPCException =
     val m = RPCErrorMessage.fromJson(json)

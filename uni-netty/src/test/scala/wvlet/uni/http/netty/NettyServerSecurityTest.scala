@@ -126,6 +126,7 @@ class NettyServerSecurityTest extends UniTest:
     response.status shouldBe HttpStatus.InternalServerError_500
     response.contentAsString.get shouldContain RPCStatus.INTERNAL_ERROR_I0.name
     response.contentAsString.get.contains("db.internal") shouldBe false
+    response.contentAsString.get.contains("stackTrace") shouldBe false
 
     val detailed = RPCHandler(router).withDetailedErrors(true).handle(req).toSeq.head
     detailed.contentAsString.get shouldContain "db.internal"

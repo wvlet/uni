@@ -248,6 +248,18 @@ val appEx = RPCStatus.USER_ERROR_U0
   .newException("Insufficient balance", appErrorCode = Some(1001))
 ```
 
+### Stack Traces
+
+The error body includes the server-side stack trace as a `stackTrace` array of frames (`className`, `methodName`, `fileName`, `lineNumber`), the same shape as Airframe RPC. `RPCException.fromJson`, `fromMsgPack`, and `fromResponse` restore these frames on the client exception.
+
+Stack traces are sent for every status except `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14`. They reveal internal class names, file names, and line numbers to clients, so call `noStackTrace` to hide them for a specific error:
+
+```scala
+throw RPCStatus.INVALID_ARGUMENT_U2.newException("Invalid input").noStackTrace
+```
+
+Unexpected (non-`RPCException`) exceptions from a handler are wrapped as `INTERNAL_ERROR_I0` with no message or stack trace, unless the dispatcher was created with `withDetailedErrors(true)`.
+
 ## Best Practices
 
 1. **No method overloading** in RPC traits — the router rejects overloaded method names
