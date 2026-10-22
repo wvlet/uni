@@ -969,13 +969,10 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
   /**
     * Extract annotations on a class, leaving out the compiler's own
     */
-  private def classAnnotationsOf(s: Symbol): Expr[Seq[Annotation]] =
-    if s.annotations.forall(isCompilerInternal) then
-      '{
-        Seq.empty
-      }
-    else
-      extractAnnotations(s, includeInternal = false)
+  private def classAnnotationsOf(s: Symbol): Expr[Seq[Annotation]] = extractAnnotations(
+    s,
+    includeInternal = false
+  )
 
   /**
     * Extract all annotations from a symbol with their primitive parameter values
@@ -1076,7 +1073,12 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
           case _ =>
             None
       }
-    Expr.ofSeq(annotationExprs)
+    if annotationExprs.isEmpty then
+      '{
+        Seq.empty
+      }
+    else
+      Expr.ofSeq(annotationExprs)
 
   end extractAnnotations
 

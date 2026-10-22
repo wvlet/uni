@@ -124,7 +124,9 @@ Surface captures annotations, with their literal arguments, on parameters, metho
 with a public constructor:
 
 ```scala
-import wvlet.uni.surface.Annotation
+import scala.annotation.StaticAnnotation
+
+class label(val value: String) extends StaticAnnotation
 
 @label("account")
 case class User(
