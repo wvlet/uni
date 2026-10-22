@@ -83,11 +83,14 @@ private[uni] object JsonSchema:
     * @param defaults
     *   Add `default` for object fields whose default is a number (except BigInt), Boolean, Char, or
     *   String
+    * @param classDescriptions
+    *   Add `description` to object schemas from the class's `@description`
     */
   case class Options(
       refFor: Surface => Option[JSONObject] = _ => None,
       formats: Boolean = false,
-      defaults: Boolean = false
+      defaults: Boolean = false,
+      classDescriptions: Boolean = false
   )
 
   def ofSurface(surface: Surface, seen: Set[String], options: Options = Options()): JSONObject =
@@ -147,8 +150,13 @@ private[uni] object JsonSchema:
             schema
         )
       }
-    val required = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
-    objectSchema(properties, required)
+    val required          = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
+    val schemaDescription =
+      if options.classDescriptions then
+        description.value(c.dealias.findAnnotation("description"))
+      else
+        None
+    objectSchema(properties, required, schemaDescription)
 
   private def primitiveSchema(s: Surface, formats: Boolean): JSONObject =
     val (tpe, format) =
@@ -197,10 +205,12 @@ private[uni] object JsonSchema:
 
   private def objectSchema(
       properties: Seq[(String, JSONValue)],
-      required: Seq[JSONString]
+      required: Seq[JSONString],
+      schemaDescription: Option[String] = None
   ): JSONObject =
     val fields = Seq.newBuilder[(String, JSONValue)]
-    fields += "type"       -> JSONString("object")
+    fields += "type" -> JSONString("object")
+    schemaDescription.foreach(d => fields += "description" -> JSONString(d))
     fields += "properties" -> JSONObject(properties)
     if required.nonEmpty then
       fields += "required" -> JSONArray(required.toIndexedSeq)

@@ -25,7 +25,10 @@ object OpenAPITest:
     case Admin,
       Member
 
+  @foreign.description("A postal address")
   case class Address(city: String, zip: Option[String] = None)
+
+  @description("A registered user")
   case class User(
       id: String,
       name: String,
@@ -229,6 +232,18 @@ class OpenAPITest extends UniTest:
     str(doc, "paths", "/v1/users/{id}", "get", "description") shouldBe "Get a user by id"
     // Any annotation named description, e.g. Airframe's
     str(doc, "paths", "/v1/health", "get", "description") shouldBe "Health check"
+  }
+
+  test("take a component schema's description from the class's @description") {
+    val user = at(doc, "components", "schemas", "User")
+    str(user, "description") shouldBe "A registered user"
+    // After type, following Airframe's field order
+    user.asInstanceOf[JSONObject].v.map(_._1).take(2) shouldBe Seq("type", "description")
+    // Any annotation named description, e.g. Airframe's
+    str(doc, "components", "schemas", "Address", "description") shouldBe "A postal address"
+    at(doc, "components", "schemas", "CreateUserRequest")
+      .asInstanceOf[JSONObject]
+      .get("description") shouldBe None
   }
 
   test("add number formats and primitive field defaults") {

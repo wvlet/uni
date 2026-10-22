@@ -20,6 +20,9 @@ import wvlet.uni.test.UniTest
 case class GeoPoint(lat: Double, lon: Double)
 case class Address(street: String, geo: GeoPoint, label: Option[String] = None)
 
+@description("A described point")
+case class DescribedPoint(x: Int)
+
 enum Color:
   case Red,
     Green,
@@ -132,6 +135,14 @@ class JsonSchemaTest extends UniTest:
       .get("type") shouldBe Some(JSONString("number"))
     // label: Option with default → not required
     requiredNames(address) shouldBe Set("street", "geo")
+  }
+
+  test("add a class description only with Options.classDescriptions") {
+    val s = Surface.of[DescribedPoint]
+    JsonSchema.objectSchemaOf(s).get("description") shouldBe None
+    JsonSchema
+      .objectSchemaOf(s, options = JsonSchema.Options(classDescriptions = true))
+      .get("description") shouldBe Some(JSONString("A described point"))
   }
 
   test("enums map to string schemas") {
