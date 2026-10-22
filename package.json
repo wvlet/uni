@@ -9,12 +9,15 @@
   },
   "devDependencies": {
     "mermaid": "^11.17.2",
-    "vitepress": "^2.0.0-alpha.20",
+    "vitepress": "2.0.0-alpha.20",
     "vitepress-plugin-mermaid": "^2.0.17"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild"
-    ]
+    ],
+    "overrides": {
+      "katex": "^0.18.2"
+    }
   }
 }
