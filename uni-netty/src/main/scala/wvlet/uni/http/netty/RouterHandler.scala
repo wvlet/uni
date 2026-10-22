@@ -104,7 +104,8 @@ class RouterHandler(
             request,
             routeMatch.route.methodSurface,
             routeMatch.pathParams,
-            Some(controller)
+            Some(controller),
+            routeMatch.route.paramWeavers
           )
           val result = routeMatch.route.methodSurface.call(controller, args*)
           val weaver = returnWeavers.get(routeMatch.route)
@@ -115,7 +116,7 @@ class RouterHandler(
         catch
           case e: HttpRequestMappingException =>
             debug(s"Parameter mapping error: ${e.getMessage}")
-            Rx.single(Response.badRequest(e.getMessage))
+            Rx.single(Response(e.status).withTextContent(e.getMessage))
           case e: Exception =>
             Rx.exception(e)
       case None =>

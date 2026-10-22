@@ -14,7 +14,9 @@
 package wvlet.uni.http.router
 
 import wvlet.uni.http.HttpMethod
+import wvlet.uni.http.Request
 import wvlet.uni.surface.{MethodSurface, Surface}
+import wvlet.uni.weaver.Weaver
 
 import scala.quoted.*
 
@@ -33,12 +35,127 @@ object RouterMacros:
     }
 
   private def buildRouterImpl[T: Type](using Quotes): Expr[Router] =
+    val bodyWeavers = bodyWeaversOf[T]
     '{
       val surface        = Surface.of[T]
       val methodSurfaces = Surface.methodsOf[T]
-      val routes         = RouterMacros.extractRoutes(surface, methodSurfaces)
+      val routes         = RouterMacros.extractRoutes(
+        surface,
+        methodSurfaces,
+        ${
+          bodyWeavers
+        }
+      )
       Router(routes, None)
     }
+
+  /**
+    * Resolve Weavers for the parameters of `@Endpoint` methods that may be read from the request
+    * body, by method name and then parameter name. Resolving them here, where `Router.of` is
+    * expanded, lets a custom `given Weaver[A]` in `A`'s companion or in scope at the call site
+    * decode the body. For a case class, sealed trait, or enum without a given, `Weaver.of` derives
+    * one that still uses the givens of its fields. Other types fall back to `Weaver.fromSurface` at
+    * runtime.
+    */
+  private def bodyWeaversOf[T: Type](using Quotes): Expr[Map[String, Map[String, Weaver[?]]]] =
+    import quotes.reflect.*
+
+    val tpe          = TypeRepr.of[T]
+    val endpointType = TypeRepr.of[Endpoint].typeSymbol
+    // Overloads share a name, so their weavers cannot be told apart by it; they use runtime
+    // weavers instead
+    val endpointMethods =
+      tpe
+        .typeSymbol
+        .methodMembers
+        .filter(_.hasAnnotation(endpointType))
+        .groupBy(_.name)
+        .collect { case (_, Seq(m)) =>
+          m
+        }
+        .toList
+
+    def isLibraryType(t: TypeRepr): Boolean =
+      val name = t.typeSymbol.fullName
+      name.startsWith("scala.") || name.startsWith("java.")
+
+    def weaverFor(paramType: TypeRepr): Option[Expr[Weaver[?]]] =
+      if paramType <:< TypeRepr.of[Request] || paramType <:< TypeRepr.of[AnyVal] ||
+        paramType <:< TypeRepr.of[String]
+      then
+        None
+      else
+        paramType.asType match
+          case '[t] =>
+            Expr.summon[Weaver[t]] match
+              case Some(w) =>
+                Some(w)
+              case None =>
+                // Weaver.of always derives a case class (fields without a Weaver use runtime
+                // weavers) or an enum. A sealed trait needs a Weaver for every child, so it uses
+                // the runtime weaver rather than failing to compile
+                val sym       = paramType.typeSymbol
+                val derivable =
+                  (sym.flags.is(Flags.Case) && sym.isClassDef && !sym.flags.is(Flags.Module)) ||
+                    paramType <:< TypeRepr.of[scala.reflect.Enum]
+                if !isLibraryType(paramType) && derivable then
+                  Some(
+                    '{
+                      Weaver.of[t]
+                    }
+                  )
+                else
+                  None
+
+    val entries: List[Expr[(String, Map[String, Weaver[?]])]] = endpointMethods.flatMap { m =>
+      tpe.memberType(m) match
+        case MethodType(paramNames, paramTypes, _) =>
+          val params = paramNames
+            .zip(paramTypes)
+            .flatMap { (name, paramType) =>
+              weaverFor(paramType).map(w =>
+                '{
+                  (
+                    ${
+                      Expr(name)
+                    },
+                    ${
+                      w
+                    }
+                  )
+                }
+              )
+            }
+          if params.isEmpty then
+            None
+          else
+            Some(
+              '{
+                (
+                  ${
+                    Expr(m.name)
+                  },
+                  Map(
+                    ${
+                      Varargs(params)
+                    }*
+                  )
+                )
+              }
+            )
+        case _ =>
+          // Generic or curried endpoint methods use runtime weavers
+          None
+    }
+    '{
+      Map(
+        ${
+          Varargs(entries)
+        }*
+      )
+    }
+
+  end bodyWeaversOf
 
   /**
     * Build an [[RxRouter]] from a controller type at compile-time. Every public method on `T`
@@ -67,30 +184,40 @@ object RouterMacros:
     * same method (e.g., kept for documentation generation) is ignored. A uni `@Endpoint` whose
     * method or path cannot be read fails instead of silently dropping the route.
     */
-  def extractRoutes(controllerSurface: Surface, methodSurfaces: Seq[MethodSurface]): Seq[Route] =
-    methodSurfaces.flatMap { ms =>
-      ms.annotations
-        .find(_.fullName == EndpointAnnotationName)
-        .map { annot =>
-          val method =
-            annot.get("method") match
-              case Some(m: HttpMethod) =>
-                m
-              case other =>
-                throw IllegalArgumentException(
-                  s"Invalid @Endpoint method on ${controllerSurface.name}.${ms.name}: ${other}"
-                )
-          val path =
-            annot.get("path") match
-              case Some(p: String) =>
-                p
-              case other =>
-                throw IllegalArgumentException(
-                  s"Invalid @Endpoint path on ${controllerSurface.name}.${ms.name}: ${other}"
-                )
-          Route(method, path, PathComponent.parse(path), controllerSurface, ms)
-        }
-    }
+  def extractRoutes(
+      controllerSurface: Surface,
+      methodSurfaces: Seq[MethodSurface],
+      bodyWeavers: Map[String, Map[String, Weaver[?]]] = Map.empty
+  ): Seq[Route] = methodSurfaces.flatMap { ms =>
+    ms.annotations
+      .find(_.fullName == EndpointAnnotationName)
+      .map { annot =>
+        val method =
+          annot.get("method") match
+            case Some(m: HttpMethod) =>
+              m
+            case other =>
+              throw IllegalArgumentException(
+                s"Invalid @Endpoint method on ${controllerSurface.name}.${ms.name}: ${other}"
+              )
+        val path =
+          annot.get("path") match
+            case Some(p: String) =>
+              p
+            case other =>
+              throw IllegalArgumentException(
+                s"Invalid @Endpoint path on ${controllerSurface.name}.${ms.name}: ${other}"
+              )
+        Route(
+          method,
+          path,
+          PathComponent.parse(path),
+          controllerSurface,
+          ms,
+          bodyWeavers.getOrElse(ms.name, Map.empty)
+        )
+      }
+  }
 
   private val EndpointAnnotationName = classOf[Endpoint].getName
 
