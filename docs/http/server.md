@@ -193,6 +193,30 @@ class MyController:
     Response.ok(s"Received ${body.length} bytes")
 ```
 
+### Request Body
+
+Parameters not bound from the path or query string are read from the request body, decoded with a [Weaver](../core/weaver.md):
+
+```scala
+case class Message(role: String, text: String)
+case class MessagesRequest(model: String, messages: Seq[Message])
+
+class ChatController:
+  // The whole JSON body decodes into `request`; `httpRequest` is the raw Request
+  @Endpoint(HttpMethod.POST, "/v1/messages")
+  def messages(request: MessagesRequest, httpRequest: Request): Reply = ???
+
+  // Several body parameters: each is read from the JSON object field of its name
+  @Endpoint(HttpMethod.POST, "/projects/:id/rename")
+  def rename(id: String, name: String, tags: Seq[String]): Project = ???
+```
+
+- When exactly one parameter, other than `Request`, `RequestAttributes`, and path parameters, is not a primitive, the whole body decodes into it, and the other parameters come from the query string. A collection or map parameter takes the whole body only when it is the only such parameter. Otherwise the body must be an object, and each parameter is read from the field of the same name. Unknown fields are ignored.
+- Content types: JSON (`application/json`, `*+json`, or no `Content-Type`), and MessagePack (`application/msgpack` or `application/x-msgpack`).
+- Custom codecs: a `given Weaver[A]` in `A`'s companion object, or imported where `Router.of` is called, is used when the parameter type is `A`, or a case class with an `A` field. Weavers are resolved when `Router.of` is compiled, so a given that is only in scope elsewhere is not seen. For `Option[A]`, `Seq[A]`, or a sealed trait, define a given for that type to get the same.
+- Errors return 400 and never echo the body: malformed JSON or MessagePack, a value of the wrong shape, or a missing body for a non-`Option` object parameter. A required body in another content type (e.g. a form post) returns 415.
+- A method that also takes `Request` may read the body itself: a body that does not fit its other parameters is an error only when a required parameter is left without a value. A body without a `Content-Type` that does not parse is always left alone.
+
 ## Request and Response
 
 ### Request Properties

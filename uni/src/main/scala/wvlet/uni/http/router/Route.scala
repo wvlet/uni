@@ -15,6 +15,7 @@ package wvlet.uni.http.router
 
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.surface.{MethodSurface, Surface}
+import wvlet.uni.weaver.Weaver
 
 /**
   * Represents a single HTTP route with its method, path pattern, and associated controller method.
@@ -29,13 +30,18 @@ import wvlet.uni.surface.{MethodSurface, Surface}
   *   The Surface of the controller class
   * @param methodSurface
   *   The MethodSurface of the endpoint method
+  * @param paramWeavers
+  *   Weavers resolved at compile time for parameters that may be read from the request body, by
+  *   parameter name. They include custom `given` Weavers, which a runtime `Weaver.fromSurface`
+  *   cannot see. Parameters without an entry fall back to `Weaver.fromSurface`
   */
 case class Route(
     method: HttpMethod,
     pathPattern: String,
     pathComponents: Seq[PathComponent],
     controllerSurface: Surface,
-    methodSurface: MethodSurface
+    methodSurface: MethodSurface,
+    paramWeavers: Map[String, Weaver[?]] = Map.empty
 ):
   /**
     * Returns a human-readable description of this route
