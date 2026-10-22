@@ -43,7 +43,26 @@ trait Surface extends Serializable:
   def isEnum: Boolean = classOf[scala.reflect.Enum].isAssignableFrom(rawType)
 
   def objectFactory: Option[ObjectFactory] = None
-  def withOuter(outer: AnyRef): Surface    = this
+
+  /**
+    * Annotations on this type's class. Recorded for classes with a public constructor, and empty
+    * for other surfaces
+    */
+  def annotations: Seq[Annotation] = Seq.empty
+
+  /**
+    * Find an annotation by its simple or fully qualified name
+    */
+  def findAnnotation(name: String): Option[Annotation] = annotations.find(_.is(name))
+
+  /**
+    * Check if this type's class has an annotation with the given simple or fully qualified name
+    */
+  def hasAnnotation(name: String): Boolean = annotations.exists(_.is(name))
+
+  def withOuter(outer: AnyRef): Surface = this
+
+end Surface
 
 /**
   * Scala 3 implementation of Surface

@@ -53,7 +53,8 @@ case class OpenAPIConfig(
   *   - Parameters follow the router's binding rules: path parameters, then query parameters for
   *     primitives, and a `requestBody` (JSON and MessagePack) for the rest; see
   *     [[HttpRequestMapper]].
-  *   - Object types become `$ref`s into `components/schemas`.
+  *   - Object types become `$ref`s into `components/schemas`, described by the class's
+  *     `@description`.
   *
   * {{{
   * val yaml = OpenAPI.of(Router.of[UserController], OpenAPIConfig().withTitle("Users")).toYAML
@@ -297,7 +298,12 @@ object OpenAPI:
           s
       afterRx.isOption
 
-    private val schemaOptions = JsonSchema.Options(refFor = refFor, formats = true, defaults = true)
+    private val schemaOptions = JsonSchema.Options(
+      refFor = refFor,
+      formats = true,
+      defaults = true,
+      classDescriptions = true
+    )
 
     private def schemaOf(s: Surface): JSONObject = JsonSchema.ofSurface(s, Set.empty, schemaOptions)
 

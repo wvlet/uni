@@ -43,6 +43,13 @@ case class ModelWithAnnotations(
     category: String
 )
 
+// Test case class with class-level annotations
+@label("labeled-model")
+@marker
+case class LabeledModel(id: String)
+
+type LabeledModelAlias = LabeledModel
+
 // Test class with method having annotated parameters
 class ServiceWithAnnotatedMethods:
   def process(
@@ -173,6 +180,26 @@ class AnnotationTest extends UniTest:
     // Also check they appear in annotations list
     pid.hasAnnotation("required") shouldBe true
     ppw.hasAnnotation("secret") shouldBe true
+  }
+
+  test("extract class-level annotations") {
+    val s = Surface.of[LabeledModel]
+    s.annotations.map(_.name).toSet shouldBe Set("label", "marker")
+    s.findAnnotation("label").flatMap(_.getAs[String]("value")) shouldBe Some("labeled-model")
+    s.hasAnnotation("wvlet.uni.surface.marker") shouldBe true
+  }
+
+  test("leave out compiler-internal class annotations") {
+    // Top-level classes carry @SourceFile, which holds the source path
+    Surface.of[ModelWithAnnotations].annotations shouldBe Seq.empty
+    Surface
+      .of[LabeledModel]
+      .annotations
+      .exists(_.fullName.startsWith("scala.annotation.internal")) shouldBe false
+  }
+
+  test("aliases forward class-level annotations") {
+    Surface.of[LabeledModelAlias].findAnnotation("label").isDefined shouldBe true
   }
 
 end AnnotationTest

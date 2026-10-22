@@ -563,6 +563,10 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
           objectFactory =
             ${
               factory
+            },
+          annotations =
+            ${
+              classAnnotationsOf(t.typeSymbol)
             }
         )
       }
@@ -955,12 +959,34 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
     val t = TypeRepr.of[wvlet.uni.surface.required]
     s.hasAnnotation(t.typeSymbol)
 
+  // The compiler's own annotations, e.g., @SourceFile, which holds the source path, and @Child
+  private def isCompilerInternal(annot: Term): Boolean = annot
+    .tpe
+    .typeSymbol
+    .fullName
+    .startsWith("scala.annotation.internal.")
+
+  /**
+    * Extract annotations on a class, leaving out the compiler's own
+    */
+  private def classAnnotationsOf(s: Symbol): Expr[Seq[Annotation]] =
+    if s.annotations.forall(isCompilerInternal) then
+      '{
+        Seq.empty
+      }
+    else
+      extractAnnotations(s, includeInternal = false)
+
   /**
     * Extract all annotations from a symbol with their primitive parameter values
     */
-  private def extractAnnotations(s: Symbol): Expr[Seq[Annotation]] =
+  private def extractAnnotations(
+      s: Symbol,
+      includeInternal: Boolean = true
+  ): Expr[Seq[Annotation]] =
     val annotationExprs = s
       .annotations
+      .filter(a => includeInternal || !isCompilerInternal(a))
       .flatMap { annot =>
         annot match
           case Apply(Select(New(tpt), _), args) =>
