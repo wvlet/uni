@@ -211,7 +211,7 @@ class ChatController:
   def rename(id: String, name: String, tags: Seq[String]): Project = ???
 ```
 
-- When exactly one parameter, other than `Request` and path parameters, is not a primitive, the whole body decodes into it, and the other parameters come from the query string. A collection or map parameter takes the whole body only when it is the only parameter besides `Request` and path parameters. Otherwise the body must be an object, and each parameter is read from the field of the same name. Unknown fields are ignored.
+- When exactly one parameter, other than `Request`, `RequestAttributes`, and path parameters, is not a primitive, the whole body decodes into it, and the other parameters come from the query string. A collection or map parameter takes the whole body only when it is the only such parameter. Otherwise the body must be an object, and each parameter is read from the field of the same name. Unknown fields are ignored.
 - Content types: JSON (`application/json`, `*+json`, or no `Content-Type`), and MessagePack (`application/msgpack` or `application/x-msgpack`).
 - Custom codecs: a `given Weaver[A]` in `A`'s companion object, or imported where `Router.of` is called, is used when the parameter type is `A`, or a case class with an `A` field. Weavers are resolved when `Router.of` is compiled, so a given that is only in scope elsewhere is not seen. For `Option[A]`, `Seq[A]`, or a sealed trait, define a given for that type to get the same.
 - Errors return 400 and never echo the body: malformed JSON or MessagePack, a value of the wrong shape, or a missing body for a non-`Option` object parameter. A required body in another content type (e.g. a form post) returns 415.
