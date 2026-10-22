@@ -21,6 +21,7 @@ import java.net.http.HttpClient.Redirect
 import java.net.http.HttpRequest.BodyPublishers
 import java.net.http.HttpResponse.BodyHandlers
 import java.net.http.HttpClient
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
 import scala.jdk.CollectionConverters.*
@@ -57,7 +58,10 @@ private[http] object JavaHttpChannelHelper:
 
     builder.build()
 
-  def readResponse(httpResponse: JHttpResponse): Response =
+  /**
+    * Read the response status and headers without consuming the body.
+    */
+  def readResponseHead(httpResponse: JHttpResponse): Response =
     val headerBuilder = HttpMultiMap.newBuilder
     httpResponse
       .headers()
@@ -72,19 +76,27 @@ private[http] object JavaHttpChannelHelper:
               headerBuilder.add(key, v)
             }
       }
-    val headers = headerBuilder.result()
-    val status  = HttpStatus.ofCode(httpResponse.statusCode())
+    Response(HttpStatus.ofCode(httpResponse.statusCode()), headerBuilder.result())
 
-    // Handle content decompression
-    val inputStream =
-      headers.get(HttpHeader.ContentEncoding).map(_.toLowerCase) match
-        case Some("gzip") =>
-          GZIPInputStream(httpResponse.body())
-        case Some("deflate") =>
-          InflaterInputStream(httpResponse.body())
-        case _ =>
-          httpResponse.body()
+  /**
+    * Open the response body, decompressing it according to Content-Encoding.
+    */
+  def openBody(head: Response, httpResponse: JHttpResponse): InputStream =
+    head.headers.get(HttpHeader.ContentEncoding).map(_.toLowerCase) match
+      case Some("gzip") =>
+        GZIPInputStream(httpResponse.body())
+      case Some("deflate") =>
+        InflaterInputStream(httpResponse.body())
+      case _ =>
+        httpResponse.body()
 
+  def readResponse(httpResponse: JHttpResponse): Response = readResponseBody(
+    readResponseHead(httpResponse),
+    httpResponse
+  )
+
+  def readResponseBody(head: Response, httpResponse: JHttpResponse): Response =
+    val inputStream = openBody(head, httpResponse)
     try
       val body    = inputStream.readAllBytes()
       val content =
@@ -92,11 +104,50 @@ private[http] object JavaHttpChannelHelper:
           HttpContent.Empty
         else
           HttpContent.bytes(body)
-      Response(status, headers, content)
+      head.withContent(content)
     finally
       inputStream.close()
 
-  end readResponse
+  /**
+    * Stream chunks read from the input stream returned by `open`. Reading runs on the blocking
+    * scheduler and starts only once the stream is subscribed, so no chunk is emitted before the
+    * subscriber is ready. An exception thrown by `open` fails the stream.
+    */
+  def streamChunks(open: () => InputStream): Rx[Array[Byte]] =
+    val source  = Rx.variable[Option[Array[Byte]]](None)
+    val started = AtomicBoolean(false)
+
+    def readAll(): Unit =
+      try
+        val stream = open()
+        try
+          val buffer = new Array[Byte](8192)
+          var len    = stream.read(buffer)
+          while len != -1 do
+            if len > 0 then
+              source.set(Some(java.util.Arrays.copyOf(buffer, len)))
+            len = stream.read(buffer)
+          source.stop()
+        finally
+          stream.close()
+      catch
+        case e: Throwable =>
+          source.setException(e)
+
+    source
+      .tap { chunk =>
+        // RxVar emits its current value (None) right after registering a subscriber
+        if chunk.isEmpty && started.compareAndSet(false, true) then
+          RxScheduler.blocking.execute(() => readAll())
+      }
+      .filter(_.isDefined)
+      .map(_.get)
+
+  end streamChunks
+
+  def isEventStreamResponse(request: Request, head: Response): Boolean =
+    request.eventHandler != ServerSentEventHandler.empty && head.isSuccessful &&
+      head.contentType.exists(_.isEventStream)
 
 end JavaHttpChannelHelper
 
@@ -114,7 +165,14 @@ class JavaHttpChannel extends HttpChannel:
   override def send(request: Request, config: HttpClientConfig): Response =
     val httpReq  = buildRequest(request, config)
     val httpResp = javaClient.send(httpReq, BodyHandlers.ofInputStream())
-    readResponse(httpResp)
+    val head     = readResponseHead(httpResp)
+    if isEventStreamResponse(request, head) then
+      // Leave the event stream unread; the client dispatches the events to the request's handler
+      head.withEvents(
+        ServerSentEventParser.parseStream(streamChunks(() => openBody(head, httpResp)))
+      )
+    else
+      readResponseBody(head, httpResp)
 
   override def close(): Unit = ()
 
@@ -184,6 +242,27 @@ class JavaHttpAsyncChannel extends HttpAsyncChannel:
       }
 
     source.filter(_.isDefined).map(_.get)
+
+  end sendStreaming
+
+  override def sendStreaming(
+      request: Request,
+      config: HttpClientConfig,
+      onResponse: Response => Unit
+  ): Rx[Array[Byte]] = streamChunks { () =>
+    val httpResp = javaClient.send(buildRequest(request, config), BodyHandlers.ofInputStream())
+    val head     = readResponseHead(httpResp)
+    try
+      onResponse(head)
+      if head.isSuccessful then
+        openBody(head, httpResp)
+      else
+        throw HttpException.fromResponse(readResponseBody(head, httpResp))
+    catch
+      case e: Throwable =>
+        httpResp.body().close()
+        throw e
+  }
 
   override def close(): Unit = ()
 

@@ -14,7 +14,7 @@
 package wvlet.uni.http
 
 import org.scalajs.dom.{Headers, RequestInit, RequestRedirect}
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Rx, RxVar}
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.scalajs.js
@@ -31,38 +31,10 @@ class FetchChannel extends HttpAsyncChannel:
   private given ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
 
   override def send(request: HttpRequest, config: HttpClientConfig): Rx[HttpResponse] =
-    val req = buildRequestInit(request)
-
-    val future = org
-      .scalajs
-      .dom
-      .fetch(request.fullUri, req)
-      .toFuture
-      .flatMap { resp =>
-        // Build headers
-        val headerBuilder = HttpMultiMap.newBuilder
-        resp
-          .headers
-          .foreach { h =>
-            headerBuilder.add(h(0), h(1))
-          }
-        val headers = headerBuilder.result()
-        val status  = HttpStatus.ofCode(resp.status)
-
-        // Read body as array buffer
-        resp
-          .arrayBuffer()
-          .toFuture
-          .map { buf =>
-            val bytes   = new Int8Array(buf).toArray
-            val content =
-              if bytes.isEmpty then
-                HttpContent.Empty
-              else
-                HttpContent.bytes(bytes)
-            Response(status, headers, content)
-          }
-      }
+    val future = fetch(request).flatMap { resp =>
+      val head = readResponseHead(resp)
+      resp.arrayBuffer().toFuture.map(buf => head.withContent(toContent(buf)))
+    }
 
     Rx.future(future)
 
@@ -70,44 +42,91 @@ class FetchChannel extends HttpAsyncChannel:
 
   override def sendStreaming(request: HttpRequest, config: HttpClientConfig): Rx[Array[Byte]] =
     val source = Rx.variable[Option[Array[Byte]]](None)
-    val req    = buildRequestInit(request)
+    fetch(request).foreach(resp => readChunks(resp, source))
+    source.filter(_.isDefined).map(_.get)
 
-    org
-      .scalajs
-      .dom
-      .fetch(request.fullUri, req)
-      .toFuture
-      .foreach { resp =>
-        val reader = resp.body.getReader()
+  override def sendStreaming(
+      request: HttpRequest,
+      config: HttpClientConfig,
+      onResponse: HttpResponse => Unit
+  ): Rx[Array[Byte]] =
+    val source = Rx.variable[Option[Array[Byte]]](None)
 
-        def process(): Unit = reader
-          .read()
-          .toFuture
-          .onComplete {
-            case Failure(e) =>
-              reader.releaseLock()
-              source.setException(e)
-            case Success(result) =>
-              if result.done then
-                reader.releaseLock()
-                source.stop()
-              else
-                try
-                  val chunk = new Int8Array(result.value.buffer).toArray
-                  source.set(Some(chunk))
-                  process()
-                catch
-                  case e: Throwable =>
-                    reader.releaseLock()
-                    source.setException(e)
-          }
-
-        process()
-      }
+    fetch(request).onComplete {
+      case Failure(e) =>
+        source.setException(e)
+      case Success(resp) =>
+        try
+          val head = readResponseHead(resp)
+          onResponse(head)
+          if head.isSuccessful then
+            readChunks(resp, source)
+          else
+            resp
+              .arrayBuffer()
+              .toFuture
+              .onComplete {
+                case Success(buf) =>
+                  source.setException(HttpException.fromResponse(head.withContent(toContent(buf))))
+                case Failure(e) =>
+                  source.setException(e)
+              }
+        catch
+          case e: Throwable =>
+            source.setException(e)
+    }
 
     source.filter(_.isDefined).map(_.get)
 
   end sendStreaming
+
+  private def fetch(request: HttpRequest): Future[org.scalajs.dom.Response] =
+    org.scalajs.dom.fetch(request.fullUri, buildRequestInit(request)).toFuture
+
+  private def readResponseHead(resp: org.scalajs.dom.Response): HttpResponse =
+    val headerBuilder = HttpMultiMap.newBuilder
+    resp
+      .headers
+      .foreach { h =>
+        headerBuilder.add(h(0), h(1))
+      }
+    Response(HttpStatus.ofCode(resp.status), headerBuilder.result())
+
+  private def toContent(buf: ArrayBuffer): HttpContent =
+    val bytes = new Int8Array(buf).toArray
+    if bytes.isEmpty then
+      HttpContent.Empty
+    else
+      HttpContent.bytes(bytes)
+
+  private def readChunks(resp: org.scalajs.dom.Response, source: RxVar[Option[Array[Byte]]]): Unit =
+    val reader = resp.body.getReader()
+
+    def process(): Unit = reader
+      .read()
+      .toFuture
+      .onComplete {
+        case Failure(e) =>
+          reader.releaseLock()
+          source.setException(e)
+        case Success(result) =>
+          if result.done then
+            reader.releaseLock()
+            source.stop()
+          else
+            try
+              val chunk = new Int8Array(result.value.buffer).toArray
+              source.set(Some(chunk))
+              process()
+            catch
+              case e: Throwable =>
+                reader.releaseLock()
+                source.setException(e)
+      }
+
+    process()
+
+  end readChunks
 
   override def close(): Unit = ()
 

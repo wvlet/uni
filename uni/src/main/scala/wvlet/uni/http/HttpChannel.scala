@@ -86,7 +86,44 @@ trait HttpAsyncChannel extends AutoCloseable:
     */
   def sendStreaming(request: HttpRequest, config: HttpClientConfig): Rx[Array[Byte]]
 
+  /**
+    * Send an HTTP request and stream the response body as chunks, reporting the response status and
+    * headers first.
+    *
+    * `onResponse` is called once with the status and headers (without the body) before any chunk is
+    * emitted. For a non-2xx status, the error body is read fully and the stream fails with an
+    * [[HttpException]] that carries the response, without emitting any chunk. The request is sent
+    * once; no retry is applied.
+    *
+    * The default implementation buffers the body with `send` and emits it as a single chunk.
+    * Platforms that can read the body incrementally should override it.
+    *
+    * @param request
+    *   the HTTP request to send
+    * @param config
+    *   client configuration for timeouts and other settings
+    * @param onResponse
+    *   called with the response status and headers before the body is streamed
+    * @return
+    *   Rx stream that emits response body chunks
+    */
+  def sendStreaming(
+      request: HttpRequest,
+      config: HttpClientConfig,
+      onResponse: HttpResponse => Unit
+  ): Rx[Array[Byte]] = send(request, config).flatMap { response =>
+    onResponse(response.withContent(HttpContent.Empty))
+    if !response.isSuccessful then
+      Rx.exception(HttpException.fromResponse(response))
+    else if response.content.isEmpty then
+      Rx.empty
+    else
+      Rx.single(response.content.toContentBytes)
+  }
+
   def close(): Unit = ()
+
+end HttpAsyncChannel
 
 /**
   * Factory for creating platform-specific HttpChannel implementations.
