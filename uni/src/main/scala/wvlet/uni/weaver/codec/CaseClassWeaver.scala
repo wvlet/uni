@@ -28,18 +28,33 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers: IndexedSeq[Weaver[?]]) 
       }
       .toMap
 
+  private val isOptionParam: Array[Boolean] = surface.params.map(_.surface.isOption).toArray
+
   override def pack(p: Packer, v: A, config: WeaverConfig): Unit =
     if v == null then
       p.packNil
     else
-      p.packMapHeader(surface.params.size)
-      var i = 0
-      while i < surface.params.size do
-        val param = surface.params(i)
-        p.packString(param.name)
-        val value = param.get(v)
-        fieldWeavers(i).asInstanceOf[Weaver[Any]].pack(p, value, config)
+      val n      = surface.params.size
+      val values = Array.ofDim[Any](n)
+      var size   = 0
+      var i      = 0
+      while i < n do
+        values(i) = surface.params(i).get(v)
+        if !isOmitted(i, values(i), config) then
+          size += 1
         i += 1
+
+      // The map header must count only the fields actually written
+      p.packMapHeader(size)
+      i = 0
+      while i < n do
+        if !isOmitted(i, values(i), config) then
+          p.packString(surface.params(i).name)
+          fieldWeavers(i).asInstanceOf[Weaver[Any]].pack(p, values(i), config)
+        i += 1
+
+  private def isOmitted(i: Int, value: Any, config: WeaverConfig): Boolean =
+    config.omitNoneFields && isOptionParam(i) && value == None
 
   override def unpack(u: Unpacker, context: WeaverContext): Unit =
     u.getNextValueType match

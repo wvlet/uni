@@ -19,6 +19,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.{OptionSurface, Surface}
 import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.WeaverConfig
 
 import java.util.IdentityHashMap
 
@@ -36,11 +37,15 @@ import java.util.IdentityHashMap
   *   Provider for obtaining controller instances
   * @param detailedErrors
   *   Unused: 500 responses are rendered by the server
+  * @param weaverConfig
+  *   WeaverConfig used when encoding controller return values as JSON (e.g.,
+  *   `WeaverConfig().withOmitNoneFields(true)` to omit None-valued Option fields)
   */
 class RouterHandler(
     router: Router,
     controllerProvider: ControllerProvider,
-    detailedErrors: Boolean = false
+    detailedErrors: Boolean = false,
+    weaverConfig: WeaverConfig = WeaverConfig()
 ) extends RxHttpHandler
     with LogSupport:
 
@@ -49,7 +54,13 @@ class RouterHandler(
     "2026.1.29"
   )
   def withDetailedErrors(enabled: Boolean): RouterHandler =
-    new RouterHandler(router, controllerProvider, enabled)
+    new RouterHandler(router, controllerProvider, enabled, weaverConfig)
+
+  /**
+    * Set the WeaverConfig used when encoding controller return values as JSON.
+    */
+  def withWeaverConfig(config: WeaverConfig): RouterHandler =
+    new RouterHandler(router, controllerProvider, detailedErrors, config)
 
   private val matcher = RouteMatcher(router.routes)
   private val mapper  = HttpRequestMapper()
@@ -112,7 +123,7 @@ class RouterHandler(
           if weaver == null then
             ResponseConverter.toResponse(result)
           else
-            ResponseConverter.toResponse(result, weaver)
+            ResponseConverter.toResponse(result, weaver, weaverConfig)
         catch
           case e: HttpRequestMappingException =>
             debug(s"Parameter mapping error: ${e.getMessage}")
