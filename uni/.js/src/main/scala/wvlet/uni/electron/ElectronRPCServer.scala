@@ -108,7 +108,7 @@ object ElectronRPCServer extends LogSupport:
         case OnError(e) =>
           warn(s"Unexpected error in RPC dispatch: ${e.getMessage}", e)
           val errorResponse =
-            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).toResponse
+            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
         case OnCompletion =>
         // No value emitted: nothing to resolve with (should not happen for RPC).
