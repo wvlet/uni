@@ -29,7 +29,10 @@ import java.nio.file.{Files, Path}
   */
 object OpenAPIGeneratorMain:
 
-  def main(args: Array[String]): Unit =
+  def main(args: Array[String]): Unit = run(args, Thread.currentThread().getContextClassLoader)
+
+  /** Run with an explicit class loader for the routers, e.g. a test's own loader */
+  def run(args: Array[String], loader: ClassLoader): Unit =
     val opts  = parse(args.toList)
     val out   = opts.get("out").flatMap(_.headOption).getOrElse(usage("--out is required"))
     val specs = opts.getOrElse("router", Nil)
@@ -44,7 +47,7 @@ object OpenAPIGeneratorMain:
         .get("schema-package-prefix")
         .flatMap(_.headOption)
         .fold(withVersion)(withVersion.withSchemaPackagePrefix)
-    val openAPI = OpenAPI.of(specs.map(loadRouter), finalConfig)
+    val openAPI = OpenAPI.of(specs.map(loadRouter(_, loader)), finalConfig)
     val text    =
       opts.get("format").flatMap(_.headOption).getOrElse("yaml") match
         case "yaml" =>
@@ -57,7 +60,7 @@ object OpenAPIGeneratorMain:
     Option(path.getParent).foreach(Files.createDirectories(_))
     Files.writeString(path, text + "\n", StandardCharsets.UTF_8)
 
-  end main
+  end run
 
   private def parse(args: List[String]): Map[String, List[String]] =
     args
@@ -72,8 +75,7 @@ object OpenAPIGeneratorMain:
       .groupMap(_._1)(_._2)
 
   /** Resolve `pkg.Obj` (an object that is a Router) or `pkg.Obj.member` (a member returning one) */
-  private[openapi] def loadRouter(spec: String): Router =
-    val loader                              = Thread.currentThread().getContextClassLoader
+  private[openapi] def loadRouter(spec: String, loader: ClassLoader): Router =
     def moduleOf(name: String): Option[Any] =
       try
         Some(Class.forName(s"${name}$$", true, loader).getField("MODULE$").get(null))

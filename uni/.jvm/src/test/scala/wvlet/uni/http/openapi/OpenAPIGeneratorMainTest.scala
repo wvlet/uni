@@ -32,7 +32,7 @@ class OpenAPIGeneratorMainTest extends UniTest:
   test("write YAML for an object member that returns a Router") {
     val dir = Files.createTempDirectory("openapi")
     val out = dir.resolve("doc/openapi.yaml")
-    OpenAPIGeneratorMain.main(
+    OpenAPIGeneratorMain.run(
       Array(
         "--router",
         "wvlet.uni.http.openapi.GeneratorMainApi.router",
@@ -42,7 +42,8 @@ class OpenAPIGeneratorMainTest extends UniTest:
         "2.0",
         "--out",
         out.toString
-      )
+      ),
+      getClass.getClassLoader
     )
     val yaml = Files.readString(out, StandardCharsets.UTF_8)
     yaml shouldContain "title: Ping"
@@ -52,7 +53,10 @@ class OpenAPIGeneratorMainTest extends UniTest:
 
   test("fail on a router spec that does not resolve") {
     intercept[IllegalArgumentException] {
-      OpenAPIGeneratorMain.loadRouter("wvlet.uni.http.openapi.NoSuchApi.router")
+      OpenAPIGeneratorMain.loadRouter(
+        "wvlet.uni.http.openapi.NoSuchApi.router",
+        getClass.getClassLoader
+      )
     }
   }
 
