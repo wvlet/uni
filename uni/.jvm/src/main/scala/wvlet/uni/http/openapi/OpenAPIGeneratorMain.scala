@@ -23,9 +23,9 @@ import java.nio.file.{Files, Path}
   * task runs this in a forked JVM, so the build never loads application classes.
   *
   * Arguments: `--router <spec>` (repeatable), `--out <file>`, and optionally `--title`,
-  * `--version`, `--schema-package-prefix`, and `--format yaml|json` (default: yaml). A router spec
-  * names a Scala object member that returns a [[Router]], e.g. `com.example.Api.router`, or an
-  * object that is itself a `Router`.
+  * `--version`, `--schema-package-prefix`, `--error-responses 400,500,503` (empty for none), and
+  * `--format yaml|json` (default: yaml). A router spec names a Scala object member that returns a
+  * [[Router]], e.g. `com.example.Api.router`, or an object that is itself a `Router`.
   */
 object OpenAPIGeneratorMain:
 
@@ -47,7 +47,17 @@ object OpenAPIGeneratorMain:
         .get("schema-package-prefix")
         .flatMap(_.headOption)
         .fold(withVersion)(withVersion.withSchemaPackagePrefix)
-    val openAPI = OpenAPI.of(specs.map(loadRouter(_, loader)), finalConfig)
+    val withErrors =
+      opts
+        .get("error-responses")
+        .flatMap(_.headOption)
+        .fold(finalConfig) { codes =>
+          val parsed = codes.split(',').map(_.trim).filter(_.nonEmpty).toSeq
+          finalConfig.withErrorResponses(
+            parsed.map(c => c.toIntOption.getOrElse(usage(s"Invalid --error-responses: ${codes}")))*
+          )
+        }
+    val openAPI = OpenAPI.of(specs.map(loadRouter(_, loader)), withErrors)
     val text    =
       opts.get("format").flatMap(_.headOption).getOrElse("yaml") match
         case "yaml" =>
