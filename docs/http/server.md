@@ -385,6 +385,35 @@ class ApiController:
 
 The Netty server sets `RequestAttribute.RemoteAddress` (`host:port` of the connected peer, with IPv6 hosts in brackets, which is the load balancer when there is one). `RequestAttributes.toString` prints only the attribute names, so logging a request does not leak their values.
 
+### Access Log
+
+`HttpAccessLogFilter` writes one entry per request, using the field names of Airframe's `HttpLogger` (`method`, `path`, `status_code`, `response_time_ms`, `request_size`, `response_size`, `remote_address`, `request_header`, `response_header`, `exception_class`, ...):
+
+```scala
+import wvlet.uni.http.{HttpAccessLogConfig, HttpAccessLogFilter, HttpAccessLogWriter}
+import wvlet.uni.log.FileLogHandlerConfig
+
+val accessLog = HttpAccessLogFilter(
+  HttpAccessLogWriter.jsonFile(FileLogHandlerConfig("log/http_server.json")),
+  HttpAccessLogConfig()
+    .withStreamWriter(HttpAccessLogWriter.jsonFile(FileLogHandlerConfig("log/http_stream.json")))
+)
+
+NettyServer
+  .withFilter(accessLog.andThen(authFilter)) // outermost, so it sees the final response
+  .withRxHandler(RouterHandler(router))
+  .start()
+
+// In an inner filter or a controller
+HttpAccessLogFilter.addEntry(request, "user_id", user.id)
+```
+
+- `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and `x-api-key` are logged as `[redacted]`. `withRedactedHeaders(...)` replaces the list, and `withExcludedHeaders(...)` leaves headers out.
+- A controller exception is logged with status 500 and its class and message, and is then rendered by the server as usual.
+- An SSE response gets a second entry when the stream ends (`stream_event_count`, `stream_bytes`, `stream_duration_ms`), written to the stream writer.
+- `jsonFile` writes JSON lines with daily and size-based rotation. For Fluentd or another sink, implement `HttpAccessLogWriter.write(entry: Map[String, Any])`.
+- Requests rejected before filters run (oversized or malformed bodies, read timeouts, the host check) are not logged.
+
 ## Server Configuration
 
 ### NettyServerConfig Options
