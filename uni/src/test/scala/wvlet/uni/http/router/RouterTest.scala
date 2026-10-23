@@ -27,6 +27,10 @@ class TestController:
   @Endpoint(HttpMethod.GET, "/search")
   def search(query: String, limit: Int = 10): String = s"query=${query}, limit=${limit}"
 
+class PublicController:
+  @Endpoint(HttpMethod.GET, "/public")
+  def publicEndpoint(): String = "public"
+
 class RouterTest extends UniTest:
   // Single shared router instance
   private lazy val router = Router.of[TestController]
@@ -107,7 +111,33 @@ class RouterTest extends UniTest:
   test("Router.filter should add filter") {
     class TestFilter
     val filtered = Router.filter[TestFilter].andThen(router)
-    filtered.filterSurfaceOpt.isDefined shouldBe true
+    filtered.routes.forall(_.filterSurfaces.map(_.name) == Seq("TestFilter")) shouldBe true
+    Router.commonFilters(filtered.routes).map(_.name) shouldBe Seq("TestFilter")
+  }
+
+  test("Router.andThen should keep each side's filters on its own routes") {
+    class AuthFilter
+    val combined = Router.of[PublicController].andThen(Router.filter[AuthFilter].andThen(router))
+    combined.routes.find(_.pathPattern == "/public").get.filterSurfaces shouldBe Seq.empty
+    combined
+      .routes
+      .filter(_.controllerSurface.name == "TestController")
+      .forall(_.filterSurfaces.map(_.name) == Seq("AuthFilter")) shouldBe true
+    // No filter is shared by every route
+    Router.commonFilters(combined.routes) shouldBe Seq.empty
+  }
+
+  test("Router.filter should keep inner filters inside the outer one") {
+    class OuterFilter
+    class InnerFilter
+    val nested = Router
+      .filter[OuterFilter]
+      .andThen(Router.of[PublicController].andThen(Router.filter[InnerFilter].andThen(router)))
+    nested.routes.find(_.pathPattern == "/public").get.filterSurfaces.map(_.name) shouldBe
+      Seq("OuterFilter")
+    nested.routes.find(_.pathPattern == "/users").get.filterSurfaces.map(_.name) shouldBe
+      Seq("OuterFilter", "InnerFilter")
+    Router.commonFilters(nested.routes).map(_.name) shouldBe Seq("OuterFilter")
   }
 
   test("Surface.methodsOf should cache MethodSurface instances") {

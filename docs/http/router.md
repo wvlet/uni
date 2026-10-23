@@ -177,7 +177,7 @@ Paths are parsed into components:
 
 ## Router with Filters
 
-Add filters that apply to all routes in a router:
+Add filters that apply to the routes of a router:
 
 ```scala
 import wvlet.uni.http.RxHttpFilter
@@ -195,6 +195,24 @@ val router = Router
 ```
 
 The filter is instantiated using the same `ControllerProvider` as controllers.
+
+A filter applies only to the routes it wraps, so you can compose public and protected routes, and nest filters. Nested filters run outer-to-inner on the request:
+
+```scala
+val router = Router
+  .of[PublicController] // no filter
+  .andThen(
+    Router
+      .filter[AuthFilter] // runs first for /protected and /inference
+      .andThen(
+        Router
+          .of[ProtectedController]
+          .andThen(Router.filter[VersionFilter].andThen(Router.of[InferenceController]))
+      )
+  )
+```
+
+Filters shared by every route also run for requests that match no route. Other filters run after their route is matched. A filter's exception reaches the outer filters as a failed `Rx`.
 
 ## RouterHandler
 
