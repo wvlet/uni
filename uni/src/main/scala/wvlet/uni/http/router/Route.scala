@@ -34,6 +34,9 @@ import wvlet.uni.weaver.Weaver
   *   Weavers resolved at compile time for parameters that may be read from the request body, by
   *   parameter name. They include custom `given` Weavers, which a runtime `Weaver.fromSurface`
   *   cannot see. Parameters without an entry fall back to `Weaver.fromSurface`
+  * @param filterSurfaces
+  *   Surfaces of the filters scoped to this route, outermost first. Each filter wraps the ones
+  *   after it, so a request passes through them in order before reaching the endpoint
   */
 case class Route(
     method: HttpMethod,
@@ -41,7 +44,8 @@ case class Route(
     pathComponents: Seq[PathComponent],
     controllerSurface: Surface,
     methodSurface: MethodSurface,
-    paramWeavers: Map[String, Weaver[?]] = Map.empty
+    paramWeavers: Map[String, Weaver[?]] = Map.empty,
+    filterSurfaces: Seq[Surface] = Seq.empty
 ):
   /**
     * Returns a human-readable description of this route

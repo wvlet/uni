@@ -22,14 +22,19 @@ import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 
 import java.util.IdentityHashMap
+import scala.util.control.NonFatal
 
 /**
   * An RxHttpHandler implementation that dispatches requests to controller methods based on route
   * matching.
   *
-  * A controller exception is returned as a failed `Rx` (as an exception inside a returned `Rx`
-  * already is), so an enclosing [[RxHttpFilter]] can `recover` from the original exception. When no
-  * filter recovers, the server renders it as a generic 500 response.
+  * Each matched route runs through its own filter chain ([[Route.filterSurfaces]]), outermost
+  * first. Filters shared by every route run before route matching, so they also apply to unmatched
+  * requests; narrower filters run only for the routes they were attached to.
+  *
+  * A controller or filter exception is returned as a failed `Rx` (as an exception inside a returned
+  * `Rx` already is), so an enclosing [[RxHttpFilter]] can `recover` from the original exception.
+  * When no filter recovers, the server renders it as a generic 500 response.
   *
   * @param router
   *   The router containing route definitions
@@ -91,48 +96,94 @@ class RouterHandler(
       }
     m
 
-  // Lazily initialized filter instance (thread-safe)
-  private lazy val filterInstance: Option[RxHttpFilter] = router
-    .filterSurfaceOpt
-    .map { surface =>
-      controllerProvider.getFilter(surface).asInstanceOf[RxHttpFilter]
-    }
+  // Filter instances are created lazily through the ControllerProvider, one per filter Surface
+  // shared by every route that uses it
+  private class LazyFilter(surface: Surface):
+    lazy val instance: RxHttpFilter = controllerProvider
+      .getFilter(surface)
+      .asInstanceOf[RxHttpFilter]
 
-  override def handle(request: Request): Rx[Response] =
-    filterInstance match
-      case Some(filter) =>
-        // Apply filter before handling
-        filter.apply(request, RxHttpHandler(handleRequest))
-      case None =>
-        handleRequest(request)
+  private val filterCache: Map[Surface, LazyFilter] =
+    router.routes.flatMap(_.filterSurfaces).distinct.map(s => s -> LazyFilter(s)).toMap
 
-  private def handleRequest(request: Request): Rx[Response] =
+  // Filters shared by all routes wrap the whole router: they run before route matching (so they
+  // may rewrite the request and also see unmatched requests), as a router-wide filter always did
+  private val commonFilters: IndexedSeq[LazyFilter] =
+    Router.commonFilters(router.routes).map(filterCache).toIndexedSeq
+
+  // The remaining, narrower filters of each route run after the route is matched
+  private val scopedFilters: IdentityHashMap[Route, IndexedSeq[LazyFilter]] =
+    val m = new IdentityHashMap[Route, IndexedSeq[LazyFilter]](router.routes.size * 2)
+    router
+      .routes
+      .foreach { r =>
+        m.put(r, r.filterSurfaces.drop(commonFilters.size).map(filterCache).toIndexedSeq)
+      }
+    m
+
+  override def handle(request: Request): Rx[Response] = runFilters(
+    commonFilters,
+    0,
+    request,
+    dispatch
+  )
+
+  /**
+    * Run filters(index..) outer-to-inner, then the handler. A filter's synchronous exception is
+    * returned as a failed Rx, so outer filters can recover from it.
+    */
+  private def runFilters(
+      filters: IndexedSeq[LazyFilter],
+      index: Int,
+      request: Request,
+      handler: Request => Rx[Response]
+  ): Rx[Response] =
+    if index >= filters.size then
+      handler(request)
+    else
+      try
+        filters(index)
+          .instance
+          .apply(request, RxHttpHandler(req => runFilters(filters, index + 1, req, handler)))
+      catch
+        case NonFatal(e) =>
+          Rx.exception(e)
+
+  private def dispatch(request: Request): Rx[Response] =
     matcher.findRoute(request) match
       case Some(routeMatch) =>
-        try
-          val controller = controllerProvider.get(routeMatch.route.controllerSurface)
-          val args       = mapper.bindParameters(
-            request,
-            routeMatch.route.methodSurface,
-            routeMatch.pathParams,
-            Some(controller),
-            routeMatch.route.paramWeavers
-          )
-          val result = routeMatch.route.methodSurface.call(controller, args*)
-          val weaver = returnWeavers.get(routeMatch.route)
-          if weaver == null then
-            ResponseConverter.toResponse(result)
-          else
-            ResponseConverter.toResponse(result, weaver, weaverConfig)
-        catch
-          case e: HttpRequestMappingException =>
-            debug(s"Parameter mapping error: ${e.getMessage}")
-            Rx.single(Response(e.status).withTextContent(e.getMessage))
-          case e: Exception =>
-            Rx.exception(e)
+        runFilters(
+          scopedFilters.get(routeMatch.route),
+          0,
+          request,
+          req => handleRoute(req, routeMatch)
+        )
       case None =>
         debug(s"No route found for ${request.method} ${request.path}")
         Rx.single(Response.notFound(s"Not found: ${request.method} ${request.path}"))
+
+  private def handleRoute(request: Request, routeMatch: RouteMatch): Rx[Response] =
+    try
+      val controller = controllerProvider.get(routeMatch.route.controllerSurface)
+      val args       = mapper.bindParameters(
+        request,
+        routeMatch.route.methodSurface,
+        routeMatch.pathParams,
+        Some(controller),
+        routeMatch.route.paramWeavers
+      )
+      val result = routeMatch.route.methodSurface.call(controller, args*)
+      val weaver = returnWeavers.get(routeMatch.route)
+      if weaver == null then
+        ResponseConverter.toResponse(result)
+      else
+        ResponseConverter.toResponse(result, weaver, weaverConfig)
+    catch
+      case e: HttpRequestMappingException =>
+        debug(s"Parameter mapping error: ${e.getMessage}")
+        Rx.single(Response(e.status).withTextContent(e.getMessage))
+      case e: Exception =>
+        Rx.exception(e)
 
 end RouterHandler
 

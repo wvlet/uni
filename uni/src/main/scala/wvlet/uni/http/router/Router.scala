@@ -16,30 +16,41 @@ package wvlet.uni.http.router
 import wvlet.uni.surface.Surface
 
 /**
-  * A router that holds a collection of routes and an optional filter factory.
+  * A router that holds a collection of routes. Each route carries the filters scoped to it (see
+  * [[Route.filterSurfaces]]), so composing routers keeps every subtree's filters on its own routes.
   *
   * Routes are matched in order, so more specific routes should be registered first.
   *
   * @param routes
   *   The collection of routes
-  * @param filterSurfaceOpt
-  *   Optional Surface of the filter to apply to all routes
   */
-class Router(val routes: Seq[Route], val filterSurfaceOpt: Option[Surface]):
+class Router(val routes: Seq[Route]):
+
+  /**
+    * Create a router whose routes are all wrapped by the given filter (as the outermost filter).
+    */
+  def this(routes: Seq[Route], filterSurfaceOpt: Option[Surface]) = this(
+    Router.addFilter(routes, filterSurfaceOpt)
+  )
+
+  /**
+    * The outermost filter shared by every route, if any. Routes may carry further, narrower
+    * filters, so backends must apply each matched route's [[Route.filterSurfaces]] instead.
+    */
+  @deprecated("Filters are scoped per route. Use Route.filterSurfaces instead", "2026.1.34")
+  def filterSurfaceOpt: Option[Surface] = Router.commonFilters(routes).headOption
 
   /**
     * Combine this router with another router. The other router's routes are appended after this
-    * router's routes.
+    * router's routes. Each route keeps its own filters, so a filter attached to one side does not
+    * apply to the other.
     *
     * @param other
     *   The router to combine with
     * @return
     *   A new Router with combined routes
     */
-  def andThen(other: Router): Router = Router(
-    routes ++ other.routes,
-    filterSurfaceOpt.orElse(other.filterSurfaceOpt)
-  )
+  def andThen(other: Router): Router = Router(routes ++ other.routes)
 
   /**
     * Returns the number of routes in this router
@@ -101,20 +112,47 @@ object Router:
   /**
     * Create an empty router
     */
-  def empty: Router = Router(Seq.empty, None)
+  def empty: Router = Router(Seq.empty)
 
   /**
     * Create a router with the given routes
     */
+  def apply(routes: Seq[Route]): Router = new Router(routes)
+
+  /**
+    * Create a router with the given routes, all wrapped by the given filter as the outermost one
+    */
   def apply(routes: Seq[Route], filterSurface: Option[Surface]): Router =
     new Router(routes, filterSurface)
+
+  /**
+    * The filters every route starts with (the longest common prefix of their filter chains). These
+    * wrap the whole router, so they also apply to requests that match no route.
+    */
+  def commonFilters(routes: Seq[Route]): Seq[Surface] =
+    if routes.isEmpty then
+      Seq.empty
+    else
+      routes
+        .map(_.filterSurfaces)
+        .reduce { (a, b) =>
+          a.zip(b).takeWhile((x, y) => x == y).map(_._1)
+        }
+
+  private def addFilter(routes: Seq[Route], filterSurfaceOpt: Option[Surface]): Seq[Route] =
+    filterSurfaceOpt match
+      case Some(surface) =>
+        routes.map(r => r.copy(filterSurfaces = surface +: r.filterSurfaces))
+      case None =>
+        routes
 
   /**
     * Builder for adding filters to a router
     */
   class FilterBuilder(filterSurface: Surface):
     /**
-      * Combine this filter with a router
+      * Wrap every route of the router with this filter. Filters the routes already have stay inside
+      * it, so `filter[A].andThen(filter[B].andThen(r))` runs A, then B, then the route.
       */
     def andThen(router: Router): Router = Router(router.routes, Some(filterSurface))
 

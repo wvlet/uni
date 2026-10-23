@@ -46,7 +46,7 @@ object RouterMacros:
           bodyWeavers
         }
       )
-      Router(routes, None)
+      Router(routes)
     }
 
   /**
