@@ -31,6 +31,12 @@ class PublicController:
   @Endpoint(HttpMethod.GET, "/public")
   def publicEndpoint(): String = "public"
 
+// Filters are top-level: Scala.js and Native give local classes names such as `Filter.1`
+class RouterTestFilter
+class RouterTestAuthFilter
+class RouterTestOuterFilter
+class RouterTestInnerFilter
+
 class RouterTest extends UniTest:
   // Single shared router instance
   private lazy val router = Router.of[TestController]
@@ -109,35 +115,35 @@ class RouterTest extends UniTest:
   }
 
   test("Router.filter should add filter") {
-    class TestFilter
-    val filtered = Router.filter[TestFilter].andThen(router)
-    filtered.routes.forall(_.filterSurfaces.map(_.name) == Seq("TestFilter")) shouldBe true
-    Router.commonFilters(filtered.routes).map(_.name) shouldBe Seq("TestFilter")
+    val filtered = Router.filter[RouterTestFilter].andThen(router)
+    filtered.routes.forall(_.filterSurfaces.map(_.name) == Seq("RouterTestFilter")) shouldBe true
+    Router.commonFilters(filtered.routes).map(_.name) shouldBe Seq("RouterTestFilter")
   }
 
   test("Router.andThen should keep each side's filters on its own routes") {
-    class AuthFilter
-    val combined = Router.of[PublicController].andThen(Router.filter[AuthFilter].andThen(router))
+    val combined = Router
+      .of[PublicController]
+      .andThen(Router.filter[RouterTestAuthFilter].andThen(router))
     combined.routes.find(_.pathPattern == "/public").get.filterSurfaces shouldBe Seq.empty
     combined
       .routes
       .filter(_.controllerSurface.name == "TestController")
-      .forall(_.filterSurfaces.map(_.name) == Seq("AuthFilter")) shouldBe true
+      .forall(_.filterSurfaces.map(_.name) == Seq("RouterTestAuthFilter")) shouldBe true
     // No filter is shared by every route
     Router.commonFilters(combined.routes) shouldBe Seq.empty
   }
 
   test("Router.filter should keep inner filters inside the outer one") {
-    class OuterFilter
-    class InnerFilter
     val nested = Router
-      .filter[OuterFilter]
-      .andThen(Router.of[PublicController].andThen(Router.filter[InnerFilter].andThen(router)))
+      .filter[RouterTestOuterFilter]
+      .andThen(
+        Router.of[PublicController].andThen(Router.filter[RouterTestInnerFilter].andThen(router))
+      )
     nested.routes.find(_.pathPattern == "/public").get.filterSurfaces.map(_.name) shouldBe
-      Seq("OuterFilter")
+      Seq("RouterTestOuterFilter")
     nested.routes.find(_.pathPattern == "/users").get.filterSurfaces.map(_.name) shouldBe
-      Seq("OuterFilter", "InnerFilter")
-    Router.commonFilters(nested.routes).map(_.name) shouldBe Seq("OuterFilter")
+      Seq("RouterTestOuterFilter", "RouterTestInnerFilter")
+    Router.commonFilters(nested.routes).map(_.name) shouldBe Seq("RouterTestOuterFilter")
   }
 
   test("Surface.methodsOf should cache MethodSurface instances") {
