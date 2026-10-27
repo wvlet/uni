@@ -8,8 +8,9 @@
 
 All three share `withPort`, `withHost` (default `127.0.0.1`), `withName`,
 `withHandler(Request => Response)`, `withRxHandler(Request => Rx[Response])`,
-`withFilter`, `start()`, and `start { server => ... }`. The annotation router
-(`@Endpoint`, `Router`, `RouterHandler`) and WebSocket routes are **JVM only**.
+`withFilter`, `withWebSocketRoute`, `start()`, and `start { server => ... }`.
+The annotation router (`@Endpoint`, `Router`, `RouterHandler`) is **JVM only**.
+For SSE and WebSocket, see [streaming.md](streaming.md).
 For a typed API, prefer [RPC](rpc.md) over hand-written REST routes.
 
 Full reference: https://wvlet.org/uni/http/server.md

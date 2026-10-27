@@ -82,8 +82,13 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | See [RPC](../http/rpc) |
+| Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
+| WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`. See [WebSocket](../http/websocket) |
+| OpenAPI | `wvlet.uni.http.openapi.{OpenAPI, OpenAPIConfig}` | `OpenAPI.of(Router.of[A], OpenAPIConfig()).toYAML`. See [OpenAPI](../http/openapi) |
+| Electron IPC (Scala.js) | `wvlet.uni.electron.{ElectronRPCServer, ElectronRenderer}` | See [Desktop Apps (Electron)](../http/electron) |
 | MCP server | `wvlet.uni.mcp.*` | See [Build an MCP Server](../mcp/) |
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |
+| CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields. See [Command Launcher](../cli/launcher) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 
 ## How do I migrate from Airframe?
