@@ -27,7 +27,7 @@ import scala.scalanative.unsafe.*
   *   - Request body
   *   - Response headers and body
   *   - Timeouts (connect and read)
-  *   - Automatic decompression (via Accept-Encoding)
+  *   - Automatic decompression (via CURLOPT_ACCEPT_ENCODING)
   *
   * Note: This is a synchronous implementation. The async variant wraps sync in Rx.single since
   * libcurl's multi API adds significant complexity.
@@ -71,9 +71,11 @@ class CurlChannel extends HttpChannel:
           val headerLine = s"${key}: ${value}"
           headerList = curl_slist_append(headerList, toCString(headerLine))
 
-        // Add Accept-Encoding for automatic decompression if not present
-        if !request.hasHeader(HttpHeader.AcceptEncoding) then
-          headerList = curl_slist_append(headerList, c"Accept-Encoding: gzip, deflate")
+        // Let curl advertise every encoding it supports and decode the response. A raw
+        // Accept-Encoding header alone would leave the body compressed. A caller-supplied
+        // Accept-Encoding header still replaces the one curl sends, and curl decodes whatever
+        // encoding the server picks.
+        curl_easy_setopt_str(curl, CURLOPT_ACCEPT_ENCODING, c"")
 
         if headerList != null then
           curl_easy_setopt_slist(curl, CURLOPT_HTTPHEADER, headerList)

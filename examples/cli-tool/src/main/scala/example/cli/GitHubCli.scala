@@ -1,7 +1,7 @@
 package example.cli
 
 import wvlet.uni.cli.launcher.*
-import wvlet.uni.http.{Http, HttpHeader, HttpSyncClient, Request}
+import wvlet.uni.http.{Http, HttpSyncClient, Request}
 import wvlet.uni.log.{LogLevel, LogSupport, Logger}
 import wvlet.uni.weaver.Weaver
 
@@ -33,9 +33,6 @@ class GitHubClient(baseUri: String) extends LogSupport with AutoCloseable:
         .get(s"/repos/${ownerAndName}")
         .withAccept("application/vnd.github+json")
         .withUserAgent("uni-example-cli")
-        // Ask for an uncompressed body: the Scala Native client does not yet decode gzip
-        // (https://github.com/wvlet/uni/issues/769)
-        .addHeader(HttpHeader.AcceptEncoding, "identity")
     )
     Weaver.fromJson[Repo](response.contentAsString.getOrElse("{}"))
 

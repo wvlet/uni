@@ -68,6 +68,3 @@ testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 // enablePlugins(ScalaNativePlugin)
 // nativeConfig ~= { _.withLinkingOptions(_ ++ Seq("-lcurl", "-lz")) }
 ```
-
-The request sets `Accept-Encoding: identity` because the Scala Native HTTP client does not yet
-decode gzip responses ([#769](https://github.com/wvlet/uni/issues/769)).
