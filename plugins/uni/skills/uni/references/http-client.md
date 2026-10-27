@@ -64,7 +64,8 @@ catch
 ## Async client (required in browsers)
 
 Browsers have no synchronous HTTP, so Scala.js code in a browser uses the async
-client. It works on the JVM too.
+client. The same code also runs on the JVM, Node.js, and Scala Native. On Native it
+wraps the blocking libcurl call, so the request runs on the thread that subscribes.
 
 ```scala
 import wvlet.uni.rx.Rx
