@@ -3,7 +3,7 @@
   "url": "https://context7.com/wvlet/uni",
   "public_key": "pk_b9MI8CAZgFMw3r3c8Acgc",
   "projectTitle": "Uni",
-  "description": "Essential Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection, logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing. The Scala 3 successor of Airframe.",
+  "description": "Essential Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring, logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing. The Scala 3 successor of Airframe.",
   "folders": [
     "docs",
     "examples"

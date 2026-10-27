@@ -9,5 +9,5 @@
   "homepage": "https://wvlet.org/uni/guide/for-ai-agents",
   "repository": "https://github.com/wvlet/uni",
   "license": "Apache-2.0",
-  "keywords": ["scala", "scala3", "dependency-injection", "json", "http", "rx", "websocket", "openapi", "electron", "cli", "mcp", "testing", "airframe"]
+  "keywords": ["scala", "scala3", "object-wiring", "json", "http", "rx", "websocket", "openapi", "electron", "cli", "mcp", "testing", "airframe"]
 }

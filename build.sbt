@@ -199,7 +199,7 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni",
     description :=
-      "Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection, logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
+      "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
   )
   .jsSettings(jsBuildSettings)
   .nativeSettings(nativeBuildSettings)
@@ -341,7 +341,6 @@ lazy val exampleWebUi = project
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
   )
   .dependsOn(uni.js)
-
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under

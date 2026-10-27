@@ -48,6 +48,7 @@ See `.github/instructions/unitest.instructions.md` for more.
 - Avoid `Try[A]` return types
 - Config classes: `withXXX(...)` for all fields, `noXXX()` for optional fields
 - uni: minimal dependencies only
+- Terminology: call `Design` "object wiring", never "dependency injection" or "DI", in code, docs, and metadata. The DI label pulls in debates from legacy Java DI frameworks that don't apply to Uni.
 
 ## Git Workflow
 
