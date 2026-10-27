@@ -3,7 +3,7 @@
 The `IO` object is uni's unified I/O facade, providing both file system operations and subprocess execution in a single entry point.
 
 ```scala
-import wvlet.uni.io.IO
+import wvlet.uni.io.{IO, WriteMode}
 ```
 
 ## File System Operations

@@ -212,8 +212,8 @@ println(succinct)  // "1.46MB"
 val size = DataSize("2.5GB")
 
 size.toBytes                              // 2684354560L
-size.valueOf(DataSizeUnit.MEGABYTE)       // 2560.0
-size.convertTo(DataSizeUnit.MEGABYTE)     // DataSize(2560.0, MEGABYTE)
+size.valueOf(DataSize.MEGABYTE)           // 2560.0
+size.convertTo(DataSize.MEGABYTE)         // DataSize(2560.0, MEGABYTE)
 size.mostSuccinctDataSize                 // DataSize(2.5, GIGABYTE)
 ```
 
@@ -252,8 +252,8 @@ count.toLong  // 1500000L
 val count = Count(2500000L)
 
 count.mostSuccinctCount                // Count(2.50, MILLION)
-count.convertTo(CountUnit.THOUSAND)    // Count(2500, THOUSAND)
-count.valueOf(CountUnit.MILLION)       // 2.5
+count.convertTo(Count.THOUSAND)        // Count(2500, THOUSAND)
+count.valueOf(Count.MILLION)           // 2.5
 ```
 
 ### Units

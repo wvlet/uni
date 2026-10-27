@@ -690,62 +690,76 @@ object FileSystem extends FileSystemBase:
   override def readBytes(path: IOPath): Array[Byte] = impl.readBytes(path)
   override def readLines(path: IOPath): Seq[String] = impl.readLines(path)
 
-  override def readChunks(path: IOPath, chunkSize: Int): Iterator[Array[Byte]] = impl.readChunks(
-    path,
-    chunkSize
-  )
+  // Defaults are restated on these overrides because `export FileSystem.{...}` in IO forwards
+  // to this object's signatures and does not inherit FileSystemBase's default arguments.
+  override def readChunks(path: IOPath, chunkSize: Int = 8192): Iterator[Array[Byte]] = impl
+    .readChunks(path, chunkSize)
 
-  override def readStream(path: IOPath): InputStream                    = impl.readStream(path)
-  override def writeStream(path: IOPath, mode: WriteMode): OutputStream = impl.writeStream(
-    path,
-    mode
-  )
+  override def readStream(path: IOPath): InputStream = impl.readStream(path)
+  override def writeStream(path: IOPath, mode: WriteMode = WriteMode.Create): OutputStream = impl
+    .writeStream(path, mode)
 
-  override def writeString(path: IOPath, content: String, mode: WriteMode): Unit = impl.writeString(
-    path,
-    content,
-    mode
-  )
+  override def writeString(
+      path: IOPath,
+      content: String,
+      mode: WriteMode = WriteMode.Create
+  ): Unit = impl.writeString(path, content, mode)
 
-  override def writeBytes(path: IOPath, content: Array[Byte], mode: WriteMode): Unit = impl
-    .writeBytes(path, content, mode)
+  override def writeBytes(
+      path: IOPath,
+      content: Array[Byte],
+      mode: WriteMode = WriteMode.Create
+  ): Unit = impl.writeBytes(path, content, mode)
 
-  override def list(path: IOPath, options: ListOptions): Seq[IOPath] = impl.list(path, options)
-  override def createDirectory(path: IOPath): Unit                   = impl.createDirectory(path)
+  override def list(path: IOPath, options: ListOptions = ListOptions.default): Seq[IOPath] = impl
+    .list(path, options)
+
+  override def createDirectory(path: IOPath): Unit = impl.createDirectory(path)
 
   override def delete(path: IOPath): Boolean            = impl.delete(path)
   override def deleteRecursively(path: IOPath): Boolean = impl.deleteRecursively(path)
 
-  override def copy(source: IOPath, target: IOPath, options: CopyOptions): Unit = impl.copy(
-    source,
-    target,
-    options
-  )
+  override def copy(
+      source: IOPath,
+      target: IOPath,
+      options: CopyOptions = CopyOptions.default
+  ): Unit = impl.copy(source, target, options)
 
-  override def move(source: IOPath, target: IOPath, overwrite: Boolean): Unit = impl.move(
+  override def move(source: IOPath, target: IOPath, overwrite: Boolean = false): Unit = impl.move(
     source,
     target,
     overwrite
   )
 
-  override def createTempFile(prefix: String, suffix: String, directory: Option[IOPath]): IOPath =
-    impl.createTempFile(prefix, suffix, directory)
+  override def createTempFile(
+      prefix: String = "tmp",
+      suffix: String = ".tmp",
+      directory: Option[IOPath] = None
+  ): IOPath = impl.createTempFile(prefix, suffix, directory)
 
-  override def createTempDirectory(prefix: String, directory: Option[IOPath]): IOPath = impl
-    .createTempDirectory(prefix, directory)
+  override def createTempDirectory(
+      prefix: String = "tmp",
+      directory: Option[IOPath] = None
+  ): IOPath = impl.createTempDirectory(prefix, directory)
 
   override def readStringAsync(path: IOPath): Future[String]     = impl.readStringAsync(path)
   override def readBytesAsync(path: IOPath): Future[Array[Byte]] = impl.readBytesAsync(path)
-  override def writeStringAsync(path: IOPath, content: String, mode: WriteMode): Future[Unit] = impl
-    .writeStringAsync(path, content, mode)
+  override def writeStringAsync(
+      path: IOPath,
+      content: String,
+      mode: WriteMode = WriteMode.Create
+  ): Future[Unit] = impl.writeStringAsync(path, content, mode)
 
-  override def writeBytesAsync(path: IOPath, content: Array[Byte], mode: WriteMode): Future[Unit] =
-    impl.writeBytesAsync(path, content, mode)
+  override def writeBytesAsync(
+      path: IOPath,
+      content: Array[Byte],
+      mode: WriteMode = WriteMode.Create
+  ): Future[Unit] = impl.writeBytesAsync(path, content, mode)
 
-  override def listAsync(path: IOPath, options: ListOptions): Future[Seq[IOPath]] = impl.listAsync(
-    path,
-    options
-  )
+  override def listAsync(
+      path: IOPath,
+      options: ListOptions = ListOptions.default
+  ): Future[Seq[IOPath]] = impl.listAsync(path, options)
 
   override def infoAsync(path: IOPath): Future[FileInfo]  = impl.infoAsync(path)
   override def existsAsync(path: IOPath): Future[Boolean] = impl.existsAsync(path)

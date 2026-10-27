@@ -60,6 +60,8 @@ logger.debug("Configuration loaded")
 Include stack traces in error logs:
 
 ```scala
+import java.io.IOException
+
 try
   riskyOperation()
 catch

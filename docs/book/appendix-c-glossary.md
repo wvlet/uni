@@ -40,7 +40,7 @@ plain case class from `Array[String]` using `@option` and `@argument`. See
 messages carry their source `(file:line)`, captured at compile time. See
 [Chapter 5](./ch05-00-logging).
 
-**Resource** — A control primitive (`Resource.withResource`) that lends
+**Resource** — A control primitive (`Control.withResource`) that lends
 you a resource for a block and closes it on exit, on both the normal and
 exception paths — the loan pattern. See [Chapter 8](./ch08-00-control).
 

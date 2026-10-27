@@ -4,10 +4,13 @@ uni's HTTP client includes automatic retry for transient failures.
 
 ## Default Retry Behavior
 
-Retry is enabled by default with sensible defaults:
+Retry is enabled by default: up to 3 retries with exponential backoff.
 
 ```scala
-val client = Http.client.newSyncClient
+import wvlet.uni.http.{Http, HttpRequest}
+
+val client  = Http.client.newSyncClient
+val request = HttpRequest.get("https://api.example.com/users")
 
 // Automatically retries on transient failures
 val response = client.send(request)
@@ -16,12 +19,10 @@ val response = client.send(request)
 ## Configuring Retries
 
 ```scala
-// Set max retry count
-val client = Http.client
-  .withConfig(HttpClientConfig().withMaxRetries(5))
-  .newSyncClient
+// Set max retry count for every request from this client
+val client = Http.client.withMaxRetry(5).newSyncClient
 
-// Or per-request
+// Or derive a client with a different retry count
 val response = client.withMaxRetry(3).send(request)
 ```
 
@@ -31,22 +32,20 @@ val response = client.withMaxRetry(3).send(request)
 // Disable for specific request
 val response = client.noRetry.send(request)
 
-// Or globally
-val config = HttpClientConfig().withMaxRetries(0)
+// Or for the whole client
+val noRetryClient = Http.client.noRetry.newSyncClient
 ```
 
 ## Retryable Conditions
 
-The HTTP client automatically retries on:
+The HTTP client retries on:
 
 | Condition | Description |
 |-----------|-------------|
-| Connection errors | Network unreachable, connection refused |
-| Timeouts | Connect or read timeout |
-| 429 Too Many Requests | Rate limiting |
-| 503 Service Unavailable | Temporary outage |
-| 502 Bad Gateway | Upstream errors |
-| 504 Gateway Timeout | Upstream timeout |
+| Connection errors | `EOFException`; connection refused, closed channel, protocol errors (JVM) |
+| Timeouts | `TimeoutException`; `SocketTimeoutException` (JVM) |
+| 5xx Server errors | All 5xx statuses; 503 adds extra wait |
+| 408, 410, 429, 499 | Request timeout, gone, rate limiting, client closed request |
 
 ## Non-Retryable Conditions
 
@@ -54,9 +53,12 @@ The following are not retried:
 
 | Condition | Description |
 |-----------|-------------|
-| 4xx Client errors | 400, 401, 403, 404, etc. (except 429) |
-| 5xx Server errors | 500, 501 (except 502, 503, 504) |
-| SSL errors | Certificate validation failures |
+| Other 4xx Client errors | 400, 401, 403, 404, etc. |
+| SSL errors | Handshake, key, and peer verification failures (JVM) |
+| `CircuitBreakerOpenException` | Circuit breaker is open |
+
+A non-retryable status is thrown immediately as an `HttpException`; a non-retryable
+exception (for example an SSL handshake failure) is rethrown as is.
 
 ## Exception Classification
 
@@ -64,21 +66,23 @@ The following are not retried:
 import wvlet.uni.http.HttpExceptionClassifier
 
 // Check if an exception is retryable
-HttpExceptionClassifier.isRetryable(exception) match
-  case true => // Will be retried
+HttpExceptionClassifier.classifyExecutionFailure(exception).isRetryable match
+  case true  => // Will be retried
   case false => // Will not be retried
 ```
 
 ## Backoff Strategy
 
-The HTTP client uses exponential backoff:
+The default client uses exponential backoff without jitter:
 
-1. First retry: ~100ms
-2. Second retry: ~200ms
-3. Third retry: ~400ms
-4. ...with jitter to prevent thundering herd
+1. First retry: 1s
+2. Second retry: 1.5s
+3. Third retry: ~2.3s
+4. ...growing 1.5x per retry, capped at 30s
 
 ## Handling Max Retry Exceeded
+
+`HttpMaxRetryException` is not an `HttpException`; catch it separately:
 
 ```scala
 import wvlet.uni.http.HttpMaxRetryException
@@ -87,8 +91,8 @@ try
   val response = client.send(request)
 catch
   case e: HttpMaxRetryException =>
-    logger.error(s"Failed after ${e.retryCount} retries")
-    logger.error(s"Last error: ${e.lastException.getMessage}")
+    println(s"Failed after ${e.retryContext.retryCount} retries")
+    println(s"Last error: ${e.getCause.getMessage}")
     // Use fallback or fail
 ```
 
@@ -96,16 +100,27 @@ catch
 
 For more control, use the control module:
 
+A `noRetry` client reports each retryable failure (connection errors, 429, 5xx)
+as an `HttpMaxRetryException` whose cause is the original error:
+
 ```scala
-import wvlet.uni.control.Retry
+import java.io.IOException
+import wvlet.uni.control.{ResultClass, Retry}
+import wvlet.uni.http.HttpMaxRetryException
 
 val response = Retry
-  .withBackoff(maxRetry = 10)
-  .withInitialInterval(500)
+  .withBackOff(maxRetry = 10, initialIntervalMillis = 500)
   .retryOn {
-    case _: IOException => true
-    case e: HttpException if e.status.code == 429 => true
-    case _ => false
+    case e: HttpMaxRetryException =>
+      e.getCause match
+        case _: IOException =>
+          ResultClass.retryableFailure(e)
+        case _ if e.statusCode == 429 =>
+          ResultClass.retryableFailure(e)
+        case _ =>
+          ResultClass.nonRetryableFailure(e)
+    case e =>
+      ResultClass.nonRetryableFailure(e)
   }
   .run {
     client.noRetry.send(request)
@@ -118,18 +133,20 @@ Handle rate limits gracefully:
 
 ```scala
 import wvlet.uni.control.Retry
+import wvlet.uni.http.HttpMaxRetryException
 
 val response = Retry
-  .withBackoff(maxRetry = 5)
-  .beforeRetry { (e, retryCount) =>
-    e match
-      case HttpException(status, _) if status.code == 429 =>
+  .withBackOff(maxRetry = 5)
+  .beforeRetry { ctx =>
+    ctx.lastError match
+      case e: HttpMaxRetryException if e.statusCode == 429 =>
         // Wait longer for rate limits
-        Thread.sleep(retryCount * 1000)
-      case _ => ()
+        Thread.sleep(ctx.retryCount * 1000L)
+      case _ =>
+        ()
   }
   .run {
-    client.send(request)
+    client.noRetry.send(request)
   }
 ```
 
@@ -138,9 +155,9 @@ val response = Retry
 ```scala
 import wvlet.uni.control.CircuitBreaker
 
-val breaker = CircuitBreaker(maxFailures = 5)
+val breaker = CircuitBreaker.withConsecutiveFailures(5)
 
-val response = breaker.protect {
+val response = breaker.run {
   client.send(request)  // Has built-in retry
 }
 ```

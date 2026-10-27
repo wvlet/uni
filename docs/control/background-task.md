@@ -85,6 +85,8 @@ or `Failure(error)`. The body's failures are **recorded, not rethrown**, so
 `await()` always returns rather than throwing:
 
 ```scala
+import wvlet.uni.util.Result
+
 task.await() match
   case Result.Success(value) => println(s"Done: ${value}")
   case Result.Failure(e)     => println(s"Failed: ${e.getMessage}")

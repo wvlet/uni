@@ -140,11 +140,11 @@ For more control over the session lifecycle:
 ```scala
 val session = design.newSession
 try
-  session.start()
+  session.start
   val app = session.build[App]
   app.run()
 finally
-  session.shutdown()
+  session.shutdown
 ```
 
 ### Type-Safe Return Values

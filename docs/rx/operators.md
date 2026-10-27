@@ -229,6 +229,8 @@ val withDefaults = stream.startWith(Seq(-2, -1, 0))
 Get the last value as Option:
 
 ```scala
+import wvlet.uni.rx.RxOption
+
 val last: RxOption[Int] = stream.lastOption
 ```
 

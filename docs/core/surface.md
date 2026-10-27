@@ -71,13 +71,13 @@ for m <- methods do
 Surface can provide zero/default values:
 
 ```scala
-import wvlet.uni.surface.Zero
+import wvlet.uni.surface.{Surface, Zero}
 
-Zero.of[Int]           // 0
-Zero.of[String]        // ""
-Zero.of[Option[Int]]   // None
-Zero.of[List[String]]  // Nil
-Zero.of[Map[K, V]]     // Map.empty
+Zero.zeroOf(Surface.of[Int])              // 0
+Zero.zeroOf(Surface.of[String])           // ""
+Zero.zeroOf(Surface.of[Option[Int]])      // None
+Zero.zeroOf(Surface.of[List[String]])     // Nil
+Zero.zeroOf(Surface.of[Map[String, Int]]) // Map.empty
 ```
 
 ## Use Cases
@@ -87,6 +87,8 @@ Zero.of[Map[K, V]]     // Map.empty
 Surface powers uni's Design system:
 
 ```scala
+import wvlet.uni.design.Design
+
 // Design uses Surface to understand type structure
 val design = Design.newDesign
   .bindImpl[UserService, UserServiceImpl]
@@ -97,6 +99,8 @@ val design = Design.newDesign
 Weaver uses Surface for automatic serialization:
 
 ```scala
+import wvlet.uni.weaver.Weaver
+
 // Surface describes the structure for serialization
 val json = Weaver.toJson(user)
 val restored = Weaver.fromJson[User](json)
@@ -127,6 +131,8 @@ with a public constructor:
 import scala.annotation.StaticAnnotation
 
 class label(val value: String) extends StaticAnnotation
+class required extends StaticAnnotation
+class maxLength(val value: Int) extends StaticAnnotation
 
 @label("account")
 case class User(

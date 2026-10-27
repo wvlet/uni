@@ -195,4 +195,18 @@ object Tint:
   def bgWhite: Tint   = default.bgWhite
   def bgGray: Tint    = default.bgGray
 
+  def bgBrightBlack: Tint   = default.bgBrightBlack
+  def bgBrightRed: Tint     = default.bgBrightRed
+  def bgBrightGreen: Tint   = default.bgBrightGreen
+  def bgBrightYellow: Tint  = default.bgBrightYellow
+  def bgBrightBlue: Tint    = default.bgBrightBlue
+  def bgBrightMagenta: Tint = default.bgBrightMagenta
+  def bgBrightCyan: Tint    = default.bgBrightCyan
+  def bgBrightWhite: Tint   = default.bgBrightWhite
+
+  // Extended background colors
+  def bgRgb(r: Int, g: Int, b: Int): Tint = default.bgRgb(r, g, b)
+  def bgHex(hexColor: String): Tint       = default.bgHex(hexColor)
+  def bgAnsi256(code: Int): Tint          = default.bgAnsi256(code)
+
 end Tint

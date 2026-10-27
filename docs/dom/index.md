@@ -106,7 +106,7 @@ div(cls -> "container", id -> "main",
 Attributes use `name -> value` (or call syntax `name(value)`):
 
 ```scala
-input(tpe -> "email", placeholder -> "you@example.com", required.noValue)
+input(tpe -> "email", placeholder -> "you@example.com", required)
 div(data("user-id") -> "123", data("role") -> "admin")   // data-* attributes
 ```
 
@@ -121,12 +121,16 @@ keeps the bare name:
 | `tpe` (or `` `type` ``) | `type` | — |
 | `forId` (or `` `for` ``) | `for` | — |
 
-Use `+=` to **append** to an existing value (handy for classes), and `.noValue`
-for boolean attributes:
+Use `+=` to **append** to an existing value (handy for classes). Boolean
+attributes such as `disabled`, `required`, `readonly`, and `hidden` are already
+valueless; use `HtmlTags.attr(name).noValue` for any other one:
 
 ```scala
+import wvlet.uni.dom.HtmlTags
+
 div(cls -> "base", cls += "highlighted")   // class="base highlighted"
-button(disabled.noValue, "Can't click")
+button(disabled, "Can't click")
+video(HtmlTags.attr("playsinline").noValue)
 ```
 
 ### Events
@@ -134,6 +138,8 @@ button(disabled.noValue, "Can't click")
 Event handlers accept either a typed `E => U` or a no-arg `() => U`:
 
 ```scala
+import org.scalajs.dom
+
 button(onclick -> { () => println("clicked") }, "Click me")
 input(oninput -> { (e: dom.Event) => handle(e) })
 form(onsubmit -> { (e: dom.Event) => e.preventDefault() })
@@ -149,7 +155,7 @@ The `style` object is dual-purpose — typed CSS properties, a raw string, or th
 `<style>` tag:
 
 ```scala
-div(style(display := "flex", gap := "8px", color := "blue"))  // typed properties
+div(style(style.display := "flex", style.gap := "8px", style.color := "blue"))  // typed properties
 div(styleAttr -> "display:flex; gap:8px;")                    // raw string
 head(style("body { margin: 0; }"))                            // <style> element
 ```

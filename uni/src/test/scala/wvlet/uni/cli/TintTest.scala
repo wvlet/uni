@@ -115,6 +115,13 @@ class TintTest extends UniTest:
     result shouldContain RESET
   }
 
+  test("companion object exposes extended and bright background colors") {
+    Tint.bgRgb(100, 149, 237)("hello") shouldContain "\u001b[48;2;100;149;237m"
+    Tint.bgHex("#663399")("hello") shouldContain "\u001b[48;2;102;51;153m"
+    Tint.bgAnsi256(57)("hello") shouldContain "\u001b[48;5;57m"
+    Tint.bgBrightRed("hello") shouldBe Tint().bgBrightRed("hello")
+  }
+
   test("create reusable styles") {
     val errorStyle   = Tint.red.bold
     val successStyle = Tint.green
