@@ -16,6 +16,8 @@ package wvlet.uni.rx
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
+import scala.util.Success
+import scala.util.Try
 
 /**
   * A bounded queue for backpressure support.
@@ -146,14 +148,12 @@ object RxBoundedQueue:
       if tryOfferLoop(a) then
         Rx.single(())
       else
-        new Rx[Unit]:
-          override def parents: Seq[RxOps[?]] = Seq.empty
+        Rx.AsyncOp[Unit](callback => offerAsync(a, callback), "RxBoundedQueue.offer")
 
-          // Package-private for RxRunner
-          private[rx] def registerCallback(callback: () => Unit): Boolean = offerWithCallback(
-            a,
-            callback
-          )
+    private def offerAsync(a: A, callback: Try[Unit] => Unit): Unit =
+      val offered = () => callback(Success(()))
+      if offerWithCallback(a, offered) then
+        offered()
 
     @tailrec
     private def offerWithCallback(a: A, callback: () => Unit): Boolean =
@@ -224,13 +224,11 @@ object RxBoundedQueue:
             case Some(e) =>
               Rx.exception(e)
             case None =>
-              new Rx[A]:
-                override def parents: Seq[RxOps[?]] = Seq.empty
+              Rx.AsyncOp[A](takeAsync, "RxBoundedQueue.take")
 
-                // Package-private for RxRunner
-                private[rx] def registerCallback(callback: A => Unit): Option[A] = takeWithCallback(
-                  callback
-                )
+    private def takeAsync(callback: Try[A] => Unit): Unit =
+      val taken = (a: A) => callback(Success(a))
+      takeWithCallback(taken).foreach(taken)
 
     @tailrec
     private def takeWithCallback(callback: A => Unit): Option[A] =

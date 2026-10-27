@@ -593,6 +593,22 @@ class RxRunner(
             case _ =>
               effect(ev)
         }
+      case AsyncOp(register, _) =>
+        // Deliver at most one result, and none after cancellation
+        val done = AtomicBoolean(false)
+        register { result =>
+          if done.compareAndSet(false, true) then
+            result match
+              case Success(v) =>
+                Try(effect(OnNext(v.asInstanceOf[A]))) match
+                  case Success(_) =>
+                    effect(OnCompletion)
+                  case Failure(e) =>
+                    effect(OnError(e))
+              case Failure(e) =>
+                effect(OnError(e))
+        }
+        Cancelable(() => done.set(true))
       case SingleOp(v) =>
         Try(effect(OnNext(v.eval))) match
           case Success(c) =>
