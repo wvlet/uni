@@ -41,13 +41,13 @@ features:
     details: Composable reactive streams and variables for async code and UI state.
     link: /rx/
   - title: HTTP Client
-    details: Sync and async clients with retry, streaming, SSE, and WebSocket. On Scala.js the sync client needs Node.js; Scala Native needs libcurl.
+    details: Sync and async clients with automatic retry, streaming, Server-Sent Events, and WebSocket.
     link: /http/client
   - title: HTTP Server & RPC
-    details: HTTP servers on every platform (Netty via uni-netty on the JVM, Node.js, native sockets). The annotation router and HTTP RPC server are JVM-only; typed RPC clients run everywhere.
+    details: Serve REST endpoints, and define RPC services as Scala traits with type-safe clients.
     link: /http/server
   - title: MCP Servers
-    details: Turn a Scala trait into a stdio MCP server that AI agents can call, on Node.js or as a single native binary.
+    details: Turn a Scala trait into an MCP server whose methods AI agents can call as tools.
     link: /mcp/
   - title: UniTest
     details: A lightweight test framework with shouldBe-style assertions.
