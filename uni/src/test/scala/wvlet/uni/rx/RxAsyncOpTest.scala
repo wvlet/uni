@@ -181,4 +181,56 @@ class RxAsyncOpTest extends UniTest:
     other.toSeq shouldBe Seq(OnNext(3), OnCompletion)
   }
 
+  // Runs scheduled tasks only when the test asks
+  private class ManualScheduler extends RxScheduler:
+    val tasks                                  = ListBuffer.empty[Runnable]
+    override def execute(task: Runnable): Unit = tasks += task
+    def runAll(): Unit                         =
+      val pending = tasks.toList
+      tasks.clear()
+      pending.foreach(_.run())
+
+    override def schedule(delay: Long, unit: java.util.concurrent.TimeUnit)(
+        task: => Unit
+    ): Cancelable = Cancelable.empty
+
+    override def scheduleAtFixedRate(
+        initialDelay: Long,
+        period: Long,
+        unit: java.util.concurrent.TimeUnit
+    )(task: => Unit): Cancelable = Cancelable.empty
+
+    override def parallelism: Int = 1
+    override def shutdown(): Unit = ()
+
+  test("an RxFiber cancelled before it starts does not run its computation") {
+    val scheduler = ManualScheduler()
+    val semaphore = RxSemaphore(0)
+    var started   = false
+    val fiber     = RxFiber.start(
+      Rx.single {
+          started = true
+        }
+        .flatMap(_ => semaphore.acquire),
+      scheduler
+    )
+    fiber.cancel.run()
+    scheduler.runAll()
+    started shouldBe false
+    get(semaphore.waiting) shouldBe 0
+  }
+
+  test("an RxFiber cancelled while its computation starts unregisters the waiter") {
+    val scheduler            = ManualScheduler()
+    val semaphore            = RxSemaphore(0)
+    var fiber: RxFiber[Unit] = null
+    // The cancel arrives after the computation began but before start learns its Cancelable
+    val rx = Rx.single(fiber.cancel.run()).flatMap(_ => semaphore.acquire)
+    fiber = RxFiber.start(rx, scheduler)
+    scheduler.runAll()
+    get(semaphore.waiting) shouldBe 0
+    semaphore.release.run()
+    get(semaphore.available) shouldBe 1
+  }
+
 end RxAsyncOpTest
