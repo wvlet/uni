@@ -1180,7 +1180,7 @@ object Rx extends LogSupport:
     override def parents: Seq[RxOps[?]] = sources
 
   /**
-    * FlatMap with bounded parallelism, sharing a single semaphore across all inner streams.
+    * FlatMap with at most `parallelism` inner streams subscribed at a time.
     */
   case class ParFlatMapOp[A, B](input: Rx[A], parallelism: Int, f: A => Rx[B]) extends Rx[B]:
     override def parents: Seq[RxOps[?]] = Seq(input)

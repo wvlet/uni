@@ -196,15 +196,22 @@ end RxParallel
 extension [A](rx: Rx[A])
 
   /**
-    * FlatMap with bounded parallelism. Multiple inner streams can be active concurrently. A single
-    * semaphore is shared across all inner streams to enforce the parallelism limit.
+    * FlatMap with bounded parallelism: at most `parallelism` inner streams are subscribed at a
+    * time, and the other values wait in an unbounded queue. Emissions are interleaved in arrival
+    * order. Inner streams run where they are subscribed, so a synchronous `f` gains no parallelism;
+    * see [[parMapN]].
     */
-  def parFlatMap[B](parallelism: Int)(f: A => Rx[B]): Rx[B] = Rx.ParFlatMapOp(rx, parallelism, f)
+  def parFlatMap[B](parallelism: Int)(f: A => Rx[B]): Rx[B] =
+    require(parallelism > 0, s"parallelism must be positive: ${parallelism}")
+    Rx.ParFlatMapOp(rx, parallelism, f)
 
   /**
-    * Map with bounded parallelism. Multiple map operations can run concurrently.
+    * Map with bounded parallelism: each `f(a)` runs on [[RxScheduler.default]], with at most
+    * `parallelism` running at a time. Results arrive in completion order. Cancellation drops the
+    * results of calls already running but does not interrupt them.
     */
-  def parMapN[B](parallelism: Int)(f: A => B): Rx[B] = parFlatMap(parallelism)(a => Rx.single(f(a)))
+  def parMapN[B](parallelism: Int)(f: A => B): Rx[B] =
+    parFlatMap(parallelism)(a => Rx.single(f(a)).start.flatMap(_.join))
 
   /**
     * Merge emissions from this stream with another. Order is non-deterministic.
@@ -235,3 +242,9 @@ extension [A](rx: Rx[A])
   def parZip[B, C](b: Rx[B], c: Rx[C]): Rx[(A, B, C)] = RxParallel.parZip3(rx, b, c)
 
 end extension
+
+/**
+  * `Rx.parallel` gives access to [[RxParallel]] from the `Rx` companion.
+  */
+extension (rx: Rx.type)
+  def parallel: RxParallel.type = RxParallel
