@@ -34,21 +34,22 @@ command (`--error` keeps sbt's own output off stdout).
 
 ## Add it to Claude Code
 
-From the root of this repository:
+The uni `sbt` script must run from the repository root, so register a command that changes there
+first (replace `/path/to/uni` with your checkout):
 
 ```bash
-claude mcp add notes -- "$(pwd)/sbt" --error exampleMcpServer/run
+claude mcp add notes -- sh -c 'cd /path/to/uni && exec ./sbt --error exampleMcpServer/run'
 ```
 
-Or share it with everyone working on a repository through a project-scoped `.mcp.json`:
+Or add it to a project-scoped `.mcp.json`, which `claude mcp add --scope project` writes:
 
 ```json
 {
   "mcpServers": {
     "notes": {
       "type": "stdio",
-      "command": "/path/to/uni/sbt",
-      "args": ["--error", "exampleMcpServer/run"]
+      "command": "sh",
+      "args": ["-c", "cd /path/to/uni && exec ./sbt --error exampleMcpServer/run"]
     }
   }
 }
@@ -61,7 +62,7 @@ binary and register the binary as the command (see [Build an MCP Server](https:/
 To try it with a UI instead, run the MCP Inspector:
 
 ```bash
-npx @modelcontextprotocol/inspector ./sbt --error exampleMcpServer/run
+npx @modelcontextprotocol/inspector ./sbt --error exampleMcpServer/run   # from the repository root
 ```
 
 ## Use it in your own build

@@ -8,7 +8,7 @@ an ES module and a static `index.html` loads it.
 - **`RxElement` components**: `TodoApp` overrides `render` and builds markup with `div`, `form`,
   `input`, `ul`, and friends from `wvlet.uni.dom.all.*`.
 - **Reactive state**: `Rx.variable` holds the item list. Embedding `items.map(...)` in the markup
-  re-renders just that part when the list changes, with no manual DOM updates.
+  re-renders that `<ul>` (all of its items) when the list changes, with no manual DOM updates.
 - **Event handlers and two-way binding**: `onclick`, `onchange`, `onsubmit`, and
   `value.bind(newItem)` for the text input.
 - **Mounting**: `TodoApp().renderTo("app")` from a Scala.js `main`.
@@ -37,6 +37,8 @@ addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0")
 enablePlugins(ScalaJSPlugin)
 scalaJSUseMainModuleInitializer := true
 scalaJSLinkerConfig ~= { _.withModuleKind(ModuleKind.ESModule) }
+// index.html loads target/js/main.js
+Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "target" / "js"
 libraryDependencies += "org.wvlet.uni" %% "uni" % "<version>"
 ```
 
