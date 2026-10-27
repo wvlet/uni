@@ -25,14 +25,17 @@ const replaceVersionTokens = (text: string): string =>
   text.split(VERSION_TOKEN).join(uniVersion).split(SCALA_VERSION_TOKEN).join(scalaVersion)
 
 const SITE_URL = 'https://wvlet.org/uni/'
+const SITE_TITLE = 'Uni - One Scala 3 Library for the Whole Stack'
+// Keep in sync with the hero and `description` in docs/index.md and the README intro
+const SITE_DESCRIPTION =
+  'Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native.'
 
 // Structured data so search engines and AI answer engines can identify Uni as a software library.
 const structuredData = {
   '@context': 'https://schema.org',
   '@type': 'SoftwareSourceCode',
   name: 'Uni',
-  description:
-    'Essential Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and a testing framework. The Scala 3 successor of Airframe.',
+  description: SITE_DESCRIPTION,
   url: SITE_URL,
   codeRepository: 'https://github.com/wvlet/uni',
   programmingLanguage: 'Scala',
@@ -49,7 +52,7 @@ interface UniThemeConfig extends DefaultTheme.Config {
 
 export default withMermaid(defineConfig<UniThemeConfig>({
   title: 'Uni',
-  description: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies',
+  description: SITE_DESCRIPTION,
 
   base: '/uni/',
   cleanUrls: true,
@@ -64,12 +67,14 @@ export default withMermaid(defineConfig<UniThemeConfig>({
     plugins: [
       llmstxt({
         domain: 'https://wvlet.org',
-        description: 'Essential Scala 3 utilities for JVM, Scala.js, and Scala Native',
-        details: structuredData.description +
+        description: 'One Scala 3 library for the whole stack, on JVM, Scala.js, and Scala Native',
+        details: SITE_DESCRIPTION +
           ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.',
         // The `/guide/` and `/` sidebars are identical; list them once so the llms.txt TOC has no duplicates
         sidebar: (sidebar) =>
-          sidebar && !Array.isArray(sidebar) ? [...sidebar['/book/'], ...sidebar['/']] : sidebar
+          sidebar && !Array.isArray(sidebar) ? [...sidebar['/book/'], ...sidebar['/']] : sidebar,
+        // Publish the home page as /uni/index.md and in llms-full.txt; its body is the answer-first summary
+        excludeIndexPage: false
       })
     ]
   },
@@ -134,14 +139,14 @@ export default withMermaid(defineConfig<UniThemeConfig>({
     ['script', { type: 'application/ld+json' }, JSON.stringify(structuredData)],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:title', content: 'Uni - Essential Scala Utilities' }],
-    ['meta', { property: 'og:description', content: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies' }],
+    ['meta', { property: 'og:title', content: SITE_TITLE }],
+    ['meta', { property: 'og:description', content: SITE_DESCRIPTION }],
     ['meta', { property: 'og:image', content: 'https://wvlet.org/uni/uni-banner-1280x640.png' }],
     ['meta', { property: 'og:url', content: 'https://wvlet.org/uni/' }],
     // Twitter Card
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
-    ['meta', { name: 'twitter:title', content: 'Uni - Essential Scala Utilities' }],
-    ['meta', { name: 'twitter:description', content: 'Essential Scala Utilities - Refined for Scala 3 with minimal dependencies' }],
+    ['meta', { name: 'twitter:title', content: SITE_TITLE }],
+    ['meta', { name: 'twitter:description', content: SITE_DESCRIPTION }],
     ['meta', { name: 'twitter:image', content: 'https://wvlet.org/uni/uni-banner-1280x640.png' }]
   ],
 

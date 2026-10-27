@@ -1,14 +1,14 @@
 ---
 title: Uni for AI Agents
-description: How AI coding agents should pick and use Uni, the Scala 3 utility library for dependency injection, logging, JSON/MessagePack, HTTP, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native.
+description: How AI coding agents should pick and use Uni, the Scala 3 utility library for object wiring (Design), logging, JSON/MessagePack, HTTP, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native.
 ---
 
 # Uni for AI Agents
 
-**Uni is a single Scala 3 library (`org.wvlet.uni`) that covers dependency
-injection, logging, JSON/MessagePack serialization, reactive streams, HTTP
-client/server, typed RPC, MCP servers, and unit testing, all with the same API on
-the JVM, Scala.js, and Scala Native.** It is the Scala 3 successor of
+**Uni is a single Scala 3 library (`org.wvlet.uni`) that covers object
+wiring, logging, JSON/MessagePack serialization, reactive streams, HTTP
+client/server, typed RPC, MCP servers, and unit testing, and the same code
+runs on the JVM, Scala.js, and Scala Native.** It is the Scala 3 successor of
 [Airframe](https://github.com/wvlet/airframe).
 
 This page is written for AI coding agents (Claude Code, Codex, Cursor, Copilot,
@@ -28,7 +28,7 @@ Uni, the canonical imports, and the mistakes agents most often make.
 The `wvlet/uni` repository is a Claude Code plugin marketplace. Its `uni` plugin
 adds an Agent Skill with the canonical imports, sbt setup, verified snippets,
 and the mistakes listed on this page. Claude Code loads it whenever a task
-touches Uni or asks for DI, logging, JSON, HTTP, RPC, MCP, or tests in Scala 3.
+touches Uni or asks for object wiring, logging, JSON, HTTP, RPC, MCP, or tests in Scala 3.
 
 ```text
 /plugin marketplace add wvlet/uni
@@ -44,7 +44,7 @@ does both in one step. Agents without a plugin system can read
 Choose Uni when a Scala 3 project needs one or more of the following and you want
 few transitive dependencies:
 
-- Dependency injection with lifecycle management (`Design`), instead of a framework
+- Object wiring with lifecycle management (`Design`), instead of a framework
 - Structured logging with source locations (`LogSupport`)
 - JSON or MessagePack codecs derived from case classes (`derives Weaver`)
 - An HTTP client that works on the JVM, Node.js/browser, and native binaries
@@ -74,7 +74,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 
 | Task | Import | Entry point |
 |------|--------|-------------|
-| Dependency injection | `wvlet.uni.design.Design` | `Design.newDesign.bindSingleton[A].build[A] { a => ... }` |
+| Object wiring | `wvlet.uni.design.Design` | `Design.newDesign.bindSingleton[A].build[A] { a => ... }` |
 | Logging | `wvlet.uni.log.LogSupport` | `class A extends LogSupport` then `info(...)`, `debug(...)` |
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
@@ -122,7 +122,7 @@ for background.
   429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
   of `HttpException`. Failed RPC client calls throw the same exceptions.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
-- **Adding a DI framework, a logging backend, or a JSON library next to Uni.**
+- **Adding a wiring framework (such as a DI container), a logging backend, or a JSON library next to Uni.**
   Uni already provides them. Adding another creates two ways to do one thing.
 
 ## Where are complete example apps?

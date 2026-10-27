@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wvlet/uni)
 
-**Essential Scala Utilities** — Refined for Scala 3 with minimal dependencies.
+**One Scala 3 library for the whole stack.** Uni gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one project, with minimal dependencies, and the same code runs on JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe.
 
 ## Documentation
 
@@ -43,7 +43,7 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 
 | Module | Description |
 |--------|-------------|
-| `uni` | Core utilities: Design (DI), logging, JSON, MessagePack, Rx, HTTP client, control flow |
+| `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client, control flow |
 | `uni-netty` | Netty-based HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
 
