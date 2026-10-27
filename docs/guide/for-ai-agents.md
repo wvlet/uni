@@ -21,7 +21,7 @@ Uni, the canonical imports, and the mistakes agents most often make.
 |-----|----------|
 | [`/uni/llms.txt`](https://wvlet.org/uni/llms.txt) | Index of every documentation page, with links to Markdown versions |
 | [`/uni/llms-full.txt`](https://wvlet.org/uni/llms-full.txt) | The full documentation in one Markdown file |
-| `<page>.md` | Every page is also available as Markdown, e.g. [`/uni/guide/for-ai-agents.md`](https://wvlet.org/uni/guide/for-ai-agents.md) |
+| `<page>.md` | Markdown version of a page, e.g. [`/uni/guide/for-ai-agents.md`](https://wvlet.org/uni/guide/for-ai-agents.md). A section index such as `/uni/guide/` is published as `/uni/guide.md`. |
 
 ## When should I use Uni?
 

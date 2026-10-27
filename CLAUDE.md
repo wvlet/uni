@@ -68,6 +68,10 @@ Save plan documents to plans/YYYY-MM-DD-(topic).md files
 ### Code Reviews
 Gemini reviews PRs. Address feedback before merging.
 
+## AI-agent docs
+
+[`docs/guide/for-ai-agents.md`](docs/guide/for-ai-agents.md) lists canonical imports, entry points, and an Airframe→Uni table that AI agents rely on. When a change renames, moves, or removes a public API, package, or artifact, update that page in the same PR. See `docs/CLAUDE.md` for details.
+
 ## Architecture decisions
 
 Key design decisions are recorded in [`adr/`](adr/) — see [`adr/README.md`](adr/README.md) for the index of what each ADR covers and when to read it. Consult the relevant ADR before modifying the area it covers; add a new ADR (`adr/YYYY-MM-DD-(topic).md`) and index entry when making a significant design decision.

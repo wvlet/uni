@@ -66,7 +66,10 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         domain: 'https://wvlet.org',
         description: 'Essential Scala 3 utilities for JVM, Scala.js, and Scala Native',
         details: structuredData.description +
-          ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.'
+          ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.',
+        // The `/guide/` and `/` sidebars are identical; list them once so the llms.txt TOC has no duplicates
+        sidebar: (sidebar) =>
+          sidebar && !Array.isArray(sidebar) ? [...sidebar['/book/'], ...sidebar['/']] : sidebar
       })
     ]
   },
