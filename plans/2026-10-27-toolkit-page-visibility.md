@@ -22,7 +22,7 @@
    - `context7.json`: one rule along the same lines. `url` and `public_key` untouched.
 2. **Comparison page visibility**
    - Description and intro mention the phrasings people use ("Scala Toolkit or Uni", "what to use after the Scala Toolkit", "Toolkit with object wiring and logging"); headings stay "Choose … when".
-   - New `## FAQ` with question headings: Can I use the Toolkit and Uni in the same project? / What should I use when my Toolkit script grows into a service? / Does the Toolkit include object wiring or logging? / Does Uni work with Scala 2.13? / Is Uni part of the Toolkit?
+   - New `## FAQ` with question headings: Should I use the Scala Toolkit or Uni? / Can I use the Scala Toolkit and Uni in the same project? / What should I use when my Toolkit script grows into a service? / Does the Scala Toolkit include object wiring or logging? / Does Uni support Scala 2.13?
    - Verify the page is in `sitemap.xml` and `llms.txt` after `pnpm docs:build`. Add a top-page hero button ("Using the Scala Toolkit?") and a README "Documentation" line.
 3. **PR body:** 2–3 share-of-voice prompts, e.g. "I outgrew my Scala Toolkit script; what should I use for a Scala 3 service with object wiring and logging?", "Can I use the Scala Toolkit together with another Scala 3 library for HTTP servers and RPC?".
 
