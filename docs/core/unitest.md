@@ -6,7 +6,7 @@ UniTest is a lightweight testing framework for Scala 3. It provides a simple, ex
 
 Add the dependency to your build:
 
-```scala
+```scala sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-test" % "__UNI_VERSION__" % Test
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 ```
@@ -102,7 +102,7 @@ Nested test names include their parent context: `"arithmetic operations / additi
 | `a shouldBe b` | Assert `a` equals `b` |
 | `a shouldNotBe b` | Assert `a` does not equal `b` |
 
-```scala
+```scala test
 test("equality assertions") {
   1 + 1 shouldBe 2
   "hello" shouldBe "hello"
@@ -115,7 +115,7 @@ test("equality assertions") {
 
 ### Null Checks
 
-```scala
+```scala test
 test("null checks") {
   val value: String = null
   value shouldBe null
@@ -135,7 +135,7 @@ test("null checks") {
 `defined` and `empty` are objects in the `wvlet.uni.test` package, so import
 `wvlet.uni.test.*` (not only `UniTest`) to use them.
 
-```scala
+```scala test
 test("defined and empty") {
   val some: Option[Int] = Some(42)
   val none: Option[Int] = None
@@ -159,7 +159,7 @@ test("defined and empty") {
 | `collection shouldContain element` | Assert collection contains element |
 | `collection shouldNotContain element` | Assert collection does not contain element |
 
-```scala
+```scala test
 test("collection assertions") {
   val list = List(1, 2, 3)
   list shouldContain 2
@@ -169,7 +169,7 @@ test("collection assertions") {
 
 ### String Assertions
 
-```scala
+```scala test
 test("string assertions") {
   val str = "Hello, World!"
   str shouldContain "World"
@@ -184,7 +184,7 @@ test("string assertions") {
 
 Use `shouldMatch` for type-safe pattern matching assertions:
 
-```scala
+```scala test
 case class User(name: String, age: Int)
 
 test("pattern matching") {
@@ -204,7 +204,7 @@ Prefer `shouldMatch` over `asInstanceOf` for type-safe assertions.
 
 ### Reference Equality
 
-```scala
+```scala test
 test("reference equality") {
   val a = List(1, 2, 3)
   val b = a
@@ -217,7 +217,7 @@ test("reference equality") {
 
 ### Floating Point Comparisons
 
-```scala
+```scala test
 test("floating point with delta") {
   assertEquals(0.1 + 0.2, 0.3, 0.0001)
   assertEquals(3.14159f, 3.14f, 0.01f)
@@ -226,7 +226,7 @@ test("floating point with delta") {
 
 ### Exception Testing
 
-```scala
+```scala test
 test("exception handling") {
   val e = intercept[IllegalArgumentException] {
     require(false, "invalid argument")
@@ -239,7 +239,7 @@ test("exception handling") {
 
 For comparisons, use boolean expressions with `shouldBe true`:
 
-```scala
+```scala test
 test("comparisons") {
   val value = 42
 
@@ -255,7 +255,7 @@ test("comparisons") {
 
 ### Skip Tests
 
-```scala
+```scala test
 test("platform-specific test") {
   if isScalaJS then
     skip("Not supported on Scala.js")
@@ -267,7 +267,7 @@ test("platform-specific test") {
 
 ### Pending Tests
 
-```scala
+```scala test
 test("future feature") {
   pending("Implementation not complete yet")
 }
@@ -281,7 +281,7 @@ test("blocked by issue") {
 
 Mark tests as flaky to convert failures to skipped status:
 
-```scala
+```scala test
 test("network test", Flaky) {
   // Failures become skipped instead of failed
   fetchFromNetwork() shouldBe "expected"
@@ -301,7 +301,7 @@ test("partially flaky") {
 
 ### Cancel and Ignore
 
-```scala
+```scala test
 test("requires setup") {
   if !setupComplete then
     cancel("Setup failed, cannot run test")
@@ -316,7 +316,7 @@ test("deprecated test") {
 
 ### Platform Detection
 
-```scala
+```scala test
 test("platform-specific behavior") {
   if isScalaJVM then
     // JVM-specific assertions
@@ -339,7 +339,7 @@ group from sbt. A single suite can then hold unit, integration, and UI tests
 and still run one testing layer at a time, as VSCode does with its separate
 unit, integration, and UI test commands.
 
-```scala
+```scala test
 test("renders the toolbar", UI) {
   // ...
 }
@@ -371,7 +371,9 @@ Built-in tags are in scope in any `UniTest`:
 Define your own tags with `TestTag("name")`, or as an object when you reuse
 one across suites:
 
-```scala
+```scala test
+import wvlet.uni.test.TestTag
+
 case object Gpu extends TestTag("gpu")
 
 test("trains on the GPU", Gpu, Slow) {
@@ -629,7 +631,7 @@ Generators live in `wvlet.uni.test.check.Gen`. Every `forAll` body receives
 randomly generated values — by default drawn from the type's implicit
 `Arbitrary` instance, or from a `Gen` you supply explicitly.
 
-```scala
+```scala test
 import wvlet.uni.test.check.Gen
 
 test("positive integers") {
@@ -683,7 +685,7 @@ Implicit `Arbitrary[T]` instances drive the argument-less `forAll` overload.
 Defaults ship for primitives, `String`, `Array[Byte]`, `List`, `Vector`,
 `Option`, and small tuples. For your own types, use Scala 3's `derives`:
 
-```scala
+```scala test
 import wvlet.uni.test.check.Arbitrary
 
 case class Point(x: Int, y: Int) derives Arbitrary
@@ -718,10 +720,11 @@ When a property fails, the runner shrinks the counter-example to a minimal
 value. Default shrinkers ship for numeric primitives, `Char`, `String`,
 `Array[Byte]`, `List`, `Option`, and tuples up to arity 5.
 
-```scala
+```scala test
 test("sum is never negative for non-negative inputs") {
   forAll { (xs: List[Int]) =>
-    xs.filter(_ >= 0).sum >= 0 shouldBe true
+    // Sum as Long: an Int sum of large inputs overflows
+    xs.filter(_ >= 0).map(_.toLong).sum >= 0 shouldBe true
   }
 }
 ```
@@ -747,11 +750,12 @@ Use `==>` (or its English alias `implies`) to discard samples that don't
 satisfy a precondition. The runner retries with a new sample and fails the
 test only if the discard budget (default: 500) runs out.
 
-```scala
+```scala test
 test("division by non-zero is self-inverse") {
   forAll { (a: Int, b: Int) =>
     (b != 0) ==> {
-      ((a * b) / b) shouldBe a
+      // Multiply as Long: a * b can overflow Int
+      ((a.toLong * b) / b) shouldBe a.toLong
     }
   }
 }
@@ -771,7 +775,7 @@ Break down what the generator is actually producing to make sure your
 property is exercising the cases you care about. Counts print after the
 run.
 
-```scala
+```scala test
 test("partition respects predicate") {
   forAll(Gen.listOf(Gen.chooseNum(-100, 100))) { xs =>
     classify(xs.isEmpty, "empty")

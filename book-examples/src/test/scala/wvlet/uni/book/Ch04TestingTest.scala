@@ -25,12 +25,10 @@ class Ch04TestingTest extends UniTest:
   class UserService(db: Database):
     def findUser(id: String): Option[String] = db.lookup(id)
 
-  test("looks up a user via a Design override") {
-    val appDesign = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
+  private val appDesign = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
 
-    val testDesign = appDesign + Design.newDesign.bindInstance[Database](FakeDatabase())
+  addDesign(_ + appDesign + Design.newDesign.bindInstance[Database](FakeDatabase()))
 
-    testDesign.build[UserService] { users =>
-      users.findUser("123") shouldBe Some("Alice")
-    }
+  test("looks up a user via a Design override") { (users: UserService) =>
+    users.findUser("123") shouldBe Some("Alice")
   }

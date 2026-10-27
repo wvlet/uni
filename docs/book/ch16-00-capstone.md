@@ -131,18 +131,19 @@ import wvlet.uni.design.Design
 import wvlet.uni.test.UniTest
 
 class BookmarkServiceTest extends UniTest:
-  test("add appends and list returns everything") {
-    val seeded = appDesign +
+  // addTestDesign: each test gets a fresh service and store
+  addTestDesign(
+    _ + appDesign +
       Design.newDesign.bindInstance[Seq[Bookmark]](
         Seq(Bookmark(1, "https://wvlet.org", "Wvlet"))
       )
+  )
 
-    seeded.build[BookmarkServiceImpl] { service =>
-      service.list().size shouldBe 1
-      val added = service.add("https://scala-lang.org", "Scala")
-      service.list().map(_.title) shouldContain "Scala"
-      added.id shouldBe 2
-    }
+  test("add appends and list returns everything") { (bookmarks: BookmarkServiceImpl) =>
+    bookmarks.list().size shouldBe 1
+    val added = bookmarks.add("https://scala-lang.org", "Scala")
+    bookmarks.list().map(_.title) shouldContain "Scala"
+    added.id shouldBe 2
   }
 ```
 
