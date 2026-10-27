@@ -51,8 +51,9 @@ class RunnerStarvationTest extends UniTest:
     )
     val process = ProcessBuilder(cmd.asJava).redirectErrorStream(true).start()
     try
+      // Read on another thread, so that waitFor below can time out if the child hangs
       val output =
-        Future(String(process.getInputStream.readAllBytes()))(using ExecutionContext.parasitic)
+        Future(String(process.getInputStream.readAllBytes()))(using ExecutionContext.global)
       val exited = process.waitFor(60, TimeUnit.SECONDS)
       exited shouldBe true
       val log = Await.result(output, 10.seconds)

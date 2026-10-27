@@ -54,7 +54,7 @@ private[test] object compat:
     override def execute(task: Runnable): Unit =
       val queued = synchronized {
         if !closed then
-          queue.put(task)
+          queue.add(task)
         !closed
       }
       // A callback that arrives after the suite finished has no thread to run it here
@@ -67,7 +67,7 @@ private[test] object compat:
 
     def runUntilComplete(f: Future[Unit]): Unit =
       // Wake up the loop when the suite completes from another thread
-      f.onComplete(_ => queue.put(() => ()))(using ExecutionContext.parasitic)
+      f.onComplete(_ => queue.add(() => ()))(using ExecutionContext.parasitic)
       while !f.isCompleted do
         val task = queue.take()
         try
@@ -75,6 +75,9 @@ private[test] object compat:
         catch
           case NonFatal(e) =>
             reportFailure(e)
+        // Clear an interrupt flag a test body left behind, as a pool worker would between tasks,
+        // so that it does not abort the suite at the next take()
+        Thread.interrupted()
       f.value.get.get
 
     def close(): Unit =
