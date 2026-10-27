@@ -238,4 +238,82 @@ class RxConcurrencyTest extends UniTest:
     fiber.join.await shouldBe 42
   }
 
+  test("RxSemaphore: a timed-out acquire does not consume a later permit") {
+    val semaphore = RxSemaphore(0)
+    intercept[Rx.TimeoutException] {
+      semaphore.acquire.timeout(10, TimeUnit.MILLISECONDS).await
+    }
+    semaphore.waiting.await shouldBe 0
+    semaphore.release.run()
+    semaphore.available.await shouldBe 1
+  }
+
+  test("RxSemaphore: permits are conserved when releases race with cancellations") {
+    val semaphore = RxSemaphore(0)
+    val acquired  = AtomicInteger(0)
+    val n         = 2000
+    val runs      = (0 until n).map(_ =>
+      RxRunner.run(semaphore.acquire)(ev =>
+        if ev.isInstanceOf[OnNext] then
+          acquired.incrementAndGet()
+      )
+    )
+    val start    = CountDownLatch(1)
+    val done     = CountDownLatch(2)
+    val releaser = Thread(() =>
+      start.await()
+      (0 until n).foreach(_ => semaphore.release.run())
+      done.countDown()
+    )
+    val canceller = Thread(() =>
+      start.await()
+      runs.foreach(_.cancel)
+      done.countDown()
+    )
+    releaser.start()
+    canceller.start()
+    start.countDown()
+    done.await(10, TimeUnit.SECONDS) shouldBe true
+    semaphore.waiting.await shouldBe 0
+    // Every permit is either held by a delivered acquire or still available
+    (acquired.get() + semaphore.available.await) shouldBe n.toLong
+  }
+
+  test("RxBoundedQueue: elements are conserved when offers race with cancelled takes") {
+    val queue    = RxBoundedQueue[Int](4)
+    val received = AtomicInteger(0)
+    val accepted = AtomicInteger(0)
+    val n        = 2000
+    val runs     = (0 until n).map(_ =>
+      RxRunner.run(queue.take)(ev =>
+        if ev.isInstanceOf[OnNext] then
+          received.incrementAndGet()
+      )
+    )
+    val start   = CountDownLatch(1)
+    val done    = CountDownLatch(2)
+    val offerer = Thread(() =>
+      start.await()
+      (0 until n).foreach { i =>
+        if queue.tryOffer(i).await then
+          accepted.incrementAndGet()
+      }
+      done.countDown()
+    )
+    val canceller = Thread(() =>
+      start.await()
+      runs.foreach(_.cancel)
+      done.countDown()
+    )
+    offerer.start()
+    canceller.start()
+    start.countDown()
+    done.await(10, TimeUnit.SECONDS) shouldBe true
+    // Every accepted element is either delivered to a take or still in the queue
+    var remaining = 0
+    while queue.tryTake.await.isDefined do
+      remaining += 1
+    (received.get() + remaining) shouldBe accepted.get()
+  }
+
 end RxConcurrencyTest

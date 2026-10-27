@@ -15,4 +15,8 @@ Rejected: moving the primitives into `uni-core` (bigger move; `RxScheduler`/`RxF
 ## Consequences
 
 - Any new waiting primitive in `wvlet.uni.rx` should return `Rx.AsyncOp` instead of an anonymous `Rx`. An anonymous `Rx` with no `RxRunner` case fails at run time with `MatchError`.
-- Cancelling a run stops delivery, but it does not remove the registered waiter. A cancelled `acquire` or `take` can still consume a permit or element when it completes.
+- `register` returns a `Cancelable` that unregisters the waiter, and the callback returns whether the result was delivered. Cancelling a run first marks it done, then unregisters, so every interleaving is covered: a waiter still queued is removed; a waiter already woken but not yet delivered gets `false` and hands back what it won (a semaphore releases its permits; a queue gives the element to the next taker or the front of the queue). A new waiting primitive must do the same.
+- After removing a cancelled `acquireN` waiter, the semaphore re-checks the waiters behind it, since a smaller request may now fit.
+- A returned queue element may push the queue one over `capacity` until the next take; keeping element order was preferred over the strict bound.
+- A waiting `offer` cancelled before its element is accepted never enqueues it. Once accepted, the offer stands even if its run was cancelled, because the element may already be taken.
+- `RxDeferred.get` and `RxFiber.join` remove their callback on cancel; there is nothing to hand back. Cancellation reaches these waiters through `timeout` and `RxParallel.race` (which cancels losing fibers), since both cancel their input run.

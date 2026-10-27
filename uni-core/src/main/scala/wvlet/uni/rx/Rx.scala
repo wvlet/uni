@@ -934,9 +934,13 @@ object Rx extends LogSupport:
 
   /**
     * A single value delivered through a callback. On each run, `register` receives a callback that
-    * completes this Rx; it may be called synchronously or later from another thread.
+    * completes this Rx; it may be called synchronously or later from another thread. The callback
+    * returns false if the run was cancelled (or already completed) and the result was not
+    * delivered, so the caller can hand back what it acquired. `register` returns a Cancelable that
+    * unregisters the waiting callback when the run is cancelled.
     */
-  private[rx] case class AsyncOp[A](register: (Try[A] => Unit) => Unit, name: String) extends Rx[A]:
+  private[rx] case class AsyncOp[A](register: (Try[A] => Boolean) => Cancelable, name: String)
+      extends Rx[A]:
     override def parents: Seq[RxOps[?]] = Seq.empty
     override def toString: String       = name
 
