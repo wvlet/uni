@@ -15,5 +15,5 @@
 ## Consequences
 
 - `merge`, `parFlatMap`, and `parMapN` work on JVM, Scala.js, and Native (shared `RxMergeTest`; the JVM `RxParallelTest` checks the parallelism bound).
-- `RxParallel.race`, `parSequence`, `parTraverse`, and `parZip` still block with `Rx.await` inside `Rx.single`, so they throw on Scala.js. Making them non-blocking is a separate change.
+- `RxParallel.race` and `parSequenceN` (and so `parSequence`, `parTraverse`, `parZip`) are built on these operators instead of blocking with `Rx.await` inside `Rx.single`, so they run on Scala.js. `parSequenceN` is `parFlatMap` over the indices, with each computation started as a fiber; the old version's `sem.acquire.run()` returned before the permit arrived and so did not bound parallelism. `race` merges the fibers' `join`s with `take(1)` and cancels the losers on the scheduler, not synchronously: a cancelled fiber wakes its `join` with an error, which must arrive after `take(1)` has stopped the merge.
 - Downstream code runs under the `FanIn` lock, like other operators that serialize concurrent inputs; it must not block waiting on another stream of the same operator.

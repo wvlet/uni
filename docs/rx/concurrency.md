@@ -193,7 +193,7 @@ Rx.parallel.race(Rx.single(1), Rx.single(2))                // first result wins
 
 - `merge` and `parFlatMap` report the first error and cancel the other streams; if the downstream recovers (`recover`), only the failing stream ends. `take` and cancellation cancel every running stream, but `parMapN` cannot interrupt an `f` that has already started: its result is dropped.
 - `parFlatMap` adds no threads: a nested stream runs where it is subscribed, so use an asynchronous one (`evalOnBlocking`, `start`, an HTTP call) to overlap work. `parMapN` does this for you.
-- `race`, `parSequence`, `parTraverse`, and `parZip` block while waiting, so they are available on the JVM and Scala Native only. `merge`, `parFlatMap`, and `parMapN` work on every platform.
+- `race`, `parSequence`, `parTraverse`, and `parZip` run each computation as a fiber on `RxScheduler.default` and take its first value. `parSequence` fails with the first error and cancels the rest; `race` cancels the slower computations. All of these work on every platform, including Scala.js.
 
 ## RxScheduler
 

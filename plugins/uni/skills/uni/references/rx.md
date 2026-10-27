@@ -119,7 +119,5 @@ val res = RxResource.make(Rx.single("conn"))(c => Rx.single(println(s"close ${c}
 res.use(c => Rx.single(c.length))          // release runs after use, even on error
 ```
 
-`race`, `parSequence`, `parTraverse`, and `parZip` block while waiting, so they
-work on JVM and Native only; `merge`, `parFlatMap`, and `parMapN` work everywhere.
 A fiber takes the first value of its `Rx`; an `Rx` that completes empty fails
 the fiber with `IllegalStateException`.
