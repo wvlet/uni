@@ -248,15 +248,15 @@ you reach for when adding custom per-part headers to a multipart upload.
 val response = client.send(request)
 
 // Status
-response.status.isSuccess    // true for 2xx
-response.status.code         // 200, 404, etc.
+response.isSuccessful        // true for 2xx
+response.statusCode          // 200, 201, etc.
 
 // Headers
 response.header("Content-Type")  // Option[String]
 
 // Body
-response.contentAsString     // String
-response.contentAsBytes      // Array[Byte]
+response.contentAsString     // Option[String]
+response.contentAsBytes      // Option[Array[Byte]]
 ```
 
 ## Async Requests
@@ -308,18 +308,25 @@ val clientNoRetry2 = Http.client.withMaxRetry(0).newSyncClient
 
 ## Error Handling
 
+`send` returns only 2xx responses and throws for any other status:
+
+- A non-retryable status (most 4xx) throws `HttpException`.
+- A retryable status (5xx, 408, 429, and others) is retried, then throws
+  `HttpMaxRetryException`, which is not a subclass of `HttpException`. This
+  happens with `noRetry` too.
+
+Both exceptions carry the response, including its body:
+
 ```scala
-import wvlet.uni.http.HttpException
+import wvlet.uni.http.{HttpException, HttpMaxRetryException}
 
 try
-  val response = client.send(request)
-  if !response.status.isSuccess then
-    throw HttpException(response.status, response.contentAsString)
+  client.send(request)
 catch
   case e: HttpException =>
-    logger.error(s"HTTP error: ${e.status}")
-  case e: IOException =>
-    logger.error("Network error", e)
+    println(s"HTTP error: ${e.statusCode}, body: ${e.response.flatMap(_.contentAsString)}")
+  case e: HttpMaxRetryException =>
+    println(s"Gave up after retries: ${e.response.status}")
 ```
 
 ## Best Practices
@@ -337,13 +344,11 @@ class ApiClient(baseUrl: String):
   private val client = Http.client.newSyncClient
 
   def getUser(id: String): User =
+    // send throws HttpException for a 4xx such as 404
     val response = client.send(
       Request.get(s"${baseUrl}/users/${id}")
     )
-    if response.status.isSuccess then
-      Weaver.fromJson[User](response.contentAsString)
-    else
-      throw HttpException(response.status)
+    Weaver.fromJson[User](response.contentAsString.getOrElse("{}"))
 
   def createUser(user: User): User =
     val response = client.send(
@@ -351,7 +356,7 @@ class ApiClient(baseUrl: String):
         .post(s"${baseUrl}/users")
         .withJsonContent(Weaver.toJson(user))
     )
-    Weaver.fromJson[User](response.contentAsString)
+    Weaver.fromJson[User](response.contentAsString.getOrElse("{}"))
 
   def close(): Unit = client.close()
 ```

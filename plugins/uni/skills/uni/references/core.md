@@ -1,8 +1,7 @@
-# Uni snippets
+# Uni core snippets
 
-Each snippet compiles against the current `uni` / `uni-test` release. For HTTP
-servers (`uni-netty`) and typed RPC, follow https://wvlet.org/uni/http/server.md
-and https://wvlet.org/uni/http/rpc.md.
+DI, logging, JSON, retry, and MCP servers. Each snippet compiles against the
+current `uni` release.
 
 ## Dependency injection with lifecycle (Design)
 
@@ -48,16 +47,6 @@ val p: Person    = Weaver.fromJson[Person](json)
 val tree         = JSON.parse(json) // untyped JSONValue
 ```
 
-## HTTP client (all platforms)
-
-```scala
-import wvlet.uni.http.{Http, Request}
-
-val client = Http.client.newSyncClient
-val resp   = client.send(Request.get("https://example.com/"))
-if resp.isSuccessful then println(resp.contentAsString.getOrElse(""))
-```
-
 ## Retry
 
 ```scala
@@ -91,25 +80,4 @@ class WeatherServiceImpl extends WeatherService:
   .withVersion("0.1.0")
   .withTools[WeatherService](WeatherServiceImpl())
   .serveStdio()
-```
-
-## Unit test (UniTest)
-
-```scala
-import wvlet.uni.test.UniTest
-import wvlet.uni.weaver.Weaver
-
-class PersonTest extends UniTest:
-  private val p = Person(1, "leo")
-
-  test("round-trip JSON") {
-    Weaver.fromJson[Person](Weaver.toJson(p)) shouldBe p
-  }
-
-  test("assertions") {
-    (p.id >= 1) shouldBe true          // not: p.id should be >= 1
-    Seq(1, 2) shouldContain 2
-    Some(p) shouldMatch { case Some(_: Person) => }
-    intercept[IllegalArgumentException] { require(false) }
-  }
 ```

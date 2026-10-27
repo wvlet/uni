@@ -307,7 +307,7 @@ val authFilter = RxHttpFilter { (request, next) =>
     case Some(token) if isValid(token) =>
       next.handle(request.addHeader("X-User-Id", extractUserId(token)))
     case _ =>
-      Rx.single(Response.unauthorized("Missing or invalid token"))
+      Rx.single(Response.unauthorized.withTextContent("Missing or invalid token"))
 }
 ```
 

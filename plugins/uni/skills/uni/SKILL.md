@@ -37,11 +37,11 @@ Scala Native.
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | https://wvlet.org/uni/http/server.md |
-| Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | https://wvlet.org/uni/http/rpc.md |
+| HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.{NettyServer, RouterHandler}` | [references/http-server.md](references/http-server.md) |
+| Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCPServer, description}` | `MCPServer().withName(n).withTools[T](impl).serveStdio()` |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
-| Unit tests | `wvlet.uni.test.UniTest` | `class T extends UniTest: test("...") { x shouldBe y }` |
+| Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 
 ## Mistakes to avoid
 
@@ -50,6 +50,11 @@ Scala Native.
 - **ScalaTest matchers in UniTest.** Write `(x >= 1) shouldBe true`, not
   `x should be >= 1`. For type checks, `v shouldMatch { case _: T => }` instead of
   `asInstanceOf`. Use `shouldNotBe`, `shouldContain`, `intercept[E] { ... }`.
+- **Importing only `UniTest`.** Use `import wvlet.uni.test.*`; `shouldBe defined`
+  and `shouldBe empty` need the matcher objects from that package.
+- **Checking `isSuccessful` after `send`.** The HTTP client throws on non-2xx:
+  `HttpException` for most 4xx, `HttpMaxRetryException` (not a subclass) after
+  retrying 5xx/429. RPC client calls fail the same way.
 - **Hand-written JSON codecs.** Add `derives Weaver` to the case class.
 - **A second DI framework, logging backend, or JSON library next to Uni.** Uni
   already provides them.
@@ -59,8 +64,18 @@ Scala Native.
   and let `Design` build them; bind interfaces with `bindImpl[A, B]` and values with
   `bindInstance[A](v)`.
 
-## More
+## References
 
-- Verified snippets for each module: [references/snippets.md](references/snippets.md)
+Read the reference for the task before writing code:
+
+| Task | Reference |
+|------|-----------|
+| DI, logging, JSON, retry, MCP server | [references/core.md](references/core.md) |
+| Typed RPC service, server, and generated client | [references/rpc.md](references/rpc.md) |
+| HTTP client | [references/http-client.md](references/http-client.md) |
+| HTTP server, REST controllers, filters | [references/http-server.md](references/http-server.md) |
+| Unit, HTTP, RPC, and property tests | [references/testing.md](references/testing.md) |
+| Migrating from Airframe | [references/airframe-migration.md](references/airframe-migration.md) |
+
 - Full documentation in one Markdown file: https://wvlet.org/uni/llms-full.txt
 - Page index: https://wvlet.org/uni/llms.txt (any page is also available as `<page>.md`)

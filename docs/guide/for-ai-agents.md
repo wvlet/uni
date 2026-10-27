@@ -84,7 +84,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | See [RPC](../http/rpc) |
 | MCP server | `wvlet.uni.mcp.*` | See [Build an MCP Server](../mcp/) |
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |
-| Unit tests | `wvlet.uni.test.UniTest` | `class T extends UniTest: test("...") { x shouldBe y }` |
+| Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 
 ## How do I migrate from Airframe?
 
@@ -110,6 +110,12 @@ for background.
 - **Using ScalaTest matchers in UniTest.** Write `(x >= 1) shouldBe true`, not
   `x should be >= 1`. For type checks, write `v shouldMatch { case _: T => }`
   instead of `asInstanceOf`.
+- **Importing only `UniTest`.** Use `import wvlet.uni.test.*`. `shouldBe defined`
+  and `shouldBe empty` need matcher objects from that package.
+- **Checking `isSuccessful` after `send`.** The HTTP client throws for non-2xx
+  responses. Most 4xx statuses throw `HttpException`. Retryable statuses (5xx,
+  429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
+  of `HttpException`. Failed RPC client calls throw the same exceptions.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
 - **Adding a DI framework, a logging backend, or a JSON library next to Uni.**
   Uni already provides them. Adding another creates two ways to do one thing.
