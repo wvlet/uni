@@ -1,9 +1,8 @@
 # Toolkit script to Uni service: a GitHub repository API
 
 A [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html) script (sttp + uPickle)
-grown into a service with Uni, keeping sttp and uPickle for the GitHub API. The guide page
-[From a Scala Toolkit script to a Uni service](https://wvlet.org/uni/guide/toolkit-to-uni) walks
-through this code step by step; its code blocks are imported from these files.
+grown into a service with Uni, keeping sttp and uPickle for the GitHub API. For when to choose
+each library, see [Uni and the Scala Toolkit](https://wvlet.org/uni/guide/uni-vs-scala-toolkit).
 
 ## What it shows
 

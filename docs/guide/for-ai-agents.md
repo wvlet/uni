@@ -63,9 +63,7 @@ Use the [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html)
 (sttp, uPickle, os-lib, MUnit) for scripts, teaching, Scala 2.13, or Scala 3
 before 3.9. Use Uni when the project also needs object wiring, logging, an HTTP
 server, RPC, or MCP servers, or must run the same code on Scala.js and Scala
-Native. The two coexist in one build. See [Uni and the Scala Toolkit](./uni-vs-scala-toolkit),
-and [From a Scala Toolkit script to a Uni service](./toolkit-to-uni) for a project
-that keeps sttp and uPickle and adds Uni around them.
+Native. The two coexist in one build. See [Uni and the Scala Toolkit](./uni-vs-scala-toolkit).
 
 ## How do I add Uni to a build?
 

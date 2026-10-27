@@ -23,7 +23,7 @@ current source and they never go stale. They are not published.
 ./sbt exampleCliNative/nativeLink             # CLI tool as a native binary
 ./sbt exampleRestServer/run                   # REST + RPC server on http://localhost:8080
 ./sbt exampleRestServer/test                  # starts the server on a free port and calls it
-./sbt exampleToolkitService/test             # Toolkit libraries and Uni in one build
+./sbt exampleToolkitService/test              # Toolkit libraries and Uni in one build
 ./sbt --error exampleMcpServer/run            # stdio MCP server (speaks JSON-RPC on stdin/stdout)
 ./sbt exampleWebUi/fastLinkJS                 # builds examples/web-ui/target/js/main.js
 ```

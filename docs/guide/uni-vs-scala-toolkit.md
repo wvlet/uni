@@ -14,9 +14,7 @@ server, typed RPC, MCP servers, Rx, and CLI tools, with one API on the JVM,
 Scala.js, and Scala Native.** In short, the Toolkit is the easiest start for
 scripts, and Uni covers the whole application.
 
-The two can live in the same project. See [Using them together](#using-them-together),
-and [From a Scala Toolkit script to a Uni service](./toolkit-to-uni) for what to
-use when a Toolkit script grows into a service.
+The two can live in the same project. See [Using them together](#using-them-together).
 
 ## Feature by feature
 
@@ -167,9 +165,9 @@ them. We checked this with Scala CLI, Toolkit 0.9.2, and Uni on Scala 3.9:
 - A MUnit `FunSuite` can test Uni code, and MUnit and UniTest suites run in the
   same `test` command.
 
-For a worked example, see [From a Scala Toolkit script to a Uni service](./toolkit-to-uni).
-It keeps sttp and uPickle for an external API and adds Design, logging, a REST
-endpoint, and UniTest, in a project that CI builds and tests.
+For a runnable project, see the [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service).
+It keeps sttp and uPickle for the GitHub API and adds Design, logging, a REST
+endpoint, and UniTest, and CI builds and tests it.
 
 Common combinations:
 
@@ -200,8 +198,8 @@ uses sttp, uPickle, and Uni in one sbt build, and CI tests it.
 
 Keep the Toolkit libraries that still do their job, and add what a service needs:
 object wiring with lifecycle hooks, logging, and an HTTP server. Uni provides these
-in one library. [From a Scala Toolkit script to a Uni service](./toolkit-to-uni)
-walks through it.
+in one library. The [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service)
+shows a small script grown this way.
 
 ### Does the Scala Toolkit include object wiring or logging?
 

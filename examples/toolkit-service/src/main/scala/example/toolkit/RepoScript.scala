@@ -1,4 +1,3 @@
-// #region script
 //> using toolkit 0.9.2
 package example.toolkit
 
@@ -12,5 +11,3 @@ def repoScript(owner: String, name: String): Unit =
   val response = quickRequest.get(uri"https://api.github.com/repos/${owner}/${name}").send()
   val repo     = read[GitHubRepo](response.body)
   println(s"${repo.full_name}: ${repo.stargazers_count} stars, ${repo.forks_count} forks")
-
-// #endregion script

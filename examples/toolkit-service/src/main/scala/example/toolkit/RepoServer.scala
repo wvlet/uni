@@ -1,6 +1,5 @@
 package example.toolkit
 
-// #region imports
 import sttp.client4.quick.*
 import upickle.default.read
 import wvlet.uni.design.Design
@@ -11,9 +10,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.weaver.Weaver
 
 import scala.collection.concurrent.TrieMap
-// #endregion imports
 
-// #region source
 /** Where repository data comes from. The service depends on this trait, not on sttp. */
 trait RepoSource:
   def fetch(owner: String, name: String): GitHubRepo
@@ -27,9 +24,6 @@ class GitHubRepoSource extends RepoSource with LogSupport:
       throw IllegalStateException(s"GitHub returned ${response.code} for ${owner}/${name}")
     read[GitHubRepo](response.body)
 
-// #endregion source
-
-// #region service
 /** What our own API returns. Uni's server encodes it with Weaver. */
 case class RepoSummary(name: String, stars: Int, forks: Int) derives Weaver
 
@@ -44,16 +38,10 @@ class RepoService(source: RepoSource) extends LogSupport:
     }
   )
 
-// #endregion service
-
-// #region controller
 class RepoController(service: RepoService):
   @Endpoint(HttpMethod.GET, "/api/repos/:owner/:name")
   def get(owner: String, name: String): RepoSummary = service.summary(owner, name)
 
-// #endregion controller
-
-// #region server
 case class ServerConfig(port: Int = 8080)
 
 class RepoServer(config: ServerConfig, controller: RepoController) extends LogSupport:
@@ -85,5 +73,3 @@ object RepoServer:
     design(ServerConfig(port)).build[RepoServer] { server =>
       server.awaitTermination()
     }
-
-// #endregion server

@@ -327,7 +327,7 @@ lazy val exampleMcpServer = project
   .dependsOn(uni.jvm, test.jvm % Test)
 
 // Uses the sttp and uPickle versions that Scala Toolkit 0.9.2 pins, so CI keeps checking that the
-// Toolkit libraries and Uni work in one build (docs/guide/toolkit-to-uni.md shows this code)
+// Toolkit libraries and Uni work in one build
 lazy val exampleToolkitService = project
   .in(file("examples/toolkit-service"))
   .settings(
@@ -335,6 +335,8 @@ lazy val exampleToolkitService = project
     noPublish,
     name        := "uni-example-toolkit-service",
     description := "Example: a Scala Toolkit (sttp + uPickle) script grown into a Uni service",
+    // RepoScript also defines a @main; `run` starts the service
+    Compile / run / mainClass := Some("example.toolkit.RepoServer"),
     libraryDependencies ++=
       Seq(
         "com.softwaremill.sttp.client4" %% "core"    % "4.0.21",

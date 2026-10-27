@@ -1,10 +1,10 @@
 # Community post draft: how Uni fits next to the Scala Toolkit
 
 Drafts for the maintainer to review and post. Nothing here has been published.
-Links to check before posting: both guide pages must be live on wvlet.org after the PR merges.
+Links to check before posting: the FAQ and the example must be live after the PR merges.
 
 - Comparison: https://wvlet.org/uni/guide/uni-vs-scala-toolkit
-- Tutorial: https://wvlet.org/uni/guide/toolkit-to-uni
+- Example: https://github.com/wvlet/uni/tree/main/examples/toolkit-service
 - Scala Toolkit: https://docs.scala-lang.org/toolkit/introduction.html
 - Uni: https://github.com/wvlet/uni
 
@@ -41,20 +41,18 @@ The two work together, so the page focuses on how to choose:
 
 Page: https://wvlet.org/uni/guide/uni-vs-scala-toolkit
 
-We also wrote a tutorial: [From a Scala Toolkit script to a Uni service](https://wvlet.org/uni/guide/toolkit-to-uni).
-It starts with a small sttp + uPickle script that reads a GitHub repository. Step by
-step, it becomes a service with Design wiring, logging, a REST endpoint, and tests.
-sttp and uPickle keep doing the GitHub calls and decoding. The code is an
-[example project](https://github.com/wvlet/uni/tree/main/examples/toolkit-service)
-that CI builds and tests with the library versions Toolkit 0.9.2 uses, so the
-tutorial can't drift out of date.
+There is also a small [example project](https://github.com/wvlet/uni/tree/main/examples/toolkit-service).
+It starts with an sttp + uPickle script that reads a GitHub repository and grows
+it into a service with Design wiring, logging, a REST endpoint, and tests, while
+sttp and uPickle keep doing the GitHub calls and decoding. CI builds and tests it
+with the library versions Toolkit 0.9.2 uses.
 
 If anything on the page is inaccurate or unfair to the Toolkit or its libraries,
 please tell me and I'll fix it.
 
 ## r/scala
 
-**Title:** Uni and the Scala Toolkit: how they fit together (with a script-to-service tutorial)
+**Title:** Uni and the Scala Toolkit: how they fit together
 
 The [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html) (sttp,
 uPickle, os-lib, MUnit) is the easiest way to start with Scala, and many of our
@@ -63,13 +61,13 @@ object wiring, logging, and an HTTP server. That's where
 [Uni](https://github.com/wvlet/uni), a Scala 3 library (the successor of Airframe),
 comes in.
 
-We wrote two pages:
+We wrote a page and an example:
 
 - [Uni and the Scala Toolkit](https://wvlet.org/uni/guide/uni-vs-scala-toolkit): a
   feature table, when each one fits, side-by-side code, and an FAQ.
-- [From a Scala Toolkit script to a Uni service](https://wvlet.org/uni/guide/toolkit-to-uni):
-  an sttp + uPickle script becomes a service with Design wiring, LogSupport, a REST
-  endpoint, and UniTest. sttp and uPickle stay. The code is a CI-tested example.
+- [examples/toolkit-service](https://github.com/wvlet/uni/tree/main/examples/toolkit-service):
+  an sttp + uPickle script grown into a service with Design wiring, LogSupport, a REST
+  endpoint, and UniTest. sttp and uPickle stay, and CI tests it.
 
 Thanks to the Toolkit maintainers and the authors of its libraries. Feedback is
 welcome, especially corrections.
@@ -84,7 +82,7 @@ stay. How they fit together: https://wvlet.org/uni/guide/uni-vs-scala-toolkit #S
 
 Uni and the Scala Toolkit work well together. The Toolkit (sttp, uPickle, os-lib,
 MUnit) is great for scripts. Uni adds object wiring, logging, HTTP servers, and RPC
-when a script becomes a service. A guide and a CI-tested tutorial:
+when a script becomes a service. How they fit together:
 https://wvlet.org/uni/guide/uni-vs-scala-toolkit
 
 ## LinkedIn
@@ -95,11 +93,11 @@ on docs.scala-lang.org.
 
 When a script becomes a service, it needs object wiring, logging, and an HTTP
 server. We wrote a guide to how Uni, our Scala 3 library, fits next to the Toolkit,
-plus a tutorial that grows a Toolkit script into a service while keeping sttp and
+plus an example that grows a Toolkit script into a service while keeping sttp and
 uPickle:
 
 - https://wvlet.org/uni/guide/uni-vs-scala-toolkit
-- https://wvlet.org/uni/guide/toolkit-to-uni
+- https://github.com/wvlet/uni/tree/main/examples/toolkit-service
 
 Thanks to the Scala Center, the Toolkit maintainers, and the library authors for
 the Toolkit.

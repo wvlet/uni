@@ -52,8 +52,7 @@ before 3.9, and running subprocesses (os-lib). Uni fits Scala 3.9+ applications 
 services that need object wiring, logging, an HTTP server, RPC, MCP servers, or the
 same code on Scala.js and Scala Native. They work in one build: keep the Toolkit
 libraries a project already uses, and use Weaver for types that Uni's server or RPC
-encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit and
-https://wvlet.org/uni/guide/toolkit-to-uni.
+encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit.
 
 ## Mistakes to avoid
 

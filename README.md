@@ -20,8 +20,7 @@ For AI coding agents: read [llms.txt](https://wvlet.org/uni/llms.txt) (page inde
 
 Already using the [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html)? See
 [Uni and the Scala Toolkit](https://wvlet.org/uni/guide/uni-vs-scala-toolkit) for when each fits and how
-they work together, and [From a Toolkit script to a Uni service](https://wvlet.org/uni/guide/toolkit-to-uni)
-for a step-by-step example.
+they work together.
 
 Runnable example apps, compiled and tested in CI, live in [`examples/`](examples/): a CLI tool
 (JVM and Scala Native), a REST + RPC server, a stdio MCP server, and Scala.js UIs. Copy one as a

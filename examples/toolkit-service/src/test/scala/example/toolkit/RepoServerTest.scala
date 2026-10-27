@@ -1,4 +1,3 @@
-// #region test
 package example.toolkit
 
 import wvlet.uni.http.{Http, Request}
@@ -43,5 +42,3 @@ class RepoServerTest extends UniTest:
   }
 
 end RepoServerTest
-
-// #endregion test
