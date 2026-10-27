@@ -25,6 +25,16 @@ Claude Code users can install the Uni skill, which teaches the agent idiomatic U
 /plugin install uni@uni
 ```
 
+## Uni and Airframe
+
+Uni is the Scala 3 successor of [Airframe](https://github.com/wvlet/airframe). The two projects have different goals:
+
+- **Uni** supports only Scala 3. Dropping Scala 2 lets it make full use of Scala 3 features in its APIs and implementation. It also bundles the core utilities into a few modules (`uni`, `uni-netty`, `uni-test`) instead of many `airframe-*` artifacts.
+- **Airframe** supports both Scala 2 and Scala 3, and it remains maintained. There is no plan to deprecate it.
+
+For a new Scala 3 project, use Uni. If your project still needs Scala 2, or you depend on Airframe modules that Uni doesn't cover, keep using Airframe.
+See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how-do-i-migrate-from-airframe) for how APIs map between them.
+
 ## Modules
 
 | Module | Description |
