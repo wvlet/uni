@@ -7,6 +7,7 @@ import wvlet.uni.util.Result
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
+import scala.collection.mutable
 import scala.util.Failure
 import scala.util.Success
 import scala.util.Try
@@ -617,6 +618,91 @@ class RxRunner(
           done.set(true)
           registration.cancel
         }
+      case MergeOp(sources) =>
+        if sources.isEmpty then
+          effect(OnCompletion)
+          Cancelable.empty
+        else
+          val fanIn = FanIn(effect)
+          // Open every slot first, so a source that completes synchronously cannot end the merge
+          val slots = sources.flatMap(_ => fanIn.open())
+          sources
+            .zip(slots)
+            .foreach { (source, slot) =>
+              fanIn.attach(
+                slot,
+                run(source) {
+                  case ev @ OnNext(_) =>
+                    fanIn.next(ev)
+                  case OnCompletion =>
+                    fanIn.end(slot)
+                  case ev =>
+                    fanIn.terminate(ev)
+                }
+              )
+            }
+          fanIn.cancelable
+      case ParFlatMapOp(in, parallelism, f) =>
+        val fanIn   = FanIn(effect)
+        val pending = mutable.Queue.empty[Any]
+        var active  = 0 // guarded by pending
+
+        def startNested(x: Any): Unit = fanIn
+          .open()
+          .foreach { slot =>
+            Try(f.asInstanceOf[Any => RxOps[?]](x)) match
+              case Success(rxb) =>
+                fanIn.attach(
+                  slot,
+                  run(rxb) {
+                    case ev @ OnNext(_) =>
+                      fanIn.next(ev)
+                    case OnCompletion =>
+                      // Start the next pending value before ending this slot, so the operator
+                      // cannot complete in between
+                      val next = pending.synchronized {
+                        if pending.nonEmpty then
+                          Some(pending.dequeue())
+                        else
+                          active -= 1
+                          None
+                      }
+                      next.foreach(startNested)
+                      fanIn.end(slot)
+                    case ev =>
+                      fanIn.terminate(ev)
+                  }
+                )
+              case Failure(e) =>
+                fanIn.terminate(OnError(e))
+          }
+
+        fanIn
+          .open()
+          .foreach { inputSlot =>
+            fanIn.attach(
+              inputSlot,
+              run(in) {
+                case OnNext(x) =>
+                  val startNow = pending.synchronized {
+                    if active < parallelism then
+                      active += 1
+                      true
+                    else
+                      pending.enqueue(x)
+                      false
+                  }
+                  if startNow then
+                    startNested(x)
+                  fanIn.result
+                case OnCompletion =>
+                  fanIn.end(inputSlot)
+                case ev =>
+                  fanIn.terminate(ev)
+              }
+            )
+          }
+        fanIn.cancelable
       case SingleOp(v) =>
         Try(effect(OnNext(v.eval))) match
           case Success(c) =>
@@ -938,5 +1024,105 @@ class RxRunner(
         effect(OnCompletion)
 
   end NestedStreamTracker
+
+  /**
+    * Joins streams that may run concurrently (merge, parFlatMap) into one downstream. Events are
+    * forwarded under a lock, since the streams may emit from different threads. The operator
+    * completes when every opened slot has ended. The first error, a downstream Stop, or a
+    * cancellation stops it: running streams are cancelled and later events are dropped.
+    */
+  private class FanIn(effect: RxEvent => RxResult):
+    class Slot:
+      var cancelable: Cancelable = Cancelable.empty
+
+    private val running = mutable.LinkedHashSet.empty[Slot]
+    private var stopped = false
+
+    /**
+      * Register a stream before starting it. None if the operator has already stopped
+      */
+    def open(): Option[Slot] = synchronized {
+      if stopped then
+        None
+      else
+        val slot = Slot()
+        running += slot
+        Some(slot)
+    }
+
+    /**
+      * Keep the subscription of a running slot, or cancel it if the operator has already stopped
+      */
+    def attach(slot: Slot, c: Cancelable): Unit =
+      val keep = synchronized {
+        if !stopped && running.contains(slot) then
+          slot.cancelable = c
+        !stopped
+      }
+      if !keep then
+        c.cancel
+
+    def result: RxResult = synchronized {
+      if stopped then
+        RxResult.Stop
+      else
+        RxResult.Continue
+    }
+
+    def next(ev: OnNext): RxResult =
+      val r = synchronized {
+        if stopped then
+          RxResult.Stop
+        else
+          val r = effect(ev)
+          if !r.toContinue then
+            stopped = true
+          r
+      }
+      if !r.toContinue then
+        cancelRunning()
+      r
+
+    /**
+      * End a slot; reports OnCompletion when it was the last one
+      */
+    def end(slot: Slot): RxResult =
+      val last = synchronized {
+        running -= slot
+        running.isEmpty
+      }
+      if last then
+        terminate(OnCompletion)
+      else
+        result
+
+    /**
+      * Report a terminal event (OnError or OnCompletion) once, and cancel the running streams
+      */
+    def terminate(ev: RxEvent): RxResult =
+      synchronized {
+        if !stopped then
+          stopped = true
+          effect(ev)
+      }
+      cancelRunning()
+      RxResult.Stop
+
+    def cancelable: Cancelable = Cancelable { () =>
+      synchronized {
+        stopped = true
+      }
+      cancelRunning()
+    }
+
+    private def cancelRunning(): Unit =
+      val toCancel = synchronized {
+        val cs = running.toList.map(_.cancelable)
+        running.clear()
+        cs
+      }
+      toCancel.foreach(_.cancel)
+
+  end FanIn
 
 end RxRunner

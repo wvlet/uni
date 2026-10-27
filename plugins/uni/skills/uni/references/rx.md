@@ -108,12 +108,18 @@ val fiber = Rx.single(21 * 2).start        // Rx[RxFiber[Int]] on RxScheduler.de
 fiber.flatMap(_.join)                      // Rx[Int]; also cancel, poll
 Rx.single(42).evalOnBlocking               // run blocking I/O on RxScheduler.blocking
 
-RxParallel.parTraverseN(4)(1 to 10)(limited) // Rx[Seq[Int]], order kept
-RxParallel.race(Rx.single(1), Rx.single(2))  // first to finish wins
+Rx.parallel.parTraverseN(4)(1 to 10)(limited) // Rx[Seq[Int]], order kept (Rx.parallel is RxParallel)
+Rx.parallel.race(Rx.single(1), Rx.single(2))  // first to finish wins
+
+Rx.fromSeq(1 to 10).parMapN(4)(_ * 2)         // f on RxScheduler.default, completion order
+Rx.fromSeq(1 to 3).parFlatMap(2)(i => Rx.fromSeq(Seq(i, i * 10))) // <= 2 nested streams at once
+Rx.fromSeq(Seq(1, 2)).merge(Rx.single(3))     // interleaved; completes after both
 
 val res = RxResource.make(Rx.single("conn"))(c => Rx.single(println(s"close ${c}")))
 res.use(c => Rx.single(c.length))          // release runs after use, even on error
 ```
 
+`race`, `parSequence`, `parTraverse`, and `parZip` block while waiting, so they
+work on JVM and Native only; `merge`, `parFlatMap`, and `parMapN` work everywhere.
 A fiber takes the first value of its `Rx`; an `Rx` that completes empty fails
 the fiber with `IllegalStateException`.

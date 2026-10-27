@@ -169,6 +169,32 @@ def fetchUrl(url: String): Rx[String] =
 val results = urls.map(fetchUrl)
 ```
 
+## Parallel Operators
+
+`RxParallel` (also reachable as `Rx.parallel`) and the extension methods from `wvlet.uni.rx.*` run several streams at once:
+
+```scala
+import wvlet.uni.rx.*
+
+// Interleave the values of several streams; completes after all of them
+Rx.fromSeq(Seq(1, 2)).merge(Rx.single(3))
+Rx.parallel.merge(Seq(Rx.single(1), Rx.single(2), Rx.single(3)))
+
+// Subscribe at most 2 nested streams at a time; other values wait in a queue
+Rx.fromSeq(1 to 10).parFlatMap(2)(i => Rx.single(i).evalOnBlocking)
+
+// Run f on RxScheduler.default, at most 4 at a time; results arrive in completion order
+Rx.fromSeq(1 to 10).parMapN(4)(i => i * 2)
+
+// Collect results in input order
+Rx.parallel.parTraverseN(4)(1 to 10)(i => Rx.single(i * 10)) // Rx[Seq[Int]]
+Rx.parallel.race(Rx.single(1), Rx.single(2))                // first result wins
+```
+
+- `merge` and `parFlatMap` report the first error and cancel the other streams. `take` and cancellation stop every running stream.
+- `parFlatMap` adds no threads: a nested stream runs where it is subscribed, so use an asynchronous one (`evalOnBlocking`, `start`, an HTTP call) to overlap work. `parMapN` does this for you.
+- `race`, `parSequence`, `parTraverse`, and `parZip` block while waiting, so they are available on the JVM and Scala Native only. `merge`, `parFlatMap`, and `parMapN` work on every platform.
+
 ## RxScheduler
 
 Platform-specific execution environment for Rx computations.
