@@ -277,6 +277,11 @@ class UniTestEngine extends TestEngine:
           Some(e)
     beforeError match
       case Some(e) =>
+        try
+          instance.runAfter()
+        catch
+          case afterError: Throwable =>
+            e.addSuppressed(afterError)
         TestResult.Error(testDef.fullName, s"before hook failed: ${e.getMessage}", e)
       case None =>
         val result =
@@ -304,6 +309,7 @@ class UniTestEngine extends TestEngine:
                 TestResult.Failure(name, message, Some(cause))
               case _ =>
                 TestResult.Error(testDef.fullName, s"after hook failed: ${e.getMessage}", e)
+    end match
 
   end runTest
 

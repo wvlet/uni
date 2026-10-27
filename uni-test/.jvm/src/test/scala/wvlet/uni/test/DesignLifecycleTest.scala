@@ -48,9 +48,9 @@ class DesignLifecycleTest extends UniTest:
   // The status of each reported event: one per test, plus one per suite-level error
   private def runSbt(suite: Class[? <: UniTest]): Seq[Status] = runSbtEvents(suite).map(_.status())
 
-  // The result status of each finished test and of the suite
-  private def runJUnit(suite: Class[? <: UniTest]): Seq[TestExecutionResult.Status] =
-    val results = ListBuffer.empty[TestExecutionResult.Status]
+  // The result of each finished test and of the suite
+  private def runJUnitResults(suite: Class[? <: UniTest]): Seq[TestExecutionResult] =
+    val results = ListBuffer.empty[TestExecutionResult]
     val request = LauncherDiscoveryRequestBuilder
       .request()
       .selectors(DiscoverySelectors.selectClass(suite))
@@ -62,9 +62,18 @@ class DesignLifecycleTest extends UniTest:
         new TestExecutionListener:
           override def executionFinished(id: TestIdentifier, r: TestExecutionResult): Unit =
             if id.getSource.isPresent then
-              results += r.getStatus
+              results += r
       )
     results.toSeq
+
+  private def runJUnit(suite: Class[? <: UniTest]): Seq[TestExecutionResult.Status] =
+    runJUnitResults(suite).map(_.getStatus)
+
+  // Whether the error carries a suppressed error whose message contains the text
+  private def hasSuppressed(e: Throwable, text: String): Boolean = e
+    .getSuppressed
+    .flatMap(s => Option(s.getMessage))
+    .exists(_.contains(text))
 
   private val healthyEvents = Seq(
     "open server",
@@ -101,22 +110,48 @@ class DesignLifecycleTest extends UniTest:
     events.map(_.status()) shouldBe Seq(Status.Error)
     val e = events.head.throwable().get()
     e.getMessage shouldContain "after failed"
-    e.getSuppressed.flatMap(s => Option(s.getMessage)).exists(_.contains("close failed")) shouldBe
-      true
+    hasSuppressed(e, "close failed") shouldBe true
   }
 
-  test("when before throws, the test's body and session do not run") {
+  private val beforeFailsEvents = Seq(
+    // The failed test: `after` runs, but its body and session do not
+    "after",
+    "open server",
+    "open client",
+    "open tempDir",
+    "after",
+    "close tempDir",
+    "close client",
+    "close server"
+  )
+
+  test("when before throws, after still runs, but the test's body and session do not") {
     log.clear()
     runSbt(classOf[BeforeFails]) shouldBe Seq(Status.Error, Status.Success)
-    log.events shouldBe
+    log.events shouldBe beforeFailsEvents
+  }
+
+  test("the JUnit engine runs after when before throws") {
+    log.clear()
+    runJUnit(classOf[BeforeFails]) shouldBe
       Seq(
-        "open server",
-        "open client",
-        "open tempDir",
-        "close tempDir",
-        "close client",
-        "close server"
+        TestExecutionResult.Status.FAILED,
+        TestExecutionResult.Status.SUCCESSFUL,
+        TestExecutionResult.Status.SUCCESSFUL
       )
+    log.events shouldBe beforeFailsEvents
+  }
+
+  test("when before and after both throw, the after error is attached to the before error") {
+    val events = runSbtEvents(classOf[BeforeAndAfterFail])
+    events.map(_.status()) shouldBe Seq(Status.Error)
+    val e = events.head.throwable().get()
+    e.getMessage shouldContain "setup failed"
+    hasSuppressed(e, "after failed") shouldBe true
+
+    val junitError = runJUnitResults(classOf[BeforeAndAfterFail]).head.getThrowable.get()
+    junitError.getMessage shouldContain "setup failed"
+    hasSuppressed(junitError, "after failed") shouldBe true
   }
 
   test("a suite session that fails to start fails every test that needs it") {
@@ -219,12 +254,22 @@ object DesignLifecycleTest:
         failNext = false
         throw IllegalStateException("setup failed")
 
+    override protected def after: Unit = log.add("after")
+
     test("errors in before") { (dir: TempDir) =>
       fail("never runs")
     }
 
     test("passes") { (client: Client, dir: TempDir) =>
       dir.isOpen shouldBe true
+    }
+
+  class BeforeAndAfterFail extends UniTest:
+    override protected def before: Unit = throw IllegalStateException("setup failed")
+    override protected def after: Unit  = throw IllegalStateException("after failed")
+
+    test("errors in before") {
+      fail("never runs")
     }
 
 end DesignLifecycleTest
