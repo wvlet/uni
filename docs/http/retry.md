@@ -42,8 +42,8 @@ The HTTP client retries on:
 
 | Condition | Description |
 |-----------|-------------|
-| Connection errors | Connection refused, closed channel, protocol errors (JVM) |
-| Timeouts | `TimeoutException`, `EOFException` |
+| Connection errors | `EOFException`; connection refused, closed channel, protocol errors (JVM) |
+| Timeouts | `TimeoutException`; `SocketTimeoutException` (JVM) |
 | 5xx Server errors | All 5xx statuses; 503 adds extra wait |
 | 408, 410, 429, 499 | Request timeout, gone, rate limiting, client closed request |
 
@@ -54,10 +54,11 @@ The following are not retried:
 | Condition | Description |
 |-----------|-------------|
 | Other 4xx Client errors | 400, 401, 403, 404, etc. |
-| SSL errors | Handshake, key, and peer verification failures |
+| SSL errors | Handshake, key, and peer verification failures (JVM) |
 | `CircuitBreakerOpenException` | Circuit breaker is open |
 
-A non-retryable failure is thrown immediately as an `HttpException`.
+A non-retryable status is thrown immediately as an `HttpException`; a non-retryable
+exception (for example an SSL handshake failure) is rethrown as is.
 
 ## Exception Classification
 
@@ -99,18 +100,25 @@ catch
 
 For more control, use the control module:
 
+A `noRetry` client reports each retryable failure (connection errors, 429, 5xx)
+as an `HttpMaxRetryException` whose cause is the original error:
+
 ```scala
 import java.io.IOException
 import wvlet.uni.control.{ResultClass, Retry}
-import wvlet.uni.http.HttpException
+import wvlet.uni.http.HttpMaxRetryException
 
 val response = Retry
   .withBackOff(maxRetry = 10, initialIntervalMillis = 500)
   .retryOn {
-    case e: IOException =>
-      ResultClass.retryableFailure(e)
-    case e: HttpException if e.statusCode.contains(429) =>
-      ResultClass.retryableFailure(e)
+    case e: HttpMaxRetryException =>
+      e.getCause match
+        case _: IOException =>
+          ResultClass.retryableFailure(e)
+        case _ if e.statusCode == 429 =>
+          ResultClass.retryableFailure(e)
+        case _ =>
+          ResultClass.nonRetryableFailure(e)
     case e =>
       ResultClass.nonRetryableFailure(e)
   }
@@ -125,13 +133,13 @@ Handle rate limits gracefully:
 
 ```scala
 import wvlet.uni.control.Retry
-import wvlet.uni.http.HttpException
+import wvlet.uni.http.HttpMaxRetryException
 
 val response = Retry
   .withBackOff(maxRetry = 5)
   .beforeRetry { ctx =>
     ctx.lastError match
-      case e: HttpException if e.statusCode.contains(429) =>
+      case e: HttpMaxRetryException if e.statusCode == 429 =>
         // Wait longer for rate limits
         Thread.sleep(ctx.retryCount * 1000L)
       case _ =>
