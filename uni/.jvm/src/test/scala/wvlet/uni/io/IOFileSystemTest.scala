@@ -154,4 +154,22 @@ class IOFileSystemTest extends UniTest:
       IO.deleteRecursively(tmpDir)
   }
 
+  test("IO should keep FileSystem default arguments for IOPath methods") {
+    val tmpDir = IO.createTempDirectory(prefix = "io-defaults-test")
+    try
+      val tmpFile = IO.createTempFile(prefix = "io-defaults", directory = Some(tmpDir))
+      IO.writeString(tmpFile, "hello")
+      IO.readString(tmpFile) shouldBe "hello"
+      IO.writeBytes(tmpFile, "bytes".getBytes)
+      IO.readString(tmpFile) shouldBe "bytes"
+
+      val copied = tmpDir / "copied.txt"
+      IO.copy(tmpFile, copied)
+      val moved = tmpDir / "moved.txt"
+      IO.move(copied, moved)
+      IO.list(tmpDir).map(_.fileName).sorted shouldBe Seq(tmpFile.fileName, "moved.txt").sorted
+    finally
+      IO.deleteRecursively(tmpDir)
+  }
+
 end IOFileSystemTest
