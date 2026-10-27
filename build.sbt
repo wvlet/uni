@@ -143,6 +143,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   uni.jvm,
   netty,
   bookExamples,
+  docSnippets,
   exampleCli.jvm,
   exampleRestServer,
   exampleMcpServer,
@@ -340,6 +341,34 @@ lazy val exampleWebUi = project
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
   )
   .dependsOn(uni.js)
+
+
+// Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
+// for the fence modifiers). Free names in snippets resolve to hand-written stubs under
+// docs/snippets/src/test/scala, in the generated package of each Markdown file. Not published.
+lazy val docSnippets = project
+  .in(file("docs/snippets"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-doc-snippets",
+    description := "Compile-checked code snippets of Markdown files (the uni skill)",
+    // The generator reads the Markdown directly, so sbt 2 must not cache its result
+    Test / sourceGenerators +=
+      Def
+        .task {
+          val base = (ThisBuild / baseDirectory).value
+          Def.uncached(
+            MarkdownSnippets.generate(
+              Seq(base / "plugins/uni/skills/uni" -> "snippets.skill"),
+              base,
+              (Test / sourceManaged).value / "markdown-snippets"
+            )
+          )
+        }
+        .taskValue
+  )
+  .dependsOn(uni.jvm, netty, test.jvm % Test)
 
 // uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project

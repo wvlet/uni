@@ -100,7 +100,7 @@ import wvlet.uni.http.netty.NettyServer
 
 ## WebSocket client
 
-```scala
+```scala reset
 import wvlet.uni.http.{Http, WebSocketContext, WebSocketHandler}
 
 val handler = new WebSocketHandler:

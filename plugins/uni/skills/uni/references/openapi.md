@@ -46,7 +46,7 @@ val yaml: String = OpenAPI
 
 ## From the build (sbt-uni)
 
-```scala
+```scala sbt
 // project/plugins.sbt
 addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
 

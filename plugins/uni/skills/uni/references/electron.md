@@ -10,7 +10,7 @@ https://github.com/wvlet/uni/tree/main/examples/electron-app)
 
 ## Shared service
 
-```scala
+```scala skip
 import wvlet.uni.rx.Rx
 import wvlet.uni.weaver.Weaver
 
@@ -34,7 +34,7 @@ class CounterApiImpl extends CounterApi:
 Electron objects are handed in from JavaScript; the Scala code never calls
 `require("electron")`.
 
-```scala
+```scala skip
 import wvlet.uni.electron.{ElectronRPCServer, ElectronRPCServerConfig}
 import wvlet.uni.http.rpc.RPCRouter
 import scala.scalajs.js
@@ -70,7 +70,7 @@ Call `ElectronRenderer.install()` once; afterwards every `newAsyncClient` (and
 generated RPC `AsyncClient`) goes over IPC. A renderer has no synchronous IPC, so
 `newSyncClient` calls throw.
 
-```scala
+```scala skip
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
@@ -94,7 +94,7 @@ object RendererApp:
 `wvlet.uni.electron.testing.ElectronTestbed` wires a fake `ipcMain` to a fake
 bridge in memory, so the IPC round trip runs in a Scala.js `UniTest`:
 
-```scala
+```scala skip
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.surface.Surface

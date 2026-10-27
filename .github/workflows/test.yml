@@ -44,6 +44,8 @@ jobs:
               - '**.ts'
               - 'pnpm-lock.yaml'
               - SCALA_VERSION
+              # The docSnippets project compiles the skill's Markdown snippets (projectJVM/test)
+              - 'plugins/uni/skills/**'
   code_format:
     name: Code format
     needs: changes
