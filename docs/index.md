@@ -32,7 +32,7 @@ features:
     details: LogSupport adds info/debug/warn with source locations to any class. JVM · JS · Native.
     link: /core/logging
   - title: JSON & MessagePack
-    details: Add `derives Weaver` to a case class to get JSON and MessagePack codecs. JVM · JS · Native.
+    details: Add <code>derives Weaver</code> to a case class to get JSON and MessagePack codecs. JVM · JS · Native.
     link: /core/weaver
   - title: Rx
     details: Composable reactive streams and variables for async code and UI state. JVM · JS · Native.
