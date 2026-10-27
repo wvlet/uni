@@ -229,6 +229,16 @@ trait UniTest
       s.foreach(_.shutdown)
     }
 
+  // Like JUnit's @AfterEach, `after` runs even when `before` failed. The `before` error stays the
+  // result, with an `after` error attached as suppressed.
+  private[test] def runAfterFailedBefore(beforeError: Throwable): Unit =
+    try
+      runAfter()
+    catch
+      case e: Throwable =>
+        if e ne beforeError then
+          beforeError.addSuppressed(e)
+
   private[test] def runAfterAll(): Unit =
     runThenClose(afterAll) {
       val s = _suiteSession

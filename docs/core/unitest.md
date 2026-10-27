@@ -453,8 +453,8 @@ Override these protected hooks to run code around tests:
 |------|------|--------------|
 | `beforeAll` | Once, before the first test | The suite fails and no test runs; `afterAll` still runs |
 | `afterAll` | Once, after the last test, also after a failed `beforeAll` | Reported as a suite error |
-| `before` | Before each test, including each nested test | The test fails; `after` is **not** called, and its body does not run |
-| `after` | After each test, once its `Future` or `Rx` result completes, also when the test fails | The test fails, unless it already failed |
+| `before` | Before each test, including each nested test | The test fails and its body does not run; `after` still runs |
+| `after` | After each test, once its `Future` or `Rx` result completes, also when the test or `before` fails | The test fails, unless it already failed |
 
 ```scala
 class CacheTest extends UniTest:

@@ -232,6 +232,7 @@ class UniTestTask(
 
             beforeFailure match
               case Some(e) =>
+                testInstance.runAfterFailedBefore(e)
                 val testElapsed = System.nanoTime() - testStart
                 val errorResult = TestResult.Error(
                   testDef.fullName,
