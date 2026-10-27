@@ -75,7 +75,7 @@ Read the reference for the task before writing code:
 | Typed RPC service, server, and generated client | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
 | HTTP server, REST controllers, filters | [references/http-server.md](references/http-server.md) |
-| Unit, HTTP, RPC, and property tests | [references/testing.md](references/testing.md) |
+| Unit, HTTP, RPC, and property tests; test tags | [references/testing.md](references/testing.md) |
 | Rx operators, RxRef/RxDeferred/RxSemaphore, fibers, parallelism | [references/rx.md](references/rx.md) |
 | Server-sent events and WebSocket (server and client) | [references/streaming.md](references/streaming.md) |
 | OpenAPI document from REST routers | [references/openapi.md](references/openapi.md) |

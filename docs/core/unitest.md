@@ -279,7 +279,9 @@ test("blocked by issue") {
 
 ### Flaky Tests
 
-Mark tests as flaky to convert failures to skipped status:
+Mark tests as flaky to convert failures to skipped status. `Flaky` is a
+[test tag](#test-tags), so it combines with other tags and can be selected or
+excluded from sbt like any of them:
 
 ```scala
 test("network test", Flaky) {
@@ -331,6 +333,87 @@ test("platform-specific behavior") {
     skip("JVM-only test")
 }
 ```
+
+## Test Tags
+
+Pass one or more tags after the test name to group tests, then run or skip a
+group from sbt. A single suite can then hold unit, integration, and UI tests
+and still run one testing layer at a time, as VSCode does with its separate
+unit, integration, and UI test commands.
+
+```scala
+test("renders the toolbar", UI) {
+  // ...
+}
+
+test("hits the real database", Integration, Slow) {
+  // ...
+}
+
+test("end-to-end happy path", Smoke) {
+  // ...
+}
+
+test("retried under load", Flaky) {
+  // ...
+}
+```
+
+Built-in tags are in scope in any `UniTest`:
+
+| Tag | Name | Meaning |
+|-----|------|---------|
+| `UI` | `ui` | UI-layer test |
+| `Electron` | `electron` | Electron-layer test |
+| `Integration` | `integration` | Uses real external systems |
+| `Smoke` | `smoke` | Quick sanity check, run as a fast pre-merge subset |
+| `Slow` | `slow` | Usually excluded from the inner-loop run |
+| `Flaky` | `flaky` | A failure is reported as skipped instead of failing the build |
+
+Define your own tags with `TestTag("name")`, or as an object when you reuse
+one across suites:
+
+```scala
+case object Gpu extends TestTag("gpu")
+
+test("trains on the GPU", Gpu, Slow) {
+  // ...
+}
+
+test("legacy path", TestTag("legacy")) {
+  // ...
+}
+```
+
+A bare string also works, as in `test("x", "legacy")`, with
+`import scala.language.implicitConversions` at the call site.
+
+### Selecting Tests by Tag
+
+Pass `--tags` and `--exclude-tags` after `--`. Both refer to a tag's name:
+
+```bash
+sbt "test -- --tags ui"                  # only tests tagged ui
+sbt "test -- --tags ui --tags slow"      # tests tagged both ui and slow
+sbt "test -- --exclude-tags slow"        # everything except slow tests
+sbt "test -- --exclude-tags flaky"       # skip known-flaky tests
+```
+
+- Repeating `--tags` narrows the selection: a test must carry every listed tag
+  (AND), like GitHub label filters.
+- `--exclude-tags` drops tests carrying any listed tag, and wins over `--tags`.
+- With no `--tags`, every test is included.
+- Tags apply to top-level tests. Nested tests run with their parent.
+
+### Why Flaky Is a Tag
+
+Earlier versions marked flaky tests with a boolean,
+`test(name, flaky = true)`. When tags were added, flakiness became one of them
+instead of a second option next to the tag list. A test is then annotated in
+one place (`test("x", Flaky, Slow)`), and the runner selects flaky tests with
+the same `--tags` / `--exclude-tags` filters as any other group, without a
+special case. The only extra behavior of `Flaky` is that a failure is reported
+as skipped.
 
 ## Design Integration
 
@@ -604,6 +687,10 @@ sbt "test -- -l:wvlet.uni.*=trace"
 
 # Filter tests by name
 sbt "test -- -t:ChatSession"
+
+# Filter tests by tag (see Test Tags)
+sbt "test -- --tags integration"
+sbt "test -- --exclude-tags slow"
 ```
 
 ::: tip Scala.js tests in a real browser
