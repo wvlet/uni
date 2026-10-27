@@ -69,35 +69,47 @@ object RxFiber:
   private case class Completed[A](result: Try[A]) extends FiberState[A]
   private case class Cancelled[A]()               extends FiberState[A]
 
+  private object CancelRequested extends Cancelable
+
   /**
     * Create a fiber from an Rx computation.
     */
   private[rx] def start[A](rx: Rx[A], scheduler: RxScheduler): RxFiber[A] =
     val fiber = new RxFiberImpl[A]()
 
-    // Run the computation on the scheduler
+    // Run the computation on the scheduler, unless the fiber was cancelled before it started
     scheduler.execute(() =>
-      val cancelable =
-        RxRunner.runOnce(rx) {
-          case OnNext(v) =>
-            fiber.complete(Success(v.asInstanceOf[A]))
-          case OnError(e) =>
-            fiber.complete(Failure(e))
-          case OnCompletion =>
-            fiber.complete(
-              Failure(new IllegalStateException("Fiber completed without producing a value"))
-            )
-        }
-      fiber.setCancelable(cancelable)
+      if !fiber.isCancelledNow then
+        val cancelable =
+          RxRunner.runOnce(rx) {
+            case OnNext(v) =>
+              fiber.complete(Success(v.asInstanceOf[A]))
+            case OnError(e) =>
+              fiber.complete(Failure(e))
+            case OnCompletion =>
+              fiber.complete(
+                Failure(new IllegalStateException("Fiber completed without producing a value"))
+              )
+          }
+        fiber.setCancelable(cancelable)
     )
 
     fiber
 
   private class RxFiberImpl[A] extends RxFiber[A]:
-    private val state      = new AtomicReference[FiberState[A]](Running(Queue.empty, Queue.empty))
-    private var cancelable = Cancelable.empty
+    private val state = new AtomicReference[FiberState[A]](Running(Queue.empty, Queue.empty))
+    // The running computation: null until it starts, CancelRequested once the fiber is cancelled
+    private val cancelable = new AtomicReference[Cancelable](null)
 
-    private[rx] def setCancelable(c: Cancelable): Unit = cancelable = c
+    private[rx] def isCancelledNow: Boolean = state.get().isInstanceOf[Cancelled[?]]
+
+    /**
+      * Set the computation's Cancelable once runOnce returns. If the fiber was cancelled while the
+      * computation was starting, cancel it now.
+      */
+    private[rx] def setCancelable(c: Cancelable): Unit =
+      if !cancelable.compareAndSet(null, c) then
+        c.cancel
 
     override def join: Rx[A] = Rx.AsyncOp[A](joinAsync, "RxFiber.join")
 
@@ -148,8 +160,10 @@ object RxFiber:
           () // Already done, nothing to cancel
         case running @ Running(joiners, cancellers) =>
           if state.compareAndSet(running, Cancelled()) then
-            // Cancel the underlying computation
-            cancelable.cancel
+            // Cancel the underlying computation, or mark it to be cancelled once it has started
+            val c = cancelable.getAndSet(CancelRequested)
+            if c != null then
+              c.cancel
 
             // Notify all joiners that we were cancelled
             val error = Failure(new InterruptedException("Fiber was cancelled"))
