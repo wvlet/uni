@@ -59,7 +59,7 @@ Use the [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html)
 (sttp, uPickle, os-lib, MUnit) for scripts, teaching, Scala 2.13, or Scala 3
 before 3.9. Use Uni when the project also needs object wiring, logging, an HTTP
 server, RPC, or MCP servers, or must run the same code on Scala.js and Scala
-Native. The two coexist in one build. See [Uni vs the Scala Toolkit](./uni-vs-scala-toolkit).
+Native. The two coexist in one build. See [Uni and the Scala Toolkit](./uni-vs-scala-toolkit).
 
 ## How do I add Uni to a build?
 
@@ -130,8 +130,10 @@ for background.
   429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
   of `HttpException`. Failed RPC client calls throw the same exceptions.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
-- **Adding a wiring framework (such as a DI container), a logging backend, or a JSON library next to Uni.**
-  Uni already provides them. Adding another creates two ways to do one thing.
+- **Mixing two libraries for one concern in the same module.** Uni works
+  alongside community libraries. If a project already uses uPickle, MUnit, sttp,
+  or another library for a concern, keep using it there. Use Uni's equivalent
+  for new code that is built on Uni.
 
 ## Where are complete example apps?
 

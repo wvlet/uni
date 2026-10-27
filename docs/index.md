@@ -67,8 +67,8 @@ JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one
 project, with minimal dependencies, and the same code runs on JVM, Scala.js, and
 Scala Native.** It is the
 Scala 3 successor of [Airframe](https://github.com/wvlet/airframe), for people
-who build services, CLIs, and tools in Scala 3 and want one set of conventions
-instead of assembling a library per concern.
+who build services, CLIs, and tools in Scala 3 and want one consistent set of
+conventions across these concerns.
 
 ## Install
 
