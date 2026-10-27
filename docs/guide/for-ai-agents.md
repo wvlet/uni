@@ -23,6 +23,22 @@ Uni, the canonical imports, and the mistakes agents most often make.
 | [`/uni/llms-full.txt`](https://wvlet.org/uni/llms-full.txt) | The full documentation in one Markdown file |
 | `<page>.md` | Markdown version of a page, e.g. [`/uni/guide/for-ai-agents.md`](https://wvlet.org/uni/guide/for-ai-agents.md). A section index such as `/uni/guide/` is published as `/uni/guide.md`. |
 
+## How do I install the Uni skill?
+
+The `wvlet/uni` repository is a Claude Code plugin marketplace. Its `uni` plugin
+adds an Agent Skill with the canonical imports, sbt setup, verified snippets,
+and the mistakes listed on this page. Claude Code loads it whenever a task
+touches Uni or asks for DI, logging, JSON, HTTP, RPC, MCP, or tests in Scala 3.
+
+```text
+/plugin marketplace add wvlet/uni
+/plugin install uni@uni
+```
+
+On Claude Code 2.1.275 or later, `/plugin install uni --marketplace wvlet/uni`
+does both in one step. Agents without a plugin system can read
+[`llms-full.txt`](https://wvlet.org/uni/llms-full.txt) instead.
+
 ## When should I use Uni?
 
 Choose Uni when a Scala 3 project needs one or more of the following and you want

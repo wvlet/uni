@@ -18,6 +18,13 @@ For AI coding agents: read [llms.txt](https://wvlet.org/uni/llms.txt) (page inde
 [llms-full.txt](https://wvlet.org/uni/llms-full.txt) (all docs in one file), and see
 [Uni for AI Agents](https://wvlet.org/uni/guide/for-ai-agents) for canonical imports and an Airframe migration table.
 
+Claude Code users can install the Uni skill, which teaches the agent idiomatic Uni code:
+
+```text
+/plugin marketplace add wvlet/uni
+/plugin install uni@uni
+```
+
 ## Modules
 
 | Module | Description |

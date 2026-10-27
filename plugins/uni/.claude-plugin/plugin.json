@@ -1,0 +1,13 @@
+{
+  "name": "uni",
+  "version": "0.1.0",
+  "description": "Teaches AI coding agents to write idiomatic Scala 3 code with Uni: DI, logging, JSON/MessagePack, HTTP, RPC, MCP servers, and UniTest",
+  "author": {
+    "name": "wvlet",
+    "url": "https://github.com/wvlet"
+  },
+  "homepage": "https://wvlet.org/uni/guide/for-ai-agents",
+  "repository": "https://github.com/wvlet/uni",
+  "license": "Apache-2.0",
+  "keywords": ["scala", "scala3", "dependency-injection", "json", "http", "mcp", "testing", "airframe"]
+}

@@ -1,0 +1,15 @@
+{
+  "name": "uni",
+  "description": "Claude Code plugins for Uni, the Scala 3 utility library (org.wvlet.uni)",
+  "owner": {
+    "name": "wvlet",
+    "url": "https://github.com/wvlet"
+  },
+  "plugins": [
+    {
+      "name": "uni",
+      "source": "./plugins/uni",
+      "description": "Teaches AI coding agents to write idiomatic Scala 3 code with Uni: DI, logging, JSON/MessagePack, HTTP, RPC, MCP servers, and UniTest"
+    }
+  ]
+}
