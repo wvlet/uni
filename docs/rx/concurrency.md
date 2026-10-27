@@ -200,8 +200,8 @@ val periodic = default.scheduleAtFixedRate(
 }
 
 // Cancel scheduled tasks
-cancel.cancel()
-periodic.cancel()
+cancel.cancel
+periodic.cancel
 ```
 
 ### Platform Behavior

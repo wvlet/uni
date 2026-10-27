@@ -28,9 +28,9 @@ val bytes = packer.toByteArray
 val unpacker = MessagePack.newUnpacker(bytes)
 
 // Unpack in the same order
-val name = unpacker.unpackString()  // "Alice"
-val age = unpacker.unpackInt()       // 30
-val active = unpacker.unpackBoolean() // true
+val name = unpacker.unpackString  // "Alice"
+val age = unpacker.unpackInt       // 30
+val active = unpacker.unpackBoolean // true
 ```
 
 ## Packing Complex Structures
@@ -67,8 +67,8 @@ packer.packInt(30)
 ```scala
 val unpacker = MessagePack.newUnpacker(bytes)
 
-val size = unpacker.unpackArrayHeader()
-val items = (0 until size).map(_ => unpacker.unpackInt())
+val size = unpacker.unpackArrayHeader
+val items = (0 until size).map(_ => unpacker.unpackInt)
 ```
 
 ### Maps
@@ -76,10 +76,10 @@ val items = (0 until size).map(_ => unpacker.unpackInt())
 ```scala
 val unpacker = MessagePack.newUnpacker(bytes)
 
-val size = unpacker.unpackMapHeader()
+val size = unpacker.unpackMapHeader
 val map = (0 until size).map { _ =>
-  val key = unpacker.unpackString()
-  val value = unpacker.unpackInt()
+  val key = unpacker.unpackString
+  val value = unpacker.unpackInt
   key -> value
 }.toMap
 ```

@@ -42,7 +42,7 @@ Small, focused utilities that combine well:
 ```scala
 // Combine retry with HTTP client
 val response = Retry
-  .withBackoff(maxRetry = 3)
+  .withBackOff(maxRetry = 3)
   .run {
     httpClient.send(request)
   }

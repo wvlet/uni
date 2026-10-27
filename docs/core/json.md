@@ -53,10 +53,8 @@ val titles = (json / "posts" / "title").values
 ### Safe Access with Option
 
 ```scala
-val email: Option[String] = for
-  user <- json.get("user")
-  email <- user.get("email")
-yield email.toStringValue
+// `/` returns an empty Seq when a field is missing
+val email: Option[String] = (json / "user" / "email").headOption.map(_.toStringValue)
 ```
 
 ## Value Types
@@ -64,8 +62,10 @@ yield email.toStringValue
 JSON values have specific types:
 
 ```scala
+import wvlet.uni.json.JSON.*
+
 json match
-  case JSONObject(map) => // Object with fields
+  case JSONObject(fields) => // Object with fields (Seq[(String, JSONValue)])
   case JSONArray(items) => // Array of values
   case JSONString(s) => // String value
   case JSONLong(n) => // Integer value
@@ -79,7 +79,7 @@ json match
 ### Programmatic Construction
 
 ```scala
-import wvlet.uni.json.*
+import wvlet.uni.json.JSON.*
 
 val userJson = JSONObject(Seq(
   "id" -> JSONLong(456),
@@ -105,14 +105,14 @@ val jsonStr = userJson.toJSON
 ```scala
 val posts = json("posts")
 
-// Get all items
-val allPosts = posts.values
+// Get all items as IndexedSeq[JSONValue]
+val allPosts = posts.toArrayValue
 
 // Map over items
-val titles = posts.values.map(p => p("title").toStringValue)
+val titles = allPosts.map(p => p("title").toStringValue)
 
 // Filter items
-val filteredPosts = posts.values.filter(p =>
+val filteredPosts = allPosts.filter(p =>
   p("id").toLongValue > 1
 )
 ```
@@ -203,7 +203,8 @@ Convert JSON to YAML format:
 ```scala
 import wvlet.uni.json.YAMLFormatter
 
-val yaml = YAMLFormatter.toYAML(json)
+// toYaml takes a JSON string
+val yaml = YAMLFormatter.toYaml(jsonString)
 // user:
 //   id: 123
 //   name: Alice

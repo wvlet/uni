@@ -180,7 +180,8 @@ Paths are parsed into components:
 Add filters that apply to the routes of a router:
 
 ```scala
-import wvlet.uni.http.RxHttpFilter
+import wvlet.uni.http.{Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.rx.Rx
 
 class AuthFilter extends RxHttpFilter:
   def apply(request: Request, next: RxHttpHandler): Rx[Response] =

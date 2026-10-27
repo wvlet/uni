@@ -118,12 +118,14 @@ added alongside the case's own fields. The default discriminator is `@type`:
 
 ```scala
 sealed trait Shape derives Weaver
-case class Circle(radius: Double)            extends Shape
-case class Rectangle(w: Double, h: Double)   extends Shape
-case object Unknown                          extends Shape
+case class Circle(radius: Double)            extends Shape derives Weaver
+case class Rectangle(w: Double, h: Double)   extends Shape derives Weaver
+case object Unknown                          extends Shape derives Weaver
 
-Weaver.toJson(Circle(1.0))   // {"@type":"Circle","radius":1.0}
-Weaver.toJson(Unknown)       // {"@type":"Unknown"}
+// Encode as the trait type to get the discriminator;
+// Weaver.toJson(Circle(1.0)) uses Circle's own Weaver: {"radius":1.0}
+Weaver.toJson[Shape](Circle(1.0))   // {"@type":"Circle","radius":1.0}
+Weaver.toJson[Shape](Unknown)       // {"@type":"Unknown"}
 ```
 
 Change the discriminator via [`WeaverConfig`](#configuration):
@@ -132,7 +134,7 @@ Change the discriminator via [`WeaverConfig`](#configuration):
 import wvlet.uni.weaver.WeaverConfig
 
 val cfg = WeaverConfig().withDiscriminatorFieldName("kind")
-Weaver.toJson(Circle(1.0), cfg)   // {"kind":"Circle","radius":1.0}
+Weaver.toJson[Shape](Circle(1.0), cfg)   // {"kind":"Circle","radius":1.0}
 ```
 
 ## Configuration

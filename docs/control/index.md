@@ -16,21 +16,21 @@ uni provides utilities for handling failures gracefully and managing resources p
 ## Quick Example
 
 ```scala
-import wvlet.uni.control.{Retry, CircuitBreaker, Resource}
+import wvlet.uni.control.{Retry, CircuitBreaker, Control}
 
 // Retry a flaky operation
-val result = Retry.withBackoff(maxRetry = 3).run {
+val result = Retry.withBackOff(maxRetry = 3).run {
   callExternalService()
 }
 
 // Protect with circuit breaker
-val breaker = CircuitBreaker(maxFailures = 5)
-val protected = breaker.protect {
+val breaker = CircuitBreaker.withConsecutiveFailures(5)
+val guarded = breaker.run {
   riskyOperation()
 }
 
 // Safe resource handling
-Resource.withResource(openConnection()) { conn =>
+Control.withResource(openConnection()) { conn =>
   useConnection(conn)
 } // Automatically closed
 ```

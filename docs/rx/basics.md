@@ -13,7 +13,7 @@ import wvlet.uni.rx.Rx
 val single = Rx.single(42)
 
 // Lazy evaluation
-val lazy = Rx.single {
+val deferred = Rx.single {
   println("Computing...")
   expensiveComputation()
 }
@@ -96,7 +96,7 @@ val cancelable = Rx.fromSeq(1 to 5).subscribe { value =>
 val cancelable = stream.subscribe(println)
 
 // Later...
-cancelable.cancel()
+cancelable.cancel
 ```
 
 ### Running to Completion
@@ -177,9 +177,9 @@ val queue = Rx.queue[Int]()
 
 queue.subscribe(println)
 
-queue.add(1)  // Prints: 1
-queue.add(2)  // Prints: 2
-queue.add(3)  // Prints: 3
+queue.put(1)  // Prints: 1
+queue.put(2)  // Prints: 2
+queue.put(3)  // Prints: 3
 ```
 
 ## Best Practices
