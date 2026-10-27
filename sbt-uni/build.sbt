@@ -49,7 +49,8 @@ lazy val sbtUni = project
   .enablePlugins(SbtPlugin)
   .settings(
     name        := "sbt-uni",
-    description := "sbt plugin for uni",
+    description :=
+      "sbt 2.x plugin for Uni: uniRestart/uniStop/uniStatus to run servers in the background during development, HTTP/RPC client code generation from service traits, and OpenAPI spec generation from Uni routers",
     licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
     homepage := Some(uri("https://github.com/wvlet/uni")),
     scmInfo  :=

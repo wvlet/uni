@@ -60,8 +60,9 @@ lazy val jsenv = project
   .in(file("jsenv"))
   .settings(commonSettings)
   .settings(
-    name         := "uni-jsenv-playwright",
-    description  := "A Scala.js JSEnv that runs tests in a real browser via Java Playwright",
+    name        := "uni-jsenv-playwright",
+    description :=
+      "Scala.js JSEnv that runs tests in a real headless browser (Chromium, Firefox, or WebKit) via Java Playwright, without Node.js or npm",
     scalaVersion := SCALA_3,
     libraryDependencies ++=
       Seq(
@@ -79,7 +80,8 @@ lazy val plugin = project
   .settings(commonSettings)
   .settings(
     name        := "sbt-uni-playwright",
-    description := "sbt 2.x plugin: run Scala.js tests in a real browser via Playwright",
+    description :=
+      "sbt 2.x plugin that runs Scala.js tests in a real headless browser (Chromium, Firefox, or WebKit) via Playwright, with full DOM and ES module support",
     // Depend on sbt-scalajs so the plugin can set the `Test / jsEnv` key for consumers.
     addSbtPlugin("org.scala-js" % "sbt-scalajs" % "1.22.0"),
     scriptedLaunchOpts := {
