@@ -232,12 +232,7 @@ class UniTestTask(
 
             beforeFailure match
               case Some(e) =>
-                // Like JUnit's @AfterEach, `after` still runs. The `before` error stays the result.
-                try
-                  testInstance.runAfter()
-                catch
-                  case afterError: Throwable =>
-                    e.addSuppressed(afterError)
+                testInstance.runAfterFailedBefore(e)
                 val testElapsed = System.nanoTime() - testStart
                 val errorResult = TestResult.Error(
                   testDef.fullName,

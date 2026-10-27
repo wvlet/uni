@@ -277,11 +277,7 @@ class UniTestEngine extends TestEngine:
           Some(e)
     beforeError match
       case Some(e) =>
-        try
-          instance.runAfter()
-        catch
-          case afterError: Throwable =>
-            e.addSuppressed(afterError)
+        instance.runAfterFailedBefore(e)
         TestResult.Error(testDef.fullName, s"before hook failed: ${e.getMessage}", e)
       case None =>
         val result =
