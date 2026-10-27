@@ -147,9 +147,7 @@ trait UniTest
   /**
     * Execute a test, returning Future[TestResult] to support async test bodies on all platforms.
     */
-  private[test] def executeTest(testDef: TestDef): Future[TestResult] =
-    given ExecutionContext = wvlet.uni.test.compat.executionContext
-
+  private[test] def executeTest(testDef: TestDef)(using ExecutionContext): Future[TestResult] =
     def toTestResult: Try[Any] => Try[TestResult] =
       case Success(_) =>
         Success(TestResult.Success(testDef.fullName))
@@ -167,7 +165,7 @@ trait UniTest
         case f: Future[?] =>
           f.transform(toTestResult)
         case rx: RxOps[?] =>
-          // Subscribe on the execution context to keep the subscription off the caller thread
+          // Subscribe as a task on the runner's execution context, after the body has returned
           Future.delegate(RxTestRunner.firstValue(rx)).transform(toTestResult)
         case _ =>
           Future.successful(TestResult.Success(testDef.fullName))

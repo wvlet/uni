@@ -14,7 +14,9 @@
 package wvlet.uni.test
 
 import java.lang.reflect.InvocationTargetException
+import java.util.concurrent.LinkedBlockingQueue
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /**
   * JVM specific compatibility layer for uni-test
@@ -31,6 +33,63 @@ private[test] object compat:
     * Execution context for async operations
     */
   val executionContext: ExecutionContext = ExecutionContext.global
+
+  /**
+    * Run a test suite on the calling thread, which sbt dedicates to the suite. Running it on
+    * ExecutionContext.global instead would let test bodies that block on Futures in that pool
+    * starve it.
+    */
+  def runSuite(suite: ExecutionContext => Future[Unit]): Unit =
+    val loop = RunLoop()
+    try loop.runUntilComplete(suite(loop))
+    finally loop.close()
+
+  /**
+    * An ExecutionContext whose tasks run on the thread that calls runUntilComplete
+    */
+  private class RunLoop extends ExecutionContext:
+    private val queue  = LinkedBlockingQueue[Runnable]()
+    private var closed = false
+
+    override def execute(task: Runnable): Unit =
+      val queued = synchronized {
+        if !closed then
+          queue.add(task)
+        !closed
+      }
+      // A callback that arrives after the suite finished has no thread to run it here
+      if !queued then
+        ExecutionContext.global.execute(task)
+
+    override def reportFailure(cause: Throwable): Unit = ExecutionContext
+      .global
+      .reportFailure(cause)
+
+    def runUntilComplete(f: Future[Unit]): Unit =
+      // Wake up the loop when the suite completes from another thread
+      f.onComplete(_ => queue.add(() => ()))(using ExecutionContext.parasitic)
+      while !f.isCompleted do
+        val task = queue.take()
+        try
+          task.run()
+        catch
+          case NonFatal(e) =>
+            reportFailure(e)
+        // Clear an interrupt flag a test body left behind, as a pool worker would between tasks,
+        // so that it does not abort the suite at the next take()
+        Thread.interrupted()
+      f.value.get.get
+
+    def close(): Unit =
+      val pending = synchronized {
+        closed = true
+        val tasks = java.util.ArrayList[Runnable]()
+        queue.drainTo(tasks)
+        tasks
+      }
+      pending.forEach(ExecutionContext.global.execute(_))
+
+  end RunLoop
 
   /**
     * Create a new instance of the test class or get singleton instance if it's an object. Throws

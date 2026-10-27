@@ -185,7 +185,10 @@ class UniTestEngine extends TestEngine:
               executedTests.add(testDef.fullName)
 
               val beforeCount = instance.registeredTests.size
-              val result      = Await.result(instance.executeTest(testDef), 30.seconds)
+              val result      = Await.result(
+                instance.executeTest(testDef)(using compat.executionContext),
+                30.seconds
+              )
               val isContainer = instance.registeredTests.size > beforeCount
 
               // Report failing containers or any leaf test
