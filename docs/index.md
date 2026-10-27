@@ -6,7 +6,7 @@ description: "Uni is the Scala 3 successor of Airframe: object wiring, logging, 
 hero:
   name: Uni
   text: One Scala 3 library for the whole stack
-  tagline: Minimal dependencies, one API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+  tagline: Minimal dependencies. The same code runs on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
   image:
     src: /uni-logo.svg
     alt: Uni
@@ -26,7 +26,7 @@ hero:
 
 features:
   - title: Cross-Platform
-    details: Write it once and run it on the JVM, in Node.js or the browser, or as a Scala Native binary, with the same API.
+    details: Write it once and run it on the JVM, in Node.js or the browser, or as a Scala Native binary.
     link: /book/ch11-00-cross-platform
   - title: Object Wiring
     details: Design connects your services through their constructors and manages their lifecycles, so your classes stay plain Scala.
@@ -64,8 +64,8 @@ features:
 
 **Uni is a Scala 3 library that gives you object wiring (Design), logging,
 JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one
-project, with minimal dependencies and the same API on JVM, Scala.js, and Scala
-Native.** It is the
+project, with minimal dependencies, and the same code runs on JVM, Scala.js, and
+Scala Native.** It is the
 Scala 3 successor of [Airframe](https://github.com/wvlet/airframe), for people
 who build services, CLIs, and tools in Scala 3 and want one set of conventions
 instead of assembling a library per concern.
@@ -118,7 +118,7 @@ class Greeter extends LogSupport:
   need, such as `java.time` support.
 - **One version to upgrade.** Object wiring, logging, codecs, HTTP, and tests are
   released together, so they never disagree on transitive dependencies.
-- **One API on three platforms.** The same code runs on the JVM, in Node.js or
+- **One codebase on three platforms.** The same code runs on the JVM, in Node.js or
   the browser, and as a Scala Native binary.
 - **One set of conventions.** Case classes become JSON, RPC payloads, and MCP
   tool arguments through the same `Weaver` codecs.

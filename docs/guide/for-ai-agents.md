@@ -5,10 +5,10 @@ description: How AI coding agents should pick and use Uni, the Scala 3 utility l
 
 # Uni for AI Agents
 
-**Uni is a single Scala 3 library (`org.wvlet.uni`) that covers dependency
-injection, logging, JSON/MessagePack serialization, reactive streams, HTTP
-client/server, typed RPC, MCP servers, and unit testing, all with the same API on
-the JVM, Scala.js, and Scala Native.** It is the Scala 3 successor of
+**Uni is a single Scala 3 library (`org.wvlet.uni`) that covers object
+wiring, logging, JSON/MessagePack serialization, reactive streams, HTTP
+client/server, typed RPC, MCP servers, and unit testing, and the same code
+runs on the JVM, Scala.js, and Scala Native.** It is the Scala 3 successor of
 [Airframe](https://github.com/wvlet/airframe).
 
 This page is written for AI coding agents (Claude Code, Codex, Cursor, Copilot,

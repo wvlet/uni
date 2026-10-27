@@ -6,8 +6,8 @@ description: Write idiomatic Scala 3 code with Uni (org.wvlet.uni, packages wvle
 # Uni
 
 Uni is one Scala 3 library (`org.wvlet.uni`) for object wiring, logging, JSON/MessagePack,
-Rx, HTTP (with SSE and WebSocket), RPC, MCP servers, CLI tools, and testing, with
-the same API on JVM, Scala.js, and Scala Native. It replaces Airframe; the package root is `wvlet.uni.*`.
+Rx, HTTP (with SSE and WebSocket), RPC, MCP servers, CLI tools, and testing, and
+the same code runs on JVM, Scala.js, and Scala Native. It replaces Airframe; the package root is `wvlet.uni.*`.
 
 ## sbt setup
 
