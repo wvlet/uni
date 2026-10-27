@@ -138,10 +138,24 @@ lazy val root = project
   .settings(buildSettings, name := "uni-root", publish / skip := true)
   .aggregate((jvmProjects ++ jsProjects ++ nativeProjects) *)
 
-lazy val jvmProjects: Seq[ProjectReference] = Seq(core.jvm, uni.jvm, netty, bookExamples, test.jvm)
+lazy val jvmProjects: Seq[ProjectReference] = Seq(
+  core.jvm,
+  uni.jvm,
+  netty,
+  bookExamples,
+  exampleCli.jvm,
+  exampleRestServer,
+  exampleMcpServer,
+  test.jvm
+)
 
-lazy val jsProjects: Seq[ProjectReference]     = Seq(core.js, uni.js, domTest, test.js)
-lazy val nativeProjects: Seq[ProjectReference] = Seq(core.native, uni.native, test.native)
+lazy val jsProjects: Seq[ProjectReference] = Seq(core.js, uni.js, domTest, exampleWebUi, test.js)
+lazy val nativeProjects: Seq[ProjectReference] = Seq(
+  core.native,
+  uni.native,
+  exampleCli.native,
+  test.native
+)
 
 lazy val projectJVM = project
   .settings(noPublish)
@@ -264,6 +278,68 @@ lazy val bookExamples = project
     description := "Compile-checked code examples from The Uni Book"
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
+
+// Runnable example apps (examples/*), one project per folder so each can be copied as a template.
+// Not published; aggregated into projectJVM/JS/Native so CI compiles (and tests) them.
+lazy val exampleCli = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("examples/cli-tool"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-cli",
+    description :=
+      "Example: a CLI tool with the uni launcher, logging, Weaver JSON, and HTTP client"
+  )
+  .nativeSettings(
+    nativeBuildSettings,
+    // The tests are JVM-only (.jvm/src/test); skip linking an empty Native test binary in CI.
+    // Build the binary with exampleCliNative/nativeLink.
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .dependsOn(uni, test % Test)
+
+lazy val exampleRestServer = project
+  .in(file("examples/rest-server"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-rest-server",
+    description := "Example: a REST + RPC server with uni-netty, Router, RPCRouter, and Design"
+  )
+  .dependsOn(uni.jvm, netty, test.jvm % Test)
+
+lazy val exampleMcpServer = project
+  .in(file("examples/mcp-server"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-mcp-server",
+    description := "Example: a stdio MCP server built with wvlet.uni.mcp",
+    // `sbt run` as an MCP command: fork so stdin reaches the server and stdout carries only
+    // protocol messages
+    run / fork         := true,
+    run / connectInput := true,
+    outputStrategy     := Some(StdoutOutput)
+  )
+  .dependsOn(uni.jvm, test.jvm % Test)
+
+lazy val exampleWebUi = project
+  .in(file("examples/web-ui"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name                            := "uni-example-web-ui",
+    description                     := "Example: a browser UI with RxElement (Scala.js)",
+    scalaJSUseMainModuleInitializer := true,
+    // Emit main.js next to index.html (examples/web-ui/target/js) so a static server can load it
+    Compile / fastLinkJS / scalaJSLinkerOutputDirectory := baseDirectory.value / "target" / "js",
+    // No tests: skip linking an empty Scala.js test module in CI
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .dependsOn(uni.js)
 
 // uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project

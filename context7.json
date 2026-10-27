@@ -5,12 +5,15 @@
   "projectTitle": "Uni",
   "description": "Essential Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection, logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing. The Scala 3 successor of Airframe.",
   "folders": [
-    "docs"
+    "docs",
+    "examples"
   ],
   "excludeFolders": [
     "docs/.vitepress",
     "docs/public",
-    "docs/design"
+    "docs/design",
+    "examples/electron-app/node_modules",
+    "examples/web-ui/target"
   ],
   "excludeFiles": [
     "AGENTS.md",

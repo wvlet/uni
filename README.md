@@ -18,6 +18,10 @@ For AI coding agents: read [llms.txt](https://wvlet.org/uni/llms.txt) (page inde
 [llms-full.txt](https://wvlet.org/uni/llms-full.txt) (all docs in one file), and see
 [Uni for AI Agents](https://wvlet.org/uni/guide/for-ai-agents) for canonical imports and an Airframe migration table.
 
+Runnable example apps, compiled and tested in CI, live in [`examples/`](examples/): a CLI tool
+(JVM and Scala Native), a REST + RPC server, a stdio MCP server, and Scala.js UIs. Copy one as a
+starting point.
+
 Claude Code users can install the Uni skill, which teaches the agent idiomatic Uni code:
 
 ```text
