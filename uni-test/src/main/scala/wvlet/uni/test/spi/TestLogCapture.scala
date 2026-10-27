@@ -16,6 +16,7 @@ package wvlet.uni.test.spi
 import wvlet.uni.log.LogFormatter.SourceCodeLogFormatter
 import wvlet.uni.log.Logger
 
+import java.util.function.Supplier
 import java.util.logging as jl
 
 /**
@@ -33,10 +34,29 @@ import java.util.logging as jl
 private[test] object TestLogCapture:
   private val currentLoggers = ThreadLocal[Array[sbt.testing.Logger]]()
 
-  private class RoutingHandler(val original: Seq[jl.Handler]) extends jl.Handler:
+  /**
+    * Wraps the root logger's handlers. Each runner's class loader has its own copy of this class,
+    * so a runner of another project in the same JVM may wrap this router in its own. After
+    * `remove()`, the router passes records through and returns the handlers it wrapped from
+    * `get()`, a JDK-typed accessor that a runner of any class loader can use to unwrap it.
+    */
+  private class RoutingHandler(original: Array[jl.Handler])
+      extends jl.Handler,
+        Supplier[Array[jl.Handler]]:
+    @volatile
+    private var removed = false
+
+    def remove(): Unit = removed = true
+
+    override def get(): Array[jl.Handler] =
+      if removed then
+        original
+      else
+        null
+
     override def publish(record: jl.LogRecord): Unit =
       val loggers = currentLoggers.get()
-      if loggers == null then
+      if removed || loggers == null then
         original.foreach(_.publish(record))
       else
         val msg   = SourceCodeLogFormatter.format(record)
@@ -54,24 +74,44 @@ private[test] object TestLogCapture:
   end RoutingHandler
 
   /**
-    * Install the routing handler on the root logger. Returns an action that restores the original
-    * handlers, or a no-op when a routing handler is already installed (e.g., by an enclosing
-    * runner).
+    * Replace removed routers, of any class loader, with the handlers they wrapped
+    */
+  private def unwrapRemoved(handlers: Seq[jl.Handler]): Seq[jl.Handler] = handlers.flatMap { h =>
+    h match
+      case s: Supplier[?] =>
+        s.get() match
+          case wrapped: Array[jl.Handler] =>
+            unwrapRemoved(wrapped.toSeq)
+          case _ =>
+            Seq(h)
+      case _ =>
+        Seq(h)
+  }
+
+  private def setHandlers(root: Logger, handlers: Seq[jl.Handler]): Unit =
+    if handlers != root.getHandlers then
+      root.clearHandlers
+      handlers.foreach(root.addHandler)
+
+  /**
+    * Install the routing handler on the root logger. Returns an action that removes it again, or a
+    * no-op when a routing handler is already installed (e.g., by an enclosing runner).
     */
   def install(): () => Unit = synchronized {
     val root     = Logger.rootLogger
-    val handlers = root.getHandlers
+    val handlers = unwrapRemoved(root.getHandlers)
     if handlers.exists(_.isInstanceOf[RoutingHandler]) then
+      setHandlers(root, handlers)
       () => ()
     else
-      val router = RoutingHandler(handlers)
-      root.resetHandler(router)
+      val router = RoutingHandler(handlers.toArray)
+      setHandlers(root, Seq(router))
       () =>
         synchronized {
-          // Leave the handlers alone if test code replaced them in the meantime
-          if root.getHandlers == Seq(router) then
-            root.clearHandlers
-            router.original.foreach(root.addHandler)
+          router.remove()
+          // Unwraps this router, and any router removed earlier while this one wrapped it. Handlers
+          // that test code set in the meantime are kept.
+          setHandlers(root, unwrapRemoved(root.getHandlers))
         }
   }
 

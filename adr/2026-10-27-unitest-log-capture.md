@@ -6,7 +6,7 @@ sbt buffers what a test framework writes to the `sbt.testing.Logger`s of a task 
 
 ## Decision
 
-- `TestLogCapture.install()` wraps the root logger's handlers in a routing handler when a `UniTestRunner` starts. `done()` restores the original handlers, unless test code replaced them in the meantime. A nested runner (a test that drives the runner) reuses the installed handler.
+- `TestLogCapture.install()` wraps the root logger's handlers in a routing handler when a `UniTestRunner` starts. `done()` restores the original handlers, unless test code replaced them in the meantime. A nested runner (a test that drives the runner) reuses the installed handler. Runners of other projects in the same sbt JVM load their own copy of the router class and wrap the installed one. A removed router passes records through and exposes the handlers it wrapped via `java.util.function.Supplier`, a JDK type every class loader shares, so whichever runner touches the root handlers next unwraps it, whatever order the runners finish in.
 - The blocking `UniTestTask.execute` sets a `ThreadLocal` to the task's loggers around the suite and restores the previous value afterwards. On that thread, records are formatted with `SourceCodeLogFormatter` and sent to the loggers' `error`/`warn`/`info` by level. Records from other threads go to the original handlers.
 - On the JVM, construction, hooks and bodies run on the sbt task thread (see `2026-10-27-unitest-suite-thread.md`), so this covers test code and what it calls synchronously.
 

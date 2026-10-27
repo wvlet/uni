@@ -49,11 +49,24 @@ class RunnerOutputTest extends UniTest:
     val handler =
       new EventHandler:
         override def handle(event: Event): Unit = ()
-    val t = Thread(() => task.execute(handler, Array(logger)): Unit)
+    var error: Throwable = null
+    val t                = Thread { () =>
+      try
+        task.execute(handler, Array(logger))
+        ()
+      catch
+        case e: Throwable =>
+          error = e
+    }
     t.start()
     t.join(30000)
     runner.done()
+    t.isAlive shouldBe false
+    if error != null then
+      throw error
     lines.asScala.toSeq
+
+  end runFixture
 
   test("log records of a test appear between the class header and its result") {
     val lines = runFixture(classOf[LoggingFixture])
