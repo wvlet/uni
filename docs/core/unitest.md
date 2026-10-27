@@ -597,14 +597,6 @@ trait AuditFixture extends UniTest:
     finally super.afterAll
 ```
 
-::: warning Do not use self-type fixtures
-`trait F { this: UniTest => override protected def beforeAll: Unit = ... }`
-compiles, but a self-type trait does not inherit the hooks it overrides. When two
-such fixtures are mixed in, only the last one's hooks run, and the other's setup
-is silently skipped. Inside it, `super.beforeAll` does not compile. Extend
-`UniTest` instead, and prefer Design bindings over hooks.
-:::
-
 ## Property-Based Testing
 
 UniTest ships a self-contained property-based testing toolkit — no external
@@ -876,7 +868,7 @@ Test results are displayed with status symbols:
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions
-2. **Use Design for wiring** - Bind test objects with `addDesign` / `addTestDesign` and take them as test arguments; share setup through fixture traits that extend `UniTest` (not a self-type). See [Reusable Fixtures](#reusable-fixtures)
+2. **Use Design for wiring** - Bind test objects with `addDesign` / `addTestDesign` and take them as test arguments; share setup through fixture traits that extend `UniTest`. See [Reusable Fixtures](#reusable-fixtures)
 3. **Prefer `shouldMatch`** - Use pattern matching for type checks instead of `asInstanceOf`
 4. **One behavior per test** - Keep tests focused on a single behavior
 5. **Descriptive names** - Test names should describe the expected behavior
