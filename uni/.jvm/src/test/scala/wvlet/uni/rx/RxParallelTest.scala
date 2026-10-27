@@ -74,6 +74,64 @@ class RxParallelTest extends UniTest:
       .await shouldBe Some(100000)
   }
 
+  test("parSequenceN runs at most `parallelism` computations at a time") {
+    val overlap = Overlap()
+    RxParallel.parSequenceN(2)((1 to 8).map(i => Rx.single(overlap(i)))).await shouldBe (1 to 8)
+    (overlap.max.get <= 2) shouldBe true
+  }
+
+  test("race cancels the slower computation") {
+    val slowFinished = AtomicInteger(0)
+    RxParallel
+      .race(
+        Rx.single(1),
+        Rx.delay(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+          .map { _ =>
+            slowFinished.incrementAndGet()
+            2
+          }
+      )
+      .await shouldBe 1
+    Thread.sleep(400)
+    slowFinished.get shouldBe 0
+  }
+
+  test("parSequence cancels running computations after the first error") {
+    val finished = AtomicInteger(0)
+    intercept[IllegalStateException] {
+      RxParallel
+        .parSequence(
+          Seq(
+            Rx.delay(50, java.util.concurrent.TimeUnit.MILLISECONDS)
+              .flatMap(_ => Rx.exception[Int](IllegalStateException("bad"))),
+            Rx.delay(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+              .map { _ =>
+                finished.incrementAndGet()
+                2
+              }
+          )
+        )
+        .await
+    }
+    Thread.sleep(400)
+    finished.get shouldBe 0
+  }
+
+  test("cancelling a race subscription cancels every computation") {
+    val finished              = AtomicInteger(0)
+    def slow(v: Int): Rx[Int] = Rx
+      .delay(300, java.util.concurrent.TimeUnit.MILLISECONDS)
+      .map { _ =>
+        finished.incrementAndGet()
+        v
+      }
+    val c = RxParallel.race(slow(1), slow(2)).run()
+    Thread.sleep(50)
+    c.cancel
+    Thread.sleep(400)
+    finished.get shouldBe 0
+  }
+
   test("Rx.parallel runs RxParallel operations") {
     Rx.parallel.parTraverseN(2)(1 to 4)(i => Rx.single(i * 10)).await shouldBe Seq(10, 20, 30, 40)
   }

@@ -18,7 +18,8 @@ import wvlet.uni.test.UniTest
 import scala.collection.mutable
 
 /**
-  * merge, parFlatMap, and parMapN on every platform. Tests return Rx, so they also run on Scala.js.
+  * merge, parFlatMap, parMapN, race, and parSequence on every platform. Tests return Rx, so they
+  * also run on Scala.js.
   */
 class RxMergeTest extends UniTest:
 
@@ -174,6 +175,58 @@ class RxMergeTest extends UniTest:
     collect(Rx.fromSeq(1 to 10).parMapN(3)(_ * 2)).map { values =>
       values.sorted shouldBe (1 to 10).map(_ * 2)
     }
+  }
+
+  test("race returns the first result") {
+    RxParallel
+      .race(Rx.single(1), Rx.delay(200, java.util.concurrent.TimeUnit.MILLISECONDS).map(_ => 2))
+      .map(_ shouldBe 1)
+  }
+
+  test("race reports an error that comes first") {
+    RxParallel
+      .race(
+        Rx.exception[Int](IllegalStateException("boom")),
+        Rx.delay(200, java.util.concurrent.TimeUnit.MILLISECONDS).map(_ => 2)
+      )
+      .map(_ => "no error")
+      .recover { case e: IllegalStateException =>
+        e.getMessage
+      }
+      .map(_ shouldBe "boom")
+  }
+
+  test("parSequenceN collects results in input order") {
+    RxParallel
+      .parSequenceN(2)(
+        Seq(
+          Rx.delay(50, java.util.concurrent.TimeUnit.MILLISECONDS).map(_ => 1),
+          Rx.single(2),
+          Rx.single(3)
+        )
+      )
+      .map(_ shouldBe Seq(1, 2, 3))
+  }
+
+  test("parSequence of an empty sequence") {
+    RxParallel.parSequence(Seq.empty[Rx[Int]]).map(_ shouldBe Seq.empty)
+  }
+
+  test("parSequence fails with the first error") {
+    RxParallel
+      .parSequence(Seq(Rx.single(1), Rx.exception[Int](IllegalStateException("bad"))))
+      .map(_ => "no error")
+      .recover { case e: IllegalStateException =>
+        e.getMessage
+      }
+      .map(_ shouldBe "bad")
+  }
+
+  test("parTraverse and parZip") {
+    RxParallel
+      .parTraverse(Seq(1, 2, 3))(i => Rx.single(i * 10))
+      .join(Rx.single(1).parZip(Rx.single("a")))
+      .map(_ shouldBe (Seq(10, 20, 30), (1, "a")))
   }
 
   test("Rx.parallel is RxParallel") {

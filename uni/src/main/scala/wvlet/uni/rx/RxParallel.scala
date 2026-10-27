@@ -13,14 +13,6 @@
  */
 package wvlet.uni.rx
 
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-import java.util.concurrent.atomic.AtomicReference
-import scala.collection.mutable.ArrayBuffer
-import scala.util.Failure
-import scala.util.Success
-import scala.util.Try
-
 /**
   * Parallel operators for Rx streams.
   *
@@ -35,51 +27,14 @@ object RxParallel:
   def race[A](a: Rx[A], b: Rx[A]): Rx[A] = race(Seq(a, b))
 
   /**
-    * Run multiple Rx computations in parallel and return the first result. All slower computations
-    * are cancelled.
+    * Run multiple Rx computations in parallel and return the first result (a value or an error).
+    * The slower computations are cancelled, as are all of them if the subscription is cancelled
+    * first. Each computation runs as a fiber on [[RxScheduler.default]]; nothing blocks, so this
+    * also works on Scala.js.
     */
   def race[A](rxs: Seq[Rx[A]]): Rx[A] =
     require(rxs.nonEmpty, "Cannot race an empty sequence")
-    Rx.single {
-      val scheduler = RxScheduler.default
-      val result    = RxDeferred[A]()
-      val completed = new AtomicBoolean(false)
-      val fibers    = ArrayBuffer.empty[RxFiber[A]]
-
-      // Start all computations
-      rxs.foreach { rx =>
-        val fiber = RxFiber.start(rx, scheduler)
-        fibers += fiber
-
-        // Register callback for each fiber
-        scheduler.execute { () =>
-          RxRunner.runOnce(fiber.join) {
-            case OnNext(v) =>
-              if completed.compareAndSet(false, true) then
-                // First to complete - cancel others
-                fibers.foreach { f =>
-                  if f != fiber then
-                    f.cancel.run()
-                }
-                result.complete(v.asInstanceOf[A]).run()
-            case OnError(e) =>
-              if completed.compareAndSet(false, true) then
-                fibers.foreach { f =>
-                  if f != fiber then
-                    f.cancel.run()
-                }
-                result.completeWithError(e).run()
-            case OnCompletion =>
-              ()
-          }
-        }
-      }
-
-      // Block and return the result
-      result.get.await
-    }
-
-  end race
+    merge(rxs.map(forked)).take(1)
 
   /**
     * Run multiple Rx computations in parallel and collect all results. The order of results matches
@@ -88,63 +43,54 @@ object RxParallel:
   def parSequence[A](rxs: Seq[Rx[A]]): Rx[Seq[A]] = parSequenceN(Int.MaxValue)(rxs)
 
   /**
-    * Run multiple Rx computations in parallel with bounded concurrency.
+    * Run multiple Rx computations in parallel, at most `parallelism` at a time, and collect their
+    * first values in input order. Each computation runs as a fiber on [[RxScheduler.default]]. The
+    * first error cancels the running and pending ones; a computation that completes without a value
+    * fails with IllegalStateException. Nothing blocks, so this also works on Scala.js.
     */
   def parSequenceN[A](parallelism: Int)(rxs: Seq[Rx[A]]): Rx[Seq[A]] =
     if rxs.isEmpty then
       Rx.single(Seq.empty)
     else
-      Rx.single {
-        val scheduler = RxScheduler.default
-        val results   = new Array[Any](rxs.size)
-        val remaining = new AtomicInteger(rxs.size)
-        val error     = new AtomicReference[Throwable](null)
-        val done      = RxDeferred[Unit]()
-        val semaphore =
-          if parallelism < rxs.size then
-            Some(RxSemaphore(parallelism))
-          else
-            None
-
-        rxs
-          .zipWithIndex
-          .foreach { case (rx, idx) =>
-            val runTask =
-              () =>
-                RxRunner.runOnce(rx) {
-                  case OnNext(v) =>
-                    results(idx) = v
-                    if remaining.decrementAndGet() == 0 then
-                      if error.get() == null then
-                        done.complete(()).run()
-                      else
-                        done.completeWithError(error.get()).run()
-                    semaphore.foreach(_.release.run())
-                  case OnError(e) =>
-                    error.compareAndSet(null, e)
-                    if remaining.decrementAndGet() == 0 then
-                      done.completeWithError(e).run()
-                    semaphore.foreach(_.release.run())
-                  case OnCompletion =>
-                    ()
-                }
-
-            semaphore match
-              case Some(sem) =>
-                scheduler.execute { () =>
-                  sem.acquire.run()
-                  runTask()
-                }
-              case None =>
-                scheduler.execute(() => runTask())
+      // A fresh results array per run. Each item carries it, instead of a flatMap over it, so the
+      // last emitted value is the filled array
+      Rx.fromSeq {
+          val results = new Array[Any](rxs.size)
+          rxs.zipWithIndex.map((rx, i) => (rx, i, results))
+        }
+        .parFlatMap(parallelism) { (rx, i, results) =>
+          forked(rx).map { v =>
+            results(i) = v
+            results
           }
+        }
+        .lastOption
+        .toRx
+        .map(_.fold(Seq.empty[A])(_.toSeq.asInstanceOf[Seq[A]]))
 
-        done.get.await
-        val finalError = error.get()
-        if finalError != null then
-          throw finalError
-        results.toSeq.asInstanceOf[Seq[A]]
+  /**
+    * Run `rx` as a fiber on [[RxScheduler.default]] when subscribed, and emit its first value.
+    * Cancelling the subscription cancels the fiber. The join is unregistered first, so the
+    * cancellation's InterruptedException is not delivered.
+    */
+  private[rx] def forked[A](rx: Rx[A]): Rx[A] = Rx.AsyncOp[A](
+    callback =>
+      val fiber = RxFiber.start(rx, RxScheduler.default)
+      val join  =
+        RxRunner.runOnce(fiber.join) {
+          case OnNext(v) =>
+            callback(scala.util.Success(v.asInstanceOf[A]))
+          case OnError(e) =>
+            callback(scala.util.Failure(e))
+          case OnCompletion =>
+        }
+      Cancelable { () =>
+        join.cancel
+        fiber.cancel.run()
       }
+    ,
+    "RxParallel.forked"
+  )
 
   /**
     * Traverse a sequence with a function, running computations in parallel.
@@ -208,10 +154,10 @@ extension [A](rx: Rx[A])
   /**
     * Map with bounded parallelism: each `f(a)` runs on [[RxScheduler.default]], with at most
     * `parallelism` running at a time. Results arrive in completion order. Cancellation drops the
-    * results of calls already running but does not interrupt them.
+    * results of calls already running; it cancels their fibers but cannot interrupt blocking code.
     */
   def parMapN[B](parallelism: Int)(f: A => B): Rx[B] =
-    parFlatMap(parallelism)(a => Rx.single(f(a)).start.flatMap(_.join))
+    parFlatMap(parallelism)(a => RxParallel.forked(Rx.single(f(a))))
 
   /**
     * Merge emissions from this stream with another. Order is non-deterministic.
