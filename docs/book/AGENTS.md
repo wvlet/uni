@@ -1,6 +1,6 @@
 # Writing Guide — The Uni Book
 
-> This file is for contributors (humans and Claude) writing chapters of
+> This file is for contributors (humans and AI agents) writing chapters of
 > `docs/book/`. It is **not** rendered as a book page. If you are reading
 > it inside the site, you took a wrong turn — see `/book/` instead.
 
@@ -166,7 +166,7 @@ the book by skimming.
   not a file-naming concept.
 - The book landing page is `docs/book/index.md`. Update it when adding
   or renaming chapters.
-- `docs/book/CLAUDE.md` (this file) is the guide for authors — do **not**
+- `docs/book/AGENTS.md` (this file) is the guide for authors — do **not**
   link to it from the rendered book.
 
 ## Sidebar

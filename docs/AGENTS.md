@@ -30,7 +30,7 @@ If any of the above is unverified, drop the claim.
 - **Sidebars are duplicated.** `docs/.vitepress/config.mts` defines
   sidebars for `/guide/` **and** `/`. Adding a page requires updating
   both — a single-location edit silently leaves the page un-navigable.
-- **`srcExclude: ['**/CLAUDE.md']`** keeps these files out of the
+- **`srcExclude: ['**/AGENTS.md']`** keeps these files out of the
   rendered site, so it is safe to put contributor notes next to the
   content they describe.
 - **Clean URLs** are on; link to `/control/retry`, not `.html` or `.md`.
