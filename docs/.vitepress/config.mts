@@ -1,7 +1,10 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
+import llmstxt from 'vitepress-plugin-llms'
 import { fetchLatestVersion } from './fetchLatestVersion'
 import { readFileSync } from 'node:fs'
+import { readdir, readFile, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const FALLBACK_VERSION = '2026.1.22'
@@ -18,6 +21,28 @@ const scalaVersion = (() => {
   return m[1]
 })()
 
+const replaceVersionTokens = (text: string): string =>
+  text.split(VERSION_TOKEN).join(uniVersion).split(SCALA_VERSION_TOKEN).join(scalaVersion)
+
+const SITE_URL = 'https://wvlet.org/uni/'
+
+// Structured data so search engines and AI answer engines can identify Uni as a software library.
+const structuredData = {
+  '@context': 'https://schema.org',
+  '@type': 'SoftwareSourceCode',
+  name: 'Uni',
+  description:
+    'Essential Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and a testing framework. The Scala 3 successor of Airframe.',
+  url: SITE_URL,
+  codeRepository: 'https://github.com/wvlet/uni',
+  programmingLanguage: 'Scala',
+  runtimePlatform: ['JVM', 'Scala.js', 'Scala Native'],
+  license: 'https://www.apache.org/licenses/LICENSE-2.0',
+  version: uniVersion,
+  identifier: `org.wvlet.uni:uni_3:${uniVersion}`,
+  author: { '@type': 'Organization', name: 'wvlet', url: 'https://github.com/wvlet' }
+}
+
 interface UniThemeConfig extends DefaultTheme.Config {
   uniVersion: string
 }
@@ -28,6 +53,45 @@ export default withMermaid(defineConfig<UniThemeConfig>({
 
   base: '/uni/',
   cleanUrls: true,
+  lastUpdated: true,
+
+  sitemap: {
+    hostname: SITE_URL
+  },
+
+  vite: {
+    // Publish llms.txt, llms-full.txt, and a Markdown copy of each page so AI agents can read the docs directly
+    plugins: [
+      llmstxt({
+        domain: 'https://wvlet.org',
+        description: 'Essential Scala 3 utilities for JVM, Scala.js, and Scala Native',
+        details: structuredData.description +
+          ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.'
+      })
+    ]
+  },
+
+  // The llms plugin copies Markdown sources verbatim, so resolve the version tokens in its output too
+  async buildEnd(siteConfig) {
+    const files = await readdir(siteConfig.outDir, { recursive: true })
+    await Promise.all(
+      files
+        .filter((f) => f.endsWith('.md') || f.endsWith('.txt'))
+        .map(async (f) => {
+          const path = join(siteConfig.outDir, f)
+          const text = await readFile(path, 'utf8')
+          const replaced = replaceVersionTokens(text)
+          if (replaced !== text) await writeFile(path, replaced)
+        })
+    )
+  },
+
+  // Per-page canonical URL; frontmatter `description` already becomes <meta name="description">
+  transformPageData(pageData) {
+    const path = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
+    pageData.frontmatter.head ??= []
+    pageData.frontmatter.head.push(['link', { rel: 'canonical', href: `${SITE_URL}${path}` }])
+  },
 
   // Exclude contributor-only files from the rendered site.
   srcExclude: ['**/CLAUDE.md'],
@@ -38,8 +102,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
       dark: 'nord'
     },
     config(md) {
-      const replace = (text: string): string =>
-        text.split(VERSION_TOKEN).join(uniVersion).split(SCALA_VERSION_TOKEN).join(scalaVersion)
+      const replace = replaceVersionTokens
       for (const rule of ['fence', 'code_inline'] as const) {
         const original = md.renderer.rules[rule]
         md.renderer.rules[rule] = (tokens, idx, options, env, self) => {
@@ -65,6 +128,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
       gtag('js', new Date());
       gtag('config', 'G-55G099WF5N');`
     ],
+    ['script', { type: 'application/ld+json' }, JSON.stringify(structuredData)],
     // Open Graph
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:title', content: 'Uni - Essential Scala Utilities' }],
@@ -83,6 +147,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
     logo: '/uni-logo.svg',
     nav: [
       { text: 'Guide', link: '/guide/' },
+      { text: 'For AI Agents', link: '/guide/for-ai-agents' },
       { text: 'Book', link: '/book/' },
       { text: 'Modules', link: '/core/' },
       {
@@ -178,7 +243,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           items: [
             { text: 'Introduction', link: '/guide/' },
             { text: 'Installation', link: '/guide/installation' },
-            { text: 'Design Principles', link: '/guide/principles' }
+            { text: 'Design Principles', link: '/guide/principles' },
+            { text: 'For AI Agents', link: '/guide/for-ai-agents' }
           ]
         },
         {
@@ -271,7 +337,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           items: [
             { text: 'Introduction', link: '/guide/' },
             { text: 'Installation', link: '/guide/installation' },
-            { text: 'Design Principles', link: '/guide/principles' }
+            { text: 'Design Principles', link: '/guide/principles' },
+            { text: 'For AI Agents', link: '/guide/for-ai-agents' }
           ]
         },
         {
