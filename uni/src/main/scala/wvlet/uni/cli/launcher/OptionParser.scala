@@ -51,10 +51,17 @@ class OptionParser(val schema: OptionSchema):
     *   Array of command-line arguments
     * @param helpPrefixes
     *   Prefixes that trigger help display (default: -h, --help)
+    * @param deferHelpAfterCommand
+    *   If true, help prefixes that appear after the first unmatched positional (a sub-command name)
+    *   are kept in unusedArguments so that the sub-command can show its own help
     * @return
     *   ParseResult containing parsed values and metadata
     */
-  def parse(args: Array[String], helpPrefixes: Seq[String] = Seq("-h", "--help")): ParseResult =
+  def parse(
+      args: Array[String],
+      helpPrefixes: Seq[String] = Seq("-h", "--help"),
+      deferHelpAfterCommand: Boolean = false
+  ): ParseResult =
     val optionValues    = mutable.Map[String, mutable.Buffer[String]]()
     val unusedArguments = mutable.Buffer[String]()
     var showHelp        = false
@@ -69,7 +76,11 @@ class OptionParser(val schema: OptionSchema):
 
       // Check for help
       if helpPrefixes.contains(arg) then
-        showHelp = true
+        if deferHelpAfterCommand && unusedArguments.exists(!_.startsWith("-")) then
+          // Leave the help flag for the sub-command
+          unusedArguments += arg
+        else
+          showHelp = true
         i += 1
       // Check for key-value option like -Dkey=value
       else if isKeyValueArg(arg) then
