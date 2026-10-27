@@ -97,7 +97,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
   },
 
   // Exclude contributor-only files from the rendered site.
-  srcExclude: ['**/AGENTS.md'],
+  srcExclude: ['**/AGENTS.md', 'snippets/**'],
 
   markdown: {
     theme: {

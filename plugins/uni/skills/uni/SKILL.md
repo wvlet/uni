@@ -11,7 +11,7 @@ the same API on JVM, Scala.js, and Scala Native. It replaces Airframe; the packa
 
 ## sbt setup
 
-```scala
+```scala sbt
 // build.sbt — use the latest version from
 // https://central.sonatype.com/artifact/org.wvlet.uni/uni_3 (or the one already in the build)
 libraryDependencies ++= Seq(

@@ -3,7 +3,7 @@
 `uni-test` runs on JVM, Scala.js, and Scala Native and needs no other test
 library.
 
-```scala
+```scala sbt
 // build.sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-test" % "<version>" % Test
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
@@ -49,7 +49,7 @@ val e = intercept[IllegalArgumentException] { parse("bad") }
 
 ## Test control
 
-```scala
+```scala skip
 test("jvm only") {
   if !isScalaJVM then skip("needs the JVM")   // also isScalaJS, isScalaNative
 }
@@ -67,14 +67,14 @@ doubles (in-memory implementations, not mocks).
 ```scala
 import wvlet.uni.design.Design
 
-class UserServiceTest extends UniTest:
+class SignupServiceTest extends UniTest:
   private val design = Design.newDesign
     .bindImpl[UserRepository, InMemoryUserRepository]
-    .bindSingleton[UserService]
+    .bindSingleton[SignupService]
 
-  test("create user") {
-    design.build[UserService] { service =>
-      service.create("alice").name shouldBe "alice"
+  test("sign up") {
+    design.build[SignupService] { service =>
+      service.signup("alice").name shouldBe "alice"
     }
   }
 ```
@@ -84,7 +84,7 @@ class UserServiceTest extends UniTest:
 Start the server on a free port inside the test and call it with the real
 client. The block form stops the server afterwards.
 
-```scala
+```scala test
 import wvlet.uni.http.Http
 import wvlet.uni.http.netty.{NettyServer, RPCHandler}
 import wvlet.uni.http.rpc.RPCRouter
@@ -103,7 +103,7 @@ test("RPC round trip") {
 
 ## Property-based tests
 
-```scala
+```scala test
 import wvlet.uni.test.check.Gen
 
 test("reverse twice") {
@@ -118,8 +118,8 @@ test("positive") {
 
 ```bash
 sbt test
-sbt "testOnly *UserServiceTest"
-sbt "testOnly *UserServiceTest -- -t:create"   # filter by test name
+sbt "testOnly *SignupServiceTest"
+sbt "testOnly *SignupServiceTest -- -t:sign"     # filter by test name
 sbt "testOnly * -- -l debug"                    # debug logging
 sbt "test -- --tags integration"                 # only tagged tests
 sbt "test -- --exclude-tags slow"

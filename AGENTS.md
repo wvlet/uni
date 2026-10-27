@@ -69,7 +69,16 @@ Save plan documents to plans/YYYY-MM-DD-(topic).md files
 
 [`docs/guide/for-ai-agents.md`](docs/guide/for-ai-agents.md) lists canonical imports, entry points, and an Airframe→Uni table that AI agents rely on. When a change renames, moves, or removes a public API, package, or artifact, update that page in the same PR. See `docs/AGENTS.md` for details.
 
-The Claude Code plugin in [`plugins/uni/`](plugins/uni/) (listed by [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)) ships a `uni` skill that is a digest of that page. When you change the page or an API it lists, update `plugins/uni/skills/uni/` in the same PR, verify every snippet compiles, and bump `version` in `plugins/uni/.claude-plugin/plugin.json` so installed copies update. Check with `claude plugin validate .` and `claude plugin validate plugins/uni`.
+The Claude Code plugin in [`plugins/uni/`](plugins/uni/) (listed by [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)) ships a `uni` skill that is a digest of that page. When you change the page or an API it lists, update `plugins/uni/skills/uni/` in the same PR, verify every snippet compiles (see below), and bump `version` in `plugins/uni/.claude-plugin/plugin.json` so installed copies update. Check with `claude plugin validate .` and `claude plugin validate plugins/uni`.
+
+The `docSnippets` project (`./sbt docSnippets/test`, part of `projectJVM/test` in CI) compiles every `scala` fence of the skill's Markdown in place. The fences of one file form a chain, so a fence sees what earlier fences defined. Mark a fence in its info string when it should not be compiled as-is:
+
+- `` ```scala sbt `` — build definitions (`build.sbt`, `project/plugins.sbt`)
+- `` ```scala skip `` — `...` placeholders, Scala.js- or Native-only code
+- `` ```scala test `` — bare `test(...)` calls; the fence runs inside a generated `UniTest` class
+- `` ```scala reset `` — start a new chain when names would clash with earlier fences
+
+Names a snippet uses without defining (`token`, a generated client) go in stubs under `docs/snippets/src/test/scala/`, in the package of the Markdown file (`snippets.skill.references.http_client` for `references/http-client.md`). See [`docs/snippets/README.md`](docs/snippets/README.md).
 
 ## Architecture decisions
 
