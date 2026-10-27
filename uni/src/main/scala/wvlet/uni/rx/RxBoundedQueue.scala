@@ -118,6 +118,9 @@ object RxBoundedQueue:
 
     override def next: Rx[RxEvent] = take.map(OnNext(_))
 
+    // Cancelling the take already unregisters the waiter; adding an error would complete the queue
+    override def cancelNext(): Unit = ()
+
     override def tryOffer(a: A): Rx[Boolean] = Rx.single {
       tryOfferLoop(a)
     }

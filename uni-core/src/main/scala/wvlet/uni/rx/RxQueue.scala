@@ -42,6 +42,11 @@ class RxQueue[A]() extends RxSource[A] with LogSupport:
       // do nothing if there is no waiting promise
   }
 
+  // Forget the waiting consumer, so add() keeps the next event in the queue
+  override def cancelNext(): Unit = synchronized {
+    waiting = None
+  }
+
   override def next: Rx[RxEvent] = synchronized {
     if queue.nonEmpty then
       val (e, newQueue) = queue.dequeue
