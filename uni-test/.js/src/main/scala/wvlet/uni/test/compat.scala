@@ -13,7 +13,8 @@
  */
 package wvlet.uni.test
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.duration.Duration
 import scala.scalajs.js
 import scala.scalajs.reflect.Reflect
 
@@ -77,6 +78,14 @@ private[test] object compat:
     */
   val executionContext: ExecutionContext =
     org.scalajs.macrotaskexecutor.MacrotaskExecutor.Implicits.global
+
+  /**
+    * Run a test suite for sbt's blocking Task.execute
+    */
+  def runSuite(suite: ExecutionContext => Future[Unit]): Unit = Await.result(
+    suite(executionContext),
+    Duration.Inf
+  )
 
   /**
     * Create a new instance of the test class or get singleton instance if it's an object. Uses

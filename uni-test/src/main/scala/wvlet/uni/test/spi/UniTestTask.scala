@@ -26,8 +26,7 @@ import wvlet.uni.test.UniTest
 import wvlet.uni.test.compat
 
 import java.util.concurrent.atomic.AtomicLong
-import scala.concurrent.{Await, ExecutionContext, Future, Promise}
-import scala.concurrent.duration.Duration
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
   * Accumulated test statistics across all test classes. Uses AtomicLong for thread-safety since sbt
@@ -114,20 +113,19 @@ class UniTestTask(
   override def tags(): Array[String] = Array.empty
 
   /**
-    * Synchronous execute method for JVM. Delegates to the async version using Promise/Await.
+    * Synchronous execute method for JVM. Runs the suite on the calling thread, which sbt dedicates
+    * to this task.
     */
   override def execute(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
   ): Array[Task] =
-    val p = Promise[Unit]()
-    execute(eventHandler, loggers, _ => p.success(()))
-    Await.result(p.future, Duration.Inf)
+    compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
     Array.empty
 
   /**
-    * Asynchronous execute method for Scala.js. This is the main implementation that both sync and
-    * async paths use. Continuation is called after all async test work completes.
+    * Asynchronous execute method for Scala.js. Continuation is called after all async test work
+    * completes.
     */
   def execute(
       eventHandler: EventHandler,
@@ -135,18 +133,21 @@ class UniTestTask(
       continuation: Array[Task] => Unit
   ): Unit =
     given ExecutionContext = compat.executionContext
-    val className          = taskDef().fullyQualifiedName()
+    runSuite(eventHandler, loggers).foreach { _ =>
+      continuation(Array.empty)
+    }
 
+  private def runSuite(eventHandler: EventHandler, loggers: Array[sbt.testing.Logger])(using
+      ExecutionContext
+  ): Future[Unit] =
+    val className = taskDef().fullyQualifiedName()
     Future(compat.newInstance(className, testClassLoader))
       .flatMap(testInstance => runTests(testInstance, className, eventHandler, loggers))
       .recover { case e: Throwable =>
         handleSpecLevelError(className, e, eventHandler, loggers)
       }
-      .foreach { _ =>
-        continuation(Array.empty)
-      }
 
-  end execute
+  end runSuite
 
   private def handleSpecLevelError(
       className: String,
