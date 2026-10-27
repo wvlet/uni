@@ -59,5 +59,5 @@ object TestTag:
   /** A quick sanity check across the stack; typically run as a fast pre-merge subset. */
   case object Smoke extends TestTag("smoke")
 
-  /** A slow test, usually excluded from the fast inner-loop run via `--exclude-tags:slow`. */
+  /** A slow test, usually excluded from the fast inner-loop run via `--exclude-tags slow`. */
   case object Slow extends TestTag("slow")

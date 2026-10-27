@@ -55,9 +55,33 @@ test("jvm only") {
 }
 test("todo") { pending("not implemented yet") }
 test("calls a remote service", Flaky) { ... }   // tag: failures become skipped
-test("e2e", Integration, Slow) { ... }          // also UI, Electron, Smoke, TestTag("custom")
 test("partly flaky") { flaky { ... } }
 ```
+
+## Tags
+
+Pass tags after the test name to group tests by layer, then select or skip a
+group from sbt (see Running). Built-ins: `Integration`, `Smoke`, `Slow`,
+`Flaky`, `UI`, and `Electron` (for Electron desktop apps).
+
+```scala
+case object Gpu extends TestTag("gpu")     // reusable custom tag
+
+class LayeredTest extends UniTest:
+  test("renders the toolbar", UI) {
+    (1 + 1) shouldBe 2
+  }
+  test("hits the real database", Integration, Slow) {
+    (1 + 1) shouldBe 2
+  }
+  test("trains on the GPU", Gpu, TestTag("nightly")) {
+    (1 + 1) shouldBe 2
+  }
+```
+
+Filters use the tag's name (`ui`, `slow`, `gpu`). Repeated `--tags` are ANDed,
+and `--exclude-tags` wins over `--tags`. Tags apply to top-level tests; nested
+tests run with their parent.
 
 ## Wiring with Design
 
@@ -122,5 +146,7 @@ sbt "testOnly *SignupServiceTest"
 sbt "testOnly *SignupServiceTest -- -t:sign"     # filter by test name
 sbt "testOnly * -- -l debug"                    # debug logging
 sbt "test -- --tags integration"                 # only tagged tests
-sbt "test -- --exclude-tags slow"
+sbt "test -- --tags ui --tags slow"              # tagged both ui AND slow
+sbt "test -- --exclude-tags slow"                # everything except slow
+sbt "test -- --exclude-tags flaky"               # skip known-flaky tests
 ```
