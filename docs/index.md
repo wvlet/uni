@@ -21,6 +21,9 @@ hero:
       text: Coming from Airframe?
       link: /guide/for-ai-agents#how-do-i-migrate-from-airframe
     - theme: alt
+      text: Using the Scala Toolkit?
+      link: /guide/uni-vs-scala-toolkit
+    - theme: alt
       text: GitHub
       link: https://github.com/wvlet/uni
 

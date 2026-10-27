@@ -147,6 +147,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   exampleCli.jvm,
   exampleRestServer,
   exampleMcpServer,
+  exampleToolkitService,
   test.jvm
 )
 
@@ -324,6 +325,23 @@ lazy val exampleMcpServer = project
     outputStrategy     := Some(StdoutOutput)
   )
   .dependsOn(uni.jvm, test.jvm % Test)
+
+// Uses the sttp and uPickle versions that Scala Toolkit 0.9.2 pins, so CI keeps checking that the
+// Toolkit libraries and Uni work in one build (docs/guide/toolkit-to-uni.md shows this code)
+lazy val exampleToolkitService = project
+  .in(file("examples/toolkit-service"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-toolkit-service",
+    description := "Example: a Scala Toolkit (sttp + uPickle) script grown into a Uni service",
+    libraryDependencies ++=
+      Seq(
+        "com.softwaremill.sttp.client4" %% "core"    % "4.0.21",
+        "com.lihaoyi"                   %% "upickle" % "4.4.3"
+      )
+  )
+  .dependsOn(uni.jvm, netty, test.jvm % Test)
 
 lazy val exampleWebUi = project
   .in(file("examples/web-ui"))

@@ -253,7 +253,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Installation', link: '/guide/installation' },
             { text: 'Design Principles', link: '/guide/principles' },
             { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
+            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' },
+            { text: 'From a Toolkit Script to a Uni Service', link: '/guide/toolkit-to-uni' }
           ]
         },
         {
@@ -348,7 +349,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Installation', link: '/guide/installation' },
             { text: 'Design Principles', link: '/guide/principles' },
             { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
+            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' },
+            { text: 'From a Toolkit Script to a Uni Service', link: '/guide/toolkit-to-uni' }
           ]
         },
         {

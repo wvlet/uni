@@ -1,5 +1,5 @@
 ---
-description: Uni and the Scala Toolkit — when to choose the official Scala starter kit (sttp, uPickle, os-lib, MUnit) and when to choose Uni (object wiring, logging, HTTP, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native), with a feature table and side-by-side code.
+description: "Scala Toolkit or Uni? When to choose the official Scala starter kit (sttp, uPickle, os-lib, MUnit), when to add Uni (object wiring, logging, HTTP server, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native), and how to use them together, with a feature table, side-by-side code, and an FAQ."
 ---
 
 # Uni and the Scala Toolkit
@@ -14,7 +14,9 @@ server, typed RPC, MCP servers, Rx, and CLI tools, with one API on the JVM,
 Scala.js, and Scala Native.** In short, the Toolkit is the easiest start for
 scripts, and Uni covers the whole application.
 
-The two can live in the same project. See [Using them together](#using-them-together).
+The two can live in the same project. See [Using them together](#using-them-together),
+and [From a Scala Toolkit script to a Uni service](./toolkit-to-uni) for what to
+use when a Toolkit script grows into a service.
 
 ## Feature by feature
 
@@ -165,6 +167,10 @@ them. We checked this with Scala CLI, Toolkit 0.9.2, and Uni on Scala 3.9:
 - A MUnit `FunSuite` can test Uni code, and MUnit and UniTest suites run in the
   same `test` command.
 
+For a worked example, see [From a Scala Toolkit script to a Uni service](./toolkit-to-uni).
+It keeps sttp and uPickle for an external API and adds Design, logging, a REST
+endpoint, and UniTest, in a project that CI builds and tests.
+
 Common combinations:
 
 - **Keep MUnit, add Uni.** Test Uni services with your existing MUnit suites,
@@ -174,3 +180,36 @@ Common combinations:
 - **Pick one JSON library per type.** Having both is possible, but two codecs
   for the same case class are two things to keep in sync. If you use Uni's HTTP
   server or RPC, use Weaver, because they encode with it.
+
+## FAQ
+
+### Should I use the Scala Toolkit or Uni?
+
+Use the Toolkit for scripts, teaching, Scala 2.13, or Scala 3 before 3.9. Use Uni
+when you build a Scala 3.9+ application or service that needs object wiring,
+logging, an HTTP server, RPC, or MCP servers, or the same code on Scala.js and Scala
+Native. Many projects use both.
+
+### Can I use the Scala Toolkit and Uni in the same project?
+
+Yes. Their packages do not overlap, and Uni brings no dependency that conflicts with
+the Toolkit. The [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service)
+uses sttp, uPickle, and Uni in one sbt build, and CI tests it.
+
+### What should I use when my Toolkit script grows into a service?
+
+Keep the Toolkit libraries that still do their job, and add what a service needs:
+object wiring with lifecycle hooks, logging, and an HTTP server. Uni provides these
+in one library. [From a Scala Toolkit script to a Uni service](./toolkit-to-uni)
+walks through it.
+
+### Does the Scala Toolkit include object wiring or logging?
+
+No. The Toolkit focuses on HTTP requests, JSON, files and processes, and tests.
+Uni's [Design](../core/design) and [`LogSupport`](../core/logging) cover object
+wiring and logging, and work next to the Toolkit libraries.
+
+### Does Uni support Scala 2.13?
+
+No. Uni requires Scala 3.9 or later. For Scala 2.13, the Toolkit is a good choice,
+and [Airframe](https://github.com/wvlet/airframe) provides object wiring and logging.

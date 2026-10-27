@@ -44,6 +44,17 @@ Scala Native.
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 
+## Uni or the Scala Toolkit
+
+The [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html) (sttp,
+uPickle, os-lib, MUnit) is a good fit for scripts, teaching, Scala 2.13 or Scala 3
+before 3.9, and running subprocesses (os-lib). Uni fits Scala 3.9+ applications and
+services that need object wiring, logging, an HTTP server, RPC, MCP servers, or the
+same code on Scala.js and Scala Native. They work in one build: keep the Toolkit
+libraries a project already uses, and use Weaver for types that Uni's server or RPC
+encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit and
+https://wvlet.org/uni/guide/toolkit-to-uni.
+
 ## Mistakes to avoid
 
 - **Scala 2 syntax.** Uni is Scala 3 only: indentation syntax, `given`/`using`,
@@ -57,8 +68,9 @@ Scala Native.
   `HttpException` for most 4xx, `HttpMaxRetryException` (not a subclass) after
   retrying 5xx/429. RPC client calls fail the same way.
 - **Hand-written JSON codecs.** Add `derives Weaver` to the case class.
-- **A second wiring framework (such as a DI container), logging backend, or JSON library next to Uni.** Uni
-  already provides them.
+- **A second object-wiring framework or logging backend next to Uni.** Uni
+  already provides them. A JSON library the project already uses (such as uPickle)
+  can stay for its own types; derive `Weaver` for types that Uni's server or RPC encodes.
 - **Airframe imports.** `wvlet.airframe.*`, `wvlet.log.*`, and `wvlet.airspec.*`
   are the old library. Map them with [references/airframe-migration.md](references/airframe-migration.md).
 - **Constructing services by hand.** Take dependencies as constructor parameters
