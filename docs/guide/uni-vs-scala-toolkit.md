@@ -1,8 +1,8 @@
 ---
-description: Uni vs the Scala Toolkit — when to choose the official Scala starter kit (sttp, uPickle, os-lib, MUnit) and when to choose Uni (object wiring, logging, HTTP, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native), with a feature table and side-by-side code.
+description: Uni and the Scala Toolkit — when to choose the official Scala starter kit (sttp, uPickle, os-lib, MUnit) and when to choose Uni (object wiring, logging, HTTP, RPC, MCP servers, and testing on JVM, Scala.js, and Scala Native), with a feature table and side-by-side code.
 ---
 
-# Uni vs the Scala Toolkit
+# Uni and the Scala Toolkit
 
 **The [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html) is
 the official starter bundle of libraries for scripts, teaching, and everyday tasks.

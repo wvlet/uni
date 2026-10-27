@@ -48,6 +48,7 @@ See `.github/instructions/unitest.instructions.md` for more.
 - Avoid `Try[A]` return types
 - Config classes: `withXXX(...)` for all fields, `noXXX()` for optional fields
 - uni: minimal dependencies only
+- Community tone: Uni is part of the Scala community. When docs, posts, or metadata mention other Scala libraries (the Scala Toolkit, sttp, uPickle, os-lib, MUnit, and others), present them respectfully as good choices and as libraries that work alongside Uni. Explain when each one fits; never frame them as rivals or as mistakes to avoid.
 - Terminology: call `Design` "object wiring", never "dependency injection" or "DI", in code, docs, and metadata. The DI label pulls in debates from legacy Java DI frameworks that don't apply to Uni.
 
 ## Git Workflow
