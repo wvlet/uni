@@ -83,5 +83,7 @@ Read the reference for the task before writing code:
 | CLI options and sub-commands, colors, progress bars | [references/cli.md](references/cli.md) |
 | Migrating from Airframe | [references/airframe-migration.md](references/airframe-migration.md) |
 
+- Complete, CI-tested example apps to copy (CLI tool, REST + RPC server, stdio MCP
+  server, Scala.js UI): https://github.com/wvlet/uni/tree/main/examples
 - Full documentation in one Markdown file: https://wvlet.org/uni/llms-full.txt
 - Page index: https://wvlet.org/uni/llms.txt (any page is also available as `<page>.md`)

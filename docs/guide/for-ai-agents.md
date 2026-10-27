@@ -125,6 +125,19 @@ for background.
 - **Adding a DI framework, a logging backend, or a JSON library next to Uni.**
   Uni already provides them. Adding another creates two ways to do one thing.
 
+## Where are complete example apps?
+
+The [`examples/`](https://github.com/wvlet/uni/tree/main/examples) folder of the
+repository has small apps that CI compiles and tests against the current source.
+Copy one as a template:
+
+| Example | Shows |
+|---------|-------|
+| [`cli-tool`](https://github.com/wvlet/uni/tree/main/examples/cli-tool) | `Launcher` sub-commands, `LogSupport`, `derives Weaver`, the HTTP client, and a Scala Native binary |
+| [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `NettyServer` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
+| [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCPServer().withTools[...]` and how to add it to Claude Code |
+| [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |
+
 ## Example: a wired service with logging and JSON
 
 ```scala
