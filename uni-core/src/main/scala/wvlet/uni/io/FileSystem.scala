@@ -690,6 +690,8 @@ object FileSystem extends FileSystemBase:
   override def readBytes(path: IOPath): Array[Byte] = impl.readBytes(path)
   override def readLines(path: IOPath): Seq[String] = impl.readLines(path)
 
+  // Defaults are restated on these overrides because `export FileSystem.{...}` in IO forwards
+  // to this object's signatures and does not inherit FileSystemBase's default arguments.
   override def readChunks(path: IOPath, chunkSize: Int = 8192): Iterator[Array[Byte]] = impl
     .readChunks(path, chunkSize)
 
