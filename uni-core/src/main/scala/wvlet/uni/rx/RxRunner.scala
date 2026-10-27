@@ -1026,11 +1026,12 @@ class RxRunner(
     /**
       * An error also terminates the nested stream (e.g., a failed Rx.future reports no
       * OnCompletion). If the downstream recovered from it, complete here when the input has already
-      * completed.
+      * completed. The error is delivered before the nested stream is marked as ended, so an input
+      * completing on another thread waits instead of overtaking the error or the recovered value.
       */
     def nestedError(current: Int, ev: OnError, effect: RxEvent => RxResult): RxResult =
-      val done   = endNested(current)
       val result = effect(ev)
+      val done   = endNested(current)
       if done && result.toContinue then
         effect(OnCompletion)
       else
