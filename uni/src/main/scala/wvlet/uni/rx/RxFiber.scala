@@ -99,13 +99,10 @@ object RxFiber:
 
     private[rx] def setCancelable(c: Cancelable): Unit = cancelable = c
 
-    override def join: Rx[A] =
-      new Rx[A]:
-        override def parents: Seq[RxOps[?]] = Seq.empty
-
-        // Package-private for RxRunner to register callback
-        private[rx] def registerCallback(callback: Try[A] => Unit): Option[Try[A]] =
-          registerJoinLoop(callback)
+    override def join: Rx[A] = Rx.AsyncOp[A](
+      callback => registerJoinLoop(callback).foreach(callback),
+      "RxFiber.join"
+    )
 
     @tailrec
     private def registerJoinLoop(callback: Try[A] => Unit): Option[Try[A]] =

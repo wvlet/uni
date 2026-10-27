@@ -61,12 +61,10 @@ catch
     e.response   // the last HttpResponse (e.g. 503)
 ```
 
-## Async client (Scala.js)
+## Async client (required in browsers)
 
 Browsers have no synchronous HTTP, so Scala.js code in a browser uses the async
-client. **On the JVM, use the sync client**: running the JVM async client's
-`Rx` with `subscribe`/`await` currently fails with a `MatchError` on
-`RxDeferred.get`.
+client. It works on the JVM too.
 
 ```scala
 import wvlet.uni.rx.Rx

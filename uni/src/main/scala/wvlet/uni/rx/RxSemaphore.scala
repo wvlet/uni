@@ -16,6 +16,8 @@ package wvlet.uni.rx
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
+import scala.util.Success
+import scala.util.Try
 
 /**
   * A semaphore for controlling concurrent access to a limited resource.
@@ -117,15 +119,12 @@ object RxSemaphore:
       if n == 0 then
         Rx.single(())
       else
-        new Rx[Unit]:
-          override def parents: Seq[RxOps[?]] = Seq.empty
-          override def toString: String       = s"RxSemaphore.acquireN(${n})"
+        Rx.AsyncOp[Unit](callback => acquireAsync(n, callback), s"RxSemaphore.acquireN(${n})")
 
-          // Package-private method for RxRunner to handle acquisition
-          private[rx] def tryAcquireOrRegister(callback: () => Unit): Boolean = acquireLoop(
-            n,
-            callback
-          )
+    private def acquireAsync(n: Long, callback: Try[Unit] => Unit): Unit =
+      val acquired = () => callback(Success(()))
+      if acquireLoop(n, acquired) then
+        acquired()
 
     @tailrec
     private def acquireLoop(n: Long, callback: () => Unit): Boolean =

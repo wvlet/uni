@@ -1,6 +1,6 @@
 {
   "name": "uni",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Teaches AI coding agents to write idiomatic Scala 3 code with Uni: DI, logging, JSON/MessagePack, HTTP, RPC, MCP servers, and UniTest",
   "author": {
     "name": "wvlet",

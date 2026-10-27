@@ -87,16 +87,9 @@ object RxDeferred:
   private class RxDeferredImpl[A]() extends RxDeferred[A]:
     private val state = new AtomicReference[State[A]](Empty(Queue.empty))
 
-    override def get: Rx[A] =
-      new Rx[A]:
-        override def parents: Seq[RxOps[?]] = Seq.empty
-
-        // This is handled specially by RxRunner to support semantic blocking
-        override def toString: String = "RxDeferred.get"
-
-    // Package-private method for RxRunner to register a callback
-    private[rx] def registerCallback(callback: Try[A] => Unit): Option[Try[A]] = registerLoop(
-      callback
+    override def get: Rx[A] = Rx.AsyncOp[A](
+      callback => registerLoop(callback).foreach(callback),
+      "RxDeferred.get"
     )
 
     @tailrec

@@ -932,6 +932,14 @@ object Rx extends LogSupport:
     def input: RxOps[I]
     override def parents: Seq[RxOps[?]] = Seq(input)
 
+  /**
+    * A single value delivered through a callback. On each run, `register` receives a callback that
+    * completes this Rx; it may be called synchronously or later from another thread.
+    */
+  private[rx] case class AsyncOp[A](register: (Try[A] => Unit) => Unit, name: String) extends Rx[A]:
+    override def parents: Seq[RxOps[?]] = Seq.empty
+    override def toString: String       = name
+
   case class SingleOp[A](v: LazyF0[A]) extends Rx[A]:
     override def parents: Seq[RxOps[?]] = Seq.empty
 

@@ -23,8 +23,7 @@ import java.util.concurrent.atomic.AtomicReference
 /**
   * Tests for uni-rx concurrency primitives.
   *
-  * Note: Some async primitives (RxDeferred.get, RxFiber.join) return custom Rx types that require
-  * async callback support. These are tested separately where possible.
+  * Waiting operations that complete on the same thread are covered by RxAsyncOpTest.
   */
 class RxConcurrencyTest extends UniTest:
 
@@ -220,6 +219,23 @@ class RxConcurrencyTest extends UniTest:
   test("RxBoundedQueue: capacity") {
     val queue = RxBoundedQueue[Int](5)
     queue.capacity shouldBe 5
+  }
+
+  test("RxDeferred: await a value completed from another thread") {
+    val deferred            = RxDeferred[Int]()
+    val completer: Runnable =
+      () =>
+        Thread.sleep(50)
+        deferred.complete(42).run()
+    val thread = Thread(completer)
+    thread.start()
+    deferred.get.await shouldBe 42
+    thread.join()
+  }
+
+  test("RxFiber: join returns the fiber result") {
+    val fiber = runAndGet(Rx.single(21).map(_ * 2).start)
+    fiber.join.await shouldBe 42
   }
 
 end RxConcurrencyTest
