@@ -29,6 +29,10 @@ Lane: **Express** — clear diagnosis, small non-UI library fix, no always-gate 
   The help flag then flows in `remainingArgs` to the sub-launcher (`printHelp`) or to
   `executeMethod` (`printMethodHelp`). Recursion handles `<module> <method> --help`.
 - A help flag before the sub-command name (`cmd --help compile`) still prints the parent help.
+- When help is deferred, the parent instance is not built, so a missing required top-level option
+  does not block `cmd build --help`.
+- If the name before a deferred help flag is not a known sub-command or method (`cmd clon --help`),
+  the parent help is printed, since it lists the valid commands.
 - Commands without sub-commands keep the old behaviour (`cmd file --help` prints help).
 
 Tests in `LauncherTest`, using a capturing `HelpPrinter` to assert which command's help rendered:
