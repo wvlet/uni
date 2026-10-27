@@ -86,4 +86,46 @@ class RxQueueTest extends UniTest:
     collect(queue.take(1)).map(_ shouldBe Seq(1))
   }
 
+  test("stop completes a waiting RxBoundedQueue subscriber") {
+    val queue = RxBoundedQueue[Int](4)
+    later {
+      queue.put(1)
+      queue.stop()
+    }
+    collect(queue).map(_ shouldBe Seq(1))
+  }
+
+  test("other subscribers keep receiving after one cancels") {
+    val queue = Rx.queue[Int]()
+    val first = queue.subscribe(_ => ())
+    val rest  = collect(queue.take(2))
+    first.cancel
+    later {
+      queue.put(1)
+      queue.put(2)
+    }
+    rest.map(_ shouldBe Seq(1, 2))
+  }
+
+  test("continuous mode keeps reading after an error") {
+    val queue  = Rx.queue[Int]()
+    val events = mutable.ArrayBuffer.empty[RxEvent]
+    val c      =
+      RxRunner.runContinuously(
+        queue.map(v =>
+          if v == 1 then
+            throw IllegalStateException("once")
+          else
+            v
+        )
+      )(ev => events += ev)
+    queue.put(1)
+    queue.put(2)
+    c.cancel
+    events.collect { case OnNext(v) =>
+      v
+    } shouldBe Seq(2)
+    events.count(_.isInstanceOf[OnError]) shouldBe 1
+  }
+
 end RxQueueTest

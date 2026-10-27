@@ -798,15 +798,27 @@ class RxRunner(
               run(source.next) {
                 case OnNext(ev: RxEvent) =>
                   deliver(ev)
-                case OnCompletion =>
+                case other =>
+                  // The event's Rx ended: OnCompletion, or OnError if the effect threw (continuous
+                  // mode keeps reading after that)
+                  val r =
+                    other match
+                      case OnCompletion =>
+                        RxResult.Continue
+                      case _ =>
+                        deliver(other)
                   if !state.compareAndSet(0, 1) then
                     pull()
-                  RxResult.Continue
-                case other =>
-                  deliver(other)
+                  r
               }
             )
+            // A cancellation that ran before this subscription existed could not cancel it
+            if cancelled.get then
+              current.get.cancel
+              if awaiting.get then
+                source.cancelNext()
             again = !state.compareAndSet(0, 2)
+        end pull
 
         pull()
         Cancelable { () =>
