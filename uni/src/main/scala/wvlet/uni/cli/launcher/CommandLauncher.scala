@@ -52,13 +52,6 @@ class CommandLauncher(
       deferHelpAfterCommand = subCommands.nonEmpty || hasMethodCommands
     )
 
-    if parseResult.showHelp then
-      printHelp(config)
-      return LauncherResult(null, None, showedHelp = true)
-
-    // Build the command instance
-    val instance = buildInstance(parseResult)
-
     // Check for sub-command in unused arguments
     val (subCommandName, remainingArgs) =
       parseResult.unusedArguments match
@@ -66,6 +59,22 @@ class CommandLauncher(
           (Some(head), tail)
         case _ =>
           (None, parseResult.unusedArguments)
+
+    // A help flag after the sub-command name is left for the sub-command to show
+    val deferredHelp  = remainingArgs.exists(config.helpPrefixes.contains)
+    val isKnownTarget = subCommandName.exists(n =>
+      findSubCommand(n).isDefined || findMethodCommand(n).isDefined
+    )
+    if parseResult.showHelp || (deferredHelp && !isKnownTarget) then
+      printHelp(config)
+      return LauncherResult(null, None, showedHelp = true)
+
+    // Skip building the instance when only help will be shown, as required options may be missing
+    val instance =
+      if deferredHelp then
+        null
+      else
+        buildInstance(parseResult)
 
     subCommandName match
       case Some(cmdName) =>

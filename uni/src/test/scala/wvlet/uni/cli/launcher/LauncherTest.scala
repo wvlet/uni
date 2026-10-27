@@ -186,6 +186,14 @@ class FlowModule:
       dryRun: Boolean = false
   ): String = s"run ${dryRun}"
 
+@command(description = "App with a required top-level option")
+class RequiredOptionApp(
+    @option(prefix = "--config", description = "Config file")
+    config: String
+):
+  @command(description = "Build")
+  def build(): String = s"build ${config}"
+
 // Records which command's help was rendered, and with which options
 class CapturingHelpPrinter extends HelpPrinter:
   var rendered: Seq[(String, Seq[String])] = Seq.empty
@@ -415,6 +423,23 @@ class LauncherTest extends UniTest:
     result.showedHelp shouldBe true
     result.executedMethod.map(_._1.name) shouldBe Some("clone")
     printer.rendered.map(_._1) shouldBe Seq("clone")
+  }
+
+  test("<method> --help works even when a required top-level option is missing") {
+    val printer = CapturingHelpPrinter()
+    val result  = Launcher
+      .of[RequiredOptionApp]
+      .withHelpPrinter(printer)
+      .execute(Seq("build", "--help"))
+    result.showedHelp shouldBe true
+    printer.rendered.map(_._1) shouldBe Seq("build")
+  }
+
+  test("unknown sub-command with --help shows the top-level help") {
+    val printer = CapturingHelpPrinter()
+    val result = Launcher.of[GitLikeCommand].withHelpPrinter(printer).execute(Seq("clon", "--help"))
+    result.showedHelp shouldBe true
+    printer.rendered.map(_._1) shouldBe Seq("command")
   }
 
   test("--help after a positional still shows help for a command without sub-commands") {
