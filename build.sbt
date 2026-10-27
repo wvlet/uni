@@ -39,13 +39,13 @@ val SBT_TEST_INTERFACE_VERSION          = "1.0"
 
 // Common build settings
 val buildSettings = Seq[Setting[?]](
-  description        := "Scala 3 unified utility library",
+  description        := "Scala 3 utility libraries for JVM, Scala.js, and Scala Native",
   scalaVersion       := SCALA_3,
   crossScalaVersions := List(SCALA_3),
   crossPaths         := true,
   publishMavenStyle  := true,
   licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
-  homepage := Some(uri("https://github.com/wvlet/uni")),
+  homepage := Some(uri("https://wvlet.org/uni/")),
   scmInfo  :=
     Some(
       ScmInfo(
@@ -162,7 +162,8 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .settings(
     buildSettings,
     name        := "uni-core",
-    description := "Core utilities: logging and reactive streams"
+    description :=
+      "Core of Uni for Scala 3 (JVM, Scala.js, Scala Native): logging, Rx reactive streams, file I/O with gzip/zip and file watching, terminal colors, and a text scanner"
   )
   .jsSettings(
     jsBuildSettings,
@@ -179,7 +180,12 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
 lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("uni"))
-  .settings(buildSettings, name := "uni", description := "Scala unified core library")
+  .settings(
+    buildSettings,
+    name        := "uni",
+    description :=
+      "Scala 3 utilities for JVM, Scala.js, and Scala Native: dependency injection, logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
+  )
   .jsSettings(jsBuildSettings)
   .nativeSettings(nativeBuildSettings)
   .dependsOn(core, test % Test)
@@ -190,8 +196,9 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .in(file("uni-test"))
   .settings(
     buildSettings,
-    name           := "uni-test",
-    description    := "Lightweight testing framework with AirSpec syntax",
+    name        := "uni-test",
+    description :=
+      "Lightweight Scala 3 testing framework with AirSpec-style syntax for JVM, Scala.js, and Scala Native: assertions, property-based testing, and JUnit Platform IDE integration",
     testFrameworks := Seq(new TestFramework("wvlet.uni.test.Framework"))
   )
   .jvmSettings(
@@ -234,7 +241,8 @@ lazy val netty = project
   .settings(
     buildSettings,
     name        := "uni-netty",
-    description := "Netty-based HTTP server for uni",
+    description :=
+      "Netty-based HTTP and WebSocket server for Uni: serves Uni HTTP routers and RPC endpoints on the JVM",
     libraryDependencies ++=
       Seq(
         "io.netty"  % "netty-handler"                % NETTY_VERSION,
