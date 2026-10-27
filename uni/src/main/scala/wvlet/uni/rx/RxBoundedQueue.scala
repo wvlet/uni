@@ -202,13 +202,19 @@ object RxBoundedQueue:
     /**
       * Hand an element to a waiting taker, or put it back if the taker's run was cancelled
       */
+    @tailrec
     private def giveTo(taker: A => Boolean, a: A): Unit =
       if !taker(a) then
-        returnLoop(a).foreach(next => giveTo(next, a))
+        returnLoop(a) match
+          case Some(next) =>
+            giveTo(next, a)
+          case None =>
+            ()
 
     /**
       * Return an element to the next waiting taker, or else to the front of the queue. The queue
-      * may exceed its capacity by this element until the next take.
+      * may exceed its capacity until returned elements are taken; waiting offerers stay queued
+      * meanwhile.
       */
     @tailrec
     private def returnLoop(a: A): Option[A => Boolean] =
@@ -235,7 +241,8 @@ object RxBoundedQueue:
         val (element, remainingElements) = current.elements.dequeue
 
         // Check if there are waiting offerers
-        if current.offerers.nonEmpty then
+        // Admit a waiting offerer only below capacity (returned elements may exceed it)
+        if current.offerers.nonEmpty && remainingElements.size < capacity then
           val ((offerElement, offerCallback), remainingOfferers) = current.offerers.dequeue
           val newState                                           = current.copy(
             elements = remainingElements.enqueue(offerElement),
@@ -295,7 +302,8 @@ object RxBoundedQueue:
         val (element, remainingElements) = current.elements.dequeue
 
         // Check if there are waiting offerers
-        if current.offerers.nonEmpty then
+        // Admit a waiting offerer only below capacity (returned elements may exceed it)
+        if current.offerers.nonEmpty && remainingElements.size < capacity then
           val ((offerElement, offerCallback), remainingOfferers) = current.offerers.dequeue
           val newState                                           = current.copy(
             elements = remainingElements.enqueue(offerElement),
