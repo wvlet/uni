@@ -41,7 +41,7 @@ class GitHubClient(baseUri: String) extends LogSupport with AutoCloseable:
 
   override def close(): Unit = client.close()
 
-@command(description = "Look up GitHub repositories")
+@command(description = "Look up GitHub repositories", usage = "uni-gh [options] <command>")
 class GitHubCli(
     @option(prefix = "-v,--verbose", description = "Print debug logs")
     verbose: Boolean = false,

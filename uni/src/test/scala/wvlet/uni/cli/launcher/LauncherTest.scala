@@ -194,9 +194,15 @@ class RequiredOptionApp(
   @command(description = "Build")
   def build(): String = s"build ${config}"
 
+@command(description = "Tool with a custom usage line", usage = "tool [options] <command>")
+class UsageApp:
+  @command(description = "Build")
+  def build(): String = "build"
+
 // Records which command's help was rendered, and with which options
 class CapturingHelpPrinter extends HelpPrinter:
-  var rendered: Seq[(String, Seq[String])] = Seq.empty
+  var rendered: Seq[(String, Seq[String])]   = Seq.empty
+  var headers: Seq[(String, Option[String])] = Seq.empty
 
   override def render(
       commandName: String,
@@ -207,6 +213,7 @@ class CapturingHelpPrinter extends HelpPrinter:
       subCommands: Seq[(String, String)]
   ): String =
     rendered = rendered :+ (commandName, options.flatMap(_.prefixes))
+    headers = headers :+ (description, usage)
     ""
 
 class LauncherTest extends UniTest:
@@ -433,6 +440,35 @@ class LauncherTest extends UniTest:
       .execute(Seq("build", "--help"))
     result.showedHelp shouldBe true
     printer.rendered.map(_._1) shouldBe Seq("build")
+  }
+
+  test("top-level help uses the class-level @command description and usage") {
+    val printer = CapturingHelpPrinter()
+    Launcher.of[UsageApp].withHelpPrinter(printer).execute(Seq("--help"))
+    printer.headers shouldBe
+      Seq(("Tool with a custom usage line", Some("tool [options] <command>")))
+
+    val defaultUsage = CapturingHelpPrinter()
+    Launcher.of[GitLikeCommand].withHelpPrinter(defaultUsage).execute(Seq("--help"))
+    defaultUsage.headers shouldBe Seq(("Git-like CLI", None))
+  }
+
+  test("addModule description takes precedence over the module's class-level @command") {
+    val printer = CapturingHelpPrinter()
+    Launcher
+      .of[GitLikeCommand]
+      .addModule[FlowModule]("flow", "Flow commands")
+      .withHelpPrinter(printer)
+      .execute(Seq("flow", "--help"))
+    printer.headers.map(_._1) shouldBe Seq("Flow commands")
+
+    val noDescription = CapturingHelpPrinter()
+    Launcher
+      .of[GitLikeCommand]
+      .addModule[FlowModule]("flow", "")
+      .withHelpPrinter(noDescription)
+      .execute(Seq("flow", "--help"))
+    noDescription.headers.map(_._1) shouldBe Seq("Flow module")
   }
 
   test("unknown sub-command with --help shows the top-level help") {

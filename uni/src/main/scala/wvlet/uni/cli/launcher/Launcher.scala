@@ -131,18 +131,22 @@ object Launcher:
       name: String,
       description: String
   ): CommandLauncher =
-    // Get command annotation info if present
+    // Get command annotation info if present. The class-level annotation comes first; the
+    // other lookups are kept for surfaces that carry no class annotations
     val (desc, usage, isDefault) = surface
-      .params
-      .headOption
-      .flatMap(_.findAnnotation("command"))
+      .findAnnotation("command")
+      .orElse(surface.params.headOption.flatMap(_.findAnnotation("command")))
       .orElse {
-        // Check class-level command annotation via methods (workaround)
         methods.find(_.name == "<init>").flatMap(_.findAnnotation("command"))
       }
       .map { annot =>
         (
-          annot.getAs[String]("description").getOrElse(description),
+          // An explicit description given to addModule takes precedence over the annotation
+          if description.nonEmpty then
+            description
+          else
+            annot.getAs[String]("description").getOrElse("")
+          ,
           annot.getAs[String]("usage").getOrElse(""),
           annot.getAs[Boolean]("isDefault").getOrElse(false)
         )

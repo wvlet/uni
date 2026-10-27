@@ -97,6 +97,12 @@ $ git init myrepo
 $ git clone https://example.com/repo --depth 1
 ```
 
+On the class, `description` appears under the usage line of the top-level help, and `usage` replaces the generated usage line:
+
+```scala
+@command(description = "Git-like CLI", usage = "git [options] <command>")
+```
+
 ## Argument Types
 
 ### String Options
