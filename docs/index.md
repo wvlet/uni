@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Uni - One Scala 3 Library for the Whole Stack
-description: Uni is a Scala 3 library that gives you dependency injection, logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+description: Uni is a Scala 3 library that gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
 
 hero:
   name: Uni
   text: One Scala 3 library for the whole stack
-  tagline: Dependency injection, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+  tagline: Object wiring with Design, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
   image:
     src: /uni-logo.svg
     alt: Uni
@@ -25,8 +25,8 @@ hero:
       link: https://github.com/wvlet/uni
 
 features:
-  - title: Dependency Injection
-    details: Wire services with Design — bindings, singletons, and lifecycle hooks, without a framework. JVM · JS · Native.
+  - title: Object Wiring
+    details: Design connects your services through their constructors and manages their lifecycles, so your classes stay plain Scala. JVM · JS · Native.
     link: /core/design
   - title: Logging
     details: LogSupport adds info/debug/warn with source locations to any class. JVM · JS · Native.
@@ -59,7 +59,7 @@ features:
 
 ## What is Uni?
 
-**Uni is a Scala 3 library that gives you dependency injection, logging,
+**Uni is a Scala 3 library that gives you object wiring (Design), logging,
 JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one
 dependency, with the same API on JVM, Scala.js, and Scala Native.** It is the
 Scala 3 successor of [Airframe](https://github.com/wvlet/airframe), for people
@@ -87,7 +87,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 
 :::
 
-## Example: DI, logging, and JSON
+## Example: Design, logging, and JSON
 
 ```scala
 import wvlet.uni.design.Design
@@ -109,7 +109,7 @@ class Greeter extends LogSupport:
 
 ## Why one library?
 
-- **One version to upgrade.** DI, logging, codecs, HTTP, and tests are
+- **One version to upgrade.** Object wiring, logging, codecs, HTTP, and tests are
   released together, so they never disagree on transitive dependencies.
 - **One API on three platforms.** The same code runs on the JVM, in Node.js or
   the browser, and as a Scala Native binary.

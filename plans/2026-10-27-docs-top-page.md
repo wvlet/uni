@@ -4,6 +4,7 @@
 
 - Make https://wvlet.org/uni/ answer "what is Uni, is it for me, how do I start" in the first screen, for a human skimming it and for an AI answer engine quoting it.
 - Convey the positioning honestly: the whole Scala 3 stack in one dependency, the same API on JVM / Scala.js / Scala Native, the Scala 3 successor of Airframe, used by Wvlet, and agent-ready docs. No "fastest/best" claims.
+- Avoid the term "dependency injection": the project deliberately calls Design "object wiring" because legacy Java DI frameworks left an impression of complexity.
 - Keep the hero, `description`, OG/Twitter, JSON-LD, `llms.txt` intro, and README opening on one tagline so search engines and models see one consistent sentence.
 
 ## Background
@@ -22,12 +23,12 @@
 **Lane: Standard.** The page structure changes (new hero code panel, new sections), and the user asked to confirm the direction first.
 
 1. **Tagline** (one sentence, reused everywhere):
-   "Uni is a Scala 3 library that gives you dependency injection, logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native."
+   "Uni is a Scala 3 library that gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native."
    - Hero: `name: Uni`, `text: One Scala 3 library for the whole stack`, `tagline:` the sentence above, shortened, plus "The Scala 3 successor of Airframe."
    - Actions: Get Started · For AI Agents · Coming from Airframe? (→ migration table) · GitHub.
 2. **Hero image**: keep the logo (user decision). The install snippet and a ~10-line runnable example (Design + LogSupport + `derives Weaver`) go in the Markdown body directly under the hero. The unused `HomeHeroCode.vue` stays untouched.
 3. **Feature cards** (8, each linked, with a platform note in `details`):
-   Design (DI) · Logging · Weaver JSON/MessagePack · Rx · HTTP client (all; Native needs libcurl) · HTTP server & RPC (servers on all three — Netty via `uni-netty` on the JVM, Node.js, native sockets; annotation router and RPC server JVM-only; RPC clients everywhere) · MCP servers (stdio, all three) · UniTest. CLI and Web UI (Scala.js only) are moved into the modules table to keep the grid even.
+   Object wiring (Design) · Logging · Weaver JSON/MessagePack · Rx · HTTP client (all; Native needs libcurl) · HTTP server & RPC (servers on all three — Netty via `uni-netty` on the JVM, Node.js, native sockets; annotation router and RPC server JVM-only; RPC clients everywhere) · MCP servers (stdio, all three) · UniTest. CLI and Web UI (Scala.js only) are moved into the modules table to keep the grid even.
 4. **Markdown body** (what agents and the `.md` twin see), answer-first:
    - One-paragraph "What is Uni?" with the tagline.
    - Install (`__UNI_VERSION__`, sbt and Scala CLI) and the same 10-line example.
