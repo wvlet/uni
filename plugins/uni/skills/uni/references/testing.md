@@ -85,23 +85,27 @@ tests run with their parent.
 
 ## Wiring with Design
 
-Build the object under test from a `Design`; override bindings with test
-doubles (in-memory implementations, not mocks).
+Bind objects with `addDesign`, then take them as typed parameters of the test
+body. Override bindings with test doubles (in-memory implementations, not
+mocks).
 
 ```scala
-import wvlet.uni.design.Design
-
 class SignupServiceTest extends UniTest:
-  private val design = Design.newDesign
-    .bindImpl[UserRepository, InMemoryUserRepository]
-    .bindSingleton[SignupService]
+  addDesign(
+    _.bindImpl[UserRepository, InMemoryUserRepository]
+      .bindSingleton[SignupService]
+  )
 
-  test("sign up") {
-    design.build[SignupService] { service =>
-      service.signup("alice").name shouldBe "alice"
-    }
+  test("sign up") { (service: SignupService) =>
+    service.signup("alice").name shouldBe "alice"
   }
 ```
+
+- Objects bound with `addDesign` are shared by the suite. Objects bound with
+  `addTestDesign`, or not bound at all, are built for each test and closed
+  after it, once a returned `Future` or `Rx` completes.
+- Take `(session: Session)` to get the test's Design session itself.
+- A body without parameters is a plain test and opens no session.
 
 ## Testing an HTTP or RPC server
 
@@ -124,6 +128,46 @@ test("RPC round trip") {
     }
 }
 ```
+
+## Reusable fixtures
+
+Share servers, clients, or temp directories across suites with traits that call
+`addDesign` (suite-wide) or `addTestDesign` (fresh in every test) from their
+body. The calls compose in trait initialization order, a later binding of the
+same type wins, and the Design session closes objects in reverse creation
+order, so dependencies decide the shutdown order.
+
+```scala
+import wvlet.uni.http.{Http, HttpHandler, HttpServer, HttpSyncClient, Request, Response}
+import wvlet.uni.http.netty.NettyServer
+
+trait HttpServerFixture extends UniTest:
+  addDesign(_.bindProvider[HttpHandler, HttpServer](h => NettyServer.withPort(0).withHandler(h).start()))
+
+trait HttpClientFixture extends HttpServerFixture:
+  addDesign(
+    _.bindProvider[HttpServer, HttpSyncClient](s =>
+      Http.client.withBaseUri(s"http://localhost:${s.localPort}").newSyncClient
+    )
+  )
+
+class GreetingApiTest extends HttpClientFixture:
+  addDesign(_.bindInstance[HttpHandler](r => Response.ok(s"hello ${r.path}")))
+
+  test("GET /ping") { (client: HttpSyncClient) =>
+    client.send(Request.get("/ping")).contentAsString shouldBe Some("hello /ping")
+  }
+```
+
+- **Do not write `trait F { this: UniTest => ... }`.** It compiles, but when two
+  such fixtures override a hook, only the last one runs. A fixture that
+  overrides a hook extends `UniTest` and calls `super.beforeAll` (and so on).
+- An object that fails to build fails the test that needs it; the objects
+  already built are still closed.
+- Use `addTestDesign` instead of a `withX { ... }` loan helper, which closes too
+  early when the body returns a `Future`.
+
+Full guide: https://wvlet.org/uni/core/unitest.md#reusable-fixtures
 
 ## Property-based tests
 

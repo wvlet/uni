@@ -405,32 +405,205 @@ sbt "test -- --exclude-tags flaky"       # skip known-flaky tests
 
 ## Design Integration
 
-Use Design for object wiring in tests:
+A test whose body takes typed parameters gets them from the suite's
+[Design](./design). Add bindings with `addDesign`, and list what the test needs
+as the parameters of its body:
 
 ```scala
-import wvlet.uni.test.UniTest
-import wvlet.uni.design.Design
+import wvlet.uni.test.*
 
 class UserServiceTest extends UniTest:
-  val testDesign = Design.newDesign
-    .bindImpl[UserRepository, InMemoryUserRepository]
-    .bindImpl[UserService, UserServiceImpl]
+  addDesign(
+    _.bindImpl[UserRepository, InMemoryUserRepository]
+      .bindImpl[UserService, UserServiceImpl]
+  )
 
-  test("create user") {
-    testDesign.build[UserService] { service =>
-      val user = service.createUser("Alice")
-      user.name shouldBe "Alice"
-    }
+  test("create user") { (service: UserService) =>
+    val user = service.createUser("Alice")
+    user.name shouldBe "Alice"
   }
 
-  test("find user") {
-    testDesign.build[UserService] { service =>
-      service.createUser("Bob")
-      val found = service.findByName("Bob")
-      found shouldBe defined
-    }
+  test("find user") { (service: UserService, repo: UserRepository) =>
+    service.createUser("Bob")
+    repo.findByName("Bob") shouldBe defined
   }
 ```
+
+- **Shared or per test:** objects bound with `addDesign` are built once and
+  shared by the tests of the suite. Objects bound with `addTestDesign`, and
+  objects that are not bound at all, are built for each test and closed after
+  it.
+- **Sessions:** the suite's Design session starts when the first such test
+  runs, and shuts down after `afterAll`. Each test gets a child session, which
+  shuts down after `after`, once a returned `Future` or `Rx` completes. Shutting
+  a session down closes the objects it built (`AutoCloseable` or `onShutdown`)
+  in reverse creation order.
+- **Arguments:** a test can take up to as many arguments as a Scala function
+  literal allows, and can take `(session: Session)` to get the session itself.
+- **Plain tests:** a body without parameters is a plain test and opens no
+  session.
+
+## Lifecycle Hooks
+
+Override these protected hooks to run code around tests:
+
+| Hook | Runs | If it throws |
+|------|------|--------------|
+| `beforeAll` | Once, before the first test | The suite fails and no test runs; `afterAll` still runs |
+| `afterAll` | Once, after the last test, also after a failed `beforeAll` | Reported as a suite error |
+| `before` | Before each test, including each nested test | The test fails; `after` is **not** called, and its body does not run |
+| `after` | After each test, once its `Future` or `Rx` result completes, also when the test fails | The test fails, unless it already failed |
+
+```scala
+class CacheTest extends UniTest:
+  private val cache = scala.collection.mutable.Map.empty[String, Int]
+
+  override protected def after: Unit = cache.clear()
+
+  test("put") {
+    cache("a") = 1
+    cache.size shouldBe 1
+  }
+
+  test("starts empty") {
+    cache.isEmpty shouldBe true
+  }
+```
+
+Tests in a suite run one at a time, in the order they are registered. Nested
+tests are queued after the tests already registered and run only when their
+parent passed, each with its own `before` and `after`.
+
+The hooks are synchronous. To open and close resources such as servers or
+clients, prefer binding them in a Design (see
+[Reusable Fixtures](#reusable-fixtures)) over writing hooks.
+
+## Reusable Fixtures
+
+A fixture is a trait that adds bindings for resources such as a server, a
+client, or a temp directory, so that many suites can mix it in. Each fixture
+calls `addDesign` (or `addTestDesign`) from its body; the calls compose in trait
+initialization order, and a later binding of the same type wins:
+
+```scala
+import wvlet.uni.test.*
+import wvlet.uni.http.{Http, HttpHandler, HttpServer, HttpSyncClient, Request, Response}
+import wvlet.uni.http.netty.NettyServer
+
+// Starts a server on a free port for the HttpHandler that each suite binds
+trait HttpServerFixture extends UniTest:
+  addDesign(
+    _.bindProvider[HttpHandler, HttpServer](handler =>
+      NettyServer.withPort(0).withHandler(handler).start()
+    )
+  )
+
+// Depends on the server, so the session closes the client before it stops the server
+trait HttpClientFixture extends HttpServerFixture:
+  addDesign(
+    _.bindProvider[HttpServer, HttpSyncClient](server =>
+      Http.client.withBaseUri(s"http://localhost:${server.localPort}").newSyncClient
+    )
+  )
+
+class GreetingApiTest extends HttpClientFixture:
+  addDesign(_.bindInstance[HttpHandler](request => Response.ok(s"hello ${request.path}")))
+
+  test("GET /ping") { (client: HttpSyncClient) =>
+    client.send(Request.get("/ping")).contentAsString shouldBe Some("hello /ping")
+  }
+
+  test("the client is shared by the tests of the suite") { (client: HttpSyncClient) =>
+    client.send(Request.get("/again")).contentAsString shouldBe Some("hello /again")
+  }
+```
+
+- **Shutdown order:** the session closes objects in reverse creation order, so
+  dependencies decide the order. If one `close()` throws, the session still
+  closes the rest and the error is reported.
+- **Startup failures:** an object that fails to build fails the test that needs
+  it; the objects already built are still closed.
+- **When to call:** call `addDesign` and `addTestDesign` from the body of the
+  test class or a fixture trait. Calling them once the tests run throws.
+
+These fixtures, with tests that check startup, reuse, and shutdown against a
+real server, are in
+[`HttpClientFixtureTest.scala`](https://github.com/wvlet/uni/blob/main/uni-netty/src/test/scala/wvlet/uni/http/netty/HttpClientFixtureTest.scala).
+
+### Per-Test Resources
+
+Bind what each test needs fresh with `addTestDesign`:
+
+```scala
+import java.nio.file.{Files, LinkOption, Path}
+
+class TempDir extends AutoCloseable:
+  val path: Path = Files.createTempDirectory("test")
+
+  override def close(): Unit = deleteRecursively(path)
+
+  private def deleteRecursively(p: Path): Unit =
+    // Do not follow symlinks out of the temp directory
+    if Files.isDirectory(p, LinkOption.NOFOLLOW_LINKS) then
+      val children = Files.list(p)
+      try
+        children.forEach(deleteRecursively)
+      finally
+        children.close()
+    Files.deleteIfExists(p)
+
+trait TempDirFixture extends UniTest:
+  addTestDesign(_.bindSingleton[TempDir])
+```
+
+- **Async tests:** a test's objects stay open until its `Future` or `Rx`
+  completes. A loan helper such as `withTempDir { dir => ... }` closes them as
+  soon as the body returns, which is too early when the body returns a
+  `Future`.
+- **Nested tests:** each nested test that takes arguments gets its own session.
+  Take the arguments in the nested test; do not capture the parent's.
+
+### Combining Fixtures
+
+Mix fixtures with `extends A with B`. Their bindings are added in trait
+initialization order: a trait's after those of the traits it extends, and B's
+after A's.
+
+```scala
+class UploadApiTest extends HttpClientFixture with TempDirFixture:
+  addDesign(_.bindInstance[HttpHandler](request => Response.ok(s"uploaded ${request.path}")))
+
+  test("upload a file") { (client: HttpSyncClient, dir: TempDir) =>
+    val file = Files.writeString(dir.path.resolve("a.txt"), "hello")
+    // ... send it with `client`
+  }
+```
+
+The fixtures in
+[`DesignTestTest.scala`](https://github.com/wvlet/uni/blob/main/uni-test/src/test/scala/wvlet/uni/test/DesignTestTest.scala)
+run on all platforms. They and
+[`DesignLifecycleTest.scala`](https://github.com/wvlet/uni/blob/main/uni-test/.jvm/src/test/scala/wvlet/uni/test/DesignLifecycleTest.scala)
+check the behavior above with the sbt runner and the JUnit engine used by IDEs.
+
+### Hooks in Fixtures
+
+When a fixture also overrides a lifecycle hook, write `override` and call
+`super`, so that the hooks of the other fixtures still run:
+
+```scala
+trait AuditFixture extends UniTest:
+  override protected def afterAll: Unit =
+    try info("suite finished")
+    finally super.afterAll
+```
+
+::: warning Do not use self-type fixtures
+`trait F { this: UniTest => override protected def beforeAll: Unit = ... }`
+compiles, but a self-type trait does not inherit the hooks it overrides. When two
+such fixtures are mixed in, only the last one's hooks run, and the other's setup
+is silently skipped. Inside it, `super.beforeAll` does not compile. Extend
+`UniTest` instead, and prefer Design bindings over hooks.
+:::
 
 ## Property-Based Testing
 
@@ -703,7 +876,7 @@ Test results are displayed with status symbols:
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions
-2. **Use Design for wiring** - Leverage object wiring for test isolation
+2. **Use Design for wiring** - Bind test objects with `addDesign` / `addTestDesign` and take them as test arguments; share setup through fixture traits that extend `UniTest` (not a self-type). See [Reusable Fixtures](#reusable-fixtures)
 3. **Prefer `shouldMatch`** - Use pattern matching for type checks instead of `asInstanceOf`
 4. **One behavior per test** - Keep tests focused on a single behavior
 5. **Descriptive names** - Test names should describe the expected behavior

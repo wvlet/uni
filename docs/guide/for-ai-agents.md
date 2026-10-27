@@ -98,6 +98,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields. See [Command Launcher](../cli/launcher) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
+| Test fixtures | `wvlet.uni.test.*` | `addDesign(_.bindSingleton[A])` in a trait that extends `UniTest`, then `test("...") { (a: A) => ... }`. See [Reusable Fixtures](../core/unitest#reusable-fixtures) |
 
 ## How do I migrate from Airframe?
 
@@ -111,6 +112,8 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
+| AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |
+| AirSpec `test("...") { (a: A) => ... }` | the same: test arguments come from the suite's Design |
 
 Uni uses a separate package root (`wvlet.uni.*`), so both libraries can coexist
 during a migration. See [Appendix B: Uni and Airframe](../book/appendix-b-airframe)
@@ -129,6 +132,11 @@ for background.
   responses. Most 4xx statuses throw `HttpException`. Retryable statuses (5xx,
   429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
   of `HttpException`. Failed RPC client calls throw the same exceptions.
+- **Hand-writing test setup and teardown.** Bind servers, clients, and temp
+  directories with `addDesign` / `addTestDesign` in a trait that extends
+  `UniTest`, and take them as test arguments. A self-type fixture
+  (`trait F { this: UniTest => }`) compiles, but when two of them override a
+  hook, only the last one runs.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
 - **Mixing two libraries for one concern in the same module.** Uni works
   alongside community libraries. If a project already uses uPickle, MUnit, sttp,

@@ -61,6 +61,11 @@ Scala Native.
   already provides them.
 - **Airframe imports.** `wvlet.airframe.*`, `wvlet.log.*`, and `wvlet.airspec.*`
   are the old library. Map them with [references/airframe-migration.md](references/airframe-migration.md).
+- **Hand-written setup and teardown in tests.** Bind servers, clients, and temp directories
+  with `addDesign` / `addTestDesign` in a trait that extends `UniTest`, and take them as test
+  arguments: `test("ping") { (client: HttpSyncClient) => ... }`. A self-type fixture
+  (`trait F { this: UniTest => }`) compiles, but only the last one's hooks run. See
+  [references/testing.md](references/testing.md#reusable-fixtures).
 - **Constructing services by hand.** Take dependencies as constructor parameters
   and let `Design` build them; bind interfaces with `bindImpl[A, B]` and values with
   `bindInstance[A](v)`.
