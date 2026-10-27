@@ -5,8 +5,8 @@ cannot drift from the API. Unlike [`book-examples`](../../book-examples/), nothi
 is copied by hand: `project/MarkdownSnippets.scala` generates one Scala file per
 Markdown file at compile time.
 
-Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`) and
-`docs/guide/uni-vs-scala-toolkit.md`. A root is a directory or one Markdown file. To cover
+Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`),
+`docs/guide/uni-vs-scala-toolkit.md`, and `docs/core/unitest.md`. A root is a directory or one Markdown file. To cover
 more pages, add a root and its package prefix to `docSnippets` in `build.sbt`.
 
 ```bash

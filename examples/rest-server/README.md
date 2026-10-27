@@ -17,9 +17,10 @@ typed RPC service, a typed client, and a test that starts the server and calls i
 - **Design wiring**: `TodoServer.design` binds the config, a singleton `TodoStore` shared by both
   APIs, `bindImpl[TodoApi, TodoApiImpl]`, and `onStart` / `onShutdown` hooks that start and stop
   the server with the session.
-- **UniTest**: [`TodoServerTest`](src/test/scala/example/rest/TodoServerTest.scala) builds the
-  same design with port 0 (a free port), calls the server through the RPC client and the REST API,
-  and checks that a 404 surfaces as `HttpException`.
+- **UniTest**: [`TodoServerTest`](src/test/scala/example/rest/TodoServerTest.scala) adds the
+  same design with port 0 (a free port) and an HTTP client with `addTestDesign`, so each test gets
+  its own server and takes the client as an argument. It calls the server through the RPC client
+  and the REST API, and checks that a 404 surfaces as `HttpException`.
 
 Source: [`TodoServer.scala`](src/main/scala/example/rest/TodoServer.scala).
 

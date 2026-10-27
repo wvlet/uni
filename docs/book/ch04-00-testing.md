@@ -44,20 +44,22 @@ value, and `+` overrides it. A test takes the real application wiring and
 swaps in exactly one piece.
 
 ```scala
-import wvlet.uni.design.Design
 import wvlet.uni.test.UniTest
 
 class UserServiceTest extends UniTest:
-  test("looks up a user by id") {
-    // appDesign is the real production wiring from Chapter 3.
-    val testDesign = appDesign +
-      Design.newDesign.bindInstance[Database](FakeDatabase())
+  // appDesign is the real production wiring from Chapter 3.
+  addDesign(_ + appDesign)
+  // A later binding of the same type wins: swap in the fake.
+  addDesign(_.bindInstance[Database](FakeDatabase()))
 
-    testDesign.build[UserService] { users =>
-      users.findUser("123") shouldBe Some("Alice")
-    }
+  test("looks up a user by id") { (users: UserService) =>
+    users.findUser("123") shouldBe Some("Alice")
   }
 ```
+
+`addDesign` adds bindings to the suite's Design. The test lists what it
+needs as the parameters of its body, and UniTest builds `users` from that
+Design, so the test never opens a session itself.
 
 `UserService` is the real class, running its real logic. Only the
 `Database` underneath it is a fake — an in-process stand-in with no
