@@ -45,6 +45,8 @@ The site is read by AI agents as much as by people.
 - **`guide/for-ai-agents.md` is a contract for agents.** Keep its imports table,
   Airframe mapping, and "mistakes" list in sync with the source, verified the
   same way as Rule #0.
+- **The `uni` skill (`plugins/uni/skills/uni/`) is a digest of that page.**
+  Edit both in the same PR and bump the plugin `version` (see root `AGENTS.md`).
 - **Give new pages a `description` frontmatter** of one or two sentences that
   name the problem the page solves. It becomes `<meta name="description">`,
   which AI search engines quote.

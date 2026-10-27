@@ -72,6 +72,8 @@ Gemini reviews PRs. Address feedback before merging.
 
 [`docs/guide/for-ai-agents.md`](docs/guide/for-ai-agents.md) lists canonical imports, entry points, and an Airframe→Uni table that AI agents rely on. When a change renames, moves, or removes a public API, package, or artifact, update that page in the same PR. See `docs/AGENTS.md` for details.
 
+The Claude Code plugin in [`plugins/uni/`](plugins/uni/) (listed by [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)) ships a `uni` skill that is a digest of that page. When you change the page or an API it lists, update `plugins/uni/skills/uni/` in the same PR, verify every snippet compiles, and bump `version` in `plugins/uni/.claude-plugin/plugin.json` so installed copies update. Check with `claude plugin validate .` and `claude plugin validate plugins/uni`.
+
 ## Architecture decisions
 
 Key design decisions are recorded in [`adr/`](adr/) — see [`adr/README.md`](adr/README.md) for the index of what each ADR covers and when to read it. Consult the relevant ADR before modifying the area it covers; add a new ADR (`adr/YYYY-MM-DD-(topic).md`) and index entry when making a significant design decision.
