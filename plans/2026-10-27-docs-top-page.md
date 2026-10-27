@@ -37,8 +37,9 @@
    - **For AI agents**: llms.txt, llms-full.txt, For AI Agents page, Context7, the Claude Code plugin install.
    - Modules table with a Platforms column (`uni`, `uni-netty`, `uni-test`).
 5. **Metadata**: `description` frontmatter = the tagline. In `config.mts`, update site `description`, OG/Twitter title/description, JSON-LD `description`, and the llms plugin `description` to the tagline; set `excludeIndexPage: false` so `/uni/index.md` is published and the home page is included in `llms-full.txt` (the plugin appends it last). An `<llm-only># Uni</llm-only>` heading gives the Markdown twin an H1 without rendering on the site.
-6. **README**: replace the "Essential Scala Utilities" line with the tagline plus "The Scala 3 successor of Airframe." Small edit only.
-7. **Verification**: `pnpm docs:build` (dead links), inspect `dist/index.md`, `llms.txt`, `llms-full.txt` head; compile the hero example with scala-cli against the released version; prototype via `pnpm docs:preview`.
+6. **Object wiring, not DI, in agent docs**: use "object wiring" on `docs/guide/for-ai-agents.md` and in the `uni` skill too (bump the plugin version). Keep "dependency injection" only where it matches what users type: the skill's trigger description and the plugin keyword.
+7. **README**: replace the "Essential Scala Utilities" line with the tagline plus "The Scala 3 successor of Airframe." Small edit only.
+8. **Verification**: `pnpm docs:build` (dead links), inspect `dist/index.md`, `llms.txt`, `llms-full.txt` head; compile the hero example with scala-cli against the released version; prototype via `pnpm docs:preview`.
 
 ## Alternatives and Why Not?
 

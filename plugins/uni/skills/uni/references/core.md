@@ -1,9 +1,9 @@
 # Uni core snippets
 
-DI, logging, JSON, retry, and MCP servers. Each snippet compiles against the
+Object wiring, logging, JSON, retry, and MCP servers. Each snippet compiles against the
 current `uni` release.
 
-## Dependency injection with lifecycle (Design)
+## Object wiring with lifecycle (Design)
 
 Dependencies are constructor parameters. `build` starts a session, runs the
 body, then calls shutdown hooks.

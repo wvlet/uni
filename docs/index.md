@@ -1,12 +1,12 @@
 ---
 layout: home
 title: Uni - One Scala 3 Library for the Whole Stack
-description: Uni is a Scala 3 library that gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+description: "Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing, with one API on JVM, Scala.js, and Scala Native."
 
 hero:
   name: Uni
   text: One Scala 3 library for the whole stack
-  tagline: Object wiring with Design, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing in one dependency, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+  tagline: Object wiring with Design, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing from one project, with the same API on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
   image:
     src: /uni-logo.svg
     alt: Uni
@@ -38,10 +38,10 @@ features:
     details: Composable reactive streams and variables for async code and UI state. JVM · JS · Native.
     link: /rx/
   - title: HTTP Client
-    details: Sync and async clients with retry, streaming, SSE, and WebSocket. JVM · JS · Native (Native needs libcurl).
+    details: Sync and async clients with retry, streaming, SSE, and WebSocket. JVM · JS · Native (the JS sync client needs Node.js; Native needs libcurl).
     link: /http/client
   - title: HTTP Server & RPC
-    details: HTTP servers on every platform (Netty via uni-netty on the JVM, Node.js, native sockets). Annotation router and RPC server are JVM-only; typed RPC clients run everywhere.
+    details: HTTP servers on every platform (Netty via uni-netty on the JVM, Node.js, native sockets). The annotation router and HTTP RPC server are JVM-only; typed RPC clients run everywhere.
     link: /http/server
   - title: MCP Servers
     details: Turn a Scala trait into a stdio MCP server that AI agents can call. JVM · JS (Node.js) · Native binary.
@@ -60,8 +60,8 @@ features:
 ## What is Uni?
 
 **Uni is a Scala 3 library that gives you object wiring (Design), logging,
-JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing in one
-dependency, with the same API on JVM, Scala.js, and Scala Native.** It is the
+JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one
+project, with the same API on JVM, Scala.js, and Scala Native.** It is the
 Scala 3 successor of [Airframe](https://github.com/wvlet/airframe), for people
 who build services, CLIs, and tools in Scala 3 and want one set of conventions
 instead of assembling a library per concern.
@@ -116,7 +116,8 @@ class Greeter extends LogSupport:
 - **One set of conventions.** Case classes become JSON, RPC payloads, and MCP
   tool arguments through the same `Weaver` codecs.
 
-Specialized libraries such as sttp, circe, ZIO, and MacWire are good choices,
+Focused libraries and ecosystems such as sttp, circe, ZIO, and MacWire are good
+choices,
 and if they already serve you well there is no need to switch. Uni fits best
 when you want these pieces from one place, especially when targeting Scala.js
 or Scala Native.
@@ -140,6 +141,6 @@ CLI and server, is built on `uni`, `uni-test`, and `uni-netty`.
 
 | Module | Contents | Platforms |
 |--------|----------|-----------|
-| `uni` | Design, logging, JSON/MessagePack, Rx, HTTP client, Node.js/Native HTTP servers, RPC, MCP, [CLI utilities](/cli/) (JVM, Native), [Web UI](/dom/) (Scala.js) | JVM, Scala.js, Scala Native |
-| `uni-netty` | Netty HTTP server, annotation router, RPC server | JVM |
+| `uni` | Design, logging, JSON/MessagePack, Rx, HTTP client, Node.js/Native HTTP servers, RPC, MCP, [CLI utilities](/cli/), [Web UI](/dom/) (Scala.js) | JVM, Scala.js, Scala Native |
+| `uni-netty` | Netty HTTP server, annotation router, HTTP RPC server | JVM |
 | `uni-test` | UniTest framework | JVM, Scala.js, Scala Native |

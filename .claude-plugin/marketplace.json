@@ -9,7 +9,7 @@
     {
       "name": "uni",
       "source": "./plugins/uni",
-      "description": "Teaches AI coding agents to write idiomatic Scala 3 code with Uni: DI, logging, JSON/MessagePack, HTTP, RPC, MCP servers, and UniTest"
+      "description": "Teaches AI coding agents to write idiomatic Scala 3 code with Uni: object wiring, logging, JSON/MessagePack, Rx, HTTP (SSE, WebSocket, OpenAPI), RPC, Electron IPC, MCP servers, CLI tools, and UniTest"
     }
   ]
 }
