@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.io.Gzip
 import wvlet.uni.test.UniTest
 
 /**
@@ -61,6 +62,49 @@ class NativeCurlClientTest extends UniTest:
         response.statusCode shouldBe 200
         response.header("X-Echoed") shouldBe Some("ping")
       }
+  }
+
+  // Gzips the body only when the request's Accept-Encoding allows it, like a real server
+  private def gzipServer = NativeServer
+    .withHandler { req =>
+      val body = s"Hello from ${req.path}"
+      if req.header(HttpHeader.AcceptEncoding).exists(_.contains("gzip")) then
+        Response
+          .ok
+          .withBytesContent(Gzip.compress(body.getBytes("UTF-8")))
+          .addHeader(HttpHeader.ContentEncoding, "gzip")
+      else
+        Response.ok(body)
+    }
+    .withPort(0)
+
+  test("curl client decodes a gzip response") {
+    gzipServer.start { server =>
+      val response = client(server).send(Request.get("/gzip"))
+      response.statusCode shouldBe 200
+      response.header(HttpHeader.ContentEncoding) shouldBe Some("gzip")
+      response.contentAsString shouldBe Some("Hello from /gzip")
+    }
+  }
+
+  test("curl client decodes gzip when the caller sets Accept-Encoding") {
+    gzipServer.start { server =>
+      val response = client(server).send(
+        Request.get("/gzip").addHeader(HttpHeader.AcceptEncoding, "gzip")
+      )
+      response.header(HttpHeader.ContentEncoding) shouldBe Some("gzip")
+      response.contentAsString shouldBe Some("Hello from /gzip")
+    }
+  }
+
+  test("curl client sends a caller-supplied Accept-Encoding: identity") {
+    gzipServer.start { server =>
+      val response = client(server).send(
+        Request.get("/plain").addHeader(HttpHeader.AcceptEncoding, "identity")
+      )
+      response.header(HttpHeader.ContentEncoding) shouldBe None
+      response.contentAsString shouldBe Some("Hello from /plain")
+    }
   }
 
 end NativeCurlClientTest
