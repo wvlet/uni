@@ -83,7 +83,19 @@ class SessionBuilder(
     val session = new SessionImpl(parent = parent, name, d, stage, l)
     debug(f"Creating a new session: ${session.name}")
     l.setSession(session)
-    session.init
+    try
+      session.init
+    catch
+      case e: Throwable =>
+        // The caller never receives this session, so close what was built before the failure
+        try
+          session.shutdown
+        catch
+          case shutdownError: Throwable =>
+            e.addSuppressed(shutdownError)
+        throw e
     session
+
+  end create
 
 end SessionBuilder
