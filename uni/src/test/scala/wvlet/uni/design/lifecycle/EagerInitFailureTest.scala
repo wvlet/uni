@@ -68,7 +68,8 @@ class EagerInitFailureTest extends UniTest:
         .withProductionMode
     val e = intercept[Throwable](d.newSession)
     e.getMessage shouldContain "init failed"
-    e.getSuppressed.map(_.getMessage).exists(_.contains("close failed")) shouldBe true
+    e.getSuppressed.length shouldBe 1
+    e.getSuppressed.head.getMessage shouldContain "close failed"
   }
 
 end EagerInitFailureTest
