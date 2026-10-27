@@ -13,7 +13,7 @@
 
 Lane: **Express** — a bug fix with a clear diagnosis, no always-gate area.
 
-- Check `surface.findAnnotation("command")` first, keeping the two old lookups as fallbacks.
+- Read `surface.findAnnotation("command")` and drop the two old lookups, which never matched a class annotation.
 - An explicit non-empty `description` passed to `addModule(name, description)` wins over the annotation's description; otherwise the annotation's applies. `usage` and `isDefault` come from the annotation.
 - Add LauncherTest cases: class-level description and usage appear in `of[A]` help; `addModule` respects the explicit description.
 - Add `usage = "uni-gh [options] <command>"` to `examples/cli-tool`'s `GitHubCli`. `docs/cli/launcher.md` already documents this behaviour; the skill and `for-ai-agents.md` need changes only if they state otherwise.
