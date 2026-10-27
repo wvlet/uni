@@ -25,6 +25,7 @@
     "Wire services with wvlet.uni.design.Design: `Design.newDesign.bindSingleton[A].build[A] { a => ... }`.",
     "In UniTest, write `(x >= 1) shouldBe true` instead of ScalaTest-style `x should be >= 1`.",
     "Uni replaces Airframe for Scala 3 projects. Do not add Airframe artifacts for the same features.",
+    "The Scala Toolkit (sttp, uPickle, os-lib, MUnit) fits scripts, teaching, Scala 2.13, and subprocesses; Uni fits Scala 3.9+ services that need object wiring, logging, an HTTP server, RPC, or MCP servers. They work in one build: https://wvlet.org/uni/guide/uni-vs-scala-toolkit",
     "Canonical imports, an Airframe migration table, and common mistakes: https://wvlet.org/uni/guide/for-ai-agents"
   ]
 }

@@ -53,6 +53,10 @@ few transitive dependencies:
 
 Do not mix in Airframe artifacts for the same features. Uni replaces them.
 
+For scripts, teaching, Scala 2.13, or running subprocesses, the Scala Toolkit is
+often the better fit, and it works alongside Uni. See the next section and
+[Uni and the Scala Toolkit](./uni-vs-scala-toolkit).
+
 ## Should I use the Scala Toolkit or Uni?
 
 Use the [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html)

@@ -18,6 +18,10 @@ For AI coding agents: read [llms.txt](https://wvlet.org/uni/llms.txt) (page inde
 [llms-full.txt](https://wvlet.org/uni/llms-full.txt) (all docs in one file), and see
 [Uni for AI Agents](https://wvlet.org/uni/guide/for-ai-agents) for canonical imports and an Airframe migration table.
 
+Already using the [Scala Toolkit](https://docs.scala-lang.org/toolkit/introduction.html)? See
+[Uni and the Scala Toolkit](https://wvlet.org/uni/guide/uni-vs-scala-toolkit) for when each fits and how
+they work together.
+
 Runnable example apps, compiled and tested in CI, live in [`examples/`](examples/): a CLI tool
 (JVM and Scala Native), a REST + RPC server, a stdio MCP server, and Scala.js UIs. Copy one as a
 starting point.
