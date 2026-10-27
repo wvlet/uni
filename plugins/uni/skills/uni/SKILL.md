@@ -1,6 +1,6 @@
 ---
 name: uni
-description: Write idiomatic Scala 3 code with Uni (org.wvlet.uni, packages wvlet.uni.*), the Airframe successor for object wiring (Design), logging (LogSupport), JSON/MessagePack codecs (Weaver), reactive streams (Rx), HTTP client/server with SSE, WebSocket, and OpenAPI, typed RPC (also over Electron IPC), MCP servers, CLI argument parsing, retry, and unit testing (UniTest) on JVM, Scala.js, and Scala Native. Use when a Scala 3 project's build.sbt mentions org.wvlet.uni or its code imports wvlet.uni, when the user asks for object wiring or dependency injection, logging, JSON, HTTP, RPC, MCP, CLI tools, or tests in Scala 3 with few dependencies, or when migrating from Airframe (wvlet.airframe, wvlet.log, AirSpec).
+description: Write idiomatic Scala 3 code with Uni (org.wvlet.uni, packages wvlet.uni.*), the Airframe successor for object wiring (Design), logging (LogSupport), JSON/MessagePack codecs (Weaver), reactive streams (Rx), HTTP client/server with SSE, WebSocket, and OpenAPI, typed RPC (also over Electron IPC), MCP servers, CLI argument parsing, retry, and unit testing (UniTest) on JVM, Scala.js, and Scala Native. Use when a Scala 3 project's build.sbt mentions org.wvlet.uni or its code imports wvlet.uni, when the user asks for object wiring, logging, JSON, HTTP, RPC, MCP, CLI tools, or tests in Scala 3 with few dependencies, or when migrating from Airframe (wvlet.airframe, wvlet.log, AirSpec).
 ---
 
 # Uni
