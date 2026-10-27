@@ -36,7 +36,8 @@ lazy val sbtUniCrossProject = project
   .enablePlugins(SbtPlugin)
   .settings(
     name        := "sbt-uni-crossproject",
-    description := "Minimal sbt 2.x crossproject plugin (CrossType.Pure) for uni",
+    description :=
+      "Minimal sbt 2.x crossProject plugin (CrossType.Pure) for building Scala 3 code for JVM, Scala.js, and Scala Native; replaces sbt-scalajs-crossproject and sbt-scala-native-crossproject",
     licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
     homepage := Some(uri("https://github.com/wvlet/uni")),
     scmInfo  :=
