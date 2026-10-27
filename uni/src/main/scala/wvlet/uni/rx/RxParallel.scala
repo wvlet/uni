@@ -28,21 +28,13 @@ object RxParallel:
 
   /**
     * Run multiple Rx computations in parallel and return the first result (a value or an error).
-    * All slower computations are cancelled. Each computation runs as a fiber on
-    * [[RxScheduler.default]]; nothing blocks, so this also works on Scala.js.
+    * The slower computations are cancelled, as are all of them if the subscription is cancelled
+    * first. Each computation runs as a fiber on [[RxScheduler.default]]; nothing blocks, so this
+    * also works on Scala.js.
     */
   def race[A](rxs: Seq[Rx[A]]): Rx[A] =
     require(rxs.nonEmpty, "Cannot race an empty sequence")
-    Rx.single(rxs.map(rx => RxFiber.start(rx, RxScheduler.default)))
-      .flatMap { fibers =>
-        merge(fibers.map(_.join))
-          .take(1)
-          .tapOn { case _ =>
-            // Cancel later: a cancelled fiber wakes its join with an error, which must arrive after
-            // take(1) has stopped the merge, not inside this emission
-            RxScheduler.default.execute(() => fibers.foreach(_.cancel.run()))
-          }
-      }
+    merge(rxs.map(forked)).take(1)
 
   /**
     * Run multiple Rx computations in parallel and collect all results. The order of results matches
@@ -53,21 +45,52 @@ object RxParallel:
   /**
     * Run multiple Rx computations in parallel, at most `parallelism` at a time, and collect their
     * first values in input order. Each computation runs as a fiber on [[RxScheduler.default]]. The
-    * first error cancels the others; a computation that completes without a value fails with
-    * IllegalStateException. Nothing blocks, so this also works on Scala.js.
+    * first error cancels the running and pending ones; a computation that completes without a value
+    * fails with IllegalStateException. Nothing blocks, so this also works on Scala.js.
     */
   def parSequenceN[A](parallelism: Int)(rxs: Seq[Rx[A]]): Rx[Seq[A]] =
     if rxs.isEmpty then
       Rx.single(Seq.empty)
     else
-      Rx.single(new Array[Any](rxs.size))
-        .flatMap { results =>
-          Rx.fromSeq(rxs.indices)
-            .parFlatMap(parallelism)(i => rxs(i).start.flatMap(_.join).map(v => results(i) = v))
-            .lastOption
-            .toRx
-            .map(_ => results.toSeq.asInstanceOf[Seq[A]])
+      // A fresh results array per run. Each item carries it, instead of a flatMap over it, so the
+      // last emitted value is the filled array
+      Rx.fromSeq {
+          val results = new Array[Any](rxs.size)
+          rxs.zipWithIndex.map((rx, i) => (rx, i, results))
         }
+        .parFlatMap(parallelism) { (rx, i, results) =>
+          forked(rx).map { v =>
+            results(i) = v
+            results
+          }
+        }
+        .lastOption
+        .toRx
+        .map(_.fold(Seq.empty[A])(_.toSeq.asInstanceOf[Seq[A]]))
+
+  /**
+    * Run `rx` as a fiber on [[RxScheduler.default]] when subscribed, and emit its first value.
+    * Cancelling the subscription cancels the fiber. The join is unregistered first, so the
+    * cancellation's InterruptedException is not delivered.
+    */
+  private[rx] def forked[A](rx: Rx[A]): Rx[A] = Rx.AsyncOp[A](
+    callback =>
+      val fiber = RxFiber.start(rx, RxScheduler.default)
+      val join  =
+        RxRunner.runOnce(fiber.join) {
+          case OnNext(v) =>
+            callback(scala.util.Success(v.asInstanceOf[A]))
+          case OnError(e) =>
+            callback(scala.util.Failure(e))
+          case OnCompletion =>
+        }
+      Cancelable { () =>
+        join.cancel
+        fiber.cancel.run()
+      }
+    ,
+    "RxParallel.forked"
+  )
 
   /**
     * Traverse a sequence with a function, running computations in parallel.
@@ -131,10 +154,10 @@ extension [A](rx: Rx[A])
   /**
     * Map with bounded parallelism: each `f(a)` runs on [[RxScheduler.default]], with at most
     * `parallelism` running at a time. Results arrive in completion order. Cancellation drops the
-    * results of calls already running but does not interrupt them.
+    * results of calls already running; it cancels their fibers but cannot interrupt blocking code.
     */
   def parMapN[B](parallelism: Int)(f: A => B): Rx[B] =
-    parFlatMap(parallelism)(a => Rx.single(f(a)).start.flatMap(_.join))
+    parFlatMap(parallelism)(a => RxParallel.forked(Rx.single(f(a))))
 
   /**
     * Merge emissions from this stream with another. Order is non-deterministic.
