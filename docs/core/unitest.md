@@ -405,16 +405,6 @@ sbt "test -- --exclude-tags flaky"       # skip known-flaky tests
 - With no `--tags`, every test is included.
 - Tags apply to top-level tests. Nested tests run with their parent.
 
-### Why Flaky Is a Tag
-
-Earlier versions marked flaky tests with a boolean,
-`test(name, flaky = true)`. When tags were added, flakiness became one of them
-instead of a second option next to the tag list. A test is then annotated in
-one place (`test("x", Flaky, Slow)`), and the runner selects flaky tests with
-the same `--tags` / `--exclude-tags` filters as any other group, without a
-special case. The only extra behavior of `Flaky` is that a failure is reported
-as skipped.
-
 ## Design Integration
 
 Use Design for object wiring in tests:
