@@ -54,7 +54,8 @@ println(s"Hello, ${app.name}!")
 
 ## Features
 
-- **Cross-Platform** - Works on JVM and Scala Native
+- **Cross-Platform** - Works on JVM, Scala.js, and Scala Native. On Scala.js, colors and
+  progress output render in Node.js; in a browser, they are turned off
 - **Automatic Detection** - Detects terminal capabilities
 - **Fluent API** - Method chaining for styling
 - **Type-Safe** - Compile-time argument validation
