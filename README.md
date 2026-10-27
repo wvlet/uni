@@ -8,7 +8,7 @@
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/wvlet/uni)
 
-**One Scala 3 library for the whole stack.** Uni gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one project, with the same API on JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe.
+**One Scala 3 library for the whole stack.** Uni gives you object wiring (Design), logging, JSON/MessagePack, Rx, HTTP client/server, RPC, MCP servers, and testing from one project, with minimal dependencies and the same API on JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe.
 
 ## Documentation
 

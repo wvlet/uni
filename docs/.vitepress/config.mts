@@ -28,7 +28,7 @@ const SITE_URL = 'https://wvlet.org/uni/'
 const SITE_TITLE = 'Uni - One Scala 3 Library for the Whole Stack'
 // Keep in sync with the hero and `description` in docs/index.md and the README intro
 const SITE_DESCRIPTION =
-  'Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing, with one API on JVM, Scala.js, and Scala Native.'
+  'Uni is the Scala 3 successor of Airframe: object wiring, logging, JSON/MessagePack, Rx, HTTP, RPC, MCP servers, and testing with minimal dependencies, on JVM, Scala.js, and Scala Native.'
 
 // Structured data so search engines and AI answer engines can identify Uni as a software library.
 const structuredData = {
