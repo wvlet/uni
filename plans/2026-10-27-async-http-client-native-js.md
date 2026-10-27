@@ -19,6 +19,6 @@ Lane: **Express** — tests plus a fix only if one turns up; no always-gate area
 
 - Native: add `uni/.native/src/test/.../NativeHttpAsyncClientTest.scala` using `NativeServer.withPort(0).start { ... }` (the server has its own threads), with `send(...).await` like the JVM test.
 - JS: add `uni/.js/src/test/.../NodeHttpAsyncClientTest.scala` using `NodeServer.withPort(0).startAndAwait { ... }`, returning the `Rx`; failures are turned into values with `.recover` so assertions run inside the stream.
-- 5xx case: the handler returns 503 and counts calls; the client uses `withRetryContext(... .withMaxRetry(2).withBackOff(initialIntervalMillis = 10))` so the test stays fast. Assert `HttpMaxRetryException` with status 503 and 3 server hits.
+- 5xx case: the handler returns 503 and counts calls; the client uses `withRetryContext(... .withMaxRetry(2).withBackOff(initialIntervalMillis = 10))` so the test stays fast. Assert `HttpMaxRetryException` with status 503 and 2 server hits (`maxRetry` bounds the total number of attempts).
 - If a test fails, fix the channel (or Rx operator) in this PR.
 - Docs: change "works in browsers and on the JVM" in `plugins/uni/skills/uni/references/http-client.md` (and `docs/http/client.md` if it says the same) to list JVM, Scala.js (browser and Node), and Scala Native; bump the plugin version.
