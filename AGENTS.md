@@ -65,9 +65,6 @@ Save plan documents to plans/YYYY-MM-DD-(topic).md files
 - Focus on "why" not "what"
 - Example: `feature: Add XXX to improve user experience`
 
-### Code Reviews
-Gemini reviews PRs. Address feedback before merging.
-
 ## AI-agent docs
 
 [`docs/guide/for-ai-agents.md`](docs/guide/for-ai-agents.md) lists canonical imports, entry points, and an Airframe→Uni table that AI agents rely on. When a change renames, moves, or removes a public API, package, or artifact, update that page in the same PR. See `docs/AGENTS.md` for details.
