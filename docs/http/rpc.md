@@ -12,7 +12,7 @@ trait UserService:
 
 // Create a router from the implementation
 val router = RPCRouter.of[UserService](UserServiceImpl())
-// Generates: POST /UserService/getUser, POST /UserService/createUser
+// Generates: POST /<package>.UserService/getUser, POST /<package>.UserService/createUser
 ```
 
 ## Defining an RPC Service
@@ -59,15 +59,15 @@ val router = RPCRouter.of[UserService](impl)
 router.routes.foreach { route =>
   println(s"${route.path}")
 }
-// /UserService/getUser
-// /UserService/createUser
-// /UserService/listUsers
+// /com.example.api.UserService/getUser
+// /com.example.api.UserService/createUser
+// /com.example.api.UserService/listUsers
 
 // Look up a specific route
 val route = router.findRoute("getUser")
 ```
 
-All routes use `POST` with the path format `/{serviceName}/{methodName}`.
+All routes use `POST` with the path format `/{serviceName}/{methodName}`, where `serviceName` is the trait's fully qualified name.
 
 Every public method of `T` becomes an endpoint, including methods inherited from your own base
 traits (`trait UserService extends CrudApi[User]` serves the `CrudApi` methods too). Methods

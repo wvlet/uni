@@ -132,6 +132,9 @@ test("null checks") {
 | `a shouldBe defined` | Assert Option is Some, collection/string is non-empty |
 | `a shouldBe empty` | Assert Option is None, collection/string is empty |
 
+`defined` and `empty` are objects in the `wvlet.uni.test` package, so import
+`wvlet.uni.test.*` (not only `UniTest`) to use them.
+
 ```scala
 test("defined and empty") {
   val some: Option[Int] = Some(42)
@@ -279,7 +282,7 @@ test("blocked by issue") {
 Mark tests as flaky to convert failures to skipped status:
 
 ```scala
-test("network test", flaky = true) {
+test("network test", Flaky) {
   // Failures become skipped instead of failed
   fetchFromNetwork() shouldBe "expected"
 }

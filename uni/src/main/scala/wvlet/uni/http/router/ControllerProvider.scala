@@ -101,6 +101,7 @@ object MapControllerProvider:
           c.getClass.getName.stripSuffix("$") -> c
         }
         .toMap
-    MapControllerProvider(map)
+    // `new` is required: without it, this call resolves to this varargs apply and recurses forever
+    new MapControllerProvider(map)
 
 end MapControllerProvider
