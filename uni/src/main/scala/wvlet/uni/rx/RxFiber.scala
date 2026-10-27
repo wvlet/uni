@@ -99,10 +99,29 @@ object RxFiber:
 
     private[rx] def setCancelable(c: Cancelable): Unit = cancelable = c
 
-    override def join: Rx[A] = Rx.AsyncOp[A](
-      callback => registerJoinLoop(callback).foreach(callback),
-      "RxFiber.join"
-    )
+    override def join: Rx[A] = Rx.AsyncOp[A](joinAsync, "RxFiber.join")
+
+    private def joinAsync(callback: Try[A] => Boolean): Cancelable =
+      val joiner: Try[A] => Unit = result => callback(result)
+      registerJoinLoop(joiner) match
+        case Some(result) =>
+          joiner(result)
+          Cancelable.empty
+        case None =>
+          Cancelable(() => removeJoiner(joiner))
+
+    /**
+      * Remove the joiner of a cancelled join, so the fiber does not hold it until completion
+      */
+    @tailrec
+    private def removeJoiner(joiner: Try[A] => Unit): Unit =
+      state.get() match
+        case running @ Running(joiners, cancellers) if joiners.exists(_ eq joiner) =>
+          val newState = Running(joiners.filterNot(_ eq joiner), cancellers)
+          if !state.compareAndSet(running, newState) then
+            removeJoiner(joiner)
+        case _ =>
+          ()
 
     @tailrec
     private def registerJoinLoop(callback: Try[A] => Unit): Option[Try[A]] =

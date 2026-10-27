@@ -100,9 +100,10 @@ object RxSemaphore:
   def of(permits: Long): Rx[RxSemaphore] = Rx.single(apply(permits))
 
   /**
-    * Waiter entry: number of permits requested and callback to invoke when satisfied
+    * Waiter entry: number of permits requested and callback to invoke when satisfied. The callback
+    * returns false if the waiting run was cancelled and the permits must be released again.
     */
-  private case class Waiter(permits: Long, callback: () => Unit)
+  private class Waiter(val permits: Long, val callback: () => Boolean)
 
   /**
     * Internal state
@@ -121,29 +122,54 @@ object RxSemaphore:
       else
         Rx.AsyncOp[Unit](callback => acquireAsync(n, callback), s"RxSemaphore.acquireN(${n})")
 
-    private def acquireAsync(n: Long, callback: Try[Unit] => Unit): Unit =
-      val acquired = () => callback(Success(()))
-      if acquireLoop(n, acquired) then
-        acquired()
+    private def acquireAsync(n: Long, callback: Try[Unit] => Boolean): Cancelable =
+      val waiter = Waiter(n, () => callback(Success(())))
+      if acquireLoop(waiter) then
+        deliver(waiter)
+        Cancelable.empty
+      else
+        Cancelable(() => removeWaiter(waiter))
+
+    /**
+      * Hand the acquired permits to the waiter, or release them if its run was cancelled
+      */
+    private def deliver(waiter: Waiter): Unit =
+      if !waiter.callback() then
+        releaseLoop(waiter.permits)
 
     @tailrec
-    private def acquireLoop(n: Long, callback: () => Unit): Boolean =
+    private def acquireLoop(waiter: Waiter): Boolean =
       val current = state.get()
-      if current.available >= n then
+      if current.available >= waiter.permits then
         // Enough permits available
-        val newState = current.copy(available = current.available - n)
+        val newState = current.copy(available = current.available - waiter.permits)
         if state.compareAndSet(current, newState) then
           true
         else
-          acquireLoop(n, callback)
+          acquireLoop(waiter)
       else
         // Need to wait
-        val waiter   = Waiter(n, callback)
         val newState = current.copy(waiters = current.waiters.enqueue(waiter))
         if state.compareAndSet(current, newState) then
           false
         else
-          acquireLoop(n, callback)
+          acquireLoop(waiter)
+
+    /**
+      * Remove a cancelled waiter. Waiters queued behind it may now be satisfiable.
+      */
+    @tailrec
+    private def removeWaiter(waiter: Waiter): Unit =
+      val current = state.get()
+      if current.waiters.exists(_ eq waiter) then
+        val (toWake, remaining, leftover) = satisfyWaiters(
+          current.waiters.filterNot(_ eq waiter),
+          current.available
+        )
+        if state.compareAndSet(current, State(leftover, remaining)) then
+          toWake.foreach(deliver)
+        else
+          removeWaiter(waiter)
 
     override def release: Rx[Unit] = releaseN(1)
 
@@ -162,7 +188,7 @@ object RxSemaphore:
       val newState                      = State(leftover, remaining)
       if state.compareAndSet(current, newState) then
         // Wake up satisfied waiters
-        toWake.foreach(_.callback())
+        toWake.foreach(deliver)
       else
         releaseLoop(n)
 

@@ -87,10 +87,28 @@ object RxDeferred:
   private class RxDeferredImpl[A]() extends RxDeferred[A]:
     private val state = new AtomicReference[State[A]](Empty(Queue.empty))
 
-    override def get: Rx[A] = Rx.AsyncOp[A](
-      callback => registerLoop(callback).foreach(callback),
-      "RxDeferred.get"
-    )
+    override def get: Rx[A] = Rx.AsyncOp[A](getAsync, "RxDeferred.get")
+
+    private def getAsync(callback: Try[A] => Boolean): Cancelable =
+      val waiter: Try[A] => Unit = result => callback(result)
+      registerLoop(waiter) match
+        case Some(result) =>
+          waiter(result)
+          Cancelable.empty
+        case None =>
+          Cancelable(() => removeWaiter(waiter))
+
+    /**
+      * Remove the waiter of a cancelled get, so the deferred does not hold it until completion
+      */
+    @tailrec
+    private def removeWaiter(waiter: Try[A] => Unit): Unit =
+      state.get() match
+        case empty @ Empty(waiters) if waiters.exists(_ eq waiter) =>
+          if !state.compareAndSet(empty, Empty(waiters.filterNot(_ eq waiter))) then
+            removeWaiter(waiter)
+        case _ =>
+          ()
 
     @tailrec
     private def registerLoop(callback: Try[A] => Unit): Option[Try[A]] =

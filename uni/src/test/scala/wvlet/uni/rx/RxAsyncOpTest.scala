@@ -28,6 +28,14 @@ class RxAsyncOpTest extends UniTest:
     val c      = RxRunner.run(rx)(ev => events += ev)
     (events, c)
 
+  // Read a value that is available synchronously; Rx.await is unsupported on Scala.js
+  private def get[A](rx: Rx[A]): A =
+    collect(rx)._1.head match
+      case OnNext(v) =>
+        v.asInstanceOf[A]
+      case other =>
+        fail(s"Unexpected event: ${other}")
+
   test("RxDeferred.get emits a value completed later") {
     val deferred    = RxDeferred[Int]()
     val (events, _) = collect(deferred.get)
@@ -84,6 +92,93 @@ class RxAsyncOpTest extends UniTest:
     collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion)
     events.toSeq shouldBe Seq(OnNext(()), OnCompletion)
     collect(queue.take)._1.toSeq shouldBe Seq(OnNext(2), OnCompletion)
+  }
+
+  test("a cancelled RxSemaphore.acquire leaves the permit available") {
+    val semaphore      = RxSemaphore(0)
+    val (cancelled, c) = collect(semaphore.acquire)
+    get(semaphore.waiting) shouldBe 1
+    c.cancel
+    get(semaphore.waiting) shouldBe 0
+    semaphore.release.run()
+    cancelled shouldBe empty
+    get(semaphore.available) shouldBe 1
+  }
+
+  test("a cancelled RxSemaphore.acquireN lets smaller waiters behind it proceed") {
+    val semaphore  = RxSemaphore(0)
+    val (large, c) = collect(semaphore.acquireN(2))
+    val (small, _) = collect(semaphore.acquire)
+    // One permit is not enough for the head waiter, so both keep waiting
+    semaphore.release.run()
+    small shouldBe empty
+    c.cancel
+    large shouldBe empty
+    small.toSeq shouldBe Seq(OnNext(()), OnCompletion)
+    get(semaphore.available) shouldBe 0
+  }
+
+  test("a cancelled RxBoundedQueue.take leaves the element for the next taker") {
+    val queue          = RxBoundedQueue[Int](1)
+    val (cancelled, c) = collect(queue.take)
+    c.cancel
+    queue.offer(7).run()
+    cancelled shouldBe empty
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(7), OnCompletion)
+  }
+
+  test("a cancelled waiting RxBoundedQueue.offer does not enqueue its element") {
+    val queue = RxBoundedQueue[Int](1)
+    queue.offer(1).run()
+    val (cancelled, c) = collect(queue.offer(2))
+    c.cancel
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion)
+    cancelled shouldBe empty
+    get(queue.isEmpty) shouldBe true
+  }
+
+  test("AsyncOp reports non-delivery after cancellation") {
+    var deliver: scala.util.Try[Int] => Boolean = null
+    var unregistered                            = false
+    val op                                      = Rx.AsyncOp[Int](
+      callback =>
+        deliver = callback
+        Cancelable(() => unregistered = true)
+      ,
+      "test"
+    )
+    val (events, c) = collect(op)
+    c.cancel
+    unregistered shouldBe true
+    deliver(scala.util.Success(1)) shouldBe false
+    events shouldBe empty
+  }
+
+  test("permits woken for a run cancelled during the same release are released again") {
+    val semaphore   = RxSemaphore(0)
+    var second      = Cancelable.empty
+    val firstEvents = ListBuffer.empty[RxEvent]
+    // Both waiters are woken by one release; the first one's handler cancels the second
+    RxRunner.run(semaphore.acquire) { ev =>
+      firstEvents += ev
+      second.cancel
+    }
+    val secondEvents = ListBuffer.empty[RxEvent]
+    second = RxRunner.run(semaphore.acquire)(ev => secondEvents += ev)
+    semaphore.releaseN(2).run()
+    firstEvents.toSeq shouldBe Seq(OnNext(()), OnCompletion)
+    secondEvents shouldBe empty
+    get(semaphore.available) shouldBe 1
+  }
+
+  test("a cancelled RxDeferred.get unregisters its callback") {
+    val deferred    = RxDeferred[Int]()
+    val (events, c) = collect(deferred.get)
+    val (other, _)  = collect(deferred.get)
+    c.cancel
+    deferred.complete(3).run()
+    events shouldBe empty
+    other.toSeq shouldBe Seq(OnNext(3), OnCompletion)
   }
 
 end RxAsyncOpTest

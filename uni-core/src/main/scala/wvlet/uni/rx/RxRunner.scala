@@ -595,8 +595,8 @@ class RxRunner(
         }
       case AsyncOp(register, _) =>
         // Deliver at most one result, and none after cancellation
-        val done = AtomicBoolean(false)
-        register { result =>
+        val done         = AtomicBoolean(false)
+        val registration = register { result =>
           if done.compareAndSet(false, true) then
             result match
               case Success(v) =>
@@ -607,8 +607,16 @@ class RxRunner(
                     effect(OnError(e))
               case Failure(e) =>
                 effect(OnError(e))
+            true
+          else
+            false
         }
-        Cancelable(() => done.set(true))
+        // Mark as done before unregistering, so a waiter woken in between reports
+        // non-delivery and its source can hand back the permit or element
+        Cancelable { () =>
+          done.set(true)
+          registration.cancel
+        }
       case SingleOp(v) =>
         Try(effect(OnNext(v.eval))) match
           case Success(c) =>

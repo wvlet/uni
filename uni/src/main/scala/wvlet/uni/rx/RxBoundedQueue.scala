@@ -92,7 +92,8 @@ object RxBoundedQueue:
     */
   private case class State[A](
       elements: Queue[A],
-      takers: Queue[A => Unit],
+      // A taker returns false if its run was cancelled and the element must be returned
+      takers: Queue[A => Boolean],
       offerers: Queue[(A, () => Unit)]
   )
 
@@ -129,7 +130,7 @@ object RxBoundedQueue:
         val (taker, remainingTakers) = current.takers.dequeue
         val newState                 = current.copy(takers = remainingTakers)
         if state.compareAndSet(current, newState) then
-          taker(a)
+          giveTo(taker, a)
           true
         else
           tryOfferLoop(a)
@@ -150,37 +151,84 @@ object RxBoundedQueue:
       else
         Rx.AsyncOp[Unit](callback => offerAsync(a, callback), "RxBoundedQueue.offer")
 
-    private def offerAsync(a: A, callback: Try[Unit] => Unit): Unit =
-      val offered = () => callback(Success(()))
-      if offerWithCallback(a, offered) then
-        offered()
+    private def offerAsync(a: A, callback: Try[Unit] => Boolean): Cancelable =
+      // Once the element is accepted, the offer stands even if its run was cancelled meanwhile
+      val offerer = (a, () => callback(Success(())): Unit)
+      if offerWithCallback(offerer) then
+        offerer._2()
+        Cancelable.empty
+      else
+        Cancelable(() => removeOfferer(offerer))
 
     @tailrec
-    private def offerWithCallback(a: A, callback: () => Unit): Boolean =
+    private def offerWithCallback(offerer: (A, () => Unit)): Boolean =
+      val a       = offerer._1
       val current = state.get()
       if current.takers.nonEmpty then
         // Give to waiting taker
         val (taker, remainingTakers) = current.takers.dequeue
         val newState                 = current.copy(takers = remainingTakers)
         if state.compareAndSet(current, newState) then
-          taker(a)
+          giveTo(taker, a)
           true // Completed immediately
         else
-          offerWithCallback(a, callback)
+          offerWithCallback(offerer)
       else if current.elements.size < capacity then
         // Queue has space
         val newState = current.copy(elements = current.elements.enqueue(a))
         if state.compareAndSet(current, newState) then
           true // Completed immediately
         else
-          offerWithCallback(a, callback)
+          offerWithCallback(offerer)
       else
         // Queue full - register as waiting offerer
-        val newState = current.copy(offerers = current.offerers.enqueue((a, callback)))
+        val newState = current.copy(offerers = current.offerers.enqueue(offerer))
         if state.compareAndSet(current, newState) then
           false // Will complete later
         else
-          offerWithCallback(a, callback)
+          offerWithCallback(offerer)
+
+    /**
+      * Remove a cancelled offerer whose element has not been accepted yet
+      */
+    @tailrec
+    private def removeOfferer(offerer: (A, () => Unit)): Unit =
+      val current = state.get()
+      if current.offerers.exists(_ eq offerer) then
+        val newState = current.copy(offerers = current.offerers.filterNot(_ eq offerer))
+        if !state.compareAndSet(current, newState) then
+          removeOfferer(offerer)
+
+    /**
+      * Hand an element to a waiting taker, or put it back if the taker's run was cancelled
+      */
+    @tailrec
+    private def giveTo(taker: A => Boolean, a: A): Unit =
+      if !taker(a) then
+        returnLoop(a) match
+          case Some(next) =>
+            giveTo(next, a)
+          case None =>
+            ()
+
+    /**
+      * Return an element to the next waiting taker, or else to the front of the queue. The queue
+      * may exceed its capacity until returned elements are taken; waiting offerers stay queued
+      * meanwhile.
+      */
+    @tailrec
+    private def returnLoop(a: A): Option[A => Boolean] =
+      val current = state.get()
+      if current.takers.nonEmpty then
+        val (taker, remainingTakers) = current.takers.dequeue
+        if state.compareAndSet(current, current.copy(takers = remainingTakers)) then
+          Some(taker)
+        else
+          returnLoop(a)
+      else if state.compareAndSet(current, current.copy(elements = a +: current.elements)) then
+        None
+      else
+        returnLoop(a)
 
     override def tryTake: Rx[Option[A]] = Rx.single {
       tryTakeLoop()
@@ -193,7 +241,8 @@ object RxBoundedQueue:
         val (element, remainingElements) = current.elements.dequeue
 
         // Check if there are waiting offerers
-        if current.offerers.nonEmpty then
+        // Admit a waiting offerer only below capacity (returned elements may exceed it)
+        if current.offerers.nonEmpty && remainingElements.size < capacity then
           val ((offerElement, offerCallback), remainingOfferers) = current.offerers.dequeue
           val newState                                           = current.copy(
             elements = remainingElements.enqueue(offerElement),
@@ -226,18 +275,35 @@ object RxBoundedQueue:
             case None =>
               Rx.AsyncOp[A](takeAsync, "RxBoundedQueue.take")
 
-    private def takeAsync(callback: Try[A] => Unit): Unit =
-      val taken = (a: A) => callback(Success(a))
-      takeWithCallback(taken).foreach(taken)
+    private def takeAsync(callback: Try[A] => Boolean): Cancelable =
+      val taker = (a: A) => callback(Success(a))
+      takeWithCallback(taker) match
+        case Some(a) =>
+          giveTo(taker, a)
+          Cancelable.empty
+        case None =>
+          Cancelable(() => removeTaker(taker))
+
+    /**
+      * Remove a cancelled taker that has not received an element yet
+      */
+    @tailrec
+    private def removeTaker(taker: A => Boolean): Unit =
+      val current = state.get()
+      if current.takers.exists(_ eq taker) then
+        val newState = current.copy(takers = current.takers.filterNot(_ eq taker))
+        if !state.compareAndSet(current, newState) then
+          removeTaker(taker)
 
     @tailrec
-    private def takeWithCallback(callback: A => Unit): Option[A] =
+    private def takeWithCallback(callback: A => Boolean): Option[A] =
       val current = state.get()
       if current.elements.nonEmpty then
         val (element, remainingElements) = current.elements.dequeue
 
         // Check if there are waiting offerers
-        if current.offerers.nonEmpty then
+        // Admit a waiting offerer only below capacity (returned elements may exceed it)
+        if current.offerers.nonEmpty && remainingElements.size < capacity then
           val ((offerElement, offerCallback), remainingOfferers) = current.offerers.dequeue
           val newState                                           = current.copy(
             elements = remainingElements.enqueue(offerElement),
