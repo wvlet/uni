@@ -25,29 +25,32 @@ hero:
       link: https://github.com/wvlet/uni
 
 features:
+  - title: Cross-Platform
+    details: Every feature here runs on the JVM, Scala.js, and Scala Native with the same API. Cards note the few exceptions.
+    link: /book/ch11-00-cross-platform
   - title: Object Wiring
-    details: Design connects your services through their constructors and manages their lifecycles, so your classes stay plain Scala. JVM · JS · Native.
+    details: Design connects your services through their constructors and manages their lifecycles, so your classes stay plain Scala.
     link: /core/design
   - title: Logging
-    details: LogSupport adds info/debug/warn with source locations to any class. JVM · JS · Native.
+    details: LogSupport adds info/debug/warn with source locations to any class.
     link: /core/logging
   - title: JSON & MessagePack
-    details: Add <code>derives Weaver</code> to a case class to get JSON and MessagePack codecs. JVM · JS · Native.
+    details: Add <code>derives Weaver</code> to a case class to get JSON and MessagePack codecs.
     link: /core/weaver
   - title: Rx
-    details: Composable reactive streams and variables for async code and UI state. JVM · JS · Native.
+    details: Composable reactive streams and variables for async code and UI state.
     link: /rx/
   - title: HTTP Client
-    details: Sync and async clients with retry, streaming, SSE, and WebSocket. JVM · JS · Native (the JS sync client needs Node.js; Native needs libcurl).
+    details: Sync and async clients with retry, streaming, SSE, and WebSocket. On Scala.js the sync client needs Node.js; Scala Native needs libcurl.
     link: /http/client
   - title: HTTP Server & RPC
     details: HTTP servers on every platform (Netty via uni-netty on the JVM, Node.js, native sockets). The annotation router and HTTP RPC server are JVM-only; typed RPC clients run everywhere.
     link: /http/server
   - title: MCP Servers
-    details: Turn a Scala trait into a stdio MCP server that AI agents can call. JVM · JS (Node.js) · Native binary.
+    details: Turn a Scala trait into a stdio MCP server that AI agents can call, on Node.js or as a single native binary.
     link: /mcp/
   - title: UniTest
-    details: A lightweight test framework with shouldBe-style assertions. JVM · JS · Native.
+    details: A lightweight test framework with shouldBe-style assertions.
     link: /core/unitest
 ---
 
