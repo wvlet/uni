@@ -21,3 +21,10 @@ trait RxSource[A] extends Rx[A]:
   def add(ev: RxEvent): Unit
   def next: Rx[RxEvent]
   def stop(): Unit = add(OnCompletion)
+
+  /**
+    * Called when a subscription is cancelled while it waits for the event from [[next]]. The
+    * default adds an InterruptedException to wake a consumer blocked inside `next`; a source whose
+    * `next` waits asynchronously should instead drop the waiter, so the next event stays queued.
+    */
+  def cancelNext(): Unit = add(OnError(InterruptedException("cancelled")))

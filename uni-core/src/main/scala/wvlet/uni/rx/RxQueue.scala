@@ -15,44 +15,72 @@ package wvlet.uni.rx
 
 import wvlet.uni.log.LogSupport
 
-import scala.concurrent.ExecutionContext
-import scala.concurrent.Promise
+import scala.annotation.tailrec
+import scala.collection.immutable.Queue
+import scala.util.Success
+import scala.util.Try
 
 /**
   * JVM/JS compatible RxQueue implementation
   * @tparam A
   */
 class RxQueue[A]() extends RxSource[A] with LogSupport:
-  private implicit val ec: ExecutionContext = compat.defaultExecutionContext
-  override def parents: Seq[Rx[?]]          = Seq.empty
+  override def parents: Seq[Rx[?]] = Seq.empty
 
-  private var queue                             = scala.collection.immutable.Queue.empty[RxEvent]
-  private var waiting: Option[Promise[RxEvent]] = None
+  private var queue = Queue.empty[RxEvent]
+  // Callbacks of subscribers waiting for an event. A callback returns false if its subscription
+  // was cancelled, and the event goes back to the queue
+  private var waiters = Queue.empty[Try[RxEvent] => Boolean]
 
-  override def add(event: RxEvent): Unit = synchronized {
-    queue = queue.enqueue(event)
-    waiting match
-      case Some(p) =>
+  override def add(event: RxEvent): Unit = offer(event, front = false)
+
+  @tailrec
+  private def offer(event: RxEvent, front: Boolean): Unit =
+    val waiter = synchronized {
+      if waiters.nonEmpty then
+        val (w, rest) = waiters.dequeue
+        waiters = rest
+        Some(w)
+      else
+        queue =
+          if front then
+            event +: queue
+          else
+            queue.enqueue(event)
+        None
+    }
+    waiter match
+      case Some(w) if !w(Success(event)) =>
+        offer(event, front = true)
+      case _ =>
+
+  override def next: Rx[RxEvent] = Rx.AsyncOp[RxEvent](
+    callback =>
+      val ready = synchronized {
         if queue.nonEmpty then
-          waiting = None
-          val (e, newQueue) = queue.dequeue
-          queue = newQueue
-          p.success(e)
-      case None =>
-      // do nothing if there is no waiting promise
-  }
+          val (e, rest) = queue.dequeue
+          queue = rest
+          Some(e)
+        else
+          waiters = waiters.enqueue(callback)
+          None
+      }
+      ready match
+        case Some(e) =>
+          if !callback(Success(e)) then
+            offer(e, front = true)
+          Cancelable.empty
+        case None =>
+          Cancelable { () =>
+            synchronized {
+              waiters = waiters.filterNot(_ eq callback)
+            }
+          }
+    ,
+    "RxQueue.next"
+  )
 
-  override def next: Rx[RxEvent] = synchronized {
-    if queue.nonEmpty then
-      val (e, newQueue) = queue.dequeue
-      queue = newQueue
-      Rx.const(e)
-    else if waiting.nonEmpty then
-      Rx.future(waiting.get.future)
-    else
-      val p = Promise[RxEvent]()
-      waiting = Some(p)
-      Rx.future(p.future)
-  }
+  // Cancelling the subscription to next unregisters its waiter
+  override def cancelNext(): Unit = ()
 
 end RxQueue

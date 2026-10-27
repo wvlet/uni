@@ -2,6 +2,8 @@ package wvlet.uni.rx
 
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import wvlet.uni.log.LogSupport
 import wvlet.uni.util.Result
 
@@ -759,38 +761,72 @@ class RxRunner(
           lastResult = RxResult.Stop
         }
       case source: RxSource[?] =>
-        var toContinue     = true
-        var c1: Cancelable = Cancelable.empty
-        @tailrec
-        def loop: Unit =
-          if continuous || toContinue then
-            c1.cancel
-            val evRx = source.next
-            c1 =
-              run(evRx) {
+        val cancelled = AtomicBoolean(false)
+        // Set by a terminal event or a downstream Stop; continuous mode keeps reading
+        val finished = AtomicBoolean(false)
+        // True from calling source.next until its event arrives
+        val awaiting = AtomicBoolean(false)
+        val current  = AtomicReference[Cancelable](Cancelable.empty)
+
+        def active: Boolean = !cancelled.get && (continuous || !finished.get)
+
+        def deliver(ev: RxEvent): RxResult =
+          awaiting.set(false)
+          if cancelled.get then
+            RxResult.Stop
+          else
+            ev match
+              case OnNext(v) =>
+                val r = effect(OnNext(v.asInstanceOf[A]))
+                if !r.toContinue then
+                  finished.set(true)
+                r
+              case other =>
+                finished.set(true)
+                effect(other)
+
+        // Read one event at a time. An event that is already available continues this loop; one
+        // that arrives later continues from its callback. Polling `next` again before its event
+        // arrives would spin on an empty source.
+        def pull(): Unit =
+          var again = true
+          while again && active do
+            // 0: waiting, 1: the event arrived during run(next), 2: run(next) returned first
+            val state = AtomicInteger(0)
+            awaiting.set(true)
+            current.set(
+              run(source.next) {
                 case OnNext(ev: RxEvent) =>
-                  ev match
-                    case OnNext(v) =>
-                      effect(OnNext(v.asInstanceOf[A]))
-                    case other =>
-                      toContinue = false
-                      effect(other)
-                case OnCompletion =>
-                  // ok. Successfully received a single event from the source
-                  RxResult.Continue
+                  deliver(ev)
                 case other =>
-                  toContinue = false
-                  effect(other)
+                  // The event's Rx ended: OnCompletion, or OnError if the effect threw (continuous
+                  // mode keeps reading after that)
+                  val r =
+                    other match
+                      case OnCompletion =>
+                        RxResult.Continue
+                      case _ =>
+                        deliver(other)
+                  if !state.compareAndSet(0, 1) then
+                    pull()
+                  r
               }
-            loop
-        loop
-        Cancelable.merge(
-          c1,
-          Cancelable { () =>
-            toContinue = false
-            source.add(OnError(new InterruptedException("cancelled")))
-          }
-        )
+            )
+            // A cancellation that ran before this subscription existed could not cancel it
+            if cancelled.get then
+              current.get.cancel
+              if awaiting.get then
+                source.cancelNext()
+            again = !state.compareAndSet(0, 2)
+        end pull
+
+        pull()
+        Cancelable { () =>
+          cancelled.set(true)
+          current.get.cancel
+          if awaiting.get then
+            source.cancelNext()
+        }
 
   /**
     * A base implementation for merging streams and generating tuples

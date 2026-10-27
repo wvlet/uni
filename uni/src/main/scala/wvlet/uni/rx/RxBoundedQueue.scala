@@ -16,6 +16,7 @@ package wvlet.uni.rx
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
+import scala.util.Failure
 import scala.util.Success
 import scala.util.Try
 
@@ -76,6 +77,11 @@ end RxBoundedQueue
 object RxBoundedQueue:
 
   /**
+    * The reason a take fails once the queue has completed normally and is empty
+    */
+  class QueueCompleted extends NoSuchElementException("Queue completed")
+
+  /**
     * Create a new bounded queue with the given capacity.
     */
   def apply[A](capacity: Int): RxBoundedQueue[A] =
@@ -112,11 +118,40 @@ object RxBoundedQueue:
           tryOfferLoop(v.asInstanceOf[A])
           ()
         case OnError(e) =>
-          completed.set(Some(e))
+          complete(e)
         case OnCompletion =>
-          completed.set(Some(null)) // null means normal completion
+          complete(null) // null means normal completion
 
-    override def next: Rx[RxEvent] = take.map(OnNext(_))
+    // Takers wait only while the queue is empty, so wake them all: no element will come
+    private def complete(e: Throwable): Unit =
+      if completed.compareAndSet(None, Some(e)) then
+        val waiting = state.getAndUpdate(_.copy(takers = Queue.empty)).takers
+        waiting.foreach {
+          case t: Taker =>
+            t.close()
+          case _ =>
+        }
+
+    private def completionError: Throwable =
+      completed.get() match
+        case Some(null) =>
+          QueueCompleted()
+        case Some(e) =>
+          e
+        case None =>
+          IllegalStateException("Queue is not completed")
+
+    override def next: Rx[RxEvent] = take.transform {
+      case Success(a) =>
+        OnNext(a)
+      case Failure(_: QueueCompleted) =>
+        OnCompletion
+      case Failure(e) =>
+        OnError(e)
+    }
+
+    // Cancelling the take already unregisters the waiter; adding an error would complete the queue
+    override def cancelNext(): Unit = ()
 
     override def tryOffer(a: A): Rx[Boolean] = Rx.single {
       tryOfferLoop(a)
@@ -268,21 +303,42 @@ object RxBoundedQueue:
           Rx.single(a)
         case None =>
           completed.get() match
-            case Some(null) =>
-              Rx.exception(new NoSuchElementException("Queue completed"))
-            case Some(e) =>
-              Rx.exception(e)
+            case Some(_) =>
+              Rx.exception(completionError)
             case None =>
               Rx.AsyncOp[A](takeAsync, "RxBoundedQueue.take")
 
+    // A waiting taker that the queue's completion can fail
+    private class Taker(callback: Try[A] => Boolean) extends (A => Boolean):
+      def apply(a: A): Boolean = callback(Success(a))
+      def close(): Unit        = callback(Failure(completionError))
+
     private def takeAsync(callback: Try[A] => Boolean): Cancelable =
-      val taker = (a: A) => callback(Success(a))
+      val taker = Taker(callback)
       takeWithCallback(taker) match
         case Some(a) =>
           giveTo(taker, a)
           Cancelable.empty
         case None =>
+          // The queue may have completed before the taker was registered
+          if completed.get().isDefined && removeTakerIfWaiting(taker) then
+            taker.close()
           Cancelable(() => removeTaker(taker))
+
+    /**
+      * Remove a taker if it is still waiting; true if this call removed it
+      */
+    @tailrec
+    private def removeTakerIfWaiting(taker: A => Boolean): Boolean =
+      val current = state.get()
+      if current.takers.exists(_ eq taker) then
+        val newState = current.copy(takers = current.takers.filterNot(_ eq taker))
+        if state.compareAndSet(current, newState) then
+          true
+        else
+          removeTakerIfWaiting(taker)
+      else
+        false
 
     /**
       * Remove a cancelled taker that has not received an element yet
