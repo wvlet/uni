@@ -28,14 +28,23 @@ import wvlet.uni.log.LogLevel
   *     ANDed, like GitHub issue label filters, e.g. `--tags ui --tags slow` runs tests tagged both
   *     `ui` and `slow`
   *   - `--exclude-tags <tag>` : Skip tests carrying `tag` (exclude filter); repeatable
+  *   - `--log-capture` / `--no-log-capture` : Write log messages of a suite into sbt's per-suite
+  *     output, or keep them on the console. Defaults to on when the `CI` environment variable is
+  *     set, since sbt may hold a suite's output until it ends and local runs should show logs live
   */
 case class TestConfig(
     defaultLogLevel: Option[LogLevel] = None,
     logLevelPatterns: List[(String, LogLevel)] = Nil,
     testFilter: Option[String] = None,
     includeTags: Set[String] = Set.empty,
-    excludeTags: Set[String] = Set.empty
+    excludeTags: Set[String] = Set.empty,
+    logCapture: Option[Boolean] = None
 ):
+  /**
+    * Whether log messages of a suite go to sbt's test loggers (see TestLogCapture)
+    */
+  def logCaptureEnabled: Boolean = logCapture.getOrElse(TestConfig.isCI(sys.env))
+
   /**
     * Whether a test with the given tags should run under this config. A test runs when it carries
     * every `--tags` tag (AND — each added tag narrows the selection) and none of the
@@ -46,6 +55,13 @@ case class TestConfig(
     includeTags.subsetOf(tags) && !tags.exists(excludeTags.contains)
 
 object TestConfig:
+
+  /**
+    * GitHub Actions, CircleCI, and most other CI services set `CI=true`
+    */
+  def isCI(env: Map[String, String]): Boolean = env
+    .get("CI")
+    .exists(v => v.nonEmpty && v != "false")
 
   /**
     * Parse command-line arguments into TestConfig
@@ -99,6 +115,14 @@ object TestConfig:
           if tag.nonEmpty then
             config = config.copy(excludeTags = config.excludeTags + tag)
           i += 2
+
+        case "--log-capture" =>
+          config = config.copy(logCapture = Some(true))
+          i += 1
+
+        case "--no-log-capture" =>
+          config = config.copy(logCapture = Some(false))
+          i += 1
 
         case s if s.startsWith("-t:") =>
           // -t:testFilter for filtering tests by name

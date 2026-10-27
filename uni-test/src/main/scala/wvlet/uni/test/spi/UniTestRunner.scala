@@ -36,7 +36,11 @@ class UniTestRunner(_args: Array[String], _remoteArgs: Array[String], testClassL
   TestConfig.apply(config)
 
   // Keep log records next to the test results they belong to in sbt's per-suite output
-  private val uninstallLogCapture: () => Unit = TestLogCapture.install()
+  private val uninstallLogCapture: () => Unit =
+    if config.logCaptureEnabled then
+      TestLogCapture.install()
+    else
+      () => ()
 
   override def tasks(taskDefs: Array[TaskDef]): Array[Task] = taskDefs.map { td =>
     UniTestTask(td, testClassLoader, config, stats)

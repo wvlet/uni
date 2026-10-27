@@ -31,7 +31,7 @@ class RunnerOutputTest extends UniTest:
     * lines written to the task's logger, without ANSI colors
     */
   private def runFixture(cls: Class[?]): Seq[String] =
-    val runner = Framework().runner(Array.empty, Array.empty, getClass.getClassLoader)
+    val runner = Framework().runner(Array("--log-capture"), Array.empty, getClass.getClassLoader)
     val task   =
       runner
         .tasks(Array(TaskDef(cls.getName, UniTestFingerprint, false, Array(SuiteSelector()))))
@@ -93,6 +93,14 @@ class RunnerOutputTest extends UniTest:
     val skip   = lines.indexWhere(_.contains("skipped - not available"))
     (header >= 0) shouldBe true
     (header < skip) shouldBe true
+  }
+
+  test("log capture is on in CI unless a test argument says otherwise") {
+    TestConfig.isCI(Map("CI" -> "true")) shouldBe true
+    TestConfig.isCI(Map("CI" -> "false")) shouldBe false
+    TestConfig.isCI(Map.empty) shouldBe false
+    TestConfig.parse(Array("--log-capture")).logCaptureEnabled shouldBe true
+    TestConfig.parse(Array("--no-log-capture")).logCaptureEnabled shouldBe false
   }
 
 end RunnerOutputTest

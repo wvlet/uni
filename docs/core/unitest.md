@@ -871,7 +871,11 @@ Test results are displayed with status symbols:
 
 A suite that skips or cancels itself in its constructor or `beforeAll` is not counted as failed.
 
-sbt prints each suite's output as one block when the suite ends, so suites running in parallel don't interleave. On the JVM, UniTest writes log messages from the thread running the suite (its constructor, hooks, and test bodies) into that block, so they appear right above the result of the test that logged them. Logs from other threads, such as a server's worker pool or a `Future` on the global pool, still go straight to the console.
+In CI (when the `CI` environment variable is set), UniTest on the JVM writes log messages from the thread running a suite (its constructor, hooks, and test bodies) into sbt's output for that suite, so they appear right above the result of the test that logged them. sbt may hold a suite's output until the suite ends, so local runs keep logs going straight to the console, where they show up live. Logs from other threads, such as a server's worker pool or a `Future` on the global pool, always go to the console. Override the default with a test argument:
+
+```scala sbt
+Test / testOptions += Tests.Argument("--log-capture")    // or "--no-log-capture"
+```
 
 ## Best Practices
 
