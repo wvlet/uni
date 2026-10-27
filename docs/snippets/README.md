@@ -5,7 +5,8 @@ cannot drift from the API. Unlike [`book-examples`](../../book-examples/), nothi
 is copied by hand: `project/MarkdownSnippets.scala` generates one Scala file per
 Markdown file at compile time.
 
-Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`). To cover
+Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`) and
+`docs/guide/uni-vs-scala-toolkit.md`. A root is a directory or one Markdown file. To cover
 more pages, add a root and its package prefix to `docSnippets` in `build.sbt`.
 
 ```bash
@@ -37,7 +38,8 @@ Info-string modifiers (after `scala`; GitHub and VitePress ignore them):
 A `test` fence that reads a value of its chain initializes the whole chain
 object, so keep test fences to what the stubs and the chain's types provide.
 
-An unknown modifier fails the build. A `UniTest` class defined *inside* a
+An unknown modifier fails the build. VitePress options (`{1,3}`, `:line-numbers`,
+and a code-group title such as `[Uni]`) are ignored. A `UniTest` class defined *inside* a
 regular fence is compiled but not run, because test discovery skips classes
 nested in an object.
 

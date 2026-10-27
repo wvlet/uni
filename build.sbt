@@ -351,7 +351,8 @@ lazy val docSnippets = project
     buildSettings,
     noPublish,
     name        := "uni-doc-snippets",
-    description := "Compile-checked code snippets of Markdown files (the uni skill)",
+    description :=
+      "Compile-checked code snippets of Markdown files (the uni skill and selected guide pages)",
     // The generator reads the Markdown directly, so sbt 2 must not cache its result
     Test / sourceGenerators +=
       Def
@@ -359,7 +360,10 @@ lazy val docSnippets = project
           val base = (ThisBuild / baseDirectory).value
           Def.uncached(
             MarkdownSnippets.generate(
-              Seq(base / "plugins/uni/skills/uni" -> "snippets.skill"),
+              Seq(
+                base / "plugins/uni/skills/uni"             -> "snippets.skill",
+                base / "docs/guide/uni-vs-scala-toolkit.md" -> "snippets.guide"
+              ),
               base,
               (Test / sourceManaged).value / "markdown-snippets"
             )
