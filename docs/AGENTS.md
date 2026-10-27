@@ -35,6 +35,21 @@ If any of the above is unverified, drop the claim.
   content they describe.
 - **Clean URLs** are on; link to `/control/retry`, not `.html` or `.md`.
 
+## Blog posts
+
+- **One file per post**: `docs/blog/YYYY-MM-DD-slug.md` with `title`, `date`,
+  `author`, and `description` frontmatter, plus an optional `image` (a path
+  under `docs/public/`, used as og:image and twitter:image). Keep frontmatter
+  values on one line; `config.mts` reads them with a flat `key: value` parser.
+- **The URL drops the date**: a rewrite in `config.mts` serves the post at
+  `/blog/slug`. Link to it that way, and never rename a published slug.
+- **Generated for you**: the blog index (`blog/posts.data.ts`), the `/blog/`
+  sidebar, the Atom feed (`/blog/feed.xml`), and the post's `BlogPosting`
+  JSON-LD and Open Graph tags all come from the frontmatter.
+- **Scala fences are compile-checked** by `docSnippets`, like the skill pages.
+- **Posts are dated records.** Fix errors in place, but don't rewrite an old
+  post to describe newer APIs; write a new post instead.
+
 ## AI-agent docs
 
 The site is read by AI agents as much as by people.

@@ -139,3 +139,19 @@
 .vp-doc [class*='language-'] span[style*='#616E88'] {
   color: #7c889b !important;
 }
+
+/* Blog */
+.blog-meta {
+  color: var(--vp-c-text-2);
+  font-size: 0.9rem;
+}
+
+.vp-doc .blog-entry h2 {
+  border-top: none;
+  margin-top: 32px;
+  padding-top: 0;
+}
+
+.vp-doc .blog-entry .blog-meta {
+  margin: 4px 0 8px;
+}

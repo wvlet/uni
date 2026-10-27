@@ -2,7 +2,7 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import llmstxt from 'vitepress-plugin-llms'
 import { fetchLatestVersion } from './fetchLatestVersion'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -46,6 +46,67 @@ const structuredData = {
   author: { '@type': 'Organization', name: 'wvlet', url: 'https://github.com/wvlet' }
 }
 
+// Blog posts are docs/blog/YYYY-MM-DD-slug.md with title/date/author/description frontmatter.
+// The rewrite serves them at /blog/slug, so shared links stay short and stable.
+const BLOG_POST_SOURCE = /^blog\/(\d{4}-\d{2}-\d{2})-(.+)\.md$/
+const blogDir = fileURLToPath(new URL('../blog/', import.meta.url))
+
+interface BlogPost {
+  slug: string
+  title: string
+  date: string
+  author: string
+  description: string
+  image?: string
+}
+
+// Reads the flat `key: value` frontmatter of the posts; used for the sidebar and the Atom feed
+const blogPosts: BlogPost[] = readdirSync(blogDir)
+  .map((f) => BLOG_POST_SOURCE.exec(`blog/${f}`))
+  .filter((m): m is RegExpExecArray => m !== null)
+  .map((m) => {
+    const text = readFileSync(join(blogDir, `${m[1]}-${m[2]}.md`), 'utf8')
+    const fm: Record<string, string> = {}
+    for (const line of (/^---\n([\s\S]*?)\n---/.exec(text)?.[1] ?? '').split('\n')) {
+      const kv = /^(\w+):\s*(.*)$/.exec(line)
+      if (kv) fm[kv[1]] = kv[2].replace(/^"(.*)"$/, '$1').replace(/\\"/g, '"')
+    }
+    return {
+      slug: m[2],
+      title: fm.title,
+      date: fm.date ?? m[1],
+      author: fm.author,
+      description: fm.description,
+      image: fm.image
+    }
+  })
+  .sort((a, b) => b.date.localeCompare(a.date))
+
+const escapeXml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+const atomFeed = (): string => {
+  const entries = blogPosts.map((p) => `  <entry>
+    <title>${escapeXml(p.title)}</title>
+    <link href="${SITE_URL}blog/${p.slug}"/>
+    <id>${SITE_URL}blog/${p.slug}</id>
+    <published>${p.date}T00:00:00Z</published>
+    <updated>${p.date}T00:00:00Z</updated>
+    <author><name>${escapeXml(p.author)}</name></author>
+    <summary>${escapeXml(p.description)}</summary>
+  </entry>`)
+  return `<?xml version="1.0" encoding="utf-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Uni Blog</title>
+  <link href="${SITE_URL}blog/"/>
+  <link rel="self" href="${SITE_URL}blog/feed.xml"/>
+  <id>${SITE_URL}blog/</id>
+  <updated>${blogPosts[0]?.date ?? '1970-01-01'}T00:00:00Z</updated>
+${entries.join('\n')}
+</feed>
+`
+}
+
 interface UniThemeConfig extends DefaultTheme.Config {
   uniVersion: string
 }
@@ -56,6 +117,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
 
   base: '/uni/',
   cleanUrls: true,
+  rewrites: (page) => page.replace(BLOG_POST_SOURCE, 'blog/$2.md'),
   lastUpdated: true,
 
   sitemap: {
@@ -72,7 +134,12 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.',
         // The `/guide/` and `/` sidebars are identical; list them once so the llms.txt TOC has no duplicates
         sidebar: (sidebar) =>
-          sidebar && !Array.isArray(sidebar) ? [...sidebar['/book/'], ...sidebar['/']] : sidebar,
+          sidebar && !Array.isArray(sidebar)
+            ? [...sidebar['/book/'], ...sidebar['/'], ...sidebar['/blog/']]
+            : sidebar,
+        // Publish blog posts (the plugin skips blog/* by default); the index is a Vue-rendered list
+        excludeBlog: false,
+        ignoreFiles: ['blog/index.md'],
         // Publish the home page as /uni/index.md and in llms-full.txt; its body is the answer-first summary
         excludeIndexPage: false
       })
@@ -81,6 +148,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
 
   // The llms plugin copies Markdown sources verbatim, so resolve the version tokens in its output too
   async buildEnd(siteConfig) {
+    await writeFile(join(siteConfig.outDir, 'blog', 'feed.xml'), atomFeed())
     const files = await readdir(siteConfig.outDir, { recursive: true })
     await Promise.all(
       files
@@ -99,6 +167,42 @@ export default withMermaid(defineConfig<UniThemeConfig>({
     const path = pageData.relativePath.replace(/(^|\/)index\.md$/, '$1').replace(/\.md$/, '')
     pageData.frontmatter.head ??= []
     pageData.frontmatter.head.push(['link', { rel: 'canonical', href: `${SITE_URL}${path}` }])
+
+    // Blog posts: article metadata, a per-post share image, and BlogPosting structured data.
+    // mergeHead lets page meta tags replace site-wide ones with the same name or property.
+    const post = blogPosts.find((p) => `blog/${p.slug}` === path)
+    if (post) {
+      const url = `${SITE_URL}${path}`
+      const image = post.image ? `${SITE_URL}${post.image.replace(/^\//, '')}` : `${SITE_URL}uni-banner-1280x640.png`
+      pageData.frontmatter.head.push(
+        ['meta', { property: 'og:type', content: 'article' }],
+        ['meta', { property: 'og:title', content: post.title }],
+        ['meta', { property: 'og:description', content: post.description }],
+        ['meta', { property: 'og:url', content: url }],
+        ['meta', { property: 'og:image', content: image }],
+        ['meta', { property: 'article:published_time', content: post.date }],
+        ['meta', { name: 'twitter:title', content: post.title }],
+        ['meta', { name: 'twitter:description', content: post.description }],
+        ['meta', { name: 'twitter:image', content: image }],
+        [
+          'script',
+          { type: 'application/ld+json' },
+          JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'BlogPosting',
+            headline: post.title,
+            description: post.description,
+            datePublished: post.date,
+            author: { '@type': 'Person', name: post.author },
+            publisher: structuredData.author,
+            image,
+            url,
+            mainEntityOfPage: url,
+            about: { '@type': 'SoftwareSourceCode', name: 'Uni', codeRepository: structuredData.codeRepository }
+          })
+        ]
+      )
+    }
   },
 
   // Exclude contributor-only files from the rendered site.
@@ -126,6 +230,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
   head: [
     ['link', { rel: 'icon', href: '/uni/favicon.ico', sizes: 'any' }],
     ['link', { rel: 'icon', href: '/uni/favicon.svg', type: 'image/svg+xml' }],
+    ['link', { rel: 'alternate', type: 'application/atom+xml', title: 'Uni Blog', href: `${SITE_URL}blog/feed.xml` }],
     // Google Analytics
     ['script', { async: '', src: 'https://www.googletagmanager.com/gtag/js?id=G-55G099WF5N' }],
     [
@@ -158,6 +263,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
       { text: 'For AI Agents', link: '/guide/for-ai-agents' },
       { text: 'Book', link: '/book/' },
       { text: 'Modules', link: '/core/' },
+      { text: 'Blog', link: '/blog/' },
       {
         text: 'GitHub',
         link: 'https://github.com/wvlet/uni'
@@ -242,6 +348,15 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'A. Scala 3 Syntax Notes', link: '/book/appendix-a-scala3' },
             { text: 'B. Uni and Airframe', link: '/book/appendix-b-airframe' },
             { text: 'C. Glossary', link: '/book/appendix-c-glossary' }
+          ]
+        }
+      ],
+      '/blog/': [
+        {
+          text: 'Blog',
+          items: [
+            { text: 'All Posts', link: '/blog/' },
+            ...blogPosts.map((p) => ({ text: p.title, link: `/blog/${p.slug}` }))
           ]
         }
       ],
