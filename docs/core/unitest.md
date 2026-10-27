@@ -279,9 +279,7 @@ test("blocked by issue") {
 
 ### Flaky Tests
 
-Mark tests as flaky to convert failures to skipped status. `Flaky` is a
-[test tag](#test-tags), so it combines with other tags and can be selected or
-excluded from sbt like any of them:
+Mark tests as flaky to convert failures to skipped status:
 
 ```scala
 test("network test", Flaky) {

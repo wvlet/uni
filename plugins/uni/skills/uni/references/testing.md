@@ -58,8 +58,6 @@ test("calls a remote service", Flaky) { ... }   // tag: failures become skipped
 test("partly flaky") { flaky { ... } }
 ```
 
-Mark flaky tests with the `Flaky` tag. There is no `flaky = true` parameter.
-
 ## Tags
 
 Pass tags after the test name to group tests by layer, then select or skip a
