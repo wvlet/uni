@@ -6,7 +6,7 @@ description: "Uni is the Scala 3 successor of Airframe: object wiring, logging, 
 hero:
   name: Uni
   text: One Scala 3 library for the whole stack
-  tagline: Minimal dependencies. The same code runs on JVM, Scala.js, and Scala Native. The Scala 3 successor of Airframe.
+  tagline: Essential building blocks for Scala 3 applications, with minimal dependencies and one codebase for the JVM, Scala.js, and Scala Native.
   image:
     src: /uni-logo.svg
     alt: Uni
