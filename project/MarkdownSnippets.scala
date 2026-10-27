@@ -47,13 +47,11 @@ object MarkdownSnippets:
             i += 1
           if i >= lines.size then
             sys.error(s"${file}:${start + 1}: unclosed code fence")
-          info.split("\\s+").filter(_.nonEmpty).toList match
+          // A code-group title such as `[Scala CLI]` may contain spaces, so drop it before splitting
+          info.replaceAll("""\[[^\]]*\]""", " ").split("\\s+").filter(_.nonEmpty).toList match
             case "scala" :: rest =>
-              // `{1,3}`, `:line-numbers`, and `[Tab]` (a code-group title) are VitePress options, not modifiers
-              val mods =
-                rest
-                  .filterNot(m => m.startsWith("{") || m.startsWith(":") || m.startsWith("["))
-                  .toSet
+              // `{1,3}` and `:line-numbers` are VitePress highlighting options, not modifiers
+              val mods    = rest.filterNot(m => m.startsWith("{") || m.startsWith(":")).toSet
               val unknown = mods -- modifiers
               if unknown.nonEmpty then
                 sys.error(
