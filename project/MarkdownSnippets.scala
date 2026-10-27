@@ -47,7 +47,8 @@ object MarkdownSnippets:
             i += 1
           if i >= lines.size then
             sys.error(s"${file}:${start + 1}: unclosed code fence")
-          info.split("\\s+").filter(_.nonEmpty).toList match
+          // A code-group title such as `[Scala CLI]` may contain spaces, so drop it before splitting
+          info.replaceAll("""\[[^\]]*\]""", " ").split("\\s+").filter(_.nonEmpty).toList match
             case "scala" :: rest =>
               // `{1,3}` and `:line-numbers` are VitePress highlighting options, not modifiers
               val mods    = rest.filterNot(m => m.startsWith("{") || m.startsWith(":")).toSet
@@ -71,7 +72,8 @@ object MarkdownSnippets:
 
   /**
     * Generate sources for every Markdown file under each root into outDir, and delete stale files
-    * there. Each root comes with the package prefix of its generated code.
+    * there. A root is a directory or a single Markdown file, and comes with the package prefix of
+    * its generated code.
     */
   def generate(roots: Seq[(File, String)], baseDir: File, outDir: File): Seq[File] =
     val generated =
@@ -118,7 +120,13 @@ object MarkdownSnippets:
       baseDir: File,
       outDir: File
   ): Seq[File] =
-    val rel      = root.toPath.relativize(md.toPath).toString.stripSuffix(".md")
+    // A single-file root contributes its file name as the last package segment
+    val base =
+      if root.isFile then
+        root.getParentFile
+      else
+        root
+    val rel      = base.toPath.relativize(md.toPath).toString.stripSuffix(".md")
     val segments = rel.split("[/\\\\]").toSeq.map(segment)
     val pkgPath  = prefix.split('.').toSeq ++ segments
     val pkg      = pkgPath.mkString(".")

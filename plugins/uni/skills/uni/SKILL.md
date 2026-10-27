@@ -87,3 +87,5 @@ Read the reference for the task before writing code:
   server, Scala.js UI): https://github.com/wvlet/uni/tree/main/examples
 - Full documentation in one Markdown file: https://wvlet.org/uni/llms-full.txt
 - Page index: https://wvlet.org/uni/llms.txt (any page is also available as `<page>.md`)
+- Uni vs the Scala Toolkit (sttp, uPickle, os-lib, MUnit), and using both in one build:
+  https://wvlet.org/uni/guide/uni-vs-scala-toolkit.md
