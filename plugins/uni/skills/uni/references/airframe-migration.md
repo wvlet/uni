@@ -13,5 +13,7 @@ during a migration.
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
+| AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |
+| AirSpec `test("...") { (a: A) => ... }` | the same: test arguments come from the suite's Design |
 
 Background: https://wvlet.org/uni/book/appendix-b-airframe.md

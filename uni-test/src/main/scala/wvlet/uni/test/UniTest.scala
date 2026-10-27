@@ -13,7 +13,9 @@
  */
 package wvlet.uni.test
 
+import wvlet.uni.design.{Design, Session}
 import wvlet.uni.log.LogSupport
+import wvlet.uni.surface.Surface
 import wvlet.uni.rx.*
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.{ExecutionContext, Future}
@@ -90,9 +92,31 @@ trait UniTest
     *   [[TestTag.Flaky]] additionally downgrades a failure to skipped. Pass a custom tag via
     *   `TestTag("name")` or a bare string.
     * @param body
-    *   the test body
+    *   the test body. A function literal with typed parameters receives its arguments from this
+    *   suite's Design: objects bound with [[addDesign]] are shared by the suite, and objects bound
+    *   with [[addTestDesign]] or not bound at all are built for this test and closed after it. Take
+    *   `(session: Session)` to get the test's session itself.
+    *   {{{
+    *     test("ping") { (client: HttpSyncClient) =>
+    *       client.send(Request.get("/ping"))
+    *     }
+    *   }}}
     */
-  protected def test(name: String, tags: TestTag*)(body: => Any): Unit =
+  protected inline def test(name: String, tags: TestTag*)(inline body: Any): Unit =
+    inline if UniTestMacros.isFunctionLiteral(body) then
+      sessionTest(name, tags)(body)
+    else
+      registerTest(name, tags)(body)
+
+  private inline def sessionTest(name: String, tags: Seq[TestTag])(inline body: Any): Unit =
+    ${
+      UniTestMacros.sessionTest('this, 'name, 'tags, 'body)
+    }
+
+  /**
+    * Register a test with a plain body. Used by the `test` macro.
+    */
+  protected[test] def registerTest(name: String, tags: Seq[TestTag])(body: => Any): Unit =
     _tests +=
       TestDef(
         name,
@@ -124,11 +148,114 @@ trait UniTest
     */
   protected def after: Unit = {}
 
+  private var _design: Design     = Design.newSilentDesign
+  private var _testDesign: Design = Design.newSilentDesign
+
+  private var _suiteSession: Option[Session]        = None
+  private var _suiteSessionError: Option[Throwable] = None
+  private var _testsStarted: Boolean                = false
+  private var _testSession: Option[Session]         = None
+
+  /**
+    * Add bindings shared by the tests of this suite that take arguments, such as a server or a
+    * client. Call it from the body of the test class or of a fixture trait; calls compose in trait
+    * initialization order:
+    * {{{
+    *   trait ServerFixture extends UniTest:
+    *     addDesign(_.bindProvider[HttpHandler, HttpServer](h => NettyServer.withHandler(h).start()))
+    * }}}
+    * The suite's session is created when the first test that takes arguments runs, and shut down
+    * after [[afterAll]], closing the objects it built in reverse creation order.
+    */
+  protected def addDesign(f: Design => Design): Unit =
+    checkDesignOpen("addDesign")
+    _design = f(_design)
+
+  /**
+    * Add bindings that each test taking arguments gets fresh, such as a temp directory. They are
+    * built in the test's child session and closed after [[after]], once a Future or Rx returned by
+    * the test completes. Objects that are not bound anywhere are also built per test.
+    */
+  protected def addTestDesign(f: Design => Design): Unit =
+    checkDesignOpen("addTestDesign")
+    _testDesign = f(_testDesign)
+
+  private def checkDesignOpen(method: String): Unit =
+    if _testsStarted then
+      throw IllegalStateException(
+        s"${method} must be called from the body of the test class or a fixture trait, before the tests run"
+      )
+
+  /**
+    * Register a test whose body receives a session of this suite's Design. Used by the `test` macro
+    * for a function-literal body.
+    */
+  protected[test] def registerSessionTest(name: String, tags: Seq[TestTag])(
+      body: Session => Any
+  ): Unit = registerTest(name, tags)(body(openTestSession()))
+
+  private def openTestSession(): Session = _testSession.getOrElse {
+    // Every test that needs the suite's session fails the same way when it failed to start
+    _suiteSessionError.foreach(e => throw e)
+    val parent = _suiteSession.getOrElse {
+      val s = _design.newSession
+      // Recorded before starting, so that runAfterAll shuts down a session that failed to start
+      _suiteSession = Some(s)
+      try
+        s.start
+      catch
+        case e: Throwable =>
+          _suiteSessionError = Some(e)
+          throw e
+      s
+    }
+    val child = parent.newChildSession(_testDesign)
+    _testSession = Some(child)
+    child.start
+    child
+  }
+
   // Internal accessors used by the test runner.
-  private[test] def runBeforeAll(): Unit = beforeAll
-  private[test] def runAfterAll(): Unit  = afterAll
-  private[test] def runBefore(): Unit    = before
-  private[test] def runAfter(): Unit     = after
+  private[test] def runBeforeAll(): Unit =
+    _testsStarted = true
+    beforeAll
+
+  private[test] def runBefore(): Unit = before
+
+  private[test] def runAfter(): Unit =
+    runThenClose(after) {
+      val s = _testSession
+      _testSession = None
+      s.foreach(_.shutdown)
+    }
+
+  private[test] def runAfterAll(): Unit =
+    runThenClose(afterAll) {
+      val s = _suiteSession
+      _suiteSession = None
+      s.foreach(_.shutdown)
+    }
+
+  // Runs the hook, then closes even when it throws. When both fail, the hook's error is rethrown
+  // with the close error attached as suppressed.
+  private def runThenClose(hook: => Unit)(close: => Unit): Unit =
+    val hookError =
+      try
+        hook
+        None
+      catch
+        case e: Throwable =>
+          Some(e)
+    try
+      close
+    catch
+      case e: Throwable =>
+        hookError match
+          case Some(h) =>
+            h.addSuppressed(e)
+          case None =>
+            throw e
+    hookError.foreach(e => throw e)
 
   /**
     * Get all registered tests. Used by the test framework.

@@ -342,15 +342,8 @@ private[design] class SessionImpl(
                   registerInjectee(
                     from,
                     from,
-                    contextSession.getInstance(
-                      from,
-                      to,
-                      sourceCode,
-                      contextSession,
-                      create,
-                      tpe :: seen,
-                      defaultValue
-                    )
+                    // Build in this session: the singleton outlives a child session that asked for it
+                    getInstance(from, to, sourceCode, this, create, tpe :: seen, defaultValue)
                   )
                 )
               case sb @ SingletonBinding(from, to, eager, sourceCode) if from == to =>
@@ -360,20 +353,27 @@ private[design] class SessionImpl(
                   registerInjectee(
                     bindTarget,
                     from,
-                    contextSession.buildInstance(to, sourceCode, contextSession, seen, defaultValue)
+                    buildInstance(to, sourceCode, this, seen, defaultValue)
                   )
                 )
               case p @ ProviderBinding(factory, provideSingleton, eager, sourceCode) =>
                 trace(s"[${name}] Found a provider for ${p.from}: ${p}, defined at ${sourceCode}")
 
+                // A singleton's dependencies live as long as it, so build them in this session
+                val providerContext =
+                  if provideSingleton then
+                    this
+                  else
+                    contextSession
+
                 def buildWithProvider: Any =
                   val dependencies =
                     for d <- factory.dependencyTypes
-                    yield contextSession.getInstance(
+                    yield providerContext.getInstance(
                       d,
                       d,
                       sourceCode,
-                      contextSession,
+                      providerContext,
                       false,
                       tpe :: seen
                     )

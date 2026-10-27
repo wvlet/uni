@@ -17,6 +17,7 @@ import org.junit.platform.engine.*
 import org.junit.platform.engine.discovery.*
 import org.junit.platform.engine.support.descriptor.*
 import wvlet.uni.test.compat
+import wvlet.uni.test.TestDef
 import wvlet.uni.test.TestResult
 import wvlet.uni.test.UniTest
 
@@ -179,53 +180,74 @@ class UniTestEngine extends TestEngine:
             )
           val executedTests = scala.collection.mutable.Set.empty[String]
 
-          while testQueue.nonEmpty do
-            val testDef = testQueue.dequeue()
-            if !executedTests.contains(testDef.fullName) then
-              executedTests.add(testDef.fullName)
+          def runQueue(): Unit =
+            while testQueue.nonEmpty do
+              val testDef = testQueue.dequeue()
+              if !executedTests.contains(testDef.fullName) then
+                executedTests.add(testDef.fullName)
 
-              val beforeCount = instance.registeredTests.size
-              val result      = Await.result(
-                instance.executeTest(testDef)(using compat.executionContext),
-                30.seconds
-              )
-              val isContainer = instance.registeredTests.size > beforeCount
+                val beforeCount = instance.registeredTests.size
+                val result      = runTest(instance, testDef)
+                val isContainer = instance.registeredTests.size > beforeCount
 
-              // Report failing containers or any leaf test
-              if result.isFailure || !isContainer then
-                // Find or create descriptor for this test
-                val testDescriptor = classDesc
-                  .getChildren
-                  .asScala
-                  .collectFirst {
-                    case m: UniTestMethodDescriptor if m.testName == testDef.fullName =>
-                      m
-                  }
-                  .getOrElse {
-                    val testId  = classDesc.getUniqueId.append("test", testDef.fullName)
-                    val newDesc = UniTestMethodDescriptor(
-                      testId,
-                      testDef.fullName,
-                      classDesc.testClass
-                    )
-                    classDesc.addChild(newDesc)
-                    listener.dynamicTestRegistered(newDesc)
-                    newDesc
-                  }
+                // Report failing containers or any leaf test
+                if result.isFailure || !isContainer then
+                  // Find or create descriptor for this test
+                  val testDescriptor = classDesc
+                    .getChildren
+                    .asScala
+                    .collectFirst {
+                      case m: UniTestMethodDescriptor if m.testName == testDef.fullName =>
+                        m
+                    }
+                    .getOrElse {
+                      val testId  = classDesc.getUniqueId.append("test", testDef.fullName)
+                      val newDesc = UniTestMethodDescriptor(
+                        testId,
+                        testDef.fullName,
+                        classDesc.testClass
+                      )
+                      classDesc.addChild(newDesc)
+                      listener.dynamicTestRegistered(newDesc)
+                      newDesc
+                    }
 
-                listener.executionStarted(testDescriptor)
-                reportResult(testDescriptor, result, listener)
+                  listener.executionStarted(testDescriptor)
+                  reportResult(testDescriptor, result, listener)
 
-              // Queue nested tests for execution (if container didn't fail)
-              if !result.isFailure && isContainer then
-                instance
-                  .registeredTests
-                  .foreach { t =>
-                    if !executedTests.contains(t.fullName) then
-                      testQueue.enqueue(t)
-                  }
-            end if
-          end while
+                // Queue nested tests for execution (if container didn't fail)
+                if !result.isFailure && isContainer then
+                  instance
+                    .registeredTests
+                    .foreach { t =>
+                      if !executedTests.contains(t.fullName) then
+                        testQueue.enqueue(t)
+                    }
+              end if
+            end while
+          end runQueue
+
+          // Same lifecycle as the sbt runner: `afterAll` runs even when `beforeAll` fails, and a
+          // suite with no selected test acquires no resources
+          if testQueue.nonEmpty then
+            val suiteError =
+              try
+                instance.runBeforeAll()
+                runQueue()
+                None
+              catch
+                case e: Throwable =>
+                  Some(e)
+            try
+              instance.runAfterAll()
+            catch
+              case e: Throwable =>
+                suiteError match
+                  case Some(first) =>
+                    first.addSuppressed(e)
+                  case None =>
+                    throw e
+            suiteError.foreach(e => throw e)
 
           listener.executionFinished(classDesc, TestExecutionResult.successful())
         catch
@@ -240,6 +262,50 @@ class UniTestEngine extends TestEngine:
           .foreach { child =>
             executeClassDescriptor(child, listener)
           }
+
+  /**
+    * Runs one test between the `before` and `after` hooks, reporting a hook failure the way the sbt
+    * runner (UniTestTask) does.
+    */
+  private def runTest(instance: UniTest, testDef: TestDef): TestResult =
+    val beforeError: Option[Throwable] =
+      try
+        instance.runBefore()
+        None
+      catch
+        case e: Throwable =>
+          Some(e)
+    beforeError match
+      case Some(e) =>
+        TestResult.Error(testDef.fullName, s"before hook failed: ${e.getMessage}", e)
+      case None =>
+        val result =
+          try
+            Await.result(instance.executeTest(testDef)(using compat.executionContext), 30.seconds)
+          catch
+            case e: Throwable =>
+              TestResult.Error(testDef.fullName, e.getMessage, e)
+        try
+          instance.runAfter()
+          result
+        catch
+          case e: Throwable =>
+            result match
+              case TestResult.Failure(_, _, Some(cause)) =>
+                // Keep the body's failure and attach the teardown error to it
+                cause.addSuppressed(e)
+                result
+              case TestResult.Error(_, _, cause) =>
+                cause.addSuppressed(e)
+                result
+              case TestResult.Failure(name, message, None) =>
+                val cause = AssertionError(message)
+                cause.addSuppressed(e)
+                TestResult.Failure(name, message, Some(cause))
+              case _ =>
+                TestResult.Error(testDef.fullName, s"after hook failed: ${e.getMessage}", e)
+
+  end runTest
 
   private def reportResult(
       descriptor: TestDescriptor,
