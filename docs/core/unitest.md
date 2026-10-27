@@ -363,12 +363,12 @@ Built-in tags are in scope in any `UniTest`:
 
 | Tag | Name | Meaning |
 |-----|------|---------|
-| `UI` | `ui` | UI-layer test |
-| `Electron` | `electron` | Electron-layer test |
 | `Integration` | `integration` | Uses real external systems |
 | `Smoke` | `smoke` | Quick sanity check, run as a fast pre-merge subset |
 | `Slow` | `slow` | Usually excluded from the inner-loop run |
 | `Flaky` | `flaky` | A failure is reported as skipped instead of failing the build |
+| `UI` | `ui` | UI-layer test |
+| `Electron` | `electron` | Electron-layer test, for desktop apps built on Uni's Electron support |
 
 Define your own tags with `TestTag("name")`, or as an object when you reuse
 one across suites:

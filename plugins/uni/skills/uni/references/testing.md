@@ -63,8 +63,8 @@ Mark flaky tests with the `Flaky` tag. There is no `flaky = true` parameter.
 ## Tags
 
 Pass tags after the test name to group tests by layer, then select or skip a
-group from sbt (see Running). Built-ins: `UI`, `Electron`, `Integration`,
-`Smoke`, `Slow`, `Flaky`.
+group from sbt (see Running). Built-ins: `Integration`, `Smoke`, `Slow`,
+`Flaky`, `UI`, and `Electron` (for Electron desktop apps).
 
 ```scala
 case object Gpu extends TestTag("gpu")     // reusable custom tag
