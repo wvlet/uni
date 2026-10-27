@@ -191,6 +191,14 @@ class MyServer(session: Session):
     // RequestContext is cleaned up here
 ```
 
+What a child session builds depends on where the type is bound:
+
+- **Bound in the child's design, or not bound anywhere:** built in the child,
+  and closed when the child shuts down.
+- **Bound in a parent's design:** shared through the parent. A singleton gets its
+  dependencies from the session that binds it, so they live as long as it does,
+  even when a child session asks for it first.
+
 ## Design Composition
 
 Designs are immutable and can be combined:

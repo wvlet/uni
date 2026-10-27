@@ -151,8 +151,10 @@ trait UniTest
   private var _design: Design     = Design.newSilentDesign
   private var _testDesign: Design = Design.newSilentDesign
 
-  private var _suiteSession: Option[Session] = None
-  private var _testSession: Option[Session]  = None
+  private var _suiteSession: Option[Session]        = None
+  private var _suiteSessionError: Option[Throwable] = None
+  private var _testsStarted: Boolean                = false
+  private var _testSession: Option[Session]         = None
 
   /**
     * Add bindings shared by the tests of this suite that take arguments, such as a server or a
@@ -179,7 +181,7 @@ trait UniTest
     _testDesign = f(_testDesign)
 
   private def checkDesignOpen(method: String): Unit =
-    if _suiteSession.isDefined then
+    if _testsStarted then
       throw IllegalStateException(
         s"${method} must be called from the body of the test class or a fixture trait, before the tests run"
       )
@@ -193,11 +195,18 @@ trait UniTest
   ): Unit = registerTest(name, tags)(body(openTestSession()))
 
   private def openTestSession(): Session = _testSession.getOrElse {
+    // Every test that needs the suite's session fails the same way when it failed to start
+    _suiteSessionError.foreach(e => throw e)
     val parent = _suiteSession.getOrElse {
       val s = _design.newSession
       // Recorded before starting, so that runAfterAll shuts down a session that failed to start
       _suiteSession = Some(s)
-      s.start
+      try
+        s.start
+      catch
+        case e: Throwable =>
+          _suiteSessionError = Some(e)
+          throw e
       s
     }
     val child = parent.newChildSession(_testDesign)
@@ -207,8 +216,11 @@ trait UniTest
   }
 
   // Internal accessors used by the test runner.
-  private[test] def runBeforeAll(): Unit = beforeAll
-  private[test] def runBefore(): Unit    = before
+  private[test] def runBeforeAll(): Unit =
+    _testsStarted = true
+    beforeAll
+
+  private[test] def runBefore(): Unit = before
 
   private[test] def runAfter(): Unit =
     runThenClose(after) {

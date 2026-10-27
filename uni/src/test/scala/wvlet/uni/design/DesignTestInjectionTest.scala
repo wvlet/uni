@@ -19,8 +19,8 @@ class Greeter:
   def greet(name: String): String = s"hello ${name}"
 
 /**
-  * A suite outside the wvlet.uni.test package, so that the inline `test` overloads are expanded
-  * where users write them.
+  * A suite outside the wvlet.uni.test package, so that the `test` macro is expanded where users
+  * write it.
   */
 class DesignTestInjectionTest extends UniTest:
   addDesign(_.bindSingleton[Greeter])

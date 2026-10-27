@@ -298,8 +298,10 @@ class UniTestEngine extends TestEngine:
               case TestResult.Error(_, _, cause) =>
                 cause.addSuppressed(e)
                 result
-              case _ if result.isFailure =>
-                result
+              case TestResult.Failure(name, message, None) =>
+                val cause = AssertionError(message)
+                cause.addSuppressed(e)
+                TestResult.Failure(name, message, Some(cause))
               case _ =>
                 TestResult.Error(testDef.fullName, s"after hook failed: ${e.getMessage}", e)
 

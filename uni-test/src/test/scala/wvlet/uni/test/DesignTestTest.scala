@@ -73,6 +73,12 @@ class DesignTestTest extends ClientFixture with TempDirFixture:
     log.events shouldBe Nil
   }
 
+  test("addDesign cannot be called once the tests run, even before any session opens") {
+    intercept[IllegalStateException] {
+      addTestDesign(_.bindSingleton[TempDir])
+    }
+  }
+
   test("arguments are built from the suite's design") { (client: Client) =>
     log.events shouldBe Seq("open server", "open client")
     client.isOpen shouldBe true

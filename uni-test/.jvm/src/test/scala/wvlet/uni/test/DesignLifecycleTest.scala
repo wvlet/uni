@@ -119,6 +119,13 @@ class DesignLifecycleTest extends UniTest:
       )
   }
 
+  test("a suite session that fails to start fails every test that needs it") {
+    log.clear()
+    runSbt(classOf[SuiteSessionFailsToStart]) shouldBe
+      Seq(Status.Error, Status.Error, Status.Success)
+    startCalls shouldBe 1
+  }
+
   test("the JUnit engine runs the same lifecycle") {
     log.clear()
     runJUnit(classOf[Healthy]).count(_ == TestExecutionResult.Status.SUCCESSFUL) shouldBe 3
@@ -177,6 +184,31 @@ object DesignLifecycleTest:
 
     test("passes, then its teardown fails") { (dir: TempDir) =>
       dir.isOpen shouldBe true
+    }
+
+  private var startCalls = 0
+
+  class SuiteSessionFailsToStart extends UniTest:
+    addDesign(
+      _.bindSingleton[Server]
+        .onStart { _ =>
+          startCalls += 1
+          throw IllegalStateException("start failed")
+        }
+        .bindInstance[EventLog](log)
+        .withProductionMode
+    )
+
+    test("first") { (server: Server) =>
+      fail("never runs")
+    }
+
+    test("second") { (server: Server) =>
+      fail("never runs")
+    }
+
+    test("plain tests still run") {
+      startCalls shouldBe 1
     }
 
   class BeforeFails extends Fixtures:
