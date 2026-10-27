@@ -165,10 +165,6 @@ them. We checked this with Scala CLI, Toolkit 0.9.2, and Uni on Scala 3.9:
 - A MUnit `FunSuite` can test Uni code, and MUnit and UniTest suites run in the
   same `test` command.
 
-For a runnable project, see the [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service).
-It keeps sttp and uPickle for the GitHub API and adds Design, logging, a REST
-endpoint, and UniTest, and CI builds and tests it.
-
 Common combinations:
 
 - **Keep MUnit, add Uni.** Test Uni services with your existing MUnit suites,
@@ -191,15 +187,13 @@ Native. Many projects use both.
 ### Can I use the Scala Toolkit and Uni in the same project?
 
 Yes. Their packages do not overlap, and Uni brings no dependency that conflicts with
-the Toolkit. The [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service)
-uses sttp, uPickle, and Uni in one sbt build, and CI tests it.
+the Toolkit. See [Using them together](#using-them-together) for common combinations.
 
 ### What should I use when my Toolkit script grows into a service?
 
 Keep the Toolkit libraries that still do their job, and add what a service needs:
 object wiring with lifecycle hooks, logging, and an HTTP server. Uni provides these
-in one library. The [toolkit-service example](https://github.com/wvlet/uni/tree/main/examples/toolkit-service)
-shows a small script grown this way.
+in one library, and you can add it one piece at a time.
 
 ### Does the Scala Toolkit include object wiring or logging?
 
