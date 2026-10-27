@@ -55,7 +55,23 @@ class RxParallelTest extends UniTest:
     Rx.fromSeq(1 to 8).parMapN(4)(i => overlap(i * 2)).tap(seen.add).lastOption.toRx.await
     seen.size shouldBe 8
     (overlap.max.get <= 4) shouldBe true
-    (overlap.max.get >= 2) shouldBe true
+    // The default scheduler has one thread per CPU
+    if RxScheduler.default.parallelism >= 2 then
+      (overlap.max.get >= 2) shouldBe true
+  }
+
+  test("parFlatMap drains a long queue of synchronous nested streams without deep recursion") {
+    // The first nested stream is asynchronous, so the remaining values queue up behind it
+    Rx.fromSeq(1 to 100000)
+      .parFlatMap(1)(i =>
+        if i == 1 then
+          Rx.single(i).evalOnBlocking
+        else
+          Rx.single(i)
+      )
+      .lastOption
+      .toRx
+      .await shouldBe Some(100000)
   }
 
   test("Rx.parallel runs RxParallel operations") {

@@ -191,7 +191,7 @@ Rx.parallel.parTraverseN(4)(1 to 10)(i => Rx.single(i * 10)) // Rx[Seq[Int]]
 Rx.parallel.race(Rx.single(1), Rx.single(2))                // first result wins
 ```
 
-- `merge` and `parFlatMap` report the first error and cancel the other streams. `take` and cancellation stop every running stream.
+- `merge` and `parFlatMap` report the first error and cancel the other streams; if the downstream recovers (`recover`), only the failing stream ends. `take` and cancellation cancel every running stream, but `parMapN` cannot interrupt an `f` that has already started: its result is dropped.
 - `parFlatMap` adds no threads: a nested stream runs where it is subscribed, so use an asynchronous one (`evalOnBlocking`, `start`, an HTTP call) to overlap work. `parMapN` does this for you.
 - `race`, `parSequence`, `parTraverse`, and `parZip` block while waiting, so they are available on the JVM and Scala Native only. `merge`, `parFlatMap`, and `parMapN` work on every platform.
 

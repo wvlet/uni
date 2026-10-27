@@ -207,7 +207,8 @@ extension [A](rx: Rx[A])
 
   /**
     * Map with bounded parallelism: each `f(a)` runs on [[RxScheduler.default]], with at most
-    * `parallelism` running at a time. Results arrive in completion order.
+    * `parallelism` running at a time. Results arrive in completion order. Cancellation drops the
+    * results of calls already running but does not interrupt them.
     */
   def parMapN[B](parallelism: Int)(f: A => B): Rx[B] =
     parFlatMap(parallelism)(a => Rx.single(f(a)).start.flatMap(_.join))

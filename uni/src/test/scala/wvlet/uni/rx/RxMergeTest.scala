@@ -30,6 +30,16 @@ class RxMergeTest extends UniTest:
       .toRx
       .map(_ => values.synchronized(values.toSeq))
 
+  // The first error of a stream whose sources are all synchronous
+  private def errorOf(rx: Rx[Int]): Option[String] =
+    var error: Option[String] = None
+    RxRunner.run(rx) {
+      case OnError(e) if error.isEmpty =>
+        error = Some(e.getMessage)
+      case _ =>
+    }
+    error
+
   test("merge emits the values of every source and completes after all of them") {
     collect(Rx.fromSeq(Seq(1, 2, 3)).merge(Rx.fromSeq(Seq(4, 5)))).map { values =>
       values.sorted shouldBe Seq(1, 2, 3, 4, 5)
@@ -44,21 +54,66 @@ class RxMergeTest extends UniTest:
   }
 
   test("merge reports the first error") {
-    Rx.fromSeq(Seq(1, 2))
-      .merge(Rx.exception[Int](IllegalStateException("boom")))
-      .lastOption
-      .toRx
-      .map(_ => "no error")
-      .recover { case e: IllegalStateException =>
-        e.getMessage
-      }
-      .map(_ shouldBe "boom")
+    errorOf(Rx.fromSeq(Seq(1, 2)).merge(Rx.exception[Int](IllegalStateException("boom")))) shouldBe
+      Some("boom")
   }
 
   test("take stops a merge of sources that never complete") {
     collect(Rx.variable(1).merge(Rx.variable(2)).take(2)).map { values =>
       values.sorted shouldBe Seq(1, 2)
     }
+  }
+
+  test("merge completes after the downstream recovers from an error") {
+    collect(
+      Rx.fromSeq(Seq(1, 2))
+        .merge(Rx.exception[Int](IllegalStateException("boom")))
+        .recover { case _: IllegalStateException =>
+          0
+        }
+    ).map { values =>
+      values.sorted shouldBe Seq(0, 1, 2)
+    }
+  }
+
+  test("merge does not subscribe sources after it has stopped") {
+    var subscribed = 0
+    collect(
+      Rx.single(1)
+        .merge(
+          Rx.single {
+            subscribed += 1;
+            2
+          }
+        )
+        .take(1)
+    ).map { values =>
+      values shouldBe Seq(1)
+      subscribed shouldBe 0
+    }
+  }
+
+  test("merge keeps running after a transient error in continuous mode") {
+    val a      = Rx.variable(1)
+    val b      = Rx.variable(10)
+    val events = mutable.ArrayBuffer.empty[RxEvent]
+    val c      =
+      RxRunner.runContinuously(
+        a.merge(b)
+          .map(x =>
+            if x == 2 then
+              throw IllegalStateException("once")
+            else
+              x
+          )
+      )(ev => events += ev)
+    a := 2
+    a := 3
+    c.cancel
+    events.collect { case OnNext(v) =>
+      v
+    } shouldBe Seq(1, 10, 3)
+    events.count(_.isInstanceOf[OnError]) shouldBe 1
   }
 
   test("parFlatMap emits every nested value and completes") {
@@ -88,14 +143,25 @@ class RxMergeTest extends UniTest:
           else
             Rx.single(i)
         )
-    def message(rx: Rx[Int]): Rx[String] = rx
-      .lastOption
-      .toRx
-      .map(_ => "no error")
-      .recover { case e: IllegalStateException =>
-        e.getMessage
-      }
-    message(fromF).join(message(fromNested)).map(_ shouldBe ("f", "nested"))
+    errorOf(fromF) shouldBe Some("f")
+    errorOf(fromNested) shouldBe Some("nested")
+  }
+
+  test("parFlatMap continues after the downstream recovers from a nested error") {
+    collect(
+      Rx.fromSeq(1 to 3)
+        .parFlatMap(2)(i =>
+          if i == 2 then
+            Rx.exception[Int](IllegalStateException("x"))
+          else
+            Rx.single(i)
+        )
+        .recover { case _: IllegalStateException =>
+          0
+        }
+    ).map { values =>
+      values.sorted shouldBe Seq(0, 1, 3)
+    }
   }
 
   test("parFlatMap rejects a non-positive parallelism") {

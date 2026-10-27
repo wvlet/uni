@@ -629,53 +629,85 @@ class RxRunner(
           sources
             .zip(slots)
             .foreach { (source, slot) =>
-              fanIn.attach(
-                slot,
-                run(source) {
-                  case ev @ OnNext(_) =>
-                    fanIn.next(ev)
-                  case OnCompletion =>
-                    fanIn.end(slot)
-                  case ev =>
-                    fanIn.terminate(ev)
-                }
-              )
-            }
-          fanIn.cancelable
-      case ParFlatMapOp(in, parallelism, f) =>
-        val fanIn   = FanIn(effect)
-        val pending = mutable.Queue.empty[Any]
-        var active  = 0 // guarded by pending
-
-        def startNested(x: Any): Unit = fanIn
-          .open()
-          .foreach { slot =>
-            Try(f.asInstanceOf[Any => RxOps[?]](x)) match
-              case Success(rxb) =>
+              // An earlier source may have stopped the merge synchronously
+              if !fanIn.isStopped then
                 fanIn.attach(
                   slot,
-                  run(rxb) {
+                  run(source) {
                     case ev @ OnNext(_) =>
                       fanIn.next(ev)
                     case OnCompletion =>
-                      // Start the next pending value before ending this slot, so the operator
-                      // cannot complete in between
-                      val next = pending.synchronized {
-                        if pending.nonEmpty then
-                          Some(pending.dequeue())
-                        else
-                          active -= 1
-                          None
-                      }
-                      next.foreach(startNested)
                       fanIn.end(slot)
-                    case ev =>
-                      fanIn.terminate(ev)
+                    case ev @ OnError(_) =>
+                      fanIn.error(slot, ev)
                   }
                 )
-              case Failure(e) =>
-                fanIn.terminate(OnError(e))
+            }
+          fanIn.cancelable
+      case ParFlatMapOp(in, parallelism, f) =>
+        val fanIn = FanIn(effect)
+        // The fields below are guarded by `pending`
+        val pending  = mutable.Queue.empty[Any]
+        var active   = 0
+        val ready    = mutable.Queue.empty[(fanIn.Slot, Any)]
+        var draining = false
+
+        // Hand a finished nested stream's permit to the next pending value, or release it
+        def releasePermit(): Unit =
+          val next = pending.synchronized {
+            if pending.nonEmpty then
+              Some(pending.dequeue())
+            else
+              active -= 1
+              None
           }
+          next.foreach(launch)
+
+        def nextReady(): Option[(fanIn.Slot, Any)] = pending.synchronized {
+          if ready.isEmpty then
+            draining = false
+            None
+          else
+            Some(ready.dequeue())
+        }
+
+        // Open the slot now, so the operator cannot complete before x starts. Nested streams are
+        // subscribed from one loop, not recursively: a synchronous nested stream completes inside
+        // its subscription and launches the next pending value
+        def launch(x: Any): Unit = fanIn
+          .open()
+          .foreach { slot =>
+            val drainHere = pending.synchronized {
+              ready.enqueue((slot, x))
+              val idle = !draining
+              draining = true
+              idle
+            }
+            if drainHere then
+              var item = nextReady()
+              while item.nonEmpty do
+                val (s, v) = item.get
+                if !fanIn.isStopped then
+                  subscribe(s, v)
+                item = nextReady()
+          }
+
+        def subscribe(slot: fanIn.Slot, x: Any): Unit =
+          Try(f.asInstanceOf[Any => RxOps[?]](x)) match
+            case Success(rxb) =>
+              fanIn.attach(
+                slot,
+                run(rxb) {
+                  case ev @ OnNext(_) =>
+                    fanIn.next(ev)
+                  case OnCompletion =>
+                    fanIn.end(slot, releasePermit)
+                  case ev @ OnError(_) =>
+                    fanIn.error(slot, ev, releasePermit)
+                }
+              )
+            case Failure(e) =>
+              fanIn.error(slot, OnError(e), releasePermit)
 
         fanIn
           .open()
@@ -693,12 +725,12 @@ class RxRunner(
                       false
                   }
                   if startNow then
-                    startNested(x)
+                    launch(x)
                   fanIn.result
                 case OnCompletion =>
                   fanIn.end(inputSlot)
-                case ev =>
-                  fanIn.terminate(ev)
+                case ev @ OnError(_) =>
+                  fanIn.error(inputSlot, ev)
               }
             )
           }
@@ -1028,8 +1060,10 @@ class RxRunner(
   /**
     * Joins streams that may run concurrently (merge, parFlatMap) into one downstream. Events are
     * forwarded under a lock, since the streams may emit from different threads. The operator
-    * completes when every opened slot has ended. The first error, a downstream Stop, or a
-    * cancellation stops it: running streams are cancelled and later events are dropped.
+    * completes when every opened slot has ended. An error the downstream recovers from ends only
+    * the failing slot, as in flatMap. An unrecovered error, a downstream Stop, or a cancellation
+    * stops the operator: running streams are cancelled and later events are dropped. In continuous
+    * mode, errors and Stop are transient and only a cancellation stops it.
     */
   private class FanIn(effect: RxEvent => RxResult):
     class Slot:
@@ -1037,6 +1071,8 @@ class RxRunner(
 
     private val running = mutable.LinkedHashSet.empty[Slot]
     private var stopped = false
+
+    def isStopped: Boolean = synchronized(stopped)
 
     /**
       * Register a stream before starting it. None if the operator has already stopped
@@ -1062,51 +1098,43 @@ class RxRunner(
       if !keep then
         c.cancel
 
-    def result: RxResult = synchronized {
-      if stopped then
+    def result: RxResult =
+      if isStopped then
         RxResult.Stop
       else
         RxResult.Continue
-    }
 
-    def next(ev: OnNext): RxResult =
-      val r = synchronized {
-        if stopped then
-          RxResult.Stop
-        else
-          val r = effect(ev)
-          if !r.toContinue then
-            stopped = true
-          r
-      }
-      if !r.toContinue then
-        cancelRunning()
-      r
+    def next(ev: OnNext): RxResult = deliver(ev)
 
     /**
-      * End a slot; reports OnCompletion when it was the last one
+      * Forward an error from a slot's stream. If the downstream recovers, the slot has ended
       */
-    def end(slot: Slot): RxResult =
+    def error(slot: Slot, ev: OnError, beforeEnd: () => Unit = () => ()): RxResult =
+      val r = deliver(ev)
+      if r.toContinue && !continuous then
+        end(slot, beforeEnd)
+      else
+        r
+
+    /**
+      * End a slot after running `beforeEnd`, which may open other slots. Reports OnCompletion when
+      * no slot is left
+      */
+    def end(slot: Slot, beforeEnd: () => Unit = () => ()): RxResult =
+      beforeEnd()
       val last = synchronized {
         running -= slot
         running.isEmpty
       }
       if last then
-        terminate(OnCompletion)
+        synchronized {
+          if !stopped then
+            stopped = true
+            effect(OnCompletion)
+        }
+        RxResult.Stop
       else
         result
-
-    /**
-      * Report a terminal event (OnError or OnCompletion) once, and cancel the running streams
-      */
-    def terminate(ev: RxEvent): RxResult =
-      synchronized {
-        if !stopped then
-          stopped = true
-          effect(ev)
-      }
-      cancelRunning()
-      RxResult.Stop
 
     def cancelable: Cancelable = Cancelable { () =>
       synchronized {
@@ -1114,6 +1142,20 @@ class RxRunner(
       }
       cancelRunning()
     }
+
+    private def deliver(ev: RxEvent): RxResult =
+      val r = synchronized {
+        if stopped then
+          RxResult.Stop
+        else
+          val r = effect(ev)
+          if !continuous && !r.toContinue then
+            stopped = true
+          r
+      }
+      if !continuous && !r.toContinue then
+        cancelRunning()
+      r
 
     private def cancelRunning(): Unit =
       val toCancel = synchronized {
