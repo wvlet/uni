@@ -44,13 +44,12 @@ value, and `+` overrides it. A test takes the real application wiring and
 swaps in exactly one piece.
 
 ```scala
+import wvlet.uni.design.Design
 import wvlet.uni.test.UniTest
 
 class UserServiceTest extends UniTest:
   // appDesign is the real production wiring from Chapter 3.
-  addDesign(_ + appDesign)
-  // A later binding of the same type wins: swap in the fake.
-  addDesign(_.bindInstance[Database](FakeDatabase()))
+  addDesign(_ + appDesign + Design.newDesign.bindInstance[Database](FakeDatabase()))
 
   test("looks up a user by id") { (users: UserService) =>
     users.findUser("123") shouldBe Some("Alice")

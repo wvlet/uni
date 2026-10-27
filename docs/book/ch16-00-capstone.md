@@ -127,18 +127,22 @@ exactly one binding — the seed — leaving the real `BookmarkServiceImpl`
 in place ([Chapter 4](./ch04-00-testing)):
 
 ```scala
+import wvlet.uni.design.Design
 import wvlet.uni.test.UniTest
 
 class BookmarkServiceTest extends UniTest:
-  addDesign(_ + appDesign)
-  addDesign(
-    _.bindInstance[Seq[Bookmark]](Seq(Bookmark(1, "https://wvlet.org", "Wvlet")))
+  // addTestDesign: each test gets a fresh service and store
+  addTestDesign(
+    _ + appDesign +
+      Design.newDesign.bindInstance[Seq[Bookmark]](
+        Seq(Bookmark(1, "https://wvlet.org", "Wvlet"))
+      )
   )
 
-  test("add appends and list returns everything") { (service: BookmarkServiceImpl) =>
-    service.list().size shouldBe 1
-    val added = service.add("https://scala-lang.org", "Scala")
-    service.list().map(_.title) shouldContain "Scala"
+  test("add appends and list returns everything") { (bookmarks: BookmarkServiceImpl) =>
+    bookmarks.list().size shouldBe 1
+    val added = bookmarks.add("https://scala-lang.org", "Scala")
+    bookmarks.list().map(_.title) shouldContain "Scala"
     added.id shouldBe 2
   }
 ```

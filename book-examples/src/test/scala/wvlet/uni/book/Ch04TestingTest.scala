@@ -27,9 +27,7 @@ class Ch04TestingTest extends UniTest:
 
   private val appDesign = Design.newDesign.bindSingleton[Database].bindSingleton[UserService]
 
-  addDesign(_ + appDesign)
-  // A later binding of the same type wins: swap in the fake.
-  addDesign(_.bindInstance[Database](FakeDatabase()))
+  addDesign(_ + appDesign + Design.newDesign.bindInstance[Database](FakeDatabase()))
 
   test("looks up a user via a Design override") { (users: UserService) =>
     users.findUser("123") shouldBe Some("Alice")
