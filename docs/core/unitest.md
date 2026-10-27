@@ -869,6 +869,10 @@ Test results are displayed with status symbols:
 | `?` | Pending | Test not implemented |
 | `!` | Cancelled | Setup failed |
 
+A suite that skips or cancels itself in its constructor or `beforeAll` is not counted as failed.
+
+sbt prints each suite's output as one block when the suite ends, so suites running in parallel don't interleave. On the JVM, UniTest writes log messages from the thread running the suite (its constructor, hooks, and test bodies) into that block, so they appear right above the result of the test that logged them. Logs from other threads, such as a server's worker pool or a `Future` on the global pool, still go straight to the console.
+
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions
