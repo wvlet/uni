@@ -10,6 +10,7 @@
   "devDependencies": {
     "mermaid": "^11.17.2",
     "vitepress": "2.0.0-alpha.20",
+    "vitepress-plugin-llms": "1.14.0",
     "vitepress-plugin-mermaid": "^2.0.17"
   },
   "pnpm": {

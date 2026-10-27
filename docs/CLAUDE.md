@@ -35,6 +35,22 @@ If any of the above is unverified, drop the claim.
   content they describe.
 - **Clean URLs** are on; link to `/control/retry`, not `.html` or `.md`.
 
+## AI-agent docs
+
+The site is read by AI agents as much as by people.
+
+- **`llms.txt`, `llms-full.txt`, and per-page `.md` copies are generated** by
+  `vitepress-plugin-llms` from the sidebar and page sources. Never hand-write
+  them. A page missing from the sidebar is missing from `llms.txt`.
+- **`guide/for-ai-agents.md` is a contract for agents.** Keep its imports table,
+  Airframe mapping, and "mistakes" list in sync with the source, verified the
+  same way as Rule #0.
+- **Give new pages a `description` frontmatter** of one or two sentences that
+  name the problem the page solves. It becomes `<meta name="description">`,
+  which AI search engines quote.
+- **Open pages with the answer.** The first paragraph says what the feature is
+  and when to use it, followed by a runnable snippet.
+
 ## Before merging
 
 - Every symbol appears in current source (verified, not recalled).

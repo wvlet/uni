@@ -13,6 +13,10 @@
 
 **[https://wvlet.org/uni/](https://wvlet.org/uni/)**
 
+For AI coding agents: read [llms.txt](https://wvlet.org/uni/llms.txt) (page index) or
+[llms-full.txt](https://wvlet.org/uni/llms-full.txt) (all docs in one file), and see
+[Uni for AI Agents](https://wvlet.org/uni/guide/for-ai-agents) for canonical imports and an Airframe migration table.
+
 ## Modules
 
 | Module | Description |
