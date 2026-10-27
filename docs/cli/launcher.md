@@ -213,6 +213,9 @@ val launcher = Launcher.of[MyApp]
 launcher.printHelp
 ```
 
+A help flag applies to the command it follows: `app --help` prints the top-level help, while
+`app compile --help` prints the options of the `compile` sub-command.
+
 ## Configuration
 
 ```scala
@@ -298,6 +301,7 @@ $ filetool copy source.txt dest.txt --verbose
 $ filetool move old.txt new.txt
 $ filetool delete temp.txt --force
 $ filetool --help
+$ filetool move --help
 ```
 
 ## Best Practices

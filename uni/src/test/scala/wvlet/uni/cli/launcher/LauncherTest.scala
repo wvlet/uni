@@ -178,6 +178,29 @@ class ShadowingOuterApp(
   @command(description = "Run with a nested config")
   def run(cfg: ServerConfig): String = s"${host}-${cfg.host}"
 
+@command(description = "Flow module")
+class FlowModule:
+  @command(description = "Run a flow")
+  def run(
+      @option(prefix = "--dry-run", description = "Dry run")
+      dryRun: Boolean = false
+  ): String = s"run ${dryRun}"
+
+// Records which command's help was rendered, and with which options
+class CapturingHelpPrinter extends HelpPrinter:
+  var rendered: Seq[(String, Seq[String])] = Seq.empty
+
+  override def render(
+      commandName: String,
+      description: String,
+      usage: Option[String],
+      options: Seq[CLOption],
+      arguments: Seq[CLArgument],
+      subCommands: Seq[(String, String)]
+  ): String =
+    rendered = rendered :+ (commandName, options.flatMap(_.prefixes))
+    ""
+
 class LauncherTest extends UniTest:
 
   test("parse simple options") {
@@ -335,6 +358,70 @@ class LauncherTest extends UniTest:
     intercept[IllegalArgumentException] {
       Launcher.of[ShadowingOuterApp].execute(Array("run"))
     }
+  }
+
+  test("--help before a sub-command shows the top-level help") {
+    for args <- Seq(Seq("--help"), Seq("-h"), Seq("--help", "clone")) do
+      val printer = CapturingHelpPrinter()
+      val result  = Launcher.of[GitLikeCommand].withHelpPrinter(printer).execute(args)
+      result.showedHelp shouldBe true
+      result.executedMethod shouldBe None
+      printer.rendered.map(_._1) shouldBe Seq("command")
+  }
+
+  test("<method> --help shows the method's options") {
+    for helpFlag <- Seq("--help", "-h") do
+      val printer = CapturingHelpPrinter()
+      val result  = Launcher
+        .of[GitLikeCommand]
+        .withHelpPrinter(printer)
+        .execute(Seq("clone", helpFlag))
+      result.showedHelp shouldBe true
+      result.executedMethod.map(_._1.name) shouldBe Some("clone")
+      printer.rendered.map(_._1) shouldBe Seq("clone")
+      printer.rendered.head._2 shouldContain "--depth"
+  }
+
+  test("<module> <method> --help shows the nested method's options") {
+    val printer = CapturingHelpPrinter()
+    val result  = Launcher
+      .of[GitLikeCommand]
+      .addModule[FlowModule]("flow", "Flow commands")
+      .withHelpPrinter(printer)
+      .execute(Seq("flow", "run", "--help"))
+    result.showedHelp shouldBe true
+    result.executedMethod.map(_._1.name) shouldBe Some("run")
+    printer.rendered.map(_._1) shouldBe Seq("flow run")
+    printer.rendered.head._2 shouldContain "--dry-run"
+  }
+
+  test("<module> --help shows the module's help") {
+    val printer = CapturingHelpPrinter()
+    val result  = Launcher
+      .of[GitLikeCommand]
+      .addModule[FlowModule]("flow", "Flow commands")
+      .withHelpPrinter(printer)
+      .execute(Seq("flow", "--help"))
+    result.showedHelp shouldBe true
+    printer.rendered.map(_._1) shouldBe Seq("flow")
+  }
+
+  test("global option before a sub-command keeps --help on the sub-command") {
+    val printer = CapturingHelpPrinter()
+    val result  = Launcher
+      .of[GitLikeCommand]
+      .withHelpPrinter(printer)
+      .execute(Seq("--verbose", "clone", "--help"))
+    result.showedHelp shouldBe true
+    result.executedMethod.map(_._1.name) shouldBe Some("clone")
+    printer.rendered.map(_._1) shouldBe Seq("clone")
+  }
+
+  test("--help after a positional still shows help for a command without sub-commands") {
+    val printer = CapturingHelpPrinter()
+    val result  = Launcher.of[SimpleApp].withHelpPrinter(printer).execute(Seq("a.txt", "--help"))
+    result.showedHelp shouldBe true
+    printer.rendered.map(_._1) shouldBe Seq("command")
   }
 
   test("launcher with config") {

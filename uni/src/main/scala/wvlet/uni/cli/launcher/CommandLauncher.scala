@@ -46,7 +46,11 @@ class CommandLauncher(
     */
   def execute(config: LauncherConfig, args: Seq[String]): LauncherResult =
     val parser      = OptionParser(schema)
-    val parseResult = parser.parse(args.toArray, config.helpPrefixes)
+    val parseResult = parser.parse(
+      args.toArray,
+      config.helpPrefixes,
+      deferHelpAfterCommand = subCommands.nonEmpty || hasMethodCommands
+    )
 
     if parseResult.showHelp then
       printHelp(config)
