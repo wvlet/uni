@@ -1,0 +1,26 @@
+# UniTest routes suite-thread log records to sbt's test loggers
+
+## Context
+
+sbt buffers what a test framework writes to the `sbt.testing.Logger`s of a task and prints the buffer when the suite ends, so suites running in parallel don't interleave. UniTest writes its class header, result lines and summary there. uni log records went through the root `java.util.logging` handler straight to stderr, outside that buffer. In CI (td-llm-proxy), a suite's log lines printed above its header, mixed with other suites' logs, so a failure could not be matched with its error output.
+
+## Decision
+
+- Routing is on when the `CI` environment variable is set (and not `false`), and off otherwise. `--log-capture` / `--no-log-capture` override it. When sbt buffers suite output (`Test / logBuffered`), a routed record waits until its suite ends: a slow or hanging test shows no logs while it runs, and a JVM killed on a timeout loses them. Local runs keep the live console output; CI runs, which are read afterwards, get logs grouped with results.
+- `TestLogCapture.install()` wraps the root logger's handlers in a routing handler when a `UniTestRunner` starts. `done()` restores the original handlers, unless test code replaced them in the meantime. A nested runner (a test that drives the runner) reuses the installed handler. Runners of other projects in the same sbt JVM load their own copy of the router class and wrap the installed one. A removed router passes records through and exposes the handlers it wrapped via `java.util.function.Supplier`, a JDK type every class loader shares, so whichever runner touches the root handlers next unwraps it, whatever order the runners finish in.
+- The blocking `UniTestTask.execute` sets a `ThreadLocal` to the task's loggers around the suite and restores the previous value afterwards. On that thread, records are formatted with `SourceCodeLogFormatter` and sent to the loggers' `error`/`warn`/`info` by level. Records from other threads go to the original handlers.
+- On the JVM, construction, hooks and bodies run on the sbt task thread (see `2026-10-27-unitest-suite-thread.md`), so this covers test code and what it calls synchronously.
+
+## Why not
+
+- `InheritableThreadLocal`: pool threads outlive the suite that created them and would attribute a later suite's records to a finished or unrelated suite. A wrong block is worse than the console.
+- Printing results directly to stdout: keeps time order, but parallel suites interleave line by line.
+- Capturing `System.out`/`System.err`: process-global, cannot be split per suite.
+
+## Consequences
+
+- In CI with buffered output, logs of a suite that hangs until the CI job times out may never print. Pass `--no-log-capture` when debugging such a hang.
+
+- Logs from servers' worker threads or `Future`s on the global pool still print directly to the console.
+- Scala.js keeps its async `execute` without routing. On Native, bodies run on the global pool, so few records are routed.
+- Test code that calls `Logger.setDefaultHandler`/`Logger.init` or clears root handlers turns routing off for the rest of the run.

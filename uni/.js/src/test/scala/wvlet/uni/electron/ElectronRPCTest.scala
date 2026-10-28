@@ -17,7 +17,6 @@ import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.{Http, HttpException}
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter, RPCStatus}
 import wvlet.uni.rx.Rx
-import wvlet.uni.surface.Surface
 import wvlet.uni.test.UniTest
 
 import scala.scalajs.js
@@ -45,10 +44,7 @@ class ElectronRPCTest extends UniTest:
     */
   private def fakeBridge(routers: RPCRouter*): js.Dynamic = ElectronTestbed.serve(routers*).bridge()
 
-  private def rpcClient: RPCClient = RPCClient.build(
-    Surface.of[GreetingService],
-    Surface.methodsOf[GreetingService]
-  )
+  private def rpcClient: RPCClient = RPCClient.of[GreetingService]
 
   test("round-trips a synchronous RPC method over IPC") {
     val bridge = fakeBridge(RPCRouter.of[GreetingService](GreetingServiceImpl()))

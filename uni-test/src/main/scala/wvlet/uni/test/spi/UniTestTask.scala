@@ -27,6 +27,8 @@ import wvlet.uni.test.compat
 
 import java.util.concurrent.atomic.AtomicLong
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.Failure
+import scala.util.Success
 
 /**
   * Accumulated test statistics across all test classes. Uses AtomicLong for thread-safety since sbt
@@ -120,7 +122,11 @@ class UniTestTask(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
   ): Array[Task] =
-    compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
+    def run(): Unit = compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
+    if config.logCaptureEnabled then
+      TestLogCapture.withLoggers(loggers)(run())
+    else
+      run()
     Array.empty
 
   /**
@@ -142,19 +148,30 @@ class UniTestTask(
   ): Future[Unit] =
     val className = taskDef().fullyQualifiedName()
     Future(compat.newInstance(className, testClassLoader))
-      .flatMap(testInstance => runTests(testInstance, className, eventHandler, loggers))
+      .transformWith {
+        case Success(testInstance) =>
+          runTests(testInstance, className, eventHandler, loggers)
+        case Failure(e) =>
+          // runTests prints the class header; print it here so that a suite that skips itself in
+          // its constructor is not read as part of the previous suite's output
+          logClassHeader(className, loggers)
+          Future.failed(e)
+      }
       .recover { case e: Throwable =>
-        handleSpecLevelError(className, e, eventHandler, loggers)
+        handleSpecLevelError(className, e, eventHandler, loggers): Unit
       }
 
   end runSuite
+
+  private def logClassHeader(className: String, loggers: Array[sbt.testing.Logger]): Unit = loggers
+    .foreach(_.info(Tint.brightWhite(s"${className}:")))
 
   private def handleSpecLevelError(
       className: String,
       e: Throwable,
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
-  ): Unit =
+  ): TestResult =
     val cause           = compat.findCause(e)
     val (event, logMsg) = classifySpecLevelException(className, cause)
     eventHandler.handle(event)
@@ -177,6 +194,7 @@ class UniTestTask(
       case _: TestSkipped | _: TestPending | _: TestCancelled | _: TestIgnored =>
       case _                                                                   =>
         loggers.foreach(_.trace(cause))
+    suiteResult
 
   private def runTests(
       testInstance: UniTest,
@@ -200,7 +218,7 @@ class UniTestTask(
       Future.unit
     else
       val classStartTime = System.nanoTime()
-      loggers.foreach(_.info(Tint.brightWhite(s"${className}:")))
+      logClassHeader(className, loggers)
 
       val testQueue     = scala.collection.mutable.Queue.from(filteredTests)
       val executedTests = scala.collection.mutable.Set.empty[String]
@@ -208,6 +226,17 @@ class UniTestTask(
       var classFailed   = 0L
       var classSkipped  = 0L
       var classPending  = 0L
+
+      def countResult(result: TestResult): Unit =
+        result match
+          case _: TestResult.Success =>
+            classPassed += 1
+          case _: TestResult.Failure | _: TestResult.Error =>
+            classFailed += 1
+          case _: TestResult.Skipped =>
+            classSkipped += 1
+          case _: TestResult.Pending | _: TestResult.Cancelled | _: TestResult.Ignored =>
+            classPending += 1
 
       def processQueue(): Future[Unit] =
         if testQueue.isEmpty then
@@ -243,7 +272,7 @@ class UniTestTask(
                 eventHandler.handle(event)
                 logResult(errorResult, testElapsed, loggers)
                 stats.addResult(errorResult)
-                classFailed += 1
+                countResult(errorResult)
                 processQueue()
               case None =>
                 testInstance
@@ -290,16 +319,7 @@ class UniTestTask(
                       eventHandler.handle(event)
                       logResult(finalResult, testElapsed, loggers)
                       stats.addResult(finalResult)
-                      finalResult match
-                        case _: TestResult.Success =>
-                          classPassed += 1
-                        case _: TestResult.Failure | _: TestResult.Error =>
-                          classFailed += 1
-                        case _: TestResult.Skipped =>
-                          classSkipped += 1
-                        case _: TestResult.Pending | _: TestResult.Cancelled |
-                            _: TestResult.Ignored =>
-                          classPending += 1
+                      countResult(finalResult)
 
                     if !finalResult.isFailure && isContainer then
                       testInstance
@@ -326,9 +346,8 @@ class UniTestTask(
       val testsFuture: Future[Unit] =
         beforeAllError match
           case Some(e) =>
-            handleSpecLevelError(className, e, eventHandler, loggers)
-            // Reflect the spec-level failure in the class summary so it renders red.
-            classFailed += 1
+            // Count by kind: a beforeAll that skips or cancels the suite is not a failure
+            countResult(handleSpecLevelError(className, e, eventHandler, loggers))
             Future.unit
           case None =>
             processQueue()
@@ -340,8 +359,7 @@ class UniTestTask(
             testInstance.runAfterAll()
           catch
             case e: Throwable =>
-              handleSpecLevelError(className, e, eventHandler, loggers)
-              classFailed += 1
+              countResult(handleSpecLevelError(className, e, eventHandler, loggers))
           tryValue
         }
         .map { _ =>

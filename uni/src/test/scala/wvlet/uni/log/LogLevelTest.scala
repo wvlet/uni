@@ -28,8 +28,12 @@ class LogLevelTest extends UniTest:
   }
 
   test("handle unknown log level string") {
-    // Should default to INFO and print an error to stderr (cannot capture stderr easily in test)
-    LogLevel("unknown") shouldBe LogLevel.INFO
+    // Defaults to INFO and reports the unknown name on stderr
+    val err = java.io.ByteArrayOutputStream()
+    Console.withErr(err) {
+      LogLevel("unknown") shouldBe LogLevel.INFO
+    }
+    err.toString shouldContain "Unknown log level [unknown]"
   }
 
   test("convert from java.util.logging.Level") {

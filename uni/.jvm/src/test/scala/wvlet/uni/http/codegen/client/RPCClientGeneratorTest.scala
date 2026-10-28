@@ -62,13 +62,12 @@ class RPCClientGeneratorTest extends UniTest:
     source shouldContain "package com.example.client"
     source shouldContain "import wvlet.uni.http.*"
     source shouldContain "import wvlet.uni.http.rpc.RPCClient"
-    source shouldContain "import wvlet.uni.surface.Surface"
+    source shouldNotContain "import wvlet.uni.surface.Surface"
     source shouldContain "object UserServiceClient:"
     source shouldContain "class SyncClient(client: HttpSyncClient):"
 
-    // RPCClient.build uses Surface inline
-    source shouldContain "Surface.of[com.example.api.UserService]"
-    source shouldContain "Surface.methodsOf[com.example.api.UserService]"
+    // RPCClient.of extracts the method metadata inline
+    source shouldContain "private val rpc = RPCClient.of[com.example.api.UserService]"
 
     // Methods delegate to rpc.callSync
     source shouldContain "def getUser(id: Long): com.example.model.User"

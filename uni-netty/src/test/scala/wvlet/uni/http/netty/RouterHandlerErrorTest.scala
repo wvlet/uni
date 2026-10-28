@@ -15,6 +15,7 @@ package wvlet.uni.http.netty
 
 import wvlet.uni.http.{HttpMethod, Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.{Endpoint, Router}
+import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.required
 import wvlet.uni.test.UniTest
@@ -73,9 +74,14 @@ class RouterHandlerErrorTest extends UniTest:
     .withRxHandler(RouterHandler(Router.of[ErrorController]))
 
   private def withServer[A](config: NettyServerConfig)(f: String => A): A =
-    val server = config.start()
-    try f(s"http://127.0.0.1:${server.localPort}")
-    finally server.stop()
+    // Every test here makes the server log a handler error on purpose
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        val server = config.start()
+        try f(s"http://127.0.0.1:${server.localPort}")
+        finally server.stop()
+      }
 
   private def get(url: String): HttpResponse[String] = client.send(
     HttpRequest.newBuilder(URI.create(url)).GET().build(),

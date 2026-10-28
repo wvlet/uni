@@ -24,6 +24,7 @@ import wvlet.uni.http.{
   ServerSentEvent
 }
 import wvlet.uni.http.router.{Endpoint, Router}
+import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -49,7 +50,11 @@ class NettyServerTest extends UniTest:
     httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
   test("should start and stop server") {
-    val server = NettyServer.withPort(0).withHandler(_ => Response.ok("test")).start()
+    val server = NettyServer
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withHandler(_ => Response.ok("test"))
+      .start()
     try
       server.isRunning shouldBe true
       server.localPort > 0 shouldBe true
@@ -62,6 +67,7 @@ class NettyServerTest extends UniTest:
   test("should handle simple GET request") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
         Response.ok(s"Hello from ${request.path}")
       }
@@ -75,6 +81,7 @@ class NettyServerTest extends UniTest:
   test("should handle POST request with body") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
         val body = request.content.toContentString
         Response.ok(s"Received: ${body}")
@@ -89,6 +96,7 @@ class NettyServerTest extends UniTest:
   test("should handle Rx async handler") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { request =>
         Rx.single(Response.ok(s"Async: ${request.path}"))
       }
@@ -102,6 +110,7 @@ class NettyServerTest extends UniTest:
   test("should handle Rx delayed response") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { request =>
         Rx.single(10)
           .map { _ =>
@@ -118,6 +127,7 @@ class NettyServerTest extends UniTest:
   test("should return 404 for not found handler") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .start { server =>
         val response = get(s"http://localhost:${server.localPort}/notfound")
         response.statusCode() shouldBe 404
@@ -135,6 +145,7 @@ class NettyServerTest extends UniTest:
 
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withFilter(loggingFilter)
       .withHandler { request =>
         val filtered = request.headers.get("X-Filtered").getOrElse("false")
@@ -155,6 +166,7 @@ class NettyServerTest extends UniTest:
 
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(handler)
       .start { server =>
         val response = get(s"http://localhost:${server.localPort}/sync")
@@ -166,6 +178,7 @@ class NettyServerTest extends UniTest:
   test("should handle JSON response") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { _ =>
         Response.ok.withJsonContent("""{"status": "ok"}""")
       }
@@ -180,6 +193,7 @@ class NettyServerTest extends UniTest:
   test("should handle different HTTP methods") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
         Response.ok(s"Method: ${request.method}")
       }
@@ -193,16 +207,21 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle error in handler") {
-    NettyServer
-      .withPort(0)
-      .withRxHandler { _ =>
-        Rx.exception(RuntimeException("Test error"))
-      }
-      .start { server =>
-        val response = get(s"http://localhost:${server.localPort}/error")
-        response.statusCode() shouldBe 500
-        // The exception message is logged, not sent to the client
-        response.body() shouldBe "Internal Server Error"
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        NettyServer
+          .withPort(0)
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withRxHandler { _ =>
+            Rx.exception(RuntimeException("Test error"))
+          }
+          .start { server =>
+            val response = get(s"http://localhost:${server.localPort}/error")
+            response.statusCode() shouldBe 500
+            // The exception message is logged, not sent to the client
+            response.body() shouldBe "Internal Server Error"
+          }
       }
   }
 
@@ -223,7 +242,11 @@ class NettyServerTest extends UniTest:
   }
 
   test("should throw when starting already running server") {
-    val server = NettyServer.withPort(0).withHandler(_ => Response.ok).start()
+    val server = NettyServer
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withHandler(_ => Response.ok)
+      .start()
     try intercept[IllegalStateException] {
         server.start()
       }
@@ -272,6 +295,7 @@ class NettyServerTest extends UniTest:
   test("should start server with handler executor threads") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandlerExecutorThreads(4)
       .withHandler { request =>
         Response.ok(s"Handler executor: ${request.path}")
@@ -303,6 +327,7 @@ class NettyServerTest extends UniTest:
 
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { _ =>
         Rx.single(
           // A handler-supplied Connection header must not override the server's
@@ -350,6 +375,7 @@ class NettyServerTest extends UniTest:
   test("should bind query parameters to @Endpoint method parameters") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.SearchController]))
       .start { server =>
         val base = s"http://localhost:${server.localPort}"
@@ -365,6 +391,7 @@ class NettyServerTest extends UniTest:
   test("should read a raw UTF-8 request target as UTF-8") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(req => Response.ok(s"${req.path} ${req.getQueryParam("q").getOrElse("")}"))
       .start { server =>
         val socket = java.net.Socket("127.0.0.1", server.localPort)
@@ -389,6 +416,7 @@ class NettyServerTest extends UniTest:
     // parameterized case and hence no valueOf
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.ResponseController]))
       .start { server =>
         val r = get(s"http://localhost:${server.localPort}/response")
@@ -404,6 +432,7 @@ class NettyServerTest extends UniTest:
   test("should encode case class returns from @Endpoint controllers as JSON") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.HelloController]))
       .start { server =>
         val r = get(s"http://localhost:${server.localPort}/hello")
