@@ -15,6 +15,7 @@ The `uni` module provides essential utilities for Scala application development.
 | [Surface](./surface) | Compile-time type introspection |
 | [FileSystem](./filesystem) | Cross-platform file I/O with IOPath |
 | [YAML](../text/yaml) | YAML 1.2 parser with Weaver decoding and frontmatter |
+| [Markdown](../text/markdown) | CommonMark + GFM parser and safe HTML renderer |
 | [Utilities](./utilities) | IDs (UUIDv7, ULID, NanoId), encodings (Base62, CrockfordBase32), value types (DataSize, Count, ElapsedTime), timing (StopWatch, Timer) |
 
 ## Quick Start
