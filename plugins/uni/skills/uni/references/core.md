@@ -107,6 +107,26 @@ val done = tasks.copy(blocks = tasks.blocks.map {
 val written = done.toMarkdown       // "- [x] write docs\n"
 ```
 
+## Cron schedules
+
+`Cron.parse` reads 5-field Unix expressions (or 6 with leading seconds), names (`JAN`, `MON`),
+steps, `?`, and macros such as `@daily`. When both day-of-month and day-of-week are restricted,
+either one matches (Vixie cron). `next` reads the fields in UTC or a fixed `UtcOffset`; Scala.js
+has no `ZoneId`, so resolve a named zone to its current offset first. `toString` returns the
+source text, and invalid input throws `TextParseException` with the column.
+
+```scala
+import wvlet.uni.text.cron.{Cron, UtcOffset}
+import java.time.Instant
+
+val cron  = Cron.parse("30 9 * * MON-FRI")
+val after = Instant.parse("2026-10-30T12:00:00Z")
+val next  = cron.next(after)                       // 2026-11-02T09:30:00Z
+val week  = cron.nextN(after, 5)
+val local = cron.next(after, UtcOffset.ofHours(9)) // 09:30 in +09:00
+val text  = cron.describe                          // At 09:30, Monday through Friday
+```
+
 ## Persisted settings (SettingStore)
 
 An `RxVar` saved as `{"version", "state"}` JSON on every change: `~/.config/<app>/<fileName>` on

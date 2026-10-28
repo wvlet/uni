@@ -210,8 +210,8 @@ class CronTest extends UniTest:
       val (y, m, d) = CivilTime.civilFromDays(days)
       if CivilTime.daysFromCivil(y, m, d) != days then
         mismatches = days :: mismatches
-      // java.time prints years before 0 with a sign, so compare from year 0
-      if y >= 0 && days % 997 == 0 &&
+      // Instant.toString formats years before 1000 differently across platforms
+      if y >= 1000 && days % 997 == 0 &&
         Instant.ofEpochSecond(days * 86400L).toString.takeWhile(_ != 'T') !=
           f"${y}%04d-${m}%02d-${d}%02d"
       then
