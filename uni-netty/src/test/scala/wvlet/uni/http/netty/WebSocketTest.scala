@@ -127,6 +127,7 @@ class WebSocketTest extends UniTest:
   test("echo text messages") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
           override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
@@ -149,6 +150,7 @@ class WebSocketTest extends UniTest:
   test("echo binary messages") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/bin") { _ =>
         new WebSocketHandler:
           override def onBinaryMessage(ctx: WebSocketContext, message: Array[Byte]): Unit = ctx
@@ -169,6 +171,7 @@ class WebSocketTest extends UniTest:
   test("server can push messages on open") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
           override def onOpen(ctx: WebSocketContext): Unit = ctx.send("welcome")
@@ -186,6 +189,7 @@ class WebSocketTest extends UniTest:
     val closed = CountDownLatch(1)
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler:
           override def onOpen(ctx: WebSocketContext): Unit  = opened.countDown()
@@ -203,6 +207,7 @@ class WebSocketTest extends UniTest:
   test("fragmented text messages are aggregated") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/frag") { _ =>
         new WebSocketHandler:
           override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
@@ -230,6 +235,7 @@ class WebSocketTest extends UniTest:
     }
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/secure", denyFilter) { _ =>
         new WebSocketHandler {}
       }
@@ -246,6 +252,7 @@ class WebSocketTest extends UniTest:
     }
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/empty", emptyFilter) { _ =>
         new WebSocketHandler {}
       }
@@ -264,6 +271,7 @@ class WebSocketTest extends UniTest:
     }
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/auth", authFilter) { _ =>
         new WebSocketHandler:
           override def onOpen(ctx: WebSocketContext): Unit = ctx.send(
@@ -281,6 +289,7 @@ class WebSocketTest extends UniTest:
   test("WebSocket works with a handler executor thread pool") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandlerExecutorThreads(4)
       .withWebSocketRoute("/ws/exec") { _ =>
         new WebSocketHandler:
@@ -302,6 +311,7 @@ class WebSocketTest extends UniTest:
   test("normal HTTP routes work alongside WebSocket routes") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
         Response.ok(s"http:${request.path}")
       }
@@ -340,6 +350,7 @@ class WebSocketTest extends UniTest:
   test("heartbeat keeps an idle connection alive via ping/pong") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketPingIntervalMillis(150)
       .withWebSocketRoute("/ws/idle") { _ =>
         new WebSocketHandler {}

@@ -70,6 +70,7 @@ class NettyServerSecurityTest extends UniTest:
   private def wsServer: NettyServerConfig =
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws") { _ =>
         new WebSocketHandler {}
       }
@@ -78,6 +79,7 @@ class NettyServerSecurityTest extends UniTest:
     NettyServerConfig().host shouldBe "127.0.0.1"
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
       .start { server =>
         server.localAddress shouldContain "127.0.0.1"
@@ -87,6 +89,7 @@ class NettyServerSecurityTest extends UniTest:
   test("hide exception messages in 500 responses by default") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => throw IllegalStateException("password=hunter2"))
       .start { server =>
         val head = rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
@@ -97,6 +100,7 @@ class NettyServerSecurityTest extends UniTest:
   test("show exception messages when detailed errors are enabled") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withDetailedErrors(true)
       .withRxHandler(_ => Rx.exception(IllegalStateException("visible detail")))
       .start { server =>
@@ -135,6 +139,7 @@ class NettyServerSecurityTest extends UniTest:
   test("reject a response header containing CR/LF") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { _ =>
         // Bypass Response.addHeader's validation, as a hand-built header map would
         Response.ok.withHeaders(HttpMultiMap.empty.add("X-Echo", "a\r\nSet-Cookie: session=evil"))
@@ -175,6 +180,7 @@ class NettyServerSecurityTest extends UniTest:
   test("close a connection that does not finish its request in time") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRequestReadTimeoutMillis(200)
       .withHandler(_ => Response.ok("ok"))
       .start { server =>
@@ -201,6 +207,7 @@ class NettyServerSecurityTest extends UniTest:
   test("still time out an idle connection after an early 413") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withMaxContentLength(16)
       .withRequestReadTimeoutMillis(300)
       .withHandler(_ => Response.ok("ok"))
@@ -232,6 +239,7 @@ class NettyServerSecurityTest extends UniTest:
   test("keep serving complete requests on a kept-alive connection") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRequestReadTimeoutMillis(500)
       .withHandler { _ =>
         // A handler slower than the read timeout must not be cut off
@@ -253,6 +261,7 @@ class NettyServerSecurityTest extends UniTest:
   test("reject requests for a foreign Host on a loopback server") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
       .start { server =>
         val port = server.localPort
@@ -271,6 +280,7 @@ class NettyServerSecurityTest extends UniTest:
   test("accept configured hosts, or every host with noHostCheck") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
       .withAllowedHosts("api.example.com")
       .start { server =>
@@ -280,6 +290,7 @@ class NettyServerSecurityTest extends UniTest:
       }
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
       .noHostCheck
       .start { server =>
@@ -291,6 +302,7 @@ class NettyServerSecurityTest extends UniTest:
   test("reject SSE streams over the limit with 503") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.eventStream(Rx.variable(ServerSentEvent.data("hello"))))
       .withMaxStreamingConnections(1)
       .start { server =>
