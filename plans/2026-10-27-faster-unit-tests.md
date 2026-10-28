@@ -27,7 +27,7 @@ IOWatchJvmTest takes ~2s per test on macOS because the JDK's WatchService there 
 
 Lane: **Express** — test-only change, no change in library behaviour, no always-gate area.
 
-- In `uni-netty` tests, build every test server with `.withShutdownQuietPeriod(0)` next to `.withPort(0)`. Expected: Netty suites drop from ~110s to a few seconds.
+- In `uni-netty` tests, build every test server with `.withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)` next to `.withPort(0)`, the idiom several Netty tests already use. The 5s timeout only bounds the drain; test servers finish well within it. Expected: Netty suites drop from ~110s to a few seconds.
 - Leave tests that check the shutdown configuration itself (`withGracefulShutdown`, `withShutdownQuietPeriod` assertions) as they are.
 - Keep the production default (2s) unchanged.
 - Re-measure after the change and list the new slowest suites in the PR.
@@ -35,5 +35,5 @@ Lane: **Express** — test-only change, no change in library behaviour, no alway
 ## Alternatives and Why Not?
 
 - **Lower the default quiet period to 0** — fastest to write, but changes shutdown behaviour for every user to speed up our tests.
-- **A shared test helper (e.g. `testServer = NettyServer.withPort(0).withShutdownQuietPeriod(0)`)** — less repetition, but tests build servers in varied builder orders, and an explicit setting at each call site documents why stop is instant.
+- **A shared test helper or suite-level server** (`addDesign` reusing one server) — less repetition, but tests build servers in varied builder orders, and an explicit setting at each call site documents why stop is instant. With the quiet period gone, a server starts and stops in milliseconds, so reusing one saves little. Most tests also need their own handler, filters, or limits, and separate servers keep stateful tests (SSE limits, read timeouts, kept-alive connections) independent.
 - **Run suites in parallel** — hides the waits instead of removing them, and doesn't help `testOnly` on one suite.
