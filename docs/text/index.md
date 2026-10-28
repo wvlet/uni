@@ -6,8 +6,9 @@
 |---------|-------------|
 | [`wvlet.uni.text.yaml`](./yaml) | YAML 1.2 parser that decodes into case classes with Weaver, plus Markdown frontmatter |
 | [`wvlet.uni.text.markdown`](./markdown) | CommonMark + GitHub Flavored Markdown parser and HTML renderer |
+| [`wvlet.uni.text.cron`](./cron) | Cron expression parser with next-run times and English descriptions |
 
-The parsers share `wvlet.uni.text.parser`. `LineReader` is a cursor for line- and indentation-oriented formats like YAML, and `ScannerBase` is a tokenizer for expression-like languages. Errors are thrown as `TextParseException`, which carries the offset of the error. Parsers built on `LineReader` also put the line, the column, and the source line with a caret in the message:
+The parsers share `wvlet.uni.text.parser`. `LineReader` is a cursor for line- and indentation-oriented formats like YAML, and `ScannerBase` is a tokenizer for expression-like languages such as cron. Errors are thrown as `TextParseException`, which carries the offset of the error. The YAML, Markdown, and cron parsers also put the line, the column, and the source line with a caret in the message:
 
 ```text
 Unclosed flow sequence (line 2, column 4)
