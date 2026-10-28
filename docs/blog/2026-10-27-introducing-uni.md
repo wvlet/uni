@@ -51,7 +51,7 @@ Uni takes the other path: **learn one library, build the whole app.**
 | HTTP client | [`Http.client`](/http/client): sync and async, retries, Server-Sent Events, WebSocket |
 | HTTP server | [REST Server](/http/server): Netty on the JVM (`uni-netty`), Node.js on Scala.js, a native server on Scala Native |
 | Typed RPC | [RPC](/http/rpc): services defined as Scala traits, with type-safe clients |
-| MCP servers | [`uni.mcp`](/mcp/): a Scala trait becomes tools that AI agents can call |
+| MCP servers | [`wvlet.uni.mcp`](/mcp/): a Scala trait becomes tools that AI agents can call |
 | Reactive streams | [Rx](/rx/): composable streams and variables for async code and UI state |
 | CLI | [Command Launcher](/cli/launcher), terminal colors, progress bars |
 | Web UI (Scala.js) | [RxElement](/dom/): reactive HTML components driven by `Rx` |
@@ -195,8 +195,9 @@ class CounterUI extends RxElement:
     rpc.callAsync[CounterState](client, "get", Seq.empty).run(show)
 ```
 
-In a browser, the client sends these calls over HTTP to the server above
-(set the server address with `Http.client.withBaseUri(...)`).
+In a browser, the client sends these calls over HTTP to the server above.
+Serve the page from the same origin as the server (a dev-server proxy works),
+because the server does not add CORS headers.
 
 **Ship it as a desktop app.** In Electron, the main process serves the same
 trait over IPC instead of a network port, and the renderer calls
