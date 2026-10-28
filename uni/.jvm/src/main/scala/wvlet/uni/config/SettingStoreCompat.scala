@@ -29,4 +29,6 @@ private[config] object SettingStoreCompat:
     else
       "other"
 
-  def defaultBackend(config: SettingStoreConfig): StoreBackend = FileStoreBackend(config.directory)
+  def defaultBackend(config: SettingStoreConfig[?]): StoreBackend = FileStoreBackend(
+    config.directory
+  )

@@ -19,21 +19,23 @@ import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
+case class Token(value: String) derives Weaver
 
 class SettingStoreTest extends UniTest:
-  private def memoryConfig(backend: StoreBackend): SettingStoreConfig = SettingStore
+  private def memoryConfig(backend: StoreBackend): SettingStoreConfig[AppSettings] = SettingStore
+    .of[AppSettings]
     .withAppName("test-app")
     .withBackend(backend)
 
   test("start from the default and save updates") {
     val backend  = InMemoryStoreBackend()
-    val settings = memoryConfig(backend).open("settings", AppSettings())
+    val settings = memoryConfig(backend).open("settings")
     settings.get shouldBe AppSettings()
     settings.update(_.copy(theme = "dark"))
     backend.read("settings") shouldBe
       Some("""{"version":0,"state":{"theme":"dark","fontSize":14}}""")
 
-    val reloaded = memoryConfig(backend).open("settings", AppSettings())
+    val reloaded = memoryConfig(backend).open("settings")
     reloaded.get shouldBe AppSettings(theme = "dark")
   }
 
@@ -44,7 +46,7 @@ class SettingStoreTest extends UniTest:
         override def write(key: String, value: String): Unit =
           writes += 1
           super.write(key, value)
-    val settings = memoryConfig(backend).open("settings", AppSettings())
+    val settings = memoryConfig(backend).open("settings")
     settings.update(_.copy(theme = "dark"))
     settings.update(_.copy(theme = "dark"))
     settings := AppSettings(theme = "dark")
@@ -52,7 +54,7 @@ class SettingStoreTest extends UniTest:
   }
 
   test("notify subscribers on change") {
-    val settings = memoryConfig(InMemoryStoreBackend()).open("settings", AppSettings())
+    val settings = memoryConfig(InMemoryStoreBackend()).open("settings")
     val themes   = List.newBuilder[String]
     val c        = settings.map(_.theme).subscribe(themes += _)
     settings.update(_.copy(theme = "dark"))
@@ -63,7 +65,7 @@ class SettingStoreTest extends UniTest:
   test("fill missing fields with defaults") {
     val backend = InMemoryStoreBackend()
     backend.write("settings", """{"version":0,"state":{"theme":"dark","unknown":true}}""")
-    memoryConfig(backend).open("settings", AppSettings()).get shouldBe AppSettings(theme = "dark")
+    memoryConfig(backend).open("settings").get shouldBe AppSettings(theme = "dark")
   }
 
   test("migrate older versions and save the result") {
@@ -86,7 +88,7 @@ class SettingStoreTest extends UniTest:
           case other =>
             other
       }
-    config.open("settings", AppSettings()).get shouldBe AppSettings(theme = "dark")
+    config.open("settings").get shouldBe AppSettings(theme = "dark")
     backend.read("settings") shouldBe
       Some("""{"version":2,"state":{"theme":"dark","fontSize":14}}""")
   }
@@ -96,7 +98,7 @@ class SettingStoreTest extends UniTest:
     backend.write("settings", "{not json")
     var settings: AppSettings = null
     val logs                  = captureLogs {
-      settings = memoryConfig(backend).open("settings", AppSettings()).get
+      settings = memoryConfig(backend).open("settings").get
     }
     settings shouldBe AppSettings()
     logs.warnings shouldContain "Setting settings cannot be read"
@@ -106,7 +108,7 @@ class SettingStoreTest extends UniTest:
 
   test("clear removes the stored data") {
     val backend  = InMemoryStoreBackend()
-    val settings = memoryConfig(backend).open("settings", AppSettings())
+    val settings = memoryConfig(backend).open("settings")
     settings.update(_.copy(fontSize = 20))
     settings.clear()
     settings.get shouldBe AppSettings()
@@ -130,7 +132,7 @@ class SettingStoreTest extends UniTest:
         fireChange()
 
     val backend  = WatchableBackend()
-    val settings = memoryConfig(backend).withWatchChanges(true).open("settings", AppSettings())
+    val settings = memoryConfig(backend).withWatchChanges(true).open("settings")
     backend.changeElsewhere(Some("""{"version":0,"state":{"theme":"dark"}}"""))
     settings.get shouldBe AppSettings(theme = "dark")
     // Unreadable data, e.g., a file in the middle of a non-atomic save, keeps the current value
@@ -141,22 +143,51 @@ class SettingStoreTest extends UniTest:
     settings.stop()
   }
 
+  test("start from withDefault when set") {
+    memoryConfig(InMemoryStoreBackend())
+      .withDefault(AppSettings(fontSize = 20))
+      .open("settings")
+      .get shouldBe AppSettings(fontSize = 20)
+  }
+
+  test("require withDefault for types without default parameters") {
+    val e = intercept[IllegalArgumentException] {
+      SettingStore.of[Token].withBackend(InMemoryStoreBackend()).open("token")
+    }
+    e.getMessage shouldContain "withDefault"
+    SettingStore
+      .of[Token]
+      .withBackend(InMemoryStoreBackend())
+      .withDefault(Token("t"))
+      .open("token")
+      .get shouldBe Token("t")
+  }
+
+  test("require an application name for the default location") {
+    intercept[IllegalArgumentException] {
+      SettingStore.of[AppSettings].open("settings")
+    }
+  }
+
   test("reject keys that are not safe file names") {
     intercept[IllegalArgumentException] {
-      memoryConfig(InMemoryStoreBackend()).open("../settings", AppSettings())
+      memoryConfig(InMemoryStoreBackend()).open("../settings")
     }
   }
 
   test("save to files") {
-    val dir      = FileSystem.createTempDirectory("setting-store-test")
-    val config   = SettingStore.withAppName("test-app").withLocation(SettingLocation.Directory(dir))
-    val settings = config.open("settings", AppSettings())
+    val dir    = FileSystem.createTempDirectory("setting-store-test")
+    val config = SettingStore
+      .of[AppSettings]
+      .withAppName("test-app")
+      .withLocation(SettingLocation.Directory(dir))
+    val settings = config.open("settings")
     settings.update(_.copy(theme = "dark"))
     FileSystem.readString(dir / "settings.json") shouldContain "\"theme\":\"dark\""
     // No temporary files are left behind
     FileSystem.list(dir).map(_.fileName) shouldBe Seq("settings.json")
 
-    config.open("settings", AppSettings()).get shouldBe AppSettings(theme = "dark")
+    config.open("settings").get shouldBe AppSettings(theme = "dark")
     FileSystem.deleteRecursively(dir)
   }
 

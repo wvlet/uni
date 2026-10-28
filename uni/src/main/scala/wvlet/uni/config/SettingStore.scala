@@ -78,10 +78,12 @@ enum SettingLocation:
 end SettingLocation
 
 /**
-  * Configuration of a [[SettingStore]].
+  * Configuration of a [[SettingStore]] for values of type `A`. Create one with
+  * `SettingStore.of[A]`, set options with `withXXX(...)`, then call `open(key)`.
   *
   * @param appName
-  *   the application name, used as the directory name under the setting location
+  *   the application name, used as the directory name under the setting location (and as the
+  *   localStorage key prefix in a browser)
   * @param location
   *   where the file backend stores settings (default: `~/.config/<app>/`)
   * @param version
@@ -89,26 +91,32 @@ end SettingLocation
   *   `migrate` before it is decoded.
   * @param migrate
   *   converts stored state JSON of an older version (the second argument) into the current schema
+  * @param default
+  *   the value to start from when nothing is stored. When not set, the value is built from the
+  *   case-class default parameters.
   * @param backend
   *   a storage backend to use instead of the platform default
   * @param watchChanges
   *   reload the value when another process or browser tab changes the stored data
   */
-case class SettingStoreConfig(
-    appName: String,
+case class SettingStoreConfig[A](
+    appName: String = "",
     location: SettingLocation = SettingLocation.UserConfig,
     version: Int = 0,
     migrate: (JSONValue, Int) => JSONValue = (state, _) => state,
+    default: Option[A] = None,
     backend: Option[StoreBackend] = None,
     watchChanges: Boolean = false
-):
-  def withAppName(name: String): SettingStoreConfig                     = copy(appName = name)
-  def withLocation(location: SettingLocation): SettingStoreConfig       = copy(location = location)
-  def withVersion(version: Int): SettingStoreConfig                     = copy(version = version)
-  def withMigrate(f: (JSONValue, Int) => JSONValue): SettingStoreConfig = copy(migrate = f)
-  def withBackend(backend: StoreBackend): SettingStoreConfig = copy(backend = Some(backend))
-  def noBackend(): SettingStoreConfig                        = copy(backend = None)
-  def withWatchChanges(enabled: Boolean): SettingStoreConfig = copy(watchChanges = enabled)
+)(using val weaver: Weaver[A]):
+  def withAppName(name: String): SettingStoreConfig[A]               = copy(appName = name)
+  def withLocation(location: SettingLocation): SettingStoreConfig[A] = copy(location = location)
+  def withVersion(version: Int): SettingStoreConfig[A]               = copy(version = version)
+  def withMigrate(f: (JSONValue, Int) => JSONValue): SettingStoreConfig[A] = copy(migrate = f)
+  def withDefault(value: A): SettingStoreConfig[A]              = copy(default = Some(value))
+  def noDefault(): SettingStoreConfig[A]                        = copy(default = None)
+  def withBackend(backend: StoreBackend): SettingStoreConfig[A] = copy(backend = Some(backend))
+  def noBackend(): SettingStoreConfig[A]                        = copy(backend = None)
+  def withWatchChanges(enabled: Boolean): SettingStoreConfig[A] = copy(watchChanges = enabled)
 
   /**
     * The directory the file backend uses for this configuration
@@ -119,13 +127,33 @@ case class SettingStoreConfig(
     * The backend to use: the explicit one if set, otherwise the platform default (files on the JVM,
     * Scala Native, and Node.js; localStorage in a browser)
     */
-  def resolveBackend: StoreBackend = backend.getOrElse(SettingStoreCompat.defaultBackend(this))
+  def resolveBackend: StoreBackend = backend.getOrElse {
+    location match
+      case SettingLocation.Directory(_) =>
+      case _                            =>
+        require(appName.nonEmpty, "Set the application name with withAppName(...)")
+    SettingStoreCompat.defaultBackend(this)
+  }
 
   /**
-    * Open the store for `key`, loading its saved value or starting from `default`
+    * The value to start from: the one set with `withDefault`, otherwise the case-class defaults
     */
-  def open[A](key: String, default: A)(using weaver: Weaver[A]): SettingStore[A] = SettingStore
-    .open(key, default, this)
+  def resolveDefault: A = default.getOrElse {
+    try
+      weaver.fromJson("{}")
+    catch
+      case NonFatal(e) =>
+        throw IllegalArgumentException(
+          s"Cannot build a default value from the case-class defaults: ${e.getMessage}. " +
+            "Set one with withDefault(...)",
+          e
+        )
+  }
+
+  /**
+    * Open the store for `key`, loading its saved value or starting from the default
+    */
+  def open(key: String): SettingStore[A] = SettingStore.open(key, this)
 
 end SettingStoreConfig
 
@@ -139,10 +167,7 @@ end SettingStoreConfig
   * {{{
   *   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
   *
-  *   val settings = SettingStore
-  *     .withAppName("my-app")
-  *     .withVersion(1)
-  *     .open("settings", AppSettings())
+  *   val settings = SettingStore.of[AppSettings].withAppName("my-app").open("settings")
   *   settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
   * }}}
   *
@@ -155,7 +180,7 @@ class SettingStore[A] private (
     val key: String,
     default: A,
     initial: A,
-    config: SettingStoreConfig,
+    config: SettingStoreConfig[A],
     backend: StoreBackend,
     weaver: Weaver[A]
 ) extends RxVar[A](initial)
@@ -220,22 +245,21 @@ object SettingStore extends LogSupport:
   private val validKey = "[A-Za-z0-9_\\-][A-Za-z0-9_.\\-]*".r
 
   /**
-    * Entry point. Configure with `withXXX(...)`, then `open(key, default)`.
+    * Entry point. Configure with `withXXX(...)`, then call `open(key)`.
     */
-  def withAppName(name: String): SettingStoreConfig = SettingStoreConfig(name)
+  def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] = SettingStoreConfig[A]()
 
-  private[config] def open[A](key: String, default: A, config: SettingStoreConfig)(using
-      weaver: Weaver[A]
-  ): SettingStore[A] =
+  private[config] def open[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
     require(validKey.matches(key), s"Invalid setting key: ${key}")
+    val default = config.resolveDefault
     val backend = config.resolveBackend
-    val initial = load(key, default, config, backend, weaver)
-    SettingStore(key, default, initial, config, backend, weaver)
+    val initial = load(key, default, config, backend, config.weaver)
+    SettingStore(key, default, initial, config, backend, config.weaver)
 
   private def load[A](
       key: String,
       default: A,
-      config: SettingStoreConfig,
+      config: SettingStoreConfig[?],
       backend: StoreBackend,
       weaver: Weaver[A]
   ): A =
@@ -271,7 +295,7 @@ object SettingStore extends LogSupport:
 
   end load
 
-  private def encode[A](v: A, config: SettingStoreConfig, weaver: Weaver[A]): String =
+  private def encode[A](v: A, config: SettingStoreConfig[?], weaver: Weaver[A]): String =
     s"""{"version":${config.version},"state":${weaver.toJson(v)}}"""
 
   /**
@@ -279,7 +303,7 @@ object SettingStore extends LogSupport:
     */
   private def decode[A](
       raw: String,
-      config: SettingStoreConfig,
+      config: SettingStoreConfig[?],
       weaver: Weaver[A]
   ): Option[(A, Boolean)] =
     try

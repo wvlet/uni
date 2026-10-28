@@ -33,10 +33,11 @@ Lane: **Standard**. This adds a new public API and picks default on-disk storage
   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 
   val settings = SettingStore
+    .of[AppSettings]
     .withAppName("my-app")
     .withVersion(2)
     .withMigrate { (json, fromVersion) => ... }
-    .open("settings", AppSettings())
+    .open("settings")
   settings.update(_.copy(theme = "dark"))   // persisted
   settings.map(_.theme).subscribe { t => ... } // selector-style subscription
   ```
@@ -46,7 +47,7 @@ Lane: **Standard**. This adds a new public API and picks default on-disk storage
   - `LocalStorageBackend` (browser): uses `window.localStorage` and supports cross-tab sync through `storage` events, the same way `StorageVar` does.
   - `InMemoryStoreBackend` for tests.
   - The platform default is a file under the app config dir on JVM, Native, and Node, and localStorage in a browser (detected with `FileSystem.isBrowser`).
-- **Locations**: `SettingStore.withAppName(app).withLocation(...)` selects one of several `SettingLocation`s:
+- **Locations**: `SettingStore.of[A].withLocation(...)` selects one of several `SettingLocation`s:
   - `SettingLocation.UserConfig` (the default): `~/.config/<app>/` on every OS. When `$XDG_CONFIG_HOME` is set, it uses `$XDG_CONFIG_HOME/<app>/` instead.
   - `SettingLocation.OSConfig`: the platform-native directory (`~/Library/Application Support/<app>` on macOS, `%APPDATA%\<app>` on Windows, and the XDG path on Linux).
   - `SettingLocation.Project(dir)`: `<dir>/.<app>/`, for settings that belong to one project.

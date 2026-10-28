@@ -13,7 +13,7 @@ import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 
-val settings = SettingStore.withAppName("my-app").open("settings", AppSettings())
+val settings = SettingStore.of[AppSettings].withAppName("my-app").open("settings")
 
 settings.get.theme                      // "light" on the first run
 settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
@@ -22,14 +22,18 @@ settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.js
 val cancelable = settings.map(_.fontSize).subscribe { size => println(s"font size: ${size}") }
 ```
 
-Start from `SettingStore.withAppName(...)`, chain `withXXX(...)` options, and finish with
-`open(key, default)`. One configuration can open several keys, each saved to its own file:
+Start from `SettingStore.of[A]`, chain `withXXX(...)` options, and finish with `open(key)`. The
+store starts from the case-class default values. Use `withDefault(...)` for another starting value,
+or for a type with a field that has no default value:
 
 ```scala
-case class RecentFiles(paths: Seq[String] = Seq.empty) derives Weaver
+case class Credentials(user: String, token: String) derives Weaver
 
-val myApp  = SettingStore.withAppName("my-app")
-val recent = myApp.open("recent-files", RecentFiles()) // ~/.config/my-app/recent-files.json
+val credentials = SettingStore
+  .of[Credentials]
+  .withAppName("my-app")
+  .withDefault(Credentials("guest", ""))
+  .open("credentials") // ~/.config/my-app/credentials.json
 ```
 
 ## Where settings are stored
@@ -47,21 +51,24 @@ import wvlet.uni.config.SettingLocation
 
 // ~/Library/Application Support/my-app on macOS, %APPDATA%\my-app on Windows
 val osConfig = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.OSConfig)
-  .open("settings", AppSettings())
+  .open("settings")
 
 // <project>/.my-app/, for settings that belong to one project
 val project = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.Project(IOPath("/work/my-project")))
-  .open("settings", AppSettings())
+  .open("settings")
 
 // Any explicit directory
 val custom = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.Directory(IOPath("/etc/my-app")))
-  .open("settings", AppSettings())
+  .open("settings")
 ```
 
 Each write goes to a temporary file first and then replaces the target file, so a crash during a
@@ -85,6 +92,7 @@ The stored file records a schema version:
 import wvlet.uni.json.JSON.{JSONObject, JSONValue}
 
 val migrating = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withVersion(2)
   .withMigrate { (state: JSONValue, fromVersion: Int) =>
@@ -100,7 +108,7 @@ val migrating = SettingStore
       case other =>
         other
   }
-  .open("settings", AppSettings())
+  .open("settings")
 ```
 
 If the stored data cannot be read, `SettingStore` logs a warning, keeps the data for inspection
@@ -114,9 +122,10 @@ also reloads when another process changes the file, or when another browser tab 
 
 ```scala
 val shared = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withWatchChanges(true)
-  .open("settings", AppSettings())
+  .open("settings")
 // Call shared.stop() to stop watching
 ```
 
@@ -128,9 +137,10 @@ Use `InMemoryStoreBackend` so tests do not touch the real settings directory:
 import wvlet.uni.config.InMemoryStoreBackend
 
 val inMemory = SettingStore
+  .of[AppSettings]
   .withAppName("my-app")
   .withBackend(InMemoryStoreBackend())
-  .open("settings", AppSettings())
+  .open("settings")
 ```
 
 `withBackend` also accepts your own `StoreBackend`, for example one that stores settings in a

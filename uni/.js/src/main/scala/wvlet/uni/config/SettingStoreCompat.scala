@@ -55,7 +55,7 @@ private[config] object SettingStoreCompat extends LogSupport:
     else
       "other"
 
-  def defaultBackend(config: SettingStoreConfig): StoreBackend =
+  def defaultBackend(config: SettingStoreConfig[?]): StoreBackend =
     if NodeModules.isNode then
       NodeFileStoreBackend(config.directory)
     else

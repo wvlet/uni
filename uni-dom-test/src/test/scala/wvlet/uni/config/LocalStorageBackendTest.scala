@@ -23,11 +23,11 @@ class LocalStorageBackendTest extends UniTest:
 
   test("use localStorage by default in a browser"):
     dom.window.localStorage.clear()
-    val settings = SettingStore.withAppName("my-app").open("settings", BrowserSettings())
+    val settings = SettingStore.of[BrowserSettings].withAppName("my-app").open("settings")
     settings.update(_.copy(theme = "dark"))
     dom.window.localStorage.getItem("my-app/settings") shouldBe
       """{"version":0,"state":{"theme":"dark"}}"""
-    SettingStore.withAppName("my-app").open("settings", BrowserSettings()).get shouldBe
+    SettingStore.of[BrowserSettings].withAppName("my-app").open("settings").get shouldBe
       BrowserSettings(theme = "dark")
 
   test("move unreadable data aside"):
