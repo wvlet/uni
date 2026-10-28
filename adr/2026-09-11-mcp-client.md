@@ -72,6 +72,10 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    for both sides. `connect` always disables HTTP retries, even for a caller-supplied
    `HttpClientConfig`, because a retried `tools/call` could run a tool twice. There is no
    `MCPClient.connect`: it was never released, and one way to connect is easier to learn.
+   `withProtocolVersion` only sets the version requested in `initialize`. `MCP-Protocol-Version`
+   is left out of `initialize` and carries the version the server agreed to on later requests, as
+   the spec requires. A requested version the server does not support then falls back instead of
+   being rejected with HTTP 400.
 
 ## Consequences
 
