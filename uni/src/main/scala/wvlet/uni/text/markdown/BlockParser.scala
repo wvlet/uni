@@ -36,7 +36,7 @@ private[markdown] enum BlockKind:
   * A block under construction. The parser keeps the open blocks as a chain of last children from
   * the document root.
   */
-private[markdown] final class BlockNode(val kind: BlockKind, val startLine: Int, val startCol: Int):
+private[markdown] final class BlockNode(val kind: BlockKind, var startLine: Int, var startCol: Int):
   var parent: BlockNode | Null = null
   var depth                    = 0
   val children                 = mutable.ArrayBuffer.empty[BlockNode]
@@ -166,6 +166,35 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
       finalize(tip, lines.length - 1)
     finalize(doc, lines.length - 1)
     doc
+
+  /**
+    * The offset of the first body line (after the frontmatter) in the normalized text
+    */
+  def bodyStart: Int = lineOffsets(firstLine.min(lines.length))
+
+  def textLength: Int = text.length
+
+  def charAt(i: Int): Char = text.charAt(i)
+
+  /**
+    * Map offsets in the normalized text back to the input, whose line breaks may be `\r\n` or `\r`
+    */
+  val rawOffset: Int => Int =
+    if input.indexOf('\r') < 0 then
+      identity
+    else
+      val map = Array.ofDim[Int](text.length + 1)
+      var i   = 0
+      var j   = 0
+      while i < text.length do
+        map(i) = j
+        if input.charAt(j) == '\r' && j + 1 < input.length && input.charAt(j + 1) == '\n' then
+          j += 2
+        else
+          j += 1
+        i += 1
+      map(text.length) = input.length
+      map(_)
 
   def spanOf(b: BlockNode): Span =
     val start = lineOffsets(b.startLine.min(lines.length)) + b.startCol
@@ -432,7 +461,8 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
         0
       else
         closeUnmatchedBlocks()
-        val b = addChild(BlockKind.Code, nextNonspace)
+        // The block starts before the fence's indentation, which also indents its content
+        val b = addChild(BlockKind.Code, offset)
         b.fenced = true
         b.fenceLength = n
         b.fenceChar = c.toChar
@@ -526,9 +556,11 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
 
   private def startIndentedCode(container: BlockNode): Int =
     if indented && tip.kind != BlockKind.Paragraph && !blank then
+      // The block starts before the code indentation, so its source keeps it
+      val start = offset
       advanceOffset(CodeIndent, columns = true)
       closeUnmatchedBlocks()
-      addChild(BlockKind.Code, offset)
+      addChild(BlockKind.Code, start)
       2
     else
       0
@@ -711,9 +743,19 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
         0
     b.kind match
       case BlockKind.Paragraph =>
-        val rest = consumeReferences(b.content.toString)
+        val content = b.content.toString
+        val rest    = consumeReferences(content)
         b.content.clear()
         b.content.append(rest)
+        // Reference definitions are not part of the paragraph; their lines become the trivia
+        // before it, so that the paragraph's source covers only its own text
+        val skipped = content.length - rest.length
+        if skipped > 0 && rest.nonEmpty then
+          val newLines = content.substring(0, skipped).count(_ == '\n')
+          if newLines > 0 then
+            b.startLine += newLines
+            val firstLine = rest.takeWhile(_ != '\n')
+            b.startCol = lines(b.startLine).lastIndexOf(firstLine).max(0)
         if rest.forall(c => c == ' ' || c == '\t' || c == '\n') then
           b.parent.nn.remove(b)
       case BlockKind.Code =>

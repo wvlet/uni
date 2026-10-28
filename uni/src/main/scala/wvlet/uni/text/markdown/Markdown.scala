@@ -13,6 +13,10 @@
  */
 package wvlet.uni.text.markdown
 
+import wvlet.uni.text.Span
+
+import scala.collection.mutable
+
 /**
   * Markdown parsing and HTML rendering options
   *
@@ -53,7 +57,7 @@ object Markdown:
   def parse(markdown: String, config: MarkdownConfig = MarkdownConfig()): MarkdownDocument =
     val parser = BlockParser(markdown, config.gfm, config.frontmatter)
     val root   = parser.parse()
-    MarkdownDocument(Converter(parser, config.gfm).blocks(root), parser.header)
+    Converter(parser, markdown, config.gfm).document(root)
 
   def toHtml(markdown: String, config: MarkdownConfig = MarkdownConfig()): String = parse(
     markdown,
@@ -62,46 +66,166 @@ object Markdown:
 
   /**
     * Converts the parsed block tree into [[Block]]s, parsing inline content once all link reference
-    * definitions are known
+    * definitions are known, and attaches each node's [[Source]]
     */
-  private class Converter(parser: BlockParser, gfm: Boolean):
+  private class Converter(parser: BlockParser, input: String, gfm: Boolean):
+
+    // The normalized-text extent of each node, widened to cover its children
+    private val extents = mutable.HashMap.empty[BlockNode, (Int, Int)]
+
+    private def extent(b: BlockNode): (Int, Int) = extents.getOrElseUpdate(
+      b, {
+        val span  = parser.spanOf(b)
+        var start = span.start
+        var end   = span.end
+        b.children
+          .foreach { c =>
+            val (cs, ce) = extent(c)
+            start = start.min(cs)
+            end = end.max(ce)
+          }
+        // A line break after the node belongs to the trivia that follows
+        while end > start && parser.charAt(end - 1) == '\n' do
+          end -= 1
+        (start, end)
+      }
+    )
+
+    private def raw(start: Int, end: Int): String = input.substring(
+      parser.rawOffset(start),
+      parser.rawOffset(end)
+    )
+
+    private def source(start: Int, end: Int, leading: String, parsed: Product): Source = source(
+      start,
+      end,
+      leading,
+      "",
+      "",
+      parsed
+    )
+
+    private def source(
+        start: Int,
+        end: Int,
+        leading: String,
+        opening: String,
+        trailing: String,
+        parsed: Product
+    ): Source = Source(
+      raw(start, end),
+      leading,
+      opening,
+      trailing,
+      Span.within(parser.rawOffset(start), parser.rawOffset(end)),
+      parsed
+    )
+
+    def document(root: BlockNode): MarkdownDocument =
+      val c      = children(root.children.toSeq, 0, parser.textLength)(block)
+      val blocks = c.nodes
+      MarkdownDocument(
+        blocks,
+        parser.header,
+        source(0, parser.textLength, "", c.opening, c.trailing, Tuple1(blocks))
+      )
+
+    private case class Children[A](nodes: Seq[A], opening: String, trailing: String)
+
+    /**
+      * Convert the children of a node spanning [from, to). Each child gets the text since the
+      * previous sibling as its leading trivia; the text before the first child and after the last
+      * one go to the parent.
+      */
+    private def children[A](nodes: Seq[BlockNode], from: Int, to: Int)(
+        convert: (BlockNode, Int, Int, String) => A
+    ): Children[A] =
+      var prev    = from
+      var opening = ""
+      val out     = Seq.newBuilder[A]
+      nodes
+        .zipWithIndex
+        .foreach { (n, i) =>
+          val (s, e) = extent(n)
+          val start  = s.max(prev).min(to)
+          val end    = e.max(start).min(to)
+          if i == 0 then
+            opening = raw(from, start)
+          out +=
+            convert(
+              n,
+              start,
+              end,
+              if i == 0 then
+                ""
+              else
+                raw(prev, start)
+            )
+          prev = end
+        }
+      if nodes.isEmpty then
+        Children(Nil, raw(from, to), "")
+      else
+        Children(out.result(), opening, raw(prev, to))
+
+    end children
 
     private def inlines(s: String): Seq[Inline] = InlineParser(s.trim, parser.refMap, gfm).parse()
 
-    def blocks(parent: BlockNode): Seq[Block] = parent.children.toSeq.map(block)
+    private def block(b: BlockNode, start: Int, end: Int, leading: String): Block =
+      def leaf(parsed: Product): Source = source(start, end, leading, parsed)
+      def container[A](nodes: Seq[BlockNode])(
+          convert: (BlockNode, Int, Int, String) => A
+      ): (Seq[A], Product => Source) =
+        val c = children(nodes, start, end)(convert)
+        (c.nodes, parsed => source(start, end, leading, c.opening, c.trailing, parsed))
 
-    private def block(b: BlockNode): Block =
-      val span = parser.spanOf(b)
       b.kind match
         case BlockKind.Paragraph =>
-          Block.Paragraph(inlines(b.content.toString), span)
+          val in = inlines(b.content.toString)
+          Block.Paragraph(in, leaf(Tuple1(in)))
         case BlockKind.Heading =>
-          Block.Heading(b.level, inlines(b.content.toString), span)
+          val in = inlines(b.content.toString)
+          Block.Heading(b.level, in, leaf((b.level, in)))
         case BlockKind.BlockQuote =>
-          Block.BlockQuote(blocks(b), span)
+          val (blocks, src) = container(b.children.toSeq)(block)
+          Block.BlockQuote(blocks, src(Tuple1(blocks)))
         case BlockKind.ListKind =>
-          val data = b.listData.nn
-          Block.ListBlock(data.ordered, data.start, data.tight, b.children.toSeq.map(item), span)
+          val data         = b.listData.nn
+          val (items, src) = container(b.children.toSeq)(item)
+          Block.ListBlock(
+            data.ordered,
+            data.start,
+            data.tight,
+            items,
+            src((data.ordered, data.start, data.tight, items))
+          )
         case BlockKind.Code =>
-          Block.CodeBlock(b.info, b.literal, b.fenced, span)
+          Block.CodeBlock(b.info, b.literal, b.fenced, leaf((b.info, b.literal, b.fenced)))
         case BlockKind.Html =>
-          Block.HtmlBlock(b.literal, span)
+          Block.HtmlBlock(b.literal, leaf(Tuple1(b.literal)))
         case BlockKind.TableKind =>
           val columns                              = b.tableAlignments.size
           def cells(row: String): Seq[Seq[Inline]] =
             val raw = BlockParser.splitTableRow(row).take(columns)
             (raw ++ Seq.fill(columns - raw.size)("")).map(inlines)
-          Block.Table(cells(b.tableHeader), b.tableAlignments, b.tableRows.toSeq.map(cells), span)
+          val header = cells(b.tableHeader)
+          val rows   = b.tableRows.toSeq.map(cells)
+          Block.Table(header, b.tableAlignments, rows, leaf((header, b.tableAlignments, rows)))
         case _ =>
-          Block.ThematicBreak(span)
+          Block.ThematicBreak(leaf(Tuple1(())))
+      end match
 
-    private def item(b: BlockNode): ListItem =
+    end block
+
+    private def item(b: BlockNode, start: Int, end: Int, leading: String): ListItem =
       val task =
         if gfm then
           b.children.headOption.filter(_.kind == BlockKind.Paragraph).flatMap(taskMarker)
         else
           None
-      ListItem(blocks(b), task, parser.spanOf(b))
+      val c = children(b.children.toSeq, start, end)(block)
+      ListItem(c.nodes, task, source(start, end, leading, c.opening, c.trailing, (c.nodes, task)))
 
     /**
       * Detect a task-list marker (`[ ]`, `[x]`) at the start of the item's first paragraph, and

@@ -19,13 +19,20 @@ import wvlet.uni.text.yaml.Frontmatter
 import wvlet.uni.weaver.Weaver
 
 /**
-  * A parsed Markdown document
+  * A parsed Markdown document. `toMarkdown` writes it back: unchanged nodes print their original
+  * text byte for byte, including blank lines, whitespace, and line breaks, and changed or new nodes
+  * print in a canonical style that keeps their original markers.
   *
   * @param frontmatter
   *   the leading YAML header, if any (see [[MarkdownConfig.frontmatter]]). It is not rendered.
   */
-case class MarkdownDocument(blocks: Seq[Block], frontmatter: Option[JSONValue] = None):
+case class MarkdownDocument(
+    blocks: Seq[Block],
+    frontmatter: Option[JSONValue] = None,
+    source: Source = Source.none
+):
   def toHtml(config: MarkdownConfig = MarkdownConfig()): String = HtmlRenderer(config).render(this)
+  def toMarkdown: String                                        = MarkdownWriter.write(this)
 
   /**
     * Decode the frontmatter into `A`. A missing or empty header decodes as an empty mapping, so
@@ -34,30 +41,77 @@ case class MarkdownDocument(blocks: Seq[Block], frontmatter: Option[JSONValue] =
   def frontmatterAs[A](using Weaver[A]): A = Frontmatter(frontmatter, "").as[A]
 
 /**
-  * Block-level nodes. `span` covers the source lines of the block, as offsets in the input with
-  * normalized line breaks.
+  * The source text a node was parsed from, attached so that [[MarkdownDocument.toMarkdown]] can
+  * write unchanged nodes back exactly. Like positions in a compiler, it does not take part in
+  * equality: two nodes with the same content are equal however they were written.
+  *
+  * @param raw
+  *   the exact text of the node, including container prefixes (`> `) on its later lines
+  * @param leading
+  *   the text between the previous sibling and this node: blank lines, line breaks, and the
+  *   container prefixes of those lines
+  * @param opening
+  *   for a container, the text before its first child: the `>` or list marker, or the frontmatter
+  *   and leading blank lines of a document
+  * @param trailing
+  *   for a container, the text after its last child
+  * @param span
+  *   the offsets of `raw` in the input
+  */
+final class Source private[markdown] (
+    val raw: String,
+    val leading: String,
+    val opening: String,
+    val trailing: String,
+    val span: Span,
+    private[markdown] val parsed: Product | Null
+):
+  def isEmpty: Boolean = parsed == null
+
+  override def equals(other: Any): Boolean = other.isInstanceOf[Source]
+  override def hashCode: Int               = 0
+  override def toString: String            =
+    if isEmpty then
+      "Source.none"
+    else
+      s"Source(${span})"
+
+object Source:
+  /**
+    * The source of a node built in code; `toMarkdown` writes it in the canonical style
+    */
+  val none: Source = Source("", "", "", "", Span.NoSpan, null)
+
+/**
+  * Block-level nodes. `span` covers the source text of the block, as offsets in the input.
   */
 enum Block:
-  def span: Span
+  def source: Source
+  def span: Span = source.span
 
-  case Heading(level: Int, inlines: Seq[Inline], span: Span)
-  case Paragraph(inlines: Seq[Inline], span: Span)
-  case BlockQuote(blocks: Seq[Block], span: Span)
+  case Heading(level: Int, inlines: Seq[Inline], source: Source = Source.none)
+  case Paragraph(inlines: Seq[Inline], source: Source = Source.none)
+  case BlockQuote(blocks: Seq[Block], source: Source = Source.none)
 
   /**
     * A bullet (`ordered = false`) or ordered list. In a tight list, item paragraphs render without
     * `<p>` tags.
     */
-  case ListBlock(ordered: Boolean, start: Int, tight: Boolean, items: Seq[ListItem], span: Span)
+  case ListBlock(
+      ordered: Boolean,
+      start: Int,
+      tight: Boolean,
+      items: Seq[ListItem],
+      source: Source = Source.none
+  )
 
   /**
     * A fenced or indented code block. `info` is the text after the opening fence (empty for
     * indented code); its first word is the language.
     */
-  case CodeBlock(info: String, code: String, fenced: Boolean, span: Span)
-
-  case HtmlBlock(html: String, span: Span)
-  case ThematicBreak(span: Span)
+  case CodeBlock(info: String, code: String, fenced: Boolean, source: Source = Source.none)
+  case HtmlBlock(html: String, source: Source = Source.none)
+  case ThematicBreak(source: Source = Source.none)
 
   /**
     * A GitHub Flavored Markdown table
@@ -66,7 +120,7 @@ enum Block:
       header: Seq[Seq[Inline]],
       alignments: Seq[TableAlignment],
       rows: Seq[Seq[Seq[Inline]]],
-      span: Span
+      source: Source = Source.none
   )
 
 end Block
@@ -74,7 +128,8 @@ end Block
 /**
   * A list item. `checked` is defined for a GitHub Flavored Markdown task-list item (`- [x] done`).
   */
-case class ListItem(blocks: Seq[Block], checked: Option[Boolean], span: Span)
+case class ListItem(blocks: Seq[Block], checked: Option[Boolean], source: Source = Source.none):
+  def span: Span = source.span
 
 enum TableAlignment:
   case Default,
