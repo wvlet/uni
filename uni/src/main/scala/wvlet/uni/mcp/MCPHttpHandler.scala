@@ -55,7 +55,8 @@ private[mcp] class MCPHttpHandler(server: MCPServer) extends RxHttpHandler:
 end MCPHttpHandler
 
 private[mcp] object MCPHttpHandler:
-  private val ProtocolVersionHeader = "MCP-Protocol-Version"
+  /** The header carrying the MCP protocol version, shared with [[MCPClient]]. */
+  private[mcp] val ProtocolVersionHeader = "MCP-Protocol-Version"
 
   // Origins that are always allowed: local browsers talking to a local server
   private val LocalHosts = Set("localhost", "127.0.0.1", "[::1]")
