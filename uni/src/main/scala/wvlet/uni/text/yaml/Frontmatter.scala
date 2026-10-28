@@ -27,12 +27,19 @@ import wvlet.uni.weaver.Weaver
   *   # Body
   * }}}
   *
+  * Change the header with [[update]] (or `copy`) and write the text back with [[toText]]. Only the
+  * changed parts of the header are rewritten; its comments and formatting stay.
+  *
   * @param data
   *   the parsed header, or None when the text has no frontmatter
   * @param body
   *   the text after the closing `---` line (the whole text when there is no frontmatter)
   */
-case class Frontmatter(data: Option[JSONValue], body: String):
+case class Frontmatter(
+    data: Option[JSONValue],
+    body: String,
+    source: FrontmatterSource = FrontmatterSource.none
+):
 
   /**
     * Decode the header into `A`. A missing or empty header decodes as an empty mapping, so fields
@@ -47,6 +54,89 @@ case class Frontmatter(data: Option[JSONValue], body: String):
           d
     weaver.fromJSONValue(v)
 
+  def update(data: JSONValue): Frontmatter = copy(data = Some(data))
+
+  /**
+    * Write the header and the body back. An unchanged header prints as it was read.
+    */
+  def toText: String = headerText + body
+
+  /**
+    * The header with its `---` lines, or an empty string without one
+    */
+  private[text] def headerText: String = source.headerText(data)
+
+end Frontmatter
+
+/**
+  * The header text a [[Frontmatter]] was read from. It does not take part in equality.
+  */
+final class FrontmatterSource private[yaml] (
+    private[yaml] val header: YAMLDocument | Null,
+    private[yaml] val closing: String,
+    private[text] val parsed: Option[JSONValue]
+):
+  override def equals(other: Any): Boolean = other.isInstanceOf[FrontmatterSource]
+  override def hashCode: Int               = 0
+  override def toString: String            = "FrontmatterSource"
+
+  /**
+    * The length of the header text as read
+    */
+  private[text] def length: Int =
+    if header == null then
+      0
+    else
+      header.source.raw.length + closing.length
+
+  private[text] def headerText(data: Option[JSONValue], lb: String = "\n"): String =
+    (header, data) match
+      case (null, None) =>
+        ""
+      case (null, Some(d)) =>
+        FrontmatterSource.newHeader(d, lb)
+      case (h: YAMLDocument, Some(d)) =>
+        val yaml =
+          if parsed.contains(d) then
+            h.source.raw
+          else
+            val lb =
+              if h.source.raw.contains("\r\n") then
+                "\r\n"
+              else
+                "\n"
+            val text = h.update(d).toYaml
+            if text.endsWith("\n") then
+              text
+            else
+              text + lb
+        yaml + closing
+      case (_, None) =>
+        ""
+
+end FrontmatterSource
+
+object FrontmatterSource:
+  val none: FrontmatterSource = FrontmatterSource(null, "", None)
+
+  /**
+    * Read the header text, which starts with the opening `---` line, and keep the closing line
+    */
+  private[text] def of(header: String, closing: String): FrontmatterSource =
+    val (doc, data) = YAML.parseDocumentWithValue(header)
+    FrontmatterSource(doc, closing, Some(data))
+
+  private[text] def newHeader(data: JSONValue, lb: String): String =
+    val yaml =
+      data match
+        case JSONObject(entries) if entries.isEmpty =>
+          ""
+        case JSONNull() =>
+          ""
+        case d =>
+          YAMLDocument(YAMLNode.fromJSON(d)).toYaml.replace("\n", lb) + lb
+    s"---${lb}${yaml}---${lb}"
+
 object Frontmatter:
 
   /**
@@ -60,7 +150,11 @@ object Frontmatter:
         Frontmatter(None, text)
       case Some((closeStart, bodyStart)) =>
         // Keep the opening "---" (a YAML document start) so that error lines match the text
-        Frontmatter(Some(YAML.parse(text.substring(0, closeStart))), text.substring(bodyStart))
+        val source = FrontmatterSource.of(
+          text.substring(0, closeStart),
+          text.substring(closeStart, bodyStart)
+        )
+        Frontmatter(source.parsed, text.substring(bodyStart), source)
 
   /**
     * Find the frontmatter without parsing it: the start offsets of the closing marker line and of

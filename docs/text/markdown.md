@@ -106,7 +106,7 @@ When you change a node, it's written in a canonical style that keeps the markers
 
 `MarkdownRoundTripTest` checks this on every CommonMark and GFM spec example, with `\n`, `\r\n`, and `\r` line breaks and with no final line break. Without edits the output matches the input exactly. When every node is rewritten, the output renders to the same HTML. The exceptions are three examples where one tab is shared between a container prefix and an indented code block.
 
-The frontmatter header is written back as it was; changes to `frontmatter` are not written yet. That comes with the lossless YAML writer.
+Changes to `frontmatter` are written back too. Only the changed parts of the header are rewritten, so its comments stay (see [Frontmatter](./yaml#frontmatter)); `frontmatter = None` removes the header, and a document without one gets a new `---` header.
 
 ## Frontmatter
 

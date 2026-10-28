@@ -26,14 +26,25 @@ private[markdown] object MarkdownWriter:
 
   def write(doc: MarkdownDocument): String =
     val src = doc.source
-    if Source.same(src.parsed, Tuple1(doc.blocks)) then
+    if Source.same(src.parsed, (doc.blocks, doc.frontmatter)) then
       src.raw
     else
-      val w = Writer(src.definitions, lineBreak(src.raw))
+      val lb     = lineBreak(src.raw)
+      val w      = Writer(src.definitions, lb)
+      val fm     = src.frontmatter
+      val header = fm.headerText(doc.frontmatter, lb)
       if src.isEmpty then
-        w.blocks(doc.blocks, "", "\n", "")
+        w.blocks(doc.blocks, header, "\n", "")
       else
-        w.blocks(doc.blocks, src.opening, src.trailing, "", originalBlocks(src))
+        // Replace the header at the start of the opening text. Without a header, the blank lines
+        // that followed it go too.
+        val rest    = src.opening.substring(fm.length)
+        val opening =
+          if header.isEmpty && fm.length > 0 then
+            rest.dropWhile(c => c == '\n' || c == '\r')
+          else
+            header + rest
+        w.blocks(doc.blocks, opening, src.trailing, "", originalBlocks(src))
       w.result()
 
   private def unchanged(b: Block): Boolean       = Source.same(b.source.parsed, Source.content(b))

@@ -14,6 +14,7 @@
 package wvlet.uni.text.markdown
 
 import wvlet.uni.text.Span
+import wvlet.uni.text.yaml.FrontmatterSource
 
 import scala.collection.mutable
 
@@ -122,19 +123,21 @@ object Markdown:
     )
 
     def document(root: BlockNode): MarkdownDocument =
-      val c      = children(root.children.toSeq, 0, parser.textLength)(block)
-      val blocks = c.nodes
+      val c           = children(root.children.toSeq, 0, parser.textLength)(block)
+      val blocks      = c.nodes
+      val frontmatter = parser.header.flatMap(_.data)
       MarkdownDocument(
         blocks,
-        parser.header,
+        frontmatter,
         Source(
           raw(0, parser.textLength),
           "",
           c.opening,
           c.trailing,
           Span.within(0, input.length),
-          Tuple1(blocks),
-          parser.refMap.toMap
+          (blocks, frontmatter),
+          parser.refMap.toMap,
+          parser.header.map(_.source).getOrElse(FrontmatterSource.none)
         )
       )
 

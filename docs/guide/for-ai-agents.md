@@ -90,8 +90,8 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Logging | `wvlet.uni.log.LogSupport` | `class A extends LogSupport` then `info(...)`, `debug(...)` |
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
-| YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`. See [YAML](../text/yaml) |
-| Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)` for the AST, `.frontmatterAs[P]` for a YAML header, and `.toMarkdown` to write an edited AST back losslessly. See [Markdown](../text/markdown) |
+| YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`. To edit in place and keep comments: `YAML.parseDocument(text).set(path, v).toYaml`, `Frontmatter.parse(md).update(json).toText`. See [YAML](../text/yaml) |
+| Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)` for the AST, `.frontmatterAs[P]` for a YAML header, and `.toMarkdown` to write an edited AST (including `frontmatter`) back losslessly. See [Markdown](../text/markdown) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [SettingStore](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |

@@ -1,5 +1,6 @@
 package wvlet.uni.text.markdown
 
+import wvlet.uni.json.JSON
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
@@ -224,6 +225,17 @@ class MarkdownTest extends UniTest:
     doc
       .copy(blocks = doc.blocks.updated(1, Block.Paragraph(Seq(Inline.Text("new")))))
       .toMarkdown shouldBe "---\r\ntitle: A\r\n---\r\n\r\n# A\r\n\r\nnew\r\n"
+  }
+
+  test("write frontmatter changes back, keeping the header's comments") {
+    val doc = Markdown.parse("---\r\ntitle: Hello  # t\r\n---\r\n\r\n# Head\r\n")
+    doc.copy(frontmatter = Some(JSON.parse("""{"title":"Bye"}"""))).toMarkdown shouldBe
+      "---\r\ntitle: Bye  # t\r\n---\r\n\r\n# Head\r\n"
+    doc.copy(frontmatter = None).toMarkdown shouldBe "# Head\r\n"
+    Markdown
+      .parse("# Head\n")
+      .copy(frontmatter = Some(JSON.parse("""{"title":"New"}""")))
+      .toMarkdown shouldBe "---\ntitle: New\n---\n# Head\n"
   }
 
   test("write a document built in code") {

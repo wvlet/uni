@@ -16,7 +16,7 @@ package wvlet.uni.text.markdown
 import wvlet.uni.text.Span
 import wvlet.uni.json.JSON.*
 import wvlet.uni.text.parser.LineReader
-import wvlet.uni.text.yaml.{Frontmatter, YAML}
+import wvlet.uni.text.yaml.{Frontmatter, FrontmatterSource}
 
 import scala.collection.mutable
 
@@ -114,9 +114,10 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
 
   /**
     * The YAML header and the first body line. A header counts only when it parses as a mapping (or
-    * is empty); otherwise the `---` lines stay Markdown, so parsing never fails.
+    * is empty); otherwise the `---` lines stay Markdown, so parsing never fails. The header is read
+    * from the input, with its original line breaks, so that it can be written back.
     */
-  val (header: Option[JSONValue], firstLine: Int) =
+  val (header: Option[Frontmatter], firstLine: Int) =
     val found =
       if frontmatter then
         Frontmatter.split(text)
@@ -124,19 +125,24 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
         None
     found
       .flatMap { (closeStart, bodyStart) =>
-        val yaml =
+        val fm =
           try
-            Some(YAML.parse(text.substring(0, closeStart)))
+            val src = FrontmatterSource.of(
+              input.substring(0, rawOffset(closeStart)),
+              input.substring(rawOffset(closeStart), rawOffset(bodyStart))
+            )
+            Some(Frontmatter(src.parsed, "", src))
           catch
             case _: Exception =>
               None
-        yaml.collect { case v @ (_: JSONObject | _: JSONNull) =>
-          val line =
-            if bodyStart >= text.length then
-              lines.length
-            else
-              text.substring(0, bodyStart).count(_ == '\n')
-          (Some(v), line)
+        fm.collect {
+          case f if f.data.exists(v => v.isInstanceOf[JSONObject] || v.isInstanceOf[JSONNull]) =>
+            val line =
+              if bodyStart >= text.length then
+                lines.length
+              else
+                text.substring(0, bodyStart).count(_ == '\n')
+            (Some(f), line)
         }
       }
       .getOrElse((None, 0))
@@ -174,7 +180,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
   /**
     * Map offsets in the normalized text back to the input, whose line breaks may be `\r\n` or `\r`
     */
-  val rawOffset: Int => Int =
+  lazy val rawOffset: Int => Int =
     if input.indexOf('\r') < 0 then
       identity
     else

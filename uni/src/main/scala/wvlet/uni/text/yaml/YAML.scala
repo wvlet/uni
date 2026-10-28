@@ -19,7 +19,7 @@ import wvlet.uni.weaver.Weaver
 
 /**
   * Read YAML 1.2 (core schema) into [[JSONValue]]s, and decode them into Scala types with
-  * [[Weaver]].
+  * [[Weaver]]. [[parseDocument]] keeps comments and formatting for editing YAML in place.
   *
   * {{{
   *   case class Config(name: String, port: Int = 8080) derives Weaver
@@ -55,7 +55,25 @@ object YAML:
     * Parse every document of a multi-document (`---`-separated) YAML stream
     */
   def parseAll(yaml: String, maxAliasNodes: Long = defaultMaxAliasNodes): Seq[JSONValue] =
-    YAMLParser(yaml, maxAliasNodes).parseStream()
+    val parser   = YAMLParser(yaml)
+    val roots    = parser.parseStream()
+    val resolver = YAMLResolver(parser.text, maxAliasNodes)
+    roots.map(resolver.document)
+
+  /**
+    * Parse a single YAML document into a [[YAMLDocument]] that keeps comments and formatting, so it
+    * can be edited and written back with [[YAMLDocument.toYaml]]. The document is checked as
+    * [[parse]] does.
+    */
+  def parseDocument(yaml: String): YAMLDocument = parseDocumentWithValue(yaml)._1
+
+  /**
+    * Parse a document and resolve its value in one pass
+    */
+  private[text] def parseDocumentWithValue(yaml: String): (YAMLDocument, JSONValue) =
+    val parser = YAMLParser(yaml)
+    val doc    = parser.parseDocument()
+    (doc, YAMLResolver(parser.text, defaultMaxAliasNodes).document(doc.root))
 
   /**
     * Parse a single YAML document and decode it into `A`

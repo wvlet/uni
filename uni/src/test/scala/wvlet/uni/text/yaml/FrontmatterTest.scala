@@ -1,5 +1,6 @@
 package wvlet.uni.text.yaml
 
+import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.test.UniTest
 import wvlet.uni.text.parser.TextParseException
@@ -46,6 +47,34 @@ class FrontmatterTest extends UniTest:
     Frontmatter.parse("---\nname: x\n...\nbody").body shouldBe "body"
     Frontmatter.parse("\uFEFF---\r\nname: x\r\n---\r\nbody").as[SkillHeader] shouldBe
       SkillHeader("x")
+  }
+
+  test("write an updated header back, keeping its comments") {
+    val text = "---\n# header\nname: x  # the name\n---\nbody\n"
+    val f    = Frontmatter.parse(text)
+    f.toText shouldBe text
+    f.update(JSON.parse("""{"name":"y","tags":["a"]}""")).toText shouldBe
+      "---\n# header\nname: y  # the name\ntags:\n  - a\n---\nbody\n"
+    f.copy(data = None).toText shouldBe "body\n"
+    Frontmatter.parse("---\n---\nbody").update(JSON.parse("""{"a":1}""")).toText shouldBe
+      "---\na: 1\n---\nbody"
+  }
+
+  test("edit the example in the docs") {
+    val text =
+      "---\n# Owned by the docs team\nname: review  # the skill name\n---\n# Instructions\n"
+    Frontmatter
+      .parse(text)
+      .update(JSON.parse("""{"name":"review-pr","tags":["git"]}"""))
+      .toText shouldBe
+      "---\n# Owned by the docs team\nname: review-pr  # the skill name\ntags:\n  - git\n---\n# Instructions\n"
+  }
+
+  test("add a header to a text without one") {
+    Frontmatter.parse("body\n").update(JSON.parse("""{"name":"y"}""")).toText shouldBe
+      "---\nname: y\n---\nbody\n"
+    Frontmatter(Some(JSON.parse("""{"name":"y"}""")), "body").toText shouldBe
+      "---\nname: y\n---\nbody"
   }
 
 end FrontmatterTest

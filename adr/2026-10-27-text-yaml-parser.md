@@ -12,7 +12,7 @@ Line- and indentation-oriented formats use `LineReader`, a character cursor with
 
 `LineReader` normalizes `\r\n` and `\r` to `\n` up front, so parsers check only `\n`. Offsets refer to the normalized text, while line and column numbers stay correct.
 
-YAML parses into `JSON.JSONValue` instead of a YAML-specific tree, so `Weaver.fromJSONValue` decodes it into case classes and existing JSON tooling works on it. The parser is a single recursive-descent pass with no event stage: nothing needs YAML events, and the extra layer roughly doubled the code. Each block collection tracks its own column, and a nested node must start at a deeper column than its parent (`parentIndent`, `-1` at the top level). A sequence may sit at its key's column (`compactSequence`).
+YAML parses into `JSON.JSONValue` instead of a YAML-specific tree (superseded: it now builds a lossless `YAMLNode` tree and resolves it, see `2026-10-28-yaml-lossless-tree.md`), so `Weaver.fromJSONValue` decodes it into case classes and existing JSON tooling works on it. The parser is a single recursive-descent pass with no event stage: nothing needs YAML events, and the extra layer roughly doubled the code. Each block collection tracks its own column, and a nested node must start at a deeper column than its parent (`parentIndent`, `-1` at the top level). A sequence may sit at its key's column (`compactSequence`).
 
 Plain scalars resolve with the YAML 1.2 core schema, so YAML 1.1 values such as `yes`/`on` stay strings, matching the npm `yaml` package that Treasure Work uses. Mapping keys keep their source text (`1: a` has the key `"1"`). Duplicate keys are an error. Tabs in indentation are an error.
 

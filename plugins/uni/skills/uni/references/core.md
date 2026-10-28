@@ -50,7 +50,10 @@ val tree         = JSON.parse(json) // untyped JSONValue
 ## YAML and frontmatter
 
 `YAML` parses YAML 1.2 into the same `JSONValue` tree, so any `derives Weaver` type decodes
-from YAML too. Missing fields take their defaults.
+from YAML too. Missing fields take their defaults. To edit a YAML file in place, use
+`YAML.parseDocument`: `set`/`remove` by path (`String` keys, `Int` indexes) and `toYaml` keep
+comments, quoting, and layout, rewriting only changed values. `Frontmatter` edits the same way
+with `update(json).toText`.
 
 ```scala
 import wvlet.uni.text.yaml.{Frontmatter, YAML}
@@ -63,6 +66,14 @@ case class SkillHeader(name: String, description: String = "") derives Weaver
 val md     = "---\nname: review\n---\n# Body\n"
 val header = Frontmatter.parse(md).as[SkillHeader] // SkillHeader(review, "")
 val mdBody = Frontmatter.parse(md).body            // "# Body\n"
+
+val edited = YAML
+  .parseDocument("# Server\nport: 8080  # default\nold: x\n")
+  .set(Seq("port"), 9090)
+  .remove(Seq("old"))
+  .toYaml // "# Server\nport: 9090  # default\n"
+val newMd = Frontmatter.parse(md).update(JSON.parse("""{"name":"review-pr"}""")).toText
+// "---\nname: review-pr\n---\n# Body\n"
 ```
 
 ## Markdown
@@ -73,7 +84,7 @@ you pass `MarkdownConfig().withRawHtml(true)` for trusted input. A leading `---`
 read in the same pass into `frontmatter` and not rendered (`withFrontmatter(false)` for strict
 CommonMark). `doc.toMarkdown` writes the document back: unchanged nodes print their source
 byte for byte (whitespace, `\r\n`, frontmatter), and nodes changed with `copy` are rewritten in
-their original style.
+their original style. A changed `frontmatter` is written back too, keeping the header's comments.
 
 ```scala
 import wvlet.uni.text.markdown.{Block, Inline, Markdown, MarkdownConfig}
