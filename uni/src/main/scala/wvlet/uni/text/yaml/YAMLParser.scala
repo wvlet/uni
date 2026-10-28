@@ -14,32 +14,81 @@
 package wvlet.uni.text.yaml
 
 import wvlet.uni.json.JSON.*
+import wvlet.uni.text.Span
 import wvlet.uni.text.parser.LineReader
 import wvlet.uni.text.parser.Tokens
 
 import scala.collection.mutable
 
 /**
-  * A recursive-descent YAML 1.2 parser that builds [[JSONValue]]s directly.
+  * A recursive-descent YAML 1.2 parser that builds [[YAMLNode]] trees with their source text.
+  * [[YAMLResolver]] turns a tree into [[JSONValue]]s.
   *
   * Block structure is tracked by columns: each block collection knows its own column, and a nested
   * node must start at a deeper column than its parent (`parentIndent`). The top-level node has
   * `parentIndent = -1`.
+  *
+  * Nodes are first built as [[YAMLParser.PNode]]s holding offsets in the normalized text. Once a
+  * document is complete, [[build]] slices the source text of each node and the trivia between them.
   */
-private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
+private[yaml] class YAMLParser(input: String):
   import YAMLParser.*
+  import PNode.*
 
   // Drop a byte order mark so that a leading `---` stays at column 0
-  private val r    = LineReader(input.stripPrefix("\uFEFF"))
-  private val text = r.text
+  private val bom =
+    if input.startsWith("﻿") then
+      1
+    else
+      0
 
-  // anchor name -> (value, the number of nodes the value expands to)
-  private val anchors        = mutable.Map.empty[String, (JSONValue, Long)]
-  private var nodeCount      = 0L
-  private var aliasNodeCount = 0L
+  private val r    = LineReader(input.substring(bom))
+  val text: String = r.text
 
-  def parseStream(): Seq[JSONValue] =
-    val docs     = Seq.newBuilder[JSONValue]
+  // The end offset of the last plain scalar scanned
+  private var plainEnd = 0
+  // The end offset of the last properties (anchor and tag) read
+  private var propsEnd = 0
+
+  /**
+    * Parse every document of the stream. Each node gets its source text, but not the trivia around
+    * the root.
+    */
+  def parseStream(): Seq[YAMLNode] = parseRoots().map(build(_, -1))
+
+  /**
+    * Parse a stream with at most one document, keeping all of its text
+    */
+  def parseDocument(): YAMLDocument =
+    parseRoots() match
+      case Seq() =>
+        val root = PScalar("", ScalarStyle.Plain, None, None, text.length, text.length)
+        document(root)
+      case Seq(root) =>
+        document(root)
+      case docs =>
+        throw IllegalArgumentException(
+          s"Expected a single YAML document, but found ${docs.size}. Use YAML.parseAll instead"
+        )
+
+  private def document(root: PNode): YAMLDocument =
+    val node = build(root, root.start)
+    YAMLDocument(
+      node,
+      YAMLSource(
+        input,
+        input.substring(0, rawOffset(root.start)),
+        input.substring(rawOffset(root.cend)),
+        "",
+        -1,
+        Span.within(0, input.length),
+        Tuple1(node),
+        0
+      )
+    )
+
+  private def parseRoots(): Seq[PNode] =
+    val docs     = Seq.newBuilder[PNode]
     var continue = true
     while continue do
       skipToContent()
@@ -54,13 +103,12 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       else
         if atDocumentMarker("---") then
           r.advance(3)
-        anchors.clear()
         skipToContent()
         val doc =
           if r.isEOF || atAnyDocumentMarker then
-            JSONNull()
+            PScalar("", ScalarStyle.Plain, None, None, r.offset, r.offset)
           else
-            parseBlockNode(-1, allowCollection = true)
+            withComment(parseBlockNode(-1, allowCollection = true))
         docs += doc
         skipToContent()
         if atDocumentMarker("...") then
@@ -69,7 +117,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           r.error("Unexpected content after the end of a node")
     docs.result()
 
-  end parseStream
+  end parseRoots
 
   // ---- Block nodes ----
 
@@ -86,22 +134,21 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       parentIndent: Int,
       allowCollection: Boolean,
       compactSequence: Boolean = false
-  ): JSONValue =
+  ): PNode =
     val nodeColumn    = r.column
+    val start         = r.offset
     val (anchor, tag) = parseProperties()
     if (anchor.isDefined || tag.isDefined) && atLineEndOrComment then
       // Properties on their own line apply to the node below
-      val start = nodeCount
+      val end = propsEnd
       skipToContent()
-      val value =
-        if isNodeStart(parentIndent, compactSequence) then
-          parseBlockContent(r.column, parentIndent, tag, allowCollection = true, anchor = None)
-        else
-          newNode(resolveScalar("", plain = true, tag, r.offset))
-      anchor.foreach(registerAnchor(_, value, start))
-      value
+      if isNodeStart(parentIndent, compactSequence) then
+        parseBlockContent(r.column, parentIndent, None, None, allowCollection = true, r.offset)
+          .withProps(anchor, tag, start)
+      else
+        PScalar("", ScalarStyle.Plain, anchor, tag, start, end)
     else
-      parseBlockContent(nodeColumn, parentIndent, tag, allowCollection, anchor)
+      parseBlockContent(nodeColumn, parentIndent, anchor, tag, allowCollection, start)
 
   /**
     * Is the next content a node nested under `parentIndent`?
@@ -112,36 +159,35 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
 
   /**
     * Parse a block node's content. Properties on the same line as an implicit mapping key (`&a key:
-    * v`) apply to the key, so `anchor` is registered for the first key in that case.
+    * v`) apply to the key.
     *
     * @param c
     *   the node's column, before any properties. A block collection starting here uses it
+    * @param propsStart
+    *   the offset of the properties, or of the content when there are none
     */
   private def parseBlockContent(
       c: Int,
       parentIndent: Int,
+      anchor: Option[String],
       tag: Option[String],
       allowCollection: Boolean,
-      anchor: Option[String]
-  ): JSONValue =
-    val start                           = r.offset
-    val countStart                      = nodeCount
-    var onKey                           = false
-    def mapping(key: String): JSONValue =
+      propsStart: Int
+  ): PNode =
+    val start                      = r.offset
+    def mapping(key: PNode): PNode =
       if !allowCollection then
         r.error("A mapping is not allowed here")
-      onKey = true
-      anchor.foreach(registerKeyAnchor(_, key))
-      parseBlockMapping(c, key, start)
+      parseBlockMapping(c, key.withProps(anchor, tag, propsStart))
 
-    val value =
+    val node =
       r.peek match
         case '-' if isSequenceEntry =>
           if !allowCollection then
             r.error("A sequence entry is not allowed here")
           parseBlockSequence(c)
         case '|' | '>' =>
-          parseBlockScalar(parentIndent, tag)
+          parseBlockScalar(parentIndent)
         case '?' if isSeparator(r.lookAhead(1)) =>
           r.error("Explicit mapping keys (?) are not supported")
         case '[' | '{' =>
@@ -154,43 +200,38 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           val v = parseAlias()
           r.skipWhiteSpaces()
           if isMappingIndicator then
-            mapping(keyText(v, start))
-          else
-            v
+            return mapping(v)
+          v
         case '"' | '\'' =>
-          val s = parseQuotedScalar()
+          val v = parseQuoted(start)
           r.skipWhiteSpaces()
           if isMappingIndicator then
-            mapping(s)
-          else
-            newNode(resolveScalar(s, plain = false, tag, start))
+            return mapping(v)
+          v
         case _ =>
           checkPlainStart()
-          val first = scanPlainLine(flow = false)
+          val first    = scanPlainLine(flow = false)
+          val firstEnd = plainEnd
           if isMappingIndicator then
-            mapping(first)
-          else
-            val s = continuePlain(first, parentIndent, flow = false)
-            newNode(resolveScalar(s, plain = true, tag, start))
+            return mapping(PScalar(first, ScalarStyle.Plain, None, None, start, firstEnd))
+          val s = continuePlain(first, parentIndent, flow = false)
+          PScalar(s, ScalarStyle.Plain, None, None, start, plainEnd)
       end match
-    end value
-    if !onKey then
-      anchor.foreach(registerAnchor(_, value, countStart))
-    value
+    end node
+    node.withProps(anchor, tag, propsStart)
 
   end parseBlockContent
 
   /**
     * Parse a block mapping at column `c`. The reader is at the ':' of the first key.
     */
-  private def parseBlockMapping(c: Int, firstKey: String, firstKeyOffset: Int): JSONValue =
-    nodeCount += 1
-    val builder   = MappingBuilder()
-    var key       = firstKey
-    var keyOffset = firstKeyOffset
-    var continue  = true
+  private def parseBlockMapping(c: Int, firstKey: PNode): PNode =
+    val entries  = mutable.ArrayBuffer.empty[(PNode, PNode)]
+    var key      = firstKey
+    var continue = true
     while continue do
       r.advance() // ':'
+      val colonEnd = r.offset
       r.skipWhiteSpaces()
       val value =
         if atLineEndOrComment then
@@ -198,29 +239,29 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           if isNodeStart(c, compactSequence = true) then
             parseBlockNode(c, allowCollection = true, compactSequence = true)
           else
-            newNode(JSONNull())
+            emptyAt(colonEnd)
         else
           parseBlockNode(c, allowCollection = false, compactSequence = true)
-      builder.add(key, value, keyOffset)
+      entries += key -> withComment(value)
       skipToContent()
       if r.isEOF || atAnyDocumentMarker || r.column < c then
         continue = false
       else if r.column > c then
         r.error("Bad indentation of a mapping entry")
       else
-        keyOffset = r.offset
         key = parseMappingKey()
-    builder.result()
+    PMap(entries.toSeq, false, None, None, firstKey.start, firstKey.start, entries.last._2.cend, c)
 
   end parseBlockMapping
 
   /**
     * Parse a mapping key at the current position and stop at the following ':'
     */
-  private def parseMappingKey(): String =
-    val start       = r.offset
-    val (anchor, _) = parseProperties()
-    val key         =
+  private def parseMappingKey(): PNode =
+    val start         = r.offset
+    val (anchor, tag) = parseProperties()
+    val contentStart  = r.offset
+    val key           =
       r.peek match
         case '-' if isSequenceEntry =>
           r.error("Expected a mapping key, but found a sequence entry")
@@ -229,24 +270,25 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
         case '[' | '{' =>
           r.error("Complex (non-scalar) mapping keys are not supported")
         case '*' =>
-          keyText(parseAlias(), start)
+          parseAlias()
         case '"' | '\'' =>
-          parseQuotedScalar()
+          parseQuoted(contentStart)
         case _ =>
           checkPlainStart()
-          scanPlainLine(flow = false)
+          val s = scanPlainLine(flow = false)
+          PScalar(s, ScalarStyle.Plain, None, None, contentStart, plainEnd)
     r.skipWhiteSpaces()
     if !isMappingIndicator then
       r.error("Expected ':' after a mapping key")
-    anchor.foreach(registerKeyAnchor(_, key))
-    key
+    key.withProps(anchor, tag, start)
 
-  private def parseBlockSequence(c: Int): JSONValue =
-    nodeCount += 1
-    val items    = IndexedSeq.newBuilder[JSONValue]
+  private def parseBlockSequence(c: Int): PNode =
+    val start    = r.offset
+    val items    = mutable.ArrayBuffer.empty[PNode]
     var continue = true
     while continue do
       r.advance() // '-'
+      val dashEnd = r.offset
       r.skipWhiteSpaces()
       val item =
         if atLineEndOrComment then
@@ -254,10 +296,10 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           if isNodeStart(c, compactSequence = false) then
             parseBlockNode(c, allowCollection = true)
           else
-            newNode(JSONNull())
+            emptyAt(dashEnd)
         else
           parseBlockNode(c, allowCollection = true)
-      items += item
+      items += withComment(item)
       skipToContent()
       if r.isEOF || atAnyDocumentMarker || r.column < c then
         continue = false
@@ -266,14 +308,14 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       else if !isSequenceEntry then
         // A sequence used as a mapping value at the key's column ends here
         continue = false
-    JSONArray(items.result())
+    PSeq(items.toSeq, false, None, None, start, start, items.last.cend, c)
 
   end parseBlockSequence
 
   /**
     * Parse a literal (|) or folded (>) block scalar
     */
-  private def parseBlockScalar(parentIndent: Int, tag: Option[String]): JSONValue =
+  private def parseBlockScalar(parentIndent: Int): PNode =
     val start          = r.offset
     val folded         = r.peek == '>'
     var chomping       = 'c' // c: clip, s: strip, k: keep
@@ -355,7 +397,16 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
             body + "\n"
           else
             body
-    newNode(resolveScalar(chomped, plain = false, tag, start))
+    // The line break after the last line belongs to the trivia that follows
+    var end = r.offset
+    while end > start && text.charAt(end - 1) == '\n' do
+      end -= 1
+    val style =
+      if folded then
+        ScalarStyle.Folded
+      else
+        ScalarStyle.Literal
+    PScalar(chomped, style, None, None, start, end)
 
   end parseBlockScalar
 
@@ -390,16 +441,15 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
 
   // ---- Flow nodes ----
 
-  private def parseFlowCollection(): JSONValue =
+  private def parseFlowCollection(): PNode =
     if r.peek == '[' then
       parseFlowSequence()
     else
       parseFlowMapping()
 
-  private def parseFlowSequence(): JSONValue =
-    nodeCount += 1
+  private def parseFlowSequence(): PNode =
     val start    = r.offset
-    val items    = IndexedSeq.newBuilder[JSONValue]
+    val items    = mutable.ArrayBuffer.empty[PNode]
     var continue = true
     r.advance() // '['
     while continue do
@@ -416,29 +466,28 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           skipFlowSpace()
           if r.peek == ':' && (node.adjacentKey || isFlowSeparator(r.lookAhead(1))) then
             // A single-pair mapping: [a: 1, b: 2]
+            flowKey(node.node, entryStart)
             r.advance()
+            val colonEnd = r.offset
             skipFlowSpace()
             val value =
               if r.peek == ',' || r.peek == ']' then
-                newNode(JSONNull())
+                emptyAt(colonEnd)
               else
-                parseFlowNode().value
-            val builder = MappingBuilder()
-            builder.add(node.keyText(entryStart, r), value, entryStart)
-            nodeCount += 1
-            items += builder.result()
+                parseFlowNode().node
+            items +=
+              PMap(Seq(node.node -> value), true, None, None, entryStart, entryStart, value.end, -1)
             skipFlowSpace()
           else
-            items += node.value
+            items += node.node
           expectFlowSeparator(']', start)
-    JSONArray(items.result())
+    PSeq(items.toSeq, true, None, None, start, start + 1, r.offset, -1)
 
   end parseFlowSequence
 
-  private def parseFlowMapping(): JSONValue =
-    nodeCount += 1
+  private def parseFlowMapping(): PNode =
     val start    = r.offset
-    val builder  = MappingBuilder()
+    val entries  = mutable.ArrayBuffer.empty[(PNode, PNode)]
     var continue = true
     r.advance() // '{'
     while continue do
@@ -453,24 +502,32 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           r.error("Explicit mapping keys (?) are not supported")
         case _ =>
           val keyOffset = r.offset
-          val key       = parseFlowNode().keyText(keyOffset, r)
+          val key       = parseFlowNode().node
+          flowKey(key, keyOffset)
           skipFlowSpace()
           val value =
             if r.peek == ':' then
               r.advance()
+              val colonEnd = r.offset
               skipFlowSpace()
               if r.peek == ',' || r.peek == '}' then
-                newNode(JSONNull())
+                emptyAt(colonEnd)
               else
-                parseFlowNode().value
+                parseFlowNode().node
             else
-              newNode(JSONNull())
-          builder.add(key, value, keyOffset)
+              emptyAt(key.end)
+          entries += key -> value
           skipFlowSpace()
           expectFlowSeparator('}', start)
-    builder.result()
+    PMap(entries.toSeq, true, None, None, start, start + 1, r.offset, -1)
 
   end parseFlowMapping
+
+  private def flowKey(key: PNode, offset: Int): Unit =
+    key match
+      case _: PMap | _: PSeq =>
+        r.error("Complex (non-scalar) mapping keys are not supported", offset)
+      case _ =>
 
   private def expectFlowSeparator(close: Char, start: Int): Unit =
     if r.isEOF then
@@ -491,35 +548,26 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
     val start         = r.offset
     val (anchor, tag) = parseProperties()
     skipFlowSpace()
-    val countStart = nodeCount
-    val node       =
-      r.peek match
-        case '[' | '{' =>
-          FlowNode(parseFlowCollection(), None, adjacentKey = true)
-        case '*' =>
-          val v = parseAlias()
-          FlowNode(v, scalarKey(v), adjacentKey = true)
-        case '"' | '\'' =>
-          val s = parseQuotedScalar()
-          FlowNode(
-            newNode(resolveScalar(s, plain = false, tag, start)),
-            Some(s),
-            adjacentKey = true
-          )
-        case _ =>
-          val s =
-            if r.peek == ',' || r.peek == ']' || r.peek == '}' || r.peek == ':' then
-              ""
-            else
-              checkPlainStart()
-              continuePlain(scanPlainLine(flow = true), -1, flow = true)
-          FlowNode(
-            newNode(resolveScalar(s, plain = true, tag, start)),
-            Some(s),
-            adjacentKey = false
-          )
-    anchor.foreach(registerAnchor(_, node.value, countStart))
-    node
+    val contentStart = r.offset
+    r.peek match
+      case '[' | '{' =>
+        FlowNode(parseFlowCollection().withProps(anchor, tag, start), adjacentKey = true)
+      case '*' =>
+        FlowNode(parseAlias(), adjacentKey = true)
+      case '"' | '\'' =>
+        FlowNode(parseQuoted(contentStart).withProps(anchor, tag, start), adjacentKey = true)
+      case _ =>
+        val node =
+          if r.peek == ',' || r.peek == ']' || r.peek == '}' || r.peek == ':' then
+            PScalar("", ScalarStyle.Plain, None, None, contentStart, contentStart)
+          else
+            checkPlainStart()
+            val s = continuePlain(scanPlainLine(flow = true), -1, flow = true)
+            PScalar(s, ScalarStyle.Plain, None, None, contentStart, plainEnd)
+        if anchor.isDefined || tag.isDefined then
+          FlowNode(node.withProps(anchor, tag, start), adjacentKey = false)
+        else
+          FlowNode(node, adjacentKey = false)
 
   end parseFlowNode
 
@@ -527,7 +575,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
 
   /**
     * Scan a plain scalar up to the end of the line, a comment, or a ':' indicator. Trailing spaces
-    * are not included.
+    * are not included, and [[plainEnd]] is set to the end of the text.
     */
   private def scanPlainLine(flow: Boolean): String =
     val start    = r.offset
@@ -545,6 +593,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
         r.advance()
         if !isWhiteSpace(ch) then
           end = r.offset
+    plainEnd = end
     text.substring(start, end)
 
   /**
@@ -553,6 +602,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
     */
   private def continuePlain(first: String, parentIndent: Int, flow: Boolean): String =
     val sb       = StringBuilder(first)
+    var end      = plainEnd
     var continue = true
     while continue && r.peek == '\n' do
       val m = r.mark
@@ -575,6 +625,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           r.reset(m)
           continue = false
         else
+          end = plainEnd
           if emptyLines == 0 then
             sb.append(' ')
           else
@@ -582,6 +633,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
           sb.append(line)
           if !flow && isMappingIndicator then
             r.error("A mapping is not allowed in a multi-line plain scalar", lineStart)
+    plainEnd = end
     sb.result()
 
   end continuePlain
@@ -592,6 +644,15 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       (ch == '-' || ch == '?' || ch == ':') && isSeparator(r.lookAhead(1))
     then
       r.error(s"Unexpected character '${ch}'")
+
+  private def parseQuoted(start: Int): PNode =
+    val style =
+      if r.peek == '"' then
+        ScalarStyle.DoubleQuoted
+      else
+        ScalarStyle.SingleQuoted
+    val s = parseQuotedScalar()
+    PScalar(s, style, None, None, start, r.offset)
 
   private def parseQuotedScalar(): String =
     val start   = r.offset
@@ -681,11 +742,11 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       case 'N' =>
         sb.append('\u0085')
       case '_' =>
-        sb.append('\u00a0')
+        sb.append(' ')
       case 'L' =>
-        sb.append('\u2028')
+        sb.append(' ')
       case 'P' =>
-        sb.append('\u2029')
+        sb.append(' ')
       case 'x' =>
         appendCodePoint(sb, readHex(2, escapeStart))
       case 'u' =>
@@ -715,48 +776,12 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       r.error(s"Invalid code point: ${cp}")
     sb.appendAll(Character.toChars(cp))
 
-  /**
-    * Resolve a scalar to a JSON value with the YAML 1.2 core schema, or with the given tag
-    */
-  private def resolveScalar(
-      s: String,
-      plain: Boolean,
-      tag: Option[String],
-      offset: Int
-  ): JSONValue =
-    def fail(kind: String): Nothing = r.error(s"Invalid ${kind} value: ${s}", offset)
-    tag match
-      case Some("!!str") | Some("!") =>
-        JSONString(s)
-      case Some("!!int") =>
-        parseInt(s).getOrElse(fail("integer"))
-      case Some("!!float") =>
-        parseFloat(s)
-          .orElse(
-            parseInt(s).collect { case JSONLong(v) =>
-              JSONDouble(v.toDouble)
-            }
-          )
-          .getOrElse(fail("float"))
-      case Some("!!bool") =>
-        parseBool(s).getOrElse(fail("boolean"))
-      case Some("!!null") =>
-        if isNull(s) then
-          JSONNull()
-        else
-          fail("null")
-      case _ if plain =>
-        resolvePlain(s)
-      case _ =>
-        JSONString(s)
-
-  end resolveScalar
-
   // ---- Anchors and aliases ----
 
   private def parseProperties(): (Option[String], Option[String]) =
     var anchor: Option[String] = None
     var tag: Option[String]    = None
+    propsEnd = r.offset
     while r.peek == '&' || r.peek == '!' do
       val isAnchor = r.peek == '&'
       val start    = r.offset
@@ -769,28 +794,15 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
         anchor = Some(name)
       else
         tag = Some(name)
+      propsEnd = r.offset
       r.skipWhiteSpaces()
     (anchor, tag)
 
-  private def registerAnchor(name: String, value: JSONValue, countStart: Long): Unit =
-    anchors(name) = (value, (nodeCount - countStart).max(1))
-
-  private def registerKeyAnchor(name: String, key: String): Unit =
-    anchors(name) = (JSONString(key), 1L)
-
-  private def parseAlias(): JSONValue =
+  private def parseAlias(): PNode =
     val start = r.offset
     r.advance() // '*'
     val name = readName()
-    anchors.get(name) match
-      case Some((v, size)) =>
-        aliasNodeCount += size
-        nodeCount += size
-        if aliasNodeCount > maxAliasNodes then
-          r.error(s"Aliases expand to more than ${maxAliasNodes} nodes", start)
-        v
-      case None =>
-        r.error(s"Unknown alias: *${name}", start)
+    PAlias(name, start, r.offset)
 
   private def readName(): String =
     val start = r.offset
@@ -800,22 +812,43 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
 
   // ---- Helpers ----
 
-  private def newNode(v: JSONValue): JSONValue =
-    nodeCount += 1
-    v
-
-  private def scalarKey(v: JSONValue): Option[String] =
-    v match
-      case JSONString(s) =>
-        Some(s)
-      case _: JSONObject | _: JSONArray =>
-        None
-      case other =>
-        Some(other.toJSON)
-
-  private def keyText(v: JSONValue, offset: Int): String = scalarKey(v).getOrElse(
-    r.error("Complex (non-scalar) mapping keys are not supported", offset)
+  private def emptyAt(offset: Int): PNode = PScalar(
+    "",
+    ScalarStyle.Plain,
+    None,
+    None,
+    offset,
+    offset
   )
+
+  /**
+    * Attach a comment on the same line after a node that ends its line
+    */
+  private def withComment(p: PNode): PNode =
+    p match
+      case s: PScalar if s.style != ScalarStyle.Literal && s.style != ScalarStyle.Folded =>
+        s.copy(commentEnd = lineCommentEnd(s.end))
+      case a: PAlias =>
+        a.copy(commentEnd = lineCommentEnd(a.end))
+      case m: PMap if m.flow =>
+        m.copy(commentEnd = lineCommentEnd(m.end))
+      case s: PSeq if s.flow =>
+        s.copy(commentEnd = lineCommentEnd(s.end))
+      case other =>
+        other
+
+  private def lineCommentEnd(end: Int): Int =
+    var i = end
+    while i < text.length && isWhiteSpace(text.charAt(i)) do
+      i += 1
+    if i < text.length && text.charAt(i) == '#' then
+      val e = text.indexOf('\n', i)
+      if e < 0 then
+        text.length
+      else
+        e
+    else
+      end
 
   /**
     * Skip spaces, comments, and line breaks up to the next content
@@ -861,56 +894,156 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
 
   private def atAnyDocumentMarker: Boolean = atDocumentMarker("---") || atDocumentMarker("...")
 
+  // ---- Building nodes with their source text ----
+
   /**
-    * Accumulates mapping entries, rejecting duplicate keys and applying `<<` merge keys
+    * Map offsets in the normalized text back to the input, whose line breaks may be `\r\n` or `\r`
     */
-  private class MappingBuilder:
-    private val entries = mutable.ArrayBuffer.empty[(String, JSONValue)]
-    private val keys    = mutable.Set.empty[String]
-    private val merges  = mutable.ArrayBuffer.empty[JSONObject]
+  private val rawOffset: Int => Int =
+    if input.indexOf('\r') < 0 then
+      _ + bom
+    else
+      val map = Array.ofDim[Int](text.length + 1)
+      var i   = 0
+      var j   = bom
+      while i < text.length do
+        map(i) = j
+        if input.charAt(j) == '\r' && j + 1 < input.length && input.charAt(j + 1) == '\n' then
+          j += 2
+        else
+          j += 1
+        i += 1
+      map(text.length) = input.length
+      map(_)
 
-    def add(key: String, value: JSONValue, keyOffset: Int): Unit =
-      if key == "<<" then
-        value match
-          case o: JSONObject =>
-            merges += o
-          case JSONArray(xs) if xs.forall(_.isInstanceOf[JSONObject]) =>
-            merges ++=
-              xs.collect { case o: JSONObject =>
-                o
-              }
-          case _ =>
-            r.error("A merge key (<<) value must be a mapping or a sequence of mappings", keyOffset)
-      else
-        if keys.contains(key) then
-          r.error(s"Duplicate mapping key: ${key}", keyOffset)
-        keys += key
-        entries += key -> value
+  private def raw(start: Int, end: Int): String = input.substring(rawOffset(start), rawOffset(end))
 
-    def result(): JSONObject =
-      for
-        m      <- merges
-        (k, v) <- m.v
-        if !keys.contains(k)
-      do
-        keys += k
-        entries += k -> v
-      JSONObject(entries.toSeq)
+  /**
+    * Build the node, with the text since `leadingStart` (-1 for none) as its leading trivia
+    */
+  private def build(p: PNode, leadingStart: Int): YAMLNode =
+    def source(node: YAMLNode, opening: Int, indent: Int): YAMLNode = node.withSource(
+      YAMLSource(
+        raw(p.start, p.end),
+        if leadingStart < 0 then
+          ""
+        else
+          raw(leadingStart, p.start)
+        ,
+        raw(p.end, p.cend),
+        raw(p.start, opening),
+        indent,
+        Span.within(rawOffset(p.start), rawOffset(p.end)),
+        node.content,
+        p.start
+      )
+    )
+    p match
+      case s: PScalar =>
+        source(YAMLNode.Scalar(s.value, s.style, s.anchor, s.tag), s.start, -1)
+      case a: PAlias =>
+        source(YAMLNode.Alias(a.name), a.start, -1)
+      case m: PMap =>
+        var prev    = m.childStart
+        val entries = m
+          .entries
+          .map { (k, v) =>
+            val key   = build(k, prev)
+            val value = build(v, k.end)
+            prev = v.cend
+            YAMLEntry(key, value)
+          }
+        source(YAMLNode.Mapping(entries, m.flow, m.anchor, m.tag), m.childStart, m.indent)
+      case s: PSeq =>
+        var prev  = s.childStart
+        val items = s
+          .items
+          .map { i =>
+            val item = build(i, prev)
+            prev = i.cend
+            item
+          }
+        source(YAMLNode.Sequence(items, s.flow, s.anchor, s.tag), s.childStart, s.indent)
+    end match
 
-  end MappingBuilder
+  end build
 
 end YAMLParser
 
 private[yaml] object YAMLParser:
 
   /**
-    * A parsed flow node. `rawKey` keeps the unresolved scalar text for use as a mapping key.
-    * `adjacentKey` is true when a following ':' is an indicator even without a space (`"a":1`).
+    * A node with offsets in the normalized text. `cend` is the end including a comment on the same
+    * line (`commentEnd`, or -1 for none).
     */
-  case class FlowNode(value: JSONValue, rawKey: Option[String], adjacentKey: Boolean):
-    def keyText(offset: Int, r: LineReader): String = rawKey.getOrElse(
-      r.error("Complex (non-scalar) mapping keys are not supported", offset)
+  enum PNode:
+    def start: Int
+    def end: Int
+    def commentEnd: Int
+    def cend: Int =
+      if commentEnd < 0 then
+        end
+      else
+        commentEnd
+
+    case PScalar(
+        value: String,
+        style: ScalarStyle,
+        anchor: Option[String],
+        tag: Option[String],
+        start: Int,
+        end: Int,
+        commentEnd: Int = -1
     )
+
+    case PMap(
+        entries: Seq[(PNode, PNode)],
+        flow: Boolean,
+        anchor: Option[String],
+        tag: Option[String],
+        start: Int,
+        childStart: Int,
+        end: Int,
+        indent: Int,
+        commentEnd: Int = -1
+    )
+
+    case PSeq(
+        items: Seq[PNode],
+        flow: Boolean,
+        anchor: Option[String],
+        tag: Option[String],
+        start: Int,
+        childStart: Int,
+        end: Int,
+        indent: Int,
+        commentEnd: Int = -1
+    )
+
+    case PAlias(name: String, start: Int, end: Int, commentEnd: Int = -1)
+
+    /**
+      * Add properties (anchor and tag) written before the node at `from`
+      */
+    def withProps(anchor: Option[String], tag: Option[String], from: Int): PNode =
+      this match
+        case s: PScalar =>
+          s.copy(anchor = anchor.orElse(s.anchor), tag = tag.orElse(s.tag), start = from)
+        case m: PMap =>
+          m.copy(anchor = anchor.orElse(m.anchor), tag = tag.orElse(m.tag), start = from)
+        case s: PSeq =>
+          s.copy(anchor = anchor.orElse(s.anchor), tag = tag.orElse(s.tag), start = from)
+        case a: PAlias =>
+          // Properties on an alias are not valid YAML, and they are ignored
+          a.copy(start = from.min(a.start))
+
+  end PNode
+
+  /**
+    * A parsed flow node. `adjacentKey` is true when a following ':' is an indicator even without a
+    * space (`"a":1`).
+    */
+  case class FlowNode(node: PNode, adjacentKey: Boolean)
 
   def isWhiteSpace(ch: Char): Boolean = ch == ' ' || ch == '\t'
 

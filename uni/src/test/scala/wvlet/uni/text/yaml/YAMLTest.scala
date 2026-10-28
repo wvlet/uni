@@ -9,7 +9,10 @@ case class ServerConfig(name: String, port: Int = 8080, tags: Seq[String] = Nil)
 
 class YAMLTest extends UniTest:
 
-  private def json(yaml: String): String = YAML.parse(yaml).toJSON
+  private def json(yaml: String): String =
+    val v = YAML.parse(yaml)
+    YAMLRoundTripTest.check(yaml)
+    v.toJSON
 
   private def parseError(yaml: String): TextParseException = intercept[TextParseException] {
     YAML.parse(yaml)

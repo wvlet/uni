@@ -59,6 +59,31 @@ f.body            // "# Instructions\n"
 
 When the text has no frontmatter, `data` is `None` and `body` is the whole text.
 
+To change the header, pass the new value to `update` (or `copy(data = ...)`) and write the text back with `toText`. Only the parts of the header that changed are rewritten, so its comments and formatting stay, and the body is unchanged:
+
+```scala
+import wvlet.uni.json.JSON
+
+val text = """---
+# Owned by the docs team
+name: review  # the skill name
+---
+# Instructions
+"""
+Frontmatter.parse(text)
+  .update(JSON.parse("""{"name":"review-pr","tags":["git"]}"""))
+  .toText
+// ---
+// # Owned by the docs team
+// name: review-pr  # the skill name
+// tags:
+//   - git
+// ---
+// # Instructions
+```
+
+A text without frontmatter gets a new `---` header, and `copy(data = None)` removes it. [`Markdown.parse`](./markdown#frontmatter) reads the header the same way, and `toMarkdown` writes changes to `frontmatter` back.
+
 ## Supported YAML
 
 - Block mappings and sequences, including a sequence at its key's column
@@ -96,9 +121,46 @@ Aliases share the anchored value instead of copying it. To stop "billion laughs"
 YAML.parseAll(untrustedYaml, maxAliasNodes = 10_000)
 ```
 
+## Editing YAML
+
+`YAML.parseDocument` reads a document into a `YAMLDocument` that keeps its source text. `toYaml` writes it back: without changes, the output is the input byte for byte, including comments, blank lines, indentation, `\r\n` line breaks, and quoting. Edit it by path, and only the changed values are rewritten:
+
+```scala
+val doc = YAML.parseDocument("""# Server settings
+server:
+  host: localhost
+  port: 8080  # default port
+
+  # Set in production
+  tls: false
+""")
+
+doc
+  .set(Seq("server", "port"), 9090)            // keeps "# default port"
+  .set(Seq("server", "tags"), Seq("a", "b"))   // adds an entry at the end of server
+  .remove(Seq("server", "tls"))                // removes tls and the comment above it
+  .toYaml
+// # Server settings
+// server:
+//   host: localhost
+//   port: 9090  # default port
+//   tags:
+//     - a
+//     - b
+```
+
+- A path is a list of mapping keys (`String`) and sequence indexes (`Int`). `set` adds missing keys, and missing parent mappings, at the end of their mapping; the index equal to a sequence's size appends to it. `remove` ignores a missing path.
+- `set` takes a `JSONValue` or any value with a `Weaver`.
+- `update(value)` changes the document to resolve to a new `JSONValue`, editing only the entries that differ.
+- `toJSON` resolves the document, as `YAML.parse` does.
+
+A replaced scalar keeps its quoting style (`'x'`, `"x"`, `|`) and the comment after it. New values are written in block style with two-space indentation. A new string is quoted when it would otherwise read as another type, so `"123"` stays a string. An anchor on a replaced value stays, so aliases to it still resolve.
+
+The tree is a `YAMLNode` (`Scalar`, `Mapping`, `Sequence`, `Alias`), and you can also change it with `copy`. As with the [Markdown AST](./markdown), each node's source text is an attachment that does not take part in equality, and a node whose content differs from what was parsed is written in the canonical style.
+
 ## Writing YAML
 
-To write YAML, use `YAMLFormatter.toYaml` from `wvlet.uni.json`. It converts a JSON string to YAML:
+To edit an existing YAML text, use `YAMLDocument` (above). To write a value as YAML, use `YAMLFormatter.toYaml` from `wvlet.uni.json`. It converts a JSON string to YAML:
 
 ```scala
 import wvlet.uni.json.YAMLFormatter

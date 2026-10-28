@@ -16,6 +16,7 @@ package wvlet.uni.text.markdown
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.text.Span
 import wvlet.uni.text.yaml.Frontmatter
+import wvlet.uni.text.yaml.FrontmatterSource
 import wvlet.uni.weaver.Weaver
 
 /**
@@ -25,6 +26,7 @@ import wvlet.uni.weaver.Weaver
   *
   * @param frontmatter
   *   the leading YAML header, if any (see [[MarkdownConfig.frontmatter]]). It is not rendered.
+  *   `toMarkdown` writes changes to it back, keeping the header's comments and formatting.
   */
 case class MarkdownDocument(
     blocks: Seq[Block],
@@ -66,7 +68,9 @@ final class Source private[markdown] (
     val span: Span,
     private[markdown] val parsed: Product | Null,
     // A document's link reference definitions, to check rewritten text against
-    private[markdown] val definitions: Map[String, (String, Option[String])] = Map.empty
+    private[markdown] val definitions: Map[String, (String, Option[String])] = Map.empty,
+    // A document's frontmatter header as read, to write changes to the header back
+    private[markdown] val frontmatter: FrontmatterSource = FrontmatterSource.none
 ):
   def isEmpty: Boolean = parsed == null
 
