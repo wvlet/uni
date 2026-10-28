@@ -30,9 +30,98 @@ import java.util.logging as jl
   * Only records from the thread running the suite are routed. Records from other threads (a
   * server's worker pool, a Future on the global pool) go to the original handlers, since a pool
   * thread cannot be attributed to a single suite.
+  *
+  * The same handler serves `UniTest.captureLogs`: while a capture is open, records it owns are kept
+  * in the capture instead of being routed or printed.
   */
 private[test] object TestLogCapture:
   private val currentLoggers = ThreadLocal[Array[sbt.testing.Logger]]()
+  // Set on threads that run a suite, so their records are never taken by another suite's capture
+  private val suiteThread = ThreadLocal[java.lang.Boolean]()
+
+  @volatile
+  private var captures: List[Capture] = Nil
+
+  /**
+    * Log records captured by `UniTest.captureLogs` while its block runs
+    *
+    * @param owner
+    *   the thread that opened the capture
+    * @param loggerName
+    *   capture only this logger and its children, or every logger when None
+    */
+  final class Capture(
+      private[TestLogCapture] val owner: Thread,
+      loggerName: Option[String],
+      private[TestLogCapture] val router: RoutingHandler,
+      release: () => Unit
+  ):
+    private val buf    = scala.collection.mutable.ArrayBuffer.empty[jl.LogRecord]
+    private var closed = false // guarded by buf
+
+    private[TestLogCapture] def accepts(record: jl.LogRecord): Boolean = loggerName.forall { name =>
+      val n = record.getLoggerName
+      n != null && (n == name || n.startsWith(s"${name}."))
+    }
+
+    /**
+      * Returns false when the capture has closed, so a record arriving late is not lost
+      */
+    private[TestLogCapture] def add(record: jl.LogRecord): Boolean = buf.synchronized {
+      if !closed then
+        buf += record
+      !closed
+    }
+
+    /**
+      * Stop capturing. With `replay`, the captured records are sent to the handlers they would have
+      * reached without the capture, so a failing test still shows them.
+      */
+    def close(replay: Boolean): Seq[jl.LogRecord] =
+      TestLogCapture.synchronized {
+        captures = captures.filterNot(_ eq this)
+      }
+      val captured = buf.synchronized {
+        closed = true
+        buf.toSeq
+      }
+      try
+        // Through publish, so an enclosing capture still takes the records
+        if replay then
+          captured.foreach(router.publish)
+      finally release()
+      captured
+
+  end Capture
+
+  /**
+    * Start capturing log records from the current thread and from threads that run no suite (server
+    * workers, Future pools). Records from threads running another suite are never captured.
+    */
+  def openCapture(loggerName: Option[String]): Capture = synchronized {
+    val (router, release) = acquire()
+    val c                 = Capture(Thread.currentThread(), loggerName, router, release)
+    captures = c :: captures
+    c
+  }
+
+  /**
+    * Hand `record` to the captures that own it. Returns false when no capture took it.
+    */
+  private def capture(record: jl.LogRecord): Boolean =
+    val cs = captures
+    if cs.isEmpty then
+      false
+    else
+      val t = Thread.currentThread()
+      // The innermost capture opened on this thread takes the record
+      cs.find(c => (c.owner eq t) && c.accepts(record)) match
+        case Some(c) =>
+          c.add(record)
+        case None if suiteThread.get() != null =>
+          false
+        case None =>
+          cs.filter(c => (c.owner ne t) && c.accepts(record)).map(_.add(record)).contains(true)
 
   /**
     * Wraps the root logger's handlers. Each runner's class loader has its own copy of this class,
@@ -40,11 +129,14 @@ private[test] object TestLogCapture:
     * `remove()`, the router passes records through and returns the handlers it wrapped from
     * `get()`, a JDK-typed accessor that a runner of any class loader can use to unwrap it.
     */
-  private class RoutingHandler(original: Array[jl.Handler])
+  private[spi] class RoutingHandler(original: Array[jl.Handler])
       extends jl.Handler,
         Supplier[Array[jl.Handler]]:
     @volatile
     private var removed = false
+
+    // Number of runners and captures using this router; guarded by TestLogCapture
+    private[TestLogCapture] var users = 0
 
     def remove(): Unit = removed = true
 
@@ -55,6 +147,13 @@ private[test] object TestLogCapture:
         null
 
     override def publish(record: jl.LogRecord): Unit =
+      if removed || !capture(record) then
+        deliver(record)
+
+    /**
+      * Send a record to the suite's sbt loggers, or to the original handlers
+      */
+    def deliver(record: jl.LogRecord): Unit =
       val loggers = currentLoggers.get()
       if removed || loggers == null then
         original.foreach(_.publish(record))
@@ -94,26 +193,41 @@ private[test] object TestLogCapture:
       handlers.foreach(root.addHandler)
 
   /**
-    * Install the routing handler on the root logger. Returns an action that removes it again, or a
-    * no-op when a routing handler is already installed (e.g., by an enclosing runner).
+    * Install the routing handler on the root logger. Returns an action that removes it again. A
+    * routing handler that is already installed (e.g., by an enclosing runner or an open capture) is
+    * shared, and removed when its last user releases it.
     */
-  def install(): () => Unit = synchronized {
+  def install(): () => Unit = synchronized(acquire()._2)
+
+  private def acquire(): (RoutingHandler, () => Unit) =
     val root     = Logger.rootLogger
     val handlers = unwrapRemoved(root.getHandlers)
-    if handlers.exists(_.isInstanceOf[RoutingHandler]) then
-      setHandlers(root, handlers)
-      () => ()
-    else
-      val router = RoutingHandler(handlers.toArray)
-      setHandlers(root, Seq(router))
+    val router   =
+      handlers.collectFirst { case r: RoutingHandler =>
+        r
+      } match
+        case Some(r) =>
+          setHandlers(root, handlers)
+          r
+        case None =>
+          val r = RoutingHandler(handlers.toArray)
+          setHandlers(root, Seq(r))
+          r
+    router.users += 1
+    var released = false
+    val release  =
       () =>
         synchronized {
-          router.remove()
-          // Unwraps this router, and any router removed earlier while this one wrapped it. Handlers
-          // that test code set in the meantime are kept.
-          setHandlers(root, unwrapRemoved(root.getHandlers))
+          if !released then
+            released = true
+            router.users -= 1
+            if router.users == 0 then
+              router.remove()
+              // Unwraps this router, and any router removed earlier while this one wrapped it.
+              // Handlers that test code set in the meantime are kept.
+              setHandlers(root, unwrapRemoved(root.getHandlers))
         }
-  }
+    (router, release)
 
   /**
     * Route log records emitted on the current thread to `loggers` while `body` runs
@@ -123,5 +237,15 @@ private[test] object TestLogCapture:
     currentLoggers.set(loggers)
     try body
     finally currentLoggers.set(prev)
+
+  /**
+    * Mark the current thread as running a suite while `body` runs, so its log records stay out of
+    * other suites' captures
+    */
+  def withSuiteThread[A](body: => A): A =
+    val prev = suiteThread.get()
+    suiteThread.set(java.lang.Boolean.TRUE)
+    try body
+    finally suiteThread.set(prev)
 
 end TestLogCapture

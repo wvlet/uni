@@ -15,10 +15,9 @@ package wvlet.uni.http.netty
 
 import wvlet.uni.http.{HttpMethod, Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.required
-import wvlet.uni.test.UniTest
+import wvlet.uni.test.{CapturedLogs, UniTest}
 
 import java.net.URI
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
@@ -73,15 +72,12 @@ class RouterHandlerErrorTest extends UniTest:
     .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
     .withRxHandler(RouterHandler(Router.of[ErrorController]))
 
-  private def withServer[A](config: NettyServerConfig)(f: String => A): A =
-    // Every test here makes the server log a handler error on purpose
-    Logger
-      .of[NettyRequestHandler]
-      .suppressWarnings {
-        val server = config.start()
-        try f(s"http://127.0.0.1:${server.localPort}")
-        finally server.stop()
-      }
+  // Returns the server's logs, so a test can check which errors it logged
+  private def withServer(config: NettyServerConfig)(f: String => Unit): CapturedLogs = captureLogs {
+    val server = config.start()
+    try f(s"http://127.0.0.1:${server.localPort}")
+    finally server.stop()
+  }
 
   private def get(url: String): HttpResponse[String] = client.send(
     HttpRequest.newBuilder(URI.create(url)).GET().build(),
@@ -89,54 +85,65 @@ class RouterHandlerErrorTest extends UniTest:
   )
 
   test("let an outer filter classify the original controller exception") {
-    withServer(serverConfig.withFilter(classifier)) { base =>
-      val sync = get(s"${base}/error")
-      sync.statusCode() shouldBe 400
-      sync.body() shouldBe "classified failure"
+    val logs =
+      withServer(serverConfig.withFilter(classifier)) { base =>
+        val sync = get(s"${base}/error")
+        sync.statusCode() shouldBe 400
+        sync.body() shouldBe "classified failure"
 
-      val async = get(s"${base}/rx-error")
-      async.statusCode() shouldBe 400
-      async.body() shouldBe "async failure"
+        val async = get(s"${base}/rx-error")
+        async.statusCode() shouldBe 400
+        async.body() shouldBe "async failure"
 
-      // An exception the filter does not handle still becomes a generic 500
-      val unhandled = get(s"${base}/state-error")
-      unhandled.statusCode() shouldBe 500
-      unhandled.body() shouldBe "Internal Server Error"
-    }
+        // An exception the filter does not handle still becomes a generic 500
+        val unhandled = get(s"${base}/state-error")
+        unhandled.statusCode() shouldBe 500
+        unhandled.body() shouldBe "Internal Server Error"
+      }
+    logs.warnings shouldContain "Error in Rx handler: password=hunter2"
   }
 
   test("let a router-level @Filter classify the controller exception") {
-    withServer(
-      serverConfig.withRxHandler(
-        RouterHandler(Router.filter[ClassifierFilter].andThen(Router.of[FilteredController]))
-      )
-    ) { base =>
-      val resp = get(s"${base}/filtered-error")
-      resp.statusCode() shouldBe 400
-      resp.body() shouldBe "router filter"
-    }
+    val logs =
+      withServer(
+        serverConfig.withRxHandler(
+          RouterHandler(Router.filter[ClassifierFilter].andThen(Router.of[FilteredController]))
+        )
+      ) { base =>
+        val resp = get(s"${base}/filtered-error")
+        resp.statusCode() shouldBe 400
+        resp.body() shouldBe "router filter"
+      }
+    // Classified exceptions are not logged as server errors
+    logs.warnings shouldNotContain "Error in Rx handler"
   }
 
   test("render an unrecovered controller exception as a generic 500") {
-    withServer(serverConfig) { base =>
-      val resp = get(s"${base}/state-error")
-      resp.statusCode() shouldBe 500
-      resp.body() shouldBe "Internal Server Error"
-    }
+    val logs =
+      withServer(serverConfig) { base =>
+        val resp = get(s"${base}/state-error")
+        resp.statusCode() shouldBe 500
+        resp.body() shouldBe "Internal Server Error"
+      }
+    logs.warnings shouldContain "Error in Rx handler: password=hunter2"
   }
 
   test("show the exception message with the server's detailed errors") {
-    withServer(serverConfig.withDetailedErrors(true)) { base =>
-      val resp = get(s"${base}/state-error")
-      resp.statusCode() shouldBe 500
-      resp.body() shouldBe "password=hunter2"
-    }
+    val logs =
+      withServer(serverConfig.withDetailedErrors(true)) { base =>
+        val resp = get(s"${base}/state-error")
+        resp.statusCode() shouldBe 500
+        resp.body() shouldBe "password=hunter2"
+      }
+    logs.warnings shouldContain "Error in Rx handler: password=hunter2"
   }
 
   test("keep parameter mapping errors as 400") {
-    withServer(serverConfig) { base =>
-      get(s"${base}/count").statusCode() shouldBe 400
-    }
+    val logs =
+      withServer(serverConfig) { base =>
+        get(s"${base}/count").statusCode() shouldBe 400
+      }
+    logs.warnings shouldNotContain "Error in Rx handler"
   }
 
   test("return the controller exception as a failed Rx") {

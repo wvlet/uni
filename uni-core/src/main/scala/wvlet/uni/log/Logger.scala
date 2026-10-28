@@ -225,6 +225,11 @@ object Logger:
     */
   def of[A: ClassTag]: Logger = apply(implicitly[ClassTag[A]].runtimeClass.getName)
 
+  /**
+    * The name of the logger that LogSupport uses for the given class on this platform
+    */
+  private[uni] def loggerNameOf(cl: Class[?]): String = LogEnv.getLoggerName(cl)
+
   def apply(loggerName: String): Logger =
     val l = loggerCache.getOrElseUpdate(
       loggerName,

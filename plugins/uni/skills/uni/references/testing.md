@@ -129,6 +129,44 @@ test("RPC round trip") {
 }
 ```
 
+## Testing error paths
+
+A failing handler makes the server log a warning with a stack trace on a worker
+thread. Wrap the test in `captureLogs`: the records are returned instead of
+printed, so the test can assert that the error was logged.
+
+```scala test
+import wvlet.uni.http.{Http, HttpMaxRetryException, Request}
+import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.rx.Rx
+
+test("a failing handler returns 500 and logs the error") {
+  val logs = captureLogs {
+    NettyServer
+      .withPort(0)
+      .withRxHandler(_ => Rx.exception(IllegalStateException("boom")))
+      .start { server =>
+        val http = Http.client.withBaseUri(s"http://localhost:${server.localPort}").newSyncClient
+        // A 5xx throws HttpMaxRetryException once retries run out; noRetry fails fast
+        val e = intercept[HttpMaxRetryException](http.noRetry.send(Request.get("/")))
+        e.getMessage shouldContain "Internal Server Error"
+      }
+  }
+  logs.warnings shouldContain "boom"
+}
+```
+
+- `logs.warnings` / `logs.errors` / `logs.messages`: one message per line, plus
+  a line with the exception; `logs.records` for the `LogRecord`s.
+- Captures the test's thread and threads that run no suite (server workers,
+  `Future` pools); never another suite's thread. Log levels are unchanged.
+- `captureLogs[A] { ... }` captures only the logger of `A` and its children.
+- The block must be synchronous; returning a `Future` or `Rx` from it fails.
+- `captureStdout { ... }` / `captureStderr { ... }` return what the block printed
+  with `println` / `Console.err` (not Java's `System.out`).
+- Prefer these over `Logger.of[X].suppressWarnings { ... }`, which changes a
+  global log level and asserts nothing.
+
 ## Reusable fixtures
 
 Share servers, clients, or temp directories across suites with traits that call

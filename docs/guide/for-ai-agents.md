@@ -103,6 +103,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields. See [Command Launcher](../cli/launcher) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 | Test fixtures | `wvlet.uni.test.*` | `addDesign(_.bindSingleton[A])` in a trait that extends `UniTest`, then `test("...") { (a: A) => ... }`. See [Reusable Fixtures](../core/unitest#reusable-fixtures) |
+| Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."`; also `captureStdout` / `captureStderr`. See [Testing Error Paths](../core/unitest#testing-error-paths) |
 
 ## How do I migrate from Airframe?
 
