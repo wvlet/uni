@@ -18,7 +18,7 @@ import scala.scalajs.js
 /**
   * Helpers for loading Node.js built-in modules from Scala.js.
   */
-private[http] object NodeModules:
+private[uni] object NodeModules:
 
   /**
     * Load a Node built-in module lazily at call time rather than via a static `@JSImport`.
@@ -39,7 +39,8 @@ private[http] object NodeModules:
     * it (they target Node compatibility); browsers — including web workers — lack it.
     */
   def isNode: Boolean =
-    !js.isUndefined(js.Dynamic.global.process) &&
+    // typeof, because reading an undeclared `process` global throws a ReferenceError in browsers
+    js.typeOf(js.Dynamic.global.process) != "undefined" &&
       !js.isUndefined(js.Dynamic.global.process.versions) &&
       !js.isUndefined(js.Dynamic.global.process.versions.node)
 

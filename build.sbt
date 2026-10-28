@@ -364,6 +364,7 @@ lazy val docSnippets = project
                 base / "plugins/uni/skills/uni"             -> "snippets.skill",
                 base / "docs/guide/uni-vs-scala-toolkit.md" -> "snippets.guide",
                 base / "docs/core/unitest.md"               -> "snippets.core",
+                base / "docs/core/settings.md"              -> "snippets.core",
                 base / "docs/blog"                          -> "snippets.blog"
               ),
               base,

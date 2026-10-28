@@ -47,6 +47,26 @@ val p: Person    = Weaver.fromJson[Person](json)
 val tree         = JSON.parse(json) // untyped JSONValue
 ```
 
+## Persisted settings (SettingStore)
+
+An `RxVar` saved as `{"version", "state"}` JSON on every change: `~/.config/<app>/<key>.json` on
+the JVM, Native, and Node.js, and `localStorage` in a browser. Missing fields take case-class
+defaults; raise `withVersion` and convert old JSON in `withMigrate` when renaming fields.
+
+```scala
+import wvlet.uni.store.{InMemoryStoreBackend, SettingLocation, SettingStore, SettingStoreConfig}
+
+case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
+
+val settings = SettingStore.of("settings", AppSettings(), SettingStoreConfig("my-app"))
+settings.update(_.copy(theme = "dark"))
+val fontSize = settings.map(_.fontSize) // derived Rx, like a zustand selector
+
+// Other locations: OSConfig, Project(dir), Directory(path); in tests, use an in-memory backend
+val osConfig = SettingStoreConfig("my-app").withLocation(SettingLocation.OSConfig)
+val inTest   = SettingStoreConfig("my-app").withBackend(InMemoryStoreBackend())
+```
+
 ## Retry
 
 ```scala

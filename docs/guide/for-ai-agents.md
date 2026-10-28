@@ -91,6 +91,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
+| Persisted settings | `wvlet.uni.store.{SettingStore, SettingStoreConfig}` | `SettingStore.of("settings", AppSettings(), SettingStoreConfig("my-app"))`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [Persisted Settings](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api]`. See [RPC](../http/rpc) |

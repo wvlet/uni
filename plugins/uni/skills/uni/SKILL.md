@@ -36,6 +36,7 @@ Scala Native.
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`; see [references/rx.md](references/rx.md) |
+| Persisted settings | `wvlet.uni.store.{SettingStore, SettingStoreConfig}` | `SettingStore.of(key, default, SettingStoreConfig(app))`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.{NettyServer, RouterHandler}` | [references/http-server.md](references/http-server.md) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
@@ -92,7 +93,7 @@ Read the reference for the task before writing code:
 
 | Task | Reference |
 |------|-----------|
-| Object wiring, logging, JSON, retry, MCP server | [references/core.md](references/core.md) |
+| Object wiring, logging, JSON, persisted settings, retry, MCP server | [references/core.md](references/core.md) |
 | Typed RPC service, server, and generated client | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
 | HTTP server, REST controllers, filters | [references/http-server.md](references/http-server.md) |
