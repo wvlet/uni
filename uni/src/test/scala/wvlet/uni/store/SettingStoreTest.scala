@@ -116,6 +116,9 @@ class SettingStoreTest extends UniTest:
     )
     backend.fireChange(Some("""{"version":0,"state":{"theme":"dark"}}"""))
     settings.get shouldBe AppSettings(theme = "dark")
+    // Unreadable data, e.g., a file in the middle of a non-atomic save, keeps the current value
+    backend.fireChange(Some("{not json"))
+    settings.get shouldBe AppSettings(theme = "dark")
     backend.fireChange(None)
     settings.get shouldBe AppSettings()
     settings.stop()

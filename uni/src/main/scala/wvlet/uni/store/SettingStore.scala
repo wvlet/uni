@@ -154,9 +154,12 @@ class SettingStore[A] private (
 
   private val watcher: Cancelable =
     if config.watchChanges then
-      backend.watch(key) { raw =>
-        val newValue = raw.flatMap(r => SettingStore.decode(r, config, weaver)).getOrElse(default)
-        super.update(_ => newValue)
+      backend.watch(key) {
+        case None =>
+          super.update(_ => default)
+        case Some(raw) =>
+          // Keep the current value while the data is unreadable, e.g., during a non-atomic save
+          SettingStore.decode(raw, config, weaver).foreach((v, _) => super.update(_ => v))
       }
     else
       Cancelable.empty
@@ -211,8 +214,8 @@ object SettingStore extends LogSupport:
         default
       case Some(raw) =>
         decode(raw, config, weaver) match
-          case Some(v) =>
-            if storedVersion(raw).exists(_ < config.version) then
+          case Some((v, migrated)) =>
+            if migrated then
               // Save the migrated value so the migration runs only once
               try
                 backend.write(key, encode(v, config, weaver))
@@ -232,33 +235,26 @@ object SettingStore extends LogSupport:
   private def encode[A](v: A, config: SettingStoreConfig, weaver: Weaver[A]): String =
     s"""{"version":${config.version},"state":${weaver.toJson(v)}}"""
 
-  private def storedVersion(raw: String): Option[Int] =
-    try
-      JSON.parse(raw) match
-        case obj: JSONObject =>
-          obj
-            .get("version")
-            .collect { case JSONLong(n) =>
-              n.toInt
-            }
-        case _ =>
-          None
-    catch
-      case NonFatal(e) =>
-        None
-
-  private def decode[A](raw: String, config: SettingStoreConfig, weaver: Weaver[A]): Option[A] =
+  /**
+    * Decode stored data, returning the value and whether a migration was applied
+    */
+  private def decode[A](
+      raw: String,
+      config: SettingStoreConfig,
+      weaver: Weaver[A]
+  ): Option[(A, Boolean)] =
     try
       JSON.parse(raw) match
         case obj: JSONObject =>
           (obj.get("version"), obj.get("state")) match
             case (Some(JSONLong(version)), Some(state)) =>
-              val current =
-                if version < config.version then
+              val migrated = version < config.version
+              val current  =
+                if migrated then
                   config.migrate(state, version.toInt)
                 else
                   state
-              Some(weaver.fromJSONValue(current))
+              Some((weaver.fromJSONValue(current), migrated))
             case _ =>
               None
         case _ =>
