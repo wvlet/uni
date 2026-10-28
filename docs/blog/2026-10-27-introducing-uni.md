@@ -54,6 +54,8 @@ Uni takes the other path: **learn one library, build the whole app.**
 | MCP servers | [`uni.mcp`](/mcp/): a Scala trait becomes tools that AI agents can call |
 | Reactive streams | [Rx](/rx/): composable streams and variables for async code and UI state |
 | CLI | [Command Launcher](/cli/launcher), terminal colors, progress bars |
+| Web UI (Scala.js) | [RxElement](/dom/): reactive HTML components driven by `Rx` |
+| Desktop apps | [Electron](/http/electron): typed RPC between the UI and the main process over IPC |
 | Testing | [UniTest](/core/unitest) (`uni-test`): `shouldBe`, `shouldMatch`, property checks |
 
 ## Quick start
@@ -122,6 +124,107 @@ test("greet a person") {
 For a longer walk through, read the [Guide](/guide/) or
 [The Uni Book](/book/), which builds a CLI, an HTTP service, and a
 cross-platform app step by step.
+
+## Demo: one trait, from server to browser to desktop
+
+Uni's conventions carry across a whole application. Here, one service trait
+becomes an HTTP API, a web UI, and an Electron desktop app.
+
+Define the service once, in code shared by every platform:
+
+```scala
+import wvlet.uni.rx.Rx
+
+case class CounterState(value: Int)
+
+trait CounterApi:
+  def get(): Rx[CounterState]
+  def increment(amount: Int): Rx[CounterState]
+
+class CounterApiImpl extends CounterApi:
+  private var value = 0
+  def get(): Rx[CounterState] = Rx.single(CounterState(value))
+  def increment(amount: Int): Rx[CounterState] =
+    value += amount
+    Rx.single(CounterState(value))
+```
+
+**Serve it over HTTP.** On the JVM, `RPCRouter` turns the trait into routes,
+and `uni-netty` serves them:
+
+```scala
+import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.rpc.RPCRouter
+
+@main def counterServer(): Unit = NettyServer
+  .withPort(8080)
+  .withRxHandler(RPCHandler(RPCRouter.of[CounterApi](CounterApiImpl())))
+  .start(_.awaitTermination())
+```
+
+**Build the UI in Scala.js.** `RxElement` renders HTML that updates itself
+when an `Rx.variable` changes, and `RPCClient` calls the trait's methods with
+the same JSON codec the server uses. The same component runs in a browser
+page or in an Electron window:
+
+```scala skip
+import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
+import wvlet.uni.http.Http
+import wvlet.uni.http.rpc.RPCClient
+import wvlet.uni.surface.Surface
+import scala.language.implicitConversions
+
+class CounterUI extends RxElement:
+  private val rpc         = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+  private lazy val client = Http.client.newAsyncClient
+  private val count       = Rx.variable(0)
+
+  override def render: RxElement = div(
+    h1("Uni Counter"),
+    p(count.map(_.toString)), // re-renders when count changes
+    button(
+      onclick -> { () => rpc.callAsync[CounterState](client, "increment", Seq(1)).run(show) },
+      "+1"
+    )
+  )
+
+  private def show(s: CounterState): Unit = count := s.value
+
+  override def onMount(node: Any): Unit =
+    rpc.callAsync[CounterState](client, "get", Seq.empty).run(show)
+```
+
+In a browser, the client sends these calls over HTTP to the server above
+(set the server address with `Http.client.withBaseUri(...)`).
+
+**Ship it as a desktop app.** In Electron, the main process serves the same
+trait over IPC instead of a network port, and the renderer calls
+`ElectronRenderer.install()` once so `CounterUI`'s calls go over IPC too. No
+HTTP server, no open ports:
+
+```scala skip
+import wvlet.uni.electron.{ElectronRenderer, ElectronRPCServer}
+import scala.scalajs.js
+import scala.scalajs.js.annotation.JSExportTopLevel
+
+// Main process (Node.js)
+@JSExportTopLevel("wireMainProcess")
+def wireMainProcess(ipcMain: js.Dynamic): Unit =
+  ElectronRPCServer.serve(ipcMain, RPCRouter.of[CounterApi](CounterApiImpl()))
+
+// Renderer (Chromium)
+@JSExportTopLevel("main")
+def main(): Unit =
+  ElectronRenderer.install()
+  CounterUI().renderTo("app")
+```
+
+The whole app (service, UI, and business logic) is Scala, built from one
+codebase. [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app)
+is the runnable version with Tailwind CSS styling and packaging for macOS,
+Windows, and Linux, and the [Electron Tutorial](/http/electron-tutorial)
+builds it step by step from an empty directory.
 
 ## Built for AI agents, too
 
