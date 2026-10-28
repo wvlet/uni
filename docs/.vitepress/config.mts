@@ -390,6 +390,13 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           ]
         },
         {
+          text: 'Text Formats',
+          items: [
+            { text: 'Overview', link: '/text/' },
+            { text: 'YAML', link: '/text/yaml' }
+          ]
+        },
+        {
           text: 'Control Flow',
           items: [
             { text: 'Overview', link: '/control/' },
@@ -483,6 +490,13 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Persisted Settings', link: '/core/settings' },
             { text: 'Result', link: '/core/result' },
             { text: 'Utilities', link: '/core/utilities' }
+          ]
+        },
+        {
+          text: 'Text Formats',
+          items: [
+            { text: 'Overview', link: '/text/' },
+            { text: 'YAML', link: '/text/yaml' }
           ]
         },
         {
