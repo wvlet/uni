@@ -1,4 +1,4 @@
-# Persisted Settings
+# SettingStore
 
 `SettingStore` keeps user settings, such as a theme, recent files, or window size, across restarts.
 It is an `RxVar`: read it with `get`, change it with `set` or `update`, and subscribe to it like
