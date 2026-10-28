@@ -2,16 +2,16 @@
 title: "Introducing Uni: One Scala 3 Library for the Whole App"
 date: 2026-10-27
 author: Taro L. Saito
-description: "Uni is one Scala 3 library with one set of conventions for object wiring, logging, JSON/MessagePack, HTTP, typed RPC, MCP servers, Rx, CLI tools, and testing, on the JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe and is built to be read by AI coding agents as well as people."
+description: "Uni is one Scala 3 library with one set of conventions for object wiring, logging, object serialization (JSON and MessagePack), HTTP, typed RPC, MCP servers, Rx, CLI tools, and testing, on the JVM, Scala.js, and Scala Native. It is the Scala 3 successor of Airframe and is built to be read by AI coding agents as well as people."
 image: /blog/many-libraries-or-one-uni.png
 ---
 
 # Introducing Uni: One Scala 3 Library for the Whole App
 
 **Uni is a Scala 3 library that gives an application everything it needs from
-one dependency, with one set of conventions: object wiring, logging,
-JSON/MessagePack, an HTTP client and server, typed RPC, MCP servers, Rx, CLI
-tools, and a test framework. The same code runs on the JVM, Scala.js, and
+one dependency, with one set of conventions: object wiring, logging, object
+serialization (JSON and MessagePack), an HTTP client and server, typed RPC,
+MCP servers, Rx, CLI tools, and a test framework. The same code runs on the JVM, Scala.js, and
 Scala Native.** Uni has shipped 37 releases since March 2026, and this post
 is its first proper introduction.
 
@@ -47,7 +47,7 @@ Uni takes the other path: **learn one library, build the whole app.**
 |------|-----|
 | Object wiring and lifecycle | [Design](/core/design): constructor wiring, singletons, `onStart`/`onShutdown` hooks |
 | Logging | [`LogSupport`](/core/logging): `info`/`debug`/`warn` with source locations |
-| JSON and MessagePack | [Weaver](/core/weaver): `derives Weaver` |
+| Object serialization | [Weaver](/core/weaver): `derives Weaver` for JSON and MessagePack |
 | HTTP client | [`Http.client`](/http/client): sync and async, retries, Server-Sent Events, WebSocket |
 | HTTP server | [REST Server](/http/server): Netty on the JVM (`uni-netty`), Node.js on Scala.js, a native server on Scala Native |
 | Typed RPC | [RPC](/http/rpc): services defined as Scala traits, with type-safe clients |
