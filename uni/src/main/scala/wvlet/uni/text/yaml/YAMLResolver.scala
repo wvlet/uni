@@ -188,5 +188,5 @@ end YAMLResolver
 private[yaml] object YAMLResolver:
 
   def resolve(doc: YAMLDocument): JSONValue =
-    val text = LineReader.normalizeLineBreaks(doc.source.raw.stripPrefix("﻿"))
+    val text = LineReader.normalizeLineBreaks(doc.source.raw.stripPrefix("\uFEFF"))
     YAMLResolver(text, YAML.defaultMaxAliasNodes).document(doc.root)

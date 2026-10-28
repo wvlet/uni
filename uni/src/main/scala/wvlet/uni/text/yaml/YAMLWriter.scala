@@ -109,7 +109,7 @@ private[yaml] object YAMLWriter:
           sb.append(childLeading(e.key.source, first, i, indent, ""))
           sb.append(keyText(e.key))
           val v = e.value
-          sb.append(valueLeading(v, ":", " ", indent + 2))
+          sb.append(valueLeading(v, ":", indent + 2))
           node(v, indent + 2)
         }
 
@@ -122,10 +122,10 @@ private[yaml] object YAMLWriter:
         .foreach { (item, i) =>
           if item.source.leading.nonEmpty then
             // The leading text of a parsed item includes its dash
-            sb.append(childLeading(item.source, first, i, indent, "- "))
+            sb.append(spaced(childLeading(item.source, first, i, indent, "- "), item))
           else
             sb.append(childLeading(YAMLSource.none, first, i, indent, ""))
-            sb.append(valueLeading(item, "-", " ", indent + 2))
+            sb.append(valueLeading(item, "-", indent + 2))
           node(item, indent + 2)
         }
 
@@ -175,7 +175,7 @@ private[yaml] object YAMLWriter:
     /**
       * The text between a mapping key (or a sequence dash) and a value written after it
       */
-    private def valueLeading(v: YAMLNode, indicator: String, space: String, col: Int): String =
+    private def valueLeading(v: YAMLNode, indicator: String, col: Int): String =
       val leading = v.source.leading
       if v.unchanged then
         leading
@@ -190,15 +190,24 @@ private[yaml] object YAMLWriter:
               ""
           // A sequence under a sequence item can start on the same line
           if indicator == "-" && !hasProps(v) then
-            indicator + space
+            indicator + " "
           else
             indicator + p + lb + " " * col
       else if leading.nonEmpty then
-        leading
+        spaced(leading, v)
       else if isEmptyPlain(v) then
         indicator
       else
-        indicator + space
+        indicator + " "
+
+    /**
+      * Add a space after the leading text of an empty value (`key:`, `-`) that now has content
+      */
+    private def spaced(leading: String, v: YAMLNode): String =
+      if !v.unchanged && !isEmptyPlain(v) && (leading.endsWith(":") || leading.endsWith("-")) then
+        leading + " "
+      else
+        leading
 
     private def isEmptyPlain(v: YAMLNode): Boolean =
       v match
@@ -313,7 +322,7 @@ private[yaml] object YAMLWriter:
           b.append("\\t")
         case '\r' =>
           b.append("\\r")
-        case c if c < ' ' || c == '\u007f' || c == '\u0085' || c == ' ' || c == ' ' =>
+        case c if c < ' ' || c == '\u007f' || c == '\u0085' || c == '\u2028' || c == '\u2029' =>
           b.append(f"\\u${c.toInt}%04x")
         case c =>
           b.append(c)

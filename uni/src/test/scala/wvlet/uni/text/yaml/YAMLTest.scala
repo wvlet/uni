@@ -174,6 +174,7 @@ class YAMLTest extends UniTest:
 
     parseError("a: 1\na: 2").getMessage shouldContain "Duplicate mapping key: a"
     parseError("a: *missing").getMessage shouldContain "Unknown alias: *missing"
+    parseError("a: !!int x").getMessage shouldContain "line 1, column 10"
     parseError("a: b: c").getMessage shouldContain "A mapping is not allowed here"
     parseError("a:\n  b:\n    - 1\n   c: 2").getMessage shouldContain "Bad indentation"
     parseError("a:\n  b: 1\n   c: 2").getMessage shouldContain

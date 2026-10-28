@@ -37,7 +37,7 @@ private[yaml] class YAMLParser(input: String):
 
   // Drop a byte order mark so that a leading `---` stays at column 0
   private val bom =
-    if input.startsWith("﻿") then
+    if input.startsWith("\uFEFF") then
       1
     else
       0
@@ -742,11 +742,11 @@ private[yaml] class YAMLParser(input: String):
       case 'N' =>
         sb.append('\u0085')
       case '_' =>
-        sb.append(' ')
+        sb.append('\u00a0')
       case 'L' =>
-        sb.append(' ')
+        sb.append('\u2028')
       case 'P' =>
-        sb.append(' ')
+        sb.append('\u2029')
       case 'x' =>
         appendCodePoint(sb, readHex(2, escapeStart))
       case 'u' =>
@@ -922,25 +922,31 @@ private[yaml] class YAMLParser(input: String):
     * Build the node, with the text since `leadingStart` (-1 for none) as its leading trivia
     */
   private def build(p: PNode, leadingStart: Int): YAMLNode =
-    def source(node: YAMLNode, opening: Int, indent: Int): YAMLNode = node.withSource(
-      YAMLSource(
-        raw(p.start, p.end),
-        if leadingStart < 0 then
-          ""
-        else
-          raw(leadingStart, p.start)
-        ,
-        raw(p.end, p.cend),
-        raw(p.start, opening),
-        indent,
-        Span.within(rawOffset(p.start), rawOffset(p.end)),
-        node.content,
-        p.start
+    def source(node: YAMLNode, opening: Int, indent: Int, offset: Int = p.start): YAMLNode = node
+      .withSource(
+        YAMLSource(
+          raw(p.start, p.end),
+          if leadingStart < 0 then
+            ""
+          else
+            raw(leadingStart, p.start)
+          ,
+          raw(p.end, p.cend),
+          raw(p.start, opening),
+          indent,
+          Span.within(rawOffset(p.start), rawOffset(p.end)),
+          node.content,
+          offset
+        )
       )
-    )
     p match
       case s: PScalar =>
-        source(YAMLNode.Scalar(s.value, s.style, s.anchor, s.tag), s.start, -1)
+        val offset =
+          if s.valueStart < 0 then
+            s.start
+          else
+            s.valueStart
+        source(YAMLNode.Scalar(s.value, s.style, s.anchor, s.tag), s.start, -1, offset)
       case a: PAlias =>
         source(YAMLNode.Alias(a.name), a.start, -1)
       case m: PMap =>
@@ -993,7 +999,9 @@ private[yaml] object YAMLParser:
         tag: Option[String],
         start: Int,
         end: Int,
-        commentEnd: Int = -1
+        commentEnd: Int = -1,
+        // The start of the scalar text after its properties, for error messages
+        valueStart: Int = -1
     )
 
     case PMap(
@@ -1028,7 +1036,16 @@ private[yaml] object YAMLParser:
     def withProps(anchor: Option[String], tag: Option[String], from: Int): PNode =
       this match
         case s: PScalar =>
-          s.copy(anchor = anchor.orElse(s.anchor), tag = tag.orElse(s.tag), start = from)
+          s.copy(
+            anchor = anchor.orElse(s.anchor),
+            tag = tag.orElse(s.tag),
+            start = from,
+            valueStart =
+              if s.valueStart < 0 then
+                s.start
+              else
+                s.valueStart
+          )
         case m: PMap =>
           m.copy(anchor = anchor.orElse(m.anchor), tag = tag.orElse(m.tag), start = from)
         case s: PSeq =>

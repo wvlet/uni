@@ -27,10 +27,8 @@ import wvlet.uni.weaver.Weaver
   *   # Body
   * }}}
   *
-  * @param data
-  *   the parsed header, or None when the text has no frontmatter Change the header with [[update]]
-  *   (or `copy`) and write the text back with [[toText]]. Only the changed parts of the header are
-  *   rewritten; its comments and formatting stay.
+  * Change the header with [[update]] (or `copy`) and write the text back with [[toText]]. Only the
+  * changed parts of the header are rewritten; its comments and formatting stay.
   *
   * @param data
   *   the parsed header, or None when the text has no frontmatter

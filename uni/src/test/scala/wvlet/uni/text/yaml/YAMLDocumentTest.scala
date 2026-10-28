@@ -99,6 +99,20 @@ class YAMLDocumentTest extends UniTest:
     YAML.parseDocument("a: ~\n").set(Seq("a", 0), "x").toYaml shouldBe "a:\n  - x\n"
   }
 
+  test("fill empty values") {
+    YAML.parseDocument("a:\n").set(Seq("a"), 1).toYaml shouldBe "a: 1\n"
+    YAML.parseDocument("a: # c\n").set(Seq("a"), 1).toYaml shouldBe "a: 1 # c\n"
+    YAML.parseDocument("-\n- b\n").set(Seq(0), "x").toYaml shouldBe "- x\n- b\n"
+  }
+
+  test("update aliases of an edited anchor") {
+    val d = YAML
+      .parseDocument("base: &b\n  x: 1\ndev: *b\n")
+      .update(JSON.parse("""{"base":{"x":2},"dev":{"x":1}}"""))
+    d.toJSON.toJSON shouldBe """{"base":{"x":2},"dev":{"x":1}}"""
+    d.toYaml shouldBe "base: &b\n  x: 2\ndev:\n  x: 1\n"
+  }
+
   test("use the document's line breaks for new text") {
     YAML.parseDocument("a: 1\r\nb: 2\r\n").set(Seq("c", "d"), 1).toYaml shouldBe
       "a: 1\r\nb: 2\r\nc:\r\n  d: 1\r\n"

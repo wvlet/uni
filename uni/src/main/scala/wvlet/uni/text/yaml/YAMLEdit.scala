@@ -84,8 +84,36 @@ private[yaml] object YAMLEdit:
   /**
     * Change the node, which resolves to `old`, so that it resolves to `now`
     */
-  def update(n: YAMLNode, old: JSONValue, now: JSONValue): YAMLNode =
-    if old == now then
+  def update(n: YAMLNode, old: JSONValue, now: JSONValue): YAMLNode = update(
+    n,
+    old,
+    now,
+    expandAliases = false
+  )
+
+  /**
+    * Change the document root, and check the result: an edited anchor also changes its aliases, so
+    * when the result differs, edit again with the aliases replaced by their values
+    */
+  def updateRoot(
+      root: YAMLNode,
+      old: JSONValue,
+      now: JSONValue,
+      resolve: YAMLNode => JSONValue
+  ): YAMLNode =
+    val first = update(root, old, now, expandAliases = false)
+    if resolve(first) == now then
+      first
+    else
+      update(root, old, now, expandAliases = true)
+
+  private def update(
+      n: YAMLNode,
+      old: JSONValue,
+      now: JSONValue,
+      expandAliases: Boolean
+  ): YAMLNode =
+    if old == now && !(expandAliases && hasAlias(n)) then
       n
     else
       (n, old, now) match
@@ -96,7 +124,7 @@ private[yaml] object YAMLEdit:
               val k = keyOf(e.key).get
               w.get(k)
                 .map { x =>
-                  e.copy(value = update(e.value, o.get(k).getOrElse(JSONNull()), x))
+                  e.copy(value = update(e.value, o.get(k).getOrElse(JSONNull()), x, expandAliases))
                 }
             }
           val existing = m.entries.flatMap(e => keyOf(e.key)).toSet
@@ -112,7 +140,7 @@ private[yaml] object YAMLEdit:
             .indices
             .map { i =>
               if i < s.items.size then
-                update(s.items(i), o.lift(i).getOrElse(JSONNull()), w(i))
+                update(s.items(i), o.lift(i).getOrElse(JSONNull()), w(i), expandAliases)
               else
                 YAMLWriter.fromJSON(w(i))
             }
@@ -142,6 +170,17 @@ private[yaml] object YAMLEdit:
       case (old, s) =>
         withAnchor(s, old.anchorOf)
 
+  private def hasAlias(n: YAMLNode): Boolean =
+    n match
+      case _: Alias =>
+        true
+      case m: Mapping =>
+        m.entries.exists(e => hasAlias(e.key) || hasAlias(e.value))
+      case s: Sequence =>
+        s.items.exists(hasAlias)
+      case _: Scalar =>
+        false
+
   private def isBlock(n: YAMLNode): Boolean =
     n match
       case m: Mapping =>
@@ -161,7 +200,7 @@ private[yaml] object YAMLEdit:
         case m: Mapping =>
           m.copy(anchor = anchor)
         case s: Sequence =>
-          s.copy(items = s.items, anchor = anchor)
+          s.copy(anchor = anchor)
         case a: Alias =>
           a
 

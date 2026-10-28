@@ -59,7 +59,9 @@ case class YAMLDocument(root: YAMLNode, source: YAMLSource = YAMLSource.none):
   /**
     * Change the document so that it resolves to `value`, editing only the parts that differ
     */
-  def update(value: JSONValue): YAMLDocument = copy(root = YAMLEdit.update(root, toJSON, value))
+  def update(value: JSONValue): YAMLDocument = copy(root =
+    YAMLEdit.updateRoot(root, toJSON, value, r => copy(root = r).toJSON)
+  )
 
 end YAMLDocument
 
