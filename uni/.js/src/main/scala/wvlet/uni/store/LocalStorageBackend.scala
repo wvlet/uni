@@ -35,12 +35,12 @@ class LocalStorageBackend(prefix: String, storage: dom.Storage = dom.window.loca
     remove(key)
   }
 
-  override def watch(key: String)(onChange: Option[String] => Unit): Cancelable =
+  override def watch(key: String)(onChange: () => Unit): Cancelable =
     val listener: js.Function1[dom.StorageEvent, Unit] =
       (e: dom.StorageEvent) =>
         // A null key means the storage was cleared
         if e.storageArea == storage && (e.key == null || e.key == itemKey(key)) then
-          onChange(read(key))
+          onChange()
     dom.window.addEventListener("storage", listener)
     Cancelable(() => dom.window.removeEventListener("storage", listener))
 

@@ -54,14 +54,14 @@ class NodeFileStoreBackend(val dir: IOPath) extends StoreBackend:
     if fs.existsSync(path).asInstanceOf[Boolean] then
       fs.renameSync(path, s"${path}.corrupt-${System.currentTimeMillis()}")
 
-  override def watch(key: String)(onChange: Option[String] => Unit): Cancelable =
+  override def watch(key: String)(onChange: () => Unit): Cancelable =
     fs.mkdirSync(dir.path, js.Dynamic.literal(recursive = true))
     val fileName = s"${key}.json"
     val watcher  = fs.watch(
       dir.path,
       (_: String, name: js.Any) =>
         if name != null && name.toString == fileName then
-          onChange(read(key))
+          onChange()
     )
     Cancelable(() => watcher.close())
 

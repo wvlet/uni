@@ -32,9 +32,10 @@ trait StoreBackend:
   def moveAside(key: String): Unit
 
   /**
-    * Call `onChange` with the new stored data when another process or tab changes `key`
+    * Call `onChange` when another process or tab may have changed `key`. The caller reads the new
+    * data with [[read]].
     */
-  def watch(key: String)(onChange: Option[String] => Unit): Cancelable = Cancelable.empty
+  def watch(key: String)(onChange: () => Unit): Cancelable = Cancelable.empty
 
 /**
   * Stores each key in `<dir>/<key>.json`. A write goes to a temporary file first and then replaces
@@ -66,13 +67,13 @@ class FileStoreBackend(val dir: IOPath) extends StoreBackend:
     if FileSystem.exists(path) then
       FileSystem.move(path, dir / s"${key}.json.corrupt-${System.currentTimeMillis()}")
 
-  override def watch(key: String)(onChange: Option[String] => Unit): Cancelable =
+  override def watch(key: String)(onChange: () => Unit): Cancelable =
     FileSystem.createDirectoryIfNotExists(dir)
     val fileName = s"${key}.json"
     val watcher  =
       IOWatch.watch(dir) { event =>
         if event.path.fileName == fileName then
-          onChange(read(key))
+          onChange()
       }
     Cancelable(() => watcher.close())
 

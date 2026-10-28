@@ -152,25 +152,39 @@ class SettingStore[A] private (
 ) extends RxVar[A](initial)
     with LogSupport:
 
+  // Watch callbacks may run on another thread (e.g., the JVM file watcher), so updates, saves, and
+  // reloads hold this lock. A reload reads the stored data under the lock, so a stale change event
+  // cannot revert a newer update.
   private val watcher: Cancelable =
     if config.watchChanges then
-      backend.watch(key) {
+      backend.watch(key)(() => reload())
+    else
+      Cancelable.empty
+
+  private def reload(): Unit = synchronized {
+    try
+      backend.read(key) match
         case None =>
           super.update(_ => default)
         case Some(raw) =>
           // Keep the current value while the data is unreadable, e.g., during a non-atomic save
           SettingStore.decode(raw, config, weaver).foreach((v, _) => super.update(_ => v))
-      }
-    else
-      Cancelable.empty
+    catch
+      case NonFatal(e) =>
+        warn(s"Failed to reload setting ${key}: ${e.getMessage}", e)
+  }
 
-  override def update(updater: A => A, force: Boolean = false): Unit =
+  override def update(updater: A => A, force: Boolean = false): Unit = synchronized {
+    val before = get
     super.update(updater, force)
-    save()
+    val after = get
+    if force || before != after then
+      save(after)
+  }
 
-  private def save(): Unit =
+  private def save(v: A): Unit =
     try
-      backend.write(key, SettingStore.encode(get, config, weaver))
+      backend.write(key, SettingStore.encode(v, config, weaver))
     catch
       case NonFatal(e) =>
         warn(s"Failed to save setting ${key}: ${e.getMessage}", e)
@@ -178,9 +192,14 @@ class SettingStore[A] private (
   /**
     * Remove the stored data and reset the value to the default
     */
-  def clear(): Unit =
-    backend.remove(key)
+  def clear(): Unit = synchronized {
+    try
+      backend.remove(key)
+    catch
+      case NonFatal(e) =>
+        warn(s"Failed to remove setting ${key}: ${e.getMessage}", e)
     super.update(_ => default, force = true)
+  }
 
   override def stop(): Unit =
     watcher.cancel
@@ -209,7 +228,14 @@ object SettingStore extends LogSupport:
       backend: StoreBackend,
       weaver: Weaver[A]
   ): A =
-    backend.read(key) match
+    val stored =
+      try
+        backend.read(key)
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to read setting ${key}. Starting from the default: ${e.getMessage}", e)
+          None
+    stored match
       case None =>
         default
       case Some(raw) =>
@@ -231,6 +257,8 @@ object SettingStore extends LogSupport:
               case NonFatal(e) =>
                 warn(s"Failed to move aside setting ${key}: ${e.getMessage}", e)
             default
+
+  end load
 
   private def encode[A](v: A, config: SettingStoreConfig, weaver: Weaver[A]): String =
     s"""{"version":${config.version},"state":${weaver.toJson(v)}}"""

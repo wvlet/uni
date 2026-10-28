@@ -37,6 +37,20 @@ class SettingStoreTest extends UniTest:
     reloaded.get shouldBe AppSettings(theme = "dark")
   }
 
+  test("skip writes when an update leaves the value unchanged") {
+    var writes  = 0
+    val backend =
+      new InMemoryStoreBackend:
+        override def write(key: String, value: String): Unit =
+          writes += 1
+          super.write(key, value)
+    val settings = SettingStore.of("settings", AppSettings(), memoryConfig(backend))
+    settings.update(_.copy(theme = "dark"))
+    settings.update(_.copy(theme = "dark"))
+    settings := AppSettings(theme = "dark")
+    writes shouldBe 1
+  }
+
   test("notify subscribers on change") {
     val settings = SettingStore.of("settings", AppSettings(), memoryConfig(InMemoryStoreBackend()))
     val themes   = List.newBuilder[String]
@@ -101,12 +115,20 @@ class SettingStoreTest extends UniTest:
   }
 
   test("reload when the stored data changes elsewhere") {
-    // A backend whose watch callback the test triggers directly
+    // A backend whose change events the test fires directly
     class WatchableBackend extends InMemoryStoreBackend:
-      var fireChange: Option[String] => Unit                            = _ => ()
-      override def watch(key: String)(onChange: Option[String] => Unit) =
+      var fireChange: () => Unit                            = () => ()
+      override def watch(key: String)(onChange: () => Unit) =
         fireChange = onChange
-        wvlet.uni.rx.Cancelable(() => fireChange = _ => ())
+        wvlet.uni.rx.Cancelable(() => fireChange = () => ())
+
+      def changeElsewhere(value: Option[String]): Unit =
+        value match
+          case Some(v) =>
+            write("settings", v)
+          case None =>
+            remove("settings")
+        fireChange()
 
     val backend  = WatchableBackend()
     val settings = SettingStore.of(
@@ -114,12 +136,12 @@ class SettingStoreTest extends UniTest:
       AppSettings(),
       memoryConfig(backend).withWatchChanges(true)
     )
-    backend.fireChange(Some("""{"version":0,"state":{"theme":"dark"}}"""))
+    backend.changeElsewhere(Some("""{"version":0,"state":{"theme":"dark"}}"""))
     settings.get shouldBe AppSettings(theme = "dark")
     // Unreadable data, e.g., a file in the middle of a non-atomic save, keeps the current value
-    backend.fireChange(Some("{not json"))
+    backend.changeElsewhere(Some("{not json"))
     settings.get shouldBe AppSettings(theme = "dark")
-    backend.fireChange(None)
+    backend.changeElsewhere(None)
     settings.get shouldBe AppSettings()
     settings.stop()
   }
