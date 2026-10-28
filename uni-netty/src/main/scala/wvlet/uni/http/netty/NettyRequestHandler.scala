@@ -248,9 +248,13 @@ class NettyRequestHandler(
               case Some(executor) =>
                 // Netty 4.2 deprecates per-handler executors without a drop-in replacement; keep them
                 // so blocking handlers stay off the event loop.
-                pipeline.addLast(executor, "wsHandler", wsHandler): @nowarn("cat=deprecation")
+                pipeline.addLast(
+                  executor,
+                  NettyHttpServer.WebSocketHandlerName,
+                  wsHandler
+                ): @nowarn("cat=deprecation")
               case None =>
-                pipeline.addLast("wsHandler", wsHandler)
+                pipeline.addLast(NettyHttpServer.WebSocketHandlerName, wsHandler)
             pipeline.remove(this)
             // onOpen runs on the WS handler's own (serialized) executor, so it precedes any frame.
             // Look the context up by handler instance (type-safe) and null-guard defensively.
