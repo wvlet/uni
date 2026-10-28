@@ -132,7 +132,7 @@ private[markdown] class HtmlRenderer(config: MarkdownConfig):
         case TableAlignment.Default =>
           ""
         case a =>
-          s""" align="${a.toString.toLowerCase}""""
+          s""" align="${MarkdownText.asciiLower(a.toString)}""""
     out.append(s"<${tag}${align}>")
     renderInlines(cell)
     out.append(s"</${tag}>\n")
@@ -188,7 +188,7 @@ private[markdown] class HtmlRenderer(config: MarkdownConfig):
     if config.rawHtml then
       url
     else
-      val lower  = url.trim.toLowerCase
+      val lower  = MarkdownText.asciiLower(url.trim)
       val unsafe =
         lower.startsWith("javascript:") || lower.startsWith("vbscript:") ||
           lower.startsWith("file:") ||

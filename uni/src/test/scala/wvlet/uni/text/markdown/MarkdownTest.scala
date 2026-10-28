@@ -51,6 +51,10 @@ class MarkdownTest extends UniTest:
     ) shouldBe
       "<p><a href=\"\">x</a> <img src=\"data:image/png;base64,AA\" alt=\"i\" /> <a href=\"\">d</a></p>\n"
 
+    // Scheme checks do not depend on case or the default locale
+    Markdown.toHtml("[x](JAVASCRIPT:alert(1)) [y](VBScript:x)") shouldBe
+      "<p><a href=\"\">x</a> <a href=\"\">y</a></p>\n"
+
     val trusted = MarkdownConfig().withRawHtml(true)
     Markdown.toHtml("hi <b>x</b>", trusted) shouldBe "<p>hi <b>x</b></p>\n"
     Markdown.toHtml("[x](javascript:go)", trusted) shouldBe
@@ -94,11 +98,27 @@ class MarkdownTest extends UniTest:
       "- " * 1000 + "a",
       "<" * 5000,
       "`" * 5000 + "a",
-      "**a*" * 3000
+      "**a*" * 3000,
+      // Deep inline nesting, unterminated HTML, and long autolink candidates
+      "**" * 3000 + "a" + "**" * 3000,
+      "a " + "<!--" * 5000,
+      "(www." * 5000,
+      "www.a.com" + ")" * 5000,
+      "x\n" +
+        Seq
+          .tabulate(5000)(i =>
+            if i % 2 == 0 then
+              "-:|-:"
+            else
+              "-:"
+          )
+          .mkString("\n")
     )
     inputs.foreach { s =>
       Markdown.toHtml(s).nonEmpty shouldBe true
     }
+    // Reference definitions alone render nothing
+    Markdown.toHtml((0 until 3000).map(i => s"[r${i}]: /u").mkString("\n")) shouldBe ""
   }
 
   test("limit the nesting of block quotes and lists") {

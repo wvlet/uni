@@ -37,7 +37,7 @@ Markdown.toHtml("Press <kbd>Ctrl</kbd>", MarkdownConfig().withRawHtml(true))
 // <p>Press <kbd>Ctrl</kbd></p>
 ```
 
-Block quotes and lists nest at most 100 levels deep. Deeper `>` and `-` markers are read as text, so that malicious input cannot overflow the stack.
+Nesting is capped so that malicious input cannot overflow the stack: block containers nest at most 100 levels (a nested list uses two, for the list and its item), and deeper `>` and `-` markers are read as text. Emphasis, strikethrough, and links nest at most 100 levels, and deeper ones become plain text.
 
 ## Options
 
@@ -69,7 +69,7 @@ doc.toHtml() // render the document
 | `Heading` | `level`, `inlines` |
 | `Paragraph` | `inlines` |
 | `BlockQuote` | `blocks` |
-| `ListBlock` | `ordered`, `start`, `tight`, `items` (`ListItem(blocks, checked)`) |
+| `ListBlock` | `ordered`, `start`, `tight`, `items` (`ListItem(blocks, checked, span)`) |
 | `CodeBlock` | `info` (the language is its first word), `code`, `fenced` |
 | `HtmlBlock` | `html` |
 | `ThematicBreak` | |

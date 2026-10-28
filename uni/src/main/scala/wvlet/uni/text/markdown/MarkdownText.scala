@@ -143,7 +143,31 @@ private[markdown] object MarkdownText:
     * internal whitespace
     */
   def normalizeLabel(label: String): String =
-    label.trim.split("[ \t\r\n]+").mkString(" ").toLowerCase.toUpperCase
+    // Lower-case per code point (locale-independent), then upper-case the whole string so that
+    // `ẞ` and `SS` match
+    val collapsed = label.trim.split("[ \t\r\n]+").mkString(" ")
+    val lower     = StringBuilder(collapsed.length)
+    var i         = 0
+    while i < collapsed.length do
+      val cp = collapsed.codePointAt(i)
+      lower.appendAll(Character.toChars(Character.toLowerCase(cp)))
+      i += Character.charCount(cp)
+    lower.result().toUpperCase
+
+  /**
+    * Lower-case ASCII letters only, independent of the default locale (for URL schemes and tag
+    * names)
+    */
+  def asciiLower(s: String): String =
+    if !s.exists(c => c >= 'A' && c <= 'Z') then
+      s
+    else
+      s.map(c =>
+        if c >= 'A' && c <= 'Z' then
+          (c + 32).toChar
+        else
+          c
+      )
 
   private val uriSafe = ";/?:@&=+$,-_.!~*'()#"
 

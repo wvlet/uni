@@ -515,26 +515,24 @@ private[markdown] class BlockParser(input: String, gfm: Boolean):
         case None =>
           0
         case Some(alignments) =>
-          val paragraphLines = container.content.toString.stripSuffix("\n").split("\n", -1)
-          val headerLine     = paragraphLines.last
+          // The paragraph content ends with "\n"; its last line is the header candidate
+          val content     = container.content
+          val headerStart = content.lastIndexOf("\n", content.length - 2) + 1
+          val headerLine  = content.substring(headerStart, content.length - 1)
           if splitTableRow(headerLine).size != alignments.size then
             0
           else
             closeUnmatchedBlocks()
             val parent = container.parent.nn
-            val table  = BlockNode(
-              BlockKind.TableKind,
-              container.startLine + paragraphLines.length - 1,
-              container.startCol
-            )
+            // The paragraph's last line is the previous source line
+            val table = BlockNode(BlockKind.TableKind, lineNumber - 1, container.startCol)
             table.tableHeader = headerLine
             table.tableAlignments = alignments
-            if paragraphLines.length == 1 then
+            if headerStart == 0 then
               parent.remove(container)
             else
               // The lines before the header stay a paragraph
-              container.content.clear()
-              paragraphLines.init.foreach(l => container.content.append(l).append('\n'))
+              content.setLength(headerStart)
               finalize(container, table.startLine - 1)
             parent.append(table)
             tip = table
@@ -748,15 +746,16 @@ private[markdown] class BlockParser(input: String, gfm: Boolean):
     * Parse link reference definitions at the start of the text, and return the remaining text
     */
   private def consumeReferences(s: String): String =
-    var rest     = s
+    val parser   = InlineParser(s, refMap, gfm)
+    var start    = 0
     var continue = true
-    while continue && rest.startsWith("[") do
-      val consumed = InlineParser(rest, refMap, gfm).parseReference()
+    while continue && start < s.length && s.charAt(start) == '[' do
+      val consumed = parser.parseReference(start)
       if consumed == 0 then
         continue = false
       else
-        rest = rest.substring(consumed)
-    rest
+        start += consumed
+    s.substring(start)
 
 end BlockParser
 
@@ -881,7 +880,7 @@ private[markdown] object BlockParser:
   private val rawTagNames = Seq("pre", "script", "style", "textarea")
 
   def htmlBlockStarts(blockType: Int, s: String): Boolean =
-    val lower = s.toLowerCase
+    val lower = MarkdownText.asciiLower(s)
     blockType match
       case 1 =>
         rawTagNames.exists { t =>
@@ -928,7 +927,7 @@ private[markdown] object BlockParser:
   def htmlBlockEnds(blockType: Int, s: String): Boolean =
     blockType match
       case 1 =>
-        val lower = s.toLowerCase
+        val lower = MarkdownText.asciiLower(s)
         rawTagNames.exists(t => lower.contains(s"</${t}>"))
       case 2 =>
         s.contains("-->")

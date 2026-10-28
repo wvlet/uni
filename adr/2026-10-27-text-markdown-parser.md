@@ -25,6 +25,8 @@ The GFM extensions follow cmark-gfm:
 
 Named entities come from the WHATWG `entities.json`: the 2,125 names that end in `;`. They are generated into `HtmlEntities.scala` as compact strings and parsed lazily into a `Map` on first use.
 
-Block quotes and lists nest at most 100 levels (`BlockParser.MaxNesting`). Deeper markers are read as text. Conversion and rendering recurse over the tree, and 1,000 nested `>` overflowed the Scala.js stack.
+Block containers nest at most 100 levels (`BlockParser.MaxNesting`; a nested list uses two, for the list and its item), and deeper markers are read as text. Inline emphasis and links nest at most 100 levels (`InlineParser.MaxInlineNesting`), and deeper subtrees become plain text, collected without recursion. Conversion and rendering recurse over the tree, and 1,000 nested `>` overflowed the Scala.js stack.
+
+Scans that could restart at every character are bounded so long inputs stay linear: an autolink stops at the first `<` or whitespace, missing HTML terminators (`-->`, `?>`) are remembered per paragraph, GFM autolinks find the token end once and reject an invalid domain before reading the rest of the token, a table check reads only the paragraph's last line, and adjacent text nodes merge through a buffer.
 
 The spec examples are vendored under `uni/.jvm/src/test/resources/wvlet/uni/text/markdown/` (CC BY-SA 4.0, with attribution in the README there) and run by the JVM-only `MarkdownSpecTest`. Its known-difference list must be exact: an example that starts passing fails the test until it is removed from the list. Shared `MarkdownTest` covers entities, Unicode punctuation, case folding, and the regex-free paths on Scala.js and Native.

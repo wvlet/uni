@@ -40,8 +40,18 @@ private[markdown] object Autolinks:
     val out  = mutable.ArrayBuffer.empty[Inline]
     var last = 0
     var i    = 0
+    // The end of the current whitespace-delimited token; candidates only move forward
+    var tokenEnd                     = -1
+    def tokenEndFrom(from: Int): Int =
+      if tokenEnd < from then
+        tokenEnd = from
+        while tokenEnd < t.length && !Character.isWhitespace(t.charAt(tokenEnd)) &&
+          t.charAt(tokenEnd) != '<'
+        do
+          tokenEnd += 1
+      tokenEnd
     while i < t.length do
-      linkAt(t, i, last) match
+      linkAt(t, i, last, tokenEndFrom) match
         case Some((start, end, href)) =>
           if start > last then
             out += Inline.Text(t.substring(last, start))
@@ -62,20 +72,27 @@ private[markdown] object Autolinks:
         out += Inline.Text(t.substring(last))
       out.toSeq
 
+  end split
+
   /**
     * Find an autolink starting at `i` (an email may start before `i`, but not before `min`)
     */
-  private def linkAt(t: String, i: Int, min: Int): Option[(Int, Int, String)] =
+  private def linkAt(
+      t: String,
+      i: Int,
+      min: Int,
+      tokenEnd: Int => Int
+  ): Option[(Int, Int, String)] =
     val c = t.charAt(i)
     if c == '@' then
       emailAt(t, i, min)
     else if (c == 'w' || c == 'h' || c == 'f') && precededByBoundary(t, i) then
       if t.startsWith("www.", i) then
-        urlEnd(t, i, i).map(end => (i, end, s"http://${t.substring(i, end)}"))
+        urlEnd(t, i, i, tokenEnd).map(end => (i, end, s"http://${t.substring(i, end)}"))
       else
         schemes
           .find(s => t.startsWith(s, i))
-          .flatMap(s => urlEnd(t, i, i + s.length))
+          .flatMap(s => urlEnd(t, i, i + s.length, tokenEnd))
           .map(end => (i, end, t.substring(i, end)))
     else
       None
@@ -92,32 +109,42 @@ private[markdown] object Autolinks:
   /**
     * The end of a URL whose domain starts at `domainStart`, after removing trailing punctuation
     */
-  private def urlEnd(t: String, start: Int, domainStart: Int): Option[Int] =
+  private def urlEnd(t: String, start: Int, domainStart: Int, tokenEnd: Int => Int): Option[Int] =
     var domainEnd = domainStart
     while domainEnd < t.length && isDomainChar(t.charAt(domainEnd)) do
       domainEnd += 1
-    var end = domainEnd
-    while end < t.length && !Character.isWhitespace(t.charAt(end)) && t.charAt(end) != '<' do
-      end += 1
-    end = trimTrailing(t, start, end)
-    val domain   = t.substring(domainStart, domainEnd.min(end))
-    val segments = domain.split("\\.", -1)
-    val valid    =
+    def validDomain(end: Int): Boolean =
+      val segments = t.substring(domainStart, end).split("\\.", -1)
       segments.length >= 2 && segments.forall(_.nonEmpty) &&
-        segments.takeRight(2).forall(!_.contains('_'))
-    Option.when(valid)(end)
+      segments.takeRight(2).forall(!_.contains('_'))
+    // Reject an invalid domain before looking at the rest of the token
+    val trimmedDomainEnd = trimTrailing(t, start, domainEnd)
+    if !validDomain(trimmedDomainEnd.max(domainStart)) then
+      None
+    else
+      val end = trimTrailing(t, start, tokenEnd(domainEnd))
+      Option.when(validDomain(domainEnd.min(end)))(end)
 
   private def trimTrailing(t: String, start: Int, initialEnd: Int): Int =
     var end      = initialEnd
     var continue = true
+    var opens    = 0
+    var closes   = 0
+    var i        = start
+    while i < end do
+      if t.charAt(i) == '(' then
+        opens += 1
+      else if t.charAt(i) == ')' then
+        closes += 1
+      i += 1
     while continue && end > start do
       val last = t.charAt(end - 1)
       if "?!.,:*_~".indexOf(last) >= 0 then
         end -= 1
       else if last == ')' then
-        val s = t.substring(start, end)
-        if s.count(_ == ')') > s.count(_ == '(') then
+        if closes > opens then
           end -= 1
+          closes -= 1
         else
           continue = false
       else if last == ';' then
@@ -132,6 +159,8 @@ private[markdown] object Autolinks:
       else
         continue = false
     end
+
+  end trimTrailing
 
   private def isEmailLocalChar(c: Char): Boolean =
     c < 128 && (c.isLetterOrDigit || c == '.' || c == '-' || c == '_' || c == '+')

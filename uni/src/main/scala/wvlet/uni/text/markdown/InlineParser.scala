@@ -93,6 +93,8 @@ private[markdown] class InlineParser(
   private var pos                      = 0
   private var delimiters: Delim | Null = null
   private var brackets: Bracket | Null = null
+  // HTML terminators (e.g. `-->`) known to be absent after an offset
+  private val missingTerminators = mutable.Map.empty[String, Int]
 
   private def peek: Int =
     if pos < subject.length then
@@ -108,7 +110,7 @@ private[markdown] class InlineParser(
       (
     )
     processEmphasis(null)
-    val inlines = toInlines(root)
+    val inlines = toInlines(root, 0)
     if gfm then
       Autolinks.linkify(inlines)
     else
@@ -604,16 +606,15 @@ private[markdown] class InlineParser(
       result
 
   /**
-    * Parse a link reference definition at the start of the subject. Returns the number of consumed
-    * characters, or 0.
+    * Parse a link reference definition at `start`. Returns the number of consumed characters, or 0.
     */
-  def parseReference(): Int =
-    pos = 0
+  def parseReference(start: Int = 0): Int =
+    pos = start
     val labelLength = parseLinkLabel()
     if labelLength == 0 || peek != ':' then
       0
     else
-      val label = subject.substring(1, labelLength - 1)
+      val label = subject.substring(start + 1, start + labelLength - 1)
       pos += 1
       spnl()
       parseLinkDestination() match
@@ -641,7 +642,7 @@ private[markdown] class InlineParser(
           else
             if !refMap.contains(normalized) then
               refMap(normalized) = (dest, title)
-            pos
+            pos - start
     end if
 
   end parseReference
@@ -662,8 +663,12 @@ private[markdown] class InlineParser(
   // ---- Autolinks, raw HTML, entities ----
 
   private def parseAutolink(block: InlineNode): Boolean =
-    val end = subject.indexOf('>', pos + 1)
-    if end < 0 then
+    var end = pos + 1
+    while end < subject.length && subject.charAt(end) > ' ' && subject.charAt(end) != '<' &&
+      subject.charAt(end) != '>'
+    do
+      end += 1
+    if end >= subject.length || subject.charAt(end) != '>' then
       false
     else
       val body = subject.substring(pos + 1, end)
@@ -686,7 +691,7 @@ private[markdown] class InlineParser(
           false
 
   private def parseHtmlTag(block: InlineNode): Boolean =
-    HtmlSyntax.matchTag(subject, pos) match
+    HtmlSyntax.matchTag(subject, pos, missingTerminators) match
       case Some(end) =>
         block.appendChild(InlineNode(InlineKind.Html, subject.substring(pos, end)))
         pos = end
@@ -705,35 +710,37 @@ private[markdown] class InlineParser(
 
   // ---- Conversion ----
 
-  private def toInlines(parent: InlineNode): Seq[Inline] =
-    val out = mutable.ArrayBuffer.empty[Inline]
-    var n   = parent.first
+  /**
+    * Convert the children of `parent`. Emphasis and links nested deeper than [[MaxInlineNesting]]
+    * become plain text, so that later recursion over the tree cannot overflow the stack.
+    */
+  private def toInlines(parent: InlineNode, depth: Int): Seq[Inline] =
+    val out               = mutable.ArrayBuffer.empty[Inline]
+    val pendingText       = StringBuilder()
+    def flushText(): Unit =
+      if pendingText.nonEmpty then
+        out += Inline.Text(pendingText.result())
+        pendingText.clear()
+    var n = parent.first
     while n != null do
       val node                   = n.nn
       val inline: Option[Inline] =
         node.kind match
           case InlineKind.Text =>
-            if node.literal.isEmpty then
-              None
-            else
-              out.lastOption match
-                case Some(Inline.Text(prev)) =>
-                  out(out.length - 1) = Inline.Text(prev + node.literal)
-                  None
-                case _ =>
-                  Some(Inline.Text(node.literal))
+            pendingText.append(node.literal)
+            None
           case InlineKind.Code =>
             Some(Inline.Code(node.literal))
           case InlineKind.Emph =>
-            Some(Inline.Emphasis(toInlines(node)))
+            Some(nested(node, depth)(Inline.Emphasis(_)))
           case InlineKind.Strong =>
-            Some(Inline.Strong(toInlines(node)))
+            Some(nested(node, depth)(Inline.Strong(_)))
           case InlineKind.Del =>
-            Some(Inline.Strikethrough(toInlines(node)))
+            Some(nested(node, depth)(Inline.Strikethrough(_)))
           case InlineKind.Link =>
-            Some(Inline.Link(node.destination, node.title, toInlines(node)))
+            Some(nested(node, depth)(Inline.Link(node.destination, node.title, _)))
           case InlineKind.Image =>
-            Some(Inline.Image(node.destination, node.title, toInlines(node)))
+            Some(nested(node, depth)(Inline.Image(node.destination, node.title, _)))
           case InlineKind.Html =>
             Some(Inline.HtmlInline(node.literal))
           case InlineKind.SoftBreak =>
@@ -742,16 +749,50 @@ private[markdown] class InlineParser(
             Some(Inline.HardBreak)
           case InlineKind.Root =>
             None
-      inline.foreach(out += _)
+      inline.foreach { x =>
+        flushText()
+        out += x
+      }
       n = node.next
     end while
+    flushText()
     out.toSeq
 
   end toInlines
 
+  private def nested(node: InlineNode, depth: Int)(wrap: Seq[Inline] => Inline): Inline =
+    if depth < MaxInlineNesting then
+      wrap(toInlines(node, depth + 1))
+    else
+      Inline.Text(subtreeText(node))
+
+  /**
+    * The text of a subtree, collected without recursion
+    */
+  private def subtreeText(root: InlineNode): String =
+    val sb    = StringBuilder()
+    val stack = mutable.Stack[InlineNode | Null](root.first)
+    while stack.nonEmpty do
+      stack.pop() match
+        case null          =>
+        case n: InlineNode =>
+          stack.push(n.next)
+          n.kind match
+            case InlineKind.SoftBreak | InlineKind.HardBreak =>
+              sb.append('\n')
+            case _ =>
+              sb.append(n.literal)
+          stack.push(n.first)
+    sb.result()
+
 end InlineParser
 
 private[markdown] object InlineParser:
+
+  /**
+    * The maximum depth of nested emphasis, strikethrough, and links
+    */
+  val MaxInlineNesting = 100
 
   final class Delim(
       val cc: Char,
@@ -822,13 +863,27 @@ private[markdown] object HtmlSyntax:
     var i = start
     while i < s.length && isTagNameChar(s.charAt(i)) do
       i += 1
-    s.substring(start, i).toLowerCase
+    MarkdownText.asciiLower(s.substring(start, i))
 
   /**
     * Match an HTML open tag, closing tag, comment, processing instruction, declaration, or CDATA
     * section at `start`, and return the index after it
     */
-  def matchTag(s: String, start: Int): Option[Int] =
+  def matchTag(
+      s: String,
+      start: Int,
+      missing: mutable.Map[String, Int] = mutable.Map.empty
+  ): Option[Int] =
+    // Find `term` from `from`, remembering failures: no match from `from` means none later either
+    def find(term: String, from: Int): Int =
+      if missing.get(term).exists(_ <= from) then
+        -1
+      else
+        val i = s.indexOf(term, from)
+        if i < 0 then
+          missing(term) = from
+        i
+
     if start + 1 >= s.length || s.charAt(start) != '<' then
       None
     else
@@ -843,21 +898,23 @@ private[markdown] object HtmlSyntax:
         else if s.startsWith("<!--->", start) then
           Some(start + 6)
         else
-          val end = s.indexOf("-->", start + 4)
+          val end = find("-->", start + 4)
           Option.when(end >= 0)(end + 3)
       else if c == '?' then
-        val end = s.indexOf("?>", start + 2)
+        val end = find("?>", start + 2)
         Option.when(end >= 0)(end + 2)
       else if s.startsWith("<![CDATA[", start) then
-        val end = s.indexOf("]]>", start + 9)
+        val end = find("]]>", start + 9)
         Option.when(end >= 0)(end + 3)
       else if c == '!' && start + 2 < s.length && s.charAt(start + 2).isLetter &&
         s.charAt(start + 2) < 128
       then
-        val end = s.indexOf('>', start + 2)
+        val end = find(">", start + 2)
         Option.when(end >= 0)(end + 1)
       else
         None
+
+  end matchTag
 
   private def openTag(s: String, nameStart: Int): Option[Int] =
     var i = nameStart
