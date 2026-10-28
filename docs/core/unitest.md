@@ -300,7 +300,7 @@ test("print a greeting") {
   val out = captureStdout {
     println("hello")
   }
-  out shouldBe "hello\n"
+  out shouldBe s"hello${System.lineSeparator()}"
 }
 ```
 
