@@ -13,7 +13,7 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.http.{Http, HttpClientConfig}
+import wvlet.uni.http.{Http, HttpClientConfig, HttpSyncClient}
 import wvlet.uni.rx.Rx
 
 /**
@@ -24,7 +24,8 @@ import wvlet.uni.rx.Rx
   * @param version
   *   client version reported in the initialize `clientInfo`
   * @param protocolVersion
-  *   MCP protocol version requested in initialize and sent in the `MCP-Protocol-Version` header
+  *   MCP protocol version requested in initialize. Later requests send the version the server chose
+  *   in the `MCP-Protocol-Version` header
   * @param httpClientConfig
   *   HTTP client used for the Streamable HTTP transport (timeouts, filters, channel factory)
   */
@@ -54,7 +55,9 @@ case class MCPClientConfig(
     */
   def connect(serverUri: String): Rx[MCPClient] =
     // Create the HTTP client lazily so a failed connect run does not leak an unused client
-    Rx.single(httpClientConfig.withMaxRetry(0).newSyncClient)
-      .flatMap(httpClient => MCPClient.connect(this, httpClient, serverUri))
+    Rx.single(newHttpClient).flatMap(httpClient => MCPClient.connect(this, httpClient, serverUri))
+
+  /** The HTTP transport with retries disabled (see [[connect]]). */
+  private[mcp] def newHttpClient: HttpSyncClient = httpClientConfig.withMaxRetry(0).newSyncClient
 
 end MCPClientConfig

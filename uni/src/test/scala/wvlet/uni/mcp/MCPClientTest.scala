@@ -93,7 +93,7 @@ class MCPClientTest extends UniTest:
   /** A client before the handshake, to drive `initialize`/`notifications/initialized` directly. */
   private def rawClient(server: MCPServer = newServer): MCPClient =
     val config = clientConfig(server)
-    MCPClient(config, config.httpClientConfig.withMaxRetry(0).newSyncClient, "http://test/mcp")
+    MCPClient(config, config.newHttpClient, "http://test/mcp")
 
   /**
     * Run `body` with a connected MCP client. `close()` is guaranteed to run even when `body` fails,
@@ -142,10 +142,19 @@ class MCPClientTest extends UniTest:
             val init = sent.head.content.asString.getOrElse("")
             init shouldContain "\"clientInfo\":{\"name\":\"my-agent\",\"version\":\"1.2.3\"}"
             init shouldContain "\"protocolVersion\":\"2025-03-26\""
-            sent.map(_.header(MCPHttpHandler.ProtocolVersionHeader)).distinct shouldBe
-              List(Some("2025-03-26"))
+            // initialize negotiates the version; later requests carry the agreed one
+            sent.map(_.header(MCPHttpHandler.ProtocolVersionHeader)) shouldBe
+              List(None, Some("2025-03-26"), Some("2025-03-26"))
           }
       }
+  }
+
+  test("an unsupported requested protocol version falls back to the server's version") {
+    RxResource
+      .fromAutoCloseable(
+        clientConfig().withProtocolVersion("2024-11-05").connect("http://test/mcp")
+      )
+      .use(_.ping())
   }
 
   test("initialize returns the server info from the handshake") {

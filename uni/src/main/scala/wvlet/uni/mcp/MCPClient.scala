@@ -107,15 +107,22 @@ class MCPClient private[mcp] (
   @volatile
   private var sessionId: Option[String] = None
 
+  // The version agreed in initialize; MCP-Protocol-Version is sent only after negotiation
+  @volatile
+  private var protocolVersion: Option[String] = None
+
   private def sendMessage(message: String): Response =
     val request = Request
       .post(serverUri)
       .addHeader(HttpHeader.ContentType, "application/json")
       .addHeader(HttpHeader.Accept, MCPClient.AcceptHeader)
-      .addHeader(MCPHttpHandler.ProtocolVersionHeader, config.protocolVersion)
       .withJsonContent(message)
+    val withVersion =
+      protocolVersion.fold(request)(v => request.addHeader(MCPHttpHandler.ProtocolVersionHeader, v))
     debug(s"Sending MCP request to ${serverUri}: ${message}")
-    httpClient.send(sessionId.fold(request)(id => request.addHeader(MCPClient.SessionIdHeader, id)))
+    httpClient.send(
+      sessionId.fold(withVersion)(id => withVersion.addHeader(MCPClient.SessionIdHeader, id))
+    )
 
   /**
     * Parse a JSON-RPC response. HTTP 202 (notifications) yields None; JSON-RPC errors and non-2xx
@@ -189,7 +196,9 @@ class MCPClient private[mcp] (
     Rx.single {
       val response = sendMessage(JsonRpc.request(Some(id), "initialize", Some(params)))
       response.header(MCPClient.SessionIdHeader).foreach(s => sessionId = Some(s))
-      parseServerInfo(asObject(parseResult(response, id).getOrElse(JSONNull())))
+      val info = parseServerInfo(asObject(parseResult(response, id).getOrElse(JSONNull())))
+      protocolVersion = Some(info.protocolVersion)
+      info
     }
 
   /**
