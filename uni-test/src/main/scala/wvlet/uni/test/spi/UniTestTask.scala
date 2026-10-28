@@ -122,7 +122,9 @@ class UniTestTask(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
   ): Array[Task] =
-    def run(): Unit = compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
+    def run(): Unit = TestLogCapture.withSuiteThread {
+      compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
+    }
     if config.logCaptureEnabled then
       TestLogCapture.withLoggers(loggers)(run())
     else
