@@ -63,6 +63,18 @@ class OutputCaptureTest extends UniTest:
     outer.warnings shouldBe ""
   }
 
+  test("hand records of a failed inner capture to the outer capture") {
+    val outer = captureLogs {
+      intercept[IllegalStateException] {
+        captureLogs {
+          CaptureNoisy().fail()
+          throw IllegalStateException("inner failure")
+        }
+      }
+    }
+    outer.warnings shouldContain "handler failed"
+  }
+
   test("reject an asynchronous block") {
     intercept[IllegalArgumentException] {
       captureLogs {

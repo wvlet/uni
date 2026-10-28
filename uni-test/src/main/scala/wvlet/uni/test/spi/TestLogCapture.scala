@@ -56,16 +56,22 @@ private[test] object TestLogCapture:
       private[TestLogCapture] val router: RoutingHandler,
       release: () => Unit
   ):
-    private val buf = scala.collection.mutable.ArrayBuffer.empty[jl.LogRecord]
+    private val buf    = scala.collection.mutable.ArrayBuffer.empty[jl.LogRecord]
+    private var closed = false // guarded by buf
 
     private[TestLogCapture] def accepts(record: jl.LogRecord): Boolean = loggerName.forall { name =>
       val n = record.getLoggerName
       n != null && (n == name || n.startsWith(s"${name}."))
     }
 
-    private[TestLogCapture] def add(record: jl.LogRecord): Unit = buf.synchronized(buf += record)
-
-    def records: Seq[jl.LogRecord] = buf.synchronized(buf.toSeq)
+    /**
+      * Returns false when the capture has closed, so a record arriving late is not lost
+      */
+    private[TestLogCapture] def add(record: jl.LogRecord): Boolean = buf.synchronized {
+      if !closed then
+        buf += record
+      !closed
+    }
 
     /**
       * Stop capturing. With `replay`, the captured records are sent to the handlers they would have
@@ -75,10 +81,14 @@ private[test] object TestLogCapture:
       TestLogCapture.synchronized {
         captures = captures.filterNot(_ eq this)
       }
-      val captured = records
+      val captured = buf.synchronized {
+        closed = true
+        buf.toSeq
+      }
       try
+        // Through publish, so an enclosing capture still takes the records
         if replay then
-          captured.foreach(router.deliver)
+          captured.foreach(router.publish)
       finally release()
       captured
 
@@ -108,13 +118,10 @@ private[test] object TestLogCapture:
       cs.find(c => (c.owner eq t) && c.accepts(record)) match
         case Some(c) =>
           c.add(record)
-          true
         case None if suiteThread.get() != null =>
           false
         case None =>
-          val targets = cs.filter(c => (c.owner ne t) && c.accepts(record))
-          targets.foreach(_.add(record))
-          targets.nonEmpty
+          cs.filter(c => (c.owner ne t) && c.accepts(record)).map(_.add(record)).contains(true)
 
   /**
     * Wraps the root logger's handlers. Each runner's class loader has its own copy of this class,
