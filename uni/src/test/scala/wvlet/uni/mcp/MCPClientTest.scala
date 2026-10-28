@@ -18,7 +18,6 @@ import wvlet.uni.http.{
   HttpChannel,
   HttpChannelFactory,
   HttpClientConfig,
-  HttpSyncClient,
   Request,
   Response,
   RxHttpHandler
@@ -75,26 +74,26 @@ class GreeterServiceImpl extends GreeterService:
 
 class MCPClientTest extends UniTest:
 
-  private def newServer: MCPServer = MCPServer()
+  private def newServer: MCPServer = MCP
+    .server
     .withName("greeter")
     .withVersion("0.0.1")
     .withTools[GreeterService](GreeterServiceImpl())
 
-  private def newHttpClient(server: MCPServer = newServer): HttpSyncClient =
-    Http
-      .client
-      .withChannelFactory(InMemoryChannelFactory(server.httpHandler))
-      .withMaxRetry(0)
-      .newSyncClient
+  private def clientConfig(server: MCPServer = newServer): MCPClientConfig = MCP
+    .client
+    .withHttpClientConfig(
+      Http.client.withChannelFactory(InMemoryChannelFactory(server.httpHandler))
+    )
 
-  private def connect(server: MCPServer = newServer): Rx[MCPClient] = MCPClient.connect(
-    newHttpClient(server),
+  private def connect(server: MCPServer = newServer): Rx[MCPClient] = clientConfig(server).connect(
     "http://test/mcp"
   )
 
   /** A client before the handshake, to drive `initialize`/`notifications/initialized` directly. */
   private def rawClient(server: MCPServer = newServer): MCPClient =
-    new MCPClient(newHttpClient(server), "http://test/mcp")
+    val config = clientConfig(server)
+    MCPClient(config, config.httpClientConfig.withMaxRetry(0).newSyncClient, "http://test/mcp")
 
   /**
     * Run `body` with a connected MCP client. `close()` is guaranteed to run even when `body` fails,
@@ -116,6 +115,37 @@ class MCPClientTest extends UniTest:
         // A usable session after connect: the handshake (initialize + initialized) completed
         tools.map(_.name).toSet shouldBe Set("add", "explode", "hello")
     }
+  }
+
+  test("MCP.client sends the configured client info and protocol version") {
+    val server   = newServer
+    val requests = List.newBuilder[Request]
+    val handler  = RxHttpHandler { request =>
+      requests += request
+      server.httpHandler.handle(request)
+    }
+    RxResource
+      .fromAutoCloseable(
+        MCP
+          .client
+          .withName("my-agent")
+          .withVersion("1.2.3")
+          .withProtocolVersion("2025-03-26")
+          .withHttpClientConfig(Http.client.withChannelFactory(InMemoryChannelFactory(handler)))
+          .connect("http://test/mcp")
+      )
+      .use { client =>
+        client
+          .ping()
+          .map { _ =>
+            val sent = requests.result()
+            val init = sent.head.content.asString.getOrElse("")
+            init shouldContain "\"clientInfo\":{\"name\":\"my-agent\",\"version\":\"1.2.3\"}"
+            init shouldContain "\"protocolVersion\":\"2025-03-26\""
+            sent.map(_.header(MCPHttpHandler.ProtocolVersionHeader)).distinct shouldBe
+              List(Some("2025-03-26"))
+          }
+      }
   }
 
   test("initialize returns the server info from the handshake") {

@@ -13,7 +13,7 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.http.{Http, HttpHeader, HttpSyncClient, Request, Response}
+import wvlet.uni.http.{HttpHeader, HttpSyncClient, Request, Response}
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{
   JSONArray,
@@ -77,7 +77,7 @@ case class MCPClientException(code: Int, message: String) extends Exception(mess
   *
   * {{{
   * RxResource
-  *   .fromAutoCloseable(MCPClient.connect("http://localhost:8080/mcp"))
+  *   .fromAutoCloseable(MCP.client.withName("my-agent").connect("http://localhost:8080/mcp"))
   *   .use { client =>
   *     for tools <- client.listTools()
   *     yield
@@ -86,18 +86,21 @@ case class MCPClientException(code: Int, message: String) extends Exception(mess
   *   }
   * }}}
   *
-  * `connect` performs the MCP handshake (initialize + notifications/initialized); every call
-  * returns a [[wvlet.uni.rx.Rx]] that performs a blocking HTTP POST when run (the sync channel
-  * works on all platforms and matches the blocking stdio server). The client speaks the tools-only
-  * scope of MCP (matching [[MCPServer]]): initialize, tools/list, tools/call, and ping. It is
-  * transport-agnostic apart from Streamable HTTP; a stdio transport can be added later without
-  * touching the message layer.
+  * Create clients with `MCP.client` ([[MCPClientConfig]]). `connect` performs the MCP handshake
+  * (initialize + notifications/initialized); every call returns a [[wvlet.uni.rx.Rx]] that performs
+  * a blocking HTTP POST when run (the sync channel works on all platforms and matches the blocking
+  * stdio server). The client speaks the tools-only scope of MCP (matching [[MCPServer]]):
+  * initialize, tools/list, tools/call, and ping. It is transport-agnostic apart from Streamable
+  * HTTP; a stdio transport can be added later without touching the message layer.
   *
   * `Mcp-Session-Id` returned by the server on initialize is captured and echoed on subsequent
   * requests (session-less servers such as [[MCPServer]] do not issue one).
   */
-class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
-    extends LogSupport
+class MCPClient private[mcp] (
+    config: MCPClientConfig,
+    httpClient: HttpSyncClient,
+    serverUri: String
+) extends LogSupport
     with AutoCloseable:
 
   private val nextId = new AtomicLong(1L)
@@ -109,7 +112,7 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
       .post(serverUri)
       .addHeader(HttpHeader.ContentType, "application/json")
       .addHeader(HttpHeader.Accept, MCPClient.AcceptHeader)
-      .addHeader(MCPHttpHandler.ProtocolVersionHeader, MCPClient.ProtocolVersion)
+      .addHeader(MCPHttpHandler.ProtocolVersionHeader, config.protocolVersion)
       .withJsonContent(message)
     debug(s"Sending MCP request to ${serverUri}: ${message}")
     httpClient.send(sessionId.fold(request)(id => request.addHeader(MCPClient.SessionIdHeader, id)))
@@ -168,22 +171,17 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
 
   /**
     * Perform the `initialize` handshake and return the server info. Captures `Mcp-Session-Id` if
-    * the server issues one. Called by [[MCPClient.connect]]; MCP allows only one initialize per
-    * session, so this is not part of the public surface.
+    * the server issues one. Called by [[MCPClientConfig.connect]]; MCP allows only one initialize
+    * per session, so this is not part of the public surface.
     */
-  private[mcp] def initialize(
-      protocolVersion: String = MCPClient.ProtocolVersion
-  ): Rx[MCPServerInfo] =
+  private[mcp] def initialize(): Rx[MCPServerInfo] =
     val params = JSONObject(
       Seq(
-        "protocolVersion" -> JSONString(protocolVersion),
+        "protocolVersion" -> JSONString(config.protocolVersion),
         "capabilities"    -> JSONObject(Seq.empty),
         "clientInfo"      ->
           JSONObject(
-            Seq(
-              "name"    -> JSONString("uni-mcp-client"),
-              "version" -> JSONString(MCPClient.ClientVersion)
-            )
+            Seq("name" -> JSONString(config.name), "version" -> JSONString(config.version))
           )
       )
     )
@@ -344,7 +342,7 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
         .collect { case JSONString(v) =>
           v
         }
-        .getOrElse(MCPClient.ProtocolVersion),
+        .getOrElse(config.protocolVersion),
       capabilities = result
         .get("capabilities")
         .collect { case o: JSONObject =>
@@ -358,32 +356,19 @@ class MCPClient private[mcp] (httpClient: HttpSyncClient, serverUri: String)
 end MCPClient
 
 object MCPClient:
-
-  /** The protocol version this client speaks (matches the server's latest supported version). */
-  val ProtocolVersion: String = MCPServer.LatestProtocolVersion
-
-  /** Version reported in the initialize `clientInfo`. */
-  val ClientVersion: String = "0.1.0"
-
   private[mcp] val AcceptHeader: String    = "application/json, text/event-stream"
   private[mcp] val SessionIdHeader: String = "Mcp-Session-Id"
 
   /**
-    * Connect to an MCP server over Streamable HTTP and perform the MCP handshake (initialize +
-    * notifications/initialized). Uses the default cross-platform HTTP client with retries disabled:
-    * JSON-RPC messages (`tools/call` in particular) are not idempotent, so a retry could execute a
-    * tool twice.
+    * Open a client and perform the MCP handshake (initialize + notifications/initialized). A failed
+    * handshake closes the client before the error propagates.
     */
-  def connect(serverUri: String): Rx[MCPClient] = connect(
-    Http.client.withMaxRetry(0).newSyncClient,
-    serverUri
-  )
-
-  /**
-    * Connect using a caller-provided HTTP sync client (custom base URI, retry, filters, ...).
-    */
-  def connect(httpClient: HttpSyncClient, serverUri: String): Rx[MCPClient] =
-    val client = new MCPClient(httpClient, serverUri)
+  private[mcp] def connect(
+      config: MCPClientConfig,
+      httpClient: HttpSyncClient,
+      serverUri: String
+  ): Rx[MCPClient] =
+    val client = MCPClient(config, httpClient, serverUri)
     client
       .initialize()
       .flatMap { _ =>
