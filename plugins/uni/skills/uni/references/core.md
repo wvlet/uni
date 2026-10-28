@@ -65,6 +65,34 @@ val header = Frontmatter.parse(md).as[SkillHeader] // SkillHeader(review, "")
 val mdBody = Frontmatter.parse(md).body            // "# Body\n"
 ```
 
+## Persisted settings (SettingStore)
+
+An `RxVar` saved as `{"version", "state"}` JSON on every change: `~/.config/<app>/<fileName>` on
+the JVM, Native, and Node.js, and `localStorage` in a browser. Missing fields take case-class
+defaults (and the starting value is built from them; `withDefault(v)` overrides it); raise `withVersion` and convert old JSON in `withMigrate` when renaming fields.
+
+```scala
+import wvlet.uni.config.{InMemoryStoreBackend, SettingLocation, SettingStore}
+
+case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
+
+val settings = SettingStore.of[AppSettings].withAppName("my-app").load()
+settings.update(_.copy(theme = "dark"))
+val fontSize = settings.map(_.fontSize) // derived Rx, like a zustand selector
+
+// Other locations: OSConfig, Project(dir), Directory(path); in tests, use an in-memory backend
+val osConfig = SettingStore
+  .of[AppSettings]
+  .withAppName("my-app")
+  .withLocation(SettingLocation.OSConfig)
+  .load()
+val inTest = SettingStore
+  .of[AppSettings]
+  .withAppName("my-app")
+  .withBackend(InMemoryStoreBackend())
+  .load()
+```
+
 ## Retry
 
 ```scala

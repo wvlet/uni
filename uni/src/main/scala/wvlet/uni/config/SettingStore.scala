@@ -1,0 +1,335 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package wvlet.uni.config
+
+import wvlet.uni.io.IOPath
+import wvlet.uni.json.JSON
+import wvlet.uni.json.JSON.{JSONLong, JSONObject, JSONValue}
+import wvlet.uni.log.LogSupport
+import wvlet.uni.rx.{Cancelable, RxVar}
+import wvlet.uni.surface.Surface
+import wvlet.uni.weaver.Weaver
+
+import scala.util.control.NonFatal
+
+/**
+  * Where a file-backed [[SettingStore]] keeps its files.
+  */
+enum SettingLocation:
+  /**
+    * `$XDG_CONFIG_HOME/<app>/` when the variable is set, otherwise `~/.config/<app>/` on every OS
+    */
+  case UserConfig
+
+  /**
+    * The platform-native settings directory: `~/Library/Application Support/<app>` on macOS,
+    * `%APPDATA%\<app>` on Windows, and the same path as [[UserConfig]] elsewhere
+    */
+  case OSConfig
+
+  /**
+    * `<dir>/.<app>/`, for settings that belong to one project
+    */
+  case Project(dir: IOPath)
+
+  /**
+    * An explicit directory
+    */
+  case Directory(path: IOPath)
+
+  /**
+    * Resolve this location to a directory for the given application name
+    */
+  def resolve(appName: String): IOPath =
+    this match
+      case UserConfig =>
+        val base = SettingStoreCompat
+          .env("XDG_CONFIG_HOME")
+          .map(IOPath.parse)
+          .getOrElse(SettingStoreCompat.homeDir / ".config")
+        base / appName
+      case OSConfig =>
+        SettingStoreCompat.osName match
+          case "mac" =>
+            SettingStoreCompat.homeDir / "Library" / "Application Support" / appName
+          case "windows" =>
+            val base = SettingStoreCompat
+              .env("APPDATA")
+              .map(IOPath.parse)
+              .getOrElse(SettingStoreCompat.homeDir / "AppData" / "Roaming")
+            base / appName
+          case _ =>
+            UserConfig.resolve(appName)
+      case Project(dir) =>
+        dir / s".${appName}"
+      case Directory(path) =>
+        path
+
+end SettingLocation
+
+/**
+  * Configuration of a [[SettingStore]] for values of type `A`. Create one with
+  * `SettingStore.of[A]`, set options with `withXXX(...)`, then call `load(fileName)`.
+  *
+  * @param appName
+  *   the application name, used as the directory name under the setting location (and as the
+  *   localStorage key prefix in a browser)
+  * @param location
+  *   where the file backend stores settings (default: `~/.config/<app>/`)
+  * @param version
+  *   the schema version of the stored state. Stored data with a lower version goes through
+  *   `migrate` before it is decoded.
+  * @param migrate
+  *   converts stored state JSON of an older version (the second argument) into the current schema
+  * @param default
+  *   the value to start from when nothing is stored. When not set, the value is built from the
+  *   default parameter values of `A`, read with [[Surface]].
+  * @param backend
+  *   a storage backend to use instead of the platform default
+  * @param watchChanges
+  *   reload the value when another process or browser tab changes the stored data
+  */
+case class SettingStoreConfig[A](
+    appName: String = "",
+    location: SettingLocation = SettingLocation.UserConfig,
+    version: Int = 0,
+    migrate: (JSONValue, Int) => JSONValue = (state, _) => state,
+    default: Option[A] = None,
+    backend: Option[StoreBackend] = None,
+    watchChanges: Boolean = false
+)(using val weaver: Weaver[A], val surface: Surface):
+  def withAppName(name: String): SettingStoreConfig[A]               = copy(appName = name)
+  def withLocation(location: SettingLocation): SettingStoreConfig[A] = copy(location = location)
+  def withVersion(version: Int): SettingStoreConfig[A]               = copy(version = version)
+  def withMigrate(f: (JSONValue, Int) => JSONValue): SettingStoreConfig[A] = copy(migrate = f)
+  def withDefault(value: A): SettingStoreConfig[A]              = copy(default = Some(value))
+  def noDefault(): SettingStoreConfig[A]                        = copy(default = None)
+  def withBackend(backend: StoreBackend): SettingStoreConfig[A] = copy(backend = Some(backend))
+  def noBackend(): SettingStoreConfig[A]                        = copy(backend = None)
+  def withWatchChanges(enabled: Boolean): SettingStoreConfig[A] = copy(watchChanges = enabled)
+
+  /**
+    * The directory the file backend uses for this configuration
+    */
+  def directory: IOPath = location.resolve(appName)
+
+  /**
+    * The backend to use: the explicit one if set, otherwise the platform default (files on the JVM,
+    * Scala Native, and Node.js; localStorage in a browser)
+    */
+  def resolveBackend: StoreBackend = backend.getOrElse {
+    location match
+      case SettingLocation.Directory(_) =>
+      case _                            =>
+        require(appName.nonEmpty, "Set the application name with withAppName(...)")
+    SettingStoreCompat.defaultBackend(this)
+  }
+
+  /**
+    * The value to start from: the one set with `withDefault`, otherwise an instance built from the
+    * default parameter values of `A` (`None` for `Option` parameters without a default)
+    */
+  def resolveDefault: A = default.getOrElse {
+    def noDefault(reason: String): Nothing =
+      throw IllegalArgumentException(
+        s"Cannot create a default ${surface.name}: ${reason}. Set one with withDefault(...)"
+      )
+    val factory = surface.objectFactory.getOrElse(noDefault("no constructor is available"))
+    val missing = surface.params.filter(p => p.getDefaultValue.isEmpty && !p.surface.isOption)
+    if missing.nonEmpty then
+      noDefault(s"${missing.map(_.name).mkString(", ")} has no default value")
+    factory.newInstance(surface.params.map(_.getDefaultValue.getOrElse(None))).asInstanceOf[A]
+  }
+
+  /**
+    * Load the settings saved in `fileName` (a file under the setting location, or the localStorage
+    * key `<app>/<fileName>` in a browser), or start from the default. Later updates are saved to
+    * the same place.
+    */
+  def load(fileName: String = "settings.json"): SettingStore[A] = SettingStore.load(fileName, this)
+
+end SettingStoreConfig
+
+/**
+  * A reactive variable whose value is saved as JSON and restored on the next start, in the spirit
+  * of zustand's `persist` middleware.
+  *
+  * Every `set` or `update` writes the value through to the backend. Subscribers and derived values
+  * (`map`, `subscribe`) work as with any [[RxVar]].
+  *
+  * {{{
+  *   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
+  *
+  *   val settings = SettingStore.of[AppSettings].withAppName("my-app").load()
+  *   settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
+  * }}}
+  *
+  * The stored data is `{"version": <n>, "state": <value>}`. Fields missing from the stored state
+  * take their case-class defaults, and unknown fields are ignored. Stored data that cannot be read
+  * is moved aside (for files, renamed to `<fileName>.corrupt-<timestamp>`), and the store starts
+  * from the default value.
+  */
+class SettingStore[A] private (
+    val key: String,
+    default: A,
+    initial: A,
+    config: SettingStoreConfig[A],
+    backend: StoreBackend,
+    weaver: Weaver[A]
+) extends RxVar[A](initial)
+    with LogSupport:
+
+  // Watch callbacks may run on another thread (e.g., the JVM file watcher), so updates, saves, and
+  // reloads hold this lock. A reload reads the stored data under the lock, so a stale change event
+  // cannot revert a newer update.
+  private val watcher: Cancelable =
+    if config.watchChanges then
+      backend.watch(key)(() => reload())
+    else
+      Cancelable.empty
+
+  private def reload(): Unit = synchronized {
+    try
+      backend.read(key) match
+        case None =>
+          super.update(_ => default)
+        case Some(raw) =>
+          // Keep the current value while the data is unreadable, e.g., during a non-atomic save
+          SettingStore.decode(raw, config, weaver).foreach((v, _) => super.update(_ => v))
+    catch
+      case NonFatal(e) =>
+        warn(s"Failed to reload setting ${key}: ${e.getMessage}", e)
+  }
+
+  override def update(updater: A => A, force: Boolean = false): Unit = synchronized {
+    val before = get
+    super.update(updater, force)
+    val after = get
+    if force || before != after then
+      save(after)
+  }
+
+  private def save(v: A): Unit =
+    try
+      backend.write(key, SettingStore.encode(v, config, weaver))
+    catch
+      case NonFatal(e) =>
+        warn(s"Failed to save setting ${key}: ${e.getMessage}", e)
+
+  /**
+    * Remove the stored data and reset the value to the default
+    */
+  def clear(): Unit = synchronized {
+    try
+      backend.remove(key)
+    catch
+      case NonFatal(e) =>
+        warn(s"Failed to remove setting ${key}: ${e.getMessage}", e)
+    super.update(_ => default, force = true)
+  }
+
+  override def stop(): Unit =
+    watcher.cancel
+    super.stop()
+
+end SettingStore
+
+object SettingStore extends LogSupport:
+  private val validKey = "[A-Za-z0-9_\\-][A-Za-z0-9_.\\-]*".r
+
+  /**
+    * Entry point. Configure with `withXXX(...)`, then call `load(fileName)`.
+    */
+  inline def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] =
+    SettingStoreConfig[A]()(using weaver, Surface.of[A])
+
+  private[config] def load[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
+    require(validKey.matches(key), s"Invalid setting file name: ${key}")
+    val default = config.resolveDefault
+    val backend = config.resolveBackend
+    val initial = load(key, default, config, backend, config.weaver)
+    SettingStore(key, default, initial, config, backend, config.weaver)
+
+  private def load[A](
+      key: String,
+      default: A,
+      config: SettingStoreConfig[?],
+      backend: StoreBackend,
+      weaver: Weaver[A]
+  ): A =
+    val stored =
+      try
+        backend.read(key)
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to read setting ${key}. Starting from the default: ${e.getMessage}", e)
+          None
+    stored match
+      case None =>
+        default
+      case Some(raw) =>
+        decode(raw, config, weaver) match
+          case Some((v, migrated)) =>
+            if migrated then
+              // Save the migrated value so the migration runs only once
+              try
+                backend.write(key, encode(v, config, weaver))
+              catch
+                case NonFatal(e) =>
+                  warn(s"Failed to save migrated setting ${key}: ${e.getMessage}", e)
+            v
+          case None =>
+            warn(s"Setting ${key} cannot be read. Moving it aside and starting from the default")
+            try
+              backend.moveAside(key)
+            catch
+              case NonFatal(e) =>
+                warn(s"Failed to move aside setting ${key}: ${e.getMessage}", e)
+            default
+
+  end load
+
+  private def encode[A](v: A, config: SettingStoreConfig[?], weaver: Weaver[A]): String =
+    s"""{"version":${config.version},"state":${weaver.toJson(v)}}"""
+
+  /**
+    * Decode stored data, returning the value and whether a migration was applied
+    */
+  private def decode[A](
+      raw: String,
+      config: SettingStoreConfig[?],
+      weaver: Weaver[A]
+  ): Option[(A, Boolean)] =
+    try
+      JSON.parse(raw) match
+        case obj: JSONObject =>
+          (obj.get("version"), obj.get("state")) match
+            case (Some(JSONLong(version)), Some(state)) =>
+              val migrated = version < config.version
+              val current  =
+                if migrated then
+                  config.migrate(state, version.toInt)
+                else
+                  state
+              Some((weaver.fromJSONValue(current), migrated))
+            case _ =>
+              None
+        case _ =>
+          None
+    catch
+      case NonFatal(e) =>
+        debug(s"Failed to decode a setting: ${e.getMessage}")
+        None
+
+end SettingStore

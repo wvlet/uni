@@ -92,6 +92,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`. See [YAML](../text/yaml) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
+| Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [Persisted Settings](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api]`. See [RPC](../http/rpc) |
