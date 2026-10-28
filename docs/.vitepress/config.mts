@@ -393,7 +393,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Text Formats',
           items: [
             { text: 'Overview', link: '/text/' },
-            { text: 'YAML', link: '/text/yaml' }
+            { text: 'YAML', link: '/text/yaml' },
+            { text: 'Markdown', link: '/text/markdown' }
           ]
         },
         {
@@ -496,7 +497,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Text Formats',
           items: [
             { text: 'Overview', link: '/text/' },
-            { text: 'YAML', link: '/text/yaml' }
+            { text: 'YAML', link: '/text/yaml' },
+            { text: 'Markdown', link: '/text/markdown' }
           ]
         },
         {

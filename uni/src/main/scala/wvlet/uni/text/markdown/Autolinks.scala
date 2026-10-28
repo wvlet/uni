@@ -1,0 +1,155 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package wvlet.uni.text.markdown
+
+import scala.collection.mutable
+
+/**
+  * GitHub Flavored Markdown extended autolinks: `www.` links, `http://`, `https://`, and `ftp://`
+  * URLs, and email addresses in plain text
+  */
+private[markdown] object Autolinks:
+
+  def linkify(inlines: Seq[Inline]): Seq[Inline] = inlines.flatMap {
+    case Inline.Text(t) =>
+      split(t)
+    case Inline.Emphasis(c) =>
+      Seq(Inline.Emphasis(linkify(c)))
+    case Inline.Strong(c) =>
+      Seq(Inline.Strong(linkify(c)))
+    case Inline.Strikethrough(c) =>
+      Seq(Inline.Strikethrough(linkify(c)))
+    case other =>
+      Seq(other)
+  }
+
+  private val schemes = Seq("http://", "https://", "ftp://")
+
+  private def split(t: String): Seq[Inline] =
+    val out  = mutable.ArrayBuffer.empty[Inline]
+    var last = 0
+    var i    = 0
+    while i < t.length do
+      linkAt(t, i, last) match
+        case Some((start, end, href)) =>
+          if start > last then
+            out += Inline.Text(t.substring(last, start))
+          out +=
+            Inline.Link(
+              MarkdownText.normalizeUri(href),
+              None,
+              Seq(Inline.Text(t.substring(start, end)))
+            )
+          last = end
+          i = end
+        case None =>
+          i += 1
+    if last == 0 then
+      Seq(Inline.Text(t))
+    else
+      if last < t.length then
+        out += Inline.Text(t.substring(last))
+      out.toSeq
+
+  /**
+    * Find an autolink starting at `i` (an email may start before `i`, but not before `min`)
+    */
+  private def linkAt(t: String, i: Int, min: Int): Option[(Int, Int, String)] =
+    val c = t.charAt(i)
+    if c == '@' then
+      emailAt(t, i, min)
+    else if (c == 'w' || c == 'h' || c == 'f') && precededByBoundary(t, i) then
+      if t.startsWith("www.", i) then
+        urlEnd(t, i, i).map(end => (i, end, s"http://${t.substring(i, end)}"))
+      else
+        schemes
+          .find(s => t.startsWith(s, i))
+          .flatMap(s => urlEnd(t, i, i + s.length))
+          .map(end => (i, end, t.substring(i, end)))
+    else
+      None
+
+  private def precededByBoundary(t: String, i: Int): Boolean =
+    i == 0 || {
+      val p = t.charAt(i - 1)
+      p == ' ' || p == '\t' || p == '\n' || p == '*' || p == '_' || p == '~' || p == '('
+    }
+
+  private def isDomainChar(c: Char): Boolean =
+    c < 128 && (c.isLetterOrDigit || c == '-' || c == '_' || c == '.')
+
+  /**
+    * The end of a URL whose domain starts at `domainStart`, after removing trailing punctuation
+    */
+  private def urlEnd(t: String, start: Int, domainStart: Int): Option[Int] =
+    var domainEnd = domainStart
+    while domainEnd < t.length && isDomainChar(t.charAt(domainEnd)) do
+      domainEnd += 1
+    var end = domainEnd
+    while end < t.length && !Character.isWhitespace(t.charAt(end)) && t.charAt(end) != '<' do
+      end += 1
+    end = trimTrailing(t, start, end)
+    val domain   = t.substring(domainStart, domainEnd.min(end))
+    val segments = domain.split("\\.", -1)
+    val valid    =
+      segments.length >= 2 && segments.forall(_.nonEmpty) &&
+        segments.takeRight(2).forall(!_.contains('_'))
+    Option.when(valid)(end)
+
+  private def trimTrailing(t: String, start: Int, initialEnd: Int): Int =
+    var end      = initialEnd
+    var continue = true
+    while continue && end > start do
+      val last = t.charAt(end - 1)
+      if "?!.,:*_~".indexOf(last) >= 0 then
+        end -= 1
+      else if last == ')' then
+        val s = t.substring(start, end)
+        if s.count(_ == ')') > s.count(_ == '(') then
+          end -= 1
+        else
+          continue = false
+      else if last == ';' then
+        // Exclude an entity-like suffix such as `&hl;`
+        var j = end - 2
+        while j > start && t.charAt(j).isLetterOrDigit && t.charAt(j) < 128 do
+          j -= 1
+        if j >= start && t.charAt(j) == '&' && j < end - 2 then
+          end = j
+        else
+          continue = false
+      else
+        continue = false
+    end
+
+  private def isEmailLocalChar(c: Char): Boolean =
+    c < 128 && (c.isLetterOrDigit || c == '.' || c == '-' || c == '_' || c == '+')
+
+  private def emailAt(t: String, at: Int, min: Int): Option[(Int, Int, String)] =
+    var start = at
+    while start > min && isEmailLocalChar(t.charAt(start - 1)) do
+      start -= 1
+    var end = at + 1
+    while end < t.length && isDomainChar(t.charAt(end)) do
+      end += 1
+    while end > at + 1 && t.charAt(end - 1) == '.' do
+      end -= 1
+    val domain = t.substring(at + 1, end)
+    val valid = start < at && domain.contains('.') && !domain.endsWith("-") && !domain.endsWith("_")
+    Option.when(valid) {
+      val email = t.substring(start, end)
+      (start, end, s"mailto:${email}")
+    }
+
+end Autolinks

@@ -65,6 +65,22 @@ val header = Frontmatter.parse(md).as[SkillHeader] // SkillHeader(review, "")
 val mdBody = Frontmatter.parse(md).body            // "# Body\n"
 ```
 
+## Markdown
+
+`Markdown.toHtml` renders CommonMark with GitHub Flavored Markdown extensions (tables, task
+lists, strikethrough, autolinks). Raw HTML is escaped and `javascript:` links are dropped unless
+you pass `MarkdownConfig().withRawHtml(true)` for trusted input.
+
+```scala
+import wvlet.uni.text.markdown.{Block, Inline, Markdown, MarkdownConfig}
+
+val html    = Markdown.toHtml("# Notes\n\n- [x] done\n- [ ] todo")
+val trusted = Markdown.toHtml("<kbd>Ctrl</kbd>", MarkdownConfig().withRawHtml(true))
+val titles  = Markdown.parse("# A\n## B").blocks.collect { case Block.Heading(_, inlines, _) =>
+  Inline.plainText(inlines)
+}
+```
+
 ## Persisted settings (SettingStore)
 
 An `RxVar` saved as `{"version", "state"}` JSON on every change: `~/.config/<app>/<fileName>` on

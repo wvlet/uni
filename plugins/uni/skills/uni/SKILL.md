@@ -36,6 +36,7 @@ Scala Native.
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`; see [references/core.md](references/core.md#yaml-and-frontmatter) |
+| Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`; see [references/core.md](references/core.md#markdown) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`; see [references/rx.md](references/rx.md) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
@@ -94,7 +95,7 @@ Read the reference for the task before writing code:
 
 | Task | Reference |
 |------|-----------|
-| Object wiring, logging, JSON, YAML, persisted settings, retry, MCP server | [references/core.md](references/core.md) |
+| Object wiring, logging, JSON, YAML, Markdown, persisted settings, retry, MCP server | [references/core.md](references/core.md) |
 | Typed RPC service, server, and generated client | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
 | HTTP server, REST controllers, filters | [references/http-server.md](references/http-server.md) |

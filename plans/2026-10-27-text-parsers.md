@@ -33,7 +33,7 @@
 
 ### Markdown (`wvlet.uni.text.markdown`, in `uni`)
 
-- `Markdown.parse(text): MarkdownDocument`, which returns an AST of `enum` block and inline nodes, each carrying a `Span`. `Markdown.toHtml(doc | text, MarkdownConfig)` renders HTML.
+- `Markdown.parse(text): MarkdownDocument`, which returns an AST of `enum` block and inline nodes. Blocks carry a `Span` of their source lines. Inlines don't, because paragraph text is assembled from lines with container prefixes (`>`, list indentation) removed. `Markdown.toHtml(doc | text, MarkdownConfig)` renders HTML.
 - Block phase (`LineReader`): ATX and setext headings, paragraphs, block quotes, ordered and bullet lists (tight/loose), fenced and indented code, thematic breaks, HTML blocks, and link reference definitions.
 - Inline phase: code spans, emphasis and strong (CommonMark delimiter-run algorithm), links and images (inline and reference), autolinks, hard and soft breaks, entity and backslash escapes.
 - GFM extensions: tables, task-list items, strikethrough, and extended autolinks.
