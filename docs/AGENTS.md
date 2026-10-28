@@ -47,8 +47,12 @@ If any of the above is unverified, drop the claim.
   sidebar, the Atom feed (`/blog/feed.xml`), and the post's `BlogPosting`
   JSON-LD and Open Graph tags all come from the frontmatter.
 - **Scala fences are compile-checked** by `docSnippets`, like the skill pages.
-- **Posts are dated records.** Fix errors in place, but don't rewrite an old
-  post to describe newer APIs; write a new post instead.
+- **Keep a post's code current, not its story.** Fix errors and refresh code
+  examples in place when an API they use changes (e.g. a simpler entry point),
+  so readers who copy them get working code. Keep the post's claims and
+  narrative as published; announce new features in a new post. `scala skip`
+  fences (Scala.js, Electron) are not compiled by `docSnippets`, so compile
+  them by hand when you update them.
 
 ## AI-agent docs
 
