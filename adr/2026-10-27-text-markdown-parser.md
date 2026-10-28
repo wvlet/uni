@@ -23,6 +23,8 @@ The GFM extensions follow cmark-gfm:
 - Extended autolinks are found in a pass over the text nodes after emphasis processing. The checkbox markup copies the GFM spec output (`<input disabled="" type="checkbox">`).
 - `withGfm(false)` gives plain CommonMark, which is how the CommonMark spec examples run.
 
+Frontmatter is read in the same pass, on by default (`MarkdownConfig.frontmatter`). `BlockParser` finds the header with `Frontmatter.split` on the normalized text and starts at the first body line, so block spans stay offsets into the whole text and callers need one call instead of `Frontmatter.parse` plus `Markdown.parse(body)`. It is on by default because a file that starts with `---`, YAML, and `---` is almost always frontmatter (skills, blog posts), and strict CommonMark turns it into a rule and a setext heading. A header counts only when it parses as a YAML mapping or is empty; scalar or invalid YAML leaves the lines as Markdown, so `Markdown.parse` never throws. The spec tests run with `withFrontmatter(false)`.
+
 Named entities come from the WHATWG `entities.json`: the 2,125 names that end in `;`. They are generated into `HtmlEntities.scala` as compact strings and parsed lazily into a `Map` on first use.
 
 Block containers nest at most 100 levels (`BlockParser.MaxNesting`; a nested list uses two, for the list and its item), and deeper markers are read as text. Inline emphasis and links nest at most 100 levels (`InlineParser.MaxInlineNesting`), and deeper subtrees become plain text, collected without recursion. Conversion and rendering recurse over the tree, and 1,000 nested `>` overflowed the Scala.js stack.

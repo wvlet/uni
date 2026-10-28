@@ -23,10 +23,19 @@ package wvlet.uni.text.markdown
   * @param gfm
   *   enable the GitHub Flavored Markdown extensions: tables, task lists, strikethrough, and
   *   extended autolinks. When false, the parser follows CommonMark only.
+  * @param frontmatter
+  *   read a leading YAML header between `---` lines into [[MarkdownDocument.frontmatter]] instead
+  *   of rendering it. A header that is not a YAML mapping stays Markdown. When false, a leading
+  *   `---` is a thematic break, as in CommonMark.
   */
-case class MarkdownConfig(rawHtml: Boolean = false, gfm: Boolean = true):
-  def withRawHtml(enabled: Boolean): MarkdownConfig = copy(rawHtml = enabled)
-  def withGfm(enabled: Boolean): MarkdownConfig     = copy(gfm = enabled)
+case class MarkdownConfig(
+    rawHtml: Boolean = false,
+    gfm: Boolean = true,
+    frontmatter: Boolean = true
+):
+  def withRawHtml(enabled: Boolean): MarkdownConfig     = copy(rawHtml = enabled)
+  def withGfm(enabled: Boolean): MarkdownConfig         = copy(gfm = enabled)
+  def withFrontmatter(enabled: Boolean): MarkdownConfig = copy(frontmatter = enabled)
 
 /**
   * Parse CommonMark with GitHub Flavored Markdown extensions, and render it to HTML.
@@ -42,9 +51,9 @@ case class MarkdownConfig(rawHtml: Boolean = false, gfm: Boolean = true):
 object Markdown:
 
   def parse(markdown: String, config: MarkdownConfig = MarkdownConfig()): MarkdownDocument =
-    val parser = BlockParser(markdown, config.gfm)
+    val parser = BlockParser(markdown, config.gfm, config.frontmatter)
     val root   = parser.parse()
-    MarkdownDocument(Converter(parser, config.gfm).blocks(root))
+    MarkdownDocument(Converter(parser, config.gfm).blocks(root), parser.header)
 
   def toHtml(markdown: String, config: MarkdownConfig = MarkdownConfig()): String = parse(
     markdown,

@@ -79,20 +79,21 @@ Inline nodes are `Text`, `Code`, `Emphasis`, `Strong`, `Strikethrough`, `Link`, 
 
 Each block has a `span` with the start and end offsets of its source lines in the input (after `\r\n` is normalized to `\n`). Inline nodes have no spans.
 
-## Markdown with Frontmatter
+## Frontmatter
 
-Combine with [`Frontmatter`](./yaml#frontmatter) to read a YAML header and render the body:
+`Markdown.parse` reads a leading YAML header between `---` lines in the same pass, as GitHub does for `.md` files. The header goes to `frontmatter`, is not rendered, and block spans still count from the start of the whole text:
 
 ```scala
-import wvlet.uni.text.yaml.Frontmatter
 import wvlet.uni.weaver.Weaver
 
 case class Post(title: String, tags: Seq[String] = Nil) derives Weaver
 
-val f    = Frontmatter.parse("---\ntitle: Hello\n---\nThe *body*\n")
-val post = f.as[Post]                // Post(Hello, List())
-val html = Markdown.toHtml(f.body)   // <p>The <em>body</em></p>
+val doc  = Markdown.parse("---\ntitle: Hello\n---\nThe *body*\n")
+val post = doc.frontmatterAs[Post]   // Post(Hello, List())
+val html = doc.toHtml()              // <p>The <em>body</em></p>
 ```
+
+The header must be a YAML mapping (or empty). Otherwise, as with `---\nSome text\n---`, or when the YAML is invalid, the lines stay Markdown, so parsing never fails. `MarkdownConfig().withFrontmatter(false)` turns the header off and gives strict CommonMark, where a leading `---` is a thematic break. To read only the header, use [`Frontmatter`](./yaml#frontmatter).
 
 ## Not Supported
 

@@ -1,7 +1,7 @@
 package wvlet.uni.text.markdown
 
 import wvlet.uni.test.UniTest
-import wvlet.uni.text.yaml.Frontmatter
+import wvlet.uni.weaver.Weaver
 
 class MarkdownTest extends UniTest:
 
@@ -84,11 +84,6 @@ class MarkdownTest extends UniTest:
     spans shouldBe Seq("# Title", "Some *text*", "- [x] item")
   }
 
-  test("render a Markdown body after frontmatter") {
-    val f = Frontmatter.parse("---\ntitle: Notes\n---\n## Today\n")
-    Markdown.toHtml(f.body) shouldBe "<h2>Today</h2>\n"
-  }
-
   test("handle pathological inputs in linear-ish time") {
     val inputs = Seq(
       "*a " * 5000,
@@ -119,6 +114,35 @@ class MarkdownTest extends UniTest:
     }
     // Reference definitions alone render nothing
     Markdown.toHtml((0 until 3000).map(i => s"[r${i}]: /u").mkString("\n")) shouldBe ""
+  }
+
+  test("read frontmatter in the same pass") {
+    case class Post(title: String, tags: Seq[String] = Nil) derives Weaver
+
+    val text = "---\ntitle: Hello\ntags: [a]\n---\n# Body\n"
+    val doc  = Markdown.parse(text)
+    doc.frontmatterAs[Post] shouldBe Post("Hello", Seq("a"))
+    doc.toHtml() shouldBe "<h1>Body</h1>\n"
+    // Spans point into the original text, header included
+    doc.blocks.head.span.start shouldBe text.indexOf("# Body")
+
+    // \r\n line breaks, an empty header, and a header with no body
+    Markdown.parse("---\r\ntitle: A\r\n---\r\ntext").frontmatterAs[Post] shouldBe Post("A")
+    val empty = Markdown.parse("---\n---\ntext")
+    empty.frontmatter.isDefined shouldBe true
+    empty.toHtml() shouldBe "<p>text</p>\n"
+    Markdown.parse("---\ntitle: A\n---").blocks shouldBe Nil
+  }
+
+  test("keep Markdown when the header is not a YAML mapping or frontmatter is off") {
+    // A plain line between rules is a setext heading, not a scalar header
+    Markdown.toHtml("---\nSome text\n---\n") shouldBe "<hr />\n<h2>Some text</h2>\n"
+    Markdown.parse("---\nSome text\n---\n").frontmatter shouldBe None
+    // Invalid YAML falls back to Markdown instead of failing
+    Markdown.parse("---\na: [\n---\n").frontmatter shouldBe None
+
+    val strict = MarkdownConfig().withFrontmatter(false)
+    Markdown.toHtml("---\ntitle: A\n---\n", strict) shouldBe "<hr />\n<h2>title: A</h2>\n"
   }
 
   test("limit the nesting of block quotes and lists") {

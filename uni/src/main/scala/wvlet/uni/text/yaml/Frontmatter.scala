@@ -55,6 +55,18 @@ object Frontmatter:
     * original line breaks.
     */
   def parse(text: String): Frontmatter =
+    split(text) match
+      case None =>
+        Frontmatter(None, text)
+      case Some((closeStart, bodyStart)) =>
+        // Keep the opening "---" (a YAML document start) so that error lines match the text
+        Frontmatter(Some(YAML.parse(text.substring(0, closeStart))), text.substring(bodyStart))
+
+  /**
+    * Find the frontmatter without parsing it: the start offsets of the closing marker line and of
+    * the body. The header text is `text.substring(0, closingLineStart)`.
+    */
+  private[text] def split(text: String): Option[(Int, Int)] =
     val start =
       if text.startsWith("\uFEFF") then
         1
@@ -62,20 +74,11 @@ object Frontmatter:
         0
     val firstEnd = lineEnd(text, start)
     if firstEnd >= text.length || !isMarker(text, start, firstEnd, "---") then
-      Frontmatter(None, text)
+      None
     else
-      closingLine(text, firstEnd + 1) match
-        case None =>
-          Frontmatter(None, text)
-        case Some((closeStart, closeEnd)) =>
-          // Keep the opening "---" (a YAML document start) so that error lines match the text
-          val header = YAML.parse(text.substring(0, closeStart))
-          val body   =
-            if closeEnd < text.length then
-              text.substring(closeEnd + 1)
-            else
-              ""
-          Frontmatter(Some(header), body)
+      closingLine(text, firstEnd + 1).map { (closeStart, closeEnd) =>
+        (closeStart, (closeEnd + 1).min(text.length))
+      }
 
   private def lineEnd(text: String, from: Int): Int =
     val i = text.indexOf('\n', from)

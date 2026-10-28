@@ -13,13 +13,25 @@
  */
 package wvlet.uni.text.markdown
 
+import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.text.Span
+import wvlet.uni.text.yaml.Frontmatter
+import wvlet.uni.weaver.Weaver
 
 /**
   * A parsed Markdown document
+  *
+  * @param frontmatter
+  *   the leading YAML header, if any (see [[MarkdownConfig.frontmatter]]). It is not rendered.
   */
-case class MarkdownDocument(blocks: Seq[Block]):
+case class MarkdownDocument(blocks: Seq[Block], frontmatter: Option[JSONValue] = None):
   def toHtml(config: MarkdownConfig = MarkdownConfig()): String = HtmlRenderer(config).render(this)
+
+  /**
+    * Decode the frontmatter into `A`. A missing or empty header decodes as an empty mapping, so
+    * fields take their default values.
+    */
+  def frontmatterAs[A](using Weaver[A]): A = Frontmatter(frontmatter, "").as[A]
 
 /**
   * Block-level nodes. `span` covers the source lines of the block, as offsets in the input with

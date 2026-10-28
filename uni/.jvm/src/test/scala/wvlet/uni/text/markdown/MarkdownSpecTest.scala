@@ -59,13 +59,17 @@ class MarkdownSpecTest extends UniTest:
   test("pass the CommonMark spec examples") {
     check(
       load("commonmark-spec-0.31.2.json"),
-      MarkdownConfig().withRawHtml(true).withGfm(false),
+      MarkdownConfig().withRawHtml(true).withGfm(false).withFrontmatter(false),
       knownCommonMarkDifferences
     )
   }
 
   test("pass the GitHub Flavored Markdown extension examples") {
-    check(load("gfm-extensions.json"), MarkdownConfig().withRawHtml(true), knownGfmDifferences)
+    check(
+      load("gfm-extensions.json"),
+      MarkdownConfig().withRawHtml(true).withFrontmatter(false),
+      knownGfmDifferences
+    )
   }
 
 end MarkdownSpecTest

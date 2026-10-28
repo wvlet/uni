@@ -14,7 +14,9 @@
 package wvlet.uni.text.markdown
 
 import wvlet.uni.text.Span
+import wvlet.uni.json.JSON.*
 import wvlet.uni.text.parser.LineReader
+import wvlet.uni.text.yaml.{Frontmatter, YAML}
 
 import scala.collection.mutable
 
@@ -90,7 +92,7 @@ private[markdown] final case class ListData(
   * each line first continues the open containers, then may start new blocks, and the rest is added
   * as text to the innermost block (or as a lazy paragraph continuation).
   */
-private[markdown] class BlockParser(input: String, gfm: Boolean):
+private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Boolean = false):
   import BlockParser.*
   import MarkdownText.*
 
@@ -110,6 +112,35 @@ private[markdown] class BlockParser(input: String, gfm: Boolean):
       i += 1
     offsets
 
+  /**
+    * The YAML header and the first body line. A header counts only when it parses as a mapping (or
+    * is empty); otherwise the `---` lines stay Markdown, so parsing never fails.
+    */
+  val (header: Option[JSONValue], firstLine: Int) =
+    val found =
+      if frontmatter then
+        Frontmatter.split(text)
+      else
+        None
+    found
+      .flatMap { (closeStart, bodyStart) =>
+        val yaml =
+          try
+            Some(YAML.parse(text.substring(0, closeStart)))
+          catch
+            case _: Exception =>
+              None
+        yaml.collect { case v @ (_: JSONObject | _: JSONNull) =>
+          val line =
+            if bodyStart >= text.length then
+              lines.length
+            else
+              text.substring(0, bodyStart).count(_ == '\n')
+          (Some(v), line)
+        }
+      }
+      .getOrElse((None, 0))
+
   val refMap = mutable.Map.empty[String, (String, Option[String])]
 
   private val doc                    = BlockNode(BlockKind.Document, 0, 0)
@@ -117,7 +148,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean):
   private var oldTip: BlockNode      = doc
   private var lastMatched: BlockNode = doc
   private var currentLine            = ""
-  private var lineNumber             = -1
+  private var lineNumber             = firstLine - 1
   private var offset                 = 0
   private var column                 = 0
   private var nextNonspace           = 0
@@ -130,7 +161,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean):
   private var lastLineLength         = 0
 
   def parse(): BlockNode =
-    lines.foreach(incorporateLine)
+    lines.iterator.drop(firstLine).foreach(incorporateLine)
     while tip ne doc do
       finalize(tip, lines.length - 1)
     finalize(doc, lines.length - 1)

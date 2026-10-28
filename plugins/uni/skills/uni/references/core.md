@@ -69,7 +69,9 @@ val mdBody = Frontmatter.parse(md).body            // "# Body\n"
 
 `Markdown.toHtml` renders CommonMark with GitHub Flavored Markdown extensions (tables, task
 lists, strikethrough, autolinks). Raw HTML is escaped and `javascript:` links are dropped unless
-you pass `MarkdownConfig().withRawHtml(true)` for trusted input.
+you pass `MarkdownConfig().withRawHtml(true)` for trusted input. A leading `---` YAML header is
+read in the same pass into `frontmatter` and not rendered (`withFrontmatter(false)` for strict
+CommonMark).
 
 ```scala
 import wvlet.uni.text.markdown.{Block, Inline, Markdown, MarkdownConfig}
@@ -79,6 +81,11 @@ val trusted = Markdown.toHtml("<kbd>Ctrl</kbd>", MarkdownConfig().withRawHtml(tr
 val titles  = Markdown.parse("# A\n## B").blocks.collect { case Block.Heading(_, inlines, _) =>
   Inline.plainText(inlines)
 }
+
+case class Post(title: String, tags: Seq[String] = Nil) derives Weaver
+val post = Markdown.parse("---\ntitle: Hello\n---\nThe *body*\n")
+val meta = post.frontmatterAs[Post] // Post(Hello, List())
+val postHtml = post.toHtml()        // <p>The <em>body</em></p>
 ```
 
 ## Persisted settings (SettingStore)
