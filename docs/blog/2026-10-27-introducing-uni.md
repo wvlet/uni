@@ -104,9 +104,9 @@ Claude Code or another MCP client can call, with its input schema derived from
 the method signature:
 
 ```scala
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.mcp.MCP
 
-@main def greeterMcp(): Unit = MCPServer()
+@main def greeterMcp(): Unit = MCP.server
   .withName("greeter")
   .withVersion("0.1.0")
   .withTools[GreeterService](GreeterServiceImpl())
