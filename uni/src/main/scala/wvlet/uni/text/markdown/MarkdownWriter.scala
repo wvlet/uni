@@ -33,7 +33,7 @@ private[markdown] object MarkdownWriter:
       if src.isEmpty then
         w.blocks(doc.blocks, "", "\n", "")
       else
-        w.blocks(doc.blocks, src.opening, src.trailing, "")
+        w.blocks(doc.blocks, src.opening, src.trailing, "", originalBlocks(src))
       w.result()
 
   private def unchanged(b: Block): Boolean       = Source.same(b.source.parsed, Source.content(b))
@@ -41,6 +41,32 @@ private[markdown] object MarkdownWriter:
     item.source.parsed,
     (item.blocks, item.checked)
   )
+
+  /**
+    * The child blocks recorded when a container was parsed
+    */
+  private def originalBlocks(src: Source): Seq[Block] =
+    src.parsed match
+      case p: Product if p.productArity > 0 =>
+        p.productElement(0) match
+          case s: Seq[?] =>
+            s.collect { case b: Block =>
+              b
+            }
+          case _ =>
+            Nil
+      case _ =>
+        Nil
+
+  /**
+    * Was the list item a task when it was parsed?
+    */
+  private def originalChecked(src: Source): Boolean =
+    src.parsed match
+      case p: Product if p.productArity > 1 =>
+        p.productElement(1) != None
+      case _ =>
+        false
 
   /**
     * The start of the last line, after a `\n` or `\r` line break
@@ -74,15 +100,38 @@ private[markdown] object MarkdownWriter:
     /**
       * Write sibling blocks. `prefix` is what starts each new line inside the enclosing containers.
       */
-    def blocks(bs: Seq[Block], opening: String, trailing: String, prefix: String): Unit =
+    def blocks(
+        bs: Seq[Block],
+        opening: String,
+        trailing: String,
+        prefix: String,
+        original: Seq[Block] = Nil
+    ): Unit =
+      // Link reference definitions sit in the trivia before the next block. Keep the ones in
+      // front of removed blocks, so that deleting a paragraph does not break links elsewhere.
+      val kept    = bs.map(_.source).filterNot(_.isEmpty).toSet
+      val removed = original
+        .zipWithIndex
+        .filter((b, _) => !kept.exists(_ eq b.source) && b.source.leading.contains('['))
+      val position                             = original.map(_.source).zipWithIndex
+      var flushed                              = 0
+      def flushRemovedBefore(index: Int): Unit =
+        removed
+          .filter((_, i) => i >= flushed && i < index)
+          .foreach((b, _) => sb.append(b.source.leading.stripTrailing()))
+        flushed = flushed.max(index)
       sb.append(opening)
       bs.zipWithIndex
         .foreach { (b, i) =>
+          position.find(_._1 eq b.source).foreach((_, index) => flushRemovedBefore(index))
           if i > 0 then
             sb.append(separator(b.source, blankLine(prefix)))
           block(b, prefix)
         }
+      flushRemovedBefore(original.length)
       sb.append(trailing)
+
+    end blocks
 
     private def separator(src: Source, default: String): String =
       if src.leading.isEmpty then
@@ -107,9 +156,15 @@ private[markdown] object MarkdownWriter:
           case Block.Heading(level, in, src) =>
             val text = inlines(in)
             setextUnderline(src.raw) match
-              case Some(underline) =>
-                lines(s"${text}\n${underline}", prefix)
-              case None =>
+              case Some(underline) if level <= 2 =>
+                // Keep the underline length; its character follows the current level
+                val c =
+                  if level == 1 then
+                    "="
+                  else
+                    "-"
+                lines(s"${text}\n${c * underline.length}", prefix)
+              case _ =>
                 // Escape a trailing '#' so that it is not read as a closing sequence
                 val line = text.replace('\n', ' ')
                 val body =
@@ -124,7 +179,7 @@ private[markdown] object MarkdownWriter:
                 "> "
               else
                 src.opening
-            blocks(children, opening, src.trailing, s"${prefix}> ")
+            blocks(children, opening, src.trailing, s"${prefix}> ", originalBlocks(src))
           case l: Block.ListBlock =>
             list(l, prefix)
           case Block.CodeBlock(info, code, fenced, src) =>
@@ -232,7 +287,7 @@ private[markdown] object MarkdownWriter:
           case Some(checked) =>
             // The task marker lives in the first paragraph's text
             val rest = Writer(definitions, nl)
-            rest.blocks(item.blocks, "", item.source.trailing, inner)
+            rest.blocks(item.blocks, "", item.source.trailing, inner, originalBlocks(item.source))
             val text = rest.result()
             val mark =
               if checked then
@@ -246,8 +301,21 @@ private[markdown] object MarkdownWriter:
               sb.append(mark).append(text.substring(3))
             else
               sb.append(s"${mark} ").append(text)
+          case None if item.source.parsed != null && originalChecked(item.source) =>
+            // The item is no longer a task: drop the marker from the first paragraph's text
+            val rest = Writer(definitions, nl)
+            rest.blocks(item.blocks, "", item.source.trailing, inner, originalBlocks(item.source))
+            val text = rest.result()
+            sb.append(opening)
+            if text.length > 3 && text.charAt(0) == '[' && text.charAt(2) == ']' &&
+              " xX".indexOf(text.charAt(1)) >= 0
+            then
+              sb.append(text.substring(3).dropWhile(c => c == ' ' || c == '\t'))
+            else
+              sb.append(text)
           case None =>
-            blocks(item.blocks, opening, item.source.trailing, inner)
+            blocks(item.blocks, opening, item.source.trailing, inner, originalBlocks(item.source))
+        end match
 
     private def table(
         header: Seq[Seq[Inline]],
@@ -289,9 +357,9 @@ private[markdown] object InlineWriter:
     * inlines. For example, `*_a_*` written as `**a**` would read as strong emphasis.
     */
   def write(inlines: Seq[Inline], definitions: Map[String, (String, Option[String])]): String =
-    def parsesTo(text: String): Boolean =
-      InlineParser(text, mutable.Map.from(definitions), gfm = true).parse() == inlines
-    val first = render(inlines, underscores = false, fullEscape = false)
+    val refs                            = mutable.Map.from(definitions)
+    def parsesTo(text: String): Boolean = InlineParser(text, refs, gfm = true).parse() == inlines
+    val first                           = render(inlines, underscores = false, fullEscape = false)
     if parsesTo(first) then
       first
     else

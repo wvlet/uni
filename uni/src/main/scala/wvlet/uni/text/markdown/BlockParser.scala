@@ -167,11 +167,6 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
     finalize(doc, lines.length - 1)
     doc
 
-  /**
-    * The offset of the first body line (after the frontmatter) in the normalized text
-    */
-  def bodyStart: Int = lineOffsets(firstLine.min(lines.length))
-
   def textLength: Int = text.length
 
   def charAt(i: Int): Char = text.charAt(i)

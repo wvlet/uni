@@ -188,8 +188,8 @@ private[markdown] class InlineParser(
         case t: InlineNode if t.kind == InlineKind.Text && t.literal.endsWith(" ") =>
           val hard    = t.literal.endsWith("  ")
           val trimmed = t.literal.reverse.dropWhile(_ == ' ').reverse
-          // The trailing spaces belong to the break
-          if t.end >= 0 then
+          // The trailing spaces belong to the break, unless they came from an entity or escape
+          if t.end >= 0 && t.end - t.start == t.literal.length then
             t.end -= t.literal.length - trimmed.length
           t.literal = trimmed
           InlineNode(

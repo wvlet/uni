@@ -236,6 +236,36 @@ class MarkdownTest extends UniTest:
     ).toMarkdown shouldBe "# Hi\n\na **b\\***\n\n```scala\nval x = 1\n```\n"
   }
 
+  test("rewrite edited nodes without losing their meaning") {
+    def edit(text: String)(f: PartialFunction[Block, Block]): String =
+      val doc = Markdown.parse(text)
+      doc.copy(blocks = doc.blocks.map(b => f.applyOrElse(b, identity))).toMarkdown
+
+    // A setext heading keeps its underline only for its own level
+    edit("Title\n=====\n") { case h: Block.Heading =>
+      h.copy(level = 2)
+    } shouldBe "Title\n-----\n"
+    edit("Title\n=====\n") { case h: Block.Heading =>
+      h.copy(level = 3)
+    } shouldBe "### Title\n"
+
+    // An item that is no longer a task drops its marker
+    edit("- [ ] todo\n") { case l: Block.ListBlock =>
+      l.copy(items = l.items.map(_.copy(checked = None)))
+    } shouldBe "- todo\n"
+
+    // Text from an entity before a line break stays intact
+    edit("a&#32;\nb\n") { case p @ Block.Paragraph(in, _) =>
+      p.copy(inlines = Inline.Text("x") +: in.tail)
+    } shouldBe "x\nb\n"
+
+    // Removing a block keeps the link reference definitions before it
+    val doc = Markdown.parse("a\n\n[r]: /u\n\nb\n\nc [r]\n")
+    val out = doc.copy(blocks = doc.blocks.patch(1, Nil, 1)).toMarkdown
+    out shouldBe "a\n\n[r]: /u\n\nc [r]\n"
+    Markdown.toHtml(out) shouldBe "<p>a</p>\n<p>c <a href=\"/u\">r</a></p>\n"
+  }
+
   test("limit the nesting of block quotes and lists") {
     def quoteDepth(blocks: Seq[Block]): Int = blocks
       .collect { case Block.BlockQuote(children, _) =>
