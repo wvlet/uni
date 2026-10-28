@@ -71,8 +71,7 @@ class ServiceScannerTest extends UniTest:
     source shouldContain "class SyncClient(client: HttpSyncClient):"
     source shouldContain "def getUser(id: Long): User"
     source shouldContain "def deleteUser(id: Long): Unit"
-    source shouldContain "RPCClient.build"
-    source shouldContain "Surface.methodsOf"
+    source shouldContain "RPCClient.of[wvlet.uni.http.codegen.TestUserService]"
   }
 
 end ServiceScannerTest
