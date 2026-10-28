@@ -20,6 +20,7 @@ import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 case class Token(value: String) derives Weaver
+case class Window(width: Int = 800, title: Option[String]) derives Weaver
 
 class SettingStoreTest extends UniTest:
   private def memoryConfig(backend: StoreBackend): SettingStoreConfig[AppSettings] = SettingStore
@@ -150,10 +151,16 @@ class SettingStoreTest extends UniTest:
       .get shouldBe AppSettings(fontSize = 20)
   }
 
+  test("use None for Option parameters without a default") {
+    SettingStore.of[Window].withBackend(InMemoryStoreBackend()).open("window").get shouldBe
+      Window(800, None)
+  }
+
   test("require withDefault for types without default parameters") {
     val e = intercept[IllegalArgumentException] {
       SettingStore.of[Token].withBackend(InMemoryStoreBackend()).open("token")
     }
+    e.getMessage shouldContain "value has no default value"
     e.getMessage shouldContain "withDefault"
     SettingStore
       .of[Token]

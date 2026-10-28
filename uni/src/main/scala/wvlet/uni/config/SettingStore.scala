@@ -18,6 +18,7 @@ import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{JSONLong, JSONObject, JSONValue}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{Cancelable, RxVar}
+import wvlet.uni.surface.Surface
 import wvlet.uni.weaver.Weaver
 
 import scala.util.control.NonFatal
@@ -93,7 +94,7 @@ end SettingLocation
   *   converts stored state JSON of an older version (the second argument) into the current schema
   * @param default
   *   the value to start from when nothing is stored. When not set, the value is built from the
-  *   case-class default parameters.
+  *   default parameter values of `A`, read with [[Surface]].
   * @param backend
   *   a storage backend to use instead of the platform default
   * @param watchChanges
@@ -107,7 +108,7 @@ case class SettingStoreConfig[A](
     default: Option[A] = None,
     backend: Option[StoreBackend] = None,
     watchChanges: Boolean = false
-)(using val weaver: Weaver[A]):
+)(using val weaver: Weaver[A], val surface: Surface):
   def withAppName(name: String): SettingStoreConfig[A]               = copy(appName = name)
   def withLocation(location: SettingLocation): SettingStoreConfig[A] = copy(location = location)
   def withVersion(version: Int): SettingStoreConfig[A]               = copy(version = version)
@@ -136,18 +137,19 @@ case class SettingStoreConfig[A](
   }
 
   /**
-    * The value to start from: the one set with `withDefault`, otherwise the case-class defaults
+    * The value to start from: the one set with `withDefault`, otherwise an instance built from the
+    * default parameter values of `A` (`None` for `Option` parameters without a default)
     */
   def resolveDefault: A = default.getOrElse {
-    try
-      weaver.fromJson("{}")
-    catch
-      case NonFatal(e) =>
-        throw IllegalArgumentException(
-          s"Cannot build a default value from the case-class defaults: ${e.getMessage}. " +
-            "Set one with withDefault(...)",
-          e
-        )
+    def noDefault(reason: String): Nothing =
+      throw IllegalArgumentException(
+        s"Cannot create a default ${surface.name}: ${reason}. Set one with withDefault(...)"
+      )
+    val factory = surface.objectFactory.getOrElse(noDefault("no constructor is available"))
+    val missing = surface.params.filter(p => p.getDefaultValue.isEmpty && !p.surface.isOption)
+    if missing.nonEmpty then
+      noDefault(s"${missing.map(_.name).mkString(", ")} has no default value")
+    factory.newInstance(surface.params.map(_.getDefaultValue.getOrElse(None))).asInstanceOf[A]
   }
 
   /**
@@ -247,7 +249,8 @@ object SettingStore extends LogSupport:
   /**
     * Entry point. Configure with `withXXX(...)`, then call `open(key)`.
     */
-  def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] = SettingStoreConfig[A]()
+  inline def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] =
+    SettingStoreConfig[A]()(using weaver, Surface.of[A])
 
   private[config] def open[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
     require(validKey.matches(key), s"Invalid setting key: ${key}")
