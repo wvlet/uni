@@ -38,11 +38,11 @@ trait StoreBackend:
   def watch(key: String)(onChange: () => Unit): Cancelable = Cancelable.empty
 
 /**
-  * Stores each key in `<dir>/<key>.json`. A write goes to a temporary file first and then replaces
-  * the target, so a crash during a write never leaves a partially written file.
+  * Stores each key as the file `<dir>/<key>`. A write goes to a temporary file first and then
+  * replaces the target, so a crash during a write never leaves a partially written file.
   */
 class FileStoreBackend(val dir: IOPath) extends StoreBackend:
-  private def pathOf(key: String): IOPath = dir / s"${key}.json"
+  private def pathOf(key: String): IOPath = dir / key
 
   override def read(key: String): Option[String] =
     val path = pathOf(key)
@@ -53,7 +53,7 @@ class FileStoreBackend(val dir: IOPath) extends StoreBackend:
 
   override def write(key: String, value: String): Unit =
     FileSystem.createDirectoryIfNotExists(dir)
-    val tmp = dir / s".${key}.json.tmp-${scala.util.Random.alphanumeric.take(8).mkString}"
+    val tmp = dir / s".${key}.tmp-${scala.util.Random.alphanumeric.take(8).mkString}"
     try
       FileSystem.writeString(tmp, value, WriteMode.CreateNew)
       FileSystem.move(tmp, pathOf(key), overwrite = true)
@@ -65,14 +65,13 @@ class FileStoreBackend(val dir: IOPath) extends StoreBackend:
   override def moveAside(key: String): Unit =
     val path = pathOf(key)
     if FileSystem.exists(path) then
-      FileSystem.move(path, dir / s"${key}.json.corrupt-${System.currentTimeMillis()}")
+      FileSystem.move(path, dir / s"${key}.corrupt-${System.currentTimeMillis()}")
 
   override def watch(key: String)(onChange: () => Unit): Cancelable =
     FileSystem.createDirectoryIfNotExists(dir)
-    val fileName = s"${key}.json"
-    val watcher  =
+    val watcher =
       IOWatch.watch(dir) { event =>
-        if event.path.fileName == fileName then
+        if event.path.fileName == key then
           onChange()
       }
     Cancelable(() => watcher.close())

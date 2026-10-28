@@ -25,7 +25,7 @@ import scala.scalajs.js
   */
 class NodeFileStoreBackend(val dir: IOPath) extends StoreBackend:
   private def fs: js.Dynamic              = NodeModules.builtin("fs")
-  private def pathOf(key: String): String = (dir / s"${key}.json").path
+  private def pathOf(key: String): String = (dir / key).path
 
   override def read(key: String): Option[String] =
     val path = pathOf(key)
@@ -36,7 +36,7 @@ class NodeFileStoreBackend(val dir: IOPath) extends StoreBackend:
 
   override def write(key: String, value: String): Unit =
     fs.mkdirSync(dir.path, js.Dynamic.literal(recursive = true))
-    val tmp = (dir / s".${key}.json.tmp-${scala.util.Random.alphanumeric.take(8).mkString}").path
+    val tmp = (dir / s".${key}.tmp-${scala.util.Random.alphanumeric.take(8).mkString}").path
     try
       fs.writeFileSync(tmp, value, js.Dynamic.literal(encoding = "utf8", flag = "wx"))
       fs.renameSync(tmp, pathOf(key))
@@ -56,11 +56,10 @@ class NodeFileStoreBackend(val dir: IOPath) extends StoreBackend:
 
   override def watch(key: String)(onChange: () => Unit): Cancelable =
     fs.mkdirSync(dir.path, js.Dynamic.literal(recursive = true))
-    val fileName = s"${key}.json"
-    val watcher  = fs.watch(
+    val watcher = fs.watch(
       dir.path,
       (_: String, name: js.Any) =>
-        if name != null && name.toString == fileName then
+        if name != null && name.toString == key then
           onChange()
     )
     Cancelable(() => watcher.close())

@@ -24,7 +24,7 @@ import wvlet.uni.weaver.Weaver
 import scala.util.control.NonFatal
 
 /**
-  * Where a file-backed [[SettingStore]] keeps its `<key>.json` files.
+  * Where a file-backed [[SettingStore]] keeps its files.
   */
 enum SettingLocation:
   /**
@@ -80,7 +80,7 @@ end SettingLocation
 
 /**
   * Configuration of a [[SettingStore]] for values of type `A`. Create one with
-  * `SettingStore.of[A]`, set options with `withXXX(...)`, then call `open(key)`.
+  * `SettingStore.of[A]`, set options with `withXXX(...)`, then call `load(fileName)`.
   *
   * @param appName
   *   the application name, used as the directory name under the setting location (and as the
@@ -153,9 +153,11 @@ case class SettingStoreConfig[A](
   }
 
   /**
-    * Open the store for `key`, loading its saved value or starting from the default
+    * Load the settings saved in `fileName` (a file under the setting location, or the localStorage
+    * key `<app>/<fileName>` in a browser), or start from the default. Later updates are saved to
+    * the same place.
     */
-  def open(key: String): SettingStore[A] = SettingStore.open(key, this)
+  def load(fileName: String = "settings.json"): SettingStore[A] = SettingStore.load(fileName, this)
 
 end SettingStoreConfig
 
@@ -169,13 +171,13 @@ end SettingStoreConfig
   * {{{
   *   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
   *
-  *   val settings = SettingStore.of[AppSettings].withAppName("my-app").open("settings")
+  *   val settings = SettingStore.of[AppSettings].withAppName("my-app").load()
   *   settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
   * }}}
   *
   * The stored data is `{"version": <n>, "state": <value>}`. Fields missing from the stored state
   * take their case-class defaults, and unknown fields are ignored. Stored data that cannot be read
-  * is moved aside (for files, renamed to `<key>.json.corrupt-<timestamp>`), and the store starts
+  * is moved aside (for files, renamed to `<fileName>.corrupt-<timestamp>`), and the store starts
   * from the default value.
   */
 class SettingStore[A] private (
@@ -247,13 +249,13 @@ object SettingStore extends LogSupport:
   private val validKey = "[A-Za-z0-9_\\-][A-Za-z0-9_.\\-]*".r
 
   /**
-    * Entry point. Configure with `withXXX(...)`, then call `open(key)`.
+    * Entry point. Configure with `withXXX(...)`, then call `load(fileName)`.
     */
   inline def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] =
     SettingStoreConfig[A]()(using weaver, Surface.of[A])
 
-  private[config] def open[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
-    require(validKey.matches(key), s"Invalid setting key: ${key}")
+  private[config] def load[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
+    require(validKey.matches(key), s"Invalid setting file name: ${key}")
     val default = config.resolveDefault
     val backend = config.resolveBackend
     val initial = load(key, default, config, backend, config.weaver)

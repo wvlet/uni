@@ -30,13 +30,13 @@ class SettingStoreTest extends UniTest:
 
   test("start from the default and save updates") {
     val backend  = InMemoryStoreBackend()
-    val settings = memoryConfig(backend).open("settings")
+    val settings = memoryConfig(backend).load()
     settings.get shouldBe AppSettings()
     settings.update(_.copy(theme = "dark"))
-    backend.read("settings") shouldBe
+    backend.read("settings.json") shouldBe
       Some("""{"version":0,"state":{"theme":"dark","fontSize":14}}""")
 
-    val reloaded = memoryConfig(backend).open("settings")
+    val reloaded = memoryConfig(backend).load()
     reloaded.get shouldBe AppSettings(theme = "dark")
   }
 
@@ -47,7 +47,7 @@ class SettingStoreTest extends UniTest:
         override def write(key: String, value: String): Unit =
           writes += 1
           super.write(key, value)
-    val settings = memoryConfig(backend).open("settings")
+    val settings = memoryConfig(backend).load()
     settings.update(_.copy(theme = "dark"))
     settings.update(_.copy(theme = "dark"))
     settings := AppSettings(theme = "dark")
@@ -55,7 +55,7 @@ class SettingStoreTest extends UniTest:
   }
 
   test("notify subscribers on change") {
-    val settings = memoryConfig(InMemoryStoreBackend()).open("settings")
+    val settings = memoryConfig(InMemoryStoreBackend()).load()
     val themes   = List.newBuilder[String]
     val c        = settings.map(_.theme).subscribe(themes += _)
     settings.update(_.copy(theme = "dark"))
@@ -65,14 +65,14 @@ class SettingStoreTest extends UniTest:
 
   test("fill missing fields with defaults") {
     val backend = InMemoryStoreBackend()
-    backend.write("settings", """{"version":0,"state":{"theme":"dark","unknown":true}}""")
-    memoryConfig(backend).open("settings").get shouldBe AppSettings(theme = "dark")
+    backend.write("settings.json", """{"version":0,"state":{"theme":"dark","unknown":true}}""")
+    memoryConfig(backend).load().get shouldBe AppSettings(theme = "dark")
   }
 
   test("migrate older versions and save the result") {
     val backend = InMemoryStoreBackend()
     // Version 1 called the field "colorScheme"
-    backend.write("settings", """{"version":1,"state":{"colorScheme":"dark"}}""")
+    backend.write("settings.json", """{"version":1,"state":{"colorScheme":"dark"}}""")
     val config = memoryConfig(backend)
       .withVersion(2)
       .withMigrate { (state: JSONValue, fromVersion: Int) =>
@@ -89,31 +89,31 @@ class SettingStoreTest extends UniTest:
           case other =>
             other
       }
-    config.open("settings").get shouldBe AppSettings(theme = "dark")
-    backend.read("settings") shouldBe
+    config.load().get shouldBe AppSettings(theme = "dark")
+    backend.read("settings.json") shouldBe
       Some("""{"version":2,"state":{"theme":"dark","fontSize":14}}""")
   }
 
   test("move unreadable data aside and start from the default") {
     val backend = InMemoryStoreBackend()
-    backend.write("settings", "{not json")
+    backend.write("settings.json", "{not json")
     var settings: AppSettings = null
     val logs                  = captureLogs {
-      settings = memoryConfig(backend).open("settings").get
+      settings = memoryConfig(backend).load().get
     }
     settings shouldBe AppSettings()
-    logs.warnings shouldContain "Setting settings cannot be read"
-    backend.read("settings") shouldBe None
-    backend.snapshot.keys.exists(_.startsWith("settings.corrupt-")) shouldBe true
+    logs.warnings shouldContain "Setting settings.json cannot be read"
+    backend.read("settings.json") shouldBe None
+    backend.snapshot.keys.exists(_.startsWith("settings.json.corrupt-")) shouldBe true
   }
 
   test("clear removes the stored data") {
     val backend  = InMemoryStoreBackend()
-    val settings = memoryConfig(backend).open("settings")
+    val settings = memoryConfig(backend).load()
     settings.update(_.copy(fontSize = 20))
     settings.clear()
     settings.get shouldBe AppSettings()
-    backend.read("settings") shouldBe None
+    backend.read("settings.json") shouldBe None
   }
 
   test("reload when the stored data changes elsewhere") {
@@ -127,13 +127,13 @@ class SettingStoreTest extends UniTest:
       def changeElsewhere(value: Option[String]): Unit =
         value match
           case Some(v) =>
-            write("settings", v)
+            write("settings.json", v)
           case None =>
-            remove("settings")
+            remove("settings.json")
         fireChange()
 
     val backend  = WatchableBackend()
-    val settings = memoryConfig(backend).withWatchChanges(true).open("settings")
+    val settings = memoryConfig(backend).withWatchChanges(true).load()
     backend.changeElsewhere(Some("""{"version":0,"state":{"theme":"dark"}}"""))
     settings.get shouldBe AppSettings(theme = "dark")
     // Unreadable data, e.g., a file in the middle of a non-atomic save, keeps the current value
@@ -145,20 +145,18 @@ class SettingStoreTest extends UniTest:
   }
 
   test("start from withDefault when set") {
-    memoryConfig(InMemoryStoreBackend())
-      .withDefault(AppSettings(fontSize = 20))
-      .open("settings")
-      .get shouldBe AppSettings(fontSize = 20)
+    memoryConfig(InMemoryStoreBackend()).withDefault(AppSettings(fontSize = 20)).load().get shouldBe
+      AppSettings(fontSize = 20)
   }
 
   test("use None for Option parameters without a default") {
-    SettingStore.of[Window].withBackend(InMemoryStoreBackend()).open("window").get shouldBe
+    SettingStore.of[Window].withBackend(InMemoryStoreBackend()).load("window.json").get shouldBe
       Window(800, None)
   }
 
   test("require withDefault for types without default parameters") {
     val e = intercept[IllegalArgumentException] {
-      SettingStore.of[Token].withBackend(InMemoryStoreBackend()).open("token")
+      SettingStore.of[Token].withBackend(InMemoryStoreBackend()).load("token.json")
     }
     e.getMessage shouldContain "value has no default value"
     e.getMessage shouldContain "withDefault"
@@ -166,19 +164,19 @@ class SettingStoreTest extends UniTest:
       .of[Token]
       .withBackend(InMemoryStoreBackend())
       .withDefault(Token("t"))
-      .open("token")
+      .load("token.json")
       .get shouldBe Token("t")
   }
 
   test("require an application name for the default location") {
     intercept[IllegalArgumentException] {
-      SettingStore.of[AppSettings].open("settings")
+      SettingStore.of[AppSettings].load()
     }
   }
 
   test("reject keys that are not safe file names") {
     intercept[IllegalArgumentException] {
-      memoryConfig(InMemoryStoreBackend()).open("../settings")
+      memoryConfig(InMemoryStoreBackend()).load("../settings.json")
     }
   }
 
@@ -188,13 +186,13 @@ class SettingStoreTest extends UniTest:
       .of[AppSettings]
       .withAppName("test-app")
       .withLocation(SettingLocation.Directory(dir))
-    val settings = config.open("settings")
+    val settings = config.load()
     settings.update(_.copy(theme = "dark"))
     FileSystem.readString(dir / "settings.json") shouldContain "\"theme\":\"dark\""
     // No temporary files are left behind
     FileSystem.list(dir).map(_.fileName) shouldBe Seq("settings.json")
 
-    config.open("settings").get shouldBe AppSettings(theme = "dark")
+    config.load().get shouldBe AppSettings(theme = "dark")
     FileSystem.deleteRecursively(dir)
   }
 

@@ -37,13 +37,13 @@ Lane: **Standard**. This adds a new public API and picks default on-disk storage
     .withAppName("my-app")
     .withVersion(2)
     .withMigrate { (json, fromVersion) => ... }
-    .open("settings")
+    .load()
   settings.update(_.copy(theme = "dark"))   // persisted
   settings.map(_.theme).subscribe { t => ... } // selector-style subscription
   ```
 
 - **`StoreBackend`** trait: `read(key): Option[String]`, `write(key, value)`, `remove(key)`, and optionally `watch(key)(onChange)`.
-  - `FileStoreBackend(dir)` (JVM, Native, Node.js): one `<key>.json` file per key. Each write goes to a temp file and is then moved over the target, so a crash mid-write cannot leave a half-written file.
+  - `FileStoreBackend(dir)` (JVM, Native, Node.js): one file per file name. Each write goes to a temp file and is then moved over the target, so a crash mid-write cannot leave a half-written file.
   - `LocalStorageBackend` (browser): uses `window.localStorage` and supports cross-tab sync through `storage` events, the same way `StorageVar` does.
   - `InMemoryStoreBackend` for tests.
   - The platform default is a file under the app config dir on JVM, Native, and Node, and localStorage in a browser (detected with `FileSystem.isBrowser`).
@@ -56,7 +56,7 @@ Lane: **Standard**. This adds a new public API and picks default on-disk storage
 - **Envelope and migrations**: the stored data looks like `{"version": 2, "state": {...}}`, matching zustand's format. On load:
   - If the stored version is lower than the configured one, the backend calls `migrate(stateJson: JSONValue, fromVersion: Int): JSONValue` before decoding, then writes the migrated value back.
   - Fields missing from the stored data take their case-class defaults (this is zustand's `merge`). Unknown fields are ignored.
-- **Failure policy**: if the stored data is corrupt or fails to decode, the store logs a warning, renames the file to `<key>.json.corrupt-<timestamp>` so nothing is lost silently, and starts from the default. Write errors are logged and the in-memory value is kept. Neither case throws from `set`.
+- **Failure policy**: if the stored data is corrupt or fails to decode, the store logs a warning, renames the file to `<fileName>.corrupt-<timestamp>` so nothing is lost silently, and starts from the default. Write errors are logged and the in-memory value is kept. Neither case throws from `set`.
 - **Partial persistence (zustand `partialize`)**: not added. Put only the fields to persist in the `SettingStore`, and keep transient UI state in plain `RxVar`s. That keeps the API small.
 - **External changes**: off by default. `withWatchChanges(true)` uses `IOWatch` (file backend) or `storage` events (browser) to reload the value when another process or tab changes it.
 - **`dom.StorageVar`**: left unchanged. A later PR can rebase it on `LocalStorageBackend`.

@@ -13,7 +13,7 @@ import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 
-val settings = SettingStore.of[AppSettings].withAppName("my-app").open("settings")
+val settings = SettingStore.of[AppSettings].withAppName("my-app").load()
 
 settings.get.theme                      // "light" on the first run
 settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
@@ -22,7 +22,8 @@ settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.js
 val cancelable = settings.map(_.fontSize).subscribe { size => println(s"font size: ${size}") }
 ```
 
-Start from `SettingStore.of[A]`, chain `withXXX(...)` options, and finish with `open(key)`. The
+Start from `SettingStore.of[A]`, chain `withXXX(...)` options, and finish with `load(fileName)`. `load()` reads `settings.json`; pass another name to keep a
+second file. The
 store starts from the case-class default values. Use `withDefault(...)` for another starting value,
 or for a type with a field that has no default value:
 
@@ -33,15 +34,15 @@ val credentials = SettingStore
   .of[Credentials]
   .withAppName("my-app")
   .withDefault(Credentials("guest", ""))
-  .open("credentials") // ~/.config/my-app/credentials.json
+  .load("credentials.json") // ~/.config/my-app/credentials.json
 ```
 
 ## Where settings are stored
 
 | Platform | Default storage |
 |----------|-----------------|
-| JVM, Scala Native, Node.js | `~/.config/<app>/<key>.json`, or `$XDG_CONFIG_HOME/<app>/<key>.json` when that variable is set |
-| Browser (Scala.js) | `localStorage`, under the item key `<app>/<key>` |
+| JVM, Scala Native, Node.js | `~/.config/<app>/<fileName>`, or `$XDG_CONFIG_HOME/<app>/<fileName>` when that variable is set |
+| Browser (Scala.js) | `localStorage`, under the item key `<app>/<fileName>` |
 
 Use `withLocation` to pick another directory:
 
@@ -54,21 +55,21 @@ val osConfig = SettingStore
   .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.OSConfig)
-  .open("settings")
+  .load()
 
 // <project>/.my-app/, for settings that belong to one project
 val project = SettingStore
   .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.Project(IOPath("/work/my-project")))
-  .open("settings")
+  .load()
 
 // Any explicit directory
 val custom = SettingStore
   .of[AppSettings]
   .withAppName("my-app")
   .withLocation(SettingLocation.Directory(IOPath("/etc/my-app")))
-  .open("settings")
+  .load()
 ```
 
 Each write goes to a temporary file first and then replaces the target file, so a crash during a
@@ -108,11 +109,11 @@ val migrating = SettingStore
       case other =>
         other
   }
-  .open("settings")
+  .load()
 ```
 
 If the stored data cannot be read, `SettingStore` logs a warning, keeps the data for inspection
-(the file is renamed to `<key>.json.corrupt-<timestamp>`), and starts from the default value.
+(the file is renamed to `<fileName>.corrupt-<timestamp>`), and starts from the default value.
 
 ## Changes from other processes
 
@@ -125,7 +126,7 @@ val shared = SettingStore
   .of[AppSettings]
   .withAppName("my-app")
   .withWatchChanges(true)
-  .open("settings")
+  .load()
 // Call shared.stop() to stop watching
 ```
 
@@ -140,7 +141,7 @@ val inMemory = SettingStore
   .of[AppSettings]
   .withAppName("my-app")
   .withBackend(InMemoryStoreBackend())
-  .open("settings")
+  .load()
 ```
 
 `withBackend` also accepts your own `StoreBackend`, for example one that stores settings in a
