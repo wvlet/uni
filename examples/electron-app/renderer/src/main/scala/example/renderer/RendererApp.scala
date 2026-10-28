@@ -8,7 +8,6 @@ import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.surface.Surface
 
 import scala.language.implicitConversions
 import scala.scalajs.js.annotation.JSExportTopLevel
@@ -35,10 +34,7 @@ end RendererApp
 class CounterUI extends RxElement:
 
   // A reusable RPC engine for CounterApi. The generated/manual stub below adds typed methods.
-  private val rpc: RPCClient = RPCClient.build(
-    Surface.of[CounterApi],
-    Surface.methodsOf[CounterApi]
-  )
+  private val rpc: RPCClient = RPCClient.of[CounterApi]
 
   // The async client routes through whatever channel factory is installed (Electron IPC, below).
   private lazy val client = Http.client.newAsyncClient

@@ -14,7 +14,6 @@
 package wvlet.uni.electron.testing
 
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
-import wvlet.uni.surface.Surface
 import wvlet.uni.test.UniTest
 
 /** Shared counter state, mirroring the `examples/electron-app` reference service. */
@@ -43,10 +42,7 @@ class CounterApiImpl extends CounterApi:
   */
 class ElectronTestbedTest extends UniTest:
 
-  private def rpcClient: RPCClient = RPCClient.build(
-    Surface.of[CounterApi],
-    Surface.methodsOf[CounterApi]
-  )
+  private def rpcClient: RPCClient = RPCClient.of[CounterApi]
 
   test("a stateful service keeps state across IPC calls") {
     val testbed = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl()))

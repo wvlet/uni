@@ -175,10 +175,10 @@ val async = UserServiceClient.AsyncClient(
 async.getUser(42).map(user => println(user.name))
 ```
 
-Under the hood the generated methods delegate to `RPCClient`, which serializes
-arguments and decodes responses with [Weaver](../core/weaver) — the same wire
-format the [RPC router](#creating-an-rpc-router) expects, so client and server
-stay in sync.
+Under the hood the generated methods delegate to `RPCClient.of[UserService]`,
+which serializes arguments and decodes responses with [Weaver](../core/weaver) —
+the same wire format the [RPC router](#creating-an-rpc-router) expects, so client
+and server stay in sync.
 
 ## RPC Status Codes
 

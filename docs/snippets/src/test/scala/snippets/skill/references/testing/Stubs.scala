@@ -3,7 +3,6 @@ package snippets.skill.references.testing
 
 import wvlet.uni.http.HttpSyncClient
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.surface.Surface
 
 case class User(id: Long, name: String)
 
@@ -39,5 +38,5 @@ class UserServiceImpl extends UserService:
 
 object UserServiceClient:
   class SyncClient(http: HttpSyncClient) extends UserService:
-    private val rpc = RPCClient.build(Surface.of[UserService], Surface.methodsOf[UserService])
+    private val rpc             = RPCClient.of[UserService]
     def getUser(id: Long): User = rpc.callSync(http, "getUser", Seq(id))
