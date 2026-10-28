@@ -17,7 +17,7 @@ class OutputCaptureThreadTest extends UniTest:
 
   test("capture records from threads that run no suite") {
     val logs = captureLogs {
-      val t = Thread(() => OutputCaptureTest.Noisy().fail())
+      val t = Thread(() => CaptureNoisy().fail())
       t.start()
       t.join()
     }
@@ -33,7 +33,7 @@ class OutputCaptureThreadTest extends UniTest:
           .TestLogCapture
           .withSuiteThread {
             other = captureLogs {
-              OutputCaptureTest.Noisy().fail()
+              CaptureNoisy().fail()
             }
           }
       )

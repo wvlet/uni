@@ -43,6 +43,7 @@ Scala Native.
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
+| Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."` |
 
 ## Uni or the Scala Toolkit
 
@@ -61,6 +62,9 @@ encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit.
 - **ScalaTest matchers in UniTest.** Write `(x >= 1) shouldBe true`, not
   `x should be >= 1`. For type checks, `v shouldMatch { case _: T => }` instead of
   `asInstanceOf`. Use `shouldNotBe`, `shouldContain`, `intercept[E] { ... }`.
+- **Silencing expected errors with `Logger.of[X].suppressWarnings`.** In tests, wrap the
+  code in `captureLogs { ... }` and assert on `logs.warnings`; see
+  `references/testing.md`.
 - **Importing only `UniTest`.** Use `import wvlet.uni.test.*`; `shouldBe defined`
   and `shouldBe empty` need the matcher objects from that package.
 - **Checking `isSuccessful` after `send`.** The HTTP client throws on non-2xx:

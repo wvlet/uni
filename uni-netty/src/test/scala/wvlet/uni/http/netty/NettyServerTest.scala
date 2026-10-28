@@ -24,7 +24,6 @@ import wvlet.uni.http.{
   ServerSentEvent
 }
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -207,22 +206,21 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle error in handler") {
-    Logger
-      .of[NettyRequestHandler]
-      .suppressWarnings {
-        NettyServer
-          .withPort(0)
-          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-          .withRxHandler { _ =>
-            Rx.exception(RuntimeException("Test error"))
-          }
-          .start { server =>
-            val response = get(s"http://localhost:${server.localPort}/error")
-            response.statusCode() shouldBe 500
-            // The exception message is logged, not sent to the client
-            response.body() shouldBe "Internal Server Error"
-          }
-      }
+    val logs = captureLogs {
+      NettyServer
+        .withPort(0)
+        .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+        .withRxHandler { _ =>
+          Rx.exception(RuntimeException("Test error"))
+        }
+        .start { server =>
+          val response = get(s"http://localhost:${server.localPort}/error")
+          response.statusCode() shouldBe 500
+          // The exception message is logged, not sent to the client
+          response.body() shouldBe "Internal Server Error"
+        }
+    }
+    logs.warnings shouldContain "Error in Rx handler: Test error"
   }
 
   test("should configure server with builder methods") {

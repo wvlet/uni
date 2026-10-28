@@ -13,7 +13,6 @@
  */
 package wvlet.uni.mcp
 
-import wvlet.uni.http.rpc.RPCDispatcher
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{
   JSONArray,
@@ -24,7 +23,6 @@ import wvlet.uni.json.JSON.{
   JSONString,
   JSONValue
 }
-import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
@@ -233,17 +231,16 @@ class MCPServerTest extends UniTest:
   }
 
   test("tool execution failures are isError results, not protocol errors") {
-    Logger
-      .of[RPCDispatcher]
-      .suppressWarnings {
-        parseResponse(
-          newServer.handleMessage(toolCall(9, "explode", "message" -> JSONString("boom")))
-        ).map { response =>
-          val result = resultOf(response)
-          result.get("isError") shouldBe Some(JSONBoolean(true))
-          firstContentText(result) shouldContain "boom"
-        }
-      }
+    var response: Rx[Option[String]] = Rx.empty
+    val logs                         = captureLogs {
+      response = newServer.handleMessage(toolCall(9, "explode", "message" -> JSONString("boom")))
+    }
+    logs.warnings shouldContain "Unexpected error in RPC handler: boom"
+    parseResponse(response).map { response =>
+      val result = resultOf(response)
+      result.get("isError") shouldBe Some(JSONBoolean(true))
+      firstContentText(result) shouldContain "boom"
+    }
   }
 
   test("notifications produce no response") {

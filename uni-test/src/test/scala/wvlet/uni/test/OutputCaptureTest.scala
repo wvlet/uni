@@ -15,21 +15,19 @@ package wvlet.uni.test
 
 import wvlet.uni.log.{LogLevel, LogSupport}
 
-object OutputCaptureTest:
-  class Noisy extends LogSupport:
-    def fail(): Unit = warn("handler failed", IllegalStateException("boom"))
+// Top-level, since Scala.js names the logger of a nested class after its outer class
+class CaptureNoisy extends LogSupport:
+  def fail(): Unit = warn("handler failed", IllegalStateException("boom"))
 
-  class Other extends LogSupport:
-    def report(): Unit = error("other failed")
-
-import OutputCaptureTest.*
+class CaptureOther extends LogSupport:
+  def report(): Unit = error("other failed")
 
 class OutputCaptureTest extends UniTest:
 
   test("capture log records of the current thread") {
     val logs = captureLogs {
-      Noisy().fail()
-      Other().report()
+      CaptureNoisy().fail()
+      CaptureOther().report()
     }
     logs.records.map(_.level) shouldBe Seq(LogLevel.WARN, LogLevel.ERROR)
     logs.warnings shouldContain "handler failed"
@@ -39,14 +37,14 @@ class OutputCaptureTest extends UniTest:
   }
 
   test("scope the capture to a logger") {
-    val logs = captureLogs[Noisy] {
-      Noisy().fail()
+    val logs = captureLogs[CaptureNoisy] {
+      CaptureNoisy().fail()
     }
     logs.warnings shouldContain "handler failed"
     // A record outside the scope goes to the enclosing capture, or prints as usual without one
     val outer = captureLogs {
-      val none = captureLogs[Other] {
-        Noisy().fail()
+      val none = captureLogs[CaptureOther] {
+        CaptureNoisy().fail()
       }
       none.isEmpty shouldBe true
     }
@@ -55,14 +53,22 @@ class OutputCaptureTest extends UniTest:
 
   test("nested captures take records of their own block") {
     val outer = captureLogs {
-      Other().report()
+      CaptureOther().report()
       val inner = captureLogs {
-        Noisy().fail()
+        CaptureNoisy().fail()
       }
       inner.warnings shouldContain "handler failed"
     }
     outer.errors shouldBe "other failed"
     outer.warnings shouldBe ""
+  }
+
+  test("reject an asynchronous block") {
+    intercept[IllegalArgumentException] {
+      captureLogs {
+        wvlet.uni.rx.Rx.single(1)
+      }
+    }
   }
 
   test("capture stdout and stderr") {

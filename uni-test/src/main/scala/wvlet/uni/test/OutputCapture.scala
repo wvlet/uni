@@ -13,12 +13,14 @@
  */
 package wvlet.uni.test
 
-import wvlet.uni.log.{LogLevel, LogRecord}
+import wvlet.uni.log.{LogLevel, LogRecord, Logger}
+import wvlet.uni.rx.RxOps
 import wvlet.uni.test.spi.TestLogCapture
 
 import java.io.ByteArrayOutputStream
 import java.util.logging as jl
 import scala.compiletime.summonInline
+import scala.concurrent.Future
 import scala.reflect.ClassTag
 
 /**
@@ -69,7 +71,7 @@ trait OutputCapture:
     * server's worker threads and Future pools. Records from threads running another suite are left
     * alone. If `body` throws, the captured records are printed, so the failure stays debuggable.
     * Log levels are not changed: a record below its logger's level is not emitted, so it is not
-    * captured either.
+    * captured either. The block must be synchronous: a block that returns a Future or Rx fails.
     *
     * With a type argument, `captureLogs[A] { ... }` captures only records of the logger of `A` and
     * its children. Use it for long blocks, so that records of unrelated code stay visible.
@@ -83,19 +85,28 @@ trait OutputCapture:
     if cls == classOf[Object] || cls == classOf[scala.runtime.Nothing$] then
       None
     else
-      Some(cls.getName)
+      Some(Logger.loggerNameOf(cls))
 
   private[test] def capture(loggerName: Option[String])(body: => Any): CapturedLogs =
     val c       = TestLogCapture.openCapture(loggerName)
     val records =
       try
-        body
+        checkSynchronous(body)
         c.close(replay = false)
       catch
         case e: Throwable =>
           c.close(replay = true)
           throw e
     CapturedLogs(records.map(toLogRecord))
+
+  // A Future or Rx would run after the capture ends, and the assertions in it would be dropped
+  private def checkSynchronous(result: Any): Unit =
+    result match
+      case _: Future[?] | _: RxOps[?] =>
+        throw IllegalArgumentException(
+          "The block returned a Future or Rx, which runs after the capture ends. Capture inside the asynchronous code, or return its result after the capture."
+        )
+      case _ =>
 
   private def toLogRecord(r: jl.LogRecord): LogRecord =
     r match

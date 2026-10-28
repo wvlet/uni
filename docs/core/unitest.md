@@ -251,6 +251,61 @@ test("comparisons") {
 }
 ```
 
+## Testing Error Paths
+
+A test that makes code fail on purpose, such as a handler that throws, makes the code log a warning with a stack trace. Wrap the code in `captureLogs` to keep those records out of the test output and to check that they were logged:
+
+```scala test
+import wvlet.uni.log.LogSupport
+
+class Importer extends LogSupport:
+  def parse(line: String): Option[Int] =
+    val n = line.toIntOption
+    if n.isEmpty then
+      warn(s"Skipping an invalid line: ${line}")
+    n
+
+test("skip invalid lines with a warning") {
+  val logs = captureLogs {
+    Importer().parse("abc") shouldBe None
+  }
+  logs.warnings shouldContain "Skipping an invalid line: abc"
+}
+```
+
+`captureLogs` returns a `CapturedLogs`:
+
+| Member | Content |
+|--------|---------|
+| `warnings` | Messages of WARN records, one per line |
+| `errors` | Messages of ERROR records, one per line |
+| `messages` | Messages of all records, one per line |
+| `records` | The `LogRecord`s, for checks on level, logger name, or cause |
+
+A record with an exception adds a line with the exception, so `logs.warnings shouldContain "boom"` also matches the exception message.
+
+What it captures:
+
+- Records from the thread running the block, and from threads that run no test suite, such as a server's worker threads and `Future` pools. A test that starts a server and sends it a failing request captures the server's warnings.
+- Not records from threads running another suite, so suites running in parallel keep their own output.
+- `captureLogs[A] { ... }` captures only the logger of `A` and its children. Use it for long blocks, so that records of unrelated code stay visible.
+- Log levels are not changed. A record below its logger's level is not emitted, so it is not captured either.
+- If the block throws, the captured records are printed, so the failure stays debuggable.
+- The block must be synchronous: one that returns a `Future` or `Rx` fails, because the async code would run after the capture ends.
+
+`captureStdout` and `captureStderr` return what the block printed to `Console.out` and `Console.err`:
+
+```scala test
+test("print a greeting") {
+  val out = captureStdout {
+    println("hello")
+  }
+  out shouldBe "hello\n"
+}
+```
+
+They redirect Scala's `Console` for the current thread and threads it starts, not the process-wide `System.out`/`System.err`, so they capture `println` but not output that Java code writes to `System.out` directly.
+
 ## Test Control
 
 ### Skip Tests
@@ -885,6 +940,7 @@ Test / testOptions += Tests.Argument("--log-capture")    // or "--no-log-capture
 4. **One behavior per test** - Keep tests focused on a single behavior
 5. **Descriptive names** - Test names should describe the expected behavior
 6. **Use boolean expressions** - For comparisons: `(x > 5) shouldBe true`
+7. **Capture expected errors** - Wrap code that fails on purpose in `captureLogs` and assert on the warning, instead of lowering log levels. See [Testing Error Paths](#testing-error-paths)
 
 ## Cross-Platform Support
 
@@ -896,6 +952,7 @@ UniTest works across all Scala 3 platforms:
 | Nested tests | ✓ | ✓ | ✓ |
 | Flaky tests | ✓ | ✓ | ✓ |
 | Property-based testing | ✓ | ✓ | ✓ |
+| `captureLogs` from other threads | ✓ | - | ✓ |
 | IDE integration | ✓ | - | - |
 
 ## Package

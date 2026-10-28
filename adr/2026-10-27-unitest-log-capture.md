@@ -21,6 +21,6 @@ sbt buffers what a test framework writes to the `sbt.testing.Logger`s of a task 
 
 - In CI with buffered output, logs of a suite that hangs until the CI job times out may never print. Pass `--no-log-capture` when debugging such a hang.
 
-- Logs from servers' worker threads or `Future`s on the global pool still print directly to the console.
+- Logs from servers' worker threads or `Future`s on the global pool still print directly to the console. Tests that expect such logs capture them with `captureLogs` (see `2026-10-27-unitest-capture-logs.md`), which shares this handler; it is now reference-counted instead of installed once per outermost runner.
 - Scala.js keeps its async `execute` without routing. On Native, bodies run on the global pool, so few records are routed.
 - Test code that calls `Logger.setDefaultHandler`/`Logger.init` or clears root handlers turns routing off for the rest of the run.
