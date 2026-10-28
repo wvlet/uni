@@ -121,6 +121,12 @@ case class SettingStoreConfig(
     */
   def resolveBackend: StoreBackend = backend.getOrElse(SettingStoreCompat.defaultBackend(this))
 
+  /**
+    * Open the store for `key`, loading its saved value or starting from `default`
+    */
+  def open[A](key: String, default: A)(using weaver: Weaver[A]): SettingStore[A] = SettingStore
+    .open(key, default, this)
+
 end SettingStoreConfig
 
 /**
@@ -133,7 +139,10 @@ end SettingStoreConfig
   * {{{
   *   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
   *
-  *   val settings = SettingStore.of("settings", AppSettings(), SettingStoreConfig("my-app"))
+  *   val settings = SettingStore
+  *     .withAppName("my-app")
+  *     .withVersion(1)
+  *     .open("settings", AppSettings())
   *   settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
   * }}}
   *
@@ -211,9 +220,11 @@ object SettingStore extends LogSupport:
   private val validKey = "[A-Za-z0-9_\\-][A-Za-z0-9_.\\-]*".r
 
   /**
-    * Create a store for `key`, loading its saved value or starting from `default`
+    * Entry point. Configure with `withXXX(...)`, then `open(key, default)`.
     */
-  def of[A](key: String, default: A, config: SettingStoreConfig)(using
+  def withAppName(name: String): SettingStoreConfig = SettingStoreConfig(name)
+
+  private[config] def open[A](key: String, default: A, config: SettingStoreConfig)(using
       weaver: Weaver[A]
   ): SettingStore[A] =
     require(validKey.matches(key), s"Invalid setting key: ${key}")

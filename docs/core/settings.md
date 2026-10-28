@@ -8,18 +8,28 @@ If you have used zustand's `persist` middleware in a JavaScript app, `SettingSto
 same ground: a reactive store, a storage backend, a version number, and migrations.
 
 ```scala
-import wvlet.uni.config.{SettingStore, SettingStoreConfig}
+import wvlet.uni.config.SettingStore
 import wvlet.uni.weaver.Weaver
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 
-val settings = SettingStore.of("settings", AppSettings(), SettingStoreConfig("my-app"))
+val settings = SettingStore.withAppName("my-app").open("settings", AppSettings())
 
 settings.get.theme                      // "light" on the first run
 settings.update(_.copy(theme = "dark")) // saved to ~/.config/my-app/settings.json
 
 // Subscribe to one field, as with a zustand selector
 val cancelable = settings.map(_.fontSize).subscribe { size => println(s"font size: ${size}") }
+```
+
+Start from `SettingStore.withAppName(...)`, chain `withXXX(...)` options, and finish with
+`open(key, default)`. One configuration can open several keys, each saved to its own file:
+
+```scala
+case class RecentFiles(paths: Seq[String] = Seq.empty) derives Weaver
+
+val myApp  = SettingStore.withAppName("my-app")
+val recent = myApp.open("recent-files", RecentFiles()) // ~/.config/my-app/recent-files.json
 ```
 
 ## Where settings are stored
@@ -36,17 +46,22 @@ import wvlet.uni.io.IOPath
 import wvlet.uni.config.SettingLocation
 
 // ~/Library/Application Support/my-app on macOS, %APPDATA%\my-app on Windows
-val osConfig = SettingStoreConfig("my-app").withLocation(SettingLocation.OSConfig)
+val osConfig = SettingStore
+  .withAppName("my-app")
+  .withLocation(SettingLocation.OSConfig)
+  .open("settings", AppSettings())
 
 // <project>/.my-app/, for settings that belong to one project
-val project = SettingStoreConfig("my-app").withLocation(
-  SettingLocation.Project(IOPath("/work/my-project"))
-)
+val project = SettingStore
+  .withAppName("my-app")
+  .withLocation(SettingLocation.Project(IOPath("/work/my-project")))
+  .open("settings", AppSettings())
 
 // Any explicit directory
-val custom = SettingStoreConfig("my-app").withLocation(
-  SettingLocation.Directory(IOPath("/etc/my-app"))
-)
+val custom = SettingStore
+  .withAppName("my-app")
+  .withLocation(SettingLocation.Directory(IOPath("/etc/my-app")))
+  .open("settings", AppSettings())
 ```
 
 Each write goes to a temporary file first and then replaces the target file, so a crash during a
@@ -69,7 +84,8 @@ The stored file records a schema version:
 ```scala
 import wvlet.uni.json.JSON.{JSONObject, JSONValue}
 
-val migrating = SettingStoreConfig("my-app")
+val migrating = SettingStore
+  .withAppName("my-app")
   .withVersion(2)
   .withMigrate { (state: JSONValue, fromVersion: Int) =>
     state match
@@ -84,6 +100,7 @@ val migrating = SettingStoreConfig("my-app")
       case other =>
         other
   }
+  .open("settings", AppSettings())
 ```
 
 If the stored data cannot be read, `SettingStore` logs a warning, keeps the data for inspection
@@ -96,11 +113,10 @@ also reloads when another process changes the file, or when another browser tab 
 `localStorage`:
 
 ```scala
-val shared = SettingStore.of(
-  "settings",
-  AppSettings(),
-  SettingStoreConfig("my-app").withWatchChanges(true)
-)
+val shared = SettingStore
+  .withAppName("my-app")
+  .withWatchChanges(true)
+  .open("settings", AppSettings())
 // Call shared.stop() to stop watching
 ```
 
@@ -111,11 +127,10 @@ Use `InMemoryStoreBackend` so tests do not touch the real settings directory:
 ```scala
 import wvlet.uni.config.InMemoryStoreBackend
 
-val inMemory = SettingStore.of(
-  "settings",
-  AppSettings(),
-  SettingStoreConfig("my-app").withBackend(InMemoryStoreBackend())
-)
+val inMemory = SettingStore
+  .withAppName("my-app")
+  .withBackend(InMemoryStoreBackend())
+  .open("settings", AppSettings())
 ```
 
 `withBackend` also accepts your own `StoreBackend`, for example one that stores settings in a

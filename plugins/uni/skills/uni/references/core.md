@@ -54,17 +54,23 @@ the JVM, Native, and Node.js, and `localStorage` in a browser. Missing fields ta
 defaults; raise `withVersion` and convert old JSON in `withMigrate` when renaming fields.
 
 ```scala
-import wvlet.uni.config.{InMemoryStoreBackend, SettingLocation, SettingStore, SettingStoreConfig}
+import wvlet.uni.config.{InMemoryStoreBackend, SettingLocation, SettingStore}
 
 case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver
 
-val settings = SettingStore.of("settings", AppSettings(), SettingStoreConfig("my-app"))
+val settings = SettingStore.withAppName("my-app").open("settings", AppSettings())
 settings.update(_.copy(theme = "dark"))
 val fontSize = settings.map(_.fontSize) // derived Rx, like a zustand selector
 
 // Other locations: OSConfig, Project(dir), Directory(path); in tests, use an in-memory backend
-val osConfig = SettingStoreConfig("my-app").withLocation(SettingLocation.OSConfig)
-val inTest   = SettingStoreConfig("my-app").withBackend(InMemoryStoreBackend())
+val osConfig = SettingStore
+  .withAppName("my-app")
+  .withLocation(SettingLocation.OSConfig)
+  .open("settings", AppSettings())
+val inTest = SettingStore
+  .withAppName("my-app")
+  .withBackend(InMemoryStoreBackend())
+  .open("settings", AppSettings())
 ```
 
 ## Retry
