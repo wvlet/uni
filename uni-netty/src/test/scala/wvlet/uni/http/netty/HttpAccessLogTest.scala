@@ -16,7 +16,7 @@ package wvlet.uni.http.netty
 import wvlet.uni.http.*
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.io.IOPath
-import wvlet.uni.log.FileLogHandlerConfig
+import wvlet.uni.log.{FileLogHandlerConfig, Logger}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -103,18 +103,22 @@ class HttpAccessLogTest extends UniTest:
   }
 
   test("log 404 and exceptions, and still render the generic 500") {
-    val w = HttpAccessLogWriter.inMemory()
-    withServer(HttpAccessLogFilter(w)) { base =>
-      get(s"${base}/missing").statusCode() shouldBe 404
-      val r = get(s"${base}/error")
-      r.statusCode() shouldBe 500
-      r.body() shouldBe "Internal Server Error"
-      val entries = awaitEntries(w, 2)
-      entries(0)("status_code") shouldBe 404
-      entries(1)("status_code") shouldBe 500
-      entries(1)("exception_class") shouldBe "java.lang.IllegalStateException"
-      entries(1)("exception_message") shouldBe "boom"
-    }
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        val w = HttpAccessLogWriter.inMemory()
+        withServer(HttpAccessLogFilter(w)) { base =>
+          get(s"${base}/missing").statusCode() shouldBe 404
+          val r = get(s"${base}/error")
+          r.statusCode() shouldBe 500
+          r.body() shouldBe "Internal Server Error"
+          val entries = awaitEntries(w, 2)
+          entries(0)("status_code") shouldBe 404
+          entries(1)("status_code") shouldBe 500
+          entries(1)("exception_class") shouldBe "java.lang.IllegalStateException"
+          entries(1)("exception_message") shouldBe "boom"
+        }
+      }
   }
 
   test("log a finished SSE stream to the stream writer") {
@@ -131,29 +135,35 @@ class HttpAccessLogTest extends UniTest:
   }
 
   test("log once per request, including empty handler results and failing callbacks") {
-    val w      = HttpAccessLogWriter.inMemory()
-    val config = HttpAccessLogConfig().withExtraEntries((_, _) => throw IllegalStateException("x"))
-    val server = NettyServer
-      .withPort(0)
-      .noNativeTransport
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withFilter(HttpAccessLogFilter(w, config))
-      .withRxHandler { req =>
-        if req.path == "/empty" then
-          Rx.empty
-        else
-          Rx.fromSeq(Seq(Response.ok("first"), Response.ok("second")))
+    Logger
+      .of[HttpAccessLogFilter]
+      .suppressWarnings {
+        val w      = HttpAccessLogWriter.inMemory()
+        val config = HttpAccessLogConfig().withExtraEntries((_, _) =>
+          throw IllegalStateException("x")
+        )
+        val server = NettyServer
+          .withPort(0)
+          .noNativeTransport
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withFilter(HttpAccessLogFilter(w, config))
+          .withRxHandler { req =>
+            if req.path == "/empty" then
+              Rx.empty
+            else
+              Rx.fromSeq(Seq(Response.ok("first"), Response.ok("second")))
+          }
+          .start()
+        try
+          val base = s"http://127.0.0.1:${server.localPort}"
+          get(s"${base}/empty").statusCode() shouldBe 404
+          get(s"${base}/many").body() shouldBe "first"
+          Thread.sleep(200)
+          w.entries.map(e => (e("path"), e("status_code"))) shouldBe
+            Seq(("/empty", 404), ("/many", 200))
+        finally
+          server.stop()
       }
-      .start()
-    try
-      val base = s"http://127.0.0.1:${server.localPort}"
-      get(s"${base}/empty").statusCode() shouldBe 404
-      get(s"${base}/many").body() shouldBe "first"
-      Thread.sleep(200)
-      w.entries.map(e => (e("path"), e("status_code"))) shouldBe
-        Seq(("/empty", 404), ("/many", 200))
-    finally
-      server.stop()
   }
 
   test("exclude headers and replace the redacted set") {

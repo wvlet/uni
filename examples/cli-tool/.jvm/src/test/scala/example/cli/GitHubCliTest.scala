@@ -24,6 +24,11 @@ class GitHubCliTest extends UniTest:
   }
 
   test("--help prints help without calling the API") {
-    Launcher.of[GitHubCli].execute(Array("--help")).showedHelp shouldBe true
-    Launcher.of[GitHubCli].execute(Array("repo", "--help")).showedHelp shouldBe true
+    val out = java.io.ByteArrayOutputStream()
+    Console.withOut(out) {
+      Launcher.of[GitHubCli].execute(Array("--help")).showedHelp shouldBe true
+      Launcher.of[GitHubCli].execute(Array("repo", "--help")).showedHelp shouldBe true
+    }
+    out.toString shouldContain "usage: uni-gh"
+    out.toString shouldContain "usage: repo"
   }

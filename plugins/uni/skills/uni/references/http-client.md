@@ -54,9 +54,9 @@ import wvlet.uni.http.HttpMaxRetryException
 try client.send(Request.get("/users/999"))
 catch
   case e: HttpException =>
-    e.statusCode // Option[Int], e.g. Some(404)
-    e.status     // Option[HttpStatus]
-    e.response   // Option[HttpResponse], with the error body
+    val code     = e.statusCode // Option[Int], e.g. Some(404)
+    val status   = e.status     // Option[HttpStatus]
+    val response = e.response   // Option[HttpResponse], with the error body
   case e: HttpMaxRetryException =>
     e.response   // the last HttpResponse (e.g. 503)
 ```

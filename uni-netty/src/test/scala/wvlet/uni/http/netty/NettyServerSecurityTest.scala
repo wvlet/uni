@@ -21,7 +21,8 @@ import wvlet.uni.http.{
   ServerSentEvent,
   WebSocketHandler
 }
-import wvlet.uni.http.rpc.{RPCRouter, RPCStatus}
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
+import wvlet.uni.log.Logger
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -87,67 +88,85 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("hide exception messages in 500 responses by default") {
-    NettyServer
-      .withPort(0)
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withHandler(_ => throw IllegalStateException("password=hunter2"))
-      .start { server =>
-        val head = rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        head shouldContain " 500 "
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        NettyServer
+          .withPort(0)
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withHandler(_ => throw IllegalStateException("password=hunter2"))
+          .start { server =>
+            val head = rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            head shouldContain " 500 "
+          }
       }
   }
 
   test("show exception messages when detailed errors are enabled") {
-    NettyServer
-      .withPort(0)
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withDetailedErrors(true)
-      .withRxHandler(_ => Rx.exception(IllegalStateException("visible detail")))
-      .start { server =>
-        val client   = java.net.http.HttpClient.newHttpClient()
-        val response = client.send(
-          java
-            .net
-            .http
-            .HttpRequest
-            .newBuilder()
-            .uri(java.net.URI.create(s"http://127.0.0.1:${server.localPort}/"))
-            .build(),
-          java.net.http.HttpResponse.BodyHandlers.ofString()
-        )
-        response.statusCode() shouldBe 500
-        response.body() shouldBe "visible detail"
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        NettyServer
+          .withPort(0)
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withDetailedErrors(true)
+          .withRxHandler(_ => Rx.exception(IllegalStateException("visible detail")))
+          .start { server =>
+            val client   = java.net.http.HttpClient.newHttpClient()
+            val response = client.send(
+              java
+                .net
+                .http
+                .HttpRequest
+                .newBuilder()
+                .uri(java.net.URI.create(s"http://127.0.0.1:${server.localPort}/"))
+                .build(),
+              java.net.http.HttpResponse.BodyHandlers.ofString()
+            )
+            response.statusCode() shouldBe 500
+            response.body() shouldBe "visible detail"
+          }
       }
   }
 
   test("hide unexpected RPC exception messages by default") {
-    val router = RPCRouter.of[SecurityTestApi](SecurityTestApiImpl())
-    val rpc    = RPCHandler(router)
-    val req    = Request
-      .post(router.routes.head.path)
-      .withJsonContent("""{"request":{"message":"x"}}""")
-    val response = rpc.handle(req).toSeq.head
-    response.status shouldBe HttpStatus.InternalServerError_500
-    response.contentAsString.get shouldContain RPCStatus.INTERNAL_ERROR_I0.name
-    response.contentAsString.get.contains("db.internal") shouldBe false
-    response.contentAsString.get.contains("stackTrace") shouldBe false
+    Logger
+      .of[RPCDispatcher]
+      .suppressWarnings {
+        val router = RPCRouter.of[SecurityTestApi](SecurityTestApiImpl())
+        val rpc    = RPCHandler(router)
+        val req    = Request
+          .post(router.routes.head.path)
+          .withJsonContent("""{"request":{"message":"x"}}""")
+        val response = rpc.handle(req).toSeq.head
+        response.status shouldBe HttpStatus.InternalServerError_500
+        response.contentAsString.get shouldContain RPCStatus.INTERNAL_ERROR_I0.name
+        response.contentAsString.get.contains("db.internal") shouldBe false
+        response.contentAsString.get.contains("stackTrace") shouldBe false
 
-    val detailed = RPCHandler(router).withDetailedErrors(true).handle(req).toSeq.head
-    detailed.contentAsString.get shouldContain "db.internal"
+        val detailed = RPCHandler(router).withDetailedErrors(true).handle(req).toSeq.head
+        detailed.contentAsString.get shouldContain "db.internal"
+      }
   }
 
   test("reject a response header containing CR/LF") {
-    NettyServer
-      .withPort(0)
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withHandler { _ =>
-        // Bypass Response.addHeader's validation, as a hand-built header map would
-        Response.ok.withHeaders(HttpMultiMap.empty.add("X-Echo", "a\r\nSet-Cookie: session=evil"))
-      }
-      .start { server =>
-        val head = rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        head shouldContain " 500 "
-        head.contains("Set-Cookie") shouldBe false
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        NettyServer
+          .withPort(0)
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withHandler { _ =>
+            // Bypass Response.addHeader's validation, as a hand-built header map would
+            Response
+              .ok
+              .withHeaders(HttpMultiMap.empty.add("X-Echo", "a\r\nSet-Cookie: session=evil"))
+          }
+          .start { server =>
+            val head = rawRequest(server.localPort, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
+            head shouldContain " 500 "
+            head.contains("Set-Cookie") shouldBe false
+          }
       }
   }
 
@@ -300,38 +319,42 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("reject SSE streams over the limit with 503") {
-    NettyServer
-      .withPort(0)
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withHandler(_ => Response.eventStream(Rx.variable(ServerSentEvent.data("hello"))))
-      .withMaxStreamingConnections(1)
-      .start { server =>
-        val port   = server.localPort
-        val first  = Socket("127.0.0.1", port)
-        val stream = s"GET /events HTTP/1.1\r\nHost: localhost:${port}\r\n\r\n"
-        try
-          first.setSoTimeout(10000)
-          first.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
-          first.getOutputStream.flush()
-          readHead(first.getInputStream) shouldContain " 200 "
-          rawRequest(port, stream) shouldContain " 503 "
-        finally
-          first.close()
-        // Closing the first stream frees its slot
-        var head  = ""
-        var tries = 0
-        while !head.contains(" 200 ") && tries < 50 do
-          Thread.sleep(100)
-          tries += 1
-          val socket = Socket("127.0.0.1", port)
-          try
-            socket.setSoTimeout(10000)
-            socket.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
-            socket.getOutputStream.flush()
-            head = readHead(socket.getInputStream)
-          finally
-            socket.close()
-        head shouldContain " 200 "
+    Logger
+      .of[NettyRequestHandler]
+      .suppressWarnings {
+        NettyServer
+          .withPort(0)
+          .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+          .withHandler(_ => Response.eventStream(Rx.variable(ServerSentEvent.data("hello"))))
+          .withMaxStreamingConnections(1)
+          .start { server =>
+            val port   = server.localPort
+            val first  = Socket("127.0.0.1", port)
+            val stream = s"GET /events HTTP/1.1\r\nHost: localhost:${port}\r\n\r\n"
+            try
+              first.setSoTimeout(10000)
+              first.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
+              first.getOutputStream.flush()
+              readHead(first.getInputStream) shouldContain " 200 "
+              rawRequest(port, stream) shouldContain " 503 "
+            finally
+              first.close()
+            // Closing the first stream frees its slot
+            var head  = ""
+            var tries = 0
+            while !head.contains(" 200 ") && tries < 50 do
+              Thread.sleep(100)
+              tries += 1
+              val socket = Socket("127.0.0.1", port)
+              try
+                socket.setSoTimeout(10000)
+                socket.getOutputStream.write(stream.getBytes(StandardCharsets.ISO_8859_1))
+                socket.getOutputStream.flush()
+                head = readHead(socket.getInputStream)
+              finally
+                socket.close()
+            head shouldContain " 200 "
+          }
       }
   }
 
