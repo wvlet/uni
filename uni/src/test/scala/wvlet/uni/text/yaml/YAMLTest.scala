@@ -85,6 +85,8 @@ class YAMLTest extends UniTest:
 
   test("parse quoted scalars") {
     json("""a: 'it''s'""") shouldBe """{"a":"it's"}"""
+    json("a: \"\\_\\L\\P\"") shouldBe
+      JSONObject(Seq("a" -> JSONString("\u00a0\u2028\u2029"))).toJSON
     json("""a: "tab\there\nline \u00e9 \x41 \U0001F600"""") shouldBe
       "{\"a\":\"tab\\there\\nline \u00e9 A \uD83D\uDE00\"}"
     json("a: \"123\"") shouldBe """{"a":"123"}"""
@@ -126,6 +128,13 @@ class YAMLTest extends UniTest:
         |""".stripMargin
     json(yaml) shouldBe
       """{"base":{"host":"localhost","port":80},"dev":{"port":8080,"host":"localhost"},"list":[1,1]}"""
+  }
+
+  test("attach anchors before an implicit key to the key") {
+    json("&k a: 1\nb: *k") shouldBe """{"a":1,"b":"a"}"""
+    json("x: 1\n&k2 c: 2\nd: *k2") shouldBe """{"x":1,"c":2,"d":"c"}"""
+    json("- &x name: n\n- *x") shouldBe """[{"name":"n"},"name"]"""
+    json("- &m\n  name: n\n- *m") shouldBe """[{"name":"n"},{"name":"n"}]"""
   }
 
   test("parse tags") {

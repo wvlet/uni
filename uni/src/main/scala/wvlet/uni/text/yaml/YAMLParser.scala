@@ -29,7 +29,8 @@ import scala.collection.mutable
 private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
   import YAMLParser.*
 
-  private val r    = LineReader(input)
+  // Drop a byte order mark so that a leading `---` stays at column 0
+  private val r    = LineReader(input.stripPrefix("\uFEFF"))
   private val text = r.text
 
   // anchor name -> (value, the number of nodes the value expands to)
@@ -38,9 +39,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
   private var aliasNodeCount = 0L
 
   def parseStream(): Seq[JSONValue] =
-    val docs = Seq.newBuilder[JSONValue]
-    if r.peek == '\uFEFF' then
-      r.advance()
+    val docs     = Seq.newBuilder[JSONValue]
     var continue = true
     while continue do
       skipToContent()
@@ -88,19 +87,21 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       allowCollection: Boolean,
       compactSequence: Boolean = false
   ): JSONValue =
+    val nodeColumn    = r.column
     val (anchor, tag) = parseProperties()
-    val start         = nodeCount
-    val value         =
-      if (anchor.isDefined || tag.isDefined) && atLineEndOrComment then
-        skipToContent()
+    if (anchor.isDefined || tag.isDefined) && atLineEndOrComment then
+      // Properties on their own line apply to the node below
+      val start = nodeCount
+      skipToContent()
+      val value =
         if isNodeStart(parentIndent, compactSequence) then
-          parseBlockContent(parentIndent, tag, allowCollection = true)
+          parseBlockContent(r.column, parentIndent, tag, allowCollection = true, anchor = None)
         else
           newNode(resolveScalar("", plain = true, tag, r.offset))
-      else
-        parseBlockContent(parentIndent, tag, allowCollection)
-    anchor.foreach(a => anchors(a) = (value, (nodeCount - start).max(1)))
-    value
+      anchor.foreach(registerAnchor(_, value, start))
+      value
+    else
+      parseBlockContent(nodeColumn, parentIndent, tag, allowCollection, anchor)
 
   /**
     * Is the next content a node nested under `parentIndent`?
@@ -109,57 +110,73 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
     !r.isEOF && !atAnyDocumentMarker &&
       (r.column > parentIndent || compactSequence && r.column == parentIndent && isSequenceEntry)
 
+  /**
+    * Parse a block node's content. Properties on the same line as an implicit mapping key (`&a key:
+    * v`) apply to the key, so `anchor` is registered for the first key in that case.
+    *
+    * @param c
+    *   the node's column, before any properties. A block collection starting here uses it
+    */
   private def parseBlockContent(
+      c: Int,
       parentIndent: Int,
       tag: Option[String],
-      allowCollection: Boolean
+      allowCollection: Boolean,
+      anchor: Option[String]
   ): JSONValue =
-    val c     = r.column
-    val start = r.offset
-    r.peek match
-      case '-' if isSequenceEntry =>
-        if !allowCollection then
-          r.error("A sequence entry is not allowed here")
-        parseBlockSequence(c)
-      case '|' | '>' =>
-        parseBlockScalar(parentIndent, tag)
-      case '?' if isSeparator(r.lookAhead(1)) =>
-        r.error("Explicit mapping keys (?) are not supported")
-      case '[' | '{' =>
-        val v = parseFlowCollection()
-        r.skipWhiteSpaces()
-        if isMappingIndicator then
-          r.error("Complex (non-scalar) mapping keys are not supported", start)
-        v
-      case '*' =>
-        val v = parseAlias()
-        r.skipWhiteSpaces()
-        if isMappingIndicator then
+    val start                           = r.offset
+    val countStart                      = nodeCount
+    var onKey                           = false
+    def mapping(key: String): JSONValue =
+      if !allowCollection then
+        r.error("A mapping is not allowed here")
+      onKey = true
+      anchor.foreach(registerKeyAnchor(_, key))
+      parseBlockMapping(c, key, start)
+
+    val value =
+      r.peek match
+        case '-' if isSequenceEntry =>
           if !allowCollection then
-            r.error("A mapping is not allowed here")
-          parseBlockMapping(c, keyText(v, start), start)
-        else
+            r.error("A sequence entry is not allowed here")
+          parseBlockSequence(c)
+        case '|' | '>' =>
+          parseBlockScalar(parentIndent, tag)
+        case '?' if isSeparator(r.lookAhead(1)) =>
+          r.error("Explicit mapping keys (?) are not supported")
+        case '[' | '{' =>
+          val v = parseFlowCollection()
+          r.skipWhiteSpaces()
+          if isMappingIndicator then
+            r.error("Complex (non-scalar) mapping keys are not supported", start)
           v
-      case '"' | '\'' =>
-        val s = parseQuotedScalar()
-        r.skipWhiteSpaces()
-        if isMappingIndicator then
-          if !allowCollection then
-            r.error("A mapping is not allowed here")
-          parseBlockMapping(c, s, start)
-        else
-          newNode(resolveScalar(s, plain = false, tag, start))
-      case _ =>
-        checkPlainStart()
-        val first = scanPlainLine(flow = false)
-        if isMappingIndicator then
-          if !allowCollection then
-            r.error("A mapping is not allowed here")
-          parseBlockMapping(c, first, start)
-        else
-          val s = continuePlain(first, parentIndent, flow = false)
-          newNode(resolveScalar(s, plain = true, tag, start))
-    end match
+        case '*' =>
+          val v = parseAlias()
+          r.skipWhiteSpaces()
+          if isMappingIndicator then
+            mapping(keyText(v, start))
+          else
+            v
+        case '"' | '\'' =>
+          val s = parseQuotedScalar()
+          r.skipWhiteSpaces()
+          if isMappingIndicator then
+            mapping(s)
+          else
+            newNode(resolveScalar(s, plain = false, tag, start))
+        case _ =>
+          checkPlainStart()
+          val first = scanPlainLine(flow = false)
+          if isMappingIndicator then
+            mapping(first)
+          else
+            val s = continuePlain(first, parentIndent, flow = false)
+            newNode(resolveScalar(s, plain = true, tag, start))
+      end match
+    end value
+    if !onKey then
+      anchor.foreach(registerAnchor(_, value, countStart))
+    value
 
   end parseBlockContent
 
@@ -201,9 +218,9 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
     * Parse a mapping key at the current position and stop at the following ':'
     */
   private def parseMappingKey(): String =
-    val start = r.offset
-    parseProperties()
-    val key =
+    val start       = r.offset
+    val (anchor, _) = parseProperties()
+    val key         =
       r.peek match
         case '-' if isSequenceEntry =>
           r.error("Expected a mapping key, but found a sequence entry")
@@ -221,6 +238,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
     r.skipWhiteSpaces()
     if !isMappingIndicator then
       r.error("Expected ':' after a mapping key")
+    anchor.foreach(registerKeyAnchor(_, key))
     key
 
   private def parseBlockSequence(c: Int): JSONValue =
@@ -500,7 +518,7 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
             Some(s),
             adjacentKey = false
           )
-    anchor.foreach(a => anchors(a) = (node.value, (nodeCount - countStart).max(1)))
+    anchor.foreach(registerAnchor(_, node.value, countStart))
     node
 
   end parseFlowNode
@@ -663,11 +681,11 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
       case 'N' =>
         sb.append('\u0085')
       case '_' =>
-        sb.append(' ')
+        sb.append('\u00a0')
       case 'L' =>
-        sb.append(' ')
+        sb.append('\u2028')
       case 'P' =>
-        sb.append(' ')
+        sb.append('\u2029')
       case 'x' =>
         appendCodePoint(sb, readHex(2, escapeStart))
       case 'u' =>
@@ -753,6 +771,12 @@ private[yaml] class YAMLParser(input: String, maxAliasNodes: Long):
         tag = Some(name)
       r.skipWhiteSpaces()
     (anchor, tag)
+
+  private def registerAnchor(name: String, value: JSONValue, countStart: Long): Unit =
+    anchors(name) = (value, (nodeCount - countStart).max(1))
+
+  private def registerKeyAnchor(name: String, key: String): Unit =
+    anchors(name) = (JSONString(key), 1L)
 
   private def parseAlias(): JSONValue =
     val start = r.offset

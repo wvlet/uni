@@ -14,7 +14,6 @@
 package wvlet.uni.text.yaml
 
 import wvlet.uni.json.JSON.*
-import wvlet.uni.text.parser.LineReader
 import wvlet.uni.weaver.Weaver
 
 /**
@@ -52,45 +51,59 @@ object Frontmatter:
 
   /**
     * Split the frontmatter from the text. The header must start at the first line with `---` and
-    * end with a `---` (or `...`) line; otherwise the whole text is the body.
+    * end with a `---` (or `...`) line; otherwise the whole text is the body. The body keeps the
+    * original line breaks.
     */
   def parse(text: String): Frontmatter =
-    val s =
-      val t = LineReader.normalizeLineBreaks(text)
-      if t.startsWith("\uFEFF") then
-        t.substring(1)
+    val start =
+      if text.startsWith("\uFEFF") then
+        1
       else
-        t
-    if !(s.startsWith("---\n") || s == "---") then
+        0
+    val firstEnd = lineEnd(text, start)
+    if firstEnd >= text.length || !isMarker(text, start, firstEnd, "---") then
       Frontmatter(None, text)
     else
-      closingLine(s) match
+      closingLine(text, firstEnd + 1) match
         case None =>
           Frontmatter(None, text)
-        case Some(closeStart) =>
-          // closeStart >= 3, the line break right after the opening "---"
-          val yaml    = s.substring(4, closeStart + 1)
-          val bodyEnd = s.indexOf('\n', closeStart + 1)
-          val body    =
-            if bodyEnd < 0 then
-              ""
+        case Some((closeStart, closeEnd)) =>
+          // Keep the opening "---" (a YAML document start) so that error lines match the text
+          val header = YAML.parse(text.substring(0, closeStart))
+          val body   =
+            if closeEnd < text.length then
+              text.substring(closeEnd + 1)
             else
-              s.substring(bodyEnd + 1)
-          Frontmatter(Some(YAML.parse(yaml)), body)
+              ""
+          Frontmatter(Some(header), body)
+
+  private def lineEnd(text: String, from: Int): Int =
+    val i = text.indexOf('\n', from)
+    if i < 0 then
+      text.length
+    else
+      i
 
   /**
-    * Find the offset of the line break before the closing `---` or `...` line
+    * Is the line [from, end) the marker, ignoring trailing spaces, tabs, and '\r'?
     */
-  private def closingLine(s: String): Option[Int] =
-    var i      = 3
-    var result = Option.empty[Int]
-    while result.isEmpty && i >= 0 && i < s.length do
-      if s.charAt(i) == '\n' && (s.startsWith("---", i + 1) || s.startsWith("...", i + 1)) then
-        val after = i + 4
-        if after >= s.length || s.charAt(after) == '\n' then
-          result = Some(i)
-      if result.isEmpty then
-        i = s.indexOf('\n', i + 1)
+  private def isMarker(text: String, from: Int, end: Int, marker: String): Boolean =
+    var e = end
+    while e > from && " \t\r".indexOf(text.charAt(e - 1)) >= 0 do
+      e -= 1
+    e - from == marker.length && text.startsWith(marker, from)
+
+  /**
+    * Find the (start, end) offsets of the closing `---` or `...` line
+    */
+  private def closingLine(text: String, from: Int): Option[(Int, Int)] =
+    var lineStart = from
+    var result    = Option.empty[(Int, Int)]
+    while result.isEmpty && lineStart < text.length do
+      val end = lineEnd(text, lineStart)
+      if isMarker(text, lineStart, end, "---") || isMarker(text, lineStart, end, "...") then
+        result = Some((lineStart, end))
+      lineStart = end + 1
     result
 
 end Frontmatter

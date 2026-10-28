@@ -2,6 +2,7 @@ package wvlet.uni.text.yaml
 
 import wvlet.uni.json.JSON.*
 import wvlet.uni.test.UniTest
+import wvlet.uni.text.parser.TextParseException
 import wvlet.uni.weaver.Weaver
 
 case class SkillHeader(name: String, description: String = "") derives Weaver
@@ -13,6 +14,17 @@ class FrontmatterTest extends UniTest:
     f.data.map(_.toJSON) shouldBe Some("""{"name":"review","description":"Review a PR"}""")
     f.body shouldBe "# Body\ntext\n"
     f.as[SkillHeader] shouldBe SkillHeader("review", "Review a PR")
+  }
+
+  test("keep the body's line breaks and report header errors with file lines") {
+    val f = Frontmatter.parse("--- \r\nname: x\r\n---\t\r\nline1\r\nline2\r\n")
+    f.as[SkillHeader] shouldBe SkillHeader("x")
+    f.body shouldBe "line1\r\nline2\r\n"
+
+    val e = intercept[TextParseException] {
+      Frontmatter.parse("---\nname: x\nname: y\n---\nbody")
+    }
+    e.getMessage shouldContain "line 3, column 1"
   }
 
   test("handle texts without frontmatter") {
