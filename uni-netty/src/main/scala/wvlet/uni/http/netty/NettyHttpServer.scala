@@ -23,6 +23,7 @@ import io.netty.channel.{
   MultiThreadIoEventLoopGroup
 }
 import io.netty.channel.epoll.{Epoll, EpollIoHandler, EpollServerSocketChannel}
+import io.netty.channel.group.DefaultChannelGroup
 import io.netty.channel.nio.NioIoHandler
 import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioServerSocketChannel
@@ -34,7 +35,7 @@ import io.netty.handler.codec.http.{
   HttpServerKeepAliveHandler
 }
 import io.netty.handler.stream.ChunkedWriteHandler
-import io.netty.util.concurrent.DefaultEventExecutorGroup
+import io.netty.util.concurrent.{DefaultEventExecutorGroup, GlobalEventExecutor}
 import wvlet.uni.http.{ConnectionLimiter, HttpServer}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
@@ -53,6 +54,8 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
   private var workerGroup: EventLoopGroup                             = null
   private var handlerExecutorGroup: Option[DefaultEventExecutorGroup] = None
   private var channel: Channel                                        = null
+  // Accepted connections; a channel leaves the group when it closes
+  private val connections = DefaultChannelGroup(GlobalEventExecutor.INSTANCE)
 
   // Caps open SSE streams across all connections; a stream over the limit gets 503
   private val streamLimiter = ConnectionLimiter(config.maxStreamingConnections)
@@ -122,6 +125,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
       .childHandler(
         new ChannelInitializer[SocketChannel]:
           override def initChannel(ch: SocketChannel): Unit =
+            connections.add(ch)
             val pipeline = ch.pipeline()
             pipeline.addLast(
               "codec",
@@ -131,6 +135,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
                 config.maxContentLength
               )
             )
+            pipeline.addLast("drain", ConnectionDrainHandler())
             if config.requestReadTimeoutMillis > 0 then
               pipeline.addLast(
                 NettyHttpServer.RequestReadTimeoutHandlerName,
@@ -203,8 +208,10 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
     // Close the server channel first to stop accepting new connections
     Option(channel).foreach(_.close().await(remainingMillis, TimeUnit.MILLISECONDS))
 
-    // Drain handler executor group first so in-flight handlers can still
-    // flush responses through the event loop
+    // Close accepted connections while the executors their handlers run on are still alive
+    closeConnections(remainingMillis)
+
+    // Then drain the handler executor group, before the event loops its handlers write through
     handlerExecutorGroup.foreach { group =>
       group
         .shutdownGracefully(effectiveQuietPeriod, remainingSeconds, TimeUnit.SECONDS)
@@ -232,6 +239,26 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
     debug(s"Netty server stopped at ${localAddress}")
 
   end stop
+
+  /**
+    * Close idle connections now and busy ones after their pending responses, then force-close any
+    * still open at the deadline (e.g., an endless SSE stream).
+    */
+  private def closeConnections(timeoutMillis: Long): Unit =
+    val allClosed = connections.newCloseFuture()
+    connections.forEach { ch =>
+      Option(ch.pipeline().get(classOf[ConnectionDrainHandler])).foreach { h =>
+        ch.eventLoop().execute(() => h.drain())
+      }
+    }
+    if !allClosed.await(timeoutMillis, TimeUnit.MILLISECONDS) then
+      debug(s"Closing ${connections.size()} connections still busy at the shutdown deadline")
+      connections.close().awaitUninterruptibly()
+    // A closed channel fires channelInactive in a later event loop task; let those run, so the
+    // events reach the handler executor before it shuts down
+    Option(workerGroup).foreach { group =>
+      group.forEach(_.submit((() => ()): Runnable).awaitUninterruptibly())
+    }
 
   private def registerShutdownHookIfNeeded(): Unit =
     if config.registerShutdownHook then
@@ -286,5 +313,6 @@ end NettyHttpServer
 object NettyHttpServer:
   private[netty] val CompressorHandler             = "compressor"
   private[netty] val RequestReadTimeoutHandlerName = "requestReadTimeout"
+  private[netty] val WebSocketHandlerName          = "wsHandler"
 
   def apply(config: NettyServerConfig): NettyHttpServer = new NettyHttpServer(config)
