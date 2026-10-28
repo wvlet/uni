@@ -39,7 +39,8 @@ Scala Native.
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.{NettyServer, RouterHandler}` | [references/http-server.md](references/http-server.md) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
-| MCP server (stdio) | `wvlet.uni.mcp.{MCPServer, description}` | `MCPServer().withName(n).withTools[T](impl).serveStdio()` |
+| MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
+| MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |

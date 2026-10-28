@@ -42,7 +42,7 @@ case class MCPTool(
   *   def temperature(@description("City name") city: String): Double
   *
   * @main def start(): Unit =
-  *   MCPServer()
+  *   MCP.server
   *     .withName("weather")
   *     .withVersion("0.1.0")
   *     .withTools[WeatherService](WeatherServiceImpl())

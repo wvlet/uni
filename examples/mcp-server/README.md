@@ -2,7 +2,7 @@
 
 An [MCP](https://modelcontextprotocol.io/) server that gives Claude Code (or any MCP client) four
 tools: `addNote`, `searchNotes`, `deleteNote`, and `listTags`. It is a plain Scala trait handed to
-`MCPServer().withTools[...]`. Uni derives the tool list and input schemas, and speaks JSON-RPC
+`MCP.server.withTools[...]`. Uni derives the tool list and input schemas, and speaks JSON-RPC
 over stdin/stdout.
 
 ## What it shows

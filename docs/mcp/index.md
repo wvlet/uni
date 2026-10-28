@@ -48,9 +48,9 @@ class WeatherServiceImpl extends WeatherService:
 ## 3. Start the server
 
 ```scala
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.mcp.MCP
 
-@main def start(): Unit = MCPServer()
+@main def start(): Unit = MCP.server
   .withName("weather")
   .withVersion("0.1.0")
   .withTools[WeatherService](WeatherServiceImpl())
@@ -183,7 +183,7 @@ notifications). `httpHandler` exposes it as a standard uni
 platform:
 
 ```scala
-val mcp = MCPServer()
+val mcp = MCP.server
   .withName("weather")
   .withTools[WeatherService](WeatherServiceImpl())
 
@@ -227,7 +227,7 @@ an `Origin` header only localhost origins are accepted by default. Serving
 browser-based clients from another origin requires registering it explicitly:
 
 ```scala
-MCPServer().withAllowedOrigins("https://app.example.com")
+MCP.server.withAllowedOrigins("https://app.example.com")
 ```
 :::
 
@@ -237,12 +237,12 @@ stream are not offered (GET returns 405).
 
 ## Call an MCP server from Scala
 
-Uni can also be the MCP **client**: `MCPClient` speaks the same Streamable HTTP transport, so any
+Uni can also be the MCP **client**: `MCP.client` speaks the same Streamable HTTP transport, so any
 Scala program (JVM / Scala.js on Node.js / Scala Native) can discover and call the tools of any
 MCP server — Uni-built or third-party. No extra dependency is needed beyond `uni` itself.
 
 ```scala
-import wvlet.uni.mcp.MCPClient
+import wvlet.uni.mcp.MCP
 import wvlet.uni.rx.RxResource
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
 
@@ -250,7 +250,7 @@ import wvlet.uni.json.JSON.{JSONObject, JSONString}
   val session = RxResource
     .fromAutoCloseable(
       // performs initialize + notifications/initialized
-      MCPClient.connect("http://localhost:8080/mcp")
+      MCP.client.withName("weather-agent").connect("http://localhost:8080/mcp")
     )
     .use { client =>
       for
@@ -264,7 +264,8 @@ import wvlet.uni.json.JSON.{JSONObject, JSONString}
   session.run()
 ```
 
-`connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
+`MCP.client` returns an immutable `MCPClientConfig`, configured with `withXXX(...)` like
+`Http.client`. `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
 with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
 server — `tools/list`, `tools/call`, `ping` (the `initialize` handshake happens inside `connect`,
 as the spec allows only one per session) — and discovers tools **dynamically**, so no client code
@@ -275,8 +276,17 @@ Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close
 the session fails (or an exception is thrown): the resource is released after `use`'s body
 completes, on both success and error paths. Each call performs a blocking HTTP POST when the
 returned `Rx` is run (uni's synchronous HTTP channel), so `session.run()` drives a full session on
-the current thread. To customize the HTTP client (base URI, retry, filters), build an
-`HttpSyncClient` from `Http.client` and pass it to `MCPClient.connect(client, url)`.
+the current thread.
+
+| Method | Default | Purpose |
+|--------|---------|---------|
+| `withName(name)` | `uni-mcp-client` | Client name sent in `initialize` |
+| `withVersion(version)` | `0.1.0` | Client version sent in `initialize` |
+| `withProtocolVersion(v)` | `2025-06-18` | MCP protocol version to request |
+| `withHttpClientConfig(config)` | `Http.client` | Timeouts, filters, and channel of the HTTP transport |
+
+HTTP retries are always disabled: `tools/call` is not idempotent, so a retry could run a tool
+twice.
 
 A `Mcp-Session-Id` issued by the server is captured from `initialize` and echoed on subsequent
 requests; session-less servers (such as uni's own `MCPServer`) do not issue one. Errors follow the

@@ -8,7 +8,7 @@ template you can copy: one or two Scala files, a README that explains what it sh
 |---------|-----------|-------|
 | [`cli-tool`](cli-tool/) | JVM, Scala Native | `Launcher` sub-commands and options, `LogSupport`, `derives Weaver` JSON decoding, the HTTP client, a native binary via `nativeLink` |
 | [`rest-server`](rest-server/) | JVM | `NettyServer` with `Router` REST endpoints and an `RPCRouter` service, a typed RPC client, `Design` wiring, and a UniTest suite that starts the server |
-| [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCPServer().withTools[...]`, tested in-process, and how to add it to Claude Code |
+| [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
 | [`web-ui`](web-ui/) | Scala.js | A todo list with `RxElement`, `Rx.variable`, and two-way form binding, loaded by a static `index.html` |
 | [`electron-app`](electron-app/) | Scala.js | A desktop app that calls the main process over Electron IPC with Uni RPC (standalone build) |
 

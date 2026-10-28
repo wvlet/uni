@@ -19,7 +19,7 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    cross-platform process-spawn primitive in `uni`, and HTTP already covers remote servers.
 
 2. **Dynamic, schema-driven API; no codegen.** `tools/list` schemas arrive at runtime, so there
-   is no compile-time contract unless the server is a Uni trait. `MCPClient.connect(url)` returns
+   is no compile-time contract unless the server is a Uni trait. `MCP.client.connect(url)` returns
    `Rx[MCPClient]` after the handshake (`initialize` + `notifications/initialized`);
    `listTools(): Rx[Seq[MCPToolInfo]]` and `callTool(name, JSONObject): Rx[MCPToolResult]` are
    the public surface; `initialize`/`notifyInitialized` are `private[mcp]` because the spec
@@ -59,12 +59,19 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    rejected instead of silently accepted.
 
 7. **Resource-managed sessions.** `MCPClient` is an `AutoCloseable`, and the idiomatic session
-   shape is bracket-based: `RxResource.fromAutoCloseable(MCPClient.connect(url)).use { client =>
+   shape is bracket-based: `RxResource.fromAutoCloseable(MCP.client.connect(url)).use { client =>
    ... }`, so `close()` runs on both the success and error paths (an exception before `close`
    must not leak the HTTP client). To support this on every platform, `RxResource.use` was
    rewritten to compose its release/finalizers as an `Rx` chain instead of blocking with
    `Rx.await`, which is unsupported on Scala.js. `connect` also closes the client when the
    handshake itself fails, because a resource is only released after a successful acquire.
+
+8. **One entry point, like `Http.client`.** `MCP.client` returns an immutable `MCPClientConfig`
+   (`withName`, `withVersion`, `withProtocolVersion`, `withHttpClientConfig`) whose `connect(url)`
+   opens the client, and `MCP.server` returns `MCPServer()`. People and AI agents learn one shape
+   for both sides. `connect` always disables HTTP retries, even for a caller-supplied
+   `HttpClientConfig`, because a retried `tools/call` could run a tool twice. There is no
+   `MCPClient.connect`: it was never released, and one way to connect is easier to learn.
 
 ## Consequences
 
