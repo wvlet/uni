@@ -28,7 +28,11 @@ trait HttpServerFixture extends UniTest:
   // Each suite binds an HttpHandler that defines how its server answers
   addDesign(
     _.bindProvider[HttpHandler, HttpServer](handler =>
-      NettyServer.withPort(0).withHandler(handler).start()
+      NettyServer
+        .withPort(0)
+        .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+        .withHandler(handler)
+        .start()
     )
   )
 

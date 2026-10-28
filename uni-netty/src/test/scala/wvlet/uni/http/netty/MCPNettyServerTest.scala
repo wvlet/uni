@@ -50,6 +50,7 @@ class MCPNettyServerTest extends UniTest:
   test("serve an MCP session over HTTP") {
     NettyServer
       .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(mcp.httpHandler)
       .start { server =>
         val url = s"http://localhost:${server.localPort}/mcp"
