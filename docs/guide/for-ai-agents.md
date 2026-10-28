@@ -90,6 +90,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Logging | `wvlet.uni.log.LogSupport` | `class A extends LogSupport` then `info(...)`, `debug(...)` |
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
+| YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`. See [YAML](../text/yaml) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
