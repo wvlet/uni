@@ -55,6 +55,46 @@ Three PRs in order, each with docs (a new `docs/text/` section: `yaml.md`, `mark
 2. Markdown (reuses `LineReader` and `Frontmatter`)
 3. Cron
 
+## Revision (2026-10-28): Lossless Round-Trip for Markdown and YAML
+
+The reviewer asked for round-trip editing, following Wvlet's parser: whitespace, newlines, and comments are kept as attachments on nodes, so a tool can parse a file, change one part, and write it back with everything else byte for byte.
+
+### What Wvlet does
+
+The Wvlet scanner keeps whitespace, newline, and comment tokens. After parsing, the parser attaches each one to the nearest node, as a leading comment (`withComment`) or a same-line trailing comment (`withPostComment`). Nodes also keep their `raw` source text, and `CodeFormatter` prints the attachments back.
+
+### Guarantee
+
+- **Exact round trip:** `Markdown.parse(s).toMarkdown == s` and `YAML.parseDocument(s).toYaml == s` for every input. That includes CRLF, tabs, trailing spaces, a BOM, blank lines, comments, and text with no final newline. A property test checks this over every CommonMark and GFM spec example, every YAML test input, and generated whitespace variants.
+- **Local edits:** after a change, every node that wasn't changed prints its original bytes. A changed node prints in a canonical style that reuses the markers it recorded (`*` vs `_`, `-` vs `1.`, the fence characters, the quoting style), so the diff stays inside the edited node.
+
+### Markdown (in #815)
+
+- **Attachments.** Each block keeps a `Source`: its raw text (an exact slice of the input, with container prefixes and original line endings) and `leading` trivia (the blank lines and whitespace between it and the previous sibling). The document keeps the trailing trivia. Unlike Wvlet, the attachments are immutable fields, which fits Uni's `enum` AST. The `span` moves into `Source`.
+- **Edit detection without a dirty flag.** `Source` also holds a reference to the content parsed for that node. The writer prints `raw` when the node's content is still the parsed value (an `eq` check, then `==`), and the canonical form otherwise. A `copy(...)` that changes content is therefore treated as an edit automatically.
+- **Containers.** When a quote or list child changes, unchanged siblings still print from `raw`. The changed child is rendered and then gets the container's recorded prefix (`> `, the list indent) on each line.
+- **Inlines record their syntax.** `Text` keeps its raw form (escapes, entities). `Emphasis` and `Strong` keep the delimiter. `Code` keeps the backtick run. `Link` and `Image` keep their style (inline, reference, or autolink). Breaks keep their raw form (two spaces or a backslash). So editing one word in a paragraph re-renders only that paragraph, in its original style.
+- **Frontmatter** becomes a `FrontmatterBlock(raw, data)` that prints its header verbatim. Editing the header data needs the YAML writer from PR 2b.
+- **CRLF:** the parser still works on normalized text internally, but spans map back to raw-input offsets, so the slices are exact.
+- **API:** `doc.toMarkdown`. The HTML output and spec conformance don't change.
+
+### YAML (new PR 2b, after #815)
+
+- A lossless node tree: `YAMLDocument` with `Mapping`, `Sequence`, `Scalar(value, style: Plain | SingleQuoted | DoubleQuoted | Literal | Folded, raw)`, and `Alias`, plus anchors and tags. Each node gets leading trivia (comments, blank lines, indentation) and a trailing same-line comment, the same two attachments Wvlet uses.
+- `YAML.parseDocument(text)`, `.toYaml` (exact), `.toJSON`, and edits that keep comments: `set(path, value)` and `remove(path)`. New values use canonical block style with the surrounding indentation. `YAML.parse(text): JSONValue` and `fromYaml[A]` stay the same, built on the new tree.
+- `Frontmatter` round-trips too: `Frontmatter.parse(md).update(data).toText`, and `MarkdownDocument` can edit its header the same way.
+
+### Delivery (revised)
+
+1. #815: Markdown with lossless round trip (this revision), merged after approval.
+2. PR 2b: a lossless YAML tree, a writer, and frontmatter editing.
+3. Cron. Its expressions are a single line, so `Cron.parse(s).toString` simply returns the source text.
+
+### Alternatives considered
+
+- **A full concrete syntax tree** (every token is a tree node, Roslyn/rowan style): the most general, but every AST user would have to wade through tokens. Attachments keep the simple AST and add only what printing needs, which is how Wvlet does it.
+- **Splicing source text by span only** (the current state): exact for untouched text, but it can't write back a changed node in its original style, and the header and inline nodes have no spans.
+
 ## Alternatives and Why Not?
 
 - **Run YAML and Markdown through `ScannerBase` too.** This shares the most code, but indentation and line-prefix rules would end up as special-case regions in a token scanner built for expression languages, which makes both parsers harder to follow. `LineReader` keeps the shared parts (spans, errors, buffers) without that cost.

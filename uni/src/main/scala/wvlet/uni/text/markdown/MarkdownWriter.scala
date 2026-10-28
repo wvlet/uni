@@ -13,62 +13,31 @@
  */
 package wvlet.uni.text.markdown
 
+import scala.collection.mutable
+
 /**
   * Writes a [[MarkdownDocument]] back to Markdown. A node whose content is still what was parsed
   * prints its [[Source]] text; a changed container prints its children between its original opening
-  * and trailing text; and a changed or new leaf prints in a canonical style, keeping the markers
-  * recorded in its source (setext underlines, code fences, list markers).
+  * and trailing text; and a changed or new node prints in a canonical style, keeping the markers
+  * recorded in its source (setext underlines, code fences, list markers, emphasis delimiters,
+  * reference links).
   */
 private[markdown] object MarkdownWriter:
 
   def write(doc: MarkdownDocument): String =
     val src = doc.source
-    if !src.isEmpty && same(src.parsed, Tuple1(doc.blocks)) then
+    if Source.same(src.parsed, Tuple1(doc.blocks)) then
       src.raw
     else
-      val w = Writer()
+      val w = Writer(src.definitions, lineBreak(src.raw))
       if src.isEmpty then
         w.blocks(doc.blocks, "", "\n", "")
       else
         w.blocks(doc.blocks, src.opening, src.trailing, "")
       w.result()
 
-  /**
-    * The content fields of a node, which the converter records in [[Source.parsed]]
-    */
-  private def content(b: Block): Product =
-    b match
-      case Block.Paragraph(inlines, _) =>
-        Tuple1(inlines)
-      case Block.Heading(level, inlines, _) =>
-        (level, inlines)
-      case Block.BlockQuote(blocks, _) =>
-        Tuple1(blocks)
-      case Block.ListBlock(ordered, start, tight, items, _) =>
-        (ordered, start, tight, items)
-      case Block.CodeBlock(info, code, fenced, _) =>
-        (info, code, fenced)
-      case Block.HtmlBlock(html, _) =>
-        Tuple1(html)
-      case Block.ThematicBreak(_) =>
-        Tuple1(())
-      case Block.Table(header, alignments, rows, _) =>
-        (header, alignments, rows)
-
-  private def same(parsed: Product | Null, current: Product): Boolean =
-    parsed match
-      case null =>
-        false
-      case p: Product =>
-        p.productArity == current.productArity &&
-        p.productIterator
-          .zip(current.productIterator)
-          .forall { (a, b) =>
-            a.asInstanceOf[AnyRef].eq(b.asInstanceOf[AnyRef]) || a == b
-          }
-
-  private def unchanged(b: Block): Boolean       = same(b.source.parsed, content(b))
-  private def unchanged(item: ListItem): Boolean = same(
+  private def unchanged(b: Block): Boolean       = Source.same(b.source.parsed, Source.content(b))
+  private def unchanged(item: ListItem): Boolean = Source.same(
     item.source.parsed,
     (item.blocks, item.checked)
   )
@@ -79,14 +48,28 @@ private[markdown] object MarkdownWriter:
   private def lastLineStart(s: String): Int = s.lastIndexWhere(c => c == '\n' || c == '\r') + 1
 
   /**
-    * The separator before a new block: a blank line, keeping the container prefixes
+    * The document's line break, used for new and rewritten text
     */
-  private def blankLine(prefix: String): String = s"\n${prefix.stripTrailing()}\n${prefix}"
+  private def lineBreak(raw: String): String =
+    val i = raw.indexWhere(c => c == '\n' || c == '\r')
+    if i < 0 || raw.charAt(i) == '\n' then
+      "\n"
+    else if i + 1 < raw.length && raw.charAt(i + 1) == '\n' then
+      "\r\n"
+    else
+      "\r"
 
-  private class Writer:
+  private class Writer(definitions: Map[String, (String, Option[String])], nl: String):
     private val sb = StringBuilder()
 
     def result(): String = sb.result()
+
+    /**
+      * The separator before a new block: a blank line, keeping the container prefixes
+      */
+    private def blankLine(prefix: String): String = s"${nl}${prefix.stripTrailing()}${nl}${prefix}"
+
+    private def inlines(in: Seq[Inline]): String = InlineWriter.write(in, definitions)
 
     /**
       * Write sibling blocks. `prefix` is what starts each new line inside the enclosing containers.
@@ -111,7 +94,7 @@ private[markdown] object MarkdownWriter:
       * Append text, starting each of its later lines with the container prefix
       */
     private def lines(text: String, prefix: String): Unit = sb.append(
-      text.replace("\n", s"\n${prefix}")
+      text.replace("\n", s"${nl}${prefix}")
     )
 
     def block(b: Block, prefix: String): Unit =
@@ -119,10 +102,10 @@ private[markdown] object MarkdownWriter:
         sb.append(b.source.raw)
       else
         b match
-          case Block.Paragraph(inlines, _) =>
-            lines(InlineWriter.write(inlines), prefix)
-          case Block.Heading(level, inlines, src) =>
-            val text = InlineWriter.write(inlines)
+          case Block.Paragraph(in, _) =>
+            lines(inlines(in), prefix)
+          case Block.Heading(level, in, src) =>
+            val text = inlines(in)
             setextUnderline(src.raw) match
               case Some(underline) =>
                 lines(s"${text}\n${underline}", prefix)
@@ -130,7 +113,7 @@ private[markdown] object MarkdownWriter:
                 // Escape a trailing '#' so that it is not read as a closing sequence
                 val line = text.replace('\n', ' ')
                 val body =
-                  if line.endsWith("#") then
+                  if line.endsWith("#") && !line.endsWith("\\#") then
                     s"${line.dropRight(1)}\\#"
                   else
                     line
@@ -225,7 +208,7 @@ private[markdown] object MarkdownWriter:
           if i > 0 then
             val default =
               if l.tight then
-                s"\n${prefix}"
+                s"${nl}${prefix}"
               else
                 blankLine(prefix)
             sb.append(separator(item.source, default))
@@ -248,7 +231,7 @@ private[markdown] object MarkdownWriter:
         item.checked match
           case Some(checked) =>
             // The task marker lives in the first paragraph's text
-            val rest = Writer()
+            val rest = Writer(definitions, nl)
             rest.blocks(item.blocks, "", item.source.trailing, inner)
             val text = rest.result()
             val mark =
@@ -274,7 +257,7 @@ private[markdown] object MarkdownWriter:
     ): Unit =
       // Escaping `|` covers code spans too, since GFM unescapes `\|` before parsing a cell
       def row(cells: Seq[Seq[Inline]]): String = cells
-        .map(c => InlineWriter.write(c).replace("|", "\\|").replace('\n', ' '))
+        .map(c => inlines(c).replace("|", "\\|").replace('\n', ' '))
         .mkString("| ", " | ", " |")
       val delimiter = alignments
         .map {
@@ -295,94 +278,184 @@ private[markdown] object MarkdownWriter:
 end MarkdownWriter
 
 /**
-  * Writes inline nodes in the canonical style: `*` emphasis, `**` strong, `~~` strikethrough, and
-  * inline links, escaping the characters that would otherwise start markup
+  * Writes inline nodes. Unchanged nodes print their source text. Changed or new ones print in a
+  * canonical style that keeps their recorded markers: `*` or `_` emphasis, backtick runs,
+  * autolinks, and reference links.
   */
 private[markdown] object InlineWriter:
 
   /**
-    * Write inlines with `*` delimiters. When nested emphasis would then read differently (`*_a_*`
-    * written as `**a**`), switch the nested delimiters next to an outer one to `_`.
+    * Write inlines, choosing the lightest escaping and delimiters that parse back to the same
+    * inlines. For example, `*_a_*` written as `**a**` would read as strong emphasis.
     */
-  def write(inlines: Seq[Inline]): String =
-    val stars = render(inlines, underscores = false)
-    if parsesTo(stars, inlines) then
-      stars
+  def write(inlines: Seq[Inline], definitions: Map[String, (String, Option[String])]): String =
+    def parsesTo(text: String): Boolean =
+      InlineParser(text, mutable.Map.from(definitions), gfm = true).parse() == inlines
+    val first = render(inlines, underscores = false, fullEscape = false)
+    if parsesTo(first) then
+      first
     else
-      val alternative = render(inlines, underscores = true)
-      if parsesTo(alternative, inlines) then
-        alternative
-      else
-        stars
+      val others =
+        for (underscores, fullEscape) <- Iterator((true, false), (false, true), (true, true))
+        yield render(inlines, underscores, fullEscape)
+      others.find(parsesTo).getOrElse(first)
 
-  private def parsesTo(text: String, inlines: Seq[Inline]): Boolean =
-    InlineParser(text, scala.collection.mutable.Map.empty, gfm = true).parse() == inlines
-
-  private def render(inlines: Seq[Inline], underscores: Boolean): String =
+  private def render(inlines: Seq[Inline], underscores: Boolean, fullEscape: Boolean): String =
     val sb = StringBuilder()
-    Renderer(sb, underscores).append(inlines)
+    Renderer(sb, underscores, fullEscape).append(inlines)
     sb.result()
 
-  private class Renderer(sb: StringBuilder, underscores: Boolean):
-    def append(inlines: Seq[Inline]): Unit = inlines.foreach {
-      case Inline.Text(t) =>
-        sb.append(escape(t, sb.isEmpty || sb.last == '\n'))
-      case Inline.Code(c) =>
-        sb.append(codeSpan(c))
-      case Inline.Emphasis(children) =>
-        delimited("*", children)
-      case Inline.Strong(children) =>
-        delimited("**", children)
-      case Inline.Strikethrough(children) =>
-        sb.append("~~")
-        append(children)
-        sb.append("~~")
-      case Inline.Link(destination, title, children) =>
-        sb.append('[')
-        append(children)
-        sb.append(']').append(target(destination, title))
-      case Inline.Image(destination, title, alt) =>
-        sb.append("![")
-        append(alt)
-        sb.append(']').append(target(destination, title))
-      case Inline.HtmlInline(html) =>
-        sb.append(html)
-      case Inline.SoftBreak =>
-        sb.append('\n')
-      case Inline.HardBreak =>
-        sb.append("\\\n")
-    }
+  private class Renderer(sb: StringBuilder, underscores: Boolean, fullEscape: Boolean):
+    def append(inlines: Seq[Inline]): Unit = inlines
+      .zipWithIndex
+      .foreach { (i, idx) =>
+        one(i, inlines.lift(idx + 1))
+      }
+
+    private def one(i: Inline, next: Option[Inline]): Unit =
+      // Text after a line break may have been indented or a lazy continuation line, where it
+      // could not start a block; escape it for the start of a line
+      val afterBreak = sb.nonEmpty && sb.last == '\n' && i.isInstanceOf[Inline.Text]
+      if !afterBreak && Source.same(i.source.parsed, Source.content(i)) then
+        sb.append(i.source.raw)
+      else
+        i match
+          case Inline.Text(t, _) =>
+            sb.append(escape(t, sb.isEmpty || sb.last == '\n', next, fullEscape))
+          case Inline.Code(c, src) =>
+            sb.append(codeSpan(c, src.raw))
+          case Inline.Emphasis(children, src) =>
+            delimited(delimiterOf(src, "*", 1), children)
+          case Inline.Strong(children, src) =>
+            delimited(delimiterOf(src, "**", 2), children)
+          case Inline.Strikethrough(children, src) =>
+            val tildes = Some(src.raw.takeWhile(_ == '~'))
+              .filter(t => t.length == 1 || t.length == 2)
+              .getOrElse("~~")
+            sb.append(tildes)
+            append(children)
+            sb.append(tildes)
+          case l: Inline.Link =>
+            link(l)
+          case Inline.Image(destination, title, alt, _) =>
+            sb.append("![")
+            append(alt)
+            sb.append(']').append(target(destination, title))
+          case Inline.HtmlInline(html, _) =>
+            sb.append(html)
+          case Inline.SoftBreak(_) =>
+            sb.append('\n')
+          case Inline.HardBreak(src) =>
+            sb.append(
+              if src.raw.isEmpty then
+                "\\\n"
+              else
+                src.raw
+            )
+      end if
+
+    end one
+
+    private def delimiterOf(src: Source, default: String, n: Int): String =
+      src.raw.headOption match
+        case Some(c) if c == '*' || c == '_' =>
+          c.toString * n
+        case _ =>
+          default
 
     /**
       * Write emphasis or strong. With `underscores`, a nested one right after the opener or before
-      * the closer uses `_`, since `***` would be read as a single run (`*_a_*` is not `**a**`).
+      * the closer switches to the other delimiter, since `***` would be read as a single run.
       */
     private def delimited(delimiter: String, children: Seq[Inline]): Unit =
+      val other =
+        if delimiter.head == '*' then
+          "_"
+        else
+          "*"
       sb.append(delimiter)
       children
         .zipWithIndex
         .foreach { (child, i) =>
           val edge = underscores && (i == 0 || i == children.length - 1)
           child match
-            case Inline.Emphasis(c) if edge =>
-              sb.append('_')
+            case Inline.Emphasis(c, _) if edge =>
+              sb.append(other)
               append(c)
-              sb.append('_')
-            case Inline.Strong(c) if edge =>
-              sb.append("__")
+              sb.append(other)
+            case Inline.Strong(c, _) if edge =>
+              sb.append(other * 2)
               append(c)
-              sb.append("__")
-            case other =>
-              append(Seq(other))
+              sb.append(other * 2)
+            case _ =>
+              one(child, children.lift(i + 1))
         }
       sb.append(delimiter)
+
+    /**
+      * Keep an autolink or a full reference link when its target is unchanged; otherwise write an
+      * inline link
+      */
+    private def link(l: Inline.Link): Unit =
+      val raw        = l.source.raw
+      val sameTarget = Option(l.source.parsed).exists(p =>
+        p.productElement(0) == l.destination && p.productElement(1) == l.title
+      )
+      val autolinkText =
+        l.children match
+          case Seq(Inline.Text(t, _)) if t == l.destination || l.destination == s"mailto:${t}" =>
+            Some(t)
+          case _ =>
+            None
+      val label = raw.lastIndexOf("][")
+      if raw.startsWith("<") && raw.endsWith(">") && autolinkText.nonEmpty then
+        sb.append(s"<${autolinkText.get}>")
+      else if sameTarget && label > 0 && raw.endsWith("]") && raw.length > label + 3 then
+        sb.append('[')
+        append(l.children)
+        sb.append(raw.substring(label + 1))
+      else
+        sb.append('[')
+        append(l.children)
+        sb.append(']').append(target(l.destination, l.title))
 
   end Renderer
 
   private val special = "\\`*_[]<>&~!"
 
-  private def escape(text: String, lineStart: Boolean): String =
-    val sb = StringBuilder()
+  /**
+    * Escape the characters that would start markup. Without `fullEscape`, `<`, `&`, and `!` are
+    * escaped only where they would.
+    */
+  private def escape(
+      text: String,
+      lineStart: Boolean,
+      next: Option[Inline],
+      fullEscape: Boolean
+  ): String =
+    val sb                 = StringBuilder()
+    def after(i: Int): Int =
+      if i + 1 < text.length then
+        text.charAt(i + 1)
+      else
+        -1
+    def needed(c: Char, i: Int): Boolean =
+      if fullEscape then
+        special.indexOf(c) >= 0
+      else
+        c match
+          case '\\' | '`' | '*' | '_' | '[' | ']' | '~' =>
+            true
+          case '<' =>
+            val a = after(i)
+            a == -1 || a.toChar.isLetter || a == '/' || a == '!' || a == '?'
+          case '&' =>
+            val a = after(i)
+            a == '#' || a != -1 && a.toChar.isLetterOrDigit
+          case '!' =>
+            after(i) == '[' || after(i) == -1 && next.exists(_.isInstanceOf[Inline.Link])
+          case _ =>
+            false
     text
       .zipWithIndex
       .foreach { (c, i) =>
@@ -393,9 +466,7 @@ private[markdown] object InlineWriter:
           // Leading whitespace on a line would be stripped
           sb.append(s"&#${c.toInt};")
         else
-          if special.indexOf(c) >= 0 then
-            sb.append('\\')
-          else if i == 0 && lineStart && "#-+=>".indexOf(c) >= 0 then
+          if needed(c, i) || i == 0 && lineStart && "#-+=>".indexOf(c) >= 0 then
             sb.append('\\')
           sb.append(c)
       }
@@ -407,10 +478,21 @@ private[markdown] object InlineWriter:
     else
       s
 
-  private def codeSpan(code: String): String =
-    val longest = "`+".r.findAllIn(code).map(_.length).maxOption.getOrElse(0)
-    val ticks   = "`" * (longest + 1)
-    val pad     =
+  end escape
+
+  /**
+    * A code span, reusing the recorded backtick run when no run of that length is in the code
+    */
+  private def codeSpan(code: String, raw: String): String =
+    val runs     = "`+".r.findAllIn(code).map(_.length).toSet
+    val recorded = raw.takeWhile(_ == '`').length
+    val n        =
+      if recorded > 0 && !runs.contains(recorded) then
+        recorded
+      else
+        runs.maxOption.getOrElse(0) + 1
+    val ticks = "`" * n
+    val pad   =
       code.startsWith("`") || code.endsWith("`") ||
         (code.length > 1 && code.startsWith(" ") && code.endsWith(" ") && code.exists(_ != ' '))
     if pad then

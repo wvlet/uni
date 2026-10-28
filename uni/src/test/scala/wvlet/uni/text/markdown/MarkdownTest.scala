@@ -66,16 +66,16 @@ class MarkdownTest extends UniTest:
     val doc  = Markdown.parse(text)
     doc.blocks shouldMatch {
       case Seq(
-            Block.Heading(1, Seq(Inline.Text("Title")), _),
+            Block.Heading(1, Seq(Inline.Text("Title", _)), _),
             Block.Paragraph(
-              Seq(Inline.Text("Some "), Inline.Emphasis(Seq(Inline.Text("text")))),
+              Seq(Inline.Text("Some ", _), Inline.Emphasis(Seq(Inline.Text("text", _)), _)),
               _
             ),
             Block.ListBlock(
               false,
               _,
               true,
-              Seq(ListItem(Seq(Block.Paragraph(Seq(Inline.Text("item")), _)), Some(true), _)),
+              Seq(ListItem(Seq(Block.Paragraph(Seq(Inline.Text("item", _)), _)), Some(true), _)),
               _
             )
           ) =>
@@ -143,6 +143,97 @@ class MarkdownTest extends UniTest:
 
     val strict = MarkdownConfig().withFrontmatter(false)
     Markdown.toHtml("---\ntitle: A\n---\n", strict) shouldBe "<hr />\n<h2>title: A</h2>\n"
+  }
+
+  test("write an unchanged document back byte for byte") {
+    val text = "---\ntitle: A\n---\n\n#  Title  \r\n\n\n* one\n*   two\n\n> _quote_\n\n    code\n"
+    Markdown.parse(text).toMarkdown shouldBe text
+  }
+
+  test("change one paragraph and keep the rest as written") {
+    val text =
+      "# Title\n\nKeep  _this_   as is.\n\nChange *this* [link][r] word.\n\n[r]: https://wvlet.org\n"
+    val doc    = Markdown.parse(text)
+    val edited = doc.copy(blocks =
+      doc
+        .blocks
+        .map {
+          case p @ Block.Paragraph(in @ Seq(Inline.Text("Change ", _), _*), _) =>
+            p.copy(inlines = Inline.Text("Changed ") +: in.tail)
+          case b =>
+            b
+        }
+    )
+    edited.toMarkdown shouldBe
+      "# Title\n\nKeep  _this_   as is.\n\nChanged *this* [link][r] word.\n\n[r]: https://wvlet.org\n"
+  }
+
+  test("toggle tasks and add list items") {
+    def editList(text: String)(f: Block.ListBlock => Block.ListBlock): String =
+      val doc = Markdown.parse(text)
+      doc
+        .copy(blocks =
+          doc
+            .blocks
+            .map {
+              case l: Block.ListBlock =>
+                f(l)
+              case b =>
+                b
+            }
+        )
+        .toMarkdown
+
+    editList("- [ ] write docs\n- [x] add tests\n") { l =>
+      l.copy(items = l.items.map(_.copy(checked = Some(true))))
+    } shouldBe "- [x] write docs\n- [x] add tests\n"
+
+    // The example in docs/text/markdown.md
+    val notes =
+      "# Notes\n\n- [ ] write _docs_\n- [x] add tests\n\nSee [uni][1].\n\n[1]: https://wvlet.org/uni\n"
+    editList(notes) { l =>
+      l.copy(items = l.items.map(_.copy(checked = Some(true))))
+    } shouldBe notes.replace("[ ]", "[x]")
+
+    editList("1) one\n2) two\n") { l =>
+      l.copy(items = l.items :+ ListItem(Seq(Block.Paragraph(Seq(Inline.Text("three")))), None))
+    } shouldBe "1) one\n2) two\n3) three\n"
+  }
+
+  test("insert and remove blocks inside containers") {
+    val quote = Markdown.parse("> a\n")
+    quote
+      .copy(blocks =
+        quote
+          .blocks
+          .map {
+            case q: Block.BlockQuote =>
+              q.copy(blocks = q.blocks :+ Block.Paragraph(Seq(Inline.Text("b"))))
+            case b =>
+              b
+          }
+      )
+      .toMarkdown shouldBe "> a\n>\n> b\n"
+
+    val doc = Markdown.parse("a\n\nb\n\nc\n")
+    doc.copy(blocks = doc.blocks.patch(1, Nil, 1)).toMarkdown shouldBe "a\n\nc\n"
+  }
+
+  test("keep CRLF line breaks and the frontmatter when editing") {
+    val doc = Markdown.parse("---\r\ntitle: A\r\n---\r\n\r\n# A\r\n\r\nold\r\n")
+    doc
+      .copy(blocks = doc.blocks.updated(1, Block.Paragraph(Seq(Inline.Text("new")))))
+      .toMarkdown shouldBe "---\r\ntitle: A\r\n---\r\n\r\n# A\r\n\r\nnew\r\n"
+  }
+
+  test("write a document built in code") {
+    MarkdownDocument(
+      Seq(
+        Block.Heading(1, Seq(Inline.Text("Hi"))),
+        Block.Paragraph(Seq(Inline.Text("a "), Inline.Strong(Seq(Inline.Text("b*"))))),
+        Block.CodeBlock("scala", "val x = 1\n", fenced = true)
+      )
+    ).toMarkdown shouldBe "# Hi\n\na **b\\***\n\n```scala\nval x = 1\n```\n"
   }
 
   test("limit the nesting of block quotes and lists") {

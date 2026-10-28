@@ -138,23 +138,23 @@ private[markdown] class HtmlRenderer(config: MarkdownConfig):
     out.append(s"</${tag}>\n")
 
   private def renderInlines(inlines: Seq[Inline]): Unit = inlines.foreach {
-    case Inline.Text(t) =>
+    case Inline.Text(t, _) =>
       out.append(escapeHtml(t))
-    case Inline.Code(c) =>
+    case Inline.Code(c, _) =>
       out.append("<code>").append(escapeHtml(c)).append("</code>")
-    case Inline.Emphasis(c) =>
+    case Inline.Emphasis(c, _) =>
       out.append("<em>")
       renderInlines(c)
       out.append("</em>")
-    case Inline.Strong(c) =>
+    case Inline.Strong(c, _) =>
       out.append("<strong>")
       renderInlines(c)
       out.append("</strong>")
-    case Inline.Strikethrough(c) =>
+    case Inline.Strikethrough(c, _) =>
       out.append("<del>")
       renderInlines(c)
       out.append("</del>")
-    case Inline.Link(dest, title, c) =>
+    case Inline.Link(dest, title, c, _) =>
       out.append("<a href=\"").append(escapeHtml(safeUrl(dest, image = false))).append('"')
       title
         .filter(_.nonEmpty)
@@ -162,21 +162,21 @@ private[markdown] class HtmlRenderer(config: MarkdownConfig):
       out.append(">")
       renderInlines(c)
       out.append("</a>")
-    case Inline.Image(dest, title, alt) =>
+    case Inline.Image(dest, title, alt, _) =>
       out.append("<img src=\"").append(escapeHtml(safeUrl(dest, image = true))).append('"')
       out.append(" alt=\"").append(escapeHtml(Inline.plainText(alt))).append('"')
       title
         .filter(_.nonEmpty)
         .foreach(t => out.append(" title=\"").append(escapeHtml(t)).append('"'))
       out.append(" />")
-    case Inline.HtmlInline(html) =>
+    case Inline.HtmlInline(html, _) =>
       if config.rawHtml then
         out.append(html)
       else
         out.append(escapeHtml(html))
-    case Inline.SoftBreak =>
+    case Inline.SoftBreak(_) =>
       out.append('\n')
-    case Inline.HardBreak =>
+    case Inline.HardBreak(_) =>
       out.append("<br />\n")
   }
 

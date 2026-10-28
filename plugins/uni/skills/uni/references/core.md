@@ -71,7 +71,9 @@ val mdBody = Frontmatter.parse(md).body            // "# Body\n"
 lists, strikethrough, autolinks). Raw HTML is escaped and `javascript:` links are dropped unless
 you pass `MarkdownConfig().withRawHtml(true)` for trusted input. A leading `---` YAML header is
 read in the same pass into `frontmatter` and not rendered (`withFrontmatter(false)` for strict
-CommonMark).
+CommonMark). `doc.toMarkdown` writes the document back: unchanged nodes print their source
+byte for byte (whitespace, `\r\n`, frontmatter), and nodes changed with `copy` are rewritten in
+their original style.
 
 ```scala
 import wvlet.uni.text.markdown.{Block, Inline, Markdown, MarkdownConfig}
@@ -86,6 +88,12 @@ case class Post(title: String, tags: Seq[String] = Nil) derives Weaver
 val post = Markdown.parse("---\ntitle: Hello\n---\nThe *body*\n")
 val meta = post.frontmatterAs[Post] // Post(Hello, List())
 val postHtml = post.toHtml()        // <p>The <em>body</em></p>
+val tasks = Markdown.parse("- [ ] write docs\n")
+val done = tasks.copy(blocks = tasks.blocks.map {
+  case l: Block.ListBlock => l.copy(items = l.items.map(_.copy(checked = Some(true))))
+  case b                  => b
+})
+val written = done.toMarkdown       // "- [x] write docs\n"
 ```
 
 ## Persisted settings (SettingStore)

@@ -22,21 +22,27 @@ import scala.collection.mutable
 private[markdown] object Autolinks:
 
   def linkify(inlines: Seq[Inline]): Seq[Inline] = inlines.flatMap {
-    case Inline.Text(t) =>
-      split(t)
-    case Inline.Emphasis(c) =>
-      Seq(Inline.Emphasis(linkify(c)))
-    case Inline.Strong(c) =>
-      Seq(Inline.Strong(linkify(c)))
-    case Inline.Strikethrough(c) =>
-      Seq(Inline.Strikethrough(linkify(c)))
+    case Inline.Text(t, src) =>
+      split(t, src)
+    case e: Inline.Emphasis =>
+      Seq(e.copy(children = linkify(e.children)))
+    case s: Inline.Strong =>
+      Seq(s.copy(children = linkify(s.children)))
+    case d: Inline.Strikethrough =>
+      Seq(d.copy(children = linkify(d.children)))
     case other =>
       Seq(other)
   }
 
   private val schemes = Seq("http://", "https://", "ftp://")
 
-  private def split(t: String): Seq[Inline] =
+  private def split(t: String, src: Source): Seq[Inline] =
+    // The pieces keep their source text when it equals the text (no escapes or entities)
+    def piece(start: Int, end: Int): Source =
+      if src.raw == t then
+        Source.unsealed(t.substring(start, end))
+      else
+        Source.none
     val out  = mutable.ArrayBuffer.empty[Inline]
     var last = 0
     var i    = 0
@@ -54,22 +60,23 @@ private[markdown] object Autolinks:
       linkAt(t, i, last, tokenEndFrom) match
         case Some((start, end, href)) =>
           if start > last then
-            out += Inline.Text(t.substring(last, start))
+            out += Inline.Text(t.substring(last, start), piece(last, start))
           out +=
             Inline.Link(
               MarkdownText.normalizeUri(href),
               None,
-              Seq(Inline.Text(t.substring(start, end)))
+              Seq(Inline.Text(t.substring(start, end), piece(start, end))),
+              piece(start, end)
             )
           last = end
           i = end
         case None =>
           i += 1
     if last == 0 then
-      Seq(Inline.Text(t))
+      Seq(Inline.Text(t, src))
     else
       if last < t.length then
-        out += Inline.Text(t.substring(last))
+        out += Inline.Text(t.substring(last), piece(last, t.length))
       out.toSeq
 
   end split

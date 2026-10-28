@@ -57,17 +57,43 @@ class MarkdownRoundTripTest extends UniTest:
     else
       Source(s.raw, s.leading, s.opening, s.trailing, s.span, Tuple1("edited"))
 
-  private def touch(b: Block, containers: Boolean): Block =
+  private def touchInlines(in: Seq[Inline]): Seq[Inline] = in.map {
+    case Inline.Text(t, s) =>
+      Inline.Text(t, dirty(s))
+    case Inline.Code(c, s) =>
+      Inline.Code(c, dirty(s))
+    case Inline.Emphasis(c, s) =>
+      Inline.Emphasis(touchInlines(c), dirty(s))
+    case Inline.Strong(c, s) =>
+      Inline.Strong(touchInlines(c), dirty(s))
+    case Inline.Strikethrough(c, s) =>
+      Inline.Strikethrough(touchInlines(c), dirty(s))
+    case Inline.Link(d, t, c, s) =>
+      Inline.Link(d, t, touchInlines(c), dirty(s))
+    case Inline.Image(d, t, c, s) =>
+      Inline.Image(d, t, touchInlines(c), dirty(s))
+    case Inline.HtmlInline(h, s) =>
+      Inline.HtmlInline(h, dirty(s))
+    case other =>
+      other
+  }
+
+  private def touch(b: Block, containers: Boolean, inlines: Boolean = false): Block =
+    def in(i: Seq[Inline]): Seq[Inline] =
+      if inlines then
+        touchInlines(i)
+      else
+        i
     def c(s: Source): Source =
       if containers then
         dirty(s)
       else
         s
     b match
-      case Block.Paragraph(in, s) =>
-        Block.Paragraph(in, dirty(s))
-      case Block.Heading(l, in, s) =>
-        Block.Heading(l, in, dirty(s))
+      case Block.Paragraph(i, s) =>
+        Block.Paragraph(in(i), dirty(s))
+      case Block.Heading(l, i, s) =>
+        Block.Heading(l, in(i), dirty(s))
       case Block.CodeBlock(i, code, f, s) =>
         Block.CodeBlock(i, code, f, dirty(s))
       case Block.HtmlBlock(h, s) =>
@@ -75,14 +101,16 @@ class MarkdownRoundTripTest extends UniTest:
       case Block.ThematicBreak(s) =>
         Block.ThematicBreak(dirty(s))
       case Block.Table(h, a, r, s) =>
-        Block.Table(h, a, r, dirty(s))
+        Block.Table(h.map(in), a, r.map(_.map(in)), dirty(s))
       case Block.BlockQuote(bs, s) =>
-        Block.BlockQuote(bs.map(touch(_, containers)), c(s))
+        Block.BlockQuote(bs.map(touch(_, containers, inlines)), c(s))
       case Block.ListBlock(o, st, t, items, s) =>
         val newItems = items.map { i =>
-          ListItem(i.blocks.map(touch(_, containers)), i.checked, c(i.source))
+          ListItem(i.blocks.map(touch(_, containers, inlines)), i.checked, c(i.source))
         }
         Block.ListBlock(o, st, t, newItems, c(s))
+
+  end touch
 
   private def show(s: String): String = s
     .replace("\t", "→")
@@ -126,6 +154,24 @@ class MarkdownRoundTripTest extends UniTest:
         out =
           MarkdownDocument(doc.blocks.map(touch(_, containers = true)), None, dirty(doc.source))
             .toMarkdown
+        if Markdown.toHtml(out, config) != Markdown.toHtml(in, config)
+        if !knownRewriteDifferences.contains(e.example)
+      yield (e, out)
+    report(failures)
+  }
+
+  test("rewrite every inline node canonically") {
+    val failures =
+      for
+        e  <- examples
+        in <- variants(e.markdown)
+        doc = Markdown.parse(in, config)
+        out =
+          MarkdownDocument(
+            doc.blocks.map(touch(_, containers = true, inlines = true)),
+            None,
+            dirty(doc.source)
+          ).toMarkdown
         if Markdown.toHtml(out, config) != Markdown.toHtml(in, config)
         if !knownRewriteDifferences.contains(e.example)
       yield (e, out)

@@ -127,7 +127,15 @@ object Markdown:
       MarkdownDocument(
         blocks,
         parser.header,
-        source(0, parser.textLength, "", c.opening, c.trailing, Tuple1(blocks))
+        Source(
+          raw(0, parser.textLength),
+          "",
+          c.opening,
+          c.trailing,
+          Span.within(0, input.length),
+          Tuple1(blocks),
+          parser.refMap.toMap
+        )
       )
 
     private case class Children[A](nodes: Seq[A], opening: String, trailing: String)

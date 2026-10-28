@@ -40,6 +40,9 @@ private[markdown] final class InlineNode(var kind: InlineKind, var literal: Stri
   var next: InlineNode | Null   = null
   var destination               = ""
   var title: Option[String]     = None
+  // The [start, end) of the node's source in the subject, or -1 when unknown
+  var start = -1
+  var end   = -1
 
   def appendChild(c: InlineNode): Unit =
     c.unlink()
@@ -111,13 +114,16 @@ private[markdown] class InlineParser(
     )
     processEmphasis(null)
     val inlines = toInlines(root, 0)
-    if gfm then
-      Autolinks.linkify(inlines)
-    else
-      inlines
+    val linked  =
+      if gfm then
+        Autolinks.linkify(inlines)
+      else
+        inlines
+    Source.seal(linked)
 
   private def parseInline(block: InlineNode): Boolean =
-    val c = peek
+    val c      = peek
+    val before = pos
     if c == -1 then
       false
     else
@@ -148,6 +154,12 @@ private[markdown] class InlineParser(
       if !handled then
         pos += 1
         block.appendChild(text(c.toChar.toString))
+      // Nodes added in this step without a position cover the consumed text
+      var n = block.last
+      while n != null && n.nn.start < 0 do
+        n.nn.start = before
+        n.nn.end = pos
+        n = n.nn.prev
       true
     end if
 
@@ -169,24 +181,38 @@ private[markdown] class InlineParser(
       false
 
   private def parseNewline(block: InlineNode): Boolean =
+    val newline = pos
     pos += 1
-    block.last match
-      case t: InlineNode if t.kind == InlineKind.Text && t.literal.endsWith(" ") =>
-        val hard = t.literal.endsWith("  ")
-        t.literal = t.literal.reverse.dropWhile(_ == ' ').reverse
-        block.appendChild(
+    val brk =
+      block.last match
+        case t: InlineNode if t.kind == InlineKind.Text && t.literal.endsWith(" ") =>
+          val hard    = t.literal.endsWith("  ")
+          val trimmed = t.literal.reverse.dropWhile(_ == ' ').reverse
+          // The trailing spaces belong to the break
+          if t.end >= 0 then
+            t.end -= t.literal.length - trimmed.length
+          t.literal = trimmed
           InlineNode(
             if hard then
               InlineKind.HardBreak
             else
               InlineKind.SoftBreak
           )
-        )
-      case _ =>
-        block.appendChild(InlineNode(InlineKind.SoftBreak))
+        case _ =>
+          InlineNode(InlineKind.SoftBreak)
+    brk.start =
+      block.last match
+        case t: InlineNode if t.end >= 0 =>
+          t.end
+        case _ =>
+          newline
+    block.appendChild(brk)
     while peek == ' ' do
       pos += 1
+    brk.end = pos
     true
+
+  end parseNewline
 
   private def parseBackslash(block: InlineNode): Boolean =
     pos += 1
@@ -339,6 +365,9 @@ private[markdown] class InlineParser(
           val closerNode = c.node
           o.numDelims -= useDelims
           c.numDelims -= useDelims
+          // The used delimiters are the opener's last and the closer's first characters
+          openerNode.end -= useDelims
+          closerNode.start += useDelims
           openerNode.literal = openerNode
             .literal
             .substring(0, openerNode.literal.length - useDelims)
@@ -353,7 +382,9 @@ private[markdown] class InlineParser(
             else
               InlineKind.Strong
           val emph = InlineNode(kind)
-          var tmp  = openerNode.next
+          emph.start = openerNode.end
+          emph.end = closerNode.start
+          var tmp = openerNode.next
           while tmp != null && (tmp ne closerNode) do
             val n = tmp.nn.next
             emph.appendChild(tmp.nn)
@@ -465,6 +496,8 @@ private[markdown] class InlineParser(
           )
           node.destination = dest
           node.title = title
+          node.start = opener.node.start
+          node.end = pos
           var tmp = opener.node.next
           while tmp != null do
             val n = tmp.nn.next
@@ -485,6 +518,7 @@ private[markdown] class InlineParser(
           brackets = opener.previous
           pos = startPos
           block.appendChild(text("]"))
+        end if
     end match
     true
 
@@ -717,36 +751,49 @@ private[markdown] class InlineParser(
   private def toInlines(parent: InlineNode, depth: Int): Seq[Inline] =
     val out               = mutable.ArrayBuffer.empty[Inline]
     val pendingText       = StringBuilder()
+    var textStart         = -1
+    var textEnd           = -1
+    var textKnown         = true
     def flushText(): Unit =
       if pendingText.nonEmpty then
-        out += Inline.Text(pendingText.result())
+        out += Inline.Text(pendingText.result(), rawSource(textStart, textEnd, textKnown))
         pendingText.clear()
-    var n = parent.first
+      textStart = -1
+      textKnown = true
+    def src(node: InlineNode): Source = rawSource(node.start, node.end, true)
+    var n                             = parent.first
     while n != null do
       val node                   = n.nn
       val inline: Option[Inline] =
         node.kind match
           case InlineKind.Text =>
+            if node.start < 0 then
+              textKnown = false
+            if pendingText.isEmpty && textStart < 0 then
+              textStart = node.start
+            else if node.start != textEnd then
+              textKnown = false
+            textEnd = node.end
             pendingText.append(node.literal)
             None
           case InlineKind.Code =>
-            Some(Inline.Code(node.literal))
+            Some(Inline.Code(node.literal, src(node)))
           case InlineKind.Emph =>
-            Some(nested(node, depth)(Inline.Emphasis(_)))
+            Some(nested(node, depth)(Inline.Emphasis(_, src(node))))
           case InlineKind.Strong =>
-            Some(nested(node, depth)(Inline.Strong(_)))
+            Some(nested(node, depth)(Inline.Strong(_, src(node))))
           case InlineKind.Del =>
-            Some(nested(node, depth)(Inline.Strikethrough(_)))
+            Some(nested(node, depth)(Inline.Strikethrough(_, src(node))))
           case InlineKind.Link =>
-            Some(nested(node, depth)(Inline.Link(node.destination, node.title, _)))
+            Some(nested(node, depth)(Inline.Link(node.destination, node.title, _, src(node))))
           case InlineKind.Image =>
-            Some(nested(node, depth)(Inline.Image(node.destination, node.title, _)))
+            Some(nested(node, depth)(Inline.Image(node.destination, node.title, _, src(node))))
           case InlineKind.Html =>
-            Some(Inline.HtmlInline(node.literal))
+            Some(Inline.HtmlInline(node.literal, src(node)))
           case InlineKind.SoftBreak =>
-            Some(Inline.SoftBreak)
+            Some(Inline.SoftBreak(src(node)))
           case InlineKind.HardBreak =>
-            Some(Inline.HardBreak)
+            Some(Inline.HardBreak(src(node)))
           case InlineKind.Root =>
             None
       inline.foreach { x =>
@@ -765,6 +812,15 @@ private[markdown] class InlineParser(
       wrap(toInlines(node, depth + 1))
     else
       Inline.Text(subtreeText(node))
+
+  /**
+    * The source text of [start, end) in the subject, before [[Source.seal]] records the content
+    */
+  private def rawSource(start: Int, end: Int, known: Boolean): Source =
+    if known && 0 <= start && start <= end && end <= subject.length then
+      Source.unsealed(subject.substring(start, end))
+    else
+      Source.none
 
   /**
     * The text of a subtree, collected without recursion

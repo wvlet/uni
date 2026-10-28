@@ -36,7 +36,7 @@ Scala Native.
 | JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`; see [references/core.md](references/core.md#yaml-and-frontmatter) |
-| Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`, `.frontmatterAs[P]`; see [references/core.md](references/core.md#markdown) |
+| Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`, `.frontmatterAs[P]`, `.toMarkdown` (lossless); see [references/core.md](references/core.md#markdown) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`; see [references/rx.md](references/rx.md) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |

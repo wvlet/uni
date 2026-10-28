@@ -69,7 +69,7 @@ doc.toHtml() // render the document
 | `Heading` | `level`, `inlines` |
 | `Paragraph` | `inlines` |
 | `BlockQuote` | `blocks` |
-| `ListBlock` | `ordered`, `start`, `tight`, `items` (`ListItem(blocks, checked, span)`) |
+| `ListBlock` | `ordered`, `start`, `tight`, `items` (`ListItem(blocks, checked, source)`) |
 | `CodeBlock` | `info` (the language is its first word), `code`, `fenced` |
 | `HtmlBlock` | `html` |
 | `ThematicBreak` | |
@@ -77,7 +77,36 @@ doc.toHtml() // render the document
 
 Inline nodes are `Text`, `Code`, `Emphasis`, `Strong`, `Strikethrough`, `Link`, `Image`, `HtmlInline`, `SoftBreak`, and `HardBreak`.
 
-Each block has a `span` with the start and end offsets of its source lines in the input (after `\r\n` is normalized to `\n`). Inline nodes have no spans.
+Every node also has a last field, `source`, which records the text it was parsed from (see [Editing and Writing Back](#editing-and-writing-back)). It has a default, so you can build nodes without it, and it doesn't take part in equality: two nodes with the same content are equal however they were written. A block's `span` gives the start and end offsets of its text in the input.
+
+## Editing and Writing Back
+
+`doc.toMarkdown` writes a document back to Markdown. Without changes, the output is the input byte for byte: blank lines, indentation, trailing spaces, `\r\n` line breaks, the frontmatter, and link reference definitions all stay as written. Edit the AST with `copy`, and only the nodes you changed are rewritten:
+
+```scala
+val notes = Markdown.parse("# Notes\n\n- [ ] write _docs_\n- [x] add tests\n\nSee [uni][1].\n\n[1]: https://wvlet.org/uni\n")
+val done = notes.copy(blocks = notes.blocks.map {
+  case l: Block.ListBlock => l.copy(items = l.items.map(_.copy(checked = Some(true))))
+  case b                  => b
+})
+done.toMarkdown
+// # Notes
+//
+// - [x] write _docs_
+// - [x] add tests
+//
+// See [uni][1].
+//
+// [1]: https://wvlet.org/uni
+```
+
+This works like comments and whitespace in Wvlet's parser: each node carries the text around it as an attachment. A block keeps its exact source, the blank lines and container prefixes (`> `, list indentation) before it, and for a quote, list, or item, the text before its first child and after its last. An inline node keeps its source within the paragraph.
+
+When you change a node, it's written in a canonical style that keeps the markers it was written with: `_` or `*` emphasis, `-` or `1)` list markers, setext underlines, fences, backtick runs, `<autolinks>`, and `[text][label]` references. Unchanged siblings, including the other inlines of an edited paragraph, keep their source text. New nodes use `*` emphasis, `-` bullets, fenced code, and inline links, followed by the document's line break. Rewritten text is escaped only where needed, and it's checked to parse back to the same inlines.
+
+`MarkdownRoundTripTest` checks this on every CommonMark and GFM spec example, with `\n`, `\r\n`, and `\r` line breaks and with no final line break. Without edits the output matches the input exactly. When every node is rewritten, the output renders to the same HTML. The exceptions are three examples where one tab is shared between a container prefix and an indented code block.
+
+The frontmatter header is written back as it was; changes to `frontmatter` are not written yet. That comes with the lossless YAML writer.
 
 ## Frontmatter
 

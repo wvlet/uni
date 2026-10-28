@@ -510,6 +510,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
           0
         else
           val h = BlockNode(BlockKind.Heading, container.startLine, container.startCol)
+          skipReferenceLines(h, container.content.toString, rest)
           h.level =
             if c == '=' then
               1
@@ -747,15 +748,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
         val rest    = consumeReferences(content)
         b.content.clear()
         b.content.append(rest)
-        // Reference definitions are not part of the paragraph; their lines become the trivia
-        // before it, so that the paragraph's source covers only its own text
-        val skipped = content.length - rest.length
-        if skipped > 0 && rest.nonEmpty then
-          val newLines = content.substring(0, skipped).count(_ == '\n')
-          if newLines > 0 then
-            b.startLine += newLines
-            val firstLine = rest.takeWhile(_ != '\n')
-            b.startCol = lines(b.startLine).lastIndexOf(firstLine).max(0)
+        skipReferenceLines(b, content, rest)
         if rest.forall(c => c == ' ' || c == '\t' || c == '\n') then
           b.parent.nn.remove(b)
       case BlockKind.Code =>
@@ -818,6 +811,19 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
   /**
     * Parse link reference definitions at the start of the text, and return the remaining text
     */
+  /**
+    * Reference definitions are not part of a paragraph or heading; their lines become the trivia
+    * before it, so that the block's source covers only its own text
+    */
+  private def skipReferenceLines(b: BlockNode, content: String, rest: String): Unit =
+    val skipped = content.length - rest.length
+    if skipped > 0 && rest.nonEmpty then
+      val newLines = content.substring(0, skipped).count(_ == '\n')
+      if newLines > 0 then
+        b.startLine += newLines
+        val firstLine = rest.takeWhile(_ != '\n')
+        b.startCol = lines(b.startLine).lastIndexOf(firstLine).max(0)
+
   private def consumeReferences(s: String): String =
     val parser   = InlineParser(s, refMap, gfm)
     var start    = 0
