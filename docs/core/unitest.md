@@ -869,6 +869,14 @@ Test results are displayed with status symbols:
 | `?` | Pending | Test not implemented |
 | `!` | Cancelled | Setup failed |
 
+A suite that skips or cancels itself in its constructor or `beforeAll` is not counted as failed.
+
+In CI (when the `CI` environment variable is set), UniTest on the JVM writes log messages from the thread running a suite (its constructor, hooks, and test bodies) into sbt's output for that suite, so they appear right above the result of the test that logged them. sbt may hold a suite's output until the suite ends, so local runs keep logs going straight to the console, where they show up live. Logs from other threads, such as a server's worker pool or a `Future` on the global pool, always go to the console. Override the default with a test argument:
+
+```scala sbt
+Test / testOptions += Tests.Argument("--log-capture")    // or "--no-log-capture"
+```
+
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions
