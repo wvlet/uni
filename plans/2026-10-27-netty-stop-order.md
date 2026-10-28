@@ -30,7 +30,7 @@ Lane: **Standard**: changes production shutdown behaviour.
   - upgraded to WebSocket: close now (the WebSocket handler sends no close frame today; out of scope).
 - New `stop()` order:
   1. Close the server channel.
-  2. Call `drain()` on every tracked connection (on its event loop), then wait until all are closed or the shutdown timeout's quiet window ends.
+  2. Call `drain()` on every tracked connection (on its event loop), then wait until all are closed or the shutdown deadline passes.
   3. Force-close any connection still open (e.g. an endless SSE stream).
   4. Shut down the handler group, SSE executor, worker group, and boss group as today. No connections remain, so nothing is dispatched to a terminated executor.
 - `shutdownQuietPeriodSeconds` / `shutdownTimeoutSeconds` keep their meaning: the drain wait is bounded by the same deadline.

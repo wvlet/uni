@@ -19,7 +19,7 @@ import io.netty.channel.{
   ChannelHandlerContext,
   ChannelPromise
 }
-import io.netty.handler.codec.http.LastHttpContent
+import io.netty.handler.codec.http.{HttpResponse, HttpStatusClass, LastHttpContent}
 
 /**
   * Closes the connection once it has no request in flight after the server starts stopping, so
@@ -42,7 +42,14 @@ class ConnectionDrainHandler extends ChannelDuplexHandler:
     ctx.fireChannelRead(msg)
 
   override def write(ctx: ChannelHandlerContext, msg: Any, promise: ChannelPromise): Unit =
-    if msg.isInstanceOf[LastHttpContent] then
+    // An interim 1xx (e.g. 100 Continue) is not the request's response
+    val interim =
+      msg match
+        case r: HttpResponse =>
+          r.status().codeClass() == HttpStatusClass.INFORMATIONAL
+        case _ =>
+          false
+    if msg.isInstanceOf[LastHttpContent] && !interim then
       pendingRequests -= 1
       if draining && pendingRequests <= 0 then
         // Close once the last pending response is on the wire

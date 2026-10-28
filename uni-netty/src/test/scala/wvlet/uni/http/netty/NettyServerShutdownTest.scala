@@ -16,8 +16,9 @@ package wvlet.uni.http.netty
 import wvlet.uni.http.Response
 import wvlet.uni.test.UniTest
 
-import java.net.URI
+import java.net.{Socket, URI}
 import java.net.http.{HttpClient, HttpRequest, HttpResponse}
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, TimeUnit}
 import java.util.logging.{Handler, Level, LogRecord, Logger as JLogger}
 import scala.jdk.CollectionConverters.*
@@ -58,7 +59,7 @@ class NettyServerShutdownTest extends UniTest:
     val warnings = nettyWarnings {
       try get(client, server.localPort, "/").body() shouldBe "ok"
       finally server.stop()
-      // The client's pooled connection is closed by the server, not left for later events
+      // Reusing the pooled connection used to reach the stopped handler executor
       intercept[java.io.IOException] {
         get(client, server.localPort, "/")
       }
@@ -66,26 +67,83 @@ class NettyServerShutdownTest extends UniTest:
     warnings shouldBe Seq.empty
   }
 
-  test("finish an in-flight request during stop") {
-    val client  = HttpClient.newHttpClient()
-    val entered = CountDownLatch(1)
-    val server  = NettyServer
+  test("close an idle keep-alive connection on stop") {
+    val server = NettyServer
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withHandlerExecutorThreads(2)
-      .withHandler { _ =>
-        entered.countDown()
-        Thread.sleep(300)
-        Response.ok("done")
-      }
+      .withHandler(_ => Response.ok("ok"))
       .start()
-    val response = client.sendAsync(
-      HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:${server.localPort}/slow")).build(),
-      HttpResponse.BodyHandlers.ofString()
-    )
+    val socket = Socket("127.0.0.1", server.localPort)
+    try
+      socket.setSoTimeout(5000)
+      val out = socket.getOutputStream
+      out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1))
+      out.flush()
+      val in       = socket.getInputStream
+      val response = StringBuilder()
+      while !response.toString.endsWith("ok") do
+        response.append(in.read().toChar)
+      server.stop()
+      // End of stream: the server closed the connection
+      in.read() shouldBe -1
+    finally
+      socket.close()
+  }
+
+  private def slowServer(entered: CountDownLatch) = NettyServer
+    .withPort(0)
+    .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+    .withHandlerExecutorThreads(2)
+    .withHandler { _ =>
+      entered.countDown()
+      Thread.sleep(300)
+      Response.ok("done")
+    }
+    .start()
+
+  private def stopWhileInFlight(request: Int => HttpRequest): Unit =
+    val client   = HttpClient.newHttpClient()
+    val entered  = CountDownLatch(1)
+    val server   = slowServer(entered)
+    val response = client.sendAsync(request(server.localPort), HttpResponse.BodyHandlers.ofString())
     entered.await(5, TimeUnit.SECONDS) shouldBe true
     server.stop()
     response.get(5, TimeUnit.SECONDS).body() shouldBe "done"
+
+  test("finish an in-flight request during stop") {
+    stopWhileInFlight(port =>
+      HttpRequest.newBuilder(URI.create(s"http://127.0.0.1:${port}/slow")).build()
+    )
+  }
+
+  test("finish an in-flight Expect: 100-continue request during stop") {
+    // The interim 100 Continue must not count as the request's response
+    stopWhileInFlight(port =>
+      HttpRequest
+        .newBuilder(URI.create(s"http://127.0.0.1:${port}/slow"))
+        .expectContinue(true)
+        .POST(HttpRequest.BodyPublishers.ofString("body"))
+        .build()
+    )
+  }
+
+  test("stop from a request handler") {
+    val client                  = HttpClient.newHttpClient()
+    val stopped                 = CountDownLatch(1)
+    var server: NettyHttpServer = null
+    server = NettyServer
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withHandler { _ =>
+        server.stop()
+        stopped.countDown()
+        Response.ok("stopping")
+      }
+      .start()
+    // stop() returns at once on the event loop, and the response still reaches the client
+    get(client, server.localPort, "/shutdown").body() shouldBe "stopping"
+    stopped.await(5, TimeUnit.SECONDS) shouldBe true
+    server.isRunning shouldBe false
   }
 
 end NettyServerShutdownTest

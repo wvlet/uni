@@ -35,7 +35,7 @@ import io.netty.handler.codec.http.{
   HttpServerKeepAliveHandler
 }
 import io.netty.handler.stream.ChunkedWriteHandler
-import io.netty.util.concurrent.{DefaultEventExecutorGroup, GlobalEventExecutor}
+import io.netty.util.concurrent.{DefaultEventExecutorGroup, EventExecutorGroup, GlobalEventExecutor}
 import wvlet.uni.http.{ConnectionLimiter, HttpServer}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
@@ -45,6 +45,7 @@ import java.net.InetSocketAddress
 import java.util.concurrent.{ExecutorService, SynchronousQueue, ThreadPoolExecutor, TimeUnit}
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.annotation.nowarn
+import scala.jdk.CollectionConverters.*
 
 /**
   * Netty-based HTTP server implementation
@@ -185,7 +186,19 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
   override def stop(): Unit =
     if !stopped.compareAndSet(false, true) then
       return
+    if onServerThread then
+      // stop() waits for work this thread has to do (its own request or event loop), so shut down
+      // from another thread
+      Thread(() => shutdown(), s"${config.name}-stop").start()
+    else
+      shutdown()
 
+  private def onServerThread: Boolean =
+    def inGroup(group: EventExecutorGroup): Boolean =
+      group != null && group.iterator().asScala.exists(_.inEventLoop())
+    inGroup(workerGroup) || inGroup(bossGroup) || handlerExecutorGroup.exists(inGroup)
+
+  private def shutdown(): Unit =
     debug(
       s"Stopping Netty server at ${localAddress} " +
         s"(quietPeriod=${config.shutdownQuietPeriodSeconds}s, timeout=${config
@@ -238,26 +251,29 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
 
     debug(s"Netty server stopped at ${localAddress}")
 
-  end stop
+  end shutdown
 
   /**
     * Close idle connections now and busy ones after their pending responses, then force-close any
     * still open at the deadline (e.g., an endless SSE stream).
     */
-  private def closeConnections(timeoutMillis: Long): Unit =
-    val allClosed = connections.newCloseFuture()
+  private def closeConnections(remainingMillis: => Long): Unit =
+    // Past the deadline, still give the forced close a moment instead of waiting forever on an
+    // event loop that a blocked handler holds
+    def boundedMillis: Long = math.max(remainingMillis, 1000L)
+    val allClosed           = connections.newCloseFuture()
     connections.forEach { ch =>
       Option(ch.pipeline().get(classOf[ConnectionDrainHandler])).foreach { h =>
         ch.eventLoop().execute(() => h.drain())
       }
     }
-    if !allClosed.await(timeoutMillis, TimeUnit.MILLISECONDS) then
+    if !allClosed.await(remainingMillis, TimeUnit.MILLISECONDS) then
       debug(s"Closing ${connections.size()} connections still busy at the shutdown deadline")
-      connections.close().awaitUninterruptibly()
+      connections.close().await(boundedMillis, TimeUnit.MILLISECONDS)
     // A closed channel fires channelInactive in a later event loop task; let those run, so the
     // events reach the handler executor before it shuts down
     Option(workerGroup).foreach { group =>
-      group.forEach(_.submit((() => ()): Runnable).awaitUninterruptibly())
+      group.forEach(_.submit((() => ()): Runnable).await(boundedMillis, TimeUnit.MILLISECONDS))
     }
 
   private def registerShutdownHookIfNeeded(): Unit =

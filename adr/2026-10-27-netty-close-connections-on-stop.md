@@ -6,9 +6,11 @@
 
 ## Decision
 
-- The server tracks accepted channels in a `DefaultChannelGroup`. A per-connection `ConnectionDrainHandler`, placed right after the HTTP codec, counts requests received minus responses written (`LastHttpContent`, as `RequestReadTimeoutHandler` does).
+- The server tracks accepted channels in a `DefaultChannelGroup`. A per-connection `ConnectionDrainHandler`, placed right after the HTTP codec, counts requests received minus responses written (`LastHttpContent`, as `RequestReadTimeoutHandler` does). Interim 1xx replies such as the aggregator's `100 Continue` are not counted as responses.
 - `stop()` first closes the server channel. It then asks every connection to drain: an idle or WebSocket-upgraded connection closes now, and a busy one closes right after its last pending response is written. It waits for all of them, bounded by the shutdown deadline, and force-closes any left (e.g. an endless SSE stream).
 - It then submits a no-op to every worker event loop and waits. A closed channel fires `channelInactive` in a later event-loop task, so this makes those events reach the handler group before the group shuts down. Graceful shutdown still runs tasks already queued.
+- Past the deadline, the forced close and the event-loop flush still wait at most 1s each, so a handler blocking an event loop cannot make `stop()` hang.
+- `stop()` called from a server thread (an event loop or a handler thread, e.g. a `/shutdown` endpoint) runs the shutdown on a new thread and returns at once. Waiting there would block on work only that thread can do: its own request, or its event loop.
 - Only then are the handler group, SSE executor, worker group, and boss group shut down, as before.
 
 ## Why not
@@ -22,4 +24,5 @@
 
 - A request whose bytes are still arriving when `stop()` starts counts as idle, so its connection is closed. Clients see a connection reset and may retry.
 - WebSocket connections are closed without a close frame, as before.
-- `NettyServerShutdownTest` guards both sides: no `io.netty` warnings when a client still holds a pooled connection, and an in-flight request still gets its response during `stop()`.
+- `stop()` from a server thread returns before the server has stopped; `isRunning` is already false.
+- `NettyServerShutdownTest` covers: no `io.netty` warnings when a client still holds a pooled connection, the server closing an idle keep-alive connection, in-flight requests (plain and `Expect: 100-continue`) still getting their response during `stop()`, and `stop()` from a request handler.
