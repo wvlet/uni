@@ -6,7 +6,6 @@ import wvlet.uni.http.netty.{NettyServer, RPCHandler, RouterHandler}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.log.LogSupport
-import wvlet.uni.surface.Surface
 import wvlet.uni.weaver.Weaver
 
 import java.util.concurrent.atomic.AtomicLong
@@ -62,7 +61,7 @@ class TodoApiImpl(store: TodoStore) extends TodoApi:
   * written out here to show what the generated code does.
   */
 class TodoApiClient(http: HttpSyncClient) extends TodoApi:
-  private val rpc = RPCClient.build(Surface.of[TodoApi], Surface.methodsOf[TodoApi])
+  private val rpc = RPCClient.of[TodoApi]
 
   def add(title: String): Todo         = rpc.callSync(http, "add", Seq(title))
   def complete(id: Long): Option[Todo] = rpc.callSync(http, "complete", Seq(id))

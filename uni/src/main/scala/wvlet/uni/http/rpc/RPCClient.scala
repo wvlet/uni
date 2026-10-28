@@ -27,7 +27,7 @@ import wvlet.uni.weaver.Weaver
   * Usage in generated code:
   * {{{
   * object UserServiceClient:
-  *   private val rpcClient = RPCClient.build(Surface.of[UserService], Surface.methodsOf[UserService])
+  *   private val rpcClient = RPCClient.of[UserService]
   *
   *   class SyncClient(client: HttpSyncClient):
   *     def getUser(id: Long): User =
@@ -95,7 +95,16 @@ end RPCClient
 object RPCClient:
 
   /**
-    * Build an RPCClient from Surface metadata. Call this with inline Surface.methodsOf[T].
+    * Create an RPC client for a service trait.
+    *
+    * Uses Surface.of[T] and Surface.methodsOf[T] (inline macros) to extract method metadata at
+    * compile time, the client-side mirror of RPCRouter.of[T].
+    */
+  inline def of[T]: RPCClient = build(Surface.of[T], Surface.methodsOf[T])
+
+  /**
+    * Build an RPCClient from Surface metadata. Prefer RPCClient.of[T] unless the Surface values are
+    * already at hand.
     */
   def build(serviceSurface: Surface, methods: Seq[MethodSurface]): RPCClient =
     val filteredMethods = RPCMethodFilter.rpcMethods(methods)

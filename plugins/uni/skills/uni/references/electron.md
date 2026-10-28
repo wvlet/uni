@@ -74,11 +74,10 @@ generated RPC `AsyncClient`) goes over IPC. A renderer has no synchronous IPC, s
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.surface.Surface
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 object RendererApp:
-  private val rpc = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+  private val rpc = RPCClient.of[CounterApi]
 
   @JSExportTopLevel("main")
   def main(): Unit =
@@ -97,14 +96,13 @@ bridge in memory, so the IPC round trip runs in a Scala.js `UniTest`:
 ```scala skip
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
-import wvlet.uni.surface.Surface
 import wvlet.uni.test.*
 
 class CounterIpcTest extends UniTest:
   test("increment over IPC") {
     val client = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl())).newAsyncClient
     RPCClient
-      .build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+      .of[CounterApi]
       .callAsync[CounterState](client, "increment", Seq(2))
       .map(_.value shouldBe 2)
   }

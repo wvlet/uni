@@ -176,7 +176,6 @@ import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.surface.Surface
 import scala.language.implicitConversions
 import scala.scalajs.js.annotation.JSExportTopLevel
 
@@ -187,7 +186,7 @@ object RendererApp:
     CounterUI().renderTo("app")
 
 class CounterUI extends RxElement:
-  private val rpc         = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+  private val rpc         = RPCClient.of[CounterApi]
   private lazy val client = Http.client.newAsyncClient
 
   private val count = Rx.variable(0)

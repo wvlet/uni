@@ -126,8 +126,12 @@ class RPCRouterTest extends UniTest:
     val router = RPCRouter.of[ExtendedApi](ExtendedApiImpl())
     router.codecs.keySet shouldBe Set("get", "list")
 
-    val client = RPCClient.build(Surface.of[ExtendedApi], Surface.methodsOf[ExtendedApi])
+    val client = RPCClient.of[ExtendedApi]
     client.codecs.keySet shouldBe router.codecs.keySet
+    client.serviceName shouldBe router.serviceName
+
+    val built = RPCClient.build(Surface.of[ExtendedApi], Surface.methodsOf[ExtendedApi])
+    built.codecs.keySet shouldBe router.codecs.keySet
   }
 
   test("RPCRouter should handle Rx return types") {

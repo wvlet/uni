@@ -25,7 +25,7 @@ import wvlet.uni.text.CodeFormatterConfig
   * Generated code shape:
   * {{{
   * object UserServiceClient:
-  *   private val rpc = RPCClient.build(Surface.of[UserService], Surface.methodsOf[UserService])
+  *   private val rpc = RPCClient.of[UserService]
   *
   *   class SyncClient(client: HttpSyncClient):
   *     def getUser(id: Long): User = rpc.callSync(client, "getUser", Seq(id))
@@ -57,15 +57,11 @@ object RPCClientGenerator:
       List(
         text("import wvlet.uni.http.*"),
         text("import wvlet.uni.http.rpc.RPCClient"),
-        text("import wvlet.uni.rx.Rx"),
-        text("import wvlet.uni.surface.Surface")
+        text("import wvlet.uni.rx.Rx")
       )
     )
 
-    val rpcField =
-      text(s"private val rpc = RPCClient.build(") +
-        nest(newline + text(s"Surface.of[${apiFQCN}],") / text(s"Surface.methodsOf[${apiFQCN}]")) /
-        text(")")
+    val rpcField = text(s"private val rpc = RPCClient.of[${apiFQCN}]")
 
     val clients = List.concat(
       Option.when(config.clientType == ClientType.Sync || config.clientType == ClientType.Both)(

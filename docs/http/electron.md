@@ -133,11 +133,10 @@ Call `ElectronRenderer.install()` once at startup. Afterward every `Http.client.
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.surface.Surface
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 object RendererApp:
-  private val rpc    = RPCClient.build(Surface.of[CounterApi], Surface.methodsOf[CounterApi])
+  private val rpc    = RPCClient.of[CounterApi]
   private lazy val client = Http.client.newAsyncClient
 
   @JSExportTopLevel("main")
