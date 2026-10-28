@@ -334,7 +334,14 @@ private[cron] class CronParser(expr: String):
               case RawItem.All(_) =>
                 (kind.min, kind.starMax, true)
               case RawItem.Single(v) =>
-                (value(v, kind), kind.starMax, false)
+                // Day-of-week 7 is Sunday, so `7/2` starts from 0
+                val a     = value(v, kind)
+                val start =
+                  if kind == FieldKind.DayOfWeek && a == 7 then
+                    0
+                  else
+                    a
+                (start, kind.starMax, false)
               case RawItem.Range(s, e) =>
                 val (a, b) = range(s, e)
                 (a, b, false)
@@ -373,11 +380,15 @@ private[cron] class CronParser(expr: String):
   private def number(v: RawValue, min: Int, max: Int, label: String): Int =
     if v.isName then
       throw error(s"expected a number for the ${label}, but found '${v.text}'", v.offset)
-    val n =
-      if v.text.length > 4 then
+    // Leading zeros are allowed; the length cap only guards against Int overflow
+    val digits = v.text.dropWhile(_ == '0')
+    val n      =
+      if digits.isEmpty then
+        0
+      else if digits.length > 4 then
         Int.MaxValue
       else
-        v.text.toInt
+        digits.toInt
     if n < min || n > max then
       throw error(s"${label} ${v.text} is out of range (${min}-${max})", v.offset)
     n

@@ -68,6 +68,12 @@ class CronTest extends UniTest:
     // 7 is Sunday too
     next("0 0 * * 7", "2026-10-28T00:00:00Z") shouldBe "2026-11-01T00:00:00Z"
     next("0 0 * * 5-7", "2026-11-01T00:00:00Z") shouldBe "2026-11-06T00:00:00Z"
+    // 7/2 is Sunday, Tuesday, Thursday, and Saturday
+    next("0 0 * * 7/2", "2026-11-01T00:00:00Z") shouldBe "2026-11-03T00:00:00Z"
+    next("05 08 * * *", "2026-10-28T00:00:00Z") shouldBe "2026-10-28T08:05:00Z"
+    next("00005 * * * *", "2026-10-28T00:00:00Z") shouldBe "2026-10-28T00:05:00Z"
+    // A line read from a crontab keeps its line break
+    next("0 0 * * *\r\n", "2026-10-28T00:00:00Z") shouldBe "2026-10-29T00:00:00Z"
   }
 
   test("match either day field when both are restricted") {
@@ -146,6 +152,7 @@ class CronTest extends UniTest:
     d("0 9 1 * MON") shouldBe "At 09:00, on day 1 of the month or on Monday"
     d("0 0 * * SAT,SUN") shouldBe "At 00:00, only on Saturday and Sunday"
     d("0 0 1 JAN-MAR *") shouldBe "At 00:00, on day 1 of the month, January through March"
+    d("0 0 * * 1-5/2") shouldBe "At 00:00, every 2 days of the week, Monday through Friday"
     d("0 0 1 */3 *") shouldBe "At 00:00, on day 1 of the month, every 3 months"
     d("15 30 9 * * *") shouldBe "At 09:30:15"
     d("0 30 9 * * *") shouldBe "At 09:30"
@@ -197,6 +204,9 @@ class CronTest extends UniTest:
     UtcOffset.parse("Z") shouldBe UtcOffset.UTC
     intercept[IllegalArgumentException] {
       UtcOffset.parse("Asia/Tokyo")
+    }
+    intercept[IllegalArgumentException] {
+      UtcOffset.parse("+09:75")
     }
     intercept[IllegalArgumentException] {
       UtcOffset.ofHours(19)

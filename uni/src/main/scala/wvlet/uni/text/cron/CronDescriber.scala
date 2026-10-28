@@ -182,6 +182,8 @@ private[cron] object CronDescriber:
         Some(s"${every(n, "day")} of the week")
       case List(Range(a, b)) =>
         Some(s"${name(a)} through ${name(b)}")
+      case List(Step(a, b, n, false)) =>
+        Some(s"${every(n, "day")} of the week, ${name(a)} through ${name(b)}")
       case items =>
         f.singleValues match
           case Some(ds) if either =>

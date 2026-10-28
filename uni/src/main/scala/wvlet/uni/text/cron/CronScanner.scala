@@ -24,7 +24,7 @@ import wvlet.uni.text.parser.Tokens
 /**
   * Tokens of a cron expression. Whitespace is a token because it separates the fields.
   */
-enum CronToken:
+private[cron] enum CronToken:
   case EMPTY,
     ERROR,
     EOF,
@@ -41,7 +41,7 @@ enum CronToken:
     HYPHEN,
     SLASH
 
-object CronToken:
+private[cron] object CronToken:
   given TokenTypeInfo[CronToken] with
     def empty: CronToken                = EMPTY
     def errorToken: CronToken           = ERROR
@@ -86,7 +86,7 @@ end CronToken
   * Tokenizes a cron expression. Unexpected characters throw [[TextParseException]] with the line
   * and column.
   */
-class CronScanner(expr: String)
+private[cron] class CronScanner(expr: String)
     extends ScannerBase[CronToken](
       IArray.from(expr.toCharArray),
       ScannerConfig(skipWhiteSpace = false)
@@ -104,7 +104,8 @@ class CronScanner(expr: String)
   override protected def fetchToken(): Unit =
     initOffset()
     ch match
-      case ' ' | '\t' =>
+      // Accept a trailing line break, as in a line read from a crontab
+      case ' ' | '\t' | Tokens.CR | Tokens.LF =>
         getWhiteSpaces()
       case c if '0' <= c && c <= '9' =>
         while '0' <= ch && ch <= '9' do
@@ -136,7 +137,7 @@ class CronScanner(expr: String)
 
 end CronScanner
 
-object CronScanner:
+private[cron] object CronScanner:
   def error(expr: String, message: String, offset: Int): TextParseException = TextParseException(
     LineReader.formatError(expr, message, offset),
     offset,

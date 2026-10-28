@@ -215,6 +215,8 @@ case class UtcOffset(totalSeconds: Int):
 object UtcOffset:
   val UTC: UtcOffset = UtcOffset(0)
 
+  private val OffsetPattern = """([+-])(\d{1,2})(?::?(\d{2}))?""".r
+
   def ofHours(hours: Int): UtcOffset = UtcOffset(hours * 3600)
 
   /**
@@ -227,11 +229,10 @@ object UtcOffset:
     * Parse `Z`, `+09:00`, `-0530`, or `+9`
     */
   def parse(s: String): UtcOffset =
-    val OffsetPattern = """([+-])(\d{1,2})(?::?(\d{2}))?""".r
     s.trim match
       case "Z" | "z" =>
         UTC
-      case OffsetPattern(sign, h, m) =>
+      case OffsetPattern(sign, h, m) if Option(m).forall(_.toInt < 60) =>
         val minutes = h.toInt * 60 + Option(m).map(_.toInt).getOrElse(0)
         UtcOffset(
           (
