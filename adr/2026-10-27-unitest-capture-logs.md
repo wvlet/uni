@@ -13,7 +13,7 @@ Tests that make code fail on purpose (a handler that throws, an invalid request)
   - a record from a thread running a suite (`UniTestTask.execute` marks it with a `ThreadLocal`, routing on or off) is never taken by another thread's capture;
   - a record from any other thread (server workers, `Future` pools) goes to every open capture that accepts its logger.
 - `captureLogs[A]` scopes by the logger name `LogSupport` uses for `A` on the platform (`Logger.loggerNameOf`, `private[uni]`). One inline method serves both forms: an omitted type argument is inferred as `Any`, which means every logger. Overloading `captureLogs(body)` with `captureLogs[A](body)(using ClassTag[A])` is ambiguous.
-- If the block throws, captured records are delivered as if there had been no capture. A block that returns a `Future` or `Rx` fails, since its assertions would run after the capture ends.
+- If the block throws, captured records are published again after the capture closes, so an enclosing capture takes them, or they print as if there had been no capture. A record that a worker thread logs after the capture closed is not dropped: the closed capture refuses it and it prints. A block that returns a `Future` or `Rx` fails, since its assertions would run after the capture ends.
 
 ## Why not
 
