@@ -48,9 +48,9 @@ class WeatherServiceImpl extends WeatherService:
 ## 3. Start the server
 
 ```scala
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.mcp.MCP
 
-@main def start(): Unit = MCPServer()
+@main def start(): Unit = MCP.server
   .withName("weather")
   .withVersion("0.1.0")
   .withTools[WeatherService](WeatherServiceImpl())
@@ -183,7 +183,7 @@ notifications). `httpHandler` exposes it as a standard uni
 platform:
 
 ```scala
-val mcp = MCPServer()
+val mcp = MCP.server
   .withName("weather")
   .withTools[WeatherService](WeatherServiceImpl())
 
@@ -227,13 +227,72 @@ an `Origin` header only localhost origins are accepted by default. Serving
 browser-based clients from another origin requires registering it explicitly:
 
 ```scala
-MCPServer().withAllowedOrigins("https://app.example.com")
+MCP.server.withAllowedOrigins("https://app.example.com")
 ```
 :::
 
 The server is stateless: no `Mcp-Session-Id` is issued, and since a tools-only
 server never initiates messages, the optional SSE streaming and GET event
 stream are not offered (GET returns 405).
+
+## Call an MCP server from Scala
+
+Uni can also be the MCP **client**: `MCP.client` speaks the same Streamable HTTP transport, so any
+Scala program (JVM / Scala.js on Node.js / Scala Native) can discover and call the tools of any
+MCP server — Uni-built or third-party. No extra dependency is needed beyond `uni` itself.
+
+```scala
+import wvlet.uni.mcp.MCP
+import wvlet.uni.rx.RxResource
+import wvlet.uni.json.JSON.{JSONObject, JSONString}
+
+@main def run(): Unit =
+  val session = RxResource
+    .fromAutoCloseable(
+      // performs initialize + notifications/initialized
+      MCP.client.withName("weather-agent").connect("http://localhost:8080/mcp")
+    )
+    .use { client =>
+      for
+        tools  <- client.listTools()
+        result <- client.callTool("forecast", JSONObject(Seq("city" -> JSONString("Tokyo"))))
+      yield
+        println(tools.map(_.name)) // List(forecast)
+        println(result.isError) // false — tool failures are results, not exceptions
+        println(result.content) // Seq(MCPContent.Text(...))
+    }
+  session.run()
+```
+
+`MCP.client` returns an immutable `MCPClientConfig`, configured with `withXXX(...)` like
+`Http.client`. `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
+with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
+server — `tools/list`, `tools/call`, `ping` (the `initialize` handshake happens inside `connect`,
+as the spec allows only one per session) — and discovers tools **dynamically**, so no client code
+generation is needed: names, descriptions, and input schemas arrive from `tools/list` as
+`MCPToolInfo`.
+
+Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close()` run even when
+the session fails (or an exception is thrown): the resource is released after `use`'s body
+completes, on both success and error paths. Each call performs a blocking HTTP POST when the
+returned `Rx` is run (uni's synchronous HTTP channel), so `session.run()` drives a full session on
+the current thread.
+
+| Method | Default | Purpose |
+|--------|---------|---------|
+| `withName(name)` | `uni-mcp-client` | Client name sent in `initialize` |
+| `withVersion(version)` | `0.1.0` | Client version sent in `initialize` |
+| `withProtocolVersion(v)` | `2025-06-18` | MCP protocol version to request |
+| `withHttpClientConfig(config)` | `Http.client` | Timeouts, filters, and channel of the HTTP transport |
+
+HTTP retries are always disabled: `tools/call` is not idempotent, so a retry could run a tool
+twice.
+
+A `Mcp-Session-Id` issued by the server is captured from `initialize` and echoed on subsequent
+requests; session-less servers (such as uni's own `MCPServer`) do not issue one. Errors follow the
+server's taxonomy: JSON-RPC errors and HTTP failures are thrown as
+`MCPClientException(code, message)`, while a failing tool returns `MCPToolResult(isError = true)`
+instead of throwing.
 
 ## Scope and roadmap
 

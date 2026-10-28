@@ -64,7 +64,7 @@ Public methods of the trait become MCP tools. Parameters and results go through
 Weaver, so case classes work.
 
 ```scala
-import wvlet.uni.mcp.{MCPServer, description}
+import wvlet.uni.mcp.{MCP, description}
 
 case class Forecast(city: String, temperature: Double)
 
@@ -75,7 +75,7 @@ trait WeatherService:
 class WeatherServiceImpl extends WeatherService:
   def forecast(city: String): Forecast = Forecast(city, 22.5)
 
-@main def weatherMcp(): Unit = MCPServer()
+@main def weatherMcp(): Unit = MCP.server
   .withName("weather")
   .withVersion("0.1.0")
   .withTools[WeatherService](WeatherServiceImpl())

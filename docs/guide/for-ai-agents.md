@@ -98,7 +98,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`. See [WebSocket](../http/websocket) |
 | OpenAPI | `wvlet.uni.http.openapi.{OpenAPI, OpenAPIConfig}` | `OpenAPI.of(Router.of[A], OpenAPIConfig()).toYAML`. See [OpenAPI](../http/openapi) |
 | Electron IPC (Scala.js) | `wvlet.uni.electron.{ElectronRPCServer, ElectronRenderer}` | See [Desktop Apps (Electron)](../http/electron) |
-| MCP server | `wvlet.uni.mcp.*` | See [Build an MCP Server](../mcp/) |
+| MCP server / client | `wvlet.uni.mcp.MCP` | `MCP.server.withTools[T](impl)...`, `MCP.client.connect(url)`; see [Build an MCP Server](../mcp/) |
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields. See [Command Launcher](../cli/launcher) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
@@ -157,7 +157,7 @@ Copy one as a template:
 |---------|-------|
 | [`cli-tool`](https://github.com/wvlet/uni/tree/main/examples/cli-tool) | `Launcher` sub-commands, `LogSupport`, `derives Weaver`, the HTTP client, and a Scala Native binary |
 | [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `NettyServer` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
-| [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCPServer().withTools[...]` and how to add it to Claude Code |
+| [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCP.server.withTools[...]` and how to add it to Claude Code |
 | [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |
 
 ## Example: a wired service with logging and JSON

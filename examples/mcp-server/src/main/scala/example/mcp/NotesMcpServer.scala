@@ -1,7 +1,7 @@
 package example.mcp
 
 import wvlet.uni.log.LogSupport
-import wvlet.uni.mcp.{description, MCPServer}
+import wvlet.uni.mcp.{description, MCP, MCPServer}
 import wvlet.uni.weaver.Weaver
 
 import java.time.Instant
@@ -75,7 +75,8 @@ class InMemoryNotesService extends NotesService with LogSupport:
 end InMemoryNotesService
 
 object NotesMcpServer:
-  def server(service: NotesService): MCPServer = MCPServer()
+  def server(service: NotesService): MCPServer = MCP
+    .server
     .withName("notes")
     .withVersion("0.1.0")
     .withTools[NotesService](service)

@@ -42,7 +42,7 @@ case class MCPTool(
   *   def temperature(@description("City name") city: String): Double
   *
   * @main def start(): Unit =
-  *   MCPServer()
+  *   MCP.server
   *     .withName("weather")
   *     .withVersion("0.1.0")
   *     .withTools[WeatherService](WeatherServiceImpl())
@@ -118,16 +118,17 @@ case class MCPServer(
     * in tests.
     */
   def handleMessage(line: String): Rx[Option[String]] =
-    JsonRpc.parseRequest(line) match
-      case Left((id, code, message)) =>
-        Rx.single(Some(JsonRpc.errorResponse(id, code, message)))
-      case Right(request) =>
-        request.id match
-          case None =>
-            // Notifications (e.g. notifications/initialized) expect no response, even on error
-            Rx.single(None)
-          case Some(id) =>
-            handleRequest(id, request)
+    try
+      val request = JsonRpc.parseRequest(line)
+      request.id match
+        case None =>
+          // Notifications (e.g. notifications/initialized) expect no response, even on error
+          Rx.single(None)
+        case Some(id) =>
+          handleRequest(id, request)
+    catch
+      case e: JsonRpc.JsonRpcParseException =>
+        Rx.single(Some(JsonRpc.errorResponse(e.id, e.code, e.message)))
 
   // MCP reports tool failures to the model as isError results so it can correct its call, so the
   // message is part of the protocol here (and the stdio transport is local to the client).
