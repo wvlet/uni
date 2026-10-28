@@ -47,6 +47,24 @@ val p: Person    = Weaver.fromJson[Person](json)
 val tree         = JSON.parse(json) // untyped JSONValue
 ```
 
+## YAML and frontmatter
+
+`YAML` parses YAML 1.2 into the same `JSONValue` tree, so any `derives Weaver` type decodes
+from YAML too. Missing fields take their defaults.
+
+```scala
+import wvlet.uni.text.yaml.{Frontmatter, YAML}
+
+val fromYaml: Person = YAML.fromYaml[Person]("id: 2\nname: yui\ntags: [admin]")
+val docs             = YAML.parseAll("a: 1\n---\nb: 2") // Seq[JSONValue], one per document
+
+case class SkillHeader(name: String, description: String = "") derives Weaver
+
+val md     = "---\nname: review\n---\n# Body\n"
+val header = Frontmatter.parse(md).as[SkillHeader] // SkillHeader(review, "")
+val mdBody = Frontmatter.parse(md).body            // "# Body\n"
+```
+
 ## Retry
 
 ```scala
