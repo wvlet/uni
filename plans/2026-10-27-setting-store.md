@@ -27,7 +27,7 @@ The missing parts are a cross-platform storage abstraction, a versioned on-disk 
 
 Lane: **Standard**. This adds a new public API and picks default on-disk storage paths (an always-gate area).
 
-- **`SettingStore[A]`** (new package `wvlet.uni.store` in the `uni` module, because it needs `Weaver`) extends `RxVar[A]`. Every `set`/`update` writes the encoded value through to the backend. `clear()` deletes the stored entry and resets the value to the default.
+- **`SettingStore[A]`** (new package `wvlet.uni.config` in the `uni` module, because it needs `Weaver`) extends `RxVar[A]`. Every `set`/`update` writes the encoded value through to the backend. `clear()` deletes the stored entry and resets the value to the default.
 
   ```scala
   case class AppSettings(theme: String = "light", fontSize: Int = 14) derives Weaver

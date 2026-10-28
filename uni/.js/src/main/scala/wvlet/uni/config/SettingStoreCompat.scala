@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.store
+package wvlet.uni.config
 
 import wvlet.uni.http.NodeModules
 import org.scalajs.dom
@@ -26,7 +26,7 @@ import scala.util.control.NonFatal
   * break every browser bundle that uses SettingStore. Node modules are loaded at runtime with
   * [[NodeModules.builtin]] instead.
   */
-private[store] object SettingStoreCompat extends LogSupport:
+private[config] object SettingStoreCompat extends LogSupport:
   def env(name: String): Option[String] =
     if NodeModules.isNode then
       val value = js.Dynamic.global.process.env.selectDynamic(name)
