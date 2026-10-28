@@ -87,11 +87,11 @@ class OutputCaptureTest extends UniTest:
     val out = captureStdout {
       println("hello stdout")
     }
-    out shouldBe "hello stdout\n"
+    out shouldBe s"hello stdout${System.lineSeparator()}"
     val err = captureStderr {
       Console.err.println("hello stderr")
     }
-    err shouldBe "hello stderr\n"
+    err shouldBe s"hello stderr${System.lineSeparator()}"
   }
 
   test("pass through an exception from the block") {
