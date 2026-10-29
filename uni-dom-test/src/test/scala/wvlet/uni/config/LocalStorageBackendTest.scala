@@ -39,4 +39,11 @@ class LocalStorageBackendTest extends UniTest:
     val keys = (0 until dom.window.localStorage.length).map(dom.window.localStorage.key)
     keys.exists(_.startsWith("my-app/settings.corrupt-")) shouldBe true
 
+  test("use raw keys with an empty prefix"):
+    dom.window.localStorage.clear()
+    val backend = LocalStorageBackend("")
+    backend.write("theme", "dark")
+    dom.window.localStorage.getItem("theme") shouldBe "dark"
+    backend.read("theme") shouldBe Some("dark")
+
 end LocalStorageBackendTest

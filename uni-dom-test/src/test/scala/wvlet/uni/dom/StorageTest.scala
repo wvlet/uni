@@ -142,4 +142,28 @@ class StorageTest extends UniTest:
 
     cancelable.cancel
 
+  test("StorageVar follows changes made in another tab"):
+    cleanupStorage()
+    val theme = Storage.local("theme", "light")
+
+    // Simulate another tab: change the storage directly, then dispatch the storage event it sends
+    def changedInAnotherTab(key: String | Null): Unit =
+      val init = new dom.StorageEventInit {}
+      init.key = key
+      init.storageArea = dom.window.localStorage
+      dom.window.dispatchEvent(dom.StorageEvent("storage", init))
+
+    dom.window.localStorage.setItem("theme", "dark")
+    changedInAnotherTab("theme")
+    theme.get shouldBe "dark"
+
+    dom.window.localStorage.clear()
+    changedInAnotherTab(null)
+    theme.get shouldBe "light"
+
+    theme.stop()
+    dom.window.localStorage.setItem("theme", "dark")
+    changedInAnotherTab("theme")
+    theme.get shouldBe "light"
+
 end StorageTest

@@ -14,9 +14,8 @@
 package wvlet.uni.dom
 
 import org.scalajs.dom
-import wvlet.uni.rx.{Cancelable, RxVar}
-
-import scala.scalajs.js
+import wvlet.uni.config.LocalStorageBackend
+import wvlet.uni.rx.RxVar
 
 /**
   * Type class for serializing/deserializing storage values.
@@ -53,38 +52,32 @@ object StorageCodec:
   * events.
   */
 class StorageVar[A](key: String, default: A, storage: dom.Storage, codec: StorageCodec[A])
-    extends RxVar[A](StorageVar.loadInitial(key, default, storage, codec)):
+    extends RxVar[A](StorageVar.load(LocalStorageBackend("", storage), key, default, codec)):
 
-  private val storageListener: js.Function1[dom.StorageEvent, Unit] =
-    (e: dom.StorageEvent) =>
-      if e.storageArea == storage then
-        if e.key == key then
-          // Key was updated or removed
-          val newValue = Option(e.newValue).flatMap(codec.decode).getOrElse(default)
-          super.update(_ => newValue, force = true)
-        else if e.key == null then
-          // Storage was cleared (localStorage.clear() from another tab)
-          val newValue = Option(storage.getItem(key)).flatMap(codec.decode).getOrElse(default)
-          super.update(_ => newValue, force = true)
+  // An empty prefix keeps the raw key, so values stored by earlier versions stay readable
+  private val backend = LocalStorageBackend("", storage)
 
-  // Listen for storage events from other tabs
-  dom.window.addEventListener("storage", storageListener)
+  // Follow updates, removals, and clears from other tabs
+  private val watching =
+    backend.watch(key) { () =>
+      super.update(_ => StorageVar.load(backend, key, default, codec), force = true)
+    }
 
   override def update(updater: A => A, force: Boolean = false): Unit =
     super.update(updater, force)
-    storage.setItem(key, codec.encode(get))
+    backend.write(key, codec.encode(get))
 
   /**
     * Remove the key from storage and reset to default value.
     */
   def clear(): Unit =
-    storage.removeItem(key)
+    backend.remove(key)
     super.update(_ => default, force = true)
 
   /**
     * Stop listening for storage events. Called automatically when this RxVar is cancelled.
     */
-  def dispose(): Unit = dom.window.removeEventListener("storage", storageListener)
+  def dispose(): Unit = watching.cancel
 
   /**
     * Override stop to also dispose the storage listener.
@@ -96,12 +89,12 @@ class StorageVar[A](key: String, default: A, storage: dom.Storage, codec: Storag
 end StorageVar
 
 object StorageVar:
-  private def loadInitial[A](
+  private def load[A](
+      backend: LocalStorageBackend,
       key: String,
       default: A,
-      storage: dom.Storage,
       codec: StorageCodec[A]
-  ): A = Option(storage.getItem(key)).flatMap(codec.decode).getOrElse(default)
+  ): A = backend.read(key).flatMap(codec.decode).getOrElse(default)
 
 /**
   * Reactive localStorage and sessionStorage bindings.
