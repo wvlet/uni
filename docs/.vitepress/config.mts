@@ -393,6 +393,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Text Formats',
           items: [
             { text: 'Overview', link: '/text/' },
+            { text: 'JSON', link: '/core/json' },
             { text: 'YAML', link: '/text/yaml' },
             { text: 'Markdown', link: '/text/markdown' },
             { text: 'Cron', link: '/text/cron' }
@@ -498,6 +499,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Text Formats',
           items: [
             { text: 'Overview', link: '/text/' },
+            { text: 'JSON', link: '/core/json' },
             { text: 'YAML', link: '/text/yaml' },
             { text: 'Markdown', link: '/text/markdown' },
             { text: 'Cron', link: '/text/cron' }
