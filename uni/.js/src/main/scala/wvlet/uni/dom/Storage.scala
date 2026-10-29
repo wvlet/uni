@@ -51,11 +51,20 @@ object StorageCodec:
   * Changes are automatically persisted to storage and synchronized across browser tabs via storage
   * events.
   */
-class StorageVar[A](key: String, default: A, storage: dom.Storage, codec: StorageCodec[A])
-    extends RxVar[A](StorageVar.load(LocalStorageBackend("", storage), key, default, codec)):
+class StorageVar[A] private (
+    key: String,
+    default: A,
+    backend: LocalStorageBackend,
+    codec: StorageCodec[A]
+) extends RxVar[A](StorageVar.load(backend, key, default, codec)):
 
   // An empty prefix keeps the raw key, so values stored by earlier versions stay readable
-  private val backend = LocalStorageBackend("", storage)
+  def this(key: String, default: A, storage: dom.Storage, codec: StorageCodec[A]) = this(
+    key,
+    default,
+    LocalStorageBackend("", storage),
+    codec
+  )
 
   // Follow updates, removals, and clears from other tabs
   private val watching =
