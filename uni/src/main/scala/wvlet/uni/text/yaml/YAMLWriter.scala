@@ -48,7 +48,17 @@ private[yaml] object YAMLWriter:
           ""
         else
           " "
-      w.sb.append(src.leading).append(sep)
+      w.sb.append(src.leading)
+      // The header comment of a replaced block scalar goes on the line before a new block root
+      val header = root.source.header
+      if w.isBlock(root) && root.source.raw.isEmpty && header.nonEmpty then
+        if lastLine.trim.isEmpty || lastLine.endsWith(" ") then
+          w.sb.append(header.stripLeading())
+        else
+          w.sb.append(header)
+        w.sb.append(lb)
+      else
+        w.sb.append(sep)
       if w.isBlock(root) && root.source.raw.isEmpty && hasProps(root) then
         w.sb.append(props(root)).append(lb)
       w.node(root, 0)
@@ -248,6 +258,11 @@ private[yaml] object YAMLWriter:
           case other =>
             val text = inlineText(other, col, flow = false, key = false)
             sb.append(text)
+            // A scalar places the header comment of the block scalar it replaced itself
+            other match
+              case _: Scalar =>
+              case _         =>
+                sb.append(n.source.header)
             sb.append(n.source.comment)
             markBreak(n, text)
 
@@ -373,10 +388,10 @@ private[yaml] object YAMLWriter:
             else
               ""
           // A sequence under a sequence item can start on the same line
-          if indicator == "-" && !hasProps(v) then
+          if indicator == "-" && !hasProps(v) && v.source.header.isEmpty then
             indicator + " "
           else
-            indicator + p + lb + " " * col
+            indicator + p + v.source.header + lb + " " * col
       else if leading.nonEmpty then
         spaced(leading, v)
       else if isEmptyPlain(v) then

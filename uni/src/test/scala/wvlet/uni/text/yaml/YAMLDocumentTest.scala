@@ -275,6 +275,28 @@ class YAMLDocumentTest extends UniTest:
       .toYaml shouldBe "a: | # note\n  z\n"
   }
 
+  test("keep the header comment of a block scalar replaced by a collection") {
+    val d = YAML.parseDocument("a: | # note\n  x\nb: 1")
+    d.set(Seq("a"), JSON.parse("[]")).toYaml shouldBe "a: [] # note\nb: 1"
+    d.set(Seq("a"), JSON.parse("[1, 2]")).toYaml shouldBe "a: # note\n  - 1\n  - 2\nb: 1"
+    d.set(Seq("a"), JSON.parse("""{"k":1}""")).toYaml shouldBe "a: # note\n  k: 1\nb: 1"
+    // A collection under a sequence item starts on the next line, after the comment
+    val s = YAML.parseDocument("- > # note\n  x\n- 2\n")
+    s.set(Seq(0), JSON.parse("[1]")).toYaml shouldBe "- # note\n  - 1\n- 2\n"
+    s.set(Seq(0), JSON.parse("""{"k":1}""")).toYaml shouldBe "- # note\n  k: 1\n- 2\n"
+    // And it stays when the collection is replaced again
+    d.set(Seq("a"), JSON.parse("[1]")).set(Seq("a"), JSON.parse("{}")).toYaml shouldBe
+      "a: {} # note\nb: 1"
+    YAML.parse(d.set(Seq("a"), JSON.parse("[1, 2]")).toYaml).toJSON shouldBe """{"a":[1,2],"b":1}"""
+    // On the root, it goes on the `---` line, or on its own line before the collection
+    YAML.parseDocument("--- | # note\n  x\n").set(Seq(), JSON.parse("[1, 2]")).toYaml shouldBe
+      "--- # note\n- 1\n- 2\n"
+    YAML.parseDocument("| # note\n  x\n").set(Seq(), JSON.parse("""{"k":1}""")).toYaml shouldBe
+      "# note\nk: 1\n"
+    YAML.parseDocument("--- | # note\n  x\n").set(Seq(), JSON.parse("[]")).toYaml shouldBe
+      "--- [] # note\n"
+  }
+
   test("edit the example in the docs") {
     val d = YAML.parseDocument("""# Server settings
         |server:
