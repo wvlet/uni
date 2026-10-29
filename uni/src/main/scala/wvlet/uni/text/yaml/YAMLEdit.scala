@@ -154,6 +154,15 @@ private[yaml] object YAMLEdit:
     */
   private def replace(n: YAMLNode, v: JSONValue): YAMLNode =
     val node = YAMLWriter.fromJSON(v)
+    // The comment on the header line of a block scalar is not in the text around it
+    val source =
+      n match
+        case old: Scalar
+            if (old.style == ScalarStyle.Literal || old.style == ScalarStyle.Folded) &&
+              !old.source.isEmpty =>
+          old.source.detached.withHeader(YAMLWriter.headerComment(old.source.raw))
+        case old =>
+          old.source.detached
     (n, node) match
       case (old: Scalar, s: Scalar) =>
         val style =
@@ -162,20 +171,13 @@ private[yaml] object YAMLEdit:
               old.style
             case _ =>
               s.style
-        // The comment on the header line of a block scalar is not in the text around it
-        val source =
-          old.style match
-            case ScalarStyle.Literal | ScalarStyle.Folded if !old.source.isEmpty =>
-              old.source.detached.withHeader(YAMLWriter.headerComment(old.source.raw))
-            case _ =>
-              old.source.detached
         s.copy(style = style, anchor = old.anchorOf, source = source)
       case (old @ (_: Scalar | _: Alias), s) if !isBlock(s) =>
-        withAnchor(s, old.anchorOf).withSource(old.source.detached)
+        withAnchor(s, old.anchorOf).withSource(source)
       case (old @ (Mapping(_, true, _, _, _) | Sequence(_, true, _, _, _)), s) if !isBlock(s) =>
-        withAnchor(s, old.anchorOf).withSource(old.source.detached)
+        withAnchor(s, old.anchorOf).withSource(source)
       case (old, s) =>
-        withAnchor(s, old.anchorOf)
+        withAnchor(s, old.anchorOf).withSource(YAMLSource.none.withHeader(source.header))
 
   private def hasAlias(n: YAMLNode): Boolean =
     n match
