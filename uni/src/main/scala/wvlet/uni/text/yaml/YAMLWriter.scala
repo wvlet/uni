@@ -188,7 +188,7 @@ private[yaml] object YAMLWriter:
     */
   private def hasDirective(leading: String): Boolean = lines(leading)
     .takeWhile(!isMarker(_, "---"))
-    .exists(_.stripPrefix("﻿").startsWith("%"))
+    .exists(_.stripPrefix("\uFEFF").startsWith("%"))
 
   /**
     * Does the text end with a `...` line, followed only by blank lines and comments?
@@ -227,7 +227,7 @@ private[yaml] object YAMLWriter:
     def node(n: YAMLNode, col: Int): Unit =
       if n.unchanged then
         sb.append(n.source.raw).append(n.source.comment)
-        markBreak(n, n.source.raw)
+        markBreak(lastNode(n), n.source.raw)
       else
         n match
           case m: Mapping if isBlock(m) =>
@@ -247,6 +247,18 @@ private[yaml] object YAMLWriter:
       * from the text after the scalar, so the document has to end with one when nothing follows.
       */
     var breakAt = -1
+
+    /**
+      * The node a block collection's text ends with
+      */
+    private def lastNode(n: YAMLNode): YAMLNode =
+      n match
+        case m: Mapping if isBlock(m) =>
+          lastNode(m.entries.last.value)
+        case s: Sequence if isBlock(s) =>
+          lastNode(s.items.last)
+        case other =>
+          other
 
     private def markBreak(n: YAMLNode, text: String): Unit =
       n match

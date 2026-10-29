@@ -252,6 +252,9 @@ class YAMLDocumentTest extends UniTest:
     YAML.parse(moved.toYaml).toJSON shouldBe """{"b":1,"a":"x\n\n"}"""
     YAML.parseDocument("a: |\n  x\nb: 1").remove(Seq("b")).toYaml shouldBe "a: |\n  x\n"
     YAML.parseDocument("a: |-\n  x\nb: 1").remove(Seq("b")).toYaml shouldBe "a: |-\n  x"
+    // Also when the scalar ends an unchanged collection
+    YAML.parseDocument("a:\n  - k: |+\n      x\n\nb: 1").remove(Seq("b")).toYaml shouldBe
+      "a:\n  - k: |+\n      x\n\n"
   }
 
   test("edit the example in the docs") {
