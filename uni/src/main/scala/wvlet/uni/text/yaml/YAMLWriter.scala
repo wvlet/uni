@@ -53,8 +53,8 @@ private[yaml] object YAMLWriter:
         w.sb.append(props(root)).append(lb)
       w.node(root, 0)
       w.sb.append(src.comment)
-      // Keep the final line break when the root was empty
-      if src.raw.endsWith("\n") && !w.sb.endsWith("\n") then
+      // Keep the final line break when the root was empty, or a block scalar at the end needs it
+      if src.raw.endsWith("\n") && !w.sb.endsWith("\n") || w.breakAt == w.sb.length then
         w.sb.append(lb)
       w.sb.result()
     end if
@@ -74,8 +74,12 @@ private[yaml] object YAMLWriter:
       if sb.nonEmpty then
         if !sb.endsWith("\n") then
           sb.append(lb)
-        if !startsWithMarker(d.source.leading) && !endsWithMarker(prev) then
-          sb.append("---").append(lb)
+        if !endsWithMarker(prev) then
+          // Directives after a document need a `...` line to end that document
+          if hasDirective(d.source.leading) then
+            sb.append("...").append(lb)
+          else if !startsWithMarker(d.source.leading) then
+            sb.append("---").append(lb)
       sb.append(text)
       prev = text
     }
@@ -180,6 +184,13 @@ private[yaml] object YAMLWriter:
   private def startsWithMarker(leading: String): Boolean = lines(leading).exists(isMarker(_, "---"))
 
   /**
+    * Does the text before a document's root have a directive (`%YAML`, `%TAG`) before its `---`?
+    */
+  private def hasDirective(leading: String): Boolean = lines(leading)
+    .takeWhile(!isMarker(_, "---"))
+    .exists(_.stripPrefix("\uFEFF").startsWith("%"))
+
+  /**
     * Does the text end with a `...` line, followed only by blank lines and comments?
     */
   private def endsWithMarker(text: String): Boolean = lines(text)
@@ -216,6 +227,7 @@ private[yaml] object YAMLWriter:
     def node(n: YAMLNode, col: Int): Unit =
       if n.unchanged then
         sb.append(n.source.raw).append(n.source.comment)
+        markBreak(lastNode(n), n.source.raw)
       else
         n match
           case m: Mapping if isBlock(m) =>
@@ -225,8 +237,36 @@ private[yaml] object YAMLWriter:
             sb.append(n.source.opening)
             sequence(s, indentOf(s, col))
           case other =>
-            sb.append(inlineText(other, col, flow = false, key = false))
+            val text = inlineText(other, col, flow = false, key = false)
+            sb.append(text)
             sb.append(n.source.comment)
+            markBreak(n, text)
+
+    /**
+      * The end of the last block scalar whose value ends with a line break. That line break comes
+      * from the text after the scalar, so the document has to end with one when nothing follows.
+      */
+    var breakAt = -1
+
+    /**
+      * The node a block collection's text ends with
+      */
+    private def lastNode(n: YAMLNode): YAMLNode =
+      n match
+        case m: Mapping if isBlock(m) =>
+          lastNode(m.entries.last.value)
+        case s: Sequence if isBlock(s) =>
+          lastNode(s.items.last)
+        case other =>
+          other
+
+    private def markBreak(n: YAMLNode, text: String): Unit =
+      n match
+        case Scalar(v, ScalarStyle.Literal | ScalarStyle.Folded, _, _, _)
+            if v.endsWith("\n") && text.contains('\n') =>
+          // A block scalar is written over several lines; a quoted fallback is not
+          breakAt = sb.length
+        case _ =>
 
     private def indentOf(n: YAMLNode, col: Int): Int =
       if n.source.indent >= 0 then
