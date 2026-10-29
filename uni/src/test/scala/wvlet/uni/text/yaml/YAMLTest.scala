@@ -112,6 +112,9 @@ class YAMLTest extends UniTest:
     json("a: |\n\n  after blank\n") shouldBe """{"a":"\nafter blank\n"}"""
     json("a: |\nb: 1") shouldBe """{"a":"","b":1}"""
     json("a: |\n  no final break") shouldBe """{"a":"no final break"}"""
+    json("a: |+\n  x\n\n") shouldBe """{"a":"x\n\n"}"""
+    json("a: |+\n  x\n  \n\n# c\nb: 1") shouldBe """{"a":"x\n\n\n","b":1}"""
+    json("- |+\n  x\n\n- >+\n  y\n\n") shouldBe """["x\n\n","y\n\n"]"""
   }
 
   test("parse folded block scalars") {
@@ -162,7 +165,9 @@ class YAMLTest extends UniTest:
       "a\n...\nb\n",
       "",
       "# only a comment\n",
-      "k: |\n  text\n\n---\nx: 1\n"
+      "k: |\n  text\n\n---\nx: 1\n",
+      "k: |+\n  text\n\n---\nx: 1\n",
+      "%YAML 1.2\n---\na: 1\n...\n%YAML 1.2\n--- b\n"
     ).foreach(YAMLRoundTripTest.checkStream)
     intercept[IllegalArgumentException] {
       YAML.parse("a: 1\n---\nb: 2")

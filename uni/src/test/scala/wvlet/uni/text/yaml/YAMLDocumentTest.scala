@@ -229,6 +229,31 @@ class YAMLDocumentTest extends UniTest:
     YAML.parseDocument("a: [k: 1, 2]\n").set(Seq("a", 0, "k"), 3).toYaml shouldBe "a: [k: 3, 2]\n"
   }
 
+  test("keep the line breaks at the end of block scalars") {
+    // The last line break of a block scalar comes from the text after it
+    YAML.parseDocument("a: x").set(Seq("a"), "y\n\n").toYaml shouldBe "a: |+\n  y\n\n"
+    YAML.parseDocument("a: x").set(Seq("a"), "y\n").toYaml shouldBe "a: |\n  y\n"
+    YAML.parseDocument("a: x\n").set(Seq("a"), "y\n\n").toYaml shouldBe "a: |+\n  y\n\n"
+    YAML.parseDocument("a: x\n# end").set(Seq("a"), "y\n\n").toYaml shouldBe "a: |+\n  y\n\n# end"
+    YAMLDocument(YAMLNode.fromJSON(JSON.parse("""{"a":"y\n\n"}"""))).toYaml shouldBe
+      "a: |+\n  y\n\n"
+    YAMLDocument(YAMLNode.fromJSON(JSON.parse("""["y\n"]"""))).toYaml shouldBe "- |\n  y\n"
+    // The empty lines of a keep (+) scalar stay with it when the key after it is removed or moved
+    val keep = YAML.parseDocument("a: |+\n  x\n\n# about b\nb: 1")
+    keep.remove(Seq("b")).toYaml shouldBe "a: |+\n  x\n\n"
+    val moved = keep.copy(root =
+      keep.root match
+        case m: YAMLNode.Mapping =>
+          m.copy(entries = m.entries.reverse)
+        case other =>
+          other
+    )
+    moved.toYaml shouldBe "# about b\nb: 1\na: |+\n  x\n\n"
+    YAML.parse(moved.toYaml).toJSON shouldBe """{"b":1,"a":"x\n\n"}"""
+    YAML.parseDocument("a: |\n  x\nb: 1").remove(Seq("b")).toYaml shouldBe "a: |\n  x\n"
+    YAML.parseDocument("a: |-\n  x\nb: 1").remove(Seq("b")).toYaml shouldBe "a: |-\n  x"
+  }
+
   test("edit the example in the docs") {
     val d = YAML.parseDocument("""# Server settings
         |server:

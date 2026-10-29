@@ -66,6 +66,23 @@ class YAMLStreamTest extends UniTest:
     YAML.writeStream(Seq(bare(0), bare(0))) shouldBe "a: 1\n...\na: 1\n...\n"
   }
 
+  test("end a document with ... before a moved document with directives") {
+    val docs = YAML.parseDocuments("%YAML 1.2\n---\na: 1\n---\nb: 2\n")
+    val out  = YAML.writeStream(docs.reverse)
+    out shouldBe "---\nb: 2\n...\n%YAML 1.2\n---\na: 1\n"
+    YAML.parseAll(out).map(_.toJSON) shouldBe Seq("""{"b":2}""", """{"a":1}""")
+    // No second `...` after a document that already ends with one
+    val ended = YAML.parseDocuments("a: 1\n...\n%YAML 1.2\n---\nb: 2\n")
+    YAML.writeStream(Seq(ended(0), ended(1))) shouldBe "a: 1\n...\n%YAML 1.2\n---\nb: 2\n"
+  }
+
+  test("keep the empty lines of a keep (+) scalar in its document") {
+    val docs = YAML.parseDocuments("k: |+\n  text\n\n---\nx: 1\n")
+    docs.map(_.toJSON.toJSON) shouldBe Seq("""{"k":"text\n\n"}""", """{"x":1}""")
+    YAML.parseAll(YAML.writeStream(docs.reverse)).map(_.toJSON) shouldBe
+      Seq("""{"x":1}""", """{"k":"text\n\n"}""")
+  }
+
   test("keep the text of a stream without documents") {
     YAML.parseDocuments("").map(_.toJSON) shouldBe Seq(JSONNull())
     YAML.writeStream(YAML.parseDocuments("# nothing here\n")) shouldBe "# nothing here\n"

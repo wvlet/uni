@@ -100,14 +100,11 @@ private[yaml] class YAMLParser(input: String):
     * The offset after the line break that ends the line containing offset `end`
     */
   private def lineEnd(end: Int): Int =
-    if end > 0 && text.charAt(end - 1) == '\n' then
-      end
+    val e = text.indexOf('\n', end)
+    if e < 0 then
+      text.length
     else
-      val e = text.indexOf('\n', end)
-      if e < 0 then
-        text.length
-      else
-        e + 1
+      e + 1
 
   private def emptyDocument: YAMLDocument = document(
     PScalar("", ScalarStyle.Plain, None, None, text.length, text.length),
@@ -165,8 +162,9 @@ private[yaml] class YAMLParser(input: String):
         skipToContent()
         val doc =
           if r.isEOF || atAnyDocumentMarker then
-            // The comment lines after the `---` of an empty document belong to it
-            lastEnd = r.offset
+            // The comment lines after the `---` of an empty document belong to it. A marker
+            // starts a line, so its document ends at the line break before it
+            lastEnd = (r.offset - 1).max(0)
             PScalar("", ScalarStyle.Plain, None, None, r.offset, r.offset)
           else
             val n = withComment(parseBlockNode(-1, allowCollection = true))
@@ -462,10 +460,15 @@ private[yaml] class YAMLParser(input: String):
             body + "\n"
           else
             body
-    // The line break after the last line belongs to the trivia that follows
+    // The line break after the last line belongs to the trivia that follows. With keep (+)
+    // chomping, the empty lines before it are part of the value, so they stay in the node
     var end = r.offset
-    while end > start && text.charAt(end - 1) == '\n' do
-      end -= 1
+    if chomping == 'k' then
+      if end > start && text.charAt(end - 1) == '\n' then
+        end -= 1
+    else
+      while end > start && text.charAt(end - 1) == '\n' do
+        end -= 1
     val style =
       if folded then
         ScalarStyle.Folded
