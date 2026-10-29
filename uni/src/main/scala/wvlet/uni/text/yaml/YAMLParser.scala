@@ -165,6 +165,8 @@ private[yaml] class YAMLParser(input: String):
         skipToContent()
         val doc =
           if r.isEOF || atAnyDocumentMarker then
+            // The comment lines after the `---` of an empty document belong to it
+            lastEnd = r.offset
             PScalar("", ScalarStyle.Plain, None, None, r.offset, r.offset)
           else
             val n = withComment(parseBlockNode(-1, allowCollection = true))
@@ -1089,11 +1091,11 @@ private[yaml] class YAMLParser(input: String):
     children
       .zip(leadings)
       .map { (c, l) =>
-        YAMLWriter.lineBreakAt(l) match
-          case -1 =>
+        YAMLWriter.lineRest(l) match
+          case None =>
             c
-          case i =>
-            withComment(c, YAMLWriter.removeSeparator(l.substring(0, i)))
+          case Some(rest) =>
+            withComment(c, rest)
       }
 
   /**

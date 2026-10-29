@@ -32,9 +32,15 @@ private[yaml] object YAMLWriter:
       val w    = Writer(lb)
       val root = doc.root
       // Separate a new root from a `---` marker or a comment before it
-      val lastLine = src.leading.substring(src.leading.lastIndexOf('\n') + 1)
-      val sep      =
-        if lastLine.trim.isEmpty || root.source.raw.nonEmpty then
+      val lastLine  = src.leading.substring(src.leading.lastIndexOf('\n') + 1).stripPrefix("\uFEFF")
+      val emptyRoot =
+        root match
+          case Scalar("", ScalarStyle.Plain, None, None, _) =>
+            true
+          case _ =>
+            false
+      val sep =
+        if lastLine.trim.isEmpty || root.source.raw.nonEmpty || emptyRoot then
           ""
         else if w.isBlock(root) || lastLine.contains('#') then
           lb
@@ -51,6 +57,9 @@ private[yaml] object YAMLWriter:
       if src.raw.endsWith("\n") && !w.sb.endsWith("\n") then
         w.sb.append(lb)
       w.sb.result()
+    end if
+
+  end write
 
   def writeStream(docs: Seq[YAMLDocument]): String =
     val lb =
@@ -58,15 +67,17 @@ private[yaml] object YAMLWriter:
         "\r\n"
       else
         "\n"
-    val sb = StringBuilder()
+    val sb   = StringBuilder()
+    var prev = ""
     docs.foreach { d =>
       val text = d.toYaml
       if sb.nonEmpty then
         if !sb.endsWith("\n") then
           sb.append(lb)
-        if !startsWithMarker(d.source.leading) && !endsWithMarker(sb.result()) then
+        if !startsWithMarker(d.source.leading) && !endsWithMarker(prev) then
           sb.append("---").append(lb)
       sb.append(text)
+      prev = text
     }
     sb.result()
 
@@ -112,16 +123,51 @@ private[yaml] object YAMLWriter:
         s.substring(0, i) + s.substring(i + 1)
 
   /**
-    * The text between flow collection children that belongs to the next one: without the comma, and
+    * The text before a comma on the same line as the previous child, such as the space in `1 , 2`
+    */
+  def beforeSeparator(s: String): String =
+    separatorAt(s) match
+      case -1 =>
+        ""
+      case i =>
+        val pre = s.substring(0, i)
+        if lineBreakAt(pre) < 0 then
+          pre
+        else
+          ""
+
+  /**
+    * The text between flow collection children that belongs to the next one: after the comma, and
     * from the first line break, since the rest of the previous line belongs to the previous child
     */
   def ownText(s: String): String =
-    val t = removeSeparator(s)
+    val pre = beforeSeparator(s)
+    val t   =
+      if hasSeparator(s) && lineBreakAt(pre) < 0 && separatorAt(s) == pre.length then
+        s.substring(pre.length + 1)
+      else
+        removeSeparator(s)
     lineBreakAt(t) match
       case -1 =>
         t
       case i =>
         t.substring(i)
+
+  /**
+    * The rest of the previous child's line in the text between flow collection children, after its
+    * comma, or None when the text has no line break
+    */
+  def lineRest(s: String): Option[String] =
+    lineBreakAt(s) match
+      case -1 =>
+        None
+      case i =>
+        val line = s.substring(0, i)
+        separatorAt(line) match
+          case -1 =>
+            Some(line)
+          case j =>
+            Some(line.substring(j + 1))
 
   private def lines(text: String): Seq[String] = text.split("\n", -1).map(_.stripSuffix("\r")).toSeq
 
@@ -319,6 +365,8 @@ private[yaml] object YAMLWriter:
         n.source.raw
       else if isBracketed(n) then
         flowCollection(n, col)
+      else if isImplicitPair(n) then
+        flowEntry(n.asInstanceOf[Mapping].entries.head, col)
       else
         val body =
           n match
@@ -361,6 +409,37 @@ private[yaml] object YAMLWriter:
           false
 
     /**
+      * Write a mapping entry inside a flow collection, keeping the text between its key and value
+      */
+    private def flowEntry(e: YAMLEntry, col: Int): String =
+      val k    = inlineText(e.key, col, flow = true, key = true)
+      val v    = e.value
+      val text =
+        if v.unchanged then
+          v.source.leading + v.source.raw
+        else if isEmptyPlain(v) then
+          v.source.leading
+        else
+          val leading =
+            if v.source.leading.isEmpty then
+              ": "
+            else
+              spaced(v.source.leading, v)
+          leading + inlineText(v, col, flow = true, key = false)
+      k + text
+
+    /**
+      * Is the node a single-pair mapping in a flow sequence (`[a: 1]`), which has no braces?
+      */
+    private def isImplicitPair(n: YAMLNode): Boolean =
+      n match
+        case m: Mapping =>
+          m.flow && !m.source.isEmpty && m.source.opening.isEmpty && m.entries.size == 1 &&
+          !hasProps(m)
+        case _ =>
+          false
+
+    /**
       * Write a changed flow collection, keeping the text between its children: separators, line
       * breaks, and comments. As in block collections, the comment lines before a child belong to
       * it, and so does the comment on its line after it.
@@ -371,24 +450,7 @@ private[yaml] object YAMLWriter:
       val children: Seq[(String, String, String)] =
         n match
           case m: Mapping =>
-            m.entries
-              .map { e =>
-                val k    = inlineText(e.key, col, flow = true, key = true)
-                val v    = e.value
-                val text =
-                  if v.unchanged then
-                    v.source.leading + v.source.raw
-                  else if isEmptyPlain(v) then
-                    v.source.leading
-                  else
-                    val leading =
-                      if v.source.leading.isEmpty then
-                        ": "
-                      else
-                        spaced(v.source.leading, v)
-                    leading + inlineText(v, col, flow = true, key = false)
-                (e.key.source.leading, k + text, v.source.comment)
-              }
+            m.entries.map(e => (e.key.source.leading, flowEntry(e, col), e.value.source.comment))
           case s: Sequence =>
             s.items
               .map(i =>
@@ -457,7 +519,7 @@ private[yaml] object YAMLWriter:
       val sb            = StringBuilder()
       val (anchor, tag) =
         src.parsed match
-          case p: Product if p.productArity == 4 =>
+          case p: Product if p.productArity >= 4 =>
             (p.productElement(2), p.productElement(3))
           case _ =>
             (None, None)
@@ -486,14 +548,20 @@ private[yaml] object YAMLWriter:
         .zipWithIndex
         .foreach { case ((leading, text, lineRest), i) =>
           if i > 0 then
-            sb.append(',')
+            sb.append(beforeSeparator(leading)).append(',')
           sb.append(lineEnd(rest, leadingOf(leading, i))).append(text)
           rest = lineRest
         }
       val closing = src.closing
       if hasSeparator(closing) && children.nonEmpty then
-        sb.append(',')
-      sb.append(lineEnd(rest, ownText(closing)))
+        sb.append(beforeSeparator(closing)).append(',')
+      // Without parsed children, the first line of the closing text belongs to no child
+      val closingOwn =
+        if parsed.isEmpty then
+          closing
+        else
+          ownText(closing)
+      sb.append(lineEnd(rest, closingOwn))
       sb.append(
         if src.opening.endsWith("[") then
           "]"

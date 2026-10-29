@@ -29,7 +29,7 @@ object YAMLRoundTripTest extends Assertions:
             )
       reparsed shouldBe YAML.parse(v).toJSON
       // Mark every collection as changed: the children and the text between them print as read
-      YAMLDocument(touchAll(doc.root), doc.source).toYaml shouldBe v
+      touchedDocument(doc).toYaml shouldBe v
     checkStream(yaml)
 
   /**
@@ -45,7 +45,7 @@ object YAMLRoundTripTest extends Assertions:
       docs.map(_.toYaml).mkString shouldBe v
       if expected.nonEmpty then
         docs.map(_.toJSON.toJSON) shouldBe expected
-      YAML.writeStream(docs.map(d => YAMLDocument(touchAll(d.root), d.source))) shouldBe v
+      YAML.writeStream(docs.map(touchedDocument)) shouldBe v
       val rewritten = YAML.writeStream(docs.map(d => YAMLDocument(rebuild(d.root), d.source)))
       val reparsed  =
         try
@@ -59,29 +59,37 @@ object YAMLRoundTripTest extends Assertions:
       reparsed shouldBe expected
 
   /**
+    * A copy of the source that records `content` plus a marker, so that the node counts as changed
+    * while the writer still finds the recorded children
+    */
+  private def touched(src: YAMLSource, content: Product): YAMLSource = YAMLSource(
+    src.raw,
+    src.leading,
+    src.comment,
+    src.opening,
+    src.indent,
+    src.span,
+    Tuple.fromArray(content.productIterator.toArray[Any]) ++ Tuple1("touched"),
+    src.offset,
+    src.closing
+  )
+
+  private def touchedDocument(doc: YAMLDocument): YAMLDocument =
+    val root = touchAll(doc.root)
+    YAMLDocument(root, touched(doc.source, Tuple1(root)))
+
+  /**
     * Copy the tree so that every collection counts as changed, but keeps the source text of its
     * children and the text between them
     */
   private def touchAll(n: YAMLNode): YAMLNode =
-    def touched(src: YAMLSource): YAMLSource = YAMLSource(
-      src.raw,
-      src.leading,
-      src.comment,
-      src.opening,
-      src.indent,
-      src.span,
-      Tuple1("touched"),
-      src.offset,
-      src.closing
-    )
     n match
       case m: YAMLNode.Mapping =>
-        m.copy(
-          entries = m.entries.map(e => YAMLEntry(touchAll(e.key), touchAll(e.value))),
-          source = touched(m.source)
-        )
+        val c = m.copy(entries = m.entries.map(e => YAMLEntry(touchAll(e.key), touchAll(e.value))))
+        c.withSource(touched(m.source, c.content))
       case s: YAMLNode.Sequence =>
-        s.copy(items = s.items.map(touchAll), source = touched(s.source))
+        val c = s.copy(items = s.items.map(touchAll))
+        c.withSource(touched(s.source, c.content))
       case other =>
         other
 

@@ -158,8 +158,14 @@ class YAMLDocumentTest extends UniTest:
       flow,
       "a: [ 1 , 2 ,]  # c\n",
       "a: {x: 1, # c, with a comma\n  y, z: [p, q] # d\n  }\n",
-      "- [\n  # top\n  a, b\n]\n"
+      "- [\n  # top\n  a, b\n]\n",
+      "a: [ # ports\n]\n"
     ).foreach(YAMLRoundTripTest.check)
+    // A comma at the start of a line moves to the end of the previous one
+    YAML.parseDocument("a: [x # c\n, y]\n").set(Seq("a", 1), "z").toYaml shouldBe
+      "a: [x, # c\n z]\n"
+    YAML.parseDocument("a: [ 1 , 2 ,]\n").set(Seq("a", 0), 3).toYaml shouldBe "a: [ 3 , 2 ,]\n"
+    YAML.parseDocument("a: [ # ports\n]\n").set(Seq("a", 0), 1).toYaml shouldBe "a: [1 # ports\n]\n"
     val d = YAML.parseDocument(flow)
     d.set(Seq("ports", 0), 8080).toYaml shouldBe flow.replace("80, ", "8080, ")
     d.set(Seq("env", "b"), 3).toYaml shouldBe flow.replace("b: 2", "b: 3")
@@ -220,7 +226,7 @@ class YAMLDocumentTest extends UniTest:
     d.set(Seq("a", 1, "b"), 3).toYaml shouldBe "a: &x [1, {b: 3, c}]\nd: *x\n"
     d.set(Seq("a", 1, "c"), 4).toYaml shouldBe "a: &x [1, {b: 2, c: 4}]\nd: *x\n"
     YAML.parseDocument("a: []\n").set(Seq("a", 0), 1).toYaml shouldBe "a: [1]\n"
-    YAML.parseDocument("a: [k: 1, 2]\n").set(Seq("a", 0, "k"), 3).toYaml shouldBe "a: [{k: 3}, 2]\n"
+    YAML.parseDocument("a: [k: 1, 2]\n").set(Seq("a", 0, "k"), 3).toYaml shouldBe "a: [k: 3, 2]\n"
   }
 
   test("edit the example in the docs") {

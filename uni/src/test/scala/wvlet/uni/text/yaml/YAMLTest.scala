@@ -157,6 +157,8 @@ class YAMLTest extends UniTest:
       "%YAML 1.2\n---\na: 1",
       "# head\na: 1 # c\n\n# before\n---\n# top\nb: [1, 2]\n...\n# after\n",
       "---\n---\n--- # empty\n...\n",
+      "---\n# c\n\n---\nb: 1\n",
+      "--- # c\n\n...\n---\nb\n",
       "a\n...\nb\n",
       "",
       "# only a comment\n",
