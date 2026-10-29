@@ -209,7 +209,9 @@ final class YAMLSource private[yaml] (
     // The offset in the parser's text, for error messages
     private[yaml] val offset: Int = -1,
     // For a flow collection, the text after its last child up to the closing bracket
-    private[yaml] val closing: String = ""
+    private[yaml] val closing: String = "",
+    // For a changed block scalar, the comment on its header line in the parsed text
+    private[yaml] val header: String = ""
 ):
   def isEmpty: Boolean = parsed == null
 
@@ -232,7 +234,8 @@ final class YAMLSource private[yaml] (
     indent,
     Span.NoSpan,
     null,
-    offset
+    offset,
+    header = header
   )
 
   private[yaml] def withComment(c: String): YAMLSource = YAMLSource(
@@ -244,7 +247,21 @@ final class YAMLSource private[yaml] (
     span,
     parsed,
     offset,
-    closing
+    closing,
+    header
+  )
+
+  private[yaml] def withHeader(h: String): YAMLSource = YAMLSource(
+    raw,
+    leading,
+    comment,
+    opening,
+    indent,
+    span,
+    parsed,
+    offset,
+    closing,
+    h
   )
 
 end YAMLSource

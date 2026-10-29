@@ -257,6 +257,24 @@ class YAMLDocumentTest extends UniTest:
       "a:\n  - k: |+\n      x\n\n"
   }
 
+  test("keep the comment on the header line of a changed block scalar") {
+    YAML.parseDocument("a: | # note\n  x\n").set(Seq("a"), "y\n").toYaml shouldBe
+      "a: | # note\n  y\n"
+    YAML.parseDocument("a: |- # note\n  x\nb: 1").set(Seq("a"), "y\nz").toYaml shouldBe
+      "a: |- # note\n  y\n  z\nb: 1"
+    YAML.parseDocument("- > # note\n  x\n").set(Seq(0), "y\n").toYaml shouldBe "- > # note\n  y\n"
+    // A '#' in a tag does not start a comment
+    YAML.parseDocument("a: !t#x |\n  x\n").set(Seq("a"), "y\n").toYaml shouldBe "a: |\n  y\n"
+    // The comment stays after the value when it is no longer a block scalar, and after a second edit
+    YAML.parseDocument("a: | # note\n  x\nb: 1").set(Seq("a"), 2).toYaml shouldBe
+      "a: 2 # note\nb: 1"
+    YAML
+      .parseDocument("a: | # note\n  x\n")
+      .set(Seq("a"), "y\n")
+      .set(Seq("a"), "z\n")
+      .toYaml shouldBe "a: | # note\n  z\n"
+  }
+
   test("edit the example in the docs") {
     val d = YAML.parseDocument("""# Server settings
         |server:

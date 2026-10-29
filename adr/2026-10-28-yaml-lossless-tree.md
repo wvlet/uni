@@ -34,6 +34,8 @@ Node offsets in a slice are relative to the slice, because `YAMLResolver.resolve
 
 The last line break of a block scalar (`|`, `>`) belongs to the text after it, as for any node, so a scalar's `raw` ends before it. For keep (`+`) chomping, the empty lines before that line break are part of the value, so they stay in the scalar's `raw` rather than in the next node's leading; removing or moving that next node keeps them. A rewritten `|+` scalar prints them the same way, so both follow one rule: a block scalar whose value ends with a line break needs a line break after it. The writer records where the last such scalar ends, and adds a line break when nothing follows it by the end of the document, which happens in a document without a final line break or one built in code.
 
+A comment on a block scalar's header line (`a: | # note`) is inside the scalar's `raw`, because the content lines follow it. A same-line comment belongs to the node, so when `set` replaces a block scalar, the replacement source keeps that comment in a `header` field, and the writer prints it after the new header (`| # note`). When the new scalar is not written as a block scalar (a number, or text that needs quotes), the comment goes after the value instead. Replacing a block scalar with a collection drops the comment. Only a `#` after a space starts the comment, so a `#` in a tag or anchor does not.
+
 ## Not supported
 
 A new value inside a flow collection is always flow style. In an edited flow collection, a comma at the start of a line (`a # c\n, b`) moves to the end of the previous line.
