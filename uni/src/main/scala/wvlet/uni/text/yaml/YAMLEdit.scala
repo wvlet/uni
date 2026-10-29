@@ -162,7 +162,14 @@ private[yaml] object YAMLEdit:
               old.style
             case _ =>
               s.style
-        s.copy(style = style, anchor = old.anchorOf, source = old.source.detached)
+        // The comment on the header line of a block scalar is not in the text around it
+        val source =
+          old.style match
+            case ScalarStyle.Literal | ScalarStyle.Folded if !old.source.isEmpty =>
+              old.source.detached.withHeader(YAMLWriter.headerComment(old.source.raw))
+            case _ =>
+              old.source.detached
+        s.copy(style = style, anchor = old.anchorOf, source = source)
       case (old @ (_: Scalar | _: Alias), s) if !isBlock(s) =>
         withAnchor(s, old.anchorOf).withSource(old.source.detached)
       case (old @ (Mapping(_, true, _, _, _) | Sequence(_, true, _, _, _)), s) if !isBlock(s) =>

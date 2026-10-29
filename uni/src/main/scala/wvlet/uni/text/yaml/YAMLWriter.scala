@@ -158,6 +158,15 @@ private[yaml] object YAMLWriter:
         t.substring(i)
 
   /**
+    * The comment on the header line of a block scalar's text, with the spaces before it, or an
+    * empty string. A '#' starts a comment only after a space, so it can be part of a tag or anchor.
+    */
+  private[yaml] def headerComment(raw: String): String = """[ \t]+#[^\r\n]*"""
+    .r
+    .findFirstIn(raw.takeWhile(_ != '\n'))
+    .getOrElse("")
+
+  /**
     * The rest of the previous child's line in the text between flow collection children, after its
     * comma, or None when the text has no line break
     */
@@ -511,7 +520,7 @@ private[yaml] object YAMLWriter:
                 }
               case _ =>
                 Nil
-          case _ =>
+          case null =>
             Nil
       // The text before the first child, when it has no comments
       val firstLeading = parsed.headOption.filter(_.trim.isEmpty).getOrElse("")
@@ -614,21 +623,28 @@ private[yaml] object YAMLWriter:
 
     private def scalar(s: Scalar, col: Int, flow: Boolean, key: Boolean): String =
       val v = s.value
+      // The comment on the header line of a changed block scalar stays with the node
+      val header = s.source.header
       s.style match
         case ScalarStyle.Plain if isPlainSafe(v, flow) || v.isEmpty && !key =>
-          v
+          v + header
         case ScalarStyle.SingleQuoted if !v.exists(c => c == '\n' || c < ' ' && c != '\t') =>
-          "'" + v.replace("'", "''") + "'"
+          "'" + v.replace("'", "''") + "'" + header
         case ScalarStyle.Literal | ScalarStyle.Folded if !flow =>
-          blockScalar(v, s.style, col.max(2)).getOrElse(doubleQuoted(v))
+          blockScalar(v, s.style, col.max(2), header).getOrElse(doubleQuoted(v) + header)
         case _ =>
-          doubleQuoted(v)
+          doubleQuoted(v) + header
 
     /**
       * Write a literal (|) or folded (>) block scalar with its content at column `indent`, or None
       * when the value cannot be written that way
       */
-    private def blockScalar(v: String, style: ScalarStyle, indent: Int): Option[String] =
+    private def blockScalar(
+        v: String,
+        style: ScalarStyle,
+        indent: Int,
+        comment: String
+    ): Option[String] =
       val body         = v.stripSuffix("\n")
       val lines        = body.split("\n", -1)
       val firstContent = lines.find(_.nonEmpty)
@@ -661,7 +677,7 @@ private[yaml] object YAMLWriter:
             .mkString
         // With keep (+) chomping, the line break after the last empty line comes from the text that
         // follows, as with any node
-        Some(header + chomp + text)
+        Some(header + chomp + comment + text)
       end if
 
     end blockScalar
