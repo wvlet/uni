@@ -134,7 +134,11 @@ object FrontmatterSource:
         case JSONNull() =>
           ""
         case d =>
-          YAMLDocument(YAMLNode.fromJSON(d)).toYaml.replace("\n", lb) + lb
+          val text = YAMLDocument(YAMLNode.fromJSON(d)).toYaml.replace("\n", lb)
+          if text.endsWith("\n") then
+            text
+          else
+            text + lb
     s"---${lb}${yaml}---${lb}"
 
 object Frontmatter:

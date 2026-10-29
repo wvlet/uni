@@ -75,6 +75,10 @@ class FrontmatterTest extends UniTest:
       "---\nname: y\n---\nbody\n"
     Frontmatter(Some(JSON.parse("""{"name":"y"}""")), "body").toText shouldBe
       "---\nname: y\n---\nbody"
+    // A block scalar at the end brings its own final line break
+    val text = Frontmatter(Some(JSON.parse("""{"a":"y\n\n"}""")), "body").toText
+    text shouldBe "---\na: |+\n  y\n\n---\nbody"
+    Frontmatter.parse(text).data shouldBe Some(JSON.parse("""{"a":"y\n\n"}"""))
   }
 
 end FrontmatterTest
