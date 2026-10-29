@@ -284,7 +284,7 @@ private[markdown] class BlockParser(input: String, gfm: Boolean, frontmatter: Bo
           container.lastChild match
             case c: BlockNode =>
               c.lastLineBlank = true
-            case _ =>
+            case null =>
 
         val k             = container.kind
         val lastLineBlank =
