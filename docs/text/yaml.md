@@ -154,7 +154,31 @@ doc
 - `update(value)` changes the document to resolve to a new `JSONValue`, editing only the entries that differ.
 - `toJSON` resolves the document, as `YAML.parse` does.
 
-A replaced scalar keeps its quoting style (`'x'`, `"x"`, `|`) and the comment after it. New values are written in block style with two-space indentation. A new string is quoted when it would otherwise read as another type, so `"123"` stays a string. An anchor on a replaced value stays, so aliases to it still resolve.
+A replaced scalar keeps its quoting style (`'x'`, `"x"`, `|`) and the comment after it. An edited flow collection (`[a, b]`, `{k: v}`) keeps its comments and line breaks, and a new item follows the layout of the items before it. New values are written in block style with two-space indentation, or in flow style inside a flow collection. A new string is quoted when it would otherwise read as another type, so `"123"` stays a string. An anchor on a replaced value stays, so aliases to it still resolve.
+
+### Multiple documents
+
+`YAML.parseDocument` reads a single document. For a `---`-separated stream, such as Kubernetes manifests, `YAML.parseDocuments` returns one `YAMLDocument` per document. Edit any of them, and `YAML.writeStream` writes them all back. The documents you didn't change are written byte for byte:
+
+```scala
+val docs = YAML.parseDocuments("""# Deployment
+kind: Deployment
+replicas: 1
+---
+# Service
+kind: Service
+""")
+
+YAML.writeStream(docs.updated(0, docs(0).set(Seq("replicas"), 3)))
+// # Deployment
+// kind: Deployment
+// replicas: 3
+// ---
+// # Service
+// kind: Service
+```
+
+Each document holds its part of the stream. A comment on its own line before a `---` marker belongs to the document below it, like a comment above a key. A comment after a document's content on the same line, and a `...` end marker, belong to the document they end. So removing a document from the `Seq` also removes its comments. `writeStream` adds a `---` before a document that doesn't start with one, unless the previous document ends with `...`. A stream with no documents gives one empty document that keeps its text, such as comments.
 
 The tree is a `YAMLNode` (`Scalar`, `Mapping`, `Sequence`, `Alias`), and you can also change it with `copy`. As with the [Markdown AST](./markdown), each node's source text is an attachment that does not take part in equality, and a node whose content differs from what was parsed is written in the canonical style.
 

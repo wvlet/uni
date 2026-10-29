@@ -145,6 +145,90 @@ class YAMLDocumentTest extends UniTest:
     ).toYaml shouldBe "name: x\ntags:\n  - a\n  - b c\nempty: {}\nn: null"
   }
 
+  test("keep comments and line breaks in an edited flow collection") {
+    val flow =
+      """ports: [
+        |  80,   # http
+        |  443,  # https
+        |]
+        |env: { a: 1, # first
+        |  b: 2 }
+        |""".stripMargin
+    Seq(
+      flow,
+      "a: [ 1 , 2 ,]  # c\n",
+      "a: {x: 1, # c, with a comma\n  y, z: [p, q] # d\n  }\n",
+      "- [\n  # top\n  a, b\n]\n",
+      "a: [ # ports\n]\n"
+    ).foreach(YAMLRoundTripTest.check)
+    // A comma at the start of a line moves to the end of the previous one
+    YAML.parseDocument("a: [x # c\n, y]\n").set(Seq("a", 1), "z").toYaml shouldBe
+      "a: [x, # c\n z]\n"
+    YAML.parseDocument("a: [ 1 , 2 ,]\n").set(Seq("a", 0), 3).toYaml shouldBe "a: [ 3 , 2 ,]\n"
+    YAML.parseDocument("a: [ # ports\n]\n").set(Seq("a", 0), 1).toYaml shouldBe "a: [1 # ports\n]\n"
+    val d = YAML.parseDocument(flow)
+    d.set(Seq("ports", 0), 8080).toYaml shouldBe flow.replace("80, ", "8080, ")
+    d.set(Seq("env", "b"), 3).toYaml shouldBe flow.replace("b: 2", "b: 3")
+    // New items follow the layout of the last separator
+    d.set(Seq("ports", 2), 8443).toYaml shouldBe
+      flow.replace("443,  # https\n", "443,  # https\n  8443,\n")
+    d.set(Seq("env", "c"), 3).toYaml shouldBe flow.replace("b: 2 }", "b: 2,\n  c: 3 }")
+    YAML.parseDocument("a: {x: 1, y: 2}\n").set(Seq("a", "z"), 3).toYaml shouldBe
+      "a: {x: 1, y: 2, z: 3}\n"
+    // A removed item takes the comments on its line and above it
+    d.remove(Seq("ports", 1)).toYaml shouldBe flow.replace("  443,  # https\n", "")
+    d.remove(Seq("ports", 0)).toYaml shouldBe flow.replace("  80,   # http\n", "")
+    d.remove(Seq("env", "a")).toYaml shouldBe flow.replace("a: 1, # first\n  ", "")
+    // Moved items keep their comments
+    val moved = d.copy(root =
+      d.root match
+        case m: YAMLNode.Mapping =>
+          m.copy(entries =
+            m.entries
+              .map {
+                case YAMLEntry(k, s: YAMLNode.Sequence) =>
+                  YAMLEntry(k, s.copy(items = s.items.reverse))
+                case e =>
+                  e
+              }
+          )
+        case other =>
+          other
+    )
+    moved.toYaml shouldBe
+      flow.replace("80,   # http\n  443,  # https", "443,  # https\n  80,   # http")
+  }
+
+  test("move flow collection children") {
+    val d = YAML.parseDocument("a: [x, y, z]  # c\nb: { k: 1, l: 2 }\n")
+    d.remove(Seq("a", 0)).toYaml shouldBe "a: [y, z]  # c\nb: { k: 1, l: 2 }\n"
+    d.remove(Seq("b", "k")).toYaml shouldBe "a: [x, y, z]  # c\nb: { l: 2 }\n"
+    // Moved children keep their own text, and the separators are rebuilt around them
+    def reversed(yaml: String): String =
+      val d = YAML.parseDocument(yaml)
+      val r =
+        d.root match
+          case s: YAMLNode.Sequence =>
+            s.copy(items = s.items.reverse)
+          case m: YAMLNode.Mapping =>
+            m.copy(entries = m.entries.reverse)
+          case other =>
+            other
+      d.copy(root = r).toYaml
+    reversed("[x, y, z]  # c\n") shouldBe "[z, y, x]  # c\n"
+    reversed("{ k: 1, l: 2 }") shouldBe "{ l: 2, k: 1 }"
+    // A comment above a moved child goes with it
+    reversed("[ # one\n  1,\n  2 ]") shouldBe "[2, # one\n  1 ]"
+  }
+
+  test("edit flow collections with properties, nesting, and empty values") {
+    val d = YAML.parseDocument("a: &x [1, {b: 2, c}]\nd: *x\n")
+    d.set(Seq("a", 1, "b"), 3).toYaml shouldBe "a: &x [1, {b: 3, c}]\nd: *x\n"
+    d.set(Seq("a", 1, "c"), 4).toYaml shouldBe "a: &x [1, {b: 2, c: 4}]\nd: *x\n"
+    YAML.parseDocument("a: []\n").set(Seq("a", 0), 1).toYaml shouldBe "a: [1]\n"
+    YAML.parseDocument("a: [k: 1, 2]\n").set(Seq("a", 0, "k"), 3).toYaml shouldBe "a: [k: 3, 2]\n"
+  }
+
   test("edit the example in the docs") {
     val d = YAML.parseDocument("""# Server settings
         |server:

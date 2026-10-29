@@ -26,8 +26,10 @@ import scala.collection.mutable
   *
   * @param text
   *   the normalized text that node offsets point into, for error messages
+  * @param base
+  *   the offset in `text` that node offsets are relative to
   */
-private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long):
+private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long, base: Int = 0):
   import YAMLNode.*
   import YAMLParser.*
 
@@ -140,9 +142,9 @@ private[yaml] class YAMLResolver(text: String, maxAliasNodes: Long):
       throw TextParseException(message, 0)
     else
       throw TextParseException(
-        LineReader.formatError(text, message, offset),
-        offset,
-        Span.at(offset)
+        LineReader.formatError(text, message, base + offset),
+        base + offset,
+        Span.at(base + offset)
       )
 
   /**

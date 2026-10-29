@@ -54,7 +54,7 @@ private[yaml] class YAMLParser(input: String):
     * Parse every document of the stream. Each node gets its source text, but not the trivia around
     * the root.
     */
-  def parseStream(): Seq[YAMLNode] = parseRoots().map(build(_, -1))
+  def parseStream(): Seq[YAMLNode] = parseRoots().map((root, _) => build(root, -1, 0))
 
   /**
     * Parse a stream with at most one document, keeping all of its text
@@ -62,33 +62,90 @@ private[yaml] class YAMLParser(input: String):
   def parseDocument(): YAMLDocument =
     parseRoots() match
       case Seq() =>
-        val root = PScalar("", ScalarStyle.Plain, None, None, text.length, text.length)
-        document(root)
-      case Seq(root) =>
-        document(root)
+        emptyDocument
+      case Seq((root, _)) =>
+        document(root, 0, text.length)
       case docs =>
         throw IllegalArgumentException(
-          s"Expected a single YAML document, but found ${docs.size}. Use YAML.parseAll instead"
+          s"Expected a single YAML document, but found ${docs
+              .size}. Use YAML.parseDocuments instead"
         )
 
-  private def document(root: PNode): YAMLDocument =
-    val node = build(root, root.start)
+  /**
+    * Parse every document of the stream, keeping all of its text. Each document gets a slice of the
+    * stream: from the end of the previous document's last line to the end of the line where its own
+    * last token (the root, a same-line comment, or `...`) ends. So the comment lines and the `---`
+    * marker before a document belong to it, and the last document gets the rest of the stream.
+    */
+  def parseDocuments(): Seq[(YAMLDocument, Int)] =
+    val roots = parseRoots()
+    if roots.isEmpty then
+      Seq(emptyDocument -> 0)
+    else
+      var start = 0
+      roots
+        .zipWithIndex
+        .map { case ((root, lastEnd), i) =>
+          val end =
+            if i == roots.size - 1 then
+              text.length
+            else
+              lineEnd(lastEnd)
+          val doc = document(root, start, end) -> start
+          start = end
+          doc
+        }
+
+  /**
+    * The offset after the line break that ends the line containing offset `end`
+    */
+  private def lineEnd(end: Int): Int =
+    if end > 0 && text.charAt(end - 1) == '\n' then
+      end
+    else
+      val e = text.indexOf('\n', end)
+      if e < 0 then
+        text.length
+      else
+        e + 1
+
+  private def emptyDocument: YAMLDocument = document(
+    PScalar("", ScalarStyle.Plain, None, None, text.length, text.length),
+    0,
+    text.length
+  )
+
+  /**
+    * Build a document from the slice [start, end) of the text. Node offsets become relative to the
+    * slice, as [[YAMLResolver.resolve]] reads them from the document's text.
+    */
+  private def document(root: PNode, start: Int, end: Int): YAMLDocument =
+    val node     = build(root, root.start, start)
+    val rawStart =
+      if start == 0 then
+        0
+      else
+        rawOffset(start)
+    val rawEnd = rawOffset(end)
     YAMLDocument(
       node,
       YAMLSource(
-        input,
-        input.substring(0, rawOffset(root.start)),
-        input.substring(rawOffset(root.cend)),
+        input.substring(rawStart, rawEnd),
+        input.substring(rawStart, rawOffset(root.start)),
+        input.substring(rawOffset(root.cend), rawEnd),
         "",
         -1,
-        Span.within(0, input.length),
+        Span.within(rawStart, rawEnd),
         Tuple1(node),
         0
       )
     )
 
-  private def parseRoots(): Seq[PNode] =
-    val docs     = Seq.newBuilder[PNode]
+  /**
+    * Parse the roots of every document, with the end offset of the last token of each document
+    */
+  private def parseRoots(): Seq[(PNode, Int)] =
+    val docs     = Seq.newBuilder[(PNode, Int)]
     var continue = true
     while continue do
       skipToContent()
@@ -101,20 +158,28 @@ private[yaml] class YAMLParser(input: String):
       else if atDocumentMarker("...") then
         r.advance(3)
       else
+        var lastEnd = r.offset
         if atDocumentMarker("---") then
           r.advance(3)
+          lastEnd = r.offset
         skipToContent()
         val doc =
           if r.isEOF || atAnyDocumentMarker then
+            // The comment lines after the `---` of an empty document belong to it
+            lastEnd = r.offset
             PScalar("", ScalarStyle.Plain, None, None, r.offset, r.offset)
           else
-            withComment(parseBlockNode(-1, allowCollection = true))
-        docs += doc
+            val n = withComment(parseBlockNode(-1, allowCollection = true))
+            lastEnd = n.cend
+            n
         skipToContent()
         if atDocumentMarker("...") then
           r.advance(3)
+          lastEnd = r.offset
         else if !r.isEOF && !atDocumentMarker("---") then
           r.error("Unexpected content after the end of a node")
+        docs += doc -> lastEnd
+    end while
     docs.result()
 
   end parseRoots
@@ -919,26 +984,33 @@ private[yaml] class YAMLParser(input: String):
   private def raw(start: Int, end: Int): String = input.substring(rawOffset(start), rawOffset(end))
 
   /**
-    * Build the node, with the text since `leadingStart` (-1 for none) as its leading trivia
+    * Build the node, with the text since `leadingStart` (-1 for none) as its leading trivia. Node
+    * offsets are relative to `base`.
     */
-  private def build(p: PNode, leadingStart: Int): YAMLNode =
-    def source(node: YAMLNode, opening: Int, indent: Int, offset: Int = p.start): YAMLNode = node
-      .withSource(
-        YAMLSource(
-          raw(p.start, p.end),
-          if leadingStart < 0 then
-            ""
-          else
-            raw(leadingStart, p.start)
-          ,
-          raw(p.end, p.cend),
-          raw(p.start, opening),
-          indent,
-          Span.within(rawOffset(p.start), rawOffset(p.end)),
-          node.content,
-          offset
-        )
+  private def build(p: PNode, leadingStart: Int, base: Int): YAMLNode =
+    def source(
+        node: YAMLNode,
+        opening: Int,
+        indent: Int,
+        offset: Int = p.start,
+        closing: String = ""
+    ): YAMLNode = node.withSource(
+      YAMLSource(
+        raw(p.start, p.end),
+        if leadingStart < 0 then
+          ""
+        else
+          raw(leadingStart, p.start)
+        ,
+        raw(p.end, p.cend),
+        raw(p.start, opening),
+        indent,
+        Span.within(rawOffset(p.start), rawOffset(p.end)),
+        node.content,
+        offset - base,
+        closing
       )
+    )
     p match
       case s: PScalar =>
         val offset =
@@ -954,25 +1026,90 @@ private[yaml] class YAMLParser(input: String):
         val entries = m
           .entries
           .map { (k, v) =>
-            val key   = build(k, prev)
-            val value = build(v, k.end)
+            val key   = build(k, prev, base)
+            val value = build(v, k.end, base)
             prev = v.cend
             YAMLEntry(key, value)
           }
-        source(YAMLNode.Mapping(entries, m.flow, m.anchor, m.tag), m.childStart, m.indent)
+        val flowEntries =
+          if m.flow then
+            withLineEnds(entries, m, prev)((e, c) =>
+              e.copy(value = e.value.withSource(e.value.source.withComment(c)))
+            )
+          else
+            entries
+        source(
+          YAMLNode.Mapping(flowEntries, m.flow, m.anchor, m.tag),
+          m.childStart,
+          m.indent,
+          closing = flowClosing(m, prev)
+        )
       case s: PSeq =>
         var prev  = s.childStart
         val items = s
           .items
           .map { i =>
-            val item = build(i, prev)
+            val item = build(i, prev, base)
             prev = i.cend
             item
           }
-        source(YAMLNode.Sequence(items, s.flow, s.anchor, s.tag), s.childStart, s.indent)
+        val flowItems =
+          if s.flow then
+            withLineEnds(items, s, prev)((i, c) => i.withSource(i.source.withComment(c)))
+          else
+            items
+        source(
+          YAMLNode.Sequence(flowItems, s.flow, s.anchor, s.tag),
+          s.childStart,
+          s.indent,
+          closing = flowClosing(s, prev)
+        )
     end match
 
   end build
+
+  /**
+    * Give each child of a flow collection the rest of its line after it, without the comma, as its
+    * comment (Wvlet's `withPostComment`): it is the text before the first line break in the leading
+    * text of the next child, or in the closing text for the last child. So a comment after a child
+    * moves with it.
+    */
+  private def withLineEnds[A](children: Seq[A], p: PNode, last: Int)(
+      withComment: (A, String) => A
+  ): Seq[A] =
+    val leadings: Seq[String] =
+      children
+        .drop(1)
+        .map {
+          case e: YAMLEntry =>
+            e.key.source.leading
+          case n: YAMLNode =>
+            n.source.leading
+          case _ =>
+            ""
+        } :+ flowClosing(p, last)
+    children
+      .zip(leadings)
+      .map { (c, l) =>
+        YAMLWriter.lineRest(l) match
+          case None =>
+            c
+          case Some(rest) =>
+            withComment(c, rest)
+      }
+
+  /**
+    * The text of a bracketed flow collection between its last child (ending at `last`) and the
+    * closing bracket. A single-pair mapping in a flow sequence (`[a: 1]`) has no brackets.
+    */
+  private def flowClosing(p: PNode, last: Int): String =
+    p match
+      case m: PMap if m.flow && m.childStart > m.start =>
+        raw(last, m.end - 1)
+      case s: PSeq if s.flow =>
+        raw(last, s.end - 1)
+      case _ =>
+        ""
 
 end YAMLParser
 
