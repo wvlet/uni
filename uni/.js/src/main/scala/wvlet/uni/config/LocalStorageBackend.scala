@@ -19,12 +19,17 @@ import wvlet.uni.rx.Cancelable
 import scala.scalajs.js
 
 /**
-  * Stores each key in browser storage (localStorage by default) as `<prefix>/<key>`. Watching a key
-  * follows changes made in other tabs through `storage` events.
+  * Stores each key in browser storage (localStorage by default) as `<prefix>/<key>`, or as `<key>`
+  * when the prefix is empty. Watching a key follows changes made in other tabs through `storage`
+  * events.
   */
 class LocalStorageBackend(prefix: String, storage: dom.Storage = dom.window.localStorage)
     extends StoreBackend:
-  private def itemKey(key: String): String = s"${prefix}/${key}"
+  private def itemKey(key: String): String =
+    if prefix.isEmpty then
+      key
+    else
+      s"${prefix}/${key}"
 
   override def read(key: String): Option[String]       = Option(storage.getItem(itemKey(key)))
   override def write(key: String, value: String): Unit = storage.setItem(itemKey(key), value)
