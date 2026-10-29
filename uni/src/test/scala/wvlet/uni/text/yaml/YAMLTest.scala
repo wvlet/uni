@@ -152,6 +152,16 @@ class YAMLTest extends UniTest:
     YAML.parseAll("a: 1\n---\nb: 2\n...\n--- c\n").map(_.toJSON) shouldBe
       Seq("""{"a":1}""", """{"b":2}""", "\"c\"")
     YAML.parseAll("%YAML 1.2\n---\na: 1").map(_.toJSON) shouldBe Seq("""{"a":1}""")
+    Seq(
+      "a: 1\n---\nb: 2\n...\n--- c\n",
+      "%YAML 1.2\n---\na: 1",
+      "# head\na: 1 # c\n\n# before\n---\n# top\nb: [1, 2]\n...\n# after\n",
+      "---\n---\n--- # empty\n...\n",
+      "a\n...\nb\n",
+      "",
+      "# only a comment\n",
+      "k: |\n  text\n\n---\nx: 1\n"
+    ).foreach(YAMLRoundTripTest.checkStream)
     intercept[IllegalArgumentException] {
       YAML.parse("a: 1\n---\nb: 2")
     }

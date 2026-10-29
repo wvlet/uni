@@ -52,8 +52,9 @@ val tree         = JSON.parse(json) // untyped JSONValue
 `YAML` parses YAML 1.2 into the same `JSONValue` tree, so any `derives Weaver` type decodes
 from YAML too. Missing fields take their defaults. To edit a YAML file in place, use
 `YAML.parseDocument`: `set`/`remove` by path (`String` keys, `Int` indexes) and `toYaml` keep
-comments, quoting, and layout, rewriting only changed values. `Frontmatter` edits the same way
-with `update(json).toText`.
+comments, quoting, and layout, rewriting only changed values. For a `---`-separated stream, use
+`YAML.parseDocuments`, edit one `YAMLDocument`, and write all of them back with
+`YAML.writeStream`. `Frontmatter` edits the same way with `update(json).toText`.
 
 ```scala
 import wvlet.uni.text.yaml.{Frontmatter, YAML}
@@ -72,6 +73,9 @@ val edited = YAML
   .set(Seq("port"), 9090)
   .remove(Seq("old"))
   .toYaml // "# Server\nport: 9090  # default\n"
+val stream  = YAML.parseDocuments("a: 1\n---\n# b\nb: 2\n")
+val newStream = YAML.writeStream(stream.updated(1, stream(1).set(Seq("b"), 3)))
+// "a: 1\n---\n# b\nb: 3\n"
 val newMd = Frontmatter.parse(md).update(JSON.parse("""{"name":"review-pr"}""")).toText
 // "---\nname: review-pr\n---\n# Body\n"
 ```

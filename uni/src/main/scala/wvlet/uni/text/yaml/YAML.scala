@@ -63,9 +63,39 @@ object YAML:
   /**
     * Parse a single YAML document into a [[YAMLDocument]] that keeps comments and formatting, so it
     * can be edited and written back with [[YAMLDocument.toYaml]]. The document is checked as
-    * [[parse]] does.
+    * [[parse]] does. For a multi-document stream, use [[parseDocuments]].
     */
   def parseDocument(yaml: String): YAMLDocument = parseDocumentWithValue(yaml)._1
+
+  /**
+    * Parse every document of a multi-document (`---`-separated) YAML stream into [[YAMLDocument]]s
+    * that keep comments and formatting, checked as [[parseAll]] does. Each document holds its part
+    * of the stream: the comment lines and the `---` marker before it, and its `...` marker, so
+    * [[writeStream]] writes the documents back exactly. A stream with no documents gives one empty
+    * document holding its text.
+    *
+    * {{{
+    *   val docs = YAML.parseDocuments("# app\nname: api\n---\n# db\nname: db\n")
+    *   YAML.writeStream(docs.updated(1, docs(1).set(Seq("name"), "pg")))
+    *   // "# app\nname: api\n---\n# db\nname: pg\n"
+    * }}}
+    */
+  def parseDocuments(yaml: String, maxAliasNodes: Long = defaultMaxAliasNodes): Seq[YAMLDocument] =
+    val parser = YAMLParser(yaml)
+    parser
+      .parseDocuments()
+      .map { (doc, start) =>
+        YAMLResolver(parser.text, maxAliasNodes, start).document(doc.root)
+        doc
+      }
+
+  /**
+    * Write documents back as a YAML stream. Parsed documents print their text as [[toYaml]] does. A
+    * `---` marker is added before a document that does not start with one, unless the previous
+    * document ends with `...`, and a line break is added after a document that does not end with
+    * one.
+    */
+  def writeStream(docs: Seq[YAMLDocument]): String = YAMLWriter.writeStream(docs)
 
   /**
     * Parse a document and resolve its value in one pass

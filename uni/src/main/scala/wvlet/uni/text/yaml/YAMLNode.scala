@@ -188,8 +188,9 @@ case class YAMLEntry(key: YAMLNode, value: YAMLNode)
   *   above a mapping key; `: ` before a mapping value; `- ` before a sequence item. For a document,
   *   the text before the root node
   * @param comment
-  *   a comment on the same line after the node, with the spaces before it. For a document, the text
-  *   after the root node
+  *   a comment on the same line after the node, with the spaces before it. For a child of a flow
+  *   collection, the text after its comma up to the end of the line. For a document, the text after
+  *   the root node
   * @param opening
   *   for a block collection, the text before its first child (an anchor or tag)
   * @param indent
@@ -206,7 +207,9 @@ final class YAMLSource private[yaml] (
     val span: Span,
     private[yaml] val parsed: Product | Null,
     // The offset in the parser's text, for error messages
-    private[yaml] val offset: Int = -1
+    private[yaml] val offset: Int = -1,
+    // For a flow collection, the text after its last child up to the closing bracket
+    private[yaml] val closing: String = ""
 ):
   def isEmpty: Boolean = parsed == null
 
@@ -230,6 +233,18 @@ final class YAMLSource private[yaml] (
     Span.NoSpan,
     null,
     offset
+  )
+
+  private[yaml] def withComment(c: String): YAMLSource = YAMLSource(
+    raw,
+    leading,
+    c,
+    opening,
+    indent,
+    span,
+    parsed,
+    offset,
+    closing
   )
 
 end YAMLSource

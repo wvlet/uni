@@ -52,6 +52,95 @@ private[yaml] object YAMLWriter:
         w.sb.append(lb)
       w.sb.result()
 
+  def writeStream(docs: Seq[YAMLDocument]): String =
+    val lb =
+      if docs.exists(_.source.raw.contains("\r\n")) then
+        "\r\n"
+      else
+        "\n"
+    val sb = StringBuilder()
+    docs.foreach { d =>
+      val text = d.toYaml
+      if sb.nonEmpty then
+        if !sb.endsWith("\n") then
+          sb.append(lb)
+        if !startsWithMarker(d.source.leading) && !endsWithMarker(sb.result()) then
+          sb.append("---").append(lb)
+      sb.append(text)
+    }
+    sb.result()
+
+  /**
+    * The offset of the first line break (`\n` or `\r\n`) in the text, or -1
+    */
+  def lineBreakAt(s: String): Int =
+    val i = s.indexOf('\n')
+    if i > 0 && s.charAt(i - 1) == '\r' then
+      i - 1
+    else
+      i
+
+  /**
+    * The offset of the first comma outside comments, or -1
+    */
+  private def separatorAt(s: String): Int =
+    var i         = 0
+    var inComment = false
+    var found     = -1
+    while found < 0 && i < s.length do
+      s.charAt(i) match
+        case '#' =>
+          inComment = true
+        case '\n' =>
+          inComment = false
+        case ',' if !inComment =>
+          found = i
+        case _ =>
+      i += 1
+    found
+
+  def hasSeparator(s: String): Boolean = separatorAt(s) >= 0
+
+  /**
+    * Remove the comma separating flow collection children from the text between them
+    */
+  def removeSeparator(s: String): String =
+    separatorAt(s) match
+      case -1 =>
+        s
+      case i =>
+        s.substring(0, i) + s.substring(i + 1)
+
+  /**
+    * The text between flow collection children that belongs to the next one: without the comma, and
+    * from the first line break, since the rest of the previous line belongs to the previous child
+    */
+  def ownText(s: String): String =
+    val t = removeSeparator(s)
+    lineBreakAt(t) match
+      case -1 =>
+        t
+      case i =>
+        t.substring(i)
+
+  private def lines(text: String): Seq[String] = text.split("\n", -1).map(_.stripSuffix("\r")).toSeq
+
+  private def isMarker(line: String, marker: String): Boolean =
+    line.startsWith(marker) && (line.length == 3 || YAMLParser.isSeparator(line.charAt(3)))
+
+  /**
+    * Does the text before a document's root have a `---` marker?
+    */
+  private def startsWithMarker(leading: String): Boolean = lines(leading).exists(isMarker(_, "---"))
+
+  /**
+    * Does the text end with a `...` line, followed only by blank lines and comments?
+    */
+  private def endsWithMarker(text: String): Boolean = lines(text)
+    .reverse
+    .find(l => l.trim.nonEmpty && !l.trim.startsWith("#"))
+    .exists(isMarker(_, "..."))
+
   private def lineBreak(raw: String): String =
     if raw.contains("\r\n") then
       "\r\n"
@@ -228,6 +317,8 @@ private[yaml] object YAMLWriter:
     def inlineText(n: YAMLNode, col: Int, flow: Boolean, key: Boolean): String =
       if n.unchanged then
         n.source.raw
+      else if isBracketed(n) then
+        flowCollection(n, col)
       else
         val body =
           n match
@@ -254,6 +345,164 @@ private[yaml] object YAMLWriter:
           p
         else
           p + " " + body
+
+    /**
+      * Is the node a parsed flow collection with brackets, whose text between children was
+      * recorded?
+      */
+    private def isBracketed(n: YAMLNode): Boolean =
+      val opening = n.source.opening
+      n match
+        case m: Mapping =>
+          m.flow && opening.endsWith("{")
+        case s: Sequence =>
+          s.flow && opening.endsWith("[")
+        case _ =>
+          false
+
+    /**
+      * Write a changed flow collection, keeping the text between its children: separators, line
+      * breaks, and comments. As in block collections, the comment lines before a child belong to
+      * it, and so does the comment on its line after it.
+      */
+    private def flowCollection(n: YAMLNode, col: Int): String =
+      val src = n.source
+      // (the leading text of each child, its text, the rest of its line)
+      val children: Seq[(String, String, String)] =
+        n match
+          case m: Mapping =>
+            m.entries
+              .map { e =>
+                val k    = inlineText(e.key, col, flow = true, key = true)
+                val v    = e.value
+                val text =
+                  if v.unchanged then
+                    v.source.leading + v.source.raw
+                  else if isEmptyPlain(v) then
+                    v.source.leading
+                  else
+                    val leading =
+                      if v.source.leading.isEmpty then
+                        ": "
+                      else
+                        spaced(v.source.leading, v)
+                    leading + inlineText(v, col, flow = true, key = false)
+                (e.key.source.leading, k + text, v.source.comment)
+              }
+          case s: Sequence =>
+            s.items
+              .map(i =>
+                (i.source.leading, inlineText(i, col, flow = true, key = false), i.source.comment)
+              )
+          case _ =>
+            Nil
+      val parsed: Seq[String] =
+        src.parsed match
+          case p: Product =>
+            p.productElement(0) match
+              case s: Seq[?] =>
+                s.collect {
+                  case e: YAMLEntry =>
+                    e.key.source.leading
+                  case c: YAMLNode =>
+                    c.source.leading
+                }
+              case _ =>
+                Nil
+          case _ =>
+            Nil
+      // The text before the first child, when it has no comments
+      val firstLeading = parsed.headOption.filter(_.trim.isEmpty).getOrElse("")
+      // New children follow the layout of the last separator, without its comments
+      val separator = parsed
+        .drop(1)
+        .lastOption
+        .map { l =>
+          val own = ownText(l)
+          if own.contains('\n') then
+            lb + own.substring(own.lastIndexOf('\n') + 1)
+          else
+            own
+        }
+        .getOrElse(" ")
+      val indent = separator.substring(separator.lastIndexOf('\n') + 1)
+
+      def leadingOf(leading: String, i: Int): String =
+        if leading.isEmpty then
+          // A new child
+          if i == 0 then
+            firstLeading
+          else
+            separator
+        else
+          // Only the first child has no comma before it, and all of its text belongs to it
+          val wasFirst = !hasSeparator(leading)
+          val own      =
+            if wasFirst then
+              leading
+            else
+              ownText(leading)
+          if i == 0 then
+            if own.trim.isEmpty then
+              firstLeading
+            else
+              own
+          else if own.trim.isEmpty && lineBreakAt(own) < 0 then
+            separator
+          else if wasFirst && lineBreakAt(own) != 0 then
+            " " + own.stripLeading()
+          else
+            own
+
+      val sb            = StringBuilder()
+      val (anchor, tag) =
+        src.parsed match
+          case p: Product if p.productArity == 4 =>
+            (p.productElement(2), p.productElement(3))
+          case _ =>
+            (None, None)
+      if anchor == n.anchorOf && tag == n.tagOf then
+        sb.append(src.opening)
+      else
+        val p = props(n)
+        if p.nonEmpty then
+          sb.append(p).append(' ')
+        sb.append(src.opening.last)
+
+      // Write the rest of a child's line, and a line break before the next text after a comment
+      def lineEnd(rest: String, next: String): String =
+        if rest.contains('#') then
+          if lineBreakAt(next) == 0 then
+            rest + next
+          else
+            rest + lb + indent + next.stripLeading()
+        else if lineBreakAt(next) == 0 then
+          rest + next
+        else
+          next
+
+      var rest = ""
+      children
+        .zipWithIndex
+        .foreach { case ((leading, text, lineRest), i) =>
+          if i > 0 then
+            sb.append(',')
+          sb.append(lineEnd(rest, leadingOf(leading, i))).append(text)
+          rest = lineRest
+        }
+      val closing = src.closing
+      if hasSeparator(closing) && children.nonEmpty then
+        sb.append(',')
+      sb.append(lineEnd(rest, ownText(closing)))
+      sb.append(
+        if src.opening.endsWith("[") then
+          "]"
+        else
+          "}"
+      )
+      sb.result()
+
+    end flowCollection
 
     private def scalar(s: Scalar, col: Int, flow: Boolean, key: Boolean): String =
       val v = s.value

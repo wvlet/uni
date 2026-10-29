@@ -20,6 +20,16 @@ Edits are detected as in Markdown: `YAMLSource` does not take part in equality, 
 
 `YAMLTest` runs every successful input through a round-trip check: `\n`, `\r\n`, no final line break, and a BOM must write back exactly, and a copy with every source removed must read back to the same value.
 
+### Flow collections (follow-up)
+
+A changed flow collection keeps the text between its children, as block collections do. A flow child's `leading` holds the comma, line breaks, and comment lines before it, and the parser gives each child the rest of its line after the comma as its `comment`, as Wvlet's `withPostComment` does. For the last child, that text comes from the collection's `closing` attachment, which holds the text before `]` or `}`. The writer then prints `,`, the previous child's line rest, and the next child's text from its first line break. So a removed child takes the comments on its line and above it, and a moved child keeps them. A child moved to the front takes the first child's spacing (`[a`, not `[ a`). New children copy the separator layout of the last parsed child, so a new item in a one-per-line flow list goes on its own line. A single-pair mapping inside a flow sequence (`[a: 1]`) has no brackets and is still written canonically. The round-trip check marks every collection as changed and expects the input back byte for byte.
+
+### Multi-document streams (follow-up)
+
+`YAML.parseDocuments` returns a `Seq[YAMLDocument]`, and `YAML.writeStream` writes them back. We chose a `Seq` over a stream type so that callers edit it with ordinary collection methods. Each document's `source.raw` is a slice of the stream, and the slices add up to the input. A slice ends at the line break that ends the document's last token: the root and its same-line comment, a `...` marker, or a `---` for an empty document. As with keys, comment lines before a `---` belong to the document below. Removing a document therefore removes its comments, and the existing `set`, `remove`, `update`, and `toYaml` work on each slice unchanged.
+
+Node offsets in a slice are relative to the slice, because `YAMLResolver.resolve(doc)` re-reads the document's own text. At parse time, the resolver gets the slice's base offset, so errors report lines in the whole stream. `writeStream` adds a line break after a document that lacks one, and a `---` before a document whose leading text has none, unless the previous document ends with `...`. A stream with no documents gives one empty document holding its text, like `parseDocument`, so its comments survive. `parseDocument` still rejects streams and now points to `parseDocuments`.
+
 ## Not supported
 
-Comments inside a changed flow collection are dropped when it is rewritten, and a new value inside a flow collection is always flow style. Keep-chomping (`|+`) block scalars at the very end of a document without a final line break may lose a trailing line break when rewritten. Multi-document streams have no `YAMLDocument` API (`parseDocument` rejects them, like `parse`).
+A new value inside a flow collection is always flow style. Keep-chomping (`|+`) block scalars at the very end of a document without a final line break may lose a trailing line break when rewritten. A `%YAML` directive moved after a document that doesn't end with `...` is written as is, and a strict reader may reject it.
