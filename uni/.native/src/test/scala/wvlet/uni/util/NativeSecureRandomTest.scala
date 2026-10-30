@@ -23,6 +23,11 @@ class NativeSecureRandomTest extends UniTest:
 
   private val random = SecureRandom.getInstance
 
+  test("SecureRandom is backed by the OS CSPRNG") {
+    random.self shouldMatch { case _: NativeSecureRandom =>
+    }
+  }
+
   test("fill byte arrays of any size") {
     for size <- Seq(0, 1, 255, 256, 257, 4096) do
       val bytes = Array.fill[Byte](size)(0)

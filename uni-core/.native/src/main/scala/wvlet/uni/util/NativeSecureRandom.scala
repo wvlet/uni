@@ -17,7 +17,6 @@ import scala.scalanative.libc.errno.errno
 import scala.scalanative.meta.LinktimeInfo
 import scala.scalanative.posix.errno.EINTR
 import scala.scalanative.posix.unistd
-import scala.scalanative.runtime.ByteArray
 import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
 
@@ -33,7 +32,7 @@ class NativeSecureRandom() extends java.util.Random(0L):
   override def nextBytes(bytes: Array[Byte]): Unit =
     val len = bytes.length
     if len > 0 then
-      NativeSecureRandom.fill(bytes.asInstanceOf[ByteArray].at(0), len)
+      NativeSecureRandom.fill(bytes.at(0), len)
 
   // Adapted from Scala.js
   // https://github.com/scala-js/scala-js-java-securerandom/blob/d6cf1c8651006047bb8c8bfc754ef10500d3bd06/src/main/scala/java/security/SecureRandom.scala#L47
@@ -69,8 +68,10 @@ private object NativeSecureRandom:
       // getentropy fills all n bytes or fails; it never returns a partial read
       if unistd.getentropy(buf + offset, n.toCSize) == 0 then
         offset += n
-      else if errno != EINTR then
-        throw IllegalStateException(s"getentropy failed (errno=${errno})")
+      else
+        val err = errno
+        if err != EINTR then
+          throw IllegalStateException(s"getentropy failed (errno=${err})")
 
   private def fillWindows(buf: Ptr[Byte], len: Int): Unit =
     val status = bcrypt.BCryptGenRandom(null, buf, len.toUInt, BCRYPT_USE_SYSTEM_PREFERRED_RNG)
