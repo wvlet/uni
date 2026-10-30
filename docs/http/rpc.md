@@ -258,7 +258,9 @@ For development, create the dispatcher with `withDetailedErrors(true)` (`RPCHand
 val dispatcher = RPCDispatcher(router).withDetailedErrors(true) // development only
 ```
 
-In this mode `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14` errors still omit stack traces, and so does an exception marked with `noStackTrace`:
+Electron IPC (`ElectronRPCServer`) has no such switch and never sends stack traces.
+
+In detailed mode `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14` errors still omit stack traces, and so does an exception marked with `noStackTrace`:
 
 ```scala
 throw RPCStatus.INVALID_ARGUMENT_U2.newException("Invalid input").noStackTrace

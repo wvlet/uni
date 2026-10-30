@@ -42,8 +42,8 @@ case class RPCException(
   /**
     * Whether [[toMessage]], [[toJson]], [[toMsgPack]], and [[toResponse]] include the stack trace.
     * Off unless `includeStackTrace = Some(true)` is set, as stack frames (class names, file names,
-    * line numbers) reveal server internals to clients. Servers include them only when created with
-    * `withDetailedErrors(true)`.
+    * line numbers) reveal server internals to clients. An `RPCDispatcher` created with
+    * `withDetailedErrors(true)` also includes them when the status allows it.
     */
   def shouldReportStackTrace: Boolean = includeStackTrace.getOrElse(false)
 
