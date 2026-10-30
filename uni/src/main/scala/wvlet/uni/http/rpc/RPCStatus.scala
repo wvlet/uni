@@ -208,8 +208,8 @@ enum RPCStatus(val statusType: RPCStatusType, val httpStatus: HttpStatus):
   def isFailure: Boolean = !isSuccess
 
   /**
-    * Whether stack traces should be reported for this status. Auth-related errors suppress stack
-    * traces by default.
+    * Whether a server running with `detailedErrors` reports stack traces for this status.
+    * Auth-related errors never report them. Without `detailedErrors`, no status does.
     */
   def shouldReportStackTrace: Boolean =
     this match

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
 import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
@@ -31,6 +32,12 @@ import scala.scalanative.unsigned.*
   * round-trip). The server runs on its own accept/worker threads, so the blocking client on the
   * test thread does not deadlock.
   */
+trait NativeTodoApi:
+  def add(title: String): String
+
+class NativeTodoApiImpl extends NativeTodoApi:
+  def add(title: String): String = title
+
 class NativeServerTest extends UniTest:
 
   /** A parsed HTTP response: status code, headers (lower-cased keys), and body. */
@@ -586,6 +593,30 @@ class NativeServerTest extends UniTest:
         try client.handshake("/ws/secure", "dGhlIHNhbXBsZSBub25jZQ==").status shouldBe 403
         finally client.close()
       }
+  }
+
+  test("should not send RPC stack traces unless detailedErrors is enabled") {
+    val router = RPCRouter.of[NativeTodoApi](NativeTodoApiImpl())
+    val path   = router.routes.head.path
+    // Missing the "request" wrapper, so decoding fails with INVALID_REQUEST_U1
+    val body                                         = """{"title":"hello"}"""
+    def post(dispatcher: RPCDispatcher): RawResponse = NativeServer
+      .withRxHandler(dispatcher.dispatch)
+      .withPort(0)
+      .start { server =>
+        request(
+          server.localPort,
+          s"POST ${path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\n" +
+            s"Content-Length: ${body.length}\r\nConnection: close\r\n\r\n${body}"
+        )
+      }
+
+    val response = post(RPCDispatcher(router))
+    response.status shouldBe 400
+    response.body shouldContain RPCStatus.INVALID_REQUEST_U1.name
+    response.body shouldNotContain "stackTrace"
+
+    post(RPCDispatcher(router).withDetailedErrors(true)).body shouldContain "stackTrace"
   }
 
 end NativeServerTest

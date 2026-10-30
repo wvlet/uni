@@ -119,11 +119,11 @@ class RPCStatusTest extends UniTest:
   }
 
   test("RPCStatus.shouldReportStackTrace") {
-    // Auth errors should not report stack trace
+    // Auth errors never report stack traces, even with detailedErrors
     RPCStatus.UNAUTHENTICATED_U13.shouldReportStackTrace shouldBe false
     RPCStatus.PERMISSION_DENIED_U14.shouldReportStackTrace shouldBe false
 
-    // Other errors should report stack trace
+    // Other errors report stack traces only with detailedErrors
     RPCStatus.INVALID_REQUEST_U1.shouldReportStackTrace shouldBe true
     RPCStatus.INTERNAL_ERROR_I0.shouldReportStackTrace shouldBe true
   }
