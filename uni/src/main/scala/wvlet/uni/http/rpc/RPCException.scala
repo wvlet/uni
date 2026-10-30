@@ -34,22 +34,27 @@ case class RPCException(
 ) extends Exception(s"[${status}] ${message}", cause.orNull):
 
   /**
-    * Suppress stack trace in the RPC error response. Use this when the stack frames (class names,
-    * file names, line numbers) should not be exposed to clients.
+    * Suppress stack trace in the RPC error response, even when the server runs with
+    * `detailedErrors` enabled.
     */
   def noStackTrace: RPCException = copy(includeStackTrace = Some(false))
 
   /**
-    * Whether stack trace should be included in the error response
+    * Whether [[toMessage]], [[toJson]], [[toMsgPack]], and [[toResponse]] include the stack trace.
+    * Off unless `includeStackTrace = Some(true)` is set, as stack frames (class names, file names,
+    * line numbers) reveal server internals to clients. An `RPCDispatcher` created with
+    * `withDetailedErrors(true)` also includes them when the status allows it.
     */
-  def shouldReportStackTrace: Boolean = includeStackTrace.getOrElse(status.shouldReportStackTrace)
+  def shouldReportStackTrace: Boolean = includeStackTrace.getOrElse(false)
 
   /**
     * Convert to serializable error message
     */
-  def toMessage: RPCErrorMessage =
+  def toMessage: RPCErrorMessage = toMessage(shouldReportStackTrace)
+
+  private def toMessage(reportStackTrace: Boolean): RPCErrorMessage =
     val stackTrace =
-      if shouldReportStackTrace then
+      if reportStackTrace then
         Some(getStackTrace.toSeq.map(RPCStackTraceElement.fromJava))
       else
         None
@@ -74,9 +79,20 @@ case class RPCException(
   /**
     * Convert to HTTP response with RPC status header
     */
-  def toResponse: Response = Response(status.httpStatus)
+  def toResponse: Response = toResponse(toMessage)
+
+  /**
+    * Convert to HTTP response for a server. With `detailedErrors`, the stack trace is included
+    * unless the status hides it ([[RPCStatus.shouldReportStackTrace]]) or `includeStackTrace` is
+    * set explicitly.
+    */
+  private[rpc] def toResponse(detailedErrors: Boolean): Response = toResponse(
+    toMessage(includeStackTrace.getOrElse(detailedErrors && status.shouldReportStackTrace))
+  )
+
+  private def toResponse(m: RPCErrorMessage): Response = Response(status.httpStatus)
     .addHeader(HttpHeader.XRPCStatus, status.code.toString)
-    .withJsonContent(toJson)
+    .withJsonContent(m.toJson)
 
 end RPCException
 
@@ -109,7 +125,8 @@ object RPCStackTraceElement:
   * Serializable RPC error message model
   *
   * @param stackTrace
-  *   the server-side stack trace, present only when [[RPCException.shouldReportStackTrace]] is true
+  *   the server-side stack trace, present only when the server opted in (see
+  *   [[RPCException.shouldReportStackTrace]]). Clients restore it when present.
   */
 case class RPCErrorMessage(
     code: Int = RPCStatus.UNKNOWN_I1.code,

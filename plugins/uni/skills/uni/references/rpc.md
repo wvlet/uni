@@ -60,8 +60,9 @@ class UserServiceImpl extends UserService:
 Common codes: `INVALID_REQUEST_U1` (400), `INVALID_ARGUMENT_U2` (400),
 `NOT_FOUND_U5` (404), `ALREADY_EXISTS_U6` (409), `UNAUTHENTICATED_U13` (401),
 `PERMISSION_DENIED_U14` (403), `INTERNAL_ERROR_I0` (500), `UNAVAILABLE_I2` (503),
-`EXCEEDED_RATE_LIMIT_R2` (429). Error bodies include a stack trace; call
-`.noStackTrace` on the exception to hide it. Other exceptions become
+`EXCEEDED_RATE_LIMIT_R2` (429). Error bodies carry no stack trace unless the
+dispatcher uses `.withDetailedErrors(true)` (development only; auth errors and
+`.noStackTrace` exceptions still omit it). Other exceptions become
 `INTERNAL_ERROR_I0` with no message.
 
 ## 3. Serve it

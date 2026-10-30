@@ -250,15 +250,27 @@ val appEx = RPCStatus.USER_ERROR_U0
 
 ### Stack Traces
 
-The error body includes the server-side stack trace as a `stackTrace` array of frames (`className`, `methodName`, `fileName`, `lineNumber`), the same shape as Airframe RPC. `RPCException.fromJson`, `fromMsgPack`, and `fromResponse` restore these frames on the client exception.
+Error responses carry no stack trace by default, on every platform and transport. Stack frames reveal internal class names, file names, and line numbers, so a client sees only the status, message, and `appErrorCode`. The server still logs unexpected exceptions with their stack traces.
 
-Stack traces are sent for every status except `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14`. They reveal internal class names, file names, and line numbers to clients, so call `noStackTrace` to hide them for a specific error:
+For development, create the dispatcher with `withDetailedErrors(true)` (`RPCHandler(...).withDetailedErrors(true)` on Netty) to add the server-side stack trace as a `stackTrace` array of frames (`className`, `methodName`, `fileName`, `lineNumber`), the same shape as Airframe RPC:
+
+```scala
+val dispatcher = RPCDispatcher(router).withDetailedErrors(true) // development only
+```
+
+Electron IPC (`ElectronRPCServer`) has no such switch and never sends stack traces.
+
+In detailed mode `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14` errors still omit stack traces, and so does an exception marked with `noStackTrace`:
 
 ```scala
 throw RPCStatus.INVALID_ARGUMENT_U2.newException("Invalid input").noStackTrace
 ```
 
-Unexpected (non-`RPCException`) exceptions from a handler are wrapped as `INTERNAL_ERROR_I0` with no message or stack trace, unless the dispatcher was created with `withDetailedErrors(true)`.
+Unexpected (non-`RPCException`) exceptions from a handler are wrapped as `INTERNAL_ERROR_I0` with no message or stack trace, unless detailed errors are enabled.
+
+To always send the stack trace of one specific error, construct it with `RPCException(status, message, includeStackTrace = Some(true))`. Do this only when every client may see server internals.
+
+On the client, `RPCException.fromJson`, `fromMsgPack`, and `fromResponse` restore the frames when the body has a `stackTrace` field, so responses from older Uni servers and Airframe RPC servers still decode.
 
 ## Best Practices
 
