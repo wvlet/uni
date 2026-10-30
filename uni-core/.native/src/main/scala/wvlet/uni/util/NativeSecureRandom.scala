@@ -13,13 +13,18 @@
  */
 package wvlet.uni.util
 
+import scala.scalanative.libc.errno.errno
+import scala.scalanative.meta.LinktimeInfo
+import scala.scalanative.posix.errno.EINTR
+import scala.scalanative.posix.unistd
 import scala.scalanative.runtime.ByteArray
 import scala.scalanative.unsafe.*
+import scala.scalanative.unsigned.*
 
 /**
-  * This code is based on
-  * https://github.com/lolgab/scala-native-crypto/blob/main/scala-native-crypto/src/java/security/SecureRandom.scala
-  * (APL2 license)
+  * A java.util.Random backed by the OS CSPRNG: getentropy(3) on POSIX (macOS, Linux glibc/musl) and
+  * BCryptGenRandom on Windows. Both come from libraries every binary already links (libc /
+  * libSystem, and the Windows system bcrypt), so using it adds no OpenSSL dependency.
   */
 class NativeSecureRandom() extends java.util.Random(0L):
 
@@ -27,7 +32,8 @@ class NativeSecureRandom() extends java.util.Random(0L):
 
   override def nextBytes(bytes: Array[Byte]): Unit =
     val len = bytes.length
-    nextBytes(bytes.asInstanceOf[ByteArray].at(0), len)
+    if len > 0 then
+      NativeSecureRandom.fill(bytes.asInstanceOf[ByteArray].at(0), len)
 
   // Adapted from Scala.js
   // https://github.com/scala-js/scala-js-java-securerandom/blob/d6cf1c8651006047bb8c8bfc754ef10500d3bd06/src/main/scala/java/security/SecureRandom.scala#L47
@@ -36,39 +42,50 @@ class NativeSecureRandom() extends java.util.Random(0L):
       0 // special case because the formula on the last line is incorrect for numBits == 0
     else
       val bytes = stackalloc[Int]()
-      nextBytes(bytes.asInstanceOf[Ptr[Byte]], 4)
+      NativeSecureRandom.fill(bytes.asInstanceOf[Ptr[Byte]], 4)
       val rand32 = !bytes
       rand32 & (-1 >>> (32 - numBits)) // Clear the (32 - numBits) higher order bits
 
-  private def nextBytes(bytes: Ptr[Byte], len: Int): Unit =
-    if crypto.RAND_bytes(bytes, len) < 0 then
-      throw new IllegalStateException("Failed to generate secure random bytes")
+end NativeSecureRandom
 
-@link("crypto")
+private object NativeSecureRandom:
+  // getentropy(3) rejects requests larger than 256 bytes
+  private val maxEntropyChunk = 256
+
+  private val BCRYPT_USE_SYSTEM_PREFERRED_RNG: CUnsignedInt = 0x00000002.toUInt
+
+  // Resolved at link time, so a POSIX binary never references bcrypt and a Windows binary never
+  // references getentropy
+  private def fill(buf: Ptr[Byte], len: Int): Unit =
+    if LinktimeInfo.isWindows then
+      fillWindows(buf, len)
+    else
+      fillPosix(buf, len)
+
+  private def fillPosix(buf: Ptr[Byte], len: Int): Unit =
+    var offset = 0
+    while offset < len do
+      val n = math.min(maxEntropyChunk, len - offset)
+      // getentropy fills all n bytes or fails; it never returns a partial read
+      if unistd.getentropy(buf + offset, n.toCSize) == 0 then
+        offset += n
+      else if errno != EINTR then
+        throw IllegalStateException(s"getentropy failed (errno=${errno})")
+
+  private def fillWindows(buf: Ptr[Byte], len: Int): Unit =
+    val status = bcrypt.BCryptGenRandom(null, buf, len.toUInt, BCRYPT_USE_SYSTEM_PREFERRED_RNG)
+    if status != 0 then
+      throw IllegalStateException(s"BCryptGenRandom failed (NTSTATUS=0x${status.toHexString})")
+
+end NativeSecureRandom
+
+@link("bcrypt")
 @extern
-private object crypto:
-  def RAND_bytes(buf: Ptr[Byte], num: CInt): CInt = extern
-
-  def MD5_Init(c: Ptr[Byte]): CInt                                = extern
-  def MD5_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def MD5_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
-
-  def SHA1_Init(c: Ptr[Byte]): CInt                                = extern
-  def SHA1_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def SHA1_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
-
-  def SHA224_Init(c: Ptr[Byte]): CInt                                = extern
-  def SHA224_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def SHA224_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
-
-  def SHA256_Init(c: Ptr[Byte]): CInt                                = extern
-  def SHA256_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def SHA256_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
-
-  def SHA384_Init(c: Ptr[Byte]): CInt                                = extern
-  def SHA384_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def SHA384_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
-
-  def SHA512_Init(c: Ptr[Byte]): CInt                                = extern
-  def SHA512_Update(c: Ptr[Byte], data: Ptr[Byte], len: CSize): CInt = extern
-  def SHA512_Final(md: CString, c: Ptr[Byte]): CInt                  = extern
+private object bcrypt:
+  // NTSTATUS BCryptGenRandom(BCRYPT_ALG_HANDLE, PUCHAR, ULONG, ULONG); STATUS_SUCCESS is 0
+  def BCryptGenRandom(
+      hAlgorithm: Ptr[Byte],
+      pbBuffer: Ptr[Byte],
+      cbBuffer: CUnsignedInt,
+      dwFlags: CUnsignedInt
+  ): CInt = extern
