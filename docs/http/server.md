@@ -112,6 +112,15 @@ NodeServer
 ```
 :::
 
+::: warning Scala Native release builds
+Link release builds of a `NativeServer` app with `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0` in
+sbt's environment (`SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 ./sbt nativeLink`). Scala Native
+0.5.12's default trap-based GC yieldpoints can free or overwrite live objects when several threads
+run at once ([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
+[#5160](https://github.com/scala-native/scala-native/issues/5160)), and the server then fails
+requests or aborts under concurrent load. Debug builds are not affected.
+:::
+
 The rest of this page uses `NettyServer` and the JVM annotation router, which is
 the richest path. The request/response model, response conversion, and filters
 described below apply to functional handlers on every platform.

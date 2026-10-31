@@ -18,6 +18,7 @@ import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CountDownLatch, TimeUnit}
+import scala.util.control.NonFatal
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.posix.arpa.inet
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
@@ -408,6 +409,80 @@ class NativeServerTest extends UniTest:
         // Headers are never terminated, so the read times out mid-request.
         val response = request(server.localPort, "GET /x HTTP/1.1\r\nHost: localhost\r\n")
         response.status shouldBe 400
+      }
+  }
+
+  /**
+    * Send `requests` POSTs one after another over one kept-alive connection, checking that each
+    * response echoes its own request. Records the first mismatch or error in `failures`.
+    */
+  private def keepAliveClient(
+      port: Int,
+      client: Int,
+      requests: Int,
+      failures: java.util.Queue[String]
+  ): Unit =
+    val fd  = connectLoopback(port)
+    val buf = scala.collection.mutable.ArrayBuffer.empty[Byte]
+    // Read one response off the connection, leaving any later bytes in buf
+    def readResponse(): Option[RawResponse] =
+      var sep = -1
+      while sep < 0 do
+        sep = new String(buf.toArray, StandardCharsets.ISO_8859_1).indexOf("\r\n\r\n")
+        if sep < 0 then
+          val chunk = NativeSocket.recvChunk(fd)
+          if chunk.isEmpty then
+            return None
+          buf ++= chunk
+      val head = parse(new String(buf.take(sep).toArray, StandardCharsets.ISO_8859_1))
+      val end  = sep + 4 + head.headers("content-length").toInt
+      while buf.length < end do
+        val chunk = NativeSocket.recvChunk(fd)
+        if chunk.isEmpty then
+          return None
+        buf ++= chunk
+      val body = new String(buf.slice(sep + 4, end).toArray, StandardCharsets.UTF_8)
+      buf.remove(0, end)
+      Some(head.copy(body = body))
+
+    try
+      var i = 0
+      while i < requests do
+        val body = s"client ${client} request ${i}"
+        NativeSocket.sendAll(
+          fd,
+          (
+            s"POST /c${client} HTTP/1.1\r\nHost: localhost\r\nContent-Length: ${body.length}" +
+              s"\r\n\r\n${body}"
+          ).getBytes(StandardCharsets.ISO_8859_1)
+        )
+        readResponse() match
+          case Some(r) if r.status == 200 && r.body == s"/c${client}:${body}" =>
+            i += 1
+          case other =>
+            failures.add(s"client ${client} request ${i}: ${other}")
+            i = requests
+    catch
+      case NonFatal(e) =>
+        failures.add(s"client ${client}: ${e}")
+    finally
+      NativeSocket.close(fd)
+
+  end keepAliveClient
+
+  test("should answer concurrent keep-alive clients in order") {
+    NativeServer
+      .withHandler(req => Response.ok(s"${req.path}:${req.content.asString.getOrElse("")}"))
+      .withPort(0)
+      .start { server =>
+        val failures = java.util.concurrent.ConcurrentLinkedQueue[String]()
+        val threads  = (0 until 8).map { c =>
+          Thread(() => keepAliveClient(server.localPort, c, requests = 200, failures))
+        }
+        threads.foreach(_.start())
+        threads.foreach(_.join(30000))
+        threads.exists(_.isAlive) shouldBe false
+        failures.toArray.toSeq shouldBe Seq.empty
       }
   }
 

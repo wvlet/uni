@@ -11,6 +11,10 @@ ROOT="$(cd "${BENCH}/../../.." && pwd)"
 OUT="${BENCH}/out"
 cd "${ROOT}"
 
+# Scala Native 0.5.12's trap-based GC yieldpoints corrupt live objects under concurrent load
+# (scala-native#5046, #5160); link with conditional yieldpoints instead
+export SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0
+
 rm -rf "${OUT}"
 mkdir -p "${OUT}"
 

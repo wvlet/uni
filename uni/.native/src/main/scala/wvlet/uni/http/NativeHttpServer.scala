@@ -153,7 +153,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
       end while
     catch
       case NonFatal(e) =>
-        debug(s"Connection handling error: ${e.getMessage}")
+        // Disconnects and malformed requests surface as ReadResult values, so an exception here
+        // is a bug (or memory corruption) worth seeing
+        warn(s"Connection handling error: ${e.getMessage}", e)
     finally
       NativeSocket.close(clientFd)
 

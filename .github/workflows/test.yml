@@ -160,6 +160,9 @@ jobs:
       - name: Install libcurl
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Scala Native test
+        # The example links in release mode; see the yieldpoint note in examples/rpc-native/README.md
+        env:
+          SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS: '0'
         run: JVM_OPTS=-Xmx4g ./sbt "projectNative/test" "exampleRpcNativeNative/nativeLink"
       - name: Run the rpc-native example binary
         run: .github/scripts/check-rpc-native.sh

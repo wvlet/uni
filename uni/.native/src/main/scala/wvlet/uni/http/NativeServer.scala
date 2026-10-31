@@ -23,6 +23,10 @@ import wvlet.uni.rx.Rx
   * The server is built directly on POSIX TCP sockets (no external dependency): a daemon accept loop
   * dispatches each connection to a worker thread pool, where requests are parsed, run through the
   * handler, and answered with HTTP/1.1.
+  *
+  * Link release builds with `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0` in sbt's environment: Scala
+  * Native 0.5.12's default trap-based GC yieldpoints can corrupt live objects when several workers
+  * run at once (scala-native#5046, #5160), which makes the server fail requests or abort.
   */
 object NativeServer:
 
