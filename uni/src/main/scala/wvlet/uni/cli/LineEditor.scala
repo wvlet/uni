@@ -182,11 +182,17 @@ class LineEditor private[cli] (
       cursorRow = 0
       render()
     else
-      io.write(
+      val line =
         if s.endsWith("\n") then
           s
         else
           s"${s}\n"
+      // The terminal can still be in raw mode right after the input was accepted
+      io.write(
+        if interactive then
+          line.replace("\r\n", "\n").replace("\n", "\r\n")
+        else
+          line
       )
       io.flush()
 
@@ -219,11 +225,15 @@ class LineEditor private[cli] (
         case None if keys.size == 1 =>
           insertKey(key)
         case None =>
-          // The keys started a chord but did not finish it: run the first one alone, then replay
-          // the rest
-          config.keyMap.get(Seq(keys.head)).fold(insertKey(keys.head))(run)
+          // The keys started a chord but did not finish it: run the longest bound prefix (or the
+          // first key alone), then replay the rest
+          val bound = (keys.size - 1 to 1 by -1).find(n =>
+            config.keyMap.get(keys.take(n)).isDefined
+          )
+          val n = bound.getOrElse(1)
+          config.keyMap.get(keys.take(n)).fold(insertKey(keys.head))(run)
           keys
-            .tail
+            .drop(n)
             .foreach(k =>
               if !isDone then
                 handleKey(k)
@@ -286,10 +296,8 @@ class LineEditor private[cli] (
     if !isDone then
       search = None
       if interactive then
-        r match
-          case LineResult.Line(_) =>
-            pos = text.length
-          case _ =>
+        // Leave the cursor below the whole input so that later output does not overwrite it
+        pos = text.length
         render()
         io.write("\r\n")
         io.flush()
@@ -458,26 +466,50 @@ class LineEditor private[cli] (
       var endRow       = 0
       var endCol       = 0
       while lineIndex < lines.length do
-        val p = promptOf(lineIndex)
+        val p      = promptOf(lineIndex)
+        val line   = lines(lineIndex)
+        val isLast = lineIndex == lines.length - 1
         out.append(p)
         out.append(expandTabs(highlighted(lineIndex)))
-        val w = DisplayWidth.of(p) + DisplayWidth.of(expandTabs(lines(lineIndex)))
+        val (promptRow, promptCol) = advance(row, 0, p, width)
+        val (lineRow, lineCol)     = advance(promptRow, promptCol, expandTabs(line), width)
         if lineIndex == cursorLine then
-          val cw =
-            DisplayWidth.of(p) +
-              DisplayWidth.of(expandTabs(lines(lineIndex).substring(0, cursorOffset)))
-          curRow = row + cw / width
-          curCol = cw % width
-        if lineIndex < lines.length - 1 then
+          val (r, c) = advance(
+            promptRow,
+            promptCol,
+            expandTabs(line.substring(0, cursorOffset)),
+            width
+          )
+          val atLineEnd = cursorOffset == line.length
+          val nextWidth =
+            if atLineEnd then
+              0
+            else
+              DisplayWidth.ofCodePoint(line.codePointAt(cursorOffset))
+          if c >= width && atLineEnd && !isLast then
+            // The line fills its last row exactly and the next line starts below: stay on the
+            // last column
+            curRow = r
+            curCol = width - 1
+          else if c >= width || c + nextWidth > width then
+            // The next character wraps to the next row
+            curRow = r + 1
+            curCol = 0
+          else
+            curRow = r
+            curCol = c
+        if !isLast then
           out.append("\r\n")
-          row += rowsOf(w, width)
+          row = lineRow + 1
+        else if lineCol >= width then
+          // The text filled the last row exactly; the terminal holds the cursor at the right
+          // edge until the next character, so move it down explicitly
+          out.append("\r\n")
+          endRow = lineRow + 1
+          endCol = 0
         else
-          endRow = row + w / width
-          endCol = w % width
-          if w > 0 && endCol == 0 then
-            // The text filled the last row exactly; the terminal holds the cursor at the right
-            // edge until the next character, so move it down explicitly
-            out.append("\r\n")
+          endRow = lineRow
+          endCol = lineCol
         lineIndex += 1
       end while
 
@@ -500,11 +532,25 @@ object LineEditor:
 
   private def expandTabs(s: String): String = s.replace("\t", "    ")
 
-  private def rowsOf(width: Int, columns: Int): Int =
-    if width == 0 then
-      1
-    else
-      (width + columns - 1) / columns
+  /**
+    * The cursor position after printing `s` from (row, col), where col == columns means a full row
+    * waiting to wrap. A wide character that does not fit at the right edge moves to the next row,
+    * as terminals draw it.
+    */
+  private def advance(row: Int, col: Int, s: String, columns: Int): (Int, Int) =
+    val text = DisplayWidth.stripAnsi(s)
+    var r    = row
+    var c    = col
+    var i    = 0
+    while i < text.length do
+      val cp = text.codePointAt(i)
+      val w  = DisplayWidth.ofCodePoint(cp)
+      if w > 0 && c + w > columns then
+        r += 1
+        c = 0
+      c += w
+      i += Character.charCount(cp)
+    (r, c)
 
   private[cli] def commonPrefix(values: Seq[String]): String =
     if values.isEmpty then

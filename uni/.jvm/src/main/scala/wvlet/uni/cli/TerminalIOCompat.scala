@@ -54,8 +54,7 @@ private[cli] class JvmTerminalIO extends TerminalIO with LogSupport:
     .getOrElse(TerminalSize(CliEnv.terminalWidth, CliEnv.terminalHeight))
 
   override def enterRawMode(): Unit = synchronized {
-    if isTTY && !rawMode then
-      posix.foreach(_.enterRawMode(0))
+    if isTTY && !rawMode && posix.exists(_.enterRawMode(0)) then
       rawMode = true
       if !restoreOnExit then
         restoreOnExit = true
@@ -163,17 +162,22 @@ private[cli] class PosixTerminal:
 
   def isatty(fd: Int): Boolean = call(isattyFn, Int.box(fd)) == 1
 
-  def enterRawMode(fd: Int): Unit =
+  /**
+    * Save the current mode and switch to raw mode. Returns false if either call fails, e.g., in a
+    * background process group.
+    */
+  def enterRawMode(fd: Int): Boolean =
     if call(tcgetattrFn, Int.box(fd), saved) != 0 then
-      throw IllegalStateException(s"tcgetattr failed for fd ${fd}")
-    val local = Arena.ofConfined()
-    try
-      val raw = local.allocate(TermiosSize)
-      raw.copyFrom(saved)
-      cfmakerawFn.invokeWithArguments(raw)
-      call(tcsetattrFn, Int.box(fd), Int.box(TCSANOW), raw)
-    finally
-      local.close()
+      false
+    else
+      val local = Arena.ofConfined()
+      try
+        val raw = local.allocate(TermiosSize)
+        raw.copyFrom(saved)
+        cfmakerawFn.invokeWithArguments(raw)
+        call(tcsetattrFn, Int.box(fd), Int.box(TCSANOW), raw) == 0
+      finally
+        local.close()
 
   def restore(fd: Int): Unit = call(tcsetattrFn, Int.box(fd), Int.box(TCSANOW), saved)
 

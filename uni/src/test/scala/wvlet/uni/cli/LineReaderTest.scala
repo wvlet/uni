@@ -170,6 +170,44 @@ class LineReaderTest extends UniTest:
       }
   }
 
+  test("cancel history search with Esc") {
+    val io = terminal("select 1\r", s"${CtrlR}sel", "\u001b", "x\r")
+    readAll(reader(io), 2).map(_ shouldBe Seq(LineResult.Line("select 1"), LineResult.Line("x")))
+  }
+
+  test("run the longest bound prefix of an unfinished chord") {
+    def inserting(s: String) = LineAction.Custom(s, _.insert(s))
+    val config = LineReaderConfig().bind("^X^A", inserting("A")).bind("^X^A^B^C", inserting("Z"))
+    val io     = terminal("\u0018\u0001x\r")
+    reader(io, config).readLine("> ").map(_ shouldBe LineResult.Line("Ax"))
+  }
+
+  test("move a wide character that does not fit to the next row") {
+    val io = TerminalIO.inMemory(
+      Seq("a日本語漢", Left, "\r").map(_.getBytes("UTF-8")),
+      size = TerminalSize(10, 5)
+    )
+    reader(io)
+      .readLine("> ")
+      .map { _ =>
+        // "> a日本語" uses 9 columns, so 漢 starts the second row, and the cursor before it is at
+        // column 0 of that row
+        io.output shouldContain "漢\r\u001b[?25h"
+      }
+  }
+
+  test("leave the cursor below multi-line input on Ctrl-C") {
+    val io     = terminal("a\rb", s"${Up}${CtrlC}")
+    val config = LineReaderConfig().withInputComplete(_.trim.endsWith(";"))
+    reader(io, config)
+      .readLine("> ")
+      .map { result =>
+        result shouldBe LineResult.Interrupted("a\nb")
+        // The last redraw ends on the second row; the newline then moves below it
+        io.output shouldContain "  b\r\u001b[3C\u001b[?25h\r\n"
+      }
+  }
+
   test("print messages above the input") {
     val io = terminal("abc")
     val r  = reader(io)
@@ -188,6 +226,8 @@ class LineHistoryTest extends UniTest:
 
   test("read JLine history lines") {
     LineHistory.unescape("1730000000000:select 1") shouldBe "select 1"
+    // An entry that only looks like one keeps its prefix
+    LineHistory.unescape(LineHistory.escape("1730000000000:foo")) shouldBe "1730000000000:foo"
   }
 
   test("skip blank and repeated entries, and keep the newest") {

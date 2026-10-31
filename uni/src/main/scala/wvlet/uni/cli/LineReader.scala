@@ -185,6 +185,8 @@ class LineReader(
       editor.endOfInput()
     else
       queued ++= decoder.feed(bytes)
+      if decoder.hasLoneEscape then
+        queued ++= decoder.flush()
       drain(editor)
     !editor.isDone
   }

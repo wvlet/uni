@@ -52,6 +52,7 @@ class KeyDecoderTest extends UniTest:
   test("decode Alt and modified arrows") {
     decode("\u001bb\u001b\u007f\u001b\r") shouldBe
       Seq(Key.Alt(Key.char('b')), Key.Alt(Key.Backspace), Key.Alt(Key.Enter))
+    decode("\u001b\u001b[D\u001b\u001b") shouldBe Seq(Key.Alt(Key.Left), Key.Alt(Key.Escape))
     decode("\u001b[1;5D\u001b[1;3C\u001b[1;2A") shouldBe
       Seq(Key.Alt(Key.Left), Key.Alt(Key.Right), Key.Up)
   }

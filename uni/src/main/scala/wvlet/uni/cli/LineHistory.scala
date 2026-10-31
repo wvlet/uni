@@ -28,6 +28,8 @@ import scala.collection.mutable.ArrayBuffer
   */
 class LineHistory(maxSize: Int = 1000, file: Option[IOPath] = None) extends LogSupport:
   private val entries = ArrayBuffer.empty[String]
+  // Lines in the history file, which may exceed maxSize until the next rewrite
+  private var fileLines = 0
   load()
 
   def size: Int                 = synchronized(entries.size)
@@ -40,16 +42,17 @@ class LineHistory(maxSize: Int = 1000, file: Option[IOPath] = None) extends LogS
   def add(line: String): Unit = synchronized {
     if line.trim.nonEmpty && !entries.lastOption.contains(line) then
       entries += line
-      val overflow = entries.size > maxSize
-      if overflow then
+      if entries.size > maxSize then
         entries.remove(0, entries.size - maxSize)
       file.foreach { path =>
         try
-          // Rewrite the file when trimming so that it does not grow without bound
-          if overflow then
+          // Append, and rewrite the trimmed history only once the file is twice as long, so that
+          // a full history is not rewritten on every input
+          if fileLines + 1 > maxSize * 2 then
             save(path)
           else
             FileSystem.appendString(path, s"${LineHistory.escape(line)}\n")
+            fileLines += 1
         catch
           case e: Exception =>
             warn(s"Failed to save history to ${path}: ${e.getMessage}")
@@ -61,17 +64,19 @@ class LineHistory(maxSize: Int = 1000, file: Option[IOPath] = None) extends LogS
     file.foreach(save)
   }
 
-  private def save(path: IOPath): Unit = FileSystem.writeString(
-    path,
-    entries.map(e => s"${LineHistory.escape(e)}\n").mkString
-  )
+  private def save(path: IOPath): Unit =
+    FileSystem.writeString(path, entries.map(e => s"${LineHistory.escape(e)}\n").mkString)
+    fileLines = entries.size
 
   private def load(): Unit = file.foreach { path =>
     try
       if FileSystem.exists(path) then
-        entries ++= FileSystem.readLines(path).filter(_.nonEmpty).map(LineHistory.unescape)
+        val lines = FileSystem.readLines(path).filter(_.nonEmpty)
+        entries ++= lines.map(LineHistory.unescape)
+        fileLines = lines.size
         if entries.size > maxSize then
           entries.remove(0, entries.size - maxSize)
+        if fileLines > maxSize * 2 then
           save(path)
       else
         path.parent.foreach(FileSystem.createDirectoryIfNotExists)
@@ -87,6 +92,9 @@ object LineHistory:
 
   private[cli] def escape(line: String): String =
     val sb = StringBuilder()
+    // Keep an entry that looks like a JLine timestamp prefix from losing it on reload
+    if jlineTimestamp.findPrefixOf(line).isDefined then
+      sb.append('\\')
     line.foreach {
       case '\\' =>
         sb.append("\\\\")

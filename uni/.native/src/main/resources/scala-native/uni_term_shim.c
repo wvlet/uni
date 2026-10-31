@@ -47,6 +47,7 @@ int uni_term_sigint_wait(void) { return -1; }
 #define _GNU_SOURCE
 #define _DARWIN_C_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -105,7 +106,14 @@ static void on_sigint(int sig) {
 int uni_term_sigint_install(void) {
   struct sigaction sa;
   if (sigint_installed) return 0;
-  if (sigint_pipe[0] < 0 && pipe(sigint_pipe) != 0) return -1;
+  if (sigint_pipe[0] < 0) {
+    if (pipe(sigint_pipe) != 0) return -1;
+    /* The handler must never block on a full pipe, and child processes (e.g., a pager) must not
+     * inherit the pipe */
+    fcntl(sigint_pipe[1], F_SETFL, fcntl(sigint_pipe[1], F_GETFL) | O_NONBLOCK);
+    fcntl(sigint_pipe[0], F_SETFD, FD_CLOEXEC);
+    fcntl(sigint_pipe[1], F_SETFD, FD_CLOEXEC);
+  }
   memset(&sa, 0, sizeof(sa));
   sa.sa_handler = on_sigint;
   sigemptyset(&sa.sa_mask);

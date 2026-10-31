@@ -21,7 +21,8 @@ import scala.collection.mutable.ArrayBuffer
   *
   * Input can arrive split at any byte, so an incomplete sequence at the end of a chunk is kept
   * until the next [[feed]]. A lone ESC is kept too, because ESC followed by a key is how terminals
-  * send Alt + key; call [[flush]] to report it as [[Key.Escape]].
+  * send Alt + key; call [[flush]] to report it as [[Key.Escape]]. Terminals send a whole key
+  * sequence in one write, so a chunk that ends in a lone ESC ([[hasLoneEscape]]) is the Esc key.
   *
   * @param lineMode
   *   decode piped (non-terminal) input: every byte except `\n` is text, `\n` is Enter, and `\r` is
@@ -58,6 +59,11 @@ class KeyDecoder(lineMode: Boolean = false):
             i += length
     pending.remove(0, i)
     keys.result()
+
+  /**
+    * True when the only input held back is a single ESC
+    */
+  def hasLoneEscape: Boolean = !pasting && pending.length == 1 && pending(0) == ESC
 
   /**
     * Report input held back as possibly incomplete, such as a lone ESC, as keys
@@ -174,7 +180,15 @@ class KeyDecoder(lineMode: Boolean = false):
             )
             Done(Some(key), 3)
         case '\u001b' =>
-          Done(Some(Key.Alt(Key.Escape)), 2)
+          if i + 2 >= pending.length then
+            Done(Some(Key.Alt(Key.Escape)), 2)
+          else
+            // ESC + an escape sequence: some terminals send Alt-Left as ESC ESC [ D
+            parseEscape(i + 1) match
+              case Incomplete =>
+                Incomplete
+              case Done(key, length) =>
+                Done(key.map(Key.Alt(_)), 1 + length)
         case _ =>
           parseSingle(i + 1) match
             case Incomplete =>
