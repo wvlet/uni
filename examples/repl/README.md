@@ -20,10 +20,18 @@ ran: select 1   from t;
   a description above the prompt with `printAbove`.
 - **One loop for every platform**: `readLine` returns an `Rx`, and the loop chains reads with
   `flatMap`, so it also works on Node.js, where nothing can block.
+- **No platform-specific code**: `MiniRepl.design` wires the `LineReader` to `TerminalIO.default`,
+  the terminal of whichever platform runs it. The test,
+  [`MiniReplTest.scala`](src/test/scala/example/repl/MiniReplTest.scala), overrides it with
+  `TerminalIO.inMemory` and runs on all three platforms.
 
 Source: [`MiniRepl.scala`](src/main/scala/example/repl/MiniRepl.scala).
 
 ## Run
+
+```bash
+./sbt exampleReplJVM/test exampleReplJS/test exampleReplNative/test   # the test, on each platform
+```
 
 Line editing needs a real terminal, which `sbt run` does not provide, so build first and run the
 result from your shell.

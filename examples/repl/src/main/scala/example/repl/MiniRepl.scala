@@ -14,19 +14,53 @@
 package example.repl
 
 import wvlet.uni.cli.*
+import wvlet.uni.design.Design
 import wvlet.uni.rx.Rx
 
 /**
   * A small SQL-like REPL built on LineReader. The same code runs on the JVM, as a Scala Native
-  * binary, and on Node.js.
+  * binary, and on Node.js: `TerminalIO.default` is the terminal of whichever platform it runs on.
   */
+class MiniRepl(reader: LineReader):
+  import MiniRepl.*
+
+  def run(): Rx[Unit] =
+    print(help)
+    loop()
+
+  // Write through the reader's terminal, so that tests see the output too
+  private def print(s: String): Unit =
+    reader.terminal.write(s"${s}\n")
+    reader.terminal.flush()
+
+  private def loop(): Rx[Unit] = reader
+    .readLine(Tint.green("uni> "))
+    .flatMap {
+      case LineResult.Line(text) if text.trim == "exit" =>
+        Rx.single(())
+      case LineResult.Line(text) =>
+        text.trim match
+          case ""     =>
+          case "help" =>
+            print(help)
+          case statement =>
+            print(s"${Tint.bold("ran")}: ${statement.replace("\n", " ")}")
+        loop()
+      case LineResult.Interrupted(_) =>
+        loop()
+      case LineResult.EndOfInput =>
+        Rx.single(())
+    }
+
+end MiniRepl
+
 object MiniRepl:
   private val keywords = Seq("select", "from", "where", "group", "by", "order", "limit")
   private val commands = Seq("help", "exit")
 
   private val keywordPattern = s"\\b(${keywords.mkString("|")})\\b".r
 
-  private val help =
+  private[repl] val help =
     """Statements end with ';'. Enter on an unfinished statement starts a new line.
       |  Tab            complete keywords
       |  Up/Down        history (also Ctrl-P/Ctrl-N), Ctrl-R to search it
@@ -68,27 +102,18 @@ object MiniRepl:
     .bind("^J^R", runStatement)
     .bind("^J^D", describeInput)
 
-  def main(args: Array[String]): Unit =
-    println(help)
-    loop(LineReader(config)).run()
-
-  private def loop(reader: LineReader): Rx[Unit] = reader
-    .readLine(Tint.green("uni> "))
-    .flatMap {
-      case LineResult.Line(text) if text.trim == "exit" =>
-        Rx.single(())
-      case LineResult.Line(text) =>
-        text.trim match
-          case ""     =>
-          case "help" =>
-            println(help)
-          case statement =>
-            println(s"${Tint.bold("ran")}: ${statement.replace("\n", " ")}")
-        loop(reader)
-      case LineResult.Interrupted(_) =>
-        loop(reader)
-      case LineResult.EndOfInput =>
-        Rx.single(())
+  /**
+    * Wires the REPL to the process's terminal. Tests override `TerminalIO` with
+    * `TerminalIO.inMemory(...)`.
+    */
+  def design: Design = Design
+    .newDesign
+    .bindInstance[LineReaderConfig](config)
+    .bindInstance[TerminalIO](TerminalIO.default)
+    .bindProvider { (config: LineReaderConfig, io: TerminalIO) =>
+      LineReader(config, io)
     }
+
+  def main(args: Array[String]): Unit = design.build[MiniRepl](_.run().run())
 
 end MiniRepl
