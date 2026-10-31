@@ -313,13 +313,11 @@ lazy val exampleRepl = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     noPublish,
     name        := "uni-example-repl",
-    description := "Example: a REPL with LineReader (editing, history, completion, highlighting)",
-    // No tests: skip linking empty test binaries in CI
-    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+    description := "Example: a REPL with LineReader (editing, history, completion, highlighting)"
   )
   .jsSettings(jsBuildSettings, scalaJSUseMainModuleInitializer := true)
   .nativeSettings(nativeBuildSettings)
-  .dependsOn(uni)
+  .dependsOn(uni, test % Test)
 
 lazy val exampleRestServer = project
   .in(file("examples/rest-server"))

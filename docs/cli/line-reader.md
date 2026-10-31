@@ -28,24 +28,14 @@ val reader = LineReader(
     .withContinuationPrompt("  | ")
 )
 
-// JVM and Scala Native: block until the user presses Enter
-reader.readLine("> ").await match
-  case LineResult.Line(text)        => println(s"input: ${text}")
-  case LineResult.Interrupted(text) => println("Ctrl-C")
-  case LineResult.EndOfInput        => println("Ctrl-D or end of input")
-```
-
-`readLine` returns an `Rx[LineResult]`. On Scala.js there is no blocking, so chain the next read
-with `flatMap`. This loop works on every platform:
-
-```scala
+// The same loop on every platform
 def loop(reader: LineReader): Rx[Unit] = reader
   .readLine("> ")
   .flatMap {
     case LineResult.Line("exit") | LineResult.EndOfInput =>
       Rx.single(())
     case LineResult.Line(text) =>
-      println(text)
+      println(s"input: ${text}")
       loop(reader)
     case LineResult.Interrupted(_) =>
       loop(reader)
@@ -53,6 +43,45 @@ def loop(reader: LineReader): Rx[Unit] = reader
 
 loop(reader).run()
 ```
+
+`readLine` returns an `Rx[LineResult]` that completes when the user presses Enter (`Line`), Ctrl-C
+(`Interrupted`), or Ctrl-D on an empty line (`EndOfInput`). Chaining reads with `flatMap` keeps one
+code path for the JVM, Scala Native, and Node.js, where nothing can block. Code that never runs on
+Scala.js can also block with `reader.readLine("> ").await`.
+
+`LineReader` uses `TerminalIO.default`, the terminal of the platform it runs on, so the code above
+has no platform-specific parts.
+
+## Wiring with Design
+
+Pass the terminal to `LineReader` through [Design](../core/design) to swap it in tests. The
+application binds `TerminalIO.default`, and a test overrides it with `TerminalIO.inMemory`, which
+replays keystrokes and records the output:
+
+```scala
+import wvlet.uni.design.Design
+
+class Repl(reader: LineReader):
+  def run(): Rx[Unit] = loop(reader)
+
+val design = Design
+  .newDesign
+  .bindInstance[LineReaderConfig](LineReaderConfig().withHistoryFile(".my_history"))
+  .bindInstance[TerminalIO](TerminalIO.default)
+  .bindProvider { (config: LineReaderConfig, io: TerminalIO) =>
+    LineReader(config, io)
+  }
+
+// Application
+design.build[Repl](_.run().run())
+
+// Test: type "hello", then "exit"
+val io = TerminalIO.inMemory(Seq("hello\r".getBytes, "exit\r".getBytes))
+(design + Design.newDesign.bindInstance[TerminalIO](io))
+  .run[Repl, Rx[Unit]](_.run())
+```
+
+The test runs the same way on the JVM, Scala Native, and Scala.js.
 
 ## Completion
 
@@ -122,7 +151,7 @@ On Java 24 and later, run the JVM with `--enable-native-access=ALL-UNNAMED` to t
 the JVM prints on the first native call.
 
 `TerminalIO.inMemory(...)` replays input and records output, for testing code built on
-`LineReader` without a terminal.
+`LineReader` without a terminal. See [Wiring with Design](#wiring-with-design).
 
 ## Example
 
