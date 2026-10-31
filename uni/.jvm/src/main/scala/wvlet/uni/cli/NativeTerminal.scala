@@ -90,7 +90,7 @@ end NativeTerminal
   * Ctrl-C arrives as a byte as it does with [[PosixTerminal]].
   *
   * The window size is cached, since the line editor reads it on every redraw. It is refreshed on
-  * SIGWINCH and on each [[enterRawMode]].
+  * SIGWINCH, or on each [[enterRawMode]] when SIGWINCH is unavailable.
   */
 private[cli] class SttyTerminal(tty: File = File("/dev/tty"))
     extends NativeTerminal
@@ -102,24 +102,49 @@ private[cli] class SttyTerminal(tty: File = File("/dev/tty"))
   private var cachedSize: Option[TerminalSize] = None
 
   // A successful `stty -g` proves that stty exists and /dev/tty is our controlling terminal
-  override lazy val isTTY: Boolean =
+  override val isTTY: Boolean =
     SttyTerminal.consoleIsTerminal && tty.canRead && stty("-g").isDefined
+
+  // When SIGWINCH keeps the size current, enterRawMode need not read it again
+  private val watchesResize: Boolean = isTTY && watchResize()
 
   if isTTY then
     cachedSize = readSize()
-    try
-      sun.misc.Signal.handle(sun.misc.Signal("WINCH"), _ => cachedSize = readSize())
-    catch
-      case e: IllegalArgumentException =>
-        debug(s"SIGWINCH is unavailable: ${e.getMessage}")
 
   override def enterRawMode(): Boolean =
     stty("-g") match
       case Some(mode) =>
         saved = Some(mode)
-        cachedSize = readSize()
+        if !watchesResize then
+          cachedSize = readSize()
         stty("raw", "-echo").isDefined
       case None =>
+        false
+
+  /**
+    * Refresh the size on SIGWINCH, still calling a handler installed before ours
+    */
+  private def watchResize(): Boolean =
+    try
+      val winch                                   = sun.misc.Signal("WINCH")
+      var previous: sun.misc.SignalHandler | Null = null
+      previous = sun
+        .misc
+        .Signal
+        .handle(
+          winch,
+          signal =>
+            cachedSize = readSize()
+            val p = previous
+            if p != null && p != sun.misc.SignalHandler.SIG_DFL &&
+              p != sun.misc.SignalHandler.SIG_IGN
+            then
+              p.handle(signal)
+        )
+      true
+    catch
+      case e: IllegalArgumentException =>
+        debug(s"SIGWINCH is unavailable: ${e.getMessage}")
         false
 
   override def restore(): Unit = saved.foreach(mode => stty(mode))
