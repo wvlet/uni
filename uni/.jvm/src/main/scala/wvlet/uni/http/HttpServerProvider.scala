@@ -20,4 +20,4 @@ package wvlet.uni.http
   */
 trait HttpServerProvider:
   /** Start a server for the given configuration, applying the backend's defaults otherwise. */
-  def start(config: PortableServerConfig): HttpServer
+  def start(config: HttpServerConfig): HttpServer

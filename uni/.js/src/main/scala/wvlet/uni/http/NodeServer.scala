@@ -17,8 +17,8 @@ import wvlet.uni.rx.Rx
 
 /**
   * Entry point for creating a Node.js-based HTTP server on Scala.js. This is the Node counterpart
-  * of `NettyServer` (JVM); both produce an [[HttpServer]] from a shared [[HttpServerConfig]], so
-  * handler and filter code is identical across platforms.
+  * of `NettyServer` (JVM); both produce an [[HttpServer]] from a shared [[HttpServerConfigBase]],
+  * so handler and filter code is identical across platforms.
   *
   * Requires a Node-compatible runtime (Node.js, Bun, Deno) — it uses the built-in `http` module.
   */
@@ -64,7 +64,7 @@ case class NodeServerConfig(
     override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
-) extends HttpServerConfig:
+) extends HttpServerConfigBase:
 
   def withName(name: String): NodeServerConfig = copy(name = name)
   def withHost(host: String): NodeServerConfig = copy(host = host)

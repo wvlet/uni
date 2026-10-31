@@ -13,20 +13,35 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpServer, HttpServerProvider, PortableServerConfig}
+import wvlet.uni.http.{HttpServer, HttpServerProvider, HttpServerConfig}
 
 /**
   * Serves [[wvlet.uni.http.Http.server]] with Netty on the JVM. Registered through ServiceLoader.
   */
 class NettyServerProvider extends HttpServerProvider:
-  override def start(config: PortableServerConfig): HttpServer = NettyServerConfig(
-    name = config.name,
-    host = config.host,
-    port = config.port,
-    handler = config.handler,
-    filters = config.filters,
-    webSocketRoutes = config.webSocketRoutes,
-    allowedOrigins = config.allowedOrigins,
-    allowedHosts = config.allowedHosts,
-    detailedErrors = config.detailedErrors
-  ).start()
+  override def start(config: HttpServerConfig): HttpServer =
+    val base =
+      config
+        .backendOptions
+        .collect { case o: NettyOptions =>
+          o
+        }
+        .foldLeft(NettyServerConfig())((c, o) => o.applyTo(c))
+    base
+      .copy(
+        name = config.name,
+        host = config.host,
+        port = config.port,
+        handler = config.handler,
+        filters = config.filters,
+        webSocketRoutes = config.webSocketRoutes,
+        allowedOrigins = config.allowedOrigins,
+        allowedHosts = config.allowedHosts,
+        detailedErrors = config.detailedErrors,
+        maxContentLength = config.maxContentLength.getOrElse(base.maxContentLength),
+        webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(base.webSocketMaxFrameSize),
+        webSocketPingIntervalMillis = config
+          .webSocketPingIntervalMillis
+          .getOrElse(base.webSocketPingIntervalMillis)
+      )
+      .start()

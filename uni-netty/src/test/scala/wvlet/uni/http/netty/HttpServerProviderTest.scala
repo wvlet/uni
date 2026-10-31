@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{Http, Response}
+import wvlet.uni.http.{Http, HttpServer, Response}
 import wvlet.uni.test.UniTest
 
 import java.net.URI
@@ -44,6 +44,57 @@ class HttpServerProviderTest extends UniTest:
       response.body() shouldBe "hello"
     finally
       server.stop()
+  }
+
+  private def postStatus(server: HttpServer, body: String): Int = HttpClient
+    .newHttpClient()
+    .send(
+      HttpRequest
+        .newBuilder(URI.create(s"http://127.0.0.1:${server.localPort}/"))
+        .POST(HttpRequest.BodyPublishers.ofString(body))
+        .build(),
+      HttpResponse.BodyHandlers.ofString()
+    )
+    .statusCode()
+
+  test("Http.server maps maxContentLength to Netty") {
+    Http
+      .server
+      .withPort(0)
+      .withMaxContentLength(16)
+      .withHandler(_ => Response.ok("ok"))
+      .start { server =>
+        postStatus(server, "small") shouldBe 200
+        postStatus(server, "x" * 100) shouldBe 413
+      }
+  }
+
+  test("withBackend(Netty.options...) applies Netty-only options") {
+    Http
+      .server
+      .withPort(0)
+      .withMaxContentLength(16)
+      .withBackend(Netty.options.withHandlerExecutorThreads(2).noRequestDecompression)
+      .withHandler(_ => Response.ok("ok"))
+      .start { server =>
+        postStatus(server, "small") shouldBe 200
+        postStatus(server, "x" * 100) shouldBe 413
+      }
+  }
+
+  test("Netty options check their values when set") {
+    intercept[IllegalArgumentException] {
+      Netty.options.withHandlerExecutorThreads(0)
+    }
+  }
+
+  test("Netty options are applied in order") {
+    val config = NettyOptions
+      .empty
+      .withHandlerExecutorThreads(2)
+      .withHandlerExecutorThreads(4)
+      .applyTo(NettyServerConfig())
+    config.handlerExecutorThreads shouldBe Some(4)
   }
 
 end HttpServerProviderTest

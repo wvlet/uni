@@ -1,0 +1,119 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *    http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package wvlet.uni.http
+
+import wvlet.uni.rx.Rx
+
+/**
+  * The surface every HTTP server configuration shares: name/host/port, the request handler,
+  * filters, and the start lifecycle. [[HttpServerConfig]] (from `Http.server`) and the backend
+  * configs (`NettyServerConfig`, `NativeServerConfig`, `NodeServerConfig`) implement it, so handler
+  * and filter code is identical across platforms. Backend-specific tuning (Netty transport options,
+  * Node.js options, ...) lives on the backend configs.
+  */
+trait HttpServerConfigBase:
+  def name: String
+  def host: String
+  def port: Int
+  def handler: RxHttpHandler
+  def filters: Seq[RxHttpFilter]
+
+  /**
+    * WebSocket routes registered on this server, matched by path during the HTTP upgrade handshake.
+    * Defaults to none; backends that support WebSocket (currently the JVM Netty backend) consume
+    * this list. Kept separate from [[handler]]/[[filters]] because WebSocket connections are
+    * stateful and bidirectional rather than request/response.
+    */
+  def webSocketRoutes: Seq[WebSocketRoute] = Nil
+
+  /**
+    * Browser origins (e.g. `https://app.example.com`) allowed to open a WebSocket on this server,
+    * in addition to same-origin pages. Requests without an `Origin` header (non-browser clients)
+    * are always allowed; `"*"` allows every origin.
+    */
+  def allowedOrigins: Seq[String] = Nil
+
+  /**
+    * Host names (the `Host` header, port ignored) this server answers, to prevent DNS rebinding.
+    * Entries are exact names or `*.suffix`; `"*"` allows every host. When empty, the default
+    * depends on the bind address: a loopback server accepts only `localhost`, `*.localhost`,
+    * `127.0.0.1` and `[::1]`, and any other server accepts every host. See
+    * [[effectiveAllowedHosts]].
+    */
+  def allowedHosts: Seq[String] = Nil
+
+  /** [[allowedHosts]], or the default derived from [[host]] when it is empty. */
+  def effectiveAllowedHosts: Seq[String] =
+    if allowedHosts.nonEmpty then
+      allowedHosts
+    else
+      HttpServerSecurity.defaultAllowedHosts(host)
+
+  /**
+    * Whether 500 responses include the exception message. Disabled by default because messages can
+    * leak internals (paths, SQL, hostnames); the full exception is always logged on the server.
+    */
+  def detailedErrors: Boolean = false
+
+  /**
+    * The request handler with all configured filters applied, in order. Shared by every backend so
+    * filter semantics stay consistent across platforms.
+    */
+  def effectiveHandler: RxHttpHandler =
+    if filters.isEmpty then
+      handler
+    else
+      val chained = RxHttpFilter.chain(filters)
+      RxHttpHandler { request =>
+        chained.apply(request, handler)
+      }
+
+  /**
+    * Start the server and return the running server instance. Backends override this with a
+    * covariant return type (e.g. `NettyHttpServer`).
+    */
+  def start(): HttpServer
+
+  /**
+    * Start the server, run the given block, then stop the server. The block runs as soon as
+    * `start()` returns, so this is only safe on backends that bind synchronously (Netty). On
+    * asynchronously-binding backends (Node.js) use [[startAndAwait]] instead, which waits for the
+    * server to be ready before running the block.
+    */
+  def start[A](block: HttpServer => A): A =
+    val server = start()
+    try block(server)
+    finally server.stop()
+
+  /**
+    * Start the server, wait until it is listening, run the given async block, then stop the server
+    * once the block's Rx completes (or fails). This works uniformly across backends — including
+    * Node.js, whose bind is asynchronous — so it is the portable way to run a server in tests and
+    * apps.
+    */
+  def startAndAwait[A](block: HttpServer => Rx[A]): Rx[A] =
+    val server = start()
+    // Stop the server once the block's stream TERMINATES, not on each emitted value:
+    //  - on failure: tapOnFailure stops (concat won't run a failed source's tail)
+    //  - on normal completion (including zero emissions): the appended cleanup runs stop and emits
+    //    nothing, so a block returning Rx.empty still shuts the server down.
+    val cleanup = Rx
+      .single(())
+      .flatMap { _ =>
+        server.stop()
+        Rx.empty[A]
+      }
+    server.whenReady.flatMap(block).tapOnFailure(_ => server.stop()).concat(cleanup)
+
+end HttpServerConfigBase

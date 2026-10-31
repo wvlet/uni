@@ -92,11 +92,53 @@ Http
 
 On the JVM, `uni-netty` registers Netty as the backend through
 `java.util.ServiceLoader`; without it on the classpath, `start()` fails with a
-message that says to add it. For backend-specific settings (Netty transport,
-graceful shutdown, Native worker threads, ...), use `NettyServer`,
-`NodeServer`, or `NativeServer` directly: they take the same builder calls plus
-their own. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
+message that says to add it. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
 serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
+
+### Tuning one backend
+
+`Http.server` also takes the size limits every backend has:
+`withMaxContentLength` (on Scala Native it covers the headers too),
+`withWebSocketMaxFrameSize`, and `withWebSocketPingIntervalMillis`. Settings
+you leave unset keep the backend's own default.
+
+For an option only one backend has (Netty transport, graceful shutdown, Native
+worker threads, ...), pass that backend's options to `withBackend`:
+`Netty.options` (`wvlet.uni.http.netty.Netty`) on the JVM, or `Native.options`
+on Scala Native. They hold only that backend's own settings, so port, handler,
+and size limits are set in one place, on `Http.server`. Each backend applies
+only its own options, so options for several platforms can be passed together.
+(Node.js has no options of its own.)
+
+Keep the server code shared and bind the options per platform with `Design`:
+
+```scala
+// shared
+import wvlet.uni.design.Design
+import wvlet.uni.http.{Http, HttpServer, Response, ServerOptions}
+
+val serverDesign = Design
+  .newDesign
+  .bindProvider[ServerOptions, HttpServer] { options =>
+    Http.server.withPort(8080).withHandler(_ => Response.ok("ok")).withBackend(options).start()
+  }
+  .onShutdown(_.stop())
+
+// .jvm/src/main/scala
+import wvlet.uni.http.netty.Netty
+val platformDesign = Design
+  .newDesign
+  .bindInstance[ServerOptions](Netty.options.withHandlerExecutorThreads(8).withShutdownHook)
+
+// .native/src/main/scala
+import wvlet.uni.http.Native
+val platformDesign = Design
+  .newDesign
+  .bindInstance[ServerOptions](Native.options.withWorkerThreads(32))
+```
+
+You can also use `NettyServer`, `NodeServer`, or `NativeServer` directly: they
+take the same builder calls plus their own.
 
 ::: warning JVM-only features
 The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),

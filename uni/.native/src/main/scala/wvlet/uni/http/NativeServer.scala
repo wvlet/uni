@@ -18,7 +18,7 @@ import wvlet.uni.rx.Rx
 /**
   * Entry point for creating a Scala Native HTTP server. This is the Native counterpart of
   * `NettyServer` (JVM) and `NodeServer` (JS); all three produce an [[HttpServer]] from a shared
-  * [[HttpServerConfig]], so handler and filter code is identical across platforms.
+  * [[HttpServerConfigBase]], so handler and filter code is identical across platforms.
   *
   * The server is built directly on POSIX TCP sockets (no external dependency): a daemon accept loop
   * dispatches each connection to a worker thread pool, where requests are parsed, run through the
@@ -84,7 +84,7 @@ case class NativeServerConfig(
     override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
-) extends HttpServerConfig:
+) extends HttpServerConfigBase:
 
   def withName(name: String): NativeServerConfig = copy(name = name)
   def withHost(host: String): NativeServerConfig = copy(host = host)

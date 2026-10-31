@@ -16,103 +16,125 @@ package wvlet.uni.http
 import wvlet.uni.rx.Rx
 
 /**
-  * Platform-neutral HTTP server configuration. Backend-specific configs (e.g. `NettyServerConfig`,
-  * `NodeServerConfig`) implement this trait so the common surface — name/host/port, the request
-  * handler, filters, and the start lifecycle — is identical across platforms. Backend-specific
-  * tuning (Netty transport options, Node.js options, ...) lives on the concrete config.
+  * An HTTP server configuration that runs unchanged on every platform: `start()` serves it with
+  * Netty on the JVM (from uni-netty, found on the classpath), `NativeServer` on Scala Native, and
+  * `NodeServer` on Scala.js. Create one with [[Http.server]].
+  *
+  * It holds the settings every backend shares. For backend-only options, pass [[ServerOptions]] to
+  * [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
+  * {{{
+  * Http.server.withPort(8080).withBackend(Netty.options.withHandlerExecutorThreads(8))
+  * }}}
   */
-trait HttpServerConfig:
-  def name: String
-  def host: String
-  def port: Int
-  def handler: RxHttpHandler
-  def filters: Seq[RxHttpFilter]
+case class HttpServerConfig(
+    name: String = "http-server",
+    // Loopback by default; use withHost("0.0.0.0") to accept connections from other hosts
+    host: String = "127.0.0.1",
+    port: Int = 8080,
+    handler: RxHttpHandler = RxHttpHandler.notFound,
+    filters: Seq[RxHttpFilter] = Seq.empty,
+    // WebSocket routes, matched by path during the HTTP upgrade handshake
+    override val webSocketRoutes: Seq[WebSocketRoute] = Nil,
+    // Browser origins allowed to open WebSocket connections, besides same-origin ("*" allows all)
+    override val allowedOrigins: Seq[String] = Nil,
+    // Host names accepted in the Host header (DNS rebinding protection). Empty: loopback names for
+    // a loopback-bound server, every host otherwise ("*" allows all)
+    override val allowedHosts: Seq[String] = Nil,
+    // Include exception messages in 500 responses (for development only)
+    override val detailedErrors: Boolean = false,
+    // Maximum size (bytes) of a request body. None: the backend's default
+    maxContentLength: Option[Int] = None,
+    // Maximum size (bytes) of an inbound WebSocket message. None: the backend's default
+    webSocketMaxFrameSize: Option[Int] = None,
+    // Ping/pong heartbeat interval for WebSocket connections (0 disables it). None: the backend's
+    // default
+    webSocketPingIntervalMillis: Option[Int] = None,
+    // Backend-only options; each backend applies the ones of its own type
+    backendOptions: Seq[ServerOptions] = Nil
+) extends HttpServerConfigBase:
+
+  def withName(name: String): HttpServerConfig = copy(name = name)
+  def withHost(host: String): HttpServerConfig = copy(host = host)
+  def withPort(port: Int): HttpServerConfig    = copy(port = port)
+
+  def withHandler(handler: HttpHandler): HttpServerConfig = copy(handler =
+    RxHttpHandler.fromSync(handler)
+  )
+
+  def withHandler(f: Request => Response): HttpServerConfig = copy(handler =
+    RxHttpHandler.fromFunction(f)
+  )
+
+  def withRxHandler(handler: RxHttpHandler): HttpServerConfig = copy(handler = handler)
+
+  def withRxHandler(f: Request => Rx[Response]): HttpServerConfig = copy(handler = RxHttpHandler(f))
+
+  def withFilter(filter: RxHttpFilter): HttpServerConfig = copy(filters = filters :+ filter)
+
+  def withFilters(filters: Seq[RxHttpFilter]): HttpServerConfig = copy(filters =
+    this.filters ++ filters
+  )
+
+  /** Register a WebSocket route; the factory creates a fresh handler per accepted connection. */
+  def withWebSocketRoute(path: String)(
+      handlerFactory: Request => WebSocketHandler
+  ): HttpServerConfig = withWebSocketRoute(path, RxHttpFilter.identity)(handlerFactory)
+
+  /** Register a WebSocket route with a filter that gates the upgrade handshake (e.g. for auth). */
+  def withWebSocketRoute(path: String, filter: RxHttpFilter)(
+      handlerFactory: Request => WebSocketHandler
+  ): HttpServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  )
 
   /**
-    * WebSocket routes registered on this server, matched by path during the HTTP upgrade handshake.
-    * Defaults to none; backends that support WebSocket (currently the JVM Netty backend) consume
-    * this list. Kept separate from [[handler]]/[[filters]] because WebSocket connections are
-    * stateful and bidirectional rather than request/response.
+    * Allow WebSocket connections from these browser origins (e.g. `https://app.example.com`) in
+    * addition to same-origin pages. Pass `"*"` to allow every origin.
     */
-  def webSocketRoutes: Seq[WebSocketRoute] = Nil
+  def withAllowedOrigins(origins: String*): HttpServerConfig = copy(allowedOrigins = origins.toSeq)
 
   /**
-    * Browser origins (e.g. `https://app.example.com`) allowed to open a WebSocket on this server,
-    * in addition to same-origin pages. Requests without an `Origin` header (non-browser clients)
-    * are always allowed; `"*"` allows every origin.
+    * Accept only requests whose `Host` header names one of these hosts (port ignored), to prevent
+    * DNS rebinding. Entries are exact names or `*.suffix`; `"*"` allows every host.
     */
-  def allowedOrigins: Seq[String] = Nil
+  def withAllowedHosts(hosts: String*): HttpServerConfig = copy(allowedHosts = hosts.toSeq)
+
+  /** Accept every `Host` header. Exposes a loopback server to DNS rebinding from web pages. */
+  def noHostCheck: HttpServerConfig = withAllowedHosts("*")
+
+  def withDetailedErrors(enabled: Boolean): HttpServerConfig = copy(detailedErrors = enabled)
+  def noDetailedErrors: HttpServerConfig                     = withDetailedErrors(false)
 
   /**
-    * Host names (the `Host` header, port ignored) this server answers, to prevent DNS rebinding.
-    * Entries are exact names or `*.suffix`; `"*"` allows every host. When empty, the default
-    * depends on the bind address: a loopback server accepts only `localhost`, `*.localhost`,
-    * `127.0.0.1` and `[::1]`, and any other server accepts every host. See
-    * [[effectiveAllowedHosts]].
+    * Limit a request body to this many bytes; larger requests are rejected. On Scala Native the
+    * limit covers the request headers too.
     */
-  def allowedHosts: Seq[String] = Nil
+  def withMaxContentLength(bytes: Int): HttpServerConfig =
+    require(bytes > 0, "maxContentLength must be positive")
+    copy(maxContentLength = Some(bytes))
 
-  /** [[allowedHosts]], or the default derived from [[host]] when it is empty. */
-  def effectiveAllowedHosts: Seq[String] =
-    if allowedHosts.nonEmpty then
-      allowedHosts
-    else
-      HttpServerSecurity.defaultAllowedHosts(host)
+  def withWebSocketMaxFrameSize(sizeInBytes: Int): HttpServerConfig =
+    require(sizeInBytes > 0, "webSocketMaxFrameSize must be positive")
+    copy(webSocketMaxFrameSize = Some(sizeInBytes))
 
-  /**
-    * Whether 500 responses include the exception message. Disabled by default because messages can
-    * leak internals (paths, SQL, hostnames); the full exception is always logged on the server.
-    */
-  def detailedErrors: Boolean = false
+  def withWebSocketPingIntervalMillis(millis: Int): HttpServerConfig =
+    require(millis >= 0, "webSocketPingIntervalMillis must be >= 0")
+    copy(webSocketPingIntervalMillis = Some(millis))
 
   /**
-    * The request handler with all configured filters applied, in order. Shared by every backend so
-    * filter semantics stay consistent across platforms.
+    * Add backend-only options: `Netty.options` on the JVM, `Native.options` on Scala Native. The
+    * backend of their type applies them, in the order added; the others ignore them, so options for
+    * several platforms can be passed to the same config.
     */
-  def effectiveHandler: RxHttpHandler =
-    if filters.isEmpty then
-      handler
-    else
-      val chained = RxHttpFilter.chain(filters)
-      RxHttpHandler { request =>
-        chained.apply(request, handler)
-      }
+  def withBackend(options: ServerOptions): HttpServerConfig = copy(backendOptions =
+    backendOptions :+ options
+  )
 
   /**
-    * Start the server and return the running server instance. Backends override this with a
-    * covariant return type (e.g. `NettyHttpServer`).
+    * Start the server on this platform's backend. On the JVM this fails with
+    * `IllegalStateException` when no backend (uni-netty) is on the classpath. On Scala.js the bind
+    * is asynchronous: use [[startAndAwait]] or `whenReady` before reading `localPort`.
     */
-  def start(): HttpServer
-
-  /**
-    * Start the server, run the given block, then stop the server. The block runs as soon as
-    * `start()` returns, so this is only safe on backends that bind synchronously (Netty). On
-    * asynchronously-binding backends (Node.js) use [[startAndAwait]] instead, which waits for the
-    * server to be ready before running the block.
-    */
-  def start[A](block: HttpServer => A): A =
-    val server = start()
-    try block(server)
-    finally server.stop()
-
-  /**
-    * Start the server, wait until it is listening, run the given async block, then stop the server
-    * once the block's Rx completes (or fails). This works uniformly across backends — including
-    * Node.js, whose bind is asynchronous — so it is the portable way to run a server in tests and
-    * apps.
-    */
-  def startAndAwait[A](block: HttpServer => Rx[A]): Rx[A] =
-    val server = start()
-    // Stop the server once the block's stream TERMINATES, not on each emitted value:
-    //  - on failure: tapOnFailure stops (concat won't run a failed source's tail)
-    //  - on normal completion (including zero emissions): the appended cleanup runs stop and emits
-    //    nothing, so a block returning Rx.empty still shuts the server down.
-    val cleanup = Rx
-      .single(())
-      .flatMap { _ =>
-        server.stop()
-        Rx.empty[A]
-      }
-    server.whenReady.flatMap(block).tapOnFailure(_ => server.stop()).concat(cleanup)
+  override def start(): HttpServer = HttpCompat.startServer(this)
 
 end HttpServerConfig

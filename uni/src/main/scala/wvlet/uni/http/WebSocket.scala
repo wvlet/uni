@@ -83,7 +83,7 @@ trait WebSocketHandler:
 end WebSocketHandler
 
 /**
-  * A WebSocket endpoint registered on an [[HttpServerConfig]] by path, kept separate from the
+  * A WebSocket endpoint registered on an [[HttpServerConfigBase]] by path, kept separate from the
   * RPC/router because WebSocket connections are stateful and bidirectional. The optional [[filter]]
   * gates the HTTP upgrade handshake (e.g. for authentication); returning a non-2xx response (or an
   * empty `Rx`) rejects the upgrade.

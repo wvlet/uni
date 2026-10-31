@@ -30,8 +30,8 @@ private[http] trait HttpCompatApi:
     */
   def defaultHttpChannelFactory: HttpChannelFactory
 
-  /** Start a [[PortableServerConfig]] on this platform's HTTP server backend. */
-  def startServer(config: PortableServerConfig): HttpServer
+  /** Start a [[HttpServerConfig]] on this platform's HTTP server backend. */
+  def startServer(config: HttpServerConfig): HttpServer
 
   /**
     * Platform-specific SSL exception classifier for retry logic. JVM provides full SSL exception

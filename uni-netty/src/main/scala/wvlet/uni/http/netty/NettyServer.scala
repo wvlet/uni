@@ -15,7 +15,7 @@ package wvlet.uni.http.netty
 
 import wvlet.uni.http.{
   HttpHandler,
-  HttpServerConfig,
+  HttpServerConfigBase,
   Request,
   Response,
   RxHttpFilter,
@@ -99,7 +99,7 @@ case class NettyServerConfig(
     override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
-) extends HttpServerConfig:
+) extends HttpServerConfigBase:
 
   def withName(name: String): NettyServerConfig                      = copy(name = name)
   def withHost(host: String): NettyServerConfig                      = copy(host = host)

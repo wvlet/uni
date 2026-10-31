@@ -1,8 +1,14 @@
 # HTTP server
 
-`Http.server` (`wvlet.uni.http.Http`) runs the same server code on every
-platform; on the JVM it needs `uni-netty` on the classpath. Use a platform's own
-entry point for backend-specific settings:
+`Http.server` (`wvlet.uni.http.Http`, returns `HttpServerConfig`) runs the same
+server code on every platform; on the JVM it needs `uni-netty` on the classpath.
+It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
+`withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
+options (a `ServerOptions`) from the platform's source folder or `Design`:
+`withBackend(Netty.options.withHandlerExecutorThreads(8))` (`wvlet.uni.http.netty.Netty`;
+`Native.options` on Scala Native); other backends ignore them. Port, handler,
+and size limits are set only on `Http.server`. The
+per-platform entry points:
 
 | Platform | Server | Module |
 |----------|--------|--------|

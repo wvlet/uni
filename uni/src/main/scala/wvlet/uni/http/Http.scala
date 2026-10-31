@@ -74,6 +74,6 @@ object Http:
     * Entry point for creating an HTTP server that runs unchanged on every platform. On the JVM it
     * needs uni-netty on the classpath.
     */
-  def server: PortableServerConfig = PortableServerConfig()
+  def server: HttpServerConfig = HttpServerConfig()
 
 end Http
