@@ -23,6 +23,10 @@ import wvlet.uni.rx.Rx
   * The server is built directly on POSIX TCP sockets (no external dependency): a daemon accept loop
   * dispatches each connection to a worker thread pool, where requests are parsed, run through the
   * handler, and answered with HTTP/1.1.
+  *
+  * Build apps that use it with the Boehm GC (`GC.boehm`): Scala Native 0.5.12's default Immix GC
+  * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
+  * makes the server fail requests or abort under concurrent load.
   */
 object NativeServer:
 

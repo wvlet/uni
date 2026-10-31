@@ -11,7 +11,8 @@ class in each `Main` differs. A typed client calls either one through the same t
   `RPCRouter.of[TodoApi]`. Each method becomes `POST /example.rpc.TodoApi/<method>`.
 - **Native server**: [`.native/.../Main.scala`](.native/src/main/scala/example/rpc/Main.scala)
   passes the handler to `NativeServer`, built on POSIX sockets. The binary links only OS
-  libraries: no JVM, no libcurl, no OpenSSL (see [Native build mode](#native-build-mode)).
+  libraries and the Boehm GC: no JVM, no libcurl, no OpenSSL (see
+  [Garbage collector](#garbage-collector)).
 - **JVM server**: [`.jvm/.../Main.scala`](.jvm/src/main/scala/example/rpc/Main.scala) passes the
   same handler to `NettyServer` from `uni-netty`.
 - **Typed client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.callSync`, so calls
@@ -74,6 +75,9 @@ Native uses libcurl, but dead-code elimination drops it when the binary never ma
 HTTP call. Add `-lcurl` only if the binary calls other servers through Uni's client. (This
 repository adds `-lcurl -lz` to every Native project, so the example's build filters them out.)
 
+For a server, also add `.withGC(scala.scalanative.build.GC.boehm)` (see
+[Garbage collector](#garbage-collector)).
+
 On sbt 1.x, use `%%%` instead of `%%` for the Scala Native dependencies. `NativeServer` speaks
 HTTP/1.1 without TLS; terminate TLS at a proxy or load balancer.
 
@@ -95,6 +99,25 @@ and the least memory at a smaller binary than `releaseFull` alone. Pick `release
 `LTO.full` instead when binary size matters most. Differences under 10% are within run-to-run
 noise on a laptop. Use the default `debug` mode while developing: it links fastest.
 
-Linked libraries: without LTO, the binary links only libc (`libSystem` on macOS). With LTO it also
-links the system C++ runtime (`libc++` on macOS, `libstdc++` on Linux), which ships with the OS
-and with the `distroless/cc` container base.
+Linked libraries: without LTO, the binary links only libc (`libSystem` on macOS) and libgc (see
+[Garbage collector](#garbage-collector)). With LTO it also links the system C++ runtime (`libc++`
+on macOS, `libstdc++` on Linux), which ships with the OS and with the `distroless/cc` container
+base.
+
+## Garbage collector
+
+The example builds with the Boehm GC (`GC.boehm`). Scala Native 0.5.12's own collectors, Immix (the
+default) and Commix, can free or overwrite objects that are still in use when several threads
+allocate at once
+([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
+[#5160](https://github.com/scala-native/scala-native/issues/5160)). `NativeServer` runs handlers on
+a pool of worker threads, so under concurrent load it then fails requests, sends garbled responses,
+or aborts. On Linux runners with two server cores, every Immix benchmark run failed this way. Linking
+with `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0` helped on arm64 but not on x86_64. The same runs with
+Boehm served every request.
+
+Boehm costs throughput: on the M5 Pro it served ~14k req/s against ~90k with Immix, at a p99 of
+~3 ms and ~11 MB RSS after load. The table above was measured with Immix. Boehm needs `libgc` to
+build and run: `apt-get install libgc-dev` (Debian/Ubuntu) or `brew install bdw-gc` (macOS). The
+container image copies `libgc.so.1` next to the binary. Revisit Immix once a Scala Native release
+fixes the bug.

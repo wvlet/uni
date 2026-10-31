@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Build both servers for bench.py into bench/out:
 #   out/rpc-native       the Scala Native binary
+#   out/libgc.so.1       the Boehm GC library it links (Linux only, for the container)
 #   out/lib/*.jar        the JVM server's runtime classpath (also the JVM container's contents)
 #   out/jvm.cp           that classpath, for `java -cp`
 #   out/native-mode.txt  the Native build mode and LTO setting
@@ -25,10 +26,19 @@ if [[ -z "${binary}" ]]; then
   exit 1
 fi
 cp "${binary}" "${OUT}/rpc-native"
+# The example links the Boehm GC (libgc); copy the library the binary resolves to for the container
+if command -v ldd > /dev/null; then
+  libgc="$(ldd "${OUT}/rpc-native" | awk '/libgc\.so/ {print $3}')"
+  if [[ -z "${libgc}" ]]; then
+    echo "ERROR: ${OUT}/rpc-native does not resolve libgc; install libgc-dev" >&2
+    exit 1
+  fi
+  cp -L "${libgc}" "${OUT}/libgc.so.1"
+fi
 
 (cd "${OUT}/lib" && ls *.jar | sed "s|^|${OUT}/lib/|" | paste -sd: -) > "${OUT}/jvm.cp"
 
-# e.g. "mode: release-full, LTO: full, GC: immix"
+# e.g. "mode: release-full, LTO: full, GC: boehm"
 printf '%s\n' "${log}" | { grep -E '^ - (mode|LTO|GC):' || true; } | sed -E 's/^ - //; s/:[[:space:]]+/: /' \
   | sort -r | paste -sd, - | sed 's/,/, /g' > "${OUT}/native-mode.txt"
 
