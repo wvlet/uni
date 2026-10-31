@@ -73,7 +73,8 @@ lazy val app = crossProject(JVMPlatform, NativePlatform)
 A server-only binary needs no linker flags: don't add `-lcurl`. Uni's HTTP *client* on Scala
 Native uses libcurl, but dead-code elimination drops it when the binary never makes an outgoing
 HTTP call. When it does (the example's Native test calls the server through the typed client),
-Scala Native links libcurl on its own; libcurl just has to be installed. (This repository adds `-lcurl -lz` to every Native project, so the example's build filters them out.)
+Scala Native links libcurl on its own; libcurl just has to be installed. (This repository adds
+`-lcurl -lz` to every Native project, so the example's build filters them out.)
 
 For a server, also add `.withGC(scala.scalanative.build.GC.boehm)` (see
 [Garbage collector](#garbage-collector)).

@@ -45,6 +45,11 @@ object Http:
     */
   def webSocketClient: WebSocketClient = defaultChannelFactory.newWebSocketClient
 
+  // Set by setDefaultChannelFactory. @volatile so writes are visible across threads on the JVM
+  // (no-op on Scala.js / Native)
+  @volatile
+  private var customChannelFactory: Option[HttpChannelFactory] = None
+
   /**
     * Default HTTP channel factory: the one set by `setDefaultChannelFactory`, or else the
     * platform-specific `HttpCompat.defaultHttpChannelFactory`, so cross-platform callers can use
@@ -53,13 +58,7 @@ object Http:
     * Resolved on first use rather than when `Http` initializes, so a server-only program that calls
     * `Http.server` doesn't load the client: on Scala Native, that would initialize and link
     * libcurl.
-    *
-    * `@volatile` so `setDefaultChannelFactory` writes are visible across threads on the JVM. No-op
-    * on Scala.js / Native.
     */
-  @volatile
-  private var customChannelFactory: Option[HttpChannelFactory] = None
-
   private[http] def defaultChannelFactory: HttpChannelFactory = customChannelFactory.getOrElse(
     HttpCompat.defaultHttpChannelFactory
   )
