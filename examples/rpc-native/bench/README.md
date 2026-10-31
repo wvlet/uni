@@ -55,7 +55,8 @@ python3 examples/rpc-native/bench/bench.py --soak 10m --sample 15s   # per targe
   cover only the 16 connections that hold a worker.
 - `--soak` holds load as back-to-back `--sample` runs and reads RSS after each one. It prints the
   RSS time series per target and a verdict: "levels off" when the second half's peak is within
-  1 MB or 5% of the last first-half reading, "still growing" otherwise.
+  1 MB or 5% of the last first-half reading, "still growing" otherwise. The verdict also says
+  when requests failed or the server exited, since RSS then doesn't reflect sustained load.
 
 ## Run on GitHub Actions
 

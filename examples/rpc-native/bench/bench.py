@@ -285,13 +285,16 @@ def soak_verdict(samples):
     first half. The idle reading at t=0 is left out, so a short soak is not judged on warm-up."""
     rss = [s["rss_mb"] for s in samples if "rps" in s and s["rss_mb"] is not None]
     first, second = rss[:len(rss) // 2], rss[len(rss) // 2:]
+    if samples[-1]["rss_mb"] is None:
+        return {"verdict": f"server exited after ~{samples[-1]['t_s']:.0f}s"}
     if not first:
-        return {"verdict": "not enough samples (the server exited or the soak was too short)"}
+        return {"verdict": "not enough samples (the soak was too short)"}
     growth = max(second) - first[-1]
     # Allow 1 MB or 5% of noise: allocator arenas and GC cycles move RSS a little even when flat
     flat = growth <= max(1.0, first[-1] * 0.05)
     return {"peak_rss_mb": max(rss), "last_half_growth_mb": growth,
-            "verdict": "levels off" if flat else "still growing"}
+            "verdict": ("levels off" if flat else "still growing")
+            + (", but requests failed" if any(s.get("errors") for s in samples) else "")}
 
 
 def load_line(tool):
