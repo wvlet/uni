@@ -55,6 +55,9 @@ jobs:
             https://github.com/hatoo/oha/releases/download/v1.16.0/${{ matrix.oha }} \
             && chmod +x "${HOME}/.local/bin/oha" && "${HOME}/.local/bin/oha" --version \
             || (rm -f "${HOME}/.local/bin/oha" && sudo apt-get update && sudo apt-get install -y wrk)
+      - name: Install libgc
+        # The example links the Boehm GC
+        run: sudo apt-get update && sudo apt-get install -y libgc-dev
       - name: Build the native binary and the JVM classpath
         run: examples/rpc-native/bench/build.sh
       - name: Build the container images

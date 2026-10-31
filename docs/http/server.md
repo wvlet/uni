@@ -112,13 +112,13 @@ NodeServer
 ```
 :::
 
-::: warning Scala Native release builds
-Link release builds of a `NativeServer` app with `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0` in
-sbt's environment (`SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 ./sbt nativeLink`). Scala Native
-0.5.12's default trap-based GC yieldpoints can free or overwrite live objects when several threads
-run at once ([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
-[#5160](https://github.com/scala-native/scala-native/issues/5160)), and the server then fails
-requests or aborts under concurrent load. Debug builds are not affected.
+::: warning Use the Boehm GC for NativeServer
+Build a `NativeServer` app with `nativeConfig ~= (_.withGC(scala.scalanative.build.GC.boehm))`,
+and install `libgc` (`libgc-dev` on Debian/Ubuntu, `bdw-gc` on Homebrew). Scala Native 0.5.12's
+default collector, Immix, can free or overwrite live objects when several threads allocate at once
+([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
+[#5160](https://github.com/scala-native/scala-native/issues/5160)). The server runs handlers on
+worker threads, so under concurrent load it then fails requests or aborts.
 :::
 
 The rest of this page uses `NettyServer` and the JVM annotation router, which is

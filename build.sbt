@@ -330,45 +330,31 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
       // throughput with the least memory, at a smaller binary than releaseFull alone
       c.withMode(scala.scalanative.build.Mode.releaseFull)
         .withLTO(scala.scalanative.build.LTO.full)
+        // Boehm GC: Scala Native 0.5.12's own GCs (immix, commix) corrupt live objects when
+        // several worker threads allocate at once (scala-native#5046, #5160), and NativeServer
+        // then fails requests or aborts under concurrent load
+        .withGC(scala.scalanative.build.GC.boehm)
         // nativeBuildSettings links libcurl and zlib for every Native project in this repo. A
         // server-only binary needs neither: dead-code elimination drops the HTTP client, so leave
         // them out to build what a user's own project gets.
         .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl", "-lz")))
-    },
-    // Scala Native 0.5.12's trap-based GC yieldpoints (the release-mode default) corrupt live
-    // objects under multithreaded load (scala-native#5046, #5160), so NativeServer fails under
-    // concurrent requests. Scala Native reads the switch from sbt's environment at link time.
-    // dependsOn runs the check before the (minutes-long) link rather than after it.
-    Compile / nativeLink := Def.uncached {
-      (Compile / nativeLink)
-        .dependsOn(Def.task {
-          Def.uncached {
-            if nativeConfig.value.mode != scala.scalanative.build.Mode.debug &&
-              !sys.env.get("SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS").contains("0")
-            then
-              sys.error(
-                "Link the rpc-native example with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 in " +
-                  "sbt's environment; see examples/rpc-native/README.md"
-              )
-          }
-        })
-        .value
     },
     // The test is JVM-only (.jvm/src/test). CI links and calls the binary instead.
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
   )
   .jvmSettings(
     // For bench/build.sh: copy the runtime classpath (jars) to bench/out/lib
-    stageBenchJars := Def.uncached {
-      val converter = fileConverter.value
-      val dir       = baseDirectory.value.getParentFile / "bench" / "out" / "lib"
-      IO.delete(dir)
-      (Runtime / fullClasspath)
-        .value
-        .map(a => converter.toPath(a.data).toFile)
-        .foreach(jar => IO.copyFile(jar, dir / jar.getName))
-      dir
-    }
+    stageBenchJars :=
+      Def.uncached {
+        val converter = fileConverter.value
+        val dir       = baseDirectory.value.getParentFile / "bench" / "out" / "lib"
+        IO.delete(dir)
+        (Runtime / fullClasspath)
+          .value
+          .map(a => converter.toPath(a.data).toFile)
+          .foreach(jar => IO.copyFile(jar, dir / jar.getName))
+        dir
+      }
   )
   .jvmConfigure(_.dependsOn(netty))
   .dependsOn(uni, test % Test)
