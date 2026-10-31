@@ -1,0 +1,4 @@
+FROM eclipse-temurin:25-jre
+COPY out/lib/ /app/lib/
+EXPOSE 8080
+ENTRYPOINT ["java", "-cp", "/app/lib/*", "example.rpc.Main", "8080", "0.0.0.0"]

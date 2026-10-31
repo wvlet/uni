@@ -8,13 +8,14 @@ template you can copy: one or two Scala files, a README that explains what it sh
 |---------|-----------|-------|
 | [`cli-tool`](cli-tool/) | JVM, Scala Native | `Launcher` sub-commands and options, `LogSupport`, `derives Weaver` JSON decoding, the HTTP client, a native binary via `nativeLink` |
 | [`rest-server`](rest-server/) | JVM | `NettyServer` with `Router` REST endpoints and an `RPCRouter` service, a typed RPC client, `Design` wiring, and a UniTest suite that starts the server |
+| [`rpc-native`](rpc-native/) | JVM, Scala Native | One `TodoApi` trait served by `NativeServer` as a native binary (no JVM) and by `NettyServer`, a typed client, a UniTest suite, and a reproducible [benchmark](rpc-native/bench/) |
 | [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
 | [`web-ui`](web-ui/) | Scala.js | A todo list with `RxElement`, `Rx.variable`, and two-way form binding, loaded by a static `index.html` |
 | [`electron-app`](electron-app/) | Scala.js | A desktop app that calls the main process over Electron IPC with Uni RPC (standalone build) |
 
 ## Run them from this repository
 
-The first four are projects in the root `build.sbt`, so CI compiles and tests them against the
+The first five are projects in the root `build.sbt`, so CI compiles and tests them against the
 current source and they never go stale. They are not published.
 
 ```bash
@@ -22,6 +23,8 @@ current source and they never go stale. They are not published.
 ./sbt exampleCliNative/nativeLink             # CLI tool as a native binary
 ./sbt exampleRestServer/run                   # REST + RPC server on http://localhost:8080
 ./sbt exampleRestServer/test                  # starts the server on a free port and calls it
+./sbt exampleRpcNativeNative/nativeLink       # typed RPC server as a native binary
+./sbt exampleRpcNativeJVM/test                # the same server on Netty, called by the typed client
 ./sbt --error exampleMcpServer/run            # stdio MCP server (speaks JSON-RPC on stdin/stdout)
 ./sbt exampleWebUi/fastLinkJS                 # builds examples/web-ui/target/js/main.js
 ```

@@ -1,0 +1,6 @@
+# The native server needs only libc (and libgcc/libstdc++ for unwinding), which distroless/cc
+# provides. Debian 13's glibc is newer than the Ubuntu 24.04 build machine's, so the binary runs.
+FROM gcr.io/distroless/cc-debian13:nonroot
+COPY out/rpc-native /rpc-native
+EXPOSE 8080
+ENTRYPOINT ["/rpc-native", "8080", "0.0.0.0"]

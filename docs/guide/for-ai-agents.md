@@ -162,6 +162,7 @@ Copy one as a template:
 |---------|-------|
 | [`cli-tool`](https://github.com/wvlet/uni/tree/main/examples/cli-tool) | `Launcher` sub-commands, `LogSupport`, `derives Weaver`, the HTTP client, and a Scala Native binary |
 | [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `NettyServer` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
+| [`rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native) | One RPC trait served by `NativeServer` (Scala Native, no JVM) and `NettyServer`, a typed client, and a startup/memory/throughput benchmark |
 | [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCP.server.withTools[...]` and how to add it to Claude Code |
 | [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |
 
