@@ -140,12 +140,13 @@ turns input bytes into `Key` events.
 
 | Platform | Raw mode and window size |
 |----------|--------------------------|
-| JVM | libc `termios` through the Foreign Function & Memory API; needs Java 22 or later |
+| JVM (Java 22+) | libc `termios` through the Foreign Function & Memory API |
+| JVM (Java 17–21) | the `stty` command on `/dev/tty`, run as a subprocess |
 | Scala Native | libc `termios` through a small C shim bundled with uni |
 | Scala.js | Node.js `process.stdin.setRawMode`; not available in browsers |
 
-When stdin or stdout is not a terminal (a pipe, a file, CI), on Windows, or on a JVM older than 22,
-input is read line by line without editing, and nothing is drawn.
+When stdin or stdout is not a terminal (a pipe, a file, CI), on Windows, or when neither FFM nor
+`stty` is usable, input is read line by line without editing, and nothing is drawn.
 
 On Java 24 and later, run the JVM with `--enable-native-access=ALL-UNNAMED` to turn off the warning
 the JVM prints on the first native call.
