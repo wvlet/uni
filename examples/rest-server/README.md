@@ -10,7 +10,7 @@ typed RPC service, a typed client, and a test that starts the server and calls i
   class results encoded as JSON, and an explicit `Response.notFound` for a missing id.
 - **RPC with `RPCRouter`**: the `TodoApi` trait becomes `POST /example.rest.TodoApi/<method>`
   endpoints. `Option` and `Seq` results are encoded with Weaver.
-- **Typed RPC client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.callSync`, which
+- **Typed RPC client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.of[TodoApi].newSyncClient(http)`, which
   is what sbt-uni's `uniHttpClients` code generator produces. Callers get compile-checked calls.
 - **One server, two handlers**: `Http.server.withRxHandler` sends RPC paths to `RPCHandler` and
   everything else to `RouterHandler`.

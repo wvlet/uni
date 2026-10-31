@@ -98,7 +98,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), Node.js on Scala.js, native sockets on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
 | REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | `Http.server.withRxHandler(RouterHandler(Router.of[Controller]))`. See [REST Server](../http/server) |
-| Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api]`. See [RPC](../http/rpc) |
+| Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api].newSyncClient(http).call[A]("method", args*)` (or `newAsyncClient` for `Rx[A]`). See [RPC](../http/rpc) |
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
 | WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`. See [WebSocket](../http/websocket) |
 | OpenAPI | `wvlet.uni.http.openapi.{OpenAPI, OpenAPIConfig}` | `OpenAPI.of(Router.of[A], OpenAPIConfig()).toYAML`. See [OpenAPI](../http/openapi) |

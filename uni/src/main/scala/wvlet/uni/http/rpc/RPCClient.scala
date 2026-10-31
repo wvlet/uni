@@ -24,17 +24,26 @@ import wvlet.uni.weaver.Weaver
   * RPC client that dispatches method calls via HTTP using the same path/envelope convention as
   * RPCRouter. This is the client-side mirror of RPCRouter.
   *
-  * Usage in generated code:
+  * An RPCClient holds only the method codecs of a service, so one instance can be shared by any
+  * number of HTTP clients. Bind it to an HTTP client with [[newSyncClient]] or [[newAsyncClient]]
+  * to make calls without passing the HTTP client every time:
   * {{{
-  * object UserServiceClient:
-  *   private val rpcClient = RPCClient.of[UserService]
-  *
-  *   class SyncClient(client: HttpSyncClient):
-  *     def getUser(id: Long): User =
-  *       rpcClient.callSync(client, "getUser", Seq(id))
+  * class UserServiceClient(http: HttpSyncClient) extends UserService:
+  *   private val rpc = RPCClient.of[UserService].newSyncClient(http)
+  *   def getUser(id: Long): User = rpc.call("getUser", id)
   * }}}
   */
 class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
+
+  /**
+    * Bind this RPC client to a synchronous HTTP client.
+    */
+  def newSyncClient(client: HttpSyncClient): RPCSyncClient = RPCSyncClient(this, client)
+
+  /**
+    * Bind this RPC client to an asynchronous HTTP client.
+    */
+  def newAsyncClient(client: HttpAsyncClient): RPCAsyncClient = RPCAsyncClient(this, client)
 
   /**
     * Make a synchronous RPC call.
@@ -91,6 +100,35 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
       codec.returnWeaver.asInstanceOf[Weaver[Any]].fromJson(json)
 
 end RPCClient
+
+/**
+  * An [[RPCClient]] bound to a synchronous HTTP client. Create one with
+  * `RPCClient.of[A].newSyncClient(http)`.
+  */
+class RPCSyncClient(val rpcClient: RPCClient, val httpClient: HttpSyncClient):
+  /**
+    * Call an RPC method with its arguments in declaration order, and return the decoded result.
+    */
+  def call[A](methodName: String, args: Any*): A = rpcClient.callSync[A](
+    httpClient,
+    methodName,
+    args
+  )
+
+/**
+  * An [[RPCClient]] bound to an asynchronous HTTP client. Create one with
+  * `RPCClient.of[A].newAsyncClient(http)`.
+  */
+class RPCAsyncClient(val rpcClient: RPCClient, val httpClient: HttpAsyncClient):
+  /**
+    * Call an RPC method with its arguments in declaration order, and return the decoded result as
+    * an Rx.
+    */
+  def call[A](methodName: String, args: Any*): Rx[A] = rpcClient.callAsync[A](
+    httpClient,
+    methodName,
+    args
+  )
 
 object RPCClient:
 

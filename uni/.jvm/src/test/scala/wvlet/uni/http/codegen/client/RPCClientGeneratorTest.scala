@@ -69,11 +69,12 @@ class RPCClientGeneratorTest extends UniTest:
     // RPCClient.of extracts the method metadata inline
     source shouldContain "private val rpc = RPCClient.of[com.example.api.UserService]"
 
-    // Methods delegate to rpc.callSync
+    // The client binds the HTTP client once, and methods delegate to it
+    source shouldContain "private val rpcClient = rpc.newSyncClient(client)"
     source shouldContain "def getUser(id: Long): com.example.model.User"
-    source shouldContain """rpc.callSync[com.example.model.User](client, "getUser", Seq(id))"""
+    source shouldContain """rpcClient.call[com.example.model.User]("getUser", id)"""
     source shouldContain "def createUser(name: String, email: String): com.example.model.User"
-    source shouldContain """Seq(name, email)"""
+    source shouldContain """("createUser", name, email)"""
     source shouldContain "def deleteUser(id: Long): Unit"
   }
 
@@ -87,7 +88,8 @@ class RPCClientGeneratorTest extends UniTest:
 
     source shouldContain "class AsyncClient(client: HttpAsyncClient):"
     source shouldContain "def getUser(id: Long): Rx[com.example.model.User]"
-    source shouldContain """rpc.callAsync[com.example.model.User](client, "getUser", Seq(id))"""
+    source shouldContain "private val rpcClient = rpc.newAsyncClient(client)"
+    source shouldContain """rpcClient.call[com.example.model.User]("getUser", id)"""
     source shouldContain "def deleteUser(id: Long): Rx[Unit]"
     (source.contains("class SyncClient")) shouldBe false
   }
@@ -123,7 +125,7 @@ class RPCClientGeneratorTest extends UniTest:
     val source = RPCClientGenerator.generate(service, config)
 
     source shouldContain "def ping: String"
-    source shouldContain "Seq.empty"
+    source shouldContain """rpcClient.call[String]("ping")"""
   }
 
   test("use default target package from API class") {

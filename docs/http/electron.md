@@ -136,13 +136,13 @@ import wvlet.uni.http.rpc.RPCClient
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 object RendererApp:
-  private val rpc    = RPCClient.of[CounterApi]
-  private lazy val client = Http.client.newAsyncClient
+  // Lazy: the HTTP client must be created after install() sets the channel factory
+  private lazy val rpc = RPCClient.of[CounterApi].newAsyncClient(Http.client.newAsyncClient)
 
   @JSExportTopLevel("main")
   def main(): Unit =
     ElectronRenderer.install() // wires window.uniRPC as the HTTP channel factory
-    rpc.callAsync[CounterState](client, "increment", Seq(1)).run { state =>
+    rpc.call[CounterState]("increment", 1).run { state =>
       println(s"counter = ${state.value}")
     }
 ```

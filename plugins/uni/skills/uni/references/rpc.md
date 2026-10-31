@@ -29,6 +29,9 @@ trait UserService:
 
 Rules:
 - No overloaded method names; `RPCRouter.of` rejects them.
+- Pass the trait as the type argument: `RPCRouter.of[UserService](impl)`. It sets
+  the route prefix (`/<trait FQCN>/<method>`); an inferred impl type gives other
+  paths than `RPCClient.of[UserService]` calls, so every call returns 404.
 - Annotate in-process helpers with `@rpcIgnore` (`wvlet.uni.http.rpc.rpcIgnore`)
   to keep them out of the endpoints.
 - Methods inherited from `LogSupport`, `scala.*`, or `java.*` are never exposed.
@@ -147,16 +150,17 @@ catch
 ## Without codegen
 
 In a single-module project, write the client by hand with `RPCClient`, which is
-what the generator emits:
+what the generator emits. `newSyncClient(http)` (or `newAsyncClient`) binds the
+HTTP client once, and `call` takes the method name and its arguments in order:
 
 ```scala
 import wvlet.uni.http.{Http, HttpSyncClient}
 import wvlet.uni.http.rpc.RPCClient
 
 class UserServiceClient(http: HttpSyncClient) extends UserService:
-  private val rpc = RPCClient.of[UserService]
-  def getUser(id: Long): User           = rpc.callSync(http, "getUser", Seq(id))
-  def createUser(name: String): User    = rpc.callSync(http, "createUser", Seq(name))
-  def listUsers(limit: Int): Seq[User]  = rpc.callSync(http, "listUsers", Seq(limit))
+  private val rpc = RPCClient.of[UserService].newSyncClient(http)
+  def getUser(id: Long): User           = rpc.call("getUser", id)
+  def createUser(name: String): User    = rpc.call("createUser", name)
+  def listUsers(limit: Int): Seq[User]  = rpc.call("listUsers", limit)
   def findUserAsync(id: Long): Rx[User] = Rx.single(getUser(id))
 ```
