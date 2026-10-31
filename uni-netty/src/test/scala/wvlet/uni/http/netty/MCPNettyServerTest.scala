@@ -48,7 +48,7 @@ class MCPNettyServerTest extends UniTest:
     .withTools[GreeterService](GreeterServiceImpl())
 
   test("serve an MCP session over HTTP") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(mcp.httpHandler)

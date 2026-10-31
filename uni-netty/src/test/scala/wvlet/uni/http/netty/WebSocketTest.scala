@@ -125,7 +125,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("echo text messages") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/echo") { _ =>
@@ -148,7 +148,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("echo binary messages") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/bin") { _ =>
@@ -169,7 +169,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("server can push messages on open") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/push") { _ =>
@@ -187,7 +187,7 @@ class WebSocketTest extends UniTest:
   test("onOpen and onClose lifecycle callbacks fire") {
     val opened = CountDownLatch(1)
     val closed = CountDownLatch(1)
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/life") { _ =>
@@ -205,7 +205,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("fragmented text messages are aggregated") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/frag") { _ =>
@@ -233,7 +233,7 @@ class WebSocketTest extends UniTest:
     val denyFilter = RxHttpFilter { (_, _) =>
       Rx.single(Response.forbidden)
     }
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/secure", denyFilter) { _ =>
@@ -250,7 +250,7 @@ class WebSocketTest extends UniTest:
     val emptyFilter = RxHttpFilter { (_, _) =>
       Rx.empty
     }
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/empty", emptyFilter) { _ =>
@@ -269,7 +269,7 @@ class WebSocketTest extends UniTest:
     val authFilter = RxHttpFilter { (request, next) =>
       next.handle(request.addHeader("X-User", "alice"))
     }
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/auth", authFilter) { _ =>
@@ -287,7 +287,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("WebSocket works with a handler executor thread pool") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandlerExecutorThreads(4)
@@ -309,7 +309,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("normal HTTP routes work alongside WebSocket routes") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
@@ -348,7 +348,7 @@ class WebSocketTest extends UniTest:
   }
 
   test("heartbeat keeps an idle connection alive via ping/pong") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketPingIntervalMillis(150)

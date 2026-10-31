@@ -31,7 +31,7 @@ class NodeServerTest extends UniTest:
     Http.client.withBaseUri(s"http://localhost:${server.localPort}").newAsyncClient
 
   test("should handle a GET request") {
-    NodeServer
+    NodeServerConfig()
       .withHandler { request =>
         Response.ok(s"Hello from ${request.path}")
       }
@@ -47,7 +47,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should handle a POST request with a body") {
-    NodeServer
+    NodeServerConfig()
       .withHandler { request =>
         Response.ok(s"Received: ${request.content.toContentString}")
       }
@@ -76,7 +76,7 @@ class NodeServerTest extends UniTest:
       }
 
   test("should reject a request body over maxContentLength with 413") {
-    val config = NodeServer
+    val config = NodeServerConfig()
       .withHandler { request =>
         Response.ok(s"Received: ${request.content.toContentString}")
       }
@@ -100,7 +100,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should hide exception messages in 500 responses") {
-    val config = NodeServer
+    val config = NodeServerConfig()
       .withHandler { _ =>
         throw IllegalStateException("password=hunter2")
       }
@@ -114,7 +114,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should round-trip request and response headers") {
-    NodeServer
+    NodeServerConfig()
       .withHandler { request =>
         val echoed = request.header("X-Echo").getOrElse("none")
         Response.ok("ok").addHeader("X-Echoed", echoed)
@@ -131,7 +131,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should return 404 from the default handler") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .startAndAwait { server =>
         statusAndBody(server, Request.get("/missing")).map { (status, _) =>
@@ -141,7 +141,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should report a bound ephemeral port once ready") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .startAndAwait { server =>
         import wvlet.uni.rx.Rx
@@ -155,7 +155,7 @@ class NodeServerTest extends UniTest:
   test("should reject the synchronous start(block) on Node") {
     // Node binds asynchronously, so the sync block form would run before the server is listening.
     intercept[UnsupportedOperationException] {
-      NodeServer
+      NodeServerConfig()
         .withPort(0)
         .start { _ =>
           ()
@@ -164,7 +164,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should answer an asynchronous handler with its value, not 404") {
-    NodeServer
+    NodeServerConfig()
       .withRxHandler { _ =>
         // Rx.future used to report a spurious completion while pending, which the server
         // answered with 404 before the handler's value arrived
@@ -186,7 +186,7 @@ class NodeServerTest extends UniTest:
     import scala.concurrent.Promise
 
     val events = Seq(ServerSentEvent.data("hello"), ServerSentEvent.data("world"))
-    NodeServer
+    NodeServerConfig()
       .withRxHandler { _ =>
         Rx.single(Response.eventStream(Rx.fromSeq(events)))
       }

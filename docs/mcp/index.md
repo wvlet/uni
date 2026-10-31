@@ -188,14 +188,14 @@ val mcp = MCP.server
   .withTools[WeatherService](WeatherServiceImpl())
 
 // JVM (uni-netty)
-NettyServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 // Scala.js (Node.js)
-NodeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 // Scala Native
-NativeServer.withPort(8080).withRxHandler(mcp.httpHandler).start()
+Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
-On the JVM, `NettyServer` lives in the `uni-netty` module — add it to your
+On the JVM, `Http.server` uses Netty from the `uni-netty` module — add it to your
 build (Scala.js and Scala Native servers are included in `uni` itself):
 
 ```scala

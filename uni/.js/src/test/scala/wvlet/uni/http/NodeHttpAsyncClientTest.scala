@@ -26,7 +26,7 @@ class NodeHttpAsyncClientTest extends UniTest:
 
   private def withServer[A](body: (String, () => Int) => Rx[A]): Rx[A] =
     var hits = 0
-    NodeServer
+    NodeServerConfig()
       .withHandler { req =>
         hits += 1
         req.path match

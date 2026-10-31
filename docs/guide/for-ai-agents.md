@@ -96,8 +96,8 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [SettingStore](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), NodeServer on Scala.js, NativeServer on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
-| HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), Node.js on Scala.js, native sockets on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
+| REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | `Http.server.withRxHandler(RouterHandler(Router.of[Controller]))`. See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api]`. See [RPC](../http/rpc) |
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
 | WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`. See [WebSocket](../http/websocket) |
@@ -162,7 +162,7 @@ Copy one as a template:
 | Example | Shows |
 |---------|-------|
 | [`cli-tool`](https://github.com/wvlet/uni/tree/main/examples/cli-tool) | `Launcher` sub-commands, `LogSupport`, `derives Weaver`, the HTTP client, and a Scala Native binary |
-| [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `NettyServer` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
+| [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `Http.server` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
 | [`rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native) | One RPC server built with `Http.server` and `Design`, the same code on the JVM (Netty) and as a Scala Native binary (no JVM), a typed client, a UniTest suite run on both, and a startup/memory/throughput benchmark |
 | [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCP.server.withTools[...]` and how to add it to Claude Code |
 | [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |

@@ -2,7 +2,8 @@ package example.rest
 
 import wvlet.uni.design.Design
 import wvlet.uni.http.{HttpMethod, HttpServer, HttpSyncClient, Request, Response}
-import wvlet.uni.http.netty.{NettyServer, RPCHandler, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.{RPCHandler, RouterHandler}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.log.LogSupport
@@ -79,7 +80,8 @@ class TodoServer(config: ServerConfig, controller: TodoController, api: TodoApi)
   private var server: Option[HttpServer] = None
 
   def start(): Unit =
-    val s = NettyServer
+    val s = Http
+      .server
       .withPort(config.port)
       .withRxHandler { (request: Request) =>
         if request.path.startsWith(rpcPrefix) then

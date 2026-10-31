@@ -4,7 +4,8 @@ package wvlet.uni.book
 
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.http.rpc.RPCRouter
-import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RPCHandler
 
 object Ch10Rpc:
   case class User(id: Long, name: String, email: String) derives Weaver
@@ -19,4 +20,4 @@ object Ch10Rpc:
 
   def serverConfig =
     val router = RPCRouter.of[UserService](UserServiceImpl())
-    NettyServer.withPort(8080).withRxHandler(RPCHandler(router))
+    Http.server.withPort(8080).withRxHandler(RPCHandler(router))

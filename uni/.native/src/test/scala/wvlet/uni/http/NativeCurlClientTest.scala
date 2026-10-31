@@ -28,7 +28,7 @@ class NativeCurlClientTest extends UniTest:
     Http.client.withBaseUri(s"http://127.0.0.1:${server.localPort}").newSyncClient
 
   test("curl client performs a loopback GET") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(req => Response.ok(s"Hello from ${req.path}"))
       .withPort(0)
       .start { server =>
@@ -39,7 +39,7 @@ class NativeCurlClientTest extends UniTest:
   }
 
   test("curl client sends a POST body") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(req => Response.ok(s"Received: ${req.content.toContentString}"))
       .withPort(0)
       .start { server =>
@@ -52,7 +52,7 @@ class NativeCurlClientTest extends UniTest:
   }
 
   test("curl client round-trips request and response headers") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(req =>
         Response.ok("ok").addHeader("X-Echoed", req.header("X-Echo").getOrElse("none"))
       )
@@ -65,7 +65,7 @@ class NativeCurlClientTest extends UniTest:
   }
 
   // Gzips the body only when the request's Accept-Encoding allows it, like a real server
-  private def gzipServer = NativeServer
+  private def gzipServer = NativeServerConfig()
     .withHandler { req =>
       val body = s"Hello from ${req.path}"
       if req.header(HttpHeader.AcceptEncoding).exists(_.contains("gzip")) then

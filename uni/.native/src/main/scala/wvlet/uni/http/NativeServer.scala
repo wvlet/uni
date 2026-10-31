@@ -16,9 +16,8 @@ package wvlet.uni.http
 import wvlet.uni.rx.Rx
 
 /**
-  * Entry point for creating a Scala Native HTTP server. This is the Native counterpart of
-  * `NettyServer` (JVM) and `NodeServer` (JS); all three produce an [[HttpServer]] from a shared
-  * [[HttpServerConfigBase]], so handler and filter code is identical across platforms.
+  * Entry point for creating a Scala Native HTTP server. Deprecated: `Http.server` starts this
+  * server on Scala Native, and `withBackend(Native.options...)` sets Native-only options.
   *
   * The server is built directly on POSIX TCP sockets (no external dependency): a daemon accept loop
   * dispatches each connection to a worker thread pool, where requests are parsed, run through the
@@ -28,6 +27,10 @@ import wvlet.uni.rx.Rx
   * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
   * makes the server fail requests or abort under concurrent load.
   */
+@deprecated(
+  "Use Http.server; set Native-only options with withBackend(Native.options...)",
+  "2026.1.39"
+)
 object NativeServer:
 
   def withPort(port: Int): NativeServerConfig = NativeServerConfig().withPort(port)

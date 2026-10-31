@@ -46,7 +46,7 @@ class WebSocketClientTest extends UniTest:
     ref.get()
 
   test("WebSocketClient connects and exchanges text messages") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/echo") { _ =>
@@ -72,7 +72,7 @@ class WebSocketClientTest extends UniTest:
   }
 
   test("WebSocketClient receives a server push on open") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/push") { _ =>
@@ -93,7 +93,7 @@ class WebSocketClientTest extends UniTest:
   }
 
   test("WebSocketClient fires onClose when the connection ends") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/life") { _ =>
@@ -111,7 +111,7 @@ class WebSocketClientTest extends UniTest:
   }
 
   test("client heartbeat keeps an idle connection alive via ping/pong") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws/idle") { _ =>

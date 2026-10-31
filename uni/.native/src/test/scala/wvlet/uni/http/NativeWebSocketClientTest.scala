@@ -45,7 +45,7 @@ class NativeWebSocketClientTest extends UniTest:
     ref.get()
 
   test("Native WebSocket client echoes text messages") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
@@ -70,7 +70,7 @@ class NativeWebSocketClientTest extends UniTest:
   }
 
   test("Native WebSocket client receives a server push on open") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
@@ -90,7 +90,7 @@ class NativeWebSocketClientTest extends UniTest:
   }
 
   test("server heartbeat keeps an idle connection alive via ping/pong") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketPingIntervalMillis(150)
       .withWebSocketRoute("/ws/idle") { _ =>
@@ -111,7 +111,7 @@ class NativeWebSocketClientTest extends UniTest:
   }
 
   test("Native WebSocket client fires onClose when the connection ends") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler {}

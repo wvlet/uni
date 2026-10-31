@@ -75,11 +75,13 @@ so it is built and torn down with everything else:
 
 ```scala
 import wvlet.uni.http.rpc.RPCRouter
-import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RPCHandler
 
 appDesign.build[BookmarkServiceImpl] { service =>
   val router = RPCRouter.of[BookmarkService](service)
-  NettyServer
+  Http
+    .server
     .withPort(8080)
     .withRxHandler(RPCHandler(router))
     .start { server =>

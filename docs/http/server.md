@@ -26,7 +26,8 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.http.netty.{NettyServer, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 
 // Define a controller
 class UserController:
@@ -40,7 +41,8 @@ class UserController:
 val router = Router.of[UserController]
 val handler = RouterHandler(router)
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler(handler)
   .start { server =>
@@ -54,11 +56,11 @@ NettyServer
 `Http.server` starts the same server code on every platform. It picks the
 platform's backend, and each returns an [`HttpServer`](#server-lifecycle):
 
-| Platform | Backend for `Http.server` | Own entry point (backend tuning) |
+| Platform | Backend for `Http.server` | Backend-only options |
 |----------|---------------------------|----------------------------------|
-| **JVM** | Netty (add the `uni-netty` module) | `wvlet.uni.http.netty.NettyServer` |
-| **Scala.js** | Node.js `http` | `wvlet.uni.http.NodeServer` |
-| **Scala Native** | native sockets | `wvlet.uni.http.NativeServer` |
+| **JVM** | Netty (add the `uni-netty` module) | `Netty.options` (`wvlet.uni.http.netty.Netty`) |
+| **Scala.js** | Node.js `http` | — (all settings are shared) |
+| **Scala Native** | native sockets | `Native.options` (`wvlet.uni.http.Native`) |
 
 A server that compiles and runs identically on every platform:
 
@@ -77,7 +79,7 @@ Http
   }
 ```
 
-`Http.server` and the per-platform entry points share these builder methods:
+`Http.server` takes these builder methods on every platform:
 
 ```scala
 .withPort(8080)                       // 0 picks a random free port
@@ -137,9 +139,6 @@ val platformDesign = Design
   .bindInstance[ServerOptions](Native.options.withWorkerThreads(32))
 ```
 
-You can also use `NettyServer`, `NodeServer`, or `NativeServer` directly: they
-take the same builder calls plus their own.
-
 ::: warning JVM-only features
 The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
 [server-side WebSocket](#websocket), and the Netty tuning knobs
@@ -163,8 +162,8 @@ Http
 ```
 :::
 
-::: warning Use the Boehm GC for NativeServer
-Build a `NativeServer` app with `nativeConfig ~= (_.withGC(scala.scalanative.build.GC.boehm))`,
+::: warning Use the Boehm GC on Scala Native
+Build a Scala Native server app with `nativeConfig ~= (_.withGC(scala.scalanative.build.GC.boehm))`,
 and install `libgc` (`libgc-dev` on Debian/Ubuntu, `bdw-gc` on Homebrew). Scala Native 0.5.12's
 default collector, Immix, can free or overwrite live objects when several threads allocate at once
 ([scala-native#5046](https://github.com/scala-native/scala-native/issues/5046),
@@ -172,7 +171,7 @@ default collector, Immix, can free or overwrite live objects when several thread
 worker threads, so under concurrent load it then fails requests or aborts.
 :::
 
-The rest of this page uses `NettyServer` and the JVM annotation router, which is
+The rest of this page uses `Http.server` on the JVM (Netty) and the annotation router, which is
 the richest path. The request/response model, response conversion, and filters
 described below apply to functional handlers on every platform.
 
@@ -391,7 +390,8 @@ An exception that no filter recovers from becomes a generic `500 Internal Server
 
 ```scala
 // Apply filter to server
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withFilter(loggingFilter)
   .withFilter(authFilter)
@@ -459,7 +459,8 @@ val accessLog = HttpAccessLogFilter(
     .withStreamWriter(HttpAccessLogWriter.jsonFile(FileLogHandlerConfig("log/http_stream.json")))
 )
 
-NettyServer
+Http
+  .server
   .withFilter(accessLog.andThen(authFilter)) // outermost, so it sees the final response
   .withRxHandler(RouterHandler(router))
   .start()
@@ -476,22 +477,33 @@ HttpAccessLogFilter.addEntry(request, "user_id", user.id)
 
 ## Server Configuration
 
-### NettyServerConfig Options
+### Server Options
 
 ```scala
-NettyServer
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.Netty
+
+Http
+  .server
   .withPort(8080)                      // Port to listen on (0 for random)
   .withHost("0.0.0.0")                 // Bind address (default: 127.0.0.1)
   .withName("my-server")               // Server name for logging
-  .withMaxContentLength(1024 * 1024)   // Max request body size (default: 64KB)
-  .withMaxHeaderSize(8192)             // Max header size
-  .withMaxInitialLineLength(4096)      // Max request line length
-  .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
-  .withMaxDecompressedRequestSize(64 * 1024 * 1024) // Max decoded size of a gzip/deflate body
-  .noNativeTransport                   // Disable native transport (epoll/kqueue)
+  .withMaxContentLength(1024 * 1024)   // Max request body size (Netty default: 64KB)
+  .withBackend(
+    Netty
+      .options
+      .withMaxHeaderSize(8192)             // Max header size
+      .withMaxInitialLineLength(4096)      // Max request line length
+      .withRequestReadTimeoutMillis(30000) // Close connections that stall before a full request
+      .withMaxDecompressedRequestSize(64 * 1024 * 1024) // Max decoded size of a gzip/deflate body
+      .noNativeTransport                   // Disable native transport (epoll/kqueue)
+  )
   .withHandler(handler)
   .start()
 ```
+
+Netty-only options go in `Netty.options` and Native-only ones in
+`Native.options`; see [Tuning one backend](#tuning-one-backend).
 
 ### Request Decompression
 
@@ -500,7 +512,7 @@ The Netty server decodes request bodies sent with `Content-Encoding: gzip` or `d
 - A compressed body that decodes to more than `withMaxDecompressedRequestSize` bytes (default 64 MiB) gets a plain-text `413`, and the connection is closed. Uncompressed requests are not counted against this limit.
 - A malformed compressed body gets a plain-text `400`, and the connection is closed.
 - The decoded body must also fit in `withMaxContentLength`, so raise both for large compressed uploads.
-- `.noRequestDecompression` passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it.
+- `Netty.options.noRequestDecompression` passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it.
 
 ### Security Defaults
 
@@ -512,9 +524,9 @@ All three backends start with these defaults:
 | 500 responses say only `Internal Server Error`; RPC errors say `Internal error` | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config, which also covers `RouterHandler` controller exceptions; `RPCHandler(router).withDetailedErrors(true)` for RPC |
 | On a loopback server, requests whose `Host` is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` get 403 | DNS rebinding: a web page can point its own host name at 127.0.0.1 and then read the local server as same-origin. The browser still sends the page's host name in `Host` | `.withAllowedHosts("app.example.com", "*.internal.example")` to replace the list, `.noHostCheck` to accept any. A server bound to `0.0.0.0` accepts any host unless `withAllowedHosts` is set |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
-| Bounded request size | A single huge request cannot exhaust memory | Netty `.withMaxContentLength` (and `.withMaxDecompressedRequestSize` for gzip/deflate bodies, default 64 MiB), Node `.withMaxContentLength` (default 1MB, oversized bodies get 413), Native `.withMaxRequestSize` |
-| Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. The Native backend has its own `idleTimeoutMillis`/`readTimeoutMillis` |
-| Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `.withMaxStreamingConnections(n)`. Netty default: 256 SSE streams. Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
+| Bounded request size | A single huge request cannot exhaust memory | `.withMaxContentLength` (defaults: Netty 64 KB, Node 1 MB with 413 for larger bodies, Native 1 MB including headers); `Netty.options.withMaxDecompressedRequestSize` for gzip/deflate bodies (default 64 MiB) |
+| Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `Netty.options.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. On Native: `Native.options.withIdleTimeoutMillis(...)` / `.withReadTimeoutMillis(...)` |
+| Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `Netty.options.withMaxStreamingConnections(n)` / `Native.options.withMaxStreamingConnections(n)`. Netty default: 256 SSE streams. Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
 | CR, LF, or NUL in a header name or value is rejected | Prevents HTTP response splitting when a header echoes user input | — (`addHeader`/`setHeader` throw `IllegalArgumentException`) |
 
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
@@ -528,8 +540,8 @@ The defaults suit a small internal service. A public API server usually reviews 
 | Setting | Default | When to change |
 |---------|---------|----------------|
 | `.withMaxContentLength(n)` | 64 KB | Raise it to the largest request body the API accepts, e.g. LLM prompts with images. A decompressed body must also fit in this limit |
-| `.withRequestReadTimeoutMillis(ms)` | 30 s | The same timer closes idle keep-alive connections. Keep it longer than the idle timeout of the load balancer in front of the server, or the server closes connections the balancer still reuses |
-| `.withMaxStreamingConnections(n)` | 256 | The maximum number of concurrent SSE streams per server; streams beyond it get 503. Size it to the expected number of concurrent streaming clients |
+| `Netty.options.withRequestReadTimeoutMillis(ms)` | 30 s | The same timer closes idle keep-alive connections. Keep it longer than the idle timeout of the load balancer in front of the server, or the server closes connections the balancer still reuses |
+| `Netty.options.withMaxStreamingConnections(n)` | 256 | The maximum number of concurrent SSE streams per server; streams beyond it get 503. Size it to the expected number of concurrent streaming clients |
 | `.withHost("0.0.0.0")` / `.withAllowedHosts(...)` | `127.0.0.1`, loopback host check | Required behind a load balancer or in a container |
 | `.withDetailedErrors(true)` | off | Keep it off in production; the full exception is logged on the server |
 
@@ -537,7 +549,8 @@ The defaults suit a small internal service. A public API server usually reviews 
 
 ```scala
 // Start and get server instance
-val server = NettyServer
+val server = Http
+  .server
   .withPort(8080)
   .withHandler(handler)
   .start()
@@ -555,7 +568,8 @@ server.isRunning  // false
 For simpler use cases, use the block form that automatically stops the server:
 
 ```scala
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withHandler(handler)
   .start { server =>
@@ -571,7 +585,8 @@ NettyServer
 For simple cases without routing, use a direct handler:
 
 ```scala
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withHandler { request =>
     Response.ok(s"Hello from ${request.path}")
@@ -582,7 +597,8 @@ NettyServer
 Or with async responses:
 
 ```scala
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler { request =>
     Rx.single(Response.ok("async response"))
@@ -599,9 +615,10 @@ per-connection state; all of its callbacks have no-op defaults, so you override 
 
 ```scala
 import wvlet.uni.http.{WebSocketContext, WebSocketHandler}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withWebSocketRoute("/ws/echo") { request =>
     new WebSocketHandler:
@@ -649,7 +666,8 @@ pages and clients that send no `Origin` are accepted; any other origin gets 403.
 served from another origin (e.g. a Vite dev server) explicitly:
 
 ```scala
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withAllowedOrigins("http://localhost:5173", "https://app.example.com")
   .withWebSocketRoute("/ws") { _ => handler }
@@ -663,7 +681,7 @@ the request are visible via `ctx.request`:
 
 ```scala
 import wvlet.uni.http.{Response, RxHttpFilter, WebSocketContext, WebSocketHandler}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 import wvlet.uni.rx.Rx
 
 val authFilter = RxHttpFilter { (request, next) =>
@@ -674,7 +692,8 @@ val authFilter = RxHttpFilter { (request, next) =>
       Rx.single(Response.unauthorized)
 }
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withWebSocketRoute("/ws/secure", authFilter) { request =>
     new WebSocketHandler:
@@ -690,7 +709,8 @@ Inbound messages are aggregated from continuation frames up to a configurable li
 default):
 
 ```scala
-NettyServer
+Http
+  .server
   .withWebSocketMaxFrameSize(4 * 1024 * 1024)  // 4 MB
   .withWebSocketRoute("/ws") { _ => new WebSocketHandler {} }
   .start()
@@ -725,7 +745,8 @@ val handler = RouterHandler(router)
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.RxHttpFilter
-import wvlet.uni.http.netty.{NettyServer, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 import wvlet.uni.rx.Rx
 
 case class User(id: String, name: String)
@@ -767,7 +788,8 @@ val loggingFilter = RxHttpFilter { (request, next) =>
 val router = Router.of[UserController]
 val handler = RouterHandler(router)
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withFilter(loggingFilter)
   .withRxHandler(handler)

@@ -12,7 +12,7 @@ typed RPC service, a typed client, and a test that starts the server and calls i
   endpoints. `Option` and `Seq` results are encoded with Weaver.
 - **Typed RPC client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.callSync`, which
   is what sbt-uni's `uniHttpClients` code generator produces. Callers get compile-checked calls.
-- **One server, two handlers**: `NettyServer.withRxHandler` sends RPC paths to `RPCHandler` and
+- **One server, two handlers**: `Http.server.withRxHandler` sends RPC paths to `RPCHandler` and
   everything else to `RouterHandler`.
 - **Design wiring**: `TodoServer.design` binds the config, a singleton `TodoStore` shared by both
   APIs, `bindImpl[TodoApi, TodoApiImpl]`, and `onStart` / `onShutdown` hooks that start and stop

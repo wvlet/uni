@@ -26,7 +26,7 @@ class NativeHttpAsyncClientTest extends UniTest:
 
   private def withServer[A](body: (String, AtomicInteger) => A): A =
     val hits = AtomicInteger(0)
-    NativeServer
+    NativeServerConfig()
       .withHandler { req =>
         hits.incrementAndGet()
         req.path match

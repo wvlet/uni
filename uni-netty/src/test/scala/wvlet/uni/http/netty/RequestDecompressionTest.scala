@@ -54,7 +54,7 @@ class RequestDecompressionTest extends UniTest:
     else
       router.handle(request)
 
-  private def serverConfig: NettyServerConfig = NettyServer
+  private def serverConfig: NettyServerConfig = NettyServerConfig()
     .withPort(0)
     .noNativeTransport
     .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
@@ -251,7 +251,7 @@ class RequestDecompressionTest extends UniTest:
     NettyServerConfig()
       .withMaxDecompressedRequestSize(128 * 1024 * 1024)
       .maxDecompressedRequestSize shouldBe 128 * 1024 * 1024
-    NettyServer.withPort(0).requestDecompression shouldBe true
+    NettyServerConfig().withPort(0).requestDecompression shouldBe true
   }
 
 end RequestDecompressionTest

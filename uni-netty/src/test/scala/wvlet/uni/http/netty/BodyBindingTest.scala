@@ -82,7 +82,7 @@ class BodyBindingTest extends UniTest:
   private val client = HttpClient.newHttpClient()
 
   private def withServer[A](f: String => A): A =
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .noNativeTransport
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)

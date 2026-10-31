@@ -4,7 +4,8 @@ package wvlet.uni.book
 
 import wvlet.uni.http.{Http, HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.http.netty.{NettyServer, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 import wvlet.uni.rx.Rx
 
 object Ch09Http:
@@ -32,7 +33,8 @@ object Ch09Http:
     @Endpoint(HttpMethod.GET, "/users")
     def listUsers(): Seq[String] = Seq("alice", "bob")
 
-  def functionalServerConfig = NettyServer
+  def functionalServerConfig = Http
+    .server
     .withPort(8080)
     .withRxHandler { (request: Request) =>
       Rx.single(Response.ok(s"You asked for ${request.path}"))
@@ -40,6 +42,6 @@ object Ch09Http:
 
   def routedServerConfig =
     val router = Router.of[UserController]
-    NettyServer.withPort(8080).withRxHandler(RouterHandler(router))
+    Http.server.withPort(8080).withRxHandler(RouterHandler(router))
 
 end Ch09Http

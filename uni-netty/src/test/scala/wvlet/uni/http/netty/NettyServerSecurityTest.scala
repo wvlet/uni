@@ -68,7 +68,7 @@ class NettyServerSecurityTest extends UniTest:
       s"${originHeader}\r\n"
 
   private def wsServer: NettyServerConfig =
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withWebSocketRoute("/ws") { _ =>
@@ -77,7 +77,7 @@ class NettyServerSecurityTest extends UniTest:
 
   test("bind to loopback by default") {
     NettyServerConfig().host shouldBe "127.0.0.1"
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
@@ -88,7 +88,7 @@ class NettyServerSecurityTest extends UniTest:
 
   test("hide exception messages in 500 responses by default") {
     val logs = captureLogs {
-      NettyServer
+      NettyServerConfig()
         .withPort(0)
         .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
         .withHandler(_ => throw IllegalStateException("password=hunter2"))
@@ -102,7 +102,7 @@ class NettyServerSecurityTest extends UniTest:
 
   test("show exception messages when detailed errors are enabled") {
     val logs = captureLogs {
-      NettyServer
+      NettyServerConfig()
         .withPort(0)
         .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
         .withDetailedErrors(true)
@@ -147,7 +147,7 @@ class NettyServerSecurityTest extends UniTest:
 
   test("reject a response header containing CR/LF") {
     val logs = captureLogs {
-      NettyServer
+      NettyServerConfig()
         .withPort(0)
         .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
         .withHandler { _ =>
@@ -190,7 +190,7 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("close a connection that does not finish its request in time") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRequestReadTimeoutMillis(200)
@@ -217,7 +217,7 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("still time out an idle connection after an early 413") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withMaxContentLength(16)
@@ -249,7 +249,7 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("keep serving complete requests on a kept-alive connection") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRequestReadTimeoutMillis(500)
@@ -271,7 +271,7 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("reject requests for a foreign Host on a loopback server") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
@@ -290,7 +290,7 @@ class NettyServerSecurityTest extends UniTest:
   }
 
   test("accept configured hosts, or every host with noHostCheck") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
@@ -300,7 +300,7 @@ class NettyServerSecurityTest extends UniTest:
         rawRequest(port, "GET / HTTP/1.1\r\nHost: api.example.com\r\n\r\n") shouldContain " 200 "
         rawRequest(port, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n") shouldContain " 403 "
       }
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
@@ -313,7 +313,7 @@ class NettyServerSecurityTest extends UniTest:
 
   test("reject SSE streams over the limit with 503") {
     val logs = captureLogs {
-      NettyServer
+      NettyServerConfig()
         .withPort(0)
         .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
         .withHandler(_ => Response.eventStream(Rx.variable(ServerSentEvent.data("hello"))))

@@ -163,7 +163,7 @@ trait UniTest
     * initialization order:
     * {{{
     *   trait ServerFixture extends UniTest:
-    *     addDesign(_.bindProvider[HttpHandler, HttpServer](h => NettyServer.withHandler(h).start()))
+    *     addDesign(_.bindProvider[HttpHandler, HttpServer](h => Http.server.withHandler(h).start()))
     * }}}
     * The suite's session is created when the first test that takes arguments runs, and shut down
     * after [[afterAll]], closing the objects it built in reverse creation order.

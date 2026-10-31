@@ -2,9 +2,9 @@
 
 | API | JVM | Scala.js | Native |
 |-----|-----|----------|--------|
-| SSE server (`Response.eventStream`) | `NettyServer` | `NodeServer` | `NativeServer` |
+| SSE server (`Response.eventStream`) | `Http.server` (Netty) | `Http.server` (Node) | `Http.server` |
 | SSE client (`sendSSE`) | streams | streams (Fetch) | buffered until the response ends |
-| WebSocket server (`withWebSocketRoute`) | `NettyServer` | `NodeServer` | `NativeServer` |
+| WebSocket server (`withWebSocketRoute`) | `Http.server` (Netty) | `Http.server` (Node) | `Http.server` |
 | WebSocket client (`Http.webSocketClient`) | yes | browser, Node.js >= 22 | `ws://` only, IP or `localhost` |
 
 Full reference: https://wvlet.org/uni/http/sse.md, https://wvlet.org/uni/http/websocket.md,
@@ -18,11 +18,12 @@ completes.
 
 ```scala
 import wvlet.uni.http.{Response, ServerSentEvent}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 import wvlet.uni.rx.Rx
 
 @main def sseServer(): Unit =
-  NettyServer
+  Http
+    .server
     .withPort(8080)
     .withRxHandler { request =>
       val events = Rx.fromSeq(1 to 3).map { i =>
@@ -70,14 +71,15 @@ connection.
 ## WebSocket server
 
 A route creates a fresh `WebSocketHandler` per connection; every callback
-defaults to a no-op. `NodeServer` and `NativeServer` take the same builder calls.
+defaults to a no-op. The same code runs on every platform.
 
 ```scala
 import wvlet.uni.http.{WebSocketContext, WebSocketHandler}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 
 @main def wsServer(): Unit =
-  NettyServer
+  Http
+    .server
     .withPort(8080)
     .withAllowedOrigins("http://localhost:5173") // browser pages from another origin
     .withWebSocketRoute("/ws/echo") { request =>

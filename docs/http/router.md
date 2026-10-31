@@ -220,12 +220,14 @@ Filters shared by every route also run for requests that match no route. Other f
 The `RouterHandler` connects a router to the Netty server:
 
 ```scala
-import wvlet.uni.http.netty.{RouterHandler, NettyServer}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 
 val router = Router.of[MyController]
 val handler = RouterHandler(router)
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler(handler)
   .start()
