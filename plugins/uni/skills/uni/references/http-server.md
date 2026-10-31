@@ -4,10 +4,10 @@
 server code on every platform; on the JVM it needs `uni-netty` on the classpath.
 It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
 `withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
-config, a `ServerBackend`, from the platform's source folder or `Design`:
-`withBackend(Netty.server.withHandlerExecutorThreads(8))` (`wvlet.uni.http.netty.Netty`;
-`Native.server` / `Node.server` on Native / Scala.js); other backends ignore it, and
-`Http.server`'s own settings take precedence. The
+options (a `ServerOptions`) from the platform's source folder or `Design`:
+`withBackend(Netty.options.withHandlerExecutorThreads(8))` (`wvlet.uni.http.netty.Netty`;
+`Native.options` on Scala Native); other backends ignore them. Port, handler,
+and size limits are set only on `Http.server`. The
 per-platform entry points:
 
 | Platform | Server | Module |

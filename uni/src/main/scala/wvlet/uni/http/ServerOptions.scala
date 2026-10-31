@@ -14,8 +14,8 @@
 package wvlet.uni.http
 
 /**
-  * The configuration of one HTTP server backend: `NettyServerConfig` (JVM), `NativeServerConfig`
-  * (Scala Native), or `NodeServerConfig` (Scala.js). Pass one to [[HttpServerConfig.withBackend]]
-  * to set backend-only options while keeping the server code shared.
+  * Options for one HTTP server backend, passed to [[HttpServerConfig.withBackend]]: `Netty.options`
+  * on the JVM and `Native.options` on Scala Native. They hold only that backend's own settings; the
+  * settings every backend shares (port, handler, size limits, ...) are set on `Http.server`.
   */
-trait ServerBackend extends HttpServerConfigBase
+trait ServerOptions

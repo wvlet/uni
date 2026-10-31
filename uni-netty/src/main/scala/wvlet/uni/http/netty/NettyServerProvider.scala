@@ -20,13 +20,13 @@ import wvlet.uni.http.{HttpServer, HttpServerProvider, HttpServerConfig}
   */
 class NettyServerProvider extends HttpServerProvider:
   override def start(config: HttpServerConfig): HttpServer =
-    val base = config
-      .backends
-      .reverseIterator
-      .collectFirst { case b: NettyServerConfig =>
-        b
-      }
-      .getOrElse(NettyServerConfig())
+    val base =
+      config
+        .backendOptions
+        .collect { case o: NettyOptions =>
+          o
+        }
+        .foldLeft(NettyServerConfig())((c, o) => o.applyTo(c))
     base
       .copy(
         name = config.name,

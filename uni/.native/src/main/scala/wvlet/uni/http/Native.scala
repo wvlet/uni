@@ -14,10 +14,11 @@
 package wvlet.uni.http
 
 /**
-  * Entry point for Scala Native-specific server settings, the Native counterpart of `Http.server`:
+  * Scala Native-only options for `Http.server`. Set the shared settings (port, handler, size
+  * limits, ...) on `Http.server` itself:
   * {{{
-  * Http.server.withPort(8080).withBackend(Native.server.withWorkerThreads(32))
+  * Http.server.withPort(8080).withBackend(Native.options.withWorkerThreads(32))
   * }}}
   */
 object Native:
-  def server: NativeServerConfig = NativeServerConfig()
+  def options: NativeOptions = NativeOptions.empty

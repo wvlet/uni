@@ -69,11 +69,12 @@ class HttpServerProviderTest extends UniTest:
       }
   }
 
-  test("withBackend(Netty.server...) sets Netty-only options") {
+  test("withBackend(Netty.options...) applies Netty-only options") {
     Http
       .server
       .withPort(0)
-      .withBackend(Netty.server.withMaxContentLength(16).withHandlerExecutorThreads(2))
+      .withMaxContentLength(16)
+      .withBackend(Netty.options.withHandlerExecutorThreads(2).noRequestDecompression)
       .withHandler(_ => Response.ok("ok"))
       .start { server =>
         postStatus(server, "small") shouldBe 200
@@ -81,18 +82,19 @@ class HttpServerProviderTest extends UniTest:
       }
   }
 
-  test("Http.server's settings take precedence over the backend config's") {
-    Http
-      .server
-      .withPort(0)
-      .withMaxContentLength(1024)
-      // The port and size limit set here are overridden by the ones above
-      .withBackend(Netty.server.withPort(1).withMaxContentLength(16))
-      .withHandler(_ => Response.ok("ok"))
-      .start { server =>
-        (server.localPort != 1) shouldBe true
-        postStatus(server, "x" * 100) shouldBe 200
-      }
+  test("Netty options check their values when set") {
+    intercept[IllegalArgumentException] {
+      Netty.options.withHandlerExecutorThreads(0)
+    }
+  }
+
+  test("Netty options are applied in order") {
+    val config = NettyOptions
+      .empty
+      .withHandlerExecutorThreads(2)
+      .withHandlerExecutorThreads(4)
+      .applyTo(NettyServerConfig())
+    config.handlerExecutorThreads shouldBe Some(4)
   }
 
 end HttpServerProviderTest

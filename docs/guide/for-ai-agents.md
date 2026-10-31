@@ -96,7 +96,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap` |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [SettingStore](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), NodeServer on Scala.js, NativeServer on Scala Native. Backend-only options: `.withBackend(Netty.server.withHandlerExecutorThreads(8))` (`Native.server`, `Node.server` on the other platforms). See [REST Server](../http/server#cross-platform-servers) |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), NodeServer on Scala.js, NativeServer on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.NettyServer` | See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api]`. See [RPC](../http/rpc) |
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |

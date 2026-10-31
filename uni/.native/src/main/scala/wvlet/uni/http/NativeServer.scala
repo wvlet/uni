@@ -84,7 +84,7 @@ case class NativeServerConfig(
     override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
-) extends ServerBackend:
+) extends HttpServerConfigBase:
 
   def withName(name: String): NativeServerConfig = copy(name = name)
   def withHost(host: String): NativeServerConfig = copy(host = host)

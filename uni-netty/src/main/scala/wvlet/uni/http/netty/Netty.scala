@@ -14,14 +14,11 @@
 package wvlet.uni.http.netty
 
 /**
-  * Entry point for Netty-specific server settings, the JVM counterpart of `Http.server`:
+  * Netty-only options for `Http.server`, for code that runs on the JVM. Set the shared settings
+  * (port, handler, size limits, ...) on `Http.server` itself:
   * {{{
-  * // Netty-only options for Http.server, e.g. bound in a JVM Design
-  * Http.server.withPort(8080).withBackend(Netty.server.withHandlerExecutorThreads(8))
-  *
-  * // Or a Netty server on its own
-  * Netty.server.withPort(8080).withHandler(handler).start()
+  * Http.server.withPort(8080).withBackend(Netty.options.withHandlerExecutorThreads(8))
   * }}}
   */
 object Netty:
-  def server: NettyServerConfig = NettyServerConfig()
+  def options: NettyOptions = NettyOptions.empty

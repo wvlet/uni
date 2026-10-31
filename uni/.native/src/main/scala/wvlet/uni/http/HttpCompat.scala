@@ -26,13 +26,13 @@ private[http] object HttpCompat extends HttpCompatApi:
   override def defaultHttpChannelFactory: HttpChannelFactory = NativeHttpChannelFactory
 
   override def startServer(config: HttpServerConfig): HttpServer =
-    val base = config
-      .backends
-      .reverseIterator
-      .collectFirst { case b: NativeServerConfig =>
-        b
-      }
-      .getOrElse(NativeServerConfig())
+    val base =
+      config
+        .backendOptions
+        .collect { case o: NativeOptions =>
+          o
+        }
+        .foldLeft(NativeServerConfig())((c, o) => o.applyTo(c))
     base
       .copy(
         name = config.name,

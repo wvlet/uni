@@ -20,10 +20,10 @@ import wvlet.uni.rx.Rx
   * Netty on the JVM (from uni-netty, found on the classpath), `NativeServer` on Scala Native, and
   * `NodeServer` on Scala.js. Create one with [[Http.server]].
   *
-  * It holds the settings every backend shares. For backend-only options, pass a [[ServerBackend]]
-  * to [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
+  * It holds the settings every backend shares. For backend-only options, pass [[ServerOptions]] to
+  * [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
   * {{{
-  * Http.server.withPort(8080).withBackend(Netty.server.withHandlerExecutorThreads(8))
+  * Http.server.withPort(8080).withBackend(Netty.options.withHandlerExecutorThreads(8))
   * }}}
   */
 case class HttpServerConfig(
@@ -49,8 +49,8 @@ case class HttpServerConfig(
     // Ping/pong heartbeat interval for WebSocket connections (0 disables it). None: the backend's
     // default
     webSocketPingIntervalMillis: Option[Int] = None,
-    // Backend configs for backend-only options; each backend uses the one of its own type
-    backends: Seq[ServerBackend] = Nil
+    // Backend-only options; each backend applies the ones of its own type
+    backendOptions: Seq[ServerOptions] = Nil
 ) extends HttpServerConfigBase:
 
   def withName(name: String): HttpServerConfig = copy(name = name)
@@ -122,14 +122,13 @@ case class HttpServerConfig(
     copy(webSocketPingIntervalMillis = Some(millis))
 
   /**
-    * Use this backend config for backend-only options (Netty transport, Native worker threads,
-    * ...). The backend of its type starts from it instead of its own defaults, then applies this
-    * config's settings on top: name, host, port, handler, filters, WebSocket routes, allowed
-    * origins and hosts, and detailed errors always come from here, and the size limits when set
-    * here. Other backends ignore it, so you can pass one config per platform; for the same type,
-    * the last wins.
+    * Add backend-only options: `Netty.options` on the JVM, `Native.options` on Scala Native. The
+    * backend of their type applies them, in the order added; the others ignore them, so options for
+    * several platforms can be passed to the same config.
     */
-  def withBackend(backend: ServerBackend): HttpServerConfig = copy(backends = backends :+ backend)
+  def withBackend(options: ServerOptions): HttpServerConfig = copy(backendOptions =
+    backendOptions :+ options
+  )
 
   /**
     * Start the server on this platform's backend. On the JVM this fails with

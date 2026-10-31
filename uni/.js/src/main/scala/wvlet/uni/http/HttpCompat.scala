@@ -24,13 +24,8 @@ private[http] object HttpCompat extends HttpCompatApi:
   override val defaultHttpChannelFactory: HttpChannelFactory = JSHttpChannelFactory
 
   override def startServer(config: HttpServerConfig): HttpServer =
-    val base = config
-      .backends
-      .reverseIterator
-      .collectFirst { case b: NodeServerConfig =>
-        b
-      }
-      .getOrElse(NodeServerConfig())
+    // Node has no backend-only options: all its settings are shared
+    val base = NodeServerConfig()
     base
       .copy(
         name = config.name,

@@ -103,26 +103,24 @@ serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 you leave unset keep the backend's own default.
 
 For an option only one backend has (Netty transport, graceful shutdown, Native
-worker threads, ...), build that backend's config with `Netty.server`,
-`Native.server`, or `Node.server`, and pass it to `withBackend`. Each is a
-`ServerBackend`. The matching
-backend starts from it, then applies the `Http.server` settings on top: name,
-host, port, handler, filters, WebSocket routes, allowed origins and hosts, and
-detailed errors always come from `Http.server`, and the size limits when set
-there. Other backends ignore it.
+worker threads, ...), pass that backend's options to `withBackend`:
+`Netty.options` (`wvlet.uni.http.netty.Netty`) on the JVM, or `Native.options`
+on Scala Native. They hold only that backend's own settings, so port, handler,
+and size limits are set in one place, on `Http.server`. Each backend applies
+only its own options, so options for several platforms can be passed together.
+(Node.js has no options of its own.)
 
-Keep the server code shared and bind the backend config per platform with
-`Design`:
+Keep the server code shared and bind the options per platform with `Design`:
 
 ```scala
 // shared
 import wvlet.uni.design.Design
-import wvlet.uni.http.{Http, HttpServer, Response, ServerBackend}
+import wvlet.uni.http.{Http, HttpServer, Response, ServerOptions}
 
 val serverDesign = Design
   .newDesign
-  .bindProvider[ServerBackend, HttpServer] { backend =>
-    Http.server.withPort(8080).withHandler(_ => Response.ok("ok")).withBackend(backend).start()
+  .bindProvider[ServerOptions, HttpServer] { options =>
+    Http.server.withPort(8080).withHandler(_ => Response.ok("ok")).withBackend(options).start()
   }
   .onShutdown(_.stop())
 
@@ -130,13 +128,13 @@ val serverDesign = Design
 import wvlet.uni.http.netty.Netty
 val platformDesign = Design
   .newDesign
-  .bindInstance[ServerBackend](Netty.server.withHandlerExecutorThreads(8).withShutdownHook)
+  .bindInstance[ServerOptions](Netty.options.withHandlerExecutorThreads(8).withShutdownHook)
 
 // .native/src/main/scala
 import wvlet.uni.http.Native
 val platformDesign = Design
   .newDesign
-  .bindInstance[ServerBackend](Native.server.withWorkerThreads(32))
+  .bindInstance[ServerOptions](Native.options.withWorkerThreads(32))
 ```
 
 You can also use `NettyServer`, `NodeServer`, or `NativeServer` directly: they

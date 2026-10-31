@@ -64,7 +64,7 @@ case class NodeServerConfig(
     override val allowedHosts: Seq[String] = Nil,
     // Include exception messages in 500 responses (for development only)
     override val detailedErrors: Boolean = false
-) extends ServerBackend:
+) extends HttpServerConfigBase:
 
   def withName(name: String): NodeServerConfig = copy(name = name)
   def withHost(host: String): NodeServerConfig = copy(host = host)
