@@ -329,7 +329,7 @@ lazy val exampleRestServer = project
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
 
-// One RPC trait served by Netty on the JVM and by NativeServer as a native binary (no JVM).
+// One RPC server, the same code on the JVM (Netty) and as a Scala Native binary (NativeServer, no JVM).
 // Benchmark scripts: examples/rpc-native/bench
 lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
   .crossType(CrossType.Pure)
@@ -356,8 +356,17 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
         // them out to build what a user's own project gets.
         .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl", "-lz")))
     },
-    // The test is JVM-only (.jvm/src/test). CI links and calls the binary instead.
-    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+    // Build the test binary in debug mode so it links quickly. It keeps Boehm like the release
+    // binary, except on Windows, whose CI runner has no libgc: there it falls back to Immix.
+    Test / nativeConfig ~= { c =>
+      val debug = c
+        .withMode(scala.scalanative.build.Mode.debug)
+        .withLTO(scala.scalanative.build.LTO.none)
+      if scala.util.Properties.isWin then
+        debug.withGC(scala.scalanative.build.GC.immix)
+      else
+        debug
+    }
   )
   .jvmSettings(
     // For bench/build.sh: copy the runtime classpath (jars) to bench/out/lib

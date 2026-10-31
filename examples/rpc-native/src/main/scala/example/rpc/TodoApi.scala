@@ -1,7 +1,8 @@
 package example.rpc
 
+import wvlet.uni.design.Design
 import wvlet.uni.http.rpc.{RPCClient, RPCDispatcher, RPCRouter}
-import wvlet.uni.http.{HttpSyncClient, Request, Response}
+import wvlet.uni.http.{Http, HttpServer, HttpSyncClient, Request, Response}
 import wvlet.uni.rx.Rx
 import wvlet.uni.weaver.Weaver
 
@@ -10,7 +11,7 @@ import scala.collection.concurrent.TrieMap
 
 case class Todo(id: Long, title: String, done: Boolean = false) derives Weaver
 
-/** The RPC interface. The JVM and Native servers serve this same trait. */
+/** The RPC interface, served and called with the same code on the JVM and Scala Native. */
 trait TodoApi:
   def add(title: String): Todo
   def complete(id: Long): Option[Todo]
@@ -28,14 +29,23 @@ class TodoApiImpl extends TodoApi:
   def complete(id: Long): Option[Todo] = todos.updateWith(id)(_.map(_.copy(done = true)))
   def list(): Seq[Todo]                = todos.values.toSeq.sortBy(_.id)
 
-/**
-  * Serves TodoApi as `POST /example.rpc.TodoApi/<method>`. Both platforms' servers take this
-  * handler, so the RPC code is shared and only the server class differs.
-  */
+/** Serves TodoApi as `POST /example.rpc.TodoApi/<method>`. */
 object TodoRpc:
   def handler(api: TodoApi): Request => Rx[Response] =
     val dispatcher = RPCDispatcher(RPCRouter.of[TodoApi](api))
     req => dispatcher.dispatch(req)
+
+  /**
+    * Wires the server with Design. `Http.server` picks the platform's server: Netty on the JVM
+    * (from uni-netty) and NativeServer in a Scala Native binary. Port 0 picks a free port.
+    */
+  def design(port: Int, host: String = "127.0.0.1"): Design = Design
+    .newSilentDesign
+    .bindImpl[TodoApi, TodoApiImpl]
+    .bindProvider[TodoApi, HttpServer] { api =>
+      Http.server.withPort(port).withHost(host).withRxHandler(handler(api)).start()
+    }
+    .onShutdown(_.stop())
 
   /** `Main [port] [host]`: port 8080 and loopback by default; pass 0.0.0.0 in a container. */
   def parseArgs(args: Array[String]): (Int, String) =

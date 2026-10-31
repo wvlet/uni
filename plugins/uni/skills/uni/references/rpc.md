@@ -83,15 +83,15 @@ import wvlet.uni.http.rpc.RPCRouter
     }
 ```
 
-Scala.js (`NodeServer`) and Scala Native (`NativeServer`) use the cross-platform
-dispatcher instead of `RPCHandler`:
+For a server that runs on the JVM, Scala.js, and Scala Native with the same
+code, pass the cross-platform dispatcher to `Http.server` instead of `RPCHandler`:
 
-```scala skip
-import wvlet.uni.http.NativeServer // or NodeServer on Scala.js
+```scala
+import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 
 val dispatcher = RPCDispatcher(RPCRouter.of[UserService](UserServiceImpl()))
-NativeServer.withPort(8080).withRxHandler(dispatcher.dispatch).start()
+Http.server.withPort(8080).withRxHandler(dispatcher.dispatch).start()
 ```
 
 ## 4. Generated client (sbt-uni)

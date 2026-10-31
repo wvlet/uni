@@ -23,6 +23,18 @@ private[http] object HttpCompat extends HttpCompatApi:
 
   override val defaultHttpChannelFactory: HttpChannelFactory = JSHttpChannelFactory
 
+  override def startServer(config: PortableServerConfig): HttpServer = NodeServerConfig(
+    name = config.name,
+    host = config.host,
+    port = config.port,
+    handler = config.handler,
+    filters = config.filters,
+    webSocketRoutes = config.webSocketRoutes,
+    allowedOrigins = config.allowedOrigins,
+    allowedHosts = config.allowedHosts,
+    detailedErrors = config.detailedErrors
+  ).start()
+
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] = PartialFunction.empty
 
   override def connectionExceptionClassifier: PartialFunction[Throwable, Failed] =

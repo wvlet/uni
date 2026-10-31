@@ -21,7 +21,21 @@ import wvlet.uni.control.ResultClass.Failed
   */
 private[http] object HttpCompat extends HttpCompatApi:
 
-  override val defaultHttpChannelFactory: HttpChannelFactory = NativeHttpChannelFactory
+  // A def, not a val: loading NativeHttpChannelFactory initializes libcurl, which a server-only
+  // binary must not link
+  override def defaultHttpChannelFactory: HttpChannelFactory = NativeHttpChannelFactory
+
+  override def startServer(config: PortableServerConfig): HttpServer = NativeServerConfig(
+    name = config.name,
+    host = config.host,
+    port = config.port,
+    handler = config.handler,
+    filters = config.filters,
+    webSocketRoutes = config.webSocketRoutes,
+    allowedOrigins = config.allowedOrigins,
+    allowedHosts = config.allowedHosts,
+    detailedErrors = config.detailedErrors
+  ).start()
 
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] = PartialFunction.empty
 

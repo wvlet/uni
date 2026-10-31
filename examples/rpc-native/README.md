@@ -1,24 +1,24 @@
 # Typed RPC without the JVM
 
-One Scala 3 trait, `TodoApi`, served as a typed RPC service two ways: by `NativeServer` as a
-Scala Native binary (no JVM), and by Netty on the JVM. The RPC code is shared; only the server
-class in each `Main` differs. A typed client calls either one through the same trait.
+One Scala 3 trait, `TodoApi`, served as a typed RPC service. The same code builds a JVM server
+(Netty) and a Scala Native binary (no JVM): there is no platform-specific source file. A typed
+client calls either one through the same trait.
 
 ## What it shows
 
 - **One trait, two runtimes**: [`TodoApi.scala`](src/main/scala/example/rpc/TodoApi.scala) holds
   the trait, its implementation, and `TodoRpc.handler`, an `RPCDispatcher` over
   `RPCRouter.of[TodoApi]`. Each method becomes `POST /example.rpc.TodoApi/<method>`.
-- **Native server**: [`.native/.../Main.scala`](.native/src/main/scala/example/rpc/Main.scala)
-  passes the handler to `NativeServer`, built on POSIX sockets. The binary links only OS
-  libraries and the Boehm GC: no JVM, no libcurl, no OpenSSL (see
-  [Garbage collector](#garbage-collector)).
-- **JVM server**: [`.jvm/.../Main.scala`](.jvm/src/main/scala/example/rpc/Main.scala) passes the
-  same handler to `NettyServer` from `uni-netty`.
+- **One server**: `TodoRpc.design` wires the server with `Design`, and
+  [`Main.scala`](src/main/scala/example/rpc/Main.scala) builds it. `Http.server` picks the
+  platform's server: Netty (from `uni-netty`) on the JVM, and `NativeServer`, built on POSIX
+  sockets, in the Scala Native binary. The binary links only OS libraries and the Boehm GC: no JVM,
+  no libcurl, no OpenSSL (see [Garbage collector](#garbage-collector)).
 - **Typed client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.callSync`, so calls
   are compile-checked. sbt-uni's `uniHttpClients` code generator produces this class for you.
-- **UniTest**: [`TodoApiTest`](.jvm/src/test/scala/example/rpc/TodoApiTest.scala) starts the
-  server on a free port and calls it through the typed client.
+- **UniTest**: [`TodoApiTest`](src/test/scala/example/rpc/TodoApiTest.scala) starts the server
+  from the same design on a free port and calls it through the typed client, on the JVM and on
+  Scala Native.
 - **Benchmark**: [`bench/`](bench/) measures startup, memory, and throughput of both servers and
   prints a Markdown table.
 
@@ -27,7 +27,7 @@ class in each `Main` differs. A typed client calls either one through the same t
 ```bash
 ./sbt exampleRpcNativeNative/nativeLink   # builds the binary under target/out/native0.5/.../uni-example-rpc-native
 ./sbt "exampleRpcNativeJVM/run 8080"      # the same server on the JVM
-./sbt exampleRpcNativeJVM/test
+./sbt exampleRpcNativeJVM/test exampleRpcNativeNative/test
 ```
 
 Run the binary with a port, and optionally a host (`0.0.0.0` in a container; loopback by default):
@@ -72,8 +72,9 @@ lazy val app = crossProject(JVMPlatform, NativePlatform)
 
 A server-only binary needs no linker flags: don't add `-lcurl`. Uni's HTTP *client* on Scala
 Native uses libcurl, but dead-code elimination drops it when the binary never makes an outgoing
-HTTP call. Add `-lcurl` only if the binary calls other servers through Uni's client. (This
-repository adds `-lcurl -lz` to every Native project, so the example's build filters them out.)
+HTTP call. When it does (the example's Native test calls the server through the typed client),
+Scala Native links libcurl on its own; libcurl just has to be installed. (This repository adds
+`-lcurl -lz` to every Native project, so the example's build filters them out.)
 
 For a server, also add `.withGC(scala.scalanative.build.GC.boehm)` (see
 [Garbage collector](#garbage-collector)).

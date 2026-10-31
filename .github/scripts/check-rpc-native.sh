@@ -3,9 +3,10 @@
 # Runs the examples/rpc-native binary (built by `exampleRpcNativeNative/nativeLink`), calls it over
 # HTTP, and asserts that it links no libcurl, zlib, or OpenSSL.
 #
-# The example has no Native test binary (its UniTest suite runs on the JVM), so this is what keeps
-# the native server from going stale. The library check backs the example README's claim that a
-# server-only binary needs no `-lcurl`: dead-code elimination drops Uni's HTTP client when unused.
+# The example's UniTest suite also runs on Native, but in a debug-mode test binary that links
+# libcurl for its typed client. This checks the release binary itself, and backs the example README's
+# claim that a server-only binary needs no `-lcurl`: dead-code elimination drops Uni's HTTP client
+# when unused.
 set -euo pipefail
 
 binary="$(find target/out -type f -perm -u+x -path '*/uni-example-rpc-native/uni-example-rpc-native' \

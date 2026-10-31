@@ -41,6 +41,7 @@ Scala Native.
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`; see [references/rx.md](references/rx.md) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`; Netty on the JVM needs `uni-netty`; see [references/http-server.md](references/http-server.md) |
 | HTTP server (JVM, `uni-netty`) | `wvlet.uni.http.netty.{NettyServer, RouterHandler}` | [references/http-server.md](references/http-server.md) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |

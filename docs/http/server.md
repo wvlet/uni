@@ -51,16 +51,33 @@ NettyServer
 
 ## Cross-Platform Servers
 
-Each platform has its own server entry point, but they expose the **same
-configuration API** and all start an [`HttpServer`](#server-lifecycle):
+`Http.server` starts the same server code on every platform. It picks the
+platform's backend, and each returns an [`HttpServer`](#server-lifecycle):
 
-| Platform | Entry point | Import | Backend |
-|----------|-------------|--------|---------|
-| **JVM** | `NettyServer` | `wvlet.uni.http.netty.NettyServer` (module `uni-netty`) | Netty |
-| **Scala.js** | `NodeServer` | `wvlet.uni.http.NodeServer` | Node.js `http` |
-| **Scala Native** | `NativeServer` | `wvlet.uni.http.NativeServer` | native sockets |
+| Platform | Backend for `Http.server` | Own entry point (backend tuning) |
+|----------|---------------------------|----------------------------------|
+| **JVM** | Netty (add the `uni-netty` module) | `wvlet.uni.http.netty.NettyServer` |
+| **Scala.js** | Node.js `http` | `wvlet.uni.http.NodeServer` |
+| **Scala Native** | native sockets | `wvlet.uni.http.NativeServer` |
 
-All three share these builder methods:
+A server that compiles and runs identically on every platform:
+
+```scala
+import wvlet.uni.http.{Http, Response}
+import wvlet.uni.rx.Rx
+
+Http
+  .server
+  .withPort(8080)
+  .withRxHandler { request =>
+    Rx.single(Response.ok(s"Hello from ${request.path}"))
+  }
+  .start { server =>
+    println(s"Listening on ${server.localAddress}")
+  }
+```
+
+`Http.server` and the per-platform entry points share these builder methods:
 
 ```scala
 .withPort(8080)                       // 0 picks a random free port
@@ -73,34 +90,26 @@ All three share these builder methods:
 .start()                                    // returns the HttpServer
 ```
 
-A handler that compiles and runs identically on every platform:
-
-```scala
-// JVM example — swap NettyServer for NodeServer / NativeServer on JS / Native
-import wvlet.uni.http.{Request, Response}
-import wvlet.uni.http.netty.NettyServer
-
-NettyServer
-  .withPort(8080)
-  .withRxHandler { request =>
-    Rx.single(Response.ok(s"Hello from ${request.path}"))
-  }
-  .start { server =>
-    println(s"Listening on ${server.localAddress}")
-  }
-```
+On the JVM, `uni-netty` registers Netty as the backend through
+`java.util.ServiceLoader`; without it on the classpath, `start()` fails with a
+message that says to add it. For backend-specific settings (Netty transport,
+graceful shutdown, Native worker threads, ...), use `NettyServer`,
+`NodeServer`, or `NativeServer` directly: they take the same builder calls plus
+their own. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
+serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 
 ::: warning JVM-only features
 The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
 [server-side WebSocket](#websocket), and the Netty tuning knobs
 (`withMaxContentLength`, native transport, graceful shutdown) exist only on the
-JVM. On Scala.js / Scala Native, route requests yourself inside a functional
-handler:
+JVM. For code that runs on every platform, route requests yourself inside a
+functional handler:
 
 ```scala
-import wvlet.uni.http.NodeServer  // or NativeServer
+import wvlet.uni.http.Http
 
-NodeServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler { request =>
     request.path match
