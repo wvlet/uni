@@ -205,11 +205,11 @@ def bench_container(name, image, args):
 
 
 def seconds(duration):
-    """Parse an oha-style duration (90, 90s, 10m, 1h) into seconds."""
-    m = re.fullmatch(r"(\d+(?:\.\d+)?)([smh]?)", duration)
+    """Parse an oha-style duration (90, 500ms, 90s, 10m, 1h) into seconds."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(ms|s|m|h|)", duration)
     if not m:
         sys.exit(f"Invalid duration: {duration}")
-    return float(m.group(1)) * {"": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
+    return float(m.group(1)) * {"ms": 0.001, "": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
 
 
 def rss_if_running(proc):
@@ -245,7 +245,7 @@ def sweep_process(name, cmd, args, tool, levels):
         for c in levels:
             # The probe starts 1 s in, once the load tool holds its connections
             row = {"connections": c}
-            t = threading.Thread(target=probe, args=(port, 1, seconds(args.duration) - 1, row))
+            t = threading.Thread(target=probe, args=(port, 1, max(1, seconds(args.duration) - 1), row))
             t.start()
             row.update(load_fields(run_load(tool, port, args, args.duration, c)))
             t.join()
@@ -277,20 +277,20 @@ def soak_process(name, cmd, args, tool):
                   f"{res['rps']:,.0f} req/s, {res['errors']} failed", file=sys.stderr)
     finally:
         stop(proc)
-    return {"name": name, "samples": samples, **soak_verdict(samples, total)}
+    return {"name": name, "samples": samples, **soak_verdict(samples)}
 
 
-def soak_verdict(samples, total):
-    """Compare the peak RSS of the second half with the last reading of the first half."""
-    rss = [(s["t_s"], s["rss_mb"]) for s in samples if s["rss_mb"] is not None]
-    first = [r for t, r in rss if t <= total / 2]
-    second = [r for t, r in rss if t > total / 2]
-    if not first or not second:
+def soak_verdict(samples):
+    """Compare the peak RSS of the second half of the loaded samples with the last reading of the
+    first half. The idle reading at t=0 is left out, so a short soak is not judged on warm-up."""
+    rss = [s["rss_mb"] for s in samples if "rps" in s and s["rss_mb"] is not None]
+    first, second = rss[:len(rss) // 2], rss[len(rss) // 2:]
+    if not first:
         return {"verdict": "not enough samples (the server exited or the soak was too short)"}
     growth = max(second) - first[-1]
     # Allow 1 MB or 5% of noise: allocator arenas and GC cycles move RSS a little even when flat
     flat = growth <= max(1.0, first[-1] * 0.05)
-    return {"peak_rss_mb": max(r for _, r in rss), "last_half_growth_mb": growth,
+    return {"peak_rss_mb": max(rss), "last_half_growth_mb": growth,
             "verdict": "levels off" if flat else "still growing"}
 
 
@@ -327,7 +327,7 @@ def sweep_report(args, tool, sweeps):
 
 def soak_report(args, tool, soaks):
     lines = ["## Soak: RSS under sustained load", "",
-             "| elapsed (s) | " + " | ".join(f"{s['name']} RSS (MB)" for s in soaks) + " |",
+             "| sample | " + " | ".join(f"{s['name']} RSS (MB)" for s in soaks) + " |",
              "|---:|" + "---:|" * len(soaks)]
     for i in range(max(len(s["samples"]) for s in soaks)):
         cells = []
@@ -338,8 +338,8 @@ def soak_report(args, tool, soaks):
             r = s["samples"][i]
             failed = f" ({r['errors']:,} failed)" if r.get("errors") else ""
             cells.append(f"{fmt(r['rss_mb'], 1)}{failed}")
-        t = soaks[0]["samples"][min(i, len(soaks[0]["samples"]) - 1)]["t_s"]
-        lines.append(f"| {t:.0f} | " + " | ".join(cells) + " |")
+        label = "idle" if i == 0 else f"~{i * seconds(args.sample):.0f}s"
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
     lines.append("")
     for s in soaks:
         loaded = [r for r in s["samples"] if "rps" in r]
@@ -354,10 +354,11 @@ def soak_report(args, tool, soaks):
     lines += ["", "Environment:", "", *environment(args),
               f"- Load: {load_line(tool)}, {args.connections} connections, held for "
               f"{args.soak} as back-to-back {args.sample} runs; RSS read after each run",
-              "- Elapsed: time since the server's first response (0 is the idle reading before load); "
-              "targets run one after another",
-              "- Verdict: \"levels off\" when the peak RSS of the second half exceeds the last "
-              "first-half reading by at most 1 MB or 5%",
+              "- Sample: idle is the reading after the first response, before load; then one "
+              "reading per sample run, so times are approximate. Targets run one after another; "
+              "each target's elapsed time is in the JSON (`t_s`)",
+              "- Verdict: \"levels off\" when the peak RSS of the second half of the loaded samples "
+              "exceeds the last first-half reading by at most 1 MB or 5%",
               *[f"- Failed requests ({s['name']}, at {r['t_s']:.0f}s): {r['error_kinds']}"
                 for s in soaks for r in s["samples"] if r.get("error_kinds")]]
     return "\n".join(lines) + "\n"
@@ -436,8 +437,8 @@ def report(args, tool, procs, containers):
         for c in containers:
             lines.append(f"| {c['name']} | {c['image_mb']:.1f} | {fmt(c['startup_ms'])} | "
                          f"{fmt(c['startup_min_ms'])} |")
-    load = tool and (f"{first_line([tool, '--version'])}, POST {SERVICE}/list, "
-            f"{args.connections} connections, keep-alive, {args.warmup} warm-up then {args.duration}")
+    load = tool and (f"{load_line(tool)}, {args.connections} connections, {args.warmup} warm-up "
+                     f"then {args.duration}")
     lines += ["", "Environment:", "", *environment(args),
               f"- Load: {'skipped' if args.no_load else load}",
               *[f"- Failed requests ({r['name']}): {r['error_kinds']}" for r in procs
