@@ -338,15 +338,21 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
     // Scala Native 0.5.12's trap-based GC yieldpoints (the release-mode default) corrupt live
     // objects under multithreaded load (scala-native#5046, #5160), so NativeServer fails under
     // concurrent requests. Scala Native reads the switch from sbt's environment at link time.
+    // dependsOn runs the check before the (minutes-long) link rather than after it.
     Compile / nativeLink := Def.uncached {
-      if nativeConfig.value.mode != scala.scalanative.build.Mode.debug &&
-        !sys.env.get("SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS").contains("0")
-      then
-        sys.error(
-          "Link the rpc-native example with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 in sbt's " +
-            "environment; see examples/rpc-native/README.md"
-        )
-      (Compile / nativeLink).value
+      (Compile / nativeLink)
+        .dependsOn(Def.task {
+          Def.uncached {
+            if nativeConfig.value.mode != scala.scalanative.build.Mode.debug &&
+              !sys.env.get("SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS").contains("0")
+            then
+              sys.error(
+                "Link the rpc-native example with SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0 in " +
+                  "sbt's environment; see examples/rpc-native/README.md"
+              )
+          }
+        })
+        .value
     },
     // The test is JVM-only (.jvm/src/test). CI links and calls the binary instead.
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
