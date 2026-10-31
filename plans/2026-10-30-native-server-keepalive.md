@@ -7,14 +7,14 @@
 
 ## Background
 
-- Root cause is not in uni. It is a Scala Native 0.5.12 GC bug: in release builds, multithreaded Immix/Commix use trap-based yieldpoints by default, and the GC sometimes frees or clobbers live objects. Upstream issues: scala-native#5046 (sweeper frees a live array's line), #5160 (registers corrupted after a safepoint trap on Linux aarch64), and #5071 (asks for a `NativeConfig` setting for the yieldpoint mode).
+- Root cause is not in uni. It is a Scala Native 0.5.12 GC bug: with several threads allocating at once, Immix/Commix sometimes free or clobber live objects, most often with the release-mode default of trap-based yieldpoints. Upstream issues: scala-native#5046 (the sweeper frees a live array's line), #5160 (registers corrupted after a safepoint trap on Linux aarch64), and #5071 (a `NativeConfig` setting for the yieldpoint mode).
 - Symptoms in NativeServer: `ArrayIndexOutOfBoundsException` with impossible indexes in the request parser and the ISO-8859-1 encoder, and garbled response bytes. On arm64 the process aborts (`std::terminate`) within a second, and the kernel then spends a long time writing a core dump, which looks like a stall.
 - `handleConnection` logs unexpected exceptions at debug level and closes the socket, so on x86 the corruption surfaced only as "connection closed before message completed".
 - Diagnostic A/B, same binary config (immix, release-full, full LTO, server on 2 cores, oha `-c 16` for 10 s, 6 runs each):
   - arm64: traps on, 6/6 aborted; traps off (`SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0`), 6/6 clean at ~32k req/s.
   - x86_64: traps on, 6/6 had 19–38 failures. With traps off, the follow-up diagnostic showed every trial corrupting and then stalling permanently.
   - Boehm and no-GC builds were clean; a single server core was clean; macOS (18 cores) did not reproduce.
-- The variable is read from sbt's environment at link time, not from `NativeConfig`, so a library cannot set it for its users. uni's own Native tests link in debug mode, which already uses conditional yieldpoints.
+- Neither the GC choice nor the yieldpoint variable (read from sbt's environment at link time) can be set by a library for its users. uni's own Native tests link in debug mode and never hit the bug.
 
 ## Design
 
