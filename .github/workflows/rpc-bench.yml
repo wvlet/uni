@@ -1,0 +1,79 @@
+name: RPC benchmark
+
+# Runs examples/rpc-native/bench on Linux x86_64 and arm64 and writes the tables to the job
+# summary. Shared runners make throughput noisy; startup, memory, and image size are the reliable
+# numbers. Also runs on pull requests that change the benchmark, so it never goes stale.
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: 'Fresh launches per target (startup median)'
+        default: '7'
+      duration:
+        description: 'Load duration per target (oha -z)'
+        default: '10s'
+      connections:
+        description: 'Concurrent connections'
+        default: '16'
+  pull_request:
+    paths:
+      - '.github/workflows/rpc-bench.yml'
+      - 'examples/rpc-native/bench/**'
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Benchmark (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            oha: oha-linux-amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            oha: oha-linux-arm64
+    runs-on: ${{ matrix.os }}
+    env:
+      RUNS: ${{ inputs.runs || '7' }}
+      DURATION: ${{ inputs.duration || '10s' }}
+      CONNECTIONS: ${{ inputs.connections || '16' }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: sbt
+      - name: Install oha
+        run: |
+          mkdir -p "${HOME}/.local/bin" && echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          curl -fsSL -o "${HOME}/.local/bin/oha" \
+            https://github.com/hatoo/oha/releases/download/v1.16.0/${{ matrix.oha }} \
+            && chmod +x "${HOME}/.local/bin/oha" && "${HOME}/.local/bin/oha" --version \
+            || (rm -f "${HOME}/.local/bin/oha" && sudo apt-get update && sudo apt-get install -y wrk)
+      - name: Build the native binary and the JVM classpath
+        run: examples/rpc-native/bench/build.sh
+      - name: Build the container images
+        working-directory: examples/rpc-native/bench
+        run: |
+          docker build -q -f Dockerfile.native -t rpc-native:native .
+          docker build -q -f Dockerfile.jvm -t rpc-native:jvm .
+      - name: Run the benchmark
+        run: |
+          # Half the cores for the server, half for the load tool
+          n=$(nproc); half=$((n / 2))
+          python3 examples/rpc-native/bench/bench.py \
+            --runs "${RUNS}" --duration "${DURATION}" -c "${CONNECTIONS}" \
+            --server-cpus "0-$((half - 1))" --client-cpus "${half}-$((n - 1))" \
+            --native-image rpc-native:native --jvm-image rpc-native:jvm \
+            --json results-${{ matrix.arch }}.json | tee -a "${GITHUB_STEP_SUMMARY}"
+          echo "- Runner: ${{ matrix.os }} (shared GitHub-hosted runner; throughput is noisy)" \
+            >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rpc-bench-${{ matrix.arch }}
+          path: results-${{ matrix.arch }}.json

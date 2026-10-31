@@ -147,6 +147,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   exampleCli.jvm,
   exampleRestServer,
   exampleMcpServer,
+  exampleRpcNative.jvm,
   test.jvm
 )
 
@@ -155,6 +156,7 @@ lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
   exampleCli.native,
+  exampleRpcNative.native,
   test.native
 )
 
@@ -309,6 +311,50 @@ lazy val exampleRestServer = project
     description := "Example: a REST + RPC server with uni-netty, Router, RPCRouter, and Design"
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
+
+// One RPC trait served by Netty on the JVM and by NativeServer as a native binary (no JVM).
+// Benchmark scripts: examples/rpc-native/bench
+lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("examples/rpc-native"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-rpc-native",
+    description := "Example: one typed RPC trait served on the JVM (Netty) and Scala Native"
+  )
+  .nativeSettings(
+    nativeBuildSettings,
+    nativeConfig ~= { c =>
+      // releaseFull + full LTO: in examples/rpc-native/README.md's comparison, it matched the best
+      // throughput with the least memory, at a smaller binary than releaseFull alone
+      c.withMode(scala.scalanative.build.Mode.releaseFull)
+        .withLTO(scala.scalanative.build.LTO.full)
+        // nativeBuildSettings links libcurl and zlib for every Native project in this repo. A
+        // server-only binary needs neither: dead-code elimination drops the HTTP client, so leave
+        // them out to build what a user's own project gets.
+        .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl", "-lz")))
+    },
+    // The test is JVM-only (.jvm/src/test). CI links and calls the binary instead.
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .jvmSettings(
+    // For bench/build.sh: copy the runtime classpath (jars) to bench/out/lib
+    stageBenchJars := Def.uncached {
+      val converter = fileConverter.value
+      val dir       = baseDirectory.value.getParentFile / "bench" / "out" / "lib"
+      IO.delete(dir)
+      (Runtime / fullClasspath)
+        .value
+        .map(a => converter.toPath(a.data).toFile)
+        .foreach(jar => IO.copyFile(jar, dir / jar.getName))
+      dir
+    }
+  )
+  .jvmConfigure(_.dependsOn(netty))
+  .dependsOn(uni, test % Test)
+
+lazy val stageBenchJars = taskKey[File]("Copy the runtime classpath jars for the benchmark")
 
 lazy val exampleMcpServer = project
   .in(file("examples/mcp-server"))

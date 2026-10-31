@@ -160,7 +160,9 @@ jobs:
       - name: Install libcurl
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev
       - name: Scala Native test
-        run: JVM_OPTS=-Xmx4g ./sbt "projectNative/test"
+        run: JVM_OPTS=-Xmx4g ./sbt "projectNative/test" "exampleRpcNativeNative/nativeLink"
+      - name: Run the rpc-native example binary
+        run: .github/scripts/check-rpc-native.sh
       # This build passes -lcurl unconditionally, so no Scala Native job here — on any OS — can
       # notice uni_curl_shim.c growing a reference to a libcurl symbol. Downstream projects that
       # never link libcurl can, and their build breaks (issue #622). Check the object directly.
