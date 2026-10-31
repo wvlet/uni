@@ -448,6 +448,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Overview', link: '/cli/' },
             { text: 'Terminal Styling', link: '/cli/tint' },
             { text: 'Progress Indicators', link: '/cli/progress' },
+            { text: 'Line Editing', link: '/cli/line-reader' },
             { text: 'Command Launcher', link: '/cli/launcher' }
           ]
         },
@@ -554,6 +555,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Overview', link: '/cli/' },
             { text: 'Terminal Styling', link: '/cli/tint' },
             { text: 'Progress Indicators', link: '/cli/progress' },
+            { text: 'Line Editing', link: '/cli/line-reader' },
             { text: 'Command Launcher', link: '/cli/launcher' }
           ]
         },

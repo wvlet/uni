@@ -145,17 +145,20 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   bookExamples,
   docSnippets,
   exampleCli.jvm,
+  exampleRepl.jvm,
   exampleRestServer,
   exampleMcpServer,
   exampleRpcNative.jvm,
   test.jvm
 )
 
-lazy val jsProjects: Seq[ProjectReference] = Seq(core.js, uni.js, domTest, exampleWebUi, test.js)
+lazy val jsProjects: Seq[ProjectReference] =
+  Seq(core.js, uni.js, domTest, exampleRepl.js, exampleWebUi, test.js)
 lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
   exampleCli.native,
+  exampleRepl.native,
   exampleRpcNative.native,
   test.native
 )
@@ -301,6 +304,22 @@ lazy val exampleCli = crossProject(JVMPlatform, NativePlatform)
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
   )
   .dependsOn(uni, test % Test)
+
+// A line-editing REPL with LineReader; the same code runs on the JVM, Node.js, and Scala Native.
+lazy val exampleRepl = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("examples/repl"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-repl",
+    description := "Example: a REPL with LineReader (editing, history, completion, highlighting)",
+    // No tests: skip linking empty test binaries in CI
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .jsSettings(jsBuildSettings, scalaJSUseMainModuleInitializer := true)
+  .nativeSettings(nativeBuildSettings)
+  .dependsOn(uni)
 
 lazy val exampleRestServer = project
   .in(file("examples/rest-server"))

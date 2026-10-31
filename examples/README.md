@@ -7,6 +7,7 @@ template you can copy: one or two Scala files, a README that explains what it sh
 | Example | Platforms | Shows |
 |---------|-----------|-------|
 | [`cli-tool`](cli-tool/) | JVM, Scala Native | `Launcher` sub-commands and options, `LogSupport`, `derives Weaver` JSON decoding, the HTTP client, a native binary via `nativeLink` |
+| [`repl`](repl/) | JVM, Node.js, Scala Native | `LineReader` with history, Tab completion, highlighting, multi-line statements, and chord key bindings, from one source |
 | [`rest-server`](rest-server/) | JVM | `NettyServer` with `Router` REST endpoints and an `RPCRouter` service, a typed RPC client, `Design` wiring, and a UniTest suite that starts the server |
 | [`rpc-native`](rpc-native/) | JVM, Scala Native | One `TodoApi` trait served by `NativeServer` as a native binary (no JVM) and by `NettyServer`, a typed client, a UniTest suite, and a reproducible [benchmark](rpc-native/bench/) |
 | [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
@@ -15,12 +16,13 @@ template you can copy: one or two Scala files, a README that explains what it sh
 
 ## Run them from this repository
 
-The first five are projects in the root `build.sbt`, so CI compiles and tests them against the
+The first six are projects in the root `build.sbt`, so CI compiles and tests them against the
 current source and they never go stale. They are not published.
 
 ```bash
 ./sbt "exampleCliJVM/run repo wvlet/uni"      # CLI tool on the JVM
 ./sbt exampleCliNative/nativeLink             # CLI tool as a native binary
+./sbt exampleReplNative/nativeLink            # REPL as a native binary (see repl/README.md)
 ./sbt exampleRestServer/run                   # REST + RPC server on http://localhost:8080
 ./sbt exampleRestServer/test                  # starts the server on a free port and calls it
 ./sbt exampleRpcNativeNative/nativeLink       # typed RPC server as a native binary
