@@ -1,12 +1,16 @@
 # HTTP server
 
+`Http.server` (`wvlet.uni.http.Http`) runs the same server code on every
+platform; on the JVM it needs `uni-netty` on the classpath. Use a platform's own
+entry point for backend-specific settings:
+
 | Platform | Server | Module |
 |----------|--------|--------|
 | JVM | `wvlet.uni.http.netty.NettyServer` | `uni-netty` |
 | Scala.js (Node.js) | `wvlet.uni.http.NodeServer` | `uni` |
 | Scala Native | `wvlet.uni.http.NativeServer` | `uni` |
 
-All three share `withPort`, `withHost` (default `127.0.0.1`), `withName`,
+`Http.server` and all three share `withPort`, `withHost` (default `127.0.0.1`), `withName`,
 `withHandler(Request => Response)`, `withRxHandler(Request => Rx[Response])`,
 `withFilter`, `withWebSocketRoute`, `start()`, and `start { server => ... }`.
 The annotation router (`@Endpoint`, `Router`, `RouterHandler`) is **JVM only**.
@@ -63,11 +67,11 @@ class ItemController:
 ## Functional handler (all platforms)
 
 ```scala
-import wvlet.uni.http.{Request, Response}
-import wvlet.uni.http.netty.NettyServer // NodeServer / NativeServer elsewhere
+import wvlet.uni.http.{Http, Request, Response}
 import wvlet.uni.rx.Rx
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler { request =>
     request.path match

@@ -28,8 +28,9 @@ package wvlet.uni.http
   *   .withMaxRetry(5)
   *   .newAsyncClient
   *
-  * // Future: Create a server
-  * // val server = Http.server.withPort(8080).start()
+  * // Start a server: Netty on the JVM (with uni-netty), NativeServer on Scala Native, and
+  * // NodeServer on Scala.js
+  * val server = Http.server.withPort(8080).withRxHandler(handler).start()
   * }}}
   */
 object Http:
@@ -45,19 +46,35 @@ object Http:
   def webSocketClient: WebSocketClient = defaultChannelFactory.newWebSocketClient
 
   /**
-    * Default HTTP channel factory. Initialized from the platform-specific
-    * `HttpCompat.defaultHttpChannelFactory` so cross-platform callers can use
-    * `Http.client.newSyncClient` without per-platform setup. Callers that need a non-default
-    * factory can override via `setDefaultChannelFactory`.
+    * Default HTTP channel factory: the one set by `setDefaultChannelFactory`, or else the
+    * platform-specific `HttpCompat.defaultHttpChannelFactory`, so cross-platform callers can use
+    * `Http.client.newSyncClient` without per-platform setup.
+    *
+    * Resolved on first use rather than when `Http` initializes, so a server-only program that calls
+    * `Http.server` doesn't load the client: on Scala Native, that would initialize and link
+    * libcurl.
     *
     * `@volatile` so `setDefaultChannelFactory` writes are visible across threads on the JVM. No-op
     * on Scala.js / Native.
     */
   @volatile
-  private[http] var defaultChannelFactory: HttpChannelFactory = HttpCompat.defaultHttpChannelFactory
+  private var customChannelFactory: Option[HttpChannelFactory] = None
+
+  private[http] def defaultChannelFactory: HttpChannelFactory = customChannelFactory.getOrElse(
+    HttpCompat.defaultHttpChannelFactory
+  )
 
   /**
     * Override the default channel factory. The default is the platform-specific factory from
     * `HttpCompat`; callers (e.g., `wvlet-server`) can substitute their own implementation.
     */
-  def setDefaultChannelFactory(factory: HttpChannelFactory): Unit = defaultChannelFactory = factory
+  def setDefaultChannelFactory(factory: HttpChannelFactory): Unit =
+    customChannelFactory = Some(factory)
+
+  /**
+    * Entry point for creating an HTTP server that runs unchanged on every platform. On the JVM it
+    * needs uni-netty on the classpath.
+    */
+  def server: PortableServerConfig = PortableServerConfig()
+
+end Http

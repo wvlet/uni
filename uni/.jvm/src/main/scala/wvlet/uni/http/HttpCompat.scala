@@ -19,6 +19,7 @@ import java.io.IOException
 import java.lang.reflect.InvocationTargetException
 import java.net.*
 import java.nio.channels.ClosedChannelException
+import java.util.ServiceLoader
 import java.util.concurrent.ExecutionException
 import javax.net.ssl.{
   SSLException,
@@ -33,6 +34,16 @@ import javax.net.ssl.{
 private[http] object HttpCompat extends HttpCompatApi:
 
   override val defaultHttpChannelFactory: HttpChannelFactory = JVMHttpChannelFactory
+
+  // uni can't depend on uni-netty (it depends on uni), so the backend registers itself as a
+  // ServiceLoader provider in META-INF/services
+  override def startServer(config: PortableServerConfig): HttpServer =
+    val providers = ServiceLoader.load(classOf[HttpServerProvider]).iterator()
+    if !providers.hasNext then
+      throw IllegalStateException(
+        "No HTTP server backend on the classpath: add uni-netty (\"org.wvlet.uni\" %% \"uni-netty\") to serve Http.server on the JVM"
+      )
+    providers.next().start(config)
 
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] =
     case e: SSLException =>

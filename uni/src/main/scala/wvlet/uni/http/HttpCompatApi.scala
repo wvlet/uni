@@ -23,12 +23,15 @@ import wvlet.uni.control.ResultClass.Failed
   */
 private[http] trait HttpCompatApi:
   /**
-    * Platform-specific default HTTP channel factory. `Http.defaultChannelFactory` reads this at
-    * init time so cross-platform callers can use `Http.client` without per-platform setup. The
+    * Platform-specific default HTTP channel factory. `Http.defaultChannelFactory` reads this on
+    * first use so cross-platform callers can use `Http.client` without per-platform setup. The
     * value-based handoff (rather than a callback that mutates `Http`'s state) avoids an `Http` ↔
     * `HttpCompat` init cycle that the Scala.js linker resolves differently from the JVM.
     */
   def defaultHttpChannelFactory: HttpChannelFactory
+
+  /** Start a [[PortableServerConfig]] on this platform's HTTP server backend. */
+  def startServer(config: PortableServerConfig): HttpServer
 
   /**
     * Platform-specific SSL exception classifier for retry logic. JVM provides full SSL exception
@@ -49,3 +52,5 @@ private[http] trait HttpCompatApi:
     * simpler implementation.
     */
   def rootCauseExceptionClassifier: PartialFunction[Throwable, Failed]
+
+end HttpCompatApi
