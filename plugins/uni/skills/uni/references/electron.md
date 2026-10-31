@@ -77,13 +77,12 @@ import wvlet.uni.http.rpc.RPCClient
 import scala.scalajs.js.annotation.JSExportTopLevel
 
 object RendererApp:
-  private val rpc = RPCClient.of[CounterApi]
-
   @JSExportTopLevel("main")
   def main(): Unit =
     ElectronRenderer.install() // reads window.uniRPC; pass another bridge object if renamed
-    val client = Http.client.newAsyncClient
-    rpc.callAsync[CounterState](client, "increment", Seq(1)).run { s =>
+    // Create the HTTP client after install(), which sets the channel factory
+    val rpc = RPCClient.of[CounterApi].newAsyncClient(Http.client.newAsyncClient)
+    rpc.call[CounterState]("increment", 1).run { s =>
       println(s"counter = ${s.value}")
     }
 ```
@@ -103,7 +102,8 @@ class CounterIpcTest extends UniTest:
     val client = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl())).newAsyncClient
     RPCClient
       .of[CounterApi]
-      .callAsync[CounterState](client, "increment", Seq(2))
+      .newAsyncClient(client)
+      .call[CounterState]("increment", 2)
       .map(_.value shouldBe 2)
   }
 ```

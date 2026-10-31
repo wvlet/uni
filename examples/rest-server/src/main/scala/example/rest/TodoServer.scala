@@ -62,11 +62,11 @@ class TodoApiImpl(store: TodoStore) extends TodoApi:
   * written out here to show what the generated code does.
   */
 class TodoApiClient(http: HttpSyncClient) extends TodoApi:
-  private val rpc = RPCClient.of[TodoApi]
+  private val rpc = RPCClient.of[TodoApi].newSyncClient(http)
 
-  def add(title: String): Todo         = rpc.callSync(http, "add", Seq(title))
-  def complete(id: Long): Option[Todo] = rpc.callSync(http, "complete", Seq(id))
-  def list(): Seq[Todo]                = rpc.callSync(http, "list", Seq.empty)
+  def add(title: String): Todo         = rpc.call("add", title)
+  def complete(id: Long): Option[Todo] = rpc.call("complete", id)
+  def list(): Seq[Todo]                = rpc.call("list")
 
 case class ServerConfig(port: Int = 8080)
 

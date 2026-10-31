@@ -14,7 +14,7 @@ client calls either one through the same trait.
   platform's server: Netty (from `uni-netty`) on the JVM, and `NativeServer`, built on POSIX
   sockets, in the Scala Native binary. The binary links only OS libraries and the Boehm GC: no JVM,
   no libcurl, no OpenSSL (see [Garbage collector](#garbage-collector)).
-- **Typed client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.callSync`, so calls
+- **Typed client**: `TodoApiClient extends TodoApi` delegates to `RPCClient.of[TodoApi].newSyncClient(http)`, so calls
   are compile-checked. sbt-uni's `uniHttpClients` code generator produces this class for you.
 - **UniTest**: [`TodoApiTest`](src/test/scala/example/rpc/TodoApiTest.scala) starts the server
   from the same design on a free port and calls it through the typed client, on the JVM and on

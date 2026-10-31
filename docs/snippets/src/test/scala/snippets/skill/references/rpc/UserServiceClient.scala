@@ -8,8 +8,8 @@ import wvlet.uni.rx.Rx
 
 object UserServiceClient:
   class SyncClient(http: HttpSyncClient) extends UserService:
-    private val rpc                       = RPCClient.of[UserService]
-    def getUser(id: Long): User           = rpc.callSync(http, "getUser", Seq(id))
-    def createUser(name: String): User    = rpc.callSync(http, "createUser", Seq(name))
-    def listUsers(limit: Int): Seq[User]  = rpc.callSync(http, "listUsers", Seq(limit))
+    private val rpc                       = RPCClient.of[UserService].newSyncClient(http)
+    def getUser(id: Long): User           = rpc.call("getUser", id)
+    def createUser(name: String): User    = rpc.call("createUser", name)
+    def listUsers(limit: Int): Seq[User]  = rpc.call("listUsers", limit)
     def findUserAsync(id: Long): Rx[User] = Rx.single(getUser(id))

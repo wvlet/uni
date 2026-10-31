@@ -38,5 +38,5 @@ class UserServiceImpl extends UserService:
 
 object UserServiceClient:
   class SyncClient(http: HttpSyncClient) extends UserService:
-    private val rpc             = RPCClient.of[UserService]
-    def getUser(id: Long): User = rpc.callSync(http, "getUser", Seq(id))
+    private val rpc             = RPCClient.of[UserService].newSyncClient(http)
+    def getUser(id: Long): User = rpc.call("getUser", id)

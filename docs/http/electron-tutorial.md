@@ -186,8 +186,8 @@ object RendererApp:
     CounterUI().renderTo("app")
 
 class CounterUI extends RxElement:
-  private val rpc         = RPCClient.of[CounterApi]
-  private lazy val client = Http.client.newAsyncClient
+  // Lazy: the HTTP client must be created after install() sets the channel factory
+  private lazy val rpc = RPCClient.of[CounterApi].newAsyncClient(Http.client.newAsyncClient)
 
   private val count = Rx.variable(0)
 
@@ -195,7 +195,7 @@ class CounterUI extends RxElement:
     h1("Uni Counter"),
     p(count.map(_.toString)), // re-renders when count changes
     button(
-      onclick -> { () => rpc.callAsync[CounterState](client, "increment", Seq(1)).run(show) },
+      onclick -> { () => rpc.call[CounterState]("increment", 1).run(show) },
       "+1"
     )
   )
@@ -203,7 +203,7 @@ class CounterUI extends RxElement:
   private def show(s: CounterState): Unit = count := s.value
 
   override def onMount(node: Any): Unit =
-    rpc.callAsync[CounterState](client, "get", Seq.empty).run(show)
+    rpc.call[CounterState]("get").run(show)
 ```
 
 The renderer HTML loads the Scala.js module and provides the mount point:

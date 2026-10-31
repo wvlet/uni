@@ -69,6 +69,12 @@ val route = router.findRoute("getUser")
 
 All routes use `POST` with the path format `/{serviceName}/{methodName}`, where `serviceName` is the trait's fully qualified name.
 
+The type argument `T` decides both the route prefix and the endpoint set, so pass the service
+trait. `RPCRouter.of(impl)` also compiles, but `T` is then inferred from the argument's static
+type: given a `UserServiceImpl` value, the routes become `/com.example.api.UserServiceImpl/...`,
+and a client built with `RPCClient.of[UserService]` gets `404 Not Found` for every call. Writing
+`RPCRouter.of[UserService](impl)` keeps the two sides on the same path.
+
 Every public method of `T` becomes an endpoint, including methods inherited from your own base
 traits (`trait UserService extends CrudApi[User]` serves the `CrudApi` methods too). Methods
 inherited from library traits (`scala.*`, `java.*`, uni's logging mixins such as `LogSupport`) are
@@ -179,6 +185,40 @@ Under the hood the generated methods delegate to `RPCClient.of[UserService]`,
 which serializes arguments and decodes responses with [Weaver](../core/weaver) —
 the same wire format the [RPC router](#creating-an-rpc-router) expects, so client
 and server stay in sync.
+
+### Writing a client by hand
+
+Without codegen, write the client with `RPCClient` directly. `RPCClient.of[T]`
+holds the method codecs for `T`, and `newSyncClient(http)` or
+`newAsyncClient(http)` binds them to an HTTP client. `call` takes the method name
+followed by its arguments in declaration order:
+
+```scala
+import wvlet.uni.http.{Http, HttpSyncClient}
+import wvlet.uni.http.rpc.RPCClient
+
+class UserServiceClient(http: HttpSyncClient) extends UserService:
+  private val rpc = RPCClient.of[UserService].newSyncClient(http)
+
+  def getUser(id: Long): User                       = rpc.call("getUser", id)
+  def createUser(name: String, email: String): User = rpc.call("createUser", name, email)
+  def listUsers(limit: Int): Seq[User]              = rpc.call("listUsers", limit)
+
+val client = UserServiceClient(Http.client.withBaseUri("http://localhost:8080").newSyncClient)
+```
+
+The async form returns `Rx[A]`:
+
+```scala
+val rpc = RPCClient
+  .of[UserService]
+  .newAsyncClient(Http.client.withBaseUri("http://localhost:8080").newAsyncClient)
+rpc.call[User]("getUser", 42L).map(user => println(user.name))
+```
+
+An `RPCClient` has no connection state, so one instance can be shared by any
+number of bound clients. The lower-level `callSync(http, name, args)` and
+`callAsync(http, name, args)` take the HTTP client on every call.
 
 ## RPC Status Codes
 

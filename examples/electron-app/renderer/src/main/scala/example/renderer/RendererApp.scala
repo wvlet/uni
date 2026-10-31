@@ -33,20 +33,13 @@ end RendererApp
   */
 class CounterUI extends RxElement:
 
-  // A reusable RPC engine for CounterApi. The generated/manual stub below adds typed methods.
-  private val rpc: RPCClient = RPCClient.of[CounterApi]
+  // An RPC client for CounterApi, bound to an async HTTP client. The HTTP client routes through
+  // whatever channel factory is installed (Electron IPC, in RendererApp.main), so create it lazily.
+  private lazy val rpc = RPCClient.of[CounterApi].newAsyncClient(Http.client.newAsyncClient)
 
-  // The async client routes through whatever channel factory is installed (Electron IPC, below).
-  private lazy val client = Http.client.newAsyncClient
-
-  private def get(): Rx[CounterState] = rpc.callAsync[CounterState](client, "get", Seq.empty)
-  private def increment(amount: Int): Rx[CounterState] = rpc.callAsync[CounterState](
-    client,
-    "increment",
-    Seq(amount)
-  )
-
-  private def reset(): Rx[CounterState] = rpc.callAsync[CounterState](client, "reset", Seq.empty)
+  private def get(): Rx[CounterState]                  = rpc.call("get")
+  private def increment(amount: Int): Rx[CounterState] = rpc.call("increment", amount)
+  private def reset(): Rx[CounterState]                = rpc.call("reset")
 
   // The counter value shown in the display. Updating it re-renders the number in place.
   private val count = Rx.variable(0)

@@ -39,8 +39,8 @@ import scala.scalajs.js
   *
   * {{{
   *   val testbed = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl()))
-  *   val client  = testbed.newAsyncClient
-  *   rpcClient.callAsync[CounterState](client, "increment", Seq.empty).map { st =>
+  *   val rpc     = RPCClient.of[CounterApi].newAsyncClient(testbed.newAsyncClient)
+  *   rpc.call[CounterState]("increment").map { st =>
   *     st.value shouldBe 1
   *   }
   * }}}

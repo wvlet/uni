@@ -28,7 +28,9 @@ import wvlet.uni.text.CodeFormatterConfig
   *   private val rpc = RPCClient.of[UserService]
   *
   *   class SyncClient(client: HttpSyncClient):
-  *     def getUser(id: Long): User = rpc.callSync(client, "getUser", Seq(id))
+  *     private val rpcClient = rpc.newSyncClient(client)
+  *
+  *     def getUser(id: Long): User = rpcClient.call[User]("getUser", id)
   * }}}
   */
 object RPCClientGenerator:
@@ -82,13 +84,21 @@ object RPCClientGenerator:
 
   private def buildSyncClient(service: ServiceDef): Doc =
     val methods = service.methods.map(buildSyncMethod).toList
-    val body    = verticalAppend(methods, empty)
-    indentedBlock("class SyncClient(client: HttpSyncClient)", "SyncClient", body)
+    val bind    = text("private val rpcClient = rpc.newSyncClient(client)")
+    indentedBlock(
+      "class SyncClient(client: HttpSyncClient)",
+      "SyncClient",
+      verticalAppend(bind :: methods, empty)
+    )
 
   private def buildAsyncClient(service: ServiceDef): Doc =
     val methods = service.methods.map(buildAsyncMethod).toList
-    val body    = verticalAppend(methods, empty)
-    indentedBlock("class AsyncClient(client: HttpAsyncClient)", "AsyncClient", body)
+    val bind    = text("private val rpcClient = rpc.newAsyncClient(client)")
+    indentedBlock(
+      "class AsyncClient(client: HttpAsyncClient)",
+      "AsyncClient",
+      verticalAppend(bind :: methods, empty)
+    )
 
   private def buildSyncMethod(method: MethodDef): Doc =
     val sig      = methodSignature(method)
@@ -97,10 +107,10 @@ object RPCClientGenerator:
 
     if method.returnType.isUnit then
       text(s"def ${sig}: Unit =") +
-        nest(newline + text(s"""rpc.callSync[Unit](client, "${method.name}", ${callArgs})"""))
+        nest(newline + text(s"""rpcClient.call[Unit]("${method.name}"${callArgs})"""))
     else
       text(s"def ${sig}: ${rt} =") +
-        nest(newline + text(s"""rpc.callSync[${rt}](client, "${method.name}", ${callArgs})"""))
+        nest(newline + text(s"""rpcClient.call[${rt}]("${method.name}"${callArgs})"""))
 
   private def buildAsyncMethod(method: MethodDef): Doc =
     val sig      = methodSignature(method)
@@ -109,17 +119,14 @@ object RPCClientGenerator:
 
     if method.returnType.isUnit then
       text(s"def ${sig}: Rx[Unit] =") +
-        nest(newline + text(s"""rpc.callAsync[Unit](client, "${method.name}", ${callArgs})"""))
+        nest(newline + text(s"""rpcClient.call[Unit]("${method.name}"${callArgs})"""))
     else
       text(s"def ${sig}: Rx[${rt}] =") +
-        nest(newline + text(s"""rpc.callAsync[${rt}](client, "${method.name}", ${callArgs})"""))
+        nest(newline + text(s"""rpcClient.call[${rt}]("${method.name}"${callArgs})"""))
 
+  /** Arguments after the method name, each preceded by ", " (empty for a no-arg method). */
   private def renderCallArgs(method: MethodDef): String =
-    if method.params.isEmpty then
-      "Seq.empty"
-    else
-      val args = method.params.map(_.name).mkString(", ")
-      s"Seq(${args})"
+    method.params.map(p => s", ${p.name}").mkString
 
   private def methodSignature(method: MethodDef): String =
     val paramList = renderParamList(method.params)

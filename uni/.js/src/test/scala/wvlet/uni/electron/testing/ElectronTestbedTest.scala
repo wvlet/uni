@@ -46,13 +46,12 @@ class ElectronTestbedTest extends UniTest:
 
   test("a stateful service keeps state across IPC calls") {
     val testbed = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl()))
-    val client  = testbed.newAsyncClient
-    val rpc     = rpcClient
+    val rpc     = rpcClient.newAsyncClient(testbed.newAsyncClient)
     for
-      s0 <- rpc.callAsync[CounterState](client, "get", Seq.empty)
-      s1 <- rpc.callAsync[CounterState](client, "increment", Seq.empty)
-      s2 <- rpc.callAsync[CounterState](client, "increment", Seq.empty)
-      s3 <- rpc.callAsync[CounterState](client, "add", Seq(10))
+      s0 <- rpc.call[CounterState]("get")
+      s1 <- rpc.call[CounterState]("increment")
+      s2 <- rpc.call[CounterState]("increment")
+      s3 <- rpc.call[CounterState]("add", 10)
     yield
       s0.value shouldBe 0
       s1.value shouldBe 1
@@ -71,7 +70,8 @@ class ElectronTestbedTest extends UniTest:
         .withChannelFactory(testbed.channelFactory("nonexistent-channel"))
         .newAsyncClient
     rpcClient
-      .callAsync[CounterState](client, "get", Seq.empty)
+      .newAsyncClient(client)
+      .call[CounterState]("get")
       .transform {
         case scala.util.Failure(e) =>
           e.getMessage shouldContain "No Electron RPC handler"
