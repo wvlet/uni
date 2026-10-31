@@ -213,8 +213,8 @@ no dependency on the browser engine the user's OS happens to have. Measured on t
 | Chromium core (`Electron Framework` binary)  | 197 MB   | No                                                   |
 | SwiftShader (software GPU fallback)          | 16 MB    | Only if every user has a GPU; VMs and GPU-less machines may fail to render |
 | ICU data, `.pak` resources, V8 snapshot      | 25 MB    | No                                                   |
-| Locale folders (`*.lproj`)                   | 9 MB     | Yes — keep only the languages your UI supports       |
-| Uni + app code (`app.asar`, Scala.js)        | 1.8 MB   | Minify it (3.9 MB unminified)                        |
+| Locale folders (`*.lproj`), all languages    | 9 MB     | Yes — keep only the languages your UI supports       |
+| Uni + app code (`app.asar`, Scala.js)        | 3.9 MB   | Minify it (1.8 MB minified)                          |
 
 The example applies the safe trims:
 
@@ -239,8 +239,8 @@ That takes the macOS DMG from 121 MB to 109 MB (−10%), and the installed app f
   `universal`.
 - **Choose the shell for the tradeoff you need.** Electron fits apps that need a predictable engine.
   When download size matters more than engine consistency, shells that use the OS's own WebView,
-  such as [Tauri](https://tauri.app/), are a good choice, and the same Uni RPC services can run
-  behind any transport.
+  such as [Tauri](https://tauri.app/), are a good choice. Uni RPC services also run over plain HTTP
+  ([`Http.server`](/http/)), not only over Electron IPC.
 
 See the full project — sbt build, Vite config, preload, packaging — in
 [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app).
