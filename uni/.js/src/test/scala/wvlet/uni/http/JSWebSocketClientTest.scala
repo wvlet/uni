@@ -46,7 +46,7 @@ class JSWebSocketClientTest extends UniTest:
     p.future
 
   test("JS WebSocket client echoes text messages") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
@@ -73,7 +73,7 @@ class JSWebSocketClientTest extends UniTest:
   }
 
   test("JS WebSocket client receives a server push on open") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
@@ -97,7 +97,7 @@ class JSWebSocketClientTest extends UniTest:
   }
 
   test("server heartbeat keeps an idle connection alive via ping/pong") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketPingIntervalMillis(150)
       .withWebSocketRoute("/ws/idle") { _ =>
@@ -122,7 +122,7 @@ class JSWebSocketClientTest extends UniTest:
   }
 
   test("JS WebSocket client fires onClose when the connection ends") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler:

@@ -545,13 +545,13 @@ initialization order, and a later binding of the same type wins:
 ```scala
 import wvlet.uni.test.*
 import wvlet.uni.http.{Http, HttpHandler, HttpServer, HttpSyncClient, Request, Response}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 
 // Starts a server on a free port for the HttpHandler that each suite binds
 trait HttpServerFixture extends UniTest:
   addDesign(
     _.bindProvider[HttpHandler, HttpServer](handler =>
-      NettyServer.withPort(0).withHandler(handler).start()
+      Http.server.withPort(0).withHandler(handler).start()
     )
   )
 

@@ -125,7 +125,7 @@ class NativeServerTest extends UniTest:
     fd
 
   test("should handle a GET request") {
-    NativeServer
+    NativeServerConfig()
       .withHandler { req =>
         Response.ok(s"Hello from ${req.path}")
       }
@@ -141,7 +141,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should read a raw UTF-8 request target as UTF-8") {
-    NativeServer
+    NativeServerConfig()
       .withHandler { req =>
         // Code points as hex, so the response body stays ASCII
         val q = req.getQueryParam("q").getOrElse("")
@@ -165,7 +165,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should handle a POST request with a body") {
-    NativeServer
+    NativeServerConfig()
       .withHandler { req =>
         Response.ok(s"Received: ${req.content.toContentString}")
       }
@@ -181,7 +181,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should round-trip request and response headers") {
-    NativeServer
+    NativeServerConfig()
       .withHandler { req =>
         Response.ok("ok").addHeader("X-Echoed", req.header("X-Echo").getOrElse("none"))
       }
@@ -197,7 +197,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should return 404 from the default handler") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .start { server =>
         val response = request(
@@ -209,7 +209,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should reject an unsupported HTTP method with 400") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withPort(0)
       .start { server =>
@@ -222,7 +222,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should not send a body for a HEAD request") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(req => Response.ok(s"Hello from ${req.path}"))
       .withPort(0)
       .start { server =>
@@ -238,7 +238,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should reject conflicting Content-Length headers with 400") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withPort(0)
       .start { server =>
@@ -251,7 +251,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should reject a non-numeric Content-Length with 400") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withPort(0)
       .start { server =>
@@ -264,7 +264,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should honor an explicitly-set response Content-Type") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("{}").withContentType(ContentType.ApplicationJson))
       .withPort(0)
       .start { server =>
@@ -280,7 +280,7 @@ class NativeServerTest extends UniTest:
   test("should stream Server-Sent Events with chunked encoding") {
     import wvlet.uni.rx.Rx
     val events = Seq(ServerSentEvent.data("hello"), ServerSentEvent.data("world"))
-    NativeServer
+    NativeServerConfig()
       .withRxHandler(_ => Rx.single(Response.eventStream(Rx.fromSeq(events))))
       .withPort(0)
       .start { server =>
@@ -299,7 +299,7 @@ class NativeServerTest extends UniTest:
 
   test("should not stream a body for HEAD on an SSE endpoint") {
     import wvlet.uni.rx.Rx
-    NativeServer
+    NativeServerConfig()
       .withRxHandler(_ =>
         Rx.single(Response.eventStream(Rx.fromSeq(Seq(ServerSentEvent.data("x")))))
       )
@@ -316,7 +316,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should report a bound ephemeral port") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .start { server =>
         (server.localPort > 0) shouldBe true
@@ -325,7 +325,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should reject a foreign Host on a loopback server with 403") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withPort(0)
       .start { server =>
@@ -339,7 +339,7 @@ class NativeServerTest extends UniTest:
 
   test("should reject streaming connections over the limit with 503") {
     import wvlet.uni.rx.Rx
-    NativeServer
+    NativeServerConfig()
       .withRxHandler { req =>
         if req.path == "/events" then
           Rx.single(Response.eventStream(Rx.variable(ServerSentEvent.data("hi"))))
@@ -375,7 +375,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should close an idle keep-alive connection after the idle timeout") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withIdleTimeoutMillis(300)
       .withPort(0)
@@ -401,7 +401,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should close a connection with an incomplete request after the read timeout") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withReadTimeoutMillis(300)
       .withPort(0)
@@ -471,7 +471,7 @@ class NativeServerTest extends UniTest:
   end keepAliveClient
 
   test("should answer concurrent keep-alive clients in order") {
-    NativeServer
+    NativeServerConfig()
       .withHandler(req => Response.ok(s"${req.path}:${req.content.asString.getOrElse("")}"))
       .withPort(0)
       .start { server =>
@@ -565,7 +565,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("WebSocket echoes text messages") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
@@ -587,7 +587,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("WebSocket can push a message on open") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
@@ -606,7 +606,7 @@ class NativeServerTest extends UniTest:
   test("WebSocket fires onOpen and onClose") {
     val opened = CountDownLatch(1)
     val closed = CountDownLatch(1)
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler:
@@ -623,7 +623,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("WebSocket upgrade without a key is rejected with 400") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws") { _ =>
         new WebSocketHandler {}
@@ -638,7 +638,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("WebSocket upgrade with an unsupported version is rejected with 426") {
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws") { _ =>
         new WebSocketHandler {}
@@ -658,7 +658,7 @@ class NativeServerTest extends UniTest:
     val deny = RxHttpFilter { (_, _) =>
       wvlet.uni.rx.Rx.single(Response.forbidden)
     }
-    NativeServer
+    NativeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/secure", deny) { _ =>
         new WebSocketHandler {}
@@ -675,7 +675,7 @@ class NativeServerTest extends UniTest:
     val path   = router.routes.head.path
     // Missing the "request" wrapper, so decoding fails with INVALID_REQUEST_U1
     val body                                         = """{"title":"hello"}"""
-    def post(dispatcher: RPCDispatcher): RawResponse = NativeServer
+    def post(dispatcher: RPCDispatcher): RawResponse = NativeServerConfig()
       .withRxHandler(dispatcher.dispatch)
       .withPort(0)
       .start { server =>

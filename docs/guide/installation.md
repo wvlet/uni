@@ -26,7 +26,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
 
 See the [REST Server guide](../http/server.md) for usage. On Scala.js and
-Scala Native, the HTTP server backends (`NodeServer` / `NativeServer`) are
+Scala Native, the HTTP server backends that `Http.server` uses are
 included in `uni` itself — no extra module is needed.
 
 ### Testing Framework

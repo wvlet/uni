@@ -41,11 +41,13 @@ run:
 
 ```scala
 import wvlet.uni.http.rpc.RPCRouter
-import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RPCHandler
 
 val router = RPCRouter.of[UserService](UserServiceImpl())
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler(RPCHandler(router))
   .start { _ => /* serving */ }

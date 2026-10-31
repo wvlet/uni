@@ -104,10 +104,11 @@ JSON/MessagePack, HTTP, and more.
 
 ```scala
 import wvlet.uni.http.{Request, Response}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 import wvlet.uni.rx.Rx
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler { request =>
     Rx.single(Response.ok(s"Hello from ${request.path}"))

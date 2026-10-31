@@ -50,7 +50,7 @@ class NettyServerShutdownTest extends UniTest:
 
   test("stop a server with handler threads while a client keeps a connection open") {
     val client = HttpClient.newHttpClient()
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandlerExecutorThreads(2)
@@ -68,7 +68,7 @@ class NettyServerShutdownTest extends UniTest:
   }
 
   test("close an idle keep-alive connection on stop") {
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok("ok"))
@@ -90,7 +90,7 @@ class NettyServerShutdownTest extends UniTest:
       socket.close()
   }
 
-  private def slowServer(entered: CountDownLatch) = NettyServer
+  private def slowServer(entered: CountDownLatch) = NettyServerConfig()
     .withPort(0)
     .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
     .withHandlerExecutorThreads(2)
@@ -131,7 +131,7 @@ class NettyServerShutdownTest extends UniTest:
     val client                  = HttpClient.newHttpClient()
     val stopped                 = CountDownLatch(1)
     var server: NettyHttpServer = null
-    server = NettyServer
+    server = NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { _ =>

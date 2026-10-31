@@ -180,7 +180,7 @@ class NodeWebSocketTest extends UniTest:
   end NodeWsClient
 
   test("WebSocket handshake accept key and text echo") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/echo") { _ =>
         new WebSocketHandler:
@@ -206,7 +206,7 @@ class NodeWebSocketTest extends UniTest:
   }
 
   test("WebSocket echoes binary messages") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/bin") { _ =>
         new WebSocketHandler:
@@ -230,7 +230,7 @@ class NodeWebSocketTest extends UniTest:
   }
 
   test("WebSocket can push a message on open") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/push") { _ =>
         new WebSocketHandler:
@@ -252,7 +252,7 @@ class NodeWebSocketTest extends UniTest:
   test("WebSocket fires onOpen and onClose") {
     val opened = Promise[Boolean]()
     val closed = Promise[Boolean]()
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/life") { _ =>
         new WebSocketHandler:
@@ -273,7 +273,7 @@ class NodeWebSocketTest extends UniTest:
   }
 
   test("WebSocket upgrade without a key is rejected with 400") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws") { _ =>
         new WebSocketHandler {}
@@ -314,7 +314,7 @@ class NodeWebSocketTest extends UniTest:
   }
 
   test("WebSocket upgrade with an unsupported version is rejected with 426") {
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws") { _ =>
         new WebSocketHandler {}
@@ -334,7 +334,7 @@ class NodeWebSocketTest extends UniTest:
     val deny = RxHttpFilter { (_, _) =>
       Rx.single(Response.forbidden)
     }
-    NodeServer
+    NodeServerConfig()
       .withPort(0)
       .withWebSocketRoute("/ws/secure", deny) { _ =>
         new WebSocketHandler {}

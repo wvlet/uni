@@ -190,7 +190,7 @@ class RouterHandlerFilterScopeTest extends UniTest:
               .andThen(Router.filter[VersionFilter].andThen(Router.of[InferenceController]))
           )
       )
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .noNativeTransport
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)

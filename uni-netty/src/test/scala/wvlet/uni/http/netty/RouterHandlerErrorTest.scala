@@ -66,7 +66,7 @@ class RouterHandlerErrorTest extends UniTest:
 
   private val client = HttpClient.newHttpClient()
 
-  private def serverConfig: NettyServerConfig = NettyServer
+  private def serverConfig: NettyServerConfig = NettyServerConfig()
     .withPort(0)
     .noNativeTransport
     .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)

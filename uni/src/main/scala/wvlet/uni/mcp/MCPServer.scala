@@ -286,10 +286,10 @@ case class MCPServer(
 
   /**
     * MCP Streamable HTTP transport as an [[wvlet.uni.http.RxHttpHandler]]: mount it on any uni HTTP
-    * server, e.g. `NettyServer.withPort(8080).withRxHandler(mcp.httpHandler).start()` (JVM), or the
-    * same with `NodeServer` (Scala.js) / `NativeServer` (Scala Native). Each POSTed JSON-RPC
-    * message is answered with `application/json` (202 for notifications); when an `Origin` header
-    * is present, only localhost origins plus [[allowedOrigins]] are accepted.
+    * server, e.g. `Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()` on any
+    * platform. Each POSTed JSON-RPC message is answered with `application/json` (202 for
+    * notifications); when an `Origin` header is present, only localhost origins plus
+    * [[allowedOrigins]] are accepted.
     */
   def httpHandler: wvlet.uni.http.RxHttpHandler =
     // Force tool derivation so invalid setups fail when the handler is created, not per request

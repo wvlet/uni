@@ -26,7 +26,7 @@ class NettyGreeterServiceImpl extends NettyGreeterService:
   def hello(name: String): String = s"Hello, ${name}!"
 
 /**
-  * End-to-end test of [[MCPClient]] against a real MCP server mounted on a NettyServer (the
+  * End-to-end test of [[MCPClient]] against a real MCP server mounted on a Netty server (the
   * practice of connecting a client to a real HTTP socket).
   */
 class MCPClientNettyServerTest extends UniTest:
@@ -38,7 +38,7 @@ class MCPClientNettyServerTest extends UniTest:
       .withVersion("0.0.1")
       .withTools[NettyGreeterService](NettyGreeterServiceImpl())
 
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withRxHandler(mcp.httpHandler)
       .startAndAwait { server =>

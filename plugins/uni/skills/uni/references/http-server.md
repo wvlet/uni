@@ -7,16 +7,15 @@ It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
 options (a `ServerOptions`) from the platform's source folder or `Design`:
 `withBackend(Netty.options.withHandlerExecutorThreads(8))` (`wvlet.uni.http.netty.Netty`;
 `Native.options` on Scala Native); other backends ignore them. Port, handler,
-and size limits are set only on `Http.server`. The
-per-platform entry points:
+and size limits are set only on `Http.server`. The backends:
 
-| Platform | Server | Module |
-|----------|--------|--------|
-| JVM | `wvlet.uni.http.netty.NettyServer` | `uni-netty` |
-| Scala.js (Node.js) | `wvlet.uni.http.NodeServer` | `uni` |
-| Scala Native | `wvlet.uni.http.NativeServer` | `uni` |
+| Platform | Backend | Module | Options |
+|----------|---------|--------|---------|
+| JVM | Netty | `uni-netty` | `wvlet.uni.http.netty.Netty.options` |
+| Scala.js (Node.js) | Node `http` | `uni` | — |
+| Scala Native | POSIX sockets | `uni` | `wvlet.uni.http.Native.options` |
 
-`Http.server` and all three share `withPort`, `withHost` (default `127.0.0.1`), `withName`,
+`Http.server` takes `withPort`, `withHost` (default `127.0.0.1`), `withName`,
 `withHandler(Request => Response)`, `withRxHandler(Request => Rx[Response])`,
 `withFilter`, `withWebSocketRoute`, `start()`, and `start { server => ... }`.
 The annotation router (`@Endpoint`, `Router`, `RouterHandler`) is **JVM only**.
@@ -30,7 +29,8 @@ Full reference: https://wvlet.org/uni/http/server.md
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.http.netty.{NettyServer, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 import wvlet.uni.weaver.Weaver
 
 case class Item(id: String, name: String) derives Weaver
@@ -51,7 +51,8 @@ class ItemController:
   def health(): String = "ok"
 
 @main def serve(): Unit =
-  NettyServer
+  Http
+    .server
     .withPort(8080)
     .withRxHandler(RouterHandler(Router.of[ItemController]))
     .start { server =>
@@ -106,7 +107,7 @@ val errors = RxHttpFilter { (request, next) =>
   }
 }
 
-NettyServer.withPort(8080).withFilter(errors).withFilter(auth).withRxHandler(handler).start()
+Http.server.withPort(8080).withFilter(errors).withFilter(auth).withRxHandler(handler).start()
 ```
 
 Filters see exceptions from `RouterHandler` controllers and failed `Rx` values.

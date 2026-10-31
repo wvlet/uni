@@ -49,7 +49,7 @@ class NettyServerTest extends UniTest:
     httpClient.send(request, HttpResponse.BodyHandlers.ofString())
 
   test("should start and stop server") {
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok("test"))
@@ -64,7 +64,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle simple GET request") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
@@ -78,7 +78,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle POST request with body") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
@@ -93,7 +93,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle Rx async handler") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { request =>
@@ -107,7 +107,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle Rx delayed response") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { request =>
@@ -124,7 +124,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should return 404 for not found handler") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .start { server =>
@@ -142,7 +142,7 @@ class NettyServerTest extends UniTest:
         }
     }
 
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withFilter(loggingFilter)
@@ -163,7 +163,7 @@ class NettyServerTest extends UniTest:
       Response.ok(s"Sync: ${request.path}")
     }
 
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(handler)
@@ -175,7 +175,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle JSON response") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { _ =>
@@ -190,7 +190,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should handle different HTTP methods") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler { request =>
@@ -207,7 +207,7 @@ class NettyServerTest extends UniTest:
 
   test("should handle error in handler") {
     val logs = captureLogs {
-      NettyServer
+      NettyServerConfig()
         .withPort(0)
         .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
         .withRxHandler { _ =>
@@ -240,7 +240,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should throw when starting already running server") {
-    val server = NettyServer
+    val server = NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(_ => Response.ok)
@@ -291,7 +291,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should start server with handler executor threads") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandlerExecutorThreads(4)
@@ -323,7 +323,7 @@ class NettyServerTest extends UniTest:
       ServerSentEvent.withEventType("done", "complete")
     )
 
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler { _ =>
@@ -371,7 +371,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should bind query parameters to @Endpoint method parameters") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.SearchController]))
@@ -387,7 +387,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should read a raw UTF-8 request target as UTF-8") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withHandler(req => Response.ok(s"${req.path} ${req.getQueryParam("q").getOrElse("")}"))
@@ -412,7 +412,7 @@ class NettyServerTest extends UniTest:
   test("should serve Response returns from @Endpoint controllers") {
     // Router.of used to fail at compile time: Response.status is an HttpStatus, an enum with a
     // parameterized case and hence no valueOf
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.ResponseController]))
@@ -428,7 +428,7 @@ class NettyServerTest extends UniTest:
   }
 
   test("should encode case class returns from @Endpoint controllers as JSON") {
-    NettyServer
+    NettyServerConfig()
       .withPort(0)
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
       .withRxHandler(RouterHandler(Router.of[NettyServerTest.HelloController]))

@@ -67,10 +67,11 @@ A server answers requests. At its simplest, a handler is a function from
 
 ```scala
 import wvlet.uni.http.{Request, Response}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 import wvlet.uni.rx.Rx
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler { (request: Request) =>
     Rx.single(Response.ok(s"You asked for ${request.path}"))
@@ -82,8 +83,8 @@ NettyServer
 
 `start { server => … }` runs the server for the duration of the block and
 shuts it down cleanly when the block ends — the same lifecycle shape as
-`Design.build`. On Scala.js and Native you swap `NettyServer` for
-`NodeServer` or `NativeServer`; the builder API is identical.
+`Design.build`. The same code runs on Scala.js and Native: `Http.server`
+picks Node.js or the native socket server there.
 
 ## Routing without a switch statement
 
@@ -94,7 +95,8 @@ the router dispatch:
 ```scala
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.router.{Endpoint, Router}
-import wvlet.uni.http.netty.{NettyServer, RouterHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RouterHandler
 
 class UserController:
   @Endpoint(HttpMethod.GET, "/users/:id")
@@ -105,7 +107,8 @@ class UserController:
 
 val router = Router.of[UserController]
 
-NettyServer
+Http
+  .server
   .withPort(8080)
   .withRxHandler(RouterHandler(router))
   .start { _ => /* serve */ }

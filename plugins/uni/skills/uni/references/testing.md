@@ -114,11 +114,13 @@ client. The block form stops the server afterwards.
 
 ```scala test
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.Http
+import wvlet.uni.http.netty.RPCHandler
 import wvlet.uni.http.rpc.RPCRouter
 
 test("RPC round trip") {
-  NettyServer
+  Http
+    .server
     .withPort(0)
     .withRxHandler(RPCHandler(RPCRouter.of[UserService](UserServiceImpl())))
     .start { server =>
@@ -137,12 +139,13 @@ printed, so the test can assert that the error was logged.
 
 ```scala test
 import wvlet.uni.http.{Http, HttpMaxRetryException, Request}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 import wvlet.uni.rx.Rx
 
 test("a failing handler returns 500 and logs the error") {
   val logs = captureLogs {
-    NettyServer
+    Http
+      .server
       .withPort(0)
       .withRxHandler(_ => Rx.exception(IllegalStateException("boom")))
       .start { server =>
@@ -177,10 +180,10 @@ order, so dependencies decide the shutdown order.
 
 ```scala
 import wvlet.uni.http.{Http, HttpHandler, HttpServer, HttpSyncClient, Request, Response}
-import wvlet.uni.http.netty.NettyServer
+import wvlet.uni.http.Http
 
 trait HttpServerFixture extends UniTest:
-  addDesign(_.bindProvider[HttpHandler, HttpServer](h => NettyServer.withPort(0).withHandler(h).start()))
+  addDesign(_.bindProvider[HttpHandler, HttpServer](h => Http.server.withPort(0).withHandler(h).start()))
 
 trait HttpClientFixture extends HttpServerFixture:
   addDesign(
