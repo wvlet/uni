@@ -23,6 +23,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 
 SERVICE = "/example.rpc.TodoApi"
@@ -102,11 +103,12 @@ def load_tool():
     sys.exit("Install oha (https://github.com/hatoo/oha) or wrk for the load test")
 
 
-def run_load(tool, port, args, duration):
+def run_load(tool, port, args, duration, connections=None):
     url = f"http://127.0.0.1:{port}{SERVICE}/list"
+    connections = connections or args.connections
     if tool == "oha":
         cmd = ["oha", "--no-tui", "--output-format", "json", "-z", duration,
-               "-c", str(args.connections), "-m", "POST",
+               "-c", str(connections), "-m", "POST",
                "-H", "Content-Type: application/json", "-d", LIST_BODY.decode(), url]
         out = json.loads(subprocess.run(pinned(cmd, args.client_cpus), capture_output=True,
                                         text=True, check=True).stdout)
@@ -129,8 +131,8 @@ def run_load(tool, port, args, duration):
                 f"wrk.body = '{LIST_BODY.decode()}'\n"
                 'wrk.headers["Content-Type"] = "application/json"\n')
         script = f.name
-    threads = min(args.connections, os.cpu_count() or 1)
-    cmd = ["wrk", "--latency", "-t", str(threads), "-c", str(args.connections), "-d", duration,
+    threads = min(connections, os.cpu_count() or 1)
+    cmd = ["wrk", "--latency", "-t", str(threads), "-c", str(connections), "-d", duration,
            "-s", script, url]
     try:
         out = subprocess.run(pinned(cmd, args.client_cpus), capture_output=True, text=True,
@@ -202,6 +204,169 @@ def bench_container(name, image, args):
     return res
 
 
+def seconds(duration):
+    """Parse an oha-style duration (90, 500ms, 90s, 10m, 1h) into seconds."""
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)(ms|s|m|h|)", duration)
+    if not m:
+        sys.exit(f"Invalid duration: {duration}")
+    return float(m.group(1)) * {"ms": 0.001, "": 1, "s": 1, "m": 60, "h": 3600}[m.group(2)]
+
+
+def rss_if_running(proc):
+    return rss_mb(proc.pid) if proc.poll() is None else None
+
+
+def load_fields(res):
+    return {k: res[k] for k in ("rps", "p50_ms", "p99_ms", "errors", "error_kinds")}
+
+
+def probe(port, delay_s, timeout_s, result):
+    """After delay_s, time one request on a fresh connection; a server that queues new connections
+    behind busy workers shows up here, not in the load tool's numbers."""
+    time.sleep(delay_s)
+    t0 = time.perf_counter()
+    try:
+        rpc_call(port, "list", LIST_BODY, timeout=timeout_s)
+        result["probe_ms"] = (time.perf_counter() - t0) * 1000
+    except socket.timeout:
+        result["probe"] = f"no response in {timeout_s:.0f}s"
+    except (OSError, http.client.HTTPException, RuntimeError) as e:
+        result["probe"] = f"{type(e).__name__}: {e}"
+
+
+def sweep_process(name, cmd, args, tool, levels):
+    """Run each connection level in turn against one server, reading RSS after each level."""
+    port = free_port()
+    _, proc = start(cmd + [str(port)], args.server_cpus)
+    rows = []
+    try:
+        wait_first_response(port, proc)
+        run_load(tool, port, args, args.warmup)
+        for c in levels:
+            # The probe starts 1 s in, once the load tool holds its connections
+            row = {"connections": c}
+            t = threading.Thread(target=probe, args=(port, 1, max(1, seconds(args.duration) - 1), row))
+            t.start()
+            row.update(load_fields(run_load(tool, port, args, args.duration, c)))
+            t.join()
+            row["rss_mb"] = rss_if_running(proc)
+            rows.append(row)
+            print(f"  {name} -c {c}: {row['rps']:,.0f} req/s, {row['errors']} failed, "
+                  f"probe {probe_cell(row)}", file=sys.stderr)
+    finally:
+        stop(proc)
+    return {"name": name, "levels": rows}
+
+
+def soak_process(name, cmd, args, tool):
+    """Hold -c load for --soak as back-to-back --sample runs, reading RSS after each one.
+
+    Short runs keep oha's per-request latency records small and give req/s and failures per sample.
+    """
+    total = seconds(args.soak)
+    port = free_port()
+    _, proc = start(cmd + [str(port)], args.server_cpus)
+    try:
+        wait_first_response(port, proc)
+        samples = [{"t_s": 0.0, "rss_mb": rss_mb(proc.pid)}]
+        t0 = time.monotonic()
+        while time.monotonic() - t0 < total and proc.poll() is None:
+            res = load_fields(run_load(tool, port, args, args.sample))
+            samples.append({"t_s": time.monotonic() - t0, **res, "rss_mb": rss_if_running(proc)})
+            print(f"  {name} {samples[-1]['t_s']:.0f}s: RSS {fmt(samples[-1]['rss_mb'], 1)} MB, "
+                  f"{res['rps']:,.0f} req/s, {res['errors']} failed", file=sys.stderr)
+    finally:
+        stop(proc)
+    return {"name": name, "samples": samples, **soak_verdict(samples)}
+
+
+def soak_verdict(samples):
+    """Compare the peak RSS of the second half of the loaded samples with the last reading of the
+    first half. The idle reading at t=0 is left out, so a short soak is not judged on warm-up."""
+    rss = [s["rss_mb"] for s in samples if "rps" in s and s["rss_mb"] is not None]
+    first, second = rss[:len(rss) // 2], rss[len(rss) // 2:]
+    if samples[-1]["rss_mb"] is None:
+        return {"verdict": f"server exited after ~{samples[-1]['t_s']:.0f}s"}
+    if not first:
+        return {"verdict": "not enough samples (the soak was too short)"}
+    growth = max(second) - first[-1]
+    # Allow 1 MB or 5% of noise: allocator arenas and GC cycles move RSS a little even when flat
+    flat = growth <= max(1.0, first[-1] * 0.05)
+    return {"peak_rss_mb": max(rss), "last_half_growth_mb": growth,
+            "verdict": ("levels off" if flat else "still growing")
+            + (", but requests failed" if any(s.get("errors") for s in samples) else "")}
+
+
+def load_line(tool):
+    return f"{first_line([tool, '--version'])}, POST {SERVICE}/list, keep-alive"
+
+
+def probe_cell(row):
+    return fmt(row["probe_ms"], 2) if "probe_ms" in row else row["probe"]
+
+
+def sweep_report(args, tool, sweeps):
+    lines = ["## Concurrent-connections sweep", "",
+             "| target | connections | req/s | p50 (ms) | p99 (ms) | failed | new connection (ms) "
+             "| RSS after (MB) |", "|---|---:|---:|---:|---:|---:|---:|---:|"]
+    for s in sweeps:
+        for r in s["levels"]:
+            lines.append(f"| {s['name']} | {r['connections']} | {fmt(r['rps'])} | "
+                         f"{fmt(r['p50_ms'], 2)} | {fmt(r['p99_ms'], 2)} | {r['errors']:,} | "
+                         f"{probe_cell(r)} | {fmt(r['rss_mb'], 1)} |")
+    lines += ["", "Environment:", "", *environment(args),
+              f"- Load: {load_line(tool)}; one server per target, {args.warmup} warm-up at "
+              f"{args.connections} connections, then {args.duration} per level in the order shown",
+              *[f"- Failed requests ({s['name']}, {r['connections']} connections): {r['error_kinds']}"
+                for s in sweeps for r in s["levels"] if r.get("error_kinds")],
+              "- New connection: one request on a fresh connection, sent 1 s into each level while "
+              "the load runs. A server that serves each keep-alive connection on its own worker "
+              "thread (NativeServer: 16 by default) queues it once all workers are taken, so it "
+              "gets no response until the load ends. The load tool's req/s and latency then cover "
+              "only the connections that hold a worker.",
+              "- RSS after: read after each level from the same process, so it accumulates."]
+    return "\n".join(lines) + "\n"
+
+
+def soak_report(args, tool, soaks):
+    lines = ["## Soak: RSS under sustained load", "",
+             "| sample | " + " | ".join(f"{s['name']} RSS (MB)" for s in soaks) + " |",
+             "|---:|" + "---:|" * len(soaks)]
+    for i in range(max(len(s["samples"]) for s in soaks)):
+        cells = []
+        for s in soaks:
+            if i >= len(s["samples"]):
+                cells.append("")
+                continue
+            r = s["samples"][i]
+            failed = f" ({r['errors']:,} failed)" if r.get("errors") else ""
+            cells.append(f"{fmt(r['rss_mb'], 1)}{failed}")
+        label = "idle" if i == 0 else f"~{i * seconds(args.sample):.0f}s"
+        lines.append(f"| {label} | " + " | ".join(cells) + " |")
+    lines.append("")
+    for s in soaks:
+        loaded = [r for r in s["samples"] if "rps" in r]
+        failed = sum(r["errors"] for r in loaded)
+        rps = statistics.median(r["rps"] for r in loaded) if loaded else None
+        if "peak_rss_mb" in s:
+            lines.append(f"- **{s['name']}: {s['verdict']}** (peak {s['peak_rss_mb']:.1f} MB, "
+                         f"{s['last_half_growth_mb']:+.1f} MB over the last half; median "
+                         f"{fmt(rps)} req/s, {failed:,} failed)")
+        else:
+            lines.append(f"- **{s['name']}: {s['verdict']}**")
+    lines += ["", "Environment:", "", *environment(args),
+              f"- Load: {load_line(tool)}, {args.connections} connections, held for "
+              f"{args.soak} as back-to-back {args.sample} runs; RSS read after each run",
+              "- Sample: idle is the reading after the first response, before load; then one "
+              "reading per sample run, so times are approximate. Targets run one after another; "
+              "each target's elapsed time is in the JSON (`t_s`)",
+              "- Verdict: \"levels off\" when the peak RSS of the second half of the loaded samples "
+              "exceeds the last first-half reading by at most 1 MB or 5%",
+              *[f"- Failed requests ({s['name']}, at {r['t_s']:.0f}s): {r['error_kinds']}"
+                for s in soaks for r in s["samples"] if r.get("error_kinds")]]
+    return "\n".join(lines) + "\n"
+
+
 def first_line(cmd):
     try:
         out = subprocess.run(cmd, capture_output=True, text=True)
@@ -241,6 +406,16 @@ def fmt(v, digits=0):
     return "–" if v is None else f"{v:,.{digits}f}"
 
 
+def environment(args):
+    return [f"- OS: {platform.system()} {platform.release()} ({platform.machine()}), "
+            f"{os.cpu_count()} CPUs",
+            f"- CPU: {cpu_name()}",
+            f"- JDK: {first_line([args.java, '-version'])}",
+            f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}",
+            f"- JVM small heap options: `{args.jvm_small_opts}`",
+            f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]
+
+
 def report(args, tool, procs, containers):
     jars = [j for j in read_out("jvm.cp", "").split(os.pathsep) if j]
     jar_mb = sum(os.path.getsize(j) for j in jars if os.path.exists(j)) / 1e6
@@ -265,19 +440,12 @@ def report(args, tool, procs, containers):
         for c in containers:
             lines.append(f"| {c['name']} | {c['image_mb']:.1f} | {fmt(c['startup_ms'])} | "
                          f"{fmt(c['startup_min_ms'])} |")
-    load = tool and (f"{first_line([tool, '--version'])}, POST {SERVICE}/list, "
-            f"{args.connections} connections, keep-alive, {args.warmup} warm-up then {args.duration}")
-    lines += ["", "Environment:", "",
-              f"- OS: {platform.system()} {platform.release()} ({platform.machine()}), "
-              f"{os.cpu_count()} CPUs",
-              f"- CPU: {cpu_name()}",
-              f"- JDK: {first_line([args.java, '-version'])}",
-              f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}",
-              f"- JVM small heap options: `{args.jvm_small_opts}`",
+    load = tool and (f"{load_line(tool)}, {args.connections} connections, {args.warmup} warm-up "
+                     f"then {args.duration}")
+    lines += ["", "Environment:", "", *environment(args),
               f"- Load: {'skipped' if args.no_load else load}",
               *[f"- Failed requests ({r['name']}): {r['error_kinds']}" for r in procs
                 if r.get("error_kinds")],
-              f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}",
               "- Launch → first response: from process spawn to the first successful "
               f"`{SERVICE}/add` call, polled every 1 ms; each run is a fresh process."]
     if containers:
@@ -302,17 +470,39 @@ def main():
     p.add_argument("--client-cpus", help="taskset CPU list for the load tool, e.g. 2-3 (Linux)")
     p.add_argument("--native-image", help="container image of the native server")
     p.add_argument("--jvm-image", help="container image of the JVM server")
+    p.add_argument("--sweep", help="instead of the standard table, run these connection counts in "
+                   "turn, e.g. 1,16,64,256")
+    p.add_argument("--soak", help="instead of the standard table, hold -c load this long per "
+                   "target, e.g. 10m, and sample RSS")
+    p.add_argument("--sample", default="15s", help="RSS sampling interval for --soak")
     p.add_argument("--json", help="also write raw results to this file")
     args = p.parse_args()
 
     cp = read_out("jvm.cp", None)
     if not os.path.exists(args.native) or cp is None:
         sys.exit("Run examples/rpc-native/bench/build.sh first")
-    tool = None if args.no_load else load_tool()
+    special = args.sweep or args.soak
+    tool = None if args.no_load and not special else load_tool()
     jvm = [args.java, "-cp", cp]
     targets = [("Native", [args.native]), ("JVM defaults", jvm + ["example.rpc.Main"]),
                ("JVM small heap", jvm[:1] + args.jvm_small_opts.split() + jvm[1:]
                 + ["example.rpc.Main"])]
+    if special:
+        results, out = {}, []
+        if args.sweep:
+            levels = [int(c) for c in args.sweep.split(",")]
+            print(f"Sweeping {levels} connections...", file=sys.stderr)
+            results["sweep"] = [sweep_process(name, cmd, args, tool, levels) for name, cmd in targets]
+            out.append(sweep_report(args, tool, results["sweep"]))
+        if args.soak:
+            print(f"Soaking each target for {args.soak}...", file=sys.stderr)
+            results["soak"] = [soak_process(name, cmd, args, tool) for name, cmd in targets]
+            out.append(soak_report(args, tool, results["soak"]))
+        if args.json:
+            with open(args.json, "w") as f:
+                json.dump(results, f, indent=2)
+        print("\n".join(out))
+        return
     print("Benchmarking (one line per target)...", file=sys.stderr)
     procs = [bench_process(name, cmd, args, tool) for name, cmd in targets]
     containers = [bench_container(name, image, args)

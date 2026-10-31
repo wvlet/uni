@@ -3,9 +3,15 @@ name: RPC benchmark
 # Runs examples/rpc-native/bench on Linux x86_64 and arm64 and writes the tables to the job
 # summary. Shared runners make throughput noisy; startup, memory, and image size are the reliable
 # numbers. Also runs on pull requests that change the benchmark, so it never goes stale.
+# mode=sweep and mode=soak run only when dispatched; pull requests run the standard table.
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: 'standard: startup, memory, one load level, containers; sweep: connection counts; soak: RSS over time'
+        type: choice
+        options: [standard, sweep, soak]
+        default: standard
       runs:
         description: 'Fresh launches per target (startup median)'
         default: '7'
@@ -13,8 +19,17 @@ on:
         description: 'Load duration per target (oha -z)'
         default: '10s'
       connections:
-        description: 'Concurrent connections'
+        description: 'Concurrent connections (standard and soak; warm-up for sweep)'
         default: '16'
+      sweep:
+        description: 'mode=sweep: connection counts, run in turn for `duration` each'
+        default: '1,16,64,256'
+      soak:
+        description: 'mode=soak: how long to hold load per target'
+        default: '10m'
+      sample:
+        description: 'mode=soak: RSS sampling interval'
+        default: '15s'
   pull_request:
     paths:
       - '.github/workflows/rpc-bench.yml'
@@ -41,6 +56,10 @@ jobs:
       RUNS: ${{ inputs.runs || '7' }}
       DURATION: ${{ inputs.duration || '10s' }}
       CONNECTIONS: ${{ inputs.connections || '16' }}
+      MODE: ${{ inputs.mode || 'standard' }}
+      SWEEP: ${{ inputs.sweep || '1,16,64,256' }}
+      SOAK: ${{ inputs.soak || '10m' }}
+      SAMPLE: ${{ inputs.sample || '15s' }}
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -58,6 +77,7 @@ jobs:
       - name: Build the native binary and the JVM classpath
         run: examples/rpc-native/bench/build.sh
       - name: Build the container images
+        if: env.MODE == 'standard'
         working-directory: examples/rpc-native/bench
         run: |
           docker build -q -f Dockerfile.native -t rpc-native:native .
@@ -68,10 +88,15 @@ jobs:
         run: |
           # Half the cores for the server, half for the load tool
           n=$(nproc); half=$((n / 2))
+          case "${MODE}" in
+            sweep) mode_args=(--sweep "${SWEEP}") ;;
+            soak) mode_args=(--soak "${SOAK}" --sample "${SAMPLE}") ;;
+            *) mode_args=(--native-image rpc-native:native --jvm-image rpc-native:jvm) ;;
+          esac
           python3 examples/rpc-native/bench/bench.py \
             --runs "${RUNS}" --duration "${DURATION}" -c "${CONNECTIONS}" \
             --server-cpus "0-$((half - 1))" --client-cpus "${half}-$((n - 1))" \
-            --native-image rpc-native:native --jvm-image rpc-native:jvm \
+            "${mode_args[@]}" \
             --json results-${{ matrix.arch }}.json | tee -a "${GITHUB_STEP_SUMMARY}"
           echo "- Runner: ${{ matrix.os }} (shared GitHub-hosted runner; throughput is noisy)" \
             >> "${GITHUB_STEP_SUMMARY}"
