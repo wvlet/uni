@@ -201,5 +201,46 @@ libraryDependencies +=
 ```
 :::
 
+## App size
+
+An Electron app ships its own copy of Chromium. That is where most of the size comes from, and it is
+also what Electron gives you: the same up-to-date engine, rendering, and DevTools on every OS, with
+no dependency on the browser engine the user's OS happens to have. Measured on the example app
+(Electron 45, macOS arm64):
+
+| Part                                         | Size     | Can you drop it?                                     |
+| -------------------------------------------- | -------- | ---------------------------------------------------- |
+| Chromium core (`Electron Framework` binary)  | 197 MB   | No                                                   |
+| SwiftShader (software GPU fallback)          | 16 MB    | Only if every user has a GPU; VMs and GPU-less machines may fail to render |
+| ICU data, `.pak` resources, V8 snapshot      | 25 MB    | No                                                   |
+| Locale folders (`*.lproj`), all languages    | 9 MB     | Yes — keep only the languages your UI supports       |
+| Uni + app code (`app.asar`, Scala.js)        | 3.9 MB   | Minify it (1.8 MB minified)                          |
+
+The example applies the safe trims:
+
+```yaml
+# electron-builder.yml
+compression: maximum
+electronLanguages:
+  - en
+```
+
+```js
+// electron.vite.config.mjs — Scala.js output is not minified by default in main/renderer builds
+main:     { plugins: [...], build: { minify: true } },
+renderer: { plugins: [...], build: { minify: true } }
+```
+
+That takes the macOS DMG from 121 MB to 109 MB (−10%), and the installed app from 262 MiB to
+251 MiB. The rest is Chromium itself. Other levers:
+
+- **Build one architecture per installer.** A universal macOS build (arm64 + x64) carries two
+  copies of Chromium. `electron-builder` builds for the host architecture unless you ask for
+  `universal`.
+- **Choose the shell for the tradeoff you need.** Electron fits apps that need a predictable engine.
+  When download size matters more than engine consistency, shells that use the OS's own WebView,
+  such as [Tauri](https://tauri.app/), are a good choice. Uni RPC services also run over plain HTTP
+  ([`Http.server`](/http/)), not only over Electron IPC.
+
 See the full project — sbt build, Vite config, preload, packaging — in
 [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app).

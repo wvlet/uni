@@ -67,6 +67,18 @@ Click **+1 / +10 / Reset** — each click is an RPC call to the main process, wh
 pnpm package      # electron-vite build, then electron-builder → dist/
 ```
 
+Packaging keeps only English locales (`electronLanguages`), uses maximum compression, and the Vite
+builds minify the Scala.js output. Measured on macOS arm64 with Electron 45:
+
+| | Default config | This config |
+| --- | --- | --- |
+| DMG | 121 MB | 109 MB |
+| `Uni Counter.app` | 262 MiB | 251 MiB |
+| `app.asar` (Uni + app code) | 3.9 MB | 1.8 MB |
+
+The remaining ~250 MiB is Chromium. See [App size](../../docs/http/electron.md#app-size) for what
+else you can trim and at what cost.
+
 ## How the transport works
 
 - **Renderer** — `ElectronRenderer.install()` registers an `HttpChannelFactory` whose async channel

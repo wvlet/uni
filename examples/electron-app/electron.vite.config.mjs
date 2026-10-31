@@ -7,12 +7,14 @@ import tailwindcss from '@tailwindcss/vite'
 // `import 'scalajs:main.js'` resolves to that project's linker output.
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin(), scalaJSPlugin({ cwd: '.', projectID: 'main' })]
+    plugins: [externalizeDepsPlugin(), scalaJSPlugin({ cwd: '.', projectID: 'main' })],
+    build: { minify: true }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]
   },
   renderer: {
-    plugins: [scalaJSPlugin({ cwd: '.', projectID: 'renderer' }), tailwindcss()]
+    plugins: [scalaJSPlugin({ cwd: '.', projectID: 'renderer' }), tailwindcss()],
+    build: { minify: true }
   }
 })
