@@ -3,6 +3,10 @@ productName: Uni Counter
 directories:
   output: dist
   buildResources: build
+compression: maximum
+# Ship only the UI languages the app supports; Chromium otherwise bundles every locale.
+electronLanguages:
+  - en
 files:
   - out/**/*
   - package.json
