@@ -14,16 +14,22 @@ cd "${ROOT}"
 rm -rf "${OUT}"
 mkdir -p "${OUT}"
 
+# Show sbt's output (errors included) while keeping it for the nativeConfig lines below
 log="$(./sbt -batch exampleRpcNativeNative/nativeLink exampleRpcNativeJVM/stageBenchJars \
-  "print exampleRpcNativeNative/nativeConfig" | sed 's/\x1b\[[0-9;]*m//g')"
+  "print exampleRpcNativeNative/nativeConfig" | sed 's/\x1b\[[0-9;]*m//g' | tee /dev/stderr)"
 
-binary="$(find target/out -type f -perm -u+x -path '*/uni-example-rpc-native/uni-example-rpc-native' | head -1)"
+binary="$(find target/out -type f -perm -u+x -path '*/uni-example-rpc-native/uni-example-rpc-native' \
+  2>/dev/null | head -1 || true)"
+if [[ -z "${binary}" ]]; then
+  echo "ERROR: exampleRpcNativeNative/nativeLink produced no binary under target/out" >&2
+  exit 1
+fi
 cp "${binary}" "${OUT}/rpc-native"
 
 (cd "${OUT}/lib" && ls *.jar | sed "s|^|${OUT}/lib/|" | paste -sd: -) > "${OUT}/jvm.cp"
 
 # e.g. "mode: release-full, LTO: full, GC: immix"
-printf '%s\n' "${log}" | grep -E '^ - (mode|LTO|GC):' | sed -E 's/^ - //; s/:[[:space:]]+/: /' \
+printf '%s\n' "${log}" | { grep -E '^ - (mode|LTO|GC):' || true; } | sed -E 's/^ - //; s/:[[:space:]]+/: /' \
   | sort -r | paste -sd, - | sed 's/,/, /g' > "${OUT}/native-mode.txt"
 
 echo "native: ${OUT}/rpc-native ($(wc -c < "${OUT}/rpc-native" | tr -d ' ') bytes; $(cat "${OUT}/native-mode.txt"))"

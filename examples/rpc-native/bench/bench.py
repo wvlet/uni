@@ -51,7 +51,7 @@ def rpc_call(port, method, body, timeout=2):
 
 
 def wait_first_response(port, proc=None, deadline_s=60):
-    """Poll until the add RPC succeeds; return seconds since the caller's start mark."""
+    """Poll until the add RPC succeeds and return its response body."""
     end = time.monotonic() + deadline_s
     while time.monotonic() < end:
         if proc is not None and proc.poll() is not None:
@@ -126,9 +126,11 @@ def run_load(tool, port, args, duration):
     threads = min(args.connections, os.cpu_count() or 1)
     cmd = ["wrk", "--latency", "-t", str(threads), "-c", str(args.connections), "-d", duration,
            "-s", script, url]
-    out = subprocess.run(pinned(cmd, args.client_cpus), capture_output=True, text=True,
-                         check=True).stdout
-    os.unlink(script)
+    try:
+        out = subprocess.run(pinned(cmd, args.client_cpus), capture_output=True, text=True,
+                             check=True).stdout
+    finally:
+        os.unlink(script)
 
     def ms(label):
         m = re.search(rf"^\s+{label}%\s+([\d.]+)(us|ms|s)\s*$", out, re.M)
@@ -253,7 +255,7 @@ def report(args, tool, procs, containers):
         for c in containers:
             lines.append(f"| {c['name']} | {c['image_mb']:.1f} | {fmt(c['startup_ms'])} | "
                          f"{fmt(c['startup_min_ms'])} |")
-    load = (f"{first_line([tool, '--version'])}, POST {SERVICE}/list, "
+    load = tool and (f"{first_line([tool, '--version'])}, POST {SERVICE}/list, "
             f"{args.connections} connections, keep-alive, {args.warmup} warm-up then {args.duration}")
     lines += ["", "Environment:", "",
               f"- OS: {platform.system()} {platform.release()} ({platform.machine()}), "

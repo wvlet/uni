@@ -8,7 +8,8 @@
 # server-only binary needs no `-lcurl`: dead-code elimination drops Uni's HTTP client when unused.
 set -euo pipefail
 
-binary="$(find target/out -type f -perm -u+x -path '*/uni-example-rpc-native/uni-example-rpc-native' | head -1)"
+binary="$(find target/out -type f -perm -u+x -path '*/uni-example-rpc-native/uni-example-rpc-native' \
+  2>/dev/null | head -1 || true)"
 if [[ -z "${binary}" ]]; then
   echo "ERROR: run exampleRpcNativeNative/nativeLink first"
   exit 1

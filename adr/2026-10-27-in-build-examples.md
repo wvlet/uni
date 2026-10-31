@@ -8,7 +8,7 @@ AI agents and people copy whole working templates, and Context7, DeepWiki, and t
 
 - Each example under `examples/` (`cli-tool`, `rest-server`, `mcp-server`, `web-ui`) is its own project in the root `build.sbt` (`exampleCli` cross JVM/Native, `exampleRestServer`, `exampleMcpServer`, `exampleWebUi`). Each is aggregated into `projectJVM`, `projectJS`, or `projectNative`, so the existing CI jobs compile and test it. They use `noPublish`.
 - One project per folder, not a single `examples` project, so each folder stays self-contained (its sources, tests, README) and its dependencies (netty, Native, Scala.js) do not leak into the others.
-- Native and Scala.js examples are compile-only in CI: `Test / loadedTestFrameworks := Def.uncached(Map.empty)` stops `test` from linking an empty test binary or module. JVM-only tests go in `.jvm/src/test`.
+- Native and Scala.js examples are compile-only in CI: `Test / loadedTestFrameworks := Def.uncached(Map.empty)` stops `test` from linking an empty test binary or module. JVM-only tests go in `.jvm/src/test`. Exception (2026-10-30): the Scala Native job links `rpc-native` and runs `.github/scripts/check-rpc-native.sh`, because that example's point is the native server binary.
 - `exampleMcpServer` forks `run` with `connectInput` and `outputStrategy := Some(StdoutOutput)`, so `./sbt --error exampleMcpServer/run` works directly as an MCP stdio command.
 - `exampleWebUi` links to `examples/web-ui/target/js`, so a static `index.html` can load `main.js` with no bundler.
 
