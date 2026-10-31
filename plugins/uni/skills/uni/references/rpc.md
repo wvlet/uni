@@ -149,8 +149,8 @@ catch
 
 ## Without codegen
 
-In a single-module project, write the client by hand with `RPCClient`, which is
-what the generator emits. `newSyncClient(http)` (or `newAsyncClient`) binds the
+In a single-module project, write the client by hand with `RPCClient`, the same
+runtime the generated client calls. `newSyncClient(http)` (or `newAsyncClient`) binds the
 HTTP client once, and `call` takes the method name and its arguments in order:
 
 ```scala
