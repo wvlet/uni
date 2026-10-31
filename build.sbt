@@ -358,13 +358,16 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
         // them out to build what a user's own project gets.
         .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl", "-lz")))
     },
-    // Build the test binary in debug mode so it links quickly. It keeps the default GC (Immix): the
-    // test makes one call at a time, which the multithreaded-allocation bug doesn't hit, and Immix
-    // needs no libgc (the Windows CI runner has none).
-    Test / nativeConfig ~= {
-      _.withMode(scala.scalanative.build.Mode.debug)
+    // Build the test binary in debug mode so it links quickly. It keeps Boehm like the release
+    // binary, except on Windows, whose CI runner has no libgc: there it falls back to Immix.
+    Test / nativeConfig ~= { c =>
+      val debug = c
+        .withMode(scala.scalanative.build.Mode.debug)
         .withLTO(scala.scalanative.build.LTO.none)
-        .withGC(scala.scalanative.build.GC.immix)
+      if scala.util.Properties.isWin then
+        debug.withGC(scala.scalanative.build.GC.immix)
+      else
+        debug
     }
   )
   .jvmSettings(

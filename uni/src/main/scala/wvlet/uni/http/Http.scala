@@ -55,9 +55,9 @@ object Http:
     * platform-specific `HttpCompat.defaultHttpChannelFactory`, so cross-platform callers can use
     * `Http.client.newSyncClient` without per-platform setup.
     *
-    * Resolved on first use rather than when `Http` initializes, so a server-only program that calls
-    * `Http.server` doesn't load the client: on Scala Native, that would initialize and link
-    * libcurl.
+    * Resolved when a client is created rather than when `Http` initializes, so a server-only
+    * program that calls `Http.server` doesn't load the client: on Scala Native, that would
+    * initialize and link libcurl.
     */
   private[http] def defaultChannelFactory: HttpChannelFactory = customChannelFactory.getOrElse(
     HttpCompat.defaultHttpChannelFactory

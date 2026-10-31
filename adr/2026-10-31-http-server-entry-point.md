@@ -20,5 +20,5 @@ Uni's HTTP server had one entry point per platform: `NettyServer` (uni-netty, JV
 
 ## Consequences
 
-- `examples/rpc-native` is one shared `Main` and one shared `TodoApiTest`, wired with `Design`, and the test runs on the JVM and Native. The Native test binary is built in debug mode and links libcurl for the typed client (through `CurlBindings`' `@link`); the release binary does not.
+- `examples/rpc-native` is one shared `Main` and one shared `TodoApiTest`, wired with `Design`, and the test runs on the JVM and Native. The Native test binary is built in debug mode (Immix instead of Boehm on Windows, whose CI runner has no libgc) and links libcurl for the typed client (through `CurlBindings`' `@link`); the release binary does not.
 - A JVM app that uses `Http.server` must add uni-netty. The failure is at `start()`, not at compile time.
