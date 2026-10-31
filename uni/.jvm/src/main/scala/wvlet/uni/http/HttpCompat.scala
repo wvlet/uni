@@ -38,7 +38,7 @@ private[http] object HttpCompat extends HttpCompatApi:
   // uni can't depend on uni-netty (it depends on uni), so the backend registers itself as a
   // ServiceLoader provider in META-INF/services. Look in the thread's context class loader, then in
   // uni's own, for hosts that load uni in a child class loader the context loader can't see.
-  override def startServer(config: PortableServerConfig): HttpServer =
+  override def startServer(config: HttpServerConfig): HttpServer =
     val providerClass = classOf[HttpServerProvider]
     var providers     = ServiceLoader.load(providerClass).iterator()
     if !providers.hasNext then

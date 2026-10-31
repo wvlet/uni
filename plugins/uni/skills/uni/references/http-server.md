@@ -1,8 +1,14 @@
 # HTTP server
 
-`Http.server` (`wvlet.uni.http.Http`) runs the same server code on every
-platform; on the JVM it needs `uni-netty` on the classpath. Use a platform's own
-entry point for backend-specific settings:
+`Http.server` (`wvlet.uni.http.Http`, returns `HttpServerConfig`) runs the same
+server code on every platform; on the JVM it needs `uni-netty` on the classpath.
+It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
+`withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
+config, a `ServerBackend`, from the platform's source folder or `Design`:
+`withBackend(NettyServerConfig().withHandlerExecutorThreads(8))` (or
+`NativeServerConfig()` / `NodeServerConfig()`); other backends ignore it, and
+`Http.server`'s own settings take precedence. The
+per-platform entry points:
 
 | Platform | Server | Module |
 |----------|--------|--------|

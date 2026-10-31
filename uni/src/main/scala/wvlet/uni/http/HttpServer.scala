@@ -26,7 +26,7 @@ trait HttpServer extends AutoCloseable:
     * Completes once the server is listening and ready to accept connections, yielding this server
     * with [[localPort]] resolved. Backends that bind synchronously (Netty) complete immediately;
     * backends that bind asynchronously (Node.js) complete on the underlying `listening` event. Use
-    * this (or `HttpServerConfig.startAndAwait`) before reading [[localPort]] or connecting a
+    * this (or `HttpServerConfigBase.startAndAwait`) before reading [[localPort]] or connecting a
     * client.
     */
   def whenReady: Rx[HttpServer]

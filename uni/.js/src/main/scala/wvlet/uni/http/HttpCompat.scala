@@ -23,17 +23,32 @@ private[http] object HttpCompat extends HttpCompatApi:
 
   override val defaultHttpChannelFactory: HttpChannelFactory = JSHttpChannelFactory
 
-  override def startServer(config: PortableServerConfig): HttpServer = NodeServerConfig(
-    name = config.name,
-    host = config.host,
-    port = config.port,
-    handler = config.handler,
-    filters = config.filters,
-    webSocketRoutes = config.webSocketRoutes,
-    allowedOrigins = config.allowedOrigins,
-    allowedHosts = config.allowedHosts,
-    detailedErrors = config.detailedErrors
-  ).start()
+  override def startServer(config: HttpServerConfig): HttpServer =
+    val base = config
+      .backends
+      .reverseIterator
+      .collectFirst { case b: NodeServerConfig =>
+        b
+      }
+      .getOrElse(NodeServerConfig())
+    base
+      .copy(
+        name = config.name,
+        host = config.host,
+        port = config.port,
+        handler = config.handler,
+        filters = config.filters,
+        webSocketRoutes = config.webSocketRoutes,
+        allowedOrigins = config.allowedOrigins,
+        allowedHosts = config.allowedHosts,
+        detailedErrors = config.detailedErrors,
+        maxContentLength = config.maxContentLength.getOrElse(base.maxContentLength),
+        webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(base.webSocketMaxFrameSize),
+        webSocketPingIntervalMillis = config
+          .webSocketPingIntervalMillis
+          .getOrElse(base.webSocketPingIntervalMillis)
+      )
+      .start()
 
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] = PartialFunction.empty
 
