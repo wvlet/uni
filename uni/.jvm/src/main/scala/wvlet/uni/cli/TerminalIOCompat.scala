@@ -23,38 +23,33 @@ private[cli] object TerminalIOCompat:
   lazy val default: TerminalIO = JvmTerminalIO()
 
 /**
-  * The process's terminal on the JVM. Raw mode and the window size use libc through the Foreign
-  * Function & Memory API, which needs Java 22 or later; on older JVMs and on Windows, input is read
-  * line by line.
+  * The process's terminal on the JVM. Raw mode and the window size go through a [[NativeTerminal]]:
+  * libc through the Foreign Function & Memory API on Java 22 and later, or the `stty` command on
+  * older JVMs (and when FFM fails to load). On Windows, or when neither works, input is read line
+  * by line.
   *
   * Java 24 and later print a warning on the first native call unless the JVM runs with
   * `--enable-native-access=ALL-UNNAMED` (or the module name).
   */
 private[cli] class JvmTerminalIO extends TerminalIO with LogSupport:
-  private val posix: Option[PosixTerminal] =
-    if Runtime.version().feature() >= 22 && !CliEnv.isWindows then
-      try
-        Some(PosixTerminal())
-      catch
-        case e: Throwable =>
-          debug(s"Native terminal access is unavailable: ${e}")
-          None
-    else
-      None
+  private val native: Option[NativeTerminal] = NativeTerminal.load(
+    Runtime.version().feature(),
+    CliEnv.isWindows
+  )
 
-  override val isTTY: Boolean = posix.exists(p => p.isatty(0) && p.isatty(1))
+  override val isTTY: Boolean = native.exists(_.isTTY)
 
   private var rawMode         = false
   private var restoreOnExit   = false
   private val interruptHooks  = CopyOnWriteArrayList[() => Unit]()
   private var previousHandler = Option.empty[sun.misc.SignalHandler]
 
-  override def size: TerminalSize = posix
-    .flatMap(_.windowSize(1))
+  override def size: TerminalSize = native
+    .flatMap(_.windowSize)
     .getOrElse(TerminalSize(CliEnv.terminalWidth, CliEnv.terminalHeight))
 
   override def enterRawMode(): Unit = synchronized {
-    if isTTY && !rawMode && posix.exists(_.enterRawMode(0)) then
+    if isTTY && !rawMode && native.exists(_.enterRawMode()) then
       rawMode = true
       if !restoreOnExit then
         restoreOnExit = true
@@ -63,7 +58,7 @@ private[cli] class JvmTerminalIO extends TerminalIO with LogSupport:
 
   override def exitRawMode(): Unit = synchronized {
     if rawMode then
-      posix.foreach(_.restore(0))
+      native.foreach(_.restore())
       rawMode = false
   }
 
@@ -107,7 +102,7 @@ end JvmTerminalIO
   * `cfmakeraw` sets the raw-mode flags, so this code never reads `struct termios` fields, whose
   * layout and flag values differ between Linux and macOS. The struct is only copied as bytes.
   */
-private[cli] class PosixTerminal:
+private[cli] class PosixTerminal extends NativeTerminal:
   import java.lang.foreign.*
   import java.lang.foreign.ValueLayout.*
 
@@ -161,6 +156,11 @@ private[cli] class PosixTerminal:
     fn.invokeWithArguments(args*).asInstanceOf[Integer].intValue
 
   def isatty(fd: Int): Boolean = call(isattyFn, Int.box(fd)) == 1
+
+  override def isTTY: Boolean                   = isatty(0) && isatty(1)
+  override def enterRawMode(): Boolean          = enterRawMode(0)
+  override def restore(): Unit                  = restore(0)
+  override def windowSize: Option[TerminalSize] = windowSize(1)
 
   /**
     * Save the current mode and switch to raw mode. Returns false if either call fails, e.g., in a
