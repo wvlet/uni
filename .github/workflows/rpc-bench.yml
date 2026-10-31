@@ -63,6 +63,8 @@ jobs:
           docker build -q -f Dockerfile.native -t rpc-native:native .
           docker build -q -f Dockerfile.jvm -t rpc-native:jvm .
       - name: Run the benchmark
+        # bash with pipefail, so a crash in bench.py fails the step despite `| tee`
+        shell: bash
         run: |
           # Half the cores for the server, half for the load tool
           n=$(nproc); half=$((n / 2))

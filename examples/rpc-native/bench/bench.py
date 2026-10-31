@@ -110,13 +110,19 @@ def run_load(tool, port, args, duration):
                "-H", "Content-Type: application/json", "-d", LIST_BODY.decode(), url]
         out = json.loads(subprocess.run(pinned(cmd, args.client_cpus), capture_output=True,
                                         text=True, check=True).stdout)
-        non_200 = sum(v for k, v in out.get("statusCodeDistribution", {}).items() if k != "200")
+        kinds = {f"HTTP {k}": v for k, v in out.get("statusCodeDistribution", {}).items()
+                 if k != "200"}
         # Requests still in flight when -z expires are reported as aborted; they are not failures
-        errors = sum(v for k, v in out.get("errorDistribution", {}).items()
-                     if k != "aborted due to deadline")
-        lat = out["latencyPercentiles"]
-        return {"rps": out["summary"]["requestsPerSec"], "p50_ms": lat["p50"] * 1000,
-                "p99_ms": lat["p99"] * 1000, "errors": non_200 + errors}
+        kinds.update({k: v for k, v in out.get("errorDistribution", {}).items()
+                      if k != "aborted due to deadline"})
+        lat = out.get("latencyPercentiles") or {}
+
+        def ms(key):
+            # None when no request succeeded
+            return lat[key] * 1000 if lat.get(key) is not None else None
+
+        return {"rps": out["summary"]["requestsPerSec"], "p50_ms": ms("p50"), "p99_ms": ms("p99"),
+                "errors": sum(kinds.values()), "error_kinds": kinds}
     # wrk needs a Lua script to send a POST body
     with tempfile.NamedTemporaryFile("w", suffix=".lua", delete=False) as f:
         f.write('wrk.method = "POST"\n'
@@ -137,9 +143,13 @@ def run_load(tool, port, args, duration):
         return float(m.group(1)) * {"us": 0.001, "ms": 1, "s": 1000}[m.group(2)]
 
     errors = re.search(r"Non-2xx or 3xx responses: (\d+)", out)
+    socket_errors = re.search(r"Socket errors: (.+)", out)
+    kinds = {"non-2xx": int(errors.group(1))} if errors else {}
+    if socket_errors:
+        kinds["socket errors"] = socket_errors.group(1)
     return {"rps": float(re.search(r"Requests/sec:\s+([\d.]+)", out).group(1)),
             "p50_ms": ms("50"), "p99_ms": ms("99"),
-            "errors": int(errors.group(1)) if errors else 0}
+            "errors": int(errors.group(1)) if errors else 0, "error_kinds": kinds}
 
 
 def bench_process(name, cmd, args, tool):
@@ -265,6 +275,8 @@ def report(args, tool, procs, containers):
               f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}",
               f"- JVM small heap options: `{args.jvm_small_opts}`",
               f"- Load: {'skipped' if args.no_load else load}",
+              *[f"- Failed requests ({r['name']}): {r['error_kinds']}" for r in procs
+                if r.get("error_kinds")],
               f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}",
               "- Launch → first response: from process spawn to the first successful "
               f"`{SERVICE}/add` call, polled every 1 ms; each run is a fresh process."]
