@@ -8,6 +8,7 @@ uni provides utilities for building command-line applications with styled output
 |-----------|-------------|
 | [Terminal Styling](./tint) | Colorful terminal output with Tint |
 | [Progress Indicators](./progress) | Progress bars and spinners |
+| [Line Editing](./line-reader) | Line editing, history, and completion for REPLs |
 | [Command Launcher](./launcher) | Type-safe CLI argument parsing |
 
 ## Quick Start
