@@ -103,8 +103,9 @@ serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 you leave unset keep the backend's own default.
 
 For an option only one backend has (Netty transport, graceful shutdown, Native
-worker threads, ...), build that backend's config and pass it to `withBackend`.
-Netty's, Native's, and Node's configs are all a `ServerBackend`. The matching
+worker threads, ...), build that backend's config with `Netty.server`,
+`Native.server`, or `Node.server`, and pass it to `withBackend`. Each is a
+`ServerBackend`. The matching
 backend starts from it, then applies the `Http.server` settings on top: name,
 host, port, handler, filters, WebSocket routes, allowed origins and hosts, and
 detailed errors always come from `Http.server`, and the size limits when set
@@ -126,16 +127,16 @@ val serverDesign = Design
   .onShutdown(_.stop())
 
 // .jvm/src/main/scala
-import wvlet.uni.http.netty.NettyServerConfig
+import wvlet.uni.http.netty.Netty
 val platformDesign = Design
   .newDesign
-  .bindInstance[ServerBackend](NettyServerConfig().withHandlerExecutorThreads(8).withShutdownHook)
+  .bindInstance[ServerBackend](Netty.server.withHandlerExecutorThreads(8).withShutdownHook)
 
 // .native/src/main/scala
-import wvlet.uni.http.NativeServerConfig
+import wvlet.uni.http.Native
 val platformDesign = Design
   .newDesign
-  .bindInstance[ServerBackend](NativeServerConfig().withWorkerThreads(32))
+  .bindInstance[ServerBackend](Native.server.withWorkerThreads(32))
 ```
 
 You can also use `NettyServer`, `NodeServer`, or `NativeServer` directly: they

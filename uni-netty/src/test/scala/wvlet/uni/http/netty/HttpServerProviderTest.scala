@@ -69,11 +69,11 @@ class HttpServerProviderTest extends UniTest:
       }
   }
 
-  test("withBackend(NettyServerConfig()...) sets Netty-only options") {
+  test("withBackend(Netty.server...) sets Netty-only options") {
     Http
       .server
       .withPort(0)
-      .withBackend(NettyServerConfig().withMaxContentLength(16).withHandlerExecutorThreads(2))
+      .withBackend(Netty.server.withMaxContentLength(16).withHandlerExecutorThreads(2))
       .withHandler(_ => Response.ok("ok"))
       .start { server =>
         postStatus(server, "small") shouldBe 200
@@ -87,7 +87,7 @@ class HttpServerProviderTest extends UniTest:
       .withPort(0)
       .withMaxContentLength(1024)
       // The port and size limit set here are overridden by the ones above
-      .withBackend(NettyServerConfig().withPort(1).withMaxContentLength(16))
+      .withBackend(Netty.server.withPort(1).withMaxContentLength(16))
       .withHandler(_ => Response.ok("ok"))
       .start { server =>
         (server.localPort != 1) shouldBe true

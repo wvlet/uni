@@ -23,7 +23,7 @@ import wvlet.uni.rx.Rx
   * It holds the settings every backend shares. For backend-only options, pass a [[ServerBackend]]
   * to [[withBackend]], e.g. from a JVM-only source file or a platform's `Design`:
   * {{{
-  * Http.server.withPort(8080).withBackend(NettyServerConfig().withHandlerExecutorThreads(8))
+  * Http.server.withPort(8080).withBackend(Netty.server.withHandlerExecutorThreads(8))
   * }}}
   */
 case class HttpServerConfig(
