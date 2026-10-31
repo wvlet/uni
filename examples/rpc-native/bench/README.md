@@ -16,8 +16,8 @@ and load-tool settings.
 
 ## Run locally
 
-Needs Python 3, a JDK, the Scala Native toolchain (clang), and oha (`brew install oha`,
-`cargo install oha`) or wrk.
+Needs Python 3, a JDK, the Scala Native toolchain (clang), the Boehm GC library (`libgc-dev` or
+`brew install bdw-gc`), and oha (`brew install oha`, `cargo install oha`) or wrk.
 
 ```bash
 examples/rpc-native/bench/build.sh      # builds bench/out/rpc-native and bench/out/lib/*.jar

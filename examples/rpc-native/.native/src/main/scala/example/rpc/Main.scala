@@ -2,7 +2,9 @@ package example.rpc
 
 import wvlet.uni.http.NativeServer
 
-/** The TodoApi RPC server as a native binary: no JVM, no libcurl, only libc. */
+/**
+  * The TodoApi RPC server as a native binary: no JVM, no libcurl; only libc and libgc (Boehm GC).
+  */
 object Main:
   def main(args: Array[String]): Unit =
     val (port, host) = TodoRpc.parseArgs(args)
