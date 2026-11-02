@@ -28,11 +28,11 @@ import wvlet.uni.rx.Rx
 import java.net.InetSocketAddress
 
 /**
-  * Entry point for creating a Netty-based HTTP server. Deprecated: `Http.server` starts Netty on
-  * the JVM, and `withBackend(Netty.options...)` sets Netty-only options.
+  * Entry point for creating a Netty-based HTTP server. Deprecated: use `Netty.server` in JVM-only
+  * code, or `Http.server` (with `withBackend(Netty.options...)`) in cross-platform code.
   */
 @deprecated(
-  "Use Http.server; set Netty-only options with withBackend(Netty.options...)",
+  "Use Netty.server for JVM-only code, or Http.server for cross-platform code",
   "2026.1.39"
 )
 object NettyServer:

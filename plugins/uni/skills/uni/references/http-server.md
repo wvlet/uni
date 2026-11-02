@@ -20,6 +20,26 @@ and size limits are set only on `Http.server`. The backends:
 `withFilter`, `withWebSocketRoute`, `start()`, and `start { server => ... }`.
 The annotation router (`@Endpoint`, `Router`, `RouterHandler`) is **JVM only**.
 For SSE and WebSocket, see [streaming.md](streaming.md).
+
+For a JVM-only project, `Netty.server` (`wvlet.uni.http.netty.Netty`, returns
+`NettyServerConfig`) builds the Netty server directly: shared and Netty-only
+settings are methods of one config, and `start()` returns a `NettyHttpServer`.
+Use `Http.server` when the code should also build for Scala.js or Native.
+`NettyServer` is deprecated.
+
+```scala
+import wvlet.uni.http.Response
+import wvlet.uni.http.netty.Netty
+
+Netty
+  .server
+  .withPort(0)
+  .withHandlerExecutorThreads(8)
+  .withHandler(_ => Response.ok("ok"))
+  .start { server =>
+    println(server.localPort)
+  }
+```
 For a typed API, prefer [RPC](rpc.md) over hand-written REST routes.
 
 Full reference: https://wvlet.org/uni/http/server.md

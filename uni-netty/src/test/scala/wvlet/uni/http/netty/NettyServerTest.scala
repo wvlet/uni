@@ -63,6 +63,20 @@ class NettyServerTest extends UniTest:
     server.isRunning shouldBe false
   }
 
+  test("Netty.server starts a Netty server with Netty-only settings") {
+    Netty
+      .server
+      .withPort(0)
+      .withHandlerExecutorThreads(2)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withHandler(_ => Response.ok("hello"))
+      .start { server =>
+        server shouldMatch { case _: NettyHttpServer =>
+        }
+        get(s"http://127.0.0.1:${server.localPort}/").body() shouldBe "hello"
+      }
+  }
+
   test("should handle simple GET request") {
     NettyServerConfig()
       .withPort(0)
