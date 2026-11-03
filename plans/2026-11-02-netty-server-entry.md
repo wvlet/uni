@@ -15,12 +15,12 @@
   Netty.server.withPort(8080).withHandlerExecutorThreads(8).withRxHandler(handler).start()
   ```
 - Naming follows `Http.server` (portable) / `Netty.server` (JVM-only), and `Netty.options` (Netty settings for `Http.server`).
-- `NettyServer` stays deprecated. Its message and scaladoc now point to `Netty.server` for JVM-only code and `Http.server` for cross-platform code.
+- Remove the deprecated `NettyServer` object (deprecated in 2026.1.39, one release ago): with `Netty.server` it would be a second JVM-only entry point. Keep `NettyHttpServer` as is; renaming it to `NettyServer` would match Airframe but break the `NodeHttpServer`/`NativeHttpServer` naming and give the old name a new meaning.
 - Scala Native and Node are unchanged: no `Native.server` for now (add it later if users ask).
 
 ## Changes
 
-- `uni-netty`: `Netty.server`, the `NettyServer` deprecation message, a test that starts `Netty.server`.
+- `uni-netty`: `Netty.server`, removal of the `NettyServer` object (the file becomes `NettyServerConfig.scala`), a test that starts `Netty.server`.
 - Docs: `docs/http/server.md` gets a "JVM-only apps" section on when to pick `Netty.server` vs `Http.server`. `docs/guide/for-ai-agents.md` lists `Netty.server`.
 - Skill: `plugins/uni/skills/uni/` (SKILL.md and references/http-server.md) mention `Netty.server`; bump plugin version.
 - ADR: update `adr/2026-10-31-http-server-entry-point.md` (the decision that the per-backend entry points are deprecated now has a JVM-only exception).

@@ -25,7 +25,7 @@ For a JVM-only project, `Netty.server` (`wvlet.uni.http.netty.Netty`, returns
 `NettyServerConfig`) builds the Netty server directly: shared and Netty-only
 settings are methods of one config, and `start()` returns a `NettyHttpServer`.
 Use `Http.server` when the code should also build for Scala.js or Native.
-`NettyServer` is deprecated.
+`NettyServer` was removed: use `Netty.server` or `Http.server`.
 
 ```scala
 import wvlet.uni.http.Response

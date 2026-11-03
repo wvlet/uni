@@ -153,10 +153,10 @@ class CounterApiImpl extends CounterApi:
 and `uni-netty` serves them:
 
 ```scala
-import wvlet.uni.http.netty.{NettyServer, RPCHandler}
+import wvlet.uni.http.netty.{Netty, RPCHandler}
 import wvlet.uni.http.rpc.RPCRouter
 
-@main def counterServer(): Unit = NettyServer
+@main def counterServer(): Unit = Netty.server
   .withPort(8080)
   .withRxHandler(RPCHandler(RPCRouter.of[CounterApi](CounterApiImpl())))
   .start(_.awaitTermination())
