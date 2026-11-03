@@ -95,6 +95,11 @@ object CurlBindings:
     @name("curl_easy_cleanup")
     def easyCleanup(curl: CURL): Unit = extern
 
+    // `@blocking` parks this thread at a GC safepoint while curl waits on the network. Without it,
+    // a stop-the-world GC (Immix/Commix) waits for this thread until curl returns; when the server
+    // runs in the same process, the server stalls in that GC and the request can never complete.
+    // Safe because the write/header callbacks only touch malloc'd buffers, not the GC heap.
+    @blocking
     @name("curl_easy_perform")
     def easyPerform(curl: CURL): CInt = extern
 
