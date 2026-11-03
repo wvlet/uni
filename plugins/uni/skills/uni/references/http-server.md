@@ -40,6 +40,7 @@ Netty
     println(server.localPort)
   }
 ```
+
 For a typed API, prefer [RPC](rpc.md) over hand-written REST routes.
 
 Full reference: https://wvlet.org/uni/http/server.md
