@@ -139,6 +139,32 @@ val platformDesign = Design
   .bindInstance[ServerOptions](Native.options.withWorkerThreads(32))
 ```
 
+### JVM-only apps: `Netty.server`
+
+When a project only runs on the JVM, `Netty.server` (`wvlet.uni.http.netty.Netty`)
+builds the Netty server directly. Every setting, shared or Netty-only, is a
+method of the one config, `start()` returns a `NettyHttpServer`, and a missing
+`uni-netty` dependency fails at compile time instead of at `start()`:
+
+```scala
+import wvlet.uni.http.Response
+import wvlet.uni.http.netty.Netty
+
+Netty
+  .server
+  .withPort(8080)
+  .withHandlerExecutorThreads(8)
+  .withGracefulShutdown(quietPeriodSeconds = 2, timeoutSeconds = 15)
+  .withHandler(_ => Response.ok("ok"))
+  .start { server =>
+    println(s"Listening on ${server.localAddress}")
+  }
+```
+
+Pick `Http.server` when the same server code should also build for Scala.js or
+Scala Native, and `Netty.server` when it never will. Switching later only
+changes where the Netty-only settings go: into `withBackend(Netty.options...)`.
+
 ::: warning JVM-only features
 The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
 [server-side WebSocket](#websocket), and the Netty tuning knobs

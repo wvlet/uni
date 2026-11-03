@@ -25,35 +25,9 @@ import wvlet.uni.http.{
 }
 import wvlet.uni.rx.Rx
 
-import java.net.InetSocketAddress
-
 /**
-  * Entry point for creating a Netty-based HTTP server. Deprecated: `Http.server` starts Netty on
-  * the JVM, and `withBackend(Netty.options...)` sets Netty-only options.
-  */
-@deprecated(
-  "Use Http.server; set Netty-only options with withBackend(Netty.options...)",
-  "2026.1.39"
-)
-object NettyServer:
-
-  def withPort(port: Int): NettyServerConfig = NettyServerConfig().withPort(port)
-
-  def withHandler(handler: HttpHandler): NettyServerConfig = NettyServerConfig().withHandler(
-    handler
-  )
-
-  def withHandler(f: Request => Response): NettyServerConfig = NettyServerConfig().withHandler(f)
-
-  def withRxHandler(handler: RxHttpHandler): NettyServerConfig = NettyServerConfig().withRxHandler(
-    handler
-  )
-
-  def withRxHandler(f: Request => Rx[Response]): NettyServerConfig = NettyServerConfig()
-    .withRxHandler(f)
-
-/**
-  * Configuration for the Netty backend of `Http.server`, with a builder pattern
+  * Configuration for a Netty server, with a builder pattern. Get one from `Netty.server` in
+  * JVM-only code; `Http.server` builds it from `Netty.options` in cross-platform code.
   */
 case class NettyServerConfig(
     name: String = "netty-server",
