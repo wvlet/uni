@@ -78,7 +78,9 @@ object TerminalBridge extends LogSupport:
       if js.typeOf(args(0)) == "string" then
         val uri = args(0).asInstanceOf[String]
         if TerminalLink.isAllowed(uri) then
-          shell.openExternal(uri)
+          // Fails when the OS has no handler for the scheme, e.g. no mail app for mailto
+          val onError: js.Function1[js.Any, Unit] = e => warn(s"Could not open a link: ${e}")
+          shell.openExternal(uri).`catch`(onError)
         else
           warn(s"Rejected a link with a scheme the app does not open: ${uri.take(64)}")
     }

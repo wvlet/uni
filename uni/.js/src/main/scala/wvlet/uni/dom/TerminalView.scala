@@ -164,7 +164,6 @@ class TerminalView(
     node match
       case el: dom.HTMLElement =>
         container = el
-        setTheme(theme)
         setup()
       case _ =>
         ()
@@ -416,7 +415,7 @@ class TerminalView(
     if CellColor.isPalette(c) then
       val i = CellColor.index(c)
       if i < 16 then
-        s"var(--uni-term-${i})"
+        AnsiColors(i)
       else
         theme.paletteColor(i)
     else if CellColor.isRgb(c) then
@@ -464,7 +463,8 @@ class TerminalView(
         d
     }
     if decorations.nonEmpty then
-      sb.append(s"text-decoration: ${decorations.mkString(" ")};")
+      // Only the line, so a link's dotted or solid style from the stylesheet still applies
+      sb.append(s"text-decoration-line: ${decorations.mkString(" ")};")
     if wide then
       sb.append("display: inline-block; width: calc(var(--uni-term-cw) * 2);")
     if isCursor && !blockCursor then
@@ -768,6 +768,7 @@ end TerminalView
 
 object TerminalView:
   // Theme colors as the CSS variables TerminalTheme.cssVariables defines
+  private val AnsiColors  = Array.tabulate(16)(i => s"var(--uni-term-${i})")
   private val DefaultFg   = "var(--uni-term-fg)"
   private val DefaultBg   = "var(--uni-term-bg)"
   private val CursorColor = "var(--uni-term-cursor)"
