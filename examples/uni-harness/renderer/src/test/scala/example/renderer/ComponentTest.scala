@@ -80,6 +80,19 @@ class ComponentTest extends DomTestSupport:
     fireEvent.pointerUp(dom.window, clientX = 450)
     width.get shouldBe 350
 
+  test("the dock's left-edge handle resizes the shared dock width and resets it"):
+    val layout = Layout.inMemory()
+    val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
+    val m      = mount(FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))())
+    val grip   = m.get("[role=separator]")
+    fireEvent.pointerDown(grip, clientX = 900)
+    fireEvent.pointerMove(dom.window, clientX = 0)
+    fireEvent.pointerUp(dom.window, clientX = 0)
+    layout.dockWidth.get shouldBe Layout.dockWidth.max
+    paneWidth(m) shouldBe s"${Layout.dockWidth.max}px"
+    fireEvent.dblclick(grip)
+    layout.dockWidth.get shouldBe Layout.dockWidth.default
+
   test("clicking the active rail icon folds the sidebar; another icon switches views"):
     val layout = Layout.inMemory()
     val m      = mount(IconRail(layout))

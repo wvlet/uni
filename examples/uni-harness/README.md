@@ -38,7 +38,7 @@ flowchart LR
     rail, and the resizable sidebar with chats (search, Today/Earlier groups), files, and settings.
   - [`Chat.scala`](renderer/src/main/scala/example/renderer/Chat.scala): a welcome screen with
     prompt ideas, message bubbles with copy, replies that type themselves in, and the composer.
-  - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the right dock, with the
+  - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the resizable right dock, with the
     conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
 - **Keyboard shortcuts.** `Keyboard.bindAll`: ⌘B / Ctrl+B folds the sidebar, ⌘⇧B / Ctrl+Shift+B
   toggles the dock, ⌘K / Ctrl+K searches chats.
