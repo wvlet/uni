@@ -166,8 +166,8 @@ class IconRail(state: HarnessState) extends RxElement:
       "app-drag flex w-[60px] shrink-0 flex-col items-center gap-1.5 border-r border-line bg-rail pt-3.5 pb-3",
     div(
       cls ->
-        "mb-5 grid size-11 place-items-center rounded-2xl bg-raised shadow-[0_6px_16px_-10px_rgb(6_17_20/0.5)] ring-1 ring-line",
-      Icons.logo("size-8 drop-shadow-[0_2px_8px_rgb(8_189_203/0.45)]")
+        "mb-4 grid size-10 place-items-center rounded-xl bg-raised shadow-[0_6px_16px_-10px_rgb(6_17_20/0.5)] ring-1 ring-line",
+      Icons.logo("size-7 drop-shadow-[0_2px_6px_rgb(8_189_203/0.4)]")
     ),
     railButton(View.Chats, Icons.chat),
     railButton(View.Files, Icons.folder),
