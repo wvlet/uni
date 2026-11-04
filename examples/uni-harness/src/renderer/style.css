@@ -48,10 +48,10 @@
   --h-brand: #2e7685;
   --h-brand-2: #3c99ad;
   --h-brand-soft: rgb(46 118 133 / 0.12);
-  --h-rail: #0e2a30;
+  --h-rail: #e7eff1;
   --h-primary-1: #2e7685;
   --h-primary-2: #3c99ad;
-  --h-rail-fg: #8fb0b6;
+  --h-rail-fg: #5b7176;
   --h-aurora-1: rgb(60 153 173 / 0.20);
   --h-aurora-2: rgb(8 189 203 / 0.12);
   --h-aurora-3: rgb(183 185 180 / 0.25);
@@ -73,7 +73,7 @@
     --h-brand: #25a7c1;
     --h-brand-2: #4ec5dd;
     --h-brand-soft: rgb(37 167 193 / 0.15);
-    --h-rail: #040c0e;
+    --h-rail: #050f12;
   --h-primary-1: #176877;
   --h-primary-2: #1f93ab;
     --h-primary-1: #176877;
@@ -99,7 +99,7 @@
   --h-brand: #25a7c1;
   --h-brand-2: #4ec5dd;
   --h-brand-soft: rgb(37 167 193 / 0.15);
-  --h-rail: #040c0e;
+  --h-rail: #050f12;
   --h-primary-1: #176877;
   --h-primary-2: #1f93ab;
   --h-rail-fg: #6f9097;
@@ -298,8 +298,13 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.mac-inset .rail-top {
-  padding-top: 38px;
+/* The title bar strip that holds the macOS window buttons; hidden elsewhere */
+.title-bar {
+  display: none;
+}
+
+.mac-inset .title-bar {
+  display: flex;
 }
 
 /* The dot that travels the call path in the dock */

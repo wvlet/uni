@@ -11,9 +11,9 @@ function createWindow() {
     minHeight: 480,
     title: 'Uni Harness',
     backgroundColor: '#061114',
-    // On macOS, hide the title bar and keep the window buttons over the icon rail
+    // On macOS, hide the title bar; the renderer draws a 40px strip for the window buttons
     ...(process.platform === 'darwin'
-      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 16 } }
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 13 } }
       : {}),
     webPreferences: {
       // The preload script exposes window.uniRPC via contextBridge.

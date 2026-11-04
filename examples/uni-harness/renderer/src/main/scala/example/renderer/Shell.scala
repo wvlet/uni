@@ -53,11 +53,15 @@ class Shell(state: HarnessState) extends RxElement:
   override def beforeUnmount: Unit = subscriptions.cancel
 
   override def render: RxElement = div(
-    cls -> "flex h-screen w-screen overflow-hidden bg-canvas font-sans text-fg",
-    IconRail(state),
-    Sidebar(state, searchRef),
-    ChatView(state),
-    Dock(state)
+    cls -> "flex h-screen w-screen flex-col overflow-hidden bg-canvas font-sans text-fg",
+    TitleBar(state),
+    div(
+      cls -> "flex min-h-0 flex-1",
+      IconRail(state),
+      Sidebar(state, searchRef),
+      ChatView(state),
+      Dock(state)
+    )
   )
 
 end Shell
@@ -87,7 +91,29 @@ def keyCap(k: String): RxElement = span(
   k
 )
 
-/** The deep-teal strip on the far left: logo, views, and global toggles. */
+/**
+  * A 40px strip across the top of a frameless macOS window. The window buttons sit at its left
+  * (`trafficLightPosition` in `src/main/index.js`), so no pane content runs under them, and the
+  * whole strip drags the window. Browsers and other platforms keep their own title bar, so the
+  * strip is hidden there (`.title-bar` in style.css).
+  */
+class TitleBar(state: HarnessState) extends RxElement:
+  override def render: RxElement = div(
+    cls ->
+      "title-bar app-drag h-10 shrink-0 items-center justify-center border-b border-line bg-rail px-20",
+    div(
+      cls -> "flex min-w-0 items-center gap-2 text-[12px] font-medium text-muted",
+      Icons.logo("size-4"),
+      span("Uni Harness"),
+      span(cls -> "text-faint", "/"),
+      span(
+        cls -> "truncate text-fg",
+        state.selectedConversation.map(_.map(_.title).getOrElse("New chat"))
+      )
+    )
+  )
+
+/** The strip on the far left: logo, views, and global toggles. It follows the theme. */
 class IconRail(state: HarnessState) extends RxElement:
 
   private def railButton(v: View, icon: RxElement): RxElement =
@@ -101,9 +127,9 @@ class IconRail(state: HarnessState) extends RxElement:
         active.map { on =>
           val look =
             if on then
-              "bg-white/10 text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08)]"
+              "bg-brand-soft text-brand shadow-[inset_0_0_0_1px_var(--h-line)]"
             else
-              "text-rail-fg hover:bg-white/5 hover:text-white"
+              "text-rail-fg hover:bg-hover hover:text-fg"
           s"relative grid size-10 place-items-center rounded-xl transition active:scale-95 ${look}"
         },
       onclick -> { () =>
@@ -114,7 +140,7 @@ class IconRail(state: HarnessState) extends RxElement:
           on,
           span(
             cls ->
-              "absolute -left-[10px] top-2 bottom-2 w-[3px] rounded-r-full bg-glow shadow-[0_0_12px_#08bdcb]"
+              "absolute -left-[10px] top-2 bottom-2 w-[3px] rounded-r-full bg-brand shadow-[0_0_12px_var(--h-brand)]"
           )
         )
       ),
@@ -128,7 +154,7 @@ class IconRail(state: HarnessState) extends RxElement:
       data("tip") -> label,
       ariaLabel   -> label,
       cls         ->
-        "grid size-10 place-items-center rounded-xl text-rail-fg transition hover:bg-white/5 hover:text-white active:scale-95",
+        "grid size-10 place-items-center rounded-xl text-rail-fg transition hover:bg-hover hover:text-fg active:scale-95",
       onclick -> { () =>
         action()
       },
@@ -137,10 +163,10 @@ class IconRail(state: HarnessState) extends RxElement:
 
   override def render: RxElement = nav(
     cls ->
-      "app-drag rail-top flex w-[60px] shrink-0 flex-col items-center gap-1.5 bg-rail pt-3 pb-3",
+      "app-drag flex w-[60px] shrink-0 flex-col items-center gap-1.5 border-r border-line bg-rail pt-3.5 pb-3",
     div(
       cls ->
-        "mb-4 grid size-11 place-items-center rounded-2xl bg-gradient-to-b from-white/10 to-white/0 ring-1 ring-white/10",
+        "mb-5 grid size-11 place-items-center rounded-2xl bg-raised shadow-[0_6px_16px_-10px_rgb(6_17_20/0.5)] ring-1 ring-line",
       Icons.logo("size-8 drop-shadow-[0_2px_8px_rgb(8_189_203/0.45)]")
     ),
     railButton(View.Chats, Icons.chat),
@@ -165,7 +191,7 @@ class IconRail(state: HarnessState) extends RxElement:
     railToggle("Right dock  ⌘⇧B", Rx.variable(Icons.panelRight), () => state.toggleDock()),
     div(
       cls ->
-        "mt-2 grid size-8 place-items-center rounded-full bg-gradient-to-br from-silver to-[#6e7b75] text-[10px] font-semibold text-[#0e2a30] ring-2 ring-white/10",
+        "mt-2 grid size-8 place-items-center rounded-full bg-gradient-to-br from-silver to-[#6e7b75] text-[10px] font-semibold text-[#0e2a30] ring-2 ring-line",
       "You"
     )
   )
