@@ -170,6 +170,18 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.dblclick(grip)
     width.get shouldBe range.default
 
+  test("PaneResize clamps an out-of-range starting size"):
+    val range = SizeRange(min = 260, default = 320, max = 720)
+    val wide  = Rx.variable(960)
+    PaneResize(wide, range, ResizeDirection.Left)
+    wide.get shouldBe range.max
+    val narrow = Rx.variable(10)
+    PaneResize(narrow, range, ResizeDirection.Left)
+    narrow.get shouldBe range.min
+    val inRange = Rx.variable(400)
+    PaneResize(inRange, range, ResizeDirection.Left)
+    inRange.get shouldBe 400
+
   test("PaneResize grows against the pointer for Left and Up handles"):
     val width = Rx.variable(300)
     val wide  = mount(
