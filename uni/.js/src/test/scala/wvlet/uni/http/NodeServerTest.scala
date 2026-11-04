@@ -211,4 +211,32 @@ class NodeServerTest extends UniTest:
       }
   }
 
+  test("serve static files through Http.server and keep traversal out") {
+    import wvlet.uni.io.FileSystem
+    val dir  = FileSystem.createTempDirectory("node-static")
+    val site = dir / "site"
+    FileSystem.createDirectory(site)
+    FileSystem.writeString(site / "app.js", "console.log(1)")
+    FileSystem.writeString(dir / "secret.txt", "outside")
+    Http
+      .server
+      .withPort(0)
+      .withFilter(StaticFiles(site.path))
+      .withHandler(_ => Response.ok("api"))
+      .startAndAwait { server =>
+        val client = asyncClient(server)
+        for
+          file <- client.send(Request.get("/app.js"))
+          // %2e%2e reaches the server undecoded; the client doesn't normalize it away
+          traversal <- statusAndBody(server, Request.get("/%2e%2e/secret.txt"))
+          api       <- client.send(Request.post("/app.js"))
+        yield
+          file.contentAsString shouldBe Some("console.log(1)")
+          file.header("Content-Type") shouldBe Some("text/javascript; charset=utf-8")
+          file.header("X-Content-Type-Options") shouldBe Some("nosniff")
+          traversal shouldBe (200, Some("api"))
+          api.contentAsString shouldBe Some("api")
+      }
+  }
+
 end NodeServerTest
