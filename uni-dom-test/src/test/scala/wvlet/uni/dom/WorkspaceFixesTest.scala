@@ -130,4 +130,12 @@ class WorkspaceFixesTest extends UniTest:
     folded := true
     d.hasAttribute("hidden") shouldBe true
 
+  test("muted accepts an Rx[Boolean] and drives the property"):
+    val isMuted   = Rx.variable(true)
+    val (node, _) = DomRenderer.createNode(video(muted -> isMuted))
+    val v         = node.asInstanceOf[dom.html.Video]
+    v.muted shouldBe true
+    isMuted := false
+    v.muted shouldBe false
+
 end WorkspaceFixesTest

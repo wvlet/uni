@@ -49,7 +49,7 @@ class DomBooleanAttribute(attrName: String, attrNs: DomNamespace = DomNamespace.
   /**
     * Set the attribute from a Boolean, Option, or Rx value; false or None removes it.
     */
-  def apply[V: EmbeddableAttribute](v: V): DomNode = DomAttribute(attrName, v, attrNs)
+  def apply[V: EmbeddableAttribute](v: V): DomNode = DomAttribute(name, v, ns)
 
   /**
     * Alias for apply. Allows `disabled -> isBusy` syntax.

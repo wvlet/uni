@@ -425,7 +425,7 @@ object DomRenderer extends LogSupport:
         case null | None | false =>
           // For property-backed boolean attributes, also set the property to false
           a.name match
-            case "checked" | "disabled" | "selected" =>
+            case "checked" | "disabled" | "selected" | "muted" =>
               setDomProperty(node, a.name, false)
             case "value" =>
               setDomProperty(node, "value", "")
@@ -485,7 +485,7 @@ object DomRenderer extends LogSupport:
             case "value" =>
               setDomProperty(node, "value", v)
               Cancelable.empty
-            case "checked" | "disabled" | "selected" =>
+            case "checked" | "disabled" | "selected" | "muted" =>
               setDomProperty(node, a.name, v)
               Cancelable.empty
             case _ =>
@@ -534,7 +534,7 @@ object DomRenderer extends LogSupport:
         name match
           case "value" =>
             dyn.updateDynamic("value")("")
-          case "checked" | "disabled" =>
+          case "checked" | "disabled" | "muted" =>
             dyn.updateDynamic(name)(false)
           case "selected" =>
             dyn.updateDynamic(name)(false)
@@ -542,7 +542,7 @@ object DomRenderer extends LogSupport:
             ()
       case true =>
         name match
-          case "checked" | "disabled" | "selected" =>
+          case "checked" | "disabled" | "selected" | "muted" =>
             dyn.updateDynamic(name)(true)
           case _ =>
             dyn.updateDynamic(name)(true)
