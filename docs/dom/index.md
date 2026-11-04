@@ -6,9 +6,9 @@ Components are plain Scala classes, the HTML/SVG DSL is type-checked, and any
 when it changes — no virtual DOM, no separate template language.
 
 ::: warning Scala.js only
-This module lives under `uni/.js` and targets the browser. There is no JVM or
-Scala Native counterpart. Add the `uni` dependency to a Scala.js project to use
-it.
+This module targets the browser and has no JVM or Scala Native counterpart. Add
+the `uni` dependency to a Scala.js project to use it. (The rendering core ships
+in `uni-core`, which `uni` depends on, so `uni-test` can test components.)
 :::
 
 ## Setup
@@ -248,6 +248,93 @@ inspection (used heavily in tests).
 For advanced cases, `wvlet.uni.dom.DomRenderer` offers `renderToNode`,
 `renderTo(node, ...)`, `createNode`, and `renderToHtml` (server-side string
 rendering).
+
+## Testing components
+
+`uni-test` on Scala.js includes a component testing kit in
+`wvlet.uni.dom.testing`: render a component into a real DOM, fire user events,
+and query the result. Run the tests in a real browser with the
+[sbt-uni-playwright Plugin](../build/sbt-uni-playwright), which uses headless
+Chromium, the same engine as the Electron renderer.
+
+```scala
+import org.scalajs.dom
+import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
+import wvlet.uni.dom.testing.*
+import wvlet.uni.rx.Rx
+import scala.language.implicitConversions
+
+class CounterTest extends DomTestSupport:
+  test("clicking +1 increments the counter"):
+    val count = Rx.variable(0)
+    val m = mount(
+      div(
+        span(count.map(c => s"count=${c}")),
+        button(onclick -> { () => count := count.get + 1 }, "+1")
+      )
+    )
+    fireEvent.click(m.getByText("+1"))
+    m.text shouldContain "count=1"
+```
+
+`DomTestSupport` extends `UniTest` and unmounts every element `mount` rendered
+after each test, so tests don't leak DOM into one another. Outside `UniTest`,
+call `m.unmount()` yourself, or mix in `DomTestSession` and call
+`cleanupMounted()`.
+
+### Querying
+
+`mount` returns a `Mounted` handle:
+
+| Method | Returns |
+|--------|---------|
+| `get(css)` / `query(css)` / `queryAll(css)` | The first match (or fail), `Option`, or all matches |
+| `getByText(text)` / `queryByText(text)` / `queryAllByText(text)` | Elements whose trimmed text equals a `String` or matches a `Regex`; the deepest match wins |
+| `getByTestId(id)` / `queryByTestId(id)` | Elements with `data-testid="id"` |
+| `text` / `html` | The rendered `textContent` / `innerHTML` |
+
+### Firing events
+
+`fireEvent` dispatches bubbling, cancelable events, the way real input does,
+and returns `false` if a handler called `preventDefault()`:
+
+| Kind | Methods |
+|------|---------|
+| Mouse | `click`, `dblclick`, `mouseDown`, `mouseUp`, `mouseMove`, `mouseOver`, `mouseOut`, `mouseEnter`, `mouseLeave`, `contextMenu`, with optional `clientX`, `clientY`, `button`, and `shiftKey`/`ctrlKey`/`altKey`/`metaKey` |
+| Pointer | `pointerDown`, `pointerMove`, `pointerUp`, `pointerCancel`, `pointerOver`, `pointerOut`, `pointerEnter`, `pointerLeave`, with optional `clientX`, `clientY`, `pointerId`, `pointerType`, and `button` |
+| Keyboard | `keyDown`, `keyUp`, `keyPress` with a `key`, optional `code`, modifier keys, and `isComposing` (a key pressed while an IME composition is open) |
+| Form | `input(el, value)` and `change(el, value)` set the value first, `setChecked(el, checked)`, `submit` |
+| Focus | `focus`, `blur` |
+| Other | `custom(target, eventType)`, or `dispatch(target, event)` for an event you built |
+
+Enter and leave events don't bubble, as in the browser. To simulate a drag,
+send `pointerDown` to the handle and `pointerMove`/`pointerUp` to whatever
+listens for them (often `dom.window`):
+
+```scala
+fireEvent.pointerDown(m.get("[role=separator]"), clientX = 300)
+fireEvent.pointerMove(dom.window, clientX = 350)
+fireEvent.pointerUp(dom.window, clientX = 350)
+```
+
+### Waiting
+
+`Rx` updates re-render synchronously, so assert right after `fireEvent`. Two
+cases need a wait; return the `Rx` from the test body:
+
+- `onMount` runs a step after `mount` returns (the renderer learns about
+  attachment from a `MutationObserver`). `settle()` emits once those callbacks
+  have run:
+
+  ```scala
+  val m = mount(AutoFocusInput())
+  settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
+  ```
+
+- Values that come from browser events, such as `resize` or a media-query
+  change, arrive later. `awaitValue(rx)(p)` emits the first value that
+  satisfies `p`, or fails after `timeoutMillis` (2 s by default).
 
 ## Browser Integrations
 

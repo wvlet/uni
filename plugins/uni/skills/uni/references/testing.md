@@ -267,11 +267,13 @@ class EditorTest extends DomTestSupport:
 
 - Queries: `m.get(css)`, `m.query(css)`, `m.getByText(...)`, `m.getByTestId(...)`;
   `m.text` and `m.html` read the rendered output.
-- `fireEvent`: `click`, `dblclick`, `mouseDown`/`Up`/`Move`/..., `pointerDown`/`Move`/`Up`/`Cancel`/`Over`/`Out`/`Enter`/`Leave`,
+- `fireEvent`: `click`, `dblclick`, `mouseDown`/`Up`/`Move`/`Over`/`Out`/`Enter`/`Leave`, `contextMenu` (each takes `clientX`, `clientY`, `button`, and modifier keys), `pointerDown`/`Move`/`Up`/`Cancel`/`Over`/`Out`/`Enter`/`Leave`,
   `input`, `change`, `setChecked`, `submit`, `focus`, `blur`, `keyDown`/`keyUp`/`keyPress`, `custom`.
 - Rx updates re-render synchronously, so assert right after `fireEvent`. Use
   `settle()` only for `onMount` effects, and `awaitValue(rx)(p)` for values that
   arrive from browser events such as `resize`.
+
+Full guide: https://wvlet.org/uni/dom/index.md#testing-components
 
 ## Running
 

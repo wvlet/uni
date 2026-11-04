@@ -91,6 +91,40 @@ class TestkitTest extends DomTestSupport:
     fireEvent.pointerDown(inner)
     parent.map(_.`type`).toSeq shouldBe Seq("pointerdown")
 
+  test("mouse events carry coordinates, button, and modifier keys"):
+    val m    = mount(RxElement(div(cls -> "pad", "pad")))
+    val pad  = m.get(".pad")
+    val seen = mutable.Buffer.empty[dom.MouseEvent]
+    Seq("click", "mousedown", "contextmenu").foreach { t =>
+      pad.addEventListener(t, (e: dom.MouseEvent) => seen += e)
+    }
+    fireEvent.click(pad, clientX = 12, clientY = 34, shiftKey = true, metaKey = true)
+    fireEvent.mouseDown(pad, button = 1, ctrlKey = true, altKey = true)
+    fireEvent.contextMenu(pad)
+    val click = seen.head
+    click.clientX shouldBe 12
+    click.clientY shouldBe 34
+    click.button shouldBe 0
+    click.shiftKey shouldBe true
+    click.metaKey shouldBe true
+    click.ctrlKey shouldBe false
+    seen(1).button shouldBe 1
+    seen(1).ctrlKey shouldBe true
+    seen(1).altKey shouldBe true
+    seen(2).button shouldBe 2
+
+  test("mouseEnter and mouseLeave do not bubble, like the browser"):
+    val m      = mount(RxElement(div(cls -> "outer", span(cls -> "inner", "x"))))
+    val parent = mutable.Buffer.empty[String]
+    Seq("mouseenter", "mouseleave", "mouseover").foreach { t =>
+      m.get(".outer").addEventListener(t, (e: dom.MouseEvent) => parent += e.`type`)
+    }
+    val inner = m.get(".inner")
+    fireEvent.mouseEnter(inner)
+    fireEvent.mouseLeave(inner)
+    fireEvent.mouseOver(inner)
+    parent.toSeq shouldBe Seq("mouseover")
+
   test("keyboard events report isComposing"):
     val m     = mount(RxElement(input(tpe -> "text")))
     val field = m.get("input")
