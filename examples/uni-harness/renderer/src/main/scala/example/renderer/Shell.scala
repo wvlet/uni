@@ -184,7 +184,6 @@ class IconRail(state: HarnessState) extends RxElement:
         },
       () => state.cycleTheme()
     ),
-    railToggle("Right dock  ⌘⇧B", Rx.variable(Icons.panelRight), () => state.toggleDock()),
     // The account slot: a 40px rail button like the others, holding an avatar with a status dot
     button(
       data("tip") -> "Account (local)",
