@@ -189,10 +189,21 @@ class IconRail(state: HarnessState) extends RxElement:
       () => state.cycleTheme()
     ),
     railToggle("Right dock  ⌘⇧B", Rx.variable(Icons.panelRight), () => state.toggleDock()),
-    div(
-      cls ->
-        "mt-2 grid size-8 place-items-center rounded-full bg-gradient-to-br from-silver to-[#6e7b75] text-[10px] font-semibold text-[#0e2a30] ring-2 ring-line",
-      "You"
+    // The account slot: a 40px rail button like the others, holding an avatar with a status dot
+    button(
+      data("tip") -> "Account (local)",
+      ariaLabel   -> "Account",
+      cls         ->
+        "mt-1 grid size-10 place-items-center rounded-xl transition hover:bg-hover active:scale-95",
+      span(
+        cls ->
+          "relative grid size-7 place-items-center rounded-full bg-gradient-to-br from-brand-2 to-brand text-white shadow-[0_4px_12px_-6px_var(--h-brand)] ring-1 ring-white/25",
+        Icons.user,
+        span(
+          cls ->
+            "absolute -right-px -bottom-px size-2 rounded-full bg-glow ring-2 ring-[var(--h-rail)]"
+        )
+      )
     )
   )
 

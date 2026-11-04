@@ -100,6 +100,12 @@ object Icons:
     )
   )
 
+  def user: RxElement = icon(
+    "size-4 shrink-0",
+    circle(cx -> 12, cy -> 9, r -> 3.6),
+    p("M5.5 19.5a6.5 6.5 0 0 1 13 0")
+  )
+
   def moon: RxElement    = i(p("M19.5 14.6A7.8 7.8 0 1 1 9.4 4.5a6.2 6.2 0 0 0 10.1 10.1z"))
   def monitor: RxElement = i(
     rect(x -> 3, y -> 4.5, width -> 18, height -> 12, rx -> 2),
