@@ -21,108 +21,16 @@ import scala.collection.mutable
 import scala.scalajs.js
 
 /**
-  * Colors for [[TerminalView]], as CSS color strings. `ansi` holds the 16 base colors: black, red,
-  * green, yellow, blue, magenta, cyan, white, then their bright variants.
-  */
-case class TerminalTheme(
-    foreground: String,
-    background: String,
-    cursor: String,
-    selection: String,
-    ansi: Seq[String]
-):
-  require(ansi.length == 16, s"A terminal theme needs 16 ANSI colors, but got ${ansi.length}")
-
-  def withForeground(color: String): TerminalTheme = copy(foreground = color)
-  def withBackground(color: String): TerminalTheme = copy(background = color)
-  def withCursor(color: String): TerminalTheme     = copy(cursor = color)
-  def withSelection(color: String): TerminalTheme  = copy(selection = color)
-  def withAnsi(colors: Seq[String]): TerminalTheme = copy(ansi = colors)
-
-  private lazy val palette: Array[String] = TerminalTheme.palette256(ansi)
-
-  /**
-    * The CSS color of a 256-color palette index
-    */
-  def paletteColor(index: Int): String = palette(index & 0xff)
-
-object TerminalTheme:
-  val dark: TerminalTheme = TerminalTheme(
-    foreground = "#d4d4d4",
-    background = "#1e1e1e",
-    cursor = "#d4d4d4",
-    selection = "rgba(120, 160, 255, 0.35)",
-    ansi = Seq(
-      "#000000",
-      "#cd3131",
-      "#0dbc79",
-      "#e5e510",
-      "#2472c8",
-      "#bc3fbc",
-      "#11a8cd",
-      "#e5e5e5",
-      "#666666",
-      "#f14c4c",
-      "#23d18b",
-      "#f5f543",
-      "#3b8eea",
-      "#d670d6",
-      "#29b8db",
-      "#ffffff"
-    )
-  )
-
-  val light: TerminalTheme = TerminalTheme(
-    foreground = "#333333",
-    background = "#ffffff",
-    cursor = "#333333",
-    selection = "rgba(0, 100, 255, 0.25)",
-    ansi = Seq(
-      "#000000",
-      "#cd3131",
-      "#00bc00",
-      "#949800",
-      "#0451a5",
-      "#bc05bc",
-      "#0598bc",
-      "#555555",
-      "#666666",
-      "#cd3131",
-      "#14ce14",
-      "#b5ba00",
-      "#0451a5",
-      "#bc05bc",
-      "#0598bc",
-      "#a5a5a5"
-    )
-  )
-
-  // The 16 base colors, a 6x6x6 color cube, and a 24-step gray ramp, as xterm defines them
-  private def palette256(ansi: Seq[String]): Array[String] =
-    val levels = Array(0, 95, 135, 175, 215, 255)
-    Array.tabulate(256) { i =>
-      if i < 16 then
-        ansi(i)
-      else if i < 232 then
-        val c = i - 16
-        s"rgb(${levels(c / 36)}, ${levels((c / 6) % 6)}, ${levels(c % 6)})"
-      else
-        val v = 8 + (i - 232) * 10
-        s"rgb(${v}, ${v}, ${v})"
-    }
-
-end TerminalTheme
-
-/**
   * Configuration of a [[TerminalView]]
   */
 case class TerminalViewConfig(
-    theme: TerminalTheme = TerminalTheme.dark,
+    theme: TerminalTheme = TerminalTheme.uniDark,
     fontFamily: String = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     fontSize: Double = 13,
     lineHeight: Double = 1.25,
     padding: Int = 4,
-    macOptionIsMeta: Boolean = false
+    macOptionIsMeta: Boolean = false,
+    linkSchemes: Set[String] = TerminalLink.defaultSchemes
 ):
   def withTheme(theme: TerminalTheme): TerminalViewConfig    = copy(theme = theme)
   def withFontFamily(fontFamily: String): TerminalViewConfig = copy(fontFamily = fontFamily)
@@ -137,6 +45,21 @@ case class TerminalViewConfig(
     */
   def withMacOptionIsMeta(enabled: Boolean): TerminalViewConfig = copy(macOptionIsMeta = enabled)
 
+  /**
+    * The URI schemes of OSC 8 hyperlinks the view opens (default: `http`, `https`, `mailto`). Links
+    * with other schemes show as plain text.
+    */
+  def withLinkSchemes(schemes: String*): TerminalViewConfig = copy(linkSchemes =
+    schemes.map(_.toLowerCase).toSet
+  )
+
+  /**
+    * Show OSC 8 hyperlinks as plain text
+    */
+  def noLinks(): TerminalViewConfig = copy(linkSchemes = Set.empty)
+
+end TerminalViewConfig
+
 /**
   * Draws a [[TerminalEmulator]] in the DOM and sends keyboard, paste, and mouse input to it.
   *
@@ -145,6 +68,9 @@ case class TerminalViewConfig(
   * scrolls, selects, and copies like ordinary text. Keyboard input goes through a hidden textarea,
   * so IME composition works. The view fits the terminal to its own size: give it a height (it fills
   * its container) and register [[onResize]] to tell the program.
+  *
+  * OSC 8 hyperlinks whose scheme is in [[TerminalViewConfig.linkSchemes]] open with Cmd+click on
+  * macOS and Ctrl+click elsewhere; see [[onLinkClick]].
   *
   * {{{
   *   val term = TerminalEmulator()
@@ -158,8 +84,11 @@ class TerminalView(
     val terminal: TerminalEmulator,
     config: TerminalViewConfig = TerminalViewConfig()
 ) extends RxElement:
+  import TerminalView.*
+
   private val resizeListeners                     = mutable.ArrayBuffer.empty[(Int, Int) => Unit]
   private var linkHandler: Option[String => Unit] = None
+  private var theme: TerminalTheme                = config.theme
 
   private var container: dom.HTMLElement = null
   // Scrollback rows, hidden while the alternate screen shows, then the screen rows
@@ -191,12 +120,27 @@ class TerminalView(
     Cancelable(() => resizeListeners -= listener)
 
   /**
-    * Make OSC 8 hyperlinks clickable with Ctrl (Cmd on macOS) + click. The handler receives the
-    * link's URI; it should check the scheme before opening it.
+    * Open OSC 8 hyperlinks with this handler instead of `window.open`. It runs on Cmd+click (macOS)
+    * or Ctrl+click, and receives only URIs whose scheme is in [[TerminalViewConfig.linkSchemes]].
+    * In Electron, pass the URI to the main process and open it with `shell.openExternal`.
     */
   def onLinkClick(handler: String => Unit): TerminalView =
     linkHandler = Some(handler)
     this
+
+  /**
+    * The current theme
+    */
+  def currentTheme: TerminalTheme = theme
+
+  /**
+    * Switch the theme, for example to follow the app's light or dark mode. Cells refer to the
+    * theme's colors through CSS variables, so the switch redraws no rows.
+    */
+  def setTheme(newTheme: TerminalTheme): Unit =
+    theme = newTheme
+    if container != null then
+      newTheme.cssVariables.foreach((name, value) => container.style.setProperty(name, value))
 
   /**
     * Move keyboard focus to the terminal
@@ -210,9 +154,9 @@ class TerminalView(
     div(cls -> "uni-terminal", styleAttr -> containerStyle)
 
   private def containerStyle: String =
-    val t = config.theme
-    s"position: relative; height: 100%; width: 100%; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; " +
-      s"padding: ${config.padding}px; background: ${t.background}; color: ${t.foreground}; " +
+    val vars = theme.cssVariables.map((name, value) => s"${name}: ${value};").mkString(" ")
+    s"${vars} position: relative; height: 100%; width: 100%; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; " +
+      s"padding: ${config.padding}px; background: var(--uni-term-bg); color: var(--uni-term-fg); " +
       s"font-family: ${config.fontFamily}; font-size: ${config.fontSize}px; " +
       s"line-height: ${config.lineHeight}; cursor: text; outline: none;"
 
@@ -220,6 +164,7 @@ class TerminalView(
     node match
       case el: dom.HTMLElement =>
         container = el
+        setTheme(theme)
         setup()
       case _ =>
         ()
@@ -248,9 +193,10 @@ class TerminalView(
     // Selection color for text in the pane
     val style = doc.createElement("style")
     style.textContent =
-      s".uni-terminal ::selection { background: ${config.theme.selection}; }" +
+      ".uni-terminal ::selection { background: var(--uni-term-selection); }" +
         ".uni-terminal .uni-term-row { white-space: pre; overflow: hidden; }" +
-        ".uni-terminal .uni-term-link { text-decoration: underline dotted; }"
+        ".uni-terminal .uni-term-link { text-decoration: underline dotted; text-underline-offset: 2px; }" +
+        ".uni-terminal.uni-term-link-mod .uni-term-link:hover { text-decoration-style: solid; cursor: pointer; }"
     container.appendChild(style)
 
     scrollbackEl = doc.createElement("div").asInstanceOf[dom.HTMLElement]
@@ -457,42 +403,47 @@ class TerminalView(
       if link != 0 then
         terminal
           .hyperlink(link)
+          .filter(TerminalLink.isAllowed(_, config.linkSchemes))
           .foreach { uri =>
             s.className = (s.className + " uni-term-link").trim
             s.setAttribute("data-uri", uri)
-            s.setAttribute("title", uri)
+            s.setAttribute("title", s"${linkModifierLabel}+click to open ${uri}")
           }
       s
 
+  // The 16 base colors refer to the theme's CSS variables, so setTheme recolors drawn cells
   private def color(c: Int, default: String): String =
     if CellColor.isPalette(c) then
-      config.theme.paletteColor(CellColor.index(c))
+      val i = CellColor.index(c)
+      if i < 16 then
+        s"var(--uni-term-${i})"
+      else
+        theme.paletteColor(i)
     else if CellColor.isRgb(c) then
       f"#${CellColor.rgbValue(c)}%06x"
     else
       default
 
   private def cellStyle(line: Line, col: Int, isCursor: Boolean, wide: Boolean): String =
-    val theme   = config.theme
     val flags   = line.flags(col)
     val screen  = terminal.screen
-    var fg      = color(line.fg(col), theme.foreground)
+    var fg      = color(line.fg(col), DefaultFg)
     var bg      = color(line.bg(col), "")
     val inverse = ((flags & CellFlags.Inverse) != 0) != screen.isReverseVideo
     if inverse then
       val f = fg
       fg =
         if bg.isEmpty then
-          theme.background
+          DefaultBg
         else
           bg
       bg = f
     val blockCursor = isCursor && focused && screen.cursorShape == CursorStyle.Block
     if blockCursor then
-      bg = theme.cursor
-      fg = theme.background
+      bg = CursorColor
+      fg = DefaultBg
     val sb = StringBuilder()
-    if fg != theme.foreground then
+    if fg != DefaultFg then
       sb.append(s"color: ${fg};")
     if bg.nonEmpty then
       sb.append(s"background: ${bg};")
@@ -519,11 +470,11 @@ class TerminalView(
     if isCursor && !blockCursor then
       val shadow =
         if !focused then
-          s"inset 0 0 0 1px ${theme.cursor}"
+          s"inset 0 0 0 1px ${CursorColor}"
         else if screen.cursorShape == CursorStyle.Bar then
-          s"inset 2px 0 0 ${theme.cursor}"
+          s"inset 2px 0 0 ${CursorColor}"
         else
-          s"inset 0 -2px 0 ${theme.cursor}"
+          s"inset 0 -2px 0 ${CursorColor}"
       sb.append(s"box-shadow: ${shadow};")
     sb.toString
 
@@ -647,6 +598,52 @@ class TerminalView(
 
   private lazy val isMac: Boolean = dom.window.navigator.platform.toLowerCase.contains("mac")
 
+  // ---- Links ----
+
+  private def linkModifierLabel: String =
+    if isMac then
+      "Cmd"
+    else
+      "Ctrl"
+
+  // Cmd opens links on macOS, Ctrl elsewhere
+  private def linkModifier(meta: Boolean, ctrl: Boolean): Boolean =
+    if isMac then
+      meta
+    else
+      ctrl
+
+  private def linkAt(e: dom.MouseEvent): Option[String] =
+    e.target match
+      case el: dom.Element =>
+        Option(el.closest(".uni-term-link")).flatMap(l => Option(l.getAttribute("data-uri")))
+      case _ =>
+        None
+
+  // A modifier click on a link opens it, even while a program tracks the mouse
+  private def linkClick(e: dom.MouseEvent): Option[String] =
+    if linkModifier(e.metaKey, e.ctrlKey) then
+      linkAt(e)
+    else
+      None
+
+  private def openLink(uri: String): Unit =
+    // Checked again, in case the handler or the DOM changed after the row was drawn
+    if TerminalLink.isAllowed(uri, config.linkSchemes) then
+      linkHandler match
+        case Some(handler) =>
+          handler(uri)
+        case None =>
+          dom.window.open(uri, "_blank", "noopener,noreferrer")
+
+  // Show the "open" affordance while the modifier is held
+  private def showLinkModifier(held: Boolean): Unit =
+    if container != null then
+      if held then
+        container.classList.add("uni-term-link-mod")
+      else
+        container.classList.remove("uni-term-link-mod")
+
   private def scrollToBottom(): Unit = container.scrollTop = container.scrollHeight.toDouble
 
   // ---- Mouse ----
@@ -657,7 +654,7 @@ class TerminalView(
       "mousedown",
       (e: dom.Event) =>
         val me = e.asInstanceOf[dom.MouseEvent]
-        if tracking(me) then
+        if tracking(me) && linkClick(me).isEmpty then
           me.preventDefault()
           mouseButton = buttonOf(me.button)
           sendMouse(me, MouseAction.Press, mouseButton)
@@ -677,25 +674,29 @@ class TerminalView(
       "mousemove",
       (e: dom.Event) =>
         val me = e.asInstanceOf[dom.MouseEvent]
+        showLinkModifier(linkModifier(me.metaKey, me.ctrlKey))
         if tracking(me) then
           sendMouse(me, MouseAction.Move, mouseButton)
     )
+    // Pressing or releasing the modifier over a link updates the affordance without a mouse move
+    val modifierKeys: js.Function1[dom.Event, Unit] =
+      (e: dom.Event) =>
+        val ke = e.asInstanceOf[dom.KeyboardEvent]
+        showLinkModifier(linkModifier(ke.metaKey, ke.ctrlKey))
+    listen(dom.window, "keydown", modifierKeys)
+    listen(dom.window, "keyup", modifierKeys)
+    listen(dom.window, "blur", (_: dom.Event) => showLinkModifier(false))
+    listen(container, "mouseleave", (_: dom.Event) => showLinkModifier(false))
     listen(
       container,
       "click",
       (e: dom.Event) =>
-        val me      = e.asInstanceOf[dom.MouseEvent]
-        val linkUri =
-          me.target match
-            case el: dom.Element if el.classList.contains("uni-term-link") =>
-              Option(el.getAttribute("data-uri"))
-            case _ =>
-              None
-        (linkUri, linkHandler) match
-          case (Some(uri), Some(handler)) if me.metaKey || me.ctrlKey =>
+        val me = e.asInstanceOf[dom.MouseEvent]
+        linkClick(me) match
+          case Some(uri) =>
             me.preventDefault()
-            handler(uri)
-          case _ =>
+            openLink(uri)
+          case None =>
             // Focus for typing, unless the user just selected text to copy
             if selectedText.isEmpty then
               input.focus()
@@ -764,3 +765,9 @@ class TerminalView(
       }
 
 end TerminalView
+
+object TerminalView:
+  // Theme colors as the CSS variables TerminalTheme.cssVariables defines
+  private val DefaultFg   = "var(--uni-term-fg)"
+  private val DefaultBg   = "var(--uni-term-bg)"
+  private val CursorColor = "var(--uni-term-cursor)"

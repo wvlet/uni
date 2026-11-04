@@ -4,7 +4,8 @@ import org.scalajs.dom
 import wvlet.uni.cli.term.{TerminalConfig, TerminalEmulator}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.dom.{TerminalView, TerminalViewConfig}
+import wvlet.uni.dom.{MediaQuery, TerminalTheme, TerminalView, TerminalViewConfig}
+import wvlet.uni.rx.{Cancelable, Rx}
 
 import scala.language.implicitConversions
 import scala.scalajs.js
@@ -12,25 +13,29 @@ import scala.scalajs.js
 /**
   * The dock's Terminal tab: a [[TerminalView]] of a [[TerminalEmulator]]. In Electron it runs the
   * user's shell in the main process through the preload script's `uniPty` bridge; in a browser,
-  * where no shell is available, it runs [[DemoShell]].
+  * where no shell is available, it runs [[DemoShell]]. It uses Uni's terminal theme in the app's
+  * light or dark mode.
   */
-class TerminalPane extends RxElement:
+class TerminalPane(appTheme: Rx[Theme]) extends RxElement:
   private val term = TerminalEmulator(TerminalConfig().withScrollbackLines(5000))
   private val view = TerminalView(term, TerminalViewConfig().withFontSize(12.5))
 
-  private val bridge: Option[js.Dynamic] =
-    val b = dom.window.asInstanceOf[js.Dynamic].uniPty
+  private def preloadBridge(name: String): Option[js.Dynamic] =
+    val b = dom.window.asInstanceOf[js.Dynamic].selectDynamic(name)
     if js.isUndefined(b) || b == null then
       None
     else
       Some(b)
 
-  private var started = false
+  private val bridge: Option[js.Dynamic] = preloadBridge("uniPty")
 
-  view.onLinkClick { uri =>
-    // Open only web links from terminal output
-    if uri.startsWith("https://") || uri.startsWith("http://") then
-      dom.window.open(uri, "_blank", "noopener")
+  private var started                = false
+  private var themeWatch: Cancelable = Cancelable.empty
+
+  // In Electron, the main process opens links in the system browser. In a browser the view's
+  // default, window.open, opens a new tab.
+  preloadBridge("uniShell").foreach { shell =>
+    view.onLinkClick(uri => shell.openExternal(uri))
   }
 
   view.onResize { (cols, rows) =>
@@ -53,12 +58,32 @@ class TerminalPane extends RxElement:
           DemoShell(term).start()
 
   override def onMount(node: Any): Unit =
+    themeWatch = appTheme
+      .join(MediaQuery.prefersDarkMode)
+      .run { (theme, systemDark) =>
+        val dark =
+          theme match
+            case Theme.System =>
+              systemDark
+            case Theme.Light =>
+              false
+            case Theme.Dark =>
+              true
+        view.setTheme(
+          if dark then
+            TerminalTheme.uniDark
+          else
+            TerminalTheme.uniLight
+        )
+      }
     // Start after the view measured the pane, so the shell starts at the right size
     dom.window.setTimeout(() => start(), 0)
     dom.window.setTimeout(() => view.focus(), 0)
 
+  override def beforeUnmount: Unit = themeWatch.cancel
+
   override def render: RxElement = div(
-    cls -> "h-full overflow-hidden rounded-xl border border-line bg-[#1e1e1e]",
+    cls -> "h-full overflow-hidden rounded-xl border border-line",
     view
   )
 

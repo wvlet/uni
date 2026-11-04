@@ -159,4 +159,106 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  private def links(m: Mounted): Seq[dom.Element] =
+    val nodes = m.container.querySelectorAll(".uni-term-link")
+    (0 until nodes.length).map(nodes(_))
+
+  private def osc8(uri: String, text: String): String =
+    s"\u001b]8;;${uri}\u0007${text}\u001b]8;;\u0007"
+
+  test("use Uni's dark theme by default") {
+    TerminalViewConfig().theme shouldBe TerminalTheme.uniDark
+    TerminalTheme.presets.head shouldBe ("uniDark" -> TerminalTheme.uniDark)
+    TerminalTheme.presets.values.forall(_.ansi.size == 16) shouldBe true
+  }
+
+  test("switch themes without redrawing rows") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("\u001b[31mred\u001b[0m")
+      view.renderNow()
+      val pane = m.container.querySelector(".uni-terminal").asInstanceOf[dom.HTMLElement]
+      val row  = m.container.querySelector(".uni-term-row")
+      pane.style.getPropertyValue("--uni-term-bg") shouldBe TerminalTheme.uniDark.background
+      row.innerHTML shouldContain "var(--uni-term-1)"
+      view.setTheme(TerminalTheme.solarizedLight)
+      pane.style.getPropertyValue("--uni-term-bg") shouldBe TerminalTheme.solarizedLight.background
+      pane.style.getPropertyValue("--uni-term-1") shouldBe TerminalTheme.solarizedLight.ansi(1)
+      view.currentTheme shouldBe TerminalTheme.solarizedLight
+      // The same row element, not a redrawn one
+      (m.container.querySelector(".uni-term-row") eq row) shouldBe true
+    }
+  }
+
+  test("mark only links with an allowed scheme") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write(osc8("https://wvlet.org", "web") + " " + osc8("javascript:alert(1)", "js"))
+      view.renderNow()
+      val ls = links(m)
+      ls.map(_.textContent) shouldBe Seq("web")
+      ls.head.getAttribute("title") shouldContain "+click to open https://wvlet.org"
+    }
+  }
+
+  test("open links with a modifier click through the handler") {
+    val (term, view, m, _) = setup()
+    val opened             = mutable.ArrayBuffer.empty[String]
+    view.onLinkClick(opened += _)
+    settle().map { _ =>
+      term.write(osc8("https://wvlet.org/uni", "uni"))
+      view.renderNow()
+      val link = links(m).head
+      fireEvent.click(link)
+      opened.toSeq shouldBe Seq.empty
+      fireEvent.click(link, ctrlKey = true, metaKey = true) shouldBe false
+      opened.toSeq shouldBe Seq("https://wvlet.org/uni")
+    }
+  }
+
+  test("open links with window.open when no handler is set") {
+    val (term, view, m, _) = setup()
+    val opened             = mutable.ArrayBuffer.empty[(String, String)]
+    val win                = dom.window.asInstanceOf[js.Dynamic]
+    val original           = win.open
+    win.open =
+      (
+          (uri: String, target: String, features: String) =>
+            opened += (uri -> features)
+            null
+      ): js.Function3[String, String, String, Any]
+    settle().map { _ =>
+      try
+        term.write(osc8("mailto:dev@example.com", "mail"))
+        view.renderNow()
+        fireEvent.click(links(m).head, ctrlKey = true, metaKey = true)
+        opened.toSeq shouldBe Seq("mailto:dev@example.com" -> "noopener,noreferrer")
+      finally
+        win.open = original
+    }
+  }
+
+  test("show links as plain text with noLinks") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 3))
+    val view = TerminalView(term, TerminalViewConfig().noLinks())
+    val m    = mount(div(styleAttr -> "width: 400px; height: 200px;", view))
+    settle().map { _ =>
+      term.write(osc8("https://wvlet.org", "web"))
+      view.renderNow()
+      links(m) shouldBe Seq.empty
+      rowTexts(m).head shouldBe "web"
+    }
+  }
+
+  test("show the open affordance while the modifier is held") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      val pane = m.container.querySelector(".uni-terminal")
+      fireEvent.mouseMove(pane, ctrlKey = true, metaKey = true)
+      pane.classList.contains("uni-term-link-mod") shouldBe true
+      fireEvent.mouseMove(pane)
+      pane.classList.contains("uni-term-link-mod") shouldBe false
+    }
+  }
+
 end TerminalViewTest

@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 // The Scala.js `server` module, imported via vite-plugin-scalajs.
-import { wireMainProcess, wireTerminal } from 'scalajs:main.js'
+import { wireMainProcess, wireTerminal, wireLinks } from 'scalajs:main.js'
 // node-pty runs the shell for the Terminal tab. It is a native addon, so the app (not Uni) installs it.
 import * as pty from 'node-pty'
 
@@ -29,6 +29,9 @@ function createWindow() {
     }
   })
 
+  // Never open a bare app window from the page; links go to the system browser through uniShell
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+
   // electron-vite serves the renderer from a dev server in `dev`, and from a file in `build`.
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
@@ -42,6 +45,8 @@ app.whenReady().then(() => {
   wireMainProcess(ipcMain)
   // Run a shell for the renderer's Terminal tab
   wireTerminal(ipcMain, pty)
+  // Open the Terminal tab's links in the system browser
+  wireLinks(ipcMain, shell)
 
   createWindow()
   app.on('activate', () => {

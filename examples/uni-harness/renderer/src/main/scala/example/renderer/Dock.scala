@@ -12,7 +12,7 @@ import scala.language.implicitConversions
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
   // Created once, so the shell and its scrollback survive switching tabs
-  private lazy val terminal = TerminalPane()
+  private lazy val terminal = TerminalPane(layout.theme)
 
   private def tab(t: DockTab, icon: RxElement, badge: Rx[String]): RxElement = button(
     cls ->
