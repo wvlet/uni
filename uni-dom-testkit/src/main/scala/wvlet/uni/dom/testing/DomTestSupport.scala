@@ -16,14 +16,14 @@ package wvlet.uni.dom.testing
 import wvlet.uni.test.UniTest
 
 /**
-  * Mix into a `UniTest` to render and interact with `uni-dom` components in the headless browser.
+  * Extend (instead of `UniTest`) to render and interact with `uni-dom` components in the headless browser.
   *
   * Use `mount(element)` to render; every mounted element is automatically unmounted after each test
   * via the `after` hook, so tests stay isolated. `fireEvent` and the query helpers are available
   * through the `wvlet.uni.dom.testing.*` import.
   *
   * {{{
-  *   class MyUiTest extends UniTest with DomTestSupport:
+  *   class MyUiTest extends DomTestSupport:
   *     test("clicking +1 increments the counter"):
   *       val m = mount(Counter())
   *       fireEvent.click(m.getByText("+1"))
