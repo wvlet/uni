@@ -166,9 +166,19 @@ class HarnessState(val transport: Transport):
       .recover { case e: Throwable =>
         log(ok = false)
         pending := false
-        error   := Some(s"${method} failed: ${e.getMessage}")
+        error   := Some(describe(method, e))
       }
       .run()
+
+  private def describe(method: String, e: Throwable): String =
+    val msg = Option(e.getMessage).getOrElse(e.getClass.getSimpleName)
+    // A 404 over HTTP means no ChatApi server is behind this page, typically a browser opened on
+    // the Electron renderer's dev server (port 5173)
+    if transport == Transport.HttpFetch && msg.contains("Not Found") then
+      s"${method} failed: no ChatApi server answers at ${dom.window.location.host}. " +
+        "In a browser, run `pnpm dev:web` and open http://localhost:5180."
+    else
+      s"${method} failed: ${msg}"
 
 end HarnessState
 

@@ -78,12 +78,16 @@ pnpm install
 pnpm dev            # compiles Scala.js, starts the renderer dev server, opens the window
 
 # Browser
-pnpm dev:web        # http://localhost:5173, with ChatApi on 127.0.0.1:5174 behind a Vite proxy
+pnpm dev:web        # http://localhost:5180, with ChatApi on 127.0.0.1:5181 behind a Vite proxy
 pnpm build:web      # out/web/public (static UI) and out/web/server/server.js
 pnpm start:web      # serves both on http://127.0.0.1:8080 (set PORT to change it)
 ```
 
 In `dev:web`, renderer changes reload on save; restart the command after changing `server/` code.
+Set `UNI_HARNESS_WEB_PORT` / `UNI_HARNESS_RPC_PORT` to use other ports.
+
+Open the browser app at port 5180, not 5173: `pnpm dev` serves the Electron renderer on 5173, and
+that server has no HTTP `ChatApi` because Electron calls it over IPC.
 
 ## Package the desktop app
 

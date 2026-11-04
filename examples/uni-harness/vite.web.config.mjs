@@ -13,7 +13,10 @@ import { pathToFileURL } from 'node:url'
 //   vite build --config vite.web.config.mjs           the static UI   -> out/web/public
 //   vite build --config vite.web.config.mjs --mode server   the Node server -> out/web/server
 
-const RPC_PORT = Number(process.env.UNI_HARNESS_RPC_PORT ?? 5174)
+// Ports apart from Vite's default 5173, which `pnpm dev` (Electron) uses for its renderer. That
+// server has no HTTP ChatApi (Electron calls it over IPC), so a browser must not land on it.
+const WEB_PORT = Number(process.env.UNI_HARNESS_WEB_PORT ?? 5180)
+const RPC_PORT = Number(process.env.UNI_HARNESS_RPC_PORT ?? 5181)
 const RPC_PREFIX = '/example.api.'
 
 // Links an sbt project with Scala.js and returns its output directory. The renderer is linked
@@ -75,7 +78,9 @@ export default defineConfig(({ mode }) => {
       uniRpcServer()
     ],
     server: {
-      port: 5173,
+      port: WEB_PORT,
+      // Fail on a busy port instead of moving to another one the instructions don't mention
+      strictPort: true,
       proxy: { [RPC_PREFIX]: `http://127.0.0.1:${RPC_PORT}` }
     },
     build: {
