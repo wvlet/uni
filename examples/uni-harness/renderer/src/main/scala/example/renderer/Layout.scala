@@ -36,8 +36,9 @@ end Layout
 
 object Layout:
   val sidebarWidth = SizeRange(min = 208, default = 272, max = 480)
-  // One width for every dock tab; widen it to give the terminal more columns (~600px fits 80)
-  val dockWidth = SizeRange(min = 260, default = 320, max = 960)
+  // One width for every dock tab; ~600px fits an 80-column terminal. The max leaves the chat
+  // some room in the default 1200px window with the sidebar open.
+  val dockWidth = SizeRange(min = 260, default = 320, max = 720)
 
   def inMemory(): Layout = Layout(
     Rx.variable(true),
