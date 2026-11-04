@@ -93,6 +93,18 @@ class ComponentTest extends DomTestSupport:
     fireEvent.dblclick(grip)
     layout.dockWidth.get shouldBe Layout.dockWidth.default
 
+  test("a dock width stored under an older, larger max loads clamped and is saved back"):
+    val prefix = "component-test.clamp."
+    val key    = s"${prefix}dockWidth"
+    dom.window.localStorage.setItem(key, "960")
+    try
+      val layout = Layout.persistent(prefix)
+      ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
+      layout.dockWidth.get shouldBe Layout.dockWidth.max
+      dom.window.localStorage.getItem(key) shouldBe s"${Layout.dockWidth.max}"
+    finally
+      dom.window.localStorage.removeItem(key)
+
   test("clicking the active rail icon folds the sidebar; another icon switches views"):
     val layout = Layout.inMemory()
     val m      = mount(IconRail(layout))

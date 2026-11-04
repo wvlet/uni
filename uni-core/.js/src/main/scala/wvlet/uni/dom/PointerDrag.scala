@@ -146,6 +146,9 @@ enum ResizeDirection:
   *
   * The handle gets `role="separator"` and `aria-orientation`; give it an `aria-label` too.
   *
+  * Construction clamps `size` into `range`, so a stale value restored from storage (e.g. saved
+  * under a larger max) is corrected before the pane renders.
+  *
   * @param size
   *   the pane's width (horizontal) or height (vertical) in CSS pixels
   * @param grow
@@ -153,6 +156,11 @@ enum ResizeDirection:
   */
 class PaneResize(size: RxVar[Int], range: SizeRange, grow: ResizeDirection):
   private var startSize = 0
+
+  // A restored size may predate the current range; write only when it is out of range
+  private val clamped = range.clamp(size.get)
+  if clamped != size.get then
+    size := clamped
 
   private val drag = PointerDrag(
     onStart = _ => startSize = size.get,
