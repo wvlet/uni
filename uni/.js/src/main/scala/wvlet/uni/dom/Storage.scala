@@ -17,8 +17,18 @@ import org.scalajs.dom
 import wvlet.uni.config.LocalStorageBackend
 import wvlet.uni.rx.RxVar
 
+import scala.compiletime.{constValueTuple, summonAll}
+import scala.deriving.Mirror
+
 /**
   * Type class for serializing/deserializing storage values.
+  *
+  * A Scala 3 enum whose cases take no parameters can derive one, storing each value by its case
+  * name:
+  * {{{
+  * enum Theme derives StorageCodec:
+  *   case Light, Dark
+  * }}}
   */
 trait StorageCodec[A]:
   def encode(value: A): String
@@ -44,6 +54,35 @@ object StorageCodec:
   given booleanCodec: StorageCodec[Boolean] with
     def encode(value: Boolean): String       = value.toString
     def decode(raw: String): Option[Boolean] = raw.toBooleanOption
+
+  /**
+    * Derive a codec for an enum (`enum E derives StorageCodec`) that stores a value by its case
+    * name. Decoding an unknown name, e.g. after a case was renamed, returns `None`, so a
+    * [[StorageVar]] falls back to its default. Enums with parameterized cases are rejected at
+    * compile time.
+    */
+  inline def derived[A](using m: Mirror.SumOf[A]): StorageCodec[A] =
+    // One summon for all cases rather than an inline call per case, which would hit the
+    // compiler's inline depth limit (32) on large enums
+    val values = summonAll[Tuple.Map[m.MirroredElemTypes, ValueOf]].toList
+    val labels = constValueTuple[m.MirroredElemLabels].toList
+    enumCodec[A](
+      labels
+        .zip(values)
+        .map { (l, v) =>
+          l.asInstanceOf[String] -> v.asInstanceOf[ValueOf[A]].value
+        }
+    )
+
+  // Not inline: the derived codec of each enum shares this code
+  private def enumCodec[A](cases: List[(String, A)]): StorageCodec[A] =
+    val byName  = cases.toMap
+    val byValue = cases.map(_.swap).toMap
+    new StorageCodec[A]:
+      def encode(value: A): String       = byValue(value)
+      def decode(raw: String): Option[A] = byName.get(raw)
+
+end StorageCodec
 
 /**
   * A reactive variable backed by browser storage (localStorage or sessionStorage).

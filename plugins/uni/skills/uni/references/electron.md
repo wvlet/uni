@@ -68,7 +68,9 @@ contextBridge.exposeInMainWorld('uniRPC', {
 
 Call `ElectronRenderer.install()` once; afterwards every `newAsyncClient` (and
 generated RPC `AsyncClient`) goes over IPC. A renderer has no synchronous IPC, so
-`newSyncClient` calls throw.
+`newSyncClient` calls throw. For a renderer that also runs in a plain browser, use
+`ElectronRenderer.installIfAvailable()`: it returns `false` and leaves the default
+`fetch` channel when `window.uniRPC` is missing.
 
 ```scala skip
 import wvlet.uni.electron.ElectronRenderer

@@ -150,6 +150,14 @@ object RendererApp:
 `install()` defaults to `window.uniRPC`; pass a different bridge object if your preload exposes
 another name: `ElectronRenderer.install(myBridge)`.
 
+When the same renderer also runs in a plain browser, call `ElectronRenderer.installIfAvailable()`
+instead. It installs the IPC channel when `window.uniRPC` exists and returns `true`. Otherwise it
+returns `false`, and the client keeps its default `fetch` channel to the web server:
+
+```scala
+val overIPC = ElectronRenderer.installIfAvailable()
+```
+
 ::: tip Async only
 A sandboxed renderer has no synchronous IPC, so the Electron channel implements only the async path.
 Use `Http.client.newAsyncClient`; `newSyncClient` throws.

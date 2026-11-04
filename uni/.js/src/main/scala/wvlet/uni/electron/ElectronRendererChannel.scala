@@ -94,19 +94,20 @@ object ElectronRenderer:
     * descriptive error if it is missing — the usual cause is a preload script that didn't run or
     * used a different global name.
     */
-  def defaultBridge: js.Dynamic =
-    val bridge = org
-      .scalajs
-      .dom
-      .window
-      .asInstanceOf[js.Dynamic]
-      .selectDynamic(ElectronIPC.DefaultBridgeName)
-    if js.isUndefined(bridge) || bridge == null then
-      throw IllegalStateException(
-        s"Electron IPC bridge 'window.${ElectronIPC.DefaultBridgeName}' is not available. " +
-          "Ensure the preload script exposes it via contextBridge.exposeInMainWorld."
-      )
-    bridge
+  def defaultBridge: js.Dynamic = availableBridge.getOrElse {
+    throw IllegalStateException(
+      s"Electron IPC bridge 'window.${ElectronIPC.DefaultBridgeName}' is not available. " +
+        "Ensure the preload script exposes it via contextBridge.exposeInMainWorld."
+    )
+  }
+
+  // `window` is absent outside a browser (Node.js), where there is no bridge either
+  private def availableBridge: Option[js.Dynamic] =
+    if js.typeOf(js.Dynamic.global.window) == "undefined" then
+      None
+    else
+      val bridge = js.Dynamic.global.window.selectDynamic(ElectronIPC.DefaultBridgeName)
+      Option.when(!js.isUndefined(bridge) && bridge != null)(bridge)
 
   /**
     * Install the Electron IPC channel factory as the default Uni HTTP channel factory.
@@ -117,5 +118,15 @@ object ElectronRenderer:
   def install(bridge: js.Dynamic = defaultBridge): Unit = Http.setDefaultChannelFactory(
     ElectronChannelFactory(bridge)
   )
+
+  /**
+    * Install the Electron IPC channel factory if the preload bridge (`window.uniRPC`) is present,
+    * and report whether it did. Use it in a renderer shared by an Electron app and a browser app:
+    * in a browser the bridge is absent, and the HTTP client keeps its default fetch channel.
+    */
+  def installIfAvailable(): Boolean =
+    val bridge = availableBridge
+    bridge.foreach(install)
+    bridge.isDefined
 
 end ElectronRenderer
