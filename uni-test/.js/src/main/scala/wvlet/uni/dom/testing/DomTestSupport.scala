@@ -16,23 +16,27 @@ package wvlet.uni.dom.testing
 import wvlet.uni.test.UniTest
 
 /**
-  * Mix into a `UniTest` to render and interact with `uni-dom` components in the headless browser.
+  * Extend (instead of `UniTest`) to render and interact with `uni-dom` components in the headless
+  * browser.
   *
   * Use `mount(element)` to render; every mounted element is automatically unmounted after each test
   * via the `after` hook, so tests stay isolated. `fireEvent` and the query helpers are available
   * through the `wvlet.uni.dom.testing.*` import.
   *
   * {{{
-  *   class MyUiTest extends UniTest with DomTestSupport:
+  *   class MyUiTest extends DomTestSupport:
   *     test("clicking +1 increments the counter"):
   *       val m = mount(Counter())
   *       fireEvent.click(m.getByText("+1"))
   *       m.text shouldContain "count=1"
+  *
+  *     test("onMount wiring runs after a settle"):
+  *       val m = mount(AutoFocusInput())
+  *       settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
   * }}}
   *
-  * This 3-line trait lives in test scope on purpose (it couples `DomTestSession` from the published
-  * `uni` artifact to the `uni-test` framework). Downstream desktop apps can declare the identical
-  * trait, or depend on a future `uni-dom-testkit` module.
+  * Part of `uni-test` on Scala.js: the `uni-dom` rendering core lives in `uni-core`, so no other
+  * test dependency is needed.
   */
 trait DomTestSupport extends UniTest with DomTestSession:
   override protected def after: Unit =

@@ -192,7 +192,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni-core",
     description :=
-      "Core of Uni for Scala 3 (JVM, Scala.js, Scala Native): logging, Rx reactive streams, object wiring (Design), Surface type reflection, file I/O with gzip/zip and file watching, terminal colors, and a text scanner"
+      "Core of Uni for Scala 3 (JVM, Scala.js, Scala Native): logging, Rx reactive streams, object wiring (Design), Surface type reflection, file I/O with gzip/zip and file watching, terminal colors, a text scanner, and reactive DOM rendering for Scala.js"
   )
   .jsSettings(
     jsBuildSettings,

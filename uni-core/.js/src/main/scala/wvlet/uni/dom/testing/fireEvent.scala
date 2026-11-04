@@ -36,7 +36,7 @@ object fireEvent:
   /** Dispatch an already-constructed event to the target. */
   def dispatch(target: dom.EventTarget, event: dom.Event): Boolean = target.dispatchEvent(event)
 
-  // --- Mouse / pointer ---
+  // --- Mouse ---
 
   def click(target: dom.EventTarget): Boolean       = dispatch(target, mouseEvent("click"))
   def dblclick(target: dom.EventTarget): Boolean    = dispatch(target, mouseEvent("dblclick"))
@@ -53,6 +53,131 @@ object fireEvent:
       .literal(bubbles = true, cancelable = true)
       .asInstanceOf[dom.MouseEventInit]
     new dom.MouseEvent(eventType, init)
+
+  // --- Pointer ---
+  //
+  // A drag is `pointerDown` on the handle, then `pointerMove`/`pointerUp` on whatever listens
+  // (often `dom.window`). Like the browser, `pointerEnter`/`pointerLeave` do not bubble.
+
+  def pointerDown(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerdown", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerMove(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointermove", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerUp(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerup", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerCancel(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointercancel", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerOver(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerover", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerOut(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerout", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerEnter(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerenter", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  def pointerLeave(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      pointerId: Int = 1,
+      pointerType: String = "mouse",
+      button: Int = 0
+  ): Boolean = dispatch(
+    target,
+    pointerEvent("pointerleave", clientX, clientY, pointerId, pointerType, button)
+  )
+
+  private def pointerEvent(
+      eventType: String,
+      clientX: Double,
+      clientY: Double,
+      pointerId: Int,
+      pointerType: String,
+      button: Int
+  ): dom.PointerEvent =
+    val bubbles = eventType != "pointerenter" && eventType != "pointerleave"
+    val init    = js
+      .Dynamic
+      .literal(
+        bubbles = bubbles,
+        cancelable = bubbles,
+        clientX = clientX,
+        clientY = clientY,
+        pointerId = pointerId,
+        pointerType = pointerType,
+        button = button,
+        isPrimary = true
+      )
+      .asInstanceOf[dom.PointerEventInit]
+    new dom.PointerEvent(eventType, init)
 
   // --- Form input ---
 
@@ -109,6 +234,9 @@ object fireEvent:
     new dom.FocusEvent(eventType, init)
 
   // --- Keyboard ---
+  //
+  // Pass `isComposing = true` for a key pressed while an IME composition is open (e.g. the Enter
+  // that confirms a Japanese conversion), which handlers usually ignore.
 
   def keyDown(
       target: dom.EventTarget,
@@ -117,10 +245,11 @@ object fireEvent:
       ctrlKey: Boolean = false,
       shiftKey: Boolean = false,
       altKey: Boolean = false,
-      metaKey: Boolean = false
+      metaKey: Boolean = false,
+      isComposing: Boolean = false
   ): Boolean = dispatch(
     target,
-    keyboardEvent("keydown", key, code, ctrlKey, shiftKey, altKey, metaKey)
+    keyboardEvent("keydown", key, code, ctrlKey, shiftKey, altKey, metaKey, isComposing)
   )
 
   def keyUp(
@@ -130,10 +259,11 @@ object fireEvent:
       ctrlKey: Boolean = false,
       shiftKey: Boolean = false,
       altKey: Boolean = false,
-      metaKey: Boolean = false
+      metaKey: Boolean = false,
+      isComposing: Boolean = false
   ): Boolean = dispatch(
     target,
-    keyboardEvent("keyup", key, code, ctrlKey, shiftKey, altKey, metaKey)
+    keyboardEvent("keyup", key, code, ctrlKey, shiftKey, altKey, metaKey, isComposing)
   )
 
   def keyPress(
@@ -143,10 +273,11 @@ object fireEvent:
       ctrlKey: Boolean = false,
       shiftKey: Boolean = false,
       altKey: Boolean = false,
-      metaKey: Boolean = false
+      metaKey: Boolean = false,
+      isComposing: Boolean = false
   ): Boolean = dispatch(
     target,
-    keyboardEvent("keypress", key, code, ctrlKey, shiftKey, altKey, metaKey)
+    keyboardEvent("keypress", key, code, ctrlKey, shiftKey, altKey, metaKey, isComposing)
   )
 
   private def keyboardEvent(
@@ -156,7 +287,8 @@ object fireEvent:
       ctrlKey: Boolean,
       shiftKey: Boolean,
       altKey: Boolean,
-      metaKey: Boolean
+      metaKey: Boolean,
+      isComposing: Boolean
   ): dom.KeyboardEvent =
     val init = js
       .Dynamic
@@ -173,10 +305,13 @@ object fireEvent:
         ctrlKey = ctrlKey,
         shiftKey = shiftKey,
         altKey = altKey,
-        metaKey = metaKey
+        metaKey = metaKey,
+        isComposing = isComposing
       )
       .asInstanceOf[dom.KeyboardEventInit]
     new dom.KeyboardEvent(eventType, init)
+
+  end keyboardEvent
 
   // --- Generic / custom ---
 

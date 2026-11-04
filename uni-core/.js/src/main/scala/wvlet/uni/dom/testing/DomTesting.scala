@@ -15,6 +15,9 @@ package wvlet.uni.dom.testing
 
 import org.scalajs.dom
 import wvlet.uni.dom.{DomRenderer, RxElement}
+import wvlet.uni.rx.Rx
+
+import scala.concurrent.{ExecutionContext, Promise}
 
 /**
   * UI (component) testing toolkit for `uni-dom` — the second layer of Uni's testing pyramid (unit →
@@ -35,8 +38,8 @@ import wvlet.uni.dom.{DomRenderer, RxElement}
   *   m.unmount()
   * }}}
   *
-  * In a `UniTest`, mix in `wvlet.uni.dom.testing.DomTestSupport` (in `uni-dom-test`) so mounted
-  * elements are cleaned up automatically after each test.
+  * In a `UniTest`, mix in `wvlet.uni.dom.testing.DomTestSupport` (in `uni-test` on Scala.js) so
+  * mounted elements are cleaned up automatically after each test.
   */
 object DomTesting:
 
@@ -56,3 +59,15 @@ end DomTesting
 
 /** Convenience top-level `mount` so `import wvlet.uni.dom.testing.*` exposes it directly. */
 def mount(element: RxElement): Mounted = DomTesting.mount(element)
+
+/**
+  * Emit once after the browser has run pending `MutationObserver` callbacks and the zero-delay
+  * timers they queue. `RxElement.onMount` fires from such a callback, a step after [[mount]]
+  * returns, so return `settle().map { _ => ... }` from a test that asserts on `onMount` effects.
+  */
+def settle(): Rx[Unit] =
+  val p = Promise[Unit]()
+  // Two macrotask hops: the first lets mutation observers run (and queue their own timers), the
+  // second lets those timers run.
+  dom.window.setTimeout(() => dom.window.setTimeout(() => p.success(()), 0), 0)
+  Rx.future(p.future)(using ExecutionContext.parasitic)

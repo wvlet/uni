@@ -24,7 +24,7 @@ import scala.collection.mutable.ListBuffer
   * the next test, so tests don't leak DOM into one another.
   *
   * It is deliberately decoupled from `UniTest` (which lives in a separate module) so it can be
-  * reused from any test framework. The `uni-dom-test` module provides `DomTestSupport`, which wires
+  * reused from any test framework. `uni-test` (Scala.js) provides `DomTestSupport`, which wires
   * this into `UniTest.after`.
   */
 trait DomTestSession:

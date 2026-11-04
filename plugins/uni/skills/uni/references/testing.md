@@ -223,6 +223,56 @@ test("positive") {
 }
 ```
 
+## Testing a uni-dom UI (Scala.js)
+
+`uni-test` on Scala.js includes the uni-dom testing kit; no other test
+dependency is needed. Run the tests in headless Chromium (also the Electron
+renderer) with the `sbt-uni-playwright` plugin:
+
+```scala sbt
+// project/plugins.sbt
+addSbtPlugin("org.wvlet.uni" % "sbt-uni-playwright" % "<version>")
+
+// build.sbt (Scala.js project)
+lazy val app = project.enablePlugins(ScalaJSPlugin, UniPlaywrightPlugin)
+```
+
+`DomTestSupport` extends `UniTest` and unmounts everything `mount` rendered
+after each test. Do not copy the trait into your app.
+
+```scala skip
+import org.scalajs.dom
+import wvlet.uni.dom.testing.*
+
+class EditorTest extends DomTestSupport:
+  test("Enter sends; IME Enter does not"):
+    val m   = mount(Composer(onSend))
+    val box = m.get("textarea")
+    fireEvent.input(box, "hello")
+    fireEvent.keyDown(box, "Enter", isComposing = true) // confirms an IME conversion
+    fireEvent.keyDown(box, "Enter")
+
+  test("drag the splitter"):
+    val m = mount(Splitter(width))
+    fireEvent.pointerDown(m.get("[role=separator]"), clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 350)
+    fireEvent.pointerUp(dom.window, clientX = 350)
+    width.get shouldBe 350
+
+  test("onMount wiring"):
+    val m = mount(AutoFocusInput())
+    // onMount runs a step after mount returns; return the Rx from the test
+    settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
+```
+
+- Queries: `m.get(css)`, `m.query(css)`, `m.getByText(...)`, `m.getByTestId(...)`;
+  `m.text` and `m.html` read the rendered output.
+- `fireEvent`: `click`, `dblclick`, `mouseDown`/`Up`/`Move`/..., `pointerDown`/`Move`/`Up`/`Cancel`/`Over`/`Out`/`Enter`/`Leave`,
+  `input`, `change`, `setChecked`, `submit`, `focus`, `blur`, `keyDown`/`keyUp`/`keyPress`, `custom`.
+- Rx updates re-render synchronously, so assert right after `fireEvent`. Use
+  `settle()` only for `onMount` effects, and `awaitValue(rx)(p)` for values that
+  arrive from browser events such as `resize`.
+
 ## Running
 
 ```bash

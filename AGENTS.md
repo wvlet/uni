@@ -6,7 +6,7 @@
 
 ## Modules
 
-- **uni-core**: Pure-Scala essential libraries shared with uni-test (logging, Rx core, object wiring (Design), Surface)
+- **uni-core**: Pure-Scala essential libraries shared with uni-test (logging, Rx core, object wiring (Design), Surface; on Scala.js also the uni-dom rendering core and its testing toolkit, so uni-test can ship `DomTestSupport`)
 - **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
 - **uni-test**: Unit testing framework
 

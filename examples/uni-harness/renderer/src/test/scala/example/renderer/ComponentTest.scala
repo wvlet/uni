@@ -5,32 +5,16 @@ import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
 
 import scala.collection.mutable
-import scala.concurrent.{Future, Promise}
-import scala.scalajs.js
 
 /** The composer, the panes, and the rail, rendered into a real DOM with no server. */
 class ComponentTest extends DomTestSupport:
-  import scala.concurrent.ExecutionContext.Implicits.global
-
-  private def keyDown(el: dom.Element, shift: Boolean = false, composing: Boolean = false): Unit =
-    val init = js
-      .Dynamic
-      .literal(
-        key = "Enter",
-        shiftKey = shift,
-        isComposing = composing,
-        bubbles = true,
-        cancelable = true
-      )
-      .asInstanceOf[dom.KeyboardEventInit]
-    el.dispatchEvent(new dom.KeyboardEvent("keydown", init))
 
   test("the composer sends trimmed text on Enter and clears itself"):
     val sent = mutable.Buffer.empty[String]
     val m    = mount(Composer(sent += _, Rx.variable(false)))
     val box  = m.get("textarea")
     fireEvent.input(box, "  hello  ")
-    keyDown(box)
+    fireEvent.keyDown(box, "Enter")
     sent.toSeq shouldBe Seq("hello")
     box.asInstanceOf[dom.html.TextArea].value shouldBe ""
 
@@ -39,28 +23,23 @@ class ComponentTest extends DomTestSupport:
     val m    = mount(Composer(sent += _, Rx.variable(false)))
     val box  = m.get("textarea")
     fireEvent.input(box, "こんにちは")
-    keyDown(box, shift = true)
-    keyDown(box, composing = true)
+    fireEvent.keyDown(box, "Enter", shiftKey = true)
+    fireEvent.keyDown(box, "Enter", isComposing = true)
     sent.toSeq shouldBe Seq.empty
-
-  /** onMount runs once the browser reports the element attached, a tick after mount. */
-  private def afterMount(): Future[Unit] =
-    val p = Promise[Unit]()
-    dom.window.setTimeout(() => p.success(()), 0)
-    p.future
 
   test("the composer waits while a reply is on its way"):
     val sent = mutable.Buffer.empty[String]
     val busy = Rx.variable(true)
     val m    = mount(Composer(sent += _, busy))
-    afterMount().map { _ =>
+    // onMount wiring runs a step after mount
+    settle().map { _ =>
       val box = m.get("textarea")
       fireEvent.input(box, "later")
-      keyDown(box)
+      fireEvent.keyDown(box, "Enter")
       sent.toSeq shouldBe Seq.empty
       m.get("[aria-label=Send]").hasAttribute("disabled") shouldBe true
       busy := false
-      keyDown(box)
+      fireEvent.keyDown(box, "Enter")
       sent.toSeq shouldBe Seq("later")
     }
 
@@ -74,26 +53,19 @@ class ComponentTest extends DomTestSupport:
     open := false
     paneWidth(m) shouldBe "0px"
 
-  private def pointer(target: dom.EventTarget, kind: String, x: Double): Unit =
-    val init = js
-      .Dynamic
-      .literal(clientX = x, bubbles = true, cancelable = true)
-      .asInstanceOf[dom.PointerEventInit]
-    target.dispatchEvent(new dom.PointerEvent(kind, init))
-
   test("dragging the resize handle changes the width within its range"):
     val width  = Rx.variable(272)
     val handle = ResizeHandle(width, Layout.sidebarWidth, Edge.Right, "Resize")
     val m      = mount(FoldablePane(Rx.variable(true), width, Edge.Right, Some(handle))())
     val grip   = m.get("[role=separator]")
-    pointer(grip, "pointerdown", 300)
-    pointer(dom.window, "pointermove", 350)
+    fireEvent.pointerDown(grip, clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 350)
     width.get shouldBe 322
-    pointer(dom.window, "pointermove", 1000)
+    fireEvent.pointerMove(dom.window, clientX = 1000)
     width.get shouldBe Layout.sidebarWidth.max
-    pointer(dom.window, "pointerup", 1000)
+    fireEvent.pointerUp(dom.window, clientX = 1000)
     // After pointerup, moves no longer resize
-    pointer(dom.window, "pointermove", 0)
+    fireEvent.pointerMove(dom.window, clientX = 0)
     width.get shouldBe Layout.sidebarWidth.max
     fireEvent.dblclick(grip)
     width.get shouldBe Layout.sidebarWidth.default
@@ -102,9 +74,9 @@ class ComponentTest extends DomTestSupport:
     val width  = Rx.variable(300)
     val handle = ResizeHandle(width, SizeRange(200, 300, 400), Edge.Left, "Resize")
     val m      = mount(handle)
-    pointer(m.get("[role=separator]"), "pointerdown", 500)
-    pointer(dom.window, "pointermove", 450)
-    pointer(dom.window, "pointerup", 450)
+    fireEvent.pointerDown(m.get("[role=separator]"), clientX = 500)
+    fireEvent.pointerMove(dom.window, clientX = 450)
+    fireEvent.pointerUp(dom.window, clientX = 450)
     width.get shouldBe 350
 
   test("clicking the active rail icon folds the sidebar; another icon switches views"):
