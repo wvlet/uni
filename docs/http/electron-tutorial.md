@@ -7,7 +7,8 @@ an empty directory. The UI (renderer) calls a service in the main process using 
 By the end you'll have a counter window whose **+1 / +10 / Reset** buttons each make a real RPC call
 to the main process. For the API reference behind each piece, see [Desktop Apps
 (Electron)](/http/electron). The finished project is in
-[`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app).
+[`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app). For a fuller
+app built the same way, see [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness).
 
 ## What you're building
 
@@ -314,3 +315,12 @@ pnpm package   # → installers under dist/
 - [RPC](/http/rpc) — defining services, generated clients, error handling.
 - [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app) — the
   complete, runnable project this tutorial distills.
+- [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) — a larger
+  template to grow into: a chat workspace shell (icon rail, foldable and resizable panes, a chat
+  with a composer, a right dock) built on the same pieces. It goes beyond the counter in a few ways:
+  - The same renderer runs in Electron and in a plain browser. `ElectronRenderer.installIfAvailable()`
+    picks IPC when the preload bridge exists, and fetch otherwise.
+  - The web build serves the service and the built renderer from one `Http.server`, using
+    `StaticFiles` with an SPA fallback.
+  - Components are tested in headless Chromium with `DomTestSupport` from uni-test (see [Testing
+    components](/dom/#testing-components)).
