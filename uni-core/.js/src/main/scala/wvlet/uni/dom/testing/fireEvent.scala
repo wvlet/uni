@@ -37,20 +37,174 @@ object fireEvent:
   def dispatch(target: dom.EventTarget, event: dom.Event): Boolean = target.dispatchEvent(event)
 
   // --- Mouse ---
+  //
+  // `button` is 0 for the main button (2 for `contextMenu`, the secondary button). Like the
+  // browser, `mouseEnter`/`mouseLeave` do not bubble.
 
-  def click(target: dom.EventTarget): Boolean       = dispatch(target, mouseEvent("click"))
-  def dblclick(target: dom.EventTarget): Boolean    = dispatch(target, mouseEvent("dblclick"))
-  def mouseDown(target: dom.EventTarget): Boolean   = dispatch(target, mouseEvent("mousedown"))
-  def mouseUp(target: dom.EventTarget): Boolean     = dispatch(target, mouseEvent("mouseup"))
-  def mouseOver(target: dom.EventTarget): Boolean   = dispatch(target, mouseEvent("mouseover"))
-  def mouseOut(target: dom.EventTarget): Boolean    = dispatch(target, mouseEvent("mouseout"))
-  def mouseMove(target: dom.EventTarget): Boolean   = dispatch(target, mouseEvent("mousemove"))
-  def contextMenu(target: dom.EventTarget): Boolean = dispatch(target, mouseEvent("contextmenu"))
+  def click(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("click", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
 
-  private def mouseEvent(eventType: String): dom.MouseEvent =
-    val init = js
+  def dblclick(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("dblclick", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseDown(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mousedown", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseUp(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mouseup", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseMove(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mousemove", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseOver(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mouseover", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseOut(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mouseout", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseEnter(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mouseenter", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def mouseLeave(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 0,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("mouseleave", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  def contextMenu(
+      target: dom.EventTarget,
+      clientX: Double = 0,
+      clientY: Double = 0,
+      button: Int = 2,
+      shiftKey: Boolean = false,
+      ctrlKey: Boolean = false,
+      altKey: Boolean = false,
+      metaKey: Boolean = false
+  ): Boolean = dispatch(
+    target,
+    mouseEvent("contextmenu", clientX, clientY, button, shiftKey, ctrlKey, altKey, metaKey)
+  )
+
+  private def mouseEvent(
+      eventType: String,
+      clientX: Double,
+      clientY: Double,
+      button: Int,
+      shiftKey: Boolean,
+      ctrlKey: Boolean,
+      altKey: Boolean,
+      metaKey: Boolean
+  ): dom.MouseEvent =
+    val bubbles = eventType != "mouseenter" && eventType != "mouseleave"
+    val init    = js
       .Dynamic
-      .literal(bubbles = true, cancelable = true)
+      .literal(
+        bubbles = bubbles,
+        cancelable = bubbles,
+        clientX = clientX,
+        clientY = clientY,
+        button = button,
+        shiftKey = shiftKey,
+        ctrlKey = ctrlKey,
+        altKey = altKey,
+        metaKey = metaKey
+      )
       .asInstanceOf[dom.MouseEventInit]
     new dom.MouseEvent(eventType, init)
 
