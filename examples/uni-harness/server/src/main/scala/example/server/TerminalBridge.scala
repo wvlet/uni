@@ -1,6 +1,6 @@
 package example.server
 
-import wvlet.uni.cli.term.{NodePty, PtyOptions, PtyProcess}
+import wvlet.uni.cli.term.{NodePty, PtyOptions, PtyProcess, TerminalLink}
 import wvlet.uni.electron.ElectronRPCServerConfig
 import wvlet.uni.log.LogSupport
 
@@ -66,6 +66,24 @@ object TerminalBridge extends LogSupport:
     }
 
   end wireTerminal
+
+  /**
+    * Open links from the Terminal tab (`open-external`, sent by the preload script's `uniShell`
+    * bridge) in the system browser. The URI comes from program output, so only http, https, and
+    * mailto links open, and only from the app's own frames.
+    */
+  @JSExportTopLevel("wireLinks")
+  def wireLinks(ipcMain: js.Dynamic, shell: js.Dynamic): Unit =
+    on(ipcMain, "open-external") { (_, args) =>
+      if js.typeOf(args(0)) == "string" then
+        val uri = args(0).asInstanceOf[String]
+        if TerminalLink.isAllowed(uri) then
+          // Fails when the OS has no handler for the scheme, e.g. no mail app for mailto
+          val onError: js.Function1[js.Any, Unit] = e => warn(s"Could not open a link: ${e}")
+          shell.openExternal(uri).`catch`(onError)
+        else
+          warn(s"Rejected a link with a scheme the app does not open: ${uri.take(64)}")
+    }
 
   // Each message carries at most two arguments; JavaScript passes undefined for missing ones
   private def on(ipcMain: js.Dynamic, channel: String)(

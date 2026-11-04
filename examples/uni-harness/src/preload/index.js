@@ -18,3 +18,8 @@ contextBridge.exposeInMainWorld('uniPty', {
   onData: (callback) => ipcRenderer.on('pty-data', (_event, data) => callback(data)),
   onExit: (callback) => ipcRenderer.on('pty-exit', (_event, code) => callback(code))
 })
+
+// Opens a terminal link in the system browser. The main process checks the sender and the URI scheme.
+contextBridge.exposeInMainWorld('uniShell', {
+  openExternal: (uri) => ipcRenderer.send('open-external', uri)
+})
