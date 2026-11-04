@@ -66,6 +66,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni-dom-testkit" % "__UNI_VERSION__" 
 ```
 
 ```scala
+import org.scalajs.dom
 import wvlet.uni.dom.testing.*
 
 class CounterTest extends DomTestSupport:

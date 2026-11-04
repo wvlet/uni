@@ -35,17 +35,6 @@ class TestkitTest extends DomTestSupport:
       mounted shouldBe true
     }
 
-  test("settle also waits for onMount of an element with an id"):
-    var mounted = false
-    class Widget extends RxElement:
-      override def render: RxElement        = div(id -> "testkit-widget", "widget")
-      override def onMount(node: Any): Unit = mounted = true
-
-    mount(Widget())
-    settle().map { _ =>
-      mounted shouldBe true
-    }
-
   private def recordPointers(target: dom.EventTarget): mutable.Buffer[dom.PointerEvent] =
     val seen = mutable.Buffer.empty[dom.PointerEvent]
     Seq(

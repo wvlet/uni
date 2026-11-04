@@ -16,7 +16,8 @@ package wvlet.uni.dom.testing
 import wvlet.uni.test.UniTest
 
 /**
-  * Extend (instead of `UniTest`) to render and interact with `uni-dom` components in the headless browser.
+  * Extend (instead of `UniTest`) to render and interact with `uni-dom` components in the headless
+  * browser.
   *
   * Use `mount(element)` to render; every mounted element is automatically unmounted after each test
   * via the `after` hook, so tests stay isolated. `fireEvent` and the query helpers are available
