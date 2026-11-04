@@ -155,6 +155,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
 lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
+  domTestkit,
   domTest,
   exampleRepl.js,
   exampleWebUi,
@@ -469,7 +470,7 @@ lazy val exampleHarnessRenderer = project
     Test / jsEnv :=
       Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
   )
-  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, test.js % Test)
+  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, domTestkit % Test)
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under
@@ -505,6 +506,20 @@ lazy val docSnippets = project
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
 
+// uni-dom-testkit - The UniTest glue for uni-dom component tests (DomTestSupport), published so
+// apps can test their Scala.js UIs without copying it. Scala.js only.
+lazy val domTestkit = project
+  .in(file("uni-dom-testkit"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    name        := "uni-dom-testkit",
+    description :=
+      "UniTest support for testing uni-dom components in a headless browser: mount, clean up after each test, fire events, and query the DOM"
+  )
+  .dependsOn(uni.js, test.js)
+
 // uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project
   .in(file("uni-dom-test"))
@@ -533,4 +548,4 @@ lazy val domTest = project
         )
       )
   )
-  .dependsOn(uni.js, test.js % Test)
+  .dependsOn(uni.js, domTestkit % Test)

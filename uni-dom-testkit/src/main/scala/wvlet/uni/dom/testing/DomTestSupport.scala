@@ -28,11 +28,14 @@ import wvlet.uni.test.UniTest
   *       val m = mount(Counter())
   *       fireEvent.click(m.getByText("+1"))
   *       m.text shouldContain "count=1"
+  *
+  *     test("onMount wiring runs after a settle"):
+  *       val m = mount(AutoFocusInput())
+  *       settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
   * }}}
   *
-  * This 3-line trait lives in test scope on purpose (it couples `DomTestSession` from the published
-  * `uni` artifact to the `uni-test` framework). Downstream desktop apps can declare the identical
-  * trait, or depend on a future `uni-dom-testkit` module.
+  * Published as `uni-dom-testkit` (Scala.js only). It couples `DomTestSession` from the `uni`
+  * artifact to the `uni-test` framework, so add it as a test dependency next to `uni-test`.
   */
 trait DomTestSupport extends UniTest with DomTestSession:
   override protected def after: Unit =
