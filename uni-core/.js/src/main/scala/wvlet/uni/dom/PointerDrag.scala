@@ -39,7 +39,8 @@ import scala.scalajs.js
   *   called when a drag ends, by release or cancel
   * @param cursor
   *   a CSS cursor (e.g. "col-resize") shown on the whole page while dragging, so it does not
-  *   flicker as the pointer leaves the handle. Empty keeps the page cursor.
+  *   flicker as the pointer leaves the handle. The previous cursor is restored when the drag ends.
+  *   Empty keeps the page cursor.
   */
 class PointerDrag(
     onMove: (Double, Double) => Unit,
@@ -62,21 +63,27 @@ class PointerDrag(
       e.preventDefault()
       val startX = e.clientX
       val startY = e.clientY
+      // Follow only the pointer that started the drag, so a second finger does not move it
+      val pointerId  = e.pointerId
+      val prevCursor = dom.document.body.style.cursor
       draggingVar := true
       if cursor.nonEmpty then
         dom.document.body.style.cursor = cursor
       onStart(e)
       lazy val move: js.Function1[dom.PointerEvent, Unit] =
-        (ev: dom.PointerEvent) => onMove(ev.clientX - startX, ev.clientY - startY)
+        (ev: dom.PointerEvent) =>
+          if ev.pointerId == pointerId then
+            onMove(ev.clientX - startX, ev.clientY - startY)
       lazy val end: js.Function1[dom.PointerEvent, Unit] =
-        (_: dom.PointerEvent) =>
-          dom.window.removeEventListener("pointermove", move)
-          dom.window.removeEventListener("pointerup", end)
-          dom.window.removeEventListener("pointercancel", end)
-          if cursor.nonEmpty then
-            dom.document.body.style.cursor = ""
-          draggingVar := false
-          onEnd()
+        (ev: dom.PointerEvent) =>
+          if ev.pointerId == pointerId then
+            dom.window.removeEventListener("pointermove", move)
+            dom.window.removeEventListener("pointerup", end)
+            dom.window.removeEventListener("pointercancel", end)
+            if cursor.nonEmpty then
+              dom.document.body.style.cursor = prevCursor
+            draggingVar := false
+            onEnd()
       dom.window.addEventListener("pointermove", move)
       dom.window.addEventListener("pointerup", end)
       dom.window.addEventListener("pointercancel", end)

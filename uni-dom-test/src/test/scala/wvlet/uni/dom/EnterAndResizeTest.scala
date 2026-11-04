@@ -131,6 +131,26 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.pointerMove(dom.window, clientX = 10)
     moved shouldBe 0
 
+  test("PointerDrag follows only the starting pointer and restores the page cursor"):
+    val moves = mutable.Buffer.empty[Double]
+    val drag  = PointerDrag(onMove = (dx, _) => moves += dx, cursor = "col-resize")
+    val m     = mount(div(cls -> "handle", drag.bind))
+    dom.document.body.style.cursor = "wait"
+    try
+      fireEvent.pointerDown(m.get(".handle"), clientX = 100, pointerId = 1)
+      dom.document.body.style.cursor shouldBe "col-resize"
+      // A second finger neither moves nor ends the drag
+      fireEvent.pointerMove(dom.window, clientX = 500, pointerId = 2)
+      fireEvent.pointerUp(dom.window, clientX = 500, pointerId = 2)
+      drag.isDragging shouldBe true
+      fireEvent.pointerMove(dom.window, clientX = 120, pointerId = 1)
+      fireEvent.pointerUp(dom.window, clientX = 120, pointerId = 1)
+      drag.isDragging shouldBe false
+      moves.toSeq shouldBe Seq(20.0)
+      dom.document.body.style.cursor shouldBe "wait"
+    finally
+      dom.document.body.style.cursor = ""
+
   test("PaneResize clamps to the range and resets on double-click"):
     val width  = Rx.variable(272)
     val range  = SizeRange(min = 208, default = 272, max = 480)
