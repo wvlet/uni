@@ -135,7 +135,7 @@ class DemoShell(term: TerminalEmulator):
         ()
       case "help" =>
         out(
-          "Commands: \u001b[33mcolors\u001b[0m, \u001b[33mwide\u001b[0m, \u001b[33mclear\u001b[0m, \u001b[33mecho\u001b[0m <text>\r\n"
+          "Commands: \u001b[33mcolors\u001b[0m, \u001b[33mlinks\u001b[0m, \u001b[33mwide\u001b[0m, \u001b[33mclear\u001b[0m, \u001b[33mecho\u001b[0m <text>\r\n"
         )
       case "colors" =>
         for i <- 0 until 16 do
@@ -151,6 +151,16 @@ class DemoShell(term: TerminalEmulator):
         out(
           "\u001b[1mbold\u001b[0m \u001b[3mitalic\u001b[0m \u001b[4munderline\u001b[0m \u001b[9mstrike\u001b[0m \u001b[7minverse\u001b[0m\r\n"
         )
+      case "links" =>
+        // OSC 8 hyperlinks; only http, https, and mailto open
+        def link(uri: String, text: String) = s"\u001b]8;;${uri}\u001b\\${text}\u001b]8;;\u001b\\"
+        out(
+          s"${link("https://wvlet.org/uni/", "Uni docs")}  ${link(
+              "mailto:dev@example.com",
+              "mail"
+            )}  "
+        )
+        out(s"${link("javascript:alert(1)", "not a link")}\r\n")
       case "wide" =>
         out("日本語のテキスト | emoji 🎉 | combining é\r\n")
       case "clear" =>
