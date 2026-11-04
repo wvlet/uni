@@ -632,6 +632,61 @@ Http
   .start()
 ```
 
+## Static Files
+
+`StaticFiles` serves files from a directory, such as a built web frontend, next to your API on the
+same server. It is a filter: a `GET` for a file under the root returns the file, and every other
+request goes on to your handler.
+
+```scala
+import wvlet.uni.http.{Http, StaticFiles}
+
+Http
+  .server
+  .withPort(8080)
+  .withFilter(StaticFiles("dist").withSpaFallback(true))
+  .withRxHandler(api)
+  .start()
+```
+
+| Request | Response |
+|---------|----------|
+| `GET /assets/app.js` | The file, as `text/javascript; charset=utf-8` |
+| `GET /` or `GET /docs/` | The directory's `index.html` (`withIndexFile` changes the name) |
+| `POST /assets/app.js`, `GET /api/users` | Your handler |
+| `GET /chats/42` from a browser, unknown to your handler | `index.html`, with `withSpaFallback(true)` |
+
+It works on the JVM, Node.js, and Scala Native. A relative root resolves against the current
+directory, and the root may be created after the server starts.
+
+### Safe defaults
+
+A request that could reach outside the root, or reach a file you did not mean to publish, gets a
+plain 404. The response doesn't say why, so it reveals nothing about the file system.
+
+- **Path traversal**: each path segment is percent-decoded once, and a segment of `.` or `..`, an
+  empty one, or one containing `/`, `\`, `:`, NUL, or another control character is refused.
+- **Symbolic links**: every component below the root is checked without following links, and a
+  link anywhere below the root is refused, even one that points inside it. The root itself may be
+  a link.
+- **Dotfiles**: names starting with `.` (`.env`, `.git/`) are refused, except `.well-known/`.
+  `withDotfiles(true)` serves them.
+- **Directories**: only the index file is served; there are no listings. A directory path needs
+  its trailing slash (`/docs/`), so relative links in its index resolve correctly.
+- **Content types**: a built-in table covers the usual web build output (HTML, CSS, JavaScript,
+  JSON, source maps, SVG, images, fonts, WebAssembly). Other extensions are served as
+  `application/octet-stream`, and every response sets `X-Content-Type-Options: nosniff` so a
+  browser never guesses a type. Add a type with `withContentType("glb", ContentType("model/gltf-binary"))`.
+
+Filters run in the order you add them. Add `StaticFiles` after an authentication filter to protect
+the files, or before it to keep them public.
+
+::: tip For app bundles
+Each request reads the whole file, with no `Range` requests, caching headers, or streaming. That
+fits the HTML, scripts, and assets of a web app. Put large media behind a CDN or a dedicated file
+server.
+:::
+
 ## WebSocket
 
 The Netty server supports WebSocket connections. WebSocket routes are registered by path,

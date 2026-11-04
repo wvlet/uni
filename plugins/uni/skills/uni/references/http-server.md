@@ -137,6 +137,31 @@ filter never sees the error. Unrecovered exceptions become a plain
 `500 Internal Server Error`; enable `.withDetailedErrors(true)` only in
 development.
 
+## Static files (JVM, Node.js, Native)
+
+`StaticFiles(dir)` is a filter that answers `GET` for files under `dir` and passes
+every other request on, so a built frontend and the API share one server:
+
+```scala
+import wvlet.uni.http.StaticFiles
+
+Http
+  .server
+  .withPort(8080)
+  .withFilter(StaticFiles("dist").withSpaFallback(true))
+  .withRxHandler(handler)
+  .start()
+```
+
+- `withSpaFallback(true)` serves `index.html` when the handler answers 404 to a
+  `GET` that accepts `text/html`, for client-side routing.
+- Safe by default: `..`, encoded separators, symbolic links below the root,
+  dotfiles (except `.well-known/`), and directory listings are all 404. Every
+  file gets `X-Content-Type-Options: nosniff`.
+- Filters run in the order added, so add `StaticFiles` after an auth filter to
+  protect the files, or before it to keep them public.
+- Files are read whole per request (no `Range`, caching headers, or streaming).
+
 ## Lifecycle
 
 `start()` returns an `HttpServer`: `localPort`, `localAddress`, `isRunning`,
