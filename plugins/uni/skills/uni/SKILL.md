@@ -48,6 +48,7 @@ Scala Native.
 | MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
+| Terminal emulator | `wvlet.uni.cli.term.TerminalEmulator`, `wvlet.uni.dom.TerminalView` (Scala.js) | `term.write(output)`, `term.screen.text`; `TerminalView(term)` draws it in the DOM; see [references/cli.md](references/cli.md#terminal-emulator) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 | Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."` |
 
@@ -106,7 +107,7 @@ Read the reference for the task before writing code:
 | Server-sent events and WebSocket (server and client) | [references/streaming.md](references/streaming.md) |
 | OpenAPI document from REST routers | [references/openapi.md](references/openapi.md) |
 | Electron desktop app (RPC over IPC, Scala.js) | [references/electron.md](references/electron.md) |
-| CLI options and sub-commands, colors, progress bars | [references/cli.md](references/cli.md) |
+| CLI options and sub-commands, colors, progress bars, terminal emulator | [references/cli.md](references/cli.md) |
 | Migrating from Airframe | [references/airframe-migration.md](references/airframe-migration.md) |
 
 - Complete, CI-tested example apps to copy (CLI tool, REST + RPC server, stdio MCP

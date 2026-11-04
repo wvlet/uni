@@ -86,3 +86,47 @@ spinner.succeed("Loaded")                  // also fail, warn, info, stop
 
 Progress bars and spinners write to `System.err`; use `.withStream(out)` to
 redirect and `.withEnabled(false)` in non-interactive runs.
+
+## Terminal emulator
+
+`TerminalEmulator` is a pure-Scala xterm-compatible emulator (JVM, Scala.js,
+Native). Feed it a program's output and read the screen, so tests can check
+what a TUI draws instead of raw escape bytes:
+
+```scala
+import wvlet.uni.cli.term.{TerminalConfig, TerminalEmulator, TerminalLink}
+
+val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 3))
+term.write("\u001b[1mhello\u001b[0m\r\nworld")
+assert(term.screen.text == "hello\nworld")
+assert(term.screen.lineText(0) == "hello")
+
+// Keys typed into the terminal, encoded for the program
+term.onData(bytes => ())                   // connect to a PTY's input
+term.sendKey("ArrowUp")                    // W3C KeyboardEvent.key names
+
+// OSC 8 links come from program output: open only safe schemes
+assert(TerminalLink.isAllowed("https://wvlet.org/uni"))
+assert(!TerminalLink.isAllowed("javascript:alert(1)"))
+```
+
+In a Scala.js UI, `wvlet.uni.dom.TerminalView` draws the emulator in the DOM.
+It uses `TerminalTheme.uniDark` by default (presets: `uniLight`, `solarizedDark`,
+`nord`, `dracula`, and more in `TerminalTheme.presets`), switches with
+`setTheme`, and opens http/https/mailto links on Cmd+click (Ctrl elsewhere):
+
+```scala skip
+import wvlet.uni.cli.term.{PtyProcess, TerminalEmulator}
+import wvlet.uni.dom.{TerminalTheme, TerminalView, TerminalViewConfig}
+
+val term = TerminalEmulator()
+val view = TerminalView(term, TerminalViewConfig().withFontSize(13))
+view.onResize((cols, rows) => pty.resize(cols, rows))
+view.setTheme(TerminalTheme.uniLight)      // e.g. follow the app's light mode
+view.onLinkClick(uri => openInBrowser(uri)) // Electron: shell.openExternal in main
+PtyProcess.connect(term, pty)               // pty: NodePty.spawn(nodePty, shell, ...)
+div(styleAttr -> "height: 400px", view)
+```
+
+The PTY needs the native `node-pty` addon, which the app installs and passes to
+`NodePty.spawn`; see the uni-harness example's Terminal tab.
