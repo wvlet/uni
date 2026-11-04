@@ -69,11 +69,12 @@ class HarnessState(val transport: Transport):
   // Created lazily so it picks up the channel installed in HarnessApp.main
   private lazy val rpc = RPCClient.of[ChatApi].newAsyncClient(Http.client.newAsyncClient)
 
-  val sidebarOpen = Storage.local("uni-harness.sidebarOpen", true)
-  val dockOpen    = Storage.local("uni-harness.dockOpen", true)
-  val view        = Storage.local("uni-harness.view", View.Chats.toString)
-  val theme       = Storage.local("uni-harness.theme", Theme.System.toString)
-  val dockTab     = Storage.local("uni-harness.dockTab", "details")
+  val sidebarOpen  = Storage.local("uni-harness.sidebarOpen", true)
+  val dockOpen     = Storage.local("uni-harness.dockOpen", true)
+  val view         = Storage.local("uni-harness.view", View.Chats.toString)
+  val theme        = Storage.local("uni-harness.theme", Theme.System.toString)
+  val dockTab      = Storage.local("uni-harness.dockTab", "details")
+  val sidebarWidth = Storage.local("uni-harness.sidebarWidth", Sidebar.defaultWidth)
 
   val conversations = Rx.variable(Seq.empty[Conversation])
   val selected      = Rx.variable(Option.empty[String])

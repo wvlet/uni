@@ -208,20 +208,83 @@ end IconRail
 /** The left sidebar. Its content follows the view selected on the rail. */
 class Sidebar(state: HarnessState, searchRef: DomRef[dom.html.Input]) extends RxElement:
 
+  private val resizing = Rx.variable(false)
+
+  /**
+    * Drag the right edge to resize. Pointer moves are tracked on the window, so the drag keeps
+    * going when the pointer leaves the thin handle; the width transition is off while dragging.
+    */
+  private def startResize(e: dom.PointerEvent): Unit =
+    e.preventDefault()
+    val startX     = e.clientX
+    val startWidth = state.sidebarWidth.get
+    resizing := true
+    dom.document.body.style.cursor = "col-resize"
+    lazy val move: js.Function1[dom.PointerEvent, Unit] =
+      (ev: dom.PointerEvent) =>
+        state.sidebarWidth := Sidebar.clamp((startWidth + ev.clientX - startX).toInt)
+    lazy val up: js.Function1[dom.PointerEvent, Unit] =
+      (_: dom.PointerEvent) =>
+        resizing := false
+        dom.document.body.style.cursor = ""
+        dom.window.removeEventListener("pointermove", move)
+        dom.window.removeEventListener("pointerup", up)
+    dom.window.addEventListener("pointermove", move)
+    dom.window.addEventListener("pointerup", up)
+
+  private def resizeHandle: RxElement = div(
+    role      -> "separator",
+    ariaLabel -> "Resize sidebar",
+    titleAttr -> "Drag to resize, double-click to reset",
+    cls       ->
+      "group absolute top-0 right-0 bottom-0 z-20 w-2 cursor-col-resize touch-none select-none",
+    onpointerdown -> startResize,
+    ondblclick    -> { () =>
+      state.sidebarWidth := Sidebar.defaultWidth
+    },
+    span(
+      cls ->
+        resizing.map { on =>
+          val look =
+            if on then
+              "bg-brand opacity-100"
+            else
+              "bg-brand opacity-0 group-hover:opacity-60"
+          s"absolute top-0 right-0 bottom-0 w-[2px] transition-opacity ${look}"
+        }
+    )
+  )
+
   override def render: RxElement = aside(
     cls ->
-      state
-        .sidebarOpen
-        .map { open =>
-          val width =
+      Rx.join(state.sidebarOpen, resizing)
+        .map { (open, dragging) =>
+          val border =
             if open then
-              "w-[272px] border-r"
+              "border-r"
             else
-              "w-0 border-r-0"
-          s"shrink-0 overflow-hidden border-line bg-panel backdrop-blur-xl transition-[width] duration-300 ease-out ${width}"
+              "border-r-0"
+          val motion =
+            if dragging then
+              ""
+            else
+              "transition-[width] duration-300 ease-out"
+          s"relative shrink-0 overflow-hidden border-line bg-panel backdrop-blur-xl ${border} ${motion}"
         },
+    styleAttr ->
+      Rx.join(state.sidebarOpen, state.sidebarWidth)
+        .map((open, w) =>
+          s"width: ${
+              if open then
+                w
+              else
+                0
+            }px"
+        ),
+    state.sidebarOpen.map(open => when(open, resizeHandle)),
     div(
-      cls -> "flex h-full w-[272px] flex-col",
+      cls       -> "flex h-full flex-col",
+      styleAttr -> state.sidebarWidth.map(w => s"width: ${w}px"),
       state
         .view
         .map { _ =>
@@ -476,3 +539,7 @@ class Sidebar(state: HarnessState, searchRef: DomRef[dom.html.Input]) extends Rx
   )
 
 end Sidebar
+
+object Sidebar:
+  val defaultWidth       = 272
+  def clamp(w: Int): Int = math.max(208, math.min(480, w))
