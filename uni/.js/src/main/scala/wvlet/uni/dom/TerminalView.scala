@@ -192,7 +192,8 @@ class TerminalView(
     // Selection color for text in the pane
     val style = doc.createElement("style")
     style.textContent =
-      ".uni-terminal ::selection { background: var(--uni-term-selection); }" +
+      // Drawn block and line characters show the font glyph while selected
+      ".uni-terminal ::selection { background: var(--uni-term-selection); -webkit-text-fill-color: currentColor; }" +
         ".uni-terminal .uni-term-row { white-space: pre; overflow: hidden; }" +
         ".uni-terminal .uni-term-link { text-decoration: underline dotted; text-underline-offset: 2px; }" +
         ".uni-terminal.uni-term-link-mod .uni-term-link:hover { text-decoration-style: solid; cursor: pointer; }"

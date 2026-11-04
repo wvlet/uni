@@ -127,7 +127,8 @@ private[dom] object TerminalGlyphs:
   /**
     * True when the view draws this code point itself
     */
-  def isCustom(cp: Int): Boolean = (cp >= 0x2580 && cp <= 0x259f) || lines.contains(cp)
+  def isCustom(cp: Int): Boolean =
+    cp >= 0x2500 && cp <= 0x259f && (cp >= 0x2580 || lines.contains(cp))
 
   /**
     * CSS for a cell of `width` x `height` px that draws the code point in the current text color,
@@ -169,10 +170,14 @@ private[dom] object TerminalGlyphs:
     val (up, right, down, left) = weights
     val light                   = math.max(1.0, math.round(width / 8).toDouble)
     def thickness(w: Int)       = w * light
-    // Segments overlap the center by half the heaviest line, so corners and tees close
-    val half                                       = thickness(Seq(up, right, down, left).max) / 2
-    val cx                                         = math.floor(width / 2)
-    val cy                                         = math.floor(height / 2)
+    val cx                      = math.floor(width / 2)
+    val cy                      = math.floor(height / 2)
+    // The bands the vertical and horizontal lines occupy; segments reach across the other band so
+    // corners and tees close without notches or spurs
+    val tv                                         = thickness(math.max(up, down))
+    val th                                         = thickness(math.max(left, right))
+    val vx0                                        = cx - math.floor(tv / 2)
+    val hy0                                        = cy - math.floor(th / 2)
     def horizontal(w: Int, x0: Double, x1: Double) =
       val t = thickness(w)
       (x0, cy - math.floor(t / 2), x1, cy - math.floor(t / 2) + t, 100)
@@ -180,10 +185,10 @@ private[dom] object TerminalGlyphs:
       val t = thickness(w)
       (cx - math.floor(t / 2), y0, cx - math.floor(t / 2) + t, y1, 100)
     Seq(
-      Option.when(left > 0)(horizontal(left, 0, cx + half)),
-      Option.when(right > 0)(horizontal(right, cx - half, width)),
-      Option.when(up > 0)(vertical(up, 0, cy + half)),
-      Option.when(down > 0)(vertical(down, cy - half, height))
+      Option.when(left > 0)(horizontal(left, 0, vx0 + tv)),
+      Option.when(right > 0)(horizontal(right, vx0, width)),
+      Option.when(up > 0)(vertical(up, 0, hy0 + th)),
+      Option.when(down > 0)(vertical(down, hy0, height))
     ).flatten
 
 end TerminalGlyphs
