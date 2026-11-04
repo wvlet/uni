@@ -128,4 +128,26 @@ class ComponentTest extends DomTestSupport:
     root.hasAttribute("data-theme") shouldBe false
     sub.cancel
 
+  test("the terminal title falls back to Terminal and is shortened"):
+    TerminalPane.displayTitle("") shouldBe "Terminal"
+    TerminalPane.displayTitle("  vim   main.scala ") shouldBe "vim main.scala"
+    val long = TerminalPane.displayTitle("x" * 200)
+    long.length shouldBe 120
+    long.endsWith("…") shouldBe true
+
+  test("the Terminal tab is visible only while the dock is open on it"):
+    Dock.isTerminalVisible(true, DockTab.Terminal) shouldBe true
+    Dock.isTerminalVisible(true, DockTab.Activity) shouldBe false
+    Dock.isTerminalVisible(false, DockTab.Terminal) shouldBe false
+
+  test("the terminal header shows the program's title and a bell reaches onBell"):
+    var bells = 0
+    val pane  = TerminalPane(Rx.variable(Theme.Light), () => bells += 1)
+    val m     = mount(pane)
+    m.get("span.truncate").textContent shouldBe "Terminal"
+    pane.term.write("\u001b]2;~/work/uni\u0007")
+    m.get("span.truncate").textContent shouldBe "~/work/uni"
+    pane.term.write("\u0007")
+    bells shouldBe 1
+
 end ComponentTest

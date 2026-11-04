@@ -2,7 +2,7 @@ package example.renderer
 
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Cancelable, Rx}
 
 import scala.language.implicitConversions
 
@@ -12,11 +12,43 @@ import scala.language.implicitConversions
   * "Terminal" runs a shell.
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
+  // Set by a bell the user could not see; cleared once the Terminal tab is visible
+  private[renderer] val terminalAttention = Rx.variable(false)
+  private var attentionWatch: Cancelable  = Cancelable.empty
+
+  private def terminalVisible: Boolean = Dock.isTerminalVisible(
+    layout.dockOpen.get,
+    layout.dockTab.get
+  )
+
   // Created once, so the shell and its scrollback survive switching tabs
-  private lazy val terminal = TerminalPane(layout.theme)
+  private lazy val terminal = TerminalPane(
+    layout.theme,
+    onBell =
+      () =>
+        if !terminalVisible then
+          terminalAttention := true
+  )
+
   private val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
 
-  private def tab(t: DockTab, icon: RxElement, badge: Rx[String]): RxElement = button(
+  override def onMount(node: Any): Unit =
+    attentionWatch = layout
+      .dockOpen
+      .join(layout.dockTab)
+      .run { (open, tab) =>
+        if Dock.isTerminalVisible(open, tab) then
+          terminalAttention := false
+      }
+
+  override def beforeUnmount: Unit = attentionWatch.cancel
+
+  private def tab(
+      t: DockTab,
+      icon: RxElement,
+      badge: Rx[String],
+      attention: Rx[Boolean] = Rx.const(false)
+  ): RxElement = button(
     cls ->
       layout
         .dockTab
@@ -33,7 +65,13 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     },
     icon,
     t.label,
-    span(cls -> "font-mono text-[10px] text-faint", badge)
+    span(cls -> "font-mono text-[10px] text-faint", badge),
+    attention.map { on =>
+      if on then
+        span(cls -> "size-1.5 shrink-0 rounded-full bg-glow", ariaLabel -> "Bell")
+      else
+        span()
+    }
   )
 
   override def render: RxElement =
@@ -44,7 +82,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
           cls -> "flex flex-1 gap-1 rounded-xl bg-hover p-1",
           tab(DockTab.Details, Icons.info, Rx.const("")),
           tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
-          tab(DockTab.Terminal, Icons.terminal, Rx.const(""))
+          tab(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)
         ),
         Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
       ),
@@ -66,6 +104,10 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     )
 
 end Dock
+
+object Dock:
+  /** True when the user can see the Terminal tab: the dock is open and shows it. */
+  def isTerminalVisible(open: Boolean, tab: DockTab): Boolean = open && tab == DockTab.Terminal
 
 /** The current conversation, the call path, and the Uni APIs the example uses. */
 class DetailsView(store: ChatStore, transport: Transport) extends RxElement:
