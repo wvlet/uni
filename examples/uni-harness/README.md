@@ -5,6 +5,10 @@ chat thread with a composer, and a right dock. The same renderer and the same se
 an [Electron](https://www.electronjs.org/) app and as a web app in a browser. Copy it as a starting
 point for a chat or agent tool.
 
+![Uni Harness in light mode: icon rail, chat sidebar, a conversation, and the dock's call path](docs/chat-light.png)
+
+![Uni Harness in dark mode, with the dock's Activity tab listing each RPC call and its timing](docs/chat-dark.png)
+
 ```mermaid
 flowchart LR
     R["Renderer · Scala.js<br/>Shell, ChatView, Composer"]
