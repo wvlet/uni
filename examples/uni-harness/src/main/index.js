@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'node:path'
 // The Scala.js `server` module, imported via vite-plugin-scalajs.
 import { wireMainProcess } from 'scalajs:main.js'
@@ -10,7 +10,8 @@ function createWindow() {
     minWidth: 720,
     minHeight: 480,
     title: 'Uni Harness',
-    backgroundColor: '#061114',
+    // The canvas color of the OS theme, so the window doesn't flash before the first paint
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#061114' : '#eef3f4',
     // On macOS, hide the title bar; the renderer draws a 40px strip for the window buttons
     ...(process.platform === 'darwin'
       ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 16, y: 13 } }

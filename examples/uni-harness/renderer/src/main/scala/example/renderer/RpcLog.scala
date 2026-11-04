@@ -6,23 +6,19 @@ import wvlet.uni.rx.Rx
 import scala.scalajs.js
 
 /** One RPC call, shown in the dock's Activity tab. */
-case class RpcCall(seq: Int, method: String, millis: Double, ok: Boolean, at: Double)
+case class RpcCall(method: String, millis: Double, ok: Boolean)
 
 /** The most recent RPC calls, newest first. */
 class RpcLog(limit: Int = 40):
   val calls = Rx.variable(Seq.empty[RpcCall])
 
-  private var seq = 0
-
   private def now(): Double = js.Dynamic.global.performance.now().asInstanceOf[Double]
 
   /** Record when `rx` emits or fails, with the time since this call. */
   def track[A](method: String)(rx: Rx[A]): Rx[A] =
-    seq += 1
-    val n                         = seq
     val start                     = now()
     def record(ok: Boolean): Unit =
-      val call = RpcCall(n, method, now() - start, ok, js.Date.now())
+      val call = RpcCall(method, now() - start, ok)
       calls.update(cs => (call +: cs).take(limit))
     rx.tap(_ => record(ok = true)).tapOnFailure(_ => record(ok = false))
 

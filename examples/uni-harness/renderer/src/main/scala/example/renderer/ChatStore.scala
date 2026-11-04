@@ -19,9 +19,14 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
   val conversations = Rx.variable(Seq.empty[Conversation])
   val selected      = Rx.variable(Option.empty[String])
   val messages      = Rx.variable(Seq.empty[ChatMessage])
-  val pending       = Rx.variable(false)
-  val error         = Rx.variable(Option.empty[String])
-  val query         = Rx.variable("")
+
+  /** Conversations waiting for a reply. Each one sends one prompt at a time. */
+  val sending = Rx.variable(Set.empty[String])
+  val error   = Rx.variable(Option.empty[String])
+  val query   = Rx.variable("")
+
+  /** True while the selected conversation waits for a reply. */
+  val pending: Rx[Boolean] = Rx.join(sending, selected).map((s, sel) => sel.exists(s))
 
   val selectedConversation: Rx[Option[Conversation]] = conversations.flatMap { cs =>
     selected.map(id => cs.find(c => id.contains(c.id)))
@@ -61,13 +66,13 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
     }
 
   /**
-    * Send a prompt in the selected conversation. One reply at a time: ignored while one is pending.
+    * Send a prompt in the selected conversation. Ignored while that conversation waits for a reply.
     */
   def send(text: String): Future[Unit] =
     selected.get match
       case None =>
         Future.unit
-      case Some(_) if pending.get =>
+      case Some(id) if sending.get(id) =>
         Future.unit
       case Some(id) =>
         // Show the prompt right away as a draft; the reply replaces it with the stored message
@@ -79,13 +84,16 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
           js.Date.now().toLong
         )
         messages.update(_ :+ draft)
-        pending := true
+        sending.update(_ + id)
         run(
           "sendMessage",
           api.sendMessage(id, text),
-          onFailure = () => messages.update(_.filterNot(_.id == draft.id))
+          onFailure =
+            () =>
+              sending.update(_ - id)
+              messages.update(_.filterNot(_.id == draft.id))
         ) { reply =>
-          pending := false
+          sending.update(_ - id)
           if selected.get.contains(id) then
             freshReply = Some(reply.assistant.id)
             // Replace by id: a thread reloaded while the reply was on its way may already hold
@@ -105,7 +113,6 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
         done.trySuccess(())
       }
       .recover { case e: Throwable =>
-        pending := false
         onFailure()
         error := Some(explain(method, e))
         done.trySuccess(())

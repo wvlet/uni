@@ -61,7 +61,7 @@ class ChatStoreTest extends UniTest:
         store.messages.get.map(m => (m.role, m.text)) shouldBe
           Seq("user" -> "Hello Uni", "assistant" -> "echo: Hello Uni")
         store.conversations.get.head.title shouldBe "Hello Uni"
-        store.pending.get shouldBe false
+        store.sending.get shouldBe Set.empty
         val reply = store.messages.get.last.id
         store.takeFresh(reply) shouldBe true
         store.takeFresh(reply) shouldBe false
@@ -114,6 +114,24 @@ class ChatStoreTest extends UniTest:
       store.messages.get.map(_.text) shouldBe Seq("first", "reply")
       replies.isEmpty shouldBe true
 
+  test("another conversation can send while one waits for its reply"):
+    replies.clear()
+    val store = ChatStore(ChatService(respond = heldModel))
+    for
+      _ <- store.load()
+      a   = store.selected.get.get
+      inA = store.send("in A")
+      _ <- store.newChat()
+      b   = store.selected.get.get
+      inB = store.send("in B")
+      _   = store.sending.get shouldBe Set(a, b)
+      _   = replies.foreach(_.success("ok"))
+      _ <- inA
+      _ <- inB
+    yield
+      store.sending.get shouldBe Set.empty
+      store.messages.get.map(_.text) shouldBe Seq("in B", "ok")
+
   test("a failed send removes the draft and reports the error"):
     val failing =
       new ChatApi:
@@ -130,7 +148,7 @@ class ChatStoreTest extends UniTest:
       .flatMap(_ => store.send("lost"))
       .map { _ =>
         store.messages.get shouldBe Seq.empty
-        store.pending.get shouldBe false
+        store.sending.get shouldBe Set.empty
         store.error.get shouldBe Some("sendMessage failed: server down")
       }
 
