@@ -70,6 +70,8 @@ class TerminalPane(appTheme: Rx[Theme], onBell: () => Unit = () => ()) extends R
           pty.onData((data: String) => term.write(data))
           pty.onExit((code: Int) =>
             exited := true
+            // The title described the program that just ended
+            title := ""
             // Leave the alternate screen and reset modes a killed full-screen program left on
             term.write(
               s"\u001b[?1049l\u001b[!p\r\n\u001b[2m[process exited with code ${code}] Press Enter to restart\u001b[0m\r\n"
@@ -89,7 +91,6 @@ class TerminalPane(appTheme: Rx[Theme], onBell: () => Unit = () => ()) extends R
   private[renderer] def restart(): Unit = bridge.foreach { pty =>
     if exited.get then
       exited := false
-      title  := ""
       pty.start(term.cols, term.rows)
       view.focus()
   }
