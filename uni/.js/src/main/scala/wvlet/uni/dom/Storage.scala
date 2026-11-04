@@ -17,8 +17,18 @@ import org.scalajs.dom
 import wvlet.uni.config.LocalStorageBackend
 import wvlet.uni.rx.RxVar
 
+import scala.compiletime.{constValue, erasedValue, error, summonFrom}
+import scala.deriving.Mirror
+
 /**
   * Type class for serializing/deserializing storage values.
+  *
+  * A Scala 3 enum whose cases take no parameters can derive one, storing each value by its case
+  * name:
+  * {{{
+  * enum Theme derives StorageCodec:
+  *   case Light, Dark
+  * }}}
   */
 trait StorageCodec[A]:
   def encode(value: A): String
@@ -44,6 +54,41 @@ object StorageCodec:
   given booleanCodec: StorageCodec[Boolean] with
     def encode(value: Boolean): String       = value.toString
     def decode(raw: String): Option[Boolean] = raw.toBooleanOption
+
+  /**
+    * Derive a codec for an enum (`enum E derives StorageCodec`) that stores a value by its case
+    * name. Decoding an unknown name, e.g. after a case was renamed, returns `None`, so a
+    * [[StorageVar]] falls back to its default. Enums with parameterized cases are rejected at
+    * compile time.
+    */
+  inline def derived[A](using m: Mirror.SumOf[A]): StorageCodec[A] = enumCodec[A](
+    enumCases[m.MirroredElemTypes, m.MirroredElemLabels, A]
+  )
+
+  private inline def enumCases[Types <: Tuple, Labels <: Tuple, A]: List[(String, A)] =
+    inline erasedValue[(Types, Labels)] match
+      case _: (EmptyTuple, EmptyTuple) =>
+        Nil
+      case _: (t *: ts, l *: ls) =>
+        type T = t
+        val label = constValue[l].asInstanceOf[String]
+        val value = summonFrom {
+          case v: ValueOf[T] =>
+            v.value.asInstanceOf[A]
+          case _ =>
+            error("StorageCodec.derived supports only enums whose cases take no parameters")
+        }
+        (label -> value) :: enumCases[ts, ls, A]
+
+  // Not inline: the derived codec of each enum shares this code
+  private def enumCodec[A](cases: List[(String, A)]): StorageCodec[A] =
+    val byName  = cases.toMap
+    val byValue = cases.map(_.swap).toMap
+    new StorageCodec[A]:
+      def encode(value: A): String       = byValue(value)
+      def decode(raw: String): Option[A] = byName.get(raw)
+
+end StorageCodec
 
 /**
   * A reactive variable backed by browser storage (localStorage or sessionStorage).

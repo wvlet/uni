@@ -22,8 +22,7 @@ object HarnessApp:
     // The Electron preload script exposes `window.uniRPC`. In a browser it is absent, and Uni's
     // HTTP client keeps its default fetch channel, calling the same-origin web server.
     val transport =
-      if js.typeOf(window.uniRPC) != "undefined" then
-        ElectronRenderer.install()
+      if ElectronRenderer.installIfAvailable() then
         Transport.ElectronIPC
       else
         Transport.HttpFetch

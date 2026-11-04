@@ -81,6 +81,27 @@ class ElectronRPCTest extends UniTest:
       Http.setDefaultChannelFactory(wvlet.uni.http.JSHttpChannelFactory)
   }
 
+  test("ElectronRenderer.installIfAvailable is a no-op without window.uniRPC") {
+    // Plain Node.js: no `window` at all
+    ElectronRenderer.installIfAvailable() shouldBe false
+  }
+
+  test("ElectronRenderer.installIfAvailable installs the bridge from window.uniRPC") {
+    val bridge     = fakeBridge(RPCRouter.of[GreetingService](GreetingServiceImpl()))
+    val globalThis = js.Dynamic.global.globalThis
+    globalThis.updateDynamic("window")(js.Dynamic.literal(uniRPC = bridge))
+    try
+      ElectronRenderer.installIfAvailable() shouldBe true
+      rpcClient
+        .callAsync[Greeting](Http.client.newAsyncClient, "hello", Seq("IPC"))
+        .map { g =>
+          g.message shouldBe "Hello, IPC!"
+        }
+    finally
+      js.special.delete(globalThis, "window")
+      Http.setDefaultChannelFactory(wvlet.uni.http.JSHttpChannelFactory)
+  }
+
   test("ElectronIPC marshals a request payload round-trip") {
     import wvlet.uni.http.{HttpMethod, Request}
     val req      = Request.post("/svc/method").withJsonContent("""{"request":{"x":1}}""")

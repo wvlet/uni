@@ -10,17 +10,17 @@ enum Transport(val label: String, val detail: String):
   case HttpFetch   extends Transport("HTTP", "fetch → Http.server on Node")
 
 /** The sidebar views selected from the icon rail. */
-enum View(val label: String):
+enum View(val label: String) derives StorageCodec:
   case Chats    extends View("Chats")
   case Files    extends View("Files")
   case Settings extends View("Settings")
 
-enum Theme(val label: String):
+enum Theme(val label: String) derives StorageCodec:
   case System extends Theme("System")
   case Light  extends Theme("Light")
   case Dark   extends Theme("Dark")
 
-enum DockTab(val label: String):
+enum DockTab(val label: String) derives StorageCodec:
   case Details  extends DockTab("Details")
   case Activity extends DockTab("Activity")
 
@@ -32,16 +32,6 @@ object Theme:
         root.removeAttribute("data-theme")
       case t =>
         root.setAttribute("data-theme", t.toString.toLowerCase)
-
-/** Store enum values in localStorage by name, falling back to the default on unknown names. */
-private def enumCodec[E](values: Array[E]): StorageCodec[E] =
-  new StorageCodec[E]:
-    def encode(value: E): String       = value.toString
-    def decode(raw: String): Option[E] = values.find(_.toString == raw)
-
-given StorageCodec[View]    = enumCodec(View.values)
-given StorageCodec[Theme]   = enumCodec(Theme.values)
-given StorageCodec[DockTab] = enumCodec(DockTab.values)
 
 /** "just now", "5m ago", "3h ago", or a date, for timestamps. */
 def ago(millis: Long, now: Double = js.Date.now()): String =

@@ -364,3 +364,23 @@ The package includes reactive wrappers over common browser APIs. Each is an
 
 Each integration that attaches global listeners returns a `Cancelable` (or has a
 `stop()`), so you can detach it during teardown.
+
+### Persisting values with Storage
+
+`Storage.local` and `Storage.session` store `String`, `Int`, `Long`, `Double`, and
+`Boolean` values out of the box. An enum whose cases take no parameters gets a codec
+with `derives StorageCodec`, which stores each value by its case name:
+
+```scala
+import wvlet.uni.dom.all.*
+
+enum Theme derives StorageCodec:
+  case System, Light, Dark
+
+val theme = Storage.local("theme", Theme.System)
+theme := Theme.Dark // stored as "Dark"
+```
+
+A stored name that matches no case, for example after a case was renamed, reads as
+the default value. For other types, write a `given StorageCodec[A]` with `encode`
+and `decode`.

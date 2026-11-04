@@ -118,4 +118,22 @@ object ElectronRenderer:
     ElectronChannelFactory(bridge)
   )
 
+  /**
+    * Install the Electron IPC channel factory if the preload bridge (`window.uniRPC`) is present,
+    * and report whether it did. Use it in a renderer shared by an Electron app and a browser app:
+    * in a browser the bridge is absent, and the HTTP client keeps its default fetch channel.
+    */
+  def installIfAvailable(): Boolean =
+    // `window` is absent outside a browser (Node.js), where there is no bridge either
+    val bridge: js.Dynamic =
+      if js.typeOf(js.Dynamic.global.window) == "undefined" then
+        js.undefined.asInstanceOf[js.Dynamic]
+      else
+        js.Dynamic.global.window.selectDynamic(ElectronIPC.DefaultBridgeName)
+    if js.isUndefined(bridge) || bridge == null then
+      false
+    else
+      install(bridge)
+      true
+
 end ElectronRenderer
