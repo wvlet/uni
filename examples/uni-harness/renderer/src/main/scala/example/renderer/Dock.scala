@@ -8,9 +8,11 @@ import scala.language.implicitConversions
 
 /**
   * The right dock: context next to the chat. "Details" shows the conversation and how a call
-  * travels; "Activity" lists every RPC call with its round-trip time.
+  * travels; "Activity" lists every RPC call with its round-trip time; "Terminal" runs a shell.
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
+  // Created once, so the shell and its scrollback survive switching tabs
+  private lazy val terminal = TerminalPane()
 
   private def tab(t: DockTab, icon: RxElement, badge: Rx[String]): RxElement = button(
     cls ->
@@ -33,27 +35,32 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
   )
 
   override def render: RxElement =
-    FoldablePane(layout.dockOpen, Rx.variable(Layout.dockWidth), Edge.Left)(
+    FoldablePane(layout.dockOpen, layout.dockTab.map(Layout.dockWidthFor), Edge.Left)(
       div(
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
         div(
           cls -> "flex flex-1 gap-1 rounded-xl bg-hover p-1",
           tab(DockTab.Details, Icons.info, Rx.const("")),
-          tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString))
+          tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
+          tab(DockTab.Terminal, Icons.terminal, Rx.const(""))
         ),
         Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
       ),
-      div(
-        cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4",
-        layout
-          .dockTab
-          .map {
-            case DockTab.Activity =>
-              ActivityLog(log)
-            case DockTab.Details =>
-              DetailsView(store, transport)
-          }
-      )
+      layout
+        .dockTab
+        .map {
+          case DockTab.Terminal =>
+            div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
+          case other =>
+            div(
+              cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4",
+              other match
+                case DockTab.Activity =>
+                  ActivityLog(log)
+                case _ =>
+                  DetailsView(store, transport)
+            )
+        }
     )
 
 end Dock

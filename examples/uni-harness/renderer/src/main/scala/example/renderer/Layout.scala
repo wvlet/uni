@@ -36,6 +36,14 @@ end Layout
 object Layout:
   val sidebarWidth = SizeRange(min = 208, default = 272, max = 480)
   val dockWidth    = 320
+  // The terminal needs room for about 80 columns
+  val terminalDockWidth = 600
+
+  def dockWidthFor(tab: DockTab): Int =
+    if tab == DockTab.Terminal then
+      terminalDockWidth
+    else
+      dockWidth
 
   def inMemory(): Layout = Layout(
     Rx.variable(true),

@@ -10,7 +10,11 @@
     "package": "electron-vite build && electron-builder",
     "dev:web": "vite --config vite.web.config.mjs",
     "build:web": "vite build --config vite.web.config.mjs && vite build --config vite.web.config.mjs --mode server",
-    "start:web": "node out/web/server/server.js"
+    "start:web": "node out/web/server/server.js",
+    "postinstall": "node scripts/fix-node-pty.mjs"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "@scala-js/vite-plugin-scalajs": "^1.1.0",
