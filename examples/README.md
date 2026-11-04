@@ -13,6 +13,7 @@ template you can copy: one or two Scala files, a README that explains what it sh
 | [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
 | [`web-ui`](web-ui/) | Scala.js | A todo list with `RxElement`, `Rx.variable`, and two-way form binding, loaded by a static `index.html` |
 | [`electron-app`](electron-app/) | Scala.js | A desktop app that calls the main process over Electron IPC with Uni RPC (standalone build) |
+| [`uni-harness`](uni-harness/) | Scala.js | A chat workspace shell (icon rail, foldable sidebar, chat, right dock) that runs as an Electron app and as a web app from the same code (standalone build) |
 
 ## Run them from this repository
 

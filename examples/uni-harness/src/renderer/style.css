@@ -1,0 +1,42 @@
+@import 'tailwindcss';
+
+/*
+ * Tailwind v4 scans source files for class names. The UI is built in Scala.js, so point it at the
+ * Scala sources, where the class strings live.
+ */
+@source './index.html';
+@source '../../renderer/src/main/scala';
+
+/* Semantic colors: `bg-panel`, `text-muted`, `border-line`, ... Dark mode follows the OS. */
+@theme {
+  --color-surface: #ffffff;
+  --color-panel: #f8f8f9;
+  --color-rail: #f1f1f3;
+  --color-hover: #e9e9ec;
+  --color-line: #e3e3e7;
+  --color-fg: #18181b;
+  --color-muted: #71717a;
+  --color-accent: #4f46e5;
+  --color-accent-soft: #e0e7ff;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-surface: #18181b;
+    --color-panel: #1f1f23;
+    --color-rail: #141417;
+    --color-hover: #2a2a30;
+    --color-line: #2e2e34;
+    --color-fg: #f4f4f5;
+    --color-muted: #a1a1aa;
+    --color-accent: #6366f1;
+    --color-accent-soft: #312e81;
+  }
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}

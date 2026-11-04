@@ -1,0 +1,24 @@
+{
+  "name": "uni-harness",
+  "version": "0.1.0",
+  "description": "A chat workspace shell built with Uni + Scala.js, for Electron and the browser",
+  "type": "module",
+  "main": "out/main/index.js",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "package": "electron-vite build && electron-builder",
+    "dev:web": "vite --config vite.web.config.mjs",
+    "build:web": "vite build --config vite.web.config.mjs && vite build --config vite.web.config.mjs --mode server",
+    "start:web": "node out/web/server/server.js"
+  },
+  "devDependencies": {
+    "@scala-js/vite-plugin-scalajs": "^1.1.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "electron": "^45.0.0",
+    "electron-builder": "^26.18.0",
+    "electron-vite": "^6.0.0",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.5"
+  }
+}
