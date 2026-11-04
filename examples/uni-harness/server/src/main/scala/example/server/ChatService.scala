@@ -26,17 +26,8 @@ class ChatService extends ChatApi:
 
   private def now(): Long = js.Date.now().toLong
 
-  // Start with one conversation so the first launch shows a thread
-  locally {
-    val c = newConversation()
-    messages(c.id) +=
-      ChatMessage(
-        newId("m"),
-        "assistant",
-        "Hi! I am a mock assistant running in the Uni server module. Ask me anything and I will echo it back.",
-        now()
-      )
-  }
+  // Start with one empty conversation; the renderer shows its welcome screen
+  newConversation()
 
   private def newConversation(): Conversation =
     val c = Conversation(newId("c"), "New chat", now())
@@ -79,7 +70,9 @@ class ChatService extends ChatApi:
     val p = Promise[String]()
     js.timers
       .setTimeout(600) {
-        p.success(s"You said: ${prompt}")
+        p.success(
+          s"You said: “${prompt}”\n\nI am the mock model in ChatService.respond. Replace me with a call to your LLM or agent, and this reply arrives the same way: as a typed ChatApi result over ${"IPC or HTTP"}."
+        )
       }
     p.future
 

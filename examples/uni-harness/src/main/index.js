@@ -10,6 +10,11 @@ function createWindow() {
     minWidth: 720,
     minHeight: 480,
     title: 'Uni Harness',
+    backgroundColor: '#061114',
+    // On macOS, hide the title bar and keep the window buttons over the icon rail
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 18, y: 16 } }
+      : {}),
     webPreferences: {
       // The preload script exposes window.uniRPC via contextBridge.
       // electron-vite emits an ESM preload (.mjs) because package.json is "type": "module".

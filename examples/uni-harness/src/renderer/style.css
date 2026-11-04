@@ -7,31 +7,105 @@
 @source './index.html';
 @source '../../renderer/src/main/scala';
 
-/* Semantic colors: `bg-panel`, `text-muted`, `border-line`, ... Dark mode follows the OS. */
+/*
+ * Uni's palette: the teal of the docs site and the logo, with the logo's silver mane as the
+ * neutral accent. Utilities such as `bg-panel` and `text-brand` read these variables, so one set
+ * of class names serves both themes.
+ */
 @theme {
-  --color-surface: #ffffff;
-  --color-panel: #f8f8f9;
-  --color-rail: #f1f1f3;
-  --color-hover: #e9e9ec;
-  --color-line: #e3e3e7;
-  --color-fg: #18181b;
-  --color-muted: #71717a;
-  --color-accent: #4f46e5;
-  --color-accent-soft: #e0e7ff;
+  --color-canvas: var(--h-canvas);
+  --color-surface: var(--h-surface);
+  --color-panel: var(--h-panel);
+  --color-raised: var(--h-raised);
+  --color-hover: var(--h-hover);
+  --color-line: var(--h-line);
+  --color-fg: var(--h-fg);
+  --color-muted: var(--h-muted);
+  --color-faint: var(--h-faint);
+  --color-brand: var(--h-brand);
+  --color-brand-2: var(--h-brand-2);
+  --color-brand-soft: var(--h-brand-soft);
+  --color-glow: #08bdcb;
+  --color-silver: #b7b9b4;
+  --color-rail: var(--h-rail);
+  --color-rail-fg: var(--h-rail-fg);
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    'Noto Sans', 'Hiragino Sans', sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+:root {
+  color-scheme: light;
+  --h-canvas: #eef3f4;
+  --h-surface: #ffffff;
+  --h-panel: rgb(255 255 255 / 0.66);
+  --h-raised: #ffffff;
+  --h-hover: rgb(46 118 133 / 0.07);
+  --h-line: rgb(16 39 44 / 0.09);
+  --h-fg: #10272c;
+  --h-muted: #5b7176;
+  --h-faint: #93a5a9;
+  --h-brand: #2e7685;
+  --h-brand-2: #3c99ad;
+  --h-brand-soft: rgb(46 118 133 / 0.12);
+  --h-rail: #0e2a30;
+  --h-primary-1: #2e7685;
+  --h-primary-2: #3c99ad;
+  --h-rail-fg: #8fb0b6;
+  --h-aurora-1: rgb(60 153 173 / 0.20);
+  --h-aurora-2: rgb(8 189 203 / 0.12);
+  --h-aurora-3: rgb(183 185 180 / 0.25);
+}
+
+/* Dark: the OS preference, unless Settings picked Light; or Settings picked Dark */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --color-surface: #18181b;
-    --color-panel: #1f1f23;
-    --color-rail: #141417;
-    --color-hover: #2a2a30;
-    --color-line: #2e2e34;
-    --color-fg: #f4f4f5;
-    --color-muted: #a1a1aa;
-    --color-accent: #6366f1;
-    --color-accent-soft: #312e81;
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --h-canvas: #061114;
+    --h-surface: #0a1a1e;
+    --h-panel: rgb(10 26 30 / 0.62);
+    --h-raised: #0f2429;
+    --h-hover: rgb(78 197 221 / 0.08);
+    --h-line: rgb(159 201 209 / 0.11);
+    --h-fg: #e3eff1;
+    --h-muted: #8aa4a9;
+    --h-faint: #56706f;
+    --h-brand: #25a7c1;
+    --h-brand-2: #4ec5dd;
+    --h-brand-soft: rgb(37 167 193 / 0.15);
+    --h-rail: #040c0e;
+  --h-primary-1: #176877;
+  --h-primary-2: #1f93ab;
+    --h-primary-1: #176877;
+    --h-primary-2: #1f93ab;
+    --h-rail-fg: #6f9097;
+    --h-aurora-1: rgb(37 167 193 / 0.18);
+    --h-aurora-2: rgb(8 189 203 / 0.10);
+    --h-aurora-3: rgb(110 123 117 / 0.16);
   }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --h-canvas: #061114;
+  --h-surface: #0a1a1e;
+  --h-panel: rgb(10 26 30 / 0.62);
+  --h-raised: #0f2429;
+  --h-hover: rgb(78 197 221 / 0.08);
+  --h-line: rgb(159 201 209 / 0.11);
+  --h-fg: #e3eff1;
+  --h-muted: #8aa4a9;
+  --h-faint: #56706f;
+  --h-brand: #25a7c1;
+  --h-brand-2: #4ec5dd;
+  --h-brand-soft: rgb(37 167 193 / 0.15);
+  --h-rail: #040c0e;
+  --h-primary-1: #176877;
+  --h-primary-2: #1f93ab;
+  --h-rail-fg: #6f9097;
+  --h-aurora-1: rgb(37 167 193 / 0.18);
+  --h-aurora-2: rgb(8 189 203 / 0.10);
+  --h-aurora-3: rgb(110 123 117 / 0.16);
 }
 
 html,
@@ -39,4 +113,211 @@ body,
 #app {
   height: 100%;
   margin: 0;
+}
+
+body {
+  background: var(--h-canvas);
+  color: var(--h-fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(8 189 203 / 0.28);
+}
+
+/* Thin scrollbars that match the theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--h-line) transparent;
+}
+
+/* The chat backdrop: soft teal light from the corners over a faint dot grid */
+.aurora {
+  background:
+    radial-gradient(60rem 30rem at 85% -10%, var(--h-aurora-1), transparent 60%),
+    radial-gradient(40rem 26rem at -10% 110%, var(--h-aurora-2), transparent 60%),
+    radial-gradient(30rem 20rem at 50% 120%, var(--h-aurora-3), transparent 70%),
+    var(--h-surface);
+}
+
+.aurora::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: radial-gradient(var(--h-line) 1px, transparent 1px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse at 50% 30%, black, transparent 75%);
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, var(--h-brand) 20%, var(--color-glow) 60%, var(--color-silver));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, var(--h-primary-1), var(--h-primary-2));
+}
+
+.bubble-user {
+  background: linear-gradient(135deg, var(--h-primary-1), var(--h-primary-2));
+  box-shadow:
+    0 1px 0 rgb(255 255 255 / 0.18) inset,
+    0 8px 24px -12px var(--h-brand);
+}
+
+/* The composer: a glass card whose border turns into the brand gradient on focus */
+.composer {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--h-raised), var(--h-raised)) padding-box,
+    linear-gradient(var(--h-line), var(--h-line)) border-box;
+  box-shadow: 0 18px 40px -24px rgb(6 17 20 / 0.45);
+  transition: box-shadow 0.2s;
+}
+
+.composer:focus-within {
+  background:
+    linear-gradient(var(--h-raised), var(--h-raised)) padding-box,
+    linear-gradient(120deg, var(--h-brand), var(--color-glow), var(--color-silver)) border-box;
+  box-shadow:
+    0 0 0 4px var(--h-brand-soft),
+    0 18px 40px -24px rgb(6 17 20 / 0.55);
+}
+
+/* The logo halo on the empty state */
+@keyframes halo {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  50% {
+    transform: scale(1.12);
+    opacity: 0.9;
+  }
+}
+
+.halo {
+  animation: halo 4s ease-in-out infinite;
+  background: radial-gradient(circle, rgb(8 189 203 / 0.35), transparent 65%);
+}
+
+/* "Thinking" with a light sweep */
+@keyframes shimmer {
+  from {
+    background-position: -200% 0;
+  }
+  to {
+    background-position: 200% 0;
+  }
+}
+
+.shimmer {
+  background: linear-gradient(90deg, var(--h-muted) 35%, var(--color-glow) 50%, var(--h-muted) 65%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 1.6s linear infinite;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.28s ease-out both;
+}
+
+@keyframes ping-soft {
+  75%,
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+
+.status-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: inherit;
+  animation: ping-soft 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+/* Tooltips for icon buttons: <button data-tip="..."> */
+[data-tip] {
+  position: relative;
+}
+
+[data-tip]:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: calc(100% + 10px);
+  top: 50%;
+  transform: translateY(-50%);
+  white-space: nowrap;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  color: #e3eff1;
+  background: #0e2a30;
+  box-shadow: 0 6px 20px -8px rgb(0 0 0 / 0.5);
+  pointer-events: none;
+  z-index: 50;
+}
+
+[data-tip-side='bottom']:hover::after {
+  left: 50%;
+  top: calc(100% + 8px);
+  transform: translateX(-50%);
+}
+
+[data-tip-side='left']:hover::after {
+  left: auto;
+  right: calc(100% + 8px);
+}
+
+/* Frameless Electron window on macOS: drag by the top bars, leave room for the traffic lights */
+.is-electron .app-drag {
+  -webkit-app-region: drag;
+}
+
+.is-electron .app-drag :is(button, input, a, textarea, select) {
+  -webkit-app-region: no-drag;
+}
+
+.mac-inset .rail-top {
+  padding-top: 38px;
+}
+
+/* The dot that travels the call path in the dock */
+@keyframes travel {
+  0% {
+    top: 0;
+    opacity: 0;
+  }
+  15%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    top: calc(100% - 6px);
+    opacity: 0;
+  }
+}
+
+.flow-dot {
+  animation: travel 2.2s ease-in-out infinite;
 }

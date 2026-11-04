@@ -6,3 +6,6 @@ import { contextBridge, ipcRenderer } from 'electron'
 contextBridge.exposeInMainWorld('uniRPC', {
   request: (payload) => ipcRenderer.invoke('uni-rpc', payload)
 })
+
+// The OS name, so the renderer can make room for the macOS window buttons.
+contextBridge.exposeInMainWorld('uniHarness', { platform: process.platform })

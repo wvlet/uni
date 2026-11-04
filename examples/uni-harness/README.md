@@ -20,15 +20,21 @@ flowchart LR
   `server/`). Electron's main process serves it with `ElectronRPCServer.serve`; the web build serves
   it with `Http.server` on Node. The renderer installs `ElectronRenderer` when the preload bridge
   exists and otherwise keeps Uni's default fetch channel, so the calling code is identical.
-- **A workspace layout in Rx HTML.** `Shell`, `IconRail`, `Sidebar`, `ChatView`, `Composer`, and
-  `Dock` are small `RxElement` classes in
-  [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala).
-- **Layout state that persists.** The open/closed state of the sidebar and the dock, and the active
-  rail view, are `Storage.local` variables, so they survive a reload.
+- **A workspace UI in Rx HTML**, in Uni's teal and silver with the Uni logo, light and dark:
+  - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the icon rail and a
+    foldable sidebar with chats (search, Today/Earlier groups), a file tree, and settings.
+  - [`Chat.scala`](renderer/src/main/scala/example/renderer/Chat.scala): a welcome screen with
+    prompt ideas, message bubbles with copy, replies that type themselves in, and the composer.
+  - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the right dock, with the
+    conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
+- **Layout state that persists.** The sidebar and dock state, the active view, and the theme are
+  `Storage.local` variables, so they survive a reload.
 - **Keyboard shortcuts.** `Keyboard.bindAll`: ⌘B / Ctrl+B folds the sidebar, ⌘⇧B / Ctrl+Shift+B
-  toggles the dock.
+  toggles the dock, ⌘K / Ctrl+K searches chats.
 - **A composer that respects IME input.** Enter sends, Shift+Enter adds a newline, and Enter during
   IME composition (Japanese, Chinese, Korean input) confirms the conversion instead of sending.
+- **A native-feeling window.** On macOS the Electron window hides its title bar; the top bars are
+  drag regions and the rail leaves room for the window buttons.
 
 The assistant is a mock that echoes your message after a short pause, so the example needs no API
 key. Replace `ChatService.respond` with a call to your model or agent.
@@ -42,7 +48,7 @@ key. Replace `ChatService.respond` with a call to your model or agent.
 | `renderer/` | Scala.js: the UI and the transport choice |
 | `src/main/index.js` | Electron main entry: creates the window, hands `ipcMain` to Scala |
 | `src/preload/index.js` | `contextBridge` bridge: `window.uniRPC.request → ipcRenderer.invoke` |
-| `src/renderer/` | `index.html`, the JS entry, and the Tailwind theme (light and dark) |
+| `src/renderer/` | `index.html`, the JS entry, the Tailwind theme (light and dark), and the Uni logo |
 | `src/web/server.js` | Node entry for the web build: serves the UI and `ChatApi` |
 | `electron.vite.config.mjs` | The Electron build (electron-vite + `vite-plugin-scalajs`) |
 | `vite.web.config.mjs` | The web build: dev server with the `ChatApi` server, and the production bundles |
@@ -89,5 +95,3 @@ small.
 - The web server binds to `127.0.0.1` and has no authentication. Add both before you expose it
   beyond your machine.
 - Conversations live in memory and reset when the process exits.
-- The Electron window uses the standard OS frame. For a frameless window, set `titleBarStyle` in
-  `src/main/index.js` and mark the header as a drag region.
