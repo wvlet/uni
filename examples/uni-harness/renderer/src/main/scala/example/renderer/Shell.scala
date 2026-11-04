@@ -130,7 +130,7 @@ class IconRail(state: HarnessState) extends RxElement:
               "bg-brand-soft text-brand shadow-[inset_0_0_0_1px_var(--h-line)]"
             else
               "text-rail-fg hover:bg-hover hover:text-fg"
-          s"relative grid size-10 place-items-center rounded-xl transition active:scale-95 ${look}"
+          s"relative grid size-9 place-items-center rounded-lg transition active:scale-95 ${look}"
         },
       onclick -> { () =>
         state.openView(v)
@@ -140,7 +140,7 @@ class IconRail(state: HarnessState) extends RxElement:
           on,
           span(
             cls ->
-              "absolute -left-[10px] top-2 bottom-2 w-[3px] rounded-r-full bg-brand shadow-[0_0_12px_var(--h-brand)]"
+              "absolute -left-[6px] top-2 bottom-2 w-[3px] rounded-r-full bg-brand shadow-[0_0_12px_var(--h-brand)]"
           )
         )
       ),
@@ -154,7 +154,7 @@ class IconRail(state: HarnessState) extends RxElement:
       data("tip") -> label,
       ariaLabel   -> label,
       cls         ->
-        "grid size-10 place-items-center rounded-xl text-rail-fg transition hover:bg-hover hover:text-fg active:scale-95",
+        "grid size-9 place-items-center rounded-lg text-rail-fg transition hover:bg-hover hover:text-fg active:scale-95",
       onclick -> { () =>
         action()
       },
@@ -163,8 +163,8 @@ class IconRail(state: HarnessState) extends RxElement:
 
   override def render: RxElement = nav(
     cls ->
-      "app-drag flex w-[60px] shrink-0 flex-col items-center gap-1.5 border-r border-line bg-rail pt-3.5 pb-3",
-    div(cls -> "mb-4 grid size-10 place-items-center", Icons.logo("size-8")),
+      "app-drag flex w-12 shrink-0 flex-col items-center gap-1 border-r border-line bg-rail pt-3 pb-2.5",
+    div(cls -> "mb-3 grid size-9 place-items-center", Icons.logo("size-7")),
     railButton(View.Chats, Icons.chat),
     railButton(View.Files, Icons.folder),
     railButton(View.Settings, Icons.sliders),
@@ -190,10 +190,10 @@ class IconRail(state: HarnessState) extends RxElement:
       data("tip") -> "Account (local)",
       ariaLabel   -> "Account",
       cls         ->
-        "mt-1 grid size-10 place-items-center rounded-xl transition hover:bg-hover active:scale-95",
+        "mt-1 grid size-9 place-items-center rounded-lg transition hover:bg-hover active:scale-95",
       span(
         cls ->
-          "relative grid size-7 place-items-center rounded-full bg-gradient-to-br from-brand-2 to-brand text-white shadow-[0_4px_12px_-6px_var(--h-brand)] ring-1 ring-white/25",
+          "relative grid size-6 place-items-center rounded-full bg-gradient-to-br from-brand-2 to-brand text-white shadow-[0_4px_12px_-6px_var(--h-brand)] ring-1 ring-white/25",
         Icons.user,
         span(
           cls ->
