@@ -38,9 +38,7 @@ class Shell(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport)
       "ctrl+k"       -> (() => focusSearch())
     )
     val themes = layout.theme.run(t => Theme.applyTo(dom.document.documentElement, t))
-    // The Seq overload: the two-argument `Cancelable.merge` takes its arguments by name, so it
-    // would not subscribe until cancel time
-    subscriptions = Cancelable.merge(Seq(shortcuts, themes))
+    subscriptions = Cancelable.merge(shortcuts, themes)
     store.load()
 
   override def beforeUnmount: Unit = subscriptions.cancel

@@ -2,7 +2,6 @@ package example.renderer
 
 import example.api.ChatMessage
 import org.scalajs.dom
-import wvlet.uni.dom.HtmlTags
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
@@ -282,8 +281,8 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
   private var watching = Cancelable.empty
 
   override def onMount(node: Any): Unit =
-    // Grow the textarea with its content, up to max-h-52. This follows the draft instead of using
-    // `oninput`, because `value.bind` already owns the element's input handler.
+    // Grow the textarea with its content, up to max-h-52. This follows the draft rather than
+    // `oninput`, so the textarea also shrinks back when submit() clears the draft.
     val growing = draft.run { _ =>
       inputRef.foreach { el =>
         el.style.height = "auto"
@@ -291,7 +290,7 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
       }
     }
     val busyState = busy.run(b => isBusy = b)
-    watching = Cancelable.merge(Seq(growing, busyState))
+    watching = Cancelable.merge(growing, busyState)
 
   override def beforeUnmount: Unit = watching.cancel
 
@@ -350,8 +349,8 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
           ariaLabel -> "Send",
           cls       ->
             "btn-primary grid size-8 place-items-center rounded-full text-white shadow-[0_6px_16px_-6px_var(--h-brand)] transition hover:scale-105 active:scale-95 disabled:scale-100 disabled:opacity-30 disabled:shadow-none",
-          HtmlTags.attr("disabled") -> Rx.join(draft, busy).map((d, b) => d.trim.isEmpty || b),
-          onclick                   -> { () =>
+          disabled -> Rx.join(draft, busy).map((d, b) => d.trim.isEmpty || b),
+          onclick  -> { () =>
             submit()
           },
           Icons.arrowUp

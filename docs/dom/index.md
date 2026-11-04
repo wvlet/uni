@@ -122,15 +122,19 @@ keeps the bare name:
 | `forId` (or `` `for` ``) | `for` | — |
 
 Use `+=` to **append** to an existing value (handy for classes). Boolean
-attributes such as `disabled`, `required`, `readonly`, and `hidden` are already
-valueless; use `HtmlTags.attr(name).noValue` for any other one:
+attributes such as `disabled`, `required`, `readonly`, and `hidden` work on their
+own, and also take a `Boolean` or `Rx[Boolean]`, where `false` removes the
+attribute. Use `HtmlTags.attr(name).boolean` for any other one:
 
 ```scala
 import wvlet.uni.dom.HtmlTags
 
+val busy = Rx.variable(false)
+
 div(cls -> "base", cls += "highlighted")   // class="base highlighted"
 button(disabled, "Can't click")
-video(HtmlTags.attr("playsinline").noValue)
+button(disabled -> busy, "Send")           // toggles with busy
+video(HtmlTags.attr("playsinline").boolean)
 ```
 
 ### Events
@@ -223,6 +227,8 @@ input(tpe -> "checkbox", checked.bind(subscribed))
 
 Use `value.bindOnChange(v)` to update on the `change` event (e.g. for `<select>`)
 instead of on every keystroke.
+A binding attaches its own listener, so an `oninput` or `onchange` handler on the
+same element runs alongside it.
 
 ## Mounting and teardown
 
