@@ -58,8 +58,8 @@ trait GlobalAttrs:
   lazy val translate: DomAttributeOf       = attr("translate")
 
   // Boolean attributes
-  lazy val hidden: DomNode = attr("hidden").noValue
-  lazy val inert: DomNode  = attr("inert").noValue
+  lazy val hidden: DomBooleanAttribute = attr("hidden").boolean
+  lazy val inert: DomBooleanAttribute  = attr("inert").boolean
 
   // Data attributes
   def data(suffix: String): DomAttributeOf = attr(s"data-${suffix}")
@@ -123,14 +123,14 @@ trait InputAttrs extends GlobalAttrs:
   lazy val pattern: DomAttributeOf   = attr("pattern")
 
   // Boolean input attributes
-  lazy val disabled: DomNode  = attr("disabled").noValue
-  lazy val readonly: DomNode  = attr("readonly").noValue
-  lazy val required: DomNode  = attr("required").noValue
-  lazy val autofocus: DomNode = attr("autofocus").noValue
-  lazy val multiple: DomNode  = attr("multiple").noValue
+  lazy val disabled: DomBooleanAttribute  = attr("disabled").boolean
+  lazy val readonly: DomBooleanAttribute  = attr("readonly").boolean
+  lazy val required: DomBooleanAttribute  = attr("required").boolean
+  lazy val autofocus: DomBooleanAttribute = attr("autofocus").boolean
+  lazy val multiple: DomBooleanAttribute  = attr("multiple").boolean
 
   // For backward compatibility: checked without arguments sets the boolean attribute
-  lazy val checkedAttr: DomNode = attr("checked").noValue
+  lazy val checkedAttr: DomBooleanAttribute = attr("checked").boolean
 
   /**
     * Checked attribute/property with two-way binding support.
@@ -194,15 +194,15 @@ trait LinkAttrs:
   lazy val sizes: DomAttributeOf       = attr("sizes")
   lazy val crossorigin: DomAttributeOf = attr("crossorigin")
   lazy val usemap: DomAttributeOf      = attr("usemap")
-  lazy val ismap: DomNode              = attr("ismap").noValue
+  lazy val ismap: DomBooleanAttribute  = attr("ismap").boolean
 
   // Media attributes
-  lazy val autoplay: DomNode       = attr("autoplay").noValue
-  lazy val controls: DomNode       = attr("controls").noValue
-  lazy val loop: DomNode           = attr("loop").noValue
-  lazy val muted: DomNode          = attr("muted").noValue
-  lazy val poster: DomAttributeOf  = attr("poster")
-  lazy val preload: DomAttributeOf = attr("preload")
+  lazy val autoplay: DomBooleanAttribute = attr("autoplay").boolean
+  lazy val controls: DomBooleanAttribute = attr("controls").boolean
+  lazy val loop: DomBooleanAttribute     = attr("loop").boolean
+  lazy val muted: DomBooleanAttribute    = attr("muted").boolean
+  lazy val poster: DomAttributeOf        = attr("poster")
+  lazy val preload: DomAttributeOf       = attr("preload")
 
 end LinkAttrs
 
@@ -220,12 +220,12 @@ trait FormAttrs:
   lazy val formAttr: DomAttributeOf = attr(
     "form"
   ) // HTML form attribute (for associating with a form)
-  lazy val formaction: DomAttributeOf  = attr("formaction")
-  lazy val formmethod: DomAttributeOf  = attr("formmethod")
-  lazy val formenctype: DomAttributeOf = attr("formenctype")
-  lazy val formtarget: DomAttributeOf  = attr("formtarget")
-  lazy val formnovalidate: DomNode     = attr("formnovalidate").noValue
-  lazy val novalidate: DomNode         = attr("novalidate").noValue
+  lazy val formaction: DomAttributeOf          = attr("formaction")
+  lazy val formmethod: DomAttributeOf          = attr("formmethod")
+  lazy val formenctype: DomAttributeOf         = attr("formenctype")
+  lazy val formtarget: DomAttributeOf          = attr("formtarget")
+  lazy val formnovalidate: DomBooleanAttribute = attr("formnovalidate").boolean
+  lazy val novalidate: DomBooleanAttribute     = attr("novalidate").boolean
 
 end FormAttrs
 
@@ -249,12 +249,12 @@ end TableAttrs
 trait ScriptAttrs:
   import HtmlTags.attr
 
-  lazy val async: DomNode            = attr("async").noValue
-  lazy val defer: DomNode            = attr("defer").noValue
-  lazy val integrity: DomAttributeOf = attr("integrity")
-  lazy val nomodule: DomNode         = attr("nomodule").noValue
-  lazy val nonce: DomAttributeOf     = attr("nonce")
-  lazy val charset: DomAttributeOf   = attr("charset")
+  lazy val async: DomBooleanAttribute    = attr("async").boolean
+  lazy val defer: DomBooleanAttribute    = attr("defer").boolean
+  lazy val integrity: DomAttributeOf     = attr("integrity")
+  lazy val nomodule: DomBooleanAttribute = attr("nomodule").boolean
+  lazy val nonce: DomAttributeOf         = attr("nonce")
+  lazy val charset: DomAttributeOf       = attr("charset")
 
 end ScriptAttrs
 
@@ -275,14 +275,14 @@ end MetaAttrs
 trait MiscAttrs:
   import HtmlTags.attr
 
-  lazy val open: DomNode            = attr("open").noValue
-  lazy val selected: DomNode        = attr("selected").noValue
-  lazy val `default`: DomNode       = attr("default").noValue
-  lazy val datetime: DomAttributeOf = attr("datetime")
-  lazy val cite: DomAttributeOf     = attr("cite")
-  lazy val sandbox: DomAttributeOf  = attr("sandbox")
-  lazy val srcdoc: DomAttributeOf   = attr("srcdoc")
-  lazy val allow: DomAttributeOf    = attr("allow")
+  lazy val open: DomBooleanAttribute      = attr("open").boolean
+  lazy val selected: DomBooleanAttribute  = attr("selected").boolean
+  lazy val `default`: DomBooleanAttribute = attr("default").boolean
+  lazy val datetime: DomAttributeOf       = attr("datetime")
+  lazy val cite: DomAttributeOf           = attr("cite")
+  lazy val sandbox: DomAttributeOf        = attr("sandbox")
+  lazy val srcdoc: DomAttributeOf         = attr("srcdoc")
+  lazy val allow: DomAttributeOf          = attr("allow")
 
 end MiscAttrs
 

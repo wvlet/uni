@@ -35,6 +35,28 @@ case class DomAttribute(
 ) extends DomNode
 
 /**
+  * A boolean attribute (e.g., disabled, hidden). Used as-is, it sets the attribute; it also takes a
+  * Boolean or an Rx[Boolean], where false removes the attribute.
+  *
+  * Usage:
+  * {{{
+  *   button(disabled)
+  *   button(disabled -> isBusy) // isBusy: Rx[Boolean]
+  * }}}
+  */
+class DomBooleanAttribute(attrName: String, attrNs: DomNamespace = DomNamespace.xhtml)
+    extends DomAttribute(attrName, true, attrNs):
+  /**
+    * Set the attribute from a Boolean, Option, or Rx value; false or None removes it.
+    */
+  def apply[V: EmbeddableAttribute](v: V): DomNode = DomAttribute(attrName, v, attrNs)
+
+  /**
+    * Alias for apply. Allows `disabled -> isBusy` syntax.
+    */
+  def ->[V: EmbeddableAttribute](v: V): DomNode = apply(v)
+
+/**
   * Builder for creating DOM attributes with type-safe value assignment.
   *
   * Usage:
@@ -70,6 +92,13 @@ class DomAttributeOf(name: String, namespace: DomNamespace = DomNamespace.xhtml)
     * Create a boolean attribute with no value (e.g., disabled, checked).
     */
   def noValue: DomNode = DomAttribute(name, true, namespace)
+
+  /**
+    * A boolean attribute that also accepts a Boolean or Rx[Boolean] value.
+    */
+  def boolean: DomBooleanAttribute = DomBooleanAttribute(name, namespace)
+
+end DomAttributeOf
 
 /**
   * Builder for creating DOM event handler attributes.

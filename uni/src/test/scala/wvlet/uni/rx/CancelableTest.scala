@@ -61,23 +61,19 @@ class CancelableTest extends UniTest:
     a shouldBe 1
   }
 
-  test("Merge cancelable in var") {
-    var x  = 0
-    var y  = 0
-    var c1 = Cancelable.empty
-    val c2 = Cancelable { () =>
-      y += 1
-    }
+  test("Merge evaluates both Cancelables eagerly") {
+    var started                 = 0
+    var stopped                 = 0
+    def subscribe(): Cancelable =
+      started += 1
+      Cancelable(() => stopped += 1)
 
-    // c1 should be evaluated lazily
-    val cm = Cancelable.merge(c1, c2)
-
-    c1 = Cancelable { () =>
-      x += 1
-    }
+    val cm = Cancelable.merge(subscribe(), subscribe())
+    started shouldBe 2
+    stopped shouldBe 0
     cm.cancel
-    x shouldBe 1
-    y shouldBe 1
+    started shouldBe 2
+    stopped shouldBe 2
   }
 
   test("Merge sequence of Cancelables") {
