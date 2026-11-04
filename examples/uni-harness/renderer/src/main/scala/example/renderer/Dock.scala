@@ -7,12 +7,14 @@ import wvlet.uni.rx.Rx
 import scala.language.implicitConversions
 
 /**
-  * The right dock: context next to the chat. "Details" shows the conversation and how a call
-  * travels; "Activity" lists every RPC call with its round-trip time; "Terminal" runs a shell.
+  * The right dock: context next to the chat, resizable from its left edge. "Details" shows the
+  * conversation and how a call travels; "Activity" lists every RPC call with its round-trip time;
+  * "Terminal" runs a shell.
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
   // Created once, so the shell and its scrollback survive switching tabs
   private lazy val terminal = TerminalPane(layout.theme)
+  private val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
 
   private def tab(t: DockTab, icon: RxElement, badge: Rx[String]): RxElement = button(
     cls ->
@@ -35,7 +37,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
   )
 
   override def render: RxElement =
-    FoldablePane(layout.dockOpen, layout.dockTab.map(Layout.dockWidthFor), Edge.Left)(
+    FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))(
       div(
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
         div(

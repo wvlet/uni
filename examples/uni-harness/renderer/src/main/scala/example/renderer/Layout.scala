@@ -4,7 +4,7 @@ import wvlet.uni.dom.{SizeRange, Storage}
 import wvlet.uni.rx.{Rx, RxVar}
 
 /**
-  * Layout state: which panes are open, the active rail view, the theme, and the sidebar width.
+  * Layout state: which panes are open, the active rail view, the theme, and the pane widths.
   * Components read and write these variables directly. The app persists them in localStorage
   * ([[Layout.persistent]]); tests use plain in-memory variables ([[Layout.inMemory]]).
   */
@@ -14,7 +14,8 @@ class Layout(
     val view: RxVar[View],
     val theme: RxVar[Theme],
     val dockTab: RxVar[DockTab],
-    val sidebarWidth: RxVar[Int]
+    val sidebarWidth: RxVar[Int],
+    val dockWidth: RxVar[Int]
 ):
   def toggleSidebar(): Unit = sidebarOpen.update(!_)
   def toggleDock(): Unit    = dockOpen.update(!_)
@@ -35,15 +36,9 @@ end Layout
 
 object Layout:
   val sidebarWidth = SizeRange(min = 208, default = 272, max = 480)
-  val dockWidth    = 320
-  // The terminal needs room for about 80 columns
-  val terminalDockWidth = 600
-
-  def dockWidthFor(tab: DockTab): Int =
-    if tab == DockTab.Terminal then
-      terminalDockWidth
-    else
-      dockWidth
+  // One width for every dock tab; ~600px fits an 80-column terminal. The max leaves the chat
+  // some room in the default 1200px window with the sidebar open.
+  val dockWidth = SizeRange(min = 260, default = 320, max = 720)
 
   def inMemory(): Layout = Layout(
     Rx.variable(true),
@@ -51,7 +46,8 @@ object Layout:
     Rx.variable(View.Chats),
     Rx.variable(Theme.System),
     Rx.variable(DockTab.Details),
-    Rx.variable(sidebarWidth.default)
+    Rx.variable(sidebarWidth.default),
+    Rx.variable(dockWidth.default)
   )
 
   def persistent(prefix: String = "uni-harness."): Layout = Layout(
@@ -60,5 +56,6 @@ object Layout:
     Storage.local(s"${prefix}view", View.Chats),
     Storage.local(s"${prefix}theme", Theme.System),
     Storage.local(s"${prefix}dockTab", DockTab.Details),
-    Storage.local(s"${prefix}sidebarWidth", sidebarWidth.default)
+    Storage.local(s"${prefix}sidebarWidth", sidebarWidth.default),
+    Storage.local(s"${prefix}dockWidth", dockWidth.default)
   )
