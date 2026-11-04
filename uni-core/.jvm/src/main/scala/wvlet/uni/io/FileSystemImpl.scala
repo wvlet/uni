@@ -100,13 +100,17 @@ private[io] object FileSystemJvm extends FileSystemBase:
                     None
               (basicAttrs, None, fallbackOwner, None)
 
+        // Links and other reparse points first: on Windows an NTFS junction reports both
+        // isDirectory and isOther, and must not pass as a plain directory
         val fileType =
-          if attrs.isRegularFile then
+          if attrs.isSymbolicLink then
+            FileType.SymbolicLink
+          else if attrs.isOther then
+            FileType.Other
+          else if attrs.isRegularFile then
             FileType.File
           else if attrs.isDirectory then
             FileType.Directory
-          else if attrs.isSymbolicLink then
-            FileType.SymbolicLink
           else
             FileType.Other
 

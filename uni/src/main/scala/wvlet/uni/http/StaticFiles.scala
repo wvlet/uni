@@ -108,7 +108,7 @@ case class StaticFiles(
           segments
       )
     }
-    .map(file)
+    .flatMap(file)
 
   /**
     * The file at `segments` under the root, when every component exists and none is a symbolic
@@ -116,25 +116,34 @@ case class StaticFiles(
     */
   private def findFile(segments: Seq[String]): Option[IOPath] =
     var path  = rootPath
-    var found = true
+    var found = segments.nonEmpty
     val it    = segments.iterator
     while found && it.hasNext do
       path = IOPath(path.segments :+ it.next(), path.isAbsolute)
       val info = FileSystem.info(path)
-      found = info.exists && !info.isSymbolicLink && (info.isDirectory || !it.hasNext)
-    if found && segments.nonEmpty && FileSystem.info(path).isFile then
-      Some(path)
-    else
-      None
+      // A junction or other reparse point is FileType.Other, so it fails both checks
+      found =
+        if it.hasNext then
+          info.isDirectory
+        else
+          info.isFile
+    Option.when(found)(path)
 
-  private def file(path: IOPath): Response =
+  /** The file as a response, or None when it can't be read (permissions, deleted meanwhile). */
+  private def file(path: IOPath): Option[Response] =
     val contentType = contentTypes.getOrElse(
       path.extension.toLowerCase,
       ContentType.ApplicationOctetStream
     )
-    Response
-      .ok(HttpContent.bytes(FileSystem.readBytes(path), contentType))
-      .addHeader("X-Content-Type-Options", "nosniff")
+    try
+      Some(
+        Response
+          .ok(HttpContent.bytes(FileSystem.readBytes(path), contentType))
+          .addHeader("X-Content-Type-Options", "nosniff")
+      )
+    catch
+      case _: Exception =>
+        None
 
   private def acceptsHtml(request: Request): Boolean = request
     .headers
@@ -209,10 +218,19 @@ object StaticFiles:
       else
         None
 
+  // Names Windows can't open (Paths.get throws) or silently aliases to another name
+  private val windowsReserved = Set('<', '>', '"', '|', '?', '*')
+  // An 8.3 short name such as GIT~1, which on NTFS can alias a hidden `.git`
+  private val shortNameAlias = ".*~[0-9].*".r
+
   private[http] def isSafeSegment(name: String, dotfiles: Boolean): Boolean =
     name.nonEmpty && name != "." && name != ".." &&
-      (dotfiles || !name.startsWith(".")) &&
-      name.forall(c => c >= ' ' && c != '\u007f' && c != '/' && c != '\\' && c != ':')
+      (dotfiles || !name.startsWith(".")) && !name.endsWith(".") && !name.endsWith(" ") &&
+      !shortNameAlias.matches(name) &&
+      name.forall(c =>
+        c >= ' ' && c != '\u007f' && c != '/' && c != '\\' && c != ':' &&
+          !windowsReserved.contains(c)
+      )
 
   /** Decode `%XX` escapes as UTF-8. None for a malformed escape. */
   private[http] def percentDecode(s: String): Option[String] =

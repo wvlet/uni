@@ -98,6 +98,15 @@ class StaticFilesTest extends UniTest:
       "/%",
       "/%zz",
       "/%2",
+      // Windows: names Paths.get rejects, names Win32 aliases, and 8.3 short names
+      "/index.html.",
+      "/index.html%20",
+      "/a%3Cb",
+      "/a%2A",
+      "/x%3F",
+      "/a%7Cb",
+      "/GIT~1/config",
+      "/ENV~1",
       "secret.txt",
       ""
     )
@@ -143,6 +152,19 @@ class StaticFilesTest extends UniTest:
     FileSystem.createSymlink(link, site)
     StaticFiles(link.path).serve("/assets/app.js").flatMap(_.contentAsString) shouldBe
       Some("console.log(1)")
+  }
+
+  test("treat an unreadable file as a miss") {
+    if IOPath.isWindows then
+      skip("POSIX permissions are not available on Windows")
+    val locked = site / "locked.txt"
+    FileSystem.writeString(locked, "locked")
+    FileSystem.setPermissions(locked, wvlet.uni.io.PermSet.empty)
+    try
+      // The root user reads it anyway, so only assert when the permission takes effect
+      if !FileSystem.info(locked).isReadable then
+        body("/locked.txt") shouldBe None
+    finally FileSystem.setPermissions(locked, wvlet.uni.io.PermSet("rw-------"))
   }
 
   test("treat a missing root as an empty directory") {
