@@ -13,10 +13,11 @@ template you can copy: one or two Scala files, a README that explains what it sh
 | [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
 | [`web-ui`](web-ui/) | Scala.js | A todo list with `RxElement`, `Rx.variable`, and two-way form binding, loaded by a static `index.html` |
 | [`electron-app`](electron-app/) | Scala.js | A desktop app that calls the main process over Electron IPC with Uni RPC (standalone build) |
+| [`uni-harness`](uni-harness/) | Scala.js | A chat workspace shell (icon rail, foldable sidebar, chat, right dock) that runs as an Electron app and as a web app from the same code, with store and component tests |
 
 ## Run them from this repository
 
-The first six are projects in the root `build.sbt`, so CI compiles and tests them against the
+All but `electron-app` are projects in the root `build.sbt`, so CI compiles and tests them against the
 current source and they never go stale. They are not published.
 
 ```bash
@@ -29,6 +30,7 @@ current source and they never go stale. They are not published.
 ./sbt exampleRpcNativeJVM/test                # the same server on Netty, called by the typed client
 ./sbt --error exampleMcpServer/run            # stdio MCP server (speaks JSON-RPC on stdin/stdout)
 ./sbt exampleWebUi/fastLinkJS                 # builds examples/web-ui/target/js/main.js
+./sbt exampleHarnessRenderer/test             # uni-harness store and component tests (Chromium)
 ```
 
 ## Copy one into your own project

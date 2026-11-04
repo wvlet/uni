@@ -244,3 +244,8 @@ That takes the macOS DMG from 121 MB to 109 MB (−10%), and the installed app f
 
 See the full project — sbt build, Vite config, preload, packaging — in
 [`examples/electron-app`](https://github.com/wvlet/uni/tree/main/examples/electron-app).
+
+For a larger template, [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness)
+is a chat workspace shell (icon rail, foldable sidebar, chat with a composer, right dock) whose
+renderer and service run unchanged as an Electron app and as a web app: the renderer uses IPC when
+the preload bridge is present and fetch otherwise.

@@ -152,8 +152,17 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   test.jvm
 )
 
-lazy val jsProjects: Seq[ProjectReference] =
-  Seq(core.js, uni.js, domTest, exampleRepl.js, exampleWebUi, test.js)
+lazy val jsProjects: Seq[ProjectReference] = Seq(
+  core.js,
+  uni.js,
+  domTest,
+  exampleRepl.js,
+  exampleWebUi,
+  exampleHarnessApi,
+  exampleHarnessServer,
+  exampleHarnessRenderer,
+  test.js
+)
 lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
@@ -418,6 +427,49 @@ lazy val exampleWebUi = project
     Test / loadedTestFrameworks := Def.uncached(Map.empty)
   )
   .dependsOn(uni.js)
+
+// uni-harness: a chat workspace shell for Electron and the browser. The Scala.js modules build here,
+// so CI compiles and tests them; examples/uni-harness/*.config.mjs link them with vite-plugin-scalajs.
+// The modules export functions for Vite to import, so none has a main module initializer.
+lazy val exampleHarnessApi = project
+  .in(file("examples/uni-harness/api"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name                        := "uni-example-harness-api",
+    description                 := "Example: the uni-harness ChatApi and its typed client",
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .dependsOn(uni.js)
+
+lazy val exampleHarnessServer = project
+  .in(file("examples/uni-harness/server"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name        := "uni-example-harness-server",
+    description := "Example: the uni-harness ChatApi served over Electron IPC and Node HTTP"
+  )
+  .dependsOn(exampleHarnessApi, test.js % Test)
+
+lazy val exampleHarnessRenderer = project
+  .in(file("examples/uni-harness/renderer"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name        := "uni-example-harness-renderer",
+    description := "Example: the uni-harness UI, tested in headless Chromium",
+    // Component tests render into a real DOM, like domTest
+    Test / jsEnv :=
+      Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
+  )
+  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, test.js % Test)
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under
