@@ -18,6 +18,8 @@ import { pathToFileURL } from 'node:url'
 const WEB_PORT = Number(process.env.UNI_HARNESS_WEB_PORT ?? 5180)
 const RPC_PORT = Number(process.env.UNI_HARNESS_RPC_PORT ?? 5181)
 const RPC_PREFIX = '/example.api.'
+// The Scala.js modules are projects in the Uni repository's root build
+const ROOT = '../..'
 
 // Links an sbt project with Scala.js and returns its output directory. The renderer is linked
 // by vite-plugin-scalajs; the server is linked here, after it, because two sbt processes in one
@@ -26,6 +28,7 @@ function linkScalaJS(projectID) {
   return new Promise((ok, fail) => {
     const args = ['--batch', '-no-colors', '-Dsbt.supershell=false', `print ${projectID}/fastLinkJSOutput`]
     const sbt = spawn(process.platform === 'win32' ? 'sbt.bat' : 'sbt', args, {
+      cwd: ROOT,
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'inherit']
     })
@@ -48,7 +51,7 @@ function uniRpcServer() {
     configureServer(server) {
       // Vite runs the renderer's sbt link (buildStart) before it starts listening
       server.httpServer?.once('listening', async () => {
-        const dir = await linkScalaJS('server')
+        const dir = await linkScalaJS('exampleHarnessServer')
         const mod = await import(pathToFileURL(join(dir, 'main.js')).href)
         httpServer = mod.startWebServer(RPC_PORT, undefined)
         server.config.logger.info(`  Uni ChatApi server: http://127.0.0.1:${RPC_PORT}${RPC_PREFIX}ChatApi/*`)
@@ -61,7 +64,7 @@ function uniRpcServer() {
 export default defineConfig(({ mode }) => {
   if (mode === 'server') {
     return {
-      plugins: [scalaJSPlugin({ cwd: '.', projectID: 'server' })],
+      plugins: [scalaJSPlugin({ cwd: ROOT, projectID: 'exampleHarnessServer' })],
       build: {
         ssr: resolve('src/web/server.js'),
         outDir: 'out/web/server',
@@ -73,7 +76,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: 'src/renderer',
     plugins: [
-      scalaJSPlugin({ cwd: '.', projectID: 'renderer' }),
+      scalaJSPlugin({ cwd: ROOT, projectID: 'exampleHarnessRenderer' }),
       tailwindcss(),
       uniRpcServer()
     ],

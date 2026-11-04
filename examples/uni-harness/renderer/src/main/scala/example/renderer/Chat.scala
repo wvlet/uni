@@ -12,7 +12,7 @@ import scala.language.implicitConversions
 import scala.scalajs.js
 
 /** The main column: a header, the thread (or the welcome screen), and the composer. */
-class ChatView(state: HarnessState) extends RxElement:
+class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends RxElement:
   private val threadRef = DomRef[dom.html.Div]()
 
   // Keep the newest message in view after the thread re-renders
@@ -27,66 +27,61 @@ class ChatView(state: HarnessState) extends RxElement:
       0
     )
 
+  private def header: RxElement = div(
+    cls ->
+      "app-drag relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/40 px-4 backdrop-blur-md",
+    layout
+      .sidebarOpen
+      .map(open =>
+        unless(
+          open,
+          Ui.iconButton("Open sidebar  ⌘B", Icons.panelLeft, () => layout.toggleSidebar())
+        )
+      ),
+    div(
+      cls -> "min-w-0 flex-1 px-1",
+      h1(
+        cls -> "truncate text-[14px] font-semibold tracking-tight",
+        store.selectedConversation.map(_.map(_.title).getOrElse("Uni Harness"))
+      ),
+      div(
+        cls -> "text-[11px] text-faint",
+        store.messageCount.map(n => s"${Ui.plural(n, "message")} · Echo model (mock)")
+      )
+    ),
+    span(
+      cls ->
+        "flex items-center gap-2 rounded-full border border-line bg-raised/70 px-3 py-1 text-[11px] font-medium text-muted shadow-sm",
+      span(cls -> "status-dot relative size-1.5 rounded-full bg-glow"),
+      transport.label
+    ),
+    layout
+      .dockOpen
+      .map(open =>
+        unless(
+          open,
+          Ui.iconButton("Open dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
+        )
+      )
+  )
+
   override def render: RxElement = main(
     cls -> "aurora relative flex min-w-0 flex-1 flex-col",
-    header(
-      cls ->
-        "app-drag relative z-10 flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface/40 px-4 backdrop-blur-md",
-      state
-        .sidebarOpen
-        .map(open =>
-          unless(open, iconButton("Open sidebar  ⌘B", Icons.panelLeft, () => state.toggleSidebar()))
-        ),
-      div(
-        cls -> "min-w-0 flex-1 px-1",
-        h1(
-          cls -> "truncate text-[14px] font-semibold tracking-tight",
-          state.selectedConversation.map(_.map(_.title).getOrElse("Uni Harness"))
-        ),
-        div(
-          cls -> "text-[11px] text-faint",
-          state
-            .messages
-            .map { ms =>
-              val n = ms.count(_.id != "pending")
-              s"${n} message${
-                  if n == 1 then
-                    ""
-                  else
-                    "s"
-                } · Echo model (mock)"
-            }
-        )
-      ),
-      span(
-        cls ->
-          "flex items-center gap-2 rounded-full border border-line bg-raised/70 px-3 py-1 text-[11px] font-medium text-muted shadow-sm",
-        span(cls -> "status-dot relative size-1.5 rounded-full bg-glow"),
-        state.transport.label
-      ),
-      state
-        .dockOpen
-        .map(open =>
-          unless(
-            open,
-            iconButton("Open dock  ⌘⇧B", Icons.panelRight, () => state.toggleDock(), "left")
-          )
-        )
-    ),
+    header,
     div(
       ref -> threadRef,
       cls -> "relative z-10 min-h-0 flex-1 overflow-y-auto",
-      state
+      store
         .messages
         .map { ms =>
           if ms.isEmpty then
-            Welcome(state)
+            Welcome(transport, prompt => store.send(prompt))
           else
             scrollToBottom()
             div(
               cls -> "mx-auto flex max-w-3xl flex-col gap-7 px-6 pt-8 pb-6",
-              ms.map(m => Bubble(state, m)),
-              state
+              ms.map(m => Bubble(m, animate = store.takeFresh(m.id))),
+              store
                 .pending
                 .map { p =>
                   if p then
@@ -96,7 +91,7 @@ class ChatView(state: HarnessState) extends RxElement:
             )
         }
     ),
-    state
+    store
       .error
       .map {
         case Some(msg) =>
@@ -108,13 +103,13 @@ class ChatView(state: HarnessState) extends RxElement:
         case None =>
           span()
       },
-    Composer(state)
+    Composer(text => store.send(text), store.pending)
   )
 
 end ChatView
 
 /** The first screen of an empty conversation: the logo, a line about Uni, and prompt ideas. */
-class Welcome(state: HarnessState) extends RxElement:
+class Welcome(transport: Transport, onPick: String => Unit) extends RxElement:
   private val ideas = Seq(
     (Icons.bolt, "Wire a real model", "How do I replace the mock with a real LLM call?"),
     (Icons.layers, "One API, two transports", "Explain how ChatApi runs over IPC and over HTTP."),
@@ -139,7 +134,7 @@ class Welcome(state: HarnessState) extends RxElement:
       "One Scala.js codebase for the desktop and the web. Each message is a typed RPC call to ",
       span(cls -> "font-mono text-[12.5px] text-fg", "ChatApi"),
       " over ",
-      span(cls -> "font-medium text-brand", state.transport.label),
+      span(cls -> "font-medium text-brand", transport.label),
       "."
     ),
     div(
@@ -147,9 +142,9 @@ class Welcome(state: HarnessState) extends RxElement:
       ideas.map { (icon, title, prompt) =>
         button(
           cls ->
-            "group rise flex flex-col items-start rounded-2xl border text-left border-line bg-raised/70 p-4 backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-[0_16px_36px_-22px_var(--h-brand)]",
+            "group rise flex flex-col items-start rounded-2xl border border-line bg-raised/70 p-4 text-left backdrop-blur transition duration-200 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-[0_16px_36px_-22px_var(--h-brand)]",
           onclick -> { () =>
-            state.send(prompt)
+            onPick(prompt)
           },
           div(
             cls ->
@@ -165,22 +160,11 @@ class Welcome(state: HarnessState) extends RxElement:
 
 end Welcome
 
-/** Hour and minute, in the viewer's locale. */
-// `new` is required here: in Scala.js, `js.Date(...)` calls JS `Date()`, which returns a string
-private def clock(millis: Long): String = new js.Date(millis.toDouble)
-  .asInstanceOf[js.Dynamic]
-  .toLocaleTimeString(js.Array[String](), js.Dynamic.literal(hour = "2-digit", minute = "2-digit"))
-  .asInstanceOf[String]
-
 /**
-  * One message. A reply that just arrived types itself in, which stands in for token streaming;
+  * One message. With `animate`, the text types itself in, which stands in for token streaming;
   * replace it with a streaming RPC when your model streams.
   */
-class Bubble(state: HarnessState, m: ChatMessage) extends RxElement:
-  private val animate = m.role == "assistant" && state.freshReply.contains(m.id)
-  if animate then
-    state.freshReply = None
-
+class Bubble(m: ChatMessage, animate: Boolean = false) extends RxElement:
   private val shown = Rx.variable(
     if animate then
       ""
@@ -228,7 +212,7 @@ class Bubble(state: HarnessState, m: ChatMessage) extends RxElement:
         ),
         span(
           cls -> "px-1 text-[11px] text-faint opacity-0 transition group-hover:opacity-100",
-          if m.id == "pending" then
+          if ChatStore.isDraft(m) then
             "Sending…"
           else
             clock(m.createdAt)
@@ -287,29 +271,35 @@ class Thinking extends RxElement:
 /**
   * The message composer. Enter sends, Shift+Enter inserts a newline, and Enter during IME
   * composition (e.g. Japanese input) confirms the conversion instead of sending.
+  *
+  * @param busy
+  *   true while a reply is on its way; sending waits until it arrives
   */
-class Composer(state: HarnessState) extends RxElement:
+class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
   private val draft    = Rx.variable("")
   private val inputRef = DomRef[dom.html.TextArea]()
-  private var growing  = Cancelable.empty
+  private var isBusy   = false
+  private var watching = Cancelable.empty
 
-  // Grow the textarea with its content, up to max-h-52. This follows the draft instead of using
-  // `oninput`, because `value.bind` already owns the element's input handler.
   override def onMount(node: Any): Unit =
-    growing = draft.run { _ =>
+    // Grow the textarea with its content, up to max-h-52. This follows the draft instead of using
+    // `oninput`, because `value.bind` already owns the element's input handler.
+    val growing = draft.run { _ =>
       inputRef.foreach { el =>
         el.style.height = "auto"
         el.style.height = s"${el.scrollHeight}px"
       }
     }
+    val busyState = busy.run(b => isBusy = b)
+    watching = Cancelable.merge(Seq(growing, busyState))
 
-  override def beforeUnmount: Unit = growing.cancel
+  override def beforeUnmount: Unit = watching.cancel
 
   private def submit(): Unit =
     val text = draft.get.trim
-    if text.nonEmpty && !state.pending.get then
+    if text.nonEmpty && !isBusy then
       draft := ""
-      state.send(text)
+      onSend(text)
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     val composing = e.asInstanceOf[js.Dynamic].isComposing.asInstanceOf[Boolean] || e.keyCode == 229
@@ -350,19 +340,18 @@ class Composer(state: HarnessState) extends RxElement:
         div(cls -> "flex-1"),
         span(
           cls -> "hidden items-center gap-1 pr-1 text-[11px] text-faint sm:flex",
-          keyCap("⏎"),
+          Ui.keyCap("⏎"),
           "send",
           span(cls -> "w-1.5"),
-          keyCap("⇧⏎"),
+          Ui.keyCap("⇧⏎"),
           "newline"
         ),
         button(
           ariaLabel -> "Send",
           cls       ->
-            "grid size-8 place-items-center rounded-full btn-primary text-white shadow-[0_6px_16px_-6px_var(--h-brand)] transition hover:scale-105 active:scale-95 disabled:scale-100 disabled:opacity-30 disabled:shadow-none",
-          HtmlTags.attr("disabled") ->
-            Rx.join(draft, state.pending).map((d, p) => d.trim.isEmpty || p),
-          onclick -> { () =>
+            "btn-primary grid size-8 place-items-center rounded-full text-white shadow-[0_6px_16px_-6px_var(--h-brand)] transition hover:scale-105 active:scale-95 disabled:scale-100 disabled:opacity-30 disabled:shadow-none",
+          HtmlTags.attr("disabled") -> Rx.join(draft, busy).map((d, b) => d.trim.isEmpty || b),
+          onclick                   -> { () =>
             submit()
           },
           Icons.arrowUp
@@ -371,7 +360,7 @@ class Composer(state: HarnessState) extends RxElement:
     ),
     p(
       cls -> "mx-auto mt-2 max-w-3xl text-center text-[11px] text-faint",
-      "Replies come from ChatService.respond, a mock. Swap in your model there."
+      "Replies come from the mock model in ChatService. Swap in your model there."
     )
   )
 

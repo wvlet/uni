@@ -22,52 +22,58 @@ flowchart LR
 
 - **One service, two transports.** `ChatApi` (in `api/`) is implemented once by `ChatService` (in
   `server/`). Electron's main process serves it with `ElectronRPCServer.serve`; the web build serves
-  it with `Http.server` on Node. The renderer installs `ElectronRenderer` when the preload bridge
-  exists and otherwise keeps Uni's default fetch channel, so the calling code is identical.
+  it with `Http.server` on Node. The renderer calls it through the typed `ChatApiClient`, over IPC
+  when the preload bridge exists and over fetch otherwise, so the calling code is identical.
+- **State in two plain classes**, so components stay small and testable:
+  - [`ChatStore`](renderer/src/main/scala/example/renderer/ChatStore.scala) holds chat data and
+    actions over any `ChatApi`. It drops out-of-order thread responses and never shows a prompt
+    twice. Each action returns a `Future`, so tests can await it.
+  - [`Layout`](renderer/src/main/scala/example/renderer/Layout.scala) holds pane, view, theme, and
+    width state: `Storage.local` variables in the app, plain `Rx.variable`s in tests.
+- **Components that take only what they use.** `Composer(onSend, busy)`, `Bubble(message, animate)`,
+  and `IconRail(layout)`; `FoldablePane` and `ResizeHandle` are shared by the sidebar and the dock.
+  `TrackedChatApi` decorates the API to feed the dock's Activity log.
 - **A workspace UI in Rx HTML**, in Uni's teal and silver with the Uni logo, light and dark:
-  - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the icon rail and a
-    foldable sidebar with chats (search, Today/Earlier groups), a file tree, and settings.
+  - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the title bar, the icon
+    rail, and the resizable sidebar with chats (search, Today/Earlier groups), files, and settings.
   - [`Chat.scala`](renderer/src/main/scala/example/renderer/Chat.scala): a welcome screen with
     prompt ideas, message bubbles with copy, replies that type themselves in, and the composer.
   - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the right dock, with the
     conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
-- **Layout state that persists.** The sidebar and dock state, the active view, and the theme are
-  `Storage.local` variables, so they survive a reload.
 - **Keyboard shortcuts.** `Keyboard.bindAll`: ⌘B / Ctrl+B folds the sidebar, ⌘⇧B / Ctrl+Shift+B
   toggles the dock, ⌘K / Ctrl+K searches chats.
 - **A composer that respects IME input.** Enter sends, Shift+Enter adds a newline, and Enter during
   IME composition (Japanese, Chinese, Korean input) confirms the conversion instead of sending.
-- **A native-feeling window.** On macOS the Electron window hides its title bar; the top bars are
-  drag regions and the rail leaves room for the window buttons.
+- **A native-feeling window.** On macOS the Electron window hides its title bar; a 40px strip
+  holds the window buttons and drags the window.
 
 The assistant is a mock that echoes your message after a short pause, so the example needs no API
-key. Replace `ChatService.respond` with a call to your model or agent.
+key. Pass your model to `ChatService(respond = ...)` to make it real.
 
-## Layout
+## Test
 
-| Path | What it is |
-| --- | --- |
-| `api/` | Scala.js: the `ChatApi` RPC trait and models |
-| `server/` | Scala.js: `ChatService`, plus `wireMainProcess` (IPC) and `startWebServer` (HTTP) |
-| `renderer/` | Scala.js: the UI and the transport choice |
-| `src/main/index.js` | Electron main entry: creates the window, hands `ipcMain` to Scala |
-| `src/preload/index.js` | `contextBridge` bridge: `window.uniRPC.request → ipcRenderer.invoke` |
-| `src/renderer/` | `index.html`, the JS entry, the Tailwind theme (light and dark), and the Uni logo |
-| `src/web/server.js` | Node entry for the web build: serves the UI and `ChatApi` |
-| `electron.vite.config.mjs` | The Electron build (electron-vite + `vite-plugin-scalajs`) |
-| `vite.web.config.mjs` | The web build: dev server with the `ChatApi` server, and the production bundles |
+The Scala.js modules are projects in the Uni repository's root build, so CI compiles and tests them
+with the rest of Uni. From the repository root:
+
+```bash
+./sbt exampleHarnessServer/test     # ChatService on Node
+./sbt exampleHarnessRenderer/test   # ChatStore and components in headless Chromium (Playwright)
+```
+
+The tests use the real `ChatService` in-process instead of mocks. `ChatStoreTest` holds chosen
+responses back to make RPC results arrive late or out of order; `ComponentTest` renders components
+with `wvlet.uni.dom.testing` and drives them with DOM events (Enter, Shift+Enter, IME, drag to
+resize, rail clicks).
 
 ## Prerequisites
 
-- JDK 17+ and `sbt` on your `PATH` (the Vite plugins shell out to `sbt`)
+- JDK 17+ and `sbt` on your `PATH`. The Vite plugins run sbt in the repository root to link the
+  Scala.js modules, so the example always builds against the Uni source next to it.
 - Node.js 22+ and `pnpm`
-- A locally published Uni snapshot for Scala.js:
 
-  ```bash
-  # from the Uni repo root
-  ./sbt coreJS/publishLocal uniJS/publishLocal
-  export SBT_OPTS="-Duni.version=<the version it printed>"
-  ```
+To start your own app from this example outside the repository, copy the folder, add a `build.sbt`
+with the three projects (`api`, `server`, `renderer`) that depend on
+`"org.wvlet.uni" %% "uni" % "<version>"`, and set `ROOT` in the two Vite configs to `'.'`.
 
 ## Run
 

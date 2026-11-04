@@ -74,7 +74,9 @@ class StaticFiles(root: String):
         else
           req.path.stripPrefix("/")
       val file = path.resolve(base, rel).asInstanceOf[String]
-      if !file.startsWith(base) then
+      // Inside the root only: a bare prefix check would also accept a sibling like `public-old`
+      val sep = path.sep.asInstanceOf[String]
+      if file != base && !file.startsWith(base + sep) then
         Response.notFound
       else if isFile(file) then
         read(file)

@@ -12,10 +12,17 @@ import scala.scalajs.js
   * An in-memory [[ChatApi]]. The same instance backs the Electron app (over IPC) and the browser
   * app (over HTTP); conversations live until the process exits.
   *
-  * The assistant is a mock that echoes the prompt after a short pause, so the example needs no API
-  * key or network. Replace [[respond]] with a call to your model or agent to make it real.
+  * @param respond
+  *   the model: prompt => reply. The default is a mock that echoes after a short pause, so the
+  *   example needs no API key. Pass a call to your LLM or agent here; tests pass an instant one.
+  * @param now
+  *   the clock, in epoch milliseconds
   */
-class ChatService extends ChatApi:
+class ChatService(
+    respond: String => Future[String] = ChatService.mockModel,
+    now: () => Long = () => js.Date.now().toLong
+) extends ChatApi:
+
   private val conversations = mutable.LinkedHashMap.empty[String, Conversation]
   private val messages      = mutable.Map.empty[String, mutable.ArrayBuffer[ChatMessage]]
   private var nextId        = 0
@@ -24,16 +31,14 @@ class ChatService extends ChatApi:
     nextId += 1
     s"${prefix}-${nextId}"
 
-  private def now(): Long = js.Date.now().toLong
-
-  // Start with one empty conversation; the renderer shows its welcome screen
-  newConversation()
-
   private def newConversation(): Conversation =
-    val c = Conversation(newId("c"), "New chat", now())
+    val c = Conversation(newId("c"), ChatService.untitled, now())
     conversations(c.id) = c
     messages(c.id) = mutable.ArrayBuffer.empty
     c
+
+  // Start with one empty conversation; the renderer shows its welcome screen
+  newConversation()
 
   override def listConversations(): Rx[Seq[Conversation]] = Rx.single(
     conversations.values.toSeq.sortBy(c => -c.updatedAt)
@@ -53,25 +58,37 @@ class ChatService extends ChatApi:
       .map { answer =>
         val assistant = ChatMessage(newId("m"), "assistant", answer, now())
         thread += assistant
-        // Name the conversation after its first prompt
-        val prev  = conversations.getOrElse(conversationId, Conversation(conversationId, "", 0))
-        val title =
-          if prev.title == "New chat" || prev.title.isEmpty then
-            text.linesIterator.next().take(40)
-          else
-            prev.title
-        val updated = prev.copy(title = title, updatedAt = assistant.createdAt)
+        val prev = conversations.getOrElse(
+          conversationId,
+          Conversation(conversationId, ChatService.untitled, 0)
+        )
+        val updated = prev.copy(
+          title = ChatService.titleFor(prev.title, text),
+          updatedAt = assistant.createdAt
+        )
         conversations(conversationId) = updated
         ChatReply(user, assistant, updated)
       }
 
+end ChatService
+
+object ChatService:
+  val untitled = "New chat"
+
+  /** A conversation is named after its first non-blank prompt line, up to 40 characters. */
+  def titleFor(current: String, prompt: String): String =
+    if current != untitled && current.nonEmpty then
+      current
+    else
+      prompt.linesIterator.map(_.trim).find(_.nonEmpty).map(_.take(40)).getOrElse(untitled)
+
   /** The mock model: wait a moment, then echo. */
-  private def respond(prompt: String): Future[String] =
+  def mockModel(prompt: String): Future[String] =
     val p = Promise[String]()
     js.timers
       .setTimeout(600) {
         p.success(
-          s"You said: “${prompt}”\n\nI am the mock model in ChatService.respond. Replace me with a call to your LLM or agent, and this reply arrives the same way: as a typed ChatApi result over ${"IPC or HTTP"}."
+          s"You said: “${prompt}”\n\nI am the mock model in ChatService. Replace me with a call to your LLM or agent, and this reply arrives the same way: as a typed ChatApi result over IPC or HTTP."
         )
       }
     p.future
