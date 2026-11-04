@@ -104,6 +104,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
 | WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`. See [WebSocket](../http/websocket) |
 | OpenAPI | `wvlet.uni.http.openapi.{OpenAPI, OpenAPIConfig}` | `OpenAPI.of(Router.of[A], OpenAPIConfig()).toYAML`. See [OpenAPI](../http/openapi) |
+| Browser UI helpers (Scala.js) | `wvlet.uni.dom.all.*` | `Keyboard.onEnter(() => send())` (skips Shift+Enter and IME-confirm Enter), `Keyboard.scoped("escape" -> (() => close()))`, `PaneResize(width, SizeRange(min, default, max), ResizeDirection.Right).bind` on a handle, `PointerDrag(onMove = (dx, dy) => ...)`. See [Browser Integrations](../dom/#browser-integrations) |
 | Electron IPC (Scala.js) | `wvlet.uni.electron.{ElectronRPCServer, ElectronRenderer}` | See [Desktop Apps (Electron)](../http/electron) |
 | MCP server / client | `wvlet.uni.mcp.MCP` | `MCP.server.withTools[T](impl)...`, `MCP.client.connect(url)`; see [Build an MCP Server](../mcp/) |
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |

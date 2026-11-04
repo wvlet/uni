@@ -270,6 +270,10 @@ object DomRenderer extends LogSupport:
         // Click outside detection
         case cb: ClickOutsideBinding =>
           handleClickOutsideBinding(node, cb)
+        case lb: EventListenerBinding =>
+          val jsListener: js.Function1[dom.Event, Unit] = lb.listener
+          node.addEventListener(lb.eventName, jsListener)
+          Cancelable(() => node.removeEventListener(lb.eventName, jsListener))
         // Ref bindings
         case rb: RefBinding[?] =>
           node match

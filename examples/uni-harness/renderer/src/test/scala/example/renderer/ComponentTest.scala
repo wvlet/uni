@@ -1,6 +1,7 @@
 package example.renderer
 
 import org.scalajs.dom
+import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
 

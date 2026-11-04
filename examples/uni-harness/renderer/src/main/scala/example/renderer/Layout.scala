@@ -1,6 +1,6 @@
 package example.renderer
 
-import wvlet.uni.dom.Storage
+import wvlet.uni.dom.{SizeRange, Storage}
 import wvlet.uni.rx.{Rx, RxVar}
 
 /**
@@ -54,7 +54,3 @@ object Layout:
     Storage.local(s"${prefix}dockTab", DockTab.Details),
     Storage.local(s"${prefix}sidebarWidth", sidebarWidth.default)
   )
-
-/** Allowed pane widths, in pixels. */
-case class SizeRange(min: Int, default: Int, max: Int):
-  def clamp(w: Int): Int = math.max(min, math.min(max, w))
