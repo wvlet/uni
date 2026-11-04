@@ -227,21 +227,26 @@ object DomRenderer extends LogSupport:
           val (start, end) = node.createMountSection()
           var c1           = Cancelable.empty
           val c2           =
-            RxRunner.runContinuously(rx) { ev =>
-              node.clearMountSection(start, end)
-              c1.cancel
-              ev match
-                case OnNext(value) =>
-                  val ctx = RenderingContext()
-                  c1 = traverse(value, Some(start), ctx)
-                  ctx.onFinish()
-                case OnError(e) =>
-                  warn(s"Error while rendering ${rx}: ${e.getMessage}", e)
-                  c1 = Cancelable.empty
-                case _ =>
-                  c1 = Cancelable.empty
+            RxRunner.runContinuously(rx) {
+              case OnNext(value) =>
+                node.clearMountSection(start, end)
+                c1.cancel
+                val ctx = RenderingContext()
+                c1 = traverse(value, Some(start), ctx)
+                ctx.onFinish()
+              case OnError(e) =>
+                node.clearMountSection(start, end)
+                c1.cancel
+                warn(s"Error while rendering ${rx}: ${e.getMessage}", e)
+                c1 = Cancelable.empty
+              case _ =>
+              // OnCompletion (e.g., after Rx.const) keeps the last rendered value
             }
-          Cancelable.merge(c1, c2)
+          // c1 is replaced on each update, so read it at cancel time
+          Cancelable { () =>
+            try c1.cancel
+            finally c2.cancel
+          }
         case a: DomAttribute =>
           addAttribute(node, a)
         case vb: ValueBinding =>
@@ -420,7 +425,7 @@ object DomRenderer extends LogSupport:
         case null | None | false =>
           // For property-backed boolean attributes, also set the property to false
           a.name match
-            case "checked" | "disabled" | "selected" =>
+            case "checked" | "disabled" | "selected" | "muted" =>
               setDomProperty(node, a.name, false)
             case "value" =>
               setDomProperty(node, "value", "")
@@ -437,18 +442,22 @@ object DomRenderer extends LogSupport:
         case rx: RxOps[?] =>
           var c1 = Cancelable.empty
           val c2 =
-            RxRunner.runContinuously(rx) { ev =>
-              c1.cancel
-              ev match
-                case OnNext(value) =>
-                  c1 = traverse(value)
-                case OnError(e) =>
-                  warn(s"Error while rendering ${rx}: ${e.getMessage}", e)
-                  c1 = Cancelable.empty
-                case _ =>
-                  c1 = Cancelable.empty
+            RxRunner.runContinuously(rx) {
+              case OnNext(value) =>
+                c1.cancel
+                c1 = traverse(value)
+              case OnError(e) =>
+                c1.cancel
+                warn(s"Error while rendering ${rx}: ${e.getMessage}", e)
+                c1 = Cancelable.empty
+              case _ =>
+              // OnCompletion (e.g., after Rx.const) keeps the last attribute value
             }
-          Cancelable.merge(c1, c2)
+          // c1 is replaced on each update, so read it at cancel time
+          Cancelable { () =>
+            try c1.cancel
+            finally c2.cancel
+          }
         case f: Function0[?] =>
           node.setEventListener(a.name, (_: dom.Event) => f())
         case f: Function1[dom.Node @unchecked, ?] =>
@@ -476,7 +485,7 @@ object DomRenderer extends LogSupport:
             case "value" =>
               setDomProperty(node, "value", v)
               Cancelable.empty
-            case "checked" | "disabled" | "selected" =>
+            case "checked" | "disabled" | "selected" | "muted" =>
               setDomProperty(node, a.name, v)
               Cancelable.empty
             case _ =>
@@ -525,7 +534,7 @@ object DomRenderer extends LogSupport:
         name match
           case "value" =>
             dyn.updateDynamic("value")("")
-          case "checked" | "disabled" =>
+          case "checked" | "disabled" | "muted" =>
             dyn.updateDynamic(name)(false)
           case "selected" =>
             dyn.updateDynamic(name)(false)
@@ -533,7 +542,7 @@ object DomRenderer extends LogSupport:
             ()
       case true =>
         name match
-          case "checked" | "disabled" | "selected" =>
+          case "checked" | "disabled" | "selected" | "muted" =>
             dyn.updateDynamic(name)(true)
           case _ =>
             dyn.updateDynamic(name)(true)
@@ -570,9 +579,9 @@ object DomRenderer extends LogSupport:
     // 2. Listen to DOM events -> update RxVar
     val eventName =
       if binding.useChangeEvent then
-        "onchange"
+        "change"
       else
-        "oninput"
+        "input"
     val listener =
       (e: dom.Event) =>
         if !isUpdating then
@@ -581,9 +590,15 @@ object DomRenderer extends LogSupport:
           if domValue != variable.get then
             variable := domValue
           isUpdating = false
-    dyn.updateDynamic(eventName)(listener)
+    // addEventListener, not the on* property, so a user's oninput/onchange on the same element
+    // keeps working alongside the binding
+    val jsListener: js.Function1[dom.Event, Unit] = listener
+    node.addEventListener(eventName, jsListener)
 
-    Cancelable.merge(rxCancelable, Cancelable(() => dyn.updateDynamic(eventName)(null)))
+    Cancelable.merge(
+      rxCancelable,
+      Cancelable(() => node.removeEventListener(eventName, jsListener))
+    )
   end handleValueBinding
 
   /**
@@ -618,9 +633,10 @@ object DomRenderer extends LogSupport:
           if domValue != variable.get then
             variable := domValue
           isUpdating = false
-    dyn.updateDynamic("onchange")(listener)
+    val jsListener: js.Function1[dom.Event, Unit] = listener
+    node.addEventListener("change", jsListener)
 
-    Cancelable.merge(rxCancelable, Cancelable(() => dyn.updateDynamic("onchange")(null)))
+    Cancelable.merge(rxCancelable, Cancelable(() => node.removeEventListener("change", jsListener)))
   end handleCheckedBinding
 
   /**

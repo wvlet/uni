@@ -38,7 +38,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
         div(
           cls -> "flex flex-1 gap-1 rounded-xl bg-hover p-1",
-          tab(DockTab.Details, Icons.info, Rx.variable("")),
+          tab(DockTab.Details, Icons.info, Rx.const("")),
           tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString))
         ),
         Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")

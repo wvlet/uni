@@ -31,7 +31,12 @@ object Cancelable extends LogSupport:
     new Cancelable:
       override def cancel: Unit = canceller()
 
-  def merge(c1: => Cancelable, c2: => Cancelable): Cancelable = Cancelable { () =>
+  /**
+    * Merge two Cancelables into one that cancels both. Both arguments are evaluated when merge is
+    * called, so a subscription passed here starts immediately. To cancel a Cancelable held in a var
+    * that is reassigned later, use `Cancelable(() => current.cancel)` instead.
+    */
+  def merge(c1: Cancelable, c2: Cancelable): Cancelable = Cancelable { () =>
     try c1.cancel
     finally c2.cancel
   }
