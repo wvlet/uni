@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.io.{FileSystem, IOPath}
+import wvlet.uni.io.{FileType, IOPath}
 import wvlet.uni.rx.Rx
 
 import java.io.ByteArrayOutputStream
@@ -48,7 +48,7 @@ case class StaticFiles(
     contentTypes: Map[String, ContentType] = StaticFiles.defaultContentTypes
 ) extends RxHttpFilter:
   require(
-    !FileSystem.isBrowser,
+    StaticFilesCompat.hasFileSystem,
     "StaticFiles needs a file system: use it on the JVM, Node.js, or Scala Native"
   )
 
@@ -63,7 +63,7 @@ case class StaticFiles(
       if p.isAbsolute then
         p
       else
-        FileSystem.currentDirectory.resolve(p)
+        StaticFilesCompat.currentDirectory.resolve(p)
     abs.normalize
 
   def withSpaFallback(enabled: Boolean): StaticFiles = copy(spaFallback = enabled)
@@ -120,13 +120,13 @@ case class StaticFiles(
     val it    = segments.iterator
     while found && it.hasNext do
       path = IOPath(path.segments :+ it.next(), path.isAbsolute)
-      val info = FileSystem.info(path)
-      // A junction or other reparse point is FileType.Other, so it fails both checks
+      // lstat: a link, junction, or other reparse point fails both checks
+      val fileType = StaticFilesCompat.fileType(path)
       found =
         if it.hasNext then
-          info.isDirectory
+          fileType == FileType.Directory
         else
-          info.isFile
+          fileType == FileType.File
     Option.when(found)(path)
 
   /** The file as a response, or None when it can't be read (permissions, deleted meanwhile). */
@@ -138,7 +138,7 @@ case class StaticFiles(
     try
       Some(
         Response
-          .ok(HttpContent.bytes(FileSystem.readBytes(path), contentType))
+          .ok(HttpContent.bytes(StaticFilesCompat.readBytes(path), contentType))
           .addHeader("X-Content-Type-Options", "nosniff")
       )
     catch
