@@ -225,19 +225,16 @@ test("positive") {
 
 ## Testing a uni-dom UI (Scala.js)
 
-Add `uni-dom-testkit` and run the tests in headless Chromium (also the
-Electron renderer) with the `sbt-uni-playwright` plugin:
+`uni-test` on Scala.js includes the uni-dom testing kit; no other test
+dependency is needed. Run the tests in headless Chromium (also the Electron
+renderer) with the `sbt-uni-playwright` plugin:
 
 ```scala sbt
 // project/plugins.sbt
 addSbtPlugin("org.wvlet.uni" % "sbt-uni-playwright" % "<version>")
 
 // build.sbt (Scala.js project)
-lazy val app = project
-  .enablePlugins(ScalaJSPlugin, UniPlaywrightPlugin)
-  .settings(
-    libraryDependencies += "org.wvlet.uni" %% "uni-dom-testkit" % "<version>" % Test
-  )
+lazy val app = project.enablePlugins(ScalaJSPlugin, UniPlaywrightPlugin)
 ```
 
 `DomTestSupport` extends `UniTest` and unmounts everything `mount` rendered

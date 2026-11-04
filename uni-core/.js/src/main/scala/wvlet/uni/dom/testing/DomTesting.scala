@@ -38,8 +38,8 @@ import scala.concurrent.{ExecutionContext, Promise}
   *   m.unmount()
   * }}}
   *
-  * In a `UniTest`, mix in `wvlet.uni.dom.testing.DomTestSupport` (in the `uni-dom-testkit`
-  * artifact) so mounted elements are cleaned up automatically after each test.
+  * In a `UniTest`, mix in `wvlet.uni.dom.testing.DomTestSupport` (in `uni-test` on Scala.js) so
+  * mounted elements are cleaned up automatically after each test.
   */
 object DomTesting:
 

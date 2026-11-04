@@ -155,7 +155,6 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
 lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
-  domTestkit,
   domTest,
   exampleRepl.js,
   exampleWebUi,
@@ -193,7 +192,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni-core",
     description :=
-      "Core of Uni for Scala 3 (JVM, Scala.js, Scala Native): logging, Rx reactive streams, object wiring (Design), Surface type reflection, file I/O with gzip/zip and file watching, terminal colors, and a text scanner"
+      "Core of Uni for Scala 3 (JVM, Scala.js, Scala Native): logging, Rx reactive streams, object wiring (Design), Surface type reflection, file I/O with gzip/zip and file watching, terminal colors, a text scanner, and reactive DOM rendering for Scala.js"
   )
   .jsSettings(
     jsBuildSettings,
@@ -470,7 +469,7 @@ lazy val exampleHarnessRenderer = project
     Test / jsEnv :=
       Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
   )
-  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, domTestkit % Test)
+  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, test.js % Test)
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under
@@ -506,20 +505,6 @@ lazy val docSnippets = project
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
 
-// uni-dom-testkit - The UniTest glue for uni-dom component tests (DomTestSupport), published so
-// apps can test their Scala.js UIs without copying it. Scala.js only.
-lazy val domTestkit = project
-  .in(file("uni-dom-testkit"))
-  .enablePlugins(ScalaJSPlugin)
-  .settings(
-    buildSettings,
-    jsBuildSettings,
-    name        := "uni-dom-testkit",
-    description :=
-      "UniTest support for testing uni-dom components in a headless browser: mount, clean up after each test, fire events, and query the DOM"
-  )
-  .dependsOn(uni.js, test.js)
-
 // uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project
   .in(file("uni-dom-test"))
@@ -548,4 +533,4 @@ lazy val domTest = project
         )
       )
   )
-  .dependsOn(uni.js, domTestkit % Test)
+  .dependsOn(uni.js, test.js % Test)

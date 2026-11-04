@@ -35,8 +35,8 @@ import wvlet.uni.test.UniTest
   *       settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
   * }}}
   *
-  * Published as `uni-dom-testkit` (Scala.js only). It couples `DomTestSession` from the `uni`
-  * artifact to the `uni-test` framework, so add it as a test dependency next to `uni-test`.
+  * Part of `uni-test` on Scala.js: the `uni-dom` rendering core lives in `uni-core`, so no other
+  * test dependency is needed.
   */
 trait DomTestSupport extends UniTest with DomTestSession:
   override protected def after: Unit =

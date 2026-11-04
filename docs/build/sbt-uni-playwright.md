@@ -58,12 +58,8 @@ On sbt 2.x, `%%` already encodes the Scala.js platform suffix (`_sjs1`), so use
 ## Testing uni-dom components
 
 To render `uni-dom` components and simulate clicks, typing, and pointer drags,
-add `uni-dom-testkit` and mix in `DomTestSupport`, which unmounts what each test
+mix in `DomTestSupport` from `uni-test` (Scala.js), which unmounts what each test
 rendered:
-
-```scala
-libraryDependencies += "org.wvlet.uni" %% "uni-dom-testkit" % "__UNI_VERSION__" % Test
-```
 
 ```scala
 import org.scalajs.dom
