@@ -261,4 +261,34 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  test("draw block and line characters to fill the cell") {
+    TerminalGlyphs.css('A'.toInt, 8, 16) shouldBe ""
+    TerminalGlyphs.css(0x256d, 8, 16) shouldBe "" // rounded corners keep the font glyph
+    val full = TerminalGlyphs.css(0x2588, 8, 16)
+    full shouldContain "width: 8.00px; height: 16.00px"
+    full shouldContain "background-size: 8.00px 16.00px"
+    // Upper left, upper right, and lower left quadrants
+    TerminalGlyphs.css(0x259b, 8, 16).split("linear-gradient").length shouldBe 4
+    TerminalGlyphs.css(0x2591, 8, 16) shouldContain "currentColor 25%"
+    // A horizontal line spans the cell at its vertical center
+    TerminalGlyphs.css(0x2500, 8, 16) shouldContain "background-position: 0.00px 8.00px"
+  }
+
+  test("keep drawn block characters as text for copying") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("a\u2590\u259b\u2588b")
+      view.renderNow()
+      rowTexts(m).head shouldBe "a\u2590\u259b\u2588b"
+      val spans  = m.container.querySelectorAll(".uni-term-row span")
+      val blocks = (0 until spans.length)
+        .map(i => spans(i).asInstanceOf[dom.HTMLElement])
+        .filter(_.style.display == "inline-block")
+      blocks.map(_.textContent) shouldBe Seq("\u2590", "\u259b", "\u2588")
+      val row = m.container.querySelector(".uni-term-row").asInstanceOf[dom.HTMLElement]
+      blocks.forall(_.getBoundingClientRect().height == row.getBoundingClientRect().height) shouldBe
+        true
+    }
+  }
+
 end TerminalViewTest
