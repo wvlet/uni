@@ -25,28 +25,29 @@ class Shell(state: HarnessState) extends RxElement:
     dom.window.setTimeout(() => searchRef.foreach(_.focus()), 220)
 
   override def onMount(node: Any): Unit =
-    subscriptions = Cancelable.merge(
-      // ⌘ on macOS, Ctrl elsewhere
-      Keyboard.bindAll(
-        "meta+b"       -> (() => state.toggleSidebar()),
-        "ctrl+b"       -> (() => state.toggleSidebar()),
-        "meta+shift+b" -> (() => state.toggleDock()),
-        "ctrl+shift+b" -> (() => state.toggleDock()),
-        "meta+k"       -> (() => focusSearch()),
-        "ctrl+k"       -> (() => focusSearch())
-      ),
-      // Light / Dark / System: style.css reads the data-theme attribute
-      state
-        .theme
-        .run { _ =>
-          val root = dom.document.documentElement
-          state.currentTheme match
-            case Theme.System =>
-              root.removeAttribute("data-theme")
-            case t =>
-              root.setAttribute("data-theme", t.toString.toLowerCase)
-        }
+    // ⌘ on macOS, Ctrl elsewhere
+    val shortcuts = Keyboard.bindAll(
+      "meta+b"       -> (() => state.toggleSidebar()),
+      "ctrl+b"       -> (() => state.toggleSidebar()),
+      "meta+shift+b" -> (() => state.toggleDock()),
+      "ctrl+shift+b" -> (() => state.toggleDock()),
+      "meta+k"       -> (() => focusSearch()),
+      "ctrl+k"       -> (() => focusSearch())
     )
+    // Light / Dark / System: style.css reads the data-theme attribute
+    val themes = state
+      .theme
+      .run { _ =>
+        val root = dom.document.documentElement
+        state.currentTheme match
+          case Theme.System =>
+            root.removeAttribute("data-theme")
+          case t =>
+            root.setAttribute("data-theme", t.toString.toLowerCase)
+      }
+    // The Seq overload: the two-argument `Cancelable.merge` takes its arguments by name, so it
+    // would not subscribe until cancel time
+    subscriptions = Cancelable.merge(Seq(shortcuts, themes))
     state.load()
 
   override def beforeUnmount: Unit = subscriptions.cancel
