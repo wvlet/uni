@@ -23,6 +23,7 @@ enum Theme(val label: String) derives StorageCodec:
 enum DockTab(val label: String) derives StorageCodec:
   case Details  extends DockTab("Details")
   case Activity extends DockTab("Activity")
+  case Terminal extends DockTab("Terminal")
 
 object Theme:
   /** style.css reads `data-theme` on <html>; System leaves it to `prefers-color-scheme`. */

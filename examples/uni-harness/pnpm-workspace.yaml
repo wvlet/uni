@@ -2,6 +2,7 @@ allowBuilds:
   electron: true
   electron-winstaller: false
   esbuild: true
+  node-pty: true
 
 overrides:
   tar: ^7.5.16

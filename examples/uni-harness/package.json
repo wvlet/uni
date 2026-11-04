@@ -12,6 +12,9 @@
     "build:web": "vite build --config vite.web.config.mjs && vite build --config vite.web.config.mjs --mode server",
     "start:web": "node out/web/server/server.js"
   },
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  },
   "devDependencies": {
     "@scala-js/vite-plugin-scalajs": "^1.1.0",
     "@tailwindcss/vite": "^4.3.3",

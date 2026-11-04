@@ -1,7 +1,9 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
 import { join } from 'node:path'
 // The Scala.js `server` module, imported via vite-plugin-scalajs.
-import { wireMainProcess } from 'scalajs:main.js'
+import { wireMainProcess, wireTerminal } from 'scalajs:main.js'
+// node-pty runs the shell for the Terminal tab. It is a native addon, so the app (not Uni) installs it.
+import * as pty from 'node-pty'
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -38,6 +40,8 @@ function createWindow() {
 app.whenReady().then(() => {
   // Register the ChatApi on Electron IPC before opening any window.
   wireMainProcess(ipcMain)
+  // Run a shell for the renderer's Terminal tab
+  wireTerminal(ipcMain, pty)
 
   createWindow()
   app.on('activate', () => {

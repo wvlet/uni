@@ -70,6 +70,7 @@ object Icons:
 
   def check: RxElement    = i(p("M5 12.5l4.5 4.5L19 7.5"))
   def activity: RxElement = i(p("M3 12h4l2.5-6.5 5 13L17 12h4"))
+  def terminal: RxElement = i(p("M4.5 6.5l5 5.5-5 5.5M12 18h7.5"))
   def info: RxElement     = i(circle(cx -> 12, cy -> 12, r -> 8.5), p("M12 11v5M12 8h.01"))
   def bolt: RxElement     = i(p("M13 3.5L5.5 13.5H11l-1 7 7.5-10H12z"))
   def layers: RxElement   = i(
