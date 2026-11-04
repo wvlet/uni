@@ -31,7 +31,7 @@ flowchart LR
   - [`Layout`](renderer/src/main/scala/example/renderer/Layout.scala) holds pane, view, theme, and
     width state: `Storage.local` variables in the app, plain `Rx.variable`s in tests.
 - **Components that take only what they use.** `Composer(onSend, busy)`, `Bubble(message, animate)`,
-  and `IconRail(layout)`; `FoldablePane` and `ResizeHandle` are shared by the sidebar and the dock.
+  and `IconRail(layout)`; `FoldablePane` and `ResizeHandle` (a styled grip on uni-dom's `PaneResize`) are shared by the sidebar and the dock.
   `TrackedChatApi` decorates the API to feed the dock's Activity log.
 - **A workspace UI in Rx HTML**, in Uni's teal and silver with the Uni logo, light and dark:
   - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the title bar, the icon

@@ -352,7 +352,8 @@ The package includes reactive wrappers over common browser APIs. Each is an
 | `Storage` | Reactive `localStorage`/`sessionStorage` — `Storage.local[A](key, default)` → an `RxVar`-like `StorageVar` |
 | `MediaQuery` | `MediaQuery.matches(query)` → `.rx: Rx[Boolean]` for responsive layouts |
 | `Focus` | Focus tracking (`active: Rx[Option[Element]]`), focus traps, autofocus on mount |
-| `Keyboard` | Global shortcuts — `Keyboard.bind("ctrl+s", () => save())`, `isPressed`, `modifiers` |
+| `Keyboard` | Global and scoped shortcuts — `Keyboard.bind("ctrl+s", () => save())`, `isPressed`, `modifiers`; `onEnter` for IME-safe Enter in text fields |
+| `PointerDrag` / `PaneResize` | Pointer drags tracked on `window` (`dragging: Rx[Boolean]`), and drag-to-resize handles for split panes and sidebars |
 | `ClickOutside` | Detect clicks outside an element (`hide(visible)` for menus/popovers) |
 | `NetworkStatus` | `online`/`offline: Rx[Boolean]` |
 | `WindowScroll` / `WindowDimensions` / `WindowVisibility` | Reactive window scroll position, size, and tab visibility |
@@ -384,3 +385,49 @@ theme := Theme.Dark // stored as "Dark"
 A stored name that matches no case, for example after a case was renamed, reads as
 the default value. For other types, write a `given StorageCodec[A]` with `encode`
 and `decode`.
+
+### Enter in text fields
+
+`Keyboard.onEnter` submits on plain Enter and leaves Shift+Enter (a newline) to
+the textarea. It also skips the Enter that confirms an IME conversion, so users
+typing Japanese, Chinese, or Korean can pick a candidate without sending the
+message:
+
+```scala
+val draft = Rx.variable("")
+textarea(value.bind(draft), Keyboard.onEnter(() => send(draft.get)))
+```
+
+Shortcuts from `Keyboard.bind` and `Keyboard.scoped` never fire during IME
+composition either. In your own `onkeydown` handler, check
+`Keyboard.isComposing(e)` for the same behavior.
+
+### Resizable panes
+
+`PaneResize` turns any element into a resize handle: dragging changes a size
+`RxVar` within a `SizeRange`, and double-clicking restores the default. It adds
+`role="separator"` and `aria-orientation`; the handle's look and position stay
+in your markup:
+
+```scala
+val width  = Rx.variable(272)
+val resize = PaneResize(width, SizeRange(min = 208, default = 272, max = 480), ResizeDirection.Right)
+
+aside(
+  cls       -> "relative",
+  styleAttr -> width.map(w => s"width: ${w}px"),
+  div(
+    cls       -> "absolute inset-y-0 right-0 w-2 cursor-col-resize touch-none",
+    ariaLabel -> "Resize sidebar",
+    resize.bind
+  ),
+  sidebarContent
+)
+```
+
+`ResizeDirection` is the way the pointer moves to make the pane larger: `Right`
+for a left sidebar, `Left` for a right-hand dock, `Up` or `Down` for vertical
+splits. `resize.dragging` is an `Rx[Boolean]`, handy for turning off a width
+transition during the drag. For other drags (sliders, movable cards), use
+`PointerDrag(onMove = (dx, dy) => ...)` directly; it reports the distance from
+the start point and ends on `pointerup` or `pointercancel`.

@@ -1,12 +1,10 @@
 package example.renderer
 
-import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
 
 import scala.language.implicitConversions
-import scala.scalajs.js
 
 /** The side of a pane that faces the chat: where its border and resize handle go. */
 enum Edge:
@@ -28,7 +26,7 @@ class FoldablePane(
 )(content: RxElement*)
     extends RxElement:
 
-  private val dragging = resize.map(_.dragging).getOrElse(Rx.variable(false))
+  private val dragging: Rx[Boolean] = resize.map(_.dragging).getOrElse(Rx.const(false))
 
   override def render: RxElement = aside(
     cls ->
@@ -66,36 +64,22 @@ class FoldablePane(
 end FoldablePane
 
 /**
-  * Drag to resize a pane; double-click to reset. Pointer moves are tracked on the window, so the
-  * drag continues when the pointer leaves the thin handle.
+  * The visible grip on a pane's inner edge. Dragging and double-click reset come from uni-dom's
+  * `PaneResize`; this class only places and styles the handle.
   */
 class ResizeHandle(width: RxVar[Int], range: SizeRange, edge: Edge, label: String)
     extends RxElement:
-  val dragging = Rx.variable(false)
-
-  private def start(e: dom.PointerEvent): Unit =
-    e.preventDefault()
-    val startX     = e.clientX
-    val startWidth = width.get
+  private val resize = PaneResize(
+    width,
+    range,
     // A handle on the right grows the pane as it moves right; one on the left, as it moves left
-    val direction =
-      if edge == Edge.Right then
-        1
-      else
-        -1
-    dragging := true
-    dom.document.body.style.cursor = "col-resize"
-    lazy val move: js.Function1[dom.PointerEvent, Unit] =
-      (ev: dom.PointerEvent) =>
-        width := range.clamp((startWidth + direction * (ev.clientX - startX)).toInt)
-    lazy val up: js.Function1[dom.PointerEvent, Unit] =
-      (_: dom.PointerEvent) =>
-        dragging := false
-        dom.document.body.style.cursor = ""
-        dom.window.removeEventListener("pointermove", move)
-        dom.window.removeEventListener("pointerup", up)
-    dom.window.addEventListener("pointermove", move)
-    dom.window.addEventListener("pointerup", up)
+    if edge == Edge.Right then
+      ResizeDirection.Right
+    else
+      ResizeDirection.Left
+  )
+
+  def dragging: Rx[Boolean] = resize.dragging
 
   override def render: RxElement =
     val side =
@@ -104,15 +88,11 @@ class ResizeHandle(width: RxVar[Int], range: SizeRange, edge: Edge, label: Strin
       else
         "left-0"
     div(
-      role      -> "separator",
       ariaLabel -> label,
       titleAttr -> "Drag to resize, double-click to reset",
       cls       ->
         s"group absolute top-0 bottom-0 ${side} z-20 w-2 cursor-col-resize touch-none select-none",
-      onpointerdown -> start,
-      ondblclick    -> { () =>
-        width := range.default
-      },
+      resize.bind,
       span(
         cls ->
           dragging.map { on =>

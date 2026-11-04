@@ -132,6 +132,12 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   export wvlet.uni.dom.KeyCombination
   export wvlet.uni.dom.Modifiers
 
+  // Pointer drag and pane resizing
+  export wvlet.uni.dom.PointerDrag
+  export wvlet.uni.dom.PaneResize
+  export wvlet.uni.dom.SizeRange
+  export wvlet.uni.dom.ResizeDirection
+
   // Focus management
   export wvlet.uni.dom.Focus
 

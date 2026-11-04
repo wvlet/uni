@@ -300,12 +300,6 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
       draft := ""
       onSend(text)
 
-  private def onKeyDown(e: dom.KeyboardEvent): Unit =
-    val composing = e.asInstanceOf[js.Dynamic].isComposing.asInstanceOf[Boolean] || e.keyCode == 229
-    if e.key == "Enter" && !e.shiftKey && !composing then
-      e.preventDefault()
-      submit()
-
   override def render: RxElement = div(
     cls -> "relative z-10 shrink-0 px-6 pt-2 pb-5",
     div(
@@ -317,7 +311,7 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
         cls         ->
           "block max-h-52 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[14px] leading-6 outline-none placeholder:text-faint",
         value.bind(draft),
-        onkeydown -> onKeyDown,
+        Keyboard.onEnter(() => submit()),
         autofocus
       ),
       div(

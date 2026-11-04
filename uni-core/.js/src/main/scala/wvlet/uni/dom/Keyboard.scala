@@ -142,7 +142,8 @@ object Keyboard:
         modifiersVar :=
           Modifiers(ctrl = e.ctrlKey, alt = e.altKey, shift = e.shiftKey, meta = e.metaKey)
 
-        // Check for matching shortcuts
+        // Check for matching shortcuts. Keys pressed while an IME composition is open belong to
+        // the IME (e.g. Enter confirms a Japanese conversion), so no shortcut fires.
         val combo = KeyCombination(
           key = key,
           ctrl = e.ctrlKey,
@@ -151,13 +152,14 @@ object Keyboard:
           meta = e.metaKey
         )
         val comboStr = combo.toShortcutString
-        bindings
-          .get(comboStr)
-          .foreach { handlers =>
-            if handlers.nonEmpty then
-              e.preventDefault()
-              handlers.foreach(_())
-          }
+        if !Keyboard.isComposing(e) then
+          bindings
+            .get(comboStr)
+            .foreach { handlers =>
+              if handlers.nonEmpty then
+                e.preventDefault()
+                handlers.foreach(_())
+            }
 
     private val keyupHandler: js.Function1[dom.KeyboardEvent, Unit] =
       (e: dom.KeyboardEvent) =>
@@ -223,7 +225,40 @@ object Keyboard:
     Cancelable.merge(cancelables)
 
   /**
-    * Create a scoped keyboard shortcut modifier that only fires when the element has focus.
+    * Whether a key event belongs to an open IME composition, such as the Enter that confirms a
+    * Japanese or Chinese conversion. Handlers should usually ignore such keys. Besides
+    * `isComposing`, this checks `keyCode == 229`, which some browsers (e.g. Safari) report for the
+    * keydown that ends a composition.
+    */
+  def isComposing(e: dom.KeyboardEvent): Boolean = e.isComposing || e.keyCode == 229
+
+  /**
+    * Call `handler` when plain Enter is pressed in this element, e.g. to submit a chat input or a
+    * search box. Shift+Enter (a newline in a textarea), Enter with other modifiers, and Enter
+    * during IME composition are left to the browser.
+    *
+    * {{{
+    *   textarea(value.bind(draft), Keyboard.onEnter(() => send()))
+    * }}}
+    *
+    * Attached with `addEventListener`, so an `onkeydown` handler on the same element still runs.
+    */
+  def onEnter(handler: () => Unit): DomNode = EventListenerBinding(
+    "keydown",
+    {
+      case e: dom.KeyboardEvent
+          if e.key == "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey &&
+            !isComposing(e) =>
+        e.preventDefault()
+        handler()
+      case _ =>
+    }
+  )
+
+  /**
+    * Create a scoped keyboard shortcut modifier that only fires when the element has focus. Keys
+    * pressed during IME composition never match. Attached with `addEventListener`, so an
+    * `onkeydown` handler on the same element still runs.
     *
     * @param bindings
     *   Pairs of shortcut strings and handlers
@@ -234,16 +269,20 @@ object Keyboard:
     val parsedBindings = bindings.map { case (shortcut, handler) =>
       KeyCombination.parse(shortcut) -> handler
     }
-    val onkeydown = HtmlTags.handler[dom.KeyboardEvent]("onkeydown")
-    onkeydown { (e: dom.KeyboardEvent) =>
-      parsedBindings
-        .find(_._1.matches(e))
-        .foreach { case (_, handler) =>
-          e.preventDefault()
-          e.stopPropagation()
-          handler()
-        }
-    }
+    EventListenerBinding(
+      "keydown",
+      {
+        case e: dom.KeyboardEvent if !isComposing(e) =>
+          parsedBindings
+            .find(_._1.matches(e))
+            .foreach { case (_, handler) =>
+              e.preventDefault()
+              e.stopPropagation()
+              handler()
+            }
+        case _ =>
+      }
+    )
 
   /**
     * Check if a specific key is currently pressed.
