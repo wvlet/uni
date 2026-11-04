@@ -430,6 +430,8 @@ for a left sidebar, `Left` for a right-hand dock, `Up` or `Down` for vertical
 splits. `resize.dragging` is an `Rx[Boolean]`, handy for turning off a width
 transition during the drag. Constructing a `PaneResize` clamps the current size
 into its range, so a width kept in `Storage.local` and saved under an older,
-wider range is corrected before the pane renders. For other drags (sliders, movable cards), use
-`PointerDrag(onMove = (dx, dy) => ...)` directly; it reports the distance from
-the start point and ends on `pointerup` or `pointercancel`.
+wider range is corrected before the pane renders.
+
+For other drags (sliders, movable cards), use `PointerDrag(onMove = (dx, dy) =>
+...)` directly; it reports the distance from the start point and ends on
+`pointerup` or `pointercancel`.
