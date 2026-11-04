@@ -110,6 +110,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 | Test fixtures | `wvlet.uni.test.*` | `addDesign(_.bindSingleton[A])` in a trait that extends `UniTest`, then `test("...") { (a: A) => ... }`. See [Reusable Fixtures](../core/unitest#reusable-fixtures) |
 | Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."`; also `captureStdout` / `captureStderr`. See [Testing Error Paths](../core/unitest#testing-error-paths) |
+| uni-dom UI tests (Scala.js) | `wvlet.uni.dom.testing.*` | Add `uni-dom-testkit % Test`, then `class T extends DomTestSupport`, `val m = mount(MyView())`, `fireEvent.click(m.get("button"))` (also `pointerDown`/`Move`/`Up`, `keyDown(..., isComposing = true)`), and return `settle().map { _ => ... }` to assert on `onMount` effects. Run in headless Chromium with the [sbt-uni-playwright Plugin](../build/sbt-uni-playwright#testing-uni-dom-components) |
 
 ## How do I migrate from Airframe?
 

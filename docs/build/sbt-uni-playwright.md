@@ -55,6 +55,35 @@ On sbt 2.x, `%%` already encodes the Scala.js platform suffix (`_sjs1`), so use
 `%%` (not the old `%%%`) for your Scala.js library dependencies.
 :::
 
+## Testing uni-dom components
+
+To render `uni-dom` components and simulate clicks, typing, and pointer drags,
+add `uni-dom-testkit` and mix in `DomTestSupport`, which unmounts what each test
+rendered:
+
+```scala
+libraryDependencies += "org.wvlet.uni" %% "uni-dom-testkit" % "__UNI_VERSION__" % Test
+```
+
+```scala
+import wvlet.uni.dom.testing.*
+
+class CounterTest extends DomTestSupport:
+  test("clicking +1 increments the counter"):
+    val m = mount(Counter())
+    fireEvent.click(m.getByText("+1"))
+    m.text shouldContain "count=1"
+
+  test("onMount wiring"):
+    val m = mount(AutoFocusInput())
+    // onMount runs a step after mount returns
+    settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
+```
+
+`fireEvent` also has `pointerDown` / `pointerMove` / `pointerUp` (with
+`clientX`, `clientY`, `pointerId`, `pointerType`) and `keyDown(..., isComposing = true)`
+for a key pressed during IME composition.
+
 ## Configuration
 
 Pick the browser and headed/headless mode with these settings:
