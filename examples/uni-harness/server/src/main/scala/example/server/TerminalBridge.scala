@@ -19,6 +19,8 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 object TerminalBridge extends LogSupport:
   private val senderCheck = ElectronRPCServerConfig()
   private val sessions    = mutable.HashMap.empty[Int, PtyProcess]
+  // Windows whose "destroyed" event already stops their shell
+  private val watched = mutable.HashSet.empty[Int]
 
   @JSExportTopLevel("wireTerminal")
   def wireTerminal(ipcMain: js.Dynamic, nodePty: js.Dynamic): Unit =
@@ -34,17 +36,26 @@ object TerminalBridge extends LogSupport:
         homeDir.fold(options)(options.withCwd)
       )
       sessions(id) = pty
+      // A shell replaced by a newer pty-start (e.g. after a reload) must not reach the new page
+      def isCurrent: Boolean = sessions.get(id).contains(pty)
+      def canSend: Boolean   = isCurrent && !sender.isDestroyed().asInstanceOf[Boolean]
       pty.onData { data =>
-        if !sender.isDestroyed().asInstanceOf[Boolean] then
+        if canSend then
           sender.send("pty-data", data)
       }
       pty.onExit { code =>
-        if sessions.get(id).contains(pty) then
-          sessions.remove(id)
-        if !sender.isDestroyed().asInstanceOf[Boolean] then
+        if canSend then
           sender.send("pty-exit", code)
+        if isCurrent then
+          sessions.remove(id)
       }
-      sender.once("destroyed", () => sessions.remove(id).foreach(_.kill()))
+      if watched.add(id) then
+        sender.once(
+          "destroyed",
+          () =>
+            watched.remove(id)
+            sessions.remove(id).foreach(_.kill())
+        )
     }
     on(ipcMain, "pty-input") { (event, args) =>
       if js.typeOf(args(0)) == "string" then

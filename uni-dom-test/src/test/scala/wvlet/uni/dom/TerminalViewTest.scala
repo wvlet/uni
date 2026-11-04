@@ -20,6 +20,7 @@ import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 
 import scala.collection.mutable
+import scala.scalajs.js
 import scala.language.implicitConversions
 
 class TerminalViewTest extends DomTestSupport:
@@ -61,6 +62,27 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  test("keep the scrollback while the alternate screen shows") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 2))
+    val view = TerminalView(term)
+    val m    = mount(div(styleAttr -> "width: 400px; height: 44px;", view))
+    settle().map { _ =>
+      term.write("a\r\nb\r\nc")
+      view.renderNow()
+      term.write("\u001b[?1049hvim")
+      view.renderNow()
+      val scrollback = m
+        .container
+        .querySelector(".uni-term-scrollback")
+        .asInstanceOf[dom.HTMLElement]
+      scrollback.style.display shouldBe "none"
+      term.write("\u001b[?1049l")
+      view.renderNow()
+      scrollback.style.display shouldBe ""
+      rowTexts(m) shouldBe Seq("a", "b", "c")
+    }
+  }
+
   test("keep scrolled-off lines above the screen") {
     val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 2))
     val view = TerminalView(term)
@@ -89,10 +111,38 @@ class TerminalViewTest extends DomTestSupport:
   }
 
   test("treat Alt+letter as Meta using the physical key") {
-    val (_, _, m, sent) = setup()
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 3))
+    val sent = mutable.ArrayBuffer.empty[String]
+    term.onData(sent += _)
+    val m = mount(TerminalView(term, TerminalViewConfig().withMacOptionIsMeta(true)))
     settle().map { _ =>
       fireEvent.keyDown(m.get("textarea"), "∫", code = "KeyB", altKey = true)
       sent.toSeq shouldBe Seq("\u001bb")
+    }
+  }
+
+  test("leave AltGr characters to the input event") {
+    val (_, _, m, sent) = setup()
+    settle().map { _ =>
+      val textarea = m.get("textarea")
+      // AltGr+Q types `@` on a German layout; browsers report it as Ctrl+Alt
+      val e = dom.KeyboardEvent(
+        "keydown",
+        js.Dynamic
+          .literal(
+            key = "@",
+            code = "KeyQ",
+            ctrlKey = true,
+            altKey = true,
+            modifierAltGraph = true,
+            bubbles = true,
+            cancelable = true
+          )
+          .asInstanceOf[dom.KeyboardEventInit]
+      )
+      textarea.dispatchEvent(e) shouldBe true
+      fireEvent.input(textarea, "@")
+      sent.toSeq shouldBe Seq("@")
     }
   }
 

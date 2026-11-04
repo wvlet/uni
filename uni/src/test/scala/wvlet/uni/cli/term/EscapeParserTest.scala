@@ -51,6 +51,8 @@ class EscapeParserTest extends UniTest:
 
     override def osc(data: String): Unit = actions += s"osc(${data})"
 
+  end Recorder
+
   private def parse(chunks: String*): Seq[String] =
     val r = Recorder()
     val p = EscapeParser(r)
@@ -103,6 +105,10 @@ class EscapeParserTest extends UniTest:
   test("CAN aborts a sequence and ESC restarts one") {
     parse("\u001b[3\u0018x") shouldBe Seq("print(x)")
     parse("\u001b[3\u001b[4m") shouldBe Seq("csi(4m)")
+  }
+
+  test("CAN after ESC inside an OSC string does not swallow the next character") {
+    parse("\u001b]0;t\u001b\u0018abc") shouldBe Seq("print(a)", "print(b)", "print(c)")
   }
 
 end EscapeParserTest

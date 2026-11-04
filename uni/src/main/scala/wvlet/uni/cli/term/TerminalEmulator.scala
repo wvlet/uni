@@ -430,7 +430,17 @@ class TerminalEmulator(config: TerminalConfig = TerminalConfig()):
           case 'n' =>
             deviceStatus(p(0))
           case 'r' =>
-            s.setScrollRegion(n(0) - 1, p(1, s.rows) - 1)
+            // A missing or 0 bottom margin means the last row
+            val bottom = p(1, 0)
+            s.setScrollRegion(
+              n(0) - 1,
+              (
+                if bottom == 0 then
+                  s.rows
+                else
+                  bottom
+              ) - 1
+            )
           case 's' =>
             s.saveCursor()
           case 'u' =>

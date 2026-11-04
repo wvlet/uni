@@ -264,4 +264,21 @@ class TerminalEmulatorTest extends UniTest:
     (0 until t.rows).map(t.screen.isDirty) shouldBe Seq(false, false, true, false)
   }
 
+  test("a 0 bottom margin extends the scroll region to the last row") {
+    val t = term(rows = 4)
+    t.write("1\r\n2\r\n3\r\n4\u001b[2;0r\u001b[4;1H\n")
+    t.screen.text shouldBe "1\n3\n4"
+    t.screen.scrollback.size shouldBe 0
+  }
+
+  test("track scrollback changes separately from screen redraws") {
+    val t = term(rows = 2)
+    t.write("a\r\nb\r\nc")
+    val version = t.screen.scrollbackVersion
+    t.write("\u001b[?1049h\u001b[?1049l")
+    t.screen.scrollbackVersion shouldBe version
+    t.write("\u001b[3J")
+    (t.screen.scrollbackVersion > version) shouldBe true
+  }
+
 end TerminalEmulatorTest

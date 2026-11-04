@@ -80,9 +80,10 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
     */
   val scrollback: Scrollback = Scrollback(scrollbackLines)
 
-  private var _scrollbackTotal = 0L
-  private var _generation      = 0L
-  private var dirty            = Array.fill(_rows)(true)
+  private var _scrollbackTotal   = 0L
+  private var _generation        = 0L
+  private var _scrollbackVersion = 0L
+  private var dirty              = Array.fill(_rows)(true)
 
   // Cursor
   private var _cursorRow                     = 0
@@ -179,11 +180,18 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
   def scrollbackTotal: Long = _scrollbackTotal
 
   /**
-    * Changes when the screen changes in a way that an incremental renderer cannot follow: a resize,
-    * a cleared scrollback, or a switch between the normal and alternate screens. The renderer
-    * should then redraw everything.
+    * Changes when the visible rows change in a way that dirty rows cannot describe: a resize, a
+    * reset, or a switch between the normal and alternate screens. The renderer should then redraw
+    * every visible row.
     */
   def generation: Long = _generation
+
+  /**
+    * Changes when existing scrollback lines change, rather than only new lines arriving: the
+    * scrollback was cleared, or a resize moved lines back onto the screen. The renderer should then
+    * redraw the scrollback.
+    */
+  def scrollbackVersion: Long = _scrollbackVersion
 
   /**
     * True when the visible row changed since the last [[clearDirty]]
@@ -526,7 +534,7 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
         (0 until _rows).foreach(eraseRow)
       case 3 =>
         scrollback.clear()
-        _generation += 1
+        _scrollbackVersion += 1
       case _ =>
         ()
 
@@ -623,6 +631,7 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
     savedAlternate = SavedCursor()
     lastPrinted = 0
     _generation += 1
+    _scrollbackVersion += 1
     markAllDirty()
 
   /**
@@ -682,6 +691,7 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
         var extra = r - _rows
         while extra > 0 && scrollback.size > 0 do
           normalLines.insert(0, scrollback.popNewest())
+          _scrollbackVersion += 1
           normalLines.head.resize(_cols, CellColor.Default)
           if !_isAlternate then
             _cursorRow += 1

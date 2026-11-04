@@ -121,13 +121,21 @@ case class TerminalViewConfig(
     fontFamily: String = "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
     fontSize: Double = 13,
     lineHeight: Double = 1.25,
-    padding: Int = 4
+    padding: Int = 4,
+    macOptionIsMeta: Boolean = false
 ):
   def withTheme(theme: TerminalTheme): TerminalViewConfig    = copy(theme = theme)
   def withFontFamily(fontFamily: String): TerminalViewConfig = copy(fontFamily = fontFamily)
   def withFontSize(fontSize: Double): TerminalViewConfig     = copy(fontSize = fontSize)
   def withLineHeight(lineHeight: Double): TerminalViewConfig = copy(lineHeight = lineHeight)
   def withPadding(padding: Int): TerminalViewConfig          = copy(padding = padding)
+
+  /**
+    * On macOS, send Option+key as Meta+key (ESC + key, for readline word movement) instead of the
+    * character Option types. Off by default, so layouts that type `@`, `[`, or `|` with Option
+    * work.
+    */
+  def withMacOptionIsMeta(enabled: Boolean): TerminalViewConfig = copy(macOptionIsMeta = enabled)
 
 /**
   * Draws a [[TerminalEmulator]] in the DOM and sends keyboard, paste, and mouse input to it.
@@ -154,17 +162,19 @@ class TerminalView(
   private var linkHandler: Option[String => Unit] = None
 
   private var container: dom.HTMLElement = null
-  private var rowsEl: dom.HTMLElement    = null
-  private var input: dom.html.TextArea   = null
-  private var cellWidth                  = 8.0
-  private var cellHeight                 = 16.0
+  // Scrollback rows, hidden while the alternate screen shows, then the screen rows
+  private var scrollbackEl: dom.HTMLElement = null
+  private var screenEl: dom.HTMLElement     = null
+  private var input: dom.html.TextArea      = null
+  private var cellWidth                     = 8.0
+  private var cellHeight                    = 16.0
 
   // Rendering state
   private val screenRows         = mutable.ArrayBuffer.empty[dom.HTMLElement]
   private var scrollbackRows     = 0
   private var renderedGeneration = -1L
+  private var renderedScrollback = -1L
   private var renderedTotal      = 0L
-  private var renderedAlternate  = false
   private var cursorRowDrawn     = -1
   private var frameRequested     = false
   private var focused            = false
@@ -233,6 +243,7 @@ class TerminalView(
     screenRows.clear()
     scrollbackRows = 0
     renderedGeneration = -1L
+    renderedScrollback = -1L
     cursorRowDrawn = -1
     // Selection color for text in the pane
     val style = doc.createElement("style")
@@ -242,9 +253,12 @@ class TerminalView(
         ".uni-terminal .uni-term-link { text-decoration: underline dotted; }"
     container.appendChild(style)
 
-    rowsEl = doc.createElement("div").asInstanceOf[dom.HTMLElement]
-    rowsEl.className = "uni-term-rows"
-    container.appendChild(rowsEl)
+    scrollbackEl = doc.createElement("div").asInstanceOf[dom.HTMLElement]
+    scrollbackEl.className = "uni-term-scrollback"
+    container.appendChild(scrollbackEl)
+    screenEl = doc.createElement("div").asInstanceOf[dom.HTMLElement]
+    screenEl.className = "uni-term-screen"
+    container.appendChild(screenEl)
 
     input = doc.createElement("textarea").asInstanceOf[dom.html.TextArea]
     input.className = "uni-term-input"
@@ -319,10 +333,18 @@ class TerminalView(
     if container != null then
       val screen   = terminal.screen
       val atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2
-      if screen.generation != renderedGeneration || screen.isAlternate != renderedAlternate then
-        rebuild(screen)
+      if screen.scrollbackVersion != renderedScrollback then
+        rebuildScrollback(screen)
       else
         appendScrollback(screen)
+      scrollbackEl.style.display =
+        if screen.isAlternate then
+          "none"
+        else
+          ""
+      if screen.generation != renderedGeneration then
+        rebuildScreen(screen)
+      else
         var row = 0
         while row < screen.rows do
           if screen.isDirty(row) || row == cursorRowDrawn || row == screen.cursorRow then
@@ -334,25 +356,14 @@ class TerminalView(
       if atBottom then
         container.scrollTop = container.scrollHeight.toDouble
 
-  private def rebuild(screen: Screen): Unit =
-    rowsEl.textContent = ""
-    screenRows.clear()
-    scrollbackRows = 0
-    if !screen.isAlternate then
-      var i = 0
-      while i < screen.scrollback.size do
-        rowsEl.appendChild(staticRow(screen.scrollback(i)))
-        i += 1
-      scrollbackRows = screen.scrollback.size
-    var row = 0
-    while row < screen.rows do
-      val el = newRow()
-      rowsEl.appendChild(el)
-      screenRows += el
-      drawRow(el, screen.line(row), row)
-      row += 1
-    renderedGeneration = screen.generation
-    renderedAlternate = screen.isAlternate
+  private def rebuildScrollback(screen: Screen): Unit =
+    scrollbackEl.textContent = ""
+    var i = 0
+    while i < screen.scrollback.size do
+      scrollbackEl.appendChild(staticRow(screen.scrollback(i)))
+      i += 1
+    scrollbackRows = screen.scrollback.size
+    renderedScrollback = screen.scrollbackVersion
     renderedTotal = screen.scrollbackTotal
 
   // Add lines that scrolled off since the last frame, and drop lines the scrollback evicted
@@ -360,16 +371,27 @@ class TerminalView(
     val added =
       math.min(screen.scrollbackTotal - renderedTotal, screen.scrollback.size.toLong).toInt
     renderedTotal = screen.scrollbackTotal
-    if added > 0 && !screen.isAlternate then
-      val firstScreenRow = screenRows.headOption.orNull
-      var i              = screen.scrollback.size - added
-      while i < screen.scrollback.size do
-        rowsEl.insertBefore(staticRow(screen.scrollback(i)), firstScreenRow)
-        i += 1
-      scrollbackRows += added
-      while scrollbackRows > screen.scrollback.size do
-        rowsEl.removeChild(rowsEl.firstChild)
-        scrollbackRows -= 1
+    var i = screen.scrollback.size - added
+    while i < screen.scrollback.size do
+      scrollbackEl.appendChild(staticRow(screen.scrollback(i)))
+      i += 1
+    scrollbackRows += added
+    while scrollbackRows > screen.scrollback.size do
+      scrollbackEl.removeChild(scrollbackEl.firstChild)
+      scrollbackRows -= 1
+
+  // Redraw every visible row, e.g. after a resize or a switch to the alternate screen
+  private def rebuildScreen(screen: Screen): Unit =
+    screenEl.textContent = ""
+    screenRows.clear()
+    var row = 0
+    while row < screen.rows do
+      val el = newRow()
+      screenEl.appendChild(el)
+      screenRows += el
+      drawRow(el, screen.line(row), row)
+      row += 1
+    renderedGeneration = screen.generation
 
   private def newRow(): dom.HTMLElement =
     val el = dom.document.createElement("div").asInstanceOf[dom.HTMLElement]
@@ -602,7 +624,10 @@ class TerminalView(
         ()
       else
         val printable = e.key.codePointCount(0, e.key.length) == 1
-        if printable && !e.ctrlKey && !e.altKey then
+        // AltGr (reported as Ctrl+Alt on Windows) and macOS Option compose characters such as `@`
+        val composesText =
+          e.getModifierState("AltGraph") || (e.altKey && isMac && !config.macOptionIsMeta)
+        if printable && ((!e.ctrlKey && !e.altKey) || composesText) then
           // Typed text arrives through the input event, which also handles dead keys
           ()
         else
@@ -619,6 +644,8 @@ class TerminalView(
           if terminal.sendKey(name, e.ctrlKey, e.altKey, e.shiftKey && !printable, false) then
             e.preventDefault()
             scrollToBottom()
+
+  private lazy val isMac: Boolean = dom.window.navigator.platform.toLowerCase.contains("mac")
 
   private def scrollToBottom(): Unit = container.scrollTop = container.scrollHeight.toDouble
 
@@ -679,7 +706,7 @@ class TerminalView(
       (e: dom.Event) =>
         val we     = e.asInstanceOf[dom.WheelEvent]
         val screen = terminal.screen
-        if tracking(we) then
+        if tracking(we) && we.deltaY != 0 then
           we.preventDefault()
           val button =
             if we.deltaY < 0 then

@@ -196,7 +196,8 @@ class EscapeParser(handler: EscapeHandler):
   private def advance(c: Int): Unit =
     // Transitions that apply in every state
     if c == 0x18 || c == 0x1a then
-      // CAN and SUB abort the current sequence
+      // CAN and SUB abort the current sequence, including an ESC that may have started ST
+      stringEscape = false
       toGround()
     else if c == 0x1b then
       if state == OscString || state == IgnoredString then
