@@ -192,7 +192,8 @@ class TerminalView(
     // Selection color for text in the pane
     val style = doc.createElement("style")
     style.textContent =
-      ".uni-terminal ::selection { background: var(--uni-term-selection); }" +
+      // Drawn block and line characters show the font glyph while selected
+      ".uni-terminal ::selection { background: var(--uni-term-selection); -webkit-text-fill-color: currentColor; }" +
         ".uni-terminal .uni-term-row { white-space: pre; overflow: hidden; }" +
         ".uni-terminal .uni-term-link { text-decoration: underline dotted; text-underline-offset: 2px; }" +
         ".uni-terminal.uni-term-link-mod .uni-term-link:hover { text-decoration-style: solid; cursor: pointer; }"
@@ -249,10 +250,17 @@ class TerminalView(
     container.appendChild(probe)
     val rect = probe.getBoundingClientRect()
     container.removeChild(probe)
+    val oldWidth = cellWidth
     if rect.width > 0 then
       cellWidth = rect.width / 32
     cellHeight = math.max(1.0, math.ceil(config.fontSize * config.lineHeight))
     container.style.setProperty("--uni-term-cw", s"${cellWidth}px")
+    if cellWidth != oldWidth then
+      // Block and line characters are drawn in px, so a font that loads late redraws every row
+      glyphCache.clear()
+      renderedGeneration = -1L
+      renderedScrollback = -1L
+      scheduleRender()
 
   // Fit the terminal to the pane
   private def fit(): Unit =
@@ -375,19 +383,37 @@ class TerminalView(
         val wide     = (flags & CellFlags.Wide) != 0
         val style    = cellStyle(line, col, isCursor, wide)
         val link     = line.link(col)
-        if style != runStyle || link != runLink || isCursor != runCursor || wide then
+        val glyph    = glyphCss(line.codePoint(col))
+        if glyph.nonEmpty then
+          // A block or line character, drawn to fill its cell
           flush()
-          runStyle = style
-          runLink = link
-          runCursor = isCursor
-        text.append(line.cellText(col))
-        if wide then
-          flush()
+          el.appendChild(span(line.cellText(col), style + glyph, link, isCursor))
           runStyle = ""
+          runLink = 0
+          runCursor = false
+        else
+          if style != runStyle || link != runLink || isCursor != runCursor || wide then
+            flush()
+            runStyle = style
+            runLink = link
+            runCursor = isCursor
+          text.append(line.cellText(col))
+          if wide then
+            flush()
+            runStyle = ""
       col += 1
     flush()
 
   end drawRow
+
+  // CSS of the characters drawn by the view, by code point, for the current cell size
+  private val glyphCache = mutable.HashMap.empty[Int, String]
+
+  private def glyphCss(cp: Int): String =
+    if TerminalGlyphs.isCustom(cp) then
+      glyphCache.getOrElseUpdate(cp, TerminalGlyphs.css(cp, cellWidth, cellHeight))
+    else
+      ""
 
   private def span(text: String, style: String, link: Int, isCursor: Boolean): dom.Node =
     if style.isEmpty && link == 0 && !isCursor then
