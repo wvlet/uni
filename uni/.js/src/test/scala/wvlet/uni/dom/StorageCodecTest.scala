@@ -26,7 +26,25 @@ enum Pane(val label: String) derives StorageCodec:
   case Chats extends Pane("Chats")
   case Files extends Pane("Files")
 
+// More cases than the compiler's default inline depth (32)
+// format: off
+enum Big derives StorageCodec:
+  case
+    C0, C1, C2, C3, C4, C5, C6, C7, C8, C9,
+    C10, C11, C12, C13, C14, C15, C16, C17, C18, C19,
+    C20, C21, C22, C23, C24, C25, C26, C27, C28, C29,
+    C30, C31, C32, C33, C34, C35, C36, C37, C38, C39,
+    C40, C41, C42, C43, C44, C45, C46, C47, C48, C49,
+    C50, C51, C52, C53, C54, C55, C56, C57, C58, C59
+// format: on
+
 class StorageCodecTest extends UniTest:
+
+  test("derive a codec for an enum with many cases") {
+    val codec = summon[StorageCodec[Big]]
+    codec.decode("C59") shouldBe Some(Big.C59)
+    codec.encode(Big.C0) shouldBe "C0"
+  }
 
   test("derive a codec that stores an enum value by its case name") {
     val codec = summon[StorageCodec[Color]]
@@ -57,7 +75,8 @@ class StorageCodecTest extends UniTest:
         case Circle(radius: Double)
         case Unit
       """)
-    errors.map(_.message).mkString shouldContain "cases take no parameters"
+    // The compiler names the case that has no singleton value
+    errors.map(_.message).mkString shouldContain "singleton value available for Shape.Circle"
   }
 
 end StorageCodecTest

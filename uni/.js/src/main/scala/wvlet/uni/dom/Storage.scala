@@ -17,7 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.config.LocalStorageBackend
 import wvlet.uni.rx.RxVar
 
-import scala.compiletime.{constValue, erasedValue, error, summonFrom}
+import scala.compiletime.{constValueTuple, summonAll}
 import scala.deriving.Mirror
 
 /**
@@ -61,24 +61,18 @@ object StorageCodec:
     * [[StorageVar]] falls back to its default. Enums with parameterized cases are rejected at
     * compile time.
     */
-  inline def derived[A](using m: Mirror.SumOf[A]): StorageCodec[A] = enumCodec[A](
-    enumCases[m.MirroredElemTypes, m.MirroredElemLabels, A]
-  )
-
-  private inline def enumCases[Types <: Tuple, Labels <: Tuple, A]: List[(String, A)] =
-    inline erasedValue[(Types, Labels)] match
-      case _: (EmptyTuple, EmptyTuple) =>
-        Nil
-      case _: (t *: ts, l *: ls) =>
-        type T = t
-        val label = constValue[l].asInstanceOf[String]
-        val value = summonFrom {
-          case v: ValueOf[T] =>
-            v.value.asInstanceOf[A]
-          case _ =>
-            error("StorageCodec.derived supports only enums whose cases take no parameters")
+  inline def derived[A](using m: Mirror.SumOf[A]): StorageCodec[A] =
+    // One summon for all cases rather than an inline call per case, which would hit the
+    // compiler's inline depth limit (32) on large enums
+    val values = summonAll[Tuple.Map[m.MirroredElemTypes, ValueOf]].toList
+    val labels = constValueTuple[m.MirroredElemLabels].toList
+    enumCodec[A](
+      labels
+        .zip(values)
+        .map { (l, v) =>
+          l.asInstanceOf[String] -> v.asInstanceOf[ValueOf[A]].value
         }
-        (label -> value) :: enumCases[ts, ls, A]
+    )
 
   // Not inline: the derived codec of each enum shares this code
   private def enumCodec[A](cases: List[(String, A)]): StorageCodec[A] =
