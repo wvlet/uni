@@ -188,8 +188,8 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
 
   /**
     * Changes when existing scrollback lines change, rather than only new lines arriving: the
-    * scrollback was cleared, or a resize moved lines back onto the screen. The renderer should then
-    * redraw the scrollback.
+    * scrollback was cleared, a width change rewrapped it, or a resize moved lines back onto the
+    * screen. The renderer should then redraw the scrollback.
     */
   def scrollbackVersion: Long = _scrollbackVersion
 
@@ -662,14 +662,19 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
     val c = math.max(1, newCols)
     val r = math.max(1, newRows)
     if c != _cols || r != _rows then
+      var pending = false
       if c != _cols then
-        normalLines.foreach(_.resize(c, CellColor.Default))
+        pending = reflow(c, r)
         alternateLines.foreach(_.resize(c, CellColor.Default))
+        if alternateLines.length > r then
+          alternateLines.remove(r, alternateLines.length - r)
+        while alternateLines.length < r do
+          alternateLines.append(Line(c, CellColor.Default))
         val stops = defaultTabStops(c)
         System.arraycopy(tabStops, 0, stops, 0, math.min(_cols, c))
         tabStops = stops
         _cols = c
-      if r < _rows then
+      else if r < _rows then
         // Drop empty rows below the cursor first, then push rows off the top into the scrollback
         var excess = _rows - r
         while excess > 0 && normalLines.length - 1 > cursorRowIn(normalLines) &&
@@ -712,11 +717,168 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
       resetScrollRegion()
       _cursorRow = clamp(_cursorRow, 0, _rows - 1)
       _cursorCol = clamp(_cursorCol, 0, _cols - 1)
-      wrapPending = false
+      wrapPending = pending
       _generation += 1
     end if
 
   end resize
+
+  /**
+    * Rewrap the normal screen and its scrollback at `newCols` columns, so text that wrapped at the
+    * old width wraps at the new one instead of being cut off, and leave `newRows` rows on the
+    * screen. The cursor and the saved cursor move with the text they were on.
+    *
+    * Returns true when the cursor ends just past the last column, where the next character wraps.
+    */
+  private def reflow(newCols: Int, newRows: Int): Boolean =
+    val old = ArrayBuffer.empty[Line]
+    var i   = 0
+    while i < scrollback.size do
+      old += scrollback(i)
+      i += 1
+    val base = old.size
+    old ++= normalLines
+
+    // Positions to carry over: the cursor (when the normal screen shows) and the saved cursor
+    val cursorRow =
+      if _isAlternate then
+        -1
+      else
+        base + _cursorRow
+    // A pending wrap means the cursor is past the last character
+    val cursorCol =
+      if !_isAlternate && wrapPending then
+        _cursorCol + 1
+      else
+        _cursorCol
+    val trackRow   = Array(cursorRow, base + savedNormal.row)
+    val trackCol   = Array(cursorCol, savedNormal.col)
+    val newRow     = Array(-1, -1)
+    val newCol     = Array(0, 0)
+    val newPending = Array(false, false)
+
+    // Empty rows below the content and the cursors are dropped; the screen is padded again below
+    var end = old.length
+    while end > 0 && end - 1 > math.max(trackRow(0), trackRow(1)) && old(end - 1).contentLength == 0
+    do
+      end -= 1
+
+    val out = ArrayBuffer.empty[Line]
+
+    // Place a tracked position at a column of the last output row, wrapping past the margin
+    def place(k: Int, col: Int): Unit =
+      newRow(k) = out.size - 1
+      if col >= newCols then
+        newCol(k) = newCols - 1
+        newPending(k) = true
+      else
+        newCol(k) = col
+
+    var row = 0
+    while row < end do
+      // A logical line: this row and the rows that continue it
+      var last = row
+      while last + 1 < end && old(last + 1).isWrapped do
+        last += 1
+      val first = old(row)
+      if row == last && first.contentLength <= newCols then
+        // Fits as it is: keep the line, and its trailing colored cells
+        first.resize(newCols, CellColor.Default)
+        first.isWrapped = false
+        out += first
+        for k <- 0 until 2 do
+          if trackRow(k) == row then
+            place(k, trackCol(k))
+      else
+        var cur = Line(newCols, CellColor.Default)
+        out += cur
+        var col = 0
+        var r   = row
+        while r <= last do
+          val src = old(r)
+          var len =
+            if r == last then
+              src.contentLength
+            else
+              src.length
+          // A blank the terminal left at the margin because a wide character did not fit
+          if r < last && len > 0 && src.codePoint(len - 1) == 0 &&
+            (old(r + 1).flags(0) & CellFlags.Wide) != 0
+          then
+            len -= 1
+          var c = 0
+          while c < len do
+            val flags = src.flags(c)
+            if (flags & CellFlags.WideTail) == 0 then
+              val width =
+                if (flags & CellFlags.Wide) != 0 then
+                  2
+                else
+                  1
+              if col + width > newCols then
+                cur = Line(newCols, CellColor.Default)
+                cur.isWrapped = true
+                out += cur
+                col = 0
+              for k <- 0 until 2 do
+                if trackRow(k) == r && (trackCol(k) == c || (width == 2 && trackCol(k) == c + 1))
+                then
+                  place(k, col)
+              if width == 2 && newCols < 2 then
+                // A wide character cannot show in one column
+                ()
+              else
+                src.copyCellTo(c, cur, col)
+                if width == 2 then
+                  src.copyCellTo(c + 1, cur, col + 1)
+              col += width
+            c += 1
+          end while
+          // A position past the copied cells of this row
+          for k <- 0 until 2 do
+            if trackRow(k) == r && trackCol(k) >= len then
+              place(k, col + trackCol(k) - len)
+          r += 1
+        end while
+      end if
+      row = last + 1
+    end while
+
+    if out.isEmpty then
+      out += Line(newCols, CellColor.Default)
+      newRow(0) = 0
+      newRow(1) = 0
+
+    // Show the last rows, but never scroll the row the cursor is on off the screen
+    val anchor =
+      if _isAlternate then
+        newRow(1)
+      else
+        newRow(0)
+    val top = clamp(out.size - newRows, 0, math.max(anchor, 0))
+
+    scrollback.clear()
+    var j = 0
+    while j < top do
+      scrollback.push(out(j))
+      j += 1
+    _scrollbackTotal += math.max(0, top - base)
+    _scrollbackVersion += 1
+
+    normalLines.clear()
+    normalLines ++= out.slice(top, math.min(out.size, top + newRows))
+    while normalLines.length < newRows do
+      normalLines.append(Line(newCols, CellColor.Default))
+
+    savedNormal = savedNormal.copy(row = math.max(0, newRow(1) - top), col = newCol(1))
+    if _isAlternate then
+      false
+    else
+      _cursorRow = newRow(0) - top
+      _cursorCol = newCol(0)
+      newPending(0)
+
+  end reflow
 
   private def cursorRowIn(buf: ArrayBuffer[Line]): Int =
     if buf eq lines then
