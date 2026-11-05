@@ -11,7 +11,8 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 /**
   * Runs the user's shell in a pseudo-terminal for the renderer's Terminal tab, one shell per
   * window. Output streams to the window as `pty-data` messages; the preload script's `uniPty`
-  * bridge sends `pty-start`, `pty-input`, and `pty-resize`.
+  * bridge sends `pty-start`, `pty-input`, and `pty-resize`. zsh and bash start with
+  * [[ShellIntegration]], so the renderer sees each command and its exit code.
   *
   * Only top-level frames of the app's windows may drive the shell (the same sender check as
   * `ElectronRPCServer`), because a shell can run any command.
@@ -28,13 +29,14 @@ object TerminalBridge extends LogSupport:
       val sender = event.sender
       val id     = sender.id.asInstanceOf[Int]
       sessions.remove(id).foreach(_.kill())
-      val options = PtyOptions(cols = intArg(args, 0, 80), rows = intArg(args, 1, 24))
-      val pty     = NodePty.spawn(
-        nodePty,
-        defaultShell,
+      val options           = PtyOptions(cols = intArg(args, 0, 80), rows = intArg(args, 1, 24))
+      val shell             = defaultShell
+      val (shellArgs, opts) = ShellIntegration.wrap(
+        shell,
         Seq.empty,
         homeDir.fold(options)(options.withCwd)
       )
+      val pty = NodePty.spawn(nodePty, shell, shellArgs, opts)
       sessions(id) = pty
       // A shell replaced by a newer pty-start (e.g. after a reload) must not reach the new page
       def isCurrent: Boolean = sessions.get(id).contains(pty)

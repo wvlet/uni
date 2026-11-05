@@ -27,7 +27,8 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     onBell =
       () =>
         if !terminalVisible then
-          terminalAttention := true
+          terminalAttention := true,
+    onAsk = text => store.sendOrStart(text)
   )
 
   private val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")

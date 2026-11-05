@@ -291,4 +291,42 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  test("mark prompts by exit code, also after they scrolled into the scrollback") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 2))
+    val view = TerminalView(term)
+    val m    = mount(div(styleAttr -> "width: 400px; height: 44px;", view))
+    settle().map { _ =>
+      val prompt = "\u001b]133;A\u0007$ \u001b]133;B\u0007"
+      term.write(prompt + "seq 3\r\n\u001b]133;C\u00071\r\n2\r\n3\r\n")
+      view.renderNow()
+      // The prompt scrolled off before the command finished
+      m.container.querySelectorAll(".uni-term-scrollback .uni-term-prompt").length shouldBe 1
+      m.container.querySelectorAll(".uni-term-failed").length shouldBe 0
+      term.write("\u001b]133;D;1\u0007" + prompt)
+      view.renderNow()
+      m.container.querySelectorAll(".uni-term-scrollback .uni-term-failed").length shouldBe 1
+      m.container.querySelectorAll(".uni-term-prompt").length shouldBe 2
+    }
+  }
+
+  test("scroll between prompts") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 2))
+    val view = TerminalView(term)
+    val m    = mount(div(styleAttr -> "width: 400px; height: 60px;", view))
+    settle().map { _ =>
+      val prompt = "\u001b]133;A\u0007$ \u001b]133;B\u0007"
+      val out    = (1 to 10).map(i => s"${i}\r\n").mkString
+      term.write(prompt + s"a\r\n\u001b]133;C\u0007${out}\u001b]133;D;0\u0007" + prompt)
+      view.renderNow()
+      val pane   = m.container.querySelector(".uni-terminal").asInstanceOf[dom.HTMLElement]
+      val bottom = pane.scrollTop
+      (bottom > 0) shouldBe true
+      view.scrollToPreviousPrompt() shouldBe true
+      pane.scrollTop shouldBe 0.0
+      view.scrollToPreviousPrompt() shouldBe false
+      view.scrollToNextPrompt() shouldBe true
+      (pane.scrollTop > 0) shouldBe true
+    }
+  }
+
 end TerminalViewTest

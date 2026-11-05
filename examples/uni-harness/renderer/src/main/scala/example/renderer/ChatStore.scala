@@ -65,6 +65,13 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
       messages := Seq.empty
     }
 
+  /** Send a prompt in the selected conversation, or in a new one when none is selected. */
+  def sendOrStart(text: String): Future[Unit] =
+    if selected.get.isEmpty then
+      newChat().flatMap(_ => send(text))
+    else
+      send(text)
+
   /**
     * Send a prompt in the selected conversation. Ignored while that conversation waits for a reply.
     */

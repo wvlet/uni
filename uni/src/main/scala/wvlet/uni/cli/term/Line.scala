@@ -92,6 +92,40 @@ final class Line private[term] (initialCols: Int, bg: Int):
     */
   var isWrapped: Boolean = false
 
+  // Shell integration marks (OSC 133): PromptMarks bits, the column where the command line starts,
+  // and the exit code of the command whose prompt starts here
+  private[term] var marks: Int     = 0
+  private[term] var inputCol: Int  = -1
+  private[term] var _exitCode: Int = -1
+  // The command line the shell reported with the output mark (OSC 133 C ; cmdline_url=...)
+  private[term] var cmdline: String = null
+
+  /**
+    * True when a shell prompt starts on this line (OSC 133 A)
+    */
+  def isPromptStart: Boolean = (marks & PromptMarks.Prompt) != 0
+
+  /**
+    * True when a command's output starts on this line (OSC 133 C)
+    */
+  def isOutputStart: Boolean = (marks & PromptMarks.Output) != 0
+
+  /**
+    * The exit code of the command whose prompt starts on this line (OSC 133 D), once it finished
+    */
+  def exitCode: Option[Int] =
+    if _exitCode >= 0 then
+      Some(_exitCode)
+    else
+      None
+
+  private[term] def copyMarksTo(dst: Line): Unit =
+    dst.marks |= marks
+    if _exitCode >= 0 then
+      dst._exitCode = _exitCode
+    if cmdline != null then
+      dst.cmdline = cmdline
+
   /**
     * The number of cells
     */
@@ -153,6 +187,18 @@ final class Line private[term] (initialCols: Int, bg: Int):
     while end > 0 && codePoints(end - 1) == 0 && (attrs(end - 1) & CellFlags.WideTail) == 0 do
       end -= 1
     end
+
+  /**
+    * The text from a column to the last character
+    */
+  private[term] def textFrom(col: Int): String =
+    val sb  = StringBuilder()
+    val end = contentLength
+    var i   = math.max(0, col)
+    while i < end do
+      sb.append(cellText(i))
+      i += 1
+    sb.toString
 
   /**
     * Copy a cell, with its combining marks and link, into another line
@@ -264,3 +310,11 @@ final class Line private[term] (initialCols: Int, bg: Int):
       fixRightEdge(bg)
 
 end Line
+
+/**
+  * Bits of [[Line]] shell integration marks
+  */
+private[term] object PromptMarks:
+  val Prompt: Int = 1
+  val Input: Int  = 1 << 1
+  val Output: Int = 1 << 2
