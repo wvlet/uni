@@ -136,16 +136,33 @@ final class Line private[term] (initialCols: Int, bg: Int):
     */
   def text: String =
     val sb  = StringBuilder()
-    var end = length
-    while end > 0 && codePoints(end - 1) == 0 && (attrs(end - 1) & CellFlags.WideTail) == 0 do
-      end -= 1
-    var i = 0
+    val end = contentLength
+    var i   = 0
     while i < end do
       sb.append(cellText(i))
       i += 1
     sb.toString
 
   override def toString: String = text
+
+  /**
+    * The number of cells up to the last one that holds a character
+    */
+  private[term] def contentLength: Int =
+    var end = length
+    while end > 0 && codePoints(end - 1) == 0 && (attrs(end - 1) & CellFlags.WideTail) == 0 do
+      end -= 1
+    end
+
+  /**
+    * Copy a cell, with its combining marks and link, into another line
+    */
+  private[term] def copyCellTo(col: Int, dst: Line, dstCol: Int): Unit =
+    dst.setCell(dstCol, codePoints(col), fgs(col), bgs(col), attrs(col), link(col))
+    if combining != null && combining(col) != null then
+      if dst.combining == null then
+        dst.combining = Array.fill[String](dst.length)(null)
+      dst.combining(dstCol) = combining(col)
 
   private[term] def setCell(col: Int, cp: Int, fg: Int, bg: Int, flags: Int, link: Int): Unit =
     codePoints(col) = cp

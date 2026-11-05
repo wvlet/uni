@@ -238,6 +238,102 @@ class TerminalEmulatorTest extends UniTest:
     t.screen.scrollback.size shouldBe 0
   }
 
+  test("narrowing rewraps long lines instead of cutting them off") {
+    val t = term(cols = 10, rows = 4)
+    t.write("0123456789\r\nab")
+    t.resize(4, 4)
+    t.screen.text shouldBe "0123\n4567\n89\nab"
+    t.screen.line(1).isWrapped shouldBe true
+    t.screen.line(3).isWrapped shouldBe false
+    cursor(t.screen) shouldBe (3, 2)
+  }
+
+  test("widening joins lines that wrapped at the old width") {
+    val t = term(cols = 4, rows = 4)
+    t.write("0123456789\r\nab")
+    t.screen.text shouldBe "0123\n4567\n89\nab"
+    t.resize(10, 4)
+    t.screen.text shouldBe "0123456789\nab"
+    cursor(t.screen) shouldBe (1, 2)
+  }
+
+  test("rewrapping moves overflowing rows into the scrollback and back") {
+    val t = term(cols = 6, rows = 2)
+    t.write("abcdef\r\nx")
+    t.resize(3, 2)
+    t.screen.text shouldBe "def\nx"
+    t.screen.scrollback.size shouldBe 1
+    t.screen.scrollback(0).text shouldBe "abc"
+    t.resize(6, 2)
+    t.screen.text shouldBe "abcdef\nx"
+    t.screen.scrollback.size shouldBe 0
+  }
+
+  test("rewrapping keeps the cursor on the character it was on") {
+    val t = term(cols = 10, rows = 4)
+    t.write("0123456789ab\u001b[1;8H")
+    t.resize(5, 4)
+    t.screen.text shouldBe "01234\n56789\nab"
+    cursor(t.screen) shouldBe (1, 2)
+    t.write("X")
+    t.screen.text shouldBe "01234\n56X89\nab"
+  }
+
+  test("a pending wrap survives a rewrap") {
+    val t = term(cols = 10, rows = 4)
+    t.write("0123456789")
+    t.resize(20, 4)
+    t.write("x")
+    t.screen.text shouldBe "0123456789x"
+    val n = term(cols = 10, rows = 4)
+    n.write("01234567")
+    n.resize(4, 4)
+    n.write("x")
+    n.screen.text shouldBe "0123\n4567\nx"
+  }
+
+  test("rewrapping keeps wide characters whole") {
+    val t = term(cols = 6, rows = 4)
+    t.write("ab日本語")
+    t.resize(5, 4)
+    t.screen.text shouldBe "ab日\n本語"
+    t.resize(9, 4)
+    t.screen.text shouldBe "ab日本語"
+  }
+
+  test("rewrapping keeps colors, links, and combining marks") {
+    val t = term(cols = 4, rows = 4)
+    t.write("\u001b]8;;https://example.com\u001b\\ab\u001b]8;;\u001b\\c\u001b[31mde\u0301\u001b[0m")
+    t.resize(2, 4)
+    t.screen.text shouldBe "ab\ncd\ne\u0301"
+    val first = t.screen.line(0)
+    t.hyperlink(first.link(0)) shouldBe Some("https://example.com")
+    val second = t.screen.line(1)
+    second.fg(1) shouldBe CellColor.palette(1)
+    t.screen.line(2).cellText(0) shouldBe "e\u0301"
+  }
+
+  test("the alternate screen is cut, not rewrapped, and the normal screen rewraps under it") {
+    val t = term(cols = 6, rows = 3)
+    t.write("abcdef")
+    t.write("\u001b[?1049h\u001b[H123456")
+    t.resize(3, 3)
+    t.screen.text shouldBe "123"
+    t.write("\u001b[?1049l")
+    t.screen.text shouldBe "abc\ndef"
+    t.write("x")
+    t.screen.text shouldBe "abc\ndef\nx"
+  }
+
+  test("changing only the height does not rewrap") {
+    val t = term(cols = 4, rows = 4)
+    t.write("0123456789")
+    val version = t.screen.scrollbackVersion
+    t.resize(4, 5)
+    t.screen.text shouldBe "0123\n4567\n89"
+    t.screen.scrollbackVersion shouldBe version
+  }
+
   test("reset to the power-on state") {
     val t = term()
     t.write("abc\u001b[?1h\u001bc")
