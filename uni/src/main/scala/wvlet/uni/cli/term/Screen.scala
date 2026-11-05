@@ -83,6 +83,7 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
   private var _scrollbackTotal   = 0L
   private var _generation        = 0L
   private var _scrollbackVersion = 0L
+  private var _marksVersion      = 0L
   private var dirty              = Array.fill(_rows)(true)
 
   // Cursor
@@ -192,6 +193,29 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
     * screen. The renderer should then redraw the scrollback.
     */
   def scrollbackVersion: Long = _scrollbackVersion
+
+  /**
+    * Changes when a shell integration mark (OSC 133) changed on a scrollback line, e.g. the exit
+    * code of a command whose prompt already scrolled off. The renderer should then update how it
+    * marks scrollback lines.
+    */
+  def marksVersion: Long = _marksVersion
+
+  /**
+    * The number of lines in the normal screen's history: the scrollback, then the normal screen's
+    * rows. It includes the normal screen while the alternate screen shows.
+    */
+  def historySize: Int = scrollback.size + normalLines.length
+
+  /**
+    * A line of the normal screen's history: 0 is the oldest scrollback line, and
+    * `scrollback.size + row` is a row of the normal screen
+    */
+  def historyLine(i: Int): Line =
+    if i < scrollback.size then
+      scrollback(i)
+    else
+      normalLines(i - scrollback.size)
 
   /**
     * True when the visible row changed since the last [[clearDirty]]
@@ -656,6 +680,51 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
     penFlags = 0
     penLink = 0
 
+  // ---- Shell integration (OSC 133) ----
+
+  /**
+    * Mark the cursor's line: a prompt starts (A), the command line starts at the cursor (B), or the
+    * command's output starts (C), with the command line when the shell reported it
+    */
+  private[term] def markPrompt(kind: Int, cmdline: String = null): Unit =
+    if !_isAlternate then
+      val line = lines(_cursorRow)
+      line.marks |= kind
+      if kind == PromptMarks.Prompt then
+        line._exitCode = -1
+      if kind == PromptMarks.Input then
+        line.inputCol = _cursorCol
+      if kind == PromptMarks.Output then
+        line.cmdline = cmdline
+      markDirty(_cursorRow)
+
+  /**
+    * Record a command's exit code (D) on its prompt line: the nearest prompt above the cursor whose
+    * output started. Returns the prompt's history index, or -1 when no command was running.
+    */
+  private[term] def finishCommand(exitCode: Int): Int =
+    if _isAlternate then
+      -1
+    else
+      var i          = scrollback.size + _cursorRow
+      var seenOutput = false
+      var found      = -1
+      while found < 0 && i >= 0 do
+        val line = historyLine(i)
+        // An output mark on a prompt line belongs to the command before that prompt
+        if line.isPromptStart && seenOutput then
+          found = i
+        if line.isOutputStart then
+          seenOutput = true
+        i -= 1
+      if found >= 0 then
+        historyLine(found)._exitCode = math.max(0, exitCode)
+        if found >= scrollback.size then
+          markDirty(found - scrollback.size)
+        else
+          _marksVersion += 1
+      found
+
   // ---- Resize ----
 
   private[term] def resize(newCols: Int, newRows: Int): Unit =
@@ -806,6 +875,8 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
             (old(r + 1).flags(0) & CellFlags.Wide) != 0
           then
             len -= 1
+          // Prompt marks start a logical line, so they land on its first output line
+          src.copyMarksTo(cur)
           var c = 0
           while c < len do
             val flags = src.flags(c)
@@ -820,6 +891,8 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
                 cur.isWrapped = true
                 out += cur
                 col = 0
+              if src.inputCol == c then
+                cur.inputCol = col
               for k <- 0 until 2 do
                 if trackRow(k) == r && (trackCol(k) == c || (width == 2 && trackCol(k) == c + 1))
                 then
@@ -834,6 +907,8 @@ final class Screen private[term] (initialCols: Int, initialRows: Int, scrollback
               col += width
             c += 1
           end while
+          if src.inputCol >= len then
+            cur.inputCol = math.min(col + src.inputCol - len, newCols - 1)
           // A position past the copied cells of this row
           for k <- 0 until 2 do
             if trackRow(k) == r && trackCol(k) >= len then

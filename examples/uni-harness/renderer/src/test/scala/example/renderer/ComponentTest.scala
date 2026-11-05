@@ -150,4 +150,42 @@ class ComponentTest extends DomTestSupport:
     pane.term.write("\u0007")
     bells shouldBe 1
 
+  test("offer to explain a failed command, and pass a prompt with its output to the chat"):
+    var asked         = Seq.empty[String]
+    val pane          = TerminalPane(Rx.variable(Theme.Light), onAsk = text => asked :+= text)
+    val m             = mount(pane)
+    def explainButton = m.queryAll("button").find(_.textContent == "Explain error")
+    val prompt        = "\u001b]133;A\u0007$ \u001b]133;B\u0007"
+    pane
+      .term
+      .write(prompt + "make\r\n\u001b]133;C\u0007error: no target\r\n\u001b]133;D;2\u0007" + prompt)
+    explainButton.isDefined shouldBe true
+    explainButton.foreach(fireEvent.click(_))
+    asked.size shouldBe 1
+    asked.head shouldContain "`make` failed with exit code 2"
+    asked.head shouldContain "error: no target"
+    explainButton shouldBe None
+    // A command that succeeds clears the offer
+    pane.term.write("false\r\n\u001b]133;C\u0007\u001b]133;D;1\u0007" + prompt)
+    explainButton.isDefined shouldBe true
+    pane.term.write("true\r\n\u001b]133;C\u0007\u001b]133;D;0\u0007" + prompt)
+    explainButton shouldBe None
+
+  test("cut long output from the top in the explain prompt"):
+    val output = (1 to 200).map(i => s"line ${i}").mkString("\n")
+    val text   = TerminalPane.explainPrompt(
+      wvlet.uni.cli.term.TerminalCommand(0, "build", output, Some(1))
+    )
+    text shouldContain "line 200"
+    text shouldNotContain "line 100\n"
+    text shouldContain "(earlier output cut)"
+
+  test("the demo shell marks commands and their exit codes"):
+    val term = wvlet.uni.cli.term.TerminalEmulator()
+    DemoShell(term).start()
+    term.sendText("echo hi\r")
+    term.sendText("nope\r")
+    term.commands.map(c => (c.command, c.exitCode)) shouldBe
+      Seq(("echo hi", Some(0)), ("nope", Some(127)))
+
 end ComponentTest

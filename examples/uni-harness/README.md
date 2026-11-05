@@ -40,6 +40,13 @@ flowchart LR
     prompt ideas, message bubbles with copy, replies that type themselves in, and the composer.
   - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the resizable right dock, with the
     conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
+- **A terminal in the dock.** The Terminal tab runs your shell in a pty (Electron) or a demo shell
+  (browser), drawn by Uni's pure-Scala emulator and `TerminalView`. zsh and bash start with
+  [`ShellIntegration`](server/src/main/scala/example/server/ShellIntegration.scala), which loads
+  your own startup files and then emits OSC 133 marks, so each prompt shows a green or red marker,
+  ⌘↑/⌘↓ (Ctrl+Shift+↑/↓) jump between prompts, and a failed command offers **Explain error**, which
+  asks the chat about the command and its output. Set `UNI_HARNESS_NO_SHELL_INTEGRATION=1` to
+  start the shell unchanged.
 - **Keyboard shortcuts.** `Keyboard.bindAll`: ⌘B / Ctrl+B folds the sidebar, ⌘⇧B / Ctrl+Shift+B
   toggles the dock, ⌘K / Ctrl+K searches chats.
 - **A composer that respects IME input.** Enter sends, Shift+Enter adds a newline, and Enter during

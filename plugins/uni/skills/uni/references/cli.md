@@ -105,6 +105,11 @@ assert(term.screen.lineText(0) == "hello")
 term.onData(bytes => ())                   // connect to a PTY's input
 term.sendKey("ArrowUp")                    // W3C KeyboardEvent.key names
 
+// Shell integration (OSC 133): the shell marks prompts, commands, and exit codes
+term.write("\u001b]133;A\u0007$ \u001b]133;B\u0007false\r\n\u001b]133;C\u0007\u001b]133;D;1\u0007")
+assert(term.commands.map(c => (c.command, c.exitCode)) == Seq(("false", Some(1))))
+term.onCommandFinished(c => if c.isFailed then println(c.output))
+
 // OSC 8 links come from program output: open only safe schemes
 assert(TerminalLink.isAllowed("https://wvlet.org/uni"))
 assert(!TerminalLink.isAllowed("javascript:alert(1)"))
@@ -113,7 +118,9 @@ assert(!TerminalLink.isAllowed("javascript:alert(1)"))
 In a Scala.js UI, `wvlet.uni.dom.TerminalView` draws the emulator in the DOM.
 It uses `TerminalTheme.uniDark` by default (presets: `uniLight`, `solarizedDark`,
 `nord`, `dracula`, and more in `TerminalTheme.presets`), switches with
-`setTheme`, and opens http/https/mailto links on Cmd+click (Ctrl elsewhere):
+`setTheme`, and opens http/https/mailto links on Cmd+click (Ctrl elsewhere).
+OSC 133 prompts get a green or red marker, and Cmd+Up/Down (Ctrl+Shift+Up/Down
+elsewhere) or `view.scrollToPreviousPrompt()` / `scrollToNextPrompt()` jump between them:
 
 ```scala skip
 import wvlet.uni.cli.term.{PtyProcess, TerminalEmulator}

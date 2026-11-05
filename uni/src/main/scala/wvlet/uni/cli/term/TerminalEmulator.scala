@@ -94,6 +94,7 @@ class TerminalEmulator(config: TerminalConfig = TerminalConfig()):
   private val changeListeners     = mutable.ArrayBuffer.empty[() => Unit]
   private val titleListeners      = mutable.ArrayBuffer.empty[String => Unit]
   private val bellListeners       = mutable.ArrayBuffer.empty[() => Unit]
+  private val commandListeners    = mutable.ArrayBuffer.empty[TerminalCommand => Unit]
   private val hyperlinks          = mutable.ArrayBuffer.empty[String]
   private val hyperlinkIds        = mutable.HashMap.empty[String, Int]
   private var focused             = true
@@ -162,6 +163,21 @@ class TerminalEmulator(config: TerminalConfig = TerminalConfig()):
     * Register a callback for the bell (BEL)
     */
   def onBell(listener: () => Unit): Cancelable = register(bellListeners, listener)
+
+  /**
+    * The commands the shell ran, oldest first, found from shell integration marks (OSC 133) in the
+    * scrollback and the normal screen. Empty unless the shell emits the marks.
+    */
+  def commands: Seq[TerminalCommand] = TerminalCommand.scan(_screen)
+
+  /**
+    * Register a callback for a command that finished (OSC 133 D), with its command line, output,
+    * and exit code
+    */
+  def onCommandFinished(listener: TerminalCommand => Unit): Cancelable = register(
+    commandListeners,
+    listener
+  )
 
   /**
     * Process program output given as UTF-8 bytes
@@ -264,6 +280,31 @@ class TerminalEmulator(config: TerminalConfig = TerminalConfig()):
     if !_synchronizedOutput then
       changeListeners.foreach(_())
 
+  // OSC 133 shell integration: A prompt, B command line, C output (kitty's cmdline_url=... names
+  // the command), D;exit-code finished
+  private def promptMark(arg: String): Unit =
+    val parts = arg.split(";", -1)
+    parts(0) match
+      case "A" =>
+        _screen.markPrompt(PromptMarks.Prompt)
+      case "B" =>
+        _screen.markPrompt(PromptMarks.Input)
+      case "C" =>
+        val cmdline = parts
+          .drop(1)
+          .collectFirst {
+            case p if p.startsWith("cmdline_url=") =>
+              TerminalCommand.percentDecode(p.stripPrefix("cmdline_url="))
+          }
+        _screen.markPrompt(PromptMarks.Output, cmdline.orNull)
+      case "D" =>
+        val code  = parts.lift(1).flatMap(_.trim.toIntOption).getOrElse(0)
+        val found = _screen.finishCommand(code)
+        if found >= 0 && commandListeners.nonEmpty then
+          TerminalCommand.at(_screen, found).foreach(c => commandListeners.foreach(_(c)))
+      case _ =>
+        ()
+
   private def setTitle(t: String): Unit =
     _title = t
     titleListeners.foreach(_(t))
@@ -363,9 +404,13 @@ class TerminalEmulator(config: TerminalConfig = TerminalConfig()):
               0
             else
               hyperlinkId(uri)
+        case "133" =>
+          promptMark(arg)
         case _ =>
           // OSC 52 (clipboard) and others are ignored
           ()
+
+    end osc
 
     override def csi(p: CsiParams, prefix: Char, intermediates: String, finalChar: Char): Unit =
       def n(i: Int = 0): Int = math.max(1, p(i, 1))

@@ -72,6 +72,10 @@ end TerminalViewConfig
   * OSC 8 hyperlinks whose scheme is in [[TerminalViewConfig.linkSchemes]] open with Cmd+click on
   * macOS and Ctrl+click elsewhere; see [[onLinkClick]].
   *
+  * With shell integration (OSC 133), each prompt gets a marker in the left padding: dim while its
+  * command runs, green when it succeeded, and red when it failed. Cmd+Up/Down (Ctrl+Shift+Up/Down
+  * elsewhere) scroll to the previous or next prompt.
+  *
   * {{{
   *   val term = TerminalEmulator()
   *   val view = TerminalView(term)
@@ -104,6 +108,7 @@ class TerminalView(
   private var renderedGeneration = -1L
   private var renderedScrollback = -1L
   private var renderedTotal      = 0L
+  private var renderedMarks      = -1L
   private var cursorRowDrawn     = -1
   private var frameRequested     = false
   private var focused            = false
@@ -149,6 +154,52 @@ class TerminalView(
     if input != null then
       input.focus()
 
+  /**
+    * Scroll to the nearest shell prompt (OSC 133) above the top of the pane. Returns false when
+    * there is none.
+    */
+  def scrollToPreviousPrompt(): Boolean =
+    if container == null then
+      false
+    else
+      promptTargets.reverse.find(_ < container.scrollTop - 1) match
+        case Some(top) =>
+          container.scrollTop = top
+          true
+        case None =>
+          false
+
+  /**
+    * Scroll to the nearest shell prompt (OSC 133) below the top of the pane, or to the bottom after
+    * the last one. Returns false when the pane is already at the bottom.
+    */
+  def scrollToNextPrompt(): Boolean =
+    if container == null then
+      false
+    else
+      val before = container.scrollTop
+      promptTargets.find(_ > before + 1) match
+        case Some(top) =>
+          container.scrollTop = top
+        case None =>
+          scrollToBottom()
+      container.scrollTop != before
+
+  // Where to scroll to show each visible prompt row at the top, in order
+  private def promptTargets: Seq[Double] =
+    if container == null then
+      Seq.empty
+    else
+      val rows = container.querySelectorAll(".uni-term-prompt")
+      (0 until rows.length).flatMap { i =>
+        val el = rows(i).asInstanceOf[dom.HTMLElement]
+        // offsetParent is null for rows of the hidden scrollback
+        if el.offsetParent == null then
+          None
+        else
+          Some(math.max(0.0, el.offsetTop - config.padding))
+      }
+
   override def render: RxElement =
     import all.*
     div(cls -> "uni-terminal", styleAttr -> containerStyle)
@@ -188,6 +239,7 @@ class TerminalView(
     scrollbackRows = 0
     renderedGeneration = -1L
     renderedScrollback = -1L
+    renderedMarks = -1L
     cursorRowDrawn = -1
     // Selection color for text in the pane
     val style = doc.createElement("style")
@@ -195,6 +247,15 @@ class TerminalView(
       // Drawn block and line characters show the font glyph while selected
       ".uni-terminal ::selection { background: var(--uni-term-selection); -webkit-text-fill-color: currentColor; }" +
         ".uni-terminal .uni-term-row { white-space: pre; overflow: hidden; }" +
+        // Shell integration: a marker for each prompt in the left padding
+        ".uni-terminal .uni-term-prompt { position: relative; overflow: visible; }" +
+        s".uni-terminal .uni-term-prompt::before { content: ''; position: absolute; left: ${-config
+            .padding}px; width: ${math.max(
+            1,
+            config.padding / 2
+          )}px; top: 15%; bottom: 15%; border-radius: 1px; background: var(--uni-term-8); opacity: 0.6; }" +
+        ".uni-terminal .uni-term-ok::before { background: var(--uni-term-2); opacity: 0.8; }" +
+        ".uni-terminal .uni-term-failed::before { background: var(--uni-term-1); opacity: 1; }" +
         ".uni-terminal .uni-term-link { text-decoration: underline dotted; text-underline-offset: 2px; }" +
         ".uni-terminal.uni-term-link-mod .uni-term-link:hover { text-decoration-style: solid; cursor: pointer; }"
     container.appendChild(style)
@@ -290,6 +351,9 @@ class TerminalView(
         rebuildScrollback(screen)
       else
         appendScrollback(screen)
+        if screen.marksVersion != renderedMarks then
+          remarkScrollback(screen)
+      renderedMarks = screen.marksVersion
       scrollbackEl.style.display =
         if screen.isAlternate then
           "none"
@@ -308,6 +372,8 @@ class TerminalView(
       placeInput(screen)
       if atBottom then
         container.scrollTop = container.scrollHeight.toDouble
+
+  end renderNow
 
   private def rebuildScrollback(screen: Screen): Unit =
     scrollbackEl.textContent = ""
@@ -332,6 +398,15 @@ class TerminalView(
     while scrollbackRows > screen.scrollback.size do
       scrollbackEl.removeChild(scrollbackEl.firstChild)
       scrollbackRows -= 1
+
+  // Update the prompt markers of scrollback rows, e.g. after a command whose prompt scrolled off
+  // finished. Rows match scrollback lines one to one.
+  private def remarkScrollback(screen: Screen): Unit =
+    val rows = scrollbackEl.children
+    var i    = 0
+    while i < rows.length && i < screen.scrollback.size do
+      rows(i).setAttribute("class", rowClass(screen.scrollback(i)))
+      i += 1
 
   // Redraw every visible row, e.g. after a resize or a switch to the alternate screen
   private def rebuildScreen(screen: Screen): Unit =
@@ -366,6 +441,7 @@ class TerminalView(
       else
         -1
     el.textContent = ""
+    el.className = rowClass(line)
     val text          = StringBuilder()
     var runStyle      = ""
     var runLink       = 0
@@ -405,6 +481,18 @@ class TerminalView(
     flush()
 
   end drawRow
+
+  private def rowClass(line: Line): String =
+    if !line.isPromptStart then
+      "uni-term-row"
+    else
+      line.exitCode match
+        case None =>
+          "uni-term-row uni-term-prompt"
+        case Some(0) =>
+          "uni-term-row uni-term-prompt uni-term-ok"
+        case Some(_) =>
+          "uni-term-row uni-term-prompt uni-term-failed"
 
   // CSS of the characters drawn by the view, by code point, for the current cell size
   private val glyphCache = mutable.HashMap.empty[Int, String]
@@ -594,9 +682,24 @@ class TerminalView(
     else
       sel.toString
 
+  // Cmd+Up/Down on macOS, Ctrl+Shift+Up/Down elsewhere
+  private def isPromptJump(e: dom.KeyboardEvent): Boolean =
+    (e.key == "ArrowUp" || e.key == "ArrowDown") && !e.altKey && (
+      if isMac then
+        e.metaKey && !e.ctrlKey && !e.shiftKey
+      else
+        e.ctrlKey && e.shiftKey && !e.metaKey
+    )
+
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     if !(composing || Keyboard.isComposing(e)) then
-      if e.metaKey || (e.ctrlKey && e.shiftKey && (e.key == "C" || e.key == "V")) then
+      if isPromptJump(e) then
+        e.preventDefault()
+        if e.key == "ArrowUp" then
+          scrollToPreviousPrompt()
+        else
+          scrollToNextPrompt()
+      else if e.metaKey || (e.ctrlKey && e.shiftKey && (e.key == "C" || e.key == "V")) then
         // Leave Cmd shortcuts and Ctrl+Shift+C/V to the browser (copy, paste, app menus)
         ()
       else

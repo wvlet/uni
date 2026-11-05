@@ -12,7 +12,9 @@ The emulator (`wvlet.uni.cli.term`), `dom.TerminalView`, and the uni-harness Ter
 - The alternate screen is cut or padded, not rewrapped: full-screen programs redraw it on SIGWINCH.
 - A line that fits at the new width keeps its `Line` object, so a resize does not reallocate the whole scrollback.
 
-## 2. Prompt marks (OSC 133) and chat hand-off
+## 2. Prompt marks (OSC 133) and chat hand-off (in progress)
+
+Done in the first PR: the marks, `TerminalCommand`, prompt markers and prompt jumps in `TerminalView`, zsh and bash integration in uni-harness, and **Explain error** for a failed command. Still to do: send a selection to the chat, select one command's output, and a one-click run for a command the assistant suggests.
 
 - Parse OSC 133 `A`/`B`/`C`/`D` into marks on lines (prompt start, command start, output start, end with exit code).
 - `TerminalView`: jump between prompts, select one command's output, and show a marker for a failed exit code in the margin.
