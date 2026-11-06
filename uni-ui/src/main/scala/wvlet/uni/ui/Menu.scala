@@ -94,9 +94,10 @@ private[ui] object MenuList:
       case "Tab" =>
         // Close and let the Tab move on from the trigger
         close()
+        FocusTrap.continueTab(e)
       case k =>
         RovingFocus
-          .nextIndex(k, math.max(current, 0), all.size, Orientation.Vertical)
+          .nextIndex(k, current, all.size, Orientation.Vertical)
           .orElse {
             // Typeahead: a printable key jumps to the next item that starts with it
             if k.length == 1 && !e.ctrlKey && !e.metaKey && !e.altKey then

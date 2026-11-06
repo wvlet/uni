@@ -92,9 +92,10 @@ class Select[A] private (
           active.get.foreach(choose)
         case "Tab" =>
           open := false
+          FocusTrap.continueTab(e)
         case k =>
           RovingFocus
-            .nextIndex(k, math.max(i, 0), current.size, Orientation.Vertical)
+            .nextIndex(k, i, current.size, Orientation.Vertical)
             .orElse {
               if k.length == 1 && !e.ctrlKey && !e.metaKey && !e.altKey then
                 RovingFocus.typeahead(current.map(optionLabel), i, k)
@@ -131,6 +132,9 @@ class Select[A] private (
         each(
           options.map { xs =>
             current = xs
+            // Forget ids of values that left the list, so a changing list doesn't grow the map
+            val live = xs.toSet
+            optionIds.filterInPlace((a, _) => live.contains(a))
             xs
           }
         )(identity) { a =>
@@ -161,7 +165,12 @@ class Select[A] private (
       dismissOnOutside = true,
       onDismiss = () => open := false,
       // Focus stays on the list; aria-activedescendant names the highlighted option
-      initialFocus = el => Some(el),
+      initialFocus =
+        el =>
+          // Show the selected option in a long, scrolled list
+          moveTo(current.indexOf(selected.get))
+          Some(el)
+      ,
       returnFocus = true
     )
 

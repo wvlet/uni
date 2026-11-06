@@ -33,6 +33,9 @@ import scala.scalajs.js
   *   the root and the trigger
   * @param initialFocus
   *   the element to focus once the overlay is in the document; None keeps focus where it is
+  * @param stacked
+  *   whether the overlay joins the [[Dismiss]] stack; a tooltip doesn't, so Escape and outside
+  *   presses keep going to the menu or dialog under it
   */
 private[ui] class OverlaySurface(
     content: RxElement,
@@ -45,7 +48,8 @@ private[ui] class OverlaySurface(
     dismissOnOutside: Boolean,
     onDismiss: () => Unit,
     initialFocus: dom.HTMLElement => Option[dom.HTMLElement],
-    returnFocus: Boolean
+    returnFocus: Boolean,
+    stacked: Boolean = true
 ) extends RxElement:
   private var root: Option[dom.HTMLElement]    = None
   private var cleanup: Cancelable              = Cancelable.empty
@@ -72,7 +76,11 @@ private[ui] class OverlaySurface(
       case el: dom.HTMLElement if !unmounted && dom.document.contains(el) =>
         root = Some(el)
         reposition()
-        val layer = Dismiss.push(DismissLayer(() => inside(el), modal, dismissOnOutside, onDismiss))
+        val layer =
+          if stacked then
+            Dismiss.push(DismissLayer(() => inside(el), modal, dismissOnOutside, onDismiss))
+          else
+            Cancelable.empty
         val placement =
           if anchor().isDefined then
             val onMove: js.Function1[dom.Event, Unit] = _ => reposition()

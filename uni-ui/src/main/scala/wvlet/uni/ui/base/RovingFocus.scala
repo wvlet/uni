@@ -30,7 +30,8 @@ object RovingFocus:
     * keys wrap around at both ends.
     *
     * @param current
-    *   the index of the active item
+    *   the index of the active item, or -1 when none is active: the next key then goes to the first
+    *   item and the previous key to the last
     * @param count
     *   the number of items
     */
@@ -52,6 +53,8 @@ object RovingFocus:
       key match
         case `nextKey` =>
           Some((current + 1) % count)
+        case `prevKey` if current < 0 =>
+          Some(count - 1)
         case `prevKey` =>
           Some((current - 1 + count) % count)
         case "Home" =>

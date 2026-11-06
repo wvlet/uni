@@ -39,3 +39,7 @@ class RovingFocusTest extends UniTest:
     RovingFocus.typeahead(labels, 1, "C") shouldBe Some(0)
     RovingFocus.typeahead(labels, -1, "p") shouldBe Some(2)
     RovingFocus.typeahead(labels, 0, "x") shouldBe None
+
+  test("with no active item, the next key goes to the first and the previous to the last"):
+    RovingFocus.nextIndex("ArrowDown", -1, 3, Orientation.Vertical) shouldBe Some(0)
+    RovingFocus.nextIndex("ArrowUp", -1, 3, Orientation.Vertical) shouldBe Some(2)

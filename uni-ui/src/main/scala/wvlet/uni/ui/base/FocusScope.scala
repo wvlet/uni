@@ -51,6 +51,17 @@ object FocusTrap:
           case _ =>
         }
 
+  /**
+    * Keep a Tab inside an enclosing modal dialog after an overlay inside it (a menu or a select's
+    * list) closed on that Tab and returned focus to its trigger. The overlay lives at the end of
+    * `<body>`, outside the dialog, so the dialog's own trap never saw the key.
+    */
+  def continueTab(e: dom.KeyboardEvent): Unit =
+    dom.document.activeElement match
+      case el: dom.Element =>
+        Option(el.closest("[aria-modal='true']")).foreach(onKeyDown(_, e))
+      case _ =>
+
   /** The first focusable element in `container`, if any. */
   def first(container: dom.Element): Option[dom.HTMLElement] = Focus
     .getFocusableElements(container)

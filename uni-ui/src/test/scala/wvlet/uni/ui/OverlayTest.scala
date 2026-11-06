@@ -282,4 +282,36 @@ class OverlayTest extends DomTestSupport:
       find(".uni-toast") shouldBe None
     }
 
+  test("Tab out of a menu inside a dialog stays inside the dialog"):
+    val dialogOpen = Rx.variable(true)
+    val menuOpen   = Rx.variable(false)
+    mount(Dialog(dialogOpen)(Button("First"), Menu(menuOpen)(Button("Last"))(MenuItem("Copy"))))
+    settle().flatMap { _ =>
+      val last = find(".uni-dialog [aria-haspopup=menu]").get
+      fireEvent.click(last)
+      settle().map { _ =>
+        active.textContent shouldContain "Copy"
+        fireEvent.keyDown(active, "Tab")
+        menuOpen.get shouldBe false
+        // Focus went back to the trigger (the dialog's last element), then the trap wrapped it
+        active.textContent shouldBe "First"
+      }
+    }
+
+  test("a tooltip showing elsewhere doesn't take Escape from an open menu"):
+    val menuOpen = Rx.variable(false)
+    val m        = mount(
+      div(
+        Menu(menuOpen)(Button("Edit"))(MenuItem("Copy")),
+        Tooltip("Hint")(Button("H")).withDelay(0)
+      )
+    )
+    fireEvent.click(m.getByText("Edit"))
+    fireEvent.pointerEnter(m.getByText("H"))
+    settle().map { _ =>
+      find(".uni-tooltip").isDefined shouldBe true
+      escape()
+      menuOpen.get shouldBe false
+    }
+
 end OverlayTest

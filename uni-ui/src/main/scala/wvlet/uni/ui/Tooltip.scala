@@ -97,11 +97,13 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
     align = Align.Center,
     offset = 6,
     modal = false,
-    // A press anywhere, the trigger included, hides it
-    dismissOnOutside = true,
+    dismissOnOutside = false,
     onDismiss = () => hide(),
     initialFocus = _ => None,
-    returnFocus = false
+    returnFocus = false,
+    // Off the Dismiss stack: Escape still closes an open menu while a tooltip shows elsewhere.
+    // The trigger's own listeners hide it (pointer leave, blur, press, Escape)
+    stacked = false
   )
 
   override def render: RxElement = trigger(

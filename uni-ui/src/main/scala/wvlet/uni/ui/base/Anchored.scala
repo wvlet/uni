@@ -183,8 +183,16 @@ object Anchored:
       offset: Double = 6
   ): Placement =
     overlay.style.position = "fixed"
-    val size = overlay.getBoundingClientRect()
-    val p    = place(anchor, size.width, size.height, Rect.viewport, side, align, offset)
+    // Layout size, not the bounding box: an enter animation may be scaling the overlay
+    val p = place(
+      anchor,
+      overlay.offsetWidth.toDouble,
+      overlay.offsetHeight.toDouble,
+      Rect.viewport,
+      side,
+      align,
+      offset
+    )
     overlay.style.left = s"${p.x}px"
     overlay.style.top = s"${p.y}px"
     overlay.setAttribute("data-side", p.side.cssName)
