@@ -35,10 +35,13 @@ class VisualTest extends UniTest:
 
   private val themes = Seq(ColorScheme.Light, ColorScheme.Dark)
 
-  // Load the stylesheet once; the sbt build embeds the source file as UniUiCss.text
+  // The sbt build embeds uni-ui.css as UniUiCss.text. Remove it afterwards, since other test
+  // classes share the page.
   private val stylesheet = dom.document.createElement("style")
   stylesheet.textContent = UniUiCss.text
-  dom.document.head.appendChild(stylesheet)
+
+  override protected def beforeAll: Unit = dom.document.head.appendChild(stylesheet)
+  override protected def afterAll: Unit  = dom.document.head.removeChild(stylesheet)
 
   /** A fixed-width card on the theme's surface color, so the shot includes the background. */
   private def gallery(content: DomNode*): RxElement = div(
@@ -64,14 +67,14 @@ class VisualTest extends UniTest:
       prepare: dom.Element => Unit = _ => (),
       release: () => Unit = () => ()
   )(elem: => RxElement): Unit = themes.foreach { theme =>
-    val themeName = theme.label.toLowerCase
+    val themeName = theme.toString.toLowerCase
     test(s"${name} (${themeName})"):
       ColorScheme.applyTo(dom.document.documentElement, theme)
       val (node, c) = DomRenderer.createNode(elem)
       dom.document.body.appendChild(node)
-      prepare(node.asInstanceOf[dom.Element])
-      Playwright
-        .expectScreenshot(s"${name}-${themeName}", selector = "#gallery")
+      // Clean up in transformRx even when prepare throws, so the next test finds one #gallery
+      Rx.single(prepare(node.asInstanceOf[dom.Element]))
+        .flatMap(_ => Playwright.expectScreenshot(s"${name}-${themeName}", selector = "#gallery"))
         .transformRx { result =>
           release()
           c.cancel
