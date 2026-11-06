@@ -1,0 +1,445 @@
+/*
+ * uni-ui.css: styles for wvlet.uni.ui components.
+ *
+ * Components read only the --uni-* variables below, so an app restyles them by setting the
+ * variables (unlayered app CSS always wins over this file). Themes: `data-theme="light"` or
+ * `data-theme="dark"` on <html>, or no attribute to follow the OS (see ColorScheme).
+ *
+ * Every rule sits in the `uni` cascade layer. An app that uses other layers (Tailwind v4 does)
+ * declares the order once, before its imports, so its utilities can override uni-ui:
+ *
+ *   @layer theme, base, uni, components, utilities;
+ */
+
+@layer uni {
+  :root {
+    color-scheme: light;
+    --uni-canvas: #eef3f4;
+    --uni-surface: #ffffff;
+    --uni-panel: rgb(255 255 255 / 0.66);
+    --uni-raised: #ffffff;
+    --uni-hover: rgb(46 118 133 / 0.07);
+    --uni-line: rgb(16 39 44 / 0.09);
+    --uni-fg: #10272c;
+    --uni-muted: #5b7176;
+    --uni-faint: #93a5a9;
+    --uni-accent: #2e7685;
+    --uni-accent-2: #3c99ad;
+    --uni-accent-fg: #ffffff;
+    --uni-accent-soft: rgb(46 118 133 / 0.12);
+    --uni-glow: #08bdcb;
+    --uni-danger: #c2410c;
+    --uni-danger-soft: rgb(194 65 12 / 0.12);
+    --uni-focus: rgb(46 118 133 / 0.45);
+
+    --uni-radius-sm: 6px;
+    --uni-radius: 8px;
+    --uni-radius-lg: 12px;
+    --uni-font-sans:
+      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
+      'Hiragino Sans', sans-serif;
+    --uni-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    --uni-font-size: 13px;
+    --uni-font-size-sm: 12px;
+    --uni-duration: 0.3s;
+  }
+
+  /* Dark: the OS preference unless the app picked light, or the app picked dark */
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme='light']) {
+      color-scheme: dark;
+      --uni-canvas: #061114;
+      --uni-surface: #0a1a1e;
+      --uni-panel: rgb(10 26 30 / 0.62);
+      --uni-raised: #0f2429;
+      --uni-hover: rgb(78 197 221 / 0.08);
+      --uni-line: rgb(159 201 209 / 0.11);
+      --uni-fg: #e3eff1;
+      --uni-muted: #8aa4a9;
+      --uni-faint: #56706f;
+      --uni-accent: #25a7c1;
+      --uni-accent-2: #4ec5dd;
+      --uni-accent-fg: #061114;
+      --uni-accent-soft: rgb(37 167 193 / 0.15);
+      --uni-danger: #f97316;
+      --uni-danger-soft: rgb(249 115 22 / 0.15);
+      --uni-focus: rgb(78 197 221 / 0.5);
+    }
+  }
+
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --uni-canvas: #061114;
+    --uni-surface: #0a1a1e;
+    --uni-panel: rgb(10 26 30 / 0.62);
+    --uni-raised: #0f2429;
+    --uni-hover: rgb(78 197 221 / 0.08);
+    --uni-line: rgb(159 201 209 / 0.11);
+    --uni-fg: #e3eff1;
+    --uni-muted: #8aa4a9;
+    --uni-faint: #56706f;
+    --uni-accent: #25a7c1;
+    --uni-accent-2: #4ec5dd;
+    --uni-accent-fg: #061114;
+    --uni-accent-soft: rgb(37 167 193 / 0.15);
+    --uni-danger: #f97316;
+    --uni-danger-soft: rgb(249 115 22 / 0.15);
+    --uni-focus: rgb(78 197 221 / 0.5);
+  }
+
+  /* Button and IconButton */
+  .uni-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid transparent;
+    border-radius: var(--uni-radius);
+    font: inherit;
+    font-size: var(--uni-font-size);
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition:
+      background-color 0.15s,
+      color 0.15s,
+      border-color 0.15s,
+      transform 0.1s;
+  }
+
+  .uni-button:focus-visible,
+  .uni-input:focus-visible,
+  .uni-textarea:focus-visible,
+  .uni-tab:focus-visible,
+  .uni-splitter:focus-visible {
+    outline: 2px solid var(--uni-focus);
+    outline-offset: 1px;
+  }
+
+  .uni-button:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+
+  .uni-button:disabled {
+    cursor: default;
+    opacity: 0.4;
+  }
+
+  .uni-button--md {
+    height: 32px;
+    padding: 0 12px;
+  }
+
+  .uni-button--sm {
+    height: 26px;
+    padding: 0 8px;
+    font-size: var(--uni-font-size-sm);
+  }
+
+  .uni-button--default {
+    background: var(--uni-raised);
+    border-color: var(--uni-line);
+    color: var(--uni-fg);
+  }
+
+  .uni-button--default:hover:not(:disabled) {
+    background: var(--uni-hover);
+  }
+
+  .uni-button--primary {
+    background: linear-gradient(135deg, var(--uni-accent), var(--uni-accent-2));
+    color: var(--uni-accent-fg);
+  }
+
+  .uni-button--primary:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .uni-button--ghost {
+    background: transparent;
+    color: var(--uni-muted);
+  }
+
+  .uni-button--ghost:hover:not(:disabled) {
+    background: var(--uni-hover);
+    color: var(--uni-fg);
+  }
+
+  .uni-button--danger {
+    background: var(--uni-danger);
+    color: #ffffff;
+  }
+
+  .uni-button--danger:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+
+  .uni-button--icon.uni-button--md {
+    width: 32px;
+    padding: 0;
+  }
+
+  .uni-button--icon.uni-button--sm {
+    width: 26px;
+    padding: 0;
+  }
+
+  /* Input and Textarea */
+  .uni-input,
+  .uni-textarea {
+    box-sizing: border-box;
+    width: 100%;
+    border: 1px solid var(--uni-line);
+    border-radius: var(--uni-radius);
+    background: var(--uni-raised);
+    color: var(--uni-fg);
+    font: inherit;
+    font-size: var(--uni-font-size);
+    transition:
+      border-color 0.15s,
+      box-shadow 0.15s;
+  }
+
+  .uni-input {
+    height: 32px;
+    padding: 0 10px;
+  }
+
+  .uni-textarea {
+    padding: 8px 10px;
+    line-height: 1.5;
+    resize: vertical;
+  }
+
+  .uni-input::placeholder,
+  .uni-textarea::placeholder {
+    color: var(--uni-faint);
+  }
+
+  .uni-input:focus,
+  .uni-textarea:focus {
+    border-color: var(--uni-accent);
+    box-shadow: 0 0 0 3px var(--uni-accent-soft);
+  }
+
+  .uni-input[aria-invalid='true'],
+  .uni-textarea[aria-invalid='true'] {
+    border-color: var(--uni-danger);
+    box-shadow: 0 0 0 3px var(--uni-danger-soft);
+  }
+
+  .uni-input:disabled,
+  .uni-textarea:disabled {
+    opacity: 0.5;
+  }
+
+  /* Tabs: a segmented row; the selected tab is raised */
+  .uni-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 4px;
+    border-radius: var(--uni-radius-lg);
+    background: var(--uni-hover);
+  }
+
+  .uni-tab {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px 8px;
+    border: 0;
+    border-radius: var(--uni-radius);
+    background: transparent;
+    color: var(--uni-muted);
+    font: inherit;
+    font-size: var(--uni-font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition:
+      background-color 0.15s,
+      color 0.15s;
+  }
+
+  .uni-tab:hover {
+    color: var(--uni-fg);
+  }
+
+  .uni-tab[aria-selected='true'] {
+    background: var(--uni-raised);
+    color: var(--uni-fg);
+    box-shadow:
+      0 1px 2px rgb(0 0 0 / 0.06),
+      0 0 0 1px var(--uni-line);
+  }
+
+  .uni-tab-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  /* FoldablePane: folds its width to zero; the content keeps its width */
+  .uni-pane {
+    position: relative;
+    flex-shrink: 0;
+    overflow: hidden;
+    background: var(--uni-panel);
+    backdrop-filter: blur(24px);
+    transition: width var(--uni-duration) ease-out;
+  }
+
+  .uni-pane[data-dragging='true'] {
+    transition: none;
+  }
+
+  .uni-pane[data-state='open'][data-edge='right'] {
+    border-right: 1px solid var(--uni-line);
+  }
+
+  .uni-pane[data-state='open'][data-edge='left'] {
+    border-left: 1px solid var(--uni-line);
+  }
+
+  .uni-pane__content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  /* Splitter: an 8px hit area on the edge with a 2px line that shows on hover or drag */
+  .uni-splitter {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    z-index: 20;
+    width: 8px;
+    cursor: col-resize;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .uni-splitter[data-edge='right'] {
+    right: 0;
+  }
+
+  .uni-splitter[data-edge='left'] {
+    left: 0;
+  }
+
+  .uni-splitter::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--uni-accent);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .uni-splitter[data-edge='right']::after {
+    right: 0;
+  }
+
+  .uni-splitter[data-edge='left']::after {
+    left: 0;
+  }
+
+  .uni-splitter:hover::after,
+  .uni-splitter:focus-visible::after {
+    opacity: 0.6;
+  }
+
+  .uni-splitter[data-dragging='true']::after {
+    opacity: 1;
+  }
+
+  /* Badge */
+  .uni-badge {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0 6px;
+    border-radius: 9999px;
+    font-family: var(--uni-font-mono);
+    font-size: 10px;
+    line-height: 16px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .uni-badge:empty:not(.uni-badge--dot) {
+    display: none;
+  }
+
+  .uni-badge--neutral {
+    color: var(--uni-faint);
+  }
+
+  .uni-badge--accent {
+    background: var(--uni-accent-soft);
+    color: var(--uni-accent);
+  }
+
+  .uni-badge--danger {
+    background: var(--uni-danger-soft);
+    color: var(--uni-danger);
+  }
+
+  .uni-badge--dot {
+    flex-shrink: 0;
+    width: 6px;
+    height: 6px;
+    padding: 0;
+  }
+
+  .uni-badge--dot.uni-badge--accent {
+    background: var(--uni-glow);
+  }
+
+  .uni-badge--dot.uni-badge--danger {
+    background: var(--uni-danger);
+  }
+
+  .uni-badge--dot.uni-badge--neutral {
+    background: var(--uni-faint);
+  }
+
+  /* Kbd */
+  .uni-kbd {
+    display: inline-grid;
+    place-items: center;
+    min-width: 18px;
+    padding: 0 4px;
+    border: 1px solid var(--uni-line);
+    border-radius: 5px;
+    background: var(--uni-surface);
+    box-shadow: 0 1px 0 var(--uni-line);
+    color: var(--uni-muted);
+    font-family: var(--uni-font-mono);
+    font-size: 10px;
+    line-height: 16px;
+  }
+
+  /* StatusBar */
+  .uni-statusbar {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 12px;
+    height: 24px;
+    padding: 0 10px;
+    border-top: 1px solid var(--uni-line);
+    background: var(--uni-panel);
+    color: var(--uni-muted);
+    font-size: 11px;
+  }
+
+  .uni-statusbar__spacer {
+    flex: 1;
+  }
+}

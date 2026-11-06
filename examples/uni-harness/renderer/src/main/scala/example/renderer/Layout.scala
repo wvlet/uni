@@ -2,6 +2,7 @@ package example.renderer
 
 import wvlet.uni.dom.{SizeRange, Storage}
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.ColorScheme
 
 /**
   * Layout state: which panes are open, the active rail view, the theme, and the pane widths.
@@ -12,7 +13,7 @@ class Layout(
     val sidebarOpen: RxVar[Boolean],
     val dockOpen: RxVar[Boolean],
     val view: RxVar[View],
-    val theme: RxVar[Theme],
+    val theme: RxVar[ColorScheme],
     val dockTab: RxVar[DockTab],
     val sidebarWidth: RxVar[Int],
     val dockWidth: RxVar[Int]
@@ -29,7 +30,7 @@ class Layout(
       sidebarOpen := true
 
   def cycleTheme(): Unit =
-    val all = Theme.values
+    val all = ColorScheme.values
     theme := all((all.indexOf(theme.get) + 1) % all.length)
 
 end Layout
@@ -44,7 +45,7 @@ object Layout:
     Rx.variable(true),
     Rx.variable(true),
     Rx.variable(View.Chats),
-    Rx.variable(Theme.System),
+    Rx.variable(ColorScheme.System),
     Rx.variable(DockTab.Details),
     Rx.variable(sidebarWidth.default),
     Rx.variable(dockWidth.default)
@@ -54,7 +55,7 @@ object Layout:
     Storage.local(s"${prefix}sidebarOpen", true),
     Storage.local(s"${prefix}dockOpen", true),
     Storage.local(s"${prefix}view", View.Chats),
-    Storage.local(s"${prefix}theme", Theme.System),
+    Storage.local(s"${prefix}theme", ColorScheme.System),
     Storage.local(s"${prefix}dockTab", DockTab.Details),
     Storage.local(s"${prefix}sidebarWidth", sidebarWidth.default),
     Storage.local(s"${prefix}dockWidth", dockWidth.default)

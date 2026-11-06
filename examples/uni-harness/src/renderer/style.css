@@ -1,4 +1,11 @@
+/*
+ * uni-ui's rules sit in the `uni` layer. Declare it before Tailwind's components and utilities, so
+ * a utility class on a uni-ui component (e.g. `flex-1`) wins over uni-ui's own rules.
+ */
+@layer theme, base, uni, components, utilities;
 @import 'tailwindcss';
+/* uni-ui.css from the repository; an app outside it copies the file from the uni-ui jar */
+@import '../../../../uni-ui/src/main/resources/wvlet/uni/ui/uni-ui.css';
 
 /*
  * Tailwind v4 scans source files for class names. The UI is built in Scala.js, so point it at the
@@ -35,19 +42,20 @@
 }
 
 :root {
-  color-scheme: light;
-  --h-canvas: #eef3f4;
-  --h-surface: #ffffff;
-  --h-panel: rgb(255 255 255 / 0.66);
-  --h-raised: #ffffff;
-  --h-hover: rgb(46 118 133 / 0.07);
-  --h-line: rgb(16 39 44 / 0.09);
-  --h-fg: #10272c;
-  --h-muted: #5b7176;
-  --h-faint: #93a5a9;
-  --h-brand: #2e7685;
-  --h-brand-2: #3c99ad;
-  --h-brand-soft: rgb(46 118 133 / 0.12);
+  /* Shared colors come from uni-ui.css, which switches them with data-theme */
+  --h-canvas: var(--uni-canvas);
+  --h-surface: var(--uni-surface);
+  --h-panel: var(--uni-panel);
+  --h-raised: var(--uni-raised);
+  --h-hover: var(--uni-hover);
+  --h-line: var(--uni-line);
+  --h-fg: var(--uni-fg);
+  --h-muted: var(--uni-muted);
+  --h-faint: var(--uni-faint);
+  --h-brand: var(--uni-accent);
+  --h-brand-2: var(--uni-accent-2);
+  --h-brand-soft: var(--uni-accent-soft);
+  /* Colors only the harness uses */
   --h-rail: #e7eff1;
   --h-primary-1: #2e7685;
   --h-primary-2: #3c99ad;
@@ -60,19 +68,6 @@
 /* Dark: the OS preference, unless Settings picked Light; or Settings picked Dark */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme='light']) {
-    color-scheme: dark;
-    --h-canvas: #061114;
-    --h-surface: #0a1a1e;
-    --h-panel: rgb(10 26 30 / 0.62);
-    --h-raised: #0f2429;
-    --h-hover: rgb(78 197 221 / 0.08);
-    --h-line: rgb(159 201 209 / 0.11);
-    --h-fg: #e3eff1;
-    --h-muted: #8aa4a9;
-    --h-faint: #56706f;
-    --h-brand: #25a7c1;
-    --h-brand-2: #4ec5dd;
-    --h-brand-soft: rgb(37 167 193 / 0.15);
     --h-rail: #050f12;
     --h-primary-1: #176877;
     --h-primary-2: #1f93ab;
@@ -84,19 +79,6 @@
 }
 
 :root[data-theme='dark'] {
-  color-scheme: dark;
-  --h-canvas: #061114;
-  --h-surface: #0a1a1e;
-  --h-panel: rgb(10 26 30 / 0.62);
-  --h-raised: #0f2429;
-  --h-hover: rgb(78 197 221 / 0.08);
-  --h-line: rgb(159 201 209 / 0.11);
-  --h-fg: #e3eff1;
-  --h-muted: #8aa4a9;
-  --h-faint: #56706f;
-  --h-brand: #25a7c1;
-  --h-brand-2: #4ec5dd;
-  --h-brand-soft: rgb(37 167 193 / 0.15);
   --h-rail: #050f12;
   --h-primary-1: #176877;
   --h-primary-2: #1f93ab;

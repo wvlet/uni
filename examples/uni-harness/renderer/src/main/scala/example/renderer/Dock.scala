@@ -3,6 +3,7 @@ package example.renderer
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
+import wvlet.uni.ui.{Badge, Edge, FoldablePane, Splitter, Tab, TabList, TabPanel}
 
 import scala.language.implicitConversions
 
@@ -31,7 +32,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     onAsk = text => store.sendOrStart(text)
   )
 
-  private val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
+  private val handle = Splitter(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
 
   override def onMount(node: Any): Unit =
     attentionWatch = layout
@@ -49,27 +50,14 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
       icon: RxElement,
       badge: Rx[String],
       attention: Rx[Boolean] = Rx.const(false)
-  ): RxElement = button(
-    cls ->
-      layout
-        .dockTab
-        .map { cur =>
-          val look =
-            if cur == t then
-              "bg-raised text-fg shadow-sm ring-1 ring-line"
-            else
-              "text-muted hover:text-fg"
-          s"flex flex-1 items-center justify-center gap-1.5 rounded-lg py-1.5 text-[12px] font-medium transition ${look}"
-        },
-    onclick -> { () =>
-      layout.dockTab := t
-    },
+  ): Tab[DockTab] = Tab(
+    t,
     icon,
     t.label,
-    span(cls -> "font-mono text-[10px] text-faint", badge),
+    Badge(badge),
     attention.map { on =>
       if on then
-        span(cls -> "size-1.5 shrink-0 rounded-full bg-glow", ariaLabel -> "Bell")
+        Badge.dot("Bell")
       else
         span()
     }
@@ -79,29 +67,26 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))(
       div(
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
-        div(
-          cls -> "flex flex-1 gap-1 rounded-xl bg-hover p-1",
+        TabList(layout.dockTab, "Dock views")(
           tab(DockTab.Details, Icons.info, Rx.const("")),
           tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
           tab(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)
-        ),
+        )(cls += "flex-1"),
         Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
       ),
-      layout
-        .dockTab
-        .map {
-          case DockTab.Terminal =>
-            div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
-          case other =>
-            div(
-              cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4",
-              other match
-                case DockTab.Activity =>
-                  ActivityLog(log)
-                case _ =>
-                  DetailsView(store, transport)
-            )
-        }
+      TabPanel(layout.dockTab) {
+        case DockTab.Terminal =>
+          div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
+        case other =>
+          div(
+            cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4",
+            other match
+              case DockTab.Activity =>
+                ActivityLog(log)
+              case _ =>
+                DetailsView(store, transport)
+          )
+      }
     )
 
 end Dock

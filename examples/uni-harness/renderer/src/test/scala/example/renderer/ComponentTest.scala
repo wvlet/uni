@@ -4,6 +4,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
+import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
 
 import scala.collection.mutable
 
@@ -56,7 +57,7 @@ class ComponentTest extends DomTestSupport:
 
   test("dragging the resize handle changes the width within its range"):
     val width  = Rx.variable(272)
-    val handle = ResizeHandle(width, Layout.sidebarWidth, Edge.Right, "Resize")
+    val handle = Splitter(width, Layout.sidebarWidth, Edge.Right, "Resize")
     val m      = mount(FoldablePane(Rx.variable(true), width, Edge.Right, Some(handle))())
     val grip   = m.get("[role=separator]")
     fireEvent.pointerDown(grip, clientX = 300)
@@ -73,7 +74,7 @@ class ComponentTest extends DomTestSupport:
 
   test("a handle on the left edge grows the pane as it moves left"):
     val width  = Rx.variable(300)
-    val handle = ResizeHandle(width, SizeRange(200, 300, 400), Edge.Left, "Resize")
+    val handle = Splitter(width, SizeRange(200, 300, 400), Edge.Left, "Resize")
     val m      = mount(handle)
     fireEvent.pointerDown(m.get("[role=separator]"), clientX = 500)
     fireEvent.pointerMove(dom.window, clientX = 450)
@@ -82,7 +83,7 @@ class ComponentTest extends DomTestSupport:
 
   test("the dock's left-edge handle resizes the shared dock width and resets it"):
     val layout = Layout.inMemory()
-    val handle = ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
+    val handle = Splitter(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
     val m      = mount(FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))())
     val grip   = m.get("[role=separator]")
     fireEvent.pointerDown(grip, clientX = 900)
@@ -99,7 +100,7 @@ class ComponentTest extends DomTestSupport:
     dom.window.localStorage.setItem(key, "960")
     try
       val layout = Layout.persistent(prefix)
-      ResizeHandle(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
+      Splitter(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
       layout.dockWidth.get shouldBe Layout.dockWidth.max
       dom.window.localStorage.getItem(key) shouldBe s"${Layout.dockWidth.max}"
     finally
@@ -117,10 +118,10 @@ class ComponentTest extends DomTestSupport:
   test("the theme button cycles System, Light, Dark and sets data-theme"):
     val layout = Layout.inMemory()
     val root   = dom.document.createElement("div")
-    val sub    = layout.theme.run(t => Theme.applyTo(root, t))
+    val sub    = layout.theme.run(t => ColorScheme.applyTo(root, t))
     val m      = mount(IconRail(layout))
     fireEvent.click(m.get("[aria-label=Theme]"))
-    layout.theme.get shouldBe Theme.Light
+    layout.theme.get shouldBe ColorScheme.Light
     root.getAttribute("data-theme") shouldBe "light"
     fireEvent.click(m.get("[aria-label=Theme]"))
     root.getAttribute("data-theme") shouldBe "dark"
@@ -142,7 +143,7 @@ class ComponentTest extends DomTestSupport:
 
   test("the terminal header shows the program's title and a bell reaches onBell"):
     var bells = 0
-    val pane  = TerminalPane(Rx.variable(Theme.Light), () => bells += 1)
+    val pane  = TerminalPane(Rx.variable(ColorScheme.Light), () => bells += 1)
     val m     = mount(pane)
     m.get("span.truncate").textContent shouldBe "Terminal"
     pane.term.write("\u001b]2;~/work/uni\u0007")
@@ -152,7 +153,7 @@ class ComponentTest extends DomTestSupport:
 
   test("offer to explain a failed command, and pass a prompt with its output to the chat"):
     var asked         = Seq.empty[String]
-    val pane          = TerminalPane(Rx.variable(Theme.Light), onAsk = text => asked :+= text)
+    val pane          = TerminalPane(Rx.variable(ColorScheme.Light), onAsk = text => asked :+= text)
     val m             = mount(pane)
     def explainButton = m.queryAll("button").find(_.textContent == "Explain error")
     val prompt        = "\u001b]133;A\u0007$ \u001b]133;B\u0007"

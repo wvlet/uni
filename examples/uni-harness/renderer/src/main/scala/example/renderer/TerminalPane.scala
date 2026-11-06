@@ -6,6 +6,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.{MediaQuery, TerminalTheme, TerminalView, TerminalViewConfig}
 import wvlet.uni.rx.{Cancelable, Rx}
+import wvlet.uni.ui.ColorScheme
 
 import scala.language.implicitConversions
 import scala.scalajs.js
@@ -24,7 +25,7 @@ import scala.scalajs.js
   * prompt with the command and its output to `onAsk`, for the chat.
   */
 class TerminalPane(
-    appTheme: Rx[Theme],
+    appTheme: Rx[ColorScheme],
     onBell: () => Unit = () => (),
     onAsk: String => Unit = _ => ()
 ) extends RxElement:
@@ -127,11 +128,11 @@ class TerminalPane(
       .run { (theme, systemDark) =>
         val dark =
           theme match
-            case Theme.System =>
+            case ColorScheme.System =>
               systemDark
-            case Theme.Light =>
+            case ColorScheme.Light =>
               false
-            case Theme.Dark =>
+            case ColorScheme.Dark =>
               true
         view.setTheme(
           if dark then
