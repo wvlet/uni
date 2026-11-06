@@ -11,7 +11,7 @@
     "dev:web": "vite --config vite.web.config.mjs",
     "build:web": "vite build --config vite.web.config.mjs && vite build --config vite.web.config.mjs --mode server",
     "start:web": "node out/web/server/server.js",
-    "postinstall": "node scripts/fix-node-pty.mjs"
+    "postinstall": "node scripts/fix-node-pty.mjs && install-electron"
   },
   "dependencies": {
     "node-pty": "^1.1.0"

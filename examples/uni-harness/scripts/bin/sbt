@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# vite-plugin-scalajs runs `sbt --batch ...`; the repository's ./sbt (sbt-extras) spells the flag
+# `-batch`. use-repo-sbt.mjs puts this directory first on PATH and sets UNI_HARNESS_SBT.
+args=()
+for a in "$@"; do
+  [[ "$a" == "--batch" ]] && a="-batch"
+  args+=("$a")
+done
+exec "${UNI_HARNESS_SBT:?set by use-repo-sbt.mjs}" "${args[@]}"

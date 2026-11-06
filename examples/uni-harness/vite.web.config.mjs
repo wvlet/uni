@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { useRepoSbt } from './scripts/use-repo-sbt.mjs'
 
 // The browser app. The renderer is the same Scala.js module the Electron window loads; the
 // ChatApi it calls is served over HTTP by the same Scala.js `server` module Electron's main
@@ -20,6 +21,7 @@ const RPC_PORT = Number(process.env.UNI_HARNESS_RPC_PORT ?? 5181)
 const RPC_PREFIX = '/example.api.'
 // The Scala.js modules are projects in the Uni repository's root build
 const ROOT = '../..'
+useRepoSbt(ROOT)
 
 // Links an sbt project with Scala.js and returns its output directory. The renderer is linked
 // by vite-plugin-scalajs; the server is linked here, after it, because two sbt processes in one
