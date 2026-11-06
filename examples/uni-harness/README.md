@@ -74,8 +74,9 @@ resize, rail clicks).
 
 ## Prerequisites
 
-- JDK 17+ and `sbt` on your `PATH`. The Vite plugins run sbt in the repository root to link the
-  Scala.js modules, so the example always builds against the Uni source next to it.
+- JDK 17+. The Vite plugins run the repository's `./sbt` in the repository root to link the
+  Scala.js modules, so the example always builds against the Uni source next to it and needs no
+  global sbt. On Windows, or in a copy outside the repository, they run the `sbt` on your `PATH`.
 - Node.js 22+ and `pnpm`
 
 To start your own app from this example outside the repository, copy the folder, add a `build.sbt`
@@ -85,7 +86,7 @@ with the three projects (`api`, `server`, `renderer`) that depend on
 ## Run
 
 ```bash
-pnpm install
+pnpm install        # also downloads the Electron binary (pnpm exec install-electron)
 
 # Electron
 pnpm dev            # compiles Scala.js, starts the renderer dev server, opens the window

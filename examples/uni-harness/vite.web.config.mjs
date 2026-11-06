@@ -1,9 +1,9 @@
 import { defineConfig } from 'vite'
-import scalaJSPlugin from '@scala-js/vite-plugin-scalajs'
 import tailwindcss from '@tailwindcss/vite'
 import { spawn } from 'node:child_process'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { sbtEnv, scalaJS } from './scripts/use-repo-sbt.mjs'
 
 // The browser app. The renderer is the same Scala.js module the Electron window loads; the
 // ChatApi it calls is served over HTTP by the same Scala.js `server` module Electron's main
@@ -29,6 +29,7 @@ function linkScalaJS(projectID) {
     const args = ['--batch', '-no-colors', '-Dsbt.supershell=false', `print ${projectID}/fastLinkJSOutput`]
     const sbt = spawn(process.platform === 'win32' ? 'sbt.bat' : 'sbt', args, {
       cwd: ROOT,
+      env: sbtEnv(ROOT),
       shell: process.platform === 'win32',
       stdio: ['ignore', 'pipe', 'inherit']
     })
@@ -64,7 +65,7 @@ function uniRpcServer() {
 export default defineConfig(({ mode }) => {
   if (mode === 'server') {
     return {
-      plugins: [scalaJSPlugin({ cwd: ROOT, projectID: 'exampleHarnessServer' })],
+      plugins: [scalaJS(ROOT, { projectID: 'exampleHarnessServer' })],
       build: {
         ssr: resolve('src/web/server.js'),
         outDir: 'out/web/server',
@@ -76,7 +77,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: 'src/renderer',
     plugins: [
-      scalaJSPlugin({ cwd: ROOT, projectID: 'exampleHarnessRenderer' }),
+      scalaJS(ROOT, { projectID: 'exampleHarnessRenderer' }),
       tailwindcss(),
       uniRpcServer()
     ],
