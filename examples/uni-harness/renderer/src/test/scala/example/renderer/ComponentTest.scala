@@ -115,18 +115,29 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(m.get("[aria-label=Files]"))
     layout.sidebarOpen.get shouldBe false
 
-  test("the theme button cycles System, Light, Dark and sets data-theme"):
-    val layout = Layout.inMemory()
-    val root   = dom.document.createElement("div")
-    val sub    = layout.theme.run(t => ColorScheme.applyTo(root, t))
-    val m      = mount(IconRail(layout))
-    fireEvent.click(m.get("[aria-label=Theme]"))
-    layout.theme.get shouldBe ColorScheme.Light
-    root.getAttribute("data-theme") shouldBe "light"
-    fireEvent.click(m.get("[aria-label=Theme]"))
+  test("the theme menu checks the current scheme, picks another, and sets data-theme"):
+    val layout                               = Layout.inMemory()
+    val root                                 = dom.document.createElement("div")
+    val sub                                  = layout.theme.run(t => ColorScheme.applyTo(root, t))
+    val m                                    = mount(IconRail(layout))
+    def item(label: String): dom.HTMLElement = dom
+      .document
+      .querySelectorAll(".uni-menu [role=menuitemcheckbox]")
+      .find(_.textContent == label)
+      .get
+      .asInstanceOf[dom.HTMLElement]
+    val trigger = m.get("[aria-label=Theme]")
+    trigger.getAttribute("aria-haspopup") shouldBe "menu"
+    fireEvent.click(trigger)
+    item("System").getAttribute("aria-checked") shouldBe "true"
+    fireEvent.click(item("Dark"))
+    layout.theme.get shouldBe ColorScheme.Dark
     root.getAttribute("data-theme") shouldBe "dark"
-    fireEvent.click(m.get("[aria-label=Theme]"))
-    root.hasAttribute("data-theme") shouldBe false
+    // Choosing closes the menu
+    dom.document.querySelector(".uni-menu") shouldBe null
+    fireEvent.click(trigger)
+    fireEvent.click(item("Light"))
+    root.getAttribute("data-theme") shouldBe "light"
     sub.cancel
 
   test("the terminal title falls back to Terminal and is shortened"):

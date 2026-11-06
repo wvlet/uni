@@ -17,7 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.ui.base.RovingFocus
+import wvlet.uni.ui.base.{Ids, RovingFocus}
 
 import scala.language.implicitConversions
 
@@ -48,7 +48,7 @@ class Tab[A](val value: A, val content: DomNode*)
 class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxElement:
 
   // Unique per list, so two lists on one page never share ids
-  private val idPrefix = TabList.nextIdPrefix()
+  private val idPrefix = Ids.next("uni-tabs")
 
   /** The id of the [[TabPanel]] that shows this list's content. */
   def panelId: String = s"${idPrefix}-panel"
@@ -102,13 +102,6 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
   )
 
 end TabList
-
-object TabList:
-  private var count = 0
-
-  private def nextIdPrefix(): String =
-    count += 1
-    s"uni-tabs-${count}"
 
 /**
   * The content of the selected tab of `tabs`: `render` runs again whenever the selection changes.

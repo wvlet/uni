@@ -1,7 +1,8 @@
 # UI Components (uni-ui)
 
 `uni-ui` is a set of ready-made components for [RxElement](./) apps on Scala.js: buttons, text
-fields, tabs, foldable side panes, and splitters. The same components work in a browser and in an
+fields, tabs, foldable side panes, splitters, and overlays (popovers, tooltips, menus, dialogs,
+selects, and toasts). The same components work in a browser and in an
 [Electron](../http/electron) app. A plain CSS file, `uni-ui.css`, styles them with light and dark
 themes.
 
@@ -97,6 +98,60 @@ FoldablePane(open, width, Edge.Right, Some(Splitter(width, range, Edge.Right, "R
 `Edge` names the pane's inner side, the one that faces the main content: `Edge.Right` for a left
 sidebar, `Edge.Left` for a right-hand dock.
 
+## Overlays
+
+Popovers, tooltips, menus, dialogs, selects, and toasts render at the end of `<body>`, so a pane's
+`overflow: hidden` never clips them. The ones that open from a trigger take the trigger element and
+add `aria-expanded`, `aria-controls`, and the toggle to it.
+
+```scala
+import wvlet.uni.ui.base.{Align, Side}
+
+val filterOpen = Rx.variable(false)
+val menuOpen   = Rx.variable(false)
+val confirm    = Rx.variable(false)
+
+div(
+  Popover(filterOpen)(Button("Filter"))(Input(query).withLabel("Filter")).withAlign(Align.End),
+  Tooltip("Close dock")(IconButton("Close dock", closeIcon)).withSide(Side.Left),
+  Menu(menuOpen)(IconButton("More", moreIcon))(
+    MenuItem("Rename").onSelect(() => rename()),
+    MenuSeparator,
+    MenuItem("Delete").onSelect(() => confirm := true)
+  ),
+  AlertDialog(confirm)("Delete this session?")
+    .withDescription("Its messages can't be restored.")
+    .withConfirmLabel("Delete")
+    .danger
+    .onConfirm(() => delete())
+)
+```
+
+| Component | What it does |
+|-----------|--------------|
+| `Popover(open)(trigger)(content*)` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
+| `Tooltip(text)(trigger)` | A text label that shows on hover (after `.withDelay(ms)`, 500 by default) and on keyboard focus; `text` can be an `Rx[String]` |
+| `Menu(open)(trigger)(entries*)` | A list of `MenuItem`s and `MenuSeparator`s. Items take `.onSelect`, `.withShortcut`, `.withDisabled`, and `.withChecked(rx)` |
+| `ContextMenu(target)(entries*)` | A menu that opens at the pointer when `target` is right-clicked |
+| `Dialog(open)(content*)` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |
+| `AlertDialog(open)(title)` | A confirm-or-cancel dialog: `.onConfirm`, `.onCancel`, `.withConfirmLabel`, `.danger` |
+| `Select(selected, options)(label)` | A button with a list of options, bound to an `RxVar[A]`; `options` can be an `Rx[Seq[A]]` |
+| `Toaster()` | Mount one per app, then call `.info`, `.success`, or `.error` on it to show a message |
+
+They all behave the same way:
+
+- **Closing.** Escape, a press outside, or setting `open := false` closes an overlay. When overlays
+  are nested, such as a menu inside a dialog, Escape closes only the top one.
+- **Focus.** Opening moves focus into the overlay, and closing moves it back to the trigger. A
+  dialog keeps Tab and Shift+Tab inside it and focuses the element with `autofocus` first.
+- **Keyboard.** In menus and selects, the arrow keys, Home, End, and typed letters move between
+  items, and Enter or Space chooses one.
+- **Placement.** An anchored overlay flips to the other side of its trigger when there's no room,
+  and shifts to stay inside the window. Its final side is in `data-side`.
+
+`wvlet.uni.ui.base` holds the pieces they share, for building your own overlay: `Anchored.place`
+(placement math), `Dismiss` (the Escape and outside-press stack), `FocusTrap`, and `FocusReturn`.
+
 ## Themes
 
 `uni-ui.css` reads `data-theme` on `<html>`: `light` or `dark` forces a scheme, and no attribute
@@ -125,6 +180,10 @@ To change colors, set the variables after `uni-ui.css`:
 | `--uni-line`, `--uni-hover` | Borders and hover fills |
 | `--uni-accent`, `--uni-accent-2`, `--uni-accent-fg`, `--uni-accent-soft` | The primary button gradient, its text, and focus rings |
 | `--uni-danger`, `--uni-danger-soft` | Danger buttons and invalid fields |
+| `--uni-success`, `--uni-success-soft` | Success toasts |
+| `--uni-overlay-shadow`, `--uni-backdrop` | Overlay shadows and the dialog backdrop |
+| `--uni-tooltip-bg`, `--uni-tooltip-fg` | Tooltip colors |
+| `--uni-z-popover`, `--uni-z-dialog`, `--uni-z-toast` | Stacking order of popovers and menus, dialogs, and toasts and tooltips |
 | `--uni-radius-sm`, `--uni-radius`, `--uni-radius-lg` | Corner radii |
 | `--uni-font-sans`, `--uni-font-mono`, `--uni-font-size`, `--uni-font-size-sm` | Fonts |
 

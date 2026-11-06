@@ -32,3 +32,14 @@ class RovingFocusTest extends UniTest:
 
   test("an empty group never navigates"):
     RovingFocus.nextIndex("Home", 0, 0) shouldBe None
+
+  test("typeahead finds the next label with the typed letter, wrapping"):
+    val labels = Seq("Copy", "Cut", "Paste")
+    RovingFocus.typeahead(labels, 0, "c") shouldBe Some(1)
+    RovingFocus.typeahead(labels, 1, "C") shouldBe Some(0)
+    RovingFocus.typeahead(labels, -1, "p") shouldBe Some(2)
+    RovingFocus.typeahead(labels, 0, "x") shouldBe None
+
+  test("with no active item, the next key goes to the first and the previous to the last"):
+    RovingFocus.nextIndex("ArrowDown", -1, 3, Orientation.Vertical) shouldBe Some(0)
+    RovingFocus.nextIndex("ArrowUp", -1, 3, Orientation.Vertical) shouldBe Some(2)

@@ -5,6 +5,8 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
+import wvlet.uni.ui.Tooltip
+import wvlet.uni.ui.base.Side
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.language.implicitConversions
@@ -59,7 +61,7 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
       .map(open =>
         unless(
           open,
-          Ui.iconButton("Open dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
+          Ui.iconButton("Open dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
         )
       )
   )
@@ -319,14 +321,14 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
       ),
       div(
         cls -> "flex items-center gap-1.5 px-2.5 pb-2.5",
-        button(
-          data("tip")      -> "Attachments: add your own",
-          data("tip-side") -> "bottom",
-          ariaLabel        -> "Attach",
-          cls              ->
-            "grid size-8 place-items-center rounded-lg text-faint transition hover:bg-hover hover:text-fg",
-          Icons.clip
-        ),
+        Tooltip("Attachments: add your own")(
+          button(
+            ariaLabel -> "Attach",
+            cls       ->
+              "grid size-8 place-items-center rounded-lg text-faint transition hover:bg-hover hover:text-fg",
+            Icons.clip
+          )
+        ).withSide(Side.Bottom),
         span(
           cls ->
             "flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-medium text-brand",

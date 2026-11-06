@@ -5,7 +5,8 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
-import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
+import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Menu, MenuItem, Splitter, Tooltip}
+import wvlet.uni.ui.base.{Align, Side}
 
 import scala.language.implicitConversions
 import scala.scalajs.js
@@ -82,41 +83,52 @@ class IconRail(layout: Layout) extends RxElement:
 
   private def railButton(v: View, icon: RxElement): RxElement =
     val active = Rx.join(layout.view, layout.sidebarOpen).map((cur, open) => cur == v && open)
-    button(
-      data("tip") -> v.label,
-      ariaLabel   -> v.label,
-      cls         ->
-        active.map { on =>
-          val look =
-            if on then
-              "bg-brand-soft text-brand shadow-[inset_0_0_0_1px_var(--h-line)]"
-            else
-              "text-rail-fg hover:bg-hover hover:text-fg"
-          s"relative grid size-9 place-items-center rounded-lg transition active:scale-95 ${look}"
+    Tooltip(v.label)(
+      button(
+        ariaLabel -> v.label,
+        cls       ->
+          active.map { on =>
+            val look =
+              if on then
+                "bg-brand-soft text-brand shadow-[inset_0_0_0_1px_var(--h-line)]"
+              else
+                "text-rail-fg hover:bg-hover hover:text-fg"
+            s"relative grid size-9 place-items-center rounded-lg transition active:scale-95 ${look}"
+          },
+        onclick -> { () =>
+          layout.openView(v)
         },
-      onclick -> { () =>
-        layout.openView(v)
-      },
-      active.map(on =>
-        when(
-          on,
-          span(
-            cls ->
-              "absolute -left-[6px] top-2 bottom-2 w-[3px] rounded-r-full bg-brand shadow-[0_0_12px_var(--h-brand)]"
+        active.map(on =>
+          when(
+            on,
+            span(
+              cls ->
+                "absolute -left-[6px] top-2 bottom-2 w-[3px] rounded-r-full bg-brand shadow-[0_0_12px_var(--h-brand)]"
+            )
           )
-        )
-      ),
-      icon
-    )
+        ),
+        icon
+      )
+    ).withSide(Side.Right)
 
-  private def themeButton: RxElement = button(
-    data("tip") -> "Theme",
-    ariaLabel   -> "Theme",
-    cls         ->
+  private val themeMenuOpen = Rx.variable(false)
+
+  // The theme button opens a menu of the three schemes, with a check on the current one
+  private def themeButton: RxElement = Tooltip("Theme")(
+    Menu(themeMenuOpen)(themeIcon)(
+      ColorScheme
+        .values
+        .toSeq
+        .map { s =>
+          MenuItem(s.label).withChecked(layout.theme.map(_ == s)).onSelect(() => layout.theme := s)
+        }*
+    ).withSide(Side.Right).withAlign(Align.End)
+  ).withSide(Side.Right)
+
+  private def themeIcon: RxElement = button(
+    ariaLabel -> "Theme",
+    cls       ->
       "grid size-9 place-items-center rounded-lg text-rail-fg transition hover:bg-hover hover:text-fg active:scale-95",
-    onclick -> { () =>
-      layout.cycleTheme()
-    },
     layout
       .theme
       .map {
@@ -130,21 +142,22 @@ class IconRail(layout: Layout) extends RxElement:
   )
 
   // The account slot: a rail button like the others, holding an avatar with a status dot
-  private def account: RxElement = button(
-    data("tip") -> "Account (local)",
-    ariaLabel   -> "Account",
-    cls         ->
-      "mt-1 grid size-9 place-items-center rounded-lg transition hover:bg-hover active:scale-95",
-    span(
-      cls ->
-        "relative grid size-6 place-items-center rounded-full bg-gradient-to-br from-brand-2 to-brand text-white shadow-[0_4px_12px_-6px_var(--h-brand)] ring-1 ring-white/25",
-      Icons.user,
+  private def account: RxElement = Tooltip("Account (local)")(
+    button(
+      ariaLabel -> "Account",
+      cls       ->
+        "mt-1 grid size-9 place-items-center rounded-lg transition hover:bg-hover active:scale-95",
       span(
         cls ->
-          "absolute -right-px -bottom-px size-2 rounded-full bg-glow ring-2 ring-[var(--h-rail)]"
+          "relative grid size-6 place-items-center rounded-full bg-gradient-to-br from-brand-2 to-brand text-white shadow-[0_4px_12px_-6px_var(--h-brand)] ring-1 ring-white/25",
+        Icons.user,
+        span(
+          cls ->
+            "absolute -right-px -bottom-px size-2 rounded-full bg-glow ring-2 ring-[var(--h-rail)]"
+        )
       )
     )
-  )
+  ).withSide(Side.Right)
 
   override def render: RxElement = nav(
     cls ->

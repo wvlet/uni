@@ -30,7 +30,8 @@ object RovingFocus:
     * keys wrap around at both ends.
     *
     * @param current
-    *   the index of the active item
+    *   the index of the active item, or -1 when none is active: the next key then goes to the first
+    *   item and the previous key to the last
     * @param count
     *   the number of items
     */
@@ -52,6 +53,8 @@ object RovingFocus:
       key match
         case `nextKey` =>
           Some((current + 1) % count)
+        case `prevKey` if current < 0 =>
+          Some(count - 1)
         case `prevKey` =>
           Some((current - 1 + count) % count)
         case "Home" =>
@@ -60,5 +63,19 @@ object RovingFocus:
           Some(count - 1)
         case _ =>
           None
+
+  /**
+    * The index of the next label after `current` that starts with `key` (ignoring case), wrapping
+    * around: typing a letter in a menu or list jumps to the matching item. None when no label
+    * matches.
+    */
+  def typeahead(labels: Seq[String], current: Int, key: String): Option[Int] =
+    val k = key.toLowerCase
+    if labels.isEmpty || k.isBlank then
+      None
+    else
+      (1 to labels.size)
+        .map(step => (current + step + labels.size) % labels.size)
+        .find(i => labels(i).trim.toLowerCase.startsWith(k))
 
 end RovingFocus

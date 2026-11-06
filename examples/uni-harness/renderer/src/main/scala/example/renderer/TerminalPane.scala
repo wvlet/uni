@@ -6,7 +6,8 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.{MediaQuery, TerminalTheme, TerminalView, TerminalViewConfig}
 import wvlet.uni.rx.{Cancelable, Rx}
-import wvlet.uni.ui.ColorScheme
+import wvlet.uni.ui.{ColorScheme, Tooltip}
+import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
 import scala.scalajs.js
@@ -149,22 +150,24 @@ class TerminalPane(
 
   private def header: RxElement = div(
     cls -> "flex h-7 shrink-0 items-center gap-2 px-1",
-    span(
-      cls         -> "min-w-0 flex-1 truncate font-mono text-[11px] text-muted",
-      data("tip") -> title.map(TerminalPane.displayTitle),
-      title.map(TerminalPane.displayTitle)
-    ),
+    Tooltip(title.map(TerminalPane.displayTitle))(
+      span(
+        cls -> "min-w-0 flex-1 truncate font-mono text-[11px] text-muted",
+        title.map(TerminalPane.displayTitle)
+      )
+    ).withSide(Side.Bottom),
     failed.map {
       case Some(c) =>
-        button(
-          cls ->
-            "rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg transition hover:bg-hover active:scale-95",
-          data("tip") -> s"Ask the chat why this command exited with ${c.exitCode.getOrElse(0)}",
-          onclick     -> { () =>
-            explain()
-          },
-          "Explain error"
-        )
+        Tooltip(s"Ask the chat why this command exited with ${c.exitCode.getOrElse(0)}")(
+          button(
+            cls ->
+              "rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg transition hover:bg-hover active:scale-95",
+            onclick -> { () =>
+              explain()
+            },
+            "Explain error"
+          )
+        ).withSide(Side.Bottom)
       case None =>
         span()
     },

@@ -79,11 +79,15 @@ abstract class RxElement(val modifiers: List[Seq[DomNode]] = Nil) extends DomNod
   def addModifier(xs: DomNode*): RxElement = add(xs*)
 
   /**
-    * Add modifiers and return a new RxElement wrapper.
+    * Add modifiers and return a new RxElement wrapper. The wrapper keeps this element's lifecycle
+    * hooks, so adding a modifier never drops a component's `onMount` or `beforeUnmount`.
     */
   def add(xs: DomNode*): RxElement =
     new RxElement(xs :: modifiers):
-      override def render: RxElement = self.render
+      override def beforeRender: Unit       = self.beforeRender
+      override def render: RxElement        = self.render
+      override def onMount(node: Any): Unit = self.onMount(node)
+      override def beforeUnmount: Unit      = self.beforeUnmount
 
   /**
     * Traverse all modifiers and apply a function to each.

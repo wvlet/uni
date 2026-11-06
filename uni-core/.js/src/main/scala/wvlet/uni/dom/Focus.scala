@@ -245,36 +245,37 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
     lastFocusable = focusables.lastOption
   }
 
-  override def render: RxElement =
-    import HtmlTags.{tag, attr, handler}
-    val onkeydown  = handler[dom.KeyboardEvent]("onkeydown")
-    val keyHandler = onkeydown { (e: dom.KeyboardEvent) =>
-      if e.key == "Tab" then
-        // Refresh focusables in case content changed
-        updateFocusables()
+  private def onKey(e: dom.KeyboardEvent): Unit =
+    if e.key == "Tab" then
+      // Refresh focusables in case content changed
+      updateFocusables()
 
-        val activeElement = dom.document.activeElement
-        if e.shiftKey then
-          // Shift+Tab: wrap to last if at first
-          if firstFocusable.contains(activeElement) then
-            e.preventDefault()
-            lastFocusable.foreach {
-              case elem: dom.HTMLElement =>
-                elem.focus()
-              case _ =>
-                ()
-            }
-        else
-          // Tab: wrap to first if at last
-          if lastFocusable.contains(activeElement) then
-            e.preventDefault()
-            firstFocusable.foreach {
-              case elem: dom.HTMLElement =>
-                elem.focus()
-              case _ =>
-                ()
-            }
-    }
+      val activeElement = dom.document.activeElement
+      if e.shiftKey then
+        // Shift+Tab: wrap to last if at first
+        if firstFocusable.contains(activeElement) then
+          e.preventDefault()
+          lastFocusable.foreach {
+            case elem: dom.HTMLElement =>
+              elem.focus()
+            case _ =>
+              ()
+          }
+      else
+        // Tab: wrap to first if at last
+        if lastFocusable.contains(activeElement) then
+          e.preventDefault()
+          firstFocusable.foreach {
+            case elem: dom.HTMLElement =>
+              elem.focus()
+            case _ =>
+              ()
+          }
+
+  override def render: RxElement =
+    import HtmlTags.{tag, attr}
+    // A listener, so an app's own `onkeydown` on the trap runs alongside it
+    val keyHandler = EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent]))
     tag("div")((Seq(attr("tabindex")("-1"), keyHandler) ++ children)*)
 
   end render
