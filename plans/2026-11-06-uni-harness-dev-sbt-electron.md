@@ -16,9 +16,10 @@
 Lane: **Express**. A dev-tooling fix with a clear diagnosis in one example. It touches no always-gate area (app packaging is unchanged).
 
 - Add a small `sbt` shim under `examples/uni-harness/scripts/bin/`. It rewrites `--batch` to `-batch` and runs the repo's `./sbt`.
-- A shared config helper puts that shim first on `PATH`, for the Vite process only, when `${ROOT}/sbt` exists. The plugin and `linkScalaJS` then run the repo's launcher and sbt version, which match what `./sbt` gives in CI and in AGENTS.md.
+- A shared config helper puts that shim first on `PATH` only for the sbt processes, when `${ROOT}/sbt` exists. It wraps the plugin's `buildStart` and passes `env` to `linkScalaJS`. They then run the repo's launcher, the one CI and AGENTS.md use.
+- The dev servers and Electron keep the user's `PATH`, so `sbt` typed in the harness terminal still runs the user's own sbt.
 - The helper does nothing on Windows, or when the example is copied out of the repo (no `${ROOT}/sbt`). The `sbt` on `PATH` is used as before, and the README says so.
-- `postinstall` also runs Electron's `install-electron` bin, which downloads the binary into `node_modules/electron/dist`. It exits right away when the binary is already there.
+- `postinstall` also runs Electron's `install-electron` bin, which downloads the binary into `node_modules/electron/dist`. It exits right away when the binary is already there. If the download fails (offline), it prints a hint instead of failing the install, so `dev:web` users can still install.
 
 ## Alternatives and Why Not?
 
