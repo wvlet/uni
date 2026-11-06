@@ -114,11 +114,51 @@ class ComponentTest extends DomTestSupport:
     sel.get shouldBe Pick.A
 
   test("a tab panel renders the selected tab's content"):
-    val sel = Rx.variable(Pick.A)
-    val m   = mount(TabPanel(sel)(p => wvlet.uni.dom.all.div(s"panel ${p}")))
-    m.get("[role=tabpanel]").textContent shouldBe "panel A"
+    val sel  = Rx.variable(Pick.A)
+    val tabs = TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"))
+    val m    = mount(
+      wvlet.uni.dom.all.div(tabs, TabPanel(tabs)(p => wvlet.uni.dom.all.div(s"panel ${p}")))
+    )
+    val panel = m.get("[role=tabpanel]")
+    panel.textContent shouldBe "panel A"
+    // The tabs and the panel point at each other
+    val ts = m.queryAll("[role=tab]")
+    ts.map(_.getAttribute("aria-controls")).distinct shouldBe Seq(panel.id)
+    panel.getAttribute("aria-labelledby") shouldBe ts(0).id
     sel := Pick.B
-    m.get("[role=tabpanel]").textContent shouldBe "panel B"
+    panel.textContent shouldBe "panel B"
+    panel.getAttribute("aria-labelledby") shouldBe ts(1).id
+
+  test("two tab lists never share ids"):
+    val a = TabList(Rx.variable(Pick.A), "One")(Tab(Pick.A, "A"))
+    val b = TabList(Rx.variable(Pick.A), "Two")(Tab(Pick.A, "A"))
+    (a.panelId == b.panelId) shouldBe false
+
+  test("an app's own handlers run alongside the components' handlers"):
+    import wvlet.uni.dom.all.{onclick, onkeydown}
+    var clicks    = 0
+    var appClicks = 0
+    val m1        = mount(
+      Button("Go").onClick(() => clicks += 1)(
+        onclick -> { () =>
+          appClicks += 1
+        }
+      )
+    )
+    fireEvent.click(m1.get("button"))
+    (clicks, appClicks) shouldBe (1, 1)
+    val sel  = Rx.variable(Pick.A)
+    var keys = 0
+    val m2   = mount(
+      TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"))(
+        onkeydown -> { () =>
+          keys += 1
+        }
+      )
+    )
+    fireEvent.keyDown(m2.queryAll("[role=tab]")(0), "ArrowRight")
+    sel.get shouldBe Pick.B
+    keys shouldBe 1
 
   private def paneWidth(m: Mounted): String =
     m.get("aside").asInstanceOf[dom.html.Element].style.width

@@ -134,6 +134,7 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
 
   // Pointer drag and pane resizing
   export wvlet.uni.dom.PointerDrag
+  export wvlet.uni.dom.EventListenerBinding
   export wvlet.uni.dom.PaneResize
   export wvlet.uni.dom.SizeRange
   export wvlet.uni.dom.ResizeDirection

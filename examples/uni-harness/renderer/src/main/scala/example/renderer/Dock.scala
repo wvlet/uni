@@ -63,18 +63,21 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     }
   )
 
+  private lazy val tabs =
+    TabList(layout.dockTab, "Dock views")(
+      tab(DockTab.Details, Icons.info, Rx.const("")),
+      tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
+      tab(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)
+    )
+
   override def render: RxElement =
     FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))(
       div(
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
-        TabList(layout.dockTab, "Dock views")(
-          tab(DockTab.Details, Icons.info, Rx.const("")),
-          tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
-          tab(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)
-        )(cls += "flex-1"),
+        tabs(cls += "flex-1"),
         Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
       ),
-      TabPanel(layout.dockTab) {
+      TabPanel(tabs) {
         case DockTab.Terminal =>
           div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
         case other =>

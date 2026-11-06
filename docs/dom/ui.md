@@ -61,7 +61,7 @@ div(
 | `IconButton(label, icon)` | A square ghost button; `label` is its accessible name |
 | `Input(text)` / `Textarea(text)` | Bound both ways to an `RxVar[String]`. Use `.withPlaceholder`, `.withLabel`, `.withInvalid(rx)` (sets `aria-invalid`), and `.withDisabled` |
 | `TabList(selected, label)(Tab(value, content*)*)` | Tabs bound to an `RxVar[A]`. Arrow keys, Home, and End move the selection |
-| `TabPanel(selected)(a => element)` | Renders the selected tab's content |
+| `TabPanel(tabs)(a => element)` | Renders the selected tab's content for the `TabList` `tabs`, linked to it with `aria-controls` and `aria-labelledby` |
 | `FoldablePane(open, width, edge, splitter)(content*)` | A side pane that folds to zero width; its content never reflows |
 | `Splitter(size, range, edge, label)` | A resize grip. Drag it, or press the arrow keys (Shift for bigger steps); double-click or Enter resets |
 | `Badge(content*)`, `Badge.dot(label)` | A count or a status dot; `.withTone(BadgeTone.Accent)` |

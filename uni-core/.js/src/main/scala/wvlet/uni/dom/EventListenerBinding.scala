@@ -18,7 +18,10 @@ import org.scalajs.dom
 /**
   * Attaches a listener with `addEventListener`, so it runs alongside an `on*` handler (e.g.
   * `onkeydown`) on the same element instead of replacing it. Used by helpers such as
-  * `Keyboard.onEnter` and `PointerDrag`.
+  * `Keyboard.onEnter` and `PointerDrag`, and by component libraries such as uni-ui.
+  *
+  * {{{
+  *   div(EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])))
+  * }}}
   */
-private[dom] case class EventListenerBinding(eventName: String, listener: dom.Event => Unit)
-    extends DomNode
+case class EventListenerBinding(eventName: String, listener: dom.Event => Unit) extends DomNode

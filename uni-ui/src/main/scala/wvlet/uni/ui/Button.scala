@@ -89,13 +89,16 @@ class Button private (
       cls      -> s"uni-button uni-button--${variant.cssName} uni-button--${size.cssName}${shape}",
       disabled -> disabledState,
       label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
-      // Browsers drop real clicks on a disabled button, but not ones dispatched from scripts
-      onclick -> { (e: org.scalajs.dom.MouseEvent) =>
-        e.currentTarget match
-          case b: org.scalajs.dom.HTMLButtonElement if b.disabled =>
-          case _                                                  =>
-            action()
-      },
+      // A listener, so an app's own `onclick` modifier runs alongside the action. Browsers drop
+      // real clicks on a disabled button, but not ones dispatched from scripts
+      EventListenerBinding(
+        "click",
+        e =>
+          e.currentTarget match
+            case b: org.scalajs.dom.HTMLButtonElement if b.disabled =>
+            case _                                                  =>
+              action()
+      ),
       content
     )
 

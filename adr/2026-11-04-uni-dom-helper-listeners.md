@@ -16,5 +16,6 @@ Key events during an IME composition (Japanese, Chinese, Korean input) belong to
 ## Consequences
 
 - A new helper that listens to DOM events should use `EventListenerBinding`, not `HtmlTags.handler`.
+- `EventListenerBinding` is public (and exported from `wvlet.uni.dom.all`) so component libraries outside uni-dom, such as uni-ui, follow the same rule: a component's own click and key handling must survive an app's `onclick` or `onkeydown` modifier.
 - `Keyboard.scoped` changed: it now runs alongside an app's `onkeydown` on the same element instead of replacing it, and it no longer fires during IME composition.
 - Window tracking works with `fireEvent`'s synthetic pointers in tests; switching to pointer capture later would not change the `PointerDrag` API.

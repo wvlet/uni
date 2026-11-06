@@ -149,9 +149,8 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     ariaValuemin     -> range.min.toString,
     ariaValuemax     -> range.max.toString,
     ariaValuenow     -> size.map(_.toString),
-    onkeydown        -> { (e: dom.KeyboardEvent) =>
-      onKey(e)
-    },
+    // A listener, so an app's own `onkeydown` modifier runs alongside the arrow keys
+    EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
     resize.bind
   )
 

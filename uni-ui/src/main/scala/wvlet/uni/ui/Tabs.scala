@@ -28,12 +28,14 @@ class Tab[A](val value: A, val content: DomNode*)
   * A row of tabs bound to `selected`. Clicking a tab selects it; with focus in the list, the arrow
   * keys, Home, and End move to and select another tab. Only the selected tab is a tab stop.
   *
-  * Render the content with [[TabPanel]]:
+  * Render the content with a [[TabPanel]] for this list, which links the panel and the tabs for
+  * screen readers (`aria-controls` and `aria-labelledby`):
   * {{{
-  *   val tab = Rx.variable(DockTab.Details)
+  *   val tab  = Rx.variable(DockTab.Details)
+  *   val tabs = TabList(tab, "Dock")(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity"))
   *   div(
-  *     TabList(tab, "Dock")(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity")),
-  *     TabPanel(tab) {
+  *     tabs,
+  *     TabPanel(tabs) {
   *       case DockTab.Details  => DetailsView()
   *       case DockTab.Activity => ActivityLog()
   *     }
@@ -43,7 +45,16 @@ class Tab[A](val value: A, val content: DomNode*)
   * @param label
   *   the accessible name of the list
   */
-class TabList[A](selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxElement:
+class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxElement:
+
+  // Unique per list, so two lists on one page never share ids
+  private val idPrefix = TabList.nextIdPrefix()
+
+  /** The id of the [[TabPanel]] that shows this list's content. */
+  def panelId: String = s"${idPrefix}-panel"
+
+  /** The id of the tab for `value`, which labels the panel while it is selected. */
+  def tabId(value: A): String = s"${idPrefix}-tab-${math.max(tabs.indexWhere(_.value == value), 0)}"
 
   private def onKey(e: dom.KeyboardEvent): Unit =
     val current = tabs.indexWhere(_.value == selected.get)
@@ -66,15 +77,16 @@ class TabList[A](selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxEle
     role      -> "tablist",
     cls       -> "uni-tabs",
     ariaLabel -> label,
-    onkeydown -> { (e: dom.KeyboardEvent) =>
-      onKey(e)
-    },
+    // Listeners, so an app's own `onkeydown` or `onclick` modifier runs alongside them
+    EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
     tabs.map { tab =>
       val isSelected: Rx[Boolean] = selected.map(_ == tab.value)
       button(
         tpe          -> "button",
         role         -> "tab",
+        id           -> tabId(tab.value),
         cls          -> "uni-tab",
+        ariaControls -> panelId,
         ariaSelected -> isSelected.map(_.toString),
         tabindex     ->
           isSelected.map(on =>
@@ -83,9 +95,7 @@ class TabList[A](selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxEle
             else
               "-1"
           ),
-        onclick -> { () =>
-          selected := tab.value
-        },
+        EventListenerBinding("click", _ => selected := tab.value),
         tab.content
       )
     }
@@ -93,13 +103,22 @@ class TabList[A](selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxEle
 
 end TabList
 
+object TabList:
+  private var count = 0
+
+  private def nextIdPrefix(): String =
+    count += 1
+    s"uni-tabs-${count}"
+
 /**
-  * The content of the selected tab: `render` runs again whenever `selected` changes. The panel is a
-  * flex column that fills the space it is given.
+  * The content of the selected tab of `tabs`: `render` runs again whenever the selection changes.
+  * The panel is a flex column that fills the space it is given.
   */
-class TabPanel[A](selected: Rx[A])(renderTab: A => RxElement) extends RxElement:
+class TabPanel[A](tabs: TabList[A])(renderTab: A => RxElement) extends RxElement:
   override def render: RxElement = div(
-    role -> "tabpanel",
-    cls  -> "uni-tab-panel",
-    selected.map(renderTab)
+    role           -> "tabpanel",
+    id             -> tabs.panelId,
+    cls            -> "uni-tab-panel",
+    ariaLabelledby -> tabs.selected.map(tabs.tabId),
+    tabs.selected.map(renderTab)
   )
