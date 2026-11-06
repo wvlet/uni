@@ -4,8 +4,8 @@
 
 `map` and `flatMap` over an `Rx[Seq[A]]` keep no memory between emissions: each one builds a new
 `Seq`, so a consumer can't tell a kept item from a new one. uni-dom's `eachRx` (see
-`2026-11-05-keyed-list-rendering.md`) solves this inside `DomRenderer` with a key → `RxVar` table,
-which only the DOM renderer on Scala.js can use. uni `Rx` also had no operator that carries state
+`2026-11-05-keyed-list-rendering.md`) solved this inside `DomRenderer` with a key → `RxVar` table,
+which only the DOM renderer on Scala.js could use. uni `Rx` also had no operator that carries state
 across emissions.
 
 ## Decision
@@ -42,8 +42,10 @@ across emissions.
 
 ## Consequences
 
-- `eachRx` can be reimplemented as `split` + `each` without changing its signature; its render
-  gets the first value from the row's `RxVar.get`.
+- `eachRx` is now `items.split(key).each(_._1)`, with an unchanged signature. Its render reads the
+  first value from the row's `RxVar.get`, so `split`'s rows must stay `RxVar`s. `KeyedRxList` and
+  the renderer's in-place path were removed (never released). Repeated keys in `eachRx` are now
+  dropped by `split` without the renderer's warning.
 - A row `Rx` lives as long as its key stays in the list of that subscription.
 - A row's `RxVar` keeps replaying its last value to late subscribers after it's stopped, as any
   stopped `RxVar` does.

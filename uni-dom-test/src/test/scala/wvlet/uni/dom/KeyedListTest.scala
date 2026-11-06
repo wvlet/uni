@@ -133,7 +133,7 @@ class KeyedListTest extends UniTest:
     c.cancel
   }
 
-  test("eachRx updates an item in place when its value changes under the same key"):
+  test("eachRx updates an item in place when its value changes under the same key") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
     var rendered  = 0
     var emitted   = Seq.empty[String]
@@ -165,7 +165,9 @@ class KeyedListTest extends UniTest:
     emitted shouldBe Seq("a", "b", "B")
     c.cancel
 
-  test("eachRx moves items on reorder and renders new keys"):
+  }
+
+  test("eachRx moves items on reorder and renders new keys") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
     val (root, c) = render(ul(items.eachRx(_.id)((_, current) => li(current.map(_.text)))))
     val Seq(a, b) = lis(root): @unchecked
@@ -176,7 +178,9 @@ class KeyedListTest extends UniTest:
     (after(2) eq a) shouldBe true
     c.cancel
 
-  test("eachRx completes an item's Rx once its key is removed, and a returning key starts fresh"):
+  }
+
+  test("eachRx completes an item's Rx once its key is removed, and a returning key starts fresh") {
     val items     = Rx.variable(Seq(Item(1, "a")))
     var rendered  = 0
     var completed = 0
@@ -201,16 +205,19 @@ class KeyedListTest extends UniTest:
     lis(root).map(_.textContent) shouldBe Seq("again")
     c.cancel
     completed shouldBe 2
+  }
 
   test("split + each updates a row in place through its own Rx") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
     var rendered  = 0
     val (root, c) = render(
       ul(
-        items.split(_.id).each(_._1) { (_, current) =>
-          rendered += 1
-          li(current.map(_.text))
-        }
+        items
+          .split(_.id)
+          .each(_._1) { (_, current) =>
+            rendered += 1
+            li(current.map(_.text))
+          }
       )
     )
     val first = lis(root).head
