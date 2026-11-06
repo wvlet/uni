@@ -1,7 +1,6 @@
 package example.renderer
 
 import example.api.Conversation
-import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}

@@ -95,11 +95,8 @@ class VirtualList[A, K] private (
     spacerAttrs = Seq(role -> "presentation"),
     rowRole = "option",
     rowAttrs =
-      (_, i) =>
-        Seq(
-          ariaPosinset -> i.map(n => (n + 1).toString),
-          ariaSetsize  -> items.map(_.size.toString)
-        ),
+      (_, i, count) =>
+        Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
     renderRow = renderRow,
     selected = selected,
     onSelect = onSelectFn,

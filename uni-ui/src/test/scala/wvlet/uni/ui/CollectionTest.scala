@@ -334,6 +334,9 @@ class CollectionTest extends DomTestSupport:
       fireEvent.click(dom.document.querySelectorAll(".uni-palette__item")(2))
       log.get shouldBe Seq("theme")
       open.get shouldBe false
+      // Reopened, the palette highlights the first command, not the one run last
+      open := true
+      highlighted shouldBe Some("New chat")
     }
 
 end CollectionTest

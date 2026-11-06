@@ -40,11 +40,13 @@ object Fuzzy:
 
   /** None when `query` is not a subsequence of `text`; an empty query matches everything. */
   def matches(query: String, text: String): Option[FuzzyMatch] =
-    val q = query.filterNot(_.isWhitespace).toLowerCase
+    // Lowercase char by char: String.toLowerCase can lengthen text ("İ" becomes two chars), which
+    // would shift match positions away from the original text
+    val q = query.filterNot(_.isWhitespace).map(_.toLower)
     if q.isEmpty then
       Some(FuzzyMatch(0.0, Seq.empty))
     else
-      val lower = text.toLowerCase
+      val lower = text.map(_.toLower)
       // A contiguous match wins: pick the best placed occurrence
       val substring = Iterator
         .iterate(lower.indexOf(q))(i => lower.indexOf(q, i + 1))

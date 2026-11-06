@@ -204,7 +204,7 @@ class DataTable[A, K] private (
     spacerAttrs = Seq(role -> "rowgroup"),
     rowRole = "row",
     // The header is row 1
-    rowAttrs = (_, i) => ariaRowindex -> i.map(n => (n + 2).toString),
+    rowAttrs = (_, i, _) => ariaRowindex -> i.map(n => (n + 2).toString),
     renderRow =
       a =>
         columns

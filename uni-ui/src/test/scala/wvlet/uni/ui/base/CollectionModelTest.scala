@@ -57,6 +57,12 @@ class CollectionModelTest extends UniTest:
     // Jumping to the word start "Bx" would leave no "c" after it; the plain match still succeeds
     Fuzzy.matches("bxc", "ab xc Bx").map(_.positions) shouldBe Some(Seq(1, 3, 4))
 
+  test("fuzzy positions stay on the original text when lowercasing would lengthen it"):
+    // "İ".toLowerCase is two chars; matching must not shift positions past it
+    Fuzzy.matches("trip", "İstanbul trip").map(_.positions) shouldBe Some(Seq(9, 10, 11, 12))
+    Fuzzy.matches("p", "İstanbul trip").map(_.positions) shouldBe Some(Seq(12))
+    Fuzzy.matches("itp", "İstanbul trip").map(_.positions) shouldBe Some(Seq(0, 9, 12))
+
   test("fuzzy scores rank contiguous and word-start matches first"):
     def score(q: String, t: String) = Fuzzy.matches(q, t).map(_.score).getOrElse(-1.0)
     (score("chat", "New chat") > score("chat", "Change history at")) shouldBe true

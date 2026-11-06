@@ -163,7 +163,7 @@ class Tree[A, K] private (
     spacerAttrs = Seq(role -> "presentation"),
     rowRole = "treeitem",
     rowAttrs =
-      (r, _) =>
+      (r, _, _) =>
         Seq[DomNode](
           ariaLevel    -> r.level.toString,
           ariaPosinset -> r.position.toString,

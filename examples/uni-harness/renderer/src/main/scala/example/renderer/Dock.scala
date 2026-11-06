@@ -185,11 +185,16 @@ end DetailsView
   * calls, so it renders through a [[VirtualList]]: only the rows in view are in the DOM.
   */
 class ActivityLog(log: RpcLog) extends RxElement:
-  private val slowest = log
+  // Each call with the slowest time, computed once per update. A row renders again only when its
+  // pair changes, which is when a new slowest call arrives.
+  private val rows: Rx[Seq[(RpcCall, Double)]] = log
     .calls
-    .map(cs => math.max(1.0, cs.map(_.millis).maxOption.getOrElse(1.0)))
+    .map { cs =>
+      val slowest = math.max(1.0, cs.map(_.millis).maxOption.getOrElse(1.0))
+      cs.map(c => (c, slowest))
+    }
 
-  private def row(c: RpcCall): RxElement =
+  private def row(c: RpcCall, slowest: Double): RxElement =
     val tone =
       if c.ok then
         "bg-glow"
@@ -207,7 +212,7 @@ class ActivityLog(log: RpcLog) extends RxElement:
         cls -> "mt-1 ml-3.5 h-1 overflow-hidden rounded-full bg-hover",
         div(
           cls       -> "h-full rounded-full bg-gradient-to-r from-brand to-glow",
-          styleAttr -> slowest.map(s => f"width: ${math.max(4.0, c.millis / s * 100)}%.0f%%")
+          styleAttr -> f"width: ${math.max(4.0, c.millis / slowest * 100)}%.0f%%"
         )
       )
     )
@@ -226,7 +231,7 @@ class ActivityLog(log: RpcLog) extends RxElement:
             span(f"avg ${calls.map(_.millis).sum / calls.size}%.1f ms")
           )
       },
-    VirtualList(log.calls, rowHeight = 44)(_.id)(row).withLabel("RPC calls")(
+    VirtualList(rows, rowHeight = 44)(_._1.id)(row.tupled).withLabel("RPC calls")(
       cls += "min-h-0 flex-1"
     )
   )

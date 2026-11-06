@@ -36,7 +36,8 @@ import scala.language.implicitConversions
   *   content above the rows inside the scroll container, such as a table's sticky header row; the
   *   rows' windowing starts below it
   * @param rowAttrs
-  *   extra attributes for a row, given its item and its live index in `items`
+  *   extra attributes for a row, given its item, its live index in `items`, and the live number of
+  *   items
   * @param extraKey
   *   handles a key before the default navigation, given the key, the active index (-1 for none),
   *   and a function that moves to an index; true when it handled the key
@@ -51,7 +52,7 @@ private[ui] class ListCore[A, K](
     containerStyle: String,
     spacerAttrs: Seq[DomNode],
     rowRole: String,
-    rowAttrs: (A, Rx[Int]) => DomNode,
+    rowAttrs: (A, Rx[Int], Rx[Int]) => DomNode,
     renderRow: A => DomNode,
     selected: RxVar[Option[K]],
     onSelect: A => Unit,
@@ -195,7 +196,7 @@ private[ui] class ListCore[A, K](
           else
             None
         ),
-      rowAttrs(a, index.map(_.getOrElse(k, -1))),
+      rowAttrs(a, index.map(_.getOrElse(k, -1)), window.map(_._2)),
       EventListenerBinding(
         "click",
         _ =>

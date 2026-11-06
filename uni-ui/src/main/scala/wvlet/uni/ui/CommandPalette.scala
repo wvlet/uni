@@ -268,6 +268,7 @@ class CommandPalette(
       if !active.get.exists(id => hits.exists(_.command.id == id)) || q != lastQuery then
         active := hits.headOption.map(_.command.id)
       lastQuery = q
+      noResults := hits.isEmpty
       if q.isBlank && filter.isEmpty then
         CommandPalette.withHeadings(hits)
       else
@@ -275,12 +276,16 @@ class CommandPalette(
     }
 
   private var lastQuery = ""
+  // Set by the one subscription to `rows` (the list), so the empty state doesn't search again
+  private val noResults = Rx.variable(false)
 
   // Starts empty each time the palette opens
   private class Body extends RxElement:
     override def beforeRender: Unit =
       query := ""
       lastQuery = ""
+      // Highlight the first result again, not the command run last time
+      active := None
 
     override def render: RxElement = div(
       cls -> "uni-palette",
@@ -305,8 +310,8 @@ class CommandPalette(
         ariaLabel -> label,
         each(rows)(CommandPalette.rowKey)(item)
       ),
-      rows.map { rs =>
-        if rs.isEmpty then
+      noResults.map { empty =>
+        if empty then
           div(cls -> "uni-palette__empty", emptyText)
         else
           DomNode.empty
