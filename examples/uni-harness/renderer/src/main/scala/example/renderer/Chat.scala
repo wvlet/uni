@@ -77,21 +77,13 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
       div(
         hidden -> store.messages.map(_.isEmpty),
         cls    -> "mx-auto flex max-w-3xl flex-col gap-7 px-6 pt-8 pb-6",
-        // Keyed by a key that survives a draft's confirmation, and over keys rather than messages:
-        // each bubble renders once, so its entrance plays once. A bubble follows its own message.
-        each(store.messageKeys)(identity) { key =>
-          store.messages.get.find(m => store.keyOf(m) == key) match
-            case Some(m) =>
-              // Only a prompt's label changes, when the stored prompt confirms the draft
-              val current =
-                if m.role == "user" then
-                  store.messageAt(key)
-                else
-                  Rx.const(None)
-              Bubble(m, animate = store.takeFresh(m.id), current = current)
-            case None =>
-              DomNode.empty
-        },
+        // Keyed by a key that survives a draft's confirmation, and updated in place: each bubble
+        // renders once, so its entrance plays once, and follows its message through `current`
+        store
+          .messages
+          .eachRx(store.keyOf) { (m, current) =>
+            Bubble(m, animate = store.takeFresh(m.id), current = Some(current))
+          },
         store
           .pending
           .map { p =>
@@ -185,11 +177,8 @@ end Welcome
   *   the message as the thread holds it now, such as the stored prompt that confirms a draft. Only
   *   the label under a prompt follows it, so the bubble itself doesn't render again.
   */
-class Bubble(
-    m: ChatMessage,
-    animate: Boolean = false,
-    current: Rx[Option[ChatMessage]] = Rx.const(None)
-) extends RxElement:
+class Bubble(m: ChatMessage, animate: Boolean = false, current: Option[Rx[ChatMessage]] = None)
+    extends RxElement:
   private val shown = Rx.variable(
     if animate then
       ""
@@ -237,13 +226,14 @@ class Bubble(
         ),
         span(
           cls -> "px-1 text-[11px] text-faint opacity-0 transition group-hover:opacity-100",
-          current.map { now =>
-            val shown = now.getOrElse(m)
-            if ChatStore.isDraft(shown) then
-              "Sending…"
-            else
-              clock(shown.createdAt)
-          }
+          current
+            .getOrElse(Rx.const(m))
+            .map { now =>
+              if ChatStore.isDraft(now) then
+                "Sending…"
+              else
+                clock(now.createdAt)
+            }
         )
       )
     else

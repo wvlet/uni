@@ -222,13 +222,28 @@ a long list flickers. Use `each` with a key instead:
 case class Message(id: String, text: String)
 val messages = Rx.variable(Seq.empty[Message])
 
-ul(each(messages)(_.id)(m => li(m.text)))
+ul(messages.each(_.id)(m => li(m.text)))
 ```
 
 On each update, `each` renders only items with a new key and removes items whose
 key is gone. Items that stay keep their DOM nodes and are moved into the new
 order. An item whose key stays but whose value changes (`!=`) is rendered again.
-Keys must be unique; a repeated key keeps only its first item.
+Keys must be unique; a repeated key keeps only its first item. `each` and
+`eachRx` are extension methods on `Rx[Seq[A]]`, so `each(messages)(_.id)(...)`
+works too.
+
+When a row owns state that should survive a change to its value, such as a
+chat bubble whose entrance animation plays once, use `eachRx`. Each key renders
+once, with its first value and an `Rx` of its later values, so the row binds
+only the parts that change:
+
+```scala
+ul(messages.eachRx(_.id)((first, current) => li(current.map(_.text))))
+```
+
+An item whose value changes under the same key keeps its DOM nodes, and its
+`Rx` emits the new value (only when it differs, `!=`). When the key leaves the
+list, the item is removed and its `Rx` completes.
 
 ### Two-way form binding
 
