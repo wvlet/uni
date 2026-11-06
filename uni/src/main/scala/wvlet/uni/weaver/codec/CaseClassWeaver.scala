@@ -13,8 +13,15 @@ import wvlet.uni.weaver.WeaverContext
 /**
   * A weaver for case classes that serializes to/from MsgPack maps. Uses map format for schema
   * evolution robustness.
+  *
+  * Field weavers are passed by name and resolved on first use, so derived givens of recursive types
+  * (e.g., `case class Tree(children: Seq[Tree]) derives Weaver`) don't re-enter their own lazy
+  * initializer while it is still running.
   */
-class CaseClassWeaver[A](surface: Surface, fieldWeavers: IndexedSeq[Weaver[?]]) extends Weaver[A]:
+class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?]])
+    extends Weaver[A]:
+
+  private lazy val fieldWeavers: IndexedSeq[Weaver[?]] = fieldWeavers0
 
   override def innerWeavers: Seq[Weaver[?]] = fieldWeavers
 
