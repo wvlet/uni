@@ -59,8 +59,8 @@ end TerminalTheme
 object TerminalTheme:
 
   /**
-    * Uni's dark theme: a teal-black surface, Uni's cyan glow for the cursor, and ANSI colors tuned
-    * to sit with the teal brand colors
+    * Uni's dark theme: a teal-black surface, Uni's cyan glow for the cursor, and soft pastel ANSI
+    * colors that sit with the teal brand colors
     */
   val uniDark: TerminalTheme = TerminalTheme(
     foreground = "#d5e4e7",
@@ -68,27 +68,29 @@ object TerminalTheme:
     cursor = "#08bdcb",
     selection = "rgba(37, 167, 193, 0.32)",
     ansi = Seq(
-      "#16313a",
-      "#ef6f78",
-      "#5cc98f",
-      "#e8c46c",
-      "#5d9eec",
-      "#b78ae8",
-      "#08bdcb",
-      "#b7b9b4",
-      "#5f7c82",
-      "#ff9198",
-      "#86e0ad",
-      "#f6d993",
-      "#8bbaf5",
-      "#d2adf4",
-      "#6fdbe8",
+      "#2a4249",
+      "#e8959c",
+      "#8fceaa",
+      "#e6cc8f",
+      "#94b6e8",
+      "#c4a6e6",
+      "#7fd0d8",
+      "#c0cccf",
+      "#6b858b",
+      "#f2b0b5",
+      "#ade0c2",
+      "#f0dcaa",
+      "#b2cbf0",
+      "#d7c0f0",
+      "#a3e0e6",
       "#eef5f6"
     )
   )
 
   /**
-    * Uni's light theme: a near-white surface with Uni's teal brand color for the cursor
+    * Uni's light theme: a near-white surface with Uni's teal brand color for the cursor, and soft
+    * pastel ANSI colors (dusty rose, sage, amber, periwinkle, lavender, teal) that stay readable
+    * without shouting
     */
   val uniLight: TerminalTheme = TerminalTheme(
     foreground = "#10272c",
@@ -96,22 +98,22 @@ object TerminalTheme:
     cursor = "#2e7685",
     selection = "rgba(46, 118, 133, 0.22)",
     ansi = Seq(
-      "#10272c",
-      "#c4374a",
-      "#23824a",
-      "#946500",
-      "#2c5fc0",
-      "#8742b5",
-      "#1f7f91",
+      "#3b4f55",
+      "#c25d6c",
+      "#3f8f66",
+      "#a87a24",
+      "#4f7cc4",
+      "#8e68bd",
+      "#348a9a",
       "#8a9ca0",
-      "#5b7176",
-      "#de4f5e",
-      "#2f9c5c",
-      "#b07d0a",
-      "#4679dc",
-      "#a35fd0",
-      "#3c99ad",
-      "#c4d0d3"
+      "#6f858b",
+      "#d0727f",
+      "#55a77c",
+      "#bb8d3a",
+      "#6a92d4",
+      "#a382cf",
+      "#4aa1b1",
+      "#b9c6ca"
     )
   )
 
