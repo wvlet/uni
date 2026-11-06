@@ -146,6 +146,10 @@ Weaver.toJson[Layout](Layout.Split(Seq(Layout.Empty), Seq(1.0)))
 // {"@type":"Split","children":[{"@type":"Empty"}],"sizes":[1.0]}
 ```
 
+Codecs built at runtime with `Weaver.fromSurface`, which RPC and HTTP use, write
+the same format. When reading, a case without parameters may also be a bare
+string (`"Empty"`).
+
 Change the discriminator via [`WeaverConfig`](#configuration):
 
 ```scala

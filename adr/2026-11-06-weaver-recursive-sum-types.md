@@ -23,5 +23,6 @@
 ## Consequences
 
 - `Weaver.fromSurface` still treats every enum as a string enum, because `EnumSurface` has no case information. A singleton of an enum with parameterized cases encodes differently on the derived path (`{"@type":"Zero"}`) and the runtime path (`"Zero"`) until Surface records enum cases.
+  - Resolved by [`2026-11-06-enum-cases-in-surface.md`](2026-11-06-enum-cases-in-surface.md): `EnumSurface.cases` lists the cases of such enums, and `fromSurface` now uses the same `SealedTraitWeaver` format.
 - `CaseClassWeaver` and `SealedTraitWeaver` constructor parameters are by-name. Callers still compile, but binaries compiled against the old constructors need recompiling.
 - The uni-ui Dock could move to a derived codec. Its JSON (`{"type":"split",...}`) uses a different discriminator name and lowercase case names, so it would need a config or a format migration.

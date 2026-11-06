@@ -745,8 +745,9 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
               ).asExprOf[Option[Any]].asTerm
             expr2.changeOwner(sym)
       )
+      val hasValueOf      = enumType.methodMember("valueOf").nonEmpty
       val stringExtractor =
-        if enumType.methodMember("valueOf").nonEmpty then
+        if hasValueOf then
           newFn.asExprOf[(Class[?], String) => Option[Any]]
         else
           // An enum with a parameterized case (e.g., `case Other(code: Int)`) gets no synthesized
@@ -776,6 +777,48 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
             (_: Class[?], s: String) => m.get(s)
           }
 
+      // List every case of an enum with a parameterized case, so runtime codecs can encode the
+      // case fields. Enums whose cases are all singletons keep an empty list and encode as strings.
+      // Generic enums are skipped: their case types would need the enum's type arguments.
+      val isGeneric = t.typeSymbol.primaryConstructor.paramSymss.flatten.exists(_.isTypeParam)
+      val cases: Expr[Seq[EnumCase]] =
+        if hasValueOf || isGeneric then
+          '{
+            Seq.empty
+          }
+        else
+          val entries = t
+            .typeSymbol
+            .children
+            .map { c =>
+              val name = Expr(c.name)
+              if c.isTerm then
+                '{
+                  EnumCase.Singleton(
+                    $name,
+                    ${
+                      Ref(c).asExprOf[Any]
+                    }
+                  )
+                }
+              else
+                '{
+                  EnumCase.Parameterized(
+                    $name,
+                    ${
+                      surfaceOf(c.typeRef)
+                    }
+                  )
+                }
+            }
+          '{
+            Seq(
+              ${
+                Varargs(entries)
+              }*
+            )
+          }
+
       '{
         EnumSurface(
           ${
@@ -783,7 +826,8 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
           },
           ${
             stringExtractor
-          }
+          },
+          $cases
         )
       }
     case t if hasStringUnapply(t) =>

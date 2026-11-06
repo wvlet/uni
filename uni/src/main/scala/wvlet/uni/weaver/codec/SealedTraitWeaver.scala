@@ -96,6 +96,19 @@ class SealedTraitWeaver[A](
       case ValueType.NIL =>
         u.unpackNil
         context.setNull
+      case ValueType.STRING =>
+        // Accept a bare singleton name ("Zero"), the form runtime codecs wrote for enum singletons
+        // before enums with parameterized cases used this format
+        val name = u.unpackString
+        weaversByCanonicalName.get(CName.toCanonicalName(name)) match
+          case Some((_, _, Some(instance))) =>
+            context.setObject(instance)
+          case _ =>
+            context.setError(
+              IllegalArgumentException(
+                s"Unknown singleton '${name}' for ${traitName}. Known types: ${knownTypeNames}"
+              )
+            )
       case other =>
         u.skipValue
         context.setError(

@@ -14,6 +14,8 @@ import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
 import wvlet.uni.weaver.codec.JSONWeaver
 import wvlet.uni.weaver.codec.PrimitiveWeaver
+import wvlet.uni.weaver.codec.SealedTraitWeaver
+import wvlet.uni.weaver.codec.SingletonWeaver
 
 import java.time.Instant
 import java.util.UUID
@@ -377,7 +379,22 @@ object Weaver:
   }
 
   private val complexTypeFactory: WeaverFactory = {
-    // Enum
+    // An enum with a parameterized case uses the sealed-trait format, like `derives Weaver`
+    case s: EnumSurface if s.hasParameterizedCases =>
+      // Build the case weavers now, while recursive references to this enum still resolve to
+      // its LazyWeaver placeholder
+      val childWeavers: Map[String, (Weaver[?], Option[Any])] =
+        s.cases
+          .map {
+            case EnumCase.Singleton(name, value) =>
+              name -> (SingletonWeaver[Any](value), Some(value))
+            case EnumCase.Parameterized(name, caseSurface) =>
+              name -> (fromSurface(caseSurface), None)
+          }
+          .toMap
+      SealedTraitWeaver[Any](s.name, childWeavers)
+
+    // An enum whose cases are all singletons packs as a string
     case s: EnumSurface =>
       EnumWeaver(s)
 
