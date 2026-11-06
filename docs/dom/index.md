@@ -230,6 +230,19 @@ key is gone. Items that stay keep their DOM nodes and are moved into the new
 order. An item whose key stays but whose value changes (`!=`) is rendered again.
 Keys must be unique; a repeated key keeps only its first item.
 
+When a row owns state that should survive a change to its value, such as a
+chat bubble whose entrance animation plays once, use `eachRx`. Each key renders
+once, with its first value and an `Rx` of its later values, so the row binds
+only the parts that change:
+
+```scala
+ul(eachRx(messages)(_.id)((first, current) => li(current.map(_.text))))
+```
+
+An item whose value changes under the same key keeps its DOM nodes, and its
+`Rx` emits the new value (only when it differs, `!=`). When the key leaves the
+list, the item is removed and its `Rx` completes.
+
 ### Two-way form binding
 
 Bind a `RxVar` to a form control so edits flow back into the variable and

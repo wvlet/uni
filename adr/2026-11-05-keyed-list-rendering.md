@@ -22,6 +22,23 @@ later siblings when the outer one re-rendered.
 - `createMountSection` takes the anchor and places its markers there, so nested sections stay in
   place.
 
+## Update (2026-11-06): items that update in place (`eachRx`)
+
+Re-rendering a changed item is wrong when the row owns state, such as a chat bubble whose entrance
+animation plays once. The uni-harness thread worked around it by keying over plain strings and
+looking each message up again. `eachRx(items)(key)((first, current) => ...)` (`KeyedRxList`)
+shares the renderer with `each` but, for a changed value under the same key, keeps the item's nodes
+and sets the new value on the item's own `RxVar`, which emits only when the value differs. The row
+binds the parts that change to `current` (typed `Rx[A]`, so it can't write it).
+
+- A separate name, not an `each` overload: a render taking two parameters would capture existing
+  `each` calls over tuple items (`(c, active) => ...`), and a render taking `Rx[A]` alone has the
+  same arity as `A => DomNode`, so untyped lambdas would be ambiguous.
+- `render` gets the first value as well, since an `Rx` can't be read without subscribing; the row
+  uses it for its layout and once-only logic.
+- When a key leaves the list, the item's subscriptions are cancelled and its `RxVar` is stopped
+  (`OnCompletion`), so subscribers outside the row end too. A key that returns renders from scratch.
+
 ## Alternatives
 
 - Diffing the old and new rendered trees (a virtual DOM): a much larger change to the renderer, and

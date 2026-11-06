@@ -44,12 +44,6 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
   /** The key that renders `m` in the thread: its draft's id once confirmed, else its own id. */
   def keyOf(m: ChatMessage): String = draftKeys.getOrElse(m.id, m.id)
 
-  /** The keys of the thread's messages, in order. Keys stay the same when a draft is confirmed. */
-  val messageKeys: Rx[Seq[String]] = messages.map(_.map(keyOf))
-
-  /** The current message under `key`, while it is in the thread. */
-  def messageAt(key: String): Rx[Option[ChatMessage]] = messages.map(_.find(m => keyOf(m) == key))
-
   /** True once for the reply that just arrived, so only it types itself in. */
   def takeFresh(messageId: String): Boolean =
     val fresh = freshReply.contains(messageId)
