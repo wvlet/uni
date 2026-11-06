@@ -82,7 +82,13 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
         each(store.messageKeys)(identity) { key =>
           store.messages.get.find(m => store.keyOf(m) == key) match
             case Some(m) =>
-              Bubble(m, animate = store.takeFresh(m.id), current = store.messageAt(key))
+              // Only a prompt's label changes, when the stored prompt confirms the draft
+              val current =
+                if m.role == "user" then
+                  store.messageAt(key)
+                else
+                  Rx.const(None)
+              Bubble(m, animate = store.takeFresh(m.id), current = current)
             case None =>
               DomNode.empty
         },

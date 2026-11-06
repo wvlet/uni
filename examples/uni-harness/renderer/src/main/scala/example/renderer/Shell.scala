@@ -1,6 +1,7 @@
 package example.renderer
 
 import example.api.Conversation
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -226,6 +227,15 @@ end Sidebar
 /** New chat, the search button that opens the palette, and the conversations grouped by day. */
 class ChatList(store: ChatStore, onSearch: () => Unit, onNewChat: () => Unit) extends RxElement:
 
+  // Rows render only when their conversation changes, so their "ago" labels follow this clock
+  private val now   = Rx.variable(js.Date.now())
+  private var timer = 0
+
+  override def onMount(node: Any): Unit =
+    timer = dom.window.setInterval(() => now := js.Date.now(), 30000)
+
+  override def beforeUnmount: Unit = dom.window.clearInterval(timer)
+
   // Each conversation with whether it is selected, split into Today and Earlier
   private val rows: Rx[(Seq[(Conversation, Boolean)], Seq[(Conversation, Boolean)])] = Rx
     .join(store.conversations, store.selected)
@@ -265,7 +275,7 @@ class ChatList(store: ChatStore, onSearch: () => Unit, onNewChat: () => Unit) ex
         span(cls -> "absolute top-2.5 bottom-2.5 left-0 w-[3px] rounded-r-full bg-brand")
       ),
       span(cls -> "truncate text-[13px]", c.title),
-      span(cls -> "text-[11px] font-normal text-faint", ago(c.updatedAt))
+      span(cls -> "text-[11px] font-normal text-faint", now.map(t => ago(c.updatedAt, t)))
     )
 
   override def render: RxElement = div(
