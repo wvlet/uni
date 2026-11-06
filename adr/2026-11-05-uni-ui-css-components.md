@@ -37,8 +37,10 @@ render to the DOM, not to a GPU surface.
 
 ## Consequences
 
-- Apps must load `uni-ui.css` once. How apps outside the repo get the file (an npm package or an sbt
-  copy task) is settled in the first implementation PR.
+- Apps must load `uni-ui.css` once. Apps outside the repo get it from sbt-uni's `uniUiCss` task,
+  which copies it out of the uni-ui jar after every compile, so the file always matches the jar's
+  version. There is no npm package: it would be a second publish outside the all-or-nothing Sonatype
+  bundle, and its version could drift from the jar the app links.
 - Class names, token names, and `data-state` values are public API. Renaming one is a breaking
   change and goes in `docs/guide/for-ai-agents.md`.
 - `uni`, `uni-core`, and `uni-ui` release together, like the other artifacts.

@@ -1,6 +1,6 @@
 # sbt-uni Plugin
 
-`sbt-uni` is uni's sbt 2.x plugin. It does three jobs:
+`sbt-uni` is uni's sbt 2.x plugin. It does four jobs:
 
 1. **HTTP/RPC client generation** — turn a Scala 3 service trait into a type-safe
    client at build time (see [RPC](/http/rpc) for the full guide).
@@ -8,6 +8,8 @@
    it on every code change with `~uniRestart`.
 3. **OpenAPI generation** — write `openapi.yaml` for your `@Endpoint` routers with
    `uniOpenAPI`.
+4. **uni-ui stylesheet** — copy `uni-ui.css` out of the [uni-ui](/dom/ui) jar
+   into your web assets with `uniUiCss`.
 
 ::: tip sbt 2.x
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
@@ -163,3 +165,27 @@ lazy val server = project
 | `uniOpenAPIErrorResponses` | `Seq(400, 500)` | Error statuses every operation lists |
 | `uniOpenAPIFormat` | `yaml` | `yaml` or `json` |
 | `uniOpenAPITargetDir` | `target/openapi` | Output directory |
+
+## uni-ui Stylesheet
+
+`uniUiCss` copies `uni-ui.css` from the [uni-ui](/dom/ui) dependency into a file
+your app's stylesheet can `@import`. Enable `UniPlugin` on the Scala.js project
+that depends on `uni-ui`:
+
+```scala
+lazy val app = project
+  .enablePlugins(ScalaJSPlugin, UniPlugin)
+  .settings(
+    libraryDependencies += "org.wvlet.uni" %% "uni-ui" % "__UNI_VERSION__",
+    uniUiCssFile := baseDirectory.value / "web" / "uni-ui.css"
+  )
+```
+
+The task runs after every `compile`, and Vite's Scala.js plugin compiles on
+`vite dev` and `vite build`, so the copy always matches the uni-ui version the
+app links. It rewrites the file only when the content changes, and does nothing
+when `uni-ui` is not on the classpath.
+
+| Setting | Default | Description |
+|---|---|---|
+| `uniUiCssFile` | `<project>/target/uni-ui.css` | Where the stylesheet is copied |

@@ -1,0 +1,18 @@
+# Compiling copies uni-ui.css from the classpath to uniUiCssFile
+> app/compile
+$ exists app/web/uni-ui.css
+> app/checkCss
+
+# The copy comes back when deleted, even though compile itself is cached
+$ delete app/web/uni-ui.css
+> app/compile
+$ exists app/web/uni-ui.css
+
+# The task can also run by hand
+$ delete app/web/uni-ui.css
+> app/uniUiCss
+$ exists app/web/uni-ui.css
+
+# A project without uni-ui on its classpath copies nothing
+> plain/compile
+-$ exists plain/target/uni-ui.css

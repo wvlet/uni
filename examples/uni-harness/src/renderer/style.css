@@ -4,7 +4,7 @@
  */
 @layer theme, base, uni, components, utilities;
 @import 'tailwindcss';
-/* uni-ui.css from the repository; an app outside it copies the file from the uni-ui jar */
+/* uni-ui.css from the repository; an app outside it gets the file from sbt-uni's uniUiCss task */
 @import '../../../../uni-ui/src/main/resources/wvlet/uni/ui/uni-ui.css';
 
 /*
