@@ -71,10 +71,10 @@ class Command(
 end Command
 
 /**
-  * A search box over a list of commands, in a modal dialog near the top of the window: the
-  * ⌘K palette of desktop apps. Typing filters the list by fuzzy match (see [[Fuzzy]]) and
-  * highlights the matched letters; Up and Down move, Enter or a click runs the command, Escape or a
-  * click outside closes the palette, and focus returns to where it was.
+  * A search box over a list of commands, in a modal dialog near the top of the window: the ⌘K
+  * palette of desktop apps. Typing filters the list by fuzzy match (see [[Fuzzy]]) and highlights
+  * the matched letters; Up and Down move, Enter or a click runs the command, Escape or a click
+  * outside closes the palette, and focus returns to where it was.
   *
   * {{{
   *   val paletteOpen = Rx.variable(false)
@@ -109,7 +109,15 @@ class CommandPalette(
       label: String = label,
       limit: Int = limit,
       filter: Option[(String, Seq[Command]) => Seq[Command]] = filter
-  ): CommandPalette = CommandPalette(open, commands, placeholderText, emptyText, label, limit, filter)
+  ): CommandPalette = CommandPalette(
+    open,
+    commands,
+    placeholderText,
+    emptyText,
+    label,
+    limit,
+    filter
+  )
 
   def withPlaceholder(p: String): CommandPalette = copy(placeholderText = p)
 
@@ -139,7 +147,7 @@ class CommandPalette(
 
   private def search(q: String, all: Seq[Command]): Seq[CommandPalette.Hit] =
     def positions(c: Command) = Fuzzy.matches(q, c.label).map(_.positions).getOrElse(Seq.empty)
-    val hits =
+    val hits                  =
       filter match
         case Some(f) =>
           f(q, all).map(c => CommandPalette.Hit(c, positions(c)))
@@ -154,7 +162,9 @@ class CommandPalette(
               val best    = (onLabel.toSeq ++ c.keywords.flatMap(Fuzzy.matches(q, _))).maxByOption(
                 _.score
               )
-              best.map(m => (CommandPalette.Hit(c, onLabel.map(_.positions).getOrElse(Seq.empty)), m.score))
+              best.map(m =>
+                (CommandPalette.Hit(c, onLabel.map(_.positions).getOrElse(Seq.empty)), m.score)
+              )
             }
             .sortBy(-_._2)
             .map(_._1)
@@ -201,18 +211,19 @@ class CommandPalette(
     else
       val marked = positions.toSet
       // Runs of matched and unmatched letters
-      val runs = text
-        .indices
-        .foldLeft(List.empty[(Boolean, StringBuilder)]) { (acc, i) =>
-          val m = marked.contains(i)
-          acc match
-            case (`m`, sb) :: _ =>
-              sb += text.charAt(i)
-              acc
-            case _ =>
-              (m, StringBuilder().append(text.charAt(i))) :: acc
-        }
-        .reverse
+      val runs =
+        text
+          .indices
+          .foldLeft(List.empty[(Boolean, StringBuilder)]) { (acc, i) =>
+            val m = marked.contains(i)
+            acc match
+              case (`m`, sb) :: _ =>
+                sb += text.charAt(i)
+                acc
+              case _ =>
+                (m, StringBuilder().append(text.charAt(i))) :: acc
+          }
+          .reverse
       span(
         runs.map { (m, sb) =>
           if m then
@@ -228,10 +239,10 @@ class CommandPalette(
         div(cls -> "uni-palette__group", role -> "presentation", g)
       case CommandPalette.Hit(c, positions) =>
         div(
-          id           -> itemId(c),
-          role         -> "option",
-          cls          -> "uni-palette__item",
-          ariaSelected -> active.map(a => a.contains(c.id).toString),
+          id             -> itemId(c),
+          role           -> "option",
+          cls            -> "uni-palette__item",
+          ariaSelected   -> active.map(a => a.contains(c.id).toString),
           data("active") ->
             active.map(a =>
               if a.contains(c.id) then
@@ -268,7 +279,7 @@ class CommandPalette(
   // Starts empty each time the palette opens
   private class Body extends RxElement:
     override def beforeRender: Unit =
-      query     := ""
+      query := ""
       lastQuery = ""
 
     override def render: RxElement = div(
@@ -315,7 +326,7 @@ end CommandPalette
 
 object CommandPalette:
   private[ui] sealed trait Row
-  private[ui] case class Heading(group: String)                    extends Row
+  private[ui] case class Heading(group: String)                     extends Row
   private[ui] case class Hit(command: Command, positions: Seq[Int]) extends Row
 
   private[ui] def rowKey(r: Row): String =
@@ -326,12 +337,14 @@ object CommandPalette:
         s"command:${c.id}"
 
   private[ui] def withHeadings(hits: Seq[Hit]): Seq[Row] =
-    hits.foldLeft((Seq.empty[Row], Option.empty[String])) { case ((acc, prev), h) =>
-      h.command.group match
-        case Some(g) if !prev.contains(g) =>
-          (acc :+ Heading(g) :+ h, Some(g))
-        case g =>
-          (acc :+ h, g)
-    }._1
+    hits
+      .foldLeft((Seq.empty[Row], Option.empty[String])) { case ((acc, prev), h) =>
+        h.command.group match
+          case Some(g) if !prev.contains(g) =>
+            (acc :+ Heading(g) :+ h, Some(g))
+          case g =>
+            (acc :+ h, g)
+      }
+      ._1
 
 end CommandPalette

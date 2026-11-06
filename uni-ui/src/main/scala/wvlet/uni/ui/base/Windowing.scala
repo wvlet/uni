@@ -35,8 +35,8 @@ object Windowing:
     (first, visible)
 
   /**
-    * The rows to render, as `[start, end)`: the rows in view widened by `overscan` on each side
-    * and clamped to `count`.
+    * The rows to render, as `[start, end)`: the rows in view widened by `overscan` on each side and
+    * clamped to `count`.
     */
   def range(first: Int, visible: Int, count: Int, overscan: Int): (Int, Int) =
     val start = math.max(0, math.min(first - overscan, count))
@@ -50,7 +50,12 @@ object Windowing:
     * @param viewportHeight
     *   the height available to rows, in pixels
     */
-  def reveal(index: Int, rowHeight: Int, scrollTop: Double, viewportHeight: Double): Option[Double] =
+  def reveal(
+      index: Int,
+      rowHeight: Int,
+      scrollTop: Double,
+      viewportHeight: Double
+  ): Option[Double] =
     val top    = index.toDouble * rowHeight
     val bottom = top + rowHeight
     if top < scrollTop then

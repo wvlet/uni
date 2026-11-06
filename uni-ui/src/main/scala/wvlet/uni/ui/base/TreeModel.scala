@@ -54,7 +54,7 @@ object TreeModel:
       key: A => K,
       expanded: Set[K]
   ): Seq[TreeRow[A, K]] =
-    val rows = Seq.newBuilder[TreeRow[A, K]]
+    val rows                                                      = Seq.newBuilder[TreeRow[A, K]]
     def visit(items: Seq[A], level: Int, parent: Option[K]): Unit = items
       .zipWithIndex
       .foreach { (a, i) =>
@@ -98,10 +98,7 @@ object TreeModel:
           if r.expanded then
             Some(TreeAction.Collapse(r.key))
           else
-            r.parent
-              .map(p => rows.indexWhere(_.key == p))
-              .filter(_ >= 0)
-              .map(TreeAction.Move(_))
+            r.parent.map(p => rows.indexWhere(_.key == p)).filter(_ >= 0).map(TreeAction.Move(_))
         }
       case _ =>
         ListNavigation.nextIndex(key, current, rows.size, pageSize).map(TreeAction.Move(_))

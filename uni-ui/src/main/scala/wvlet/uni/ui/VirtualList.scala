@@ -31,10 +31,10 @@ import scala.language.implicitConversions
   * }}}
   *
   * The list takes focus as one tab stop (`role="listbox"`); the arrow keys, Home, End, PageUp,
-  * PageDown, and typing a letter (with [[withTypeahead]]) move the highlighted row, Enter or a click
-  * selects it. Rows are keyed by `key`, so a row keeps its DOM node while it stays in view. The
-  * container is `div.uni-list.uni-virtual-list`; rows are `div.uni-list__row` with `role="option"`,
-  * `aria-selected`, and `data-active="true"` on the highlighted one.
+  * PageDown, and typing a letter (with [[withTypeahead]]) move the highlighted row, Enter or a
+  * click selects it. Rows are keyed by `key`, so a row keeps its DOM node while it stays in view.
+  * The container is `div.uni-list.uni-virtual-list`; rows are `div.uni-list__row` with
+  * `role="option"`, `aria-selected`, and `data-active="true"` on the highlighted one.
   */
 class VirtualList[A, K] private (
     items: Rx[Seq[A]],
@@ -55,7 +55,17 @@ class VirtualList[A, K] private (
       overscan: Int = overscan,
       typeahead: Option[A => String] = typeahead
   ): VirtualList[A, K] =
-    new VirtualList(items, rowHeight, key, renderRow, label, selected, onSelectFn, overscan, typeahead)
+    new VirtualList(
+      items,
+      rowHeight,
+      key,
+      renderRow,
+      label,
+      selected,
+      onSelectFn,
+      overscan,
+      typeahead
+    )
 
   /** The accessible name of the list. */
   def withLabel(l: String): VirtualList[A, K] = copy(label = Some(l))
@@ -104,9 +114,9 @@ object VirtualList:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   private[ui] val defaultOverscan = 8
 
-  def apply[A, K](items: Rx[Seq[A]], rowHeight: Int)(key: A => K)(
-      render: A => DomNode
-  ): VirtualList[A, K] =
+  def apply[A, K](items: Rx[Seq[A]], rowHeight: Int)(
+      key: A => K
+  )(render: A => DomNode): VirtualList[A, K] =
     new VirtualList(
       items,
       rowHeight,

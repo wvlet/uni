@@ -165,4 +165,33 @@ class VisualTest extends UniTest:
     )
   }
 
+  private case class Entry(name: String, kids: Seq[Entry] = Seq.empty)
+  private case class Call(method: String, millis: Double)
+
+  visual("collections") {
+    val files = Seq(
+      Entry("src", Seq(Entry("Main.scala"), Entry("Util.scala"))),
+      Entry("docs", Seq(Entry("index.md"))),
+      Entry("build.sbt")
+    )
+    gallery(
+      VirtualList(Rx.const((1 to 50).toSeq), rowHeight = 28)(identity)(i => span(s"Item ${i}"))
+        .withSelected(Rx.variable(Some(2)))(styleAttr += "height: 96px"),
+      Tree(Rx.const(files), (e: Entry) => e.kids)(_.name)(e => span(e.name))
+        .withExpanded(Rx.variable(Set("src")))
+        .withSelected(Rx.variable(Some("Util.scala")))(styleAttr += "height: 140px"),
+      DataTable(
+        Rx.const(Seq(Call("listConversations", 4.2), Call("send", 12.5), Call("get", 1.5)))
+      )(_.method)(
+        Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
+        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms"))
+          .sortBy(_.millis)
+          .withWidth("96px")
+          .alignEnd
+      ).withSort(Rx.variable(Some(SortBy("millis", SortDirection.Descending))))(
+        styleAttr += "height: 132px"
+      )
+    )
+  }
+
 end VisualTest

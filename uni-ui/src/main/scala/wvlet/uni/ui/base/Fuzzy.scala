@@ -20,8 +20,8 @@ package wvlet.uni.ui.base
 case class FuzzyMatch(score: Double, positions: Seq[Int])
 
 /**
-  * Subsequence ("fuzzy") matching, as in command palettes and file pickers: "nwch" matches
-  * "New chat". Matching ignores case and spaces in the query. Matches score higher when they are
+  * Subsequence ("fuzzy") matching, as in command palettes and file pickers: "nwch" matches "New
+  * chat". Matching ignores case and spaces in the query. Matches score higher when they are
   * contiguous, start a word, or start the text, and lower when they are spread out.
   *
   * {{{
@@ -66,12 +66,18 @@ object Fuzzy:
               2.0
             else
               1.0
-          Some(FuzzyMatch(10.0 * q.length + bonus - text.length * 0.01, start until start + q.length))
+          Some(
+            FuzzyMatch(10.0 * q.length + bonus - text.length * 0.01, start until start + q.length)
+          )
         case None =>
           // Jumping to word starts can skip letters a later query character needs; fall back to
           // the plain leftmost match then
-          subsequence(q, text, lower, preferWordStarts = true)
-            .orElse(subsequence(q, text, lower, preferWordStarts = false))
+          subsequence(q, text, lower, preferWordStarts = true).orElse(
+            subsequence(q, text, lower, preferWordStarts = false)
+          )
+    end if
+
+  end matches
 
   // Each query character takes its next occurrence. With `preferWordStarts`, a character that
   // doesn't continue the previous match takes the next word start that matches instead, if any.
@@ -99,13 +105,14 @@ object Fuzzy:
               .getOrElse(plain)
           else
             plain
-        score +=
-          (if i == last + 1 then
-             3.0
-           else if isWordStart(text, i) then
-             2.0
-           else
-             1.0)
+        score += (
+          if i == last + 1 then
+            3.0
+          else if isWordStart(text, i) then
+            2.0
+          else
+            1.0
+        )
         positions += i
         last = i
         from = i + 1

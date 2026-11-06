@@ -3,7 +3,7 @@ package example.renderer
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
-import wvlet.uni.ui.{Badge, Edge, FoldablePane, Splitter, Tab, TabList, TabPanel}
+import wvlet.uni.ui.{Badge, Edge, FoldablePane, Splitter, Tab, TabList, TabPanel, VirtualList}
 import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
@@ -81,15 +81,11 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
       TabPanel(tabs) {
         case DockTab.Terminal =>
           div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
-        case other =>
-          div(
-            cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4",
-            other match
-              case DockTab.Activity =>
-                ActivityLog(log)
-              case _ =>
-                DetailsView(store, transport)
-          )
+        case DockTab.Activity =>
+          // The log scrolls inside its own list
+          div(cls -> "flex min-h-0 flex-1 flex-col px-3 pb-4", ActivityLog(log))
+        case DockTab.Details =>
+          div(cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4", DetailsView(store, transport))
       }
     )
 
@@ -184,50 +180,55 @@ class DetailsView(store: ChatStore, transport: Transport) extends RxElement:
 
 end DetailsView
 
-/** Every RPC call, newest first, with its time relative to the slowest. */
+/**
+  * Every RPC call, newest first, with its time relative to the slowest. The log keeps hundreds of
+  * calls, so it renders through a [[VirtualList]]: only the rows in view are in the DOM.
+  */
 class ActivityLog(log: RpcLog) extends RxElement:
+  private val slowest = log
+    .calls
+    .map(cs => math.max(1.0, cs.map(_.millis).maxOption.getOrElse(1.0)))
+
+  private def row(c: RpcCall): RxElement =
+    val tone =
+      if c.ok then
+        "bg-glow"
+      else
+        "bg-red-500"
+    div(
+      cls -> "min-w-0 flex-1",
+      div(
+        cls -> "flex items-center gap-2",
+        span(cls -> s"size-1.5 shrink-0 rounded-full ${tone}"),
+        span(cls -> "flex-1 truncate font-mono text-[11.5px]", c.method),
+        span(cls -> "font-mono text-[11px] text-muted tabular-nums", f"${c.millis}%.1f ms")
+      ),
+      div(
+        cls -> "mt-1 ml-3.5 h-1 overflow-hidden rounded-full bg-hover",
+        div(
+          cls       -> "h-full rounded-full bg-gradient-to-r from-brand to-glow",
+          styleAttr -> slowest.map(s => f"width: ${math.max(4.0, c.millis / s * 100)}%.0f%%")
+        )
+      )
+    )
+
   override def render: RxElement = div(
+    cls -> "flex min-h-0 flex-1 flex-col",
     log
       .calls
       .map { calls =>
         if calls.isEmpty then
           p(cls -> "px-2 py-8 text-center text-[12px] text-faint", "No calls yet")
         else
-          val slowest = math.max(1.0, calls.map(_.millis).max)
           div(
-            div(
-              cls -> "flex items-center justify-between px-1 pt-1 pb-2 text-[11px] text-faint",
-              span(s"Last ${Ui.plural(calls.size, "call")}"),
-              span(f"avg ${calls.map(_.millis).sum / calls.size}%.1f ms")
-            ),
-            calls.map { c =>
-              val tone =
-                if c.ok then
-                  "bg-glow"
-                else
-                  "bg-red-500"
-              div(
-                cls -> "rise rounded-lg px-2 py-1.5 transition hover:bg-hover",
-                div(
-                  cls -> "flex items-center gap-2",
-                  span(cls -> s"size-1.5 shrink-0 rounded-full ${tone}"),
-                  span(cls -> "flex-1 truncate font-mono text-[11.5px]", c.method),
-                  span(
-                    cls -> "font-mono text-[11px] text-muted tabular-nums",
-                    f"${c.millis}%.1f ms"
-                  )
-                ),
-                div(
-                  cls -> "mt-1 ml-3.5 h-1 overflow-hidden rounded-full bg-hover",
-                  div(
-                    cls       -> "h-full rounded-full bg-gradient-to-r from-brand to-glow",
-                    styleAttr -> f"width: ${math.max(4.0, c.millis / slowest * 100)}%.0f%%"
-                  )
-                )
-              )
-            }
+            cls -> "flex items-center justify-between px-1 pt-1 pb-2 text-[11px] text-faint",
+            span(s"Last ${Ui.plural(calls.size, "call")}"),
+            span(f"avg ${calls.map(_.millis).sum / calls.size}%.1f ms")
           )
-      }
+      },
+    VirtualList(log.calls, rowHeight = 44)(_.id)(row).withLabel("RPC calls")(
+      cls += "min-h-0 flex-1"
+    )
   )
 
 end ActivityLog

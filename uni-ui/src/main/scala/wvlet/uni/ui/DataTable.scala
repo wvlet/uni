@@ -170,15 +170,17 @@ class DataTable[A, K] private (
               EventListenerBinding("click", _ => sort := DataTable.nextSort(sort.get, c.id)),
               span(c.header),
               span(
-                cls        -> "uni-table__sort-icon",
-                ariaHidden -> "true",
+                cls               -> "uni-table__sort-icon",
+                ariaHidden        -> "true",
                 data("direction") ->
-                  state.map(_.map {
-                    case SortDirection.Ascending =>
-                      "asc"
-                    case SortDirection.Descending =>
-                      "desc"
-                  })
+                  state.map(
+                    _.map {
+                      case SortDirection.Ascending =>
+                        "asc"
+                      case SortDirection.Descending =>
+                        "desc"
+                    }
+                  )
               )
             )
           )
@@ -193,7 +195,7 @@ class DataTable[A, K] private (
     VirtualList.defaultOverscan,
     containerClass = "uni-table",
     containerAttrs = Seq(
-      role         -> "grid",
+      role -> "grid",
       label.map(ariaLabel -> _).getOrElse(DomNode.empty),
       ariaColcount -> columns.size.toString,
       ariaRowcount -> rows.map(xs => (xs.size + 1).toString)
@@ -258,16 +260,15 @@ object DataTable:
         Some(SortBy(column, SortDirection.Ascending))
 
   /** `rows` in the order `sort` asks for; unknown or unsortable columns keep the given order. */
-  def sortRows[A](rows: Seq[A], columns: Seq[Column[A]], sort: Option[SortBy]): Seq[A] =
-    sort
-      .flatMap(s => columns.find(_.id == s.column).flatMap(_.ordering).map(o => (s, o)))
-      .map { (s, o) =>
-        s.direction match
-          case SortDirection.Ascending =>
-            rows.sorted(using o)
-          case SortDirection.Descending =>
-            rows.sorted(using o.reverse)
-      }
-      .getOrElse(rows)
+  def sortRows[A](rows: Seq[A], columns: Seq[Column[A]], sort: Option[SortBy]): Seq[A] = sort
+    .flatMap(s => columns.find(_.id == s.column).flatMap(_.ordering).map(o => (s, o)))
+    .map { (s, o) =>
+      s.direction match
+        case SortDirection.Ascending =>
+          rows.sorted(using o)
+        case SortDirection.Descending =>
+          rows.sorted(using o.reverse)
+    }
+    .getOrElse(rows)
 
 end DataTable

@@ -189,9 +189,9 @@ end Tree
 
 object Tree:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply[A, K](roots: Rx[Seq[A]], children: A => Seq[A])(key: A => K)(
-      render: A => DomNode
-  ): Tree[A, K] =
+  def apply[A, K](roots: Rx[Seq[A]], children: A => Seq[A])(
+      key: A => K
+  )(render: A => DomNode): Tree[A, K] =
     new Tree(
       roots,
       children,

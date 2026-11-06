@@ -125,9 +125,9 @@ class Dialog private (
       cls           -> classes("uni-dialog-backdrop"),
       data("state") -> "open",
       div(
-        id            -> baseId,
-        cls           -> classes("uni-dialog"),
-        role          -> dialogRole,
+        id   -> baseId,
+        cls  -> classes("uni-dialog"),
+        role -> dialogRole,
         accessibleName.map(n => ariaLabel -> n).getOrElse(DomNode.empty),
         ariaModal     -> "true",
         tabindex      -> "-1",

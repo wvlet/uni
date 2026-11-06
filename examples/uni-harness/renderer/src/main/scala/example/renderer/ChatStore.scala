@@ -23,7 +23,6 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
   /** Conversations waiting for a reply. Each one sends one prompt at a time. */
   val sending = Rx.variable(Set.empty[String])
   val error   = Rx.variable(Option.empty[String])
-  val query   = Rx.variable("")
 
   /** True while the selected conversation waits for a reply. */
   val pending: Rx[Boolean] = Rx.join(sending, selected).map((s, sel) => sel.exists(s))

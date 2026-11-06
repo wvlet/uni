@@ -27,10 +27,10 @@ import scala.language.implicitConversions
   * renders only the rows in view (plus `overscan` on each side) inside a spacer as tall as the
   * whole list, keyed with `each`, so scrolling adds and removes rows without rebuilding the rest.
   *
-  * Focus stays on the scroll container, and `aria-activedescendant` names the active row: the
-  * arrow keys, Home, End, PageUp, PageDown, and typing a letter move it, scrolling it into view.
-  * Enter, Space, or a click selects a row. Keys from elements inside a row (a button in a cell) are
-  * left alone.
+  * Focus stays on the scroll container, and `aria-activedescendant` names the active row: the arrow
+  * keys, Home, End, PageUp, PageDown, and typing a letter move it, scrolling it into view. Enter,
+  * Space, or a click selects a row. Keys from elements inside a row (a button in a cell) are left
+  * alone.
   *
   * @param header
   *   content above the rows inside the scroll container, such as a table's sticky header row; the
@@ -70,9 +70,9 @@ private[ui] class ListCore[A, K](
   private val ids    = mutable.Map.empty[K, String]
 
   // The latest list, for keyboard moves; kept in step by the rendered rows
-  private var current: Seq[A]               = Seq.empty
-  private var root: Option[dom.HTMLElement] = None
-  private var spacer: Option[dom.Element]   = None
+  private var current: Seq[A]                    = Seq.empty
+  private var root: Option[dom.HTMLElement]      = None
+  private var spacer: Option[dom.Element]        = None
   private var resize: Option[dom.ResizeObserver] = None
 
   private def rowId(k: K): String = ids.getOrElseUpdate(k, Ids.next(s"${listId}-row"))
@@ -93,7 +93,10 @@ private[ui] class ListCore[A, K](
     }
     .getOrElse(0.0)
 
-  private def viewportHeight(el: dom.HTMLElement): Double = math.max(0.0, el.clientHeight - rowsTop(el))
+  private def viewportHeight(el: dom.HTMLElement): Double = math.max(
+    0.0,
+    el.clientHeight - rowsTop(el)
+  )
 
   private def measure(): Unit = root.foreach { el =>
     val v = Windowing.inView(el.scrollTop, viewportHeight(el), rowHeight)
@@ -154,6 +157,8 @@ private[ui] class ListCore[A, K](
               moveTo(n)
             }
 
+  end onKeyDown
+
   // Focusing the list shows where the keys will start: the selected row, else the first
   private def onFocus(): Unit =
     if active.get.isEmpty then
@@ -179,10 +184,10 @@ private[ui] class ListCore[A, K](
   private def row(a: A): RxElement =
     val k = key(a)
     div(
-      id           -> rowId(k),
-      role         -> rowRole,
-      cls          -> "uni-list__row",
-      ariaSelected -> selected.map(s => s.contains(k).toString),
+      id             -> rowId(k),
+      role           -> rowRole,
+      cls            -> "uni-list__row",
+      ariaSelected   -> selected.map(s => s.contains(k).toString),
       data("active") ->
         active.map(x =>
           if x.contains(k) then

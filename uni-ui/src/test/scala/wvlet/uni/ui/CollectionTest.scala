@@ -49,8 +49,9 @@ class CollectionTest extends DomTestSupport:
   test("a virtual list renders only the rows in view and follows scrolling"):
     val items = Rx.variable((1 to 1000).toSeq)
     val m     = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))
-        .withLabel("Numbers")(styleAttr += "height: 200px")
+      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}")).withLabel("Numbers")(
+        styleAttr += "height: 200px"
+      )
     )
     val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -194,8 +195,7 @@ class CollectionTest extends DomTestSupport:
         Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
         Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")).sortBy(_.millis).alignEnd,
         Column[Call]("id", "Id")(c => span(c.id.toString))
-      ).withLabel("Calls")
-        .withSort(sort)
+      ).withLabel("Calls").withSort(sort)
     )
     def methods = m.queryAll(".uni-list__row").map(_.querySelector(".uni-table__cell").textContent)
     settle().map { _ =>
@@ -262,11 +262,8 @@ class CollectionTest extends DomTestSupport:
     .get
     .asInstanceOf[dom.HTMLInputElement]
 
-  private def paletteItems: Seq[String] = dom
-    .document
-    .querySelectorAll(".uni-palette__item .uni-palette__label")
-    .map(_.textContent)
-    .toSeq
+  private def paletteItems: Seq[String] =
+    dom.document.querySelectorAll(".uni-palette__item .uni-palette__label").map(_.textContent).toSeq
 
   test("a command palette lists commands by group, filters as you type, and runs one"):
     val open   = Rx.variable(false)
