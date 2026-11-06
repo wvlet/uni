@@ -15,10 +15,16 @@ enum View(val label: String) derives StorageCodec:
   case Files    extends View("Files")
   case Settings extends View("Settings")
 
+/**
+  * The panels of the right dock. Each one's [[id]] names it in the saved `DockLayout`; the codec
+  * reads the `dockTab` key that older versions saved.
+  */
 enum DockTab(val label: String) derives StorageCodec:
   case Details  extends DockTab("Details")
   case Activity extends DockTab("Activity")
   case Terminal extends DockTab("Terminal")
+
+  def id: String = toString.toLowerCase
 
 /** "just now", "5m ago", "3h ago", or a date, for timestamps. */
 def ago(millis: Long, now: Double = js.Date.now()): String =

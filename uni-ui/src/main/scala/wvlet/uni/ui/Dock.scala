@@ -96,7 +96,8 @@ object DockPanel:
   * child gets smaller than [[withMinPanelSize]].
   *
   * The dock is a `div.uni-dock`; groups are `div.uni-dock__group` with a `role="tablist"` of
-  * `role="tab"` tabs and a `role="tabpanel"`, and splits are `div.uni-dock__split` with
+  * `role="tab"` tabs and a `role="tabpanel"`, and `data-top="true"` on the groups along the top
+  * edge (to align their tab bar with a title bar). Splits are `div.uni-dock__split` with
   * `data-direction="row|column"`.
   *
   * @param label
@@ -453,7 +454,8 @@ class Dock private (
       path: DockPath,
       live: Rx[DockNode],
       groupCount: Int,
-      corner: Boolean
+      corner: Boolean,
+      top: Boolean
   ): RxElement =
     val active: Rx[Option[String]] = distinct(
       live.map(r =>
@@ -472,6 +474,7 @@ class Dock private (
     div(
       cls          -> "uni-dock__group",
       data("path") -> pathAttr(path),
+      data("top")  -> top.toString,
       EventListenerBinding("focusin", _ => focusedGroup = Some(path)),
       div(
         cls -> "uni-dock__bar",
@@ -632,13 +635,14 @@ class Dock private (
       path: DockPath,
       live: Rx[DockNode],
       groupCount: Int,
-      corner: DockPath
+      corner: DockPath,
+      tops: Set[DockPath]
   ): RxElement =
     n match
       case DockNode.Group(tabs, _) if tabs.isEmpty =>
         div(cls -> "uni-dock__empty", "No open panels")
       case DockNode.Group(tabs, _) =>
-        group(tabs, path, live, groupCount, path == corner)
+        group(tabs, path, live, groupCount, path == corner, tops.contains(path))
       case DockNode.Split(dir, children, _) =>
         val splitRef = DomRef[dom.HTMLElement]()
         val cells    = children
@@ -656,7 +660,7 @@ class Dock private (
             val cell = div(
               cls       -> "uni-dock__cell",
               styleAttr -> grow.map(g => f"flex: ${g}%.6f 1 0px"),
-              node(c, path :+ i, live, groupCount, corner)
+              node(c, path :+ i, live, groupCount, corner, tops)
             )
             if i == 0 then
               Seq(cell)
@@ -680,7 +684,14 @@ class Dock private (
         // Sizes and the active tabs update in place while the structure stays the same; a new
         // structure rebuilds the tree
         val live = roots.filter(r => DockModel.shape(r) == shape)
-        node(shape, Nil, live, DockModel.groups(shape).size, DockModel.cornerGroup(shape))
+        node(
+          shape,
+          Nil,
+          live,
+          DockModel.groups(shape).size,
+          DockModel.cornerGroup(shape),
+          DockModel.topGroups(shape)
+        )
       },
       drop.map {
         case Some(d) =>

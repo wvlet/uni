@@ -167,6 +167,15 @@ case class DockLayout(root: DockNode):
   /** This layout as JSON, with the format version. */
   def toJSON: String = DockLayout.toJSONValue(this).toJSON
 
+  /** Show `panel`: switch to its tab, or add it to the first group when it is not in the layout. */
+  def open(panel: String): DockLayout = DockModel.open(this, panel)
+
+  /** Remove `panel` from the layout. */
+  def close(panel: String): DockLayout = DockModel.close(this, panel)
+
+  /** The panels the user can see: the active tab of each group. */
+  def visible: Set[String] = DockModel.visible(root)
+
 object DockLayout:
   /** The current format version, written as `"version"` in the JSON. */
   val version: Int = 1
@@ -344,6 +353,18 @@ object DockModel:
         0 :: cornerGroup(cs.head)
       case DockNode.Group(_, _) =>
         Nil
+
+  /** The paths of the groups along the top edge, where apps align their title bar. */
+  def topGroups(root: DockNode): Set[DockPath] =
+    def go(n: DockNode, path: DockPath): Set[DockPath] =
+      n match
+        case DockNode.Group(_, _) =>
+          Set(path)
+        case DockNode.Split(SplitDirection.Row, cs, _) =>
+          cs.zipWithIndex.flatMap((c, i) => go(c, path :+ i)).toSet
+        case DockNode.Split(SplitDirection.Column, cs, _) =>
+          go(cs.head, path :+ 0)
+    go(root, Nil)
 
   /** The path of the group holding `panel`. */
   def groupOf(root: DockNode, panel: String): Option[DockPath] = groups(root).find { p =>

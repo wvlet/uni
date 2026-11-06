@@ -162,9 +162,11 @@ class DockModelTest extends UniTest:
       Some(DockLayout(Group(Seq("a"), None)))
   }
 
-  test("the corner group is the top-right one") {
+  test("the corner group is the top-right one, and top groups touch the top edge") {
     DockModel.cornerGroup(row(group("a"), column(group("b"), group("c")))) shouldBe List(1, 0)
     DockModel.cornerGroup(group("a")) shouldBe Nil
+    DockModel.topGroups(row(group("a"), column(group("b"), group("c")))) shouldBe
+      Set(List(0), List(1, 0))
   }
 
 end DockModelTest
