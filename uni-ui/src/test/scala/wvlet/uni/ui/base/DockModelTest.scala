@@ -16,6 +16,7 @@ package wvlet.uni.ui.base
 import wvlet.uni.dom.StorageCodec
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.WeaverConfig
 
 import DockNode.{group, row, column, Group, Split}
 import SplitDirection.{Row, Column}
@@ -146,7 +147,9 @@ class DockModelTest extends UniTest:
         Split(Column, Seq(Group(Seq("b", "c"), Some("c")), group("d")), Seq(0.7, 0.3))
       )
     )
-    l.toJSON shouldContain "\"version\":1"
+    l.toJSON shouldContain "\"version\":2"
+    l.toJSON shouldContain "\"@type\":\"Split\""
+    l.toJSON shouldContain "\"direction\":\"Column\""
     DockLayout.fromJSON(l.toJSON) shouldBe Some(l)
     Weaver.fromJson[DockLayout](Weaver.toJson(l)) shouldBe l
     summon[StorageCodec[DockLayout]].decode(summon[StorageCodec[DockLayout]].encode(l)) shouldBe
@@ -155,11 +158,69 @@ class DockModelTest extends UniTest:
 
   test("an unreadable or newer save decodes to None") {
     DockLayout.fromJSON("not json") shouldBe None
-    DockLayout.fromJSON("""{"root":{"type":"group","panels":["a"]}}""") shouldBe None
-    DockLayout.fromJSON("""{"version":2,"root":{"type":"group","panels":["a"]}}""") shouldBe None
+    DockLayout.fromJSON("""{"root":{"@type":"Group","panels":["a"]}}""") shouldBe None
+    DockLayout.fromJSON("""{"version":3,"root":{"@type":"Group","panels":["a"]}}""") shouldBe None
+    DockLayout.fromJSON("""{"version":2,"root":{"@type":"Tabs"}}""") shouldBe None
+    DockLayout.fromJSON("""{"version":2,"root":{"@type":"Group","panels":["a"]}}""") shouldBe
+      Some(DockLayout(Group(Seq("a"), None)))
+  }
+
+  test("a version 1 save still loads") {
     DockLayout.fromJSON("""{"version":1,"root":{"type":"tabs"}}""") shouldBe None
     DockLayout.fromJSON("""{"version":1,"root":{"type":"group","panels":["a"]}}""") shouldBe
       Some(DockLayout(Group(Seq("a"), None)))
+    val v1 =
+      """{"version":1,"root":{"type":"split","direction":"row","children":[""" +
+        """{"type":"group","panels":["a"],"active":"a"},""" +
+        """{"type":"split","direction":"column","children":[""" +
+        """{"type":"group","panels":["b","c"],"active":"c"},{"type":"group","panels":["d"]}],""" +
+        """"sizes":[0.7,0.3]}],"sizes":[0.25,0.75]}}"""
+    DockLayout.fromJSON(v1) shouldBe
+      Some(
+        DockLayout(
+          Split(
+            Row,
+            Seq(
+              Group(Seq("a"), Some("a")),
+              Split(
+                Column,
+                Seq(Group(Seq("b", "c"), Some("c")), Group(Seq("d"), None)),
+                Seq(0.7, 0.3)
+              )
+            ),
+            Seq(0.25, 0.75)
+          )
+        )
+      )
+  }
+
+  test("a version 1 save with bad sizes and unknown panels is fixed on load") {
+    val v1 =
+      """{"version":1,"root":{"type":"split","direction":"row","children":[""" +
+        """{"type":"group","panels":["a","gone"],"active":"gone"},{"type":"group","panels":["b"]}],""" +
+        """"sizes":[-1,2]}}"""
+    val loaded = DockLayout.fromJSON(v1).map(DockModel.normalize(_, Set("a", "b")))
+    loaded shouldBe Some(DockLayout(Split(Row, Seq(group("a"), group("b")), Seq(0.5, 0.5))))
+    // Sizes missing entirely, written as integers
+    DockLayout
+      .fromJSON(
+        """{"version":1,"root":{"type":"split","direction":"column","children":[""" +
+          """{"type":"group","panels":["a"]},{"type":"group","panels":["b"]}]}}"""
+      )
+      .map(DockModel.normalize(_)) shouldBe
+      Some(DockLayout(Split(Column, Seq(group("a"), group("b")), Seq(0.5, 0.5))))
+    DockLayout
+      .fromJSON(
+        """{"version":1,"root":{"type":"split","direction":"row","children":[""" +
+          """{"type":"group","panels":["a"]},{"type":"group","panels":["b"]}],"sizes":[1,3]}}"""
+      )
+      .map(DockModel.normalize(_)) shouldBe
+      Some(DockLayout(Split(Row, Seq(group("a"), group("b")), Seq(0.25, 0.75))))
+  }
+
+  test("the saved shape ignores the caller's discriminator setting") {
+    val l = DockLayout(row(group("a"), group("b")))
+    Weaver.toJson(l, WeaverConfig().withDiscriminatorFieldName("kind")) shouldBe l.toJSON
   }
 
   test("the corner group is the top-right one, and top groups touch the top edge") {

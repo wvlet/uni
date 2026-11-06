@@ -23,7 +23,7 @@ import wvlet.uni.weaver.codec.JSONValueWeaver
 import scala.util.control.NonFatal
 
 /** How a [[DockNode.Split]] lays out its children: side by side (`Row`) or stacked (`Column`). */
-enum SplitDirection:
+enum SplitDirection derives Weaver:
   case Row,
     Column
 
@@ -39,12 +39,12 @@ enum DockSide:
   * A node of a [[DockLayout]]: a split of child nodes, or a group of tabbed panels. Panels are
   * referred to by id only, so a layout is plain data the app can save, compare, and test.
   */
-enum DockNode:
+enum DockNode derives Weaver:
   /**
     * Children laid out in `direction`. `sizes` are the children's shares of the space, summing to
     * 1, so the proportions hold when the window resizes.
     */
-  case Split(direction: SplitDirection, children: Seq[DockNode], sizes: Seq[Double])
+  case Split(direction: SplitDirection, children: Seq[DockNode], sizes: Seq[Double] = Seq.empty)
 
   /** Tabs for `panels`, showing the `active` one. */
   case Group(panels: Seq[String], active: Option[String])
@@ -64,92 +64,6 @@ object DockNode:
   )
 
   private[base] def equal(n: Int): Seq[Double] = Seq.fill(n)(1.0 / n)
-
-  /** The JSON form: `{"type":"split",...}` or `{"type":"group",...}`. */
-  def toJSONValue(n: DockNode): JSONValue =
-    n match
-      case Split(d, children, sizes) =>
-        JSONObject(
-          Seq(
-            "type"      -> JSONString("split"),
-            "direction" -> JSONString(d.toString.toLowerCase),
-            "children"  -> JSONArray(children.map(toJSONValue).toIndexedSeq),
-            "sizes"     -> JSONArray(sizes.map(JSONDouble(_)).toIndexedSeq)
-          )
-        )
-      case Group(panels, active) =>
-        JSONObject(
-          Seq(
-            "type"   -> JSONString("group"),
-            "panels" -> JSONArray(panels.map(JSONString(_)).toIndexedSeq)
-          ) ++ active.map(a => "active" -> JSONString(a))
-        )
-
-  /** Reads the JSON form; None when it is not a node. Sizes are checked later by normalization. */
-  def fromJSONValue(v: JSONValue): Option[DockNode] =
-    def strings(x: Option[JSONValue]): Option[Seq[String]] =
-      x match
-        case Some(JSONArray(vs)) =>
-          Some(
-            vs.collect { case JSONString(s) =>
-              s
-            }
-          )
-        case _ =>
-          None
-    def numbers(x: Option[JSONValue]): Seq[Double] =
-      x match
-        case Some(JSONArray(vs)) =>
-          vs.collect {
-            case JSONDouble(d) =>
-              d
-            case JSONLong(l) =>
-              l.toDouble
-          }
-        case _ =>
-          Seq.empty
-    v match
-      case o: JSONObject =>
-        o.get("type") match
-          case Some(JSONString("group")) =>
-            strings(o.get("panels")).map { ps =>
-              val active =
-                o.get("active") match
-                  case Some(JSONString(a)) =>
-                    Some(a)
-                  case _ =>
-                    None
-              Group(ps, active)
-            }
-          case Some(JSONString("split")) =>
-            val direction =
-              o.get("direction") match
-                case Some(JSONString("row")) =>
-                  Some(SplitDirection.Row)
-                case Some(JSONString("column")) =>
-                  Some(SplitDirection.Column)
-                case _ =>
-                  None
-            val children =
-              o.get("children") match
-                case Some(JSONArray(cs)) =>
-                  Some(cs.flatMap(fromJSONValue))
-                case _ =>
-                  None
-            for
-              d  <- direction
-              cs <- children
-            yield Split(d, cs, numbers(o.get("sizes")))
-          case _ =>
-            None
-      case _ =>
-        None
-    end match
-
-  end fromJSONValue
-
-  // Written by hand: deriving a Weaver for a recursive sum type doesn't work yet
-  given Weaver[DockNode] = JSONValueCodec(toJSONValue, fromJSONValue, "DockNode")
 
 end DockNode
 
@@ -178,7 +92,7 @@ case class DockLayout(root: DockNode):
 
 object DockLayout:
   /** The current format version, written as `"version"` in the JSON. */
-  val version: Int = 1
+  val version: Int = 2
 
   /** A layout with no panels. */
   val empty: DockLayout = DockLayout(DockNode.Group(Seq.empty, None))
@@ -186,21 +100,55 @@ object DockLayout:
   /** A layout of one group holding `panels`. */
   def of(panels: String*): DockLayout = DockLayout(DockNode.group(panels*))
 
+  // Fixed rather than the caller's config, so an app's Weaver settings never change the saved shape
+  private val format = WeaverConfig().withOmitNoneFields(true)
+
+  /** The saved form: `{"version":2,"root":...}`, with `root` in the derived `DockNode` format. */
   def toJSONValue(l: DockLayout): JSONValue = JSONObject(
-    Seq("version" -> JSONLong(version), "root" -> DockNode.toJSONValue(l.root))
+    Seq("version" -> JSONLong(version), "root" -> JSON.parse(Weaver.toJson(l.root, format)))
   )
 
+  /** Reads a saved layout, migrating older versions; None when it is unreadable or newer. */
   def fromJSONValue(v: JSONValue): Option[DockLayout] =
+    def decode(root: JSONValue): Option[DockLayout] =
+      try
+        Some(DockLayout(summon[Weaver[DockNode]].fromJSONValue(root, format)))
+      catch
+        case NonFatal(_) =>
+          None
     v match
       case o: JSONObject =>
-        o.get("version") match
-          // Version 1 is the first format; later versions migrate older ones here
-          case Some(JSONLong(n)) if n >= 1 && n <= version =>
-            o.get("root").flatMap(DockNode.fromJSONValue).map(DockLayout(_))
+        (o.get("version"), o.get("root")) match
+          case (Some(JSONLong(2)), Some(root)) =>
+            decode(root)
+          case (Some(JSONLong(1)), Some(root)) =>
+            decode(fromV1(root))
           case _ =>
             None
       case _ =>
         None
+
+  /**
+    * Version 1 wrote `{"type":"split","direction":"row",...}`. Rename the discriminator and use the
+    * declared case names, so the derived codec reads it.
+    */
+  private def fromV1(v: JSONValue): JSONValue =
+    v match
+      case JSONObject(fields) =>
+        JSONObject(
+          fields.map {
+            case ("type", JSONString(t)) =>
+              format.discriminatorFieldName -> JSONString(t.capitalize)
+            case ("direction", JSONString(d)) =>
+              "direction" -> JSONString(d.capitalize)
+            case ("children", JSONArray(cs)) =>
+              "children" -> JSONArray(cs.map(fromV1))
+            case other =>
+              other
+          }
+        )
+      case other =>
+        other
 
   /** Parses saved JSON; None when it is unreadable or from a newer format version. */
   def fromJSON(json: String): Option[DockLayout] =
@@ -210,7 +158,20 @@ object DockLayout:
       case NonFatal(_) =>
         None
 
-  given Weaver[DockLayout] = JSONValueCodec(toJSONValue, fromJSONValue, "DockLayout")
+  /** The saved form, with its version, whatever the caller's config. */
+  given Weaver[DockLayout] with
+    override def pack(p: Packer, v: DockLayout, config: WeaverConfig): Unit = JSONValueWeaver.pack(
+      p,
+      toJSONValue(v),
+      config
+    )
+
+    override def unpack(u: Unpacker, context: WeaverContext): Unit =
+      DockLayout.fromJSONValue(JSONValueWeaver.unpackJson(u)) match
+        case Some(l) =>
+          context.setObject(l)
+        case None =>
+          context.setError(IllegalArgumentException("Not a valid DockLayout"))
 
   /** Saves the layout as JSON in browser storage (`Storage.local(key, default)`). */
   given StorageCodec[DockLayout] with
@@ -218,22 +179,6 @@ object DockLayout:
     def decode(raw: String): Option[DockLayout] = fromJSON(raw)
 
 end DockLayout
-
-/** A Weaver that goes through a JSON value, for types whose codec is written by hand. */
-private class JSONValueCodec[A](to: A => JSONValue, from: JSONValue => Option[A], name: String)
-    extends Weaver[A]:
-  override def pack(p: Packer, v: A, config: WeaverConfig): Unit = JSONValueWeaver.pack(
-    p,
-    to(v),
-    config
-  )
-
-  override def unpack(u: Unpacker, context: WeaverContext): Unit =
-    from(JSONValueWeaver.unpackJson(u)) match
-      case Some(a) =>
-        context.setObject(a)
-      case None =>
-        context.setError(IllegalArgumentException(s"Not a valid ${name}"))
 
 /** A step down the layout tree: the index of a child in each split from the root. */
 type DockPath = List[Int]

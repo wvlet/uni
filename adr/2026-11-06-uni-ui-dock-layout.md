@@ -8,7 +8,7 @@ uni-ui phase 3 adds a Dock: panels in tab groups and splits that the user drags 
 
 - The layout is immutable data in an app-owned `RxVar[DockLayout]`: a tree of `DockNode.Split(direction, children, sizes)` and `DockNode.Group(panels, active)`. It names panels only by string id, and the content comes from `DockPanel`s registered with the `Dock`.
 - `sizes` are fractions that sum to 1, applied as flex-grow shares, so proportions survive window resizes. A pixel minimum (`withMinPanelSize`, 120 by default) applies only while resizing, and a resize changes only the two children beside the border.
-- The JSON has an explicit `"version": 1` and a node per `"type"` (`"split"` / `"group"`). The codec is written by hand on JSON values. `Weaver[DockLayout]` and `StorageCodec[DockLayout]` are givens, so `Storage.local(key, default)` works. A save that is unreadable or has a newer version decodes to `None`, and the app's default is used. A future version 2 migrates version 1 in `DockLayout.fromJSONValue`.
+- The JSON has an explicit `"version"`. Version 1 wrote a node per `"type"` (`"split"` / `"group"`) with a hand-written codec. Since #878, version 2 stores `root` in the derived `DockNode` format (`{"@type":"Split","direction":"Row",...}`). The envelope encodes it with a fixed `WeaverConfig`, so an app's Weaver settings don't change what gets saved. `Weaver[DockLayout]` and `StorageCodec[DockLayout]` are givens, so `Storage.local(key, default)` works. A save that is unreadable or has a newer version decodes to `None`, and the app's default is used. `DockLayout.fromJSONValue` migrates version 1 by renaming `type` to `@type` and using the declared case names, then decodes with the derived codec.
 - `DockModel.normalize` runs on load and after every operation. It drops unknown and repeated ids and removes empty groups, collapses single-child splits, and flattens a nested split in its parent's direction. It resets invalid sizes, fixes `active`, and adds back panels registered with `withClosable(false)`. The Dock writes the cleaned layout back on mount.
 - Operations (`move`, `split`, `close`, `open`, `activate`, `resize`) are pure functions in `wvlet.uni.ui.base.DockModel` that address groups by path. Paths are found again for each gesture and never saved.
 - The Dock rebuilds its DOM only when the structure changes. That is the tree without sizes or active tabs (`DockModel.shape`). Sizes and active tabs update in place, and panel content is cached by id, so a moved panel re-mounts the same element.
@@ -16,7 +16,8 @@ uni-ui phase 3 adds a Dock: panels in tab groups and splits that the user drags 
 
 ## Alternatives
 
-- **Derive the codec with `derives Weaver`**: blocked by the recursion limits above. The JSON shape can stay the same if derivation learns recursive sum types later.
+- **Derive the codec with `derives Weaver`**: blocked at first by the recursion limits above. Adopted in version 2 once #878 fixed derivation.
+- **Keep the version 1 shape through a case-name option in `WeaverConfig`**: the config is per call, so a Dock nested in an app's own state would follow that app's settings, and the saved shape wouldn't be fixed.
 - **Pixel sizes in the layout**: they break when the window size changes between sessions.
 - **Stable group ids in the format**: they're useful for a future "focus group N" API, but paths are enough for now and keep the saved JSON minimal.
 - **A mutable widget tree (as in GoldenLayout)**: harder to save, compare, and test than a value in an `RxVar`.
