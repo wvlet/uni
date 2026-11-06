@@ -29,10 +29,6 @@ class Layout(
       view        := v
       sidebarOpen := true
 
-  def cycleTheme(): Unit =
-    val all = ColorScheme.values
-    theme := all((all.indexOf(theme.get) + 1) % all.length)
-
 end Layout
 
 object Layout:

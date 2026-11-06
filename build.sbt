@@ -229,7 +229,7 @@ lazy val ui = project
     jsBuildSettings,
     name        := "uni-ui",
     description :=
-      "UI components for uni-dom (Scala.js): buttons, inputs, tabs, foldable panes, and splitters, styled by uni-ui.css with light and dark themes",
+      "UI components for uni-dom (Scala.js): buttons, inputs, tabs, foldable panes, splitters, popovers, menus, dialogs, selects, and toasts, styled by uni-ui.css with light and dark themes",
     // Component tests render into a real DOM in headless Chromium, like domTest. Screenshot
     // goldens (VisualTest) live in src/test/screenshots; paths are absolute so they don't depend
     // on the JVM's working directory.

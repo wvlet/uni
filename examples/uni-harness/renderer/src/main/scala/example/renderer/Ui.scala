@@ -2,7 +2,8 @@ package example.renderer
 
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.ui.{IconButton, Kbd}
+import wvlet.uni.ui.{IconButton, Kbd, Tooltip}
+import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
 
@@ -14,9 +15,8 @@ object Ui:
       label: String,
       icon: RxElement,
       action: () => Unit,
-      tipSide: String = "bottom"
-  ): RxElement =
-    IconButton(label, icon).onClick(action)(data("tip") -> label, data("tip-side") -> tipSide)
+      tipSide: Side = Side.Bottom
+  ): RxElement = Tooltip(label)(IconButton(label, icon).onClick(action)).withSide(tipSide)
 
   /** A keyboard key cap. */
   def keyCap(k: String): RxElement = Kbd(k)

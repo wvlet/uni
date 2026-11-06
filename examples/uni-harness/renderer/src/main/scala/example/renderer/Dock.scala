@@ -4,6 +4,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
 import wvlet.uni.ui.{Badge, Edge, FoldablePane, Splitter, Tab, TabList, TabPanel}
+import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
 
@@ -75,7 +76,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
       div(
         cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
         tabs(cls += "flex-1"),
-        Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), "left")
+        Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
       ),
       TabPanel(tabs) {
         case DockTab.Terminal =>

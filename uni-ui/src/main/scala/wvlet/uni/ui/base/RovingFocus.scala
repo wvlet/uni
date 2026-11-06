@@ -61,4 +61,18 @@ object RovingFocus:
         case _ =>
           None
 
+  /**
+    * The index of the next label after `current` that starts with `key` (ignoring case), wrapping
+    * around: typing a letter in a menu or list jumps to the matching item. None when no label
+    * matches.
+    */
+  def typeahead(labels: Seq[String], current: Int, key: String): Option[Int] =
+    val k = key.toLowerCase
+    if labels.isEmpty || k.isBlank then
+      None
+    else
+      (1 to labels.size)
+        .map(step => (current + step + labels.size) % labels.size)
+        .find(i => labels(i).trim.toLowerCase.startsWith(k))
+
 end RovingFocus

@@ -194,4 +194,27 @@ class FocusTest extends UniTest:
 
     cancel.cancel
 
+  test("Focus.trap wraps Tab alongside an app's own onkeydown"):
+    var keys = 0
+    val m    = testing.mount(
+      Focus.trap(button("First"), button("Last"))(
+        onkeydown -> { (_: dom.KeyboardEvent) =>
+          keys += 1
+        }
+      )
+    )
+    val buttons = m.container.querySelectorAll("button")
+    val first   = buttons(0).asInstanceOf[dom.HTMLElement]
+    val last    = buttons(1).asInstanceOf[dom.HTMLElement]
+    // The trap finds its focusable children once mounted
+    testing
+      .settle()
+      .map { _ =>
+        last.focus()
+        testing.fireEvent.keyDown(last, "Tab")
+        (dom.document.activeElement eq first) shouldBe true
+        keys shouldBe 1
+        m.unmount()
+      }
+
 end FocusTest

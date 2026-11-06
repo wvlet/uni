@@ -399,47 +399,14 @@ object DomRenderer extends LogSupport:
           rx.beforeRender
           Try(rx.render) match
             case Success(r) =>
-              val c1   = renderToInternal(localContext, node, r)
-              val elem = node.lastChild
-              val c2   = rx.traverseModifiers(m => renderToInternal(localContext, elem, m))
-              if rx.onMount ne RxElement.NoOp then
-                val observer: MutationObserver = MutationObserver { (mut, obs) =>
-                  mut.foreach { m =>
-                    m.addedNodes
-                      .find(_ eq elem)
-                      .foreach { n =>
-                        elem match
-                          case e: dom.Element if Option(e.id).exists(_.nonEmpty) =>
-                            val elementId = e.id
-                            Option(dom.document.getElementById(elementId)) match
-                              case Some(_) =>
-                                rx.onMount(elem)
-                              case None =>
-                                dom
-                                  .window
-                                  .setTimeout(
-                                    () =>
-                                      if Option(dom.document.getElementById(elementId)).isDefined
-                                      then
-                                        rx.onMount(elem),
-                                    0
-                                  )
-                          case _ =>
-                            // No ID or not an element, call onMount directly
-                            rx.onMount(elem)
-                      }
-                  }
-                  obs.disconnect()
-                }
-                observer.observe(
-                  node,
-                  new MutationObserverInit:
-                    attributes = node.nodeType == dom.Node.ATTRIBUTE_NODE
-                    childList = node.nodeType != dom.Node.ATTRIBUTE_NODE
-                )
-              end if
-              node.mountHere(elem, anchor)
-              Cancelable.merge(Cancelable(() => rx.beforeUnmount), Cancelable.merge(c1, c2))
+              val before = node.lastChild
+              val c1     = renderToInternal(localContext, node, r)
+              val elem   = node.lastChild
+              if elem == null || (elem eq before) then
+                // Rendered no node in place (e.g. only a Portal): nothing to modify or mount
+                Cancelable.merge(Cancelable(() => rx.beforeUnmount), c1)
+              else
+                renderMounted(rx, localContext, node, elem, anchor, c1)
             case Failure(e) =>
               warn(s"Failed to render ${rx}: ${e.getMessage}", e)
               Cancelable(() => rx.beforeUnmount)
@@ -899,6 +866,59 @@ object DomRenderer extends LogSupport:
       observer.disconnect()
     }
   end handleResizeBindingDebounced
+
+  /**
+    * Apply an RxElement's modifiers to the node it rendered (`elem`), schedule its `onMount`, and
+    * move the node to `anchor`.
+    */
+  private def renderMounted(
+      rx: RxElement,
+      localContext: RenderingContext,
+      node: dom.Node,
+      elem: dom.Node,
+      anchor: Option[dom.Node],
+      c1: Cancelable
+  ): Cancelable =
+    val c2 = rx.traverseModifiers(m => renderToInternal(localContext, elem, m))
+    if rx.onMount ne RxElement.NoOp then
+      val observer: MutationObserver = MutationObserver { (mut, obs) =>
+        mut.foreach { m =>
+          m.addedNodes
+            .find(_ eq elem)
+            .foreach { n =>
+              elem match
+                case e: dom.Element if Option(e.id).exists(_.nonEmpty) =>
+                  val elementId = e.id
+                  Option(dom.document.getElementById(elementId)) match
+                    case Some(_) =>
+                      rx.onMount(elem)
+                    case None =>
+                      dom
+                        .window
+                        .setTimeout(
+                          () =>
+                            if Option(dom.document.getElementById(elementId)).isDefined then
+                              rx.onMount(elem),
+                          0
+                        )
+                case _ =>
+                  // No ID or not an element, call onMount directly
+                  rx.onMount(elem)
+            }
+        }
+        obs.disconnect()
+      }
+      observer.observe(
+        node,
+        new MutationObserverInit:
+          attributes = node.nodeType == dom.Node.ATTRIBUTE_NODE
+          childList = node.nodeType != dom.Node.ATTRIBUTE_NODE
+      )
+    end if
+    node.mountHere(elem, anchor)
+    Cancelable.merge(Cancelable(() => rx.beforeUnmount), Cancelable.merge(c1, c2))
+
+  end renderMounted
 
   /**
     * Handle click outside detection by registering a document-level mousedown listener.
