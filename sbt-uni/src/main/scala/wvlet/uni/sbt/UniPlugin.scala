@@ -85,6 +85,18 @@ object UniPlugin extends AutoPlugin:
       "Generate an OpenAPI document from uniOpenAPIRouters (no-op when empty); runs on package"
     )
 
+    // --- uniUiCss: uni-ui's stylesheet, copied out of the uni-ui jar ---
+
+    val uniUiCssFile = settingKey[File](
+      "Where uniUiCss copies uni-ui.css (default: <project>/target/uni-ui.css)"
+    )
+
+    // Transient (uncached): the copy is a side effect, and must happen again if the file is deleted
+    @transient
+    val uniUiCss = taskKey[Seq[File]](
+      "Copy uni-ui.css from the uni-ui dependency to uniUiCssFile (no-op without uni-ui); runs on compile"
+    )
+
     // --- uniRestart (background fork-run), ported from sbt-revolver's reStart ---
 
     val uniRestart = inputKey[Unit](
@@ -159,7 +171,7 @@ object UniPlugin extends AutoPlugin:
       },
       // Hook into source generation so generated code is compiled with user code
       Compile / sourceGenerators += uniHttpGenerateClient
-    ) ++ uniOpenAPISettings ++ uniRestartSettings
+    ) ++ uniOpenAPISettings ++ uniUiCssSettings ++ uniRestartSettings
 
   /**
     * uniOpenAPI forks a JVM that runs uni's OpenAPIGeneratorMain on the project's runtime
@@ -224,6 +236,41 @@ object UniPlugin extends AutoPlugin:
             uniOpenAPIGenerate.value
         }
         .triggeredBy(Compile / packageBin)
+        .value
+  )
+
+  /**
+    * uniUiCss copies uni-ui.css out of the uni-ui jar (or, for a `dependsOn`, its resource
+    * directory) on the dependency classpath, so an app's stylesheet can `@import` a file that
+    * always matches the uni-ui version it links. It runs after every compile, which Vite's Scala.js
+    * plugin triggers on `vite dev` and `vite build`.
+    */
+  private def uniUiCssSettings: Seq[Setting[?]] = Seq(
+    uniUiCssFile := baseDirectory.value / "target" / "uni-ui.css",
+    uniUiCss     :=
+      Def
+        .task {
+          given FileConverter = fileConverter.value
+          val log             = streams.value.log
+          val out             = uniUiCssFile.value
+          val classpath       = (Compile / dependencyClasspath).value.files.map(_.toFile)
+          UniUiCss.find(classpath) match
+            case None =>
+              if out.exists() then
+                log.warn(
+                  s"${UniUiCss.resourcePath} is no longer on the classpath; ${out} is a stale copy"
+                )
+              else
+                log.debug(s"${UniUiCss.resourcePath} is not on the classpath, skipping uniUiCss")
+              Seq.empty
+            case Some(css) =>
+              // Rewrite only on change, so Vite's file watcher does not reload the page needlessly
+              if !out.exists() || !java.util.Arrays.equals(IO.readBytes(out), css) then
+                IO.write(out, css)
+                log.info(s"Copied uni-ui.css to ${out}")
+              Seq(out)
+        }
+        .triggeredBy(Compile / compile)
         .value
   )
 

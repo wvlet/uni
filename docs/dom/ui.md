@@ -17,8 +17,22 @@ Add the artifact to a Scala.js project:
 libraryDependencies += "org.wvlet.uni" %% "uni-ui" % "<version>"
 ```
 
-Load `uni-ui.css` once. It ships in the jar at `wvlet/uni/ui/uni-ui.css`; copy it into your web
-assets, or import it from your app's stylesheet:
+Load `uni-ui.css` once. It ships in the jar at `wvlet/uni/ui/uni-ui.css`. The
+[sbt-uni plugin](../build/sbt-uni#uni-ui-stylesheet) copies it out of the jar on every compile, so
+the file always matches the uni-ui version your app links:
+
+```scala
+// project/plugins.sbt
+addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
+
+// build.sbt
+lazy val app = project
+  .enablePlugins(ScalaJSPlugin, UniPlugin)
+  .settings(uniUiCssFile := baseDirectory.value / "web" / "uni-ui.css")
+```
+
+With Vite and `@scala-js/vite-plugin-scalajs`, `vite dev` and `vite build` compile the Scala.js
+project, so the copy stays fresh. Import it from your app's stylesheet:
 
 ```css
 @import './uni-ui.css';
