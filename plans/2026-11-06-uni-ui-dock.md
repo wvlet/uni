@@ -25,7 +25,7 @@ Lane: **Standard**: new public API (components, data types, CSS classes) and a p
 **Layout format**
 - `DockLayout(version, root)`, where `root` is a tree of `DockNode.Split(direction: Row|Column, children, sizes)` and `DockNode.Group(panels, active)`. Panels are referenced only by string id.
 - `sizes` are fractions that sum to 1. Flexbox applies them, so proportions hold when the window resizes.
-- JSON uses an explicit `"version": 1` and a small hand-written `Weaver[DockNode]` (`{"split": ...}` / `{"group": ...}`), since derivation can't handle the recursion. Other fields use derived codecs.
+- JSON uses an explicit `"version": 1` and a small hand-written `Weaver[DockNode]` (`{"type": "split", ...}` / `{"type": "group", ...}`), since derivation can't handle the recursion. Other fields use derived codecs.
 - A `given StorageCodec[DockLayout]` goes through that JSON. Plain `Storage.local(key, default)` works, and a decode failure returns the default.
 - Versioning: the decoder accepts versions up to the current one and migrates older ones. A newer or unreadable version decodes to `None`, so the app's default is used and the bad save is overwritten on the next change.
 
