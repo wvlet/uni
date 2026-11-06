@@ -36,7 +36,7 @@ class RecursiveDerivedGivenInitTest extends UniTest:
       try
         f.get(30, TimeUnit.SECONDS)
       catch
-        case e: TimeoutException =>
+        case _: TimeoutException =>
           fail("Initializing a derived Weaver for a recursive type did not finish in 30 seconds")
     finally
       pool.shutdownNow()

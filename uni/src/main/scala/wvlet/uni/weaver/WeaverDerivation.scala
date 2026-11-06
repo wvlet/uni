@@ -121,15 +121,33 @@ object WeaverDerivation:
       val isSingleton = childSym.flags.is(Flags.Module) || childSym.isTerm
       val entry: Expr[(Weaver[? <: A], Option[A])] =
         if isSingleton then
-          val instance = Ref(childSym).asExprOf[A]
+          // Cast instead of asExprOf: in a generic trait (`Box[T]`), `case object NoBox extends
+          // Box[Int]` does not conform to `Box[T]`
+          val ref = Ref(childSym).asExpr
           '{
-            (SingletonWeaver[A]($instance), Some($instance))
+            val instance = $ref.asInstanceOf[A]
+            (SingletonWeaver[A](instance), Some(instance))
           }
         else
           childSym.typeRef.asType match
             case '[t] =>
               // Enum cases can't have `derives Weaver`, so derive a child without a given here
-              val weaverExpr = Expr.summon[Weaver[t]].getOrElse(deriveWeaverImpl[t])
+              val weaverExpr = Expr
+                .summon[Weaver[t]]
+                .getOrElse {
+                  val isGeneric = childSym
+                    .primaryConstructor
+                    .paramSymss
+                    .flatten
+                    .exists(_.isTypeParam)
+                  if !childSym.flags.is(Flags.Case) && !childSym.flags.is(Flags.Sealed) || isGeneric
+                  then
+                    report.errorAndAbort(
+                      s"No Weaver found for child type '${childName}' of ${symbol.fullName}. " +
+                        "Make sure it has 'derives Weaver'."
+                    )
+                  deriveWeaverImpl[t]
+                }
               '{
                 ($weaverExpr.asInstanceOf[Weaver[? <: A]], None)
               }

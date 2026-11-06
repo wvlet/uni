@@ -39,6 +39,11 @@ object RecursiveSumTypeWeaverTest:
   case class Composite(parts: Vector[Shape]) extends Shape
   case object Empty                          extends Shape
 
+  // A generic trait whose case object fixes the type argument
+  sealed trait Box[T] derives Weaver
+  case class IntBox(value: Int) extends Box[Int] derives Weaver
+  case object NoBox             extends Box[Int]
+
 end RecursiveSumTypeWeaverTest
 
 class RecursiveSumTypeWeaverTest extends UniTest:
@@ -110,6 +115,12 @@ class RecursiveSumTypeWeaverTest extends UniTest:
     val json     = Weaver.toJson(s)
     json shouldContain """"@type":"Circle""""
     Weaver.fromJson[Shape](json) shouldBe s
+  }
+
+  test("generic sealed trait with a case object") {
+    val w = summon[Weaver[Box[Int]]]
+    w.fromJson(w.toJson(NoBox)) shouldBe NoBox
+    w.fromJson(w.toJson(IntBox(3))) shouldBe IntBox(3)
   }
 
   test("unknown case name reports the known cases") {
