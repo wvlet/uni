@@ -103,7 +103,8 @@ import wvlet.uni.weaver.codec.JvmWeaver.given
 
 ## Enums and Sealed Traits
 
-Scala 3 enums encode as their **case name** string:
+Scala 3 enums whose cases have no parameters encode as their **case name**
+string:
 
 ```scala
 enum Color derives Weaver:
@@ -126,6 +127,23 @@ case object Unknown                          extends Shape derives Weaver
 // Weaver.toJson(Circle(1.0)) uses Circle's own Weaver: {"radius":1.0}
 Weaver.toJson[Shape](Circle(1.0))   // {"@type":"Circle","radius":1.0}
 Weaver.toJson[Shape](Unknown)       // {"@type":"Unknown"}
+```
+
+Children without their own `derives Weaver` are derived along with the trait,
+and recursive types work: a child may refer back to the trait through `Seq`,
+`Option`, or any other field type.
+
+An enum with a **parameterized case** uses the same discriminator format, so the
+case's fields are kept. Its cases without parameters encode as `{"@type":"Name"}`:
+
+```scala
+enum Layout derives Weaver:
+  case Empty
+  case Split(children: Seq[Layout], sizes: Seq[Double])
+  case Group(panels: Seq[String], active: Option[String])
+
+Weaver.toJson[Layout](Layout.Split(Seq(Layout.Empty), Seq(1.0)))
+// {"@type":"Split","children":[{"@type":"Empty"}],"sizes":[1.0]}
 ```
 
 Change the discriminator via [`WeaverConfig`](#configuration):

@@ -11,35 +11,49 @@ import wvlet.uni.weaver.WeaverConfig
 import wvlet.uni.weaver.WeaverContext
 
 /**
-  * A weaver for sealed traits that serializes/deserializes ADTs with a discriminator field. Uses a
-  * flat format where the discriminator field is added alongside child fields.
+  * A weaver for sealed traits and enums with parameterized cases that serializes/deserializes ADTs
+  * with a discriminator field. Uses a flat format where the discriminator field is added alongside
+  * child fields.
+  *
+  * Child weavers are passed by name and resolved on first use. Derived givens for recursive types
+  * refer to each other (`Node` -> `Split` -> `Seq[Node]` -> `Node`), so resolving them while the
+  * given is still initializing would re-enter its lazy initializer and deadlock.
   *
   * @tparam A
   *   The sealed trait type
   * @param childWeavers
-  *   Mapping from child type name to its weaver and optional singleton instance (for case objects)
+  *   Mapping from child type name to its weaver and optional singleton instance (for case objects
+  *   and enum cases without parameters)
   */
 class SealedTraitWeaver[A](
     traitName: String,
-    childWeavers: Map[String, (Weaver[? <: A], Option[A])]
+    childWeavers: => Map[String, (Weaver[? <: A], Option[A])]
 ) extends Weaver[A]:
 
+  private lazy val weavers: Map[String, (Weaver[? <: A], Option[A])] = childWeavers
+
   // Build canonical name lookup for flexible type matching
-  private val weaversByCanonicalName: Map[String, (String, Weaver[? <: A], Option[A])] =
-    childWeavers.map { (name, weaverAndInstance) =>
+  private lazy val weaversByCanonicalName: Map[String, (String, Weaver[? <: A], Option[A])] =
+    weavers.map { (name, weaverAndInstance) =>
       CName.toCanonicalName(name) -> (name, weaverAndInstance._1, weaverAndInstance._2)
     }
 
-  private val knownTypeNames: String = childWeavers.keys.mkString(", ")
+  private lazy val knownTypeNames: String = weavers.keys.mkString(", ")
 
   override def pack(p: Packer, v: A, config: WeaverConfig): Unit =
     if v == null then
       p.packNil
     else
-      // Get the runtime class name (without $ suffix for case objects)
-      val className = v.getClass.getSimpleName.stripSuffix("$")
+      // productPrefix is the case name for case classes, case objects, and enum cases (whose
+      // singleton cases are anonymous classes), and is stable across JVM, JS, and Native
+      val className =
+        v match
+          case p: Product =>
+            p.productPrefix
+          case _ =>
+            v.getClass.getSimpleName.stripSuffix("$")
 
-      childWeavers.get(className) match
+      weavers.get(className) match
         case Some((childWeaver, singletonOpt)) =>
           singletonOpt match
             case Some(_) =>
@@ -161,3 +175,15 @@ class SealedTraitWeaver[A](
         context.setError(e)
 
 end SealedTraitWeaver
+
+/**
+  * The weaver for a singleton child of a sealed trait or enum (a case object or an enum case
+  * without parameters). [[SealedTraitWeaver]] packs only the discriminator for such values, so this
+  * weaver packs no fields and unpacks to the singleton itself.
+  */
+class SingletonWeaver[A](value: A) extends Weaver[A]:
+  override def pack(p: Packer, v: A, config: WeaverConfig): Unit = p.packMapHeader(0)
+
+  override def unpack(u: Unpacker, context: WeaverContext): Unit =
+    u.skipValue
+    context.setObject(value)
