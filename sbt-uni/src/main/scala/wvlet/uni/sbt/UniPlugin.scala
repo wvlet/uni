@@ -256,7 +256,12 @@ object UniPlugin extends AutoPlugin:
           val classpath       = (Compile / dependencyClasspath).value.files.map(_.toFile)
           UniUiCss.find(classpath) match
             case None =>
-              log.debug(s"${UniUiCss.resourcePath} is not on the classpath, skipping uniUiCss")
+              if out.exists() then
+                log.warn(
+                  s"${UniUiCss.resourcePath} is no longer on the classpath; ${out} is a stale copy"
+                )
+              else
+                log.debug(s"${UniUiCss.resourcePath} is not on the classpath, skipping uniUiCss")
               Seq.empty
             case Some(css) =>
               // Rewrite only on change, so Vite's file watcher does not reload the page needlessly
