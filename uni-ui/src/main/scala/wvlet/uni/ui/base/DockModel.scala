@@ -16,7 +16,7 @@ package wvlet.uni.ui.base
 import wvlet.uni.dom.StorageCodec
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
-import wvlet.uni.msgpack.spi.{Packer, Unpacker}
+import wvlet.uni.msgpack.spi.{MessagePack, Packer, Unpacker}
 import wvlet.uni.weaver.{Weaver, WeaverConfig, WeaverContext}
 import wvlet.uni.weaver.codec.JSONValueWeaver
 
@@ -44,7 +44,7 @@ enum DockNode derives Weaver:
     * Children laid out in `direction`. `sizes` are the children's shares of the space, summing to
     * 1, so the proportions hold when the window resizes.
     */
-  case Split(direction: SplitDirection, children: Seq[DockNode], sizes: Seq[Double] = Seq.empty)
+  case Split(direction: SplitDirection, children: Seq[DockNode], sizes: Seq[Double])
 
   /** Tabs for `panels`, showing the `active` one. */
   case Group(panels: Seq[String], active: Option[String])
@@ -105,7 +105,13 @@ object DockLayout:
 
   /** The saved form: `{"version":2,"root":...}`, with `root` in the derived `DockNode` format. */
   def toJSONValue(l: DockLayout): JSONValue = JSONObject(
-    Seq("version" -> JSONLong(version), "root" -> JSON.parse(Weaver.toJson(l.root, format)))
+    Seq(
+      "version" -> JSONLong(version),
+      "root"    ->
+        JSONValueWeaver.unpackJson(
+          MessagePack.newUnpacker(summon[Weaver[DockNode]].toMsgPack(l.root, format))
+        )
+    )
   )
 
   /** Reads a saved layout, migrating older versions; None when it is unreadable or newer. */
@@ -134,9 +140,15 @@ object DockLayout:
     */
   private def fromV1(v: JSONValue): JSONValue =
     v match
-      case JSONObject(fields) =>
+      case o @ JSONObject(fields) =>
+        // A split saved without sizes gets equal shares from normalization
+        val all =
+          if o.get("type").contains(JSONString("split")) && o.get("sizes").isEmpty then
+            fields :+ ("sizes" -> JSONArray(IndexedSeq.empty))
+          else
+            fields
         JSONObject(
-          fields.map {
+          all.map {
             case ("type", JSONString(t)) =>
               format.discriminatorFieldName -> JSONString(t.capitalize)
             case ("direction", JSONString(d)) =>
