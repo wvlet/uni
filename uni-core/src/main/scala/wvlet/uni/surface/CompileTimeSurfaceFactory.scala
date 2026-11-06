@@ -779,8 +779,10 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
 
       // List every case of an enum with a parameterized case, so runtime codecs can encode the
       // case fields. Enums whose cases are all singletons keep an empty list and encode as strings.
+      // Generic enums are skipped: their case types would need the enum's type arguments.
+      val isGeneric = t.typeSymbol.primaryConstructor.paramSymss.flatten.exists(_.isTypeParam)
       val cases: Expr[Seq[EnumCase]] =
-        if hasValueOf then
+        if hasValueOf || isGeneric then
           '{
             Seq.empty
           }

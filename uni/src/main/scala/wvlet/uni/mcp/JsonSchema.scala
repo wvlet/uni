@@ -23,13 +23,16 @@ import wvlet.uni.json.JSON.{
   JSONValue
 }
 import wvlet.uni.surface.{
+  EnumCase,
   EnumSurface,
   JavaEnumSurface,
+  LazySurface,
   MethodSurface,
   Parameter,
   Primitive,
   Surface
 }
+import wvlet.uni.weaver.WeaverConfig
 
 /**
   * Derives a JSON Schema for MCP tool inputs from Surface metadata.
@@ -94,15 +97,27 @@ private[uni] object JsonSchema:
   )
 
   def ofSurface(surface: Surface, seen: Set[String], options: Options = Options()): JSONObject =
-    val s = surface.dealias
+    val s =
+      surface.dealias match
+        // A recursive reference, e.g. to an enum from inside one of its cases. Resolve it so an
+        // enum is recognized; recursive surfaces are always cached by the time they are read.
+        case l: LazySurface =>
+          Surface.getCached(l.fullName).dealias
+        case other =>
+          other
     s match
       case o if o.isOption =>
         ofSurface(o.typeArgs.head, seen, options)
       case p if p.isPrimitive =>
         primitiveSchema(p, options.formats)
+      case e: EnumSurface if e.hasParameterizedCases =>
+        if seen.contains(e.fullName) then
+          // Break recursion for self-referential enums with an unconstrained object schema
+          JSONObject(Seq("type" -> JSONString("object")))
+        else
+          enumCasesSchema(e, seen + e.fullName, options)
       case _: EnumSurface | _: JavaEnumSurface =>
-        // EnumSurface carries only a string decoder, not the case names; emit a plain string
-        // schema with the enum type name as a hint
+        // A string enum: emit a plain string schema with the enum type name as a hint
         JSONObject(
           Seq("type" -> JSONString("string"), "description" -> JSONString(s"${s.name} enum value"))
         )
@@ -133,12 +148,48 @@ private[uni] object JsonSchema:
 
   end ofSurface
 
+  // An enum with a parameterized case is encoded like a sealed trait: one object per case, tagged
+  // with the case name in the discriminator field next to the case fields
+  private def enumCasesSchema(e: EnumSurface, seen: Set[String], options: Options): JSONObject =
+    val discriminator = WeaverConfig().discriminatorFieldName
+    val variants      = e
+      .cases
+      .map { c =>
+        val tag = discriminator -> JSONObject(Seq("const" -> JSONString(c.name)))
+        c match
+          case EnumCase.Singleton(_, _) =>
+            objectSchema(Seq(tag), Seq(JSONString(discriminator)))
+          case EnumCase.Parameterized(_, caseSurface) =>
+            val (properties, required) = fieldSchemasOf(caseSurface, seen, options)
+            objectSchema(tag +: properties, JSONString(discriminator) +: required)
+      }
+    JSONObject(
+      Seq(
+        "oneOf"       -> JSONArray(variants.toIndexedSeq),
+        "description" -> JSONString(s"${e.name} enum value")
+      )
+    )
+
   /** The schema of an object type's fields, always inlined at the top level */
   def objectSchemaOf(
       c: Surface,
       seen: Set[String] = Set.empty,
       options: Options = Options()
   ): JSONObject =
+    val (properties, required) = fieldSchemasOf(c, seen, options)
+    val schemaDescription      =
+      if options.classDescriptions then
+        description.value(c.dealias.findAnnotation("description"))
+      else
+        None
+    objectSchema(properties, required, schemaDescription)
+
+  // The property schemas and required names of an object type's fields
+  private def fieldSchemasOf(
+      c: Surface,
+      seen: Set[String],
+      options: Options
+  ): (Seq[(String, JSONValue)], Seq[JSONString]) =
     val properties = c
       .params
       .map { p =>
@@ -150,13 +201,8 @@ private[uni] object JsonSchema:
             schema
         )
       }
-    val required          = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
-    val schemaDescription =
-      if options.classDescriptions then
-        description.value(c.dealias.findAnnotation("description"))
-      else
-        None
-    objectSchema(properties, required, schemaDescription)
+    val required = c.params.filter(isRequiredParam).map(p => JSONString(p.name))
+    (properties, required)
 
   private def primitiveSchema(s: Surface, formats: Boolean): JSONObject =
     val (tpe, format) =

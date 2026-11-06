@@ -63,4 +63,14 @@ class SurfaceEnumWeaverTest extends UniTest:
     w.fromJson("\"Row\"") shouldBe Dir.Row
   }
 
+  test("read a singleton case written as a bare string") {
+    val w = surfaceWeaver[Expr](Surface.of[Expr])
+    w.fromJson("\"Zero\"") shouldBe Expr.Zero
+    Weaver.fromJson[Expr]("\"Zero\"") shouldBe Expr.Zero
+    val e = intercept[Exception] {
+      w.fromJson("\"Succ\"")
+    }
+    e.getMessage shouldContain "Unknown singleton 'Succ'"
+  }
+
 end SurfaceEnumWeaverTest

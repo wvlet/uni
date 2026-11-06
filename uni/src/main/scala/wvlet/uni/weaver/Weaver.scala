@@ -383,7 +383,7 @@ object Weaver:
     case s: EnumSurface if s.hasParameterizedCases =>
       // Build the case weavers now, while recursive references to this enum still resolve to
       // its LazyWeaver placeholder
-      val childWeavers: Map[String, (Weaver[? <: Any], Option[Any])] =
+      val childWeavers: Map[String, (Weaver[?], Option[Any])] =
         s.cases
           .map {
             case EnumCase.Singleton(name, value) =>

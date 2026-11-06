@@ -28,6 +28,11 @@ enum Color:
     Green,
     Blue
 
+enum Figure:
+  case Dot
+  case Circle(radius: Double)
+  case Group(parts: Seq[Figure], label: Option[String])
+
 trait SchemaFixture:
   def scalars(i: Int, l: Long, d: Double, f: Float, b: Boolean, s: String): Unit
   def optional(name: Option[String], limit: Int = 10): Unit
@@ -148,6 +153,16 @@ class JsonSchemaTest extends UniTest:
   test("enums map to string schemas") {
     val schema = schemaOf("colored")
     propertyType(schema, "color") shouldBe Some(JSONString("string"))
+  }
+
+  test("enums with parameterized cases map to one object schema per case") {
+    val schema = JsonSchema.ofSurface(Surface.of[Figure], Set.empty)
+    schema.toJSON shouldBe
+      """{"oneOf":[""" +
+      """{"type":"object","properties":{"@type":{"const":"Dot"}},"required":["@type"]},""" +
+      """{"type":"object","properties":{"@type":{"const":"Circle"},"radius":{"type":"number"}},"required":["@type","radius"]},""" +
+      """{"type":"object","properties":{"@type":{"const":"Group"},"parts":{"type":"array","items":{"type":"object"}},"label":{"type":"string"}},"required":["@type","parts"]}""" +
+      """],"description":"Figure enum value"}"""
   }
 
 end JsonSchemaTest
