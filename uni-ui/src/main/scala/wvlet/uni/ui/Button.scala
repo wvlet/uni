@@ -102,6 +102,7 @@ class Button private (
 end Button
 
 object Button:
+  // `new` is required in this file: the `apply(content*)` below replaces the constructor proxy
   private val noAction: () => Unit = () => ()
 
   def apply(content: DomNode*): Button =

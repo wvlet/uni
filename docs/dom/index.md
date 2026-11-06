@@ -212,6 +212,24 @@ val activeClass = Rx.variable("idle")
 div(cls -> activeClass, "status")   // class updates when activeClass changes
 ```
 
+### Lists that update item by item
+
+`items.map(_.map(render))` rebuilds the whole list each time `items` changes, so
+every row loses its DOM state (scroll position, focus, a running animation) and
+a long list flickers. Use `each` with a key instead:
+
+```scala
+case class Message(id: String, text: String)
+val messages = Rx.variable(Seq.empty[Message])
+
+ul(each(messages)(_.id)(m => li(m.text)))
+```
+
+On each update, `each` renders only items with a new key and removes items whose
+key is gone. Items that stay keep their DOM nodes and are moved into the new
+order. An item whose key stays but whose value changes (`!=`) is rendered again.
+Keys must be unique; a repeated key keeps only its first item.
+
 ### Two-way form binding
 
 Bind a `RxVar` to a form control so edits flow back into the variable and

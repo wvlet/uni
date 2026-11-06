@@ -49,7 +49,7 @@ Scala Native.
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Terminal emulator | `wvlet.uni.cli.term.TerminalEmulator`, `wvlet.uni.dom.TerminalView` (Scala.js) | `term.write(output)`, `term.screen.text`; `TerminalView(term)` draws it in the DOM; see [references/cli.md](references/cli.md#terminal-emulator) |
-| UI components (Scala.js, `uni-ui` artifact) | `wvlet.uni.ui.*` | `Button("Send").primary.onClick(() => send())`, `Input(textVar)`, `TabList(selectedVar, "Views")(Tab(v, "Label"))`, `FoldablePane(open, width, Edge.Right, Some(Splitter(...)))(content)`; load `uni-ui.css` from the jar once and restyle with `--uni-*` variables |
+| UI components (Scala.js, `uni-ui` artifact) | `wvlet.uni.ui.*` | `Button("Send").primary.onClick(() => send())`, `Input(textVar)`, `TabList(selectedVar, "Views")(Tab(v, "Label"))`, `FoldablePane(open, width, Edge.Right, Some(Splitter(...)))(content)`; load `uni-ui.css` from the jar once and restyle with `--uni-*` variables; render lists with `each(itemsRx)(_.id)(item => ...)` (from `wvlet.uni.dom.all`) so unchanged rows keep their DOM nodes |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
 | Error-path tests | `wvlet.uni.test.*` | `val logs = captureLogs { ... }; logs.warnings shouldContain "..."` |
 

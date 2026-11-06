@@ -176,6 +176,8 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
     * extra `import wvlet.uni.dom.{when, unless}`.
     */
   export wvlet.uni.dom.when
+  export wvlet.uni.dom.each
+  export wvlet.uni.dom.KeyedList
   export wvlet.uni.dom.unless
   export wvlet.uni.dom.embedAsNode
 

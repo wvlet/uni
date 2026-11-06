@@ -51,6 +51,7 @@ class Badge private (content: Seq[DomNode], tone: BadgeTone, isDot: Boolean, lab
 end Badge
 
 object Badge:
+  // `new` is required here: `apply(content*)` replaces the constructor proxy
   def apply(content: DomNode*): Badge = new Badge(content, BadgeTone.Neutral, false, None)
 
   /** A dot with no text, such as an unread marker; `label` is its accessible name. */

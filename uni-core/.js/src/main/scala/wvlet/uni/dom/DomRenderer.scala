@@ -141,6 +141,100 @@ object DomRenderer extends LogSupport:
 
   private def newTextNode(s: String): dom.Text = dom.document.createTextNode(s)
 
+  /** One rendered item of a [[KeyedList]]: its nodes run from `start` to `end`, inclusive. */
+  private class KeyedItem(var value: Any, val start: dom.Node, val end: dom.Node):
+    var cancelable: Cancelable = Cancelable.empty
+
+  /**
+    * Render a [[KeyedList]] between two empty text nodes at `anchor`. On each update, items with a
+    * new key are rendered, items whose key is gone are removed, an item whose value changed is
+    * rendered again, and the rest keep their nodes, moved into the new order.
+    */
+  private def renderKeyedList(
+      parent: dom.Node,
+      list: KeyedList[Any, Any],
+      anchor: Option[dom.Node],
+      renderItem: (DomNode, Option[dom.Node], RenderingContext) => Cancelable
+  ): Cancelable =
+    val listStart = newTextNode("")
+    parent.mountHere(listStart, anchor)
+    parent.mountHere(newTextNode(""), anchor)
+    var items = Map.empty[Any, KeyedItem]
+
+    def nodesOf(item: KeyedItem): List[dom.Node] =
+      val b           = List.newBuilder[dom.Node]
+      var n: dom.Node = item.start
+      b += n
+      while n ne item.end do
+        n = n.nextSibling
+        b += n
+      b.result()
+
+    def renderContent(item: KeyedItem): Unit =
+      val ctx = RenderingContext()
+      item.cancelable = renderItem(list.render(item.value), Some(item.end), ctx)
+      ctx.onFinish()
+
+    def update(values: Seq[Any]): Unit =
+      // Keep the first item of each key, in order
+      val latest = scala.collection.mutable.LinkedHashMap.empty[Any, Any]
+      values.foreach { v =>
+        val k = list.key(v)
+        if latest.contains(k) then
+          warn(s"Skipped an item with a repeated key in a keyed list: ${k}")
+        else
+          latest(k) = v
+      }
+      items.foreach { (k, item) =>
+        if !latest.contains(k) then
+          item.cancelable.cancel
+          nodesOf(item).foreach(parent.removeChild)
+      }
+      // Walk the new order, moving or creating each item right after the previous one
+      var cursor: dom.Node = listStart
+      val next             = Map.newBuilder[Any, KeyedItem]
+      latest.foreach { (k, v) =>
+        val item =
+          items.get(k) match
+            case Some(existing) =>
+              if cursor.nextSibling ne existing.start then
+                val ref = cursor.nextSibling
+                nodesOf(existing).foreach(n => parent.insertBefore(n, ref))
+              if existing.value != v then
+                existing.cancelable.cancel
+                while existing.start.nextSibling ne existing.end do
+                  parent.removeChild(existing.start.nextSibling)
+                existing.value = v
+                renderContent(existing)
+              existing
+            case None =>
+              val created = KeyedItem(v, newTextNode(""), newTextNode(""))
+              val ref     = cursor.nextSibling
+              parent.insertBefore(created.start, ref)
+              parent.insertBefore(created.end, ref)
+              renderContent(created)
+              created
+        next += k -> item
+        cursor = item.end
+      }
+      items = next.result()
+    end update
+
+    val subscription =
+      RxRunner.runContinuously(list.items) {
+        case OnNext(values) =>
+          update(values.asInstanceOf[Seq[Any]])
+        case OnError(e) =>
+          warn(s"Error while rendering a keyed list: ${e.getMessage}", e)
+        case _ =>
+      }
+    Cancelable { () =>
+      try items.values.foreach(_.cancelable.cancel)
+      finally subscription.cancel
+    }
+
+  end renderKeyedList
+
   /**
     * Render a DomNode to an existing DOM node.
     *
@@ -224,7 +318,7 @@ object DomRenderer extends LogSupport:
           node.mountHere(elem, anchor)
           c
         case rx: RxOps[?] =>
-          val (start, end) = node.createMountSection()
+          val (start, end) = node.createMountSection(anchor)
           var c1           = Cancelable.empty
           val c2           =
             RxRunner.runContinuously(rx) {
@@ -247,6 +341,13 @@ object DomRenderer extends LogSupport:
             try c1.cancel
             finally c2.cancel
           }
+        case kl: KeyedList[?, ?] =>
+          renderKeyedList(
+            node,
+            kl.asInstanceOf[KeyedList[Any, Any]],
+            anchor,
+            (item, at, ctx) => traverse(item, at, ctx)
+          )
         case a: DomAttribute =>
           addAttribute(node, a)
         case vb: ValueBinding =>
@@ -918,11 +1019,15 @@ object DomRenderer extends LogSupport:
         dyn.updateDynamic(key)(null)
       }
 
-    def createMountSection(): (dom.Node, dom.Node) =
+    /**
+      * Two empty text nodes that bracket a section, placed at `anchor` (or at the end). Content
+      * goes in before `start`; the section runs from `end` to `start`.
+      */
+    def createMountSection(anchor: Option[dom.Node]): (dom.Node, dom.Node) =
       val start = newTextNode("")
       val end   = newTextNode("")
-      node.appendChild(end)
-      node.appendChild(start)
+      node.mountHere(end, anchor)
+      node.mountHere(start, anchor)
       (start, end)
 
     def mountHere(child: dom.Node, start: Option[dom.Node]): Unit =

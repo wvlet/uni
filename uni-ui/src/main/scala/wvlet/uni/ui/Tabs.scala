@@ -22,10 +22,7 @@ import wvlet.uni.ui.base.RovingFocus
 import scala.language.implicitConversions
 
 /** One tab of a [[TabList]]: selecting it sets the list's variable to `value`. */
-class Tab[A] private (val value: A, val content: Seq[DomNode])
-
-object Tab:
-  def apply[A](value: A, content: DomNode*): Tab[A] = new Tab(value, content)
+class Tab[A](val value: A, val content: DomNode*)
 
 /**
   * A row of tabs bound to `selected`. Clicking a tab selects it; with focus in the list, the arrow
