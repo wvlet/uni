@@ -20,77 +20,88 @@ import wvlet.uni.dom.all.given
 
 class DomRefTest extends UniTest:
 
-  test("DomRef starts with None"):
+  test("DomRef starts with None") {
     val myRef = DomRef[dom.html.Input]()
     myRef.current shouldBe None
+  }
 
-  test("DomRef.set updates current"):
+  test("DomRef.set updates current") {
     val myRef = DomRef[dom.html.Div]()
     val elem  = dom.document.createElement("div").asInstanceOf[dom.html.Div]
     myRef.set(elem)
     myRef.current shouldBe Some(elem)
+  }
 
-  test("DomRef.clear removes reference"):
+  test("DomRef.clear removes reference") {
     val myRef = DomRef[dom.html.Div]()
     val elem  = dom.document.createElement("div").asInstanceOf[dom.html.Div]
     myRef.set(elem)
     myRef.clear()
     myRef.current shouldBe None
+  }
 
-  test("DomRef.foreach executes when element exists"):
+  test("DomRef.foreach executes when element exists") {
     val myRef  = DomRef[dom.html.Div]()
     val elem   = dom.document.createElement("div").asInstanceOf[dom.html.Div]
     var called = false
     myRef.set(elem)
     myRef.foreach(_ => called = true)
     called shouldBe true
+  }
 
-  test("DomRef.foreach does nothing when element is None"):
+  test("DomRef.foreach does nothing when element is None") {
     val myRef  = DomRef[dom.html.Div]()
     var called = false
     myRef.foreach(_ => called = true)
     called shouldBe false
+  }
 
-  test("DomRef.map transforms element when present"):
+  test("DomRef.map transforms element when present") {
     val myRef = DomRef[dom.html.Div]()
     val elem  = dom.document.createElement("div").asInstanceOf[dom.html.Div]
     elem.className = "test-class"
     myRef.set(elem)
     myRef.map(_.className) shouldBe Some("test-class")
+  }
 
-  test("DomRef.map returns None when element is absent"):
+  test("DomRef.map returns None when element is absent") {
     val myRef = DomRef[dom.html.Div]()
     myRef.map(_.className) shouldBe None
+  }
 
-  test("RefBinding is a DomNode"):
+  test("RefBinding is a DomNode") {
     val myRef   = DomRef[dom.html.Input]()
     val binding = RefBinding(myRef)
     binding shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("ref -> syntax creates RefBinding"):
+  test("ref -> syntax creates RefBinding") {
     val myRef   = DomRef[dom.html.Input]()
     val binding = ref -> myRef
     binding shouldMatch { case rb: RefBinding[?] =>
       rb.ref shouldBe myRef
     }
+  }
 
-  test("DomRef.binding creates RefBinding"):
+  test("DomRef.binding creates RefBinding") {
     val myRef   = DomRef[dom.html.Input]()
     val binding = myRef.binding
     binding shouldMatch { case rb: RefBinding[?] =>
       rb.ref shouldBe myRef
     }
+  }
 
-  test("DomRef is set during rendering"):
+  test("DomRef is set during rendering") {
     val inputRef  = DomRef[dom.html.Input]()
     val elem      = input(tpe -> "text", ref -> inputRef)
     val (node, _) = DomRenderer.createNode(elem)
 
     inputRef.current shouldNotBe None
     inputRef.current.map(_.tagName.toLowerCase) shouldBe Some("input")
+  }
 
-  test("DomRef rx emits element when set"):
+  test("DomRef rx emits element when set") {
     val myRef = DomRef[dom.html.Div]()
     val elem  = dom.document.createElement("div").asInstanceOf[dom.html.Div]
 
@@ -103,8 +114,9 @@ class DomRefTest extends UniTest:
 
     myRef.set(elem)
     received shouldBe Some(elem)
+  }
 
-  test("DomRef.getBoundingClientRect returns rect when element exists"):
+  test("DomRef.getBoundingClientRect returns rect when element exists") {
     val myRef     = DomRef[dom.html.Div]()
     val elem      = div(ref -> myRef)
     val (node, _) = DomRenderer.createNode(elem)
@@ -112,9 +124,11 @@ class DomRefTest extends UniTest:
     // In jsdom, getBoundingClientRect returns a rect (may be zero dimensions)
     val rect = myRef.getBoundingClientRect()
     rect shouldNotBe None
+  }
 
-  test("DomRef.getBoundingClientRect returns None when element is absent"):
+  test("DomRef.getBoundingClientRect returns None when element is absent") {
     val myRef = DomRef[dom.html.Div]()
     myRef.getBoundingClientRect() shouldBe None
+  }
 
 end DomRefTest

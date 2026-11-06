@@ -33,7 +33,7 @@ import wvlet.uni.dom.SvgAttrs.{xmlns as _, *}
   */
 class SvgAttrsImportTest extends UniTest:
 
-  test("targeted SVG attribute import exposes SVG attribute bindings"):
+  test("targeted SVG attribute import exposes SVG attribute bindings") {
     // `cx`, `r`, `fill` are SVG attributes brought in by the wildcard. Verify each binds to
     // a `DomAttributeOf` whose attribute name carries through to the produced `DomAttribute`
     // — comparing the produced `DomAttribute.name` rather than `DomAttributeOf` instances
@@ -50,10 +50,12 @@ class SvgAttrsImportTest extends UniTest:
     color("blue") shouldMatch { case a: DomAttribute =>
       a.name shouldBe "fill"
     }
+  }
 
-  test("renamed-out SVG `xmlns` is not in scope"):
+  test("renamed-out SVG `xmlns` is not in scope") {
     // `xmlns` was excluded with `as _`. It must not bind here.
     val unqualifiedXmlns = scala.compiletime.testing.typeChecks("val a = xmlns")
     unqualifiedXmlns shouldBe false
+  }
 
 end SvgAttrsImportTest

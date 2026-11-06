@@ -14,7 +14,7 @@ import scala.concurrent.{Future, Promise}
 /** The composer, the panes, and the rail, rendered into a real DOM with no server. */
 class ComponentTest extends DomTestSupport:
 
-  test("the composer sends trimmed text on Enter and clears itself"):
+  test("the composer sends trimmed text on Enter and clears itself") {
     val sent = mutable.Buffer.empty[String]
     val m    = mount(Composer(sent += _, Rx.variable(false)))
     val box  = m.get("textarea")
@@ -22,8 +22,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.keyDown(box, "Enter")
     sent.toSeq shouldBe Seq("hello")
     box.asInstanceOf[dom.html.TextArea].value shouldBe ""
+  }
 
-  test("the composer keeps Shift+Enter and IME Enter as text input"):
+  test("the composer keeps Shift+Enter and IME Enter as text input") {
     val sent = mutable.Buffer.empty[String]
     val m    = mount(Composer(sent += _, Rx.variable(false)))
     val box  = m.get("textarea")
@@ -31,8 +32,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.keyDown(box, "Enter", shiftKey = true)
     fireEvent.keyDown(box, "Enter", isComposing = true)
     sent.toSeq shouldBe Seq.empty
+  }
 
-  test("the composer waits while a reply is on its way"):
+  test("the composer waits while a reply is on its way") {
     val sent = mutable.Buffer.empty[String]
     val busy = Rx.variable(true)
     val m    = mount(Composer(sent += _, busy))
@@ -47,18 +49,20 @@ class ComponentTest extends DomTestSupport:
       fireEvent.keyDown(box, "Enter")
       sent.toSeq shouldBe Seq("later")
     }
+  }
 
   private def paneWidth(m: Mounted): String =
     m.get("aside").asInstanceOf[dom.html.Element].style.width
 
-  test("a foldable pane collapses to zero width and back"):
+  test("a foldable pane collapses to zero width and back") {
     val open = Rx.variable(true)
     val m    = mount(FoldablePane(open, Rx.variable(300), Edge.Left)())
     paneWidth(m) shouldBe "300px"
     open := false
     paneWidth(m) shouldBe "0px"
+  }
 
-  test("dragging the resize handle changes the width within its range"):
+  test("dragging the resize handle changes the width within its range") {
     val width  = Rx.variable(272)
     val handle = Splitter(width, Layout.sidebarWidth, Edge.Right, "Resize")
     val m      = mount(FoldablePane(Rx.variable(true), width, Edge.Right, Some(handle))())
@@ -74,8 +78,9 @@ class ComponentTest extends DomTestSupport:
     width.get shouldBe Layout.sidebarWidth.max
     fireEvent.dblclick(grip)
     width.get shouldBe Layout.sidebarWidth.default
+  }
 
-  test("a handle on the left edge grows the pane as it moves left"):
+  test("a handle on the left edge grows the pane as it moves left") {
     val width  = Rx.variable(300)
     val handle = Splitter(width, SizeRange(200, 300, 400), Edge.Left, "Resize")
     val m      = mount(handle)
@@ -83,8 +88,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.pointerMove(dom.window, clientX = 450)
     fireEvent.pointerUp(dom.window, clientX = 450)
     width.get shouldBe 350
+  }
 
-  test("the dock's left-edge handle resizes the shared dock width and resets it"):
+  test("the dock's left-edge handle resizes the shared dock width and resets it") {
     val layout = Layout.inMemory()
     val handle = Splitter(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
     val m      = mount(FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))())
@@ -96,8 +102,9 @@ class ComponentTest extends DomTestSupport:
     paneWidth(m) shouldBe s"${Layout.dockWidth.max}px"
     fireEvent.dblclick(grip)
     layout.dockWidth.get shouldBe Layout.dockWidth.default
+  }
 
-  test("a dock width stored under an older, larger max loads clamped and is saved back"):
+  test("a dock width stored under an older, larger max loads clamped and is saved back") {
     val prefix = "component-test.clamp."
     val key    = s"${prefix}dockWidth"
     dom.window.localStorage.setItem(key, "960")
@@ -108,8 +115,9 @@ class ComponentTest extends DomTestSupport:
       dom.window.localStorage.getItem(key) shouldBe s"${Layout.dockWidth.max}"
     finally
       dom.window.localStorage.removeItem(key)
+  }
 
-  test("clicking the active rail icon folds the sidebar; another icon switches views"):
+  test("clicking the active rail icon folds the sidebar; another icon switches views") {
     val layout = Layout.inMemory()
     val m      = mount(IconRail(layout))
     fireEvent.click(m.get("[aria-label=Files]"))
@@ -117,8 +125,9 @@ class ComponentTest extends DomTestSupport:
     layout.sidebarOpen.get shouldBe true
     fireEvent.click(m.get("[aria-label=Files]"))
     layout.sidebarOpen.get shouldBe false
+  }
 
-  test("the theme menu checks the current scheme, picks another, and sets data-theme"):
+  test("the theme menu checks the current scheme, picks another, and sets data-theme") {
     val layout                               = Layout.inMemory()
     val root                                 = dom.document.createElement("div")
     val sub                                  = layout.theme.run(t => ColorScheme.applyTo(root, t))
@@ -142,8 +151,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(item("Light"))
     root.getAttribute("data-theme") shouldBe "light"
     sub.cancel
+  }
 
-  test("the palette lists commands, then conversations, and runs what it finds"):
+  test("the palette lists commands, then conversations, and runs what it finds") {
     val layout  = Layout.inMemory()
     val store   = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
     var newChat = 0
@@ -176,8 +186,9 @@ class ComponentTest extends DomTestSupport:
         layout.dockTab.get shouldBe DockTab.Activity
         open.get shouldBe false
       }
+  }
 
-  test("the activity log renders its calls through a virtual list, newest first"):
+  test("the activity log renders its calls through a virtual list, newest first") {
     val log = RpcLog()
     Seq("listConversations", "createConversation", "sendMessage").foreach(m =>
       log.track(m)(Rx.const(())).run(_ => ())
@@ -188,8 +199,9 @@ class ComponentTest extends DomTestSupport:
       Seq("sendMessage", "createConversation", "listConversations")
     log.calls.get.map(_.id) shouldBe Seq(3L, 2L, 1L)
     m.text shouldContain "Last 3 calls"
+  }
 
-  test("the file tree opens folders from the keyboard"):
+  test("the file tree opens folders from the keyboard") {
     val m     = mount(FileTree())
     val tree  = m.get("[role=tree]").asInstanceOf[dom.HTMLElement]
     def names = m.queryAll(".uni-list__row").map(_.textContent).toSeq
@@ -211,20 +223,23 @@ class ComponentTest extends DomTestSupport:
     fireEvent.keyDown(tree, "ArrowRight")
     names.takeRight(4) shouldBe Seq("src", "main", "preload", "web")
     m.queryAll(".uni-list__row").last.getAttribute("aria-level") shouldBe "2"
+  }
 
-  test("the terminal title falls back to Terminal and is shortened"):
+  test("the terminal title falls back to Terminal and is shortened") {
     TerminalPane.displayTitle("") shouldBe "Terminal"
     TerminalPane.displayTitle("  vim   main.scala ") shouldBe "vim main.scala"
     val long = TerminalPane.displayTitle("x" * 200)
     long.length shouldBe 120
     long.endsWith("…") shouldBe true
+  }
 
-  test("the Terminal tab is visible only while the dock is open on it"):
+  test("the Terminal tab is visible only while the dock is open on it") {
     Dock.isTerminalVisible(true, DockTab.Terminal) shouldBe true
     Dock.isTerminalVisible(true, DockTab.Activity) shouldBe false
     Dock.isTerminalVisible(false, DockTab.Terminal) shouldBe false
+  }
 
-  test("the terminal header shows the program's title and a bell reaches onBell"):
+  test("the terminal header shows the program's title and a bell reaches onBell") {
     var bells = 0
     val pane  = TerminalPane(Rx.variable(ColorScheme.Light), () => bells += 1)
     val m     = mount(pane)
@@ -233,8 +248,9 @@ class ComponentTest extends DomTestSupport:
     m.get("span.truncate").textContent shouldBe "~/work/uni"
     pane.term.write("\u0007")
     bells shouldBe 1
+  }
 
-  test("offer to explain a failed command, and pass a prompt with its output to the chat"):
+  test("offer to explain a failed command, and pass a prompt with its output to the chat") {
     var asked         = Seq.empty[String]
     val pane          = TerminalPane(Rx.variable(ColorScheme.Light), onAsk = text => asked :+= text)
     val m             = mount(pane)
@@ -254,8 +270,9 @@ class ComponentTest extends DomTestSupport:
     explainButton.isDefined shouldBe true
     pane.term.write("true\r\n\u001b]133;C\u0007\u001b]133;D;0\u0007" + prompt)
     explainButton shouldBe None
+  }
 
-  test("cut long output from the top in the explain prompt"):
+  test("cut long output from the top in the explain prompt") {
     val output = (1 to 200).map(i => s"line ${i}").mkString("\n")
     val text   = TerminalPane.explainPrompt(
       wvlet.uni.cli.term.TerminalCommand(0, "build", output, Some(1))
@@ -263,16 +280,18 @@ class ComponentTest extends DomTestSupport:
     text shouldContain "line 200"
     text shouldNotContain "line 100\n"
     text shouldContain "(earlier output cut)"
+  }
 
-  test("the demo shell marks commands and their exit codes"):
+  test("the demo shell marks commands and their exit codes") {
     val term = wvlet.uni.cli.term.TerminalEmulator()
     DemoShell(term).start()
     term.sendText("echo hi\r")
     term.sendText("nope\r")
     term.commands.map(c => (c.command, c.exitCode)) shouldBe
       Seq(("echo hi", Some(0)), ("nope", Some(127)))
+  }
 
-  test("a sent prompt keeps its bubble when the reply confirms it, so its entrance plays once"):
+  test("a sent prompt keeps its bubble when the reply confirms it, so its entrance plays once") {
     val reply = Promise[String]()
     val store = ChatStore(ChatService(respond = _ => reply.future))
     Rx.future(store.load())
@@ -292,8 +311,9 @@ class ComponentTest extends DomTestSupport:
         draft.textContent.contains("Sending…") shouldBe false
         store.messages.get.count(m => !ChatStore.isDraft(m)) shouldBe 2
       }
+  }
 
-  test("renaming a conversation keeps the other rows in the chat list"):
+  test("renaming a conversation keeps the other rows in the chat list") {
     val store = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
     def rows  = dom.document.querySelectorAll("button.group").toSeq
     Rx.future(store.load().flatMap(_ => store.newChat()))
@@ -308,5 +328,6 @@ class ComponentTest extends DomTestSupport:
         rows.head.textContent shouldContain "Hello Uni"
         rows.exists(_ eq other) shouldBe true
       }
+  }
 
 end ComponentTest

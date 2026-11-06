@@ -24,73 +24,86 @@ import scala.concurrent.Future
 
 class ClipboardTest extends UniTest:
 
-  test("Clipboard.isSupported returns Boolean"):
+  test("Clipboard.isSupported returns Boolean") {
     val supported = Clipboard.isSupported
     supported shouldMatch { case _: Boolean =>
     }
+  }
 
-  test("Clipboard.writeText returns Future[Unit]"):
+  test("Clipboard.writeText returns Future[Unit]") {
     val result = Clipboard.writeText("test")
     result shouldMatch { case _: Future[?] =>
     }
+  }
 
-  test("Clipboard.readText returns Future[String]"):
+  test("Clipboard.readText returns Future[String]") {
     val result = Clipboard.readText()
     result shouldMatch { case _: Future[?] =>
     }
+  }
 
-  test("Clipboard.writeTextRx returns Rx[Option[Boolean]]"):
+  test("Clipboard.writeTextRx returns Rx[Option[Boolean]]") {
     val result = Clipboard.writeTextRx("test")
     result shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("Clipboard.onCopy returns DomNode"):
+  test("Clipboard.onCopy returns DomNode") {
     val node = Clipboard.onCopy(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.onCut returns DomNode"):
+  test("Clipboard.onCut returns DomNode") {
     val node = Clipboard.onCut(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.onPaste returns DomNode"):
+  test("Clipboard.onPaste returns DomNode") {
     val node = Clipboard.onPaste(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.onPasteEvent returns DomNode"):
+  test("Clipboard.onPasteEvent returns DomNode") {
     val node = Clipboard.onPasteEvent(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.copyAs returns DomNode"):
+  test("Clipboard.copyAs returns DomNode") {
     val node = Clipboard.copyAs(() => "text")
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.cutAs returns DomNode"):
+  test("Clipboard.cutAs returns DomNode") {
     val node = Clipboard.cutAs(() => "text")
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.copyOnClick returns DomNode"):
+  test("Clipboard.copyOnClick returns DomNode") {
     val node = Clipboard.copyOnClick("text")
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.copyOnClick with callbacks returns DomNode"):
+  test("Clipboard.copyOnClick with callbacks returns DomNode") {
     var success = false
     val node = Clipboard.copyOnClick("text", onSuccess = () => success = true, onFailure = _ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.copyOnClickDynamic returns DomNode"):
+  test("Clipboard.copyOnClickDynamic returns DomNode") {
     val node = Clipboard.copyOnClickDynamic(() => "dynamic text")
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard.copyOnClickDynamic with callbacks returns DomNode"):
+  test("Clipboard.copyOnClickDynamic with callbacks returns DomNode") {
     var success = false
     val node    = Clipboard.copyOnClickDynamic(
       () => "dynamic text",
@@ -99,8 +112,9 @@ class ClipboardTest extends UniTest:
     )
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Clipboard handlers can be attached to elements"):
+  test("Clipboard handlers can be attached to elements") {
     val elem = div(
       Clipboard.onCopy(text => ()),
       Clipboard.onCut(text => ()),
@@ -109,13 +123,15 @@ class ClipboardTest extends UniTest:
     )
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Clipboard.copyOnClick can be attached to button"):
+  test("Clipboard.copyOnClick can be attached to button") {
     val elem = button(Clipboard.copyOnClick("Hello, World!"), "Copy")
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Clipboard event handlers render correctly"):
+  test("Clipboard event handlers render correctly") {
     val elem           = div(Clipboard.onPaste(_ => ()))
     val (node, cancel) = DomRenderer.createNode(elem)
 
@@ -127,5 +143,6 @@ class ClipboardTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
 end ClipboardTest

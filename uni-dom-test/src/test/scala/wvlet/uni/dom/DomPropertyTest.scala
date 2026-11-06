@@ -21,13 +21,14 @@ import wvlet.uni.rx.Rx
 
 class DomPropertyTest extends UniTest:
 
-  test("value property sets input value"):
+  test("value property sets input value") {
     val elem      = input(tpe -> "text", value -> "hello")
     val (node, _) = DomRenderer.createNode(elem)
     val inputNode = node.asInstanceOf[org.scalajs.dom.html.Input]
     inputNode.value shouldBe "hello"
+  }
 
-  test("value property with reactive value"):
+  test("value property with reactive value") {
     val text      = Rx.variable("initial")
     val elem      = input(tpe -> "text", value -> text)
     val (node, _) = DomRenderer.createNode(elem)
@@ -37,14 +38,16 @@ class DomPropertyTest extends UniTest:
     // Update the reactive value
     text := "updated"
     inputNode.value shouldBe "updated"
+  }
 
-  test("checked property sets checkbox state"):
+  test("checked property sets checkbox state") {
     val elem      = input(tpe -> "checkbox", checked -> true)
     val (node, _) = DomRenderer.createNode(elem)
     val inputNode = node.asInstanceOf[org.scalajs.dom.html.Input]
     inputNode.checked shouldBe true
+  }
 
-  test("checked property with reactive value"):
+  test("checked property with reactive value") {
     val isChecked = Rx.variable(false)
     val elem      = input(tpe -> "checkbox", checked -> isChecked)
     val (node, _) = DomRenderer.createNode(elem)
@@ -54,14 +57,16 @@ class DomPropertyTest extends UniTest:
     // Update the reactive value
     isChecked := true
     inputNode.checked shouldBe true
+  }
 
-  test("disabled property sets disabled state"):
+  test("disabled property sets disabled state") {
     val elem      = input(tpe -> "text", disabled)
     val (node, _) = DomRenderer.createNode(elem)
     val inputNode = node.asInstanceOf[org.scalajs.dom.html.Input]
     inputNode.disabled shouldBe true
+  }
 
-  test("value.bind creates two-way binding"):
+  test("value.bind creates two-way binding") {
     val text      = Rx.variable("initial")
     val elem      = input(tpe -> "text", value.bind(text))
     val (node, _) = DomRenderer.createNode(elem)
@@ -78,8 +83,9 @@ class DomPropertyTest extends UniTest:
     inputNode.value = "from-dom"
     inputNode.dispatchEvent(new org.scalajs.dom.Event("input"))
     text.get shouldBe "from-dom"
+  }
 
-  test("checked.bind creates two-way binding"):
+  test("checked.bind creates two-way binding") {
     val isChecked = Rx.variable(false)
     val elem      = input(tpe -> "checkbox", checked.bind(isChecked))
     val (node, _) = DomRenderer.createNode(elem)
@@ -96,8 +102,9 @@ class DomPropertyTest extends UniTest:
     inputNode.checked = false
     inputNode.dispatchEvent(new org.scalajs.dom.Event("change"))
     isChecked.get shouldBe false
+  }
 
-  test("reactive checked toggles correctly from true to false"):
+  test("reactive checked toggles correctly from true to false") {
     val isChecked = Rx.variable(true)
     val elem      = input(tpe -> "checkbox", checked -> isChecked)
     val (node, _) = DomRenderer.createNode(elem)
@@ -111,8 +118,9 @@ class DomPropertyTest extends UniTest:
     // Toggle back to true
     isChecked := true
     inputNode.checked shouldBe true
+  }
 
-  test("value.bind works with textarea"):
+  test("value.bind works with textarea") {
     val text         = Rx.variable("initial text")
     val elem         = textarea(value.bind(text))
     val (node, _)    = DomRenderer.createNode(elem)
@@ -124,8 +132,9 @@ class DomPropertyTest extends UniTest:
     // Update Rx -> DOM should update
     text := "updated text"
     textareaNode.value shouldBe "updated text"
+  }
 
-  test("value.bind works with select"):
+  test("value.bind works with select") {
     val selected = Rx.variable("a")
     val elem     = select(
       option(value -> "a", "Option A"),
@@ -146,5 +155,6 @@ class DomPropertyTest extends UniTest:
     // Update back
     selected := "b"
     selectNode.value shouldBe "b"
+  }
 
 end DomPropertyTest

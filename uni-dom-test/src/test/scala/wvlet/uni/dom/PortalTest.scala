@@ -30,7 +30,7 @@ class PortalTest extends UniTest:
     if tooltipRoot != null then
       tooltipRoot.parentNode.removeChild(tooltipRoot)
 
-  test("Portal.to renders children to target element by ID"):
+  test("Portal.to renders children to target element by ID") {
     cleanupPortalRoots()
     // Create a target element
     val target = dom.document.createElement("div")
@@ -49,8 +49,9 @@ class PortalTest extends UniTest:
     // Cleanup
     cancelable.cancel
     dom.document.body.removeChild(node)
+  }
 
-  test("Portal.to creates target element if it doesn't exist"):
+  test("Portal.to creates target element if it doesn't exist") {
     cleanupPortalRoots()
     val elem               = div(Portal.to("tooltip-root")(span("Tooltip content")))
     val (node, cancelable) = DomRenderer.createNode(elem)
@@ -64,8 +65,9 @@ class PortalTest extends UniTest:
     // Cleanup
     cancelable.cancel
     dom.document.body.removeChild(node)
+  }
 
-  test("Portal.toBody renders children to document.body"):
+  test("Portal.toBody renders children to document.body") {
     cleanupPortalRoots()
     val elem = div(Portal.toBody(span(id -> "body-portal-content", "Body portal content")))
     val (node, cancelable) = DomRenderer.createNode(elem)
@@ -80,8 +82,9 @@ class PortalTest extends UniTest:
     cancelable.cancel
     dom.document.getElementById("body-portal-content") shouldBe null
     dom.document.body.removeChild(node)
+  }
 
-  test("Portal.toElement renders children to specific element"):
+  test("Portal.toElement renders children to specific element") {
     cleanupPortalRoots()
     val customTarget = dom.document.createElement("div")
     customTarget.setAttribute("id", "custom-target")
@@ -98,8 +101,9 @@ class PortalTest extends UniTest:
     cancelable.cancel
     dom.document.body.removeChild(node)
     dom.document.body.removeChild(customTarget)
+  }
 
-  test("Portal content is cleaned up on cancel"):
+  test("Portal content is cleaned up on cancel") {
     cleanupPortalRoots()
     val target = dom.document.createElement("div")
     target.setAttribute("id", "portal-root")
@@ -118,8 +122,9 @@ class PortalTest extends UniTest:
     portalRoot.innerHTML shouldNotContain "cleanup-test"
 
     dom.document.body.removeChild(node)
+  }
 
-  test("Portal renders reactive content"):
+  test("Portal renders reactive content") {
     cleanupPortalRoots()
     val target = dom.document.createElement("div")
     target.setAttribute("id", "portal-root")
@@ -140,8 +145,9 @@ class PortalTest extends UniTest:
     // Cleanup
     cancelable.cancel
     dom.document.body.removeChild(node)
+  }
 
-  test("Multiple children in Portal"):
+  test("Multiple children in Portal") {
     cleanupPortalRoots()
     val target = dom.document.createElement("div")
     target.setAttribute("id", "portal-root")
@@ -159,5 +165,6 @@ class PortalTest extends UniTest:
     // Cleanup
     cancelable.cancel
     dom.document.body.removeChild(node)
+  }
 
 end PortalTest

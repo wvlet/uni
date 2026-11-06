@@ -21,15 +21,17 @@ import scala.language.implicitConversions
 
 class QueryTest extends UniTest with DomTestSupport:
 
-  test("getByTestId finds an element by data-testid"):
+  test("getByTestId finds an element by data-testid") {
     val m = mount(RxElement(div(data("testid") -> "save-button", button("Save"))))
     m.getByTestId("save-button").textContent shouldBe "Save"
+  }
 
-  test("queryByTestId returns None for a missing id"):
+  test("queryByTestId returns None for a missing id") {
     val m = mount(RxElement(div("x")))
     m.queryByTestId("nope") shouldBe None
+  }
 
-  test("queryAllByTestId returns every match"):
+  test("queryAllByTestId returns every match") {
     val m = mount(
       RxElement(
         div(
@@ -40,23 +42,28 @@ class QueryTest extends UniTest with DomTestSupport:
       )
     )
     m.queryAllByTestId("row").map(_.textContent) shouldBe Seq("a", "b", "c")
+  }
 
-  test("getByText accepts a regex matcher"):
+  test("getByText accepts a regex matcher") {
     val m = mount(RxElement(div(span("Order #1234 shipped"))))
     m.getByText("Order #\\d+ shipped".r).textContent shouldBe "Order #1234 shipped"
+  }
 
-  test("queryAll wraps querySelectorAll as a Seq"):
+  test("queryAll wraps querySelectorAll as a Seq") {
     val m = mount(RxElement(ul(li("one"), li("two"))))
     m.queryAll("li").map(_.textContent) shouldBe Seq("one", "two")
+  }
 
-  test("get throws ElementNotFoundException for an absent selector"):
+  test("get throws ElementNotFoundException for an absent selector") {
     val m = mount(RxElement(div("x")))
     intercept[ElementNotFoundException] {
       m.query.get(".missing")
     }
+  }
 
-  test("getByText trims surrounding whitespace before matching"):
+  test("getByText trims surrounding whitespace before matching") {
     val m = mount(RxElement(div(span("   trimmed   "))))
     m.getByText("trimmed").textContent.trim shouldBe "trimmed"
+  }
 
 end QueryTest

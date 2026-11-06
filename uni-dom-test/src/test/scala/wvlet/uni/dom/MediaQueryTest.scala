@@ -24,34 +24,40 @@ class MediaQueryTest extends UniTest:
   // These run in a real headless Chromium (Playwright), so window.matchMedia is
   // available and the matchers can be evaluated at runtime, not just compiled.
 
-  test("MediaQuery object exists"):
+  test("MediaQuery object exists") {
     MediaQuery shouldNotBe null
+  }
 
-  test("a tautological query matches"):
+  test("a tautological query matches") {
     // (min-width: 0px) is true for any viewport, so this is deterministic.
     MediaQuery.matches("(min-width: 0px)").get shouldBe true
+  }
 
-  test("the `all` media type always matches"):
+  test("the `all` media type always matches") {
     MediaQuery.matches("all").get shouldBe true
+  }
 
-  test("an impossibly wide query does not match"):
+  test("an impossibly wide query does not match") {
     // No real viewport is this wide, so matchMedia must evaluate this to false —
     // proving the query is checked against the viewport, not blindly accepted.
     MediaQuery.matches("(min-width: 999999px)").get shouldBe false
+  }
 
-  test("rx is seeded with the current match state"):
+  test("rx is seeded with the current match state") {
     val matcher = MediaQuery.matches("(min-width: 0px)")
     var seeded  = false
     val c       = matcher.rx.run(seeded = _)
     seeded shouldBe matcher.get
     c.cancel
     matcher.cancel
+  }
 
-  test("matcher can be cancelled without error"):
+  test("matcher can be cancelled without error") {
     val matcher = MediaQuery.matches("(min-width: 0px)")
     matcher.cancel
+  }
 
-  test("a matcher follows a real viewport resize"):
+  test("a matcher follows a real viewport resize") {
     val narrow = MediaQuery.matches("(max-width: 600px)")
     narrow.get shouldBe false
     Playwright
@@ -61,5 +67,6 @@ class MediaQueryTest extends UniTest:
         narrow.cancel
         Rx.fromTry(result).map(_ => ())
       }
+  }
 
 end MediaQueryTest

@@ -36,7 +36,12 @@ Avoid mocks. Use `shouldBe`, `shouldNotBe`, `shouldContain`, `shouldMatch`.
 
 // Type checking
 result shouldMatch { case x: ExpectedType => }  // NOT: .asInstanceOf[X]
+
+// Test bodies use braces, so the end of each test is visible
+test("name") { ... }  // NOT: test("name"): ...
 ```
+
+scalafmt cannot convert `test("..."):` to braces, so the Code format CI job greps for it.
 
 See `.github/instructions/unitest.instructions.md` for more.
 

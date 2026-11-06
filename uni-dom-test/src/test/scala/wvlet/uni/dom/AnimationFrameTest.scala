@@ -42,13 +42,15 @@ class AnimationFrameTest extends UniTest:
         result shouldBe true
       }
 
-  test("AnimationFrame object exists"):
+  test("AnimationFrame object exists") {
     AnimationFrame shouldNotBe null
+  }
 
-  test("once schedules a callback that fires on the next frame"):
+  test("once schedules a callback that fires on the next frame") {
     firesWithin5s(fired => AnimationFrame.once(fired.trySuccess(true)))
+  }
 
-  test("loop invokes the callback and can be stopped"):
+  test("loop invokes the callback and can be stopped") {
     firesWithin5s { fired =>
       var loop: Cancelable = Cancelable.empty
       loop = AnimationFrame.loop { _ =>
@@ -56,11 +58,13 @@ class AnimationFrameTest extends UniTest:
         loop.cancel
       }
     }
+  }
 
-  test("once can be cancelled before it fires without error"):
+  test("once can be cancelled before it fires without error") {
     val c = AnimationFrame.once {
       throw new AssertionError("cancelled callback must not run")
     }
     c.cancel
+  }
 
 end AnimationFrameTest

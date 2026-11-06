@@ -20,34 +20,38 @@ import scala.language.implicitConversions
 
 class CssStylesTest extends UniTest:
 
-  test("create style value"):
+  test("create style value") {
     val sv = style.display := "flex"
     sv.name shouldBe "display"
     sv.value shouldBe "flex"
+  }
 
-  test("grouped style properties (React/Vue style)"):
+  test("grouped style properties (React/Vue style)") {
     val elem      = div(style(style.display := "flex", style.gap := "8px", style.color := "blue"))
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "display: flex"
     html shouldContain "gap: 8px"
     html shouldContain "color: blue"
+  }
 
-  test("raw style string"):
+  test("raw style string") {
     val elem      = div(style := "margin: 10px; padding: 5px;")
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "margin: 10px"
     html shouldContain "padding: 5px"
+  }
 
-  test("combine grouped and raw styles"):
+  test("combine grouped and raw styles") {
     val elem      = div(style(style.display := "flex"), style := "margin: 10px;")
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "display: flex"
     html shouldContain "margin: 10px"
+  }
 
-  test("flexbox properties"):
+  test("flexbox properties") {
     val elem = div(
       style(
         style.display        := "flex",
@@ -62,8 +66,9 @@ class CssStylesTest extends UniTest:
     html shouldContain "flex-direction: column"
     html shouldContain "justify-content: center"
     html shouldContain "align-items: stretch"
+  }
 
-  test("box model properties"):
+  test("box model properties") {
     val elem = div(
       style(
         style.width   := "100px",
@@ -78,8 +83,9 @@ class CssStylesTest extends UniTest:
     html shouldContain "height: 50px"
     html shouldContain "margin: 10px"
     html shouldContain "padding: 5px"
+  }
 
-  test("typography properties"):
+  test("typography properties") {
     val elem = div(
       style(style.fontSize := "16px", style.fontWeight := "bold", style.textAlign := "center")
     )
@@ -88,12 +94,14 @@ class CssStylesTest extends UniTest:
     html shouldContain "font-size: 16px"
     html shouldContain "font-weight: bold"
     html shouldContain "text-align: center"
+  }
 
-  test("style as <style> tag element"):
+  test("style as <style> tag element") {
     val elem      = head(style("body { margin: 0; }"))
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "<style>"
     html shouldContain "body { margin: 0; }"
+  }
 
 end CssStylesTest

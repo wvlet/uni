@@ -32,7 +32,7 @@ class OverlayTest extends DomTestSupport:
 
   private def escape(): Unit = fireEvent.keyDown(active, "Escape")
 
-  test("a popover toggles from its trigger, wires ARIA, and moves focus in and back"):
+  test("a popover toggles from its trigger, wires ARIA, and moves focus in and back") {
     val open    = Rx.variable(false)
     val m       = mount(Popover(open)(Button("Filter"))(input(wvlet.uni.dom.all.cls -> "field")))
     val trigger = m.get("button").asInstanceOf[dom.HTMLElement]
@@ -53,8 +53,9 @@ class OverlayTest extends DomTestSupport:
       find(".uni-popover") shouldBe None
       (active eq trigger) shouldBe true
     }
+  }
 
-  test("a press outside closes a popover, but a press on its trigger does not"):
+  test("a press outside closes a popover, but a press on its trigger does not") {
     val open    = Rx.variable(false)
     val m       = mount(div(Popover(open)(Button("Open"))("Details"), htmlButton("elsewhere")))
     val trigger = m.get(".uni-button")
@@ -71,8 +72,9 @@ class OverlayTest extends DomTestSupport:
         open.get shouldBe false
       }
     }
+  }
 
-  test("Escape closes only the topmost overlay"):
+  test("Escape closes only the topmost overlay") {
     val dialogOpen  = Rx.variable(true)
     val popoverOpen = Rx.variable(false)
     mount(Dialog(dialogOpen)(Popover(popoverOpen)(Button("More"))("Inner")).withTitle("Outer"))
@@ -87,8 +89,9 @@ class OverlayTest extends DomTestSupport:
         dialogOpen.get shouldBe false
       }
     }
+  }
 
-  test("a dialog is labelled by its title, traps Tab, and closes on its backdrop"):
+  test("a dialog is labelled by its title, traps Tab, and closes on its backdrop") {
     val open = Rx.variable(false)
     val m    = mount(
       div(
@@ -124,16 +127,18 @@ class OverlayTest extends DomTestSupport:
       open.get shouldBe false
       (active eq opener) shouldBe true
     }
+  }
 
-  test("noDismissOnBackdrop keeps a dialog open on a backdrop press"):
+  test("noDismissOnBackdrop keeps a dialog open on a backdrop press") {
     val open = Rx.variable(true)
     mount(Dialog(open)("Body").noDismissOnBackdrop())
     settle().map { _ =>
       fireEvent.pointerDown(find(".uni-dialog-backdrop").get)
       open.get shouldBe true
     }
+  }
 
-  test("an alert dialog focuses Cancel, confirms, and cancels on Escape"):
+  test("an alert dialog focuses Cancel, confirms, and cancels on Escape") {
     val open      = Rx.variable(true)
     var confirmed = 0
     var cancelled = 0
@@ -157,8 +162,9 @@ class OverlayTest extends DomTestSupport:
       confirmed shouldBe 1
       open.get shouldBe false
     }
+  }
 
-  test("a menu opens from the keyboard, skips disabled items, and runs the chosen one"):
+  test("a menu opens from the keyboard, skips disabled items, and runs the chosen one") {
     val open   = Rx.variable(false)
     var chosen = List.empty[String]
     val m      = mount(
@@ -189,8 +195,9 @@ class OverlayTest extends DomTestSupport:
       open.get shouldBe false
       (active eq trigger) shouldBe true
     }
+  }
 
-  test("ArrowUp opens a menu at its last item, and a checked item reports aria-checked"):
+  test("ArrowUp opens a menu at its last item, and a checked item reports aria-checked") {
     val open = Rx.variable(false)
     val dark = Rx.variable(true)
     val m    = mount(
@@ -203,8 +210,9 @@ class OverlayTest extends DomTestSupport:
       dark := false
       active.getAttribute("aria-checked") shouldBe "false"
     }
+  }
 
-  test("a context menu opens at the pointer instead of the browser's menu"):
+  test("a context menu opens at the pointer instead of the browser's menu") {
     var copied = 0
     val m      = mount(ContextMenu(div("Message"))(MenuItem("Copy").onSelect(() => copied += 1)))
     val notCancelled = fireEvent.contextMenu(m.getByText("Message"), clientX = 40, clientY = 50)
@@ -217,8 +225,9 @@ class OverlayTest extends DomTestSupport:
       copied shouldBe 1
       find(".uni-menu") shouldBe None
     }
+  }
 
-  test("a select highlights the chosen option and changes it from the keyboard"):
+  test("a select highlights the chosen option and changes it from the keyboard") {
     val model = Rx.variable("sonnet")
     val m = mount(Select(model, Seq("opus", "sonnet", "haiku"))(_.capitalize).withLabel("Model"))
     val trigger = m.get("button").asInstanceOf[dom.HTMLElement]
@@ -248,8 +257,9 @@ class OverlayTest extends DomTestSupport:
         trigger.textContent shouldBe "Opus"
       }
     }
+  }
 
-  test("a tooltip shows on hover, links the trigger, and hides on Escape"):
+  test("a tooltip shows on hover, links the trigger, and hides on Escape") {
     val m       = mount(Tooltip("Theme")(Button("T")).withDelay(0).withSide(Side.Right))
     val trigger = m.get("button")
     trigger.hasAttribute("aria-describedby") shouldBe false
@@ -263,8 +273,9 @@ class OverlayTest extends DomTestSupport:
       find(".uni-tooltip") shouldBe None
       trigger.hasAttribute("aria-describedby") shouldBe false
     }
+  }
 
-  test("toasts stack, announce errors as alerts, and close on their button or timer"):
+  test("toasts stack, announce errors as alerts, and close on their button or timer") {
     val toasts = Toaster()
     mount(div(toasts))
     toasts.info("Saved", durationMs = 0)
@@ -281,8 +292,9 @@ class OverlayTest extends DomTestSupport:
     awaitValue(toasts.toasts)(_.isEmpty).map { _ =>
       find(".uni-toast") shouldBe None
     }
+  }
 
-  test("Tab out of a menu inside a dialog stays inside the dialog"):
+  test("Tab out of a menu inside a dialog stays inside the dialog") {
     val dialogOpen = Rx.variable(true)
     val menuOpen   = Rx.variable(false)
     mount(Dialog(dialogOpen)(Button("First"), Menu(menuOpen)(Button("Last"))(MenuItem("Copy"))))
@@ -297,8 +309,9 @@ class OverlayTest extends DomTestSupport:
         active.textContent shouldBe "First"
       }
     }
+  }
 
-  test("a tooltip showing elsewhere doesn't take Escape from an open menu"):
+  test("a tooltip showing elsewhere doesn't take Escape from an open menu") {
     val menuOpen = Rx.variable(false)
     val m        = mount(
       div(
@@ -313,5 +326,6 @@ class OverlayTest extends DomTestSupport:
       escape()
       menuOpen.get shouldBe false
     }
+  }
 
 end OverlayTest

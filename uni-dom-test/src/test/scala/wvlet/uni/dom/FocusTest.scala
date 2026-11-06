@@ -22,37 +22,43 @@ import wvlet.uni.rx.Rx
 
 class FocusTest extends UniTest:
 
-  test("Focus.trap returns RxElement"):
+  test("Focus.trap returns RxElement") {
     val trap = Focus.trap(div("content"))
     trap shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Focus.onMount returns DomNode"):
+  test("Focus.onMount returns DomNode") {
     val node = Focus.onMount
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Focus.onMountDelayed returns DomNode"):
+  test("Focus.onMountDelayed returns DomNode") {
     val node = Focus.onMountDelayed(100)
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Focus.active returns Rx[Option[Element]]"):
+  test("Focus.active returns Rx[Option[Element]]") {
     val active = Focus.active
     active shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("Focus.currentActive returns Option[Element]"):
+  test("Focus.currentActive returns Option[Element]") {
     val active = Focus.currentActive
     active shouldMatch { case _: Option[?] =>
     }
+  }
 
-  test("Focus.saveAndRestore returns restore function"):
+  test("Focus.saveAndRestore returns restore function") {
     val restore = Focus.saveAndRestore()
     restore shouldMatch { case _: Function0[?] =>
     }
+  }
 
-  test("Focus.withRestoration executes function with restore callback"):
+  test("Focus.withRestoration executes function with restore callback") {
     var restoreCalled = false
     val result        = Focus.withRestoration { restore =>
       // Verify restore is a function
@@ -61,8 +67,9 @@ class FocusTest extends UniTest:
       "result"
     }
     result shouldBe "result"
+  }
 
-  test("Focus.focusById focuses element by id"):
+  test("Focus.focusById focuses element by id") {
     // Create a test element
     val testDiv = dom.document.createElement("div")
     testDiv.id = "focus-test-element"
@@ -75,8 +82,9 @@ class FocusTest extends UniTest:
       dom.document.activeElement shouldBe testDiv
     finally
       dom.document.body.removeChild(testDiv)
+  }
 
-  test("Focus.blur removes focus"):
+  test("Focus.blur removes focus") {
     val testInput = dom.document.createElement("input").asInstanceOf[dom.HTMLInputElement]
     dom.document.body.appendChild(testInput)
 
@@ -91,8 +99,9 @@ class FocusTest extends UniTest:
       dom.document.activeElement shouldBe dom.document.body
     finally
       dom.document.body.removeChild(testInput)
+  }
 
-  test("Focus.getFocusableElements finds buttons"):
+  test("Focus.getFocusableElements finds buttons") {
     val container = dom.document.createElement("div")
     val button    = dom.document.createElement("button")
     container.appendChild(button)
@@ -104,8 +113,9 @@ class FocusTest extends UniTest:
       focusables.head shouldBe button
     finally
       dom.document.body.removeChild(container)
+  }
 
-  test("Focus.getFocusableElements finds inputs"):
+  test("Focus.getFocusableElements finds inputs") {
     val container = dom.document.createElement("div")
     val input     = dom.document.createElement("input")
     container.appendChild(input)
@@ -117,8 +127,9 @@ class FocusTest extends UniTest:
       focusables.head shouldBe input
     finally
       dom.document.body.removeChild(container)
+  }
 
-  test("Focus.getFocusableElements excludes disabled elements"):
+  test("Focus.getFocusableElements excludes disabled elements") {
     val container = dom.document.createElement("div")
     val button    = dom.document.createElement("button")
     button.setAttribute("disabled", "true")
@@ -130,8 +141,9 @@ class FocusTest extends UniTest:
       focusables.length shouldBe 0
     finally
       dom.document.body.removeChild(container)
+  }
 
-  test("Focus.getFocusableElements finds elements with tabindex"):
+  test("Focus.getFocusableElements finds elements with tabindex") {
     val container = dom.document.createElement("div")
     val divTab    = dom.document.createElement("div")
     divTab.setAttribute("tabindex", "0")
@@ -144,8 +156,9 @@ class FocusTest extends UniTest:
       focusables.head shouldBe divTab
     finally
       dom.document.body.removeChild(container)
+  }
 
-  test("Focus.getFocusableElements excludes tabindex=-1"):
+  test("Focus.getFocusableElements excludes tabindex=-1") {
     val container = dom.document.createElement("div")
     val divTab    = dom.document.createElement("div")
     divTab.setAttribute("tabindex", "-1")
@@ -157,8 +170,9 @@ class FocusTest extends UniTest:
       focusables.length shouldBe 0
     finally
       dom.document.body.removeChild(container)
+  }
 
-  test("Focus.active emits values reactively"):
+  test("Focus.active emits values reactively") {
     var result: Option[dom.Element] = None
     val cancel                      = Focus
       .active
@@ -168,8 +182,9 @@ class FocusTest extends UniTest:
     result shouldMatch { case _: Option[?] =>
     }
     cancel.cancel
+  }
 
-  test("Focus.trap renders with tabindex"):
+  test("Focus.trap renders with tabindex") {
     val trap           = Focus.trap(button("Click me"))
     val (node, cancel) = DomRenderer.createNode(trap)
 
@@ -180,8 +195,9 @@ class FocusTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
-  test("Focus.trap contains children"):
+  test("Focus.trap contains children") {
     val trap           = Focus.trap(button("Button 1"), button("Button 2"))
     val (node, cancel) = DomRenderer.createNode(trap)
 
@@ -193,8 +209,9 @@ class FocusTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
-  test("Focus.trap wraps Tab alongside an app's own onkeydown"):
+  test("Focus.trap wraps Tab alongside an app's own onkeydown") {
     var keys = 0
     val m    = testing.mount(
       Focus.trap(button("First"), button("Last"))(
@@ -216,5 +233,6 @@ class FocusTest extends UniTest:
         keys shouldBe 1
         m.unmount()
       }
+  }
 
 end FocusTest

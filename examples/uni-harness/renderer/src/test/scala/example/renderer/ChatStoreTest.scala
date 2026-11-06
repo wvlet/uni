@@ -42,7 +42,7 @@ class ChatStoreTest extends UniTest:
 
   private def instant(prompt: String): Future[String] = Future.successful(s"echo: ${prompt}")
 
-  test("load opens the most recent conversation"):
+  test("load opens the most recent conversation") {
     val store = ChatStore(ChatService(respond = instant))
     store
       .load()
@@ -51,8 +51,9 @@ class ChatStoreTest extends UniTest:
         store.selected.get shouldBe store.conversations.get.headOption.map(_.id)
         store.messages.get shouldBe Seq.empty
       }
+  }
 
-  test("send stores the reply, renames the conversation, and marks the reply fresh once"):
+  test("send stores the reply, renames the conversation, and marks the reply fresh once") {
     val store = ChatStore(ChatService(respond = instant))
     store
       .load()
@@ -66,8 +67,9 @@ class ChatStoreTest extends UniTest:
         store.takeFresh(reply) shouldBe true
         store.takeFresh(reply) shouldBe false
       }
+  }
 
-  test("a late listMessages response does not replace the selected thread"):
+  test("a late listMessages response does not replace the selected thread") {
     val service = ChatService(respond = instant)
     val api     = Gated(service)
     val store   = ChatStore(api)
@@ -86,8 +88,9 @@ class ChatStoreTest extends UniTest:
     yield
       store.selected.get shouldBe Some(b)
       store.messages.get shouldBe Seq.empty
+  }
 
-  test("a reply that arrives after the thread was reloaded shows the prompt once"):
+  test("a reply that arrives after the thread was reloaded shows the prompt once") {
     replies.clear()
     val store = ChatStore(ChatService(respond = heldModel))
     for
@@ -100,8 +103,9 @@ class ChatStoreTest extends UniTest:
       _ = replies.dequeue().success("done")
       _ <- sending
     yield store.messages.get.map(_.text) shouldBe Seq("only once", "done")
+  }
 
-  test("a second send while a reply is pending is ignored"):
+  test("a second send while a reply is pending is ignored") {
     replies.clear()
     val store = ChatStore(ChatService(respond = heldModel))
     for
@@ -113,8 +117,9 @@ class ChatStoreTest extends UniTest:
     yield
       store.messages.get.map(_.text) shouldBe Seq("first", "reply")
       replies.isEmpty shouldBe true
+  }
 
-  test("another conversation can send while one waits for its reply"):
+  test("another conversation can send while one waits for its reply") {
     replies.clear()
     val store = ChatStore(ChatService(respond = heldModel))
     for
@@ -131,8 +136,9 @@ class ChatStoreTest extends UniTest:
     yield
       store.sending.get shouldBe Set.empty
       store.messages.get.map(_.text) shouldBe Seq("in B", "ok")
+  }
 
-  test("a failed send removes the draft and reports the error"):
+  test("a failed send removes the draft and reports the error") {
     val failing =
       new ChatApi:
         private val service                   = ChatService(respond = instant)
@@ -151,5 +157,6 @@ class ChatStoreTest extends UniTest:
         store.sending.get shouldBe Set.empty
         store.error.get shouldBe Some("sendMessage failed: server down")
       }
+  }
 
 end ChatStoreTest

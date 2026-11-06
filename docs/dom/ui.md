@@ -258,11 +258,12 @@ Components render into a real DOM with [uni-dom testing](./#testing-components):
 
 ```scala
 class SendButtonTest extends DomTestSupport:
-  test("send runs once per click"):
+  test("send runs once per click") {
     var sent = 0
     val m    = mount(Button("Send").onClick(() => sent += 1))
     fireEvent.click(m.get("button"))
     sent shouldBe 1
+  }
 ```
 
 [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) builds a full

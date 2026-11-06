@@ -22,7 +22,7 @@ import scala.language.implicitConversions
 
 class RxElementTest extends UniTest:
 
-  test("create custom RxElement"):
+  test("create custom RxElement") {
     var beforeRenderCalled  = false
     var onMountCalled       = false
     var beforeUnmountCalled = false
@@ -36,15 +36,17 @@ class RxElementTest extends UniTest:
     val elem = TestElement()
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("RxElement.apply with element"):
+  test("RxElement.apply with element") {
     val wrapped = RxElement(div("test"))
     wrapped shouldMatch { case _: RxElement =>
     }
     wrapped.render shouldMatch { case _: DomElement =>
     }
+  }
 
-  test("LazyRxElement defers evaluation"):
+  test("LazyRxElement defers evaluation") {
     var evaluated = false
     val lazyElem  = LazyRxElement { () =>
       evaluated = true
@@ -53,12 +55,14 @@ class RxElementTest extends UniTest:
     evaluated shouldBe false
     lazyElem.value
     evaluated shouldBe true
+  }
 
-  test("Embedded wraps values"):
+  test("Embedded wraps values") {
     val embedded = Embedded("test")
     embedded.v shouldBe "test"
+  }
 
-  test("traverseModifiers processes all modifiers"):
+  test("traverseModifiers processes all modifiers") {
     val elem  = div(cls -> "a", id -> "b", span("text"))
     var count = 0
     elem.traverseModifiers { node =>
@@ -66,8 +70,9 @@ class RxElementTest extends UniTest:
       Cancelable.empty
     }
     count shouldBe 3
+  }
 
-  test("nested RxElement"):
+  test("nested RxElement") {
     class Inner extends RxElement:
       override def render: RxElement = span("inner")
 
@@ -77,8 +82,9 @@ class RxElementTest extends UniTest:
     val outer = Outer()
     outer shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("RxElement with reactive content"):
+  test("RxElement with reactive content") {
     val counter = Rx.variable(0)
 
     class Counter extends RxElement:
@@ -87,8 +93,9 @@ class RxElementTest extends UniTest:
     val elem = Counter()
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("primitive literals convert to RxElement"):
+  test("primitive literals convert to RxElement") {
     // Mirrors the airframe-rx-html pattern of helpers taking `RxElement` so they
     // accept primitive literals at the call site. The explicit `RxElement` type
     // ascription is what forces the compiler to apply the new conversion (without
@@ -115,8 +122,9 @@ class RxElementTest extends UniTest:
     }
     c shouldMatch { case Embedded('A') =>
     }
+  }
 
-  test("reactive and collection values convert to RxElement"):
+  test("reactive and collection values convert to RxElement") {
     val rxVar         = Rx.variable(1)
     val rx: RxElement = rxVar.map(_ + 1)
     rx shouldMatch { case Embedded(_) =>
@@ -133,6 +141,7 @@ class RxElementTest extends UniTest:
     val lst: RxElement = List(1, 2, 3)
     lst shouldMatch { case Embedded(List(1, 2, 3)) =>
     }
+  }
 
   // The new conversions widen what compiles as an `RxElement`. Verify the existing
   // `renderTo` extension still mounts these widened roots correctly — i.e. that the
@@ -145,21 +154,23 @@ class RxElementTest extends UniTest:
     dom.document.body.appendChild(n)
     n
 
-  test("string-typed-as-RxElement mounts as text via renderTo"):
+  test("string-typed-as-RxElement mounts as text via renderTo") {
     val target       = freshTarget("rx-elem-mount-string")
     val s: RxElement = "hello"
     val rendered     = s.renderTo("rx-elem-mount-string")
     target.textContent shouldBe "hello"
     rendered.cancelable.cancel
+  }
 
-  test("int-typed-as-RxElement mounts as text via renderTo"):
+  test("int-typed-as-RxElement mounts as text via renderTo") {
     val target       = freshTarget("rx-elem-mount-int")
     val i: RxElement = 42
     val rendered     = i.renderTo("rx-elem-mount-int")
     target.textContent shouldBe "42"
     rendered.cancelable.cancel
+  }
 
-  test("Rx-typed-as-RxElement mounts and updates via renderTo"):
+  test("Rx-typed-as-RxElement mounts and updates via renderTo") {
     val target       = freshTarget("rx-elem-mount-rx")
     val counter      = Rx.variable(0)
     val r: RxElement = counter.map(n => s"count=${n}")
@@ -168,19 +179,22 @@ class RxElementTest extends UniTest:
     counter := 7
     target.textContent shouldBe "count=7"
     rendered.cancelable.cancel
+  }
 
-  test("Seq-typed-as-RxElement mounts each element via renderTo"):
+  test("Seq-typed-as-RxElement mounts each element via renderTo") {
     val target         = freshTarget("rx-elem-mount-seq")
     val seq: RxElement = Seq("a", "b", "c")
     val rendered       = seq.renderTo("rx-elem-mount-seq")
     target.textContent shouldBe "abc"
     rendered.cancelable.cancel
+  }
 
-  test("Option-typed-as-RxElement mounts the inner value via renderTo"):
+  test("Option-typed-as-RxElement mounts the inner value via renderTo") {
     val target         = freshTarget("rx-elem-mount-opt")
     val opt: RxElement = Option("present")
     val rendered       = opt.renderTo("rx-elem-mount-opt")
     target.textContent shouldBe "present"
     rendered.cancelable.cancel
+  }
 
 end RxElementTest

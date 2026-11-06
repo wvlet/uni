@@ -23,7 +23,7 @@ import scala.language.implicitConversions
 
 class ComponentTest extends DomTestSupport:
 
-  test("a button runs its action and carries its variant and size classes"):
+  test("a button runs its action and carries its variant and size classes") {
     var clicks = 0
     val m      = mount(Button("Send").primary.small.onClick(() => clicks += 1))
     val b      = m.get("button")
@@ -31,8 +31,9 @@ class ComponentTest extends DomTestSupport:
     b.getAttribute("class") shouldBe "uni-button uni-button--primary uni-button--sm"
     fireEvent.click(b)
     clicks shouldBe 1
+  }
 
-  test("a disabled button follows its Rx and ignores clicks"):
+  test("a disabled button follows its Rx and ignores clicks") {
     var clicks = 0
     val off    = Rx.variable(true)
     val m      = mount(Button("Go").withDisabled(off).onClick(() => clicks += 1))
@@ -44,20 +45,23 @@ class ComponentTest extends DomTestSupport:
     b.disabled shouldBe false
     fireEvent.click(b)
     clicks shouldBe 1
+  }
 
-  test("an icon button is a ghost square with an accessible name"):
+  test("an icon button is a ghost square with an accessible name") {
     val m = mount(IconButton("Close", "×"))
     val b = m.get("button")
     b.getAttribute("aria-label") shouldBe "Close"
     b.classList.contains("uni-button--ghost") shouldBe true
     b.classList.contains("uni-button--icon") shouldBe true
+  }
 
-  test("extra modifiers keep the component's classes"):
+  test("extra modifiers keep the component's classes") {
     val m = mount(Button("Save")(wvlet.uni.dom.all.cls += "wide"))
     m.get("button").getAttribute("class") shouldBe
       "uni-button uni-button--default uni-button--md wide"
+  }
 
-  test("an input binds its text both ways and shows aria-invalid"):
+  test("an input binds its text both ways and shows aria-invalid") {
     val text    = Rx.variable("a")
     val invalid = Rx.variable(false)
     val m  = mount(Input(text).withPlaceholder("Search").withLabel("Search").withInvalid(invalid))
@@ -72,14 +76,16 @@ class ComponentTest extends DomTestSupport:
     el.getAttribute("aria-invalid") shouldBe "false"
     invalid := true
     el.getAttribute("aria-invalid") shouldBe "true"
+  }
 
-  test("a textarea binds its text and sets rows"):
+  test("a textarea binds its text and sets rows") {
     val text = Rx.variable("")
     val m    = mount(Textarea(text).withRows(5))
     val el   = m.get("textarea")
     el.getAttribute("rows") shouldBe "5"
     fireEvent.input(el, "line 1\nline 2")
     text.get shouldBe "line 1\nline 2"
+  }
 
   private enum Pick:
     case A,
@@ -88,7 +94,7 @@ class ComponentTest extends DomTestSupport:
 
   private def tabs(m: Mounted): Seq[dom.Element] = m.queryAll("[role=tab]")
 
-  test("tabs select on click and mark one tab stop"):
+  test("tabs select on click and mark one tab stop") {
     val sel = Rx.variable(Pick.A)
     val m   = mount(TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C")))
     m.get("[role=tablist]").getAttribute("aria-label") shouldBe "Picks"
@@ -97,8 +103,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(tabs(m)(2))
     sel.get shouldBe Pick.C
     tabs(m).map(_.getAttribute("aria-selected")) shouldBe Seq("false", "false", "true")
+  }
 
-  test("arrow keys, Home, and End move the selection and the focus"):
+  test("arrow keys, Home, and End move the selection and the focus") {
     val sel = Rx.variable(Pick.A)
     val m   = mount(TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C")))
     fireEvent.keyDown(tabs(m)(0), "ArrowRight")
@@ -112,8 +119,9 @@ class ComponentTest extends DomTestSupport:
     sel.get shouldBe Pick.C
     fireEvent.keyDown(tabs(m)(2), "Home")
     sel.get shouldBe Pick.A
+  }
 
-  test("a tab panel renders the selected tab's content"):
+  test("a tab panel renders the selected tab's content") {
     val sel  = Rx.variable(Pick.A)
     val tabs = TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"))
     val m    = mount(
@@ -128,13 +136,15 @@ class ComponentTest extends DomTestSupport:
     sel := Pick.B
     panel.textContent shouldBe "panel B"
     panel.getAttribute("aria-labelledby") shouldBe ts(1).id
+  }
 
-  test("two tab lists never share ids"):
+  test("two tab lists never share ids") {
     val a = TabList(Rx.variable(Pick.A), "One")(Tab(Pick.A, "A"))
     val b = TabList(Rx.variable(Pick.A), "Two")(Tab(Pick.A, "A"))
     (a.panelId == b.panelId) shouldBe false
+  }
 
-  test("an app's own handlers run alongside the components' handlers"):
+  test("an app's own handlers run alongside the components' handlers") {
     import wvlet.uni.dom.all.{onclick, onkeydown}
     var clicks    = 0
     var appClicks = 0
@@ -159,11 +169,12 @@ class ComponentTest extends DomTestSupport:
     fireEvent.keyDown(m2.queryAll("[role=tab]")(0), "ArrowRight")
     sel.get shouldBe Pick.B
     keys shouldBe 1
+  }
 
   private def paneWidth(m: Mounted): String =
     m.get("aside").asInstanceOf[dom.html.Element].style.width
 
-  test("a foldable pane collapses to zero width and back"):
+  test("a foldable pane collapses to zero width and back") {
     val open = Rx.variable(true)
     val m    = mount(FoldablePane(open, Rx.variable(300), Edge.Left)())
     paneWidth(m) shouldBe "300px"
@@ -171,10 +182,11 @@ class ComponentTest extends DomTestSupport:
     open := false
     paneWidth(m) shouldBe "0px"
     m.get("aside").getAttribute("data-state") shouldBe "closed"
+  }
 
   private val range = SizeRange(min = 200, default = 300, max = 400)
 
-  test("dragging a splitter resizes within its range, and double-click resets"):
+  test("dragging a splitter resizes within its range, and double-click resets") {
     val width = Rx.variable(300)
     val m     = mount(
       FoldablePane(
@@ -196,8 +208,9 @@ class ComponentTest extends DomTestSupport:
     m.get("aside").getAttribute("data-dragging") shouldBe "false"
     fireEvent.dblclick(grip)
     width.get shouldBe 300
+  }
 
-  test("a splitter resizes with the keyboard and reports its value"):
+  test("a splitter resizes with the keyboard and reports its value") {
     val width = Rx.variable(300)
     val m     = mount(Splitter(width, range, Edge.Left, "Resize dock"))
     val grip  = m.get("[role=separator]")
@@ -214,8 +227,9 @@ class ComponentTest extends DomTestSupport:
     width.get shouldBe 200
     fireEvent.keyDown(grip, "Enter")
     width.get shouldBe 300
+  }
 
-  test("a badge shows its tone and a dot carries a label"):
+  test("a badge shows its tone and a dot carries a label") {
     val m = mount(
       wvlet.uni.dom.all.div(Badge("3"), Badge.dot("New output").withTone(BadgeTone.Danger))
     )
@@ -224,13 +238,15 @@ class ComponentTest extends DomTestSupport:
     badges(0).classList.contains("uni-badge--neutral") shouldBe true
     badges(1).getAttribute("aria-label") shouldBe "New output"
     badges(1).classList.contains("uni-badge--danger") shouldBe true
+  }
 
-  test("kbd and status bar render their elements"):
+  test("kbd and status bar render their elements") {
     val m = mount(StatusBar(Kbd("⌘"), StatusBar.spacer, "UTF-8"))
     m.get("footer.uni-statusbar kbd.uni-kbd").textContent shouldBe "⌘"
     m.get("footer").textContent shouldBe "⌘UTF-8"
+  }
 
-  test("ColorScheme sets data-theme, and System removes it"):
+  test("ColorScheme sets data-theme, and System removes it") {
     val root   = dom.document.createElement("div")
     val scheme = Rx.variable(ColorScheme.Dark)
     val c      = ColorScheme.bind(scheme, root)
@@ -240,5 +256,6 @@ class ComponentTest extends DomTestSupport:
     scheme := ColorScheme.System
     root.hasAttribute("data-theme") shouldBe false
     c.cancel
+  }
 
 end ComponentTest

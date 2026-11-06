@@ -8,7 +8,7 @@ import scala.scalajs.js
 /** Run only with `uniPlaywrightUpdateSnapshots := true` (see the scripted `test` script). */
 class UpdateModeTest extends munit.FunSuite:
 
-  test("update mode overwrites the golden instead of comparing"):
+  test("update mode overwrites the golden instead of comparing") {
     val el = dom.document.createElement("div")
     el.id = "upd"
     dom.document.body.appendChild(el)
@@ -27,5 +27,6 @@ class UpdateModeTest extends munit.FunSuite:
     yield
       assertEquals(a.toString, "updated")
       assertEquals(b.toString, "updated")
+  }
 
 end UpdateModeTest

@@ -33,16 +33,18 @@ class BridgeTest extends munit.FunSuite:
       scala.util.Failure(AssertionError(s"Expected failure containing '${fragment}', got ${other}"))
   }
 
-  test("exposes the protocol version"):
+  test("exposes the protocol version") {
     assertEquals(js.Dynamic.global.__uniPlaywright.version.asInstanceOf[Int], 1)
+  }
 
-  test("screenshot writes a PNG and returns its path"):
+  test("screenshot writes a PNG and returns its path") {
     box("shot", "blue")
     call("screenshot", js.Dynamic.literal(name = "shot", selector = "#shot")).map { p =>
       assert(p.toString.endsWith("shot.png"), p)
     }
+  }
 
-  test("expectScreenshot: missing golden fails, then matches, then detects a change"):
+  test("expectScreenshot: missing golden fails, then matches, then detects a change") {
     box("golden", "green")
     val args = js.Dynamic.literal(name = "golden", selector = "#golden")
     for
@@ -52,11 +54,14 @@ class BridgeTest extends munit.FunSuite:
       _ = box("golden", "red")
       _ <- failsWith(call("expectScreenshot", args), "does not match")
     yield ()
+  }
 
-  test("rejects names that escape the output directory"):
+  test("rejects names that escape the output directory") {
     failsWith(call("screenshot", js.Dynamic.literal(name = "../evil")), "Invalid name")
+  }
 
-  test("rejects unknown commands"):
+  test("rejects unknown commands") {
     failsWith(call("noSuchCommand", js.Dynamic.literal()), "Unknown page command")
+  }
 
 end BridgeTest

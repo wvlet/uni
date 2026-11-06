@@ -20,26 +20,29 @@ import wvlet.uni.rx.Rx
 
 class CssClassTest extends UniTest:
 
-  test("static class toggle when true"):
+  test("static class toggle when true") {
     val elem      = div(cls.toggle("active") when true)
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "active"
+  }
 
-  test("static class toggle when false"):
+  test("static class toggle when false") {
     val elem      = div(cls.toggle("active") when false)
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldNotContain "active"
+  }
 
-  test("combine base class with toggle"):
+  test("combine base class with toggle") {
     val elem      = div(cls := "base", cls.toggle("active") when true)
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "base"
     html shouldContain "active"
+  }
 
-  test("multiple class toggles"):
+  test("multiple class toggles") {
     val elem = div(
       cls := "base",
       cls.toggle("active") when true,
@@ -52,8 +55,9 @@ class CssClassTest extends UniTest:
     html shouldContain "active"
     html shouldNotContain "disabled"
     html shouldContain "visible"
+  }
 
-  test("reactive class toggle"):
+  test("reactive class toggle") {
     val isActive           = Rx.variable(false)
     val elem               = div(cls.toggle("active") when isActive)
     val (node, cancelable) = DomRenderer.createNode(elem)
@@ -73,8 +77,9 @@ class CssClassTest extends UniTest:
     html3 shouldNotContain "active"
 
     cancelable.cancel
+  }
 
-  test("reactive class toggle with base class"):
+  test("reactive class toggle with base class") {
     val isActive           = Rx.variable(true)
     val elem               = div(cls := "base", cls.toggle("active") when isActive)
     val (node, cancelable) = DomRenderer.createNode(elem)
@@ -89,17 +94,20 @@ class CssClassTest extends UniTest:
     html2 shouldNotContain "active"
 
     cancelable.cancel
+  }
 
-  test("cls object works as attribute"):
+  test("cls object works as attribute") {
     val elem      = div(cls := "my-class")
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "my-class"
+  }
 
-  test("cls with arrow syntax"):
+  test("cls with arrow syntax") {
     val elem      = div(cls -> "my-class")
     val (node, _) = DomRenderer.createNode(elem)
     val html      = DomRenderer.renderToHtml(node)
     html shouldContain "my-class"
+  }
 
 end CssClassTest

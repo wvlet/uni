@@ -19,23 +19,26 @@ import wvlet.uni.rx.Rx
 
 class NetworkStatusTest extends UniTest:
 
-  test("NetworkStatus.isOnline returns current status"):
+  test("NetworkStatus.isOnline returns current status") {
     // In a headless browser, navigator.onLine is typically true
     val status = NetworkStatus.isOnline
     status shouldMatch { case _: Boolean =>
     }
+  }
 
-  test("NetworkStatus.online returns Rx[Boolean]"):
+  test("NetworkStatus.online returns Rx[Boolean]") {
     val rx = NetworkStatus.online
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("NetworkStatus.offline returns Rx[Boolean]"):
+  test("NetworkStatus.offline returns Rx[Boolean]") {
     val rx = NetworkStatus.offline
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("NetworkStatus.online and offline are inverses"):
+  test("NetworkStatus.online and offline are inverses") {
     // Get current values
     var onlineValue  = false
     var offlineValue = false
@@ -52,8 +55,9 @@ class NetworkStatusTest extends UniTest:
       }
 
     onlineValue shouldBe !offlineValue
+  }
 
-  test("NetworkStatus can be used in reactive expressions"):
+  test("NetworkStatus can be used in reactive expressions") {
     val statusText = NetworkStatus
       .online
       .map { online =>
@@ -70,5 +74,6 @@ class NetworkStatusTest extends UniTest:
 
     // Should have one of the two values
     (result == "Connected" || result == "Disconnected") shouldBe true
+  }
 
 end NetworkStatusTest

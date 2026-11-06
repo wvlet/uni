@@ -47,7 +47,7 @@ class InputTest extends munit.FunSuite:
       scala.util.Failure(AssertionError(s"Expected failure containing '${fragment}', got ${other}"))
   }
 
-  test("click sends a trusted event and moves focus"):
+  test("click sends a trusted event and moves focus") {
     mount("""<input id="click-in">""")
     var trusted = false
     input("click-in").addEventListener("click", (e: dom.Event) => trusted = e.isTrusted)
@@ -55,8 +55,9 @@ class InputTest extends munit.FunSuite:
       assert(trusted, "click event should be trusted")
       assertEquals(dom.document.activeElement.id, "click-in")
     }
+  }
 
-  test("type inserts text into the focused element and press Enter submits the form"):
+  test("type inserts text into the focused element and press Enter submits the form") {
     mount("""<form id="type-form"><input id="type-in"></form>""")
     var submitted = false
     dom
@@ -74,8 +75,9 @@ class InputTest extends munit.FunSuite:
       _ = assertEquals(input("type-in").value, "hello")
       _ <- call("press", js.Dynamic.literal(key = "Enter"))
     yield assert(submitted, "Enter should submit the form")
+  }
 
-  test("press accepts key combinations"):
+  test("press accepts key combinations") {
     mount("""<input id="combo-in" value="abc">""")
     var seen = ""
     input("combo-in").addEventListener(
@@ -88,20 +90,23 @@ class InputTest extends munit.FunSuite:
       _ <- call("click", js.Dynamic.literal(selector = "#combo-in"))
       _ <- call("press", js.Dynamic.literal(key = "Shift+ArrowLeft"))
     yield assertEquals(seen, "Shift+ArrowLeft")
+  }
 
-  test("fill replaces the value"):
+  test("fill replaces the value") {
     mount("""<input id="fill-in" value="old">""")
     call("fill", js.Dynamic.literal(selector = "#fill-in", text = "new")).map { _ =>
       assertEquals(input("fill-in").value, "new")
     }
+  }
 
-  test("hover makes :hover match"):
+  test("hover makes :hover match") {
     mount("""<div id="hover-box" style="width:40px;height:40px;background:gray"></div>""")
     call("hover", js.Dynamic.literal(selector = "#hover-box")).map { _ =>
       assert(dom.document.getElementById("hover-box").matches(":hover"))
     }
+  }
 
-  test("setViewportSize resizes the page and returns the previous size"):
+  test("setViewportSize resizes the page and returns the previous size") {
     val narrow = dom.window.matchMedia("(max-width: 600px)")
     assert(!narrow.matches)
     for
@@ -113,18 +118,22 @@ class InputTest extends munit.FunSuite:
       _ = assert(narrow.matches, "media query should follow the new viewport")
       _ <- call("setViewportSize", js.Dynamic.literal(width = 1280, height = 720))
     yield assert(!narrow.matches)
+  }
 
-  test("input on a missing element times out"):
+  test("input on a missing element times out") {
     failsWith(call("click", js.Dynamic.literal(selector = "#nope", timeout = 200)), "Timeout")
+  }
 
-  test("input on an ambiguous selector is rejected"):
+  test("input on an ambiguous selector is rejected") {
     mount("""<button class="dup">a</button><button class="dup">b</button>""")
     failsWith(call("click", js.Dynamic.literal(selector = ".dup")), "strict mode violation")
+  }
 
-  test("rejects invalid arguments"):
+  test("rejects invalid arguments") {
     for
       _ <- failsWith(call("click", js.Dynamic.literal()), "Missing 'selector'")
       _ <- failsWith(call("setViewportSize", js.Dynamic.literal(width = 0, height = 400)), "width")
     yield ()
+  }
 
 end InputTest

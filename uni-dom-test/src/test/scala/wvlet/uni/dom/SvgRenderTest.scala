@@ -21,7 +21,7 @@ import org.scalajs.dom
 
 class SvgRenderTest extends UniTest:
 
-  test("SVG element renders with SVG namespace"):
+  test("SVG element renders with SVG namespace") {
     val container = dom.document.createElement("div")
     container.id = "test-svg-ns"
     dom.document.body.appendChild(container)
@@ -36,8 +36,9 @@ class SvgRenderTest extends UniTest:
 
     c.cancel
     dom.document.body.removeChild(container)
+  }
 
-  test("foreignObject children render with XHTML namespace"):
+  test("foreignObject children render with XHTML namespace") {
     val container = dom.document.createElement("div")
     container.id = "test-foreignobject"
     dom.document.body.appendChild(container)
@@ -64,8 +65,9 @@ class SvgRenderTest extends UniTest:
 
     c.cancel
     dom.document.body.removeChild(container)
+  }
 
-  test("title inside svg inherits SVG namespace at render time"):
+  test("title inside svg inherits SVG namespace at render time") {
     val container = dom.document.createElement("div")
     container.id = "test-title-ns"
     dom.document.body.appendChild(container)
@@ -81,8 +83,9 @@ class SvgRenderTest extends UniTest:
 
     c.cancel
     dom.document.body.removeChild(container)
+  }
 
-  test("nested SVG groups render with correct namespace"):
+  test("nested SVG groups render with correct namespace") {
     val container = dom.document.createElement("div")
     container.id = "test-nested-svg"
     dom.document.body.appendChild(container)
@@ -103,5 +106,6 @@ class SvgRenderTest extends UniTest:
 
     c.cancel
     dom.document.body.removeChild(container)
+  }
 
 end SvgRenderTest

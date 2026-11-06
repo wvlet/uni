@@ -21,7 +21,7 @@ case class BrowserSettings(theme: String = "light") derives Weaver
 
 class LocalStorageBackendTest extends UniTest:
 
-  test("use localStorage by default in a browser"):
+  test("use localStorage by default in a browser") {
     dom.window.localStorage.clear()
     val settings = SettingStore.of[BrowserSettings].withAppName("my-app").load()
     settings.update(_.copy(theme = "dark"))
@@ -29,8 +29,9 @@ class LocalStorageBackendTest extends UniTest:
       """{"version":0,"state":{"theme":"dark"}}"""
     SettingStore.of[BrowserSettings].withAppName("my-app").load().get shouldBe
       BrowserSettings(theme = "dark")
+  }
 
-  test("move unreadable data aside"):
+  test("move unreadable data aside") {
     dom.window.localStorage.clear()
     val backend = LocalStorageBackend("my-app")
     backend.write("settings", "{not json")
@@ -38,12 +39,14 @@ class LocalStorageBackendTest extends UniTest:
     backend.read("settings") shouldBe None
     val keys = (0 until dom.window.localStorage.length).map(dom.window.localStorage.key)
     keys.exists(_.startsWith("my-app/settings.corrupt-")) shouldBe true
+  }
 
-  test("use raw keys with an empty prefix"):
+  test("use raw keys with an empty prefix") {
     dom.window.localStorage.clear()
     val backend = LocalStorageBackend("")
     backend.write("theme", "dark")
     dom.window.localStorage.getItem("theme") shouldBe "dark"
     backend.read("theme") shouldBe Some("dark")
+  }
 
 end LocalStorageBackendTest
