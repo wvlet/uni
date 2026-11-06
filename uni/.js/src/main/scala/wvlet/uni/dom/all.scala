@@ -179,6 +179,8 @@ object all extends HtmlTags with HtmlAttrs with SvgTags with SvgAttrs:
   export wvlet.uni.dom.when
   export wvlet.uni.dom.each
   export wvlet.uni.dom.KeyedList
+  export wvlet.uni.dom.eachRx
+  export wvlet.uni.dom.KeyedRxList
   export wvlet.uni.dom.unless
   export wvlet.uni.dom.embedAsNode
 

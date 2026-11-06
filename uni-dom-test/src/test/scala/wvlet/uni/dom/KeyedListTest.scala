@@ -16,7 +16,7 @@ package wvlet.uni.dom
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{OnCompletion, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import scala.language.implicitConversions
@@ -125,5 +125,74 @@ class KeyedListTest extends UniTest:
     inner := "y"
     root.textContent shouldBe "y1after"
     c.cancel
+
+  test("eachRx updates an item in place when its value changes under the same key"):
+    val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
+    var rendered  = 0
+    var emitted   = Seq.empty[String]
+    val (root, c) = render(
+      ul(
+        eachRx(items)(_.id) { (first, current) =>
+          rendered += 1
+          li(
+            cls -> first.text,
+            current.map { it =>
+              emitted :+= it.text
+              it.text
+            }
+          )
+        }
+      )
+    )
+    val before = lis(root)
+    items := Seq(Item(1, "a"), Item(2, "B"))
+    val after = lis(root)
+    after.map(_.textContent) shouldBe Seq("a", "B")
+    rendered shouldBe 2
+    (after(0) eq before(0)) shouldBe true
+    (after(1) eq before(1)) shouldBe true
+    // The first value stays what the item was rendered with
+    after(1).getAttribute("class") shouldBe "b"
+    // An equal value under the same key doesn't emit again
+    items := Seq(Item(1, "a"), Item(2, "B"))
+    emitted shouldBe Seq("a", "b", "B")
+    c.cancel
+
+  test("eachRx moves items on reorder and renders new keys"):
+    val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
+    val (root, c) = render(ul(eachRx(items)(_.id)((_, current) => li(current.map(_.text)))))
+    val Seq(a, b) = lis(root): @unchecked
+    items := Seq(Item(3, "c"), Item(2, "b2"), Item(1, "a"))
+    val after = lis(root)
+    after.map(_.textContent) shouldBe Seq("c", "b2", "a")
+    (after(1) eq b) shouldBe true
+    (after(2) eq a) shouldBe true
+    c.cancel
+
+  test("eachRx completes an item's Rx once its key is removed, and a returning key starts fresh"):
+    val items     = Rx.variable(Seq(Item(1, "a")))
+    var rendered  = 0
+    var completed = 0
+    val (root, c) = render(
+      ul(
+        eachRx(items)(_.id) { (_, current) =>
+          rendered += 1
+          RxRunner.runContinuously(current) {
+            case OnCompletion =>
+              completed += 1
+            case _ =>
+          }
+          li(current.map(_.text))
+        }
+      )
+    )
+    items := Seq.empty
+    completed shouldBe 1
+    lis(root) shouldBe Seq.empty
+    items := Seq(Item(1, "again"))
+    rendered shouldBe 2
+    lis(root).map(_.textContent) shouldBe Seq("again")
+    c.cancel
+    completed shouldBe 2
 
 end KeyedListTest

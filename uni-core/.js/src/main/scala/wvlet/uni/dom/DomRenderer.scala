@@ -15,7 +15,7 @@ package wvlet.uni.dom
 
 import org.scalajs.dom
 import org.scalajs.dom.{MutationObserver, MutationObserverInit}
-import wvlet.uni.rx.{Cancelable, OnError, OnNext, RxOps, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnError, OnNext, Rx, RxOps, RxRunner, RxVar}
 import wvlet.uni.log.LogSupport
 
 import scala.scalajs.js
@@ -141,18 +141,30 @@ object DomRenderer extends LogSupport:
 
   private def newTextNode(s: String): dom.Text = dom.document.createTextNode(s)
 
-  /** One rendered item of a [[KeyedList]]: its nodes run from `start` to `end`, inclusive. */
+  /**
+    * One rendered item of a keyed list: its nodes run from `start` to `end`, inclusive. `current`
+    * holds the value of an item that updates in place ([[KeyedRxList]]).
+    */
   private class KeyedItem(var value: Any, val start: dom.Node, val end: dom.Node):
-    var cancelable: Cancelable = Cancelable.empty
+    var cancelable: Cancelable      = Cancelable.empty
+    var current: Option[RxVar[Any]] = None
+
+    def dispose(): Unit =
+      try cancelable.cancel
+      finally current.foreach(_.stop())
 
   /**
-    * Render a [[KeyedList]] between two empty text nodes at `anchor`. On each update, items with a
-    * new key are rendered, items whose key is gone are removed, an item whose value changed is
-    * rendered again, and the rest keep their nodes, moved into the new order.
+    * Render a keyed list ([[KeyedList]] or [[KeyedRxList]]) between two empty text nodes at
+    * `anchor`. On each update, items with a new key are rendered, items whose key is gone are
+    * removed, and the rest keep their nodes, moved into the new order. An item whose value changed
+    * is rendered again, or, when `inPlace`, gets the new value through its own `Rx`.
     */
   private def renderKeyedList(
       parent: dom.Node,
-      list: KeyedList[Any, Any],
+      source: Rx[Seq[Any]],
+      key: Any => Any,
+      render: (Any, Rx[Any]) => DomNode,
+      inPlace: Boolean,
       anchor: Option[dom.Node],
       renderItem: (DomNode, Option[dom.Node], RenderingContext) => Cancelable
   ): Cancelable =
@@ -172,14 +184,21 @@ object DomRenderer extends LogSupport:
 
     def renderContent(item: KeyedItem): Unit =
       val ctx = RenderingContext()
-      item.cancelable = renderItem(list.render(item.value), Some(item.end), ctx)
+      val rx  =
+        if inPlace then
+          val v = RxVar[Any](item.value)
+          item.current = Some(v)
+          v
+        else
+          Rx.const(item.value)
+      item.cancelable = renderItem(render(item.value, rx), Some(item.end), ctx)
       ctx.onFinish()
 
     def update(values: Seq[Any]): Unit =
       // Keep the first item of each key, in order
       val latest = scala.collection.mutable.LinkedHashMap.empty[Any, Any]
       values.foreach { v =>
-        val k = list.key(v)
+        val k = key(v)
         if latest.contains(k) then
           warn(s"Skipped an item with a repeated key in a keyed list: ${k}")
         else
@@ -187,7 +206,7 @@ object DomRenderer extends LogSupport:
       }
       items.foreach { (k, item) =>
         if !latest.contains(k) then
-          item.cancelable.cancel
+          item.dispose()
           nodesOf(item).foreach(parent.removeChild)
       }
       // Walk the new order, moving or creating each item right after the previous one
@@ -201,11 +220,14 @@ object DomRenderer extends LogSupport:
                 val ref = cursor.nextSibling
                 nodesOf(existing).foreach(n => parent.insertBefore(n, ref))
               if existing.value != v then
-                existing.cancelable.cancel
-                while existing.start.nextSibling ne existing.end do
-                  parent.removeChild(existing.start.nextSibling)
                 existing.value = v
-                renderContent(existing)
+                if inPlace then
+                  existing.current.foreach(_.set(v))
+                else
+                  existing.cancelable.cancel
+                  while existing.start.nextSibling ne existing.end do
+                    parent.removeChild(existing.start.nextSibling)
+                  renderContent(existing)
               existing
             case None =>
               val created = KeyedItem(v, newTextNode(""), newTextNode(""))
@@ -221,7 +243,7 @@ object DomRenderer extends LogSupport:
     end update
 
     val subscription =
-      RxRunner.runContinuously(list.items) {
+      RxRunner.runContinuously(source) {
         case OnNext(values) =>
           update(values.asInstanceOf[Seq[Any]])
         case OnError(e) =>
@@ -229,7 +251,7 @@ object DomRenderer extends LogSupport:
         case _ =>
       }
     Cancelable { () =>
-      try items.values.foreach(_.cancelable.cancel)
+      try items.values.foreach(_.dispose())
       finally subscription.cancel
     }
 
@@ -342,9 +364,24 @@ object DomRenderer extends LogSupport:
             finally c2.cancel
           }
         case kl: KeyedList[?, ?] =>
+          val list = kl.asInstanceOf[KeyedList[Any, Any]]
           renderKeyedList(
             node,
-            kl.asInstanceOf[KeyedList[Any, Any]],
+            list.items,
+            list.key,
+            (v, _) => list.render(v),
+            inPlace = false,
+            anchor,
+            (item, at, ctx) => traverse(item, at, ctx)
+          )
+        case kl: KeyedRxList[?, ?] =>
+          val list = kl.asInstanceOf[KeyedRxList[Any, Any]]
+          renderKeyedList(
+            node,
+            list.items,
+            list.key,
+            list.render,
+            inPlace = true,
             anchor,
             (item, at, ctx) => traverse(item, at, ctx)
           )
