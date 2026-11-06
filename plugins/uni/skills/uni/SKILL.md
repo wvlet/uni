@@ -38,7 +38,7 @@ Scala Native.
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`, `YAML.parseDocument(text).set(path, v).toYaml` (keeps comments), `YAML.parseDocuments`/`YAML.writeStream` for `---` streams; see [references/core.md](references/core.md#yaml-and-frontmatter) |
 | Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`, `.frontmatterAs[P]`, `.toMarkdown` (lossless); see [references/core.md](references/core.md#markdown) |
 | Cron schedules | `wvlet.uni.text.cron.{Cron, UtcOffset}` | `Cron.parse(expr).next(instant)`, `.nextN(instant, n)`, `.describe`; UTC or a fixed `UtcOffset` only; see [references/core.md](references/core.md#cron-schedules) |
-| Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`; see [references/rx.md](references/rx.md) |
+| Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`, `.scan(init)(f)`, `items.split(_.id)` (one `Rx` per key); see [references/rx.md](references/rx.md) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`; Netty on the JVM needs `uni-netty`; JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |

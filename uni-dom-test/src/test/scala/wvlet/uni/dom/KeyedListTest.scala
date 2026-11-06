@@ -202,4 +202,25 @@ class KeyedListTest extends UniTest:
     c.cancel
     completed shouldBe 2
 
+  test("split + each updates a row in place through its own Rx") {
+    val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
+    var rendered  = 0
+    val (root, c) = render(
+      ul(
+        items.split(_.id).each(_._1) { (_, current) =>
+          rendered += 1
+          li(current.map(_.text))
+        }
+      )
+    )
+    val first = lis(root).head
+    items := Seq(Item(1, "a2"), Item(2, "b"))
+    lis(root).map(_.textContent) shouldBe Seq("a2", "b")
+    (lis(root).head eq first) shouldBe true
+    rendered shouldBe 2
+    items := Seq(Item(2, "b"))
+    lis(root).map(_.textContent) shouldBe Seq("b")
+    c.cancel
+  }
+
 end KeyedListTest

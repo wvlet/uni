@@ -555,6 +555,17 @@ trait Rx[+A] extends RxOps[A]:
       other
   }
 
+  /**
+    * Emit an accumulated value for each upstream value: `f(acc, a)`, where `acc` starts at `init`
+    * and becomes each result in turn. `init` itself isn't emitted; add `startWith(init)` for that.
+    * Each subscription keeps its own accumulator.
+    *
+    * {{{
+    *   Rx.fromSeq(Seq(1, 2, 3)).scan(0)(_ + _) // 1, 3, 6
+    * }}}
+    */
+  def scan[B](init: B)(f: (B, A) => B): Rx[B] = ScanOp(this, init, f)
+
   def concat[A1 >: A](other: Rx[A1]): Rx[A1] = Rx.concat(this, other)
   def lastOption: RxOption[A]                = LastOp(this).toOption
 
@@ -928,6 +939,24 @@ object Rx extends LogSupport:
     val v = futureToRx(f)
     v.filter(_.isDefined).map(_.get)
 
+  extension [A](rx: Rx[Seq[A]])
+    /**
+      * Split a list into one `Rx` per key, so each item can follow its own changes. The result
+      * emits the `(key, Rx)` pairs only when the keys change (added, removed, or reordered); a
+      * changed item under a kept key is emitted to that key's `Rx` instead, which emits only when
+      * the value differs (`!=`).
+      *
+      * {{{
+      *   store.messages.split(_.id) // Rx[Seq[(String, Rx[Message])]]
+      * }}}
+      *
+      * A key keeps the same `Rx` instance while it stays in the list. When the key leaves, or the
+      * upstream completes or the subscription is cancelled, its `Rx` completes; a key that comes
+      * back gets a new `Rx`. A repeated key keeps only its first item. Each subscription keeps its
+      * own key table.
+      */
+    def split[K](key: A => K): Rx[Seq[(K, Rx[A])]] = SplitOp(rx, key)
+
   abstract class UnaryRx[I, A] extends Rx[A]:
     def input: RxOps[I]
     override def parents: Seq[RxOps[?]] = Seq(input)
@@ -1115,6 +1144,11 @@ object Rx extends LogSupport:
 
   case class ConcatOp[A](first: RxOps[A], next: RxOps[A]) extends Rx[A]:
     override def parents: Seq[RxOps[?]] = Seq(first, next)
+
+  case class ScanOp[A, B](input: RxOps[A], init: B, f: (B, A) => B) extends UnaryRx[A, B]
+
+  case class SplitOp[A, K](input: RxOps[Seq[A]], key: A => K)
+      extends UnaryRx[Seq[A], Seq[(K, Rx[A])]]
 
   case class LastOp[A](input: RxOps[A]) extends Rx[Option[A]]:
     override def parents: Seq[RxOps[?]] = Seq(input)

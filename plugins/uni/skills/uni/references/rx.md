@@ -63,6 +63,7 @@ Rx.variable(1).join(Rx.variable("x"))      // latest of each on any change
 nums.concat(Rx.single(11))
 nums.startWith(0)
 nums.lastOption                            // RxOption[Int]
+nums.scan(0)(_ + _)                        // running sum: 1, 3, 6, ... (init isn't emitted)
 nums.tap(v => println(v))                  // also tapOn, tapOnFailure
 nums.cache                                 // RxCache: replays the last value
 nums.timeout(5, TimeUnit.SECONDS)          // fails with Rx.TimeoutException
@@ -75,6 +76,17 @@ nums.transform {                           // Try[A] => B
   case scala.util.Success(v) => v
   case scala.util.Failure(_) => -1
 }
+```
+
+`split` turns a list into one stable `Rx` per key. The list emits only when the
+keys change; a changed item goes to its key's `Rx`, which completes when the key
+leaves, the upstream completes, or the subscription is cancelled:
+
+```scala
+case class Message(id: String, text: String)
+
+val messages = Rx.variable(Seq(Message("1", "hi")))
+val rows: Rx[Seq[(String, Rx[Message])]] = messages.split(_.id)
 ```
 
 Completion is terminal: `filter` does not complete on a rejected value,
