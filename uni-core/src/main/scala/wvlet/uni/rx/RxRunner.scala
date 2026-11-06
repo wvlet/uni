@@ -326,30 +326,30 @@ class RxRunner(
                 case Failure(e) =>
                   effect(OnError(e))
                 case Success(firstItems) =>
-                  val next =
-                    firstItems
-                      .map { (k, a) =>
-                        rows.get(k) match
-                          case Some(row) =>
-                            // Emits only when the value differs
-                            row := a
-                            k   -> row
-                          case None =>
-                            k -> RxVar[Any](a)
-                      }
-                      .toMap
+                  val pairs = firstItems
+                    .toSeq
+                    .map { (k, a) =>
+                      rows.get(k) match
+                        case Some(row) =>
+                          // Emits only when the value differs
+                          row := a
+                          (k, row)
+                        case None =>
+                          (k, RxVar[Any](a))
+                    }
+                  val next = pairs.toMap
                   val left = rows.collect {
                     case (k, row) if !next.contains(k) =>
                       row
                   }
                   rows = next
-                  val keys   = firstItems.keys.toSeq
+                  val keys   = pairs.map(_._1)
                   val result =
                     if lastKeys.contains(keys) then
                       RxResult.Continue
                     else
                       lastKeys = Some(keys)
-                      effect(OnNext(keys.map(k => (k, next(k)))))
+                      effect(OnNext(pairs))
                   // Stop removed rows after the new list is emitted, so the list never holds a
                   // completed row
                   left.foreach(_.stop())
