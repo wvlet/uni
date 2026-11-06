@@ -44,3 +44,6 @@ render to the DOM, not to a GPU surface.
 - Class names, token names, and `data-state` values are public API. Renaming one is a breaking
   change and goes in `docs/guide/for-ai-agents.md`.
 - `uni`, `uni-core`, and `uni-ui` release together, like the other artifacts.
+- `VisualTest` keeps light and dark screenshot goldens per OS (`darwin`, `linux`) in
+  `uni-ui/src/test/screenshots`, so a CSS change shows up as a golden diff. The build embeds
+  `uni-ui.css` into the test as `UniUiCss.text`, because the browser cannot read it from the jar.
