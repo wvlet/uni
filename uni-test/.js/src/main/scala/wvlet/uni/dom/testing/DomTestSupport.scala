@@ -25,14 +25,16 @@ import wvlet.uni.test.UniTest
   *
   * {{{
   *   class MyUiTest extends DomTestSupport:
-  *     test("clicking +1 increments the counter"):
+  *     test("clicking +1 increments the counter") {
   *       val m = mount(Counter())
   *       fireEvent.click(m.getByText("+1"))
   *       m.text shouldContain "count=1"
+  *     }
   *
-  *     test("onMount wiring runs after a settle"):
+  *     test("onMount wiring runs after a settle") {
   *       val m = mount(AutoFocusInput())
   *       settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
+  *     }
   * }}}
   *
   * Part of `uni-test` on Scala.js: the `uni-dom` rendering core lives in `uni-core`, so no other

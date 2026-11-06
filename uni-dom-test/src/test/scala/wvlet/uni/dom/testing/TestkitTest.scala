@@ -24,7 +24,7 @@ import scala.language.implicitConversions
 /** `settle`, pointer events, and IME key events of the testing kit. */
 class TestkitTest extends DomTestSupport:
 
-  test("settle waits until onMount has run"):
+  test("settle waits until onMount has run") {
     var mounted = false
     class Widget extends RxElement:
       override def render: RxElement        = div("widget")
@@ -34,6 +34,7 @@ class TestkitTest extends DomTestSupport:
     settle().map { _ =>
       mounted shouldBe true
     }
+  }
 
   private def recordPointers(target: dom.EventTarget): mutable.Buffer[dom.PointerEvent] =
     val seen = mutable.Buffer.empty[dom.PointerEvent]
@@ -51,7 +52,7 @@ class TestkitTest extends DomTestSupport:
     }
     seen
 
-  test("pointer events carry coordinates, pointer id, type, and button"):
+  test("pointer events carry coordinates, pointer id, type, and button") {
     val m    = mount(RxElement(div(cls -> "pad", "pad")))
     val pad  = m.get(".pad")
     val seen = recordPointers(pad)
@@ -81,8 +82,9 @@ class TestkitTest extends DomTestSupport:
     down.pointerType shouldBe "pen"
     seen(1).pointerType shouldBe "mouse"
     seen(2).button shouldBe 2
+  }
 
-  test("pointerEnter and pointerLeave do not bubble, like the browser"):
+  test("pointerEnter and pointerLeave do not bubble, like the browser") {
     val m      = mount(RxElement(div(cls -> "outer", span(cls -> "inner", "x"))))
     val parent = recordPointers(m.get(".outer"))
     val inner  = m.get(".inner")
@@ -90,8 +92,9 @@ class TestkitTest extends DomTestSupport:
     fireEvent.pointerLeave(inner)
     fireEvent.pointerDown(inner)
     parent.map(_.`type`).toSeq shouldBe Seq("pointerdown")
+  }
 
-  test("mouse events carry coordinates, button, and modifier keys"):
+  test("mouse events carry coordinates, button, and modifier keys") {
     val m    = mount(RxElement(div(cls -> "pad", "pad")))
     val pad  = m.get(".pad")
     val seen = mutable.Buffer.empty[dom.MouseEvent]
@@ -112,8 +115,9 @@ class TestkitTest extends DomTestSupport:
     seen(1).ctrlKey shouldBe true
     seen(1).altKey shouldBe true
     seen(2).button shouldBe 2
+  }
 
-  test("mouseEnter and mouseLeave do not bubble, like the browser"):
+  test("mouseEnter and mouseLeave do not bubble, like the browser") {
     val m      = mount(RxElement(div(cls -> "outer", span(cls -> "inner", "x"))))
     val parent = mutable.Buffer.empty[String]
     Seq("mouseenter", "mouseleave", "mouseover").foreach { t =>
@@ -124,8 +128,9 @@ class TestkitTest extends DomTestSupport:
     fireEvent.mouseLeave(inner)
     fireEvent.mouseOver(inner)
     parent.toSeq shouldBe Seq("mouseover")
+  }
 
-  test("keyboard events report isComposing"):
+  test("keyboard events report isComposing") {
     val m     = mount(RxElement(input(tpe -> "text")))
     val field = m.get("input")
     val seen  = mutable.Buffer.empty[Boolean]
@@ -133,5 +138,6 @@ class TestkitTest extends DomTestSupport:
     fireEvent.keyDown(field, "Enter")
     fireEvent.keyDown(field, "Enter", isComposing = true)
     seen.toSeq shouldBe Seq(false, true)
+  }
 
 end TestkitTest

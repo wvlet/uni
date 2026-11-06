@@ -35,6 +35,10 @@ UniTest provides a rich set of assertion syntaxes for verifying test expectation
 | `pendingUntil("reason")`     | pending until fixing some blocking issues                                            |
 | `skip("reason")`             | Skipping unnecessary tests (e.g., tests that cannot be supported in Scala.js)      |
 
+Write test bodies with braces, `test("name") { ... }`, not the colon form `test("name"):`.
+Braces mark where each test ends, which indentation alone makes hard to see in long test
+classes. The Code format CI job rejects the colon form.
+
 ### Assertion Example:
 
 ```scala

@@ -19,7 +19,7 @@ import wvlet.uni.rx.Rx
 
 class GeolocationTest extends UniTest:
 
-  test("GeoPosition case class holds position data"):
+  test("GeoPosition case class holds position data") {
     val pos = GeoPosition(
       latitude = 37.7749,
       longitude = -122.4194,
@@ -38,8 +38,9 @@ class GeolocationTest extends UniTest:
     pos.heading shouldBe Some(90.0)
     pos.speed shouldBe Some(1.5)
     pos.timestamp shouldBe 1234567890L
+  }
 
-  test("GeoPosition with optional fields as None"):
+  test("GeoPosition with optional fields as None") {
     val pos = GeoPosition(
       latitude = 40.7128,
       longitude = -74.0060,
@@ -54,8 +55,9 @@ class GeolocationTest extends UniTest:
     pos.altitudeAccuracy shouldBe None
     pos.heading shouldBe None
     pos.speed shouldBe None
+  }
 
-  test("GeoError enum has all error types"):
+  test("GeoError enum has all error types") {
     GeoError.PermissionDenied shouldMatch { case GeoError.PermissionDenied =>
     }
     GeoError.PositionUnavailable shouldMatch { case GeoError.PositionUnavailable =>
@@ -64,8 +66,9 @@ class GeolocationTest extends UniTest:
     }
     GeoError.NotSupported shouldMatch { case GeoError.NotSupported =>
     }
+  }
 
-  test("GeoError values are distinct"):
+  test("GeoError values are distinct") {
     val errors = Seq(
       GeoError.PermissionDenied,
       GeoError.PositionUnavailable,
@@ -73,90 +76,104 @@ class GeolocationTest extends UniTest:
       GeoError.NotSupported
     )
     errors.distinct.size shouldBe 4
+  }
 
-  test("GeoOptions has sensible defaults"):
+  test("GeoOptions has sensible defaults") {
     val opts = GeoOptions()
     opts.enableHighAccuracy shouldBe false
     opts.timeout shouldBe Long.MaxValue
     opts.maximumAge shouldBe 0L
+  }
 
-  test("GeoOptions can be customized"):
+  test("GeoOptions can be customized") {
     val opts = GeoOptions(enableHighAccuracy = true, timeout = 10000L, maximumAge = 60000L)
     opts.enableHighAccuracy shouldBe true
     opts.timeout shouldBe 10000L
     opts.maximumAge shouldBe 60000L
+  }
 
-  test("Geolocation.isSupported returns Boolean"):
+  test("Geolocation.isSupported returns Boolean") {
     val supported = Geolocation.isSupported
     supported shouldMatch { case _: Boolean =>
     }
+  }
 
-  test("Geolocation.watch returns PositionWatcher"):
+  test("Geolocation.watch returns PositionWatcher") {
     val watcher = Geolocation.watch()
     watcher shouldMatch { case _: Geolocation.PositionWatcher =>
     }
     watcher.cancel
+  }
 
-  test("Geolocation.watch with options returns PositionWatcher"):
+  test("Geolocation.watch with options returns PositionWatcher") {
     val watcher = Geolocation.watch(GeoOptions(enableHighAccuracy = true))
     watcher shouldMatch { case _: Geolocation.PositionWatcher =>
     }
     watcher.cancel
+  }
 
-  test("PositionWatcher.position returns Rx[Option[GeoPosition]]"):
+  test("PositionWatcher.position returns Rx[Option[GeoPosition]]") {
     val watcher = Geolocation.watch()
     val pos     = watcher.position
     pos shouldMatch { case _: Rx[?] =>
     }
     watcher.cancel
+  }
 
-  test("PositionWatcher.error returns Rx[Option[GeoError]]"):
+  test("PositionWatcher.error returns Rx[Option[GeoError]]") {
     val watcher = Geolocation.watch()
     val err     = watcher.error
     err shouldMatch { case _: Rx[?] =>
     }
     watcher.cancel
+  }
 
-  test("PositionWatcher.lastPosition returns Option[GeoPosition]"):
+  test("PositionWatcher.lastPosition returns Option[GeoPosition]") {
     val watcher = Geolocation.watch()
     val pos     = watcher.lastPosition
     pos shouldMatch { case _: Option[?] =>
     }
     watcher.cancel
+  }
 
-  test("PositionWatcher.lastError returns Option[GeoError]"):
+  test("PositionWatcher.lastError returns Option[GeoError]") {
     val watcher = Geolocation.watch()
     val err     = watcher.lastError
     err shouldMatch { case _: Option[?] =>
     }
     watcher.cancel
+  }
 
-  test("PositionWatcher can be cancelled"):
+  test("PositionWatcher can be cancelled") {
     val watcher = Geolocation.watch()
     watcher.cancel
     // Should not throw
+  }
 
-  test("PositionWatcher can be cancelled multiple times"):
+  test("PositionWatcher can be cancelled multiple times") {
     val watcher = Geolocation.watch()
     watcher.cancel
     watcher.cancel
     // Should not throw
+  }
 
-  test("Geolocation.getCurrentPosition accepts callbacks"):
+  test("Geolocation.getCurrentPosition accepts callbacks") {
     var called = false
     Geolocation.getCurrentPosition(onSuccess = _ => called = true, onError = _ => called = true)
     // In jsdom environment without geolocation, this should call onError
     // We just verify the call doesn't throw
+  }
 
-  test("Geolocation.getCurrentPosition with options"):
+  test("Geolocation.getCurrentPosition with options") {
     Geolocation.getCurrentPosition(
       onSuccess = _ => (),
       onError = _ => (),
       options = GeoOptions(enableHighAccuracy = true, timeout = 5000L)
     )
     // Should not throw
+  }
 
-  test("PositionWatcher position reactive stream emits values"):
+  test("PositionWatcher position reactive stream emits values") {
     val watcher      = Geolocation.watch()
     var emittedValue = false
     val cancel       = watcher
@@ -168,8 +185,9 @@ class GeolocationTest extends UniTest:
     emittedValue shouldBe true
     cancel.cancel
     watcher.cancel
+  }
 
-  test("PositionWatcher error reactive stream emits values"):
+  test("PositionWatcher error reactive stream emits values") {
     val watcher      = Geolocation.watch()
     var emittedValue = false
     val cancel       = watcher
@@ -181,5 +199,6 @@ class GeolocationTest extends UniTest:
     emittedValue shouldBe true
     cancel.cancel
     watcher.cancel
+  }
 
 end GeolocationTest

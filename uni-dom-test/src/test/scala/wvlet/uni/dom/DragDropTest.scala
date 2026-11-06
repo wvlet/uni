@@ -22,111 +22,130 @@ import wvlet.uni.rx.Rx
 
 class DragDropTest extends UniTest:
 
-  test("DragData case class holds data"):
+  test("DragData case class holds data") {
     val data = DragData("item", "item-123")
     data.kind shouldBe "item"
     data.data shouldBe "item-123"
     data.effectAllowed shouldBe "all"
+  }
 
-  test("DragData with custom effectAllowed"):
+  test("DragData with custom effectAllowed") {
     val data = DragData("task", "task-456", "copy")
     data.effectAllowed shouldBe "copy"
+  }
 
-  test("DragState.empty has correct defaults"):
+  test("DragState.empty has correct defaults") {
     val state = DragState.empty
     state.isDragging shouldBe false
     state.data shouldBe None
     state.overElement shouldBe None
+  }
 
-  test("DragState case class holds state"):
+  test("DragState case class holds state") {
     val data  = DragData("item", "123")
     val state = DragState(isDragging = true, data = Some(data), overElement = None)
     state.isDragging shouldBe true
     state.data shouldBe Some(data)
+  }
 
-  test("DragDrop.draggable with DragData returns DomNode"):
+  test("DragDrop.draggable with DragData returns DomNode") {
     val data = DragData("item", "item-123")
     val node = DragDrop.draggable(data)
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.draggable with kind and data returns DomNode"):
+  test("DragDrop.draggable with kind and data returns DomNode") {
     val node = DragDrop.draggable("item", "item-123")
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.dropZone returns DomNode"):
+  test("DragDrop.dropZone returns DomNode") {
     val node = DragDrop.dropZone { data =>
       ()
     }
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.dropZone with accept filter returns DomNode"):
+  test("DragDrop.dropZone with accept filter returns DomNode") {
     val node =
       DragDrop.dropZone("item", "task") { data =>
         ()
       }
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.fileDropZone returns DomNode"):
+  test("DragDrop.fileDropZone returns DomNode") {
     val node = DragDrop.fileDropZone { files =>
       ()
     }
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.state returns Rx[DragState]"):
+  test("DragDrop.state returns Rx[DragState]") {
     val state = DragDrop.state
     state shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("DragDrop.isDragging returns Rx[Boolean]"):
+  test("DragDrop.isDragging returns Rx[Boolean]") {
     val dragging = DragDrop.isDragging
     dragging shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("DragDrop.isDraggingNow returns Boolean"):
+  test("DragDrop.isDraggingNow returns Boolean") {
     val dragging = DragDrop.isDraggingNow
     dragging shouldBe false
+  }
 
-  test("DragDrop.currentState returns DragState"):
+  test("DragDrop.currentState returns DragState") {
     val state = DragDrop.currentState
     state shouldMatch { case DragState(_, _, _) =>
     }
+  }
 
-  test("DragDrop.onDragStart returns DomNode"):
+  test("DragDrop.onDragStart returns DomNode") {
     val node = DragDrop.onDragStart(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.onDragEnd returns DomNode"):
+  test("DragDrop.onDragEnd returns DomNode") {
     val node = DragDrop.onDragEnd(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.onDragOver returns DomNode"):
+  test("DragDrop.onDragOver returns DomNode") {
     val node = DragDrop.onDragOver(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.onDragEnter returns DomNode"):
+  test("DragDrop.onDragEnter returns DomNode") {
     val node = DragDrop.onDragEnter(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("DragDrop.onDragLeave returns DomNode"):
+  test("DragDrop.onDragLeave returns DomNode") {
     val node = DragDrop.onDragLeave(_ => ())
     node shouldMatch { case _: DomNode =>
     }
+  }
 
-  test("Draggable can be attached to element"):
+  test("Draggable can be attached to element") {
     val elem = div(DragDrop.draggable("item", "item-1"), "Drag me")
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Drop zone can be attached to element"):
+  test("Drop zone can be attached to element") {
     var dropped: Option[DragData] = None
     val elem                      = div(
       DragDrop.dropZone { data =>
@@ -136,8 +155,9 @@ class DragDropTest extends UniTest:
     )
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("File drop zone can be attached to element"):
+  test("File drop zone can be attached to element") {
     var files: Seq[dom.File] = Seq.empty
     val elem                 = div(
       DragDrop.fileDropZone { f =>
@@ -147,8 +167,9 @@ class DragDropTest extends UniTest:
     )
     elem shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Draggable renders with draggable attribute"):
+  test("Draggable renders with draggable attribute") {
     val elem           = div(DragDrop.draggable("item", "123"), "Drag")
     val (node, cancel) = DomRenderer.createNode(elem)
 
@@ -159,8 +180,9 @@ class DragDropTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
-  test("DragDrop.state emits values reactively"):
+  test("DragDrop.state emits values reactively") {
     var result: DragState = DragState.empty
     val cancel            = DragDrop
       .state
@@ -170,16 +192,18 @@ class DragDropTest extends UniTest:
     result shouldMatch { case DragState(_, _, _) =>
     }
     cancel.cancel
+  }
 
-  test("DomNode.group creates DomNodeGroup"):
+  test("DomNode.group creates DomNodeGroup") {
     val group = DomNode.group(
       HtmlTags.attr("draggable")("true"),
       HtmlTags.attr("class")("draggable")
     )
     group shouldMatch { case _: DomNodeGroup =>
     }
+  }
 
-  test("DomNodeGroup renders all nodes"):
+  test("DomNodeGroup renders all nodes") {
     val elem = div(
       DomNode.group(HtmlTags.attr("data-a")("1"), HtmlTags.attr("data-b")("2")),
       "Content"
@@ -194,5 +218,6 @@ class DragDropTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
 end DragDropTest

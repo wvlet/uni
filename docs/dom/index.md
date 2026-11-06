@@ -284,7 +284,7 @@ import wvlet.uni.rx.Rx
 import scala.language.implicitConversions
 
 class CounterTest extends DomTestSupport:
-  test("clicking +1 increments the counter"):
+  test("clicking +1 increments the counter") {
     val count = Rx.variable(0)
     val m = mount(
       div(
@@ -294,6 +294,7 @@ class CounterTest extends DomTestSupport:
     )
     fireEvent.click(m.getByText("+1"))
     m.text shouldContain "count=1"
+  }
 ```
 
 `DomTestSupport` extends `UniTest` and unmounts every element `mount` rendered

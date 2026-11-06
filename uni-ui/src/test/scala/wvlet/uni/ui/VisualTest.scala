@@ -68,7 +68,7 @@ class VisualTest extends UniTest:
       release: () => Unit = () => ()
   )(elem: => RxElement): Unit = themes.foreach { theme =>
     val themeName = theme.toString.toLowerCase
-    test(s"${name} (${themeName})"):
+    test(s"${name} (${themeName})") {
       ColorScheme.applyTo(dom.document.documentElement, theme)
       val (node, c) = DomRenderer.createNode(elem)
       dom.document.body.appendChild(node)
@@ -82,6 +82,7 @@ class VisualTest extends UniTest:
           ColorScheme.applyTo(dom.document.documentElement, ColorScheme.System)
           Rx.fromTry(result)
         }
+    }
   }
 
   visual("button") {

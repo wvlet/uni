@@ -46,7 +46,7 @@ class CollectionTest extends DomTestSupport:
     list.scrollTop = top
     fireEvent.dispatch(list, dom.Event("scroll"))
 
-  test("a virtual list renders only the rows in view and follows scrolling"):
+  test("a virtual list renders only the rows in view and follows scrolling") {
     val items = Rx.variable((1 to 1000).toSeq)
     val m     = mount(
       VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}")).withLabel("Numbers")(
@@ -71,8 +71,9 @@ class CollectionTest extends DomTestSupport:
       later.contains("Item 101") shouldBe true
       (later.size <= 27) shouldBe true
     }
+  }
 
-  test("a virtual list keeps a row's node while the list changes around it"):
+  test("a virtual list keeps a row's node while the list changes around it") {
     val items = Rx.variable(Seq(1, 2, 3))
     val m     = mount(
       VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))(
@@ -85,8 +86,9 @@ class CollectionTest extends DomTestSupport:
       rowTexts(m) shouldBe Seq("Item 0", "Item 1", "Item 2", "Item 3")
       (m.getByText("Item 2") eq two) shouldBe true
     }
+  }
 
-  test("keys move the highlight in a virtual list, scroll it into view, and select"):
+  test("keys move the highlight in a virtual list, scroll it into view, and select") {
     val selected = Rx.variable(Option.empty[Int])
     var chosen   = Seq.empty[Int]
     val m        = mount(
@@ -111,8 +113,9 @@ class CollectionTest extends DomTestSupport:
       fireEvent.click(m.getByText("Item 99"))
       selected.get shouldBe Some(99)
     }
+  }
 
-  test("a virtual list leaves keys from controls inside its rows alone"):
+  test("a virtual list leaves keys from controls inside its rows alone") {
     var chosen = 0
     val m      = mount(
       VirtualList(Rx.const(Seq(1, 2)), rowHeight = 24)(identity)(i => htmlButton(s"Edit ${i}"))
@@ -122,6 +125,7 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(m.getByText("Edit 1"), "Enter")
       chosen shouldBe 0
     }
+  }
 
   private case class FileNode(name: String, kids: Seq[FileNode] = Seq.empty)
 
@@ -130,7 +134,7 @@ class CollectionTest extends DomTestSupport:
     FileNode("build.sbt")
   )
 
-  test("a tree opens and closes rows with the keyboard and keeps ARIA in step"):
+  test("a tree opens and closes rows with the keyboard and keeps ARIA in step") {
     val expanded = Rx.variable(Set.empty[String])
     val m        = mount(
       Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
@@ -162,8 +166,9 @@ class CollectionTest extends DomTestSupport:
       expanded.get shouldBe Set.empty
       rowTexts(m) shouldBe Seq("src", "build.sbt")
     }
+  }
 
-  test("a click on a tree's chevron toggles the row without selecting it"):
+  test("a click on a tree's chevron toggles the row without selecting it") {
     val selected = Rx.variable(Option.empty[String])
     val m        = mount(
       Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
@@ -183,12 +188,13 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(tree, "b")
       activeRow(tree).map(_.textContent) shouldBe Some("build.sbt")
     }
+  }
 
   private case class Call(id: Int, method: String, millis: Double)
 
   private val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
 
-  test("a data table sorts by its headers and labels rows and columns"):
+  test("a data table sorts by its headers and labels rows and columns") {
     val sort = Rx.variable(Option.empty[SortBy])
     val m    = mount(
       DataTable(Rx.const(calls))(_.id)(
@@ -223,8 +229,9 @@ class CollectionTest extends DomTestSupport:
       methods shouldBe Seq("list", "send", "get")
       m.queryAll(".uni-table__cell--end").size shouldBe 4
     }
+  }
 
-  test("a data table selects rows with the keyboard"):
+  test("a data table selects rows with the keyboard") {
     var chosen = Option.empty[Call]
     val m      = mount(
       DataTable(Rx.const(calls))(_.id)(Column[Call]("method", "Method")(c => span(c.method)))
@@ -237,14 +244,16 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "Enter")
       chosen.map(_.method) shouldBe Some("send")
     }
+  }
 
-  test("sort helpers cycle the direction and leave unknown columns unsorted"):
+  test("sort helpers cycle the direction and leave unknown columns unsorted") {
     DataTable.nextSort(None, "a") shouldBe Some(SortBy("a"))
     DataTable.nextSort(Some(SortBy("a")), "a") shouldBe Some(SortBy("a", SortDirection.Descending))
     DataTable.nextSort(Some(SortBy("a", SortDirection.Descending)), "a") shouldBe None
     DataTable.nextSort(Some(SortBy("a", SortDirection.Descending)), "b") shouldBe Some(SortBy("b"))
     val cols = Seq(Column[Call]("millis", "Time")(c => span("")).sortBy(_.millis))
     DataTable.sortRows(calls, cols, Some(SortBy("nope"))) shouldBe calls
+  }
 
   private def commands(log: RxVar[Seq[String]]): Seq[Command] = Seq(
     Command("new", "New chat").withGroup("Chat").onRun(() => log.update(_ :+ "new")),
@@ -265,7 +274,7 @@ class CollectionTest extends DomTestSupport:
   private def paletteItems: Seq[String] =
     dom.document.querySelectorAll(".uni-palette__item .uni-palette__label").map(_.textContent).toSeq
 
-  test("a command palette lists commands by group, filters as you type, and runs one"):
+  test("a command palette lists commands by group, filters as you type, and runs one") {
     val open   = Rx.variable(false)
     val log    = Rx.variable(Seq.empty[String])
     val m      = mount(div(htmlButton("Opener"), CommandPalette(open, Rx.const(commands(log)))))
@@ -297,8 +306,9 @@ class CollectionTest extends DomTestSupport:
       find(".uni-palette") shouldBe None
       (active eq opener) shouldBe true
     }
+  }
 
-  test("a command palette matches keywords, shows an empty state, and starts empty again"):
+  test("a command palette matches keywords, shows an empty state, and starts empty again") {
     val open = Rx.variable(true)
     val log  = Rx.variable(Seq.empty[String])
     mount(CommandPalette(open, Rx.const(commands(log))).withEmptyText("Nothing here"))
@@ -318,8 +328,9 @@ class CollectionTest extends DomTestSupport:
         paletteItems.size shouldBe 3
       }
     }
+  }
 
-  test("arrow keys in a command palette wrap, and a click runs a command"):
+  test("arrow keys in a command palette wrap, and a click runs a command") {
     val open = Rx.variable(true)
     val log  = Rx.variable(Seq.empty[String])
     mount(CommandPalette(open, Rx.const(commands(log))))
@@ -338,5 +349,6 @@ class CollectionTest extends DomTestSupport:
       open := true
       highlighted shouldBe Some("New chat")
     }
+  }
 
 end CollectionTest

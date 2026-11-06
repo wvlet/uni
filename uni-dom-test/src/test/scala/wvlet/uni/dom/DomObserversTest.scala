@@ -23,21 +23,23 @@ import scala.scalajs.js
 
 class DomObserversTest extends UniTest:
 
-  test("IntersectionConfig has sensible defaults"):
+  test("IntersectionConfig has sensible defaults") {
     val config = IntersectionConfig.default
     config.root shouldBe None
     config.rootMargin shouldBe "0px"
     config.threshold shouldBe Seq(0.0)
+  }
 
-  test("IntersectionConfig can be customized"):
+  test("IntersectionConfig can be customized") {
     val config = IntersectionConfig(
       rootMargin = "10px 20px",
       threshold = Seq(0.0, 0.25, 0.5, 0.75, 1.0)
     )
     config.rootMargin shouldBe "10px 20px"
     config.threshold shouldBe Seq(0.0, 0.25, 0.5, 0.75, 1.0)
+  }
 
-  test("IntersectionEntry case class holds data"):
+  test("IntersectionEntry case class holds data") {
     val mockRect   = dom.document.createElement("div").getBoundingClientRect()
     val mockTarget = dom.document.createElement("div")
     val entry      = IntersectionEntry(
@@ -49,49 +51,57 @@ class DomObserversTest extends UniTest:
     )
     entry.isIntersecting shouldBe true
     entry.intersectionRatio shouldBe 0.5
+  }
 
-  test("Intersection.observe creates binding"):
+  test("Intersection.observe creates binding") {
     val isVisible = Rx.variable(false)
     val binding   = Intersection.observe(isVisible)
     binding shouldMatch { case _: IntersectionBinding =>
     }
+  }
 
-  test("Intersection.observeEntry creates entry binding"):
+  test("Intersection.observeEntry creates entry binding") {
     val entry   = Rx.variable(Option.empty[IntersectionEntry])
     val binding = Intersection.observeEntry(entry)
     binding shouldMatch { case _: IntersectionEntryBinding =>
     }
+  }
 
-  test("Intersection.onceVisible creates once binding"):
+  test("Intersection.onceVisible creates once binding") {
     var called  = false
     val binding = Intersection.onceVisible(() => called = true)
     binding shouldMatch { case _: IntersectionOnceBinding =>
     }
+  }
 
-  test("ResizeEntry case class holds data"):
+  test("ResizeEntry case class holds data") {
     val mockRect   = dom.document.createElement("div").getBoundingClientRect()
     val mockTarget = dom.document.createElement("div")
     val entry      = ResizeEntry(contentRect = mockRect, target = mockTarget)
     entry.target shouldBe mockTarget
+  }
 
-  test("Resize.observe creates binding"):
+  test("Resize.observe creates binding") {
     val size    = Rx.variable((0.0, 0.0))
     val binding = Resize.observe(size)
     binding shouldMatch { case _: ResizeBinding =>
     }
+  }
 
-  test("Resize.observeEntry creates entry binding"):
+  test("Resize.observeEntry creates entry binding") {
     val entry   = Rx.variable(Option.empty[ResizeEntry])
     val binding = Resize.observeEntry(entry)
     binding shouldMatch { case _: ResizeEntryBinding =>
     }
+  }
 
-  test("Resize.observeDebounced creates debounced binding"):
+  test("Resize.observeDebounced creates debounced binding") {
     val size    = Rx.variable((0.0, 0.0))
     val binding = Resize.observeDebounced(size, 150)
     binding shouldMatch { case rbd: ResizeBindingDebounced =>
       rbd.debounceMs shouldBe 150
     }
+  }
 
   // Note: Full integration tests for IntersectionObserver and ResizeObserver
   // require browser environment. jsdom doesn't support these APIs.

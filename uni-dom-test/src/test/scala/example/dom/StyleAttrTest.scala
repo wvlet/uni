@@ -31,7 +31,7 @@ import scala.language.implicitConversions
   */
 class StyleAttrTest extends UniTest:
 
-  test("styleAttr produces an inline CSS attribute through `import all.*`"):
+  test("styleAttr produces an inline CSS attribute through `import all.*`") {
     // Search by name rather than .head — `.head` would silently break if a future change adds a
     // default modifier to `div` (default class, ARIA attributes, etc.) before our explicit one.
     val d      = div(styleAttr -> "height: 64px; color: red;")
@@ -45,8 +45,9 @@ class StyleAttrTest extends UniTest:
     styled shouldMatch { case Some(a) =>
       a.v shouldBe "height: 64px; color: red;"
     }
+  }
 
-  test("titleAttr produces a tooltip attribute through `import all.*`"):
+  test("titleAttr produces a tooltip attribute through `import all.*`") {
     val b      = button(titleAttr -> "Save changes")
     val titled = b
       .modifiers
@@ -58,19 +59,22 @@ class StyleAttrTest extends UniTest:
     titled shouldMatch { case Some(a) =>
       a.v shouldBe "Save changes"
     }
+  }
 
-  test("`style` in scope is the <style> tag, not an attribute"):
+  test("`style` in scope is the <style> tag, not an attribute") {
     // Plain `style` is the `<style>` element in `wvlet.uni.dom.all` — verify it resolves to
     // a `DomElement` (and so accepts CSS rule text as a child), not a `DomAttributeOf`.
     val s = style("body { margin: 0; }")
     s shouldMatch { case e: DomElement =>
       e.name shouldBe "style"
     }
+  }
 
-  test("`title` in scope is the <title> tag, not an attribute"):
+  test("`title` in scope is the <title> tag, not an attribute") {
     val t = title("Page Title")
     t shouldMatch { case e: DomElement =>
       e.name shouldBe "title"
     }
+  }
 
 end StyleAttrTest

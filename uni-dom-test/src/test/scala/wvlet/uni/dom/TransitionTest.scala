@@ -21,60 +21,70 @@ import scala.language.implicitConversions
 
 class TransitionTest extends UniTest:
 
-  test("TransitionConfig has sensible defaults"):
+  test("TransitionConfig has sensible defaults") {
     val config = TransitionConfig()
     config.name shouldBe "v"
     config.duration shouldBe None
     config.appear shouldBe false
+  }
 
-  test("TransitionConfig can be customized"):
+  test("TransitionConfig can be customized") {
     val config = TransitionConfig(name = "fade", duration = Some(300), appear = true)
     config.name shouldBe "fade"
     config.duration shouldBe Some(300)
     config.appear shouldBe true
+  }
 
-  test("TransitionConfig withName"):
+  test("TransitionConfig withName") {
     val config = TransitionConfig().withName("slide")
     config.name shouldBe "slide"
+  }
 
-  test("TransitionConfig withDuration"):
+  test("TransitionConfig withDuration") {
     val config = TransitionConfig().withDuration(500)
     config.duration shouldBe Some(500)
+  }
 
-  test("TransitionConfig noDuration"):
+  test("TransitionConfig noDuration") {
     val config = TransitionConfig(duration = Some(300)).noDuration
     config.duration shouldBe None
+  }
 
-  test("TransitionConfig withAppear"):
+  test("TransitionConfig withAppear") {
     val config = TransitionConfig().withAppear
     config.appear shouldBe true
+  }
 
-  test("Transition.apply with name returns RxElement"):
+  test("Transition.apply with name returns RxElement") {
     val visible    = Rx.variable(false)
     val transition = Transition("fade", visible)(div("content"))
     transition shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Transition.apply with config returns RxElement"):
+  test("Transition.apply with config returns RxElement") {
     val visible    = Rx.variable(false)
     val config     = TransitionConfig(name = "slide", duration = Some(200))
     val transition = Transition(config, visible)(div("content"))
     transition shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Transition.fade returns RxElement"):
+  test("Transition.fade returns RxElement") {
     val visible    = Rx.variable(false)
     val transition = Transition.fade(visible)(div("content"))
     transition shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Transition.slide returns RxElement"):
+  test("Transition.slide returns RxElement") {
     val visible    = Rx.variable(false)
     val transition = Transition.slide(visible)(div("content"))
     transition shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("Transition renders wrapper div with children"):
+  test("Transition renders wrapper div with children") {
     val visible        = Rx.variable(true)
     val transition     = Transition("fade", visible)(span("hello"))
     val (node, cancel) = DomRenderer.createNode(transition)
@@ -88,8 +98,9 @@ class TransitionTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
-  test("Transition renders hidden when initially false"):
+  test("Transition renders hidden when initially false") {
     val visible        = Rx.variable(false)
     val transition     = Transition("fade", visible)(span("hello"))
     val (node, cancel) = DomRenderer.createNode(transition)
@@ -101,8 +112,9 @@ class TransitionTest extends UniTest:
         fail("Expected HTMLElement")
 
     cancel.cancel
+  }
 
-  test("Transition renders visible when initially true"):
+  test("Transition renders visible when initially true") {
     val visible        = Rx.variable(true)
     val transition     = Transition("fade", visible)(span("hello"))
     val (node, cancel) = DomRenderer.createNode(transition)
@@ -114,8 +126,9 @@ class TransitionTest extends UniTest:
         fail("Expected HTMLElement")
 
     cancel.cancel
+  }
 
-  test("Transition with multiple children"):
+  test("Transition with multiple children") {
     val visible        = Rx.variable(true)
     val transition     = Transition("fade", visible)(span("a"), span("b"), span("c"))
     val (node, cancel) = DomRenderer.createNode(transition)
@@ -128,5 +141,6 @@ class TransitionTest extends UniTest:
         fail("Expected Element")
 
     cancel.cancel
+  }
 
 end TransitionTest

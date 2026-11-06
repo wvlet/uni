@@ -23,43 +23,49 @@ import scala.language.implicitConversions
 
 class ClickOutsideTest extends UniTest with DomTestSupport:
 
-  test("ClickOutside.detect creates ClickOutsideBinding"):
+  test("ClickOutside.detect creates ClickOutsideBinding") {
     val binding = ClickOutside.detect(_ => ())
     binding shouldMatch { case _: ClickOutsideBinding =>
     }
+  }
 
-  test("ClickOutside.hide creates ClickOutsideBinding"):
+  test("ClickOutside.hide creates ClickOutsideBinding") {
     val visible = Rx.variable(true)
     val binding = ClickOutside.hide(visible)
     binding shouldMatch { case _: ClickOutsideBinding =>
     }
+  }
 
-  test("ClickOutside.onClickOutside creates ClickOutsideBinding"):
+  test("ClickOutside.onClickOutside creates ClickOutsideBinding") {
     var called  = false
     val binding = ClickOutside.onClickOutside(() => called = true)
     binding shouldMatch { case _: ClickOutsideBinding =>
     }
+  }
 
-  test("ClickOutsideBinding stores callback"):
+  test("ClickOutsideBinding stores callback") {
     var received: Option[org.scalajs.dom.MouseEvent] = None
     val binding                                      = ClickOutside.detect(e => received = Some(e))
     binding shouldMatch { case cb: ClickOutsideBinding =>
       cb.callback shouldMatch { case _: Function1[?, ?] =>
       }
     }
+  }
 
-  test("ClickOutside.detect can be used as DomNode modifier"):
+  test("ClickOutside.detect can be used as DomNode modifier") {
     val elem = div(ClickOutside.detect(_ => ()), span("content"))
     elem shouldMatch { case _: DomElement =>
     }
+  }
 
-  test("ClickOutside.hide can be used as DomNode modifier"):
+  test("ClickOutside.hide can be used as DomNode modifier") {
     val visible = Rx.variable(true)
     val elem    = div(ClickOutside.hide(visible), span("content"))
     elem shouldMatch { case _: DomElement =>
     }
+  }
 
-  test("ClickOutside.hide reacts to real clicks outside the element only"):
+  test("ClickOutside.hide reacts to real clicks outside the element only") {
     val visible = Rx.variable(true)
     mount(
       div(
@@ -72,5 +78,6 @@ class ClickOutsideTest extends UniTest with DomTestSupport:
       _ = visible.get shouldBe true
       _ <- Playwright.click("#co-outside")
     yield visible.get shouldBe false
+  }
 
 end ClickOutsideTest

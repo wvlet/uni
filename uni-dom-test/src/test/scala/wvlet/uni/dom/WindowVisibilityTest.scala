@@ -19,32 +19,37 @@ import wvlet.uni.rx.Rx
 
 class WindowVisibilityTest extends UniTest:
 
-  test("WindowVisibility.isVisible returns current status"):
+  test("WindowVisibility.isVisible returns current status") {
     val status = WindowVisibility.isVisible
     status shouldMatch { case _: Boolean =>
     }
+  }
 
-  test("WindowVisibility.state returns visibility state string"):
+  test("WindowVisibility.state returns visibility state string") {
     val state = WindowVisibility.state
     state shouldMatch { case _: String =>
     }
+  }
 
-  test("WindowVisibility.visible returns Rx[Boolean]"):
+  test("WindowVisibility.visible returns Rx[Boolean]") {
     val rx = WindowVisibility.visible
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowVisibility.hidden returns Rx[Boolean]"):
+  test("WindowVisibility.hidden returns Rx[Boolean]") {
     val rx = WindowVisibility.hidden
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowVisibility.visibilityState returns Rx[String]"):
+  test("WindowVisibility.visibilityState returns Rx[String]") {
     val rx = WindowVisibility.visibilityState
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowVisibility.visible and hidden are inverses"):
+  test("WindowVisibility.visible and hidden are inverses") {
     var visibleValue = false
     var hiddenValue  = false
 
@@ -60,8 +65,9 @@ class WindowVisibilityTest extends UniTest:
       }
 
     visibleValue shouldBe !hiddenValue
+  }
 
-  test("WindowVisibility can be used in reactive expressions"):
+  test("WindowVisibility can be used in reactive expressions") {
     val statusText = WindowVisibility
       .visible
       .map { visible =>
@@ -77,5 +83,6 @@ class WindowVisibilityTest extends UniTest:
     }
 
     (result == "Visible" || result == "Hidden") shouldBe true
+  }
 
 end WindowVisibilityTest

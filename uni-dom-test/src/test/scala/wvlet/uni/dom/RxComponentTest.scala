@@ -21,15 +21,16 @@ import scala.language.implicitConversions
 
 class RxComponentTest extends UniTest:
 
-  test("apply(content) invokes render with the supplied content"):
+  test("apply(content) invokes render with the supplied content") {
     object Frame extends RxComponent:
       override def render(content: RxElement): RxElement = div(cls -> "frame", content)
 
     val rendered = Frame(span("inner"))
     rendered shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("apply() invokes render with RxElement.empty"):
+  test("apply() invokes render with RxElement.empty") {
     var seen: RxElement = null
     object Frame extends RxComponent:
       override def render(content: RxElement): RxElement =
@@ -40,8 +41,9 @@ class RxComponentTest extends UniTest:
     // The standalone form must hand RxElement.empty to render — verify by reference identity so a
     // future change that swaps the default for some other "empty-ish" placeholder fails this test.
     (seen eq RxElement.empty) shouldBe true
+  }
 
-  test("MainFrame-style component wraps inner content into the DOM"):
+  test("MainFrame-style component wraps inner content into the DOM") {
     // Worked example from issue #527: an outer chrome component receiving inner content.
     object MainFrame extends RxComponent:
       override def render(content: RxElement): RxElement = div(cls -> "main-frame", content)
@@ -53,8 +55,9 @@ class RxComponentTest extends UniTest:
     val rendered = MainFrame(span("editor")).renderTo("rx-component-mount")
     target.textContent shouldBe "editor"
     rendered.cancelable.cancel
+  }
 
-  test("standalone component renders without inner content"):
+  test("standalone component renders without inner content") {
     object Standalone extends RxComponent:
       override def render(content: RxElement): RxElement = div(
         cls -> "standalone",
@@ -68,8 +71,9 @@ class RxComponentTest extends UniTest:
     val rendered = Standalone().renderTo("rx-component-standalone-mount")
     target.textContent shouldBe "no-content-needed"
     rendered.cancelable.cancel
+  }
 
-  test("RxComponent mixes into another base — `extends Base with RxComponent`"):
+  test("RxComponent mixes into another base — `extends Base with RxComponent`") {
     // airframe-rx-html's `RxComponent` was a trait, so migrating code like
     // `class Foo extends SomeBase with RxComponent` is valid. This test pins that uni's
     // `RxComponent` keeps the trait shape so those mixin sites still compile. (Suggested by
@@ -84,5 +88,6 @@ class RxComponentTest extends UniTest:
     val wrapped = frame(span("inner"))
     wrapped shouldMatch { case _: RxElement =>
     }
+  }
 
 end RxComponentTest

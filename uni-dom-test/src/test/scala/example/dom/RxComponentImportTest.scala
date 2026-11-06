@@ -27,19 +27,21 @@ import scala.language.implicitConversions
   */
 class RxComponentImportTest extends UniTest:
 
-  test("RxComponent reachable through `import wvlet.uni.dom.all.*`"):
+  test("RxComponent reachable through `import wvlet.uni.dom.all.*`") {
     object Frame extends RxComponent:
       override def render(content: RxElement): RxElement = div(cls -> "frame", content)
 
     val wrapped = Frame(span("inner"))
     wrapped shouldMatch { case _: RxElement =>
     }
+  }
 
-  test("standalone Frame() reachable through `import wvlet.uni.dom.all.*`"):
+  test("standalone Frame() reachable through `import wvlet.uni.dom.all.*`") {
     object Frame extends RxComponent:
       override def render(content: RxElement): RxElement = div(cls -> "frame", content)
 
     Frame() shouldMatch { case _: RxElement =>
     }
+  }
 
 end RxComponentImportTest

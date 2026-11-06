@@ -29,7 +29,7 @@ import scala.language.implicitConversions
   */
 class AllExportsTest extends UniTest:
 
-  test("when reachable through import wvlet.uni.dom.all.*"):
+  test("when reachable through import wvlet.uni.dom.all.*") {
     val visible = true
     val d       = div(when(visible, span("Visible")))
     // Verify the actual rendered element, not just modifier count — `DomNode.empty`
@@ -38,12 +38,14 @@ class AllExportsTest extends UniTest:
     d.modifiers.flatten.head shouldMatch { case e: DomElement =>
       e.name shouldBe "span"
     }
+  }
 
-  test("unless reachable through import wvlet.uni.dom.all.*"):
+  test("unless reachable through import wvlet.uni.dom.all.*") {
     val hidden = false
     val d      = div(unless(hidden, span("Visible")))
     d.modifiers.flatten.head shouldMatch { case e: DomElement =>
       e.name shouldBe "span"
     }
+  }
 
 end AllExportsTest

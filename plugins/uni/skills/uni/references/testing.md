@@ -245,24 +245,27 @@ import org.scalajs.dom
 import wvlet.uni.dom.testing.*
 
 class EditorTest extends DomTestSupport:
-  test("Enter sends; IME Enter does not"):
+  test("Enter sends; IME Enter does not") {
     val m   = mount(Composer(onSend))
     val box = m.get("textarea")
     fireEvent.input(box, "hello")
     fireEvent.keyDown(box, "Enter", isComposing = true) // confirms an IME conversion
     fireEvent.keyDown(box, "Enter")
+  }
 
-  test("drag the splitter"):
+  test("drag the splitter") {
     val m = mount(Splitter(width))
     fireEvent.pointerDown(m.get("[role=separator]"), clientX = 300)
     fireEvent.pointerMove(dom.window, clientX = 350)
     fireEvent.pointerUp(dom.window, clientX = 350)
     width.get shouldBe 350
+  }
 
-  test("onMount wiring"):
+  test("onMount wiring") {
     val m = mount(AutoFocusInput())
     // onMount runs a step after mount returns; return the Rx from the test
     settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
+  }
 ```
 
 - Queries: `m.get(css)`, `m.query(css)`, `m.getByText(...)`, `m.getByTestId(...)`;

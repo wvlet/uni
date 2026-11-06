@@ -43,10 +43,11 @@ class VisualTest extends UniTest:
       Rx.fromTry(result)
     }
 
-  test("runs under the Playwright JSEnv"):
+  test("runs under the Playwright JSEnv") {
     Playwright.isAvailable shouldBe true
+  }
 
-  test("renders a flex layout"):
+  test("renders a flex layout") {
     val layout = div(
       id -> "visual-flex",
       style(
@@ -60,8 +61,9 @@ class VisualTest extends UniTest:
       box("royalblue")
     )
     mounted(layout)(Playwright.expectScreenshot("flex-layout", selector = "#visual-flex"))
+  }
 
-  test("re-renders a reactive update"):
+  test("re-renders a reactive update") {
     val color = Rx.variable("orange")
     val elem  = div(id -> "visual-rx", style := "display: inline-block;", color.map(box))
     mounted(elem) {
@@ -71,5 +73,6 @@ class VisualTest extends UniTest:
         _ <- Playwright.expectScreenshot("rx-after", selector = "#visual-rx")
       yield ()
     }
+  }
 
 end VisualTest

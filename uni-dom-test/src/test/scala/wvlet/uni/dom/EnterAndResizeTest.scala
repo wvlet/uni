@@ -26,7 +26,7 @@ import scala.language.implicitConversions
 /** `Keyboard.onEnter`, IME-safe shortcuts, `PointerDrag`, and `PaneResize`. */
 class EnterAndResizeTest extends DomTestSupport:
 
-  test("onEnter fires on plain Enter only"):
+  test("onEnter fires on plain Enter only") {
     var sent = 0
     val m    = mount(textarea(Keyboard.onEnter(() => sent += 1)))
     val box  = m.get("textarea")
@@ -36,14 +36,16 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.keyDown(box, "Enter", metaKey = true) shouldBe true
     fireEvent.keyDown(box, "a")
     sent shouldBe 1
+  }
 
-  test("onEnter ignores the Enter that confirms an IME conversion"):
+  test("onEnter ignores the Enter that confirms an IME conversion") {
     var sent = 0
     val m    = mount(textarea(Keyboard.onEnter(() => sent += 1)))
     fireEvent.keyDown(m.get("textarea"), "Enter", isComposing = true) shouldBe true
     sent shouldBe 0
+  }
 
-  test("onEnter runs alongside an onkeydown handler"):
+  test("onEnter runs alongside an onkeydown handler") {
     val seen = mutable.Buffer.empty[String]
     val m    = mount(
       input(
@@ -55,6 +57,7 @@ class EnterAndResizeTest extends DomTestSupport:
     )
     fireEvent.keyDown(m.get("input"), "Enter")
     seen.toSet shouldBe Set("key:Enter", "enter")
+  }
 
   private def enterKey(isComposing: Boolean = false, keyCode: Int = 13): dom.KeyboardEvent =
     // keyCode is not settable through KeyboardEventInit, so define it on the event
@@ -72,13 +75,14 @@ class EnterAndResizeTest extends DomTestSupport:
       )
     e
 
-  test("Keyboard.isComposing detects composition and keyCode 229"):
+  test("Keyboard.isComposing detects composition and keyCode 229") {
     Keyboard.isComposing(enterKey()) shouldBe false
     Keyboard.isComposing(enterKey(isComposing = true)) shouldBe true
     // Safari reports the keydown that ends a composition with keyCode 229
     Keyboard.isComposing(enterKey(keyCode = 229)) shouldBe true
+  }
 
-  test("scoped shortcuts do not fire during IME composition"):
+  test("scoped shortcuts do not fire during IME composition") {
     var count = 0
     val m     = mount(input(Keyboard.scoped("enter" -> (() => count += 1))))
     val field = m.get("input")
@@ -86,8 +90,9 @@ class EnterAndResizeTest extends DomTestSupport:
     count shouldBe 0
     fireEvent.keyDown(field, "Enter")
     count shouldBe 1
+  }
 
-  test("global shortcuts do not fire during IME composition"):
+  test("global shortcuts do not fire during IME composition") {
     var count  = 0
     val cancel = Keyboard.bind("enter", () => count += 1)
     try
@@ -97,8 +102,9 @@ class EnterAndResizeTest extends DomTestSupport:
       count shouldBe 1
     finally
       cancel.cancel
+  }
 
-  test("PointerDrag reports distances from the start until release"):
+  test("PointerDrag reports distances from the start until release") {
     val moves = mutable.Buffer.empty[(Double, Double)]
     var ended = 0
     val drag  = PointerDrag(
@@ -118,8 +124,9 @@ class EnterAndResizeTest extends DomTestSupport:
     // Moves after release are not tracked
     fireEvent.pointerMove(dom.window, clientX = 0, clientY = 0)
     moves.toSeq shouldBe Seq((30.0, -10.0))
+  }
 
-  test("PointerDrag ends on pointercancel and ignores non-primary buttons"):
+  test("PointerDrag ends on pointercancel and ignores non-primary buttons") {
     var moved = 0
     val drag  = PointerDrag(onMove = (_, _) => moved += 1)
     val m     = mount(div(cls -> "handle", drag.bind))
@@ -130,8 +137,9 @@ class EnterAndResizeTest extends DomTestSupport:
     drag.isDragging shouldBe false
     fireEvent.pointerMove(dom.window, clientX = 10)
     moved shouldBe 0
+  }
 
-  test("PointerDrag follows only the starting pointer and restores the page cursor"):
+  test("PointerDrag follows only the starting pointer and restores the page cursor") {
     val moves = mutable.Buffer.empty[Double]
     val drag  = PointerDrag(onMove = (dx, _) => moves += dx, cursor = "col-resize")
     val m     = mount(div(cls -> "handle", drag.bind))
@@ -150,8 +158,9 @@ class EnterAndResizeTest extends DomTestSupport:
       dom.document.body.style.cursor shouldBe "wait"
     finally
       dom.document.body.style.cursor = ""
+  }
 
-  test("PaneResize clamps to the range and resets on double-click"):
+  test("PaneResize clamps to the range and resets on double-click") {
     val width  = Rx.variable(272)
     val range  = SizeRange(min = 208, default = 272, max = 480)
     val resize = PaneResize(width, range, ResizeDirection.Right)
@@ -169,8 +178,9 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.pointerUp(dom.window)
     fireEvent.dblclick(grip)
     width.get shouldBe range.default
+  }
 
-  test("PaneResize clamps an out-of-range starting size"):
+  test("PaneResize clamps an out-of-range starting size") {
     val range = SizeRange(min = 260, default = 320, max = 720)
     val wide  = Rx.variable(960)
     PaneResize(wide, range, ResizeDirection.Left)
@@ -181,8 +191,9 @@ class EnterAndResizeTest extends DomTestSupport:
     val inRange = Rx.variable(400)
     PaneResize(inRange, range, ResizeDirection.Left)
     inRange.get shouldBe 400
+  }
 
-  test("PaneResize grows against the pointer for Left and Up handles"):
+  test("PaneResize grows against the pointer for Left and Up handles") {
     val width = Rx.variable(300)
     val wide  = mount(
       div(cls -> "left", PaneResize(width, SizeRange(200, 300, 400), ResizeDirection.Left).bind)
@@ -201,8 +212,9 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.pointerMove(dom.window, clientY = 380)
     fireEvent.pointerUp(dom.window)
     height.get shouldBe 220
+  }
 
-  test("PaneResize exposes dragging"):
+  test("PaneResize exposes dragging") {
     val resize = PaneResize(Rx.variable(250), SizeRange(200, 250, 300), ResizeDirection.Down)
     val m      = mount(div(cls -> "grip", resize.bind))
     val states = mutable.Buffer.empty[Boolean]
@@ -211,5 +223,6 @@ class EnterAndResizeTest extends DomTestSupport:
     fireEvent.pointerUp(dom.window)
     sub.cancel
     states.toSeq shouldBe Seq(false, true, false)
+  }
 
 end EnterAndResizeTest

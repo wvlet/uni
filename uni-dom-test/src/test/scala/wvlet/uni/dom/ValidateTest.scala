@@ -22,47 +22,54 @@ class ValidateTest extends UniTest:
 
   // --- Individual validators ---
 
-  test("required rejects empty string"):
+  test("required rejects empty string") {
     val rule   = Validate.required("Name is required")
     val result = rule.validate("")
     result.isValid shouldBe false
     result.errors shouldBe Seq("Name is required")
+  }
 
-  test("required accepts non-empty string"):
+  test("required accepts non-empty string") {
     val rule   = Validate.required()
     val result = rule.validate("hello")
     result.isValid shouldBe true
     result.errors shouldBe Seq.empty
+  }
 
-  test("minLength rejects short string"):
+  test("minLength rejects short string") {
     val rule   = Validate.minLength(3, "Too short")
     val result = rule.validate("ab")
     result.isValid shouldBe false
     result.errors shouldBe Seq("Too short")
+  }
 
-  test("minLength accepts string of exact length"):
+  test("minLength accepts string of exact length") {
     val rule   = Validate.minLength(3)
     val result = rule.validate("abc")
     result.isValid shouldBe true
+  }
 
-  test("maxLength rejects long string"):
+  test("maxLength rejects long string") {
     val rule   = Validate.maxLength(5, "Too long")
     val result = rule.validate("abcdef")
     result.isValid shouldBe false
     result.errors shouldBe Seq("Too long")
+  }
 
-  test("maxLength accepts string within limit"):
+  test("maxLength accepts string within limit") {
     val rule   = Validate.maxLength(5)
     val result = rule.validate("abc")
     result.isValid shouldBe true
+  }
 
-  test("pattern validates against regex"):
+  test("pattern validates against regex") {
     val rule = Validate.pattern("[a-z]+", "Only lowercase")
     rule.validate("hello").isValid shouldBe true
     rule.validate("Hello").isValid shouldBe false
     rule.validate("123").isValid shouldBe false
+  }
 
-  test("email validates email format"):
+  test("email validates email format") {
     val rule = Validate.email()
     rule.validate("user@example.com").isValid shouldBe true
     rule.validate("user@sub.example.com").isValid shouldBe true
@@ -70,14 +77,16 @@ class ValidateTest extends UniTest:
     rule.validate("@missing-local.com").isValid shouldBe false
     rule.validate("missing-domain@").isValid shouldBe false
     rule.validate("has spaces@example.com").isValid shouldBe false
+  }
 
-  test("custom rule with predicate"):
+  test("custom rule with predicate") {
     val rule = Validate.rule[Int](_ > 0, "Must be positive")
     rule.validate(5).isValid shouldBe true
     rule.validate(0).isValid shouldBe false
     rule.validate(-1).isValid shouldBe false
+  }
 
-  test("custom ruleWith returns ValidationState directly"):
+  test("custom ruleWith returns ValidationState directly") {
     val rule = Validate.ruleWith[Int] { v =>
       if v >= 0 && v <= 100 then
         ValidationState.Valid
@@ -86,10 +95,11 @@ class ValidateTest extends UniTest:
     }
     rule.validate(50).isValid shouldBe true
     rule.validate(101).isValid shouldBe false
+  }
 
   // --- ValidationState ---
 
-  test("ValidationState.combine merges multiple states"):
+  test("ValidationState.combine merges multiple states") {
     val combined = ValidationState.combine(
       Seq(
         ValidationState.Valid,
@@ -100,15 +110,17 @@ class ValidateTest extends UniTest:
     )
     combined.isValid shouldBe false
     combined.errors shouldBe Seq("error1", "error2", "error3")
+  }
 
-  test("ValidationState.combine returns Valid when all valid"):
+  test("ValidationState.combine returns Valid when all valid") {
     val combined = ValidationState.combine(Seq(ValidationState.Valid, ValidationState.Valid))
     combined.isValid shouldBe true
     combined.errors shouldBe Seq.empty
+  }
 
   // --- FieldValidation ---
 
-  test("FieldValidation reacts to RxVar changes"):
+  test("FieldValidation reacts to RxVar changes") {
     val name  = Rx.variable("")
     val nameV = Validate(name)(Validate.required("Required"))
 
@@ -129,8 +141,9 @@ class ValidateTest extends UniTest:
     currentState.isValid shouldBe false
 
     cancelable.cancel
+  }
 
-  test("FieldValidation with multiple rules collects all errors"):
+  test("FieldValidation with multiple rules collects all errors") {
     val input  = Rx.variable("")
     val inputV = Validate(input)(Validate.required("Required"), Validate.minLength(3, "Too short"))
 
@@ -153,8 +166,9 @@ class ValidateTest extends UniTest:
     currentErrors shouldBe Seq.empty
 
     cancelable.cancel
+  }
 
-  test("FieldValidation.isValid reflects current state"):
+  test("FieldValidation.isValid reflects current state") {
     val value  = Rx.variable(0)
     val valueV = Validate(value)(Validate.rule(_ > 0, "Must be positive"))
 
@@ -174,8 +188,9 @@ class ValidateTest extends UniTest:
     valid shouldBe false
 
     cancelable.cancel
+  }
 
-  test("FieldValidation.validateNow returns current validity"):
+  test("FieldValidation.validateNow returns current validity") {
     val input  = Rx.variable("hello")
     val inputV = Validate(input)(Validate.required())
 
@@ -192,10 +207,11 @@ class ValidateTest extends UniTest:
     inputV.validateNow().isValid shouldBe false
 
     cancelable.cancel
+  }
 
   // --- FormValidation ---
 
-  test("FormValidation.isValid combines all fields"):
+  test("FormValidation.isValid combines all fields") {
     val name  = Rx.variable("Alice")
     val email = Rx.variable("alice@example.com")
 
@@ -222,8 +238,9 @@ class ValidateTest extends UniTest:
     formValid shouldBe false
 
     cancelable.cancel
+  }
 
-  test("FormValidation.errors aggregates all field errors"):
+  test("FormValidation.errors aggregates all field errors") {
     val name  = Rx.variable("")
     val email = Rx.variable("")
 
@@ -248,8 +265,9 @@ class ValidateTest extends UniTest:
     allErrors shouldBe Seq.empty
 
     cancelable.cancel
+  }
 
-  test("FormValidation.validateAll returns current validity"):
+  test("FormValidation.validateAll returns current validity") {
     val name  = Rx.variable("Alice")
     val email = Rx.variable("alice@example.com")
 
@@ -276,8 +294,9 @@ class ValidateTest extends UniTest:
 
     c1.cancel
     c2.cancel
+  }
 
-  test("FormValidation with empty fields list"):
+  test("FormValidation with empty fields list") {
     val formV = Validate.form()
 
     var valid      = false
@@ -291,8 +310,9 @@ class ValidateTest extends UniTest:
     formV.validateAll() shouldBe true
 
     cancelable.cancel
+  }
 
-  test("FormValidation with single field"):
+  test("FormValidation with single field") {
     val input  = Rx.variable("test")
     val inputV = Validate(input)(Validate.required())
     val formV  = Validate.form(inputV)
@@ -310,5 +330,6 @@ class ValidateTest extends UniTest:
     valid shouldBe false
 
     cancelable.cancel
+  }
 
 end ValidateTest

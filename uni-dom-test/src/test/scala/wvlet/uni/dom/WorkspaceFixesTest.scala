@@ -28,7 +28,7 @@ class WorkspaceFixesTest extends UniTest:
 
   private def inputEvent(node: dom.Node): Unit = node.dispatchEvent(dom.Event("input"))
 
-  test("value.bind and a user oninput both run"):
+  test("value.bind and a user oninput both run") {
     val text = Rx.variable("")
     var seen = ""
     val elem = input(
@@ -49,8 +49,9 @@ class WorkspaceFixesTest extends UniTest:
     in.value = "after cancel"
     inputEvent(in)
     text.get shouldBe "hello"
+  }
 
-  test("value.bind works when the user oninput comes first"):
+  test("value.bind works when the user oninput comes first") {
     val text  = Rx.variable("")
     var calls = 0
     val elem  = textarea(
@@ -65,8 +66,9 @@ class WorkspaceFixesTest extends UniTest:
     inputEvent(ta)
     text.get shouldBe "typed"
     calls shouldBe 1
+  }
 
-  test("checked.bind and a user onchange both run"):
+  test("checked.bind and a user onchange both run") {
     val on    = Rx.variable(false)
     var calls = 0
     val elem  = input(
@@ -82,35 +84,41 @@ class WorkspaceFixesTest extends UniTest:
     in.dispatchEvent(dom.Event("change"))
     on.get shouldBe true
     calls shouldBe 1
+  }
 
-  test("Rx.const child keeps its content"):
+  test("Rx.const child keeps its content") {
     val elem      = div(Rx.const("constant"))
     val (node, _) = DomRenderer.createNode(elem)
     node.textContent shouldBe "constant"
+  }
 
-  test("Rx.const of elements keeps its content"):
+  test("Rx.const of elements keeps its content") {
     val rows      = Rx.const(Seq("a", "b"))
     val elem      = ul(rows.map(xs => xs.map(x => li(x))))
     val (node, _) = DomRenderer.createNode(elem)
     node.textContent shouldBe "ab"
+  }
 
-  test("Rx.const attribute keeps its value"):
+  test("Rx.const attribute keeps its value") {
     val elem      = div(cls += Rx.const("active"))
     val (node, _) = DomRenderer.createNode(elem)
     node.asInstanceOf[dom.Element].getAttribute("class") shouldBe "active"
+  }
 
-  test("disabled still works as a bare attribute"):
+  test("disabled still works as a bare attribute") {
     val (node, _) = DomRenderer.createNode(button(disabled))
     node.asInstanceOf[dom.html.Button].disabled shouldBe true
+  }
 
-  test("disabled accepts a Boolean"):
+  test("disabled accepts a Boolean") {
     val (on, _)  = DomRenderer.createNode(button(disabled -> true))
     val (off, _) = DomRenderer.createNode(button(disabled -> false))
     on.asInstanceOf[dom.html.Button].disabled shouldBe true
     off.asInstanceOf[dom.html.Button].disabled shouldBe false
     off.asInstanceOf[dom.Element].hasAttribute("disabled") shouldBe false
+  }
 
-  test("disabled accepts an Rx[Boolean]"):
+  test("disabled accepts an Rx[Boolean]") {
     val busy      = Rx.variable(true)
     val (node, _) = DomRenderer.createNode(button(disabled -> busy))
     val b         = node.asInstanceOf[dom.html.Button]
@@ -121,21 +129,24 @@ class WorkspaceFixesTest extends UniTest:
     b.hasAttribute("disabled") shouldBe false
     busy := true
     b.disabled shouldBe true
+  }
 
-  test("hidden accepts an Rx[Boolean]"):
+  test("hidden accepts an Rx[Boolean]") {
     val folded    = Rx.variable(false)
     val (node, _) = DomRenderer.createNode(div(hidden -> folded))
     val d         = node.asInstanceOf[dom.html.Element]
     d.hasAttribute("hidden") shouldBe false
     folded := true
     d.hasAttribute("hidden") shouldBe true
+  }
 
-  test("muted accepts an Rx[Boolean] and drives the property"):
+  test("muted accepts an Rx[Boolean] and drives the property") {
     val isMuted   = Rx.variable(true)
     val (node, _) = DomRenderer.createNode(video(muted -> isMuted))
     val v         = node.asInstanceOf[dom.html.Video]
     v.muted shouldBe true
     isMuted := false
     v.muted shouldBe false
+  }
 
 end WorkspaceFixesTest

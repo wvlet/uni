@@ -32,12 +32,13 @@ class ImageDiffTest extends munit.FunSuite:
 
   private val blue = png(10, 10)((_, _) => 0xff0000ff)
 
-  test("identical images match"):
+  test("identical images match") {
     val r = ImageDiff.compare(blue, blue, threshold = 0.1)
     assertEquals(r.diffPixels, 0L)
     assert(r.isMatch(0.0))
+  }
 
-  test("counts differing pixels and honors maxDiffPixelRatio"):
+  test("counts differing pixels and honors maxDiffPixelRatio") {
     val oneRed =
       png(10, 10)((x, y) =>
         if x == 0 && y == 0 then
@@ -50,15 +51,18 @@ class ImageDiffTest extends munit.FunSuite:
     assert(!r.isMatch(0.0))
     assert(r.isMatch(0.01))
     assert(r.diffImage.isDefined)
+  }
 
-  test("small channel differences within threshold match"):
+  test("small channel differences within threshold match") {
     val nearBlue = png(10, 10)((_, _) => 0xff0000f0)
     assert(ImageDiff.compare(blue, nearBlue, threshold = 0.1).isMatch(0.0))
     assert(!ImageDiff.compare(blue, nearBlue, threshold = 0.0).isMatch(0.0))
+  }
 
-  test("size mismatch never matches"):
+  test("size mismatch never matches") {
     val r = ImageDiff.compare(blue, png(10, 11)((_, _) => 0xff0000ff), threshold = 0.1)
     assert(r.sizeMismatch)
     assert(!r.isMatch(1.0))
+  }
 
 end ImageDiffTest

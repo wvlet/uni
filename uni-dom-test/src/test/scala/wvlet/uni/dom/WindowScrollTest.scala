@@ -19,32 +19,37 @@ import wvlet.uni.rx.Rx
 
 class WindowScrollTest extends UniTest:
 
-  test("WindowScroll.x returns current horizontal scroll position"):
+  test("WindowScroll.x returns current horizontal scroll position") {
     val x = WindowScroll.x
     x shouldMatch { case _: Double =>
     }
+  }
 
-  test("WindowScroll.y returns current vertical scroll position"):
+  test("WindowScroll.y returns current vertical scroll position") {
     val y = WindowScroll.y
     y shouldMatch { case _: Double =>
     }
+  }
 
-  test("WindowScroll.scrollX returns Rx[Double]"):
+  test("WindowScroll.scrollX returns Rx[Double]") {
     val rx = WindowScroll.scrollX
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowScroll.scrollY returns Rx[Double]"):
+  test("WindowScroll.scrollY returns Rx[Double]") {
     val rx = WindowScroll.scrollY
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowScroll.scroll returns Rx[(Double, Double)]"):
+  test("WindowScroll.scroll returns Rx[(Double, Double)]") {
     val rx = WindowScroll.scroll
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowScroll can be used in reactive expressions"):
+  test("WindowScroll can be used in reactive expressions") {
     val showBackToTop = WindowScroll
       .scrollY
       .map { y =>
@@ -58,8 +63,9 @@ class WindowScrollTest extends UniTest:
 
     result shouldMatch { case _: Boolean =>
     }
+  }
 
-  test("WindowScroll.scroll provides both x and y positions"):
+  test("WindowScroll.scroll provides both x and y positions") {
     var xResult = 0.0
     var yResult = 0.0
 
@@ -73,5 +79,6 @@ class WindowScrollTest extends UniTest:
     // In jsdom, scroll positions start at 0
     (xResult >= 0) shouldBe true
     (yResult >= 0) shouldBe true
+  }
 
 end WindowScrollTest

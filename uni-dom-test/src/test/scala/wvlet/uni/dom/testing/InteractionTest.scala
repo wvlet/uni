@@ -30,7 +30,7 @@ import scala.language.implicitConversions
   */
 class InteractionTest extends UniTest with DomTestSupport:
 
-  test("clicking a button updates reactive state"):
+  test("clicking a button updates reactive state") {
     val count = Rx.variable(0)
 
     class Counter extends RxElement:
@@ -64,8 +64,9 @@ class InteractionTest extends UniTest with DomTestSupport:
 
     fireEvent.click(m.getByText("-1"))
     m.text shouldContain "count=2"
+  }
 
-  test("typing into an input drives a two-way bound RxVar"):
+  test("typing into an input drives a two-way bound RxVar") {
     val name = Rx.variable("")
 
     class Greeter extends RxElement:
@@ -89,8 +90,9 @@ class InteractionTest extends UniTest with DomTestSupport:
     fireEvent.input(inputEl, "Uni")
     name.get shouldBe "Uni"
     m.text shouldContain "Hello, Uni"
+  }
 
-  test("keyboard events reach onkeydown handlers"):
+  test("keyboard events reach onkeydown handlers") {
     val lastKey = Rx.variable("")
 
     class KeyCapture extends RxElement:
@@ -107,24 +109,28 @@ class InteractionTest extends UniTest with DomTestSupport:
     fireEvent.keyDown(root, key = "Enter")
     lastKey.get shouldBe "Enter"
     m.text shouldContain "key=Enter"
+  }
 
-  test("getByText returns the deepest matching element, not an ancestor"):
+  test("getByText returns the deepest matching element, not an ancestor") {
     class Nested extends RxElement:
       override def render: RxElement = div(cls -> "outer", span(cls -> "inner", "Save"))
 
     val m   = mount(Nested())
     val hit = m.getByText("Save")
     hit.getAttribute("class") shouldBe "inner"
+  }
 
-  test("queryByText returns None when no element matches"):
+  test("queryByText returns None when no element matches") {
     val m = mount(RxElement(div("hello")))
     m.queryByText("goodbye") shouldBe None
+  }
 
-  test("unmount detaches the container and runs cleanup"):
+  test("unmount detaches the container and runs cleanup") {
     val m         = mount(RxElement(div(cls -> "ephemeral", "bye")))
     val container = m.container
     (container.parentNode != null) shouldBe true
     m.unmount()
     (container.parentNode == null) shouldBe true
+  }
 
 end InteractionTest

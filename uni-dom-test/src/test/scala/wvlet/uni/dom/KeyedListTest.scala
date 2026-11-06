@@ -33,7 +33,7 @@ class KeyedListTest extends UniTest:
     val all = root.querySelectorAll("li")
     (0 until all.length).map(all(_))
 
-  test("an append adds one node and keeps the existing ones"):
+  test("an append adds one node and keeps the existing ones") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
     var rendered  = 0
     val (root, c) = render(
@@ -54,8 +54,9 @@ class KeyedListTest extends UniTest:
     (after(0) eq before(0)) shouldBe true
     (after(1) eq before(1)) shouldBe true
     c.cancel
+  }
 
-  test("removing and reordering moves nodes instead of rebuilding them"):
+  test("removing and reordering moves nodes instead of rebuilding them") {
     val items            = Rx.variable(Seq(Item(1, "a"), Item(2, "b"), Item(3, "c")))
     val (root, c)        = render(ul(each(items)(_.id)(it => li(it.text))))
     val Seq(a, _, cNode) = lis(root): @unchecked
@@ -65,8 +66,9 @@ class KeyedListTest extends UniTest:
     (after(0) eq cNode) shouldBe true
     (after(1) eq a) shouldBe true
     c.cancel
+  }
 
-  test("an item whose value changed is rendered again"):
+  test("an item whose value changed is rendered again") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
     val (root, c) = render(ul(each(items)(_.id)(it => li(it.text))))
     val first     = lis(root).head
@@ -74,14 +76,16 @@ class KeyedListTest extends UniTest:
     lis(root).map(_.textContent) shouldBe Seq("a", "B")
     (lis(root).head eq first) shouldBe true
     c.cancel
+  }
 
-  test("a repeated key keeps only its first item"):
+  test("a repeated key keeps only its first item") {
     val items     = Rx.variable(Seq(Item(1, "a"), Item(1, "dup"), Item(2, "b")))
     val (root, c) = render(ul(each(items)(_.id)(it => li(it.text))))
     lis(root).map(_.textContent) shouldBe Seq("a", "b")
     c.cancel
+  }
 
-  test("a keyed list stays between its siblings"):
+  test("a keyed list stays between its siblings") {
     val items     = Rx.variable(Seq(Item(1, "a")))
     val (root, c) = render(ul(li("head"), each(items)(_.id)(it => li(it.text)), li("tail")))
     items := Seq(Item(2, "b"), Item(1, "a"))
@@ -89,8 +93,9 @@ class KeyedListTest extends UniTest:
     items := Seq.empty
     lis(root).map(_.textContent) shouldBe Seq("head", "tail")
     c.cancel
+  }
 
-  test("an item's own Rx keeps updating, and stops once the item is removed"):
+  test("an item's own Rx keeps updating, and stops once the item is removed") {
     val items     = Rx.variable(Seq(Item(1, "a")))
     val count     = Rx.variable(0)
     var runs      = 0
@@ -114,8 +119,9 @@ class KeyedListTest extends UniTest:
     count := 2
     runs shouldBe before
     c.cancel
+  }
 
-  test("an Rx nested directly in an Rx re-renders in place, not at the parent's end"):
+  test("an Rx nested directly in an Rx re-renders in place, not at the parent's end") {
     val outer     = Rx.variable(0)
     val inner     = Rx.variable("x")
     val (root, c) = render(span(outer.map(n => inner.map(s => s"${s}${n}")), span("after")))
@@ -125,5 +131,6 @@ class KeyedListTest extends UniTest:
     inner := "y"
     root.textContent shouldBe "y1after"
     c.cancel
+  }
 
 end KeyedListTest

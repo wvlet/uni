@@ -17,17 +17,20 @@ import wvlet.uni.test.UniTest
 
 class SimpleSvgTest extends UniTest:
 
-  test("access svg via svgElements"):
+  test("access svg via svgElements") {
     val s = svgElements.svg
     s.namespace shouldBe DomNamespace.svg
+  }
 
-  test("access circle via svgElements"):
+  test("access circle via svgElements") {
     val c = svgElements.circle
     c.namespace shouldBe DomNamespace.svg
+  }
 
-  test("access fill via svgProperties"):
+  test("access fill via svgProperties") {
     val f = svgProperties.fill
     f shouldMatch { case _: DomAttributeOf =>
     }
+  }
 
 end SimpleSvgTest

@@ -21,52 +21,61 @@ import wvlet.uni.rx.Rx
 
 class WindowDimensionsTest extends UniTest:
 
-  test("WindowDimensions.innerWidth returns current viewport width"):
+  test("WindowDimensions.innerWidth returns current viewport width") {
     val width = WindowDimensions.innerWidth
     width shouldMatch { case _: Int =>
     }
+  }
 
-  test("WindowDimensions.innerHeight returns current viewport height"):
+  test("WindowDimensions.innerHeight returns current viewport height") {
     val height = WindowDimensions.innerHeight
     height shouldMatch { case _: Int =>
     }
+  }
 
-  test("WindowDimensions.outerWidth returns current window width"):
+  test("WindowDimensions.outerWidth returns current window width") {
     val width = WindowDimensions.outerWidth
     width shouldMatch { case _: Int =>
     }
+  }
 
-  test("WindowDimensions.outerHeight returns current window height"):
+  test("WindowDimensions.outerHeight returns current window height") {
     val height = WindowDimensions.outerHeight
     height shouldMatch { case _: Int =>
     }
+  }
 
-  test("WindowDimensions.rxInnerWidth returns Rx[Int]"):
+  test("WindowDimensions.rxInnerWidth returns Rx[Int]") {
     val rx = WindowDimensions.rxInnerWidth
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowDimensions.rxInnerHeight returns Rx[Int]"):
+  test("WindowDimensions.rxInnerHeight returns Rx[Int]") {
     val rx = WindowDimensions.rxInnerHeight
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowDimensions.rxOuterWidth returns Rx[Int]"):
+  test("WindowDimensions.rxOuterWidth returns Rx[Int]") {
     val rx = WindowDimensions.rxOuterWidth
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowDimensions.rxOuterHeight returns Rx[Int]"):
+  test("WindowDimensions.rxOuterHeight returns Rx[Int]") {
     val rx = WindowDimensions.rxOuterHeight
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowDimensions.dimensions returns Rx[(Int, Int)]"):
+  test("WindowDimensions.dimensions returns Rx[(Int, Int)]") {
     val rx = WindowDimensions.dimensions
     rx shouldMatch { case _: Rx[?] =>
     }
+  }
 
-  test("WindowDimensions can be used in reactive expressions"):
+  test("WindowDimensions can be used in reactive expressions") {
     val sizeText = WindowDimensions
       .rxInnerWidth
       .map { width =>
@@ -82,8 +91,9 @@ class WindowDimensionsTest extends UniTest:
     }
 
     (result == "mobile" || result == "desktop") shouldBe true
+  }
 
-  test("WindowDimensions.dimensions provides both width and height"):
+  test("WindowDimensions.dimensions provides both width and height") {
     var widthResult  = 0
     var heightResult = 0
 
@@ -96,12 +106,14 @@ class WindowDimensionsTest extends UniTest:
 
     (widthResult >= 0) shouldBe true
     (heightResult >= 0) shouldBe true
+  }
 
-  test("WindowDimensions.dimensions follows a real viewport resize"):
+  test("WindowDimensions.dimensions follows a real viewport resize") {
     val initial = (WindowDimensions.innerWidth, WindowDimensions.innerHeight)
     Playwright
       .withViewportSize(500, 400)(awaitValue(WindowDimensions.dimensions)(_ == (500, 400)))
       .flatMap(_ => awaitValue(WindowDimensions.dimensions)(_ == initial))
       .map(_ => ())
+  }
 
 end WindowDimensionsTest

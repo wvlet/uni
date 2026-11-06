@@ -410,23 +410,26 @@ Http.setDefaultChannelFactory(NativeHttpChannelFactory)
 
 ```scala
 class HttpChannelTest extends UniTest:
-  test("GET request"):
+  test("GET request") {
     val client = Http.client.newSyncClient  // or newAsyncClient for JS
     val response = client.send(Request.get("https://httpbin.org/get"))
     response.status shouldBe HttpStatus.Ok_200
+  }
 
-  test("POST with JSON"):
+  test("POST with JSON") {
     val response = client.send(
       Request.post("https://httpbin.org/post")
         .withJsonContent("""{"test": true}""")
     )
     response.status shouldBe HttpStatus.Ok_200
     response.contentAsString.get shouldContain "test"
+  }
 
-  test("Timeout handling"):
+  test("Timeout handling") {
     val client = Http.client.withConnectTimeoutMillis(1).newSyncClient
     intercept[HttpException]:
       client.send(Request.get("https://10.255.255.1/"))
+  }
 ```
 
 ## Summary
