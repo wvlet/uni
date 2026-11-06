@@ -5,6 +5,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
 
 import scala.language.implicitConversions
 import scala.scalajs.js
@@ -37,7 +38,7 @@ class Shell(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport)
       "meta+k"       -> (() => focusSearch()),
       "ctrl+k"       -> (() => focusSearch())
     )
-    val themes = layout.theme.run(t => Theme.applyTo(dom.document.documentElement, t))
+    val themes = ColorScheme.bind(layout.theme)
     subscriptions = Cancelable.merge(shortcuts, themes)
     store.load()
 
@@ -119,11 +120,11 @@ class IconRail(layout: Layout) extends RxElement:
     layout
       .theme
       .map {
-        case Theme.System =>
+        case ColorScheme.System =>
           Icons.monitor
-        case Theme.Light =>
+        case ColorScheme.Light =>
           Icons.sun
-        case Theme.Dark =>
+        case ColorScheme.Dark =>
           Icons.moon
       }
   )
@@ -167,7 +168,7 @@ class Sidebar(
     searchRef: DomRef[dom.html.Input],
     onNewChat: () => Unit
 ) extends RxElement:
-  private val handle = ResizeHandle(
+  private val handle = Splitter(
     layout.sidebarWidth,
     Layout.sidebarWidth,
     Edge.Right,
@@ -367,22 +368,25 @@ class SettingsView(layout: Layout, transport: Transport) extends RxElement:
     layout
       .theme
       .map { current =>
-        Seq(Theme.System -> Icons.monitor, Theme.Light -> Icons.sun, Theme.Dark -> Icons.moon).map {
-          (t, icon) =>
-            val look =
-              if current == t then
-                "bg-raised text-fg shadow-sm ring-1 ring-line"
-              else
-                "text-muted hover:text-fg"
-            button(
-              cls ->
-                s"flex flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition ${look}",
-              onclick -> { () =>
-                layout.theme := t
-              },
-              icon,
-              t.label
-            )
+        Seq(
+          ColorScheme.System -> Icons.monitor,
+          ColorScheme.Light  -> Icons.sun,
+          ColorScheme.Dark   -> Icons.moon
+        ).map { (t, icon) =>
+          val look =
+            if current == t then
+              "bg-raised text-fg shadow-sm ring-1 ring-line"
+            else
+              "text-muted hover:text-fg"
+          button(
+            cls ->
+              s"flex flex-col items-center gap-1 rounded-lg py-2 text-[11px] font-medium transition ${look}",
+            onclick -> { () =>
+              layout.theme := t
+            },
+            icon,
+            t.label
+          )
         }
       }
   )

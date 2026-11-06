@@ -15,24 +15,10 @@ enum View(val label: String) derives StorageCodec:
   case Files    extends View("Files")
   case Settings extends View("Settings")
 
-enum Theme(val label: String) derives StorageCodec:
-  case System extends Theme("System")
-  case Light  extends Theme("Light")
-  case Dark   extends Theme("Dark")
-
 enum DockTab(val label: String) derives StorageCodec:
   case Details  extends DockTab("Details")
   case Activity extends DockTab("Activity")
   case Terminal extends DockTab("Terminal")
-
-object Theme:
-  /** style.css reads `data-theme` on <html>; System leaves it to `prefers-color-scheme`. */
-  def applyTo(root: org.scalajs.dom.Element, theme: Theme): Unit =
-    theme match
-      case Theme.System =>
-        root.removeAttribute("data-theme")
-      case t =>
-        root.setAttribute("data-theme", t.toString.toLowerCase)
 
 /** "just now", "5m ago", "3h ago", or a date, for timestamps. */
 def ago(millis: Long, now: Double = js.Date.now()): String =

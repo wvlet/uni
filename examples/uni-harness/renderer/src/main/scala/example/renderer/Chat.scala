@@ -70,25 +70,28 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
     div(
       ref -> threadRef,
       cls -> "relative z-10 min-h-0 flex-1 overflow-y-auto",
-      store
-        .messages
-        .map { ms =>
-          if ms.isEmpty then
-            Welcome(transport, prompt => store.send(prompt))
-          else
-            scrollToBottom()
-            div(
-              cls -> "mx-auto flex max-w-3xl flex-col gap-7 px-6 pt-8 pb-6",
-              ms.map(m => Bubble(m, animate = store.takeFresh(m.id))),
-              store
-                .pending
-                .map { p =>
-                  if p then
-                    scrollToBottom()
-                  when(p, Thinking())
-                }
-            )
-        }
+      // Both stay mounted and toggle `hidden`, so a new message never rebuilds the thread
+      Welcome(transport, prompt => store.send(prompt))(hidden -> store.messages.map(_.nonEmpty)),
+      div(
+        hidden -> store.messages.map(_.isEmpty),
+        cls    -> "mx-auto flex max-w-3xl flex-col gap-7 px-6 pt-8 pb-6",
+        // Keyed by id: an update renders only the new bubbles and keeps the others in place
+        each(store.messages)(_.id)(m => Bubble(m, animate = store.takeFresh(m.id))),
+        store
+          .pending
+          .map { p =>
+            if p then
+              scrollToBottom()
+            when(p, Thinking())
+          },
+        store
+          .messages
+          .map { ms =>
+            if ms.nonEmpty then
+              scrollToBottom()
+            DomNode.empty
+          }
+      )
     ),
     store
       .error

@@ -43,7 +43,7 @@ See `.github/instructions/unitest.instructions.md` for more.
 ## Coding Style
 
 - Scala 3 syntax only
-- Omit `new`: `StringBuilder()` not `new StringBuilder()`
+- Omit `new`: `StringBuilder()` not `new StringBuilder()`. Scala 3 gives every class a constructor proxy, so plain classes need no `new` and no case class. The one exception: a companion that defines its own `apply` (e.g. `object Button: def apply(content: DomNode*)`) replaces the proxy, so calls to other constructor shapes need `new`. Prefer removing such an `apply` (default constructor parameters often cover it) over adding `new`
 - String interpolation: always use `${...}` with brackets
 - Avoid `Try[A]` return types
 - Config classes: `withXXX(...)` for all fields, `noXXX()` for optional fields

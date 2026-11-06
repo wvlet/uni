@@ -155,6 +155,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
 lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
+  ui,
   domTest,
   exampleRepl.js,
   exampleWebUi,
@@ -218,6 +219,22 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .jsSettings(jsBuildSettings)
   .nativeSettings(nativeBuildSettings)
   .dependsOn(core, test % Test)
+
+// uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
+lazy val ui = project
+  .in(file("uni-ui"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    name        := "uni-ui",
+    description :=
+      "UI components for uni-dom (Scala.js): buttons, inputs, tabs, foldable panes, and splitters, styled by uni-ui.css with light and dark themes",
+    // Component tests render into a real DOM in headless Chromium, like domTest
+    Test / jsEnv :=
+      Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
+  )
+  .dependsOn(uni.js, test.js % Test)
 
 // uni-test - Lightweight testing framework with AirSpec syntax
 lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
@@ -469,7 +486,7 @@ lazy val exampleHarnessRenderer = project
     Test / jsEnv :=
       Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
   )
-  .dependsOn(exampleHarnessApi, exampleHarnessServer % Test, test.js % Test)
+  .dependsOn(exampleHarnessApi, ui, exampleHarnessServer % Test, test.js % Test)
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under

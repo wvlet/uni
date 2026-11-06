@@ -2,6 +2,7 @@ package example.renderer
 
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
+import wvlet.uni.ui.{IconButton, Kbd}
 
 import scala.language.implicitConversions
 
@@ -14,24 +15,11 @@ object Ui:
       icon: RxElement,
       action: () => Unit,
       tipSide: String = "bottom"
-  ): RxElement = button(
-    data("tip")      -> label,
-    data("tip-side") -> tipSide,
-    ariaLabel        -> label,
-    cls              ->
-      "grid size-8 place-items-center rounded-lg text-muted transition hover:bg-hover hover:text-fg active:scale-95",
-    onclick -> { () =>
-      action()
-    },
-    icon
-  )
+  ): RxElement =
+    IconButton(label, icon).onClick(action)(data("tip") -> label, data("tip-side") -> tipSide)
 
   /** A keyboard key cap. */
-  def keyCap(k: String): RxElement = span(
-    cls ->
-      "inline-grid min-w-[18px] place-items-center rounded-[5px] border border-line bg-surface px-1 font-mono text-[10px] leading-4 text-muted shadow-[0_1px_0_var(--h-line)]",
-    k
-  )
+  def keyCap(k: String): RxElement = Kbd(k)
 
   /** An uppercase section label. */
   def overline(text: String): RxElement = div(
