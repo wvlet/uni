@@ -128,7 +128,7 @@ jobs:
       # The artifact also holds the committed goldens; list the newly written ones.
       - name: List new golden images
         if: failure()
-        run: git status --porcelain --untracked-files=all uni-dom-test/src/test/screenshots
+        run: git status --porcelain --untracked-files=all uni-dom-test/src/test/screenshots uni-ui/src/test/screenshots
       - name: Upload Playwright screenshots
         if: failure()
         uses: actions/upload-artifact@v7
@@ -137,6 +137,7 @@ jobs:
           path: |
             **/uni-playwright/**
             uni-dom-test/src/test/screenshots/
+            uni-ui/src/test/screenshots/
           if-no-files-found: ignore
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6
