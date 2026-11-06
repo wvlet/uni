@@ -57,7 +57,7 @@ class KeyedListTest extends UniTest:
 
   test("removing and reordering moves nodes instead of rebuilding them"):
     val items            = Rx.variable(Seq(Item(1, "a"), Item(2, "b"), Item(3, "c")))
-    val (root, c)        = render(ul(each(items)(_.id)(it => li(it.text))))
+    val (root, c)        = render(ul(items.each(_.id)(it => li(it.text))))
     val Seq(a, _, cNode) = lis(root): @unchecked
     items := Seq(Item(3, "c"), Item(1, "a"))
     val after = lis(root)
@@ -132,7 +132,7 @@ class KeyedListTest extends UniTest:
     var emitted   = Seq.empty[String]
     val (root, c) = render(
       ul(
-        eachRx(items)(_.id) { (first, current) =>
+        items.eachRx(_.id) { (first, current) =>
           rendered += 1
           li(
             cls -> first.text,
@@ -160,7 +160,7 @@ class KeyedListTest extends UniTest:
 
   test("eachRx moves items on reorder and renders new keys"):
     val items     = Rx.variable(Seq(Item(1, "a"), Item(2, "b")))
-    val (root, c) = render(ul(eachRx(items)(_.id)((_, current) => li(current.map(_.text)))))
+    val (root, c) = render(ul(items.eachRx(_.id)((_, current) => li(current.map(_.text)))))
     val Seq(a, b) = lis(root): @unchecked
     items := Seq(Item(3, "c"), Item(2, "b2"), Item(1, "a"))
     val after = lis(root)
@@ -175,7 +175,7 @@ class KeyedListTest extends UniTest:
     var completed = 0
     val (root, c) = render(
       ul(
-        eachRx(items)(_.id) { (_, current) =>
+        items.eachRx(_.id) { (_, current) =>
           rendered += 1
           RxRunner.runContinuously(current) {
             case OnCompletion =>

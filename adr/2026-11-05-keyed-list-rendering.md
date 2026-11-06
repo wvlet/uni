@@ -26,11 +26,13 @@ later siblings when the outer one re-rendered.
 
 Re-rendering a changed item is wrong when the row owns state, such as a chat bubble whose entrance
 animation plays once. The uni-harness thread worked around it by keying over plain strings and
-looking each message up again. `eachRx(items)(key)((first, current) => ...)` (`KeyedRxList`)
+looking each message up again. `items.eachRx(key)((first, current) => ...)` (`KeyedRxList`)
 shares the renderer with `each` but, for a changed value under the same key, keeps the item's nodes
 and sets the new value on the item's own `RxVar`, which emits only when the value differs. The row
 binds the parts that change to `current` (typed `Rx[A]`, so it can't write it).
 
+- `each` and `eachRx` are extension methods on `Rx[Seq[A]]`, so the call reads `store.messages.eachRx(_.id) { (m, current) => ... }` instead of three parameter lists. A Scala 3 extension method can also be called as a plain function, so existing `each(items)(key)(render)` calls still compile. Only `wvlet.uni.dom.all.*` brings them in, and they exist only on Scala.js.
+- `map` or `flatMap` over the list can't do this: each emission builds a new `Seq` of rows with no memory of the rows already rendered, so every row is rebuilt. Keeping a key → row table across emissions is the missing state. A follow-up may move the per-key `Rx` table into uni-core as an `Rx` operator (`scan`, `split`), with `eachRx` built on it.
 - A separate name, not an `each` overload: a render taking two parameters would capture existing
   `each` calls over tuple items (`(c, active) => ...`), and a render taking `Rx[A]` alone has the
   same arity as `A => DomNode`, so untyped lambdas would be ambiguous.

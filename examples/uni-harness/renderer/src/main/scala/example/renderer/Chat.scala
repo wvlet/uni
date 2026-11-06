@@ -79,9 +79,11 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
         cls    -> "mx-auto flex max-w-3xl flex-col gap-7 px-6 pt-8 pb-6",
         // Keyed by a key that survives a draft's confirmation, and updated in place: each bubble
         // renders once, so its entrance plays once, and follows its message through `current`
-        eachRx(store.messages)(store.keyOf) { (m, current) =>
-          Bubble(m, animate = store.takeFresh(m.id), current = Some(current))
-        },
+        store
+          .messages
+          .eachRx(store.keyOf) { (m, current) =>
+            Bubble(m, animate = store.takeFresh(m.id), current = Some(current))
+          },
         store
           .pending
           .map { p =>
