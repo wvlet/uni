@@ -37,6 +37,19 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
   private var freshReply: Option[String] = None
   private var drafts                     = 0
 
+  // The draft id of each prompt confirmed in this thread, by its stored id. The thread keys bubbles
+  // with it, so a confirmed prompt keeps the draft's DOM node and doesn't play its entrance again.
+  private var draftKeys = Map.empty[String, String]
+
+  /** The key that renders `m` in the thread: its draft's id once confirmed, else its own id. */
+  def keyOf(m: ChatMessage): String = draftKeys.getOrElse(m.id, m.id)
+
+  /** The keys of the thread's messages, in order. Keys stay the same when a draft is confirmed. */
+  val messageKeys: Rx[Seq[String]] = messages.map(_.map(keyOf))
+
+  /** The current message under `key`, while it is in the thread. */
+  def messageAt(key: String): Rx[Option[ChatMessage]] = messages.map(_.find(m => keyOf(m) == key))
+
   /** True once for the reply that just arrived, so only it types itself in. */
   def takeFresh(messageId: String): Boolean =
     val fresh = freshReply.contains(messageId)
@@ -50,6 +63,8 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
   }.flatMap(_ => conversations.get.headOption.map(c => select(c.id)).getOrElse(Future.unit))
 
   def select(id: String): Future[Unit] =
+    if !selected.get.contains(id) then
+      draftKeys = Map.empty
     selected := Some(id)
     run("listMessages", api.listMessages(id)) { ms =>
       // Responses can arrive out of order; keep only the one for the current selection
@@ -61,6 +76,7 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
     run("createConversation", api.createConversation()) { c =>
       conversations.update(c +: _)
       selected := Some(c.id)
+      draftKeys = Map.empty
       messages := Seq.empty
     }
 
@@ -105,6 +121,10 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
             // Replace by id: a thread reloaded while the reply was on its way may already hold
             // the stored prompt
             val added = Set(draft.id, reply.user.id, reply.assistant.id)
+            // Keep the draft's key only while the draft is still shown; a reload already renders
+            // the stored prompt under its own id
+            if messages.get.exists(_.id == draft.id) then
+              draftKeys += reply.user.id -> draft.id
             messages.update(ms => ms.filterNot(m => added(m.id)) :+ reply.user :+ reply.assistant)
           conversations.update(cs => reply.conversation +: cs.filterNot(_.id == id))
         }

@@ -226,18 +226,26 @@ end Sidebar
 /** New chat, the search button that opens the palette, and the conversations grouped by day. */
 class ChatList(store: ChatStore, onSearch: () => Unit, onNewChat: () => Unit) extends RxElement:
 
-  private def group(title: String, cs: Seq[Conversation], sel: Option[String]): RxElement = div(
-    when(
-      cs.nonEmpty,
-      div(
-        cls -> "mb-2",
-        div(
-          cls -> "px-3 pt-2 pb-1 text-[10px] font-semibold tracking-[0.12em] text-faint uppercase",
-          title
-        ),
-        cs.map(c => item(c, sel.contains(c.id)))
-      )
-    )
+  // Each conversation with whether it is selected, split into Today and Earlier
+  private val rows: Rx[(Seq[(Conversation, Boolean)], Seq[(Conversation, Boolean)])] = Rx
+    .join(store.conversations, store.selected)
+    .map { (cs, sel) =>
+      // `new`: JS constructors need it (`js.Date()` alone returns a string)
+      val now        = new js.Date()
+      val startOfDay =
+        new js.Date(now.getFullYear().toInt, now.getMonth().toInt, now.getDate().toInt).getTime()
+      cs.map(c => (c, sel.contains(c.id))).partition(_._1.updatedAt >= startOfDay)
+    }
+
+  // Keyed by id: a rename or a new selection renders only the rows that changed
+  private def group(title: String, cs: Rx[Seq[(Conversation, Boolean)]]): RxElement = div(
+    cls    -> "mb-2",
+    hidden -> cs.map(_.isEmpty),
+    div(
+      cls -> "px-3 pt-2 pb-1 text-[10px] font-semibold tracking-[0.12em] text-faint uppercase",
+      title
+    ),
+    each(cs)(_._1.id)((c, active) => item(c, active))
   )
 
   private def item(c: Conversation, active: Boolean): RxElement =
@@ -287,19 +295,13 @@ class ChatList(store: ChatStore, onSearch: () => Unit, onNewChat: () => Unit) ex
     ),
     div(
       cls -> "min-h-0 flex-1 overflow-y-auto px-2 pb-3",
-      Rx.join(store.conversations, store.selected)
-        .map { (hits, sel) =>
-          if hits.isEmpty then
-            p(cls -> "px-3 py-6 text-center text-[12px] text-faint", "No chats yet")
-          else
-            // `new`: JS constructors need it (`js.Date()` alone returns a string)
-            val now        = new js.Date()
-            val startOfDay =
-              new js.Date(now.getFullYear().toInt, now.getMonth().toInt, now.getDate().toInt)
-                .getTime()
-            val (today, earlier) = hits.partition(_.updatedAt >= startOfDay)
-            div(group("Today", today, sel), group("Earlier", earlier, sel))
-        }
+      p(
+        cls    -> "px-3 py-6 text-center text-[12px] text-faint",
+        hidden -> store.conversations.map(_.nonEmpty),
+        "No chats yet"
+      ),
+      group("Today", rows.map(_._1)),
+      group("Earlier", rows.map(_._2))
     )
   )
 
