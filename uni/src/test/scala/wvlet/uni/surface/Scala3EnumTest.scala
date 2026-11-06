@@ -41,6 +41,24 @@ object Scala3EnumTest extends UniTest:
     }
   }
 
+  test("enum with a parameterized case lists its cases") {
+    Surface.of[Status] shouldMatch { case e: EnumSurface =>
+      e.hasParameterizedCases shouldBe true
+      e.cases.map(_.name) shouldBe Seq("Ok", "Other")
+      e.cases.head shouldBe EnumCase.Singleton("Ok", Status.Ok)
+      e.cases(1) shouldMatch { case EnumCase.Parameterized("Other", caseSurface) =>
+        caseSurface.params.map(_.name) shouldBe Seq("c")
+      }
+    }
+  }
+
+  test("enum with only singleton cases lists no cases") {
+    Surface.of[Color] shouldMatch { case e: EnumSurface =>
+      e.hasParameterizedCases shouldBe false
+      e.cases shouldBe empty
+    }
+  }
+
   test("round-trip singleton cases of an enum with a parameterized case through a Weaver") {
     val w = Weaver.fromSurface(Surface.of[Status]).asInstanceOf[Weaver[Status]]
     w.fromJson(w.toJson(Status.Ok)) shouldBe Status.Ok

@@ -166,11 +166,42 @@ case class JavaEnumSurface(override val rawType: Class[?]) extends GenericSurfac
   * Enum-like surface for Scala 2.x and Scala 3
   * @param rawType
   * @param stringExtractor
+  *   Finds a singleton case by its name
+  * @param cases
+  *   All cases of a Scala 3 enum that has a parameterized case (e.g., `case Split(...)`), in
+  *   declaration order. Empty for enums whose cases are all singletons, which encode as plain
+  *   strings.
   */
 case class EnumSurface(
     override val rawType: Class[?],
-    stringExtractor: (Class[?], String) => Option[Any]
-) extends GenericSurface(rawType)
+    stringExtractor: (Class[?], String) => Option[Any],
+    cases: Seq[EnumCase] = Seq.empty
+) extends GenericSurface(rawType):
+  /**
+    * True if this enum has a parameterized case, so its values need their fields and not only a
+    * case name
+    */
+  def hasParameterizedCases: Boolean = cases.nonEmpty
+
+/**
+  * A case of a Scala 3 enum, listed in [[EnumSurface.cases]]
+  */
+sealed trait EnumCase:
+  /**
+    * The case name, which is also the value's `productPrefix`
+    */
+  def name: String
+
+object EnumCase:
+  /**
+    * A case without parameters (e.g., `case Zero`)
+    */
+  case class Singleton(name: String, value: Any) extends EnumCase
+
+  /**
+    * A case with parameters (e.g., `case Succ(prev: Expr)`), described by its case class Surface
+    */
+  case class Parameterized(name: String, surface: Surface) extends EnumCase
 
 case class TupleSurface(override val rawType: Class[?], override val typeArgs: Seq[Surface])
     extends GenericSurface(rawType, typeArgs) {}
