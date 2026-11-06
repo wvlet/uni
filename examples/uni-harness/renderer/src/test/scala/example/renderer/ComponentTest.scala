@@ -9,7 +9,7 @@ import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.Future
+import scala.concurrent.{Future, Promise}
 
 /** The composer, the panes, and the rail, rendered into a real DOM with no server. */
 class ComponentTest extends DomTestSupport:
@@ -271,5 +271,42 @@ class ComponentTest extends DomTestSupport:
     term.sendText("nope\r")
     term.commands.map(c => (c.command, c.exitCode)) shouldBe
       Seq(("echo hi", Some(0)), ("nope", Some(127)))
+
+  test("a sent prompt keeps its bubble when the reply confirms it, so its entrance plays once"):
+    val reply = Promise[String]()
+    val store = ChatStore(ChatService(respond = _ => reply.future))
+    Rx.future(store.load())
+      .flatMap { _ =>
+        mount(ChatView(store, Layout.inMemory(), Transport.HttpFetch))
+        val sent  = store.send("Hello Uni")
+        val draft = dom.document.querySelector(".bubble-user").parentNode
+        draft.textContent shouldContain "Sending…"
+        reply.success("echo: Hello Uni")
+        Rx.future(sent).map(_ => draft)
+      }
+      .map { draft =>
+        val prompts = dom.document.querySelectorAll(".bubble-user")
+        prompts.length shouldBe 1
+        // The same node, now labelled with the stored prompt's time
+        (prompts(0).parentNode eq draft) shouldBe true
+        draft.textContent.contains("Sending…") shouldBe false
+        store.messages.get.count(m => !ChatStore.isDraft(m)) shouldBe 2
+      }
+
+  test("renaming a conversation keeps the other rows in the chat list"):
+    val store = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
+    def rows  = dom.document.querySelectorAll("button.group").toSeq
+    Rx.future(store.load().flatMap(_ => store.newChat()))
+      .flatMap { _ =>
+        mount(ChatList(store, () => (), () => ()))
+        rows.size shouldBe 2
+        // The conversation that is not selected
+        val other = rows(1)
+        Rx.future(store.send("Hello Uni")).map(_ => other)
+      }
+      .map { other =>
+        rows.head.textContent shouldContain "Hello Uni"
+        rows.exists(_ eq other) shouldBe true
+      }
 
 end ComponentTest
