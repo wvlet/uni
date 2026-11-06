@@ -282,6 +282,88 @@ class RxRunner(
           c1.cancel;
           c2.cancel
         }
+      case ScanOp(in, init, f) =>
+        var acc: Any = init
+        run(in) {
+          case OnNext(v) =>
+            Try(f.asInstanceOf[(Any, Any) => Any](acc, v)) match
+              case Success(x) =>
+                acc = x
+                effect(OnNext(x))
+              case Failure(e) =>
+                effect(OnError(e))
+          case other =>
+            effect(other)
+        }
+      case SplitOp(in, key) =>
+        val keyOf                      = key.asInstanceOf[Any => Any]
+        var rows                       = Map.empty[Any, RxVar[Any]]
+        var lastKeys: Option[Seq[Any]] = None
+        var stopped                    = false
+        def stopRows(): Unit           =
+          if !stopped then
+            stopped = true
+            val toStop = rows.values
+            rows = Map.empty
+            toStop.foreach(_.stop())
+
+        val c =
+          run(in) {
+            case _ if stopped =>
+              RxResult.Stop
+            case OnNext(v) =>
+              // Keep the first item of each key, in list order
+              Try {
+                val firstItems = mutable.LinkedHashMap.empty[Any, Any]
+                v.asInstanceOf[Seq[Any]]
+                  .foreach { a =>
+                    val k = keyOf(a)
+                    if !firstItems.contains(k) then
+                      firstItems(k) = a
+                  }
+                firstItems
+              } match
+                case Failure(e) =>
+                  effect(OnError(e))
+                case Success(firstItems) =>
+                  val pairs = firstItems
+                    .toSeq
+                    .map { (k, a) =>
+                      rows.get(k) match
+                        case Some(row) =>
+                          // Emits only when the value differs
+                          row := a
+                          (k, row)
+                        case None =>
+                          (k, RxVar[Any](a))
+                    }
+                  val next = pairs.toMap
+                  val left = rows.collect {
+                    case (k, row) if !next.contains(k) =>
+                      row
+                  }
+                  rows = next
+                  val keys = pairs.map(_._1)
+                  // Stop removed rows after the new list is emitted, so the list never holds a
+                  // completed row. They are no longer in `rows`, so stop them even if the
+                  // downstream throws.
+                  try
+                    if lastKeys.contains(keys) then
+                      RxResult.Continue
+                    else
+                      lastKeys = Some(keys)
+                      effect(OnNext(pairs))
+                  finally left.foreach(_.stop())
+            case OnCompletion =>
+              stopRows()
+              effect(OnCompletion)
+            case other =>
+              effect(other)
+          }
+        Cancelable { () =>
+          c.cancel
+          stopRows()
+        }
       case LastOp(in) =>
         var last: Option[A] = None
         run(in) {

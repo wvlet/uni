@@ -224,6 +224,38 @@ val withDefaults = stream.startWith(Seq(-2, -1, 0))
 
 ## Aggregation
 
+### scan
+
+Emit a running value: `f(acc, a)` for each upstream value, starting from `init`. `init` itself
+isn't emitted; add `startWith(init)` when you need it. Each subscription keeps its own
+accumulator:
+
+```scala
+Rx.fromSeq(Seq(1, 2, 3)).scan(0)(_ + _) // 1, 3, 6
+```
+
+### split
+
+Split an `Rx[Seq[A]]` into one `Rx` per key, so each item can follow its own changes:
+
+```scala
+case class Message(id: String, text: String)
+
+val messages = Rx.variable(Seq(Message("1", "hi")))
+val rows: Rx[Seq[(String, Rx[Message])]] = messages.split(_.id)
+```
+
+- The list emits only when its keys change (added, removed, or reordered). A changed item under
+  a kept key goes to that key's `Rx`, which emits only when the value differs (`!=`).
+- A key keeps the same `Rx` instance while it stays in the list, so consumers can tell a row
+  apart from a new one.
+- A key's `Rx` completes when the key leaves the list, when the upstream completes, or when the
+  subscription is cancelled. A key that comes back gets a new `Rx`.
+- A repeated key keeps only its first item. Each subscription keeps its own key table.
+
+In uni-dom, `each(messages.split(_.id))(_._1)((id, current) => li(current.map(_.text)))`
+renders each row once and updates it in place.
+
 ### lastOption
 
 Get the last value as Option:

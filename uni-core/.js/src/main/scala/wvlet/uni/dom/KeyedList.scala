@@ -14,23 +14,15 @@
 package wvlet.uni.dom
 
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxVar
 
 /**
   * A list rendered item by item. When `items` emits, only the items whose key is new are rendered,
   * items whose key is gone are removed, and the rest keep their DOM nodes (and their state, such as
   * focus, scroll position, or a running animation), moved into the new order. An item whose key
-  * stays but whose value changes (`!=`) is rendered again. Create one with [[each]], or with
-  * [[eachRx]] for items that update in place.
+  * stays but whose value changes (`!=`) is rendered again. Create one with [[each]].
   */
 case class KeyedList[A, K](items: Rx[Seq[A]], key: A => K, render: A => DomNode) extends DomNode
-
-/**
-  * A keyed list whose items update in place: each key renders once, with its first value and an
-  * `Rx` of its later values, and a changed value under the same key is emitted to that `Rx` instead
-  * of rendering the item again. Create one with [[eachRx]].
-  */
-case class KeyedRxList[A, K](items: Rx[Seq[A]], key: A => K, render: (A, Rx[A]) => DomNode)
-    extends DomNode
 
 extension [A](items: Rx[Seq[A]])
   /**
@@ -58,10 +50,13 @@ extension [A](items: Rx[Seq[A]])
     * When a key leaves the list, its item is removed and its `Rx` completes. A key that comes back
     * renders again from scratch. Keys must be unique within one value of `items`.
     */
-  def eachRx[K](key: A => K)(render: (A, Rx[A]) => DomNode): DomNode = KeyedRxList(
-    items,
-    key,
-    render
-  )
+  def eachRx[K](key: A => K)(render: (A, Rx[A]) => DomNode): DomNode =
+    // split keeps one Rx per key, so each(_._1) renders a row once per key. The rows are RxVars,
+    // which give the first value without subscribing.
+    items
+      .split(key)
+      .each(_._1) { (_, current) =>
+        render(current.asInstanceOf[RxVar[A]].get, current)
+      }
 
 end extension
