@@ -47,7 +47,9 @@ class Dialog private (
     actions: Seq[DomNode],
     dismissOnBackdrop: Boolean,
     dialogRole: String,
-    onClose: () => Unit
+    onClose: () => Unit,
+    variant: Option[String] = None,
+    accessibleName: Option[String] = None
 ) extends RxElement:
 
   private val baseId = Ids.next("uni-dialog")
@@ -58,9 +60,22 @@ class Dialog private (
       actions: Seq[DomNode] = actions,
       dismissOnBackdrop: Boolean = dismissOnBackdrop,
       dialogRole: String = dialogRole,
-      onClose: () => Unit = onClose
+      onClose: () => Unit = onClose,
+      variant: Option[String] = variant,
+      accessibleName: Option[String] = accessibleName
   ): Dialog =
-    new Dialog(open, content, title, description, actions, dismissOnBackdrop, dialogRole, onClose)
+    new Dialog(
+      open,
+      content,
+      title,
+      description,
+      actions,
+      dismissOnBackdrop,
+      dialogRole,
+      onClose,
+      variant,
+      accessibleName
+    )
 
   /** The heading, which is also the dialog's accessible name. */
   def withTitle(t: String): Dialog = copy(title = Some(t))
@@ -79,6 +94,14 @@ class Dialog private (
   def noDismissOnBackdrop(): Dialog             = withDismissOnBackdrop(false)
 
   private[ui] def withRole(r: String): Dialog = copy(dialogRole = r)
+
+  // A `--<v>` modifier on the panel and the backdrop, for components built on Dialog
+  private[ui] def withVariant(v: String): Dialog = copy(variant = Some(v))
+
+  // An accessible name for a dialog without a visible title
+  private[ui] def withAccessibleName(n: String): Dialog = copy(accessibleName = Some(n))
+
+  private def classes(base: String): String = variant.fold(base)(v => s"${base} ${base}--${v}")
 
   /** Runs when Escape or the backdrop closes the dialog, before `open` turns false. */
   def onDismiss(f: () => Unit): Dialog = copy(onClose = f)
@@ -99,12 +122,13 @@ class Dialog private (
 
   private def surface: RxElement = OverlaySurface(
     div(
-      cls           -> "uni-dialog-backdrop",
+      cls           -> classes("uni-dialog-backdrop"),
       data("state") -> "open",
       div(
-        id            -> baseId,
-        cls           -> "uni-dialog",
-        role          -> dialogRole,
+        id   -> baseId,
+        cls  -> classes("uni-dialog"),
+        role -> dialogRole,
+        accessibleName.map(n => ariaLabel -> n).getOrElse(DomNode.empty),
         ariaModal     -> "true",
         tabindex      -> "-1",
         data("state") -> "open",

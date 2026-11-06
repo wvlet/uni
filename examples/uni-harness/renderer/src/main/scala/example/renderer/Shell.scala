@@ -1,11 +1,10 @@
 package example.renderer
 
 import example.api.Conversation
-import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
-import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Menu, MenuItem, Splitter, Tooltip}
+import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Menu, MenuItem, Splitter, Tooltip, Tree}
 import wvlet.uni.ui.base.{Align, Side}
 
 import scala.language.implicitConversions
@@ -16,13 +15,10 @@ import scala.scalajs.js
   * state and owns the app-wide effects (shortcuts, theme); each pane takes only what it uses.
   */
 class Shell(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
-  private val searchRef                 = DomRef[dom.html.Input]()
+  private val paletteOpen               = Rx.variable(false)
   private var subscriptions: Cancelable = Cancelable.empty
 
-  private def focusSearch(): Unit =
-    layout.view        := View.Chats
-    layout.sidebarOpen := true
-    dom.window.setTimeout(() => searchRef.foreach(_.focus()), 220)
+  private def openPalette(): Unit = paletteOpen := true
 
   private def newChat(): Unit =
     layout.view        := View.Chats
@@ -36,8 +32,8 @@ class Shell(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport)
       "ctrl+b"       -> (() => layout.toggleSidebar()),
       "meta+shift+b" -> (() => layout.toggleDock()),
       "ctrl+shift+b" -> (() => layout.toggleDock()),
-      "meta+k"       -> (() => focusSearch()),
-      "ctrl+k"       -> (() => focusSearch())
+      "meta+k"       -> (() => openPalette()),
+      "ctrl+k"       -> (() => openPalette())
     )
     val themes = ColorScheme.bind(layout.theme)
     subscriptions = Cancelable.merge(shortcuts, themes)
@@ -51,10 +47,11 @@ class Shell(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport)
     div(
       cls -> "flex min-h-0 flex-1",
       IconRail(layout),
-      Sidebar(layout, store, transport, searchRef, () => newChat()),
+      Sidebar(layout, store, transport, () => openPalette(), () => newChat()),
       ChatView(store, layout, transport),
       Dock(layout, store, log, transport)
-    )
+    ),
+    Palette(paletteOpen, layout, store, () => newChat())
   )
 
 end Shell
@@ -178,7 +175,7 @@ class Sidebar(
     layout: Layout,
     store: ChatStore,
     transport: Transport,
-    searchRef: DomRef[dom.html.Input],
+    onSearch: () => Unit,
     onNewChat: () => Unit
 ) extends RxElement:
   private val handle = Splitter(
@@ -215,7 +212,7 @@ class Sidebar(
             ),
             v match
               case View.Chats =>
-                ChatList(store, searchRef, onNewChat)
+                ChatList(store, onSearch, onNewChat)
               case View.Files =>
                 FileTree()
               case View.Settings =>
@@ -226,9 +223,8 @@ class Sidebar(
 
 end Sidebar
 
-/** New chat, search, and the conversations grouped by day. */
-class ChatList(store: ChatStore, searchRef: DomRef[dom.html.Input], onNewChat: () => Unit)
-    extends RxElement:
+/** New chat, the search button that opens the palette, and the conversations grouped by day. */
+class ChatList(store: ChatStore, onSearch: () => Unit, onNewChat: () => Unit) extends RxElement:
 
   private def group(title: String, cs: Seq[Conversation], sel: Option[String]): RxElement = div(
     when(
@@ -277,28 +273,24 @@ class ChatList(store: ChatStore, searchRef: DomRef[dom.html.Input], onNewChat: (
         Icons.plus,
         span(cls -> "flex-1 text-left", "New chat")
       ),
-      label(
+      // One search for conversations and commands: the ⌘K palette
+      button(
         cls ->
-          "flex h-9 items-center gap-2 rounded-lg border border-line bg-surface/70 px-2.5 text-muted transition focus-within:border-brand/50 focus-within:ring-4 focus-within:ring-brand-soft",
+          "flex h-9 w-full items-center gap-2 rounded-lg border border-line bg-surface/70 px-2.5 text-muted transition hover:border-brand/50 focus-visible:border-brand/50 focus-visible:ring-4 focus-visible:ring-brand-soft focus-visible:outline-none",
+        onclick -> { () =>
+          onSearch()
+        },
         Icons.search,
-        input(
-          ref         -> searchRef,
-          tpe         -> "search",
-          placeholder -> "Search chats",
-          cls         ->
-            "min-w-0 flex-1 bg-transparent text-[13px] text-fg outline-none placeholder:text-faint",
-          value.bind(store.query)
-        ),
+        span(cls -> "min-w-0 flex-1 text-left text-[13px] text-faint", "Search or run a command"),
         Ui.keyCap("⌘K")
       )
     ),
     div(
       cls -> "min-h-0 flex-1 overflow-y-auto px-2 pb-3",
-      Rx.join(store.conversations, store.selected, store.query)
-        .map { (cs, sel, q) =>
-          val hits = cs.filter(_.title.toLowerCase.contains(q.trim.toLowerCase))
+      Rx.join(store.conversations, store.selected)
+        .map { (hits, sel) =>
           if hits.isEmpty then
-            p(cls -> "px-3 py-6 text-center text-[12px] text-faint", "No chats match")
+            p(cls -> "px-3 py-6 text-center text-[12px] text-faint", "No chats yet")
           else
             // `new`: JS constructors need it (`js.Date()` alone returns a string)
             val now        = new js.Date()
@@ -313,40 +305,67 @@ class ChatList(store: ChatStore, searchRef: DomRef[dom.html.Input], onNewChat: (
 
 end ChatList
 
-/** A static file tree, as a placeholder for your own file API. */
-class FileTree extends RxElement:
-  private val tree: Seq[(String, Seq[String])] = Seq(
-    "api"      -> Seq("ChatApi.scala"),
-    "server"   -> Seq("ChatService.scala", "HarnessServer.scala"),
-    "renderer" ->
-      Seq("HarnessApp.scala", "ChatStore.scala", "Shell.scala", "Chat.scala", "Dock.scala"),
-    "src" -> Seq("main/index.js", "preload/index.js", "web/server.js")
+/** A file or folder in [[FileTree]]. `path` is unique and keys the tree's rows. */
+case class FileEntry(path: String, name: String, children: Seq[FileEntry] = Seq.empty)
+
+object FileEntry:
+  def dir(name: String, children: FileEntry*): FileEntry = FileEntry(
+    name,
+    name,
+    children.map(under(name, _))
   )
 
+  private def under(parent: String, e: FileEntry): FileEntry = e.copy(
+    path = s"${parent}/${e.path}",
+    children = e.children.map(under(parent, _))
+  )
+
+  def file(name: String): FileEntry = FileEntry(name, name)
+
+/** A static file tree, as a placeholder for your own file API. */
+class FileTree extends RxElement:
+  import FileEntry.{dir, file}
+
+  private val roots = Seq(
+    dir("api", file("ChatApi.scala")),
+    dir("server", file("ChatService.scala"), file("HarnessServer.scala")),
+    dir(
+      "renderer",
+      file("HarnessApp.scala"),
+      file("ChatStore.scala"),
+      file("Shell.scala"),
+      file("Chat.scala"),
+      file("Dock.scala"),
+      file("Palette.scala")
+    ),
+    dir(
+      "src",
+      dir("main", file("index.js")),
+      dir("preload", file("index.js")),
+      dir("web", file("server.js"))
+    )
+  )
+
+  private val expanded = Rx.variable(Set("renderer"))
+
   override def render: RxElement = div(
-    cls -> "min-h-0 flex-1 overflow-y-auto px-2 pb-3 text-[13px]",
-    tree.map { (dir, fs) =>
-      div(
-        cls -> "mb-1",
-        div(
-          cls -> "flex items-center gap-1.5 rounded-md px-2 py-1.5 font-medium text-fg",
-          span(cls -> "rotate-90 text-faint", Icons.chevron),
-          span(cls -> "text-brand", Icons.folder),
-          dir
-        ),
-        fs.map(f =>
-          div(
-            cls ->
-              "ml-5 flex cursor-default items-center gap-2 border-l border-line py-1.5 pl-3 text-muted transition hover:bg-hover hover:text-fg",
-            span(cls -> "text-faint", Icons.code),
-            f
-          )
-        )
+    cls -> "flex min-h-0 flex-1 flex-col px-2 pb-3",
+    Tree(Rx.const(roots), (e: FileEntry) => e.children)(_.path)(e =>
+      Seq[DomNode](
+        if e.children.nonEmpty then
+          span(cls -> "text-brand", Icons.folder)
+        else
+          span(cls -> "text-faint", Icons.code)
+        ,
+        span(cls -> "truncate", e.name)
       )
-    },
+    ).withLabel("Files")
+      .withExpanded(expanded)
+      .withTypeahead(_.name)
+      .withRowHeight(30)(cls += "min-h-0 flex-1 text-[13px]"),
     div(
       cls ->
-        "mx-2 mt-4 rounded-lg border border-dashed border-line p-3 text-[12px] leading-5 text-muted",
+        "mx-2 mt-4 shrink-0 rounded-lg border border-dashed border-line p-3 text-[12px] leading-5 text-muted",
       "A static tree. Back this view with your own RPC API to browse real files."
     )
   )
@@ -422,7 +441,7 @@ class SettingsView(layout: Layout, transport: Transport) extends RxElement:
       "Keyboard",
       shortcut("Fold sidebar", "⌘", "B"),
       shortcut("Toggle dock", "⌘", "⇧", "B"),
-      shortcut("Search chats", "⌘", "K"),
+      shortcut("Search or run a command", "⌘", "K"),
       shortcut("New line", "⇧", "⏎")
     ),
     section(

@@ -1,5 +1,6 @@
 package example.renderer
 
+import example.server.ChatService
 import org.scalajs.dom
 import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.testing.*
@@ -7,6 +8,8 @@ import wvlet.uni.rx.Rx
 import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
 
 import scala.collection.mutable
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 
 /** The composer, the panes, and the rail, rendered into a real DOM with no server. */
 class ComponentTest extends DomTestSupport:
@@ -139,6 +142,75 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(item("Light"))
     root.getAttribute("data-theme") shouldBe "light"
     sub.cancel
+
+  test("the palette lists commands, then conversations, and runs what it finds"):
+    val layout  = Layout.inMemory()
+    val store   = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
+    var newChat = 0
+    val open    = Rx.variable(false)
+    Rx.future(store.load())
+      .flatMap { _ =>
+        mount(Palette(open, layout, store, () => newChat += 1))
+        open := true
+        settle()
+      }
+      .map { _ =>
+        def labels =
+          dom
+            .document
+            .querySelectorAll(".uni-palette__item .uni-palette__label")
+            .map(_.textContent)
+            .toSeq
+        val input = dom.document.querySelector(".uni-palette__input")
+        labels.head shouldBe "New chat"
+        // The conversation the store loaded comes last, under its own group
+        labels.last shouldBe store.conversations.get.head.title
+        dom.document.querySelectorAll(".uni-palette__group").map(_.textContent).toSeq shouldBe
+          Seq("Chat", "View", "Appearance", "Conversations")
+
+        fireEvent.input(input, "show activity")
+        labels.head shouldBe "Show Activity"
+        layout.dockOpen := false
+        fireEvent.keyDown(input, "Enter")
+        layout.dockOpen.get shouldBe true
+        layout.dockTab.get shouldBe DockTab.Activity
+        open.get shouldBe false
+      }
+
+  test("the activity log renders its calls through a virtual list, newest first"):
+    val log = RpcLog()
+    Seq("listConversations", "createConversation", "sendMessage").foreach(m =>
+      log.track(m)(Rx.const(())).run(_ => ())
+    )
+    val m = mount(ActivityLog(log))
+    m.get("[role=listbox]").getAttribute("aria-label") shouldBe "RPC calls"
+    m.queryAll(".uni-list__row").map(_.textContent.takeWhile(!_.isDigit)).toSeq shouldBe
+      Seq("sendMessage", "createConversation", "listConversations")
+    log.calls.get.map(_.id) shouldBe Seq(3L, 2L, 1L)
+    m.text shouldContain "Last 3 calls"
+
+  test("the file tree opens folders from the keyboard"):
+    val m     = mount(FileTree())
+    val tree  = m.get("[role=tree]").asInstanceOf[dom.HTMLElement]
+    def names = m.queryAll(".uni-list__row").map(_.textContent).toSeq
+    names shouldBe
+      Seq(
+        "api",
+        "server",
+        "renderer",
+        "HarnessApp.scala",
+        "ChatStore.scala",
+        "Shell.scala",
+        "Chat.scala",
+        "Dock.scala",
+        "Palette.scala",
+        "src"
+      )
+    tree.focus()
+    fireEvent.keyDown(tree, "End")
+    fireEvent.keyDown(tree, "ArrowRight")
+    names.takeRight(4) shouldBe Seq("src", "main", "preload", "web")
+    m.queryAll(".uni-list__row").last.getAttribute("aria-level") shouldBe "2"
 
   test("the terminal title falls back to Terminal and is shortened"):
     TerminalPane.displayTitle("") shouldBe "Terminal"

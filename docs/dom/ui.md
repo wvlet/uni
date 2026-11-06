@@ -152,6 +152,71 @@ They all behave the same way:
 `wvlet.uni.ui.base` holds the pieces they share, for building your own overlay: `Anchored.place`
 (placement math), `Dismiss` (the Escape and outside-press stack), `FocusTrap`, and `FocusReturn`.
 
+## Collections
+
+Lists, trees, and tables render only the rows in view, so a list of ten thousand rows scrolls like
+a list of ten. Every row has the same height in pixels, and the component scrolls inside its own
+box: give it a height, or put it in a flex column that bounds it. Add styles with `+=` so the
+component keeps its own `style`.
+
+```scala
+case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
+case class Call(id: Long, method: String, millis: Double)
+
+val expanded = Rx.variable(Set("src"))
+val sort     = Rx.variable(Option(SortBy("millis", SortDirection.Descending)))
+
+div(
+  VirtualList(log.lines, rowHeight = 24)(_.id)(line => span(line.text))
+    .withLabel("Log")(styleAttr += "height: 320px"),
+  Tree(Rx.const(roots), (f: FileNode) => f.children)(_.path)(f => span(f.name))
+    .withLabel("Files")
+    .withExpanded(expanded)
+    .onSelect(f => open(f)),
+  DataTable(calls)(_.id)(
+    Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
+    Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
+  ).withLabel("RPC calls")
+    .withSort(sort)
+)
+```
+
+| Component | What it does |
+|-----------|--------------|
+| `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)` |
+| `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
+| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy` |
+| `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
+
+- **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
+  only changed rows render again.
+- **Keyboard.** A list, tree, or table is one tab stop, and `aria-activedescendant` names the
+  highlighted row. The arrow keys, Home, End, PageUp, and PageDown move it. Enter or a click
+  selects. In a tree, Right opens a row or enters it, and Left closes it or goes to the parent.
+  Tables move by row, not by cell.
+- **State.** Selection, open tree rows, and the sort are `RxVar`s you can pass in, so the app can
+  set them or save them, for example with `Storage.local`.
+- **The palette.** While the query is empty, the palette lists commands in order under their
+  groups. Once the user types, the best matches come first, with the matched letters marked. It
+  closes before running a command, so focus goes back to where it was. uni-ui doesn't bind ⌘K, so
+  bind it yourself:
+
+```scala
+val paletteOpen = Rx.variable(false)
+Keyboard.bindAll("meta+k" -> (() => paletteOpen := true), "ctrl+k" -> (() => paletteOpen := true))
+
+CommandPalette(
+  paletteOpen,
+  store.conversations.map { cs =>
+    Seq(Command("new-chat", "New chat").withGroup("Chat").onRun(() => store.newChat())) ++
+      cs.map(c => Command(s"chat-${c.id}", c.title).withGroup("Conversations").onRun(() => store.select(c.id)))
+  }
+)
+```
+
+`wvlet.uni.ui.base` holds the logic they run on, with no DOM: `Windowing` (which rows to render),
+`ListNavigation`, `TreeModel` (flattening and the tree keys), and `Fuzzy` (matching and scores).
+
 ## Themes
 
 `uni-ui.css` reads `data-theme` on `<html>`: `light` or `dark` forces a scheme, and no attribute
