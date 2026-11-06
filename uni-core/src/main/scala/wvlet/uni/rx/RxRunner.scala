@@ -343,17 +343,17 @@ class RxRunner(
                       row
                   }
                   rows = next
-                  val keys   = pairs.map(_._1)
-                  val result =
+                  val keys = pairs.map(_._1)
+                  // Stop removed rows after the new list is emitted, so the list never holds a
+                  // completed row. They are no longer in `rows`, so stop them even if the
+                  // downstream throws.
+                  try
                     if lastKeys.contains(keys) then
                       RxResult.Continue
                     else
                       lastKeys = Some(keys)
                       effect(OnNext(pairs))
-                  // Stop removed rows after the new list is emitted, so the list never holds a
-                  // completed row
-                  left.foreach(_.stop())
-                  result
+                  finally left.foreach(_.stop())
             case OnCompletion =>
               stopRows()
               effect(OnCompletion)

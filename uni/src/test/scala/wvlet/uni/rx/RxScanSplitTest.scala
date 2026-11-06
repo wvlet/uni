@@ -156,17 +156,24 @@ class RxScanSplitTest extends UniTest:
   }
 
   test("split completes every row when the upstream completes") {
-    val events = ArrayBuffer.empty[RxEvent]
-    var rows   = Seq.empty[Rx[Item]]
-    RxRunner.run(Rx.single(Seq(Item(1, "a"))).split(_.id)) {
+    val events    = ArrayBuffer.empty[RxEvent]
+    var completed = 0
+    RxRunner.run(Rx.single(Seq(Item(1, "a"), Item(2, "b"))).split(_.id)) {
       case ev @ OnNext(v) =>
-        rows = v.asInstanceOf[Seq[(Int, Rx[Item])]].map(_._2)
+        v.asInstanceOf[Seq[(Int, Rx[Item])]]
+          .foreach { (_, row) =>
+            RxRunner.runContinuously(row) {
+              case OnCompletion =>
+                completed += 1
+              case _ =>
+            }
+          }
         events += ev
       case other =>
         events += other
     }
     events.last shouldBe OnCompletion
-    rows.size shouldBe 1
+    completed shouldBe 2
   }
 
   test("split keeps a key table per subscription") {
