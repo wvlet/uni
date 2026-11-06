@@ -37,7 +37,7 @@ UniTest provides a rich set of assertion syntaxes for verifying test expectation
 
 Write test bodies with braces, `test("name") { ... }`, not the colon form `test("name"):`.
 Braces mark where each test ends, which indentation alone makes hard to see in long test
-classes. The Code format CI job rejects the colon form.
+classes. The Code format CI job rejects the colon form in Scala sources.
 
 ### Assertion Example:
 

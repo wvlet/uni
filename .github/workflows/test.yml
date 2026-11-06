@@ -64,7 +64,7 @@ jobs:
       # `test("name"):` back to braces, so reject it here (plans/ keeps historical notes as-is).
       - name: Brace-style test blocks
         run: |
-          if git grep -nE '^[[:space:]]*(\*[[:space:]]*)?test\(.*\):[[:space:]]*$' -- '*.scala' '*.md' ':!plans/'; then
+          if git grep -nE '^[[:space:]]*(\*[[:space:]]*)?test\(.*\):[[:space:]]*(//.*)?$' -- '*.scala' '*.md' ':!plans/'; then
             echo "::error::Write tests as test(\"...\") { ... } instead of test(\"...\"):"
             exit 1
           fi

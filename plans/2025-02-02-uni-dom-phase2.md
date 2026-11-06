@@ -226,41 +226,35 @@ variable.foreach { newValue =>
 
 ```scala
 // DOM Properties
-test("value property sets current value") {
+test("value property sets current value"):
   val input = input(tpe -> "text", value -> "hello")
   // Verify .value property is set (not attribute)
-}
 
-test("checked property for checkbox") {
+test("checked property for checkbox"):
   val cb = input(tpe -> "checkbox", checked -> true)
   // Verify .checked is true
-}
 
 // Two-Way Binding
-test("value.bind syncs input with RxVar") {
+test("value.bind syncs input with RxVar"):
   val v = Rx.variable("initial")
   val elem = input(value.bind(v))
   // Verify: change v -> input updates
   // Verify: type in input -> v updates
-}
 
-test("checked.bind syncs checkbox with RxVar") {
+test("checked.bind syncs checkbox with RxVar"):
   val c = Rx.variable(false)
   val elem = input(tpe -> "checkbox", checked.bind(c))
   // Verify bidirectional sync
-}
 
 // ARIA Attributes
-test("ariaLabel sets aria-label") {
+test("ariaLabel sets aria-label"):
   val btn = button(ariaLabel -> "Close")
   // Verify aria-label="Close"
-}
 
-test("ariaExpanded with reactive value") {
+test("ariaExpanded with reactive value"):
   val expanded = Rx.variable(false)
   val btn = button(ariaExpanded -> expanded)
   // Verify updates when expanded changes
-}
 ```
 
 ## Out of Scope

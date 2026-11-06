@@ -148,29 +148,25 @@ override lazy val style: wvlet.uni.dom.style.type = wvlet.uni.dom.style
 
 ```scala
 // Grouped style
-test("grouped style properties") {
+test("grouped style properties"):
   val elem = div(style(display := "flex", gap := "8px"))
   html shouldContain "display: flex"
   html shouldContain "gap: 8px"
-}
 
 // Raw string
-test("raw style string") {
+test("raw style string"):
   val elem = div(style := "margin: 10px;")
   html shouldContain "margin: 10px"
-}
 
 // Class toggle
-test("class toggle when true") {
+test("class toggle when true"):
   val elem = div(cls.toggle("active") when true)
   html shouldContain "active"
-}
 
-test("reactive class toggle") {
+test("reactive class toggle"):
   val isActive = Rx.variable(false)
   val elem = div(cls.toggle("active") when isActive)
   // responds to isActive changes
-}
 ```
 
 ## Out of Scope (Future Work)
