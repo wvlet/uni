@@ -136,6 +136,40 @@ class DockTest extends DomTestSupport:
     }
   }
 
+  test("Close in the tab menu moves focus to the neighbor tab") {
+    val layout = Rx.variable(DockLayout.of("a", "b", "c"))
+    val m      = mountDock(dock(layout))
+    fireEvent.contextMenu(tabOf(m, "b"))
+    settle().flatMap { _ =>
+      fireEvent.click(menuItem("Close"))
+      tabTexts(m) shouldBe Seq(Seq("a", "c"))
+      settle().map { _ =>
+        active shouldBe tabOf(m, "c")
+      }
+    }
+  }
+
+  test("panel ids that differ only in punctuation get distinct tab ids") {
+    val layout = Rx.variable(DockLayout.of("x.y", "x_y"))
+    val m      = mountDock(Dock(layout, "Dock")(panel("x.y"), panel("x_y")))
+    (tabOf(m, "x.y").id == tabOf(m, "x_y").id) shouldBe false
+  }
+
+  test("open adds to the focused group, and forgets it when the structure changes") {
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    val d      = dock(layout)
+    val m      = mountDock(d)
+    tabOf(m, "b").focus()
+    d.open("c")
+    layout.get.root shouldBe row(group("a"), Group(Seq("b", "c"), Some("c")))
+    // A new structure: the old path [1] would now point at the group of "a"
+    d.close("c")
+    tabOf(m, "b").focus()
+    layout := DockLayout(row(group("b"), column(group("a"), group("x"))))
+    d.open("c")
+    layout.get.root shouldBe row(Group(Seq("b", "c"), Some("c")), group("a"))
+  }
+
   test("the close button removes a tab") {
     val layout = Rx.variable(DockLayout.of("a", "b"))
     val m      = mountDock(dock(layout))
@@ -287,6 +321,8 @@ class DockTest extends DomTestSupport:
       Seq(false, true, false)
     layout := DockLayout.empty
     m.get(".uni-dock__empty").textContent shouldBe "No open panels"
+    // The actions stay, so the dock can still be folded
+    m.queryAll(".uni-dock__actions .fold").size shouldBe 1
   }
 
 end DockTest

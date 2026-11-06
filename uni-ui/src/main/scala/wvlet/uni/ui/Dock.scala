@@ -126,8 +126,21 @@ class Dock private (
   private val byId: Map[String, DockPanel] = panels.map(p => p.id -> p).toMap
   private val required: Seq[String]        = panels.filterNot(_.closable).map(_.id)
 
-  private def norm(l: DockLayout): DockLayout = DockModel.normalize(l, byId.contains, required)
-  private def now: DockLayout                 = norm(layout.get)
+  // Every subscriber sees the same layout instance per change, so remember the last result and
+  // normalize once per change rather than once per subscriber
+  private var lastNorm: (DockLayout, DockLayout) = (null, null)
+  private def norm(l: DockLayout): DockLayout    =
+    if l ne lastNorm._1 then
+      lastNorm = (l, DockModel.normalize(l, byId.contains, required))
+    lastNorm._2
+
+  private var lastShape: (DockNode, DockNode)   = (null, null)
+  private def shapeOf(root: DockNode): DockNode =
+    if root ne lastShape._1 then
+      lastShape = (root, DockModel.shape(root))
+    lastShape._2
+
+  private def now: DockLayout = norm(layout.get)
 
   /** The layout as the Dock shows it: unknown panels dropped, required ones added. */
   val current: Rx[DockLayout] = layout.map(norm)
@@ -141,7 +154,7 @@ class Dock private (
     panels.map(_.id).filterNot(in)
   }
 
-  // The group that last had focus, where `open` adds a panel
+  // The group that last had focus, where `open` adds a panel; cleared when the structure changes
   private var focusedGroup: Option[DockPath] = None
 
   /**
@@ -159,11 +172,12 @@ class Dock private (
 
   private def contentOf(id: String): RxElement = contents.getOrElseUpdate(id, byId(id).content())
 
-  private val idPrefix                               = Ids.next("uni-dock")
-  private def safe(s: String): String                = s.replaceAll("[^A-Za-z0-9_-]", "_")
-  private def tabId(panel: String)                   = s"${idPrefix}-tab-${safe(panel)}"
-  private def panelId(path: DockPath)                = s"${idPrefix}-panel-${path.mkString("-")}"
-  private def pathAttr(path: DockPath)               = path.mkString(".")
+  private val idPrefix = Ids.next("uni-dock")
+  // By registration index, so any panel id makes a valid, unique DOM id
+  private val index: Map[String, Int]  = panels.map(_.id).zipWithIndex.toMap
+  private def tabId(panel: String)     = s"${idPrefix}-tab-${index.getOrElse(panel, -1)}"
+  private def panelId(path: DockPath)  = s"${idPrefix}-panel-${path.mkString("-")}"
+  private def pathAttr(path: DockPath) = path.mkString(".")
   private def parsePath(s: String): Option[DockPath] =
     if s.isEmpty then
       Some(Nil)
@@ -352,7 +366,7 @@ class Dock private (
         .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom)))
     )
     if panel.closable then
-      items ++ Seq(MenuSeparator, MenuItem("Close").onSelect(() => close(id)))
+      items ++ Seq(MenuSeparator, MenuItem("Close").onSelect(() => closeTab(id, tabs)))
     else
       items
 
@@ -420,6 +434,12 @@ class Dock private (
 
   end tab
 
+  // Close a tab from the keyboard and move focus to its neighbor, as an editor does
+  private def closeTab(panel: String, tabs: Seq[String]): Unit =
+    val i = tabs.indexOf(panel)
+    close(panel)
+    tabs.lift(i + 1).orElse(tabs.lift(i - 1)).foreach(focusTab)
+
   private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String]): Unit =
     val focused = Option(e.target)
       .collect { case el: dom.Element =>
@@ -431,9 +451,7 @@ class Dock private (
       val i = tabs.indexOf(panel)
       if e.key == "Delete" && byId.get(panel).exists(_.closable) then
         e.preventDefault()
-        val next = tabs.lift(i + 1).orElse(tabs.lift(i - 1))
-        close(panel)
-        next.foreach(focusTab)
+        closeTab(panel, tabs)
       else
         RovingFocus
           .nextIndex(e.key, math.max(i, 0), tabs.size)
@@ -640,7 +658,20 @@ class Dock private (
   ): RxElement =
     n match
       case DockNode.Group(tabs, _) if tabs.isEmpty =>
-        div(cls -> "uni-dock__empty", "No open panels")
+        // Keep the bar for the actions, such as a button that folds the dock
+        div(
+          cls         -> "uni-dock__group",
+          data("top") -> "true",
+          when(
+            actions.nonEmpty,
+            div(
+              cls -> "uni-dock__bar",
+              div(cls -> "uni-dock__tabs"),
+              div(cls -> "uni-dock__actions", actions)
+            )
+          ),
+          div(cls -> "uni-dock__empty", "No open panels")
+        )
       case DockNode.Group(tabs, _) =>
         group(tabs, path, live, groupCount, path == corner, tops.contains(path))
       case DockNode.Split(dir, children, _) =>
@@ -680,10 +711,11 @@ class Dock private (
       cls              -> "uni-dock",
       data("dragging") -> dragged.map(_.isDefined.toString),
       dockRef.binding,
-      distinct(roots.map(DockModel.shape)).map { shape =>
+      distinct(roots.map(shapeOf)).map { shape =>
         // Sizes and the active tabs update in place while the structure stays the same; a new
-        // structure rebuilds the tree
-        val live = roots.filter(r => DockModel.shape(r) == shape)
+        // structure rebuilds the tree, and the old group paths no longer apply
+        focusedGroup = None
+        val live = roots.filter(r => shapeOf(r) == shape)
         node(
           shape,
           Nil,
