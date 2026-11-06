@@ -195,4 +195,32 @@ class VisualTest extends UniTest:
     )
   }
 
+  visual("dock") {
+    def text(t: String): RxElement = div(
+      style := "padding: 8px 12px; color: var(--uni-muted); font-size: var(--uni-font-size-sm);",
+      t
+    )
+    val layout = Rx.variable(
+      DockLayout(
+        DockNode.row(
+          DockNode.group("details", "activity"),
+          DockNode.column(DockNode.group("terminal"), DockNode.group("log", "problems"))
+        )
+      )
+    )
+    gallery(
+      div(
+        style := "display: flex; height: 220px; border: 1px solid var(--uni-line); " +
+          "border-radius: var(--uni-radius-lg); overflow: hidden; background: var(--uni-panel);",
+        Dock(layout, "Dock")(
+          DockPanel("details", "Details")(text("Conversation details")),
+          DockPanel("activity", "Activity")(text("RPC calls")),
+          DockPanel("terminal", "Terminal")(text("$ sbt test")).withClosable(false),
+          DockPanel("log", "Log")(text("Server started")),
+          DockPanel("problems", "Problems")(text("No problems"))
+        )
+      )
+    )
+  }
+
 end VisualTest

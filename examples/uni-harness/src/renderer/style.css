@@ -245,6 +245,20 @@ body {
   -webkit-app-region: no-drag;
 }
 
+/* The dock's top tab bars line up with the chat header and drag the window like it */
+.harness-dock .uni-dock__group[data-top='true'] > .uni-dock__bar {
+  height: 3.5rem;
+  padding: 0 0.5rem 0 0.75rem;
+}
+
+.is-electron .harness-dock .uni-dock__group[data-top='true'] > .uni-dock__bar {
+  -webkit-app-region: drag;
+}
+
+.is-electron .harness-dock .uni-dock__bar :is(.uni-dock__tab, button) {
+  -webkit-app-region: no-drag;
+}
+
 /* The title bar strip that holds the macOS window buttons; hidden elsewhere */
 .title-bar {
   display: none;

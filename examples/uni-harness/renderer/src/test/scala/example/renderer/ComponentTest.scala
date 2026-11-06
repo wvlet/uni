@@ -5,7 +5,8 @@ import org.scalajs.dom
 import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
-import wvlet.uni.ui.{ColorScheme, Edge, FoldablePane, Splitter}
+import wvlet.uni.ui.{ColorScheme, DockLayout, DockSide, Edge, FoldablePane, Splitter}
+import wvlet.uni.ui.base.DockModel
 
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
@@ -183,7 +184,7 @@ class ComponentTest extends DomTestSupport:
         layout.dockOpen := false
         fireEvent.keyDown(input, "Enter")
         layout.dockOpen.get shouldBe true
-        layout.dockTab.get shouldBe DockTab.Activity
+        layout.dockLayout.get.visible shouldBe Set(DockTab.Activity.id)
         open.get shouldBe false
       }
   }
@@ -233,10 +234,53 @@ class ComponentTest extends DomTestSupport:
     long.endsWith("…") shouldBe true
   }
 
-  test("the Terminal tab is visible only while the dock is open on it") {
-    Dock.isTerminalVisible(true, DockTab.Terminal) shouldBe true
-    Dock.isTerminalVisible(true, DockTab.Activity) shouldBe false
-    Dock.isTerminalVisible(false, DockTab.Terminal) shouldBe false
+  test("the Terminal panel is visible only while the dock is open and shows it") {
+    Dock.isTerminalVisible(true, Layout.defaultDock(DockTab.Terminal)) shouldBe true
+    Dock.isTerminalVisible(true, Layout.defaultDock(DockTab.Activity)) shouldBe false
+    Dock.isTerminalVisible(false, Layout.defaultDock(DockTab.Terminal)) shouldBe false
+    // Split off under Details, Terminal is visible beside it
+    val split = DockModel.split(Layout.defaultDock(), DockTab.Terminal.id, Nil, DockSide.Bottom)
+    Dock.isTerminalVisible(true, split) shouldBe true
+  }
+
+  test("a dock saved before layouts opens on its saved tab, and a layout is saved after") {
+    val prefix = "component-test.dock."
+    dom.window.localStorage.setItem(s"${prefix}dockTab", "Terminal")
+    try
+      val layout = Layout.persistent(prefix)
+      layout.dockLayout.get shouldBe Layout.defaultDock(DockTab.Terminal)
+      layout.showDock(DockTab.Activity)
+      Option(dom.window.localStorage.getItem(s"${prefix}dockLayout")).flatMap(
+        DockLayout.fromJSON
+      ) shouldBe Some(Layout.defaultDock(DockTab.Activity))
+      // A saved layout wins over the old tab
+      Layout.persistent(prefix).dockLayout.get shouldBe Layout.defaultDock(DockTab.Activity)
+    finally
+      dom.window.localStorage.removeItem(s"${prefix}dockTab")
+      dom.window.localStorage.removeItem(s"${prefix}dockLayout")
+  }
+
+  test("the dock splits Terminal under Details") {
+    val layout = Layout.inMemory()
+    val m      = mount(
+      Dock(
+        layout,
+        ChatStore(ChatService(respond = p => Future.successful(p))),
+        RpcLog(),
+        Transport.HttpFetch
+      )
+    )
+    m.queryAll("[role=tab]").map(_.getAttribute("data-panel")).toSeq shouldBe
+      Seq("details", "activity", "terminal")
+    // The fold button sits in the dock's top-right tab bar
+    m.queryAll(".uni-dock__actions [aria-label^='Close dock']").size shouldBe 1
+    layout.dockLayout := DockModel.split(layout.dockLayout.get, "terminal", Nil, DockSide.Bottom)
+    m.queryAll(".uni-dock__group").size shouldBe 2
+    m.queryAll(".uni-dock__group[data-top='true']").size shouldBe 1
+    // Both groups show a panel: Details on top, the terminal below
+    m.queryAll("[role=tabpanel]").size shouldBe 2
+    m.queryAll("[role=tab][aria-selected='true']").map(_.getAttribute("data-panel")).toSeq shouldBe
+      Seq("details", "terminal")
   }
 
   test("the terminal header shows the program's title and a bell reaches onBell") {

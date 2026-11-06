@@ -3,7 +3,7 @@ package example.renderer
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
-import wvlet.uni.ui.{Badge, Edge, FoldablePane, Splitter, Tab, TabList, TabPanel, VirtualList}
+import wvlet.uni.ui.{Badge, DockLayout, DockPanel, Edge, FoldablePane, Splitter, VirtualList}
 import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
@@ -11,19 +11,20 @@ import scala.language.implicitConversions
 /**
   * The right dock: context next to the chat, resizable from its left edge. "Details" shows the
   * conversation and how a call travels; "Activity" lists every RPC call with its round-trip time;
-  * "Terminal" runs a shell.
+  * "Terminal" runs a shell. The panels sit in a [[wvlet.uni.ui.Dock]], so the user can drag a tab
+  * to an edge to split the dock, such as Terminal under Details.
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
-  // Set by a bell the user could not see; cleared once the Terminal tab is visible
+  // Set by a bell the user could not see; cleared once the Terminal panel is visible
   private[renderer] val terminalAttention = Rx.variable(false)
   private var attentionWatch: Cancelable  = Cancelable.empty
 
   private def terminalVisible: Boolean = Dock.isTerminalVisible(
     layout.dockOpen.get,
-    layout.dockTab.get
+    layout.dockLayout.get
   )
 
-  // Created once, so the shell and its scrollback survive switching tabs
+  // Created once, so the shell and its scrollback survive switching tabs and moving the panel
   private lazy val terminal = TerminalPane(
     layout.theme,
     onBell =
@@ -38,62 +39,64 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
   override def onMount(node: Any): Unit =
     attentionWatch = layout
       .dockOpen
-      .join(layout.dockTab)
-      .run { (open, tab) =>
-        if Dock.isTerminalVisible(open, tab) then
+      .join(layout.dockLayout)
+      .run { (open, l) =>
+        if Dock.isTerminalVisible(open, l) then
           terminalAttention := false
       }
 
   override def beforeUnmount: Unit = attentionWatch.cancel
 
-  private def tab(
+  private def panel(
       t: DockTab,
       icon: RxElement,
       badge: Rx[String],
       attention: Rx[Boolean] = Rx.const(false)
-  ): Tab[DockTab] = Tab(
-    t,
-    icon,
-    t.label,
-    Badge(badge),
-    attention.map { on =>
-      if on then
-        Badge.dot("Bell")
-      else
-        span()
-    }
-  )
+  )(content: => RxElement): DockPanel = DockPanel(t.id, t.label)(content)
+    .withTab(
+      icon,
+      t.label,
+      Badge(badge),
+      attention.map { on =>
+        if on then
+          Badge.dot("Bell")
+        else
+          span()
+      }
+    )
+    // The dock has only these three; closing one would leave no way back but the palette
+    .withClosable(false)
 
-  private lazy val tabs =
-    TabList(layout.dockTab, "Dock views")(
-      tab(DockTab.Details, Icons.info, Rx.const("")),
-      tab(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString)),
-      tab(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)
+  private lazy val panels = wvlet
+    .uni
+    .ui
+    .Dock(layout.dockLayout, "Dock views")(
+      panel(DockTab.Details, Icons.info, Rx.const(""))(
+        div(cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4", DetailsView(store, transport))
+      ),
+      panel(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString))(
+        // The log scrolls inside its own list
+        div(cls -> "flex min-h-0 flex-1 flex-col px-3 pb-4", ActivityLog(log))
+      ),
+      panel(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)(
+        div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
+      )
+    )
+    .withActions(
+      Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
     )
 
   override def render: RxElement =
     FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))(
-      div(
-        cls -> "app-drag flex h-14 shrink-0 items-center gap-2 pr-2 pl-3",
-        tabs(cls += "flex-1"),
-        Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
-      ),
-      TabPanel(tabs) {
-        case DockTab.Terminal =>
-          div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
-        case DockTab.Activity =>
-          // The log scrolls inside its own list
-          div(cls -> "flex min-h-0 flex-1 flex-col px-3 pb-4", ActivityLog(log))
-        case DockTab.Details =>
-          div(cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4", DetailsView(store, transport))
-      }
+      panels(cls += "harness-dock")
     )
 
 end Dock
 
 object Dock:
-  /** True when the user can see the Terminal tab: the dock is open and shows it. */
-  def isTerminalVisible(open: Boolean, tab: DockTab): Boolean = open && tab == DockTab.Terminal
+  /** True when the user can see the Terminal panel: the dock is open and it is a visible tab. */
+  def isTerminalVisible(open: Boolean, layout: DockLayout): Boolean =
+    open && layout.visible.contains(DockTab.Terminal.id)
 
 /** The current conversation, the call path, and the Uni APIs the example uses. */
 class DetailsView(store: ChatStore, transport: Transport) extends RxElement:

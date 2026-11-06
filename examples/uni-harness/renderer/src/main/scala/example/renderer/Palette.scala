@@ -19,9 +19,6 @@ object Palette:
     .withLabel("Search or run a command")
 
   def commands(layout: Layout, store: ChatStore, onNewChat: () => Unit): Rx[Seq[Command]] =
-    def showDock(t: DockTab): Unit =
-      layout.dockTab  := t
-      layout.dockOpen := true
     def showView(v: View): Unit =
       layout.view        := v
       layout.sidebarOpen := true
@@ -44,7 +41,7 @@ object Palette:
             Command(s"dock-${t}", s"Show ${t.label}")
               .withGroup("View")
               .withKeywords("dock")
-              .onRun(() => showDock(t))
+              .onRun(() => layout.showDock(t))
           ) ++
         Seq(View.Files, View.Settings).map(v =>
           Command(s"view-${v}", s"Show ${v.label}")
