@@ -137,8 +137,8 @@ lazy val app = project
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
 regenerated and compiled automatically on the next `compile`. Generation runs uni's
-`HttpCodeGeneratorMain` in a forked JVM on the project's classpath, so the generator always matches
-the uni version the app depends on, and it skips files whose content is unchanged.
+`HttpCodeGeneratorMain` in a forked JVM, from the uni version the app depends on (also for Scala.js
+apps), and it skips files whose content is unchanged.
 
 ### Target spec format
 
@@ -183,6 +183,9 @@ async.getUser(42).map(user => println(user.name))
 ```
 
 A trait method that returns `Rx[A]` returns `A` from `SyncClient` and `Rx[A]` from `AsyncClient`.
+The generator reads types from compiled classes, where Scala erases primitive type arguments, so
+`Rx[Int]` or `Seq[Long]` come out as `Rx[Any]` or `Seq[Any]`; wrap such values in a case class to
+keep their type.
 Mark a method with [`@rpcStream`](#streaming-results) to have `AsyncClient` stream its results;
 `SyncClient` leaves such methods out.
 
