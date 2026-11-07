@@ -204,6 +204,18 @@ val logged = stream.tapOnFailure { e =>
 }
 ```
 
+### onCancel
+
+Run cleanup when a subscriber cancels before the stream ends, such as aborting a request or telling a
+server to stop. It runs at most once per subscription, and not when the stream completes or fails by
+itself. `take(n)` cancels its upstream, so it runs `onCancel` too:
+
+```scala
+val ticks = stream.onCancel(logger.info("The subscriber left"))
+val c     = ticks.run()
+c.cancel // logs "The subscriber left"
+```
+
 ## Starting Values
 
 ### startWith

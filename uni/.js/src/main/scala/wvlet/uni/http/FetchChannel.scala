@@ -86,7 +86,8 @@ class FetchChannel extends HttpAsyncChannel:
       case Failure(e) =>
         source.setException(e)
       case Success(resp) =>
-        try onFetched(resp, source)
+        try
+          onFetched(resp, source)
         catch
           case e: Throwable =>
             source.setException(e)

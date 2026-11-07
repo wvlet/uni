@@ -148,15 +148,27 @@ contextBridge.exposeInMainWorld('uniRPC', {
     const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
     ipcRenderer.send('uni-rpc-stream', id, payload)
+    // Called when the renderer cancels the call: the server stops the stream
+    return () => {
+      if (streams.delete(id)) ipcRenderer.send('uni-rpc-stream-cancel', id)
+    }
   }
 })
 ```
 
 Make the ids unique per page load, as `pageId` does: a reload keeps the window's `webContents`, so a
 stream the old page started can still be sending. `ElectronRPCServer.serve` listens on the stream
-channel too, with the same sender checks as `request`, and replies to the frame that called. When the window's `webContents` is destroyed, the server cancels the streams it was
-sending to. Without `stream` in the bridge, a streaming call fails with a message that says what's
-missing; unary calls work as before.
+channel too, with the same sender checks as `request`, and replies to the frame that called.
+
+The function `stream` returns cancels the call. The renderer channel calls it when the `Rx` from
+`rpc.stream` is cancelled (an unsubscribe, or `take(n)`), and the server then cancels the method's
+`Rx`. The server also cancels a window's streams when its main frame starts loading another page,
+including a reload, and when the window's `webContents` is destroyed. An in-page navigation (a hash
+change or `history.pushState`) keeps them running. A bridge whose `stream` returns nothing still
+works, but then the server stream runs until it ends or the page goes away.
+
+Without `stream` in the bridge, a streaming call fails with a message that says what's missing;
+unary calls work as before.
 
 ## Renderer
 

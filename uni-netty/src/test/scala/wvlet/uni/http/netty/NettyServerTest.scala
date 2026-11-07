@@ -384,6 +384,40 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("cancel the SSE stream when the client disconnects") {
+    import java.net.Socket
+    import java.util.concurrent.{CountDownLatch, TimeUnit}
+
+    val cancelled = CountDownLatch(1)
+    // An endless stream: it ends only when the server cancels it
+    val ticks = Rx.variable(ServerSentEvent.data("tick"))
+    NettyServerConfig()
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withRxHandler { _ =>
+        Rx.single(Response.eventStream(ticks.onCancel(cancelled.countDown())))
+      }
+      .start { server =>
+        val socket = Socket("localhost", server.localPort)
+        socket.setSoTimeout(5000)
+        try
+          val out = socket.getOutputStream
+          out.write(
+            "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.UTF_8)
+          )
+          out.flush()
+          val buf = new Array[Byte](8192)
+          val sb  = StringBuilder()
+          while !sb.toString.contains("data: tick") do
+            val n = socket.getInputStream.read(buf)
+            (n > 0) shouldBe true
+            sb.append(String(buf, 0, n, StandardCharsets.UTF_8))
+        finally
+          socket.close()
+        cancelled.await(5, TimeUnit.SECONDS) shouldBe true
+      }
+  }
+
   test("should bind query parameters to @Endpoint method parameters") {
     NettyServerConfig()
       .withPort(0)

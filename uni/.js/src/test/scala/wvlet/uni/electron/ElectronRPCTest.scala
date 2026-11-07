@@ -22,7 +22,7 @@ import wvlet.uni.test.UniTest
 import scala.concurrent.{Future, Promise}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, RxRunner}
 
 case class Greeting(message: String)
 
@@ -229,6 +229,7 @@ class ElectronRPCTest extends UniTest:
     collect(streamClient(testbed).stream[Int]("countTo", 5)).map { result =>
       result shouldBe (Seq(1, 2, 3, 4, 5), None)
       testbed.destroyedListenerCount shouldBe 0
+      testbed.listenerCount("did-start-navigation") shouldBe 0
     }
   }
 
@@ -276,6 +277,110 @@ class ElectronRPCTest extends UniTest:
     yield
       seen.result() shouldBe Seq(1)
       impl.sent shouldBe 1
+  }
+
+  /** Start `ticks`, deliver one value, and return what the renderer saw. */
+  private def startTicks(
+      impl: GreetingServiceImpl,
+      client: wvlet.uni.http.rpc.RPCAsyncClient
+  ): Future[(scala.collection.mutable.Builder[Int, Seq[Int]], Cancelable)] =
+    val seen         = Seq.newBuilder[Int]
+    val subscription =
+      RxRunner.run(client.stream[Int]("ticks")) {
+        case OnNext(v) =>
+          seen += v.asInstanceOf[Int]
+        case _ =>
+      }
+    for
+      _ <- settle()
+      _ = impl.tick := 1
+      _ <- settle()
+    yield (seen, subscription)
+
+  test("cancelling the renderer Rx cancels the server stream") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    for
+      (seen, subscription) <- startTicks(impl, streamClient(testbed))
+      _ = testbed.destroyedListenerCount shouldBe 1
+      _ = subscription.cancel
+      _ <- settle()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      seen.result() shouldBe Seq(1)
+      impl.sent shouldBe 1
+      testbed.destroyedListenerCount shouldBe 0
+      testbed.listenerCount("did-start-navigation") shouldBe 0
+  }
+
+  test("take(n) on a stream cancels the server stream after the nth value") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    val result  = collect(streamClient(testbed).stream[Int]("ticks").take(1))
+    for
+      _ <- settle()
+      _ = impl.tick := 1
+      (values, failure) <- result
+      _                 <- settle()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      (values, failure) shouldBe (Seq(1), None)
+      impl.sent shouldBe 1
+  }
+
+  test("reloading the renderer cancels the old page's server streams") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    for
+      (seen, _) <- startTicks(impl, streamClient(testbed))
+      _ = testbed.listenerCount("did-start-navigation") shouldBe 1
+      _ = testbed.reloadRenderer()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      seen.result() shouldBe Seq(1)
+      impl.sent shouldBe 1
+      testbed.destroyedListenerCount shouldBe 0
+      testbed.listenerCount("did-start-navigation") shouldBe 0
+  }
+
+  test("an in-page navigation keeps the server stream running") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    for
+      (seen, subscription) <- startTicks(impl, streamClient(testbed))
+      _ = testbed.navigateInPage()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      seen.result() shouldBe Seq(1, 2)
+      impl.sent shouldBe 2
+      subscription.cancel
+  }
+
+  test("a preload bridge whose stream returns no cancel function still streams") {
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](GreetingServiceImpl()))
+    val inner   = testbed.bridge()
+    // An older preload: stream(payload, onMessage) returns undefined
+    val bridge = js
+      .Dynamic
+      .literal(
+        request = inner.request,
+        stream =
+          (
+              (payload: js.Any, onMessage: js.Any) =>
+                inner.applyDynamic("stream")(payload, onMessage)
+                ()
+          ): js.Function2[js.Any, js.Any, Unit]
+      )
+    val client = rpcClient.newAsyncClient(
+      Http.client.withChannelFactory(ElectronChannelFactory(bridge)).newAsyncClient
+    )
+    collect(client.stream[Int]("countTo", 3).take(2)).map { result =>
+      result shouldBe (Seq(1, 2), None)
+    }
   }
 
   test("a malformed stream payload ends the call with an error instead of hanging") {

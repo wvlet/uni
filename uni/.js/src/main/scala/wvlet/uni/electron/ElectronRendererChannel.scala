@@ -45,8 +45,9 @@ import scala.scalajs.js
   * })
   * }}}
   *
-  * Streaming calls also need `stream(payload, onMessage)`; [[ElectronIPC]] describes the messages,
-  * and the Electron guide shows a preload that implements it.
+  * Streaming calls also need `stream(payload, onMessage)`, which returns a function that cancels
+  * the call; [[ElectronIPC]] describes the messages, and the Electron guide shows a preload that
+  * implements it.
   *
   * `bridge.request(payload)` must return a `Promise` resolving to the response payload (see
   * [[ElectronIPC]]). Only async operations are supported — there is no synchronous IPC path in a
@@ -71,8 +72,9 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
   /**
     * Stream a response over the bridge's optional `stream(payload, onMessage)` function (see
     * [[ElectronIPC]] for the messages). The call starts when the returned Rx is subscribed.
-    * Cancelling the Rx stops delivery but not the server stream, which ends with the call or when
-    * the window closes.
+    * Cancelling the Rx calls the function `stream` returned, which tells the main process to stop
+    * the server stream. A bridge whose `stream` returns nothing still works, but then the server
+    * stream runs until it ends, the page navigates, or the window closes.
     */
   override def sendStreaming(
       request: HttpRequest,
@@ -110,6 +112,9 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
           case e: Throwable =>
             source.setException(e)
 
+      // What bridge.stream returned: a function that cancels the call, or undefined (older bridges)
+      var cancelCall: js.Any = js.undefined
+
       source
         .tap { chunk =>
           // RxVar emits its current value (None) right after registering a subscriber, so the
@@ -117,7 +122,11 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
           if chunk.isEmpty && !started then
             started = true
             val callback: js.Function1[js.Dynamic, Unit] = onMessage
-            bridge.applyDynamic("stream")(payload, callback)
+            cancelCall = bridge.applyDynamic("stream")(payload, callback)
+        }
+        .onCancel {
+          if js.typeOf(cancelCall) == "function" then
+            cancelCall.asInstanceOf[js.Function0[Any]]()
         }
         .filter(_.isDefined)
         .map(_.get)
