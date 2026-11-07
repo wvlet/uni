@@ -13,10 +13,12 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.ContentType
 import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
+import wvlet.uni.http.ServerSentEvent
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
@@ -28,6 +30,12 @@ import wvlet.uni.rx.Rx
   * results), and produces a [[Response]]. The wire format is identical to what the [[RPCClient]]
   * expects, so any transport that can deliver a `Request` and return a `Response` works: HTTP
   * (netty's `RPCHandler`), Electron IPC (`wvlet.uni.electron.ElectronRPCServer`), etc.
+  *
+  * A request that accepts `text/event-stream` (sent by [[RPCAsyncClient.stream]]) gets every value
+  * of the method's `Rx` as a Server-Sent Event, instead of only the first one. Each event's data is
+  * the JSON of one value. A failure after the stream started is sent as an
+  * [[RPCDispatcher.ErrorEvent]] event whose data is the RPC error message JSON, and ends the
+  * stream. Failures before the method returns are sent as ordinary error responses.
   *
   * @param routers
   *   service routers to dispatch across. Paths are unique per service, so multiple services can be
@@ -87,6 +95,10 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
 
       // Handle result - may be Rx for async methods
       result match
+        case rx: Rx[?] if RPCDispatcher.acceptsEventStream(request) =>
+          Rx.single(streamResponse(rx, route))
+        case value if RPCDispatcher.acceptsEventStream(request) =>
+          Rx.single(streamResponse(Rx.single(value), route))
         case rx: Rx[?] =>
           rx.map(v => successResponse(v, route))
             .recover {
@@ -113,6 +125,23 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       .addHeader(HttpHeader.XRPCStatus, RPCStatus.SUCCESS_S0.code.toString)
       .withJsonContent(json)
 
+  private def streamResponse(rx: Rx[?], route: RPCRoute): Response =
+    val events: Rx[ServerSentEvent] = rx
+      .map(v => ServerSentEvent.data(route.codec.encodeResult(v)))
+      .recoverWith { case e: Throwable =>
+        // recoverWith, not recover: the error event must also complete the stream
+        Rx.single(ServerSentEvent.data(errorMessageJson(e)).withEvent(RPCDispatcher.ErrorEvent))
+      }
+    Response
+      .eventStream(events)
+      .addHeader(HttpHeader.XRPCStatus, RPCStatus.SUCCESS_S0.code.toString)
+
+  /** The JSON body [[errorResponse]] would send for `e`, for an error event in a stream. */
+  private def errorMessageJson(e: Throwable): String =
+    if !e.isInstanceOf[RPCException] then
+      warn(s"Unexpected error in RPC stream: ${e.getMessage}", e)
+    errorResponse(e).contentAsString.getOrElse("")
+
   private def errorResponse(e: Throwable): Response =
     e match
       case rpc: RPCException =>
@@ -134,3 +163,19 @@ object RPCDispatcher:
     * Create a dispatcher serving the given routers.
     */
   def apply(routers: RPCRouter*): RPCDispatcher = new RPCDispatcher(routers.toSeq)
+
+  /** The SSE event type of a failure in a streaming RPC response. */
+  val ErrorEvent: String = "rpc-error"
+
+  /**
+    * Whether the caller asked for a streaming response: `text/event-stream` is the first media type
+    * it accepts. A client that lists it after another type (`application/json, text/event-stream`)
+    * keeps getting the unary JSON answer, as before streaming RPC existed.
+    */
+  def acceptsEventStream(request: Request): Boolean = request
+    .header(HttpHeader.Accept)
+    .exists(
+      _.split(',')
+        .headOption
+        .exists(_.split(';').head.trim.equalsIgnoreCase(ContentType.TextEventStream.value))
+    )

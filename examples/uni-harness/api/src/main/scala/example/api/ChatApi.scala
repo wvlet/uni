@@ -13,6 +13,17 @@ case class ChatMessage(id: String, role: String, text: String, createdAt: Long)
 /** The result of sending a message: the stored user message, the reply, and the renamed thread. */
 case class ChatReply(user: ChatMessage, assistant: ChatMessage, conversation: Conversation)
 
+/** One event of a streamed reply, in order: `Started`, any number of `Delta`s, then `Done`. */
+enum ChatEvent:
+  /** The prompt is stored; the reply is on its way. */
+  case Started(user: ChatMessage)
+
+  /** The next part of the reply's text. */
+  case Delta(text: String)
+
+  /** The reply is complete and stored. */
+  case Done(reply: ChatReply)
+
 /**
   * The chat service, shared by both sides. The server module implements it once; the renderer calls
   * it over Electron IPC in the desktop app and over HTTP (fetch) in the browser.
@@ -21,7 +32,12 @@ trait ChatApi:
   def listConversations(): Rx[Seq[Conversation]]
   def createConversation(): Rx[Conversation]
   def listMessages(conversationId: String): Rx[Seq[ChatMessage]]
-  def sendMessage(conversationId: String, text: String): Rx[ChatReply]
+
+  /**
+    * Send a prompt and stream the reply as it is written. The client reads it with
+    * `RPCAsyncClient.stream`, which delivers every event the server's Rx emits, over IPC or HTTP.
+    */
+  def streamMessage(conversationId: String, text: String): Rx[ChatEvent]
 
 /**
   * A typed [[ChatApi]] over Uni RPC. Implementing the trait keeps every call compile-checked, so
@@ -41,8 +57,9 @@ class ChatApiClient(http: HttpAsyncClient) extends ChatApi:
     conversationId
   )
 
-  override def sendMessage(conversationId: String, text: String): Rx[ChatReply] = rpc.call(
-    "sendMessage",
+  // `stream`, not `call`: a call would return only the first event
+  override def streamMessage(conversationId: String, text: String): Rx[ChatEvent] = rpc.stream(
+    "streamMessage",
     conversationId,
     text
   )

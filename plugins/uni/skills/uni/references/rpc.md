@@ -164,3 +164,36 @@ class UserServiceClient(http: HttpSyncClient) extends UserService:
   def listUsers(limit: Int): Seq[User]  = rpc.call("listUsers", limit)
   def findUserAsync(id: Long): Rx[User] = Rx.single(getUser(id))
 ```
+
+## Streaming results
+
+A method that returns `Rx[A]` can emit many values (tokens, progress, log lines).
+Call it with `stream` instead of `call` to receive each value as the server emits
+it. The trait and the router don't change: `stream` sends
+`Accept: text/event-stream`, and the dispatcher answers with one SSE `data:` event
+per value. A plain `call` still gets the first value only.
+
+```scala reset
+import wvlet.uni.http.{Http, HttpAsyncClient}
+import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
+import wvlet.uni.rx.Rx
+
+trait TokenApi:
+  def streamReply(prompt: String): Rx[String]
+
+class TokenApiImpl extends TokenApi:
+  def streamReply(prompt: String): Rx[String] = Rx.fromSeq(Seq("Hello", ", ", prompt))
+
+val router = RPCRouter.of[TokenApi](TokenApiImpl())
+
+def printReply(http: HttpAsyncClient): Unit =
+  val rpc = RPCClient.of[TokenApi].newAsyncClient(http)
+  rpc.stream[String]("streamReply", "Uni").run(token => print(token))
+```
+
+- A failure before the method returns fails the `Rx` with an `HttpException`, as
+  for `call`. A failure mid-stream arrives as an `rpc-error` event and fails the
+  `Rx` with the server's `RPCException`.
+- Streaming calls are never retried.
+- Streams over HTTP (JVM and Node servers, JVM and fetch clients) and over Electron
+  IPC when the preload bridge exposes `stream` (see `electron.md`).

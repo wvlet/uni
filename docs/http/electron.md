@@ -114,7 +114,7 @@ app.whenReady().then(() => {
 
 ## Preload bridge
 
-The single function the renderer transport expects. Keep context isolation on:
+The function the renderer transport expects for ordinary calls. Keep context isolation on:
 
 ```js
 import { contextBridge, ipcRenderer } from 'electron'
@@ -123,6 +123,40 @@ contextBridge.exposeInMainWorld('uniRPC', {
   request: (payload) => ipcRenderer.invoke('uni-rpc', payload)
 })
 ```
+
+### Streaming calls
+
+[Streaming calls](./rpc#streaming-results) (`rpc.stream`) need a second function, `stream`. The main
+process answers each call on `uni-rpc-stream-event` with the call's id and a message, until an `end`
+or `error` message. One listener serves every call:
+
+```js
+const streams = new Map()
+// Unique per page load: a reload keeps the webContents, and a stream from the old page may still run
+const pageId = Math.random().toString(36).slice(2)
+let nextStreamId = 0
+ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
+  const onMessage = streams.get(id)
+  if (!onMessage) return
+  if (message.kind === 'end' || message.kind === 'error') streams.delete(id)
+  onMessage(message)
+})
+
+contextBridge.exposeInMainWorld('uniRPC', {
+  request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
+  stream: (payload, onMessage) => {
+    const id = `${pageId}-${++nextStreamId}`
+    streams.set(id, onMessage)
+    ipcRenderer.send('uni-rpc-stream', id, payload)
+  }
+})
+```
+
+Make the ids unique per page load, as `pageId` does: a reload keeps the window's `webContents`, so a
+stream the old page started can still be sending. `ElectronRPCServer.serve` listens on the stream
+channel too, with the same sender checks as `request`, and replies to the frame that called. When the window's `webContents` is destroyed, the server cancels the streams it was
+sending to. Without `stream` in the bridge, a streaming call fails with a message that says what's
+missing; unary calls work as before.
 
 ## Renderer
 

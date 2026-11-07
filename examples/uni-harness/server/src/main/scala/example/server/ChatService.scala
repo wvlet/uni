@@ -1,11 +1,12 @@
 package example.server
 
-import example.api.{ChatApi, ChatMessage, ChatReply, Conversation}
+import example.api.{ChatApi, ChatEvent, ChatMessage, ChatReply, Conversation}
 import wvlet.uni.rx.Rx
 
+import java.util.concurrent.TimeUnit
 import scala.collection.mutable
 import scala.concurrent.ExecutionContext.Implicits.global
-import scala.concurrent.{Future, Promise}
+import scala.concurrent.Future
 import scala.scalajs.js
 
 /**
@@ -13,13 +14,14 @@ import scala.scalajs.js
   * app (over HTTP); conversations live until the process exits.
   *
   * @param respond
-  *   the model: prompt => reply. The default is a mock that echoes after a short pause, so the
-  *   example needs no API key. Pass a call to your LLM or agent here; tests pass an instant one.
+  *   the model: prompt => the reply's text in parts, as the model writes it. The default is a mock
+  *   that echoes a few words at a time, so the example needs no API key. Pass your LLM's or agent's
+  *   token stream here, or wrap a model that answers at once with [[ChatService.atOnce]].
   * @param now
   *   the clock, in epoch milliseconds
   */
 class ChatService(
-    respond: String => Future[String] = ChatService.mockModel,
+    respond: String => Rx[String] = ChatService.mockModel,
     now: () => Long = () => js.Date.now().toLong
 ) extends ChatApi:
 
@@ -50,25 +52,37 @@ class ChatService(
     messages.get(conversationId).map(_.toSeq).getOrElse(Seq.empty)
   )
 
-  override def sendMessage(conversationId: String, text: String): Rx[ChatReply] =
+  override def streamMessage(conversationId: String, text: String): Rx[ChatEvent] =
     val thread = messages.getOrElseUpdate(conversationId, mutable.ArrayBuffer.empty)
     val user   = ChatMessage(newId("m"), "user", text, now())
     thread += user
-    Rx.future(respond(text))
-      .map { answer =>
-        val assistant = ChatMessage(newId("m"), "assistant", answer, now())
-        thread += assistant
-        val prev = conversations.getOrElse(
-          conversationId,
-          Conversation(conversationId, ChatService.untitled, 0)
-        )
-        val updated = prev.copy(
-          title = ChatService.titleFor(prev.title, text),
-          updatedAt = assistant.createdAt
-        )
-        conversations(conversationId) = updated
-        ChatReply(user, assistant, updated)
-      }
+    val answer = StringBuilder()
+
+    // Store the reply once the model is done; Rx.single defers this until the deltas have passed
+    def finish(): ChatEvent =
+      val assistant = ChatMessage(newId("m"), "assistant", answer.result(), now())
+      thread += assistant
+      val prev = conversations.getOrElse(
+        conversationId,
+        Conversation(conversationId, ChatService.untitled, 0)
+      )
+      val updated = prev.copy(
+        title = ChatService.titleFor(prev.title, text),
+        updatedAt = assistant.createdAt
+      )
+      conversations(conversationId) = updated
+      ChatEvent.Done(ChatReply(user, assistant, updated))
+
+    Rx.single[ChatEvent](ChatEvent.Started(user))
+      .concat(
+        respond(text).map { part =>
+          answer ++= part
+          ChatEvent.Delta(part)
+        }
+      )
+      .concat(Rx.single(finish()))
+
+  end streamMessage
 
 end ChatService
 
@@ -82,15 +96,32 @@ object ChatService:
     else
       prompt.linesIterator.map(_.trim).find(_.nonEmpty).map(_.take(40)).getOrElse(untitled)
 
-  /** The mock model: wait a moment, then echo. */
-  def mockModel(prompt: String): Future[String] =
-    val p = Promise[String]()
-    js.timers
-      .setTimeout(600) {
-        p.success(
-          s"You said: “${prompt}”\n\nI am the mock model in ChatService. Replace me with a call to your LLM or agent, and this reply arrives the same way: as a typed ChatApi result over IPC or HTTP."
-        )
-      }
-    p.future
+  /** A model that returns its whole reply at once, as one part. */
+  def atOnce(model: String => Future[String]): String => Rx[String] =
+    prompt => Rx.future(model(prompt))
+
+  /** Split a reply into the parts a token stream would deliver: words with their spacing. */
+  def parts(text: String): Seq[String] =
+    val out  = Seq.newBuilder[String]
+    var from = 0
+    for
+      i <- text.indices
+      if text(i).isWhitespace
+    do
+      out += text.substring(from, i + 1)
+      from = i + 1
+    if from < text.length then
+      out += text.substring(from)
+    out.result()
+
+  /** The mock model: think for a moment, then echo a word every 30 ms. */
+  def mockModel(prompt: String): Rx[String] =
+    val words = parts(
+      s"You said: “${prompt}”\n\nI am the mock model in ChatService. Replace me with your LLM's or agent's token stream, and this reply arrives the same way: as typed ChatEvents, streamed over IPC or HTTP by one RPC call."
+    )
+    Rx.delay(500, TimeUnit.MILLISECONDS)
+      .flatMap(_ => Rx.intervalMillis(30).take(words.size))
+      .scan(-1)((i, _) => i + 1)
+      .map(words)
 
 end ChatService

@@ -58,9 +58,35 @@ contextBridge.exposeInMainWorld('uniRPC', {
 })
 ```
 
+For streaming calls (`rpc.stream`, see `rpc.md`), the bridge also needs `stream`.
+The main process answers on `uni-rpc-stream-event` with `(id, message)` until an
+`end` or `error` message:
+
+```js
+const streams = new Map()
+// Unique per page load: a reload keeps the webContents, and a stream from the old page may still run
+const pageId = Math.random().toString(36).slice(2)
+let nextStreamId = 0
+ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
+  const onMessage = streams.get(id)
+  if (!onMessage) return
+  if (message.kind === 'end' || message.kind === 'error') streams.delete(id)
+  onMessage(message)
+})
+contextBridge.exposeInMainWorld('uniRPC', {
+  request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
+  stream: (payload, onMessage) => {
+    const id = `${pageId}-${++nextStreamId}`
+    streams.set(id, onMessage)
+    ipcRenderer.send('uni-rpc-stream', id, payload)
+  }
+})
+```
+
 - `ElectronRPCServer.serve(ipcMain, routers*)` uses the default config: channel
   `uni-rpc`, top-level frames only. Calls from rejected senders fail with
-  `PERMISSION_DENIED_U14`.
+  `PERMISSION_DENIED_U14`. Streams get the same checks and are cancelled when the
+  window's `webContents` is destroyed.
 - Config: `withAllowedOrigins(prefixes*)`, `withAllowSubFrames(true)`,
   `withSenderFilter(frame => ...)`, `withChannel(name)`.
 

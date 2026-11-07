@@ -54,20 +54,88 @@ class ElectronTestbed:
     .Map
     .empty[String, js.Function2[js.Any, js.Any, js.Promise[js.Object]]]
 
+  private val listeners = mutable.Map.empty[String, js.Function3[js.Any, js.Any, js.Any, Unit]]
+
+  // Stream callbacks by call id, and the fake webContents' `destroyed` listeners
+  private val streams            = mutable.Map.empty[Double, js.Function1[js.Dynamic, Unit]]
+  private val destroyedListeners = mutable.ArrayBuffer.empty[js.Function0[Unit]]
+  private var nextStreamId       = 0.0
+  private var destroyed          = false
+
   /**
-    * A fake `ipcMain` to pass to [[ElectronRPCServer.serve]]. Its `handle(channel, fn)` records the
-    * handler per channel so [[bridge]] can dispatch to it.
+    * A fake `ipcMain` to pass to [[ElectronRPCServer.serve]]. Its `handle(channel, fn)` and
+    * `on(channel, fn)` record the handler per channel so [[bridge]] can dispatch to it.
     */
   val ipcMain: js.Dynamic = js
     .Dynamic
-    .literal(handle =
-      (
-          (channel: js.Any, fn: js.Any) =>
-            handlers(channel.asInstanceOf[String]) = fn.asInstanceOf[
-              js.Function2[js.Any, js.Any, js.Promise[js.Object]]
-            ]
-      ): js.Function2[js.Any, js.Any, Unit]
+    .literal(
+      handle =
+        (
+            (channel: js.Any, fn: js.Any) =>
+              handlers(channel.asInstanceOf[String]) = fn.asInstanceOf[
+                js.Function2[js.Any, js.Any, js.Promise[js.Object]]
+              ]
+        ): js.Function2[js.Any, js.Any, Unit],
+      on =
+        (
+            (channel: js.Any, fn: js.Any) =>
+              listeners(channel.asInstanceOf[String]) = fn.asInstanceOf[
+                js.Function3[js.Any, js.Any, js.Any, Unit]
+              ]
+        ): js.Function2[js.Any, js.Any, Unit]
     )
+
+  /**
+    * The renderer's fake `webContents` (`event.sender`). Like Electron, it delivers stream messages
+    * asynchronously and in order.
+    */
+  private val webContents: js.Dynamic = js
+    .Dynamic
+    .literal(
+      send =
+        (
+            (_channel: js.Any, id: js.Any, msg: js.Any) =>
+              js.Promise
+                .resolve[Unit](())
+                .`then`[Unit] { _ =>
+                  val key = id.asInstanceOf[Double]
+                  streams
+                    .get(key)
+                    .foreach { cb =>
+                      val m    = msg.asInstanceOf[js.Dynamic]
+                      val kind = m.kind.asInstanceOf[String]
+                      if kind == "end" || kind == "error" then
+                        streams.remove(key)
+                      cb(m)
+                    }
+                }
+              ()
+        ): js.Function3[js.Any, js.Any, js.Any, Unit],
+      isDestroyed = (() => destroyed): js.Function0[Boolean],
+      once =
+        ((_name: js.Any, fn: js.Function0[Unit]) => destroyedListeners += fn): js.Function2[
+          js.Any,
+          js.Function0[Unit],
+          Unit
+        ],
+      removeListener =
+        ((_name: js.Any, fn: js.Function0[Unit]) => destroyedListeners -= fn): js.Function2[
+          js.Any,
+          js.Function0[Unit],
+          Unit
+        ]
+    )
+
+  /** Simulate closing the renderer window: its `webContents` is destroyed. */
+  def closeRenderer(): Unit =
+    destroyed = true
+    val fs = destroyedListeners.toList
+    destroyedListeners.clear()
+    streams.clear()
+    fs.foreach(_())
+
+  /** The number of `destroyed` listeners on the fake `webContents`, for leak checks in tests. */
+  def destroyedListenerCount: Int = destroyedListeners.size
 
   /**
     * A fake preload bridge for the given channel. Forwards `request(payload)` to the served handler
@@ -85,16 +153,43 @@ class ElectronTestbed:
       senderUrl: String = ElectronTestbed.DefaultSenderUrl
   ): js.Dynamic = js
     .Dynamic
-    .literal(request =
-      (
-          (payload: js.Any) =>
-            handlers.get(channel) match
-              case Some(fn) =>
-                fn(ElectronTestbed.ipcEvent(senderUrl), payload)
-              case None =>
-                js.Promise
-                  .reject(js.Error(s"No Electron RPC handler registered on channel '${channel}'"))
-      ): js.Function1[js.Any, js.Promise[js.Object]]
+    .literal(
+      request =
+        (
+            (payload: js.Any) =>
+              handlers.get(channel) match
+                case Some(fn) =>
+                  fn(ElectronTestbed.ipcEvent(senderUrl), payload)
+                case None =>
+                  js.Promise
+                    .reject(js.Error(s"No Electron RPC handler registered on channel '${channel}'"))
+        ): js.Function1[js.Any, js.Promise[js.Object]],
+      stream =
+        (
+            (payload: js.Any, onMessage: js.Function1[js.Dynamic, Unit]) =>
+              listeners.get(ElectronIPC.streamChannel(channel)) match
+                case Some(fn) =>
+                  nextStreamId += 1
+                  streams(nextStreamId) = onMessage
+                  val event = ElectronTestbed.ipcEvent(senderUrl)
+                  event.updateDynamic("sender")(webContents)
+                  // Like Electron's IpcMainEvent.reply: answer the calling frame
+                  event.updateDynamic("reply")(
+                    (
+                        (ch: js.Any, id: js.Any, msg: js.Any) =>
+                          webContents.applyDynamic("send")(ch, id, msg)
+                    ): js.Function3[js.Any, js.Any, js.Any, Unit]
+                  )
+                  fn(event, nextStreamId, payload)
+                case None =>
+                  onMessage(
+                    js.Dynamic
+                      .literal(
+                        kind = "error",
+                        message = s"No Electron RPC stream handler on channel '${channel}'"
+                      )
+                  )
+        ): js.Function2[js.Any, js.Function1[js.Dynamic, Unit], Unit]
     )
 
   /** An [[ElectronChannelFactory]] wired to this testbed's [[bridge]]. */

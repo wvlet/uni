@@ -1,6 +1,6 @@
 package example.renderer
 
-import example.api.{ChatApi, ChatMessage, ChatReply, Conversation}
+import example.api.{ChatApi, ChatEvent, ChatMessage}
 import example.server.ChatService
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
@@ -23,7 +23,7 @@ class ChatStoreTest extends UniTest:
     def releaseList(id: String): Unit                           = listGates(id).trySuccess(())
     override def listConversations()                            = service.listConversations()
     override def createConversation()                           = service.createConversation()
-    override def sendMessage(id: String, text: String)          = service.sendMessage(id, text)
+    override def streamMessage(id: String, text: String)        = service.streamMessage(id, text)
     override def listMessages(id: String): Rx[Seq[ChatMessage]] =
       listGates.get(id) match
         case Some(gate) =>
@@ -42,8 +42,16 @@ class ChatStoreTest extends UniTest:
 
   private def instant(prompt: String): Future[String] = Future.successful(s"echo: ${prompt}")
 
+  /** A model whose reply streams the parts the test pushes, until the test ends or fails it. */
+  class HeldStream:
+    private val parts            = Rx.variable(Option.empty[String])
+    def model(prompt: String)    = parts.filter(_.isDefined).map(_.get)
+    def emit(part: String): Unit = parts := Some(part)
+    def finish(): Unit           = parts.stop()
+    def fail(e: Throwable): Unit = parts.setException(e)
+
   test("load opens the most recent conversation") {
-    val store = ChatStore(ChatService(respond = instant))
+    val store = ChatStore(ChatService(respond = ChatService.atOnce(instant)))
     store
       .load()
       .map { _ =>
@@ -53,8 +61,8 @@ class ChatStoreTest extends UniTest:
       }
   }
 
-  test("send stores the reply, renames the conversation, and marks the reply fresh once") {
-    val store = ChatStore(ChatService(respond = instant))
+  test("send stores the reply and renames the conversation") {
+    val store = ChatStore(ChatService(respond = ChatService.atOnce(instant)))
     store
       .load()
       .flatMap(_ => store.send("Hello Uni"))
@@ -63,14 +71,12 @@ class ChatStoreTest extends UniTest:
           Seq("user" -> "Hello Uni", "assistant" -> "echo: Hello Uni")
         store.conversations.get.head.title shouldBe "Hello Uni"
         store.sending.get shouldBe Set.empty
-        val reply = store.messages.get.last.id
-        store.takeFresh(reply) shouldBe true
-        store.takeFresh(reply) shouldBe false
+        store.thinking.get shouldBe Set.empty
       }
   }
 
   test("a late listMessages response does not replace the selected thread") {
-    val service = ChatService(respond = instant)
+    val service = ChatService(respond = ChatService.atOnce(instant))
     val api     = Gated(service)
     val store   = ChatStore(api)
     for
@@ -92,7 +98,7 @@ class ChatStoreTest extends UniTest:
 
   test("a reply that arrives after the thread was reloaded shows the prompt once") {
     replies.clear()
-    val store = ChatStore(ChatService(respond = heldModel))
+    val store = ChatStore(ChatService(respond = ChatService.atOnce(heldModel)))
     for
       _ <- store.load()
       a       = store.selected.get.get
@@ -107,7 +113,7 @@ class ChatStoreTest extends UniTest:
 
   test("a second send while a reply is pending is ignored") {
     replies.clear()
-    val store = ChatStore(ChatService(respond = heldModel))
+    val store = ChatStore(ChatService(respond = ChatService.atOnce(heldModel)))
     for
       _ <- store.load()
       first = store.send("first")
@@ -121,7 +127,7 @@ class ChatStoreTest extends UniTest:
 
   test("another conversation can send while one waits for its reply") {
     replies.clear()
-    val store = ChatStore(ChatService(respond = heldModel))
+    val store = ChatStore(ChatService(respond = ChatService.atOnce(heldModel)))
     for
       _ <- store.load()
       a   = store.selected.get.get
@@ -141,11 +147,11 @@ class ChatStoreTest extends UniTest:
   test("a failed send removes the draft and reports the error") {
     val failing =
       new ChatApi:
-        private val service                   = ChatService(respond = instant)
+        private val service                   = ChatService(respond = ChatService.atOnce(instant))
         override def listConversations()      = service.listConversations()
         override def createConversation()     = service.createConversation()
         override def listMessages(id: String) = service.listMessages(id)
-        override def sendMessage(id: String, text: String): Rx[ChatReply] = Rx.exception(
+        override def streamMessage(id: String, text: String): Rx[ChatEvent] = Rx.exception(
           IllegalStateException("server down")
         )
     val store = ChatStore(failing)
@@ -155,8 +161,96 @@ class ChatStoreTest extends UniTest:
       .map { _ =>
         store.messages.get shouldBe Seq.empty
         store.sending.get shouldBe Set.empty
-        store.error.get shouldBe Some("sendMessage failed: server down")
+        store.error.get shouldBe Some("streamMessage failed: server down")
       }
+  }
+
+  test("a streamed reply grows in one message, then the stored reply takes its key") {
+    val held  = HeldStream()
+    val store = ChatStore(ChatService(respond = held.model))
+    def texts = store.messages.get.map(_.text)
+    for
+      _ <- store.load()
+      a       = store.selected.get.get
+      sending = store.send("hi")
+      _       = store.thinking.get shouldBe Set(a)
+      _       = held.emit("Hello ")
+      _       = store.thinking.get shouldBe Set.empty
+      _       = texts shouldBe Seq("hi", "Hello ")
+      live    = store.messages.get.last
+      _       = ChatStore.isDraft(live) shouldBe true
+      _       = held.emit("Uni")
+      _       = texts shouldBe Seq("hi", "Hello Uni")
+      // Still one reply, under the same key
+      _ = store.messages.get.last.id shouldBe live.id
+      _ = held.finish()
+      _ <- sending
+    yield
+      val stored = store.messages.get.last
+      ChatStore.isDraft(stored) shouldBe false
+      stored.text shouldBe "Hello Uni"
+      store.keyOf(stored) shouldBe live.id
+      store.messages.get.count(m => !ChatStore.isDraft(m)) shouldBe 2
+      store.sending.get shouldBe Set.empty
+  }
+
+  test("a failure mid-stream keeps the prompt and the partial reply, and reports the error") {
+    val held  = HeldStream()
+    val store = ChatStore(ChatService(respond = held.model))
+    for
+      _ <- store.load()
+      sending = store.send("hi")
+      _       = held.emit("partial")
+      _       = held.fail(IllegalStateException("model crashed"))
+      _ <- sending
+    yield
+      store.messages.get.map(_.text) shouldBe Seq("hi", "partial")
+      store.error.get shouldBe Some("streamMessage failed: model crashed")
+      store.sending.get shouldBe Set.empty
+      store.thinking.get shouldBe Set.empty
+  }
+
+  test("a stream that ends before Done unlocks the conversation and reports it") {
+    val service = ChatService(respond = p => Rx.fromSeq(Seq("cut ", "off")))
+    // The connection closes after the first part, as when the server restarts mid-reply
+    val cut =
+      new ChatApi:
+        export service.{listConversations, createConversation, listMessages}
+        override def streamMessage(id: String, text: String) = service
+          .streamMessage(id, text)
+          .take(2)
+    val store = ChatStore(cut)
+    for
+      _ <- store.load()
+      _ <- store.send("hi")
+    yield
+      store.messages.get.map(_.text) shouldBe Seq("hi", "cut ")
+      store.sending.get shouldBe Set.empty
+      store.error.get shouldBe Some("streamMessage failed: the reply ended before it was complete")
+  }
+
+  test("a thread opened again mid-stream shows the reply so far, then the rest") {
+    val held  = HeldStream()
+    val store = ChatStore(ChatService(respond = held.model))
+    def texts = store.messages.get.map(_.text)
+    for
+      _ <- store.load()
+      a       = store.selected.get.get
+      sending = store.send("hi")
+      _       = held.emit("one ")
+      _ <- store.newChat()
+      // Parts that arrive while another thread is open don't show there
+      _ = held.emit("two ")
+      _ = texts shouldBe Seq.empty
+      _ <- store.select(a)
+      _ = texts shouldBe Seq("hi", "one two ")
+      _ = held.emit("three")
+      _ = texts shouldBe Seq("hi", "one two three")
+      _ = held.finish()
+      _ <- sending
+    yield
+      texts shouldBe Seq("hi", "one two three")
+      store.messages.get.exists(ChatStore.isDraft) shouldBe false
   }
 
 end ChatStoreTest
