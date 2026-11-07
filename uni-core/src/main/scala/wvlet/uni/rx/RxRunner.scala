@@ -13,6 +13,7 @@ import scala.collection.mutable
 import scala.util.Failure
 import scala.util.Success
 import scala.util.Try
+import scala.util.control.NonFatal
 
 /**
   * States for propagating the result of the downstream operators.
@@ -677,6 +678,25 @@ class RxRunner(
                   effect(OnError(e))
             case _ =>
               effect(ev)
+        }
+      case OnCancelOp(in, f) =>
+        // Set by a terminal event or by the first cancel, so f runs at most once
+        val ended        = AtomicBoolean(false)
+        val subscription = run(in) { ev =>
+          ev match
+            case OnNext(_) =>
+            case _ =>
+              ended.set(true)
+          effect(ev)
+        }
+        Cancelable { () =>
+          try subscription.cancel
+          finally
+            if ended.compareAndSet(false, true) then
+              try f()
+              catch
+                case NonFatal(e) =>
+                  warn(s"onCancel failed: ${e.getMessage}", e)
         }
       case AsyncOp(register, _) =>
         // Deliver at most one result, and none after cancellation
