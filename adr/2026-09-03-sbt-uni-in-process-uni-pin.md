@@ -77,6 +77,11 @@ Alternatives rejected or deferred:
   scripted tests (`sbt-uni/src/sbt-test/codegen/*`) exercise exactly that
   combination.
 - The codegen package had no functional change between v2026.1.21 and the pin.
+- Update (2026-11-07): codegen no longer runs in-process. `@rpcStream` and
+  generic-aware scanning changed the generator, which the pinned uni would never
+  pick up, so `uniHttpClients` now forks `HttpCodeGeneratorMain` on the app's
+  classpath, as `uniOpenAPI` does. The pin now matters only for what the plugin
+  still loads in-process.
 
 ## Worked examples
 
