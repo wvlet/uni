@@ -211,6 +211,57 @@ class NodeServerTest extends UniTest:
       }
   }
 
+  test("abort the fetch and stop the server stream when the client cancels") {
+    import wvlet.uni.rx.{Cancelable, OnNext, RxRunner}
+    import scala.concurrent.Promise
+
+    val serverCancelled = Promise[Boolean]()
+    // An endless stream: it ends only when the server cancels it
+    val ticks = Rx.variable(ServerSentEvent.data("tick"))
+    NodeServerConfig()
+      .withRxHandler { _ =>
+        Rx.single(Response.eventStream(ticks.onCancel(serverCancelled.trySuccess(true))))
+      }
+      .withPort(0)
+      .startAndAwait { server =>
+        var subscription = Cancelable.empty
+        subscription =
+          RxRunner.run(asyncClient(server).sendSSE(Request.get("/events"))) {
+            case OnNext(_) =>
+              subscription.cancel
+            case _ =>
+          }
+        Rx.future(serverCancelled.future)
+          .map { cancelled =>
+            cancelled shouldBe true
+          }
+      }
+  }
+
+  test("start a streaming fetch only when it is subscribed") {
+    import scala.concurrent.Promise
+
+    var requests = 0
+    NodeServerConfig()
+      .withHandler { _ =>
+        requests += 1
+        Response.ok("hello")
+      }
+      .withPort(0)
+      .startAndAwait { server =>
+        val client = asyncClient(server)
+        // Never subscribed: no request is sent
+        client.sendStreaming(Request.get("/unused"))
+        client
+          .sendStreaming(Request.get("/used"))
+          .flatMap(_ => Rx.empty[Unit])
+          .concat(Rx.single(()))
+          .map { _ =>
+            requests shouldBe 1
+          }
+      }
+  }
+
   test("serve static files through Http.server and keep traversal out") {
     import wvlet.uni.io.FileSystem
     val dir  = FileSystem.createTempDirectory("node-static")
