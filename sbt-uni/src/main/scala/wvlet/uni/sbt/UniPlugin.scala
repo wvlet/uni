@@ -17,7 +17,6 @@ import sbt.*
 import sbt.Keys.*
 import sbt.internal.util.ConsoleAppender
 import xsbti.FileConverter
-import wvlet.uni.http.codegen.{HttpCodeGenerator, ServiceScanner}
 import scala.annotation.nowarn
 
 /**
@@ -152,26 +151,58 @@ object UniPlugin extends AutoPlugin:
           // Compile dependent projects first to produce .class files
           val _ = (Compile / compile).all(dependentProjects).value
 
-          // Build a classloader from dependent project class dirs + dependency JARs
+          // Fork uni's HttpCodeGeneratorMain on the dependent project classes and dependency JARs,
+          // so the generator is the uni the app depends on: the uni this plugin loads in-process
+          // is pinned to an older release (adr/2026-09-03-sbt-uni-in-process-uni-pin.md)
           val depClassDirs: Seq[java.io.File] = (Compile / classDirectory)
             .all(dependentProjects)
             .value
-          val depClasspath: Seq[java.nio.file.Path] = (Compile / dependencyClasspath).value.files
-          val allUrls = (depClassDirs.map(_.toURI.toURL) ++ depClasspath.map(_.toUri.toURL)).toArray
-          val classLoader = java.net.URLClassLoader(allUrls, getClass.getClassLoader)
-
-          val generated = clients.flatMap { spec =>
-            val config    = HttpCodeGenerator.parseConfig(spec)
-            val className = config.apiClassName
-            log.info(s"Generating client for ${className}")
-            val service = ServiceScanner.scan(className, classLoader)
-            HttpCodeGenerator.generateAndWrite(service, config, outDir)
-          }
-          generated
+          val depClasspath: Seq[java.io.File] = (Compile / dependencyClasspath)
+            .value
+            .files
+            .map(_.toFile)
+          val cp = (depClassDirs ++ depClasspath)
+            .map(_.getAbsolutePath)
+            .mkString(java.io.File.pathSeparator)
+          val args =
+            Seq("--out", outDir.getAbsolutePath) ++ clients.flatMap(c => Seq("--client", c))
+          val exitCode = Fork.java(
+            ForkOptions()
+              .withJavaHome(javaHome.value)
+              .withOutputStrategy(Some(LoggedOutput(log)))
+              .withWorkingDirectory(baseDirectory.value),
+            Seq("-classpath", cp, "wvlet.uni.http.codegen.HttpCodeGeneratorMain") ++ args
+          )
+          if exitCode != 0 then
+            sys.error(
+              s"HTTP client generation failed (exit code ${exitCode}). The project must depend on uni, whose HttpCodeGeneratorMain generates the clients"
+            )
+          // Every generated file, changed or not, so sbt compiles all of them
+          clients.map(spec => generatedClientFile(outDir, spec))
+        end if
       },
       // Hook into source generation so generated code is compiled with user code
       Compile / sourceGenerators += uniHttpGenerateClient
     ) ++ uniOpenAPISettings ++ uniUiCssSettings ++ uniRestartSettings
+
+  /**
+    * The file HttpCodeGeneratorMain writes for a `TraitName:clientType[:targetPackage]` spec: the
+    * target package defaults to the trait's package
+    */
+  private def generatedClientFile(outDir: File, spec: String): File =
+    val parts      = spec.split(":").map(_.trim)
+    val apiClass   = parts(0)
+    val lastDot    = apiClass.lastIndexOf('.')
+    val simpleName = apiClass.substring(lastDot + 1)
+    val pkg        =
+      if parts.length >= 3 then
+        parts(2)
+      else if lastDot >= 0 then
+        apiClass.substring(0, lastDot)
+      else
+        ""
+    val dir = pkg.split('.').filter(_.nonEmpty).foldLeft(outDir)(_ / _)
+    dir / s"${simpleName}Client.scala"
 
   /**
     * uniOpenAPI forks a JVM that runs uni's OpenAPIGeneratorMain on the project's runtime

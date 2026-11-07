@@ -15,7 +15,7 @@ package wvlet.uni.http.codegen
 
 import wvlet.uni.log.LogSupport
 
-import java.lang.reflect.{Method, Modifier}
+import java.lang.reflect.{Method, Modifier, ParameterizedType, Type, WildcardType}
 
 /**
   * Scans compiled .class files via Java reflection to extract service trait metadata for code
@@ -80,6 +80,9 @@ object ServiceScanner extends LogSupport:
     else
       ""
 
+  // Compared by name: the scanned classes may come from another class loader than this one
+  private val rpcStreamAnnotation = "wvlet.uni.http.rpc.rpcStream"
+
   private def extractMethodDef(m: Method, serviceFullName: String): MethodDef =
     val params = m
       .getParameters
@@ -87,13 +90,19 @@ object ServiceScanner extends LogSupport:
       .map { p =>
         ParamDef(
           name = p.getName,
-          typeName = classToTypeRef(p.getType),
+          typeName = typeToTypeRef(p.getParameterizedType),
           hasDefault = false,
           isOption = classOf[Option[?]].isAssignableFrom(p.getType)
         )
       }
 
-    val returnType = classToTypeRef(m.getReturnType)
+    val returnType = typeToTypeRef(m.getGenericReturnType)
+    val isStream   = m.getAnnotations.exists(_.annotationType.getName == rpcStreamAnnotation)
+    if isStream && !returnType.isRx then
+      throw IllegalArgumentException(
+        s"@rpcStream method ${serviceFullName}.${m
+            .getName} must return Rx[A], but returns ${returnType.render}"
+      )
 
     MethodDef(
       name = m.getName,
@@ -101,14 +110,37 @@ object ServiceScanner extends LogSupport:
       path = s"/${serviceFullName}/${m.getName}",
       params = params,
       returnType = returnType,
-      isRPC = true
+      isRPC = true,
+      isStream = isStream
     )
+
+  end extractMethodDef
+
+  /**
+    * Read a type with its type arguments from the generic signature Scala writes into class files.
+    * Scala erases primitive type arguments (`Rx[Int]`) to `Object`, which renders as `Any`.
+    */
+  private def typeToTypeRef(t: Type): TypeRef =
+    t match
+      case c: Class[?] =>
+        classToTypeRef(c)
+      case p: ParameterizedType =>
+        typeToTypeRef(p.getRawType).copy(typeArgs =
+          p.getActualTypeArguments.toSeq.map(typeToTypeRef)
+        )
+      case w: WildcardType =>
+        w.getUpperBounds.headOption.map(typeToTypeRef).getOrElse(TypeRef.Any)
+      case _ =>
+        // A type variable or generic array; the generated code can't name it
+        TypeRef.Any
 
   private def classToTypeRef(clazz: Class[?]): TypeRef =
     val fullName =
       clazz.getName match
-        case "void" =>
+        case "void" | "scala.runtime.BoxedUnit" =>
           "scala.Unit"
+        case "java.lang.Object" =>
+          "scala.Any"
         case "int" =>
           "scala.Int"
         case "long" =>

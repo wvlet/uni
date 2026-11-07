@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.codegen
 
+import wvlet.uni.http.rpc.rpcStream
+import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
 // Test service traits
@@ -26,6 +28,16 @@ trait TestUserService:
 
 trait TestHealthService:
   def ping(): String
+
+trait TestStreamService:
+  def findUser(id: Long): Rx[Option[User]]
+  def countUsers(): Rx[Int]
+  @rpcStream
+  def watchUsers(filter: Map[String, String]): Rx[User]
+
+trait TestInvalidStreamService:
+  @rpcStream
+  def getUser(id: Long): User
 
 class ServiceScannerTest extends UniTest:
 
@@ -72,6 +84,54 @@ class ServiceScannerTest extends UniTest:
     source shouldContain "def getUser(id: Long): User"
     source shouldContain "def deleteUser(id: Long): Unit"
     source shouldContain "RPCClient.of[wvlet.uni.http.codegen.TestUserService]"
+  }
+
+  // Types under wvlet.uni. render by their short name, so User here is wvlet.uni.http.codegen.User
+  test("read type arguments and @rpcStream") {
+    val service              = ServiceScanner.scan("wvlet.uni.http.codegen.TestStreamService", cl)
+    def method(name: String) = service.methods.find(_.name == name).get
+
+    val listUsers =
+      ServiceScanner
+        .scan("wvlet.uni.http.codegen.TestUserService", cl)
+        .methods
+        .find(_.name == "listUsers")
+        .get
+    listUsers.returnType.render shouldBe "Seq[User]"
+
+    val findUser = method("findUser")
+    findUser.isStream shouldBe false
+    findUser.returnType.render shouldBe "Rx[Option[User]]"
+    findUser.valueType.render shouldBe "Option[User]"
+
+    // Scala erases primitive type arguments in generic signatures
+    method("countUsers").valueType shouldBe TypeRef.Any
+
+    val watchUsers = method("watchUsers")
+    watchUsers.isStream shouldBe true
+    watchUsers.valueType.render shouldBe "User"
+    watchUsers.params.head.typeName.render shouldBe "Map[String, String]"
+  }
+
+  test("reject @rpcStream on a method that doesn't return Rx") {
+    val e = intercept[IllegalArgumentException] {
+      ServiceScanner.scan("wvlet.uni.http.codegen.TestInvalidStreamService", cl)
+    }
+    e.getMessage shouldContain "must return Rx[A]"
+  }
+
+  test("generate stream calls for @rpcStream methods") {
+    val service = ServiceScanner.scan("wvlet.uni.http.codegen.TestStreamService", cl)
+    val source  = HttpCodeGenerator.generateSource(
+      service,
+      CodegenConfig(apiClassName = service.fullName, clientType = ClientType.Both)
+    )
+
+    source shouldContain "def watchUsers(filter: Map[String, String]): Rx[User]"
+    source shouldContain """rpcClient.stream[User]("watchUsers", filter)"""
+    source shouldContain "def findUser(id: Long): Rx[Option[User]]"
+    source shouldContain "def findUser(id: Long): Option[User]"
+    source shouldContain "// watchUsers streams its results (@rpcStream)"
   }
 
 end ServiceScannerTest

@@ -136,8 +136,9 @@ lazy val app = project
 ```
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
-regenerated and compiled automatically on the next `compile`. Generation runs
-in-process (no forked JVM) and skips files whose content is unchanged.
+regenerated and compiled automatically on the next `compile`. Generation runs uni's
+`HttpCodeGeneratorMain` in a forked JVM on the project's classpath, so the generator always matches
+the uni version the app depends on, and it skips files whose content is unchanged.
 
 ### Target spec format
 
@@ -180,6 +181,10 @@ val async = UserServiceClient.AsyncClient(
 )
 async.getUser(42).map(user => println(user.name))
 ```
+
+A trait method that returns `Rx[A]` returns `A` from `SyncClient` and `Rx[A]` from `AsyncClient`.
+Mark a method with [`@rpcStream`](#streaming-results) to have `AsyncClient` stream its results;
+`SyncClient` leaves such methods out.
 
 Under the hood the generated methods delegate to `RPCClient.of[UserService]`,
 which serializes arguments and decodes responses with [Weaver](../core/weaver) —
@@ -252,6 +257,27 @@ streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED
 - **Transports.** HTTP servers stream on the JVM, Node.js, and Scala Native. Clients stream with
   `fetch` (browser, Node.js) and on the JVM. In Electron, the IPC transport streams too, once the
   preload bridge exposes `stream` (see [Electron](./electron#streaming-calls)).
+
+### Generated clients
+
+The generated client can't tell a streaming method from one that returns a single value
+asynchronously, as both return `Rx[A]`. Annotate streaming methods with `@rpcStream`
+(`wvlet.uni.http.rpc.rpcStream`), and the [generated](#generating-a-client)
+`AsyncClient` calls `stream` for them instead of `call`:
+
+```scala
+import wvlet.uni.http.rpc.rpcStream
+
+trait ChatApi:
+  def listConversations(): Rx[Seq[Conversation]] // call: one value
+  @rpcStream
+  def streamReply(prompt: String): Rx[String]   // stream: every value
+```
+
+The annotation only tells the generator what to write. The server and the wire format don't
+change, and a hand-written client still picks `call` or `stream` itself. `@rpcStream` on a method
+that doesn't return `Rx[A]` fails code generation. There is no synchronous stream call, so
+`SyncClient` leaves `@rpcStream` methods out.
 
 The [uni-harness example](https://github.com/wvlet/uni/tree/main/examples/uni-harness) streams chat
 replies this way, in Electron and in the browser.

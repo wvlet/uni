@@ -31,7 +31,16 @@ import wvlet.uni.text.CodeFormatterConfig
   *     private val rpcClient = rpc.newSyncClient(client)
   *
   *     def getUser(id: Long): User = rpcClient.call[User]("getUser", id)
+  *
+  *   class AsyncClient(client: HttpAsyncClient):
+  *     private val rpcClient = rpc.newAsyncClient(client)
+  *
+  *     def getUser(id: Long): Rx[User] = rpcClient.call[User]("getUser", id)
+  *     // A method returning Rx[A] and annotated with @rpcStream
+  *     def watchUsers: Rx[User] = rpcClient.stream[User]("watchUsers")
   * }}}
+  *
+  * A method returning `Rx[A]` returns `A` from the sync client and `Rx[A]` from the async one.
   */
 object RPCClientGenerator:
 
@@ -100,29 +109,28 @@ object RPCClientGenerator:
       verticalAppend(bind :: methods, empty)
     )
 
+  // There is no synchronous stream call, so a sync client leaves @rpcStream methods out
   private def buildSyncMethod(method: MethodDef): Doc =
-    val sig      = methodSignature(method)
-    val rt       = method.returnType.render
-    val callArgs = renderCallArgs(method)
-
-    if method.returnType.isUnit then
-      text(s"def ${sig}: Unit =") +
-        nest(newline + text(s"""rpcClient.call[Unit]("${method.name}"${callArgs})"""))
+    if method.isStream then
+      text(s"// ${method.name} streams its results (@rpcStream): call it through AsyncClient")
     else
-      text(s"def ${sig}: ${rt} =") +
-        nest(newline + text(s"""rpcClient.call[${rt}]("${method.name}"${callArgs})"""))
+      val rt = method.valueType.render
+      text(s"def ${methodSignature(method)}: ${rt} =") +
+        nest(
+          newline + text(s"""rpcClient.call[${rt}]("${method.name}"${renderCallArgs(method)})""")
+        )
 
   private def buildAsyncMethod(method: MethodDef): Doc =
-    val sig      = methodSignature(method)
-    val rt       = method.returnType.render
-    val callArgs = renderCallArgs(method)
-
-    if method.returnType.isUnit then
-      text(s"def ${sig}: Rx[Unit] =") +
-        nest(newline + text(s"""rpcClient.call[Unit]("${method.name}"${callArgs})"""))
-    else
-      text(s"def ${sig}: Rx[${rt}] =") +
-        nest(newline + text(s"""rpcClient.call[${rt}]("${method.name}"${callArgs})"""))
+    val rt   = method.valueType.render
+    val call =
+      if method.isStream then
+        "stream"
+      else
+        "call"
+    text(s"def ${methodSignature(method)}: Rx[${rt}] =") +
+      nest(
+        newline + text(s"""rpcClient.${call}[${rt}]("${method.name}"${renderCallArgs(method)})""")
+      )
 
   /** Arguments after the method name, each preceded by ", " (empty for a no-arg method). */
   private def renderCallArgs(method: MethodDef): String =
