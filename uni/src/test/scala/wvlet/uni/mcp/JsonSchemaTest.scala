@@ -165,4 +165,18 @@ class JsonSchemaTest extends UniTest:
       """],"description":"Figure enum value"}"""
   }
 
+  test("enum case schemas use Options.discriminatorFieldName") {
+    val schema = JsonSchema.ofSurface(
+      Surface.of[Figure],
+      Set.empty,
+      JsonSchema.Options(discriminatorFieldName = "kind")
+    )
+    schema.toJSON shouldBe
+      """{"oneOf":[""" +
+      """{"type":"object","properties":{"kind":{"const":"Dot"}},"required":["kind"]},""" +
+      """{"type":"object","properties":{"kind":{"const":"Circle"},"radius":{"type":"number"}},"required":["kind","radius"]},""" +
+      """{"type":"object","properties":{"kind":{"const":"Group"},"parts":{"type":"array","items":{"type":"object"}},"label":{"type":"string"}},"required":["kind","parts"]}""" +
+      """],"description":"Figure enum value"}"""
+  }
+
 end JsonSchemaTest

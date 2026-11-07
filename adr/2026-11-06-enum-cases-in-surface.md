@@ -23,4 +23,4 @@
 ## Consequences
 
 - Generic enums (`enum Maybe[+A]`) still get no `EnumSurface`, because `Surface.of[Maybe[Int]]` takes the applied-type path, and the macro leaves `cases` empty for them in any case.
-- `JsonSchema` names the discriminator from the default `WeaverConfig` (`"@type"`). A server that changes `discriminatorFieldName` would publish a schema that does not match its encoding.
+- `JsonSchema` names the discriminator from `Options.discriminatorFieldName`, which defaults to the default `WeaverConfig`'s name (`"@type"`). MCP, RPC, and HTTP servers all encode with the default `WeaverConfig`, so the published schema matches the wire format. A server that later accepts a WeaverConfig must pass its name to `JsonSchema.Options`.

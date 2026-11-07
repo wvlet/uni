@@ -88,12 +88,16 @@ private[uni] object JsonSchema:
     *   String
     * @param classDescriptions
     *   Add `description` to object schemas from the class's `@description`
+    * @param discriminatorFieldName
+    *   The field that tags each case of an enum with parameterized cases. Match the
+    *   WeaverConfig.discriminatorFieldName used to encode the values.
     */
   case class Options(
       refFor: Surface => Option[JSONObject] = _ => None,
       formats: Boolean = false,
       defaults: Boolean = false,
-      classDescriptions: Boolean = false
+      classDescriptions: Boolean = false,
+      discriminatorFieldName: String = WeaverConfig().discriminatorFieldName
   )
 
   def ofSurface(surface: Surface, seen: Set[String], options: Options = Options()): JSONObject =
@@ -151,7 +155,7 @@ private[uni] object JsonSchema:
   // An enum with a parameterized case is encoded like a sealed trait: one object per case, tagged
   // with the case name in the discriminator field next to the case fields
   private def enumCasesSchema(e: EnumSurface, seen: Set[String], options: Options): JSONObject =
-    val discriminator = WeaverConfig().discriminatorFieldName
+    val discriminator = options.discriminatorFieldName
     val variants      = e
       .cases
       .map { c =>
