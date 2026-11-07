@@ -14,15 +14,15 @@
 
 ## Design
 
-Lane: **Standard**. The brief assumed a server-level WeaverConfig that doesn't exist, so the scope needs your call.
+Lane: **Standard**. The brief assumed a server-level WeaverConfig that doesn't exist, so the scope went to the user.
 
-Recommended (A): internal plumbing, no change in behaviour.
+Chosen (A): internal plumbing, no change in behaviour.
 - Add `discriminatorFieldName` to `JsonSchema.Options` (it is `private[uni]`), defaulting to `WeaverConfig().discriminatorFieldName`.
 - MCP and OpenAPI keep the default, so their output stays the same.
 - Tests: the default produces `"@type"`, and a custom name appears in each case's `properties` and `required`.
 - Update the ADR's follow-ups: the schema follows the server's config once servers accept one.
 
-Larger option (B): server-level WeaverConfig.
+Deferred (B): server-level WeaverConfig.
 - Add `withWeaverConfig` to `MCPServer` and the RPC/HTTP router and server, and use that config for request decoding, response encoding, the RPC client, and schema generation.
 - This adds public API and changes encoding paths. It deserves its own PR and ADR.
 
