@@ -314,6 +314,38 @@ class ElectronRPCTest extends UniTest:
       testbed.listenerCount("did-start-navigation") shouldBe 0
   }
 
+  test("each subscription of a stream makes its own call") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    val rx      = streamClient(testbed).stream[Int]("ticks")
+    val first   = Seq.newBuilder[Int]
+    val second  = Seq.newBuilder[Int]
+    val c1      =
+      RxRunner.run(rx) {
+        case OnNext(v) =>
+          first += v.asInstanceOf[Int]
+        case _ =>
+      }
+    val c2 =
+      RxRunner.run(rx) {
+        case OnNext(v) =>
+          second += v.asInstanceOf[Int]
+        case _ =>
+      }
+    for
+      _ <- settle()
+      _ = impl.tick := 1
+      _ <- settle()
+      _ = c1.cancel
+      _ <- settle()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      first.result() shouldBe Seq(1)
+      second.result() shouldBe Seq(1, 2)
+      c2.cancel
+  }
+
   test("take(n) on a stream cancels the server stream after the nth value") {
     val impl    = GreetingServiceImpl()
     val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))

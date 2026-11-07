@@ -71,7 +71,7 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
 
   /**
     * Stream a response over the bridge's optional `stream(payload, onMessage)` function (see
-    * [[ElectronIPC]] for the messages). The call starts when the returned Rx is subscribed.
+    * [[ElectronIPC]] for the messages). Each subscription of the returned Rx makes the call.
     * Cancelling the Rx calls the function `stream` returned, which tells the main process to stop
     * the server stream. A bridge whose `stream` returns nothing still works, but then the server
     * stream runs until it ends, the page navigates, or the window closes.
@@ -90,46 +90,52 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
       )
     else
       val payload = ElectronIPC.toPayload(request)
-      val source  = Rx.variable[Option[Array[Byte]]](None)
-      var started = false
+      // Each subscription makes its own call, so cancelling one doesn't stop another's
+      Rx.single(())
+        .flatMap { _ =>
+          val source  = Rx.variable[Option[Array[Byte]]](None)
+          var started = false
 
-      def onMessage(msg: js.Dynamic): Unit =
-        try
-          msg.kind.asInstanceOf[String] match
-            case "head" =>
-              val head = ElectronIPC.toResponse(msg)
-              onResponse(head.withContent(HttpContent.Empty))
-              if !head.isSuccessful then
-                source.setException(HttpException.fromResponse(head))
-            case "chunk" =>
-              source.set(Some(msg.data.asInstanceOf[String].getBytes(StandardCharsets.UTF_8)))
-            case "end" =>
-              source.stop()
-            case "error" =>
-              source.setException(HttpException(String.valueOf(msg.message), HttpErrorCode.Unknown))
-            case _ =>
-        catch
-          case e: Throwable =>
-            source.setException(e)
+          def onMessage(msg: js.Dynamic): Unit =
+            try
+              msg.kind.asInstanceOf[String] match
+                case "head" =>
+                  val head = ElectronIPC.toResponse(msg)
+                  onResponse(head.withContent(HttpContent.Empty))
+                  if !head.isSuccessful then
+                    source.setException(HttpException.fromResponse(head))
+                case "chunk" =>
+                  source.set(Some(msg.data.asInstanceOf[String].getBytes(StandardCharsets.UTF_8)))
+                case "end" =>
+                  source.stop()
+                case "error" =>
+                  source.setException(
+                    HttpException(String.valueOf(msg.message), HttpErrorCode.Unknown)
+                  )
+                case _ =>
+            catch
+              case e: Throwable =>
+                source.setException(e)
 
-      // What bridge.stream returned: a function that cancels the call, or undefined (older bridges)
-      var cancelCall: js.Any = js.undefined
+          // What bridge.stream returned: a function that cancels the call, or undefined (older bridges)
+          var cancelCall: js.Any = js.undefined
 
-      source
-        .tap { chunk =>
-          // RxVar emits its current value (None) right after registering a subscriber, so the
-          // call starts only once someone listens and no chunk is lost
-          if chunk.isEmpty && !started then
-            started = true
-            val callback: js.Function1[js.Dynamic, Unit] = onMessage
-            cancelCall = bridge.applyDynamic("stream")(payload, callback)
+          source
+            .tap { chunk =>
+              // RxVar emits its current value (None) right after registering a subscriber, so the
+              // call starts only once someone listens and no chunk is lost
+              if chunk.isEmpty && !started then
+                started = true
+                val callback: js.Function1[js.Dynamic, Unit] = onMessage
+                cancelCall = bridge.applyDynamic("stream")(payload, callback)
+            }
+            .onCancel {
+              if js.typeOf(cancelCall) == "function" then
+                cancelCall.asInstanceOf[js.Function0[Any]]()
+            }
+            .filter(_.isDefined)
+            .map(_.get)
         }
-        .onCancel {
-          if js.typeOf(cancelCall) == "function" then
-            cancelCall.asInstanceOf[js.Function0[Any]]()
-        }
-        .filter(_.isDefined)
-        .map(_.get)
 
   end sendStreaming
 

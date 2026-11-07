@@ -682,14 +682,16 @@ class RxRunner(
               effect(ev)
         }
       case OnCancelOp(in, f) =>
-        // Set by a terminal event or by the first cancel, so f runs at most once
+        // Set by the first cancel, or by a terminal event outside continuous mode (where a source
+        // such as RxVar can still emit after an error), so f runs at most once
         val ended        = AtomicBoolean(false)
         val subscription =
           run(in) { ev =>
             ev match
               case OnNext(_) =>
               case _         =>
-                ended.set(true)
+                if !continuous then
+                  ended.set(true)
             effect(ev)
           }
         Cancelable { () =>

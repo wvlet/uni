@@ -110,7 +110,7 @@ object ElectronRPCServer extends LogSupport:
     val cancelHandler: js.Function2[js.Any, js.Any, Unit] =
       (event: js.Any, id: js.Any) =>
         val e = event.asInstanceOf[js.Dynamic]
-        if !js.isUndefined(e) && e != null then
+        if config.isAllowedSender(e) then
           streams.cancel(e.sender, id)
     ipcMain.applyDynamic("on")(ElectronIPC.streamCancelChannel(config.channel), cancelHandler)
 
