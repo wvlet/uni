@@ -61,6 +61,30 @@ class RxOnCancelTest extends UniTest:
     cancelled shouldBe 0
   }
 
+  test("run onCancel of a continuous subscription that kept running after an error") {
+    var cancelled = 0
+    val v         = Rx.variable(1)
+    val values    = Seq.newBuilder[Int]
+    val rx        = v
+      .map { x =>
+        if x == 2 then
+          throw IllegalArgumentException("expected failure")
+        x
+      }
+      .onCancel(cancelled += 1)
+    val c =
+      RxRunner.runContinuously(rx) {
+        case OnNext(x) =>
+          values += x.asInstanceOf[Int]
+        case _ =>
+      }
+    v := 2
+    v := 3
+    c.cancel
+    values.result() shouldBe Seq(1, 3)
+    cancelled shouldBe 1
+  }
+
   test("run onCancel when take(n) cancels its upstream") {
     var cancelled = 0
     val v         = Rx.variable(1)
