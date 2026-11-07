@@ -123,6 +123,12 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
         stream(
           "streamMessage",
           api.streamMessage(id, text),
+          isLast = {
+            case ChatEvent.Done(_) =>
+              true
+            case _ =>
+              false
+          },
           onFailure =
             () =>
               // Before `Started` the prompt never reached the server; after it, the partial
@@ -169,23 +175,33 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
     ChatMessage(s"${ChatStore.draftPrefix}${drafts}", role, text, js.Date.now().toLong)
 
   /**
-    * Run a streaming call, handing each event to `onEvent`. The Future completes when the stream
+    * Run a streaming call, handing each event to `onEvent`. `isLast` tells the event that ends the
+    * call; a stream that ends before it (a server restarted mid-reply, a closed connection) fails
+    * like an error, so the conversation doesn't wait forever. The Future completes when the stream
     * ends or fails.
     */
-  private def stream[A](method: String, rx: Rx[A], onFailure: () => Unit)(
+  private def stream[A](method: String, rx: Rx[A], isLast: A => Boolean, onFailure: () => Unit)(
       onEvent: A => Unit
   ): Future[Unit] =
-    val done = Promise[Unit]()
+    val done                     = Promise[Unit]()
+    var finished                 = false
+    def fail(e: Throwable): Unit =
+      onFailure()
+      error := Some(explain(method, e))
+      done.trySuccess(())
     error := None
     RxRunner.run(rx) {
       case OnNext(a) =>
-        onEvent(a.asInstanceOf[A])
+        val event = a.asInstanceOf[A]
+        finished = finished || isLast(event)
+        onEvent(event)
       case OnError(e) =>
-        onFailure()
-        error := Some(explain(method, e))
-        done.trySuccess(())
+        fail(e)
       case OnCompletion =>
-        done.trySuccess(())
+        if finished then
+          done.trySuccess(())
+        else
+          fail(IllegalStateException("the reply ended before it was complete"))
     }
     done.future
 

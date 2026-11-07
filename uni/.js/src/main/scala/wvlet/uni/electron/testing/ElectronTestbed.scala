@@ -173,6 +173,13 @@ class ElectronTestbed:
                   streams(nextStreamId) = onMessage
                   val event = ElectronTestbed.ipcEvent(senderUrl)
                   event.updateDynamic("sender")(webContents)
+                  // Like Electron's IpcMainEvent.reply: answer the calling frame
+                  event.updateDynamic("reply")(
+                    (
+                        (ch: js.Any, id: js.Any, msg: js.Any) =>
+                          webContents.applyDynamic("send")(ch, id, msg)
+                    ): js.Function3[js.Any, js.Any, js.Any, Unit]
+                  )
                   fn(event, nextStreamId, payload)
                 case None =>
                   onMessage(

@@ -96,22 +96,24 @@ object ElectronRPCServer extends LogSupport:
       (event: js.Any, id: js.Any, payload: js.Any) =>
         val e = event.asInstanceOf[js.Dynamic]
         if config.isAllowedSender(e) then
-          stream(dispatcher, config.channel, e.sender, id, payload.asInstanceOf[js.Dynamic])
+          stream(dispatcher, StreamReply(e, config.channel, id), payload.asInstanceOf[js.Dynamic])
         else
           warn(s"Rejected Electron RPC stream from ${ElectronRPCServerConfig.senderUrl(event)}")
           val rejection =
             RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
-          val reply = StreamReply(e.sender, config.channel, id)
+          val reply = StreamReply(e, config.channel, id)
           reply.send(ElectronIPC.streamHead(rejection))
           reply.send(ElectronIPC.streamEnd)
     ipcMain.applyDynamic("on")(ElectronIPC.streamChannel(config.channel), streamHandler)
 
   /**
-    * Sends the messages of one streaming call to the renderer that made it. Once the renderer's
-    * `webContents` is gone, sending stops and `onGone` runs, so the server stream can be cancelled.
+    * Sends the messages of one streaming call to the frame that made it (`event.reply`, so a
+    * permitted iframe gets its own replies). Once the renderer's `webContents` is gone, sending
+    * stops and `onGone` runs, so the server stream can be cancelled.
     */
-  private class StreamReply(sender: js.Dynamic, channel: String, id: js.Any):
+  private class StreamReply(event: js.Dynamic, channel: String, id: js.Any):
     private val eventChannel = ElectronIPC.streamEventChannel(channel)
+    private val sender       = event.sender
 
     def isGone: Boolean =
       js.isUndefined(sender) || sender == null ||
@@ -119,7 +121,10 @@ object ElectronRPCServer extends LogSupport:
 
     def send(msg: js.Object): Unit =
       if !isGone then
-        sender.applyDynamic("send")(eventChannel, id, msg)
+        if js.typeOf(event.reply) == "function" then
+          event.applyDynamic("reply")(eventChannel, id, msg)
+        else
+          sender.applyDynamic("send")(eventChannel, id, msg)
 
     /** Run `f` when the renderer's `webContents` is destroyed; returns a function that stops it. */
     def onGone(f: () => Unit): () => Unit =
@@ -137,19 +142,26 @@ object ElectronRPCServer extends LogSupport:
     * stream messages (see [[ElectronIPC]]). A response that is not an event stream, such as an RPC
     * error raised before the method returned, is sent as a head with its body.
     */
-  private def stream(
-      dispatcher: RPCDispatcher,
-      channel: String,
-      sender: js.Dynamic,
-      id: js.Any,
-      payload: js.Dynamic
-  ): Unit =
-    val reply                    = StreamReply(sender, channel, id)
+  private def stream(dispatcher: RPCDispatcher, reply: StreamReply, payload: js.Dynamic): Unit =
     def fail(e: Throwable): Unit =
       warn(s"Unexpected error in RPC stream: ${e.getMessage}", e)
       reply.send(ElectronIPC.streamError("Internal error"))
 
-    RxRunner.run(dispatcher.dispatch(ElectronIPC.toRequest(payload))) {
+    // A malformed payload must still end the renderer's call, not leave it waiting
+    try
+      forward(dispatcher.dispatch(ElectronIPC.toRequest(payload)), reply, fail)
+    catch
+      case NonFatal(e) =>
+        fail(e)
+
+  end stream
+
+  private def forward(
+      dispatched: wvlet.uni.rx.Rx[Response],
+      reply: StreamReply,
+      fail: Throwable => Unit
+  ): Unit =
+    RxRunner.run(dispatched) {
       case OnNext(v) =>
         val response = v.asInstanceOf[Response]
         reply.send(ElectronIPC.streamHead(response))
@@ -180,8 +192,6 @@ object ElectronRPCServer extends LogSupport:
         fail(e)
       case OnCompletion =>
     }
-
-  end stream
 
   /**
     * Run a single request through the dispatcher and bridge the resulting `Rx[Response]` into a JS

@@ -82,8 +82,20 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
     */
   def streamAsync[A](client: HttpAsyncClient, methodName: String, args: Seq[Any]): Rx[A] =
     val codec  = lookupCodec(methodName)
-    val req    = buildRequest(methodName, codec, args).withAcceptEventStream
     val weaver = codec.returnWeaver.asInstanceOf[Weaver[Any]]
+    // A server without streaming RPC answers with plain JSON, which parses as no events at all;
+    // fail then instead of completing as if the stream were empty
+    var streamed = true
+    val req      = buildRequest(methodName, codec, args)
+      .withAcceptEventStream
+      .withEventHandler(
+        new ServerSentEventHandler:
+          override def onConnect(response: HttpResponse): Unit =
+            streamed = response.contentType.exists(_.isEventStream)
+          override def onEvent(e: ServerSentEvent): Unit = ()
+          // The returned Rx reports errors; don't log them twice
+          override def onError(e: Throwable): Unit = ()
+      )
     client
       .sendSSE(req)
       .map { event =>
@@ -92,6 +104,23 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
         else
           weaver.fromJson(event.data).asInstanceOf[A]
       }
+      .concat(
+        Rx.single(())
+          .flatMap { _ =>
+            if streamed then
+              Rx.empty
+            else
+              Rx.exception(
+                RPCStatus
+                  .UNIMPLEMENTED_U8
+                  .newException(
+                    s"${serviceName}.${methodName} answered without streaming. Does the server support streaming RPC?"
+                  )
+              )
+          }
+      )
+
+  end streamAsync
 
   private def lookupCodec(methodName: String): MethodCodec = codecs.getOrElse(
     methodName,

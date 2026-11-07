@@ -132,6 +132,8 @@ or `error` message. One listener serves every call:
 
 ```js
 const streams = new Map()
+// Unique per page load: a reload keeps the webContents, and a stream from the old page may still run
+const pageId = Math.random().toString(36).slice(2)
 let nextStreamId = 0
 ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
   const onMessage = streams.get(id)
@@ -143,15 +145,16 @@ ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
 contextBridge.exposeInMainWorld('uniRPC', {
   request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
   stream: (payload, onMessage) => {
-    const id = ++nextStreamId
+    const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
     ipcRenderer.send('uni-rpc-stream', id, payload)
   }
 })
 ```
 
-`ElectronRPCServer.serve` listens on the stream channel too, with the same sender checks as
-`request`. When the window's `webContents` is destroyed, the server cancels the streams it was
+Make the ids unique per page load, as `pageId` does: a reload keeps the window's `webContents`, so a
+stream the old page started can still be sending. `ElectronRPCServer.serve` listens on the stream
+channel too, with the same sender checks as `request`, and replies to the frame that called. When the window's `webContents` is destroyed, the server cancels the streams it was
 sending to. Without `stream` in the bridge, a streaming call fails with a message that says what's
 missing; unary calls work as before.
 

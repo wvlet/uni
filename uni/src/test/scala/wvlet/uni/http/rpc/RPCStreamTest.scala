@@ -121,12 +121,35 @@ class RPCStreamTest extends UniTest:
     }
   }
 
+  test("a server that answers without streaming fails the stream instead of completing it") {
+    // A dispatcher that ignores Accept, as a server without streaming RPC does
+    val unary =
+      new RPCDispatcher(Seq(RPCRouter.of[CountApi](CountApiImpl()))):
+        override def dispatch(request: Request): Rx[Response] = super.dispatch(
+          request.withAccept("application/json")
+        )
+    val old = RPCClient
+      .of[CountApi]
+      .newAsyncClient(
+        Http.client.withChannelFactory(InMemoryStreamingChannelFactory(unary)).newAsyncClient
+      )
+    val (values, failure) = collect(old.stream[Int]("countTo", 3))
+    values shouldBe Seq.empty
+    failure shouldMatch { case Some(e: RPCException) =>
+      e.status shouldBe RPCStatus.UNIMPLEMENTED_U8
+    }
+  }
+
   test("acceptsEventStream reads the Accept header") {
     val req = Request.post("/CountApi/countTo")
     RPCDispatcher.acceptsEventStream(req) shouldBe false
     RPCDispatcher.acceptsEventStream(req.withAcceptEventStream) shouldBe true
+    RPCDispatcher.acceptsEventStream(
+      req.withAccept("text/event-stream; charset=utf-8, */*")
+    ) shouldBe true
+    // Listed after JSON: a unary client that also accepts SSE keeps its JSON answer
     RPCDispatcher.acceptsEventStream(req.withAccept("application/json, text/event-stream")) shouldBe
-      true
+      false
     RPCDispatcher.acceptsEventStream(req.withAccept("application/json")) shouldBe false
   }
 

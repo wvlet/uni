@@ -210,6 +210,25 @@ class ChatStoreTest extends UniTest:
       store.thinking.get shouldBe Set.empty
   }
 
+  test("a stream that ends before Done unlocks the conversation and reports it") {
+    val service = ChatService(respond = p => Rx.fromSeq(Seq("cut ", "off")))
+    // The connection closes after the first part, as when the server restarts mid-reply
+    val cut =
+      new ChatApi:
+        export service.{listConversations, createConversation, listMessages}
+        override def streamMessage(id: String, text: String) = service
+          .streamMessage(id, text)
+          .take(2)
+    val store = ChatStore(cut)
+    for
+      _ <- store.load()
+      _ <- store.send("hi")
+    yield
+      store.messages.get.map(_.text) shouldBe Seq("hi", "cut ")
+      store.sending.get shouldBe Set.empty
+      store.error.get shouldBe Some("streamMessage failed: the reply ended before it was complete")
+  }
+
   test("a thread opened again mid-stream shows the reply so far, then the rest") {
     val held  = HeldStream()
     val store = ChatStore(ChatService(respond = held.model))

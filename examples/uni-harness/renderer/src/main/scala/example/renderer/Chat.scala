@@ -14,19 +14,30 @@ import scala.scalajs.js
 
 /** The main column: a header, the thread (or the welcome screen), and the composer. */
 class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends RxElement:
-  private val threadRef = DomRef[dom.html.Div]()
+  private val threadRef      = DomRef[dom.html.Div]()
+  private var scrolledThread = Option.empty[String]
 
-  // Keep the newest message in view after the thread re-renders
-  private def scrollToBottom(): Unit = dom
-    .window
-    .setTimeout(
-      () =>
-        threadRef.foreach { el =>
-          el.asInstanceOf[js.Dynamic]
-            .scrollTo(js.Dynamic.literal(top = el.scrollHeight, behavior = "smooth"))
-        },
-      0
-    )
+  // Keep the newest message in view after the thread re-renders. A reply streaming in follows
+  // only while the reader is at the bottom (`onlyIfNear`), so scrolling up to read stays put.
+  private def scrollToBottom(onlyIfNear: Boolean = false): Unit =
+    val near = threadRef.current.forall(el => el.scrollHeight - el.scrollTop - el.clientHeight < 96)
+    if !onlyIfNear || near then
+      dom
+        .window
+        .setTimeout(
+          () =>
+            threadRef.foreach { el =>
+              // Instant while following a stream: a smooth scroll per part would pile up
+              val behavior =
+                if onlyIfNear then
+                  "auto"
+                else
+                  "smooth"
+              el.asInstanceOf[js.Dynamic]
+                .scrollTo(js.Dynamic.literal(top = el.scrollHeight, behavior = behavior))
+            },
+          0
+        )
 
   private def header: RxElement = div(
     cls ->
@@ -94,8 +105,11 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
         store
           .messages
           .map { ms =>
+            // A thread just opened starts at its newest message; later updates follow if near
+            val opened = store.selected.get != scrolledThread
+            scrolledThread = store.selected.get
             if ms.nonEmpty then
-              scrollToBottom()
+              scrollToBottom(onlyIfNear = !opened)
             DomNode.empty
           }
       )

@@ -278,6 +278,21 @@ class ElectronRPCTest extends UniTest:
       impl.sent shouldBe 1
   }
 
+  test("a malformed stream payload ends the call with an error instead of hanging") {
+    val testbed  = ElectronTestbed.serve(RPCRouter.of[GreetingService](GreetingServiceImpl()))
+    val messages = Seq.newBuilder[String]
+    val done     = Promise[Seq[String]]()
+    val onMessage: js.Function1[js.Dynamic, Unit] =
+      msg =>
+        val kind = msg.kind.asInstanceOf[String]
+        messages += kind
+        if kind == "end" || kind == "error" then
+          done.trySuccess(messages.result())
+    // No payload object at all: reading the request throws
+    testbed.bridge().applyDynamic("stream")(null, onMessage)
+    done.future.map(kinds => kinds.last shouldBe "error")
+  }
+
   test("streaming fails clearly when the preload bridge has no stream function") {
     val bridge = js
       .Dynamic

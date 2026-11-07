@@ -32,7 +32,8 @@ import scala.scalajs.js
   * because `invoke` resolves only once:
   *
   *   - The renderer sends `ipcRenderer.send(streamChannel(channel), id, requestPayload)`, where
-  *     `id` is a number unique among the calls of that renderer.
+  *     `id` is unique among the calls of that renderer, also across page reloads (the
+  *     `webContents`, and a stream the old page started, survive a reload).
   *   - The main process answers on `streamEventChannel(channel)` with `(id, message)`, in order:
   *     one `{ kind: "head", status, headers, body }`, then `{ kind: "chunk", data: string }` for
   *     each part of the SSE body, then `{ kind: "end" }`. An unexpected failure ends the stream

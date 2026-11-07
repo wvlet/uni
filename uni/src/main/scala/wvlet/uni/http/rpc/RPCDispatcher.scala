@@ -167,7 +167,15 @@ object RPCDispatcher:
   /** The SSE event type of a failure in a streaming RPC response. */
   val ErrorEvent: String = "rpc-error"
 
-  /** Whether the caller asked for a streaming response (`Accept: text/event-stream`). */
+  /**
+    * Whether the caller asked for a streaming response: `text/event-stream` is the first media type
+    * it accepts. A client that lists it after another type (`application/json, text/event-stream`)
+    * keeps getting the unary JSON answer, as before streaming RPC existed.
+    */
   def acceptsEventStream(request: Request): Boolean = request
     .header(HttpHeader.Accept)
-    .exists(_.split(',').exists(_.trim.toLowerCase.startsWith(ContentType.TextEventStream.value)))
+    .exists(
+      _.split(',')
+        .headOption
+        .exists(_.split(';').head.trim.equalsIgnoreCase(ContentType.TextEventStream.value))
+    )

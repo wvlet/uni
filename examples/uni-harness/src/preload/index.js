@@ -8,6 +8,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 // the main process answers on 'uni-rpc-stream-event' with (id, message) until an `end` or `error`.
 // One listener serves every call, keyed by a per-call id.
 const streams = new Map()
+// Unique per page load: a reload keeps the webContents, and a stream from the old page may still run
+const pageId = Math.random().toString(36).slice(2)
 let nextStreamId = 0
 ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
   const onMessage = streams.get(id)
@@ -19,7 +21,7 @@ ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
 contextBridge.exposeInMainWorld('uniRPC', {
   request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
   stream: (payload, onMessage) => {
-    const id = ++nextStreamId
+    const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
     ipcRenderer.send('uni-rpc-stream', id, payload)
   }

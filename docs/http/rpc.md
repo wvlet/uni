@@ -240,7 +240,9 @@ rpc.stream[String]("streamReply", "Uni").run(token => print(token))
 
 The service trait and the router don't change. `stream` sends `Accept: text/event-stream`, so the
 dispatcher answers with [Server-Sent Events](./sse): one `data:` event per value, carrying its
-JSON. A plain `call` to the same method still gets one JSON value, the first one.
+JSON. The dispatcher streams only when `text/event-stream` is the first type in `Accept`. A plain
+`call` to the same method still gets one JSON value, the first one. If the server answers without
+streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED_U8`.
 
 - **Errors.** A failure before the method returns gets the usual error response, which fails the
   `Rx` with an `HttpException`, as a unary call does. A failure after the stream started is sent
