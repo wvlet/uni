@@ -119,13 +119,13 @@ case class MethodDef(
     returnType: TypeRef,
     isRPC: Boolean
 ):
+  /** true for a method returning `RxStream[A]`, whose values a generated async client streams */
+  def isStream: Boolean = returnType.isRxStream
+
   /**
     * The type of each value the method returns: `A` for a method returning `Rx[A]`, otherwise the
     * return type itself
     */
-  /** true for a method returning `RxStream[A]`, whose values a generated async client streams */
-  def isStream: Boolean = returnType.isRxStream
-
   def valueType: TypeRef =
     if returnType.isRx then
       returnType.typeArgs.headOption.getOrElse(TypeRef.Any)
