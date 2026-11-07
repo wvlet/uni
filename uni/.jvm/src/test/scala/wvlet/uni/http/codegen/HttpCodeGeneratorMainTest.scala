@@ -29,7 +29,9 @@ class HttpCodeGeneratorMainTest extends UniTest:
         "--client",
         "wvlet.uni.http.codegen.TestStreamService:async:example.client",
         "--client",
-        "wvlet.uni.http.codegen.TestHealthService:sync"
+        "wvlet.uni.http.codegen.TestHealthService:sync",
+        "--manifest",
+        dir.resolve("manifest.txt").toString
       ),
       getClass.getClassLoader
     )
@@ -38,7 +40,10 @@ class HttpCodeGeneratorMainTest extends UniTest:
       StandardCharsets.UTF_8
     )
     stream shouldContain """rpcClient.stream[User]("watchUsers", filter)"""
-    Files.exists(dir.resolve("wvlet/uni/http/codegen/TestHealthServiceClient.scala")) shouldBe true
+    val health = dir.resolve("wvlet/uni/http/codegen/TestHealthServiceClient.scala")
+    Files.exists(health) shouldBe true
+    Files.readString(dir.resolve("manifest.txt"), StandardCharsets.UTF_8).split("\n").toSeq shouldBe
+      Seq(dir.resolve("example/client/TestStreamServiceClient.scala").toString, health.toString)
   }
 
   test("require --client") {
