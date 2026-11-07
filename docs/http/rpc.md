@@ -262,6 +262,10 @@ streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED
   as an `rpc-error` event carrying the [RPC error](#rpcexception) JSON. It ends the stream and
   fails the `Rx` with that `RPCException`.
 - **No retry.** A stream that has started cannot be replayed, so streaming calls are sent once.
+- **Cancellation.** Cancelling the `Rx` (an unsubscribe, or `take(n)`) stops the server stream:
+  `fetch` aborts the request and the server cancels the method's `Rx` when the connection closes.
+  In Electron, the preload's cancel function tells the main process (see
+  [Electron](./electron#streaming-calls)).
 - **Transports.** HTTP servers stream on the JVM, Node.js, and Scala Native. Clients stream with
   `fetch` (browser, Node.js) and on the JVM. In Electron, the IPC transport streams too, once the
   preload bridge exposes `stream` (see [Electron](./electron#streaming-calls)).

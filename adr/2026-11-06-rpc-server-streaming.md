@@ -16,7 +16,11 @@ Uni RPC was unary: `RPCDispatcher` answered with the first value of an `Rx` resu
   - The ids are chosen by the preload and must be unique across page loads: a reload keeps the `webContents`, and the old page's stream may still be sending. One preload listener demultiplexes them, which avoids `EventEmitter`'s listener-count warning and a listener per call.
   - Sender checks are the same `ElectronRPCServerConfig.isAllowedSender` as for `invoke`. A rejected stream gets a `PERMISSION_DENIED_U14` head.
   - `bridge.stream` is optional. Without it, a streaming call fails with a `NotImplementedError` that names the missing function, and unary calls are unaffected.
-- **Cancellation.** The main process cancels a stream when the sender's `webContents` emits `destroyed`, and removes that listener when the stream ends. Renderer-side cancellation of the `Rx` stops delivery but not the server stream. Uni's `Rx` has no hook that fires on unsubscribe, and the fetch channel behaves the same way.
+- **Cancellation.** Cancelling the client `Rx` stops the server stream (updated 2026-11-07).
+  - `Rx.onCancel(f)` runs `f` once when a subscription is cancelled before `OnError` or `OnCompletion`, including through `take(n)`. It doesn't run when a stream ends by itself, so a finished call sends no cancel. A general finalizer was not needed: transports only clean up on cancel.
+  - `FetchChannel` starts the request on subscription and aborts it through an `AbortController` on cancel. The Node and Netty servers cancel the response's `Rx` when the connection closes.
+  - In Electron, `bridge.stream` returns a cancel function, which sends `(id)` on `<channel>-stream-cancel`. The main process keeps running streams per `webContents` and id, so only the renderer that started a stream can cancel it. A bridge that returns nothing still streams, without early cancel.
+  - The main process also cancels a `webContents`' streams on `destroyed` and on a main-frame, cross-document `did-start-navigation` (which covers reload). It listens only while that `webContents` has streams. Such a cancel sends an `error` message, so a page that survives a navigation that never commits doesn't wait forever.
 
 ## Alternatives
 
@@ -27,5 +31,6 @@ Uni RPC was unary: `RPCDispatcher` answered with the first value of an `Rx` resu
 ## Consequences
 
 - `ElectronTestbed` fakes `ipcMain.on`, the sender `webContents` (async, ordered delivery), and `closeRenderer()`, so stream tests run without Electron.
-- The fetch and Electron channels don't propagate renderer-side cancellation to the server. Fixing that needs an unsubscribe hook in `Rx` (or `AbortController` plumbing in fetch).
+- `ElectronTestbed` also fakes the cancel message (the bridge's `stream` returns a cancel function), `reloadRenderer()`, and `navigateInPage()`.
+- The JVM (`JavaHttpChannel`) and Native (`CurlChannel`) clients don't abort on cancel yet; they can adopt `onCancel` the same way. Streams from a permitted iframe stop on main-frame navigation or `destroyed`, not on the iframe's own navigation.
 - The `sbt-uni` client generator still writes `call` for every method. Generating `stream` needs a marker (see Alternatives). Update (2026-11-07): the return type `RxStream[A]` (an `Rx` subtype in `wvlet.uni.rx`, as in airframe-grpc) is that marker. Negotiation still decides streaming on the server.

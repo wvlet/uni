@@ -6,7 +6,8 @@ import { contextBridge, ipcRenderer } from 'electron'
 //
 // `stream(payload, onMessage)` carries streaming calls (`rpc.stream`, such as ChatApi.streamMessage):
 // the main process answers on 'uni-rpc-stream-event' with (id, message) until an `end` or `error`.
-// One listener serves every call, keyed by a per-call id.
+// One listener serves every call, keyed by a per-call id. The returned function cancels the call:
+// the main process then stops the server stream.
 const streams = new Map()
 // Unique per page load: a reload keeps the webContents, and a stream from the old page may still run
 const pageId = Math.random().toString(36).slice(2)
@@ -24,6 +25,9 @@ contextBridge.exposeInMainWorld('uniRPC', {
     const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
     ipcRenderer.send('uni-rpc-stream', id, payload)
+    return () => {
+      if (streams.delete(id)) ipcRenderer.send('uni-rpc-stream-cancel', id)
+    }
   }
 })
 
