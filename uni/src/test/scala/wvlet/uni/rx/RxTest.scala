@@ -1356,4 +1356,10 @@ object RxTest extends UniTest:
       }
   }
 
+  test("RxStream emits what the wrapped Rx emits") {
+    val stream: RxStream[Int] = RxStream(Rx.sequence(1, 2, 3).map(_ * 10))
+    eval(stream) shouldBe Seq(OnNext(10), OnNext(20), OnNext(30), OnCompletion)
+    eval(stream.map(_ + 1)) shouldBe Seq(OnNext(11), OnNext(21), OnNext(31), OnCompletion)
+  }
+
 end RxTest

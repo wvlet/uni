@@ -2,6 +2,7 @@ package example.server
 
 import example.api.{ChatApi, ChatEvent, ChatMessage, ChatReply, Conversation}
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 
 import java.util.concurrent.TimeUnit
 import scala.collection.mutable
@@ -52,7 +53,7 @@ class ChatService(
     messages.get(conversationId).map(_.toSeq).getOrElse(Seq.empty)
   )
 
-  override def streamMessage(conversationId: String, text: String): Rx[ChatEvent] =
+  override def streamMessage(conversationId: String, text: String): RxStream[ChatEvent] =
     val thread = messages.getOrElseUpdate(conversationId, mutable.ArrayBuffer.empty)
     val user   = ChatMessage(newId("m"), "user", text, now())
     thread += user
@@ -73,14 +74,16 @@ class ChatService(
       conversations(conversationId) = updated
       ChatEvent.Done(ChatReply(user, assistant, updated))
 
-    Rx.single[ChatEvent](ChatEvent.Started(user))
-      .concat(
-        respond(text).map { part =>
-          answer ++= part
-          ChatEvent.Delta(part)
-        }
-      )
-      .concat(Rx.single(finish()))
+    RxStream(
+      Rx.single[ChatEvent](ChatEvent.Started(user))
+        .concat(
+          respond(text).map { part =>
+            answer ++= part
+            ChatEvent.Delta(part)
+          }
+        )
+        .concat(Rx.single(finish()))
+    )
 
   end streamMessage
 

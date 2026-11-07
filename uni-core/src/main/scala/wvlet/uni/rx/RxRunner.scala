@@ -583,6 +583,8 @@ class RxRunner(
         run(input)(effect)
       case NamedOp(input, name) =>
         run(input)(effect)
+      case RxStream.StreamOp(input) =>
+        run(input)(effect)
       case TryOp(e) =>
         e.eval match
           case Success(x) =>

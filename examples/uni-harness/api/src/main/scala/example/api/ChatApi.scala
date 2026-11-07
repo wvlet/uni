@@ -2,8 +2,8 @@ package example.api
 
 import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.http.rpc.rpcStream
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 
 /** A conversation listed in the sidebar. */
 case class Conversation(id: String, title: String, updatedAt: Long)
@@ -37,10 +37,9 @@ trait ChatApi:
   /**
     * Send a prompt and stream the reply as it is written. The client reads it with
     * `RPCAsyncClient.stream`, which delivers every event the server's Rx emits, over IPC or HTTP.
-    * `@rpcStream` makes sbt-uni's generated client do the same.
+    * Returning `RxStream` makes sbt-uni's generated client do the same.
     */
-  @rpcStream
-  def streamMessage(conversationId: String, text: String): Rx[ChatEvent]
+  def streamMessage(conversationId: String, text: String): RxStream[ChatEvent]
 
 /**
   * A typed [[ChatApi]] over Uni RPC. Implementing the trait keeps every call compile-checked, so
@@ -61,10 +60,8 @@ class ChatApiClient(http: HttpAsyncClient) extends ChatApi:
   )
 
   // `stream`, not `call`: a call would return only the first event
-  override def streamMessage(conversationId: String, text: String): Rx[ChatEvent] = rpc.stream(
-    "streamMessage",
-    conversationId,
-    text
+  override def streamMessage(conversationId: String, text: String): RxStream[ChatEvent] = RxStream(
+    rpc.stream("streamMessage", conversationId, text)
   )
 
 end ChatApiClient

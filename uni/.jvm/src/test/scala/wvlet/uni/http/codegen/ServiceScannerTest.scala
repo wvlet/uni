@@ -13,8 +13,8 @@
  */
 package wvlet.uni.http.codegen
 
-import wvlet.uni.http.rpc.rpcStream
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 import wvlet.uni.test.UniTest
 
 // Test service traits
@@ -32,12 +32,7 @@ trait TestHealthService:
 trait TestStreamService:
   def findUser(id: Long): Rx[Option[User]]
   def countUsers(): Rx[Int]
-  @rpcStream
-  def watchUsers(filter: Map[String, String]): Rx[User]
-
-trait TestInvalidStreamService:
-  @rpcStream
-  def getUser(id: Long): User
+  def watchUsers(filter: Map[String, String]): RxStream[User]
 
 class ServiceScannerTest extends UniTest:
 
@@ -87,7 +82,7 @@ class ServiceScannerTest extends UniTest:
   }
 
   // Types under wvlet.uni. render by their short name, so User here is wvlet.uni.http.codegen.User
-  test("read type arguments and @rpcStream") {
+  test("read type arguments and RxStream") {
     val service              = ServiceScanner.scan("wvlet.uni.http.codegen.TestStreamService", cl)
     def method(name: String) = service.methods.find(_.name == name).get
 
@@ -113,25 +108,19 @@ class ServiceScannerTest extends UniTest:
     watchUsers.params.head.typeName.render shouldBe "Map[String, String]"
   }
 
-  test("reject @rpcStream on a method that doesn't return Rx") {
-    val e = intercept[IllegalArgumentException] {
-      ServiceScanner.scan("wvlet.uni.http.codegen.TestInvalidStreamService", cl)
-    }
-    e.getMessage shouldContain "must return Rx[A]"
-  }
-
-  test("generate stream calls for @rpcStream methods") {
+  test("generate stream calls for RxStream methods") {
     val service = ServiceScanner.scan("wvlet.uni.http.codegen.TestStreamService", cl)
     val source  = HttpCodeGenerator.generateSource(
       service,
       CodegenConfig(apiClassName = service.fullName, clientType = ClientType.Both)
     )
 
-    source shouldContain "def watchUsers(filter: Map[String, String]): Rx[User]"
-    source shouldContain """rpcClient.stream[User]("watchUsers", filter)"""
+    source shouldContain "def watchUsers(filter: Map[String, String]): RxStream[User]"
+    source shouldContain """RxStream(rpcClient.stream[User]("watchUsers", filter))"""
     source shouldContain "def findUser(id: Long): Rx[Option[User]]"
     source shouldContain "def findUser(id: Long): Option[User]"
-    source shouldContain "// watchUsers streams its results (@rpcStream)"
+    source shouldContain "// watchUsers returns RxStream: call it through AsyncClient"
+    source shouldContain """rpcClient.call[Option[User]]("findUser", id)"""
   }
 
 end ServiceScannerTest

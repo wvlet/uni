@@ -80,9 +80,6 @@ object ServiceScanner extends LogSupport:
     else
       ""
 
-  // Compared by name: the scanned classes may come from another class loader than this one
-  private val rpcStreamAnnotation = "wvlet.uni.http.rpc.rpcStream"
-
   private def extractMethodDef(m: Method, serviceFullName: String): MethodDef =
     val params = m
       .getParameters
@@ -96,22 +93,13 @@ object ServiceScanner extends LogSupport:
         )
       }
 
-    val returnType = typeToTypeRef(m.getGenericReturnType)
-    val isStream   = m.getAnnotations.exists(_.annotationType.getName == rpcStreamAnnotation)
-    if isStream && !returnType.isRx then
-      throw IllegalArgumentException(
-        s"@rpcStream method ${serviceFullName}.${m
-            .getName} must return Rx[A], but returns ${returnType.render}"
-      )
-
     MethodDef(
       name = m.getName,
       httpMethod = "POST",
       path = s"/${serviceFullName}/${m.getName}",
       params = params,
-      returnType = returnType,
-      isRPC = true,
-      isStream = isStream
+      returnType = typeToTypeRef(m.getGenericReturnType),
+      isRPC = true
     )
 
   end extractMethodDef

@@ -6,6 +6,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 import wvlet.uni.ui.{ColorScheme, DockLayout, DockSide, Edge, FoldablePane, Splitter}
 import wvlet.uni.ui.base.DockModel
 
@@ -343,9 +344,9 @@ class ComponentTest extends DomTestSupport:
     val api =
       new ChatApi:
         export service.{listConversations, createConversation, listMessages}
-        override def streamMessage(id: String, text: String) = Rx
-          .future(reply.future)
-          .flatMap(_ => service.streamMessage(id, text))
+        override def streamMessage(id: String, text: String) = RxStream(
+          Rx.future(reply.future).flatMap(_ => service.streamMessage(id, text))
+        )
     val store = ChatStore(api)
     Rx.future(store.load())
       .flatMap { _ =>

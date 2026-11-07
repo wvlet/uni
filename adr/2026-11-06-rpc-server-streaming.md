@@ -28,4 +28,4 @@ Uni RPC was unary: `RPCDispatcher` answered with the first value of an `Rx` resu
 
 - `ElectronTestbed` fakes `ipcMain.on`, the sender `webContents` (async, ordered delivery), and `closeRenderer()`, so stream tests run without Electron.
 - The fetch and Electron channels don't propagate renderer-side cancellation to the server. Fixing that needs an unsubscribe hook in `Rx` (or `AbortController` plumbing in fetch).
-- The `sbt-uni` client generator still writes `call` for every method. Generating `stream` needs a marker (see Alternatives). Update (2026-11-07): `@rpcStream` is that marker. It is a Java runtime annotation that only codegen reads, and negotiation still decides streaming on the server.
+- The `sbt-uni` client generator still writes `call` for every method. Generating `stream` needs a marker (see Alternatives). Update (2026-11-07): the return type `RxStream[A]` (an `Rx` subtype in `wvlet.uni.rx`, as in airframe-grpc) is that marker. Negotiation still decides streaming on the server.

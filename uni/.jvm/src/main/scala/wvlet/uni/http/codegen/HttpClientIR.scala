@@ -110,8 +110,6 @@ case class ServiceDef(packageName: String, serviceName: String, methods: Seq[Met
   *   Return type reference
   * @param isRPC
   *   true if this is an RPC method (no @Endpoint annotation)
-  * @param isStream
-  *   true if the method is annotated with `@rpcStream`, so the async client streams its results
   */
 case class MethodDef(
     name: String,
@@ -119,13 +117,15 @@ case class MethodDef(
     path: String,
     params: Seq[ParamDef],
     returnType: TypeRef,
-    isRPC: Boolean,
-    isStream: Boolean = false
+    isRPC: Boolean
 ):
   /**
     * The type of each value the method returns: `A` for a method returning `Rx[A]`, otherwise the
     * return type itself
     */
+  /** true for a method returning `RxStream[A]`, whose values a generated async client streams */
+  def isStream: Boolean = returnType.isRxStream
+
   def valueType: TypeRef =
     if returnType.isRx then
       returnType.typeArgs.headOption.getOrElse(TypeRef.Any)
@@ -162,9 +162,10 @@ case class ParamDef(
   *   Type arguments for generic types
   */
 case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] = Seq.empty):
-  def isUnit: Boolean   = fullName == "scala.Unit" || fullName == "Unit"
-  def isOption: Boolean = fullName == "scala.Option" || fullName == "Option"
-  def isRx: Boolean     = fullName == "wvlet.uni.rx.Rx"
+  def isUnit: Boolean     = fullName == "scala.Unit" || fullName == "Unit"
+  def isOption: Boolean   = fullName == "scala.Option" || fullName == "Option"
+  def isRx: Boolean       = isRxStream || fullName == "wvlet.uni.rx.Rx"
+  def isRxStream: Boolean = fullName == "wvlet.uni.rx.RxStream"
 
   /**
     * Render as a Scala type expression suitable for generated code. Uses short names for well-known
