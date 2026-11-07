@@ -27,17 +27,23 @@ flowchart LR
 - **State in two plain classes**, so components stay small and testable:
   - [`ChatStore`](renderer/src/main/scala/example/renderer/ChatStore.scala) holds chat data and
     actions over any `ChatApi`. It drops out-of-order thread responses and never shows a prompt
-    twice. Each action returns a `Future`, so tests can await it.
+    twice. A streamed reply grows in one message, which keeps the key of its bubble when the stored
+    reply replaces it. Each action returns a `Future`, so tests can await it.
   - [`Layout`](renderer/src/main/scala/example/renderer/Layout.scala) holds pane, view, theme, and
     width state: `Storage.local` variables in the app, plain `Rx.variable`s in tests.
-- **Components that take only what they use.** `Composer(onSend, busy)`, `Bubble(message, animate)`,
+- **Replies that stream in.** `ChatApi.streamMessage` returns `Rx[ChatEvent]` (`Started`, `Delta`s,
+  `Done`), and `ChatApiClient` calls it with `rpc.stream`, so every part of the reply arrives as
+  the server writes it: as Server-Sent Events over HTTP, and on a stream channel over Electron IPC
+  (the preload bridge's `stream` function). The dock's Activity log shows each stream's time to
+  its first part and how many events it delivered.
+- **Components that take only what they use.** `Composer(onSend, busy)`, `Bubble(message, current)`,
   and `IconRail(layout)`; `FoldablePane` and `ResizeHandle` (a styled grip on uni-dom's `PaneResize`) are shared by the sidebar and the dock.
   `TrackedChatApi` decorates the API to feed the dock's Activity log.
 - **A workspace UI in Rx HTML**, in Uni's teal and silver with the Uni logo, light and dark:
   - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the title bar, the icon
     rail, and the resizable sidebar with chats (search, Today/Earlier groups), files, and settings.
   - [`Chat.scala`](renderer/src/main/scala/example/renderer/Chat.scala): a welcome screen with
-    prompt ideas, message bubbles with copy, replies that type themselves in, and the composer.
+    prompt ideas, message bubbles with copy, replies that grow as they stream in, and the composer.
   - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the resizable right dock, with the
     conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
 - **A terminal in the dock.** The Terminal tab runs your shell in a pty (Electron) or a demo shell
@@ -54,8 +60,9 @@ flowchart LR
 - **A native-feeling window.** On macOS the Electron window hides its title bar; a 40px strip
   holds the window buttons and drags the window.
 
-The assistant is a mock that echoes your message after a short pause, so the example needs no API
-key. Pass your model to `ChatService(respond = ...)` to make it real.
+The assistant is a mock that echoes your message a word at a time, so the example needs no API key.
+Pass your model's token stream (`String => Rx[String]`) to `ChatService(respond = ...)` to make it
+real, or wrap a model that answers at once with `ChatService.atOnce`.
 
 ## Test
 

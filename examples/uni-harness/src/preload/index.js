@@ -1,10 +1,28 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-// The single, minimal bridge Uni's renderer channel expects: `window.uniRPC.request(payload)`
-// forwards an RPC request payload to the main process and returns the response payload as a Promise.
+// The bridge Uni's renderer channel expects: `window.uniRPC.request(payload)` forwards an RPC request
+// payload to the main process and returns the response payload as a Promise.
 // Context isolation stays ON — the renderer never gets direct access to Node or ipcRenderer.
+//
+// `stream(payload, onMessage)` carries streaming calls (`rpc.stream`, such as ChatApi.streamMessage):
+// the main process answers on 'uni-rpc-stream-event' with (id, message) until an `end` or `error`.
+// One listener serves every call, keyed by a per-call id.
+const streams = new Map()
+let nextStreamId = 0
+ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
+  const onMessage = streams.get(id)
+  if (!onMessage) return
+  if (message.kind === 'end' || message.kind === 'error') streams.delete(id)
+  onMessage(message)
+})
+
 contextBridge.exposeInMainWorld('uniRPC', {
-  request: (payload) => ipcRenderer.invoke('uni-rpc', payload)
+  request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
+  stream: (payload, onMessage) => {
+    const id = ++nextStreamId
+    streams.set(id, onMessage)
+    ipcRenderer.send('uni-rpc-stream', id, payload)
+  }
 })
 
 // The OS name, so the renderer can make room for the macOS window buttons.

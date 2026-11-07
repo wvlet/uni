@@ -1,5 +1,6 @@
 package example.renderer
 
+import example.api.ChatApi
 import example.server.ChatService
 import org.scalajs.dom
 import wvlet.uni.dom.SizeRange
@@ -156,7 +157,7 @@ class ComponentTest extends DomTestSupport:
 
   test("the palette lists commands, then conversations, and runs what it finds") {
     val layout  = Layout.inMemory()
-    val store   = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
+    val store   = ChatStore(ChatService(respond = p => Rx.single(s"echo: ${p}")))
     var newChat = 0
     val open    = Rx.variable(false)
     Rx.future(store.load())
@@ -265,7 +266,7 @@ class ComponentTest extends DomTestSupport:
     val m      = mount(
       Dock(
         layout,
-        ChatStore(ChatService(respond = p => Future.successful(p))),
+        ChatStore(ChatService(respond = p => Rx.single(p))),
         RpcLog(),
         Transport.HttpFetch
       )
@@ -336,8 +337,16 @@ class ComponentTest extends DomTestSupport:
   }
 
   test("a sent prompt keeps its bubble when the reply confirms it, so its entrance plays once") {
-    val reply = Promise[String]()
-    val store = ChatStore(ChatService(respond = _ => reply.future))
+    val reply   = Promise[String]()
+    val service = ChatService(respond = _ => Rx.future(reply.future))
+    // Hold the whole stream back, as IPC or HTTP would, so the draft shows before `Started`
+    val api =
+      new ChatApi:
+        export service.{listConversations, createConversation, listMessages}
+        override def streamMessage(id: String, text: String) = Rx
+          .future(reply.future)
+          .flatMap(_ => service.streamMessage(id, text))
+    val store = ChatStore(api)
     Rx.future(store.load())
       .flatMap { _ =>
         mount(ChatView(store, Layout.inMemory(), Transport.HttpFetch))
@@ -358,7 +367,7 @@ class ComponentTest extends DomTestSupport:
   }
 
   test("renaming a conversation keeps the other rows in the chat list") {
-    val store = ChatStore(ChatService(respond = p => Future.successful(s"echo: ${p}")))
+    val store = ChatStore(ChatService(respond = p => Rx.single(s"echo: ${p}")))
     def rows  = dom.document.querySelectorAll("button.group").toSeq
     Rx.future(store.load().flatMap(_ => store.newChat()))
       .flatMap { _ =>

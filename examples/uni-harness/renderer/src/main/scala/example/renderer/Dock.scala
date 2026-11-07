@@ -209,6 +209,15 @@ class ActivityLog(log: RpcLog) extends RxElement:
         cls -> "flex items-center gap-2",
         span(cls -> s"size-1.5 shrink-0 rounded-full ${tone}"),
         span(cls -> "flex-1 truncate font-mono text-[11.5px]", c.method),
+        // A stream: the time to its first event, and how many events it delivered
+        c.firstMillis
+          .fold(DomNode.empty)(first =>
+            span(
+              titleAttr -> f"First event after ${first}%.1f ms, ${c.events} events in all",
+              cls       -> "font-mono text-[11px] text-faint tabular-nums",
+              f"${first}%.0f ms → ${c.events}×"
+            )
+          ),
         span(cls -> "font-mono text-[11px] text-muted tabular-nums", f"${c.millis}%.1f ms")
       ),
       div(
@@ -219,6 +228,8 @@ class ActivityLog(log: RpcLog) extends RxElement:
         )
       )
     )
+
+  end row
 
   override def render: RxElement = div(
     cls -> "flex min-h-0 flex-1 flex-col",

@@ -220,6 +220,40 @@ An `RPCClient` has no connection state, so one instance can be shared by any
 number of bound clients. The lower-level `callSync(http, name, args)` and
 `callAsync(http, name, args)` take the HTTP client on every call.
 
+## Streaming Results
+
+A method that returns `Rx[A]` can deliver more than one value: a model's tokens, progress
+updates, or log lines. Call it with `stream` instead of `call`, and the client receives each value
+as the server emits it:
+
+```scala
+trait ChatApi:
+  def streamReply(prompt: String): Rx[String]
+
+class ChatApiImpl extends ChatApi:
+  // Any Rx works: a model's token stream, a queue, an interval
+  def streamReply(prompt: String): Rx[String] = Rx.fromSeq(Seq("Hello", ", ", prompt))
+
+val rpc = RPCClient.of[ChatApi].newAsyncClient(Http.client.newAsyncClient)
+rpc.stream[String]("streamReply", "Uni").run(token => print(token))
+```
+
+The service trait and the router don't change. `stream` sends `Accept: text/event-stream`, so the
+dispatcher answers with [Server-Sent Events](./sse): one `data:` event per value, carrying its
+JSON. A plain `call` to the same method still gets one JSON value, the first one.
+
+- **Errors.** A failure before the method returns gets the usual error response, which fails the
+  `Rx` with an `HttpException`, as a unary call does. A failure after the stream started is sent
+  as an `rpc-error` event carrying the [RPC error](#rpcexception) JSON. It ends the stream and
+  fails the `Rx` with that `RPCException`.
+- **No retry.** A stream that has started cannot be replayed, so streaming calls are sent once.
+- **Transports.** HTTP servers stream on the JVM, Node.js, and Scala Native. Clients stream with
+  `fetch` (browser, Node.js) and on the JVM. In Electron, the IPC transport streams too, once the
+  preload bridge exposes `stream` (see [Electron](./electron#streaming-calls)).
+
+The [uni-harness example](https://github.com/wvlet/uni/tree/main/examples/uni-harness) streams chat
+replies this way, in Electron and in the browser.
+
 ## RPC Status Codes
 
 `RPCStatus` provides structured error codes organized by category:

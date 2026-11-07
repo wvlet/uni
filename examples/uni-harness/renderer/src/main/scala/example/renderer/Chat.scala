@@ -82,10 +82,10 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
         store
           .messages
           .eachRx(store.keyOf) { (m, current) =>
-            Bubble(m, animate = store.takeFresh(m.id), current = Some(current))
+            Bubble(m, current = Some(current))
           },
         store
-          .pending
+          .waitingForFirstPart
           .map { p =>
             if p then
               scrollToBottom()
@@ -170,46 +170,24 @@ class Welcome(transport: Transport, onPick: String => Unit) extends RxElement:
 end Welcome
 
 /**
-  * One message. With `animate`, the text types itself in, which stands in for token streaming;
-  * replace it with a streaming RPC when your model streams.
+  * One message.
   *
   * @param current
-  *   the message as the thread holds it now, such as the stored prompt that confirms a draft. Only
-  *   the label under a prompt follows it, so the bubble itself doesn't render again.
+  *   the message as the thread holds it now: the stored prompt that confirms a draft, or a reply
+  *   that grows as it streams in. The bubble renders once and follows it, so only the label under a
+  *   prompt and the text of a reply change.
   */
-class Bubble(m: ChatMessage, animate: Boolean = false, current: Option[Rx[ChatMessage]] = None)
-    extends RxElement:
-  private val shown = Rx.variable(
-    if animate then
-      ""
-    else
-      m.text
-  )
-
+class Bubble(m: ChatMessage, current: Option[Rx[ChatMessage]] = None) extends RxElement:
+  private val now    = current.getOrElse(Rx.const(m))
   private val copied = Rx.variable(false)
-  private var timer  = 0
+  private var text   = m.text
+  private var watch  = Cancelable.empty
 
-  override def onMount(node: Any): Unit =
-    if animate then
-      var i = 0
-      timer = dom
-        .window
-        .setInterval(
-          () =>
-            i = math.min(m.text.length, i + 3)
-            shown := m.text.take(i)
-            // Keep the growing reply in view, as a streamed answer would be
-            node.asInstanceOf[dom.Element].scrollIntoView(false)
-            if i >= m.text.length then
-              dom.window.clearInterval(timer)
-          ,
-          16
-        )
-
-  override def beforeUnmount: Unit = dom.window.clearInterval(timer)
+  override def onMount(node: Any): Unit = watch = now.run(c => text = c.text)
+  override def beforeUnmount: Unit      = watch.cancel
 
   private def copy(): Unit = Clipboard
-    .writeText(m.text)
+    .writeText(text)
     .foreach { _ =>
       copied := true
       dom.window.setTimeout(() => copied := false, 1200)
@@ -226,14 +204,12 @@ class Bubble(m: ChatMessage, animate: Boolean = false, current: Option[Rx[ChatMe
         ),
         span(
           cls -> "px-1 text-[11px] text-faint opacity-0 transition group-hover:opacity-100",
-          current
-            .getOrElse(Rx.const(m))
-            .map { now =>
-              if ChatStore.isDraft(now) then
-                "Sending…"
-              else
-                clock(now.createdAt)
-            }
+          now.map { c =>
+            if ChatStore.isDraft(c) then
+              "Sending…"
+            else
+              clock(c.createdAt)
+          }
         )
       )
     else
@@ -251,7 +227,7 @@ class Bubble(m: ChatMessage, animate: Boolean = false, current: Option[Rx[ChatMe
             span(cls -> "font-semibold", "Uni"),
             span(cls -> "text-faint", clock(m.createdAt))
           ),
-          div(cls -> "text-[14px] leading-7 whitespace-pre-wrap text-fg/90", shown),
+          div(cls -> "text-[14px] leading-7 whitespace-pre-wrap text-fg/90", now.map(_.text)),
           div(
             cls -> "mt-1 -ml-1.5 flex gap-0.5 opacity-0 transition group-hover:opacity-100",
             button(
