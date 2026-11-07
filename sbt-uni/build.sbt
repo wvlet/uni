@@ -1,5 +1,5 @@
 // sbt-uni: sbt 2.x plugin for uni
-// Written in Scala 3 (sbt 2.x metabuild), directly calls uni as an in-process library.
+// Written in Scala 3 (sbt 2.x metabuild). Code and OpenAPI generation fork a JVM on the app's uni.
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 

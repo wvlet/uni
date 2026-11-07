@@ -2,6 +2,7 @@ package example.api
 
 import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.http.rpc.RPCClient
+import wvlet.uni.http.rpc.rpcStream
 import wvlet.uni.rx.Rx
 
 /** A conversation listed in the sidebar. */
@@ -36,7 +37,9 @@ trait ChatApi:
   /**
     * Send a prompt and stream the reply as it is written. The client reads it with
     * `RPCAsyncClient.stream`, which delivers every event the server's Rx emits, over IPC or HTTP.
+    * `@rpcStream` makes sbt-uni's generated client do the same.
     */
+  @rpcStream
   def streamMessage(conversationId: String, text: String): Rx[ChatEvent]
 
 /**

@@ -110,6 +110,8 @@ case class ServiceDef(packageName: String, serviceName: String, methods: Seq[Met
   *   Return type reference
   * @param isRPC
   *   true if this is an RPC method (no @Endpoint annotation)
+  * @param isStream
+  *   true if the method is annotated with `@rpcStream`, so the async client streams its results
   */
 case class MethodDef(
     name: String,
@@ -117,8 +119,18 @@ case class MethodDef(
     path: String,
     params: Seq[ParamDef],
     returnType: TypeRef,
-    isRPC: Boolean
-)
+    isRPC: Boolean,
+    isStream: Boolean = false
+):
+  /**
+    * The type of each value the method returns: `A` for a method returning `Rx[A]`, otherwise the
+    * return type itself
+    */
+  def valueType: TypeRef =
+    if returnType.isRx then
+      returnType.typeArgs.headOption.getOrElse(TypeRef.Any)
+    else
+      returnType
 
 /**
   * Represents a method parameter.
@@ -152,6 +164,7 @@ case class ParamDef(
 case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] = Seq.empty):
   def isUnit: Boolean   = fullName == "scala.Unit" || fullName == "Unit"
   def isOption: Boolean = fullName == "scala.Option" || fullName == "Option"
+  def isRx: Boolean     = fullName == "wvlet.uni.rx.Rx"
 
   /**
     * Render as a Scala type expression suitable for generated code. Uses short names for well-known
@@ -174,6 +187,7 @@ case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] =
       shortName
 
 object TypeRef:
+  val Any: TypeRef     = TypeRef("scala.Any", "Any")
   val Unit: TypeRef    = TypeRef("scala.Unit", "Unit")
   val String: TypeRef  = TypeRef("java.lang.String", "String")
   val Int: TypeRef     = TypeRef("scala.Int", "Int")

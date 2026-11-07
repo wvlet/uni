@@ -1,2 +1,4 @@
 # Verify that code generation + compilation works end-to-end
 > app/compile
+# A second compile reuses the generated files without forking the generator
+> app/compile

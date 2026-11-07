@@ -15,7 +15,7 @@
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
 plugin call uni directly as a library). It is not published for sbt 1.x.
 
-The uni build the plugin calls in-process is pinned to a release built with sbt
+The uni build the plugin loads in-process is pinned to a release built with sbt
 2.0.x's metabuild Scala (3.8), independently of the uni and Scala versions your
 project depends on. Declare `uni` only in `build.sbt`: adding it to
 `project/plugins.sbt` would replace the plugin's pinned uni with one sbt's
@@ -132,14 +132,17 @@ lazy val app = project
 ```
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
-regenerated and compiled on the next `compile`. Generation runs in-process (no
-forked JVM) and skips files whose content is unchanged. See [RPC](/http/rpc) for
+regenerated and compiled on the next `compile`. Generation forks a JVM that runs
+uni's `HttpCodeGeneratorMain` from the JVM uni release your app depends on, also
+for Scala.js and Scala Native apps. The fork runs only when the service classes or
+targets changed, and it skips files whose content is unchanged. See [RPC](/http/rpc) for
 the target spec format and generated client API.
 
 | Setting                | Type          | Default                  | Description                            |
 | ---------------------- | ------------- | ------------------------ | -------------------------------------- |
 | `uniHttpClients`       | `Seq[String]` | `Seq.empty`              | Generation targets (`fqcn:type[:pkg]`) |
 | `uniHttpCodegenOutDir` | `File`        | `Compile / sourceManaged`| Output directory for generated code    |
+| `uniHttpCodegenVersion` | `String`     | uni in `libraryDependencies` | uni release that runs the generator |
 
 ## OpenAPI Generation
 

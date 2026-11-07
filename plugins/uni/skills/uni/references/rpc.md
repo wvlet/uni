@@ -119,7 +119,8 @@ lazy val app = project
 ```
 
 `compile` generates `object UserServiceClient` with `SyncClient` (methods
-return the declared types) and `AsyncClient` (methods return `Rx[...]`):
+return the declared types, `A` for `Rx[A]`) and `AsyncClient` (methods return
+`Rx[...]`). sbt-uni runs the generator from the app's own uni, in a forked JVM:
 
 ```scala
 import wvlet.uni.http.Http
@@ -197,3 +198,17 @@ def printReply(http: HttpAsyncClient): Unit =
 - Streaming calls are never retried.
 - Streams over HTTP (JVM and Node servers, JVM and fetch clients) and over Electron
   IPC when the preload bridge exposes `stream` (see `electron.md`).
+- For generated clients, annotate the method with `@rpcStream`
+  (`wvlet.uni.http.rpc.rpcStream`): `AsyncClient` then calls `stream` for it, and
+  `SyncClient` leaves it out. The annotation doesn't change the server or the wire
+  format. It requires an `Rx[A]` return type.
+
+```scala reset
+import wvlet.uni.http.rpc.rpcStream
+import wvlet.uni.rx.Rx
+
+trait ChatApi:
+  def title(id: String): Rx[String] // generated: call
+  @rpcStream
+  def streamReply(prompt: String): Rx[String] // generated: stream
+```
