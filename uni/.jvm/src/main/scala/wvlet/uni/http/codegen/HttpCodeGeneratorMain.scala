@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.codegen
 
+import wvlet.uni.log.{LogLevel, Logger}
+
 import java.io.File
 
 /**
@@ -25,10 +27,18 @@ import java.io.File
   */
 object HttpCodeGeneratorMain:
 
-  def main(args: Array[String]): Unit = run(args, Thread.currentThread().getContextClassLoader)
+  def main(args: Array[String]): Unit =
+    // The logger writes to stderr, which sbt shows as errors; report generated files on stdout
+    Logger.setDefaultLogLevel(LogLevel.WARN)
+    run(args, Thread.currentThread().getContextClassLoader).foreach(f =>
+      println(s"Generated ${f.getPath}")
+    )
 
-  /** Run with an explicit class loader for the service traits, e.g. a test's own loader */
-  def run(args: Array[String], loader: ClassLoader): Unit =
+  /**
+    * Run with an explicit class loader for the service traits, e.g. a test's own loader. Returns
+    * the files whose content changed.
+    */
+  def run(args: Array[String], loader: ClassLoader): Seq[File] =
     val opts =
       args
         .toList
@@ -45,7 +55,7 @@ object HttpCodeGeneratorMain:
     val clients = opts.getOrElse("client", Nil)
     if clients.isEmpty then
       usage("--client is required")
-    clients.foreach(spec => HttpCodeGenerator.run(spec, loader, File(out)))
+    clients.flatMap(spec => HttpCodeGenerator.run(spec, loader, File(out)))
 
   private def usage(message: String): Nothing = throw IllegalArgumentException(message)
 
