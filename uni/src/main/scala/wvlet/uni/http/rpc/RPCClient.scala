@@ -71,6 +71,28 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
     val req   = buildRequest(methodName, codec, args)
     client.send(req).map(resp => decodeResponse(codec, resp).asInstanceOf[A])
 
+  /**
+    * Make a streaming RPC call: the returned Rx emits every value the server method's `Rx` emits,
+    * as each arrives, and completes when the server's stream ends. The request accepts
+    * `text/event-stream`, so [[RPCDispatcher]] answers with Server-Sent Events.
+    *
+    * A failure before the stream starts fails the Rx with the same `HttpException` a unary call
+    * gets; a failure while streaming fails it with the server's [[RPCException]]. The call is not
+    * retried, as a stream that has started cannot be replayed.
+    */
+  def streamAsync[A](client: HttpAsyncClient, methodName: String, args: Seq[Any]): Rx[A] =
+    val codec  = lookupCodec(methodName)
+    val req    = buildRequest(methodName, codec, args).withAcceptEventStream
+    val weaver = codec.returnWeaver.asInstanceOf[Weaver[Any]]
+    client
+      .sendSSE(req)
+      .map { event =>
+        if event.event.contains(RPCDispatcher.ErrorEvent) then
+          throw RPCException.fromJson(event.data)
+        else
+          weaver.fromJson(event.data).asInstanceOf[A]
+      }
+
   private def lookupCodec(methodName: String): MethodCodec = codecs.getOrElse(
     methodName,
     throw IllegalArgumentException(
@@ -125,6 +147,16 @@ class RPCAsyncClient(val rpcClient: RPCClient, val httpClient: HttpAsyncClient):
     * an Rx.
     */
   def call[A](methodName: String, args: Any*): Rx[A] = rpcClient.callAsync[A](
+    httpClient,
+    methodName,
+    args
+  )
+
+  /**
+    * Call an RPC method and stream its results: the Rx emits each value the server's `Rx` emits, as
+    * it arrives. See [[RPCClient.streamAsync]].
+    */
+  def stream[A](methodName: String, args: Any*): Rx[A] = rpcClient.streamAsync[A](
     httpClient,
     methodName,
     args

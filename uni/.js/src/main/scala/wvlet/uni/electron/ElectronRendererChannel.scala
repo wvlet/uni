@@ -19,11 +19,15 @@ import wvlet.uni.http.{
   HttpChannel,
   HttpChannelFactory,
   HttpClientConfig,
+  HttpContent,
+  HttpErrorCode,
+  HttpException,
   HttpRequest,
   HttpResponse
 }
 import wvlet.uni.rx.Rx
 
+import java.nio.charset.StandardCharsets
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
 
@@ -40,6 +44,9 @@ import scala.scalajs.js
   *   request: (payload) => ipcRenderer.invoke("uni-rpc", payload)
   * })
   * }}}
+  *
+  * Streaming calls also need `stream(payload, onMessage)`; [[ElectronIPC]] describes the messages,
+  * and the Electron guide shows a preload that implements it.
   *
   * `bridge.request(payload)` must return a `Promise` resolving to the response payload (see
   * [[ElectronIPC]]). Only async operations are supported — there is no synchronous IPC path in a
@@ -59,9 +66,63 @@ class ElectronRendererChannel(bridge: js.Dynamic) extends HttpAsyncChannel:
     Rx.future(future)
 
   override def sendStreaming(request: HttpRequest, config: HttpClientConfig): Rx[Array[Byte]] =
-    throw NotImplementedError(
-      "Streaming responses are not supported over Electron IPC. Use a regular RPC call."
-    )
+    sendStreaming(request, config, _ => ())
+
+  /**
+    * Stream a response over the bridge's optional `stream(payload, onMessage)` function (see
+    * [[ElectronIPC]] for the messages). The call starts when the returned Rx is subscribed.
+    * Cancelling the Rx stops delivery but not the server stream, which ends with the call or when
+    * the window closes.
+    */
+  override def sendStreaming(
+      request: HttpRequest,
+      config: HttpClientConfig,
+      onResponse: HttpResponse => Unit
+  ): Rx[Array[Byte]] =
+    if js.typeOf(bridge.stream) != "function" then
+      Rx.exception(
+        NotImplementedError(
+          "Streaming over Electron IPC needs a `stream` function on the preload bridge: " +
+            "stream: (payload, onMessage) => ... (see wvlet.uni.electron.ElectronIPC)"
+        )
+      )
+    else
+      val payload = ElectronIPC.toPayload(request)
+      val source  = Rx.variable[Option[Array[Byte]]](None)
+      var started = false
+
+      def onMessage(msg: js.Dynamic): Unit =
+        try
+          msg.kind.asInstanceOf[String] match
+            case "head" =>
+              val head = ElectronIPC.toResponse(msg)
+              onResponse(head.withContent(HttpContent.Empty))
+              if !head.isSuccessful then
+                source.setException(HttpException.fromResponse(head))
+            case "chunk" =>
+              source.set(Some(msg.data.asInstanceOf[String].getBytes(StandardCharsets.UTF_8)))
+            case "end" =>
+              source.stop()
+            case "error" =>
+              source.setException(HttpException(String.valueOf(msg.message), HttpErrorCode.Unknown))
+            case _ =>
+        catch
+          case e: Throwable =>
+            source.setException(e)
+
+      source
+        .tap { chunk =>
+          // RxVar emits its current value (None) right after registering a subscriber, so the
+          // call starts only once someone listens and no chunk is lost
+          if chunk.isEmpty && !started then
+            started = true
+            val callback: js.Function1[js.Dynamic, Unit] = onMessage
+            bridge.applyDynamic("stream")(payload, callback)
+        }
+        .filter(_.isDefined)
+        .map(_.get)
+
+  end sendStreaming
 
   override def close(): Unit = ()
 

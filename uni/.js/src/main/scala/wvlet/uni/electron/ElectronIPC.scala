@@ -27,6 +27,16 @@ import scala.scalajs.js
   *   - Response payload: `{ status: number, headers: {k: v}, body: string }`
   *
   * The body is always a UTF-8 string (RPC payloads are JSON), so binary marshaling is unnecessary.
+  *
+  * Streaming calls ([[wvlet.uni.http.rpc.RPCAsyncClient.stream]]) use a second pair of channels,
+  * because `invoke` resolves only once:
+  *
+  *   - The renderer sends `ipcRenderer.send(streamChannel(channel), id, requestPayload)`, where
+  *     `id` is a number unique among the calls of that renderer.
+  *   - The main process answers on `streamEventChannel(channel)` with `(id, message)`, in order:
+  *     one `{ kind: "head", status, headers, body }`, then `{ kind: "chunk", data: string }` for
+  *     each part of the SSE body, then `{ kind: "end" }`. An unexpected failure ends the stream
+  *     with `{ kind: "error", message }` instead of `end`.
   */
 object ElectronIPC:
 
@@ -42,6 +52,28 @@ object ElectronIPC:
     * (`contextBridge.exposeInMainWorld("uniRPC", { request })`).
     */
   val DefaultBridgeName: String = "uniRPC"
+
+  /** The channel streaming calls are sent on, for the RPC channel `channel`. */
+  def streamChannel(channel: String): String = s"${channel}-stream"
+
+  /** The channel the main process sends stream messages on, for the RPC channel `channel`. */
+  def streamEventChannel(channel: String): String = s"${channel}-stream-event"
+
+  /** A stream message (main side): `{ kind, ... }`. */
+  private[electron] def streamHead(response: Response): js.Object =
+    val msg = fromResponse(response).asInstanceOf[js.Dynamic]
+    msg.updateDynamic("kind")("head")
+    msg.asInstanceOf[js.Object]
+
+  private[electron] def streamChunk(data: String): js.Object = js
+    .Dynamic
+    .literal(kind = "chunk", data = data)
+
+  private[electron] val streamEnd: js.Object = js.Dynamic.literal(kind = "end")
+
+  private[electron] def streamError(message: String): js.Object = js
+    .Dynamic
+    .literal(kind = "error", message = message)
 
   /** Marshal an outgoing [[wvlet.uni.http.Request]] into an IPC payload object (renderer side). */
   def toPayload(request: Request): js.Object = js

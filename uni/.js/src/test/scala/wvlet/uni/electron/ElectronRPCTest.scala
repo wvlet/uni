@@ -15,21 +15,36 @@ package wvlet.uni.electron
 
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.{Http, HttpException}
-import wvlet.uni.http.rpc.{RPCClient, RPCRouter, RPCStatus}
+import wvlet.uni.http.rpc.{RPCClient, RPCException, RPCRouter, RPCStatus}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
+import scala.concurrent.{Future, Promise}
+import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
 
 case class Greeting(message: String)
 
 trait GreetingService:
   def hello(name: String): Greeting
   def addAsync(a: Int, b: Int): Rx[Int]
+  def countTo(n: Int): Rx[Int]
+  def failAfter(n: Int): Rx[Int]
+  def ticks(): Rx[Int]
 
 class GreetingServiceImpl extends GreetingService:
   override def hello(name: String): Greeting     = Greeting(s"Hello, ${name}!")
   override def addAsync(a: Int, b: Int): Rx[Int] = Rx.single(a + b)
+  override def countTo(n: Int): Rx[Int]          = Rx.fromSeq(1 to n)
+  override def failAfter(n: Int): Rx[Int]        = Rx
+    .fromSeq(1 to n)
+    .concat(Rx.exception(RPCStatus.INVALID_ARGUMENT_U2.newException("too far")))
+
+  /** A stream that never ends by itself; `sent` counts the values it produced. */
+  val tick                      = Rx.variable(0)
+  var sent                      = 0
+  override def ticks(): Rx[Int] = tick.filter(_ > 0).tap(_ => sent += 1)
 
 /**
   * Exercises the Electron IPC transport end to end without a real Electron runtime: a fake
@@ -177,6 +192,109 @@ class ElectronRPCTest extends UniTest:
       .map { result =>
         result shouldContain RPCStatus.PERMISSION_DENIED_U14.name
       }
+  }
+
+  /** Every value of `rx`, and its failure, once it ends. */
+  private def collect[A](rx: Rx[A]): Future[(Seq[A], Option[Throwable])] =
+    val values = Seq.newBuilder[A]
+    val done   = Promise[(Seq[A], Option[Throwable])]()
+    RxRunner.run(rx) {
+      case OnNext(v) =>
+        values += v.asInstanceOf[A]
+      case OnError(e) =>
+        done.trySuccess((values.result(), Some(e)))
+      case OnCompletion =>
+        done.trySuccess((values.result(), None))
+    }
+    done.future
+
+  /** Let the testbed deliver the stream messages queued so far. */
+  private def settle(): Future[Unit] =
+    val p = Promise[Unit]()
+    js.timers.setTimeout(0)(p.success(()))
+    p.future
+
+  private def streamClient(
+      testbed: ElectronTestbed,
+      senderUrl: String = ElectronTestbed.DefaultSenderUrl
+  ) = rpcClient.newAsyncClient(
+    Http
+      .client
+      .withChannelFactory(ElectronChannelFactory(testbed.bridge(senderUrl = senderUrl)))
+      .newAsyncClient
+  )
+
+  test("streams every value of an Rx over IPC, in order") {
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](GreetingServiceImpl()))
+    collect(streamClient(testbed).stream[Int]("countTo", 5)).map { result =>
+      result shouldBe (Seq(1, 2, 3, 4, 5), None)
+      testbed.destroyedListenerCount shouldBe 0
+    }
+  }
+
+  test("a failure while streaming over IPC ends with the server's RPCException") {
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](GreetingServiceImpl()))
+    collect(streamClient(testbed).stream[Int]("failAfter", 2)).map { (values, failure) =>
+      values shouldBe Seq(1, 2)
+      failure shouldMatch { case Some(e: RPCException) =>
+        e.status shouldBe RPCStatus.INVALID_ARGUMENT_U2
+      }
+    }
+  }
+
+  test("reject streams from a disallowed sender with PERMISSION_DENIED") {
+    val testbed = ElectronTestbed.serve(
+      ElectronRPCServerConfig().withAllowedOrigins("app://trusted"),
+      RPCRouter.of[GreetingService](GreetingServiceImpl())
+    )
+    collect(streamClient(testbed, "https://evil.example/").stream[Int]("countTo", 3)).map {
+      (values, failure) =>
+        values shouldBe Seq.empty
+        failure shouldMatch { case Some(e: HttpException) =>
+          e.getMessage shouldContain RPCStatus.PERMISSION_DENIED_U14.name
+        }
+    }
+  }
+
+  test("closing the renderer cancels the server stream") {
+    val impl    = GreetingServiceImpl()
+    val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](impl))
+    val seen    = Seq.newBuilder[Int]
+    RxRunner.run(streamClient(testbed).stream[Int]("ticks")) {
+      case OnNext(v) =>
+        seen += v.asInstanceOf[Int]
+      case _ =>
+    }
+    for
+      _ <- settle()
+      _ = impl.tick := 1
+      _ <- settle()
+      _ = testbed.destroyedListenerCount shouldBe 1
+      _ = testbed.closeRenderer()
+      _ = impl.tick := 2
+      _ <- settle()
+    yield
+      seen.result() shouldBe Seq(1)
+      impl.sent shouldBe 1
+  }
+
+  test("streaming fails clearly when the preload bridge has no stream function") {
+    val bridge = js
+      .Dynamic
+      .literal(request =
+        ((_: js.Any) => js.Promise.resolve[js.Object](js.Object())): js.Function1[
+          js.Any,
+          js.Promise[js.Object]
+        ]
+      )
+    val client = rpcClient.newAsyncClient(
+      Http.client.withChannelFactory(ElectronChannelFactory(bridge)).newAsyncClient
+    )
+    collect(client.stream[Int]("countTo", 1)).map { (_, failure) =>
+      failure shouldMatch { case Some(e: NotImplementedError) =>
+        e.getMessage shouldContain "stream"
+      }
+    }
   }
 
 end ElectronRPCTest
