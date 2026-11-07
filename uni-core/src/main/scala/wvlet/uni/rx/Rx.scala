@@ -104,6 +104,20 @@ trait RxOps[+A]:
   })
 
   /**
+    * Run `f` when a subscription is cancelled before it observes OnError or OnCompletion, for
+    * example to abort a request or tell a server to stop a stream. `f` runs at most once per
+    * subscription, and not when the stream ends by itself.
+    *
+    * {{{
+    *   source.onCancel(controller.abort())
+    * }}}
+    *
+    * Operators that cancel their upstream, such as `take(n)`, also run `f`. A throw in `f` is
+    * logged, not rethrown, so cancelling never fails.
+    */
+  def onCancel(f: => Unit): Rx[A] = OnCancelOp(this, () => f)
+
+  /**
     * Evaluate this Rx[A] and apply the given effect function. Once OnError(e) or OnCompletion is
     * observed, it will stop the evaluation.
     *
@@ -1165,6 +1179,8 @@ object Rx extends LogSupport:
   case class MaterializeOp[A](input: RxOps[A]) extends UnaryRx[A, Result[A]]
 
   case class TapOnOp[A](input: RxOps[A], f: PartialFunction[Try[A], Unit]) extends UnaryRx[A, A]
+
+  case class OnCancelOp[A](input: RxOps[A], f: () => Unit) extends UnaryRx[A, A]
 
   case class IntervalOp(interval: Long, unit: TimeUnit) extends Rx[Long]:
     override def parents: Seq[RxOps[?]] = Seq.empty
