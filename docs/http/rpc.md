@@ -136,8 +136,9 @@ lazy val app = project
 ```
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
-regenerated and compiled automatically on the next `compile`. Generation runs
-in-process (no forked JVM) and skips files whose content is unchanged.
+regenerated and compiled automatically on the next `compile`. Generation runs uni's
+`HttpCodeGeneratorMain` in a forked JVM, from the uni version the app depends on (also for Scala.js
+apps), and it skips files whose content is unchanged.
 
 ### Target spec format
 
@@ -181,6 +182,13 @@ val async = UserServiceClient.AsyncClient(
 async.getUser(42).map(user => println(user.name))
 ```
 
+A trait method that returns `Rx[A]` returns `A` from `SyncClient` and `Rx[A]` from `AsyncClient`.
+The generator reads types from compiled classes, where Scala erases primitive type arguments, so
+`Rx[Int]` or `Seq[Long]` come out as `Rx[Any]` or `Seq[Any]`; wrap such values in a case class to
+keep their type.
+A method that returns [`RxStream[A]`](#streaming-results) is streamed by `AsyncClient`, which
+returns `RxStream[A]` for it; `SyncClient` leaves such methods out.
+
 Under the hood the generated methods delegate to `RPCClient.of[UserService]`,
 which serializes arguments and decodes responses with [Weaver](../core/weaver) —
 the same wire format the [RPC router](#creating-an-rpc-router) expects, so client
@@ -222,23 +230,28 @@ number of bound clients. The lower-level `callSync(http, name, args)` and
 
 ## Streaming Results
 
-A method that returns `Rx[A]` can deliver more than one value: a model's tokens, progress
-updates, or log lines. Call it with `stream` instead of `call`, and the client receives each value
+A method can deliver more than one value: a model's tokens, progress updates, or log lines.
+Declare it with the return type `RxStream[A]` (`wvlet.uni.rx.RxStream`), an `Rx` that marks the
+method as streaming. Call it with `stream` instead of `call`, and the client receives each value
 as the server emits it:
 
 ```scala
+import wvlet.uni.rx.{Rx, RxStream}
+
 trait ChatApi:
-  def streamReply(prompt: String): Rx[String]
+  def streamReply(prompt: String): RxStream[String]
 
 class ChatApiImpl extends ChatApi:
-  // Any Rx works: a model's token stream, a queue, an interval
-  def streamReply(prompt: String): Rx[String] = Rx.fromSeq(Seq("Hello", ", ", prompt))
+  // Wrap any Rx: a model's token stream, a queue, an interval
+  def streamReply(prompt: String): RxStream[String] =
+    RxStream(Rx.fromSeq(Seq("Hello", ", ", prompt)))
 
 val rpc = RPCClient.of[ChatApi].newAsyncClient(Http.client.newAsyncClient)
 rpc.stream[String]("streamReply", "Uni").run(token => print(token))
 ```
 
-The service trait and the router don't change. `stream` sends `Accept: text/event-stream`, so the
+`RxStream(rx)` runs exactly like `rx`. Rx operators such as `map` return a plain `Rx`, so wrap the
+finished chain. The router needs nothing more. `stream` sends `Accept: text/event-stream`, so the
 dispatcher answers with [Server-Sent Events](./sse): one `data:` event per value, carrying its
 JSON. The dispatcher streams only when `text/event-stream` is the first type in `Accept`. A plain
 `call` to the same method still gets one JSON value, the first one. If the server answers without
@@ -252,6 +265,21 @@ streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED
 - **Transports.** HTTP servers stream on the JVM, Node.js, and Scala Native. Clients stream with
   `fetch` (browser, Node.js) and on the JVM. In Electron, the IPC transport streams too, once the
   preload bridge exposes `stream` (see [Electron](./electron#streaming-calls)).
+
+### Generated clients
+
+The return type tells the [generated](#generating-a-client) `AsyncClient` which call to make:
+
+```scala
+trait ChatApi:
+  def listConversations(): Rx[Seq[Conversation]] // call: one value
+  def streamReply(prompt: String): RxStream[String] // stream: every value
+```
+
+The server and the wire format are the same for both: the dispatcher streams any `Rx` when the
+client asks, and a plain `call` of an `RxStream` method still gets the first value. A hand-written
+client picks `call` or `stream` itself. There is no synchronous stream call, so `SyncClient`
+leaves `RxStream` methods out.
 
 The [uni-harness example](https://github.com/wvlet/uni/tree/main/examples/uni-harness) streams chat
 replies this way, in Electron and in the browser.

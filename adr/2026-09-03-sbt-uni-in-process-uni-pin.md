@@ -77,6 +77,12 @@ Alternatives rejected or deferred:
   scripted tests (`sbt-uni/src/sbt-test/codegen/*`) exercise exactly that
   combination.
 - The codegen package had no functional change between v2026.1.21 and the pin.
+- Update (2026-11-07): codegen no longer runs in-process. `RxStream` and
+  generic-aware scanning changed the generator, and the pinned uni would never
+  pick that up. `uniHttpClients` now forks `HttpCodeGeneratorMain` from the JVM
+  uni release the app depends on (resolved separately, so Scala.js apps work
+  too), as `uniOpenAPI` does. No plugin code calls uni in-process any more, so
+  the pinned dependency could be dropped in a follow-up.
 
 ## Worked examples
 

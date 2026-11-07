@@ -18,7 +18,7 @@ lazy val app = project
   .enablePlugins(UniPlugin)
   .settings(
     scalaVersion                           := scala3,
-    uniHttpClients                         := Seq("example.api.GreetingService:rpc:example.client"),
+    uniHttpClients                         := Seq("example.api.GreetingService:both:example.client"),
     libraryDependencies += "org.wvlet.uni" %% "uni" % uniVersion
   )
   .dependsOn(api)

@@ -2,6 +2,7 @@ package example.renderer
 
 import example.api.{ChatApi, ChatEvent, ChatMessage, Conversation}
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 
 import scala.scalajs.js
 
@@ -73,7 +74,8 @@ class TrackedChatApi(api: ChatApi, log: RpcLog) extends ChatApi:
   override def listMessages(conversationId: String): Rx[Seq[ChatMessage]] =
     log.track("listMessages")(api.listMessages(conversationId))
 
-  override def streamMessage(conversationId: String, text: String): Rx[ChatEvent] =
+  override def streamMessage(conversationId: String, text: String): RxStream[ChatEvent] = RxStream(
     log.trackStream("streamMessage")(api.streamMessage(conversationId, text))
+  )
 
 end TrackedChatApi

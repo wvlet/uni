@@ -31,7 +31,7 @@ flowchart LR
     reply replaces it. Each action returns a `Future`, so tests can await it.
   - [`Layout`](renderer/src/main/scala/example/renderer/Layout.scala) holds pane, view, theme, and
     width state: `Storage.local` variables in the app, plain `Rx.variable`s in tests.
-- **Replies that stream in.** `ChatApi.streamMessage` returns `Rx[ChatEvent]` (`Started`, `Delta`s,
+- **Replies that stream in.** `ChatApi.streamMessage` returns `RxStream[ChatEvent]` (`Started`, `Delta`s,
   `Done`), and `ChatApiClient` calls it with `rpc.stream`, so every part of the reply arrives as
   the server writes it: as Server-Sent Events over HTTP, and on a stream channel over Electron IPC
   (the preload bridge's `stream` function). The dock's Activity log shows each stream's time to

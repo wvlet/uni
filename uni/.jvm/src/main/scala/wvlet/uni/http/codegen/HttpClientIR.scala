@@ -118,7 +118,19 @@ case class MethodDef(
     params: Seq[ParamDef],
     returnType: TypeRef,
     isRPC: Boolean
-)
+):
+  /** true for a method returning `RxStream[A]`, whose values a generated async client streams */
+  def isStream: Boolean = returnType.isRxStream
+
+  /**
+    * The type of each value the method returns: `A` for a method returning `Rx[A]`, otherwise the
+    * return type itself
+    */
+  def valueType: TypeRef =
+    if returnType.isRx then
+      returnType.typeArgs.headOption.getOrElse(TypeRef.Any)
+    else
+      returnType
 
 /**
   * Represents a method parameter.
@@ -150,8 +162,10 @@ case class ParamDef(
   *   Type arguments for generic types
   */
 case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] = Seq.empty):
-  def isUnit: Boolean   = fullName == "scala.Unit" || fullName == "Unit"
-  def isOption: Boolean = fullName == "scala.Option" || fullName == "Option"
+  def isUnit: Boolean     = fullName == "scala.Unit" || fullName == "Unit"
+  def isOption: Boolean   = fullName == "scala.Option" || fullName == "Option"
+  def isRx: Boolean       = isRxStream || fullName == "wvlet.uni.rx.Rx"
+  def isRxStream: Boolean = fullName == "wvlet.uni.rx.RxStream"
 
   /**
     * Render as a Scala type expression suitable for generated code. Uses short names for well-known
@@ -174,6 +188,7 @@ case class TypeRef(fullName: String, shortName: String, typeArgs: Seq[TypeRef] =
       shortName
 
 object TypeRef:
+  val Any: TypeRef     = TypeRef("scala.Any", "Any")
   val Unit: TypeRef    = TypeRef("scala.Unit", "Unit")
   val String: TypeRef  = TypeRef("java.lang.String", "String")
   val Int: TypeRef     = TypeRef("scala.Int", "Int")

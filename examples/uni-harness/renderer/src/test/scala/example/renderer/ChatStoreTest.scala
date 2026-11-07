@@ -3,6 +3,7 @@ package example.renderer
 import example.api.{ChatApi, ChatEvent, ChatMessage}
 import example.server.ChatService
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxStream
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -151,8 +152,8 @@ class ChatStoreTest extends UniTest:
         override def listConversations()      = service.listConversations()
         override def createConversation()     = service.createConversation()
         override def listMessages(id: String) = service.listMessages(id)
-        override def streamMessage(id: String, text: String): Rx[ChatEvent] = Rx.exception(
-          IllegalStateException("server down")
+        override def streamMessage(id: String, text: String) = RxStream(
+          Rx.exception(IllegalStateException("server down"))
         )
     val store = ChatStore(failing)
     store
@@ -216,9 +217,9 @@ class ChatStoreTest extends UniTest:
     val cut =
       new ChatApi:
         export service.{listConversations, createConversation, listMessages}
-        override def streamMessage(id: String, text: String) = service
-          .streamMessage(id, text)
-          .take(2)
+        override def streamMessage(id: String, text: String) = RxStream(
+          service.streamMessage(id, text).take(2)
+        )
     val store = ChatStore(cut)
     for
       _ <- store.load()

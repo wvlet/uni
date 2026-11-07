@@ -17,15 +17,14 @@ import sbt.*
 import sbt.Keys.*
 import sbt.internal.util.ConsoleAppender
 import xsbti.FileConverter
-import wvlet.uni.http.codegen.{HttpCodeGenerator, ServiceScanner}
 import scala.annotation.nowarn
 
 /**
   * sbt 2.x plugin for generating HTTP/RPC client code from Scala 3 traits.
   *
-  * Unlike sbt-airframe (which forks a JVM for code generation), this plugin runs the codegen
-  * in-process. This is possible because sbt 2.x uses Scala 3 for the metabuild, so the plugin can
-  * directly call uni's codegen as a library.
+  * Code generation forks a JVM that runs uni's HttpCodeGeneratorMain from the uni release the app
+  * depends on, so generated clients always match the app's uni, whatever uni sbt's metabuild can
+  * load.
   *
   * It also provides a `uniRestart` task (ported from sbt-revolver's `reStart`, which has not been
   * released for sbt 2.x) to fork-run an application in the background. Combine it with sbt's file
@@ -61,6 +60,10 @@ object UniPlugin extends AutoPlugin:
     val uniHttpGenerateClient = taskKey[Seq[File]]("Generate HTTP client code from service traits")
 
     val uniHttpCodegenOutDir = settingKey[File]("Output directory for generated code")
+
+    val uniHttpCodegenVersion = settingKey[String](
+      "The JVM uni release whose HttpCodeGeneratorMain generates clients. Defaults to the uni version in libraryDependencies"
+    )
 
     // --- uniOpenAPI: OpenAPI document generation from @Endpoint routers ---
     val uniOpenAPIRouters = settingKey[Seq[String]](
@@ -139,11 +142,20 @@ object UniPlugin extends AutoPlugin:
     Seq(
       uniHttpClients        := Seq.empty,
       uniHttpCodegenOutDir  := (Compile / sourceManaged).value,
+      uniHttpCodegenVersion :=
+        libraryDependencies
+          .value
+          .collectFirst {
+            case m if m.organization == "org.wvlet.uni" && m.name == "uni" =>
+              m.revision
+          }
+          .getOrElse(""),
       uniHttpGenerateClient := {
         given FileConverter = fileConverter.value
         val log             = streams.value.log
         val outDir          = uniHttpCodegenOutDir.value
         val clients         = uniHttpClients.value
+        val cacheDir        = streams.value.cacheDirectory
 
         if clients.isEmpty then
           log.debug("uniHttpClients is empty, skipping code generation")
@@ -152,22 +164,60 @@ object UniPlugin extends AutoPlugin:
           // Compile dependent projects first to produce .class files
           val _ = (Compile / compile).all(dependentProjects).value
 
-          // Build a classloader from dependent project class dirs + dependency JARs
+          // The generator runs from the JVM uni jar even when the app is Scala.js or Native, so
+          // resolve it separately and put it first, ahead of the project's own uni artifact
+          val uniVersion = uniHttpCodegenVersion.value
+          if uniVersion.isEmpty then
+            sys.error(
+              "Set uniHttpCodegenVersion, or add uni to libraryDependencies: uniHttpClients runs uni's HttpCodeGeneratorMain"
+            )
+          val generatorJars: Seq[java.io.File] = dependencyResolution
+            .value
+            .retrieve("org.wvlet.uni" % "uni_3" % uniVersion, None, cacheDir / "uni-codegen", log)
+            .fold(w => throw w.resolveException, _.toSeq)
           val depClassDirs: Seq[java.io.File] = (Compile / classDirectory)
             .all(dependentProjects)
             .value
-          val depClasspath: Seq[java.nio.file.Path] = (Compile / dependencyClasspath).value.files
-          val allUrls = (depClassDirs.map(_.toURI.toURL) ++ depClasspath.map(_.toUri.toURL)).toArray
-          val classLoader = java.net.URLClassLoader(allUrls, getClass.getClassLoader)
+          val depClasspath: Seq[java.io.File] = (Compile / dependencyClasspath)
+            .value
+            .files
+            .map(_.toFile)
+          val classpath = (generatorJars ++ depClassDirs ++ depClasspath).distinct
 
-          val generated = clients.flatMap { spec =>
-            val config    = HttpCodeGenerator.parseConfig(spec)
-            val className = config.apiClassName
-            log.info(s"Generating client for ${className}")
-            val service = ServiceScanner.scan(className, classLoader)
-            HttpCodeGenerator.generateAndWrite(service, config, outDir)
+          // Fork only when the scanned classes, the classpath, or the specs changed
+          val manifest  = cacheDir / "uni-codegen-files.txt"
+          val stampFile = cacheDir / "uni-codegen-stamp.txt"
+          val stamp     = (
+            clients ++ classpath.map(_.getAbsolutePath) ++
+              depClassDirs.flatMap(d => (d ** "*.class").get()).map(f => s"${f}:${f.lastModified}")
+          ).mkString("\n").hashCode.toString
+          def previousFiles: Option[Seq[File]] =
+            if stampFile.exists() && IO.read(stampFile) == stamp && manifest.exists() then
+              Some(IO.readLines(manifest).map(file)).filter(_.forall(_.exists()))
+            else
+              None
+
+          previousFiles.getOrElse {
+            val cp   = classpath.map(_.getAbsolutePath).mkString(java.io.File.pathSeparator)
+            val args =
+              Seq("--out", outDir.getAbsolutePath, "--manifest", manifest.getAbsolutePath) ++
+                clients.flatMap(c => Seq("--client", c))
+            val exitCode = Fork.java(
+              ForkOptions()
+                .withJavaHome(javaHome.value)
+                .withOutputStrategy(Some(LoggedOutput(log)))
+                .withWorkingDirectory(baseDirectory.value),
+              Seq("-classpath", cp, "wvlet.uni.http.codegen.HttpCodeGeneratorMain") ++ args
+            )
+            if exitCode != 0 then
+              sys.error(
+                s"HTTP client generation with uni ${uniVersion} failed (exit code ${exitCode}). uniHttpClients needs a uni release that includes HttpCodeGeneratorMain"
+              )
+            IO.write(stampFile, stamp)
+            // Every generated file, changed or not, so sbt compiles all of them
+            IO.readLines(manifest).map(file)
           }
-          generated
+        end if
       },
       // Hook into source generation so generated code is compiled with user code
       Compile / sourceGenerators += uniHttpGenerateClient

@@ -119,7 +119,8 @@ lazy val app = project
 ```
 
 `compile` generates `object UserServiceClient` with `SyncClient` (methods
-return the declared types) and `AsyncClient` (methods return `Rx[...]`):
+return the declared types, `A` for `Rx[A]`) and `AsyncClient` (methods return
+`Rx[...]`). sbt-uni runs the generator from the app's own uni, in a forked JVM:
 
 ```scala
 import wvlet.uni.http.Http
@@ -167,22 +168,24 @@ class UserServiceClient(http: HttpSyncClient) extends UserService:
 
 ## Streaming results
 
-A method that returns `Rx[A]` can emit many values (tokens, progress, log lines).
-Call it with `stream` instead of `call` to receive each value as the server emits
-it. The trait and the router don't change: `stream` sends
+A method that returns `RxStream[A]` (`wvlet.uni.rx.RxStream`, an `Rx` subtype)
+emits many values (tokens, progress, log lines). Call it with `stream` instead of
+`call` to receive each value as the server emits it. `stream` sends
 `Accept: text/event-stream`, and the dispatcher answers with one SSE `data:` event
-per value. A plain `call` still gets the first value only.
+per value. A plain `call` still gets the first value only. Build the result with
+`RxStream(rx)`; operators like `map` return a plain `Rx`, so wrap the finished chain.
 
 ```scala reset
 import wvlet.uni.http.{Http, HttpAsyncClient}
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Rx, RxStream}
 
 trait TokenApi:
-  def streamReply(prompt: String): Rx[String]
+  def streamReply(prompt: String): RxStream[String]
 
 class TokenApiImpl extends TokenApi:
-  def streamReply(prompt: String): Rx[String] = Rx.fromSeq(Seq("Hello", ", ", prompt))
+  def streamReply(prompt: String): RxStream[String] =
+    RxStream(Rx.fromSeq(Seq("Hello", ", ", prompt)))
 
 val router = RPCRouter.of[TokenApi](TokenApiImpl())
 
@@ -197,3 +200,13 @@ def printReply(http: HttpAsyncClient): Unit =
 - Streaming calls are never retried.
 - Streams over HTTP (JVM and Node servers, JVM and fetch clients) and over Electron
   IPC when the preload bridge exposes `stream` (see `electron.md`).
+- sbt-uni's generated `AsyncClient` calls `stream` for `RxStream[A]` methods and
+  `call` for `Rx[A]` ones; `SyncClient` leaves `RxStream` methods out.
+
+```scala reset
+import wvlet.uni.rx.{Rx, RxStream}
+
+trait ChatApi:
+  def title(id: String): Rx[String] // generated: call
+  def streamReply(prompt: String): RxStream[String] // generated: stream
+```

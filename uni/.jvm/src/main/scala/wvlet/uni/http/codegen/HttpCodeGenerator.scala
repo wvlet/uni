@@ -67,15 +67,12 @@ object HttpCodeGenerator extends LogSupport:
     *   Path to the generated file, or None if the file was unchanged
     */
   def generateAndWrite(service: ServiceDef, config: CodegenConfig, outputDir: File): Option[File] =
-    val source        = generateSource(service, config)
-    val targetPackage = config.resolvedTargetPackage
-    val objectName    = s"${service.serviceName}Client"
+    writeIfChanged(outputFileOf(service, config, outputDir), generateSource(service, config))
 
-    // Determine output file path
-    val packageDir = targetPackage.replace('.', File.separatorChar)
-    val outputFile = Path.of(outputDir.getAbsolutePath, packageDir, s"${objectName}.scala").toFile
-
-    writeIfChanged(outputFile, source)
+  /** The file [[generateAndWrite]] writes the client of a service to */
+  def outputFileOf(service: ServiceDef, config: CodegenConfig, outputDir: File): File =
+    val packageDir = config.resolvedTargetPackage.replace('.', File.separatorChar)
+    Path.of(outputDir.getAbsolutePath, packageDir, s"${service.serviceName}Client.scala").toFile
 
   /**
     * Generate client source code for a service without writing to disk.

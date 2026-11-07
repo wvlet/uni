@@ -14,7 +14,7 @@
 package wvlet.uni.http.rpc
 
 import wvlet.uni.http.*
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner, RxStream}
 import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
@@ -23,6 +23,7 @@ trait CountApi:
   def countTo(n: Int): Rx[Int]
   def failAfter(n: Int): Rx[Int]
   def answer(): Int
+  def letters(word: String): RxStream[String]
 
 class CountApiImpl extends CountApi:
   def countTo(n: Int): Rx[Int]   = Rx.fromSeq(1 to n)
@@ -31,6 +32,8 @@ class CountApiImpl extends CountApi:
     .concat(Rx.exception(RPCStatus.INVALID_ARGUMENT_U2.newException("too far")))
 
   def answer(): Int = 42
+
+  def letters(word: String): RxStream[String] = RxStream(Rx.fromSeq(word.map(_.toString)))
 
 /**
   * Serves streaming calls from an RPCDispatcher in memory: an event-stream response becomes the
@@ -102,6 +105,10 @@ class RPCStreamTest extends UniTest:
 
   test("stream emits every value of the server's Rx") {
     collect(rpc.stream[Int]("countTo", 3)) shouldBe (Seq(1, 2, 3), None)
+  }
+
+  test("stream emits every value of a method returning RxStream") {
+    collect(rpc.stream[String]("letters", "abc")) shouldBe (Seq("a", "b", "c"), None)
   }
 
   test("a unary call to the same method still gets the first value") {
