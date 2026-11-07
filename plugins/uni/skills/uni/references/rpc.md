@@ -195,5 +195,7 @@ def printReply(http: HttpAsyncClient): Unit =
   for `call`. A failure mid-stream arrives as an `rpc-error` event and fails the
   `Rx` with the server's `RPCException`.
 - Streaming calls are never retried.
+- Cancelling the `Rx` (unsubscribe, `take(n)`) stops the server stream over fetch
+  and Electron IPC.
 - Streams over HTTP (JVM and Node servers, JVM and fetch clients) and over Electron
   IPC when the preload bridge exposes `stream` (see `electron.md`).

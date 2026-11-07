@@ -38,6 +38,10 @@ import scala.scalajs.js
   *     one `{ kind: "head", status, headers, body }`, then `{ kind: "chunk", data: string }` for
   *     each part of the SSE body, then `{ kind: "end" }`. An unexpected failure ends the stream
   *     with `{ kind: "error", message }` instead of `end`.
+  *   - To stop a call early, the renderer sends `ipcRenderer.send(streamCancelChannel(channel),
+  *     id)`. The main process then cancels the method's `Rx` and sends nothing more for that id. It
+  *     also cancels every stream of a `webContents` when its main frame starts a cross-document
+  *     navigation (including a reload), and when the `webContents` is destroyed.
   */
 object ElectronIPC:
 
@@ -59,6 +63,9 @@ object ElectronIPC:
 
   /** The channel the main process sends stream messages on, for the RPC channel `channel`. */
   def streamEventChannel(channel: String): String = s"${channel}-stream-event"
+
+  /** The channel a renderer sends `(id)` on to cancel one of its streaming calls. */
+  def streamCancelChannel(channel: String): String = s"${channel}-stream-cancel"
 
   /** A stream message (main side): `{ kind, ... }`. */
   private[electron] def streamHead(response: Response): js.Object =

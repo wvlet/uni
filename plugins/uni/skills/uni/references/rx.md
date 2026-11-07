@@ -65,6 +65,7 @@ nums.startWith(0)
 nums.lastOption                            // RxOption[Int]
 nums.scan(0)(_ + _)                        // running sum: 1, 3, 6, ... (init isn't emitted)
 nums.tap(v => println(v))                  // also tapOn, tapOnFailure
+nums.onCancel(println("cancelled"))        // runs only if a subscriber cancels early
 nums.cache                                 // RxCache: replays the last value
 nums.timeout(5, TimeUnit.SECONDS)          // fails with Rx.TimeoutException
 nums.throttleFirst(500)                    // also throttleLast / sample (milliseconds by default)
