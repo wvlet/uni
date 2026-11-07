@@ -368,23 +368,30 @@ class NettyRequestHandler(
       sseExecutor.execute { () =>
         try
           ctx.writeAndFlush(nettyResponse)
-          RxRunner.run(response.events) {
-            case OnNext(event) =>
-              val sse     = event.asInstanceOf[ServerSentEvent]
-              val content = sse.toContent
-              val buf     = Unpooled.copiedBuffer(content.getBytes(StandardCharsets.UTF_8))
-              ctx.writeAndFlush(DefaultHttpContent(buf))
-            case OnError(e) =>
-              warn(s"SSE stream error: ${e.getMessage}", e)
-              if ctx.channel().isActive then
+          val subscription =
+            RxRunner.run(response.events) {
+              case OnNext(event) =>
+                val sse     = event.asInstanceOf[ServerSentEvent]
+                val content = sse.toContent
+                val buf     = Unpooled.copiedBuffer(content.getBytes(StandardCharsets.UTF_8))
+                ctx.writeAndFlush(DefaultHttpContent(buf))
+              case OnError(e) =>
+                warn(s"SSE stream error: ${e.getMessage}", e)
+                if ctx.channel().isActive then
+                  ctx
+                    .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
+                    .addListener(ChannelFutureListener.CLOSE)
+              case OnCompletion =>
                 ctx
                   .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
                   .addListener(ChannelFutureListener.CLOSE)
-            case OnCompletion =>
-              ctx
-                .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
-                .addListener(ChannelFutureListener.CLOSE)
-          }
+            }
+          // A client that disconnects (or aborts its fetch) can't read the rest; stop producing
+          // it. The listener runs right away if the channel is already closed.
+          ctx
+            .channel()
+            .closeFuture()
+            .addListener((_: io.netty.util.concurrent.Future[?]) => subscription.cancel)
         catch
           case e: Exception =>
             warn(s"SSE stream processing error: ${e.getMessage}", e)

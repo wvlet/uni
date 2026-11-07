@@ -79,14 +79,20 @@ contextBridge.exposeInMainWorld('uniRPC', {
     const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
     ipcRenderer.send('uni-rpc-stream', id, payload)
+    // Called when the renderer cancels the call: the server stops the stream
+    return () => {
+      if (streams.delete(id)) ipcRenderer.send('uni-rpc-stream-cancel', id)
+    }
   }
 })
 ```
 
 - `ElectronRPCServer.serve(ipcMain, routers*)` uses the default config: channel
   `uni-rpc`, top-level frames only. Calls from rejected senders fail with
-  `PERMISSION_DENIED_U14`. Streams get the same checks and are cancelled when the
-  window's `webContents` is destroyed.
+  `PERMISSION_DENIED_U14`. Streams get the same checks.
+- The server cancels a stream when the renderer cancels its `Rx` (through the
+  function `stream` returns), when the main frame loads another page (including
+  a reload), and when the window's `webContents` is destroyed.
 - Config: `withAllowedOrigins(prefixes*)`, `withAllowSubFrames(true)`,
   `withSenderFilter(frame => ...)`, `withChannel(name)`.
 

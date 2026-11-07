@@ -16,7 +16,7 @@ package wvlet.uni.electron
 import wvlet.uni.log.LogSupport
 import wvlet.uni.http.{Response, ServerSentEvent}
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, RxRunner}
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
@@ -92,106 +92,208 @@ object ElectronRPCServer extends LogSupport:
             RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
           js.Promise.resolve[js.Object](ElectronIPC.fromResponse(rejection))
     ipcMain.applyDynamic("handle")(config.channel, handler)
+    val streams                                                   = RunningStreams()
     val streamHandler: js.Function3[js.Any, js.Any, js.Any, Unit] =
       (event: js.Any, id: js.Any, payload: js.Any) =>
-        val e = event.asInstanceOf[js.Dynamic]
+        val e     = event.asInstanceOf[js.Dynamic]
+        val reply = StreamReply(e, config.channel, id)
         if config.isAllowedSender(e) then
-          stream(dispatcher, StreamReply(e, config.channel, id), payload.asInstanceOf[js.Dynamic])
+          stream(dispatcher, streams, reply, payload.asInstanceOf[js.Dynamic])
         else
           warn(s"Rejected Electron RPC stream from ${ElectronRPCServerConfig.senderUrl(event)}")
           val rejection =
             RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
-          val reply = StreamReply(e, config.channel, id)
           reply.send(ElectronIPC.streamHead(rejection))
           reply.send(ElectronIPC.streamEnd)
     ipcMain.applyDynamic("on")(ElectronIPC.streamChannel(config.channel), streamHandler)
+    // Only the renderer that started a stream can cancel it: the ids are looked up per sender
+    val cancelHandler: js.Function2[js.Any, js.Any, Unit] =
+      (event: js.Any, id: js.Any) =>
+        val e = event.asInstanceOf[js.Dynamic]
+        if !js.isUndefined(e) && e != null then
+          streams.cancel(e.sender, id)
+    ipcMain.applyDynamic("on")(ElectronIPC.streamCancelChannel(config.channel), cancelHandler)
+
+  end serve
 
   /**
     * Sends the messages of one streaming call to the frame that made it (`event.reply`, so a
-    * permitted iframe gets its own replies). Once the renderer's `webContents` is gone, sending
-    * stops and `onGone` runs, so the server stream can be cancelled.
+    * permitted iframe gets its own replies). Sending stops once the renderer's `webContents` is
+    * gone or the call is cancelled.
     */
-  private class StreamReply(event: js.Dynamic, channel: String, id: js.Any):
+  private class StreamReply(event: js.Dynamic, channel: String, val id: js.Any):
     private val eventChannel = ElectronIPC.streamEventChannel(channel)
-    private val sender       = event.sender
+    val sender: js.Dynamic   = event.sender
+    var cancelled: Boolean   = false
 
     def isGone: Boolean =
       js.isUndefined(sender) || sender == null ||
         (js.typeOf(sender.isDestroyed) == "function" && sender.isDestroyed().asInstanceOf[Boolean])
 
     def send(msg: js.Object): Unit =
-      if !isGone then
+      if !cancelled && !isGone then
         if js.typeOf(event.reply) == "function" then
           event.applyDynamic("reply")(eventChannel, id, msg)
         else
           sender.applyDynamic("send")(eventChannel, id, msg)
 
-    /** Run `f` when the renderer's `webContents` is destroyed; returns a function that stops it. */
-    def onGone(f: () => Unit): () => Unit =
-      if !isGone && js.typeOf(sender.once) == "function" then
-        val listener: js.Function0[Unit] = () => f()
-        sender.applyDynamic("once")("destroyed", listener)
-        () => sender.applyDynamic("removeListener")("destroyed", listener)
-      else
-        () => ()
-
   end StreamReply
+
+  /**
+    * The running streams of each renderer `webContents`, by call id. While a `webContents` has
+    * streams, it carries a `destroyed` and a `did-start-navigation` listener that cancel them; the
+    * listeners are removed with its last stream.
+    */
+  private class RunningStreams:
+    private class Streams(val detach: () => Unit):
+      val byId = js.Map.empty[String, () => Unit]
+
+    // Keyed by the webContents object (identity)
+    private val senders = js.Map.empty[js.Any, Streams]
+
+    private def key(id: js.Any): String = String.valueOf(id)
+
+    /** Register a running stream with the function that cancels it. */
+    def add(reply: StreamReply, cancel: () => Unit): Unit =
+      val sender  = reply.sender
+      val streams = senders
+        .get(sender)
+        .getOrElse {
+          val s = Streams(watch(sender))
+          senders(sender) = s
+          s
+        }
+      streams.byId(key(reply.id)) = cancel
+
+    def remove(sender: js.Any, id: js.Any): Unit = senders
+      .get(sender)
+      .foreach { streams =>
+        streams.byId.remove(key(id))
+        if streams.byId.isEmpty then
+          senders.remove(sender)
+          streams.detach()
+      }
+
+    def cancel(sender: js.Any, id: js.Any): Unit = senders
+      .get(sender)
+      .flatMap(_.byId.get(key(id)))
+      .foreach { f =>
+        remove(sender, id)
+        f()
+      }
+
+    private def cancelAll(sender: js.Any): Unit = senders
+      .get(sender)
+      .foreach { streams =>
+        val running = streams.byId.values.toList
+        streams.byId.clear()
+        senders.remove(sender)
+        streams.detach()
+        running.foreach(_())
+      }
+
+    private def watch(sender: js.Dynamic): () => Unit =
+      if js.typeOf(sender.on) != "function" || js.typeOf(sender.removeListener) != "function" then
+        () => ()
+      else
+        val onDestroyed: js.Function0[Unit] = () => cancelAll(sender)
+        // The old page can't read the rest after a reload or navigation. Electron passes a details
+        // event (isMainFrame, isSameDocument); older versions pass them as positional arguments
+        // (url, isInPlace, isMainFrame).
+        val onNavigation: js.Function4[js.Dynamic, js.Any, js.Any, js.Any, Unit] =
+          (details: js.Dynamic, _url: js.Any, isInPlace: js.Any, isMainFrame: js.Any) =>
+            def flag(name: String, positional: js.Any): Boolean =
+              val v =
+                if !js.isUndefined(details) && details != null &&
+                  !js.isUndefined(details.selectDynamic(name))
+                then
+                  details.selectDynamic(name)
+                else
+                  positional
+              v.asInstanceOf[Any] == true
+            if flag("isMainFrame", isMainFrame) && !flag("isSameDocument", isInPlace) then
+              cancelAll(sender)
+        sender.applyDynamic("on")("destroyed", onDestroyed)
+        sender.applyDynamic("on")("did-start-navigation", onNavigation)
+        () =>
+          sender.applyDynamic("removeListener")("destroyed", onDestroyed)
+          sender.applyDynamic("removeListener")("did-start-navigation", onNavigation)
+
+  end RunningStreams
 
   /**
     * Run a streaming request through the dispatcher and forward its response to the renderer as
     * stream messages (see [[ElectronIPC]]). A response that is not an event stream, such as an RPC
     * error raised before the method returned, is sent as a head with its body.
     */
-  private def stream(dispatcher: RPCDispatcher, reply: StreamReply, payload: js.Dynamic): Unit =
+  private def stream(
+      dispatcher: RPCDispatcher,
+      streams: RunningStreams,
+      reply: StreamReply,
+      payload: js.Dynamic
+  ): Unit =
+    // The dispatch, then the event stream it answered with
+    var dispatching: Cancelable = Cancelable.empty
+    var streaming: Cancelable   = Cancelable.empty
+    var finished                = false
+    def finish(): Unit          =
+      if !finished then
+        finished = true
+        streams.remove(reply.sender, reply.id)
+
     def fail(e: Throwable): Unit =
       warn(s"Unexpected error in RPC stream: ${e.getMessage}", e)
+      finish()
       reply.send(ElectronIPC.streamError("Internal error"))
+
+    def end(): Unit =
+      finish()
+      reply.send(ElectronIPC.streamEnd)
+
+    if !reply.isGone then
+      streams.add(
+        reply,
+        { () =>
+          // A renderer that survives an uncommitted navigation still waits for this call
+          reply.send(ElectronIPC.streamError("Cancelled"))
+          finished = true
+          reply.cancelled = true
+          dispatching.cancel
+          streaming.cancel
+        }
+      )
+
+    def forward(response: Response): Unit =
+      reply.send(ElectronIPC.streamHead(response))
+      if response.isEventStream then
+        streaming =
+          RxRunner.run(response.events) {
+            case OnNext(event) =>
+              reply.send(ElectronIPC.streamChunk(event.asInstanceOf[ServerSentEvent].toContent))
+            case OnError(e) =>
+              fail(e)
+            case OnCompletion =>
+              end()
+          }
+      else
+        end()
 
     // A malformed payload must still end the renderer's call, not leave it waiting
     try
-      forward(dispatcher.dispatch(ElectronIPC.toRequest(payload)), reply, fail)
+      dispatching =
+        RxRunner.run(dispatcher.dispatch(ElectronIPC.toRequest(payload))) {
+          case OnNext(v) =>
+            if !finished then
+              forward(v.asInstanceOf[Response])
+          case OnError(e) =>
+            fail(e)
+          case OnCompletion =>
+        }
     catch
       case NonFatal(e) =>
         fail(e)
 
   end stream
-
-  private def forward(
-      dispatched: wvlet.uni.rx.Rx[Response],
-      reply: StreamReply,
-      fail: Throwable => Unit
-  ): Unit =
-    RxRunner.run(dispatched) {
-      case OnNext(v) =>
-        val response = v.asInstanceOf[Response]
-        reply.send(ElectronIPC.streamHead(response))
-        if response.isEventStream then
-          var detach: () => Unit = () => ()
-          var finished           = false
-          def finish(): Unit     =
-            finished = true
-            detach()
-          val running =
-            RxRunner.run(response.events) {
-              case OnNext(event) =>
-                reply.send(ElectronIPC.streamChunk(event.asInstanceOf[ServerSentEvent].toContent))
-              case OnError(e) =>
-                finish()
-                fail(e)
-              case OnCompletion =>
-                finish()
-                reply.send(ElectronIPC.streamEnd)
-            }
-          // A closed window can't read the rest; stop producing it. A stream can end inside
-          // run(), before this line, so only a running one registers.
-          if !finished then
-            detach = reply.onGone(() => running.cancel)
-        else
-          reply.send(ElectronIPC.streamEnd)
-      case OnError(e) =>
-        fail(e)
-      case OnCompletion =>
-    }
 
   /**
     * Run a single request through the dispatcher and bridge the resulting `Rx[Response]` into a JS

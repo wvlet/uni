@@ -682,18 +682,20 @@ class RxRunner(
       case OnCancelOp(in, f) =>
         // Set by a terminal event or by the first cancel, so f runs at most once
         val ended        = AtomicBoolean(false)
-        val subscription = run(in) { ev =>
-          ev match
-            case OnNext(_) =>
-            case _ =>
-              ended.set(true)
-          effect(ev)
-        }
+        val subscription =
+          run(in) { ev =>
+            ev match
+              case OnNext(_) =>
+              case _         =>
+                ended.set(true)
+            effect(ev)
+          }
         Cancelable { () =>
           try subscription.cancel
           finally
             if ended.compareAndSet(false, true) then
-              try f()
+              try
+                f()
               catch
                 case NonFatal(e) =>
                   warn(s"onCancel failed: ${e.getMessage}", e)
