@@ -41,47 +41,78 @@ class FetchChannel extends HttpAsyncChannel:
   end send
 
   override def sendStreaming(request: HttpRequest, config: HttpClientConfig): Rx[Array[Byte]] =
-    val source = Rx.variable[Option[Array[Byte]]](None)
-    fetch(request).foreach(resp => readChunks(resp, source))
-    source.filter(_.isDefined).map(_.get)
+    streamResponse(request) { (resp, source) =>
+      readChunks(resp, source)
+    }
 
+  /**
+    * Stream the response body. The fetch starts when the returned Rx is subscribed, and cancelling
+    * the subscription before the body ends aborts it, so the server sees the connection close.
+    */
   override def sendStreaming(
       request: HttpRequest,
       config: HttpClientConfig,
       onResponse: HttpResponse => Unit
   ): Rx[Array[Byte]] =
-    val source = Rx.variable[Option[Array[Byte]]](None)
+    streamResponse(request) { (resp, source) =>
+      val head = readResponseHead(resp)
+      onResponse(head)
+      if head.isSuccessful then
+        readChunks(resp, source)
+      else
+        resp
+          .arrayBuffer()
+          .toFuture
+          .onComplete {
+            case Success(buf) =>
+              source.setException(HttpException.fromResponse(head.withContent(toContent(buf))))
+            case Failure(e) =>
+              source.setException(e)
+          }
+    }
 
-    fetch(request).onComplete {
+  end sendStreaming
+
+  private def streamResponse(request: HttpRequest)(
+      onFetched: (org.scalajs.dom.Response, RxVar[Option[Array[Byte]]]) => Unit
+  ): Rx[Array[Byte]] =
+    val source     = Rx.variable[Option[Array[Byte]]](None)
+    val controller = org.scalajs.dom.AbortController()
+    var started    = false
+
+    def start(): Unit = fetch(request, Some(controller.signal)).onComplete {
+      case _ if controller.signal.aborted =>
+      // Cancelled: the AbortError has no one to report to
       case Failure(e) =>
         source.setException(e)
       case Success(resp) =>
-        try
-          val head = readResponseHead(resp)
-          onResponse(head)
-          if head.isSuccessful then
-            readChunks(resp, source)
-          else
-            resp
-              .arrayBuffer()
-              .toFuture
-              .onComplete {
-                case Success(buf) =>
-                  source.setException(HttpException.fromResponse(head.withContent(toContent(buf))))
-                case Failure(e) =>
-                  source.setException(e)
-              }
+        try onFetched(resp, source)
         catch
           case e: Throwable =>
             source.setException(e)
     }
 
-    source.filter(_.isDefined).map(_.get)
+    source
+      .tap { chunk =>
+        // RxVar emits its current value (None) right after registering a subscriber, so the
+        // request starts only once someone listens and no chunk is lost
+        if chunk.isEmpty && !started then
+          started = true
+          start()
+      }
+      .onCancel(controller.abort())
+      .filter(_.isDefined)
+      .map(_.get)
 
-  end sendStreaming
+  end streamResponse
 
-  private def fetch(request: HttpRequest): Future[org.scalajs.dom.Response] =
-    org.scalajs.dom.fetch(request.fullUri, buildRequestInit(request)).toFuture
+  private def fetch(
+      request: HttpRequest,
+      signal: Option[org.scalajs.dom.AbortSignal] = None
+  ): Future[org.scalajs.dom.Response] =
+    val init = buildRequestInit(request)
+    signal.foreach(s => init.signal = s)
+    org.scalajs.dom.fetch(request.fullUri, init).toFuture
 
   private def readResponseHead(resp: org.scalajs.dom.Response): HttpResponse =
     val headerBuilder = HttpMultiMap.newBuilder
