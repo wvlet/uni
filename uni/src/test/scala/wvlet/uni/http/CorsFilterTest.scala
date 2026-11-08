@@ -41,7 +41,7 @@ class CorsFilterTest extends UniTest:
     .addHeader(HttpHeader.Origin, origin)
     .addHeader(HttpHeader.AccessControlRequestMethod, method)
 
-  test("pass a request without Origin through unchanged") {
+  test("handle a request without Origin with no CORS headers") {
     val handler  = Recorder()
     val response = run(CorsFilter(policy), Request.get("/api"), handler)
     handler.seen.size shouldBe 1
@@ -132,7 +132,26 @@ class CorsFilterTest extends UniTest:
     handler.seen.size shouldBe 1
     response.status shouldBe HttpStatus.Ok_200
     response.hasHeader(HttpHeader.AccessControlAllowOrigin) shouldBe false
-    response.hasHeader(HttpHeader.Vary) shouldBe false
+    // A cache must not reuse this response for an allowed origin
+    response.header(HttpHeader.Vary) shouldBe Some("Origin")
+  }
+
+  test("add Vary: Origin to a response for a request without Origin") {
+    val response = run(CorsFilter(policy), Request.get("/api"), Recorder())
+    response.header(HttpHeader.Vary) shouldBe Some("Origin")
+    // With any origin allowed, Allow-Origin is always *, so the response doesn't vary
+    run(CorsFilter(CorsPolicy().withAllowedOrigins("*")), Request.get("/api"), Recorder())
+      .hasHeader(HttpHeader.Vary) shouldBe false
+  }
+
+  test("merge exposed headers with those the handler set") {
+    val response = run(
+      CorsFilter(policy.withExposedHeaders("X-Request-Id")),
+      Request.get("/api").addHeader(HttpHeader.Origin, App),
+      Recorder(Response.ok.addHeader(HttpHeader.AccessControlExposeHeaders, "X-Total-Count"))
+    )
+    response.header(HttpHeader.AccessControlExposeHeaders) shouldBe
+      Some("X-Total-Count, X-Request-Id")
   }
 
   test("answer any origin with * when credentials are off") {

@@ -55,7 +55,7 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter
 
 ### Behavior
 
-1. **No `Origin` header.** The request is not a CORS request. Pass it to `next` unchanged.
+1. **No `Origin` header.** The request is not a CORS request. Pass it to `next`, and add `Vary: Origin` to the response (unless any origin is allowed), so a shared cache does not serve it to a cross-origin page.
 2. **Preflight** (`OPTIONS`, with `Origin` and `Access-Control-Request-Method`). Answer it without calling `next`:
    - If the origin, the requested method, and every requested header (when `allowedHeaders` is set) are allowed, return `204`. The response carries:
      - `Access-Control-Allow-Origin`: the request origin, or `*` for any origin without credentials.
@@ -66,7 +66,7 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter
    - Otherwise return `403` with no CORS headers. This matches the proxy's wrapper.
 3. **`OPTIONS` without `Access-Control-Request-Method`.** Treat it as an ordinary request.
 4. **Ordinary request from an allowed origin.** Call `next`, then add `Access-Control-Allow-Origin`, plus `Allow-Credentials` and `Expose-Headers` when configured. Append `Origin` to any `Vary` header already on the response; don't replace it. Server-Sent Events responses get the headers before the first event is sent.
-5. **Ordinary request from a disallowed origin.** Call `next` and add no headers, so the browser blocks the page from reading the response. Rejecting with 403 wouldn't add security, because a server must not rely on CORS to block requests that need no preflight.
+5. **Ordinary request from a disallowed origin.** Call `next` and add only `Vary: Origin`, so the browser blocks the page from reading the response. Rejecting with 403 wouldn't add security, because a server must not rely on CORS to block requests that need no preflight.
 6. **Failed handler `Rx`.** Leave it unchanged, so an outer `HttpAccessLogFilter` still logs the exception class. The server renders the generic 500 without CORS headers, so the browser reports a CORS error rather than a 500. This is a documented limitation, the same as `server.md:413` already describes for decorating filters. A user who wants CORS headers on errors puts an error-recovering filter inside `CorsFilter`.
 
 ### Placement

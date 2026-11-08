@@ -525,6 +525,7 @@ Http
 
 - An allowed preflight gets `204` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age` (600 s by default), and `-Credentials` when enabled. A preflight from a disallowed origin, or for a method or header the policy doesn't allow, gets `403`.
 - Requests from a disallowed origin are still handled, but get no CORS headers, so the browser keeps the page from reading the response. CORS protects what a page can read; it does not authenticate requests.
+- Responses get `Vary: Origin` (kept alongside the handler's own `Vary` values), so a cache does not serve one origin's answer to another. With `withAllowedOrigins("*")` the answer is the same for every origin, and `Vary` is left alone.
 - `withAllowedOrigins` matches exactly, ignoring case and a trailing slash. For patterns, use `withOriginFilter(o => pattern.matches(o))`, and anchor the pattern at the end so `app.example.com.evil.test` does not match.
 - `withAllowedOrigins("*")` answers `Access-Control-Allow-Origin: *`. It cannot be combined with `withAllowCredentials(true)`: `CorsFilter` throws `IllegalArgumentException`.
 - By default a preflight may ask for any request header. `withAllowedHeaders(...)` limits them, and `withExposedHeaders(...)` lets the page read more response headers.

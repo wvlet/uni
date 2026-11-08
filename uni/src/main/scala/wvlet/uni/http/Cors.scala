@@ -87,7 +87,8 @@ end CorsPolicy
 /**
   * An [[RxHttpFilter]] that implements CORS for browsers calling the server from another origin.
   *
-  *   - A request without `Origin` passes through unchanged.
+  *   - A request without `Origin` is handled as usual. Its response gets `Vary: Origin` (unless any
+  *     origin is allowed), so a cache does not reuse it for a cross-origin request.
   *   - A preflight (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) is answered here,
   *     without calling the handler: `204` with the `Access-Control-Allow-*` headers when the policy
   *     allows the origin, method, and headers, `403` otherwise.
@@ -113,17 +114,20 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
 
   override def apply(request: Request, next: RxHttpHandler): Rx[Response] =
     request.header(HttpHeader.Origin) match
-      case None =>
+      case Some(origin)
+          if request.method == HttpMethod.OPTIONS &&
+            request.hasHeader(HttpHeader.AccessControlRequestMethod) =>
+        Rx.single(
+          preflight(request, origin, request.header(HttpHeader.AccessControlRequestMethod).get)
+        )
+      case Some(origin) if policy.isOriginAllowed(origin) =>
+        next.handle(request).map(addResponseHeaders(_, origin))
+      case _ if policy.allowAnyOrigin =>
         next.handle(request)
-      case Some(origin) =>
-        request.header(HttpHeader.AccessControlRequestMethod) match
-          case Some(method) if request.method == HttpMethod.OPTIONS =>
-            Rx.single(preflight(request, origin, method))
-          case _ =>
-            if policy.isOriginAllowed(origin) then
-              next.handle(request).map(addResponseHeaders(_, origin))
-            else
-              next.handle(request)
+      case _ =>
+        // Allow-Origin depends on the request origin, so a cache must key on it even when this
+        // response carries no CORS headers
+        next.handle(request).map(addVary(_, HttpHeader.Origin))
 
   private def preflight(request: Request, origin: String, method: String): Response =
     val requestedHeaders = request
@@ -164,14 +168,10 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
   private def addResponseHeaders(response: Response, origin: String): Response =
     val withOrigin = withOriginHeaders(response, origin)
     val exposed    =
-      if policy.exposedHeaders.isEmpty then
-        withOrigin
-      else
-        withOrigin.setHeader(
-          HttpHeader.AccessControlExposeHeaders,
-          policy.exposedHeaders.mkString(", ")
-        )
-    addVaryOrigin(exposed)
+      policy
+        .exposedHeaders
+        .foldLeft(withOrigin)((r, h) => mergeToken(r, HttpHeader.AccessControlExposeHeaders, h))
+    addVary(exposed, HttpHeader.Origin)
 
   private def withOriginHeaders(response: Response, origin: String): Response =
     val allowOrigin =
@@ -185,15 +185,19 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
     else
       r
 
-  // Keep the handler's Vary values: caches must still key on them
-  private def addVaryOrigin(response: Response): Response =
-    val values = response.headerValues(HttpHeader.Vary).flatMap(_.split(',')).map(_.trim)
-    if values.exists(v => v == "*" || v.equalsIgnoreCase(HttpHeader.Origin)) then
+  // `Vary: *` already covers every request header
+  private def addVary(response: Response, name: String): Response =
+    if response.headerValues(HttpHeader.Vary).exists(_.split(',').exists(_.trim == "*")) then
       response
     else
-      response.setHeader(
-        HttpHeader.Vary,
-        (values.filter(_.nonEmpty) :+ HttpHeader.Origin).mkString(", ")
-      )
+      mergeToken(response, HttpHeader.Vary, name)
+
+  // Add a token to a comma-separated header, keeping the values the handler set
+  private def mergeToken(response: Response, header: String, token: String): Response =
+    val values = response.headerValues(header).flatMap(_.split(',')).map(_.trim).filter(_.nonEmpty)
+    if values.exists(_.equalsIgnoreCase(token)) then
+      response
+    else
+      response.setHeader(header, (values :+ token).mkString(", "))
 
 end CorsFilter
