@@ -99,6 +99,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: Netty on the JVM (add `uni-netty`), Node.js on Scala.js, native sockets on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
 | HTTP server (JVM only) | `wvlet.uni.http.netty.Netty` | `Netty.server.withPort(8080).withHandlerExecutorThreads(8).withRxHandler(handler).start()`: every Netty setting in one config, for projects that never target Scala.js or Native. `NettyServer` was removed; use `Netty.server` (JVM only) or `Http.server`. See [REST Server](../http/server#jvm-only-apps-netty-server) |
 | Static files (JVM, Node.js, Native) | `wvlet.uni.http.StaticFiles` | `Http.server.withFilter(StaticFiles("dist").withSpaFallback(true)).withRxHandler(api)`: serves `GET` for files under `dist` and passes other requests on. It refuses traversal, symlinks, and dotfiles by default. See [REST Server](../http/server#static-files) |
+| CORS (JVM, Node.js, Native) | `wvlet.uni.http.{CorsFilter, CorsPolicy}` | `Http.server.withFilter(CorsFilter(CorsPolicy().withAllowedOrigins("https://app.example.com"))).withRxHandler(api)`: answers preflights and adds `Access-Control-*` headers for allowed origins. No origin is allowed by default. See [REST Server](../http/server#cors) |
 | REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | `Http.server.withRxHandler(RouterHandler(Router.of[Controller]))`. See [REST Server](../http/server) |
 | Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api].newSyncClient(http).call[A]("method", args*)` (or `newAsyncClient` for `Rx[A]`); `newAsyncClient(http).stream[A]("method", args*)` streams every value of an `Rx` result over SSE or Electron IPC; cancelling it stops the server stream; declare such methods as returning `RxStream[A]` (`wvlet.uni.rx.RxStream`, built with `RxStream(rx)`) so sbt-uni's generated `AsyncClient` streams them. See [RPC](../http/rpc) |
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
@@ -128,6 +129,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | `wvlet.airframe.rx.Rx` | `wvlet.uni.rx.Rx` |
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.http.netty.Netty.server` | `wvlet.uni.http.netty.Netty.server` (JVM only), or `Http.server` for cross-platform code |
+| `wvlet.airframe.http.filter.Cors` (`Cors.Policy`, `Cors.newFilter`) | `wvlet.uni.http.CorsFilter(CorsPolicy())`, added with `Http.server.withFilter` |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
 | AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |

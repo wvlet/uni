@@ -102,7 +102,7 @@ Read the reference for the task before writing code:
 | Object wiring, logging, JSON, YAML, Markdown, cron, persisted settings, retry, MCP server | [references/core.md](references/core.md) |
 | Typed RPC service, server, generated client, and streaming results | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
-| HTTP server, REST controllers, filters | [references/http-server.md](references/http-server.md) |
+| HTTP server, REST controllers, filters, CORS | [references/http-server.md](references/http-server.md) |
 | Unit, HTTP, RPC, property, and uni-dom UI tests; test tags | [references/testing.md](references/testing.md) |
 | Rx operators, RxRef/RxDeferred/RxSemaphore, fibers, parallelism | [references/rx.md](references/rx.md) |
 | Server-sent events and WebSocket (server and client) | [references/streaming.md](references/streaming.md) |
