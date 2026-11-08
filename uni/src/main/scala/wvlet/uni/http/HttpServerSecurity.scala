@@ -140,7 +140,8 @@ private[uni] object HttpServerSecurity:
       allowedOrigins.exists(o => normalizeOrigin(o) == normalizeOrigin(origin)) ||
       host.exists(h => isSameOrigin(origin, h))
 
-  private def normalizeOrigin(origin: String): String = origin.trim.stripSuffix("/").toLowerCase
+  private[http] def normalizeOrigin(origin: String): String =
+    origin.trim.stripSuffix("/").toLowerCase
 
   private def isSameOrigin(origin: String, host: String): Boolean =
     val o           = normalizeOrigin(origin)

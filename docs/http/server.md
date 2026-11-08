@@ -410,7 +410,7 @@ val errorFilter = RxHttpFilter { (request, next) =>
 }
 ```
 
-An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (logging, CORS headers) never sees this 500. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
+An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (logging, [CORS](#cors) headers) never sees this 500. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
 
 ### Applying Filters
 
@@ -500,6 +500,36 @@ HttpAccessLogFilter.addEntry(request, "user_id", user.id)
 - An SSE response gets a second entry when the stream ends (`stream_event_count`, `stream_bytes`, `stream_duration_ms`), written to the stream writer.
 - `jsonFile` writes JSON lines with daily and size-based rotation. For Fluentd or another sink, implement `HttpAccessLogWriter.write(entry: Map[String, Any])`.
 - Requests rejected before filters run (oversized or malformed bodies, read timeouts, the host check) are not logged.
+
+### CORS
+
+`CorsFilter` lets a page on another origin call the server. It answers CORS preflights (`OPTIONS` with `Access-Control-Request-Method`) itself, and adds `Access-Control-Allow-Origin` to responses for allowed origins. The default `CorsPolicy` allows no origin:
+
+```scala
+import wvlet.uni.http.{CorsFilter, CorsPolicy, HttpMethod}
+
+val cors = CorsFilter(
+  CorsPolicy()
+    .withAllowedOrigins("https://app.example.com", "http://localhost:5173")
+    .withAllowedMethods(HttpMethod.GET, HttpMethod.POST)
+    .withAllowCredentials(true)
+)
+
+Http
+  .server
+  .withFilter(accessLog) // outermost
+  .withFilter(cors)      // a server filter, so it also answers preflights for unrouted paths
+  .withRxHandler(RouterHandler(router))
+  .start()
+```
+
+- An allowed preflight gets `204` with `Access-Control-Allow-Methods`, `-Headers`, `-Max-Age` (600 s by default), and `-Credentials` when enabled. A preflight from a disallowed origin, or for a method or header the policy doesn't allow, gets `403`.
+- Requests from a disallowed origin are still handled, but get no CORS headers, so the browser keeps the page from reading the response. CORS protects what a page can read; it does not authenticate requests.
+- `withAllowedOrigins` matches exactly, ignoring case and a trailing slash. For patterns, use `withOriginFilter(o => pattern.matches(o))`, and anchor the pattern at the end so `app.example.com.evil.test` does not match.
+- `withAllowedOrigins("*")` answers `Access-Control-Allow-Origin: *`. It cannot be combined with `withAllowCredentials(true)`: `CorsFilter` throws `IllegalArgumentException`.
+- By default a preflight may ask for any request header. `withAllowedHeaders(...)` limits them, and `withExposedHeaders(...)` lets the page read more response headers.
+- A failed handler `Rx` is passed on unchanged, so the server's generic 500 has no CORS headers and the browser reports a CORS error. Put an error filter that recovers inside `CorsFilter` (added after it) to give errors CORS headers.
+- WebSocket upgrades are not affected; they use [`withAllowedOrigins`](#allowed-origins) on the server.
 
 ## Server Configuration
 

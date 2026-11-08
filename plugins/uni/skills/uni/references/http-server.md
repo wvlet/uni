@@ -162,6 +162,29 @@ Http
   protect the files, or before it to keep them public.
 - Files are read whole per request (no `Range`, caching headers, or streaming).
 
+## CORS (JVM, Node.js, Native)
+
+`CorsFilter` answers CORS preflights and adds `Access-Control-Allow-Origin` to
+responses for allowed origins. The default `CorsPolicy` allows no origin:
+
+```scala
+import wvlet.uni.http.{CorsFilter, CorsPolicy}
+
+Http
+  .server
+  .withPort(8080)
+  .withFilter(CorsFilter(CorsPolicy().withAllowedOrigins("https://app.example.com")))
+  .withRxHandler(handler)
+  .start()
+```
+
+- Add it as a server filter (`withFilter`), so it also answers preflights for
+  paths with no route.
+- `withOriginFilter(f)` takes a predicate for patterns; anchor regexes at `$`.
+- `withAllowedOrigins("*")` with `withAllowCredentials(true)` throws.
+- A disallowed preflight gets 403; other requests from a disallowed origin are
+  handled without CORS headers. A handler failure's 500 has no CORS headers.
+
 ## Lifecycle
 
 `start()` returns an `HttpServer`: `localPort`, `localAddress`, `isRunning`,
