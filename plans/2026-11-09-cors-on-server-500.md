@@ -3,27 +3,29 @@
 ## Goals
 
 - When a handler fails without recovering, a cross-origin browser app should see the 500, not a CORS error. Today `CorsFilter` passes the failed `Rx` through, and the server renders its generic 500 with no `Access-Control-*` headers (known limitation in #886).
-- Keep what #886 got right: the exception reaches the server and an outer `HttpAccessLogFilter` unchanged, so the server still logs it and the access log still records `exception_class`.
+- Keep the failure visible to operators: the server log gets the stack trace, and an outer `HttpAccessLogFilter` gets `exception_class`.
 
 ## Background
 
-- All three backends render the generic 500 through `HttpServerSecurity.errorResponse(e, detailedErrors)`: Netty `NettyRequestHandler`, Native `NativeHttpServer.runHandler`/`awaitRx`, Node `NodeHttpServer.runResponse`/`handleBody`. The server holds the request at each of those call sites, but a filter only sees the request, so a filter can't add headers to that response.
-- `CorsFilter` can't recover the failure into a 500 itself: it doesn't know `detailedErrors`, and an outer access log would then record a plain 500 with no exception.
-- `HttpAccessLogFilter` already uses a mutable per-request holder in a `RequestAttribute` (`LogContext`) to pass data out of inner filters.
+- All three backends render the generic 500 through `HttpServerSecurity.errorResponse(e, detailedErrors)` after every filter has returned, so no filter can add headers to it.
+- airframe-http had the same gap: its `RPCResponseFilter` turns exceptions into responses outside the user filters, so its `CorsFilter` never saw them either.
+- #886's docs told users to put an error-recovering filter inside `CorsFilter`. Every app would write the same filter, with the same loss of exception details in the access log.
+- `HttpAccessLogFilter.addEntry` lets an inner filter add fields to the access log entry.
 
 ## Design
 
-Lane: **Express**. A fix with a clear diagnosis, and no new public API. It doesn't change which origins are allowed: the 500 gets exactly the headers a successful response from the same request would get.
+Lane: **Express**. A fix with a clear diagnosis, and no new public API. It doesn't change which origins are allowed.
 
-- Add a `private[http]` per-request holder, `ServerErrorResponse`, in a `RequestAttribute`. Filters register a `Response => Response` decoration on it, and the server applies them to its generic 500.
-- Each backend creates the holder, attaches it to the request before calling the handler, and applies it wherever it renders a handler failure: a synchronous throw from `handle` or an `OnError`.
-- `CorsFilter` registers the same decoration it applies to successful responses: `Allow-Origin`, credentials, `Expose-Headers`, and `Vary: Origin` for an allowed origin; only `Vary: Origin` for a disallowed origin or no `Origin`. The failure itself passes through unchanged.
-- Not covered: a failure inside an SSE stream after the headers were sent, and WebSocket upgrades. CORS doesn't apply to WebSockets.
-- Docs: drop the limitation from the `CorsFilter` scaladoc, `docs/http/server.md`, and the `uni` skill's http-server reference. Bump the plugin version.
-- Tests: a Netty server test where a failing handler behind `CorsFilter` returns a 500 that carries `Access-Control-Allow-Origin`, and the access log still records the exception class.
+- `CorsFilter` recovers a handler failure (a failed `Rx` or a synchronous throw) into the generic 500, then adds the usual CORS headers. It does this only for requests from an allowed origin.
+- Before recovering, it logs the exception with its stack trace, and records `exception_class` and `exception_message` with `HttpAccessLogFilter.addEntry`.
+- The 500 body is always `Internal Server Error`, even with `withDetailedErrors`. That setting is for development only, and the server log has the full exception.
+- Requests with no `Origin` or from a disallowed origin keep today's behavior: the failure reaches the server unchanged. A browser can't read a disallowed origin's response anyway.
+- No changes to the server backends.
+- Docs: replace the limitation in the `CorsFilter` scaladoc, `docs/http/server.md`, and the `uni` skill's http-server reference with the new behavior. Bump the plugin version.
+- Tests: unit tests for allowed and other origins, and a Netty server test checking the 500's CORS headers and the access log's exception fields.
 
 ## Alternatives and Why Not?
 
-- Wrap the exception in a type that carries the headers: outer filters and the access log would see the wrapper instead of the handler's exception.
-- `CorsFilter` recovers the failure into a 500: hides the exception from the access log and server log, and ignores `detailedErrors`.
-- Carry the headers in an `addSuppressed` exception: mutates the user's exception, and does nothing when suppression is disabled.
+- Keep #886's advice (a user-written recovering filter): every app has to remember it and write the same code.
+- A server-attached holder on which filters register headers for the server's 500: keeps `detailedErrors` and the server log as they are, but adds hidden coupling to all three backends.
+- Build the 500 in a filter inside all user filters: reverses the ADR decision that exceptions reach filters as failures.

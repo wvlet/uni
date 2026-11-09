@@ -82,7 +82,7 @@ class CorsFilterServerTest extends UniTest:
     }
   }
 
-  test("add CORS headers to the server's 500 for a failed handler") {
+  test("answer a failed handler with a 500 carrying CORS headers") {
     val log = HttpAccessLogWriter.inMemory()
     withServer(log) { base =>
       val response = send(HttpRequest.newBuilder(URI.create(s"${base}/fail")).GET())
@@ -91,16 +91,18 @@ class CorsFilterServerTest extends UniTest:
       response.headers().firstValue("Access-Control-Allow-Origin").orElse("") shouldBe App
       response.headers().firstValue("Vary").orElse("") shouldBe "Origin"
 
-      // The access log, outside CorsFilter, still sees the handler's exception
+      // The access log, outside CorsFilter, still records the handler's exception
       val deadline = System.currentTimeMillis() + 5000
       while log.entries.isEmpty && System.currentTimeMillis() < deadline do
         Thread.sleep(10)
       log.entries.map(_.get("exception_class")) shouldBe
         Seq(Some("java.lang.IllegalStateException"))
+      log.entries.map(_.get("exception_message")) shouldBe Seq(Some("handler failed"))
+      log.entries.map(_.get("status_code")) shouldBe Seq(Some(500))
     }
   }
 
-  test("add only Vary to the 500 for a disallowed origin") {
+  test("leave the server's 500 for a disallowed origin without CORS headers") {
     withServer { base =>
       val response = client.send(
         HttpRequest
@@ -112,7 +114,6 @@ class CorsFilterServerTest extends UniTest:
       )
       response.statusCode() shouldBe 500
       response.headers().firstValue("Access-Control-Allow-Origin").isPresent shouldBe false
-      response.headers().firstValue("Vary").orElse("") shouldBe "Origin"
     }
   }
 

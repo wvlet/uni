@@ -156,16 +156,14 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       var tooLarge   = false
 
       def handleBody(): Unit =
-        // Filters add headers to the 500 for a failed handler here (e.g. CORS)
-        val serverError = ServerErrorResponse()
         try
           val content = HttpContent.fromBytes(bodyChunks.result(), headers)
           val request = Request(method = method, uri = uri, headers = headers, content = content)
-          runResponse(res, handler.handle(serverError.attachTo(request)), serverError)
+          runResponse(res, handler.handle(request))
         catch
           case e: Throwable =>
             warn(s"Error handling request: ${e.getMessage}", e)
-            writeResponse(res, serverError(errorResponse(e)))
+            writeResponse(res, errorResponse(e))
 
       val onData: js.Function1[js.Dynamic, Unit] =
         (chunk: js.Dynamic) =>
@@ -219,17 +217,13 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       case _: Throwable =>
         ()
 
-  private def runResponse(
-      res: js.Dynamic,
-      rx: Rx[Response],
-      serverError: ServerErrorResponse
-  ): Unit =
+  private def runResponse(res: js.Dynamic, rx: Rx[Response]): Unit =
     RxRunner.runOnce(rx) {
       case OnNext(response) =>
         writeResponse(res, response.asInstanceOf[Response])
       case OnError(e) =>
         warn(s"Error in Rx handler: ${e.getMessage}", e)
-        writeResponse(res, serverError(errorResponse(e)))
+        writeResponse(res, errorResponse(e))
       case OnCompletion =>
         writeResponse(res, Response.notFound)
     }

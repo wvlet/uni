@@ -183,44 +183,50 @@ class CorsFilterTest extends UniTest:
     p.isOriginAllowed("https://app.example.com.evil.test") shouldBe false
   }
 
-  test("pass a handler failure on unchanged") {
-    val failing = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
-    var result  = Option.empty[Try[Response]]
-    CorsFilter(policy)(Request.get("/api").addHeader(HttpHeader.Origin, App), failing)
-      .transformTry(t => Success(t))
-      .run(t => result = Some(t))
-    result shouldMatch { case Some(Failure(_: IllegalStateException)) =>
-    }
-  }
+  private def runTry(filter: CorsFilter, request: Request, handler: RxHttpHandler) =
+    var result = Option.empty[Try[Response]]
+    filter(request, handler).transformTry(t => Success(t)).run(t => result = Some(t))
+    result
 
-  test("register the CORS headers for the server's 500 on a failed handler") {
-    val serverError = ServerErrorResponse()
-    val request     = serverError.attachTo(Request.get("/api").addHeader(HttpHeader.Origin, App))
-    val failing     = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
-    var result      = Option.empty[Try[Response]]
-    CorsFilter(policy.withAllowCredentials(true).withExposedHeaders("X-Request-Id"))(
-      request,
+  private val failing = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
+
+  test("answer a handler failure from an allowed origin with a 500 carrying CORS headers") {
+    val result = runTry(
+      CorsFilter(policy.withAllowCredentials(true).withExposedHeaders("X-Request-Id")),
+      Request.get("/api").addHeader(HttpHeader.Origin, App),
       failing
-    ).transformTry(t => Success(t)).run(t => result = Some(t))
-    // The failure itself is passed on for the server and the access log to report
-    result shouldMatch { case Some(Failure(_: IllegalStateException)) =>
+    )
+    result shouldMatch { case Some(Success(_)) =>
     }
-    val response = serverError(Response.internalServerError("Internal Server Error"))
+    val response = result.get.get
+    response.status shouldBe HttpStatus.InternalServerError_500
+    // The exception message stays out of the body, as in the server's own 500
+    response.contentAsString shouldBe Some("Internal Server Error")
     response.header(HttpHeader.AccessControlAllowOrigin) shouldBe Some(App)
     response.header(HttpHeader.AccessControlAllowCredentials) shouldBe Some("true")
     response.header(HttpHeader.AccessControlExposeHeaders) shouldBe Some("X-Request-Id")
     response.header(HttpHeader.Vary) shouldBe Some("Origin")
   }
 
-  test("register only Vary for the server's 500 on a request from a disallowed origin") {
-    val serverError = ServerErrorResponse()
-    val request     = serverError.attachTo(
-      Request.get("/api").addHeader(HttpHeader.Origin, "https://evil.example.com")
+  test("answer a synchronous handler throw from an allowed origin with a 500") {
+    val throwing = RxHttpHandler(_ => throw IllegalStateException("boom"))
+    val result   = runTry(
+      CorsFilter(policy),
+      Request.get("/api").addHeader(HttpHeader.Origin, App),
+      throwing
     )
-    CorsFilter(policy)(request, Recorder()).run(_ => ())
-    val response = serverError(Response.internalServerError)
-    response.hasHeader(HttpHeader.AccessControlAllowOrigin) shouldBe false
-    response.header(HttpHeader.Vary) shouldBe Some("Origin")
+    result.flatMap(_.toOption).map(_.status) shouldBe Some(HttpStatus.InternalServerError_500)
+  }
+
+  test("pass a handler failure on unchanged for other requests") {
+    for request <- Seq(
+        Request.get("/api"),
+        Request.get("/api").addHeader(HttpHeader.Origin, "https://evil.example.com")
+      )
+    do
+      runTry(CorsFilter(policy), request, failing) shouldMatch {
+        case Some(Failure(_: IllegalStateException)) =>
+      }
   }
 
 end CorsFilterTest

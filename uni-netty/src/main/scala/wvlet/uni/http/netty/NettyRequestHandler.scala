@@ -52,7 +52,6 @@ import wvlet.uni.http.{
   RequestAttribute,
   Response,
   RxHttpHandler,
-  ServerErrorResponse,
   ServerSentEvent,
   WebSocketRoute
 }
@@ -98,8 +97,6 @@ class NettyRequestHandler(
     if HttpMethod.of(nettyRequest.method().name()).isEmpty then
       sendResponse(ctx, Response.notImplemented, keepAlive)
       return
-    // Filters add headers to the 500 for a failed handler here (e.g. CORS)
-    val serverError = ServerErrorResponse()
     try
       val request = toUniRequest(ctx, nettyRequest)
       HttpServerSecurity.checkHost(request, allowedHosts) match
@@ -111,12 +108,12 @@ class NettyRequestHandler(
             case Some(route) =>
               handleWebSocketUpgrade(ctx, nettyRequest, request, route)
             case None =>
-              val response = handler.handle(serverError.attachTo(request))
-              runRxResponse(ctx, response, keepAlive, serverError)
+              val response = handler.handle(request)
+              runRxResponse(ctx, response, keepAlive)
     catch
       case e: Exception =>
         warn(s"Error handling request: ${e.getMessage}", e)
-        sendResponse(ctx, serverError(errorResponse(e)), keepAlive)
+        sendResponse(ctx, errorResponse(e), keepAlive)
 
   private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
     e,
@@ -292,8 +289,7 @@ class NettyRequestHandler(
   private def runRxResponse(
       ctx: ChannelHandlerContext,
       rx: Rx[Response],
-      keepAlive: Boolean,
-      serverError: ServerErrorResponse
+      keepAlive: Boolean
   ): Unit =
     // runOnce can still report OnCompletion after the first OnNext; answer only the first event so
     // a completed handler never appends a 404 to the response (or to an SSE stream) it already sent
@@ -315,7 +311,7 @@ class NettyRequestHandler(
       case OnError(e) =>
         if responded.compareAndSet(false, true) then
           warn(s"Error in Rx handler: ${e.getMessage}", e)
-          sendResponse(ctx, serverError(errorResponse(e)), keepAlive)
+          sendResponse(ctx, errorResponse(e), keepAlive)
       case OnCompletion =>
         if responded.compareAndSet(false, true) then
           sendResponse(ctx, Response.notFound, keepAlive)
