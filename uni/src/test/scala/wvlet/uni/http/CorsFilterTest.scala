@@ -194,11 +194,10 @@ class CorsFilterTest extends UniTest:
   }
 
   test("register the CORS headers for the server's 500 on a failed handler") {
-    val (request, serverError) = ServerErrorResponse.attach(
-      Request.get("/api").addHeader(HttpHeader.Origin, App)
-    )
-    val failing = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
-    var result  = Option.empty[Try[Response]]
+    val serverError = ServerErrorResponse()
+    val request     = serverError.attachTo(Request.get("/api").addHeader(HttpHeader.Origin, App))
+    val failing     = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
+    var result      = Option.empty[Try[Response]]
     CorsFilter(policy.withAllowCredentials(true).withExposedHeaders("X-Request-Id"))(
       request,
       failing
@@ -214,7 +213,8 @@ class CorsFilterTest extends UniTest:
   }
 
   test("register only Vary for the server's 500 on a request from a disallowed origin") {
-    val (request, serverError) = ServerErrorResponse.attach(
+    val serverError = ServerErrorResponse()
+    val request     = serverError.attachTo(
       Request.get("/api").addHeader(HttpHeader.Origin, "https://evil.example.com")
     )
     CorsFilter(policy)(request, Recorder()).run(_ => ())

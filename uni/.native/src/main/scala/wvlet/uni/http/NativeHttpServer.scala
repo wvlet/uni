@@ -294,9 +294,9 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     */
   private def runHandler(request: Request): Response =
     // Filters add headers to the 500 for a failed handler here (e.g. CORS)
-    val (handlerRequest, serverError) = ServerErrorResponse.attach(request)
+    val serverError = ServerErrorResponse()
     try
-      checkHeaders(awaitRx(handler.handle(handlerRequest), serverError))
+      checkHeaders(awaitRx(handler.handle(serverError.attachTo(request)), serverError))
     catch
       case NonFatal(e) =>
         warn(s"Error handling request: ${e.getMessage}", e)

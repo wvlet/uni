@@ -157,14 +157,11 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
 
       def handleBody(): Unit =
         // Filters add headers to the 500 for a failed handler here (e.g. CORS)
-        var serverError = ServerErrorResponse()
+        val serverError = ServerErrorResponse()
         try
-          val content           = HttpContent.fromBytes(bodyChunks.result(), headers)
-          val (request, holder) = ServerErrorResponse.attach(
-            Request(method = method, uri = uri, headers = headers, content = content)
-          )
-          serverError = holder
-          runResponse(res, handler.handle(request), serverError)
+          val content = HttpContent.fromBytes(bodyChunks.result(), headers)
+          val request = Request(method = method, uri = uri, headers = headers, content = content)
+          runResponse(res, handler.handle(serverError.attachTo(request)), serverError)
         catch
           case e: Throwable =>
             warn(s"Error handling request: ${e.getMessage}", e)

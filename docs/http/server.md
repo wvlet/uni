@@ -410,7 +410,7 @@ val errorFilter = RxHttpFilter { (request, next) =>
 }
 ```
 
-An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (e.g. adding headers) never sees this 500. `HttpAccessLogFilter` and `CorsFilter` handle this case themselves. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
+An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (e.g. adding headers) never sees this 500. Place such a filter outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
 
 ### Applying Filters
 

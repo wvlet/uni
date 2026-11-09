@@ -99,7 +99,7 @@ class NettyRequestHandler(
       sendResponse(ctx, Response.notImplemented, keepAlive)
       return
     // Filters add headers to the 500 for a failed handler here (e.g. CORS)
-    var serverError = ServerErrorResponse()
+    val serverError = ServerErrorResponse()
     try
       val request = toUniRequest(ctx, nettyRequest)
       HttpServerSecurity.checkHost(request, allowedHosts) match
@@ -111,9 +111,7 @@ class NettyRequestHandler(
             case Some(route) =>
               handleWebSocketUpgrade(ctx, nettyRequest, request, route)
             case None =>
-              val (handlerRequest, holder) = ServerErrorResponse.attach(request)
-              serverError = holder
-              val response = handler.handle(handlerRequest)
+              val response = handler.handle(serverError.attachTo(request))
               runRxResponse(ctx, response, keepAlive, serverError)
     catch
       case e: Exception =>

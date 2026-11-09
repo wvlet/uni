@@ -32,13 +32,11 @@ private[http] class ServerErrorResponse:
 
   def apply(response: Response): Response = decoration.get()(response)
 
+  /** The request to pass to the handler, with this holder attached */
+  def attachTo(request: Request): Request = request.withAttribute(ServerErrorResponse.Key, this)
+
 private[http] object ServerErrorResponse:
   val Key: RequestAttribute[ServerErrorResponse] = RequestAttribute("serverErrorResponse")
-
-  /** Attach a fresh holder to `request`, returning both */
-  def attach(request: Request): (Request, ServerErrorResponse) =
-    val holder = ServerErrorResponse()
-    (request.withAttribute(Key, holder), holder)
 
   /** Register `f` on the request's holder, if the server attached one */
   def decorate(request: Request, f: Response => Response): Unit = request
