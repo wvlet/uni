@@ -293,12 +293,14 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     * the worker thread waits on a latch for the first event.
     */
   private def runHandler(request: Request): Response =
+    // Filters add headers to the 500 for a failed handler here (e.g. CORS)
+    val (handlerRequest, serverError) = ServerErrorResponse.attach(request)
     try
-      checkHeaders(awaitRx(handler.handle(request)))
+      checkHeaders(awaitRx(handler.handle(handlerRequest), serverError))
     catch
       case NonFatal(e) =>
         warn(s"Error handling request: ${e.getMessage}", e)
-        errorResponse(e)
+        serverError(errorResponse(e))
 
   private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
     e,
@@ -322,7 +324,10 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
     * Block for the single Response produced by an Rx (the request handler, or a WebSocket upgrade
     * filter gate), bounded by the handler timeout so a never-completing Rx can't wedge the worker.
     */
-  private def awaitRx(rx: Rx[Response]): Response =
+  private def awaitRx(
+      rx: Rx[Response],
+      serverError: ServerErrorResponse = ServerErrorResponse()
+  ): Response =
     val latch  = CountDownLatch(1)
     val result = AtomicReference[Response]()
     RxRunner.runOnce(rx) {
@@ -331,7 +336,7 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
         latch.countDown()
       case OnError(e) =>
         warn(s"Error in handler: ${e.getMessage}", e)
-        result.set(errorResponse(e))
+        result.set(serverError(errorResponse(e)))
         latch.countDown()
       case OnCompletion =>
         // Completed without emitting a response.

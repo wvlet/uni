@@ -13,7 +13,14 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{CorsFilter, CorsPolicy, HttpMethod}
+import wvlet.uni.http.{
+  CorsFilter,
+  CorsPolicy,
+  HttpAccessLogFilter,
+  HttpAccessLogWriter,
+  HttpMethod,
+  InMemoryHttpAccessLogWriter
+}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.test.UniTest
 
@@ -25,17 +32,23 @@ object CorsFilterServerTest:
     @Endpoint(HttpMethod.GET, "/hello")
     def hello(): String = "hello"
 
+    @Endpoint(HttpMethod.GET, "/fail")
+    def fail(): String = throw IllegalStateException("handler failed")
+
 class CorsFilterServerTest extends UniTest:
   import CorsFilterServerTest.*
 
   private val App    = "https://app.example.com"
   private val client = HttpClient.newHttpClient()
 
-  private def withServer[A](f: String => A): A =
+  private def withServer[A](f: String => A): A = withServer(HttpAccessLogWriter.inMemory())(f)
+
+  private def withServer[A](log: InMemoryHttpAccessLogWriter)(f: String => A): A =
     val server = NettyServerConfig()
       .withPort(0)
       .noNativeTransport
       .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withFilter(HttpAccessLogFilter(log))
       .withFilter(CorsFilter(CorsPolicy().withAllowedOrigins(App)))
       .withRxHandler(RouterHandler(Router.of[HelloController]))
       .start()
@@ -66,6 +79,40 @@ class CorsFilterServerTest extends UniTest:
       response.statusCode() shouldBe 200
       response.body() shouldBe "hello"
       response.headers().firstValue("Access-Control-Allow-Origin").orElse("") shouldBe App
+    }
+  }
+
+  test("add CORS headers to the server's 500 for a failed handler") {
+    val log = HttpAccessLogWriter.inMemory()
+    withServer(log) { base =>
+      val response = send(HttpRequest.newBuilder(URI.create(s"${base}/fail")).GET())
+      response.statusCode() shouldBe 500
+      response.body() shouldBe "Internal Server Error"
+      response.headers().firstValue("Access-Control-Allow-Origin").orElse("") shouldBe App
+      response.headers().firstValue("Vary").orElse("") shouldBe "Origin"
+
+      // The access log, outside CorsFilter, still sees the handler's exception
+      val deadline = System.currentTimeMillis() + 5000
+      while log.entries.isEmpty && System.currentTimeMillis() < deadline do
+        Thread.sleep(10)
+      log.entries.map(_.get("exception_class")) shouldBe
+        Seq(Some("java.lang.IllegalStateException"))
+    }
+  }
+
+  test("add only Vary to the 500 for a disallowed origin") {
+    withServer { base =>
+      val response = client.send(
+        HttpRequest
+          .newBuilder(URI.create(s"${base}/fail"))
+          .header("Origin", "https://evil.example.com")
+          .GET()
+          .build(),
+        HttpResponse.BodyHandlers.ofString()
+      )
+      response.statusCode() shouldBe 500
+      response.headers().firstValue("Access-Control-Allow-Origin").isPresent shouldBe false
+      response.headers().firstValue("Vary").orElse("") shouldBe "Origin"
     }
   }
 

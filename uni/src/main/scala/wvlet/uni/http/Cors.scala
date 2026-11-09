@@ -97,9 +97,8 @@ end CorsPolicy
   *     without CORS headers, so the browser keeps the page from reading the response.
   *
   * Add it with `withFilter` on the server, inside the access log filter, so it also answers
-  * preflights for paths that have no route. A handler failure is passed on unchanged, so the
-  * server's 500 carries no CORS headers; put an error-recovering filter inside this one to give
-  * errors CORS headers.
+  * preflights for paths that have no route. A handler failure is passed on unchanged, so the server
+  * and the access log still report the exception, and the server's 500 gets the same CORS headers.
   */
 class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
   require(
@@ -121,13 +120,23 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
           preflight(request, origin, request.header(HttpHeader.AccessControlRequestMethod).get)
         )
       case Some(origin) if policy.isOriginAllowed(origin) =>
-        next.handle(request).map(addResponseHeaders(_, origin))
+        handle(request, next, addResponseHeaders(_, origin))
       case _ if policy.allowAnyOrigin =>
         next.handle(request)
       case _ =>
         // Allow-Origin depends on the request origin, so a cache must key on it even when this
         // response carries no CORS headers
-        next.handle(request).map(addVary(_, HttpHeader.Origin))
+        handle(request, next, addVary(_, HttpHeader.Origin))
+
+  // Give the server's generic 500 the same headers, so a browser sees the error rather than a
+  // CORS failure. The failure itself passes through for the server and the access log to report.
+  private def handle(
+      request: Request,
+      next: RxHttpHandler,
+      decorate: Response => Response
+  ): Rx[Response] =
+    ServerErrorResponse.decorate(request, decorate)
+    next.handle(request).map(decorate)
 
   private def preflight(request: Request, origin: String, method: String): Response =
     val requestedHeaders = request

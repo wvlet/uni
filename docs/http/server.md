@@ -410,7 +410,7 @@ val errorFilter = RxHttpFilter { (request, next) =>
 }
 ```
 
-An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (logging, [CORS](#cors) headers) never sees this 500. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
+An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (e.g. adding headers) never sees this 500. `HttpAccessLogFilter` and `CorsFilter` handle this case themselves. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
 
 ### Applying Filters
 
@@ -529,7 +529,7 @@ Http
 - `withAllowedOrigins` matches exactly, ignoring case and a trailing slash. For patterns, use `withOriginFilter(o => pattern.matches(o))`, and anchor the pattern at the end so `app.example.com.evil.test` does not match.
 - `withAllowedOrigins("*")` answers `Access-Control-Allow-Origin: *`. It cannot be combined with `withAllowCredentials(true)`: `CorsFilter` throws `IllegalArgumentException`.
 - By default a preflight may ask for any request header. `withAllowedHeaders(...)` limits them, and `withExposedHeaders(...)` lets the page read more response headers.
-- A failed handler `Rx` is passed on unchanged, so the server's generic 500 has no CORS headers and the browser reports a CORS error. Put an error filter that recovers inside `CorsFilter` (added after it) to give errors CORS headers.
+- A failed handler `Rx` is passed on unchanged, so the server and the access log still report the exception. The server's generic 500 gets the same CORS headers as a successful response, so the browser sees the 500 rather than a CORS error.
 - WebSocket upgrades are not affected; they use [`withAllowedOrigins`](#allowed-origins) on the server.
 
 ## Server Configuration

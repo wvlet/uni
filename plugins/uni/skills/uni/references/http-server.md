@@ -183,7 +183,7 @@ Http
 - `withOriginFilter(f)` takes a predicate for patterns; anchor regexes at `$`.
 - `withAllowedOrigins("*")` with `withAllowCredentials(true)` throws.
 - A disallowed preflight gets 403; other requests from a disallowed origin are
-  handled without CORS headers. A handler failure's 500 has no CORS headers.
+  handled without CORS headers. A handler failure's 500 gets the same CORS headers.
 
 ## Lifecycle
 
