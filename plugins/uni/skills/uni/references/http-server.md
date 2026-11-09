@@ -183,7 +183,9 @@ Http
 - `withOriginFilter(f)` takes a predicate for patterns; anchor regexes at `$`.
 - `withAllowedOrigins("*")` with `withAllowCredentials(true)` throws.
 - A disallowed preflight gets 403; other requests from a disallowed origin are
-  handled without CORS headers. A handler failure's 500 has no CORS headers.
+  handled without CORS headers. A handler failure from an allowed origin becomes a
+  500 with CORS headers (body always `Internal Server Error`). Add error filters
+  that map exceptions to statuses after `CorsFilter`, so they run inside it.
 
 ## Lifecycle
 

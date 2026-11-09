@@ -13,7 +13,11 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
+
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.util.control.NonFatal
 
 /**
   * Which cross-origin requests a [[CorsFilter]] allows. The default allows no origin.
@@ -97,11 +101,16 @@ end CorsPolicy
   *     without CORS headers, so the browser keeps the page from reading the response.
   *
   * Add it with `withFilter` on the server, inside the access log filter, so it also answers
-  * preflights for paths that have no route. A handler failure is passed on unchanged, so the
-  * server's 500 carries no CORS headers; put an error-recovering filter inside this one to give
-  * errors CORS headers.
+  * preflights for paths that have no route.
+  *
+  * A handler failure on a request from an allowed origin becomes a generic 500 here, with the CORS
+  * headers, so the browser reports the 500 instead of a CORS error. The exception is logged, and an
+  * outer [[HttpAccessLogFilter]] records its `exception_class` and `exception_message`. The body is
+  * always `Internal Server Error`, even with `withDetailedErrors`. Failures on other requests pass
+  * through to the server unchanged. Add an error filter that maps exceptions to statuses after this
+  * one (inside it), so it sees the failure first and its response also gets CORS headers.
   */
-class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
+class CorsFilter(policy: CorsPolicy) extends RxHttpFilter with LogSupport:
   require(
     !(policy.allowAnyOrigin && policy.allowCredentials),
     "CORS: allowing any origin together with credentials would let every site send authenticated requests and read the responses. List the allowed origins instead."
@@ -121,13 +130,41 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter:
           preflight(request, origin, request.header(HttpHeader.AccessControlRequestMethod).get)
         )
       case Some(origin) if policy.isOriginAllowed(origin) =>
-        next.handle(request).map(addResponseHeaders(_, origin))
+        recoverFailure(request, next).map(addResponseHeaders(_, origin))
       case _ if policy.allowAnyOrigin =>
         next.handle(request)
       case _ =>
         // Allow-Origin depends on the request origin, so a cache must key on it even when this
         // response carries no CORS headers
         next.handle(request).map(addVary(_, HttpHeader.Origin))
+
+  // The server renders an unrecovered failure after every filter has returned, so its 500 would
+  // carry no CORS headers. Answer the 500 here instead, keeping the exception in the logs.
+  private def recoverFailure(request: Request, next: RxHttpHandler): Rx[Response] =
+    val rx =
+      try
+        next.handle(request)
+      catch
+        case NonFatal(e) =>
+          Rx.exception(e)
+    // A failure after the response was sent is passed on: the server ignores it, as before
+    val responded = AtomicBoolean(false)
+    // recoverWith, not recover: recover does not complete after the recovered value
+    rx.map { r =>
+        responded.set(true)
+        r
+      }
+      .recoverWith {
+        case NonFatal(e) if responded.get() =>
+          Rx.exception(e)
+        case NonFatal(e) =>
+          warn(s"Error handling request: ${e.getMessage}", e)
+          HttpAccessLogFilter.addEntry(request, "exception_class", e.getClass.getName)
+          Option(e.getMessage).foreach(
+            HttpAccessLogFilter.addEntry(request, "exception_message", _)
+          )
+          Rx.single(HttpServerSecurity.errorResponse(e, detailedErrors = false))
+      }
 
   private def preflight(request: Request, origin: String, method: String): Response =
     val requestedHeaders = request

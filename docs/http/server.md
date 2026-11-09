@@ -410,7 +410,7 @@ val errorFilter = RxHttpFilter { (request, next) =>
 }
 ```
 
-An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (logging, [CORS](#cors) headers) never sees this 500. Place it outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
+An exception that no filter recovers from becomes a generic `500 Internal Server Error` (see [Security Defaults](#security-defaults)). Because a failed `Rx` skips `map`, a filter that decorates every response (logging, headers) never sees this 500. Place such a filter outside an error filter that recovers, or handle the failure itself with `recover`/`tapOnFailure`. A malformed path or query parameter is answered with 400 by `RouterHandler` itself, before any exception reaches a filter.
 
 ### Applying Filters
 
@@ -529,7 +529,7 @@ Http
 - `withAllowedOrigins` matches exactly, ignoring case and a trailing slash. For patterns, use `withOriginFilter(o => pattern.matches(o))`, and anchor the pattern at the end so `app.example.com.evil.test` does not match.
 - `withAllowedOrigins("*")` answers `Access-Control-Allow-Origin: *`. It cannot be combined with `withAllowCredentials(true)`: `CorsFilter` throws `IllegalArgumentException`.
 - By default a preflight may ask for any request header. `withAllowedHeaders(...)` limits them, and `withExposedHeaders(...)` lets the page read more response headers.
-- A failed handler `Rx` is passed on unchanged, so the server's generic 500 has no CORS headers and the browser reports a CORS error. Put an error filter that recovers inside `CorsFilter` (added after it) to give errors CORS headers.
+- A handler failure on a request from an allowed origin becomes a generic 500 inside `CorsFilter`, with the CORS headers, so the browser sees the 500 rather than a CORS error. The exception is logged, and the access log records its `exception_class` and `exception_message`. The body is always `Internal Server Error`, even with `withDetailedErrors`. Failures on other requests reach the server unchanged. Add an error filter that maps exceptions to statuses after `CorsFilter` (inside it): placed outside, it never sees an allowed origin's failure, which `CorsFilter` has already turned into a 500.
 - WebSocket upgrades are not affected; they use [`withAllowedOrigins`](#allowed-origins) on the server.
 
 ## Server Configuration
