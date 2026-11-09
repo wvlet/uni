@@ -16,6 +16,7 @@ package wvlet.uni.http
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
+import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
 /**
@@ -106,7 +107,8 @@ end CorsPolicy
   * headers, so the browser reports the 500 instead of a CORS error. The exception is logged, and an
   * outer [[HttpAccessLogFilter]] records its `exception_class` and `exception_message`. The body is
   * always `Internal Server Error`, even with `withDetailedErrors`. Failures on other requests pass
-  * through to the server unchanged.
+  * through to the server unchanged. Add an error filter that maps exceptions to statuses after this
+  * one (inside it), so it sees the failure first and its response also gets CORS headers.
   */
 class CorsFilter(policy: CorsPolicy) extends RxHttpFilter with LogSupport:
   require(
@@ -145,13 +147,24 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter with LogSupport:
       catch
         case NonFatal(e) =>
           Rx.exception(e)
+    // A failure after the response was sent is passed on: the server ignores it, as before
+    val responded = AtomicBoolean(false)
     // recoverWith, not recover: recover does not complete after the recovered value
-    rx.recoverWith { case NonFatal(e) =>
-      warn(s"Error handling request: ${e.getMessage}", e)
-      HttpAccessLogFilter.addEntry(request, "exception_class", e.getClass.getName)
-      Option(e.getMessage).foreach(HttpAccessLogFilter.addEntry(request, "exception_message", _))
-      Rx.single(HttpServerSecurity.errorResponse(e, detailedErrors = false))
-    }
+    rx.map { r =>
+        responded.set(true)
+        r
+      }
+      .recoverWith {
+        case NonFatal(e) if responded.get() =>
+          Rx.exception(e)
+        case NonFatal(e) =>
+          warn(s"Error handling request: ${e.getMessage}", e)
+          HttpAccessLogFilter.addEntry(request, "exception_class", e.getClass.getName)
+          Option(e.getMessage).foreach(
+            HttpAccessLogFilter.addEntry(request, "exception_message", _)
+          )
+          Rx.single(HttpServerSecurity.errorResponse(e, detailedErrors = false))
+      }
 
   private def preflight(request: Request, origin: String, method: String): Response =
     val requestedHeaders = request

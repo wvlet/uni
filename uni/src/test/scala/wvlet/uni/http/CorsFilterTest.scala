@@ -229,4 +229,17 @@ class CorsFilterTest extends UniTest:
       }
   }
 
+  test("pass on a failure raised after the response was sent") {
+    val lateFailure = RxHttpHandler(_ =>
+      Rx.single(Response.ok("hello")).concat(Rx.exception(IllegalStateException("late")))
+    )
+    val events = mutable.ArrayBuffer.empty[Try[Response]]
+    CorsFilter(policy)(Request.get("/api").addHeader(HttpHeader.Origin, App), lateFailure)
+      .transformTry(t => Success(t))
+      .run(events += _)
+    events.headOption.flatMap(_.toOption).map(_.status) shouldBe Some(HttpStatus.Ok_200)
+    events.lift(1) shouldMatch { case Some(Failure(_: IllegalStateException)) =>
+    }
+  }
+
 end CorsFilterTest

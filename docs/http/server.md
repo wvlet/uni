@@ -529,7 +529,7 @@ Http
 - `withAllowedOrigins` matches exactly, ignoring case and a trailing slash. For patterns, use `withOriginFilter(o => pattern.matches(o))`, and anchor the pattern at the end so `app.example.com.evil.test` does not match.
 - `withAllowedOrigins("*")` answers `Access-Control-Allow-Origin: *`. It cannot be combined with `withAllowCredentials(true)`: `CorsFilter` throws `IllegalArgumentException`.
 - By default a preflight may ask for any request header. `withAllowedHeaders(...)` limits them, and `withExposedHeaders(...)` lets the page read more response headers.
-- A handler failure on a request from an allowed origin becomes a generic 500 inside `CorsFilter`, with the CORS headers, so the browser sees the 500 rather than a CORS error. The exception is logged, and the access log records its `exception_class` and `exception_message`. The body is always `Internal Server Error`, even with `withDetailedErrors`. Failures on other requests reach the server unchanged.
+- A handler failure on a request from an allowed origin becomes a generic 500 inside `CorsFilter`, with the CORS headers, so the browser sees the 500 rather than a CORS error. The exception is logged, and the access log records its `exception_class` and `exception_message`. The body is always `Internal Server Error`, even with `withDetailedErrors`. Failures on other requests reach the server unchanged. Add an error filter that maps exceptions to statuses after `CorsFilter` (inside it): placed outside, it never sees an allowed origin's failure, which `CorsFilter` has already turned into a 500.
 - WebSocket upgrades are not affected; they use [`withAllowedOrigins`](#allowed-origins) on the server.
 
 ## Server Configuration
