@@ -380,7 +380,9 @@ agent.changes(since = 0)                              // what people changed, an
 - **Transports.** `agent.api` is the same API as JSON text (`wvlet.uni.agent.UiAgentApi`).
   `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools, and
   `agent.installWebMcp()` registers it with the browser's WebMCP (`document.modelContext`)
-  where the browser offers it.
+  where the browser offers it. In Electron, `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))`
+  serves it to the main process, which can expose it as an MCP endpoint
+  (see [Calling the renderer from the main process](../http/electron#calling-the-renderer-from-the-main-process)).
 
 Tests can drive a view the same way an agent does: mount it, then call `snapshot()` and `act`.
 

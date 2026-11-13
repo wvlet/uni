@@ -65,6 +65,23 @@ The assistant is a mock that echoes your message a word at a time, so the exampl
 Pass your model's token stream (`String => Rx[String]`) to `ChatService(respond = ...)` to make it
 real, or wrap a model that answers at once with `ChatService.atOnce`.
 
+## Let an AI agent drive it
+
+`pnpm dev:agent` starts the app with `--agent-bridge`. The renderer installs uni-ui's `UiAgent` and
+serves it to the main process over Electron IPC (`ElectronRenderer.serve`). The main process then
+serves it as MCP tools (`snapshot`, `query`, `act`, `changes`) at a local URL and prints it with a
+fresh token:
+
+```text
+Agent bridge (MCP over HTTP): http://127.0.0.1:61491/mcp
+  Authorization: Bearer 9a40…
+  claude mcp add --transport http uni-harness http://127.0.0.1:61491/mcp --header "Authorization: Bearer 9a40…"
+```
+
+Run the printed `claude mcp add` line, then ask the agent to fold the sidebar or switch the dock tab.
+The endpoint listens only on 127.0.0.1 and rejects requests without the token. Each launch picks a
+new port and token. Plain `pnpm dev` starts no endpoint.
+
 ## Test
 
 The Scala.js modules are projects in the Uni repository's root build, so CI compiles and tests them

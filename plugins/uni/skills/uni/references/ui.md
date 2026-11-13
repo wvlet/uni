@@ -192,8 +192,10 @@ agent.installWebMcp()                              // WebMCP tools where the bro
 
 - `UiAgent.hidden` removes a subtree, `UiAgent.secret` redacts a value (password fields always
   are), `UiAgent.confirm(msg)` asks the human first, and `UiAgent.ref("name")` sets a stable ref.
-- `agent.api` is `wvlet.uni.agent.UiAgentApi` (JSON text), so
-  `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools.
+- `agent.api` is `wvlet.uni.agent.UiAgentApi` (JSON text; every method returns `Rx[String]`), so
+  `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools. In Electron, serve it to
+  the main process with `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))` (see
+  [electron.md](electron.md)).
 
 ## Behaviors for your own widgets
 
