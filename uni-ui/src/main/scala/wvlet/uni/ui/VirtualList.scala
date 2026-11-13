@@ -45,7 +45,8 @@ class VirtualList[A, K] private (
     selected: RxVar[Option[K]],
     onSelectFn: A => Unit,
     overscan: Int,
-    typeahead: Option[A => String]
+    typeahead: Option[A => String],
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private def copy(
@@ -53,7 +54,8 @@ class VirtualList[A, K] private (
       selected: RxVar[Option[K]] = selected,
       onSelectFn: A => Unit = onSelectFn,
       overscan: Int = overscan,
-      typeahead: Option[A => String] = typeahead
+      typeahead: Option[A => String] = typeahead,
+      changeHandler: ChangeHandler = changeHandler
   ): VirtualList[A, K] =
     new VirtualList(
       items,
@@ -64,7 +66,8 @@ class VirtualList[A, K] private (
       selected,
       onSelectFn,
       overscan,
-      typeahead
+      typeahead,
+      changeHandler
     )
 
   /** The accessible name of the list. */
@@ -74,8 +77,11 @@ class VirtualList[A, K] private (
   /** The key of the selected row, set by Enter or a click; the app can also set it. */
   def withSelected(s: RxVar[Option[K]]): VirtualList[A, K] = copy(selected = s)
 
-  /** Runs when Enter or a click selects a row. */
+  /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): VirtualList[A, K] = copy(onSelectFn = f)
+
+  /** Called before Enter or a click changes the selection; `cancel()` keeps it. Key: `selected`. */
+  def onChange(f: ChangeHandler): VirtualList[A, K] = copy(changeHandler = f)
 
   /** How many rows to render beyond each edge of the view (8 by default). */
   def withOverscan(n: Int): VirtualList[A, K] = copy(overscan = math.max(0, n))
@@ -102,7 +108,9 @@ class VirtualList[A, K] private (
     onSelect = onSelectFn,
     typeaheadLabel = typeahead,
     extraKey = (_, _, _) => false,
-    header = DomNode.empty
+    header = DomNode.empty,
+    changeHandler = changeHandler,
+    slot = "virtual-list"
   )
 
 end VirtualList
@@ -123,5 +131,6 @@ object VirtualList:
       selected = Rx.variable(None),
       onSelectFn = _ => (),
       overscan = defaultOverscan,
-      typeahead = None
+      typeahead = None,
+      changeHandler = ChangeGate.noHandler
     )

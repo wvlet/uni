@@ -62,7 +62,9 @@ private[ui] class ListCore[A, K](
     typeaheadLabel: Option[A => String],
     extraKey: (dom.KeyboardEvent, Int, Int => Unit) => Boolean,
     header: DomNode,
-    activeCell: Rx[Option[Int]] = Rx.const(None)
+    activeCell: Rx[Option[Int]] = Rx.const(None),
+    changeHandler: ChangeHandler = ChangeGate.noHandler,
+    slot: String = "list"
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -133,9 +135,11 @@ private[ui] class ListCore[A, K](
       active := Some(key(a))
     }
 
-  private def select(a: A): Unit =
-    selected := Some(key(a))
-    onSelect(a)
+  // Choosing the selected row again still runs onSelect, as before (to open it, say)
+  private def select(a: A, cause: ChangeCause): Unit =
+    val k = Some(key(a))
+    if ChangeGate.write(selected, "selected", k, cause, changeHandler) || selected.get == k then
+      ChangeCause.during(cause)(onSelect(a))
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     // Keys typed into a control inside a row belong to that control
@@ -148,7 +152,7 @@ private[ui] class ListCore[A, K](
             .lift(i)
             .foreach { a =>
               e.preventDefault()
-              select(a)
+              select(a, ChangeCause.of(ChangeReason.ItemPress, e))
             }
         case _ if extraKey(e, i, moveTo) =>
           e.preventDefault()
@@ -198,6 +202,7 @@ private[ui] class ListCore[A, K](
       id             -> rowId(k),
       role           -> rowRole,
       cls            -> "uni-list__row",
+      data("slot")   -> s"${slot}-row",
       ariaSelected   -> selected.map(s => s.contains(k).toString),
       data("active") ->
         active.map(x =>
@@ -209,9 +214,9 @@ private[ui] class ListCore[A, K](
       rowAttrs(a, index.map(_.getOrElse(k, -1)), window.map(_._2)),
       EventListenerBinding(
         "click",
-        _ =>
+        e =>
           active := Some(k)
-          select(a)
+          select(a, ChangeCause.of(ChangeReason.ItemPress, e))
       ),
       renderRow(a)
     )
@@ -227,6 +232,7 @@ private[ui] class ListCore[A, K](
       }
     div(
       cls                  -> s"uni-list ${containerClass}",
+      data("slot")         -> slot,
       tabindex             -> "0",
       styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",
       ariaActivedescendant ->

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
@@ -33,6 +34,51 @@ private[ui] def fieldModifiers(
 )
 
 /**
+  * Binds a text field to `text` through the change gate. Typing writes `text` once `onChange`
+  * accepts it; a refused edit puts the field back. During an IME composition the text stays a draft
+  * in the field and goes through `onChange` once the composition ends.
+  */
+private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
+  private var composing = false
+  private val gated     = GatedVar(
+    text,
+    "value",
+    handler,
+    () => ChangeCause.ambientOr(ChangeCause(ChangeReason.Input, ChangeSource.Keyboard)),
+    () => composing
+  )
+
+  private def restore(e: dom.Event): Unit =
+    e.currentTarget match
+      case f: dom.HTMLInputElement if f.value != gated.get =>
+        f.value = gated.get
+      case f: dom.HTMLTextAreaElement if f.value != gated.get =>
+        f.value = gated.get
+      case _ =>
+
+  def modifiers: Seq[DomNode] = Seq(
+    value.bind(gated),
+    gated.mirror,
+    EventListenerBinding("compositionstart", _ => composing = true),
+    EventListenerBinding(
+      "compositionend",
+      e =>
+        composing = false
+        if !gated.commit() then
+          restore(e)
+    ),
+    // Runs after the binding's own listener: put back an edit that onChange refused
+    EventListenerBinding(
+      "input",
+      e =>
+        if !composing then
+          restore(e)
+    )
+  )
+
+end GatedText
+
+/**
   * A one-line text field bound to `text`: typing updates the variable, and setting the variable
   * updates the field.
   *
@@ -50,15 +96,20 @@ class Input(
     placeholderText: Option[String] = None,
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
-    disabledState: Rx[Boolean] = Rx.const(false)
+    disabledState: Rx[Boolean] = Rx.const(false),
+    changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
       inputType: String = inputType,
       placeholderText: Option[String] = placeholderText,
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
-      disabledState: Rx[Boolean] = disabledState
-  ): Input = Input(text, inputType, placeholderText, label, invalid, disabledState)
+      disabledState: Rx[Boolean] = disabledState,
+      changeHandler: ChangeHandler = changeHandler
+  ): Input = Input(text, inputType, placeholderText, label, invalid, disabledState, changeHandler)
+
+  /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
+  def onChange(f: ChangeHandler): Input = copy(changeHandler = f)
 
   def withType(t: String): Input = copy(inputType = t)
 
@@ -75,9 +126,10 @@ class Input(
   def withDisabled(d: Boolean): Input     = withDisabled(Rx.const(d))
 
   override def render: RxElement = input(
-    tpe -> inputType,
-    cls -> "uni-input",
-    value.bind(text),
+    tpe          -> inputType,
+    cls          -> "uni-input",
+    data("slot") -> "input",
+    GatedText(text, () => changeHandler).modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 
@@ -96,15 +148,28 @@ class Textarea(
     placeholderText: Option[String] = None,
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
-    disabledState: Rx[Boolean] = Rx.const(false)
+    disabledState: Rx[Boolean] = Rx.const(false),
+    changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
       rowCount: Int = rowCount,
       placeholderText: Option[String] = placeholderText,
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
-      disabledState: Rx[Boolean] = disabledState
-  ): Textarea = Textarea(text, rowCount, placeholderText, label, invalid, disabledState)
+      disabledState: Rx[Boolean] = disabledState,
+      changeHandler: ChangeHandler = changeHandler
+  ): Textarea = Textarea(
+    text,
+    rowCount,
+    placeholderText,
+    label,
+    invalid,
+    disabledState,
+    changeHandler
+  )
+
+  /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
+  def onChange(f: ChangeHandler): Textarea = copy(changeHandler = f)
 
   def withRows(n: Int): Textarea = copy(rowCount = n)
 
@@ -119,9 +184,10 @@ class Textarea(
   def withDisabled(d: Boolean): Textarea     = withDisabled(Rx.const(d))
 
   override def render: RxElement = textarea(
-    cls  -> "uni-textarea",
-    rows -> rowCount.toString,
-    value.bind(text),
+    cls          -> "uni-textarea",
+    data("slot") -> "textarea",
+    rows         -> rowCount.toString,
+    GatedText(text, () => changeHandler).modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 

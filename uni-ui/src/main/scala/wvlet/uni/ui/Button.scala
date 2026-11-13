@@ -72,6 +72,7 @@ class Button private (
   def withDisabled(d: Rx[Boolean]): Button = copy(disabledState = d)
   def withDisabled(d: Boolean): Button     = copy(disabledState = Rx.const(d))
 
+  /** Runs on a click, or Enter or Space; [[ChangeCause.current]] tells which. */
   def onClick(f: () => Unit): Button = copy(action = f)
 
   /** The accessible name, for a button whose content is not text. */
@@ -88,6 +89,7 @@ class Button private (
       tpe      -> "button",
       cls      -> s"uni-button uni-button--${variant.cssName} uni-button--${size.cssName}${shape}",
       disabled -> disabledState,
+      data("slot") -> "button",
       label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
       // A listener, so an app's own `onclick` modifier runs alongside the action. Browsers drop
       // real clicks on a disabled button, but not ones dispatched from scripts
@@ -97,7 +99,7 @@ class Button private (
           e.currentTarget match
             case b: org.scalajs.dom.HTMLButtonElement if b.disabled =>
             case _                                                  =>
-              action()
+              ChangeCause.during(ChangeCause.of(ChangeReason.Press, e))(action())
       ),
       content
     )

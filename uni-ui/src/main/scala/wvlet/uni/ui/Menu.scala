@@ -51,6 +51,7 @@ class MenuItem private (
       checked: Option[Rx[Boolean]] = checked
   ): MenuItem = new MenuItem(content, action, disabledState, shortcut, checked)
 
+  /** Runs when the item is chosen; [[ChangeCause.current]] tells whether by pointer or keyboard. */
   def onSelect(f: () => Unit): MenuItem = copy(action = f)
 
   def withDisabled(d: Rx[Boolean]): MenuItem = copy(disabledState = d)
@@ -93,7 +94,7 @@ private[ui] object MenuList:
         all.lift(current).foreach(_.click())
       case "Tab" =>
         // Close and let the Tab move on from the trigger
-        close()
+        ChangeCause.during(ChangeCause(ChangeReason.FocusOut, ChangeSource.Keyboard))(close())
         FocusTrap.continueTab(e)
       case k =>
         RovingFocus
@@ -122,6 +123,7 @@ private[ui] object MenuList:
     tabindex        -> "-1",
     ariaOrientation -> "vertical",
     data("state")   -> "open",
+    data("slot")    -> "menu",
     labelledBy.map(l => ariaLabelledby -> l).getOrElse(DomNode.empty),
     EventListenerBinding(
       "keydown",
@@ -133,12 +135,13 @@ private[ui] object MenuList:
     ),
     entries.map {
       case MenuSeparator =>
-        div(role -> "separator", cls -> "uni-menu__separator")
+        div(role -> "separator", cls -> "uni-menu__separator", data("slot") -> "menu-separator")
       case item: MenuItem =>
         var disabledNow = false
         div(
           role         -> item.checked.map(_ => "menuitemcheckbox").getOrElse("menuitem"),
           cls          -> "uni-menu__item",
+          data("slot") -> "menu-item",
           tabindex     -> "-1",
           ariaDisabled ->
             item
@@ -159,11 +162,13 @@ private[ui] object MenuList:
           ),
           EventListenerBinding(
             "click",
-            _ =>
+            e =>
               if !disabledNow then
                 // Close first, so focus is back on the trigger before the action opens a dialog
-                close()
-                item.action()
+                ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
+                  close()
+                  item.action()
+                }
           ),
           span(cls -> "uni-menu__check", ariaHidden -> "true"),
           span(cls -> "uni-menu__label", item.content),
@@ -197,7 +202,8 @@ class Menu private (
     trigger: RxElement,
     entries: Seq[MenuEntry],
     side: Side,
-    align: Align
+    align: Align,
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private val menuId                          = Ids.next("uni-menu")
@@ -206,23 +212,37 @@ class Menu private (
   // Which end to focus when the menu opens: ArrowUp opens at the last item
   private var focusLast = false
 
-  private def copy(side: Side = side, align: Align = align): Menu =
-    new Menu(open, trigger, entries, side, align)
+  private def copy(
+      side: Side = side,
+      align: Align = align,
+      changeHandler: ChangeHandler = changeHandler
+  ): Menu = new Menu(open, trigger, entries, side, align, changeHandler)
 
   def withSide(s: Side): Menu   = copy(side = s)
   def withAlign(a: Align): Menu = copy(align = a)
+
+  /** Called before the menu opens or closes; `cancel()` keeps it as it is. Key: `open`. */
+  def onChange(f: ChangeHandler): Menu = copy(changeHandler = f)
+
+  private def setOpen(v: Boolean, cause: ChangeCause): Unit = ChangeGate.write(
+    open,
+    "open",
+    v,
+    cause,
+    changeHandler
+  )
 
   private def onTriggerKey(e: dom.KeyboardEvent): Unit =
     e.key match
       case "ArrowDown" | "ArrowUp" =>
         e.preventDefault()
         focusLast = e.key == "ArrowUp"
-        open := true
+        setOpen(true, ChangeCause.of(ChangeReason.NavigationKey, e))
       case _ =>
 
   private def list(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
-    MenuList.render(menuId, entries, Some(triggerId), () => open := false),
+    MenuList.render(menuId, entries, Some(triggerId), () => setOpen(false, ChangeCause.current)),
     anchor = () => triggerRef.current.map(Rect.of),
     inside = el => el +: triggerRef.current.toSeq,
     side = side,
@@ -230,7 +250,7 @@ class Menu private (
     offset = 4,
     modal = false,
     dismissOnOutside = true,
-    onDismiss = () => open := false,
+    onDismiss = () => setOpen(false, ChangeCause.current),
     initialFocus =
       el =>
         val target =
@@ -251,7 +271,7 @@ class Menu private (
     ariaExpanded  -> open.map(_.toString),
     ariaControls  -> menuId,
     data("state") -> open.map(Popover.stateName),
-    EventListenerBinding("click", _ => open.update(!_)),
+    EventListenerBinding("click", e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e))),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
     Presence(open)(exit => Portal.toBody(list(exit)))
   )
@@ -261,7 +281,7 @@ end Menu
 object Menu:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   def apply(open: RxVar[Boolean])(trigger: RxElement)(entries: MenuEntry*): Menu =
-    new Menu(open, trigger, entries, Side.Bottom, Align.Start)
+    new Menu(open, trigger, entries, Side.Bottom, Align.Start, ChangeGate.noHandler)
 
 /**
   * A [[Menu]] that opens at the pointer when `target` is right-clicked (or gets the keyboard's

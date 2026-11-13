@@ -55,6 +55,7 @@ class FoldablePane(
 
   override def render: RxElement = aside(
     cls           -> "uni-pane",
+    data("slot")  -> "pane",
     data("edge")  -> edge.cssName,
     data("state") ->
       open.map(isOpen =>
@@ -76,7 +77,12 @@ class FoldablePane(
             }px"
         ),
     splitter.map(s => open.map(isOpen => when(isOpen, s))),
-    div(cls -> "uni-pane__content", styleAttr -> width.map(w => s"width: ${w}px"), content)
+    div(
+      cls          -> "uni-pane__content",
+      data("slot") -> "pane-content",
+      styleAttr    -> width.map(w => s"width: ${w}px"),
+      content
+    )
   )
 
 end FoldablePane
@@ -93,8 +99,26 @@ end FoldablePane
   */
 class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) extends RxElement:
 
-  private val resize = PaneResize(
+  private var changeHandler: ChangeHandler = ChangeGate.noHandler
+
+  /**
+    * Called before the size changes; `cancel()` keeps the current size. Key: `size`. It sets the
+    * handler on this splitter and returns it, so a [[FoldablePane]] given the splitter sees it too.
+    */
+  def onChange(f: ChangeHandler): Splitter =
+    changeHandler = f
+    this
+
+  // PaneResize writes the size on its own (drags, double-click), so it writes this stand-in
+  private val gated = GatedVar(
     size,
+    "size",
+    () => changeHandler,
+    () => ChangeCause.ambientOr(ChangeCause(ChangeReason.Drag, ChangeSource.Pointer))
+  )
+
+  private val resize = PaneResize(
+    gated,
     range,
     // A grip on the right grows the pane as it moves right; one on the left, as it moves left
     if edge == Edge.Right then
@@ -105,6 +129,9 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
 
   /** True while the grip is being dragged. */
   def dragging: Rx[Boolean] = resize.dragging
+
+  private def setSize(v: Int, reason: ChangeReason): Unit =
+    ChangeCause.during(ChangeCause(reason, ChangeSource.Keyboard))(gated := v)
 
   private def onKey(e: dom.KeyboardEvent): Unit =
     val towardsContent =
@@ -125,22 +152,23 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
             step
           else
             -step
-        size := range.clamp(size.get + delta)
+        setSize(range.clamp(gated.get + delta), ChangeReason.NavigationKey)
       case "Home" =>
         e.preventDefault()
-        size := range.min
+        setSize(range.min, ChangeReason.NavigationKey)
       case "End" =>
         e.preventDefault()
-        size := range.max
+        setSize(range.max, ChangeReason.NavigationKey)
       case "Enter" =>
         e.preventDefault()
-        resize.reset()
+        setSize(range.default, ChangeReason.Reset)
       case _ =>
 
   end onKey
 
   override def render: RxElement = div(
     cls              -> "uni-splitter",
+    data("slot")     -> "splitter",
     data("edge")     -> edge.cssName,
     data("dragging") -> dragging.map(_.toString),
     ariaLabel        -> label,
@@ -151,7 +179,8 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     ariaValuenow     -> size.map(_.toString),
     // A listener, so an app's own `onkeydown` modifier runs alongside the arrow keys
     EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
-    resize.bind
+    resize.bind,
+    gated.mirror
   )
 
 end Splitter

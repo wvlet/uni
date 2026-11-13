@@ -192,11 +192,21 @@ object fireEvent:
       metaKey: Boolean
   ): dom.MouseEvent =
     val bubbles = eventType != "mouseenter" && eventType != "mouseleave"
-    val init    = js
+    // The click count, as a real pointer sends it; a click with detail 0 is one the keyboard made
+    val detail =
+      eventType match
+        case "click" | "mousedown" | "mouseup" =>
+          1
+        case "dblclick" =>
+          2
+        case _ =>
+          0
+    val init = js
       .Dynamic
       .literal(
         bubbles = bubbles,
         cancelable = bubbles,
+        detail = detail,
         clientX = clientX,
         clientY = clientY,
         button = button,
@@ -207,6 +217,8 @@ object fireEvent:
       )
       .asInstanceOf[dom.MouseEventInit]
     new dom.MouseEvent(eventType, init)
+
+  end mouseEvent
 
   // --- Pointer ---
   //

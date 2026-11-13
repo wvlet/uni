@@ -42,7 +42,8 @@ class Popover private (
     content: Seq[DomNode],
     side: Side,
     align: Align,
-    label: Option[String]
+    label: Option[String],
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private val contentId                       = Ids.next("uni-popover")
@@ -51,8 +52,9 @@ class Popover private (
   private def copy(
       side: Side = side,
       align: Align = align,
-      label: Option[String] = label
-  ): Popover = new Popover(open, trigger, content, side, align, label)
+      label: Option[String] = label,
+      changeHandler: ChangeHandler = changeHandler
+  ): Popover = new Popover(open, trigger, content, side, align, label, changeHandler)
 
   def withSide(s: Side): Popover   = copy(side = s)
   def withAlign(a: Align): Popover = copy(align = a)
@@ -61,11 +63,23 @@ class Popover private (
   def withLabel(l: String): Popover = copy(label = Some(l))
   def noLabel(): Popover            = copy(label = None)
 
+  /** Called before the popover opens or closes; `cancel()` keeps it as it is. Key: `open`. */
+  def onChange(f: ChangeHandler): Popover = copy(changeHandler = f)
+
+  private def setOpen(v: Boolean, cause: ChangeCause): Unit = ChangeGate.write(
+    open,
+    "open",
+    v,
+    cause,
+    changeHandler
+  )
+
   private def panel(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
     div(
       id            -> contentId,
       cls           -> "uni-popover",
+      data("slot")  -> "popover-content",
       role          -> "dialog",
       tabindex      -> "-1",
       data("state") -> "open",
@@ -79,7 +93,7 @@ class Popover private (
     offset = 6,
     modal = false,
     dismissOnOutside = true,
-    onDismiss = () => open := false,
+    onDismiss = () => setOpen(false, ChangeCause.current),
     // The first field or button, else the panel itself, so Escape and Tab start from inside it
     initialFocus = el => FocusTrap.first(el).orElse(Some(el)),
     returnFocus = true
@@ -91,7 +105,7 @@ class Popover private (
     ariaExpanded  -> open.map(_.toString),
     ariaControls  -> contentId,
     data("state") -> open.map(Popover.stateName),
-    EventListenerBinding("click", _ => open.update(!_)),
+    EventListenerBinding("click", e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e))),
     Presence(open)(exit => Portal.toBody(panel(exit)))
   )
 
@@ -100,7 +114,7 @@ end Popover
 object Popover:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   def apply(open: RxVar[Boolean])(trigger: RxElement)(content: DomNode*): Popover =
-    new Popover(open, trigger, content, Side.Bottom, Align.Start, None)
+    new Popover(open, trigger, content, Side.Bottom, Align.Start, None, ChangeGate.noHandler)
 
   private[ui] def stateName(open: Boolean): String =
     if open then

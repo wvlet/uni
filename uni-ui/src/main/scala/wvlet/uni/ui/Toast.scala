@@ -142,7 +142,8 @@ class Toaster extends RxElement:
       if !hovered && !focused && !exits.contains(t.id) then
         startTimer(t)
     div(
-      cls -> s"uni-toast uni-toast--${t.variant.cssName}",
+      cls          -> s"uni-toast uni-toast--${t.variant.cssName}",
+      data("slot") -> "toast",
       ref.binding,
       if t.variant == ToastVariant.Error then
         role -> "alert"
@@ -174,7 +175,7 @@ class Toaster extends RxElement:
           focused = false
           resume()
       ),
-      div(cls -> "uni-toast__message", t.message),
+      div(cls -> "uni-toast__message", data("slot") -> "toast-message", t.message),
       IconButton("Dismiss", "×").small.onClick(() => dismiss(t.id))
     )
 
@@ -183,9 +184,10 @@ class Toaster extends RxElement:
   override def render: RxElement = Embedded(
     Portal.toBody(
       section(
-        cls       -> "uni-toaster",
-        ariaLabel -> "Notifications",
-        ariaLive  -> "polite",
+        cls          -> "uni-toaster",
+        data("slot") -> "toaster",
+        ariaLabel    -> "Notifications",
+        ariaLive     -> "polite",
         each(onScreen)(_.id)(view)
       )
     )
