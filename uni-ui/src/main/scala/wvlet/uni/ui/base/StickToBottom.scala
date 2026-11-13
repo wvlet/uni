@@ -67,6 +67,11 @@ class StickToBottom(threshold: Double = 48):
         lastTop = top
 
     def pin(): Unit =
+      val top = el.scrollTop
+      // The reader scrolled up, and its scroll event has not arrived yet: don't pull them back
+      if top < lastTop && !StickToBottom.isNear(top, el.scrollHeight, el.clientHeight, threshold)
+      then
+        following := false
       if following.get then
         StickToBottom.scrollDown(el, smooth = false)
         lastTop = el.scrollTop
@@ -75,10 +80,25 @@ class StickToBottom(threshold: Double = 48):
     // streamed reply re-renders), and the scroller can shrink (a composer grows under it)
     val resize = dom.ResizeObserver((_, _) => pin())
     resize.observe(el)
-    def observeChildren(): Unit = el.children.foreach(resize.observe)
-    observeChildren()
-    val mutation = dom.MutationObserver { (_, _) =>
-      observeChildren()
+    el.children.foreach(resize.observe)
+    val mutation = dom.MutationObserver { (records, _) =>
+      // Watch the sizes of direct children only, and stop watching removed ones
+      records
+        .filter(_.target eq el)
+        .foreach { r =>
+          r.removedNodes
+            .foreach {
+              case c: dom.Element =>
+                resize.unobserve(c)
+              case _ =>
+            }
+          r.addedNodes
+            .foreach {
+              case c: dom.Element =>
+                resize.observe(c)
+              case _ =>
+            }
+        }
       pin()
     }
     mutation.observe(

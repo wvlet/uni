@@ -21,6 +21,7 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
 
   // Tell screen reader users when a reply has finished streaming
   override def onMount(node: Any): Unit =
+    Announce.prepare()
     var wasPending = false
     watching = store
       .pending

@@ -48,7 +48,7 @@ class Typeahead(timeoutMillis: Double = 500, now: () => Double = () => js.Date.n
     * @param current
     *   the index of the active item, or -1
     */
-  def onKey(key: String, labels: Seq[String], current: Int): Option[Int] =
+  def onKey(key: String, labels: => Seq[String], current: Int): Option[Int] =
     if key.length != 1 then
       None
     else
@@ -72,7 +72,7 @@ class Typeahead(timeoutMillis: Double = 500, now: () => Double = () => js.Date.n
     * [[onKey]] for a key event. Keys with Ctrl, Cmd, or Alt, and keys during IME composition, are
     * shortcuts or text, not a search.
     */
-  def onKey(e: dom.KeyboardEvent, labels: Seq[String], current: Int): Option[Int] =
+  def onKey(e: dom.KeyboardEvent, labels: => Seq[String], current: Int): Option[Int] =
     if e.ctrlKey || e.metaKey || e.altKey || e.isComposing then
       None
     else

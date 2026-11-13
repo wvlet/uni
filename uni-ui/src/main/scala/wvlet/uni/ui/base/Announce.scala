@@ -29,22 +29,37 @@ object Announce:
   /** How long a message stays in its region; only the newest is kept after that. */
   private val keepMillis = 7000
 
+  /** How long the first message waits when its region was just added. */
+  private val freshDelayMillis = 250
+
   /** Reads `message` once the screen reader finishes what it is saying. */
   def polite(message: String): Unit = announce(message, "polite")
 
   /** Reads `message` right away, interrupting. Keep it for errors and urgent news. */
   def assertive(message: String): Unit = announce(message, "assertive")
 
+  /**
+    * Adds the live regions to the page now. Screen readers often skip a message put into a region
+    * that has just appeared, so call this when the app starts; the first message is otherwise held
+    * back a moment.
+    */
+  def prepare(): Unit = Seq("polite", "assertive").foreach(region)
+
   /** Empties both regions, e.g. when the page changes. */
   def clear(): Unit = Seq("polite", "assertive").foreach(p => find(p).foreach(_.textContent = ""))
 
   private def announce(message: String, politeness: String): Unit =
     if !message.isBlank then
-      val r = region(politeness)
+      val fresh = find(politeness).isEmpty
+      val r     = region(politeness)
       // A new node, rather than new text, makes a repeated message read again
       val line = dom.document.createElement("div")
       line.textContent = message
-      r.appendChild(line)
+      if fresh then
+        // Give screen readers time to notice the new region first
+        dom.window.setTimeout(() => r.appendChild(line), freshDelayMillis)
+      else
+        r.appendChild(line)
       dom
         .window
         .setTimeout(

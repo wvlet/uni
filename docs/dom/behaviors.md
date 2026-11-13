@@ -186,11 +186,14 @@ result count, or a lost connection. `Announce` reads a message aloud through a l
 visually hidden and shared by the whole page.
 
 ```scala
+Announce.prepare()                     // once, at startup
 Announce.polite("Response complete")   // after the screen reader finishes what it is saying
 Announce.assertive("Connection lost")  // right away; keep it for errors
 ```
 
-Saying the same message twice reads it twice. The regions carry `data-slot="announcer"`, so tests
+Call `Announce.prepare()` once when the app starts. Screen readers often skip a message put into a
+region that has just appeared, so without it the first message is held back a moment. Saying the
+same message twice reads it twice. The regions carry `data-slot="announcer"`, so tests
 can find them.
 
 ## Building your own

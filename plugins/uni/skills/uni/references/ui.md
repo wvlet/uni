@@ -194,6 +194,7 @@ val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEn
 val picked    = Rx.variable(Set.empty[String])
 val selection = Selection(picked)
 
+Announce.prepare()                    // once at startup, so the first message is read
 Announce.polite("Response complete")  // screen readers only
 ```
 

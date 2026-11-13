@@ -148,7 +148,45 @@ class BehaviorTest extends DomTestSupport:
     }
   }
 
+  test("focus recovery finds the neighbor in a keyed list after items were added above") {
+    val items = Rx.variable(Seq("a", "b", "c"))
+    mount(
+      ul(
+        tabindex -> "-1",
+        FocusRecovery.within("li"),
+        items.eachRx(identity)((i, _) => li(tabindex -> "0", data("item") -> i, i))
+      )
+    )
+    find("li[data-item=b]").focus()
+    items := Seq("x", "y", "a", "b", "c")
+    settle().flatMap { _ =>
+      items := Seq("x", "y", "a", "c")
+      settle().map { _ =>
+        dom.document.activeElement.getAttribute("data-item") shouldBe "c"
+      }
+    }
+  }
+
+  test("focus recovery leaves focus alone once the reader left the list") {
+    val items = Rx.variable(Seq("a", "b"))
+    mount(
+      ul(
+        FocusRecovery.within("li"),
+        items.eachRx(identity)((i, _) => li(tabindex -> "0", data("item") -> i, i))
+      )
+    )
+    find("li[data-item=a]").focus()
+    find("li[data-item=a]").blur()
+    settle().flatMap { _ =>
+      items := Seq("b")
+      settle().map { _ =>
+        (dom.document.activeElement eq dom.document.body) shouldBe true
+      }
+    }
+  }
+
   test("announce adds the message to a hidden live region") {
+    Announce.prepare()
     Announce.polite("Response complete")
     Announce.polite("Response complete")
     val region = find("[data-slot=announcer][aria-live=polite]")

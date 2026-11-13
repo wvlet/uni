@@ -67,20 +67,66 @@ object FocusRecovery:
               .map(item => (item, items.indexWhere(_ eq item)))
           case _ =>
 
-    val observer = dom.MutationObserver { (_, _) =>
+    // Forget the item once focus leaves the list while the item stays, e.g. a click elsewhere
+    val onFocusOut: js.Function1[dom.Event, Unit] =
+      _ =>
+        dom
+          .window
+          .setTimeout(
+            () =>
+              focused.foreach { case (item, _) =>
+                val active = Option(dom.document.activeElement)
+                if container.contains(item) && !active.exists(container.contains) then
+                  focused = None
+              },
+            0
+          )
+
+    def itemIn(n: dom.Node, last: Boolean): Option[dom.HTMLElement] =
+      n match
+        case e: dom.HTMLElement if e.matches(itemSelector) =>
+          Some(e)
+        case e: dom.Element =>
+          val inner = e
+            .querySelectorAll(itemSelector)
+            .toSeq
+            .collect { case h: dom.HTMLElement =>
+              h
+            }
+          if last then
+            inner.lastOption
+          else
+            inner.headOption
+        case _ =>
+          None
+
+    val observer = dom.MutationObserver { (records, _) =>
       focused.foreach { case (item, index) =>
-        if !container.contains(item) then
+        if container.contains(item) then
+          // Keep the position current as items come and go around it
+          focused = Some((item, items.indexWhere(_ eq item)))
+        else
           focused = None
           // Focus is gone only when it fell back to the page; leave a focus the app moved
           val lost = Option(dom.document.activeElement).forall { a =>
             (a eq dom.document.body) || !dom.document.contains(a)
           }
           if lost then
+            // The item now next to where the removed one was, else the same position
+            val beside = records
+              .find(_.removedNodes.exists(n => (n eq item) || n.contains(item)))
+              .flatMap { r =>
+                Option(r.nextSibling)
+                  .flatMap(itemIn(_, last = false))
+                  .orElse(Option(r.previousSibling).flatMap(itemIn(_, last = true)))
+              }
+              .filter(container.contains)
             val rest = items
-            rest.lift(index).orElse(rest.lastOption).getOrElse(container).focus()
+            beside.orElse(rest.lift(index)).orElse(rest.lastOption).getOrElse(container).focus()
       }
     }
     container.addEventListener("focusin", onFocusIn)
+    container.addEventListener("focusout", onFocusOut)
     observer.observe(
       container,
       new dom.MutationObserverInit:
@@ -90,6 +136,7 @@ object FocusRecovery:
     Cancelable { () =>
       observer.disconnect()
       container.removeEventListener("focusin", onFocusIn)
+      container.removeEventListener("focusout", onFocusOut)
     }
 
   end watch
