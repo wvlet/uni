@@ -15,6 +15,7 @@ package wvlet.uni.control
 
 import wvlet.uni.control.Retry.MaxRetryException
 import wvlet.uni.control.Retry.RetryContext
+import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
@@ -162,6 +163,90 @@ class RetryTest extends UniTest:
           throw new TimeoutException()
         }
     }
+  }
+
+  // A long backoff that a test must never wait for
+  private val longBackoffMillis = 10000
+
+  private def elapsedMillisSince(startNanos: Long): Long =
+    (System.nanoTime() - startNanos) / 1000000
+
+  private def alwaysRetryable(maxRetry: Int, initialIntervalMillis: Int): RetryContext = Retry
+    .withBackOff(
+      maxRetry = maxRetry,
+      initialIntervalMillis = initialIntervalMillis,
+      multiplier = 1.0
+    )
+    .noRetryLogging
+    .retryOn { case e: IllegalStateException =>
+      ResultClass.retryableFailure(e)
+    }
+
+  test("fail without waiting the backoff when no retry is allowed") {
+    var count = 0
+    val start = System.nanoTime()
+    val e     = intercept[MaxRetryException] {
+      alwaysRetryable(maxRetry = 0, initialIntervalMillis = longBackoffMillis).run {
+        count += 1
+        throw IllegalStateException("retry test")
+      }
+    }
+    (elapsedMillisSince(start) < longBackoffMillis / 2) shouldBe true
+    count shouldBe 1
+    e.retryContext.maxRetry shouldBe 0
+    e.retryContext.retryCount shouldBe 1
+    e.retryContext.lastError shouldMatch { case _: IllegalStateException =>
+    }
+  }
+
+  test("wait the backoff between retries") {
+    var count = 0
+    val start = System.nanoTime()
+    intercept[MaxRetryException] {
+      alwaysRetryable(maxRetry = 3, initialIntervalMillis = 50).run {
+        count += 1
+        throw IllegalStateException("retry test")
+      }
+    }
+    count shouldBe 3
+    // Scala.js has no blocking sleep, so the sync path cannot wait there
+    if !isScalaJS then
+      (elapsedMillisSince(start) >= 90) shouldBe true
+  }
+
+  test("fail an async call without waiting the backoff when no retry is allowed") {
+    var count = 0
+    val start = System.nanoTime()
+    alwaysRetryable(maxRetry = 0, initialIntervalMillis = longBackoffMillis)
+      .runAsyncWithContext(()) {
+        count += 1
+        Rx.exception[String](IllegalStateException("retry test"))
+      }
+      .map(_ => fail("should not succeed"))
+      .recover { case e: MaxRetryException =>
+        (elapsedMillisSince(start) < longBackoffMillis / 2) shouldBe true
+        count shouldBe 1
+        e.retryContext.maxRetry shouldBe 0
+        e.retryContext.retryCount shouldBe 1
+        e.retryContext.lastError shouldMatch { case _: IllegalStateException =>
+        }
+      }
+  }
+
+  test("retry an async call N times with the backoff") {
+    var count = 0
+    val start = System.nanoTime()
+    alwaysRetryable(maxRetry = 3, initialIntervalMillis = 50)
+      .runAsyncWithContext(()) {
+        count += 1
+        Rx.exception[String](IllegalStateException("retry test"))
+      }
+      .map(_ => fail("should not succeed"))
+      .recover { case e: MaxRetryException =>
+        count shouldBe 3
+        e.retryContext.retryCount shouldBe 3
+        (elapsedMillisSince(start) >= 90) shouldBe true
+      }
   }
 
 end RetryTest
