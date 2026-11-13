@@ -180,7 +180,7 @@ class Reorder[K](
     // selection gathers there
     val rest = o.count(!group.contains(_))
     val at   = o.takeWhile(_ != k).count(!group.contains(_))
-    val rtl  = orientation == Orientation.Horizontal && elements.get(k).exists(Reorder.isRtl)
+    val rtl  = orientation == Orientation.Horizontal && elements.get(k).exists(TextDirection.isRtl)
     if o.contains(k) then
       // At an end, a scattered selection still gathers in place
       val to = Reorder.keyTarget(e.key, at, rest + 1, orientation, rtl).getOrElse(at)
@@ -236,7 +236,7 @@ class Reorder[K](
         .get(k)
         .foreach { el =>
           scroller = Reorder.scrollContainer(el, orientation)
-          dragRtl = orientation == Orientation.Horizontal && Reorder.isRtl(el)
+          dragRtl = orientation == Orientation.Horizontal && TextDirection.isRtl(el)
         }
       draggedVar      := Some(k)
       draggedGroupVar := groupOf(k)
@@ -452,9 +452,6 @@ object Reorder:
       math.ceil(maxStep * math.min(1.0, (pos - (end - zone)) / zone))
     else
       0
-
-  /** Whether `el` is laid out right to left; see [[TextDirection.isRtl]]. */
-  def isRtl(el: dom.Element): Boolean = TextDirection.isRtl(el)
 
   /**
     * The nearest ancestor of `el` that scrolls along `orientation`, below the page itself. Drags
