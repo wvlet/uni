@@ -50,6 +50,20 @@ class BehaviorTest extends DomTestSupport:
     draft.get shouldBe "typing"
   }
 
+  test("input history keeps an edit to a recalled entry while moving between entries") {
+    val draft   = Rx.variable("")
+    val history = InputHistory(initial = Seq("first", "second"))
+    mount(textarea(cls -> "e", value.bind(draft), history.keys(draft)))
+    val field = find("textarea.e").asInstanceOf[dom.HTMLTextAreaElement]
+    fireEvent.keyDown(field, "ArrowUp")
+    fireEvent.input(field, "second, edited")
+    fireEvent.keyDown(field, "ArrowUp")
+    draft.get shouldBe "first"
+    fireEvent.keyDown(field, "ArrowDown")
+    draft.get shouldBe "second, edited"
+    history.entries shouldBe Seq("first", "second")
+  }
+
   test("input history leaves the arrows to the caret inside multi-line text") {
     val draft   = Rx.variable("")
     val history = InputHistory(initial = Seq("old"))

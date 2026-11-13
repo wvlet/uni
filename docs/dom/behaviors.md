@@ -81,7 +81,9 @@ reply even if they had scrolled up.
 
 ArrowUp on the first line of a field brings back the previous entry; ArrowDown on the last line goes
 forward, and past the newest entry restores what was being written. In the middle of multi-line
-text, the arrows move the caret as usual.
+text, the arrows move the caret as usual. As in readline, an edit to a recalled entry stays with
+that entry while you move between entries; submitting (`add`) drops the edits, and they never
+change the saved entries.
 
 ```scala
 val draft   = Rx.variable("")
@@ -101,7 +103,8 @@ textarea(
 `add` skips blank entries and a repeat of the newest one. A recall is a change to `draft` with the
 `NavigationKey` reason; pass an `onChange` handler as the second argument of `keys` to watch or
 refuse it. To keep the history across sessions, save `history.entries` and pass them back as
-`InputHistory(initial = saved)`.
+`InputHistory(initial = saved)`. The model methods `previous(text)` and `next(text)` take the
+text in the field, so the history can keep it as the draft or as an edit of the entry being left.
 
 ## Typeahead
 
@@ -127,6 +130,11 @@ ul(
 ```
 
 Keys with Ctrl, Cmd, or Alt, and keys typed during IME composition, are not part of a search.
+
+While a search is under way, `typeahead.searching` is true and Space is a character of it, so
+"new york" finds "New York". If your widget selects or activates on Space, check
+`typeahead.joinsSearch(e)` (a plain Space during a search) first and send the Space to `onKey`
+instead. Select, Menu, VirtualList, and Tree already do.
 
 ## Selection
 

@@ -54,18 +54,50 @@ class BehaviorModelTest extends UniTest:
     val h = InputHistory(capacity = 3)
     Seq("one", "two", "two", " ", "three").foreach(h.add)
     h.entries shouldBe Seq("one", "two", "three")
-    h.next() shouldBe None
+    h.next("drafting") shouldBe None
     h.previous("drafting") shouldBe Some("three")
     h.recalling shouldBe true
     h.previous("three") shouldBe Some("two")
     h.previous("two") shouldBe Some("one")
     h.previous("one") shouldBe None
-    h.next() shouldBe Some("two")
-    h.next() shouldBe Some("three")
-    h.next() shouldBe Some("drafting")
+    h.next("one") shouldBe Some("two")
+    h.next("two") shouldBe Some("three")
+    h.next("three") shouldBe Some("drafting")
     h.recalling shouldBe false
     h.add("four")
     h.entries shouldBe Seq("two", "three", "four")
+  }
+
+  test("input history keeps edits to recalled entries until submit") {
+    val h = InputHistory(initial = Seq("one", "two", "three"))
+    h.previous("draft") shouldBe Some("three")
+    h.previous("three!") shouldBe Some("two")
+    h.previous("two?") shouldBe Some("one")
+    // Going forward shows the edits, and the entries are unchanged
+    h.next("one") shouldBe Some("two?")
+    h.next("two") shouldBe Some("three!")
+    h.previous("three!") shouldBe Some("two")
+    h.entries shouldBe Seq("one", "two", "three")
+    h.next("two") shouldBe Some("three!")
+    h.next("three!") shouldBe Some("draft")
+    // Submitting drops the edits
+    h.add("three!")
+    h.previous("") shouldBe Some("three!")
+    h.previous("three!") shouldBe Some("three")
+    h.previous("three") shouldBe Some("two")
+  }
+
+  test("typeahead is searching only within the timeout") {
+    var clock = 0.0
+    val t     = Typeahead(timeoutMillis = 500, now = () => clock)
+    t.searching shouldBe false
+    t.onKey("n", Seq("New York"), -1)
+    t.searching shouldBe true
+    clock += 600
+    t.searching shouldBe false
+    t.onKey("n", Seq("New York"), -1)
+    t.reset()
+    t.searching shouldBe false
   }
 
   test("selection selects, toggles, and extends a range from the anchor") {

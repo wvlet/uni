@@ -104,10 +104,25 @@ private[ui] object MenuList:
   def first(menu: dom.Element): Option[dom.HTMLElement] = items(menu).headOption
   def last(menu: dom.Element): Option[dom.HTMLElement]  = items(menu).lastOption
 
+  /**
+    * The item to focus when a menu opens: its first, or its last for ArrowUp. Opening starts a new
+    * search, not one left over from the last menu.
+    */
+  def opening(menu: dom.Element, atLast: Boolean): Option[dom.HTMLElement] =
+    typeahead.reset()
+    if atLast then
+      last(menu)
+    else
+      first(menu)
+
   private def onKey(menu: dom.Element, e: dom.KeyboardEvent, close: () => Boolean): Unit =
     val all     = items(menu)
     val current = all.indexWhere(_ eq dom.document.activeElement)
     e.key match
+      case " " if typeahead.joinsSearch(e) =>
+        // Space inside a search is part of it ("new york"), not a click
+        e.preventDefault()
+        typeahead.onKey(e, all.map(_.textContent), current).foreach(all(_).focus())
       case "Enter" | " " =>
         e.preventDefault()
         all.lift(current).foreach(_.click())
@@ -272,11 +287,7 @@ class Menu private (
     onDismiss = () => setOpen(false, ChangeCause.current): Unit,
     initialFocus =
       el =>
-        val target =
-          if focusLast then
-            MenuList.last(el)
-          else
-            MenuList.first(el)
+        val target = MenuList.opening(el, atLast = focusLast)
         focusLast = false
         target.orElse(Some(el))
     ,
@@ -378,7 +389,7 @@ class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
     modal = false,
     dismissOnOutside = true,
     onDismiss = () => open := false,
-    initialFocus = el => MenuList.first(el).orElse(Some(el)),
+    initialFocus = el => MenuList.opening(el, atLast = false).orElse(Some(el)),
     returnFocus = true
   )
 

@@ -196,6 +196,26 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("Space inside a typeahead search is part of it in a multi-select list") {
+    val keys = Rx.variable(Set.empty[String])
+    val m    = mount(
+      VirtualList(Rx.const(Seq("New Delhi", "Newark", "New York")), rowHeight = 20)(identity)(
+        span(_)
+      ).withMultiSelect(keys).withTypeahead(identity)
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      list.focus()
+      Seq("n", "e", "w", " ", "y").foreach(k => fireEvent.keyDown(list, k))
+      keys.get shouldBe Set.empty
+      activeRow(list).map(_.textContent) shouldBe Some("New York")
+      // Space with a modifier is not part of the search
+      fireEvent.keyDown(list, "n")
+      fireEvent.keyDown(list, " ", ctrlKey = true)
+      keys.get.nonEmpty shouldBe true
+    }
+  }
+
   test("a virtual list leaves keys from controls inside its rows alone") {
     var chosen = 0
     val m      = mount(

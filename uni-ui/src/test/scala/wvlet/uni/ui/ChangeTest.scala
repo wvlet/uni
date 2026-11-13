@@ -250,6 +250,19 @@ class ChangeTest extends DomTestSupport:
     grip.getAttribute("aria-valuenow") shouldBe (272 + Splitter.step).toString
   }
 
+  test("a splitter's double-click reports a reset from the pointer") {
+    val width = Rx.variable(300)
+    val rec   = Recorder()
+    val m     = mount(
+      Splitter(width, SizeRange(min = 200, default = 272, max = 480), Edge.Right, "Resize")
+        .onChange(rec.handler)
+    )
+    fireEvent.dblclick(m.get("[data-slot=splitter]"))
+    width.get shouldBe 272
+    rec.last.reason shouldBe ChangeReason.Reset
+    rec.last.source shouldBe ChangeSource.Pointer
+  }
+
   test("components name their parts with data-slot") {
     val open = Rx.variable(true)
     val m    = mount(

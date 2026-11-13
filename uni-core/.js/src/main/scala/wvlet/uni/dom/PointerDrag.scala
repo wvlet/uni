@@ -157,8 +157,16 @@ enum ResizeDirection:
   *   the pane's width (horizontal) or height (vertical) in CSS pixels
   * @param grow
   *   the direction a drag makes the pane larger
+  * @param onDoubleClick
+  *   what a double-click on the handle does instead of [[reset]], e.g. a wrapper that reports the
+  *   reset differently from a drag
   */
-class PaneResize(size: RxVar[Int], range: SizeRange, grow: ResizeDirection):
+class PaneResize(
+    size: RxVar[Int],
+    range: SizeRange,
+    grow: ResizeDirection,
+    onDoubleClick: Option[() => Unit] = None
+):
   private var startSize = 0
 
   // A restored size may predate the current range; write only when it is out of range
@@ -195,6 +203,8 @@ class PaneResize(size: RxVar[Int], range: SizeRange, grow: ResizeDirection):
   /** Restore the default size. */
   def reset(): Unit = size := range.default
 
+  private def doubleClick(): Unit = onDoubleClick.fold(reset())(_())
+
   /** The modifier to put on the handle element. */
   def bind: DomNode = DomNode.group(
     HtmlTags.attr("role")("separator"),
@@ -206,7 +216,7 @@ class PaneResize(size: RxVar[Int], range: SizeRange, grow: ResizeDirection):
         "horizontal"
     ),
     drag.bind,
-    EventListenerBinding("dblclick", _ => reset())
+    EventListenerBinding("dblclick", _ => doubleClick())
   )
 
 end PaneResize

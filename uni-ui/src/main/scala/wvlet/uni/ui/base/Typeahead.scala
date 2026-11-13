@@ -38,6 +38,20 @@ class Typeahead(timeoutMillis: Double = 500, now: () => Double = () => js.Date.n
   /** The text typed so far in the current search. */
   def query: String = buffer
 
+  /**
+    * True while a search is under way: a key was typed within `timeoutMillis`. Space is then a
+    * character of the search ("new york"), so components send it to [[onKey]] before treating it as
+    * select or activate.
+    */
+  def searching: Boolean = buffer.nonEmpty && now() - lastTime <= timeoutMillis
+
+  /**
+    * True when `e` is a plain Space typed during a search, which belongs to the search rather than
+    * to the component's select or activate. Space with Ctrl, Cmd, or Alt is left to the component.
+    */
+  def joinsSearch(e: dom.KeyboardEvent): Boolean =
+    e.key == " " && !e.ctrlKey && !e.metaKey && !e.altKey && searching
+
   /** Starts the next key on a new search. */
   def reset(): Unit = buffer = ""
 
