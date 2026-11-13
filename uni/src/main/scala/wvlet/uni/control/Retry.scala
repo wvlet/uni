@@ -280,8 +280,9 @@ object Retry extends LogSupport:
             circuitBreaker.recordFailure(cause)
             // Retryable error
             retryContext = retryContext.withExtraWait(extraWait).nextRetry(cause)
-            // Wait until the next retry
-            ThreadUtil.sleep(retryContext.nextWaitMillis)
+            // Wait until the next retry, but only when another attempt will follow
+            if retryContext.canContinue then
+              ThreadUtil.sleep(retryContext.nextWaitMillis)
           case ResultClass.Failed(_, cause, _) =>
             // For regular non-retryable failures, we need to treat them as successful responses
             circuitBreaker.recordSuccess()
@@ -300,34 +301,35 @@ object Retry extends LogSupport:
         context: Any,
         circuitBreaker: CircuitBreaker = CircuitBreaker.alwaysClosed
     )(body: => Rx[A]): Rx[A] =
-      def loop(retryContext: RetryContext, isFirst: Boolean): Rx[A] =
-        if !isFirst && !retryContext.canContinue then
-          Rx.exception(MaxRetryException(retryContext))
-        else
-          Rx.fromTry(Try(circuitBreaker.verifyConnection()))
-            .flatMap(_ => body)
-            .transformRx { (ret: Try[A]) =>
-              val resultClass = classifyResult(ret)
-              resultClass match
-                case ResultClass.Succeeded =>
-                  circuitBreaker.recordSuccess()
-                  // Exit the loop
-                  Rx.fromTry(ret)
-                case ResultClass.Failed(isRetryable, cause, extraWait) if isRetryable =>
-                  // Retryable error
-                  circuitBreaker.recordFailure(cause)
-                  // Add retry wait
-                  val nextRetry = retryContext.withExtraWait(extraWait).nextRetry(cause)
-                  Rx.delay(nextRetry.nextWaitMillis, TimeUnit.MILLISECONDS)
-                    .flatMap(_ => loop(nextRetry, isFirst = false))
-                case ResultClass.Failed(_, cause, _) =>
-                  // For regular non-retryable failures, we need to treat them as successful responses
-                  circuitBreaker.recordSuccess()
-                  // Non-retryable error. Exit the loop with the exception
-                  Rx.exception(cause)
-            }
+      def loop(retryContext: RetryContext): Rx[A] = Rx
+        .fromTry(Try(circuitBreaker.verifyConnection()))
+        .flatMap(_ => body)
+        .transformRx { (ret: Try[A]) =>
+          val resultClass = classifyResult(ret)
+          resultClass match
+            case ResultClass.Succeeded =>
+              circuitBreaker.recordSuccess()
+              // Exit the loop
+              Rx.fromTry(ret)
+            case ResultClass.Failed(isRetryable, cause, extraWait) if isRetryable =>
+              // Retryable error
+              circuitBreaker.recordFailure(cause)
+              val nextRetry = retryContext.withExtraWait(extraWait).nextRetry(cause)
+              if nextRetry.canContinue then
+                // Add retry wait
+                Rx.delay(nextRetry.nextWaitMillis, TimeUnit.MILLISECONDS)
+                  .flatMap(_ => loop(nextRetry))
+              else
+                // No retry is left, so fail now instead of waiting for a retry that never runs
+                Rx.exception(MaxRetryException(nextRetry))
+            case ResultClass.Failed(_, cause, _) =>
+              // For regular non-retryable failures, we need to treat them as successful responses
+              circuitBreaker.recordSuccess()
+              // Non-retryable error. Exit the loop with the exception
+              Rx.exception(cause)
+        }
 
-      loop(retryContext = init(Option(context)), isFirst = true)
+      loop(init(Option(context)))
 
     end runAsyncWithContext
 
