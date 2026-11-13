@@ -271,6 +271,83 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a multi-select tree selects over the visible rows") {
+    val expanded = Rx.variable(Set("src"))
+    val keys     = Rx.variable(Set.empty[String])
+    val single   = Rx.variable(Option.empty[String])
+    var chosen   = Seq.empty[String]
+    val m        = mount(
+      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
+        .withExpanded(expanded)
+        .withSelected(single)
+        .withMultiSelect(keys)
+        .onSelect(f => chosen :+= f.name)
+    )
+    val tree = m.get(".uni-tree").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      tree.getAttribute("aria-multiselectable") shouldBe "true"
+      fireEvent.click(m.getByText("Main.scala"))
+      fireEvent.click(m.getByText("build.sbt"), shiftKey = true)
+      keys.get shouldBe Set("Main.scala", "Util.scala", "build.sbt")
+      fireEvent.click(m.getByText("Util.scala"), metaKey = true)
+      keys.get shouldBe Set("Main.scala", "build.sbt")
+      chosen shouldBe Seq("Main.scala")
+      single.get shouldBe None
+      m.getByText("Main.scala").closest(".uni-list__row").getAttribute("aria-selected") shouldBe
+        "true"
+
+      tree.focus()
+      fireEvent.keyDown(tree, "Home")
+      fireEvent.keyDown(tree, "Escape")
+      keys.get shouldBe Set.empty
+      // Shift+Arrow extends over the visible rows; Shift+Right still opens or moves, never extends
+      fireEvent.keyDown(tree, "ArrowDown", shiftKey = true)
+      keys.get shouldBe Set("src", "Main.scala")
+      fireEvent.keyDown(tree, "ArrowLeft", shiftKey = true)
+      activeRow(tree).map(_.textContent) shouldBe Some("src")
+      keys.get shouldBe Set("src", "Main.scala")
+      fireEvent.keyDown(tree, "a", ctrlKey = true)
+      keys.get shouldBe Set("src", "Main.scala", "Util.scala", "build.sbt")
+    }
+  }
+
+  test("closing a row in a multi-select tree deselects the rows it hides") {
+    val expanded = Rx.variable(Set("src"))
+    val keys     = Rx.variable(Set("Main.scala", "Util.scala", "build.sbt"))
+    var veto     = false
+    var changes  = Seq.empty[String]
+    val m        = mount(
+      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
+        .withExpanded(expanded)
+        .withMultiSelect(keys)
+        .onChange { d =>
+          changes :+= d.key
+          if veto && d.key == "selected" then
+            d.cancel()
+        }
+    )
+    val tree = m.get(".uni-tree").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      // The app may keep hidden keys: veto the deselection, and the row still closes
+      veto = true
+      fireEvent.click(m.get(".uni-tree__chevron"))
+      expanded.get shouldBe Set.empty
+      keys.get shouldBe Set("Main.scala", "Util.scala", "build.sbt")
+      changes shouldBe Seq("expanded", "selected")
+      // Opening never changes the selection
+      veto = false
+      changes = Seq.empty
+      fireEvent.click(m.get(".uni-tree__chevron"))
+      changes shouldBe Seq("expanded")
+      tree.focus()
+      fireEvent.keyDown(tree, "Home")
+      fireEvent.keyDown(tree, "ArrowLeft")
+      expanded.get shouldBe Set.empty
+      keys.get shouldBe Set("build.sbt")
+      rowTexts(m) shouldBe Seq("src", "build.sbt")
+    }
+  }
+
   private case class Call(id: Int, method: String, millis: Double)
 
   private val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
@@ -345,6 +422,15 @@ class CollectionTest extends DomTestSupport:
       activeRow(table).map(_.textContent) shouldBe Some("12.5")
       fireEvent.keyDown(table, "End", ctrlKey = true, shiftKey = true)
       keys.get shouldBe Set(1, 2, 3)
+      // Shift+Home and Shift+End extend over rows and keep the column
+      fireEvent.keyDown(table, "Home", shiftKey = true)
+      keys.get shouldBe Set(1)
+      activeRow(table).map(_.textContent) shouldBe Some("4")
+      fireEvent.keyDown(table, "End", shiftKey = true)
+      keys.get shouldBe Set(1, 2, 3)
+      // Plain Home still moves within the row
+      fireEvent.keyDown(table, "Home")
+      activeRow(table).map(_.textContent) shouldBe Some("get")
       fireEvent.click(m.getByText("list"), ctrlKey = true)
       keys.get shouldBe Set(2, 3)
       m.getByText("list").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "false"

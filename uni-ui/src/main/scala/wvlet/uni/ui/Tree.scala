@@ -37,7 +37,8 @@ import scala.language.implicitConversions
   * Keyboard (WAI-ARIA treeview): Up and Down move, Right opens a closed row or goes to its first
   * child, Left closes an open row or goes to its parent, Home and End jump, typing a letter moves
   * to the next matching row, Enter or a click selects. A click on the chevron or a double click
-  * opens and closes a row.
+  * opens and closes a row. With [[withMultiSelect]], Shift, Ctrl (⌘), Space, Ctrl+A, and Escape
+  * select several rows, as in [[VirtualList]].
   *
   * The visible rows render through the same windowing as [[VirtualList]], so every row is
   * `rowHeight` pixels (28 by default) and a tree with thousands of open rows stays fast. The
@@ -52,6 +53,7 @@ class Tree[A, K] private (
     label: Option[String],
     expanded: RxVar[Set[K]],
     selected: RxVar[Option[K]],
+    multiSelected: Option[RxVar[Set[K]]],
     onSelectFn: A => Unit,
     rowHeight: Int,
     typeahead: Option[A => String],
@@ -62,6 +64,7 @@ class Tree[A, K] private (
       label: Option[String] = label,
       expanded: RxVar[Set[K]] = expanded,
       selected: RxVar[Option[K]] = selected,
+      multiSelected: Option[RxVar[Set[K]]] = multiSelected,
       onSelectFn: A => Unit = onSelectFn,
       rowHeight: Int = rowHeight,
       typeahead: Option[A => String] = typeahead,
@@ -75,6 +78,7 @@ class Tree[A, K] private (
       label,
       expanded,
       selected,
+      multiSelected,
       onSelectFn,
       rowHeight,
       typeahead,
@@ -91,12 +95,24 @@ class Tree[A, K] private (
   /** The key of the selected row, set by Enter or a click. */
   def withSelected(s: RxVar[Option[K]]): Tree[A, K] = copy(selected = s)
 
+  /**
+    * Lets the user select several rows, whose keys live in `s`: Shift or Ctrl (⌘) with a click,
+    * Shift with Up, Down, Home, End, PageUp, or PageDown, Space, Ctrl+A, and Escape change the set,
+    * as in a file list. Ranges and Ctrl+A cover the visible rows only, and closing a row deselects
+    * the rows it hides. The tree then leaves [[withSelected]]'s variable alone.
+    */
+  def withMultiSelect(s: RxVar[Set[K]]): Tree[A, K] = copy(multiSelected = Some(s))
+
+  /** Selects one row at a time, in [[withSelected]]'s variable (the default). */
+  def noMultiSelect(): Tree[A, K] = copy(multiSelected = None)
+
   /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): Tree[A, K] = copy(onSelectFn = f)
 
   /**
     * Called before the selection changes or a row opens or closes; `cancel()` keeps the current
-    * state. Keys: `selected` and `expanded`.
+    * state. Keys: `selected` and `expanded`. Closing a row in a multiple selection reports the
+    * descendants it deselects as a second `selected` change with the same cause.
     */
   def onChange(f: ChangeHandler): Tree[A, K] = copy(changeHandler = f)
 
@@ -107,13 +123,31 @@ class Tree[A, K] private (
   def withTypeahead(label: A => String): Tree[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): Tree[A, K]                     = copy(typeahead = None)
 
-  private def setExpanded(e: Set[K], cause: ChangeCause): Unit = ChangeGate.write(
-    expanded,
-    "expanded",
-    e,
-    cause,
-    changeHandler
-  )
+  // Closing a row hides its descendants, so they leave a multiple selection: an action on the
+  // selection should never reach rows the user can't see. They are found before the write, since
+  // the rows follow `expanded` at once.
+  private def setExpanded(e: Set[K], cause: ChangeCause): Unit =
+    val hidden = hiddenBy(expanded.get -- e)
+    if ChangeGate.write(expanded, "expanded", e, cause, changeHandler) then
+      multiSelected.foreach { keys =>
+        val sel = keys.get
+        if sel.exists(hidden.contains) then
+          ChangeGate.write(keys, "selected", sel -- hidden, cause, changeHandler)
+      }
+
+  // The visible descendants of the `closed` rows
+  private def hiddenBy(closed: Set[K]): Set[K] =
+    if closed.isEmpty || multiSelected.isEmpty then
+      Set.empty
+    else
+      closed.flatMap { k =>
+        val i = current.indexWhere(_.key == k)
+        if i < 0 then
+          Seq.empty
+        else
+          val level = current(i).level
+          current.iterator.drop(i + 1).takeWhile(_.level > level).map(_.key).toSeq
+      }
 
   private def toggle(k: K, cause: ChangeCause): Unit =
     val e = expanded.get
@@ -209,7 +243,7 @@ class Tree[A, K] private (
           chevron(r),
           span(cls -> "uni-tree__label", data("slot") -> "tree-label", renderRow(r.item))
         ),
-    selection = ListSelection.Single(selected),
+    selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
     onSelect = r => onSelectFn(r.item),
     typeaheadLabel = typeahead.map(f => (r: TreeRow[A, K]) => f(r.item)),
     extraKey = (e, i, moveTo) => onKey(e, i, moveTo),
@@ -233,6 +267,7 @@ object Tree:
       label = None,
       expanded = Rx.variable(Set.empty),
       selected = Rx.variable(None),
+      multiSelected = None,
       onSelectFn = _ => (),
       rowHeight = 28,
       typeahead = None,

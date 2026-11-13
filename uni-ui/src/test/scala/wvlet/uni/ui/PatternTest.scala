@@ -155,6 +155,21 @@ class PatternTest extends DomTestSupport:
     check(m.container, AriaPattern.Tree)
   }
 
+  test("multi-select tree") {
+    val files = Seq(
+      FileNode("src", Seq(FileNode("Main.scala"), FileNode("Util.scala"))),
+      FileNode("build.sbt"),
+      FileNode("README.md")
+    )
+    val m = mount(
+      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
+        .withLabel("Files")
+        .withExpanded(Rx.variable(Set("src")))
+        .withMultiSelect(Rx.variable(Set("Main.scala", "build.sbt")))
+    )
+    check(m.container, AriaPattern.Tree)
+  }
+
   private case class Call(id: Int, method: String, millis: Double)
 
   test("data table grid") {
@@ -164,6 +179,17 @@ class PatternTest extends DomTestSupport:
         Column[Call]("method", "Method")(c => span(c.method)),
         Column[Call]("millis", "Time")(c => span(c.millis.toString))
       ).withLabel("Calls")
+    )
+    check(m.container, AriaPattern.Grid)
+  }
+
+  test("multi-select data table grid") {
+    val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
+    val m     = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        Column[Call]("method", "Method")(c => span(c.method)),
+        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      ).withLabel("Calls").withMultiSelect(Rx.variable(Set(1, 3)))
     )
     check(m.container, AriaPattern.Grid)
   }
