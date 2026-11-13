@@ -293,6 +293,12 @@ class BehaviorTest extends DomTestSupport:
     fireEvent.keyDown(find("li.item-d"), "Home", altKey = true)
     order.get shouldBe Seq("b", "d", "a", "c", "e")
     selected.get shouldBe Set("b", "d")
+    // At the start, a scattered selection still gathers
+    selected := Set("b", "c")
+    fireEvent.keyDown(find("li.item-b"), "Home", altKey = true)
+    order.get shouldBe Seq("b", "c", "d", "a", "e")
+    selected := Set("b", "d")
+    order    := Seq("b", "d", "a", "c", "e")
     // An item outside the selection moves alone
     fireEvent.keyDown(find("li.item-a"), "ArrowUp", altKey = true)
     order.get shouldBe Seq("b", "a", "d", "c", "e")

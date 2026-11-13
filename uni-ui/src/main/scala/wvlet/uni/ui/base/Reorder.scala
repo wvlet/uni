@@ -64,6 +64,7 @@ class Reorder[K](
   private var suppressClick: Boolean        = false
   private var stopDrag: () => Unit          = () => ()
   private var scroller: Option[dom.HTMLElement] = None
+  private var dragRtl: Boolean                  = false
   private var scrollFrame: Option[Int]          = None
 
   /** Sees every move before it lands; `cancel()` keeps the previous order. */
@@ -181,9 +182,10 @@ class Reorder[K](
     val at   = o.takeWhile(_ != k).count(!group.contains(_))
     val rtl  = orientation == Orientation.Horizontal && elements.get(k).exists(Reorder.isRtl)
     if o.contains(k) then
-      Reorder
-        .keyTarget(e.key, at, rest + 1, orientation, rtl)
-        .foreach(to => moveAll(group, to, ChangeCause.of(ChangeReason.NavigationKey, e)))
+      // At an end, a scattered selection still gathers in place
+      val to = Reorder.keyTarget(e.key, at, rest + 1, orientation, rtl).getOrElse(at)
+      if Reorder.movedAll(o, group, to) != o then
+        moveAll(group, to, ChangeCause.of(ChangeReason.NavigationKey, e))
 
   private def attach(k: K, el: dom.HTMLElement): Cancelable =
     elements(k) = el
@@ -207,12 +209,6 @@ class Reorder[K](
     dragStart = (e.clientX, e.clientY)
     dragPointer = dragStart
     dragMoved = false
-    scroller =
-      e.currentTarget match
-        case el: dom.Element =>
-          Reorder.scrollContainer(el, orientation)
-        case _ =>
-          None
     val cancel: js.Function1[dom.Event, Unit] =
       ev =>
         ev match
@@ -235,6 +231,13 @@ class Reorder[K](
     dragPointer = (dragStart._1 + dx, dragStart._2 + dy)
     if !dragMoved && math.hypot(dx, dy) >= Reorder.dragThreshold then
       dragMoved = true
+      // Read once per drag, not on every click or move: the item may unmount as the list scrolls
+      elements
+        .get(k)
+        .foreach { el =>
+          scroller = Reorder.scrollContainer(el, orientation)
+          dragRtl = orientation == Orientation.Horizontal && Reorder.isRtl(el)
+        }
       draggedVar      := Some(k)
       draggedGroupVar := groupOf(k)
     // draggedVar is cleared by Escape
@@ -284,12 +287,9 @@ class Reorder[K](
     scrollFrame = None
 
   private def dropAt(group: Set[K], x: Double, y: Double): Option[Int] =
-    val o   = order.get
-    val rtl =
-      orientation == Orientation.Horizontal &&
-        o.find(group.contains).flatMap(elements.get).exists(Reorder.isRtl)
+    val o    = order.get
     val sign =
-      if rtl then
+      if dragRtl then
         -1.0
       else
         1.0
@@ -352,6 +352,7 @@ class Reorder[K](
     draggedGroupVar := Set.empty
     dragMoved = false
     scroller = None
+    dragRtl = false
 
 end Reorder
 
