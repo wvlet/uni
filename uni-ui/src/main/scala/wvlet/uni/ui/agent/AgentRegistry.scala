@@ -21,6 +21,7 @@ import wvlet.uni.ui.{ChangeCause, ChangeDetails, ChangeReason, ChangeSource}
 
 import scala.collection.mutable
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
 /** A value an agent passed that the action cannot use; the act result reports `message`. */
 private[ui] class AgentInputError(message: String) extends Exception(message)
@@ -74,14 +75,25 @@ private[ui] object AgentAction:
   ): AgentAction = AgentAction(
     name,
     description,
-    Some(UiJson.choice("One of the listed items", labels)),
+    // A long list (a table's rows) would flood the schema; it takes a label as text instead
+    Some(
+      if labels.size <= maxChoices then
+        UiJson.choice("One of the listed items", labels)
+      else
+        UiJson.text("The label of an item, as listed in items")
+    ),
     v =>
       val label = v.getOrElse(throw AgentInputError(s"${name} needs a value"))
       val i     = labels.indexOf(label)
       if i < 0 then
-        throw AgentInputError(s"No item '${label}'. Items: ${labels.mkString(", ")}")
+        throw AgentInputError(
+          s"No item '${label}'. Items: ${labels.take(maxChoices).mkString(", ")}"
+        )
       run(i)
   )
+
+  /** The most choices listed in a schema `enum`, matching the items a snapshot lists. */
+  val maxChoices = 100
 
   /** The cause of a change an agent makes for `reason`. */
   def cause(reason: ChangeReason): ChangeCause = ChangeCause(reason, ChangeSource.Agent)
@@ -251,8 +263,9 @@ private[ui] object AgentRegistry:
   /** Called by `ChangeGate` once the app's handler has seen a change to `target`. */
   def report(target: AnyRef, d: ChangeDetails[Any]): Unit =
     tracked.foreach(_ += d)
-    if !d.canceled && listeners.nonEmpty then
-      val entry                = Option(byState.get(target)).filter(entries.contains)
+    val entry = Option(byState.get(target)).filter(entries.contains)
+    // A component inside `UiAgent.hidden` stays out of the feed, as it does out of snapshots
+    if !d.canceled && listeners.nonEmpty && !entry.exists(e => AgentDom.isHidden(e.element)) then
       val secret               = entry.exists(e => AgentDom.isSecret(e.element))
       def text(v: Any): String =
         if secret then
@@ -270,7 +283,18 @@ private[ui] object AgentRegistry:
         d.reason.name,
         d.source
       )
-      listeners.toSeq.foreach(_(change))
+      // A failing listener must not stop the write the app's handler already accepted
+      listeners
+        .toSeq
+        .foreach { f =>
+          try
+            f(change)
+          catch
+            case NonFatal(err) =>
+              dom.console.warn(s"UiAgent change listener failed: ${err.getMessage}")
+        }
+
+  end report
 
 end AgentRegistry
 

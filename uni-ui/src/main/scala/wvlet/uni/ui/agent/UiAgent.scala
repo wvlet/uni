@@ -108,7 +108,7 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
         case None =>
           children(out)
 
-  private val maxItems = 100
+  private val maxItems = AgentAction.maxChoices
 
   private def nodeOf(e: AgentRegistry.Entry, children: Seq[UiNode]): UiNode =
     val b        = e.binding
@@ -157,17 +157,23 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
       }
       .map(_.copy(children = Nil))
 
+  // Only the entries a snapshot lists, so hidden or shadowed ones never claim or match a ref
   private def find(ref: String): Option[(AgentRegistry.Entry, UiNode)] = AgentRegistry
     .all
-    .filter(e => AgentRegistry.refOf(e) == ref && !AgentDom.isHidden(e.element))
-    .filter(e => root().contains(e.element))
-    .headOption
+    .filter(e =>
+      AgentRegistry.entryOf(e.element).contains(e) && !AgentDom.isHidden(e.element) &&
+        root().contains(e.element)
+    )
+    .find(e => AgentRegistry.refOf(e) == ref)
     .map(e => (e, nodeOf(e, Nil)))
 
   /**
     * Runs `action` on the component `ref`, as an agent. The result comes once the change is made,
     * refused, or, for a component marked [[UiAgent.confirm]], once the human answers.
     */
+  // The confirmation this agent waits on, if any
+  private var pending: Cancelable = Cancelable.empty
+
   def act(ref: String, action: String, value: Option[String] = None): Rx[ActResult] =
     find(ref) match
       case _ if UiAgent.confirming =>
@@ -197,26 +203,37 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
       value: Option[String]
   ): Rx[ActResult] =
     val result = Rx.variable(Option.empty[ActResult])
-    UiAgent.confirming = true
     var answer = Cancelable.empty
-    answer =
-      RxRunner.run(policy.confirm(message)) {
-        case OnNext(ok) if result.get.isEmpty =>
-          UiAgent.confirming = false
-          result :=
-            Some(
+    // Every way the question ends releases the lock, so a lost answer can't block later actions
+    def settle(r: => ActResult): Unit =
+      if result.get.isEmpty then
+        UiAgent.confirming = false
+        pending = Cancelable.empty
+        result := Some(r)
+        answer.cancel
+    UiAgent.confirming = true
+    pending = Cancelable(() => settle(ActResult(ActStatus.Declined, "The agent was uninstalled")))
+    try
+      answer =
+        RxRunner.run(policy.confirm(message)) {
+          case OnNext(ok) =>
+            settle(
               if ok == true then
                 run(ref, a, value)
               else
                 ActResult(ActStatus.Declined, "The human declined")
             )
-          answer.cancel
-        case OnError(err) if result.get.isEmpty =>
-          UiAgent.confirming = false
-          result := Some(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
-        case _ =>
-      }
+          case OnError(err) =>
+            settle(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
+          case _ =>
+            settle(ActResult(ActStatus.Declined, "The confirmation ended without an answer"))
+        }
+    catch
+      case NonFatal(err) =>
+        settle(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
     result.filter(_.isDefined).map(_.get)
+
+  end confirmThenRun
 
   private def run(ref: String, a: AgentAction, value: Option[String]): ActResult =
     try
@@ -299,6 +316,7 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
   def uninstall(): Unit =
     subscription.cancel
     subscription = Cancelable.empty
+    pending.cancel
     buffer.clear()
 
 end UiAgent
@@ -319,7 +337,7 @@ object UiAgent:
   def install(
       policy: AgentPolicy = AgentPolicy.allowAll,
       root: => dom.Element = dom.document.body
-  ): UiAgent = new UiAgent(policy, () => root)
+  ): UiAgent = UiAgent(policy, () => root)
 
   /** A stable ref for this component, such as `UiAgent.ref("region")`. */
   def ref(name: String): DomNode = data("agent-ref") -> name

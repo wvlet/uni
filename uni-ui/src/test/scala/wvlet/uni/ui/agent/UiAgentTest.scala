@@ -353,4 +353,57 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("a confirmation that ends without an answer declines and frees later actions") {
+    var pressed = 0
+    mount(
+      div(
+        Button("Delete").onClick(() => pressed += 1)(UiAgent.confirm("Delete?")),
+        Button("Save").onClick(() => pressed += 1)
+      )
+    )
+    val agent = UiAgent.install(AgentPolicy.allowAll.withConfirm(_ => Rx.empty))
+    agent
+      .act("button:delete", "press")
+      .flatMap { r =>
+        r.status shouldBe ActStatus.Declined
+        agent.act("button:save", "press")
+      }
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        pressed shouldBe 1
+        agent.uninstall()
+      }
+  }
+
+  test("changes inside a hidden subtree stay out of the feed") {
+    val plan  = Rx.variable("free")
+    val m     = mount(div(UiAgent.hidden, Select(plan, Seq("free", "team"))(identity)))
+    val agent = install()
+    fireEvent.click(m.get("button"))
+    fireEvent.click(find("[role=option]:nth-child(2)"))
+    plan.get shouldBe "team"
+    agent.changes()._1 shouldBe Nil
+    agent.uninstall()
+  }
+
+  test("a long list takes a row label as text instead of listing every row in the schema") {
+    val rows = Rx.const((1 to 150).toSeq)
+    val row  = Rx.variable(Option.empty[Int])
+    mount(
+      VirtualList(rows, 24)(identity)(i => span(i.toString)).withLabel("Rows").withSelected(row)
+    )
+    val agent = install()
+    val list  = node(agent, "list")
+    list.items.size shouldBe 100
+    list.moreItems shouldBe 50
+    list.action("select").flatMap(_.input).flatMap(_.get("enum")) shouldBe None
+    agent
+      .act("list:rows", "select", Some("140"))
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        row.get shouldBe Some(140)
+        agent.uninstall()
+      }
+  }
+
 end UiAgentTest
