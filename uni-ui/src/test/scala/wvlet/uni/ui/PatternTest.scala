@@ -118,8 +118,8 @@ class PatternTest extends DomTestSupport:
     )
     val open = Rx.variable(true)
     mount(CommandPalette(open, Rx.const(commands)))
+    // The arrow keys leave the palette open, so the dialog check can follow
     check(find("[role=combobox]"), AriaPattern.Combobox).flatMap { _ =>
-      open := true
       check(find("[role=dialog]"), AriaPattern.Dialog)
     }
   }

@@ -154,4 +154,18 @@ class AriaPatternTest extends UniTest:
     ).map(_ shouldBe Seq("combobox/controls"))
   }
 
+  test("a native dialog is found without a role, and a label can come from an aria-label") {
+    val root = html("""<button id="opener" aria-label="Settings"></button>
+        |<dialog open aria-labelledby="opener"></dialog>""".stripMargin)
+    rules(root, AriaPattern.Dialog).map(_ shouldBe Seq("dialog/focus"))
+  }
+
+  test("hidden items are not counted") {
+    val root = html("""<div role="listbox" aria-label="Fruit" tabindex="0">
+        |  <div role="option" aria-selected="true">Apple</div>
+        |  <div hidden><div role="option" aria-selected="true">Pear</div></div>
+        |</div>""".stripMargin)
+    rules(root, AriaPattern.Listbox).map(_ shouldBe empty)
+  }
+
 end AriaPatternTest

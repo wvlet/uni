@@ -164,7 +164,7 @@ private[testing] object AriaChecks:
   def accessibleName(el: dom.Element): String =
     val labelled = ids(el, "aria-labelledby")
       .flatMap(byId)
-      .map(_.textContent.trim)
+      .map(t => attr(t, "aria-label").getOrElse(t.textContent.trim))
       .filter(_.nonEmpty)
       .mkString(" ")
     if labelled.nonEmpty then
@@ -203,7 +203,10 @@ private[testing] object AriaChecks:
     if roles(role(root)) then
       Some(root)
     else
-      all(root.querySelectorAll("[role]")).find(el => roles(role(el)))
+      // Native elements have a role without the attribute, such as <dialog>
+      all(root.querySelectorAll("[role], button, dialog, a[href], input, textarea")).find(el =>
+        roles(role(el))
+      )
 
   private def parent(el: dom.Element): Option[dom.Element] =
     el.parentNode match
@@ -218,7 +221,9 @@ private[testing] object AriaChecks:
   /** The items with `roles` that belong to `container`, not to a composite widget nested in it. */
   private def items(container: dom.Element, roles: Set[String]): Seq[dom.Element] =
     val selector = roles.map(r => s"[role=${r}]").mkString(",")
+    // Hidden items, such as the children of a collapsed tree row, are not reachable by keys
     all(container.querySelectorAll(selector)).filter { el =>
+      el.closest("[hidden]") == null &&
       ancestors(el).find(p => p.eq(container) || compositeRoles(role(p))).exists(_.eq(container))
     }
 
@@ -501,9 +506,9 @@ private[testing] object AriaChecks:
                 c.fail("open", t, "Enter or Space should open the menu and set aria-expanded")
               else
                 m.foreach { menu =>
-                  val first = items(menu, menuItemRoles).headOption
-                  if !first.exists(f => f eq active) && !first.exists(f => menu.contains(active))
-                  then
+                  val its     = items(menu, menuItemRoles)
+                  val enabled = its.find(i => !attr(i, "aria-disabled").contains("true"))
+                  if !(its.headOption ++ enabled).exists(_ eq active) then
                     c.fail("open-focus", menu, "opening the menu should focus its first item")
                 }
             ,
@@ -542,23 +547,31 @@ private[testing] object AriaChecks:
           Nil
         else
           requireOneTabStop(c, lb, os)
-          verticalNav(c, lb, () => options)
+          verticalNav(
+            c,
+            lb,
+            os.size,
+            () => current(lb, options).map(t => options.indexWhere(_ eq t)).getOrElse(-1),
+            () => host(lb, options)
+          )
 
-  /** ArrowDown then ArrowUp on a vertical list, which may or may not wrap at its ends. */
+  /**
+    * ArrowDown then ArrowUp on a vertical list, which may or may not wrap at its ends. `index` is
+    * the current item (-1 for none) and `keyTarget` takes the focus first.
+    */
   private def verticalNav(
       c: Checker,
-      container: dom.Element,
-      its: () => Seq[dom.Element],
-      keyTarget: () => dom.Element = () => null
+      el: dom.Element,
+      n: Int,
+      index: () => Int,
+      keyTarget: () => dom.Element
   ): List[Step] =
-    val n = its().size
     if n < 2 then
       Nil
     else
-      val index = () => current(container, its()).map(t => its().indexWhere(_ eq t)).getOrElse(-1)
       def go(key: String)(expected: Int => Set[Int]) =
-        nav(c, "keyboard", () => container, key, index)(expected)
-      List[Step](() => focus(Option(keyTarget()).getOrElse(host(container, its())))) ++
+        nav(c, "keyboard", () => el, key, index)(expected)
+      List[Step](() => focus(keyTarget())) ++
         go("ArrowDown") { i =>
           if i < 0 then
             Set(0)
@@ -569,7 +582,8 @@ private[testing] object AriaChecks:
         } ++
         go("ArrowUp") { i =>
           if i <= 0 then
-            Set(0, n - 1)
+            // Up from the first item may wrap, stay, or (in a combobox) return to the input
+            Set(0, n - 1, -1)
           else
             Set(i - 1)
         }
@@ -599,39 +613,22 @@ private[testing] object AriaChecks:
           case Some(lb) =>
             def options = items(lb, Set("option"))
             requireSingleSelection(c, lb, options)
-            val n = options.size
-            if n < 2 then
-              Nil
-            else
-              // The focus stays in the input; aria-activedescendant names the option
-              val index =
-                () =>
-                  attr(cb, "aria-activedescendant")
-                    .flatMap(byId)
-                    .map(t => options.indexWhere(_ eq t))
-                    .getOrElse(-1)
-              def go(key: String)(expected: Int => Set[Int]) =
-                nav(c, "keyboard", () => cb, key, index)(expected)
-              val keepsFocus: Step =
-                () =>
-                  if !(active eq cb) then
-                    c.fail("focus", cb, "should keep the focus while the arrow keys move")
-              List[Step](() => focus(cb)) ++
-                go("ArrowDown") { i =>
-                  if i < 0 then
-                    Set(0)
-                  else if i == n - 1 then
-                    Set(n - 1, 0)
-                  else
-                    Set(i + 1)
-                } ++
-                go("ArrowUp") { i =>
-                  if i <= 0 then
-                    Set(0, n - 1, -1)
-                  else
-                    Set(i - 1)
-                } :+ keepsFocus
-            end if
+            // The focus stays in the input; aria-activedescendant names the option
+            val index =
+              () =>
+                attr(cb, "aria-activedescendant")
+                  .flatMap(byId)
+                  .map(t => options.indexWhere(_ eq t))
+                  .getOrElse(-1)
+            val keepsFocus: Step =
+              () =>
+                if !(active eq cb) then
+                  c.fail("focus", cb, "should keep the focus while the arrow keys move")
+            verticalNav(c, cb, options.size, index, () => cb) match
+              case Nil =>
+                Nil
+              case steps =>
+                steps :+ keepsFocus
         end match
 
   private def dialog(c: Checker, root: dom.Element, dialogRole: String): List[Step] =
