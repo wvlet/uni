@@ -346,7 +346,7 @@ Enter and leave events don't bubble, as in the browser. To simulate a drag,
 send `pointerDown` to the handle and `pointerMove`/`pointerUp` to whatever
 listens for them (often `dom.window`):
 
-```scala
+```scala skip
 fireEvent.pointerDown(m.get("[role=separator]"), clientX = 300)
 fireEvent.pointerMove(dom.window, clientX = 350)
 fireEvent.pointerUp(dom.window, clientX = 350)
@@ -361,7 +361,7 @@ cases need a wait; return the `Rx` from the test body:
   attachment from a `MutationObserver`). `settle()` emits once those callbacks
   have run:
 
-  ```scala
+  ```scala skip
   val m = mount(AutoFocusInput())
   settle().map { _ => dom.document.activeElement shouldBe m.get("input") }
   ```

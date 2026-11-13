@@ -166,6 +166,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
   uni.js,
   ui,
   domTest,
+  docSnippetsJS,
   exampleRepl.js,
   exampleWebUi,
   exampleHarnessApi,
@@ -555,13 +556,46 @@ lazy val docSnippets = project
                 base / "docs/blog"                          -> "snippets.blog"
               ),
               base,
-              (Test / sourceManaged).value / "markdown-snippets"
+              (Test / sourceManaged).value / "markdown-snippets",
+              // Scala.js-only; docSnippetsJS compiles it
+              exclude = Set(base / "plugins/uni/skills/uni/references/ui.md")
             )
           )
         }
         .taskValue
   )
   .dependsOn(uni.jvm, netty, test.jvm % Test)
+
+// The Scala.js counterpart of docSnippets: compile-checks the snippets of the UI pages (uni-dom and
+// uni-ui) against uni.js and uni-ui. Stubs live in docs/snippets-js/src/test/scala. Snippets are
+// compiled, not run: a `scala test` fence here would need a browser.
+lazy val docSnippetsJS = project
+  .in(file("docs/snippets-js"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name        := "uni-doc-snippets-js",
+    description := "Compile-checked Scala.js code snippets of the UI doc pages and skill reference",
+    Test / sourceGenerators +=
+      Def
+        .task {
+          val base = (ThisBuild / baseDirectory).value
+          Def.uncached(
+            MarkdownSnippets.generate(
+              Seq(
+                base / "plugins/uni/skills/uni/references/ui.md" -> "snippets.skill.references",
+                base / "docs/dom"                                -> "snippets.dom"
+              ),
+              base,
+              (Test / sourceManaged).value / "markdown-snippets"
+            )
+          )
+        }
+        .taskValue
+  )
+  .dependsOn(uni.js, ui, test.js % Test)
 
 // uni-dom-test - Tests for uni-dom in a real headless browser (Chromium via Playwright)
 lazy val domTest = project
