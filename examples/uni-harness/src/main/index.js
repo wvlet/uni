@@ -56,12 +56,17 @@ app.whenReady().then(async () => {
   wireLinks(ipcMain, shell)
 
   if (agentBridge) {
-    const { url, token } = await startAgentBridge(ipcMain)
-    console.log(
-      `Agent bridge (MCP over HTTP): ${url}\n` +
-        `  Authorization: Bearer ${token}\n` +
-        `  claude mcp add --transport http uni-harness ${url} --header "Authorization: Bearer ${token}"`
-    )
+    // A bridge that fails to start must not keep the window from opening
+    try {
+      const { url, token } = await startAgentBridge(ipcMain)
+      console.log(
+        `Agent bridge (MCP over HTTP): ${url}\n` +
+          `  Authorization: Bearer ${token}\n` +
+          `  claude mcp add --transport http uni-harness ${url} --header "Authorization: Bearer ${token}"`
+      )
+    } catch (e) {
+      console.error('The agent bridge did not start:', e)
+    }
   }
 
   createWindow()

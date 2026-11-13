@@ -131,9 +131,12 @@ to a `webContents`, and the renderer answers `(id, response)` on
 ```js
 let reverseHandler = null
 ipcRenderer.on('uni-rpc-reverse', async (_event, id, payload) => {
-  const response = reverseHandler
-    ? await reverseHandler(payload)
-    : { status: 503, headers: {}, body: '' } // not served yet: UNAVAILABLE_I2 at once
+  let response = { status: 503, headers: {}, body: '' } // not served yet: UNAVAILABLE_I2
+  try {
+    if (reverseHandler) response = await reverseHandler(payload)
+  } catch (e) {
+    response = { status: 500, headers: {}, body: '' } // always reply
+  }
   ipcRenderer.send('uni-rpc-reverse-reply', id, response)
 })
 // add to the uniRPC object: serve: (handler) => { reverseHandler = handler }

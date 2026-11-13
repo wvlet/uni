@@ -222,9 +222,13 @@ before the renderer serves gets `503` (`UNAVAILABLE_I2`) at once instead of wait
 ```js
 let reverseHandler = null
 ipcRenderer.on('uni-rpc-reverse', async (_event, id, payload) => {
-  const response = reverseHandler
-    ? await reverseHandler(payload)
-    : { status: 503, headers: {}, body: '' }
+  let response = { status: 503, headers: {}, body: '' }
+  try {
+    if (reverseHandler) response = await reverseHandler(payload)
+  } catch (e) {
+    // Always reply, so the main process never waits for an answer that won't come
+    response = { status: 500, headers: {}, body: '' }
+  }
   ipcRenderer.send('uni-rpc-reverse-reply', id, response)
 })
 

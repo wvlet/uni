@@ -217,9 +217,9 @@ object ElectronRenderer:
     * // preload: answer main-process calls with the renderer's handler
     * let handler = null
     * ipcRenderer.on("uni-rpc-reverse", async (_event, id, payload) => {
-    *   const response = handler
-    *     ? await handler(payload)
-    *     : { status: 503, headers: {}, body: "" } // UNAVAILABLE_I2
+    *   let response = { status: 503, headers: {}, body: "" } // UNAVAILABLE_I2
+    *   try { if (handler) response = await handler(payload) }
+    *   catch (e) { response = { status: 500, headers: {}, body: "" } } // always reply
     *   ipcRenderer.send("uni-rpc-reverse-reply", id, response)
     * })
     * contextBridge.exposeInMainWorld("uniRPC", { ..., serve: (h) => { handler = h } })

@@ -117,7 +117,8 @@ class ElectronMainChannel(
                   error(RPCStatus.INTERNAL_ERROR_I0, s"Malformed reply: ${e.getMessage}")
             )
           }
-      else
+      else if !isNullish(e) && (e.sender: js.Any) == (webContents: js.Any) then
+        // Only this window's subframes are suspicious; other windows answer their own channels
         warn(s"Ignored a reverse RPC reply from ${ElectronRPCServerConfig.senderUrl(event)}")
 
   private val onDestroyed: js.Function0[Unit] = () => failAll("The renderer was closed")

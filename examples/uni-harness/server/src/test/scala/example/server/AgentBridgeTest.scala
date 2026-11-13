@@ -69,6 +69,14 @@ class AgentBridgeTest extends UniTest:
       }
   }
 
+  test("accept the Bearer scheme in any case") {
+    bridge()
+      .handle(post(toolsList, Some(s"bearer ${token}")))
+      .map { r =>
+        r.status shouldBe HttpStatus.Ok_200
+      }
+  }
+
   test("reject a request without a token") {
     bridge()
       .handle(post(toolsList, None))

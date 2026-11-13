@@ -14,7 +14,7 @@
 package example.server
 
 import wvlet.uni.agent.UiAgentApi
-import wvlet.uni.electron.ElectronMain
+import wvlet.uni.electron.{ElectronMain, ElectronMainChannelConfig}
 import wvlet.uni.http.{
   Http,
   HttpAsyncClient,
@@ -55,13 +55,19 @@ object AgentBridge:
     js.Dynamic.global.crypto.getRandomValues(bytes)
     bytes.map(b => f"${b.toInt}%02x").mkString
 
-  /** Whether the request carries `Authorization: Bearer <token>`, compared in constant time. */
+  /**
+    * Whether the request carries `Authorization: Bearer <token>`. The scheme is case-insensitive
+    * (RFC 7235); the token is compared in constant time.
+    */
   def isAuthorized(request: Request, token: String): Boolean = request
     .header(HttpHeader.Authorization)
     .exists { value =>
-      val expected = s"Bearer ${token}"
-      value.length == expected.length &&
-      value.zip(expected).foldLeft(0)((acc, p) => acc | (p._1 ^ p._2)) == 0
+      val scheme = "bearer "
+      value.length == scheme.length + token.length &&
+      value.take(scheme.length).toLowerCase == scheme && {
+        val presented = value.drop(scheme.length)
+        presented.zip(token).foldLeft(0)((acc, p) => acc | (p._1 ^ p._2)) == 0
+      }
     }
 
   /** The MCP endpoint for `api`, behind the bearer token. */
@@ -123,6 +129,8 @@ object AgentBridge:
     */
   @JSExportTopLevel("startAgentBridge")
   def start(ipcMain: js.Dynamic): js.Promise[js.Object] =
+    // Starting again replaces the running server instead of leaking it
+    server.foreach(_.stop())
     this.ipcMain = ipcMain
     val token = newToken()
     val s     = Http
@@ -142,16 +150,22 @@ object AgentBridge:
           )
         }
         .recover { case e: Throwable =>
-          reject(e.getMessage)
+          reject(js.Error(s"Failed to start the agent bridge: ${e.getMessage}"))
         }
         .run()
     }
     ready
 
-  /** Send the bridge's calls to this window's renderer. */
+  /**
+    * Send the bridge's calls to this window's renderer. Calls never time out: an `act` on a
+    * `UiAgent.confirm` component waits for the human, and a timeout would report it failed while it
+    * could still apply. A closed or reloaded window still ends every waiting call.
+    */
   @JSExportTopLevel("attachAgentBridge")
   def attach(webContents: js.Dynamic): Unit =
     current.foreach(_.close())
-    current = Some(ElectronMain.newAsyncClient(ipcMain, webContents))
+    current = Some(
+      ElectronMain.newAsyncClient(ipcMain, webContents, ElectronMainChannelConfig().noTimeout)
+    )
 
 end AgentBridge

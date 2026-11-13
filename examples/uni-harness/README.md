@@ -73,9 +73,9 @@ serves it as MCP tools (`snapshot`, `query`, `act`, `changes`) at a local URL an
 fresh token:
 
 ```text
-Agent bridge (MCP over HTTP): http://127.0.0.1:61491/mcp
-  Authorization: Bearer 9a40…
-  claude mcp add --transport http uni-harness http://127.0.0.1:61491/mcp --header "Authorization: Bearer 9a40…"
+Agent bridge (MCP over HTTP): http://127.0.0.1:<port>/mcp
+  Authorization: Bearer <token>
+  claude mcp add --transport http uni-harness http://127.0.0.1:<port>/mcp --header "Authorization: Bearer <token>"
 ```
 
 Run the printed `claude mcp add` line, then ask the agent to fold the sidebar or switch the dock tab.
