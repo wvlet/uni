@@ -204,6 +204,31 @@ class ComponentTest extends DomTestSupport:
     m.text shouldContain "Last 3 calls"
   }
 
+  test("the activity log's table view sorts calls and moves by cell") {
+    val log = RpcLog()
+    Seq("listConversations", "createConversation", "sendMessage").foreach(m =>
+      log.track(m)(Rx.const(())).run(_ => ())
+    )
+    val m = mount(ActivityLog(log))
+    fireEvent.click(m.getByText("Table"))
+    val table = m.get("[role=grid]").asInstanceOf[dom.HTMLElement]
+    table.getAttribute("aria-label") shouldBe "RPC calls"
+    def methods =
+      m.queryAll(".uni-list__row").map(_.querySelectorAll(".uni-table__cell")(1).textContent).toSeq
+    methods shouldBe Seq("sendMessage", "createConversation", "listConversations")
+    fireEvent.click(m.getByText("Method"))
+    methods shouldBe Seq("createConversation", "listConversations", "sendMessage")
+
+    table.focus()
+    fireEvent.keyDown(table, "ArrowRight")
+    Option(dom.document.getElementById(table.getAttribute("aria-activedescendant"))).map(
+      _.textContent
+    ) shouldBe Some("createConversation")
+
+    fireEvent.click(m.getByText("List"))
+    m.get("[role=listbox]").getAttribute("aria-label") shouldBe "RPC calls"
+  }
+
   test("the file tree opens folders from the keyboard") {
     val m     = mount(FileTree())
     val tree  = m.get("[role=tree]").asInstanceOf[dom.HTMLElement]

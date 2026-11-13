@@ -55,13 +55,18 @@ object Windowing:
       rowHeight: Int,
       scrollTop: Double,
       viewportHeight: Double
-  ): Option[Double] =
-    val top    = index.toDouble * rowHeight
-    val bottom = top + rowHeight
-    if top < scrollTop then
-      Some(top)
-    else if bottom > scrollTop + viewportHeight then
-      Some(math.max(0.0, bottom - viewportHeight))
+  ): Option[Double] = revealSpan(index.toDouble * rowHeight, rowHeight, scrollTop, viewportHeight)
+
+  /**
+    * The scroll offset that brings the span from `start` to `start + size` into view with the least
+    * movement, or None when it is already in view. A span larger than the viewport shows its start.
+    */
+  def revealSpan(start: Double, size: Double, scroll: Double, viewport: Double): Option[Double] =
+    val end = start + size
+    if start < scroll then
+      Some(start)
+    else if end > scroll + viewport then
+      Some(math.max(0.0, math.min(start, end - viewport)))
     else
       None
 

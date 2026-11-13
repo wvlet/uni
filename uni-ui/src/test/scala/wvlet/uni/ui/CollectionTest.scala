@@ -246,6 +246,92 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a data table moves by cell and names the active cell") {
+    val m = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        Column[Call]("method", "Method")(c => span(c.method)),
+        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")),
+        Column[Call]("id", "Id")(c => span(c.id.toString))
+      )
+    )
+    val table  = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def cell   = activeRow(table).map(_.textContent)
+    def marked = m.queryAll(".uni-table__cell[data-active='true']").map(_.textContent)
+    settle().map { _ =>
+      table.focus()
+      cell shouldBe Some("list")
+      activeRow(table).map(_.getAttribute("role")) shouldBe Some("gridcell")
+      marked shouldBe Seq("list")
+
+      fireEvent.keyDown(table, "ArrowRight")
+      cell shouldBe Some("4.0")
+      // Up and Down keep the column
+      fireEvent.keyDown(table, "ArrowDown")
+      cell shouldBe Some("12.5")
+      fireEvent.keyDown(table, "End")
+      cell shouldBe Some("2")
+      // Right stops at the end of the row
+      fireEvent.keyDown(table, "ArrowRight")
+      cell shouldBe Some("2")
+      fireEvent.keyDown(table, "Home")
+      cell shouldBe Some("send")
+      fireEvent.keyDown(table, "ArrowLeft")
+      cell shouldBe Some("send")
+      // Ctrl+End goes to the last cell of the last row, Meta+Home to the first of the first
+      fireEvent.keyDown(table, "End", ctrlKey = true)
+      cell shouldBe Some("3")
+      fireEvent.keyDown(table, "Home", metaKey = true)
+      cell shouldBe Some("list")
+      marked shouldBe Seq("list")
+
+      // A click makes the cell active and selects its row
+      fireEvent.click(m.getByText("1.5"))
+      cell shouldBe Some("1.5")
+      m.queryAll(".uni-list__row[aria-selected='true']").map(_.textContent.take(3)) shouldBe
+        Seq("get")
+    }
+  }
+
+  test("a data table scrolls a wide row to the active cell and leaves modified arrows alone") {
+    val m = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        (1 to 6).map(n =>
+          Column[Call](s"c${n}", s"C${n}")(c => span(s"${c.id}-${n}")).withWidth("200px")
+        )*
+      )(styleAttr += "width: 300px; height: 200px")
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def cell  = activeRow(table).map(_.textContent)
+    settle().map { _ =>
+      table.focus()
+      fireEvent.keyDown(table, "End")
+      cell shouldBe Some("1-6")
+      (table.scrollLeft > 0) shouldBe true
+      fireEvent.keyDown(table, "Home")
+      table.scrollLeft shouldBe 0
+
+      // Alt+Arrow and Ctrl or ⌘ with Left or Right belong to the app or the browser
+      fireEvent.keyDown(table, "ArrowRight", altKey = true) shouldBe true
+      fireEvent.keyDown(table, "ArrowRight", metaKey = true) shouldBe true
+      fireEvent.keyDown(table, "ArrowRight", shiftKey = true) shouldBe true
+      cell shouldBe Some("1-1")
+      // Shift+End still moves along the row, not to the last row
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "End", shiftKey = true)
+      cell shouldBe Some("2-6")
+    }
+  }
+
+  test("nextColumn moves along a row and stops at its ends") {
+    DataTable.nextColumn("ArrowRight", 0, 3) shouldBe Some(1)
+    DataTable.nextColumn("ArrowRight", 2, 3) shouldBe Some(2)
+    DataTable.nextColumn("ArrowLeft", 0, 3) shouldBe Some(0)
+    DataTable.nextColumn("End", 0, 3) shouldBe Some(2)
+    DataTable.nextColumn("Home", 2, 3) shouldBe Some(0)
+    DataTable.nextColumn("ArrowDown", 1, 3) shouldBe None
+    DataTable.nextColumn("ArrowRight", 0, 0) shouldBe None
+  }
+
   test("sort helpers cycle the direction and leave unknown columns unsorted") {
     DataTable.nextSort(None, "a") shouldBe Some(SortBy("a"))
     DataTable.nextSort(Some(SortBy("a")), "a") shouldBe Some(SortBy("a", SortDirection.Descending))

@@ -181,7 +181,7 @@ class Tree[A, K] private (
     selected = selected,
     onSelect = r => onSelectFn(r.item),
     typeaheadLabel = typeahead.map(f => (r: TreeRow[A, K]) => f(r.item)),
-    extraKey = onKey,
+    extraKey = (e, i, moveTo) => onKey(e.key, i, moveTo),
     header = DomNode.empty
   )
 
