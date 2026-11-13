@@ -39,8 +39,11 @@ import scala.language.implicitConversions
   *   extra attributes for a row, given its item, its live index in `items`, and the live number of
   *   items
   * @param extraKey
-  *   handles a key before the default navigation, given the key, the active index (-1 for none),
-  *   and a function that moves to an index; true when it handled the key
+  *   handles a key before the default navigation, given the key event, the active index (-1 for
+  *   none), and a function that moves to an index; true when it handled the key
+  * @param activeCell
+  *   the active cell within the active row, for a grid; `aria-activedescendant` then names that
+  *   cell (`cellId`) instead of the row
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -57,8 +60,9 @@ private[ui] class ListCore[A, K](
     selected: RxVar[Option[K]],
     onSelect: A => Unit,
     typeaheadLabel: Option[A => String],
-    extraKey: (String, Int, Int => Unit) => Boolean,
-    header: DomNode
+    extraKey: (dom.KeyboardEvent, Int, Int => Unit) => Boolean,
+    header: DomNode,
+    activeCell: Rx[Option[Int]] = Rx.const(None)
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -77,6 +81,12 @@ private[ui] class ListCore[A, K](
   private var resize: Option[dom.ResizeObserver] = None
 
   private def rowId(k: K): String = ids.getOrElseUpdate(k, Ids.next(s"${listId}-row"))
+
+  /** The id of cell `i` in row `k`, which a grid's cells use for `aria-activedescendant`. */
+  private[ui] def cellId(k: K, i: Int): String = s"${rowId(k)}-cell-${i}"
+
+  /** The key of the highlighted row. */
+  private[ui] def activeKey: Rx[Option[K]] = active
 
   private def sync(xs: Seq[A]): Unit =
     if xs ne current then
@@ -140,7 +150,7 @@ private[ui] class ListCore[A, K](
               e.preventDefault()
               select(a)
             }
-        case k if extraKey(k, i, moveTo) =>
+        case _ if extraKey(e, i, moveTo) =>
           e.preventDefault()
         case k =>
           ListNavigation
@@ -219,7 +229,11 @@ private[ui] class ListCore[A, K](
       cls                  -> s"uni-list ${containerClass}",
       tabindex             -> "0",
       styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",
-      ariaActivedescendant -> active.map(_.map(rowId)),
+      ariaActivedescendant ->
+        Rx.join(active, activeCell)
+          .map { (a, c) =>
+            a.map(k => c.fold(rowId(k))(cellId(k, _)))
+          },
       containerAttrs,
       EventListenerBinding("scroll", _ => measure()),
       EventListenerBinding("focus", _ => onFocus()),

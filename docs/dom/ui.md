@@ -193,7 +193,9 @@ div(
 - **Keyboard.** A list, tree, or table is one tab stop, and `aria-activedescendant` names the
   highlighted row. The arrow keys, Home, End, PageUp, and PageDown move it. Enter or a click
   selects. In a tree, Right opens a row or enters it, and Left closes it or goes to the parent.
-  Tables move by row, not by cell.
+  Tables move by cell, as in the WAI-ARIA grid pattern: Left and Right move along the row, Home
+  and End go to its first and last cell, and Ctrl (or ⌘) with Home or End goes to the first or
+  last row. `aria-activedescendant` then names the cell, and Enter still selects its row.
 - **State.** Selection, open tree rows, and the sort are `RxVar`s you can pass in, so the app can
   set them or save them, for example with `Storage.local`.
 - **The palette.** While the query is empty, the palette lists commands in order under their

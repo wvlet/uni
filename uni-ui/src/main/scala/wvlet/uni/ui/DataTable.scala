@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
@@ -85,8 +86,11 @@ object Column:
   * }}}
   *
   * A click on a sortable header cycles ascending, descending, and unsorted. The table is one tab
-  * stop: the arrow keys, Home, End, PageUp, and PageDown move the highlighted row, and Enter or a
-  * click selects it. Navigation moves by row, not by cell. The container is
+  * stop that moves by cell, as in the WAI-ARIA grid pattern: Up, Down, PageUp, and PageDown move
+  * the highlighted row and keep the column; Left and Right move along the row; Home and End go to
+  * the row's first and last cell, and Ctrl (or ⌘) with Home or End to the first and last row.
+  * `aria-activedescendant` names the active cell, which has `data-active="true"`. Enter or a click
+  * selects the row, and a click also makes its cell active. The container is
   * `div.uni-list.uni-table` with `role="grid"`; the header row is `div.uni-table__header`, and each
   * row is a `div.uni-list__row` of `div.uni-table__cell`s, laid out by the CSS grid in
   * `--uni-table-columns`.
@@ -126,6 +130,20 @@ class DataTable[A, K] private (
 
   /** The height of every row in pixels (32 by default). */
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
+
+  // The active column; the row comes from the list's active row
+  private val activeColumn = Rx.variable(0)
+
+  private def onKey(e: dom.KeyboardEvent): Boolean =
+    val toRow = e.ctrlKey || e.metaKey
+    DataTable.nextColumn(e.key, activeColumn.get, columns.size) match
+      case Some(c) =>
+        if c != activeColumn.get then
+          activeColumn := c
+        // Ctrl+Home and Ctrl+End also move the row, through the list's own Home and End
+        !(toRow && (e.key == "Home" || e.key == "End"))
+      case None =>
+        false
 
   private def cellClass(c: Column[A]): String =
     if c.end then
@@ -188,50 +206,68 @@ class DataTable[A, K] private (
 
   end headerCell
 
-  override def render: RxElement = ListCore[A, K](
-    sorted,
-    key,
-    rowHeight,
-    VirtualList.defaultOverscan,
-    containerClass = "uni-table",
-    containerAttrs = Seq(
-      role -> "grid",
-      label.map(ariaLabel -> _).getOrElse(DomNode.empty),
-      ariaColcount -> columns.size.toString,
-      ariaRowcount -> rows.map(xs => (xs.size + 1).toString)
-    ),
-    containerStyle = s"--uni-table-columns: ${columns.map(_.width).mkString(" ")}",
-    spacerAttrs = Seq(role -> "rowgroup"),
-    rowRole = "row",
-    // The header is row 1
-    rowAttrs = (_, i, _) => ariaRowindex -> i.map(n => (n + 2).toString),
-    renderRow =
-      a =>
-        columns
-          .zipWithIndex
-          .map { (c, i) =>
-            div(
-              role         -> "gridcell",
-              cls          -> cellClass(c),
-              ariaColindex -> (i + 1).toString,
-              c.cell(a)
-            )
-          },
-    selected = selected,
-    onSelect = onSelectFn,
-    typeaheadLabel = None,
-    extraKey = (_, _, _) => false,
-    header = div(
-      role -> "rowgroup",
-      cls  -> "uni-table__header",
-      div(
-        role         -> "row",
-        cls          -> "uni-table__header-row",
-        ariaRowindex -> "1",
-        columns.zipWithIndex.map(headerCell)
-      )
+  override def render: RxElement =
+    // Lazy, so each cell can take its id from the list that renders it
+    lazy val core: ListCore[A, K] = ListCore[A, K](
+      sorted,
+      key,
+      rowHeight,
+      VirtualList.defaultOverscan,
+      containerClass = "uni-table",
+      containerAttrs = Seq(
+        role -> "grid",
+        label.map(ariaLabel -> _).getOrElse(DomNode.empty),
+        ariaColcount -> columns.size.toString,
+        ariaRowcount -> rows.map(xs => (xs.size + 1).toString)
+      ),
+      containerStyle = s"--uni-table-columns: ${columns.map(_.width).mkString(" ")}",
+      spacerAttrs = Seq(role -> "rowgroup"),
+      rowRole = "row",
+      // The header is row 1
+      rowAttrs = (_, i, _) => ariaRowindex -> i.map(n => (n + 2).toString),
+      renderRow =
+        a =>
+          columns
+            .zipWithIndex
+            .map { (c, i) =>
+              val k = key(a)
+              div(
+                id             -> core.cellId(k, i),
+                role           -> "gridcell",
+                cls            -> cellClass(c),
+                ariaColindex   -> (i + 1).toString,
+                data("active") ->
+                  Rx.join(core.activeKey, activeColumn)
+                    .map { (ak, ac) =>
+                      if ak.contains(k) && ac == i then
+                        Some("true")
+                      else
+                        None
+                    },
+                // The row's click handler then selects the row
+                EventListenerBinding("click", _ => activeColumn := i),
+                c.cell(a)
+              )
+            },
+      selected = selected,
+      onSelect = onSelectFn,
+      typeaheadLabel = None,
+      extraKey = (e, _, _) => onKey(e),
+      header = div(
+        role -> "rowgroup",
+        cls  -> "uni-table__header",
+        div(
+          role         -> "row",
+          cls          -> "uni-table__header-row",
+          ariaRowindex -> "1",
+          columns.zipWithIndex.map(headerCell)
+        )
+      ),
+      activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c))
     )
-  )
+    core
+
+  end render
 
 end DataTable
 
@@ -248,6 +284,26 @@ object DataTable:
       onSelectFn = _ => (),
       rowHeight = 32
     )
+
+  /**
+    * The active column after `key` in a row of `count` cells: Left and Right move by one and stop
+    * at the ends, and Home and End go to the first and last cell.
+    */
+  def nextColumn(key: String, current: Int, count: Int): Option[Int] =
+    if count <= 0 then
+      None
+    else
+      key match
+        case "ArrowLeft" =>
+          Some(math.max(current - 1, 0))
+        case "ArrowRight" =>
+          Some(math.min(current + 1, count - 1))
+        case "Home" =>
+          Some(0)
+        case "End" =>
+          Some(count - 1)
+        case _ =>
+          None
 
   /** The sort after a click on `column`'s header: ascending, then descending, then none. */
   def nextSort(current: Option[SortBy], column: String): Option[SortBy] =
