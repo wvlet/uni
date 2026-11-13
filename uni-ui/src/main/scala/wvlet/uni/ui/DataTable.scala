@@ -109,7 +109,8 @@ class DataTable[A, K] private (
     rowHeight: Int,
     changeHandler: ChangeHandler,
     multiSelected: Option[RxVar[Set[K]]],
-    reorderable: Option[RxVar[Seq[A]]]
+    reorderable: Option[RxVar[Seq[A]]],
+    rowLabel: Option[A => String]
 ) extends RxElement:
 
   private def copy(
@@ -120,7 +121,8 @@ class DataTable[A, K] private (
       rowHeight: Int = rowHeight,
       changeHandler: ChangeHandler = changeHandler,
       multiSelected: Option[RxVar[Set[K]]] = multiSelected,
-      reorderable: Option[RxVar[Seq[A]]] = reorderable
+      reorderable: Option[RxVar[Seq[A]]] = reorderable,
+      rowLabel: Option[A => String] = rowLabel
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -133,7 +135,8 @@ class DataTable[A, K] private (
       rowHeight,
       changeHandler,
       multiSelected,
-      reorderable
+      reorderable,
+      rowLabel
     )
 
   /** The accessible name of the table. */
@@ -174,6 +177,13 @@ class DataTable[A, K] private (
     * state. Keys: `selected`, `sort`, and `order`.
     */
   def onChange(f: ChangeHandler): DataTable[A, K] = copy(changeHandler = f)
+
+  /**
+    * The text that names a row for [[wvlet.uni.ui.agent.UiAgent]]: its snapshot items, its `select`
+    * action, and its change feed. Without it, a row is named by its key's `toString`.
+    */
+  def withRowLabel(f: A => String): DataTable[A, K] = copy(rowLabel = Some(f))
+  def noRowLabel(): DataTable[A, K]                 = copy(rowLabel = None)
 
   /** The height of every row in pixels (32 by default). */
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
@@ -364,6 +374,7 @@ class DataTable[A, K] private (
       changeHandler = changeHandler,
       slot = "data-table",
       typeaheadLabel = None,
+      itemLabel = rowLabel,
       extraKey = (e, _, _) => onKey(e),
       header = div(
         role         -> "rowgroup",
@@ -400,7 +411,8 @@ object DataTable:
       rowHeight = 32,
       changeHandler = ChangeGate.noHandler,
       multiSelected = None,
-      reorderable = None
+      reorderable = None,
+      rowLabel = None
     )
 
   /**

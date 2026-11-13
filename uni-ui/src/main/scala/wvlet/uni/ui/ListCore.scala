@@ -80,7 +80,9 @@ private[ui] class ListCore[A, K](
     agentKind: String = "list",
     agentActions: () => Seq[AgentAction] = () => Nil,
     reorderable: Option[RxVar[Seq[A]]] = None,
-    reorderEnabled: () => Boolean = () => true
+    reorderEnabled: () => Boolean = () => true,
+    // The text that names an item for agents; typeahead text, then the key, when absent
+    itemLabel: Option[A => String] = None
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -361,8 +363,18 @@ private[ui] class ListCore[A, K](
   private object agentBinding extends AgentBinding:
     override def kind: String = agentKind
 
-    private def labelOf(a: A): String = typeaheadLabel.fold(String.valueOf(key(a)))(_(a))
-    private def labels: Seq[String]   = AgentBinding.itemLabels(current.map(labelOf))
+    private val nameOf: A => String = itemLabel
+      .orElse(typeaheadLabel)
+      .getOrElse(a => String.valueOf(key(a)))
+
+    // Labels for the rows in `labelsOf`, rebuilt only when the rows change
+    private var labelsOf: Seq[A]    = Seq.empty
+    private var cached: Seq[String] = Seq.empty
+    private def labels: Seq[String] =
+      if labelsOf ne current then
+        labelsOf = current
+        cached = AgentBinding.itemLabels(current.map(nameOf))
+      cached
 
     private def selectedKeys: Set[K] =
       selection match
@@ -392,16 +404,21 @@ private[ui] class ListCore[A, K](
             s
           case other =>
             Seq(other)
-      val names = current.map(a => (key(a): Any) -> labelOf(a)).toMap
-      keys.map(k => names.getOrElse(k, String.valueOf(k))).mkString(", ")
+      // Only the changed keys are named, so a change costs O(keys), not O(rows)
+      val idx = index.get.asInstanceOf[Map[Any, Int]]
+      keys
+        .map(k =>
+          idx.get(k).filter(_ < current.size).fold(String.valueOf(k))(i => nameOf(current(i)))
+        )
+        .mkString(", ")
 
     override def value: Option[String] =
       val keys = selectedKeys
       Option.when(keys.nonEmpty)(format(keys))
 
-    override def items: Seq[UiItem] = labels
-      .zip(current)
-      .map((l, a) => UiItem(l, selectedKeys.contains(key(a))))
+    override def items: Seq[UiItem] =
+      val keys = selectedKeys
+      labels.zip(current).map((l, a) => UiItem(l, keys.contains(key(a))))
 
     override def actions: Seq[AgentAction] =
       AgentAction.choice("select", "Select a row, as a click does", labels)(i =>

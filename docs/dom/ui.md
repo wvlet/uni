@@ -197,7 +197,7 @@ div(
 |-----------|--------------|
 | `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)` |
 | `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
-| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)` |
+| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent` |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
 - **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
@@ -401,6 +401,8 @@ agent.changes(since = 0)                              // what people changed, an
   `UiAgent.secret` shows the value as `<redacted>`, as every password field does.
   `UiAgent.confirm(message)` makes the agent wait while the human allows or denies the action
   in a dialog. Every other agent action is refused until they answer.
+- **Item labels.** A list or tree names its items by `.withTypeahead(label)`, and a table its
+  rows by `.withRowLabel(label)`; without one, an item is named by its key's `toString`.
 - **Changes.** `agent.changes(cursor)` returns what people and app code changed since the
   cursor, without the agent's own changes, so an agent can catch up at the start of its turn.
   `agent.subscribe(c => ...)` sees every change as it happens.
