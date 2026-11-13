@@ -6,38 +6,31 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
 import wvlet.uni.ui.Tooltip
-import wvlet.uni.ui.base.Side
+import wvlet.uni.ui.base.{Announce, InputHistory, Side, StickToBottom}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.language.implicitConversions
-import scala.scalajs.js
 
 /** The main column: a header, the thread (or the welcome screen), and the composer. */
 class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends RxElement:
-  private val threadRef      = DomRef[dom.html.Div]()
+  // A reply streaming in stays in view while the reader is at the bottom; scrolling up to read
+  // stays put until they scroll back down
+  private val stick          = StickToBottom(threshold = 96)
   private var scrolledThread = Option.empty[String]
+  private var watching       = Cancelable.empty
 
-  // Keep the newest message in view after the thread re-renders. A reply streaming in follows
-  // only while the reader is at the bottom (`onlyIfNear`), so scrolling up to read stays put.
-  private def scrollToBottom(onlyIfNear: Boolean = false): Unit =
-    val near = threadRef.current.forall(el => el.scrollHeight - el.scrollTop - el.clientHeight < 96)
-    if !onlyIfNear || near then
-      dom
-        .window
-        .setTimeout(
-          () =>
-            threadRef.foreach { el =>
-              // Instant while following a stream: a smooth scroll per part would pile up
-              val behavior =
-                if onlyIfNear then
-                  "auto"
-                else
-                  "smooth"
-              el.asInstanceOf[js.Dynamic]
-                .scrollTo(js.Dynamic.literal(top = el.scrollHeight, behavior = behavior))
-            },
-          0
-        )
+  // Tell screen reader users when a reply has finished streaming
+  override def onMount(node: Any): Unit =
+    var wasPending = false
+    watching = store
+      .pending
+      .run { p =>
+        if wasPending && !p then
+          Announce.polite("Response complete")
+        wasPending = p
+      }
+
+  override def beforeUnmount: Unit = watching.cancel
 
   private def header: RxElement = div(
     cls ->
@@ -81,8 +74,8 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
     cls -> "aurora relative flex min-w-0 flex-1 flex-col",
     header,
     div(
-      ref -> threadRef,
       cls -> "relative z-10 min-h-0 flex-1 overflow-y-auto",
+      stick.binding,
       // Both stay mounted and toggle `hidden`, so a new message never rebuilds the thread
       Welcome(transport, prompt => store.send(prompt))(hidden -> store.messages.map(_.nonEmpty)),
       div(
@@ -98,18 +91,19 @@ class ChatView(store: ChatStore, layout: Layout, transport: Transport) extends R
         store
           .waitingForFirstPart
           .map { p =>
+            // The reader just sent a prompt: show its reply even if they had scrolled up
             if p then
-              scrollToBottom()
+              stick.scrollToBottom(smooth = true)
             when(p, Thinking())
           },
         store
           .messages
           .map { ms =>
-            // A thread just opened starts at its newest message; later updates follow if near
+            // A thread just opened starts at its newest message; StickToBottom follows the rest
             val opened = store.selected.get != scrolledThread
             scrolledThread = store.selected.get
-            if ms.nonEmpty then
-              scrollToBottom(onlyIfNear = !opened)
+            if opened && ms.nonEmpty then
+              stick.scrollToBottom()
             DomNode.empty
           }
       )
@@ -284,7 +278,9 @@ class Thinking extends RxElement:
   *   true while a reply is on its way; sending waits until it arrives
   */
 class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
-  private val draft    = Rx.variable("")
+  private val draft = Rx.variable("")
+  // ArrowUp on the first line brings back earlier prompts, as in a terminal
+  private val history  = InputHistory()
   private val inputRef = DomRef[dom.html.TextArea]()
   private var isBusy   = false
   private var watching = Cancelable.empty
@@ -306,6 +302,7 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
   private def submit(): Unit =
     val text = draft.get.trim
     if text.nonEmpty && !isBusy then
+      history.add(text)
       draft := ""
       onSend(text)
 
@@ -320,6 +317,7 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
         cls         ->
           "block max-h-52 w-full resize-none bg-transparent px-4 pt-3.5 pb-1 text-[14px] leading-6 outline-none placeholder:text-faint",
         value.bind(draft),
+        history.keys(draft),
         Keyboard.onEnter(() => submit()),
         autofocus
       ),

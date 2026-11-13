@@ -10,6 +10,9 @@ Components keep their behavior and their look apart. Scala code sets ARIA roles,
 handling, `data-state` attributes, and a `data-slot` name on every part. `uni-ui.css` styles those with `--uni-*` CSS variables, so an
 app restyles a component by setting variables, not by changing Scala code.
 
+To build a widget uni-ui doesn't have, start from the [behaviors](./behaviors) the components are
+made of: keyboard navigation, typeahead, selection, focus handling, and stick-to-bottom scrolling.
+
 ## Setup
 
 Add the artifact to a Scala.js project:

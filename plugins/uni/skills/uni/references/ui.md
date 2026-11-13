@@ -168,6 +168,40 @@ ChangeSource.withSource(ChangeSource.Agent)(menuOpen := false)
 
 Writes the app makes itself (`open := false`) are not reported.
 
+## Behaviors for your own widgets
+
+`wvlet.uni.ui.base` holds the interaction logic uni-ui is built from. Each behavior is a pure model
+plus a binding modifier; ones that change an app `RxVar` take an `onChange` handler, like the
+components. Full catalog: `docs/dom/behaviors.md`.
+
+```scala
+import wvlet.uni.ui.base.*
+
+// A chat thread that follows new content unless the reader scrolled up
+val stick = StickToBottom()
+val chatLog = div(cls -> "thread", stick.binding)
+stick.scrollToBottom()  // after the user sends a message
+
+// A composer with terminal-style ArrowUp/ArrowDown history
+val prompt  = Rx.variable("")
+val history = InputHistory()
+val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEnter { () =>
+  history.add(prompt.get)
+  prompt := ""
+})
+
+// Multi-select: plain press, Ctrl/Cmd toggles, Shift selects a range
+val picked    = Rx.variable(Set.empty[String])
+val selection = Selection(picked)
+
+Announce.polite("Response complete")  // screen readers only
+```
+
+- `Typeahead().onKey(e, labels, activeIndex)`: buffered search ("ca" finds "Cat").
+- `FocusRecovery.within("li")` on a list keeps focus in it when the focused item is removed.
+- `RovingFocus`, `ListNavigation`, `FocusTrap`/`FocusReturn`, `Dismiss`, `Anchored`, `Windowing`.
+- `OnMount(el => cancelable)` (uni-dom) binds your own behavior to any element.
+
 ## Styling
 
 - Restyle with `--uni-*` variables set after `uni-ui.css`, not by changing Scala code:

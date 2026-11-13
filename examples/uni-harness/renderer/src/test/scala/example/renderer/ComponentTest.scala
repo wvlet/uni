@@ -37,6 +37,25 @@ class ComponentTest extends DomTestSupport:
     sent.toSeq shouldBe Seq.empty
   }
 
+  test("the composer recalls earlier prompts with ArrowUp, as a terminal does") {
+    val m = mount(Composer(_ => (), Rx.variable(false)))
+    settle().map { _ =>
+      val box = m.get("textarea").asInstanceOf[dom.html.TextArea]
+      Seq("first", "second").foreach { p =>
+        fireEvent.input(box, p)
+        fireEvent.keyDown(box, "Enter")
+      }
+      fireEvent.input(box, "draft")
+      fireEvent.keyDown(box, "ArrowUp")
+      box.value shouldBe "second"
+      fireEvent.keyDown(box, "ArrowUp")
+      box.value shouldBe "first"
+      fireEvent.keyDown(box, "ArrowDown")
+      fireEvent.keyDown(box, "ArrowDown")
+      box.value shouldBe "draft"
+    }
+  }
+
   test("the composer waits while a reply is on its way") {
     val sent = mutable.Buffer.empty[String]
     val busy = Rx.variable(true)

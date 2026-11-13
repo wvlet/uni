@@ -482,7 +482,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Web UI (Scala.js)',
           items: [
             { text: 'RxElement', link: '/dom/' },
-            { text: 'UI Components', link: '/dom/ui' }
+            { text: 'UI Components', link: '/dom/ui' },
+            { text: 'Behaviors', link: '/dom/behaviors' }
           ]
         },
         {
@@ -590,7 +591,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           text: 'Web UI (Scala.js)',
           items: [
             { text: 'RxElement', link: '/dom/' },
-            { text: 'UI Components', link: '/dom/ui' }
+            { text: 'UI Components', link: '/dom/ui' },
+            { text: 'Behaviors', link: '/dom/behaviors' }
           ]
         },
         {
