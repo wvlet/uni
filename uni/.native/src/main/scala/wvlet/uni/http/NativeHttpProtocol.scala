@@ -150,12 +150,22 @@ private[http] object HttpResponseWriter:
     *   body bytes are omitted, per RFC 9110.
     */
   def serialize(response: Response, keepAlive: Boolean, includeBody: Boolean): Array[Byte] =
-    val code = response.status.code
-    // 1xx, 204, and 304 responses must not carry a message body or Content-Length.
-    val bodyForbidden = code == 204 || code == 304 || (code >= 100 && code < 200)
-    val body          = response.content.toContentBytes
+    val body = response.content.toContentBytes
+    val head = serializeHead(response, keepAlive, body.length.toLong)
+    if includeBody && !bodyForbidden(response) && body.nonEmpty then
+      head ++ body
+    else
+      head
 
-    val sb = StringBuilder()
+  // 1xx, 204, and 304 responses must not carry a message body or Content-Length.
+  def bodyForbidden(response: Response): Boolean =
+    val code = response.status.code
+    code == 204 || code == 304 || (code >= 100 && code < 200)
+
+  /** The status line and headers of a response whose body has `contentLength` bytes. */
+  def serializeHead(response: Response, keepAlive: Boolean, contentLength: Long): Array[Byte] =
+    val code = response.status.code
+    val sb   = StringBuilder()
     sb.append("HTTP/1.1 ").append(code).append(" ").append(response.status.reason).append("\r\n")
 
     // Copy response headers, but skip the ones we set explicitly below to avoid duplicates.
@@ -167,7 +177,7 @@ private[http] object HttpResponseWriter:
           sb.append(name).append(": ").append(value).append("\r\n")
       }
 
-    if !bodyForbidden then
+    if !bodyForbidden(response) then
       // Prefer an explicitly-set Content-Type header over the content's default type.
       val contentType = response
         .headers
@@ -176,7 +186,7 @@ private[http] object HttpResponseWriter:
       contentType.foreach { ct =>
         sb.append(HttpHeader.ContentType).append(": ").append(ct).append("\r\n")
       }
-      sb.append(HttpHeader.ContentLength).append(": ").append(body.length).append("\r\n")
+      sb.append(HttpHeader.ContentLength).append(": ").append(contentLength).append("\r\n")
 
     sb.append(HttpHeader.Connection)
       .append(": ")
@@ -189,13 +199,9 @@ private[http] object HttpResponseWriter:
       .append("\r\n")
     sb.append("\r\n")
 
-    val head = sb.toString.getBytes(StandardCharsets.ISO_8859_1)
-    if includeBody && !bodyForbidden && body.nonEmpty then
-      head ++ body
-    else
-      head
+    sb.toString.getBytes(StandardCharsets.ISO_8859_1)
 
-  end serialize
+  end serializeHead
 
   private def isManagedHeader(name: String): Boolean =
     name.equalsIgnoreCase(HttpHeader.ContentType) ||

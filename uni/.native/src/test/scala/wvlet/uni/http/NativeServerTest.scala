@@ -694,4 +694,60 @@ class NativeServerTest extends UniTest:
     post(RPCDispatcher(router).withDetailedErrors(true)).body shouldContain "stackTrace"
   }
 
+  test("stream a file body and answer a Range with 206") {
+    import wvlet.uni.io.FileSystem
+    val dir = FileSystem.createTempDirectory("native-static-range")
+    // ASCII, so the ISO-8859-1 raw client reads it back unchanged
+    val text = (0 until 200 * 1024).map(i => ('a' + i % 26).toChar).mkString
+    FileSystem.writeString(dir / "big.txt", text)
+    NativeServerConfig()
+      .withFilter(StaticFiles(dir.path))
+      .withHandler(_ => Response.notFound)
+      .withPort(0)
+      .start { server =>
+        val whole = request(
+          server.localPort,
+          "GET /big.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        whole.status shouldBe 200
+        whole.headers.get("content-length") shouldBe Some(text.length.toString)
+        whole.body shouldBe text
+        val partial = request(
+          server.localPort,
+          "GET /big.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100000-100009\r\nConnection: close\r\n\r\n"
+        )
+        partial.status shouldBe 206
+        partial.headers.get("content-range") shouldBe Some(s"bytes 100000-100009/${text.length}")
+        partial.body shouldBe text.substring(100000, 100010)
+        val head = request(
+          server.localPort,
+          "HEAD /big.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        // StaticFiles serves GET only, so HEAD reaches the next handler
+        head.status shouldBe 404
+      }
+  }
+
+  test("send a FileContent body without its bytes for HEAD") {
+    import wvlet.uni.io.FileSystem
+    val dir = FileSystem.createTempDirectory("native-file-head")
+    FileSystem.writeString(dir / "a.txt", "0123456789")
+    NativeServerConfig()
+      .withHandler(_ => Response.ok(HttpContent.FileContent(dir / "a.txt", 2, 5)))
+      .withPort(0)
+      .start { server =>
+        val r = request(
+          server.localPort,
+          "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        r.headers.get("content-length") shouldBe Some("5")
+        r.body shouldBe ""
+        val g = request(
+          server.localPort,
+          "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        )
+        g.body shouldBe "23456"
+      }
+  }
+
 end NativeServerTest

@@ -179,12 +179,76 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             streamSse(clientFd, response, keepAlive)
           }.getOrElse(false)
       else
-        // A HEAD response carries headers (incl. Content-Length) but no body.
+        response.content match
+          case file: HttpContent.FileContent if !HttpResponseWriter.bodyForbidden(response) =>
+            sendFile(clientFd, response, file, keepAlive, includeBody = !isHead)
+          case _ =>
+            // A HEAD response carries headers (incl. Content-Length) but no body.
+            NativeSocket.sendAll(
+              clientFd,
+              HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
+            )
+    keepAlive && sent
+
+  /**
+    * Send a file body in bounded chunks, so the file is never held in memory. Returns false when
+    * the connection can't be reused: a failed send, or a file that ended before its Content-Length
+    * (the client then sees a truncated response).
+    */
+  private def sendFile(
+      clientFd: Int,
+      response: Response,
+      file: HttpContent.FileContent,
+      keepAlive: Boolean,
+      includeBody: Boolean
+  ): Boolean =
+    // Open before sending anything, so a file that can't be read still gets an error response
+    val opened =
+      try
+        Right(StaticFilesCompat.openAt(file.path, file.offset))
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to open ${file.path}: ${e.getMessage}", e)
+          Left(e)
+    opened match
+      case Left(e) =>
         NativeSocket.sendAll(
           clientFd,
-          HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
+          HttpResponseWriter.serialize(errorResponse(e), keepAlive, includeBody)
         )
-    keepAlive && sent
+      case Right(in) =>
+        try
+          var ok = NativeSocket.sendAll(
+            clientFd,
+            HttpResponseWriter.serializeHead(response, keepAlive, file.length)
+          )
+          if includeBody then
+            val buf       = new Array[Byte](NativeHttpServer.FileChunkSize)
+            var remaining = file.length
+            while ok && remaining > 0 do
+              val n = in.read(buf, 0, math.min(buf.length.toLong, remaining).toInt)
+              if n < 0 then
+                warn(s"${file.path} ended ${remaining} bytes before its Content-Length")
+                ok = false
+              else
+                remaining -= n
+                ok = NativeSocket.sendAll(
+                  clientFd,
+                  if n == buf.length then
+                    buf
+                  else
+                    buf.take(n)
+                )
+          ok
+        catch
+          case NonFatal(e) =>
+            warn(s"Failed to send ${file.path}: ${e.getMessage}", e)
+            false
+        finally
+          in.close()
+    end match
+
+  end sendFile
 
   /**
     * Run a long-lived connection (SSE stream, WebSocket) in one of the limited streaming slots.
@@ -445,6 +509,8 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
 end NativeHttpServer
 
 object NativeHttpServer:
+  // Bytes read from a file per send of a streamed response
+  private val FileChunkSize                               = 64 * 1024
   private final val ShutdownTimeoutMillis                 = 5000L
   private final val AcceptErrorBackoffMillis              = 10L
   def apply(config: NativeServerConfig): NativeHttpServer = new NativeHttpServer(config)

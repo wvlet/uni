@@ -296,4 +296,37 @@ class NodeServerTest extends UniTest:
       }
   }
 
+  test("stream static files and answer a Range with 206") {
+    import wvlet.uni.io.FileSystem
+    val dir  = FileSystem.createTempDirectory("node-static-range")
+    val data = Array.tabulate(300 * 1024 + 7)(i => (i * 31 % 251).toByte)
+    FileSystem.writeBytes(dir / "big.bin", data)
+    Http
+      .server
+      .withPort(0)
+      .withFilter(StaticFiles(dir.path))
+      .withHandler(_ => Response.notFound)
+      .startAndAwait { server =>
+        val client = asyncClient(server)
+        for
+          whole   <- client.send(Request.get("/big.bin"))
+          partial <- client.send(
+            Request.get("/big.bin").addHeader(HttpHeader.Range, "bytes=200000-200009")
+          )
+          missing <- statusAndBody(
+            server,
+            Request.get("/big.bin").addHeader(HttpHeader.Range, s"bytes=${data.length}-")
+          )
+        yield
+          whole.status shouldBe HttpStatus.Ok_200
+          whole.header("Content-Length") shouldBe Some(data.length.toString)
+          whole.header("Accept-Ranges") shouldBe Some("bytes")
+          whole.contentAsBytes.exists(_.sameElements(data)) shouldBe true
+          partial.status shouldBe HttpStatus.PartialContent_206
+          partial.header("Content-Range") shouldBe Some(s"bytes 200000-200009/${data.length}")
+          partial.contentAsBytes.exists(_.sameElements(data.slice(200000, 200010))) shouldBe true
+          missing._1 shouldBe 416
+      }
+  }
+
 end NodeServerTest

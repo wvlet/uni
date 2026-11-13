@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONValue
 
 /**
@@ -93,6 +94,34 @@ object HttpContent:
     def toContentString: String           = String(encoded, "UTF-8")
     def toContentBytes: Array[Byte]       = encoded
     def contentHash: Int                  = java.util.Arrays.hashCode(encoded)
+
+  /**
+    * `length` bytes of the file at `path`, starting at `offset`, read when the body is sent. Server
+    * backends (Netty, Node.js, Scala Native) stream it from the file in bounded chunks, so a large
+    * file is never held in memory. `asBytes` and `toContentBytes` read the range on each call, for
+    * code that needs the bytes themselves.
+    *
+    * The file must not shrink while it is sent: a backend that reaches its end early closes the
+    * connection, as the response can no longer meet its `Content-Length`.
+    */
+  case class FileContent(
+      path: IOPath,
+      offset: Long,
+      length: Long,
+      override val contentType: Option[ContentType] = Some(ContentType.ApplicationOctetStream)
+  ) extends HttpContent:
+    require(
+      offset >= 0 && length >= 0,
+      s"offset and length must be non-negative: ${offset}, ${length}"
+    )
+
+    def isEmpty: Boolean             = length == 0
+    def asString: Option[String]     = Some(toContentString)
+    def asBytes: Option[Array[Byte]] = Some(toContentBytes)
+    def toContentString: String      = String(toContentBytes, "UTF-8")
+    def toContentBytes: Array[Byte]  = StaticFilesCompat.readRange(path, offset, length)
+    // A hash of the identity, not the bytes, so it needs no read
+    def contentHash: Int = (path, offset, length).hashCode
 
   def empty: HttpContent = Empty
 

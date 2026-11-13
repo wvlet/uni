@@ -25,6 +25,7 @@ import io.netty.handler.codec.http.{
   DefaultHttpContent,
   DefaultHttpResponse,
   FullHttpRequest,
+  HttpChunkedInput,
   HttpHeaderNames,
   HttpHeaderValues,
   HttpRequest as NettyHttpRequest,
@@ -38,6 +39,7 @@ import io.netty.handler.codec.http.websocketx.{
   WebSocketServerHandshaker,
   WebSocketServerHandshakerFactory
 }
+import io.netty.handler.stream.ChunkedFile
 import io.netty.handler.timeout.IdleStateHandler
 import io.netty.util.concurrent.EventExecutorGroup
 import wvlet.uni.http.{
@@ -58,6 +60,7 @@ import wvlet.uni.http.{
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
+import java.io.RandomAccessFile
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ExecutorService, TimeUnit}
@@ -415,6 +418,17 @@ class NettyRequestHandler(
       response: Response,
       keepAlive: Boolean
   ): Unit =
+    response.content match
+      case file: HttpContent.FileContent =>
+        sendFileResponse(ctx, response, file, keepAlive)
+      case _ =>
+        sendBufferedResponse(ctx, response, keepAlive)
+
+  private def sendBufferedResponse(
+      ctx: ChannelHandlerContext,
+      response: Response,
+      keepAlive: Boolean
+  ): Unit =
     val nettyResponse = toNettyResponse(response)
 
     if keepAlive then
@@ -423,6 +437,73 @@ class NettyRequestHandler(
     else
       nettyResponse.headers().set(HttpHeaderNames.CONNECTION, HttpHeaderValues.CLOSE)
       ctx.writeAndFlush(nettyResponse).addListener(ChannelFutureListener.CLOSE)
+
+  /**
+    * Stream a file body in chunks through the pipeline's ChunkedWriteHandler, so the file is never
+    * held in memory. A file that ends early fails the write, and the connection is closed, since
+    * the response can no longer meet its Content-Length.
+    */
+  private def sendFileResponse(
+      ctx: ChannelHandlerContext,
+      response: Response,
+      file: HttpContent.FileContent,
+      keepAlive: Boolean
+  ): Unit =
+    HttpServerSecurity.validateHeaders(response.headers)
+    // Open before writing anything, so a file that can't be read still gets an error response
+    val chunks =
+      try
+        val raf = RandomAccessFile(file.path.path, "r")
+        try
+          ChunkedFile(raf, file.offset, file.length, NettyRequestHandler.FileChunkSize)
+        catch
+          case e: Throwable =>
+            raf.close()
+            throw e
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to open ${file.path}: ${e.getMessage}", e)
+          sendBufferedResponse(ctx, errorResponse(e), keepAlive)
+          return
+
+    val nettyResponse = DefaultHttpResponse(
+      HttpVersion.HTTP_1_1,
+      HttpResponseStatus.valueOf(response.status.code)
+    )
+    response
+      .headers
+      .entries
+      .foreach { case (name, value) =>
+        nettyResponse.headers().add(name, value)
+      }
+    file
+      .contentType
+      .foreach { ct =>
+        nettyResponse.headers().set(HttpHeaderNames.CONTENT_TYPE, ct.value)
+      }
+    nettyResponse.headers().set(HttpHeaderNames.CONTENT_LENGTH, file.length)
+    nettyResponse
+      .headers()
+      .set(
+        HttpHeaderNames.CONNECTION,
+        if keepAlive then
+          HttpHeaderValues.KEEP_ALIVE
+        else
+          HttpHeaderValues.CLOSE
+      )
+    ctx.write(nettyResponse)
+    // ChunkedWriteHandler closes the file when the write ends, fails, or the channel goes inactive
+    ctx
+      .writeAndFlush(HttpChunkedInput(chunks))
+      .addListener { (f: ChannelFuture) =>
+        if !f.isSuccess then
+          debug(s"File response for ${file.path} failed: ${f.cause()}")
+          f.channel().close()
+        else if !keepAlive then
+          f.channel().close()
+      }
+
+  end sendFileResponse
 
   private def toUniRequest(ctx: ChannelHandlerContext, nettyRequest: FullHttpRequest): Request =
     val method = HttpMethod
@@ -508,6 +589,8 @@ class NettyRequestHandler(
 end NettyRequestHandler
 
 object NettyRequestHandler:
+  // Bytes read from a file per chunk of a streamed response
+  private val FileChunkSize = 64 * 1024
 
   def apply(
       handler: RxHttpHandler,

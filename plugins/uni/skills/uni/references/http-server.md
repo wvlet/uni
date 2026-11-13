@@ -163,7 +163,10 @@ Http
 - Each file gets an `ETag` (size and mtime) and `Cache-Control: no-cache`; a
   matching `If-None-Match` gets 304. Change the policy with
   `withCacheControl("max-age=3600")` or drop it with `noCacheControl`.
-- Files are read whole per request (no `Range` or streaming).
+- Files stream from disk in chunks. A single `Range` gets 206 (`If-Range` must
+  match the ETag), one past the end gets 416, and several ranges get the whole file.
+- Stream a file from a handler with
+  `Response.ok(HttpContent.FileContent(path, offset, length))`.
 
 ## CORS (JVM, Node.js, Native)
 
