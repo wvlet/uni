@@ -154,6 +154,8 @@ class PosixPtyTest extends UniTest:
           "r=$(dd bs=1 count=6 2>/dev/null); stty sane; printf '\\r\\nreply:%s' \"${r}\" | tr '\\033' E"
       )
     )
+    // Let the query arrive before connecting, so it is buffered: the reply must still get back
+    Thread.sleep(300)
     // Connect first: output that arrives before any listener goes to the first one only
     PtyProcess.connect(terminal, p)
     val r = Run(p)

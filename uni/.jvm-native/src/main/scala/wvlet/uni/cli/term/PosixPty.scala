@@ -208,8 +208,8 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
   private def writeLoop(): Unit =
     try
       while !stopWriting do
-        val chunk = writeQueue.poll(PollMillis, TimeUnit.MILLISECONDS)
-        if chunk != null then
+        val chunk = writeQueue.take()
+        if chunk ne WakeUp then
           var offset = 0
           while offset < chunk.length && !stopWriting do
             val n = ops.write(fd, chunk, offset, chunk.length - offset, PollMillis)
@@ -237,6 +237,7 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
       stopReading = true
       readerDone.await()
     stopWriting = true
+    writeQueue.add(WakeUp)
     writer.join()
     ioLock.synchronized {
       closed = true
@@ -300,6 +301,8 @@ private[term] object PosixPtyProcess:
   private final val ReadBufferSize = 8192
   private final val PollMillis     = 100
   private final val DrainMillis    = 500L
+  // Queued to wake the writer thread when the program exits
+  private val WakeUp = Array.emptyByteArray
 
 /**
   * Decodes a UTF-8 byte stream chunk by chunk. A character whose bytes are split across chunks is

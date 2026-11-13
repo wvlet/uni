@@ -57,5 +57,8 @@ object PtyProcess:
     * to the program.
     */
   def connect(terminal: TerminalEmulator, process: PtyProcess): Cancelable =
+    // Replies first: output the process already buffered reaches the terminal at once, and the
+    // terminal's answers to queries in it (DSR, DA) must reach the process
+    val input = terminal.onData(process.write)
     process.onData(terminal.write)
-    terminal.onData(process.write)
+    input
