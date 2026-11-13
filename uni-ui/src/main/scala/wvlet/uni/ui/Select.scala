@@ -49,6 +49,7 @@ class Select[A] private (
 ) extends RxElement:
 
   private val listId                          = Ids.next("uni-select")
+  private val triggerId                       = s"${listId}-trigger"
   private val open                            = Rx.variable(false)
   private val active                          = Rx.variable(Option.empty[A])
   private val triggerRef: DomRef[dom.Element] = DomRef[dom.Element]()
@@ -129,7 +130,8 @@ class Select[A] private (
         tabindex      -> "-1",
         data("state") -> "open",
         styleAttr     -> minWidth,
-        label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
+        // Without a label, the trigger (which shows the current value) names the list
+        label.map(l => ariaLabel -> l).getOrElse(ariaLabelledby -> triggerId),
         ariaActivedescendant -> active.map(_.map(optionId)),
         EventListenerBinding("keydown", e => onListKey(e.asInstanceOf[dom.KeyboardEvent])),
         each(
@@ -185,13 +187,15 @@ class Select[A] private (
 
   override def render: RxElement = button(
     triggerRef.binding,
-    tpe           -> "button",
-    cls           -> "uni-select",
-    data("slot")  -> "select",
-    disabled      -> disabledState,
-    ariaHaspopup  -> "listbox",
-    ariaExpanded  -> open.map(_.toString),
-    ariaControls  -> listId,
+    id           -> triggerId,
+    tpe          -> "button",
+    cls          -> "uni-select",
+    data("slot") -> "select",
+    disabled     -> disabledState,
+    ariaHaspopup -> "listbox",
+    ariaExpanded -> open.map(_.toString),
+    // Only while open: a closed popup is not in the document, and the reference would dangle
+    ariaControls  -> open.map(o => Option.when(o)(listId)),
     data("state") -> open.map(Popover.stateName),
     label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
     EventListenerBinding(

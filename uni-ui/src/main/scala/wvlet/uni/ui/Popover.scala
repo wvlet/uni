@@ -101,9 +101,10 @@ class Popover private (
 
   override def render: RxElement = trigger(
     triggerRef.binding,
-    ariaHaspopup  -> "dialog",
-    ariaExpanded  -> open.map(_.toString),
-    ariaControls  -> contentId,
+    ariaHaspopup -> "dialog",
+    ariaExpanded -> open.map(_.toString),
+    // Only while open: a closed popup is not in the document, and the reference would dangle
+    ariaControls  -> open.map(o => Option.when(o)(contentId)),
     data("state") -> open.map(Popover.stateName),
     EventListenerBinding("click", e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e))),
     Presence(open)(exit => Portal.toBody(panel(exit)))

@@ -275,6 +275,8 @@ class EditorTest extends DomTestSupport:
 - Rx updates re-render synchronously, so assert right after `fireEvent`. Use
   `settle()` only for `onMount` effects, and `awaitValue(rx)(p)` for values that
   arrive from browser events such as `resize`.
+- `checkPattern(el, AriaPattern.Tabs).map(_ shouldBe empty)` checks a widget against its
+  WAI-ARIA pattern (roles, states, names, keyboard); see [ui.md](ui.md#testing).
 
 Full guide: https://wvlet.org/uni/dom/index.md#testing-components
 

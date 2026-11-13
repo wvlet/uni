@@ -247,6 +247,25 @@ class ComposerTest extends DomTestSupport:
   }
 ```
 
+`checkPattern(root, pattern)` checks a widget against its WAI-ARIA APG pattern: roles, required
+states, an accessible name, id references that resolve, one focus model, and then the keys the
+pattern requires. It returns `Rx[Seq[AriaViolation]]`; settle first when an overlay opened, and
+call it last, since the keys change state (`keyboard = false` skips them). Patterns: `Tabs`,
+`Menu`, `MenuButton`, `Listbox`, `Combobox`, `Dialog`, `AlertDialog`, `Tree`, `Grid`, `Tooltip`.
+
+```scala
+import wvlet.uni.test.empty
+
+class ModelPickerTest extends DomTestSupport:
+  test("the model picker follows the listbox pattern") {
+    val m = mount(Select(Rx.variable("sonnet"), Seq("haiku", "sonnet"))(identity).withLabel("Model"))
+    fireEvent.click(m.get("button"))
+    settle()
+      .flatMap(_ => checkPattern(org.scalajs.dom.document.querySelector("[role=listbox]"), AriaPattern.Listbox))
+      .map(_ shouldBe empty)
+  }
+```
+
 ## Mistakes to avoid
 
 - **A JVM project.** uni-dom and uni-ui are Scala.js only.

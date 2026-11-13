@@ -370,6 +370,12 @@ cases need a wait; return the `Rx` from the test body:
   change, arrive later. `awaitValue(rx)(p)` emits the first value that
   satisfies `p`, or fails after `timeoutMillis` (2 s by default).
 
+### Checking ARIA patterns
+
+`checkPattern(root, AriaPattern.Tabs)` checks a widget's roles, ARIA attributes, and keyboard
+behavior against its WAI-ARIA pattern. See
+[UI Components: Checking ARIA patterns](./ui#checking-aria-patterns).
+
 ## Browser Integrations
 
 The package includes reactive wrappers over common browser APIs. Each is an

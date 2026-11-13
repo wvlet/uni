@@ -267,10 +267,11 @@ class Menu private (
 
   override def render: RxElement = trigger(
     triggerRef.binding,
-    id            -> triggerId,
-    ariaHaspopup  -> "menu",
-    ariaExpanded  -> open.map(_.toString),
-    ariaControls  -> menuId,
+    id           -> triggerId,
+    ariaHaspopup -> "menu",
+    ariaExpanded -> open.map(_.toString),
+    // Only while open: a closed popup is not in the document, and the reference would dangle
+    ariaControls  -> open.map(o => Option.when(o)(menuId)),
     data("state") -> open.map(Popover.stateName),
     EventListenerBinding(
       "click",
