@@ -209,7 +209,7 @@ class Tree[A, K] private (
           chevron(r),
           span(cls -> "uni-tree__label", data("slot") -> "tree-label", renderRow(r.item))
         ),
-    selected = selected,
+    selection = ListSelection.Single(selected),
     onSelect = r => onSelectFn(r.item),
     typeaheadLabel = typeahead.map(f => (r: TreeRow[A, K]) => f(r.item)),
     extraKey = (e, i, moveTo) => onKey(e, i, moveTo),

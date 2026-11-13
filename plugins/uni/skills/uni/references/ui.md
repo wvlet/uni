@@ -130,12 +130,15 @@ render only the rows in view, so give them a bounded height.
 case class Call(id: Long, method: String, millis: Double)
 
 val calls       = Rx.variable(Seq(Call(1, "getUser", 3.2)))
+val pickedIds   = Rx.variable(Set.empty[Long])
 val paletteOpen = Rx.variable(false)
 
 val table = DataTable(calls)(_.id)(
   Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
   Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
-).withLabel("RPC calls")(styleAttr += "height: 320px")
+).withLabel("RPC calls")
+  // Shift/Ctrl+click, Shift+Arrow, Space, Ctrl+A; withSelected(optionVar) for one row
+  .withMultiSelect(pickedIds)(styleAttr += "height: 320px")
 
 val palette = CommandPalette(
   paletteOpen,
@@ -190,7 +193,7 @@ val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEn
   prompt := ""
 })
 
-// Multi-select: plain press, Ctrl/Cmd toggles, Shift selects a range
+// Multi-select in your own list (VirtualList and DataTable have .withMultiSelect)
 val picked    = Rx.variable(Set.empty[String])
 val selection = Selection(picked)
 

@@ -21,5 +21,5 @@ uni-ui widgets share their interaction logic (roving focus, dismissal, anchoring
 
 ## Consequences
 
-- `Selection` ships as a model. Wiring a `multiple` mode into `ListBox` and `DataTable` changes their `selected: RxVar[Option[K]]` API and is a follow-up.
-- In Select and ListBox, Space still selects instead of continuing a typeahead search.
+- `Selection` ships as a model. A follow-up wired it into `VirtualList` and `DataTable` as an additive `withMultiSelect(RxVar[Set[K]])`, so their `selected: RxVar[Option[K]]` API stays unchanged.
+- In Select and VirtualList, Space still selects instead of continuing a typeahead search.

@@ -115,6 +115,82 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a multi-select virtual list selects with clicks and modifier keys") {
+    val keys    = Rx.variable(Set.empty[Int])
+    val single  = Rx.variable(Option.empty[Int])
+    var chosen  = Seq.empty[Int]
+    var reasons = Seq.empty[ChangeReason]
+    val m       = mount(
+      VirtualList(Rx.const((1 to 5).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+        .withSelected(single)
+        .withMultiSelect(keys)
+        .onSelect(i => chosen :+= i)
+        .onChange(d => reasons :+= d.reason)
+    )
+    val list = m.get(".uni-virtual-list")
+    settle().map { _ =>
+      list.getAttribute("aria-multiselectable") shouldBe "true"
+      fireEvent.click(m.getByText("Item 2"))
+      keys.get shouldBe Set(2)
+      chosen shouldBe Seq(2)
+      fireEvent.click(m.getByText("Item 4"), shiftKey = true)
+      keys.get shouldBe Set(2, 3, 4)
+      fireEvent.click(m.getByText("Item 3"), ctrlKey = true)
+      keys.get shouldBe Set(2, 4)
+      fireEvent.click(m.getByText("Item 5"), metaKey = true)
+      keys.get shouldBe Set(2, 4, 5)
+      // Only the plain click runs onSelect, and the single variable is left alone
+      chosen shouldBe Seq(2)
+      single.get shouldBe None
+      reasons.toSet shouldBe Set(ChangeReason.ItemPress)
+      m.getByText("Item 4").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "true"
+      m.getByText("Item 3").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "false"
+    }
+  }
+
+  test("keys extend, toggle, select all, and clear a multi-select virtual list") {
+    val keys = Rx.variable(Set.empty[Int])
+    var veto = false
+    val m    = mount(
+      VirtualList(Rx.const((1 to 5).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+        .withMultiSelect(keys)
+        .onChange(d =>
+          if veto then
+            d.cancel()
+        )
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      list.focus()
+      activeRow(list).map(_.textContent) shouldBe Some("Item 1")
+      // Plain arrows move the highlight only
+      fireEvent.keyDown(list, "ArrowDown")
+      keys.get shouldBe Set.empty
+      // Shift+Arrow extends from the row the highlight started on
+      fireEvent.keyDown(list, "ArrowDown", shiftKey = true)
+      fireEvent.keyDown(list, "ArrowDown", shiftKey = true)
+      keys.get shouldBe Set(2, 3, 4)
+      activeRow(list).map(_.textContent) shouldBe Some("Item 4")
+      fireEvent.keyDown(list, "ArrowUp", shiftKey = true)
+      keys.get shouldBe Set(2, 3)
+      fireEvent.keyDown(list, "End")
+      fireEvent.keyDown(list, " ")
+      keys.get shouldBe Set(2, 3, 5)
+      fireEvent.keyDown(list, " ")
+      keys.get shouldBe Set(2, 3)
+      fireEvent.keyDown(list, "a", ctrlKey = true)
+      keys.get shouldBe Set(1, 2, 3, 4, 5)
+      veto = true
+      fireEvent.keyDown(list, "Escape")
+      keys.get shouldBe Set(1, 2, 3, 4, 5)
+      veto = false
+      fireEvent.keyDown(list, "Escape")
+      keys.get shouldBe Set.empty
+      fireEvent.keyDown(list, "Enter")
+      keys.get shouldBe Set(5)
+    }
+  }
+
   test("a virtual list leaves keys from controls inside its rows alone") {
     var chosen = 0
     val m      = mount(
@@ -243,6 +319,31 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "ArrowDown")
       fireEvent.keyDown(table, "Enter")
       chosen.map(_.method) shouldBe Some("send")
+    }
+  }
+
+  test("a multi-select data table extends with Shift and keeps grid keys") {
+    val keys = Rx.variable(Set.empty[Int])
+    val m    = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        Column[Call]("method", "Method")(c => span(c.method)),
+        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      ).withMultiSelect(keys)
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.getAttribute("aria-multiselectable") shouldBe "true"
+      table.focus()
+      fireEvent.keyDown(table, "ArrowDown", shiftKey = true)
+      keys.get shouldBe Set(1, 2)
+      fireEvent.keyDown(table, "ArrowRight")
+      activeRow(table).map(_.textContent) shouldBe Some("12.5")
+      fireEvent.keyDown(table, "End", ctrlKey = true, shiftKey = true)
+      keys.get shouldBe Set(1, 2, 3)
+      fireEvent.click(m.getByText("list"), ctrlKey = true)
+      keys.get shouldBe Set(2, 3)
+      m.getByText("list").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "false"
+      m.getByText("get").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "true"
     }
   }
 

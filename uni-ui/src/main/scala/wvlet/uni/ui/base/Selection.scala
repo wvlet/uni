@@ -48,6 +48,12 @@ class Selection[K](val selected: RxVar[Set[K]]):
   /** The item a Shift range starts from: the last item selected or toggled on its own. */
   def anchor: Option[K] = anchorKey
 
+  /**
+    * Moves the anchor without changing the selection, as a list does when Shift+Arrow starts a
+    * range from the row it was on.
+    */
+  def setAnchor(k: Option[K]): Unit = anchorKey = k
+
   def isSelected(k: K): Rx[Boolean] = selected.map(_.contains(k))
 
   /** Selects only `k`. */

@@ -46,7 +46,8 @@ class VirtualList[A, K] private (
     onSelectFn: A => Unit,
     overscan: Int,
     typeahead: Option[A => String],
-    changeHandler: ChangeHandler
+    changeHandler: ChangeHandler,
+    multiSelected: Option[RxVar[Set[K]]]
 ) extends RxElement:
 
   private def copy(
@@ -55,7 +56,8 @@ class VirtualList[A, K] private (
       onSelectFn: A => Unit = onSelectFn,
       overscan: Int = overscan,
       typeahead: Option[A => String] = typeahead,
-      changeHandler: ChangeHandler = changeHandler
+      changeHandler: ChangeHandler = changeHandler,
+      multiSelected: Option[RxVar[Set[K]]] = multiSelected
   ): VirtualList[A, K] =
     new VirtualList(
       items,
@@ -67,7 +69,8 @@ class VirtualList[A, K] private (
       onSelectFn,
       overscan,
       typeahead,
-      changeHandler
+      changeHandler,
+      multiSelected
     )
 
   /** The accessible name of the list. */
@@ -76,6 +79,16 @@ class VirtualList[A, K] private (
 
   /** The key of the selected row, set by Enter or a click; the app can also set it. */
   def withSelected(s: RxVar[Option[K]]): VirtualList[A, K] = copy(selected = s)
+
+  /**
+    * Lets the user select several rows, whose keys live in `s`: Shift or Ctrl (⌘) with a click,
+    * Shift with an arrow key, Space, Ctrl+A, and Escape change the set, as in a file list. The list
+    * then leaves [[withSelected]]'s variable alone.
+    */
+  def withMultiSelect(s: RxVar[Set[K]]): VirtualList[A, K] = copy(multiSelected = Some(s))
+
+  /** Selects one row at a time, in [[withSelected]]'s variable (the default). */
+  def noMultiSelect(): VirtualList[A, K] = copy(multiSelected = None)
 
   /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): VirtualList[A, K] = copy(onSelectFn = f)
@@ -104,7 +117,7 @@ class VirtualList[A, K] private (
       (_, i, count) =>
         Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
     renderRow = renderRow,
-    selected = selected,
+    selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
     onSelect = onSelectFn,
     typeaheadLabel = typeahead,
     extraKey = (_, _, _) => false,
@@ -132,5 +145,6 @@ object VirtualList:
       onSelectFn = _ => (),
       overscan = defaultOverscan,
       typeahead = None,
-      changeHandler = ChangeGate.noHandler
+      changeHandler = ChangeGate.noHandler,
+      multiSelected = None
     )
