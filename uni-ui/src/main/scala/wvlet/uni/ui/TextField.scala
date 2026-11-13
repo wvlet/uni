@@ -13,9 +13,10 @@
  */
 package wvlet.uni.ui
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 
 import scala.language.implicitConversions
 
@@ -31,6 +32,69 @@ private[ui] def fieldModifiers(
   ariaInvalid -> invalid.map(_.toString),
   disabled    -> disabledState
 )
+
+/**
+  * Binds a text field to `text` through the change gate. Typing writes `text` once `onChange`
+  * accepts it; a refused edit puts the field back. During an IME composition the text stays a draft
+  * in the field and goes through `onChange` once the composition ends.
+  */
+private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
+  private var composing             = false
+  private var following: Cancelable = Cancelable.empty
+  private val gated                 = GatedVar(
+    text,
+    "value",
+    handler,
+    () => ChangeCause.ambientOr(ChangeCause(ChangeReason.Input, ChangeSource.Keyboard)),
+    () => composing
+  )
+
+  private def restore(target: dom.EventTarget): Unit =
+    target match
+      case f: dom.HTMLInputElement if f.value != gated.get =>
+        f.value = gated.get
+      case f: dom.HTMLTextAreaElement if f.value != gated.get =>
+        f.value = gated.get
+      case _ =>
+
+  /** Follow app writes to `text` while the field is mounted. */
+  def mount(): Unit =
+    following.cancel
+    following = gated.follow()
+
+  def unmount(): Unit =
+    following.cancel
+    following = Cancelable.empty
+
+  def modifiers: Seq[DomNode] = Seq(
+    value.bind(gated),
+    EventListenerBinding("compositionstart", _ => composing = true),
+    EventListenerBinding(
+      "compositionend",
+      e =>
+        composing = false
+        val field = e.currentTarget
+        // Browsers differ on whether the last input event comes before or after compositionend.
+        // When it comes after, it passes the gate itself, and this commit finds nothing new
+        dom
+          .window
+          .setTimeout(
+            () =>
+              if !gated.commit() then
+                restore(field),
+            0
+          )
+    ),
+    // Runs after the binding's own listener: put back an edit that onChange refused
+    EventListenerBinding(
+      "input",
+      e =>
+        if !composing then
+          restore(e.currentTarget)
+    )
+  )
+
+end GatedText
 
 /**
   * A one-line text field bound to `text`: typing updates the variable, and setting the variable
@@ -50,15 +114,26 @@ class Input(
     placeholderText: Option[String] = None,
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
-    disabledState: Rx[Boolean] = Rx.const(false)
+    disabledState: Rx[Boolean] = Rx.const(false),
+    changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
       inputType: String = inputType,
       placeholderText: Option[String] = placeholderText,
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
-      disabledState: Rx[Boolean] = disabledState
-  ): Input = Input(text, inputType, placeholderText, label, invalid, disabledState)
+      disabledState: Rx[Boolean] = disabledState,
+      changeHandler: ChangeHandler = changeHandler
+  ): Input = Input(text, inputType, placeholderText, label, invalid, disabledState, changeHandler)
+
+  /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
+  def onChange(f: ChangeHandler): Input = copy(changeHandler = f)
+
+  private val field = GatedText(text, () => changeHandler)
+
+  // Before the first render, so app writes right after mounting reach the field
+  override def beforeRender: Unit  = field.mount()
+  override def beforeUnmount: Unit = field.unmount()
 
   def withType(t: String): Input = copy(inputType = t)
 
@@ -75,9 +150,10 @@ class Input(
   def withDisabled(d: Boolean): Input     = withDisabled(Rx.const(d))
 
   override def render: RxElement = input(
-    tpe -> inputType,
-    cls -> "uni-input",
-    value.bind(text),
+    tpe          -> inputType,
+    cls          -> "uni-input",
+    data("slot") -> "input",
+    field.modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 
@@ -96,15 +172,34 @@ class Textarea(
     placeholderText: Option[String] = None,
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
-    disabledState: Rx[Boolean] = Rx.const(false)
+    disabledState: Rx[Boolean] = Rx.const(false),
+    changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
       rowCount: Int = rowCount,
       placeholderText: Option[String] = placeholderText,
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
-      disabledState: Rx[Boolean] = disabledState
-  ): Textarea = Textarea(text, rowCount, placeholderText, label, invalid, disabledState)
+      disabledState: Rx[Boolean] = disabledState,
+      changeHandler: ChangeHandler = changeHandler
+  ): Textarea = Textarea(
+    text,
+    rowCount,
+    placeholderText,
+    label,
+    invalid,
+    disabledState,
+    changeHandler
+  )
+
+  /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
+  def onChange(f: ChangeHandler): Textarea = copy(changeHandler = f)
+
+  private val field = GatedText(text, () => changeHandler)
+
+  // Before the first render, so app writes right after mounting reach the field
+  override def beforeRender: Unit  = field.mount()
+  override def beforeUnmount: Unit = field.unmount()
 
   def withRows(n: Int): Textarea = copy(rowCount = n)
 
@@ -119,9 +214,10 @@ class Textarea(
   def withDisabled(d: Boolean): Textarea     = withDisabled(Rx.const(d))
 
   override def render: RxElement = textarea(
-    cls  -> "uni-textarea",
-    rows -> rowCount.toString,
-    value.bind(text),
+    cls          -> "uni-textarea",
+    data("slot") -> "textarea",
+    rows         -> rowCount.toString,
+    field.modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 

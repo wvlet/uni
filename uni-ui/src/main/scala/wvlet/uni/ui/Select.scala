@@ -44,7 +44,8 @@ class Select[A] private (
     options: Rx[Seq[A]],
     optionLabel: A => String,
     label: Option[String],
-    disabledState: Rx[Boolean]
+    disabledState: Rx[Boolean],
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private val listId                          = Ids.next("uni-select")
@@ -57,8 +58,9 @@ class Select[A] private (
 
   private def copy(
       label: Option[String] = label,
-      disabledState: Rx[Boolean] = disabledState
-  ): Select[A] = new Select(selected, options, optionLabel, label, disabledState)
+      disabledState: Rx[Boolean] = disabledState,
+      changeHandler: ChangeHandler = changeHandler
+  ): Select[A] = new Select(selected, options, optionLabel, label, disabledState, changeHandler)
 
   /** The accessible name of the control, such as "Model". */
   def withLabel(l: String): Select[A] = copy(label = Some(l))
@@ -67,12 +69,15 @@ class Select[A] private (
   def withDisabled(d: Rx[Boolean]): Select[A] = copy(disabledState = d)
   def withDisabled(d: Boolean): Select[A]     = copy(disabledState = Rx.const(d))
 
+  /** Called before an option is chosen; `cancel()` keeps the current one. Key: `selected`. */
+  def onChange(f: ChangeHandler): Select[A] = copy(changeHandler = f)
+
   private def optionId(a: A): String = optionIds.getOrElseUpdate(a, Ids.next(s"${listId}-option"))
 
-  private def choose(a: A): Unit =
+  private def choose(a: A, cause: ChangeCause): Unit =
     // Close first, so focus is back on the trigger when `selected` subscribers run
-    open     := false
-    selected := a
+    open := false
+    ChangeGate.write(selected, "selected", a, cause, changeHandler)
 
   private def moveTo(i: Int): Unit = current
     .lift(i)
@@ -89,7 +94,7 @@ class Select[A] private (
       e.key match
         case "Enter" | " " =>
           e.preventDefault()
-          active.get.foreach(choose)
+          active.get.foreach(choose(_, ChangeCause.of(ChangeReason.ItemPress, e)))
         case "Tab" =>
           open := false
           FocusTrap.continueTab(e)
@@ -123,6 +128,7 @@ class Select[A] private (
       div(
         id            -> listId,
         cls           -> "uni-listbox",
+        data("slot")  -> "select-list",
         role          -> "listbox",
         tabindex      -> "-1",
         data("state") -> "open",
@@ -143,6 +149,7 @@ class Select[A] private (
             id             -> optionId(a),
             role           -> "option",
             cls            -> "uni-listbox__option",
+            data("slot")   -> "select-option",
             ariaSelected   -> selected.map(s => (s == a).toString),
             data("active") ->
               active.map(x =>
@@ -152,7 +159,10 @@ class Select[A] private (
                   None
               ),
             EventListenerBinding("pointermove", _ => active := Some(a)),
-            EventListenerBinding("click", _ => choose(a)),
+            EventListenerBinding(
+              "click",
+              e => choose(a, ChangeCause.of(ChangeReason.ItemPress, e))
+            ),
             optionLabel(a)
           )
         }
@@ -181,6 +191,7 @@ class Select[A] private (
     triggerRef.binding,
     tpe           -> "button",
     cls           -> "uni-select",
+    data("slot")  -> "select",
     disabled      -> disabledState,
     ariaHaspopup  -> "listbox",
     ariaExpanded  -> open.map(_.toString),
@@ -196,8 +207,8 @@ class Select[A] private (
             open.update(!_)
     ),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
-    span(cls -> "uni-select__value", selected.map(optionLabel)),
-    span(cls -> "uni-select__chevron", ariaHidden -> "true"),
+    span(cls -> "uni-select__value", data("slot")   -> "select-value", selected.map(optionLabel)),
+    span(cls -> "uni-select__chevron", data("slot") -> "select-chevron", ariaHidden -> "true"),
     Presence(open)(exit => Portal.toBody(list(exit)))
   )
 
@@ -206,7 +217,7 @@ end Select
 object Select:
   // `new` is required in this file: the `apply`s below replace the constructor proxy
   def apply[A](selected: RxVar[A], options: Rx[Seq[A]])(optionLabel: A => String): Select[A] =
-    new Select(selected, options, optionLabel, None, Rx.const(false))
+    new Select(selected, options, optionLabel, None, Rx.const(false), ChangeGate.noHandler)
 
   def apply[A](selected: RxVar[A], options: Seq[A])(optionLabel: A => String): Select[A] =
     apply(selected, Rx.const(options))(optionLabel)

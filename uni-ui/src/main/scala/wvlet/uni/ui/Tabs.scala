@@ -50,6 +50,25 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
   // Unique per list, so two lists on one page never share ids
   private val idPrefix = Ids.next("uni-tabs")
 
+  private var changeHandler: ChangeHandler = ChangeGate.noHandler
+
+  /**
+    * Called before another tab is selected; `cancel()` keeps the current one. Key: `selected`. It
+    * sets the handler on this list and returns it, so a [[TabPanel]] made from the list stays
+    * linked.
+    */
+  def onChange(f: ChangeHandler): TabList[A] =
+    changeHandler = f
+    this
+
+  private def select(value: A, cause: ChangeCause): Boolean = ChangeGate.write(
+    selected,
+    "selected",
+    value,
+    cause,
+    changeHandler
+  )
+
   /** The id of the [[TabPanel]] that shows this list's content. */
   def panelId: String = s"${idPrefix}-panel"
 
@@ -62,21 +81,22 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
       .nextIndex(e.key, math.max(current, 0), tabs.size)
       .foreach { i =>
         e.preventDefault()
-        selected := tabs(i).value
-        // Move focus along with the selection
-        e.currentTarget match
-          case list: dom.Element =>
-            list.querySelectorAll("[role=tab]")(i) match
-              case el: dom.HTMLElement =>
-                el.focus()
-              case _ =>
-          case _ =>
+        // Move focus along with the selection, unless onChange refused it
+        if select(tabs(i).value, ChangeCause.of(ChangeReason.NavigationKey, e)) then
+          e.currentTarget match
+            case list: dom.Element =>
+              list.querySelectorAll("[role=tab]")(i) match
+                case el: dom.HTMLElement =>
+                  el.focus()
+                case _ =>
+            case _ =>
       }
 
   override def render: RxElement = div(
-    role      -> "tablist",
-    cls       -> "uni-tabs",
-    ariaLabel -> label,
+    role         -> "tablist",
+    cls          -> "uni-tabs",
+    data("slot") -> "tab-list",
+    ariaLabel    -> label,
     // Listeners, so an app's own `onkeydown` or `onclick` modifier runs alongside them
     EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
     tabs.map { tab =>
@@ -86,6 +106,7 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
         role         -> "tab",
         id           -> tabId(tab.value),
         cls          -> "uni-tab",
+        data("slot") -> "tab",
         ariaControls -> panelId,
         ariaSelected -> isSelected.map(_.toString),
         tabindex     ->
@@ -95,7 +116,10 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
             else
               "-1"
           ),
-        EventListenerBinding("click", _ => selected := tab.value),
+        EventListenerBinding(
+          "click",
+          e => select(tab.value, ChangeCause.of(ChangeReason.Press, e))
+        ),
         tab.content
       )
     }
@@ -112,6 +136,7 @@ class TabPanel[A](tabs: TabList[A])(renderTab: A => RxElement) extends RxElement
     role           -> "tabpanel",
     id             -> tabs.panelId,
     cls            -> "uni-tab-panel",
+    data("slot")   -> "tab-panel",
     ariaLabelledby -> tabs.selected.map(tabs.tabId),
     tabs.selected.map(renderTab)
   )

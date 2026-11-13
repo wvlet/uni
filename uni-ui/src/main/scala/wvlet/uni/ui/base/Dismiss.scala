@@ -16,6 +16,7 @@ package wvlet.uni.ui.base
 import org.scalajs.dom
 import wvlet.uni.dom.Keyboard
 import wvlet.uni.rx.Cancelable
+import wvlet.uni.ui.{ChangeCause, ChangeReason, ChangeSource}
 
 import scala.collection.mutable.ArrayBuffer
 import scala.scalajs.js
@@ -84,7 +85,9 @@ object Dismiss:
     if e.key == "Escape" && !e.defaultPrevented && !Keyboard.isComposing(e) then
       top.foreach { layer =>
         e.preventDefault()
-        layer.onDismiss()
+        ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(
+          layer.onDismiss()
+        )
       }
 
   private def onPointerDown(e: dom.Event): Unit =
@@ -99,7 +102,9 @@ object Dismiss:
             going = false
           else
             if layer.dismissOnOutside then
-              layer.onDismiss()
+              ChangeCause.during(ChangeCause(ChangeReason.OutsidePress, ChangeSource.Pointer))(
+                layer.onDismiss()
+              )
             if layer.modal then
               going = false
       case _ =>

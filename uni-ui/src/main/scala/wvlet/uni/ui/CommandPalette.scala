@@ -66,6 +66,7 @@ class Command(
 
   def withKeywords(k: String*): Command = copy(keywords = k)
 
+  /** Runs the command; [[ChangeCause.current]] tells whether a pointer or the keyboard chose it. */
   def onRun(f: () => Unit): Command = copy(action = f)
 
 end Command
@@ -100,7 +101,8 @@ class CommandPalette(
     emptyText: String = "No matching commands",
     label: String = "Command palette",
     limit: Int = 50,
-    filter: Option[(String, Seq[Command]) => Seq[Command]] = None
+    filter: Option[(String, Seq[Command]) => Seq[Command]] = None,
+    changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
 
   private def copy(
@@ -108,7 +110,8 @@ class CommandPalette(
       emptyText: String = emptyText,
       label: String = label,
       limit: Int = limit,
-      filter: Option[(String, Seq[Command]) => Seq[Command]] = filter
+      filter: Option[(String, Seq[Command]) => Seq[Command]] = filter,
+      changeHandler: ChangeHandler = changeHandler
   ): CommandPalette = CommandPalette(
     open,
     commands,
@@ -116,8 +119,15 @@ class CommandPalette(
     emptyText,
     label,
     limit,
-    filter
+    filter,
+    changeHandler
   )
+
+  /**
+    * Called before the palette closes, on Escape, a click outside, or a run command; `cancel()`
+    * keeps it open, and the command then doesn't run. Key: `open`.
+    */
+  def onChange(f: ChangeHandler): CommandPalette = copy(changeHandler = f)
 
   def withPlaceholder(p: String): CommandPalette = copy(placeholderText = p)
 
@@ -170,11 +180,11 @@ class CommandPalette(
             .map(_._1)
     hits.take(limit)
 
-  private def run(c: Command): Unit =
+  private def run(c: Command, cause: ChangeCause): Unit =
     // Close first, so focus is back on the opener when the command runs
-    open  := false
-    query := ""
-    c.action()
+    if ChangeGate.write(open, "open", false, cause, changeHandler) then
+      query := ""
+      ChangeCause.during(cause)(c.action())
 
   private def moveTo(i: Int): Unit = current
     .lift(i)
@@ -194,7 +204,7 @@ class CommandPalette(
             .lift(i)
             .foreach { h =>
               e.preventDefault()
-              run(h.command)
+              run(h.command, ChangeCause.of(ChangeReason.ItemPress, e))
             }
         case "ArrowDown" | "ArrowUp" =>
           RovingFocus
@@ -236,12 +246,18 @@ class CommandPalette(
   private def item(row: CommandPalette.Row): DomNode =
     row match
       case CommandPalette.Heading(g) =>
-        div(cls -> "uni-palette__group", role -> "presentation", g)
+        div(
+          cls          -> "uni-palette__group",
+          data("slot") -> "command-palette-group",
+          role         -> "presentation",
+          g
+        )
       case CommandPalette.Hit(c, positions) =>
         div(
           id             -> itemId(c),
           role           -> "option",
           cls            -> "uni-palette__item",
+          data("slot")   -> "command-palette-item",
           ariaSelected   -> active.map(a => a.contains(c.id).toString),
           data("active") ->
             active.map(a =>
@@ -253,7 +269,7 @@ class CommandPalette(
           EventListenerBinding("pointermove", _ => active := Some(c.id)),
           // Keep focus in the input
           EventListenerBinding("pointerdown", e => e.preventDefault()),
-          EventListenerBinding("click", _ => run(c)),
+          EventListenerBinding("click", e => run(c, ChangeCause.of(ChangeReason.ItemPress, e))),
           span(cls -> "uni-palette__label", highlighted(c.label, positions)),
           c.hint.map(h => span(cls -> "uni-palette__hint", h)).getOrElse(DomNode.empty),
           c.shortcut.map(s => Kbd(s)).getOrElse(DomNode.empty)
@@ -288,10 +304,12 @@ class CommandPalette(
       active := None
 
     override def render: RxElement = div(
-      cls -> "uni-palette",
+      cls          -> "uni-palette",
+      data("slot") -> "command-palette",
       input(
         tpe                  -> "text",
         cls                  -> "uni-palette__input",
+        data("slot")         -> "command-palette-input",
         role                 -> "combobox",
         autofocus            -> true,
         ariaExpanded         -> "true",
@@ -304,15 +322,16 @@ class CommandPalette(
         EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent]))
       ),
       div(
-        id        -> listId,
-        cls       -> "uni-palette__list",
-        role      -> "listbox",
-        ariaLabel -> label,
+        id           -> listId,
+        cls          -> "uni-palette__list",
+        data("slot") -> "command-palette-list",
+        role         -> "listbox",
+        ariaLabel    -> label,
         each(rows)(CommandPalette.rowKey)(item)
       ),
       noResults.map { empty =>
         if empty then
-          div(cls -> "uni-palette__empty", emptyText)
+          div(cls -> "uni-palette__empty", data("slot") -> "command-palette-empty", emptyText)
         else
           DomNode.empty
       }
@@ -322,7 +341,9 @@ class CommandPalette(
 
   private val dialog = Dialog(open)(Body())
     .withVariant("palette")
+    .withSlot("command-palette-dialog")
     .withAccessibleName(label)
+    .onChange(changeHandler)
     .onDismiss(() => query := "")
 
   override def render: RxElement = dialog

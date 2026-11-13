@@ -91,7 +91,14 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
 
   private def tip(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
-    div(id -> tipId, cls -> "uni-tooltip", role -> "tooltip", data("state") -> "open", text),
+    div(
+      id            -> tipId,
+      cls           -> "uni-tooltip",
+      data("slot")  -> "tooltip",
+      role          -> "tooltip",
+      data("state") -> "open",
+      text
+    ),
     anchor = () => triggerRef.current.map(Rect.of),
     inside = el => Seq(el),
     side = side,

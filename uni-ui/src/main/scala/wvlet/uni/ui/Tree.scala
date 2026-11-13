@@ -54,7 +54,8 @@ class Tree[A, K] private (
     selected: RxVar[Option[K]],
     onSelectFn: A => Unit,
     rowHeight: Int,
-    typeahead: Option[A => String]
+    typeahead: Option[A => String],
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private def copy(
@@ -63,7 +64,8 @@ class Tree[A, K] private (
       selected: RxVar[Option[K]] = selected,
       onSelectFn: A => Unit = onSelectFn,
       rowHeight: Int = rowHeight,
-      typeahead: Option[A => String] = typeahead
+      typeahead: Option[A => String] = typeahead,
+      changeHandler: ChangeHandler = changeHandler
   ): Tree[A, K] =
     new Tree(
       roots,
@@ -75,7 +77,8 @@ class Tree[A, K] private (
       selected,
       onSelectFn,
       rowHeight,
-      typeahead
+      typeahead,
+      changeHandler
     )
 
   /** The accessible name of the tree. */
@@ -88,8 +91,14 @@ class Tree[A, K] private (
   /** The key of the selected row, set by Enter or a click. */
   def withSelected(s: RxVar[Option[K]]): Tree[A, K] = copy(selected = s)
 
-  /** Runs when Enter or a click selects a row. */
+  /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): Tree[A, K] = copy(onSelectFn = f)
+
+  /**
+    * Called before the selection changes or a row opens or closes; `cancel()` keeps the current
+    * state. Keys: `selected` and `expanded`.
+    */
+  def onChange(f: ChangeHandler): Tree[A, K] = copy(changeHandler = f)
 
   /** The height of every row in pixels (28 by default). */
   def withRowHeight(h: Int): Tree[A, K] = copy(rowHeight = h)
@@ -98,12 +107,24 @@ class Tree[A, K] private (
   def withTypeahead(label: A => String): Tree[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): Tree[A, K]                     = copy(typeahead = None)
 
-  private def toggle(k: K): Unit = expanded.update { e =>
-    if e.contains(k) then
-      e - k
-    else
-      e + k
-  }
+  private def setExpanded(e: Set[K], cause: ChangeCause): Unit = ChangeGate.write(
+    expanded,
+    "expanded",
+    e,
+    cause,
+    changeHandler
+  )
+
+  private def toggle(k: K, cause: ChangeCause): Unit =
+    val e = expanded.get
+    setExpanded(
+      if e.contains(k) then
+        e - k
+      else
+        e + k
+      ,
+      cause
+    )
 
   private val rows: Rx[Seq[TreeRow[A, K]]] = Rx
     .join(roots, expanded)
@@ -114,15 +135,16 @@ class Tree[A, K] private (
   // The latest rows, for Left and Right; the list keeps them in step
   private var current: Seq[TreeRow[A, K]] = Seq.empty
 
-  private def onKey(k: String, i: Int, moveTo: Int => Unit): Boolean =
-    k match
-      case "ArrowLeft" | "ArrowRight" =>
+  private def onKey(e: dom.KeyboardEvent, i: Int, moveTo: Int => Unit): Boolean =
+    val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
+    e.key match
+      case k @ ("ArrowLeft" | "ArrowRight") =>
         TreeModel.onKey(k, current, i, pageSize = 1) match
           case Some(TreeAction.Expand(key)) =>
-            expanded.update(_ + key)
+            setExpanded(expanded.get + key, cause)
             true
           case Some(TreeAction.Collapse(key)) =>
-            expanded.update(_ - key)
+            setExpanded(expanded.get - key, cause)
             true
           case Some(TreeAction.Move(n)) =>
             moveTo(n)
@@ -136,14 +158,15 @@ class Tree[A, K] private (
   private def chevron(r: TreeRow[A, K]): RxElement =
     if r.expandable then
       span(
-        cls        -> "uni-tree__chevron",
-        ariaHidden -> "true",
+        cls          -> "uni-tree__chevron",
+        data("slot") -> "tree-chevron",
+        ariaHidden   -> "true",
         // Toggle without selecting the row
         EventListenerBinding(
           "click",
           e =>
             e.stopPropagation()
-            toggle(r.key)
+            toggle(r.key, ChangeCause.of(ChangeReason.Press, e))
         )
       )
     else
@@ -172,17 +195,27 @@ class Tree[A, K] private (
           if r.expandable then
             Seq[DomNode](
               ariaExpanded -> r.expanded.toString,
-              EventListenerBinding("dblclick", _ => toggle(r.key))
+              EventListenerBinding(
+                "dblclick",
+                e => toggle(r.key, ChangeCause.of(ChangeReason.Press, e))
+              )
             ): DomNode
           else
             DomNode.empty
         ),
-    renderRow = r => Seq[DomNode](chevron(r), span(cls -> "uni-tree__label", renderRow(r.item))),
+    renderRow =
+      r =>
+        Seq[DomNode](
+          chevron(r),
+          span(cls -> "uni-tree__label", data("slot") -> "tree-label", renderRow(r.item))
+        ),
     selected = selected,
     onSelect = r => onSelectFn(r.item),
     typeaheadLabel = typeahead.map(f => (r: TreeRow[A, K]) => f(r.item)),
-    extraKey = (e, i, moveTo) => onKey(e.key, i, moveTo),
-    header = DomNode.empty
+    extraKey = (e, i, moveTo) => onKey(e, i, moveTo),
+    header = DomNode.empty,
+    changeHandler = changeHandler,
+    slot = "tree"
   )
 
 end Tree
@@ -202,5 +235,6 @@ object Tree:
       selected = Rx.variable(None),
       onSelectFn = _ => (),
       rowHeight = 28,
-      typeahead = None
+      typeahead = None,
+      changeHandler = ChangeGate.noHandler
     )

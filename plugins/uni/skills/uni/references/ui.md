@@ -145,6 +145,29 @@ val palette = CommandPalette(
 Keyboard.bind("meta+k", () => paletteOpen := true)
 ```
 
+## Watching and refusing changes
+
+`onChange` on a component sees each change it is about to make to an `RxVar` you passed in
+(`open`, `selected`, text `value`, `expanded`, `sort`, `size`, `layout`). `d.cancel()` keeps the
+old value. `d.source` is `Pointer`, `Keyboard`, `Programmatic`, or `Agent`. Inside `onClick`,
+`onSelect`, and similar callbacks, `ChangeCause.current` gives the same reason and source.
+
+```scala
+val unsaved = Rx.variable(false)
+
+val guardedTabs = TabList(view, "Views")(Tab("chat", "Chat"), Tab("logs", "Logs"))
+  .onChange(d => if unsaved.get then d.cancel())
+
+val agentSafeRegion = Select(region, Seq("tokyo", "oregon"))(identity).onChange { d =>
+  if d.source == ChangeSource.Agent then d.cancel()
+}
+
+// Changes made inside this block report ChangeSource.Agent
+ChangeSource.withSource(ChangeSource.Agent)(menuOpen := false)
+```
+
+Writes the app makes itself (`open := false`) are not reported.
+
 ## Styling
 
 - Restyle with `--uni-*` variables set after `uni-ui.css`, not by changing Scala code:
@@ -155,7 +178,9 @@ Keyboard.bind("meta+k", () => paletteOpen := true)
   - stacking: `--uni-z-popover`, `--uni-z-dialog`, `--uni-z-toast`.
 - `data-theme="light"` or `"dark"` on `<html>` forces a scheme. With no attribute, the OS setting
   decides.
-- Classes follow `uni-<component>` and `uni-<component>--<variant>` (for example
+- Every part has `data-slot`: the component name for its root (`button`, `menu`, `data-table`)
+  and `<component>-<part>` inside (`menu-item`, `dialog-title`, `dock-tab`). Target those in CSS
+  and tests. Classes follow `uni-<component>` and `uni-<component>--<variant>` (for example
   `uni-button--primary`). Overlays carry `data-state="open"`/`"closed"` and `data-side`. Style
   those instead of adding Scala code.
 - Animations: a closing overlay keeps `data-state="closed"` until its CSS exit animation ends. With

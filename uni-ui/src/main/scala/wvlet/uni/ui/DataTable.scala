@@ -104,7 +104,8 @@ class DataTable[A, K] private (
     sort: RxVar[Option[SortBy]],
     selected: RxVar[Option[K]],
     onSelectFn: A => Unit,
-    rowHeight: Int
+    rowHeight: Int,
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private def copy(
@@ -112,9 +113,10 @@ class DataTable[A, K] private (
       sort: RxVar[Option[SortBy]] = sort,
       selected: RxVar[Option[K]] = selected,
       onSelectFn: A => Unit = onSelectFn,
-      rowHeight: Int = rowHeight
+      rowHeight: Int = rowHeight,
+      changeHandler: ChangeHandler = changeHandler
   ): DataTable[A, K] =
-    new DataTable(rows, key, columns, label, sort, selected, onSelectFn, rowHeight)
+    new DataTable(rows, key, columns, label, sort, selected, onSelectFn, rowHeight, changeHandler)
 
   /** The accessible name of the table. */
   def withLabel(l: String): DataTable[A, K] = copy(label = Some(l))
@@ -126,8 +128,14 @@ class DataTable[A, K] private (
   /** The key of the selected row, set by Enter or a click. */
   def withSelected(s: RxVar[Option[K]]): DataTable[A, K] = copy(selected = s)
 
-  /** Runs when Enter or a click selects a row. */
+  /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): DataTable[A, K] = copy(onSelectFn = f)
+
+  /**
+    * Called before the selection or the sort changes; `cancel()` keeps the current state. Keys:
+    * `selected` and `sort`.
+    */
+  def onChange(f: ChangeHandler): DataTable[A, K] = copy(changeHandler = f)
 
   /** The height of every row in pixels (32 by default). */
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
@@ -189,6 +197,7 @@ class DataTable[A, K] private (
     div(
       role         -> "columnheader",
       cls          -> cellClass(c),
+      data("slot") -> "data-table-header-cell",
       ariaColindex -> (i + 1).toString,
       c.ordering match
         case None =>
@@ -205,9 +214,20 @@ class DataTable[A, K] private (
                   "none"
               },
             button(
-              tpe -> "button",
-              cls -> "uni-table__sort",
-              EventListenerBinding("click", _ => sort := DataTable.nextSort(sort.get, c.id)),
+              tpe          -> "button",
+              cls          -> "uni-table__sort",
+              data("slot") -> "data-table-sort",
+              EventListenerBinding(
+                "click",
+                e =>
+                  ChangeGate.write(
+                    sort,
+                    "sort",
+                    DataTable.nextSort(sort.get, c.id),
+                    ChangeCause.of(ChangeReason.Press, e),
+                    changeHandler
+                  )
+              ),
               span(c.header),
               span(
                 cls               -> "uni-table__sort-icon",
@@ -257,6 +277,7 @@ class DataTable[A, K] private (
                 id             -> core.cellId(k, i),
                 role           -> "gridcell",
                 cls            -> cellClass(c),
+                data("slot")   -> "data-table-cell",
                 ariaColindex   -> (i + 1).toString,
                 data("active") ->
                   Rx.join(core.activeKey, activeColumn)
@@ -273,11 +294,14 @@ class DataTable[A, K] private (
             },
       selected = selected,
       onSelect = onSelectFn,
+      changeHandler = changeHandler,
+      slot = "data-table",
       typeaheadLabel = None,
       extraKey = (e, _, _) => onKey(e),
       header = div(
-        role -> "rowgroup",
-        cls  -> "uni-table__header",
+        role         -> "rowgroup",
+        cls          -> "uni-table__header",
+        data("slot") -> "data-table-header",
         div(
           role         -> "row",
           cls          -> "uni-table__header-row",
@@ -304,7 +328,8 @@ object DataTable:
       sort = Rx.variable(None),
       selected = Rx.variable(None),
       onSelectFn = _ => (),
-      rowHeight = 32
+      rowHeight = 32,
+      changeHandler = ChangeGate.noHandler
     )
 
   /**

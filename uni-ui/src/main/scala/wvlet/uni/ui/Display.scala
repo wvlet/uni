@@ -43,7 +43,8 @@ class Badge private (content: Seq[DomNode], tone: BadgeTone, isDot: Boolean, lab
       else
         ""
     span(
-      cls -> s"uni-badge uni-badge--${tone.cssName}${shape}",
+      cls          -> s"uni-badge uni-badge--${tone.cssName}${shape}",
+      data("slot") -> "badge",
       label.map(l => Seq(role -> "img", ariaLabel -> l)).getOrElse(Seq.empty[DomNode]),
       content
     )
@@ -59,7 +60,8 @@ object Badge:
 
 /** A keyboard key, such as `Kbd("⌘")` or `Kbd("Enter")`, rendered as `<kbd>`. */
 class Kbd(key: String) extends RxElement:
-  override def render: RxElement = wvlet.uni.dom.HtmlTags.tag("kbd")(cls -> "uni-kbd", key)
+  override def render: RxElement =
+    wvlet.uni.dom.HtmlTags.tag("kbd")(cls -> "uni-kbd", data("slot") -> "kbd", key)
 
 /**
   * A thin bar along the bottom of a window or pane. Put [[StatusBar.spacer]] between items to push
@@ -70,7 +72,11 @@ class Kbd(key: String) extends RxElement:
   * }}}
   */
 class StatusBar(content: DomNode*) extends RxElement:
-  override def render: RxElement = footer(cls -> "uni-statusbar", content)
+  override def render: RxElement = footer(
+    cls          -> "uni-statusbar",
+    data("slot") -> "statusbar",
+    content
+  )
 
 object StatusBar:
-  def spacer: RxElement = span(cls -> "uni-statusbar__spacer")
+  def spacer: RxElement = span(cls -> "uni-statusbar__spacer", data("slot") -> "statusbar-spacer")

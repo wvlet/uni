@@ -108,11 +108,29 @@ class Dock private (
     label: String,
     panels: Seq[DockPanel],
     minPanelSize: Int,
-    actions: Seq[DomNode]
+    actions: Seq[DomNode],
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
-  private def copy(minPanelSize: Int = minPanelSize, actions: Seq[DomNode] = actions): Dock =
-    new Dock(layout, label, panels, minPanelSize, actions)
+  private def copy(
+      minPanelSize: Int = minPanelSize,
+      actions: Seq[DomNode] = actions,
+      changeHandler: ChangeHandler = changeHandler
+  ): Dock = new Dock(layout, label, panels, minPanelSize, actions, changeHandler)
+
+  /**
+    * Called before the user (or [[open]] and [[close]]) changes the layout; `cancel()` keeps it.
+    * Key: `layout`.
+    */
+  def onChange(f: ChangeHandler): Dock = copy(changeHandler = f)
+
+  private def setLayout(l: DockLayout, cause: ChangeCause): Boolean = ChangeGate.write(
+    layout,
+    "layout",
+    l,
+    cause,
+    changeHandler
+  )
 
   /** The smallest size of a split child in pixels (120 by default). */
   def withMinPanelSize(px: Int): Dock = copy(minPanelSize = px)
@@ -162,10 +180,10 @@ class Dock private (
     */
   def open(panel: String): Unit =
     if byId.contains(panel) then
-      layout := DockModel.open(now, panel, focusedGroup)
+      setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative)
 
   /** Remove `panel` from the layout. */
-  def close(panel: String): Unit = layout := DockModel.close(now, panel)
+  def close(panel: String): Unit = setLayout(DockModel.close(now, panel), ChangeCause.imperative)
 
   /**
     * The number of groups. Groups are numbered from 0 in reading order (depth first), so group `i`
@@ -194,10 +212,9 @@ class Dock private (
     * panel isn't registered or its tab isn't on the page.
     */
   def focusPanel(panel: String): Boolean =
-    byId.contains(panel) && {
-      open(panel)
+    byId.contains(panel) &&
+      setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative) &&
       focusTabNow(panel)
-    }
 
   private def focusTabNow(panel: String): Boolean =
     Option(dom.document.getElementById(tabId(panel))) match
@@ -349,12 +366,14 @@ class Dock private (
       drop
         .get
         .foreach { d =>
-          layout := (
+          setLayout(
             d.index match
               case Some(i) =>
                 DockModel.move(now, panel, d.path, i)
               case None =>
                 DockModel.split(now, panel, d.path, d.side)
+            ,
+            ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
           )
         }
     drop    := None
@@ -378,8 +397,8 @@ class Dock private (
       )
 
   private def act(panel: String)(f: DockLayout => DockLayout): Unit =
-    layout := f(now)
-    focusTab(panel)
+    if setLayout(f(now), ChangeCause.current) then
+      focusTab(panel)
 
   private def menu(panel: DockPanel, path: DockPath, tabs: Seq[String], groupCount: Int) =
     val i    = tabs.indexOf(panel.id)
@@ -407,9 +426,15 @@ class Dock private (
         .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom)))
     )
     if panel.closable then
-      items ++ Seq(MenuSeparator, MenuItem("Close").onSelect(() => closeTab(id, tabs)))
+      items ++
+        Seq(
+          MenuSeparator,
+          MenuItem("Close").onSelect(() => closeTab(id, tabs, ChangeCause.current))
+        )
     else
       items
+
+  end menu
 
   private def tab(
       panel: DockPanel,
@@ -428,6 +453,7 @@ class Dock private (
       role          -> "tab",
       id            -> tabId(panel.id),
       cls           -> "uni-dock__tab",
+      data("slot")  -> "dock-tab",
       data("panel") -> panel.id,
       ariaControls  -> panelId(path),
       ariaSelected  -> isActive.map(_.toString),
@@ -443,30 +469,32 @@ class Dock private (
         "click",
         e =>
           if !suppressClick then
-            layout := DockModel.activate(now, panel.id)
             // The pointer drag keeps the press from focusing the tab
-            e.currentTarget match
-              case el: dom.HTMLElement =>
-                el.focus()
-              case _ =>
+            if setLayout(DockModel.activate(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
+            then
+              e.currentTarget match
+                case el: dom.HTMLElement =>
+                  el.focus()
+                case _ =>
       ),
       drag.bind,
-      span(cls -> "uni-dock__tab-label", panel.tab),
+      span(cls -> "uni-dock__tab-label", data("slot") -> "dock-tab-label", panel.tab),
       when(
         panel.closable,
         button(
-          tpe       -> "button",
-          cls       -> "uni-dock__tab-close",
-          tabindex  -> "-1",
-          ariaLabel -> s"Close ${panel.title}",
-          titleAttr -> "Close",
+          tpe          -> "button",
+          cls          -> "uni-dock__tab-close",
+          data("slot") -> "dock-tab-close",
+          tabindex     -> "-1",
+          ariaLabel    -> s"Close ${panel.title}",
+          titleAttr    -> "Close",
           // Not the start of a tab drag
           EventListenerBinding("pointerdown", _.stopPropagation()),
           EventListenerBinding(
             "click",
             e =>
               e.stopPropagation()
-              close(panel.id)
+              setLayout(DockModel.close(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
           )
         )
       )
@@ -476,10 +504,10 @@ class Dock private (
   end tab
 
   // Close a tab from the keyboard and move focus to its neighbor, as an editor does
-  private def closeTab(panel: String, tabs: Seq[String]): Unit =
+  private def closeTab(panel: String, tabs: Seq[String], cause: ChangeCause): Unit =
     val i = tabs.indexOf(panel)
-    close(panel)
-    tabs.lift(i + 1).orElse(tabs.lift(i - 1)).foreach(focusTab)
+    if setLayout(DockModel.close(now, panel), cause) then
+      tabs.lift(i + 1).orElse(tabs.lift(i - 1)).foreach(focusTab)
 
   private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String]): Unit =
     val focused = Option(e.target)
@@ -492,17 +520,18 @@ class Dock private (
       val i = tabs.indexOf(panel)
       if e.key == "Delete" && byId.get(panel).exists(_.closable) then
         e.preventDefault()
-        closeTab(panel, tabs)
+        closeTab(panel, tabs, ChangeCause.of(ChangeReason.DeleteKey, e))
       else
         RovingFocus
           .nextIndex(e.key, math.max(i, 0), tabs.size)
           .foreach { n =>
             e.preventDefault()
-            layout := DockModel.activate(now, tabs(n))
-            Option(dom.document.getElementById(tabId(tabs(n)))) match
-              case Some(el: dom.HTMLElement) =>
-                el.focus()
-              case _ =>
+            val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
+            if setLayout(DockModel.activate(now, tabs(n)), cause) then
+              Option(dom.document.getElementById(tabId(tabs(n)))) match
+                case Some(el: dom.HTMLElement) =>
+                  el.focus()
+                case _ =>
           }
     }
 
@@ -532,15 +561,18 @@ class Dock private (
         label
     div(
       cls          -> "uni-dock__group",
+      data("slot") -> "dock-group",
       data("path") -> pathAttr(path),
       data("top")  -> top.toString,
       EventListenerBinding("focusin", _ => focusedGroup = Some(path)),
       div(
-        cls -> "uni-dock__bar",
+        cls          -> "uni-dock__bar",
+        data("slot") -> "dock-bar",
         div(
-          role      -> "tablist",
-          cls       -> "uni-dock__tabs",
-          ariaLabel -> name,
+          role         -> "tablist",
+          cls          -> "uni-dock__tabs",
+          data("slot") -> "dock-tabs",
+          ariaLabel    -> name,
           EventListenerBinding("keydown", e => onTabKey(e.asInstanceOf[dom.KeyboardEvent], tabs)),
           Rx.const(tabs).each(identity)(id => tab(byId(id), path, tabs, groupCount, active))
         ),
@@ -550,6 +582,7 @@ class Dock private (
         role           -> "tabpanel",
         id             -> panelId(path),
         cls            -> "uni-dock__panel",
+        data("slot")   -> "dock-panel",
         ariaLabelledby -> active.map(_.map(tabId).getOrElse("")),
         active.map(_.map(contentOf).getOrElse(DomNode.empty))
       )
@@ -594,9 +627,11 @@ class Dock private (
       }
       .getOrElse(0.0)
 
-    def resizeBy(from: Seq[Double], px: Double, delta: Double): Unit =
-      layout :=
-        DockModel.withSizes(now, path, DockModel.resize(from, border, delta, px, minPanelSize))
+    def resizeBy(from: Seq[Double], px: Double, delta: Double, cause: ChangeCause): Unit =
+      setLayout(
+        DockModel.withSizes(now, path, DockModel.resize(from, border, delta, px, minPanelSize)),
+        cause
+      )
 
     var startSizes: Seq[Double] = Seq.empty
     var startPx: Double         = 0
@@ -610,6 +645,8 @@ class Dock private (
               dx
             else
               dy
+            ,
+            ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
           ),
       onStart =
         _ =>
@@ -651,11 +688,14 @@ class Dock private (
           e.preventDefault()
           val px = available
           // Infinity would turn into NaN; the split's size is a bound large enough
-          resizeBy(sizes, px, d.max(-px).min(px))
+          resizeBy(sizes, px, d.max(-px).min(px), ChangeCause.of(ChangeReason.NavigationKey, e))
         case None if e.key == "Enter" =>
           e.preventDefault()
           val n = sizes.size
-          layout := DockModel.withSizes(now, path, Seq.fill(n)(1.0 / n))
+          setLayout(
+            DockModel.withSizes(now, path, Seq.fill(n)(1.0 / n)),
+            ChangeCause.of(ChangeReason.Reset, e)
+          )
         case None =>
 
     end onKey
@@ -669,6 +709,7 @@ class Dock private (
     )
     div(
       cls             -> "uni-dock__separator",
+      data("slot")    -> "dock-separator",
       role            -> "separator",
       tabindex        -> "0",
       ariaLabel       -> "Resize panels",
@@ -701,8 +742,9 @@ class Dock private (
       case DockNode.Group(tabs, _) if tabs.isEmpty =>
         // Keep the bar for the actions, such as a button that folds the dock
         div(
-          cls         -> "uni-dock__group",
-          data("top") -> "true",
+          cls          -> "uni-dock__group",
+          data("slot") -> "dock-group",
+          data("top")  -> "true",
           when(
             actions.nonEmpty,
             div(
@@ -741,6 +783,7 @@ class Dock private (
           }
         div(
           cls               -> "uni-dock__split",
+          data("slot")      -> "dock-split",
           data("direction") -> dir.toString.toLowerCase,
           splitRef.binding,
           cells
@@ -750,6 +793,7 @@ class Dock private (
     val roots = current.map(_.root)
     div(
       cls              -> "uni-dock",
+      data("slot")     -> "dock",
       data("dragging") -> dragged.map(_.isDefined.toString),
       dockRef.binding,
       distinct(roots.map(shapeOf)).map { shape =>
@@ -770,6 +814,7 @@ class Dock private (
         case Some(d) =>
           div(
             cls          -> "uni-dock__drop",
+            data("slot") -> "dock-drop",
             data("side") -> d.side.toString.toLowerCase,
             data("kind") -> (
               if d.index.isDefined then
@@ -792,7 +837,14 @@ end Dock
 object Dock:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   def apply(layout: RxVar[DockLayout], label: String)(panels: DockPanel*): Dock =
-    new Dock(layout, label, panels, minPanelSize = 120, actions = Seq.empty)
+    new Dock(
+      layout,
+      label,
+      panels,
+      minPanelSize = 120,
+      actions = Seq.empty,
+      changeHandler = ChangeGate.noHandler
+    )
 
   /** Pixels a tab moves before a press becomes a drag, so a click still just selects. */
   val dragThreshold: Double = 4

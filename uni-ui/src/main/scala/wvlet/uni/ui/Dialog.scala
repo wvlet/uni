@@ -49,7 +49,9 @@ class Dialog private (
     dialogRole: String,
     onClose: () => Unit,
     variant: Option[String] = None,
-    accessibleName: Option[String] = None
+    accessibleName: Option[String] = None,
+    changeHandler: ChangeHandler = ChangeGate.noHandler,
+    slot: String = "dialog"
 ) extends RxElement:
 
   private val baseId = Ids.next("uni-dialog")
@@ -62,7 +64,9 @@ class Dialog private (
       dialogRole: String = dialogRole,
       onClose: () => Unit = onClose,
       variant: Option[String] = variant,
-      accessibleName: Option[String] = accessibleName
+      accessibleName: Option[String] = accessibleName,
+      changeHandler: ChangeHandler = changeHandler,
+      slot: String = slot
   ): Dialog =
     new Dialog(
       open,
@@ -74,7 +78,9 @@ class Dialog private (
       dialogRole,
       onClose,
       variant,
-      accessibleName
+      accessibleName,
+      changeHandler,
+      slot
     )
 
   /** The heading, which is also the dialog's accessible name. */
@@ -101,17 +107,30 @@ class Dialog private (
   // An accessible name for a dialog without a visible title
   private[ui] def withAccessibleName(n: String): Dialog = copy(accessibleName = Some(n))
 
+  // The data-slot name of the panel, and the prefix of its parts
+  private[ui] def withSlot(s: String): Dialog = copy(slot = s)
+
   private def classes(base: String): String = variant.fold(base)(v => s"${base} ${base}--${v}")
 
   /** Runs when Escape or the backdrop closes the dialog, before `open` turns false. */
   def onDismiss(f: () => Unit): Dialog = copy(onClose = f)
 
+  /**
+    * Called before Escape or the backdrop closes the dialog; `cancel()` keeps it open. Key: `open`.
+    */
+  def onChange(f: ChangeHandler): Dialog = copy(changeHandler = f)
+
   private def titleId       = s"${baseId}-title"
   private def descriptionId = s"${baseId}-description"
 
-  private def dismiss(): Unit =
-    onClose()
-    open := false
+  private def dismiss(): Unit = ChangeGate.write(
+    open,
+    "open",
+    false,
+    ChangeCause.current,
+    changeHandler,
+    onClose
+  )
 
   private def panel(el: dom.HTMLElement): Option[dom.HTMLElement] =
     el.querySelector(".uni-dialog") match
@@ -125,10 +144,12 @@ class Dialog private (
     div(
       cls           -> classes("uni-dialog-backdrop"),
       data("state") -> "open",
+      data("slot")  -> s"${slot}-backdrop",
       div(
-        id   -> baseId,
-        cls  -> classes("uni-dialog"),
-        role -> dialogRole,
+        id           -> baseId,
+        cls          -> classes("uni-dialog"),
+        role         -> dialogRole,
+        data("slot") -> slot,
         accessibleName.map(n => ariaLabel -> n).getOrElse(DomNode.empty),
         ariaModal     -> "true",
         tabindex      -> "-1",
@@ -143,15 +164,26 @@ class Dialog private (
                 FocusTrap.onKeyDown(p, e.asInstanceOf[dom.KeyboardEvent])
               case _ =>
         ),
-        title.map(t => h2(id -> titleId, cls -> "uni-dialog__title", t)).getOrElse(DomNode.empty),
-        description
-          .map(d => p(id -> descriptionId, cls -> "uni-dialog__description", d))
+        title
+          .map(t =>
+            h2(id -> titleId, cls -> "uni-dialog__title", data("slot") -> s"${slot}-title", t)
+          )
           .getOrElse(DomNode.empty),
-        div(cls -> "uni-dialog__body", content),
+        description
+          .map(d =>
+            p(
+              id           -> descriptionId,
+              cls          -> "uni-dialog__description",
+              data("slot") -> s"${slot}-description",
+              d
+            )
+          )
+          .getOrElse(DomNode.empty),
+        div(cls -> "uni-dialog__body", data("slot") -> s"${slot}-body", content),
         if actions.isEmpty then
           DomNode.empty
         else
-          div(cls -> "uni-dialog__actions", actions)
+          div(cls -> "uni-dialog__actions", data("slot") -> s"${slot}-actions", actions)
       )
     ),
     anchor = () => None,
@@ -217,7 +249,8 @@ class AlertDialog private (
     cancelLabel: String,
     destructive: Boolean,
     confirm: () => Unit,
-    cancel: () => Unit
+    cancel: () => Unit,
+    changeHandler: ChangeHandler
 ) extends RxElement:
 
   private def copy(
@@ -226,7 +259,8 @@ class AlertDialog private (
       cancelLabel: String = cancelLabel,
       destructive: Boolean = destructive,
       confirm: () => Unit = confirm,
-      cancel: () => Unit = cancel
+      cancel: () => Unit = cancel,
+      changeHandler: ChangeHandler = changeHandler
   ): AlertDialog =
     new AlertDialog(
       open,
@@ -236,7 +270,8 @@ class AlertDialog private (
       cancelLabel,
       destructive,
       confirm,
-      cancel
+      cancel,
+      changeHandler
     )
 
   def withDescription(d: String): AlertDialog = copy(description = Some(d))
@@ -251,15 +286,32 @@ class AlertDialog private (
   /** Runs on the confirm button, after which the dialog closes. */
   def onConfirm(f: () => Unit): AlertDialog = copy(confirm = f)
 
-  /** Runs on the cancel button or Escape, after which the dialog closes. */
+  /**
+    * Runs on the cancel button or Escape, after which the dialog closes. [[ChangeCause.current]]
+    * tells which.
+    */
   def onCancel(f: () => Unit): AlertDialog = copy(cancel = f)
+
+  /**
+    * Called before the dialog closes, on either button or Escape; `cancel()` keeps it open. Key:
+    * `open`. The confirm or cancel callback runs only when the change is accepted.
+    */
+  def onChange(f: ChangeHandler): AlertDialog = copy(changeHandler = f)
+
+  private def close(action: () => Unit): Unit =
+    val cause = ChangeCause.current.copy(reason = ChangeReason.ActionPress)
+    ChangeGate.write(
+      open,
+      "open",
+      false,
+      cause,
+      changeHandler,
+      () => ChangeCause.during(cause)(action())
+    )
 
   override def render: RxElement =
     val confirmButton =
-      val b = Button(confirmLabel).onClick { () =>
-        confirm()
-        open := false
-      }
+      val b = Button(confirmLabel).onClick(() => close(confirm))
       if destructive then
         b.danger
       else
@@ -267,14 +319,13 @@ class AlertDialog private (
     val dialog = Dialog(open)()
       .withTitle(title)
       .withActions(
-        Button(cancelLabel).onClick { () =>
-          cancel()
-          open := false
-        }(autofocus -> true),
+        Button(cancelLabel).onClick(() => close(cancel))(autofocus -> true),
         confirmButton
       )
       .noDismissOnBackdrop()
       .withRole("alertdialog")
+      .withSlot("alert-dialog")
+      .onChange(changeHandler)
       .onDismiss(cancel)
     description.fold(dialog)(dialog.withDescription)
 
@@ -285,4 +336,4 @@ object AlertDialog:
   private val noop: () => Unit = () => ()
 
   def apply(open: RxVar[Boolean])(title: String): AlertDialog =
-    new AlertDialog(open, title, None, "Confirm", "Cancel", false, noop, noop)
+    new AlertDialog(open, title, None, "Confirm", "Cancel", false, noop, noop, ChangeGate.noHandler)
