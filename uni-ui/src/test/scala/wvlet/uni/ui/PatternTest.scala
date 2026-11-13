@@ -38,6 +38,11 @@ class PatternTest extends DomTestSupport:
     .flatMap(_ => checkPattern(root, pattern))
     .map(_ shouldBe empty)
 
+  // The same widget laid out right to left: checkPattern then expects ArrowLeft toward the end
+  private def rtl(content: wvlet.uni.dom.DomNode) = mount(
+    div(wvlet.uni.dom.all.dir -> "rtl", wvlet.uni.dom.all.styleAttr -> "width: 600px", content)
+  )
+
   private def openFrom(trigger: dom.Element): Unit =
     trigger.asInstanceOf[dom.HTMLElement].focus()
     fireEvent.click(trigger): Unit
@@ -51,6 +56,18 @@ class PatternTest extends DomTestSupport:
         Tab("logs", "Logs")
       )
     val m = mount(div(tabs, TabPanel(tabs)(t => span(t))))
+    check(m.container, AriaPattern.Tabs)
+  }
+
+  test("tabs right to left") {
+    val tab  = Rx.variable("details")
+    val tabs =
+      TabList(tab, "Dock")(
+        Tab("details", "Details"),
+        Tab("activity", "Activity"),
+        Tab("logs", "Logs")
+      )
+    val m = rtl(div(tabs, TabPanel(tabs)(t => span(t))))
     check(m.container, AriaPattern.Tabs)
   }
 
@@ -155,6 +172,14 @@ class PatternTest extends DomTestSupport:
     check(m.container, AriaPattern.Tree)
   }
 
+  test("tree right to left") {
+    val files = Seq(FileNode("src", Seq(FileNode("Main.scala"))), FileNode("README.md"))
+    val m     = rtl(
+      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name)).withLabel("Files")
+    )
+    check(m.container, AriaPattern.Tree)
+  }
+
   test("multi-select tree") {
     val files = Seq(
       FileNode("src", Seq(FileNode("Main.scala"), FileNode("Util.scala"))),
@@ -175,6 +200,17 @@ class PatternTest extends DomTestSupport:
   test("data table grid") {
     val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
     val m     = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        Column[Call]("method", "Method")(c => span(c.method)),
+        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      ).withLabel("Calls")
+    )
+    check(m.container, AriaPattern.Grid)
+  }
+
+  test("data table grid right to left") {
+    val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5))
+    val m     = rtl(
       DataTable(Rx.const(calls))(_.id)(
         Column[Call]("method", "Method")(c => span(c.method)),
         Column[Call]("millis", "Time")(c => span(c.millis.toString))

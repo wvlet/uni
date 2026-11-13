@@ -109,4 +109,13 @@ class CollectionModelTest extends UniTest:
     TreeModel.onKey("ArrowDown", open, 3, 1) shouldBe Some(TreeAction.Move(3))
   }
 
+  test("Left opens and Right closes tree rows right to left") {
+    val closed = flat(Set.empty)
+    TreeModel.onKey("ArrowLeft", closed, 0, 1, rtl = true) shouldBe Some(TreeAction.Expand("src"))
+    TreeModel.onKey("ArrowRight", closed, 0, 1, rtl = true) shouldBe None
+    val open = flat(Set("src"))
+    TreeModel.onKey("ArrowRight", open, 0, 1, rtl = true) shouldBe Some(TreeAction.Collapse("src"))
+    TreeModel.onKey("ArrowRight", open, 2, 1, rtl = true) shouldBe Some(TreeAction.Move(0))
+  }
+
 end CollectionModelTest

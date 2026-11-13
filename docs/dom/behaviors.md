@@ -48,6 +48,7 @@ import scala.language.implicitConversions
 | `Announce` | Reads a message to screen reader users through a live region | status updates |
 | `Fuzzy` | Scores a query against a label, for command palettes | CommandPalette |
 | `TreeModel`, `DockModel` | The pure state of a tree and of a dock layout | Tree, Dock |
+| `TextDirection` | Mirrors ArrowLeft and ArrowRight in a right-to-left layout | Tabs, Tree, DataTable, Dock |
 
 uni-dom adds lower-level helpers that behaviors build on: `Keyboard` (shortcuts, `onEnter`),
 `PointerDrag` and `PaneResize`, `DragDrop`, `Focus`, and `ClickOutside`.
@@ -242,6 +243,27 @@ Call `Announce.prepare()` once when the app starts. Screen readers often skip a 
 region that has just appeared, so without it the first message is held back a moment. Saying the
 same message twice reads it twice. The regions carry `data-slot="announcer"`, so tests
 can find them.
+
+## Right-to-left layouts
+
+In a right-to-left layout (`dir="rtl"` on the widget or an ancestor, or CSS `direction: rtl`),
+ArrowLeft and ArrowRight swap, as the WAI-ARIA Authoring Practices require. Tabs, the Dock (tabs
+and the separators of a row), Tree (ArrowLeft expands, ArrowRight collapses), and DataTable columns
+do this on their own; vertical keys, Home, and End don't change.
+
+- `TextDirection.isRtl(e)` (or an element) reads the computed direction when the key is pressed, so
+  a later `dir` change applies at once.
+- `RovingFocus.nextIndex`, `TreeModel.onKey`, `DataTable.nextColumn`, and `Reorder.keyTarget` take
+  `rtl = true` to mirror the horizontal keys. `TextDirection.logicalKey(key, rtl)` does the same for
+  your own key handling: it returns the key a left-to-right layout would read.
+- `checkPattern` expects the mirrored keys when the widget is laid out right to left.
+- `FoldablePane` and `Splitter` place their grip on a fixed side (`Edge.Left` or `Edge.Right`), so
+  their arrow keys follow the grip, not the reading direction.
+
+```scala
+def onKey(e: dom.KeyboardEvent, current: Int, count: Int): Option[Int] =
+  RovingFocus.nextIndex(e.key, current, count, rtl = TextDirection.isRtl(e))
+```
 
 ## Building your own
 

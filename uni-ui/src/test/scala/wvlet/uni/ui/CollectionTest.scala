@@ -529,6 +529,9 @@ class CollectionTest extends DomTestSupport:
     DataTable.nextColumn("Home", 2, 3) shouldBe Some(0)
     DataTable.nextColumn("ArrowDown", 1, 3) shouldBe None
     DataTable.nextColumn("ArrowRight", 0, 0) shouldBe None
+    // Right to left, Left moves toward the last cell
+    DataTable.nextColumn("ArrowLeft", 0, 3, rtl = true) shouldBe Some(1)
+    DataTable.nextColumn("ArrowRight", 1, 3, rtl = true) shouldBe Some(0)
   }
 
   test("sort helpers cycle the direction and leave unknown columns unsorted") {

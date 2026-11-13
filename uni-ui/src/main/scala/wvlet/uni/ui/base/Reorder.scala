@@ -453,8 +453,8 @@ object Reorder:
     else
       0
 
-  /** Whether `el` is laid out right to left, by `dir` on it or an ancestor, or by CSS. */
-  def isRtl(el: dom.Element): Boolean = dom.window.getComputedStyle(el).direction == "rtl"
+  /** Whether `el` is laid out right to left; see [[TextDirection.isRtl]]. */
+  def isRtl(el: dom.Element): Boolean = TextDirection.isRtl(el)
 
   /**
     * The nearest ancestor of `el` that scrolls along `orientation`, below the page itself. Drags
@@ -504,14 +504,12 @@ object Reorder:
   ): Option[Int] =
     val (prevKey, nextKey) =
       orientation match
-        case Orientation.Horizontal if rtl =>
-          ("ArrowRight", "ArrowLeft")
         case Orientation.Horizontal =>
           ("ArrowLeft", "ArrowRight")
         case Orientation.Vertical =>
           ("ArrowUp", "ArrowDown")
     val to =
-      key match
+      TextDirection.logicalKey(key, rtl && orientation == Orientation.Horizontal) match
         case `prevKey` =>
           Some(from - 1)
         case `nextKey` =>

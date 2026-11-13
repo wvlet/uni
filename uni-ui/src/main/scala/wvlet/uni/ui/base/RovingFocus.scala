@@ -34,12 +34,16 @@ object RovingFocus:
     *   item and the previous key to the last
     * @param count
     *   the number of items
+    * @param rtl
+    *   whether the group is laid out right to left ([[TextDirection.isRtl]]): ArrowLeft then moves
+    *   to the next item in a horizontal group
     */
   def nextIndex(
       key: String,
       current: Int,
       count: Int,
-      orientation: Orientation = Orientation.Horizontal
+      orientation: Orientation = Orientation.Horizontal,
+      rtl: Boolean = false
   ): Option[Int] =
     if count <= 0 then
       None
@@ -50,7 +54,7 @@ object RovingFocus:
             ("ArrowLeft", "ArrowRight")
           case Orientation.Vertical =>
             ("ArrowUp", "ArrowDown")
-      key match
+      TextDirection.logicalKey(key, rtl && orientation == Orientation.Horizontal) match
         case `nextKey` =>
           Some((current + 1) % count)
         case `prevKey` if current < 0 =>
