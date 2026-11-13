@@ -33,6 +33,13 @@ object TextDirection:
         false
 
   /**
+    * Whether the ArrowLeft or ArrowRight of `e` should be mirrored: its target is laid out right to
+    * left. False for other keys, without reading the style, so vertical keys stay cheap.
+    */
+  def mirrors(e: dom.KeyboardEvent): Boolean =
+    (e.key == "ArrowLeft" || e.key == "ArrowRight") && isRtl(e)
+
+  /**
     * The key as a left-to-right layout reads it: with `rtl`, ArrowLeft and ArrowRight swap, so
     * "ArrowRight" always means toward the end. Other keys are returned as is.
     */

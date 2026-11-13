@@ -559,7 +559,7 @@ class Dock private (
             }
       else
         RovingFocus
-          .nextIndex(e.key, math.max(i, 0), tabs.size, rtl = TextDirection.isRtl(e))
+          .nextIndex(e.key, math.max(i, 0), tabs.size, rtl = TextDirection.mirrors(e))
           .foreach { n =>
             e.preventDefault()
             val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
@@ -704,10 +704,12 @@ class Dock private (
 
     def onKey(e: dom.KeyboardEvent): Unit =
       // In a right-to-left row the first pane is on the right, so ArrowLeft grows it
+      val key = TextDirection.logicalKey(
+        e.key,
+        dir == SplitDirection.Row && TextDirection.mirrors(e)
+      )
       val (back, forward) =
-        if dir == SplitDirection.Row && TextDirection.isRtl(e) then
-          ("ArrowRight", "ArrowLeft")
-        else if dir == SplitDirection.Row then
+        if dir == SplitDirection.Row then
           ("ArrowLeft", "ArrowRight")
         else
           ("ArrowUp", "ArrowDown")
@@ -717,7 +719,7 @@ class Dock private (
         else
           Splitter.step
       val delta: Option[Double] =
-        e.key match
+        key match
           case k if k == back =>
             Some(-step)
           case k if k == forward =>

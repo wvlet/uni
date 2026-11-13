@@ -238,7 +238,7 @@ Announce.polite("Response complete")  // screen readers only
 - `FocusRecovery.within("li")` on a list keeps focus in it when the focused item is removed.
 - `RovingFocus`, `ListNavigation`, `FocusTrap`/`FocusReturn`, `Dismiss`, `Anchored`, `Windowing`.
 - Right-to-left (`dir="rtl"`): uni-ui widgets mirror ArrowLeft/ArrowRight on their own. For your
-  own keys, `RovingFocus.nextIndex(e.key, i, n, rtl = TextDirection.isRtl(e))`, or
+  own keys, `RovingFocus.nextIndex(e.key, i, n, rtl = TextDirection.mirrors(e))`, or
   `TextDirection.logicalKey(e.key, rtl)`.
 - `OnMount(el => cancelable)` (uni-dom) binds your own behavior to any element.
 

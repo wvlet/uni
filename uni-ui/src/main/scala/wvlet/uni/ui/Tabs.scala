@@ -79,7 +79,7 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
   private def onKey(e: dom.KeyboardEvent): Unit =
     val current = tabs.indexWhere(_.value == selected.get)
     RovingFocus
-      .nextIndex(e.key, math.max(current, 0), tabs.size, rtl = TextDirection.isRtl(e))
+      .nextIndex(e.key, math.max(current, 0), tabs.size, rtl = TextDirection.mirrors(e))
       .foreach { i =>
         e.preventDefault()
         // Move focus along with the selection, unless onChange refused it

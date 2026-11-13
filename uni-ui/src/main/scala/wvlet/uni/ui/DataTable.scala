@@ -180,7 +180,7 @@ class DataTable[A, K] private (
     else if rowEnd && e.shiftKey && !toRow && !e.altKey && multiSelected.nonEmpty then
       false
     else
-      DataTable.nextColumn(e.key, activeColumn.get, columns.size, TextDirection.isRtl(e)) match
+      DataTable.nextColumn(e.key, activeColumn.get, columns.size, TextDirection.mirrors(e)) match
         case Some(c) =>
           if c != activeColumn.get then
             activeColumn := c

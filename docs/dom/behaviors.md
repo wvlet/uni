@@ -251,8 +251,9 @@ ArrowLeft and ArrowRight swap, as the WAI-ARIA Authoring Practices require. Tabs
 and the separators of a row), Tree (ArrowLeft expands, ArrowRight collapses), and DataTable columns
 do this on their own; vertical keys, Home, and End don't change.
 
-- `TextDirection.isRtl(e)` (or an element) reads the computed direction when the key is pressed, so
-  a later `dir` change applies at once.
+- `TextDirection.mirrors(e)` is true for ArrowLeft or ArrowRight on a right-to-left target. It reads
+  the computed direction when the key is pressed (and only for those keys), so a later `dir` change
+  applies at once. `TextDirection.isRtl(el)` reads it for any element.
 - `RovingFocus.nextIndex`, `TreeModel.onKey`, `DataTable.nextColumn`, and `Reorder.keyTarget` take
   `rtl = true` to mirror the horizontal keys. `TextDirection.logicalKey(key, rtl)` does the same for
   your own key handling: it returns the key a left-to-right layout would read.
@@ -262,7 +263,7 @@ do this on their own; vertical keys, Home, and End don't change.
 
 ```scala
 def onKey(e: dom.KeyboardEvent, current: Int, count: Int): Option[Int] =
-  RovingFocus.nextIndex(e.key, current, count, rtl = TextDirection.isRtl(e))
+  RovingFocus.nextIndex(e.key, current, count, rtl = TextDirection.mirrors(e))
 ```
 
 ## Building your own
