@@ -109,7 +109,7 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     changeHandler = f
     this
 
-  // PaneResize writes the size on its own (drags, double-click), so it writes this stand-in
+  // PaneResize writes the size on its own during a drag, so it writes this stand-in
   private val gated = GatedVar(
     size,
     "size",
@@ -125,6 +125,9 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
       ResizeDirection.Right
     else
       ResizeDirection.Left
+    ,
+    // A double-click restores the default size, reported as a reset like Enter
+    onDoubleClick = Some(() => setSize(range.default, ChangeReason.Reset, ChangeSource.Pointer))
   )
 
   private var following: Cancelable = Cancelable.empty
@@ -141,8 +144,11 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
   /** True while the grip is being dragged. */
   def dragging: Rx[Boolean] = resize.dragging
 
-  private def setSize(v: Int, reason: ChangeReason): Unit =
-    ChangeCause.during(ChangeCause(reason, ChangeSource.Keyboard))(gated := v)
+  private def setSize(
+      v: Int,
+      reason: ChangeReason,
+      source: ChangeSource = ChangeSource.Keyboard
+  ): Unit = ChangeCause.during(ChangeCause(reason, source))(gated := v)
 
   private def onKey(e: dom.KeyboardEvent): Unit =
     val towardsContent =

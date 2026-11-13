@@ -33,8 +33,10 @@ import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason}
   *   })
   * }}}
   *
-  * Edits to a recalled entry are not kept when moving on to another one. To keep the history across
-  * sessions, save [[entries]] and pass them back as `initial`.
+  * Edits to a recalled entry are kept while moving between entries, as in readline: going back to
+  * it shows the edited text. Submitting ([[add]]) or [[reset]] drops the edits; they never change
+  * [[entries]]. To keep the history across sessions, save [[entries]] and pass them back as
+  * `initial`.
   *
   * @param capacity
   *   the number of entries kept; the oldest go first
@@ -43,6 +45,8 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
   private var items  = initial.takeRight(capacity).toVector
   private var cursor = items.size
   private var draft  = ""
+  // Edited text of recalled entries, by index, until the next add or reset
+  private var edits = Map.empty[Int, String]
 
   /** The entries, oldest first. */
   def entries: Seq[String] = items
@@ -63,30 +67,47 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
   def reset(): Unit =
     cursor = items.size
     draft = ""
+    edits = Map.empty
 
   /**
-    * The entry before the one shown, or None at the oldest. `current` is the text in the field; it
-    * is kept as the draft when leaving it.
+    * The entry before the one shown (with its edits, if any), or None at the oldest. `current` is
+    * the text in the field; it is kept as the draft or as the edit of the entry being left.
     */
   def previous(current: String): Option[String] =
     if cursor == 0 then
       None
     else
-      if cursor == items.size then
-        draft = current
+      leave(current)
       cursor -= 1
-      Some(items(cursor))
+      Some(shown)
 
-  /** The entry after the one shown, the saved draft past the newest, or None when not recalling. */
-  def next(): Option[String] =
+  /**
+    * The entry after the one shown (with its edits, if any), the saved draft past the newest, or
+    * None when not recalling. `current` is the text in the field; it is kept as the edit of the
+    * entry being left.
+    */
+  def next(current: String): Option[String] =
     if cursor >= items.size then
       None
     else
+      leave(current)
       cursor += 1
-      if cursor == items.size then
-        Some(draft)
-      else
-        Some(items(cursor))
+      Some(shown)
+
+  // Keep the text being left: the draft, or an edit of the recalled entry
+  private def leave(current: String): Unit =
+    if cursor == items.size then
+      draft = current
+    else if current == items(cursor) then
+      edits -= cursor
+    else
+      edits += cursor -> current
+
+  private def shown: String =
+    if cursor == items.size then
+      draft
+    else
+      edits.getOrElse(cursor, items(cursor))
 
   /**
     * Binds ArrowUp and ArrowDown on an `<input>` or `<textarea>` to recall entries into `value`.
@@ -111,14 +132,14 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
             val recalled  =
               e.key match
                 case "ArrowUp" if collapsed && !text.take(caret).contains('\n') =>
-                  val saved = (cursor, draft)
+                  val saved = (cursor, draft, edits)
                   previous(text).map(v => (v, saved))
                 case "ArrowDown" if collapsed && !text.drop(caret).contains('\n') =>
-                  val saved = (cursor, draft)
-                  next().map(v => (v, saved))
+                  val saved = (cursor, draft, edits)
+                  next(text).map(v => (v, saved))
                 case _ =>
                   None
-            recalled.foreach { case (v, (savedCursor, savedDraft)) =>
+            recalled.foreach { case (v, (savedCursor, savedDraft, savedEdits)) =>
               e.preventDefault()
               val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
               if ChangeGate.write(value, "value", v, cause, onChange) then
@@ -133,6 +154,7 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
               else
                 cursor = savedCursor
                 draft = savedDraft
+                edits = savedEdits
             }
           case _ =>
       case _ =>

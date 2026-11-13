@@ -259,6 +259,45 @@ class OverlayTest extends DomTestSupport:
     }
   }
 
+  test("Space inside a typeahead search is part of it in a select") {
+    val model   = Rx.variable("Newark")
+    val m       = mount(Select(model, Seq("New Delhi", "Newark", "New York"))(identity))
+    val trigger = m.get("button").asInstanceOf[dom.HTMLElement]
+    trigger.focus()
+    fireEvent.click(trigger)
+    val list = find(".uni-listbox").get
+    settle().map { _ =>
+      Seq("n", "e", "w", " ", "y").foreach(k => fireEvent.keyDown(list, k))
+      // The Space joined the search instead of choosing
+      model.get shouldBe "Newark"
+      dom.document.getElementById(list.getAttribute("aria-activedescendant")).textContent shouldBe
+        "New York"
+      fireEvent.keyDown(list, "Enter")
+      model.get shouldBe "New York"
+    }
+  }
+
+  test("Space inside a typeahead search is part of it in a menu") {
+    val open   = Rx.variable(false)
+    var opened = List.empty[String]
+    val m      = mount(
+      Menu(open)(Button("File"))(
+        MenuItem("New file").onSelect(() => opened ::= "file"),
+        MenuItem("New window").onSelect(() => opened ::= "window")
+      )
+    )
+    val trigger = m.get("button").asInstanceOf[dom.HTMLElement]
+    trigger.focus()
+    fireEvent.keyDown(trigger, "ArrowDown")
+    settle().map { _ =>
+      Seq("n", "e", "w", " ", "w").foreach(k => fireEvent.keyDown(active, k))
+      opened shouldBe Nil
+      active.textContent shouldContain "New window"
+      fireEvent.keyDown(active, "Enter")
+      opened shouldBe List("window")
+    }
+  }
+
   test("a tooltip shows on hover, links the trigger, and hides on Escape") {
     val m       = mount(Tooltip("Theme")(Button("T")).withDelay(0).withSide(Side.Right))
     val trigger = m.get("button")

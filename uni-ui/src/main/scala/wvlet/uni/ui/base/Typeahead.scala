@@ -38,6 +38,13 @@ class Typeahead(timeoutMillis: Double = 500, now: () => Double = () => js.Date.n
   /** The text typed so far in the current search. */
   def query: String = buffer
 
+  /**
+    * True while a search is under way: a key was typed within `timeoutMillis`. Space is then a
+    * character of the search ("new york"), so components send it to [[onKey]] before treating it as
+    * select or activate.
+    */
+  def searching: Boolean = buffer.nonEmpty && now() - lastTime <= timeoutMillis
+
   /** Starts the next key on a new search. */
   def reset(): Unit = buffer = ""
 

@@ -30,8 +30,8 @@ import scala.language.implicitConversions
   *
   * Focus stays on the scroll container, and `aria-activedescendant` names the active row: the arrow
   * keys, Home, End, PageUp, PageDown, and typing a letter move it, scrolling it into view. Enter,
-  * Space, or a click selects a row. Keys from elements inside a row (a button in a cell) are left
-  * alone.
+  * Space, or a click selects a row; during a typeahead search Space is part of the search. Keys
+  * from elements inside a row (a button in a cell) are left alone.
   *
   * With [[ListSelection.Multi]] the selection is a set of keys, kept by a [[Selection]]: a click
   * selects one row, Shift or Ctrl (⌘) with a click extends or toggles, Shift with a navigation key
@@ -204,6 +204,10 @@ private[ui] class ListCore[A, K](
     if fromContainer && !Keyboard.isComposing(e) && !e.defaultPrevented then
       val i = activeIndex
       e.key match
+        case " " if typeaheadLabel.nonEmpty && typeahead.searching =>
+          // Space inside a search is part of it ("new york"), not a selection
+          e.preventDefault()
+          typeaheadLabel.flatMap(label => typeahead.onKey(e, current.map(label), i)).foreach(moveTo)
         case " " if multi.nonEmpty =>
           // Space toggles the active row, and Shift+Space extends the selection to it
           current

@@ -28,7 +28,8 @@ import scala.scalajs.js
   * A button that opens a list of options and shows the chosen one, bound to `selected`. Click,
   * ArrowDown, or ArrowUp opens the list at the selected option. Inside, the arrow keys, Home, End,
   * and typing a letter move the highlight; Enter, Space, or a click chooses; Escape, Tab, or a
-  * click outside closes without changing the value.
+  * click outside closes without changing the value. During a typeahead search Space is part of the
+  * search, so "new york" finds "New York".
   *
   * {{{
   *   val model = Rx.variable("sonnet")
@@ -95,6 +96,10 @@ class Select[A] private (
     if !Keyboard.isComposing(e) then
       val i = active.get.map(current.indexOf).getOrElse(-1)
       e.key match
+        case " " if typeahead.searching =>
+          // Space inside a search is part of it ("new york"), not a choice
+          e.preventDefault()
+          typeahead.onKey(e, current.map(optionLabel), i).foreach(moveTo)
         case "Enter" | " " =>
           e.preventDefault()
           active.get.foreach(choose(_, ChangeCause.of(ChangeReason.ItemPress, e)))

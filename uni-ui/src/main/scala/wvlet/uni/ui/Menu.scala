@@ -108,6 +108,10 @@ private[ui] object MenuList:
     val all     = items(menu)
     val current = all.indexWhere(_ eq dom.document.activeElement)
     e.key match
+      case " " if typeahead.searching =>
+        // Space inside a search is part of it ("new york"), not a click
+        e.preventDefault()
+        typeahead.onKey(e, all.map(_.textContent), current).foreach(all(_).focus())
       case "Enter" | " " =>
         e.preventDefault()
         all.lift(current).foreach(_.click())
@@ -133,68 +137,73 @@ private[ui] object MenuList:
       entries: Seq[MenuEntry],
       labelledBy: Option[String],
       close: () => Boolean
-  ): RxElement = div(
-    id              -> menuId,
-    cls             -> "uni-menu",
-    role            -> "menu",
-    tabindex        -> "-1",
-    ariaOrientation -> "vertical",
-    data("state")   -> "open",
-    data("slot")    -> "menu",
-    labelledBy.map(l => ariaLabelledby -> l).getOrElse(DomNode.empty),
-    EventListenerBinding(
-      "keydown",
-      e =>
-        e.currentTarget match
-          case m: dom.Element if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
-            onKey(m, e.asInstanceOf[dom.KeyboardEvent], close)
-          case _ =>
-    ),
-    entries.map {
-      case MenuSeparator =>
-        div(role -> "separator", cls -> "uni-menu__separator", data("slot") -> "menu-separator")
-      case item: MenuItem =>
-        var disabledNow = false
-        div(
-          role         -> item.checked.map(_ => "menuitemcheckbox").getOrElse("menuitem"),
-          cls          -> "uni-menu__item",
-          data("slot") -> "menu-item",
-          tabindex     -> "-1",
-          AgentRegistry.attach(MenuList.itemBinding(item)),
-          ariaDisabled ->
-            item
-              .disabledState
-              .map { d =>
-                disabledNow = d
-                d.toString
-              },
-          item.checked.map(c => ariaChecked -> c.map(_.toString)).getOrElse(DomNode.empty),
-          // The pointer moves focus, so the highlight and the keyboard position stay one
-          EventListenerBinding(
-            "pointermove",
-            e =>
-              e.currentTarget match
-                case el: dom.HTMLElement if !disabledNow && !(el eq dom.document.activeElement) =>
-                  el.focus()
-                case _ =>
-          ),
-          EventListenerBinding(
-            "click",
-            e =>
-              if !disabledNow then
-                // Close first, so focus is back on the trigger before the action opens a dialog
-                // A close that onChange refuses skips the action, as in AlertDialog
-                ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
-                  if close() then
-                    item.action()
-                }
-          ),
-          span(cls -> "uni-menu__check", ariaHidden -> "true"),
-          span(cls -> "uni-menu__label", item.content),
-          item.shortcut.map(s => span(cls -> "uni-menu__shortcut", s)).getOrElse(DomNode.empty)
-        )
-    }
-  )
+  ): RxElement =
+    // A menu that opens starts a new search, not one left over from the last menu
+    typeahead.reset()
+    div(
+      id              -> menuId,
+      cls             -> "uni-menu",
+      role            -> "menu",
+      tabindex        -> "-1",
+      ariaOrientation -> "vertical",
+      data("state")   -> "open",
+      data("slot")    -> "menu",
+      labelledBy.map(l => ariaLabelledby -> l).getOrElse(DomNode.empty),
+      EventListenerBinding(
+        "keydown",
+        e =>
+          e.currentTarget match
+            case m: dom.Element if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
+              onKey(m, e.asInstanceOf[dom.KeyboardEvent], close)
+            case _ =>
+      ),
+      entries.map {
+        case MenuSeparator =>
+          div(role -> "separator", cls -> "uni-menu__separator", data("slot") -> "menu-separator")
+        case item: MenuItem =>
+          var disabledNow = false
+          div(
+            role         -> item.checked.map(_ => "menuitemcheckbox").getOrElse("menuitem"),
+            cls          -> "uni-menu__item",
+            data("slot") -> "menu-item",
+            tabindex     -> "-1",
+            AgentRegistry.attach(MenuList.itemBinding(item)),
+            ariaDisabled ->
+              item
+                .disabledState
+                .map { d =>
+                  disabledNow = d
+                  d.toString
+                },
+            item.checked.map(c => ariaChecked -> c.map(_.toString)).getOrElse(DomNode.empty),
+            // The pointer moves focus, so the highlight and the keyboard position stay one
+            EventListenerBinding(
+              "pointermove",
+              e =>
+                e.currentTarget match
+                  case el: dom.HTMLElement if !disabledNow && !(el eq dom.document.activeElement) =>
+                    el.focus()
+                  case _ =>
+            ),
+            EventListenerBinding(
+              "click",
+              e =>
+                if !disabledNow then
+                  // Close first, so focus is back on the trigger before the action opens a dialog
+                  // A close that onChange refuses skips the action, as in AlertDialog
+                  ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
+                    if close() then
+                      item.action()
+                  }
+            ),
+            span(cls -> "uni-menu__check", ariaHidden -> "true"),
+            span(cls -> "uni-menu__label", item.content),
+            item.shortcut.map(s => span(cls -> "uni-menu__shortcut", s)).getOrElse(DomNode.empty)
+          )
+      }
+    )
+
+  end render
 
 end MenuList
 
