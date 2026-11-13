@@ -314,10 +314,13 @@ class UiAgentTest extends DomTestSupport:
         """"arguments":{"ref":"select:region","action":"select","value":"oregon"}}}"""
     server
       .handleMessage(call)
-      .map { line =>
+      .flatMap { line =>
         line.get shouldContain "applied"
         region.get shouldBe "oregon"
-        JSON.parse(agent.api.snapshot()) shouldMatch { case _: JSONArray =>
+        agent.api.snapshot()
+      }
+      .map { snapshot =>
+        JSON.parse(snapshot) shouldMatch { case _: JSONArray =>
         }
         agent.uninstall()
       }

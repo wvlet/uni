@@ -209,6 +209,63 @@ A sandboxed renderer has no synchronous IPC, so the Electron channel implements 
 Use `Http.client.newAsyncClient`; `newSyncClient` throws.
 :::
 
+## Calling the renderer from the main process
+
+Some services live in the renderer because they need the page, such as a
+[`UiAgent`](../dom/ui#agents) that reads the DOM. The main process calls them over a reverse
+channel with the same payloads: it sends `(id, request)` on `uni-rpc-reverse` to one window's
+`webContents`, and the renderer answers `(id, response)` on `uni-rpc-reverse-reply`.
+
+The preload needs one more function, `serve`. It listens from the start, so a call that arrives
+before the renderer serves gets `503` (`UNAVAILABLE_I2`) at once instead of waiting:
+
+```js
+let reverseHandler = null
+ipcRenderer.on('uni-rpc-reverse', async (_event, id, payload) => {
+  let response = { status: 503, headers: {}, body: '' }
+  try {
+    if (reverseHandler) response = await reverseHandler(payload)
+  } catch (e) {
+    // Always reply, so the main process never waits for an answer that won't come
+    response = { status: 500, headers: {}, body: '' }
+  }
+  ipcRenderer.send('uni-rpc-reverse-reply', id, response)
+})
+
+contextBridge.exposeInMainWorld('uniRPC', {
+  request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
+  serve: (handler) => {
+    reverseHandler = handler
+  }
+})
+```
+
+The renderer serves routers, and the main process calls them through a client bound to the window:
+
+```scala
+// Renderer
+ElectronRenderer.serve(RPCRouter.of[PageApi](PageApiImpl()))
+
+// Main process: ipcMain and win.webContents are handed in from JavaScript
+val client = ElectronMain.newAsyncClient(ipcMain, webContents)
+RPCClient.of[PageApi].newAsyncClient(client).call[String]("title")
+```
+
+- A reply counts only when it comes from that `webContents`' top-level frame and names a waiting
+  call.
+- A waiting call fails with `UNAVAILABLE_I2` when the window closes or its page reloads, and with
+  `DEADLINE_EXCEEDED_I4` after `ElectronMainChannelConfig().withTimeoutMillis(ms)` (120 seconds by
+  default; `noTimeout` waits as long as the page lives).
+- The client does not retry, so a call cut off by a reload never runs twice. Streaming is not
+  supported in this direction.
+- `ElectronTestbed` plays the renderer side too: `ElectronRenderer.serve(testbed.bridge(), router)`,
+  then call it with `testbed.newMainClient()`.
+
+The [uni-harness example](https://github.com/wvlet/uni/tree/main/examples/uni-harness) uses this
+for its agent bridge. `pnpm dev:agent` starts a local MCP endpoint in the main process. It listens
+on 127.0.0.1, requires a bearer token made at startup, and forwards each `UiAgentApi` tool call to
+the renderer's `UiAgent`. Without `--agent-bridge` there is no endpoint.
+
 ## Build pipeline
 
 The example uses [`electron-vite`](https://electron-vite.org/) with

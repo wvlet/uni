@@ -16,6 +16,8 @@ package wvlet.uni.electron.testing
 import wvlet.uni.electron.{
   ElectronChannelFactory,
   ElectronIPC,
+  ElectronMain,
+  ElectronMainChannelConfig,
   ElectronRPCServer,
   ElectronRPCServerConfig
 }
@@ -37,6 +39,9 @@ import scala.scalajs.js
   * matching channel, exactly mirroring the renderer→main hop, so the full marshalling +
   * `RPCDispatcher` path is exercised in a plain headless-browser/Node test.
   *
+  * The reverse direction works too: pass [[bridge]] to `ElectronRenderer.serve(bridge, routers*)`,
+  * and call the renderer from the main side with [[newMainClient]].
+  *
   * {{{
   *   val testbed = ElectronTestbed.serve(RPCRouter.of[CounterApi](CounterApiImpl()))
   *   val rpc     = RPCClient.of[CounterApi].newAsyncClient(testbed.newAsyncClient)
@@ -54,7 +59,10 @@ class ElectronTestbed:
     .Map
     .empty[String, js.Function2[js.Any, js.Any, js.Promise[js.Object]]]
 
-  private val listeners = mutable.Map.empty[String, js.Function]
+  private val listeners = mutable.Map.empty[String, mutable.ArrayBuffer[js.Function]]
+
+  // The handler each reverse channel's renderer registered with `bridge.serve`, or None before
+  private val reverseHandlers = mutable.Map.empty[String, Option[js.Function1[js.Any, js.Any]]]
 
   // Stream callbacks by call id, and the fake webContents' event listeners by event name
   private val streams          = mutable.Map.empty[Double, js.Function1[js.Dynamic, Unit]]
@@ -75,7 +83,46 @@ class ElectronTestbed:
 
   private def send(channel: String, args: js.Any*): Unit = listeners
     .get(channel)
+    .map(_.toList)
+    .getOrElse(Nil)
     .foreach(_.call(js.undefined, args*))
+
+  /** Like the preload: run a main-process call through the renderer's handler and reply. */
+  private def answerReverse(channel: String, id: js.Any, payload: js.Any): Unit =
+    val replyChannel                  = channel.stripSuffix("-reverse") + "-reverse-reply"
+    def reply(response: js.Any): Unit =
+      if !destroyed then
+        send(replyChannel, senderEvent(ElectronTestbed.DefaultSenderUrl), id, response)
+    reverseHandlers.get(channel).flatten match
+      case Some(handler) =>
+        js.Promise.resolve[js.Any](handler(payload)).`then`[Unit]((r: js.Any) => reply(r))
+      case None =>
+        // Not served yet: answer with UNAVAILABLE_I2 instead of leaving the call waiting
+        js.Promise
+          .resolve[Unit](())
+          .`then`[Unit] { _ =>
+            reply(js.Dynamic.literal(status = 503, headers = js.Dynamic.literal(), body = ""))
+          }
+
+  /** Deliver a `webContents.send` message: a main-process call, or a stream message. */
+  private def deliver(channel: String, id: js.Any, msg: js.Any): Unit =
+    if reverseHandlers.contains(channel) then
+      answerReverse(channel, id, msg)
+    else
+      js.Promise
+        .resolve[Unit](())
+        .`then`[Unit] { _ =>
+          val key = id.asInstanceOf[Double]
+          streams
+            .get(key)
+            .foreach { cb =>
+              val m    = msg.asInstanceOf[js.Dynamic]
+              val kind = m.kind.asInstanceOf[String]
+              if kind == "end" || kind == "error" then
+                streams.remove(key)
+              cb(m)
+            }
+        }
 
   /**
     * A fake `ipcMain` to pass to [[ElectronRPCServer.serve]]. Its `handle(channel, fn)` and
@@ -94,35 +141,29 @@ class ElectronTestbed:
       on =
         (
             (channel: js.Any, fn: js.Any) =>
-              listeners(channel.asInstanceOf[String]) = fn.asInstanceOf[js.Function]
+              listeners.getOrElseUpdate(channel.asInstanceOf[String], mutable.ArrayBuffer.empty) +=
+                fn.asInstanceOf[js.Function]
+        ): js.Function2[js.Any, js.Any, Unit],
+      removeListener =
+        (
+            (channel: js.Any, fn: js.Any) =>
+              listeners.get(channel.asInstanceOf[String]).foreach(_ -= fn.asInstanceOf[js.Function])
         ): js.Function2[js.Any, js.Any, Unit]
     )
 
+  /** The number of `ipcMain.on` listeners on `channel`, for leak checks in tests. */
+  def ipcListenerCount(channel: String): Int = listeners.get(channel).map(_.size).getOrElse(0)
+
   /**
-    * The renderer's fake `webContents` (`event.sender`). Like Electron, it delivers stream messages
-    * asynchronously and in order.
+    * The renderer's fake `webContents` (`event.sender`), to pass to `ElectronMain.newAsyncClient`.
+    * Like Electron, it delivers stream messages and main-process calls asynchronously and in order.
     */
-  private val webContents: js.Dynamic = js
+  val webContents: js.Dynamic = js
     .Dynamic
     .literal(
       send =
         (
-            (_channel: js.Any, id: js.Any, msg: js.Any) =>
-              js.Promise
-                .resolve[Unit](())
-                .`then`[Unit] { _ =>
-                  val key = id.asInstanceOf[Double]
-                  streams
-                    .get(key)
-                    .foreach { cb =>
-                      val m    = msg.asInstanceOf[js.Dynamic]
-                      val kind = m.kind.asInstanceOf[String]
-                      if kind == "end" || kind == "error" then
-                        streams.remove(key)
-                      cb(m)
-                    }
-                }
-              ()
+            (channel: js.Any, id: js.Any, msg: js.Any) => deliver(String.valueOf(channel), id, msg)
         ): js.Function3[js.Any, js.Any, js.Any, Unit],
       isDestroyed = (() => destroyed): js.Function0[Boolean],
       on = (addContentsListener: js.Function2[js.Any, js.Function, Unit]),
@@ -144,6 +185,8 @@ class ElectronTestbed:
     */
   def reloadRenderer(): Unit =
     streams.clear()
+    // The new page has not served anything yet
+    reverseHandlers.keys.toList.foreach(k => reverseHandlers(k) = None)
     navigate(isSameDocument = false)
 
   /**
@@ -178,45 +221,56 @@ class ElectronTestbed:
   def bridge(
       channel: String = ElectronIPC.DefaultChannel,
       senderUrl: String = ElectronTestbed.DefaultSenderUrl
-  ): js.Dynamic = js
-    .Dynamic
-    .literal(
-      request =
-        (
-            (payload: js.Any) =>
-              handlers.get(channel) match
-                case Some(fn) =>
-                  fn(ElectronTestbed.ipcEvent(senderUrl), payload)
-                case None =>
-                  js.Promise
-                    .reject(js.Error(s"No Electron RPC handler registered on channel '${channel}'"))
-        ): js.Function1[js.Any, js.Promise[js.Object]],
-      stream =
-        (
-            (payload: js.Any, onMessage: js.Function1[js.Dynamic, Unit]) =>
-              listeners.get(ElectronIPC.streamChannel(channel)) match
-                case Some(fn) =>
-                  nextStreamId += 1
-                  val id = nextStreamId
-                  streams(id) = onMessage
-                  fn.call(js.undefined, senderEvent(senderUrl), id, payload)
-                  // Like the preload: drop the callback and tell the main process to stop
-                  val cancel: js.Function0[Unit] =
-                    () =>
-                      if streams.remove(id).isDefined then
-                        send(ElectronIPC.streamCancelChannel(channel), senderEvent(senderUrl), id)
-                  cancel
-                case None =>
-                  onMessage(
-                    js.Dynamic
-                      .literal(
-                        kind = "error",
-                        message = s"No Electron RPC stream handler on channel '${channel}'"
+  ): js.Dynamic =
+    val reverse = ElectronIPC.reverseChannel(channel)
+    // Like the preload, listen for main-process calls from the start
+    reverseHandlers.getOrElseUpdate(reverse, None)
+    js.Dynamic
+      .literal(
+        serve =
+          (
+              (handler: js.Function1[js.Any, js.Any]) => reverseHandlers(reverse) = Some(handler)
+          ): js.Function1[js.Function1[js.Any, js.Any], Unit],
+        request =
+          (
+              (payload: js.Any) =>
+                handlers.get(channel) match
+                  case Some(fn) =>
+                    fn(ElectronTestbed.ipcEvent(senderUrl), payload)
+                  case None =>
+                    js.Promise
+                      .reject(
+                        js.Error(s"No Electron RPC handler registered on channel '${channel}'")
                       )
-                  )
-                  js.undefined
-        ): js.Function2[js.Any, js.Function1[js.Dynamic, Unit], js.Any]
-    )
+          ): js.Function1[js.Any, js.Promise[js.Object]],
+        stream =
+          (
+              (payload: js.Any, onMessage: js.Function1[js.Dynamic, Unit]) =>
+                listeners.get(ElectronIPC.streamChannel(channel)).flatMap(_.headOption) match
+                  case Some(fn) =>
+                    nextStreamId += 1
+                    val id = nextStreamId
+                    streams(id) = onMessage
+                    fn.call(js.undefined, senderEvent(senderUrl), id, payload)
+                    // Like the preload: drop the callback and tell the main process to stop
+                    val cancel: js.Function0[Unit] =
+                      () =>
+                        if streams.remove(id).isDefined then
+                          send(ElectronIPC.streamCancelChannel(channel), senderEvent(senderUrl), id)
+                    cancel
+                  case None =>
+                    onMessage(
+                      js.Dynamic
+                        .literal(
+                          kind = "error",
+                          message = s"No Electron RPC stream handler on channel '${channel}'"
+                        )
+                    )
+                    js.undefined
+          ): js.Function2[js.Any, js.Function1[js.Dynamic, Unit], js.Any]
+      )
+
+  end bridge
 
   /** An `ipcMain.on` event from the renderer's fake `webContents`. */
   private def senderEvent(senderUrl: String): js.Dynamic =
@@ -237,6 +291,14 @@ class ElectronTestbed:
   /** A ready-to-use async HTTP client whose requests are tunneled through this testbed's IPC. */
   def newAsyncClient: HttpAsyncClient =
     Http.client.withChannelFactory(channelFactory()).newAsyncClient
+
+  /**
+    * A main-process client that calls the services the renderer serves with
+    * `ElectronRenderer.serve(bridge(...), routers*)`, over the reverse channel.
+    */
+  def newMainClient(
+      config: ElectronMainChannelConfig = ElectronMainChannelConfig()
+  ): HttpAsyncClient = ElectronMain.newAsyncClient(ipcMain, webContents, config)
 
 end ElectronTestbed
 

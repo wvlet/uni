@@ -25,11 +25,14 @@ import wvlet.uni.http.{
   HttpRequest,
   HttpResponse
 }
-import wvlet.uni.rx.Rx
+import wvlet.uni.http.Response
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.ExecutionContext
 import scala.scalajs.js
+import scala.util.control.NonFatal
 
 /**
   * Renderer-side HTTP channel that tunnels RPC calls over Electron IPC.
@@ -204,5 +207,65 @@ object ElectronRenderer:
     val bridge = availableBridge
     bridge.foreach(install)
     bridge.isDefined
+
+  /**
+    * Serve routers to the main process, which calls them with [[ElectronMainChannel]]. Hands a
+    * handler to the preload bridge's `serve(handler)` function; the handler takes a request payload
+    * and returns a `Promise` of the response payload (see [[ElectronIPC]]).
+    *
+    * {{{
+    * // preload: answer main-process calls with the renderer's handler
+    * let handler = null
+    * ipcRenderer.on("uni-rpc-reverse", async (_event, id, payload) => {
+    *   let response = { status: 503, headers: {}, body: "" } // UNAVAILABLE_I2
+    *   try { if (handler) response = await handler(payload) }
+    *   catch (e) { response = { status: 500, headers: {}, body: "" } } // always reply
+    *   ipcRenderer.send("uni-rpc-reverse-reply", id, response)
+    * })
+    * contextBridge.exposeInMainWorld("uniRPC", { ..., serve: (h) => { handler = h } })
+    * }}}
+    *
+    * @param bridge
+    *   the preload-exposed bridge object; it needs a `serve` function.
+    */
+  def serve(bridge: js.Dynamic, routers: RPCRouter*): Unit =
+    if js.typeOf(bridge.serve) != "function" then
+      throw IllegalStateException(
+        "Serving the main process over Electron IPC needs a `serve` function on the preload " +
+          "bridge: serve: (handler) => ... (see wvlet.uni.electron.ElectronIPC)"
+      )
+    bridge.applyDynamic("serve")(handler(routers*))
+
+  /** Serve routers to the main process through the default bridge (`window.uniRPC`). */
+  def serve(routers: RPCRouter*): Unit = serve(defaultBridge, routers*)
+
+  /**
+    * The function a preload calls with a main-process request payload: it dispatches the request
+    * and returns a `Promise` of the response payload. Every failure becomes an RPC error response,
+    * so the main process always gets a reply.
+    */
+  def handler(routers: RPCRouter*): js.Function1[js.Any, js.Promise[js.Object]] =
+    val dispatcher = RPCDispatcher(routers*)
+    (payload: js.Any) =>
+      js.Promise[js.Object] { (resolve, _) =>
+        def fail(e: Throwable): Unit = resolve(
+          ElectronIPC.fromResponse(
+            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
+          )
+        )
+        try
+          RxRunner.run(
+            dispatcher.dispatch(ElectronIPC.toRequest(payload.asInstanceOf[js.Dynamic]))
+          ) {
+            case OnNext(v) =>
+              resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
+            case OnError(e) =>
+              fail(e)
+            case OnCompletion =>
+          }
+        catch
+          case NonFatal(e) =>
+            fail(e)
+      }
 
 end ElectronRenderer

@@ -121,6 +121,44 @@ object RendererApp:
     }
 ```
 
+## Calling the renderer from the main process
+
+For services that live in the page (such as a uni-ui `UiAgent`), the main process
+calls the renderer over a reverse channel: `uni-rpc-reverse` carries `(id, request)`
+to a `webContents`, and the renderer answers `(id, response)` on
+`uni-rpc-reverse-reply`. The preload adds `serve`:
+
+```js
+let reverseHandler = null
+ipcRenderer.on('uni-rpc-reverse', async (_event, id, payload) => {
+  let response = { status: 503, headers: {}, body: '' } // not served yet: UNAVAILABLE_I2
+  try {
+    if (reverseHandler) response = await reverseHandler(payload)
+  } catch (e) {
+    response = { status: 500, headers: {}, body: '' } // always reply
+  }
+  ipcRenderer.send('uni-rpc-reverse-reply', id, response)
+})
+// add to the uniRPC object: serve: (handler) => { reverseHandler = handler }
+```
+
+```scala skip
+// Renderer
+ElectronRenderer.serve(RPCRouter.of[PageApi](PageApiImpl()))
+// Main process (ipcMain, webContents handed in from JS)
+val client = ElectronMain.newAsyncClient(ipcMain, webContents)
+RPCClient.of[PageApi].newAsyncClient(client).call[String]("title")
+```
+
+- Only replies from that `webContents`' top-level frame count. A waiting call
+  fails with `UNAVAILABLE_I2` when the window closes or reloads, and with
+  `DEADLINE_EXCEEDED_I4` after `ElectronMainChannelConfig().withTimeoutMillis(ms)`
+  (default 120 s). No retries, no streaming in this direction.
+- Testing: `ElectronRenderer.serve(testbed.bridge(), router)`, then
+  `testbed.newMainClient()`.
+- uni-harness serves `UiAgentApi` this way and exposes it as a token-guarded MCP
+  endpoint on 127.0.0.1 when started with `--agent-bridge` (`pnpm dev:agent`).
+
 ## Testing without Electron
 
 `wvlet.uni.electron.testing.ElectronTestbed` wires a fake `ipcMain` to a fake

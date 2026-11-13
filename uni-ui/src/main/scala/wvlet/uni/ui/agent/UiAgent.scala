@@ -265,19 +265,24 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
     new UiAgentApi:
       private def list(xs: Seq[UiNode]): String = JSONArray(xs.map(_.toJSON).toIndexedSeq).toJSON
 
-      override def snapshot(): String = list(UiAgent.this.snapshot())
+      override def snapshot(): Rx[String] = Rx.single(list(UiAgent.this.snapshot()))
 
-      override def query(kind: Option[String], text: Option[String], ref: Option[String]): String =
-        list(UiAgent.this.query(kind, text, ref))
+      override def query(
+          kind: Option[String],
+          text: Option[String],
+          ref: Option[String]
+      ): Rx[String] = Rx.single(list(UiAgent.this.query(kind, text, ref)))
 
       override def act(ref: String, action: String, value: Option[String]): Rx[String] =
         UiAgent.this.act(ref, action, value).map(_.toJSON.toJSON)
 
-      override def changes(since: Long): String =
+      override def changes(since: Long): Rx[String] =
         val (xs, cursor) = UiAgent.this.changes(since)
-        JSONObject(
-          Seq("changes" -> JSONArray(xs.map(_.toJSON).toIndexedSeq), "cursor" -> JSONLong(cursor))
-        ).toJSON
+        Rx.single(
+          JSONObject(
+            Seq("changes" -> JSONArray(xs.map(_.toJSON).toIndexedSeq), "cursor" -> JSONLong(cursor))
+          ).toJSON
+        )
 
   /**
     * Registers [[api]] as WebMCP tools when the browser offers `document.modelContext`, so an agent

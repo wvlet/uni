@@ -22,7 +22,8 @@ import wvlet.uni.rx.Rx
   * tools, or over Uni RPC, for example from an Electron main process to its renderer.
   *
   * Results are JSON text, so each action can carry its own JSON Schema and every transport passes
-  * the result through unchanged.
+  * the result through unchanged. Every method returns `Rx`, so a forwarder in another process (an
+  * Electron main process calling its renderer) can implement the trait over an async transport.
   */
 trait UiAgentApi:
 
@@ -31,7 +32,7 @@ trait UiAgentApi:
       "disabled, and the actions available now with a JSON Schema for each action's value. Call " +
       "it before acting, and again after an action changes the screen."
   )
-  def snapshot(): String
+  def snapshot(): Rx[String]
 
   @description(
     "Find components without loading the whole tree: by kind (button, select, textfield, tabs, " +
@@ -44,7 +45,7 @@ trait UiAgentApi:
       text: Option[String] = None,
       @description("Ref prefix")
       ref: Option[String] = None
-  ): String
+  ): Rx[String]
 
   @description(
     "Run an action on a component, as listed in its snapshot. The result status is applied, " +
@@ -67,6 +68,6 @@ trait UiAgentApi:
   def changes(
       @description("The cursor from the previous call, or 0")
       since: Long = 0
-  ): String
+  ): Rx[String]
 
 end UiAgentApi

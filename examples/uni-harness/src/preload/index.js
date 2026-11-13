@@ -19,8 +19,26 @@ ipcRenderer.on('uni-rpc-stream-event', (_event, id, message) => {
   onMessage(message)
 })
 
+// `serve(handler)` answers calls from the main process (the agent bridge): the main process sends
+// (id, payload) on 'uni-rpc-reverse', and the handler's response goes back on 'uni-rpc-reverse-reply'.
+// Until the renderer serves, calls get 503 (UNAVAILABLE) at once.
+let reverseHandler = null
+ipcRenderer.on('uni-rpc-reverse', async (_event, id, payload) => {
+  let response = { status: 503, headers: {}, body: '' }
+  try {
+    if (reverseHandler) response = await reverseHandler(payload)
+  } catch (e) {
+    // Always reply, so the main process never waits for an answer that won't come
+    response = { status: 500, headers: {}, body: '' }
+  }
+  ipcRenderer.send('uni-rpc-reverse-reply', id, response)
+})
+
 contextBridge.exposeInMainWorld('uniRPC', {
   request: (payload) => ipcRenderer.invoke('uni-rpc', payload),
+  serve: (handler) => {
+    reverseHandler = handler
+  },
   stream: (payload, onMessage) => {
     const id = `${pageId}-${++nextStreamId}`
     streams.set(id, onMessage)
@@ -32,7 +50,11 @@ contextBridge.exposeInMainWorld('uniRPC', {
 })
 
 // The OS name, so the renderer can make room for the macOS window buttons.
-contextBridge.exposeInMainWorld('uniHarness', { platform: process.platform })
+// `agentBridge` is true when the app started with --agent-bridge, so the renderer serves UiAgent.
+contextBridge.exposeInMainWorld('uniHarness', {
+  platform: process.platform,
+  agentBridge: process.argv.includes('--uni-agent-bridge')
+})
 
 // The Terminal tab's shell, running in the main process. Output arrives as `pty-data` messages.
 contextBridge.exposeInMainWorld('uniPty', {

@@ -1,9 +1,13 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 // The Scala.js `server` module, imported via vite-plugin-scalajs.
-import { wireMainProcess, wireTerminal, wireLinks } from 'scalajs:main.js'
+import { wireMainProcess, wireTerminal, wireLinks, startAgentBridge, attachAgentBridge } from 'scalajs:main.js'
 // node-pty runs the shell for the Terminal tab. It is a native addon, so the app (not Uni) installs it.
 import * as pty from 'node-pty'
+
+// `--agent-bridge` (`pnpm dev:agent`) starts a local MCP endpoint that lets an AI agent read and
+// operate the UI. Without it there is no endpoint, and the renderer does not install UiAgent.
+const agentBridge = process.argv.includes('--agent-bridge')
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -25,9 +29,12 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       // ESM preloads require the sandbox off; the contextBridge boundary still isolates the renderer.
-      sandbox: false
+      sandbox: false,
+      // Tells the preload to expose `uniHarness.agentBridge`, so the renderer serves UiAgent
+      additionalArguments: agentBridge ? ['--uni-agent-bridge'] : []
     }
   })
+  if (agentBridge) attachAgentBridge(win.webContents)
 
   // Never open a bare app window from the page; links go to the system browser through uniShell
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
@@ -40,13 +47,27 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   // Register the ChatApi on Electron IPC before opening any window.
   wireMainProcess(ipcMain)
   // Run a shell for the renderer's Terminal tab
   wireTerminal(ipcMain, pty)
   // Open the Terminal tab's links in the system browser
   wireLinks(ipcMain, shell)
+
+  if (agentBridge) {
+    // A bridge that fails to start must not keep the window from opening
+    try {
+      const { url, token } = await startAgentBridge(ipcMain)
+      console.log(
+        `Agent bridge (MCP over HTTP): ${url}\n` +
+          `  Authorization: Bearer ${token}\n` +
+          `  claude mcp add --transport http uni-harness ${url} --header "Authorization: Bearer ${token}"`
+      )
+    } catch (e) {
+      console.error('The agent bridge did not start:', e)
+    }
+  }
 
   createWindow()
   app.on('activate', () => {
