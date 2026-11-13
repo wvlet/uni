@@ -16,7 +16,7 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 
 import scala.language.implicitConversions
 
@@ -127,6 +127,17 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
       ResizeDirection.Left
   )
 
+  private var following: Cancelable = Cancelable.empty
+
+  // Follow app writes to `size` while the grip is rendered
+  override def beforeRender: Unit =
+    following.cancel
+    following = gated.follow()
+
+  override def beforeUnmount: Unit =
+    following.cancel
+    following = Cancelable.empty
+
   /** True while the grip is being dragged. */
   def dragging: Rx[Boolean] = resize.dragging
 
@@ -179,8 +190,7 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     ariaValuenow     -> size.map(_.toString),
     // A listener, so an app's own `onkeydown` modifier runs alongside the arrow keys
     EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
-    resize.bind,
-    gated.mirror
+    resize.bind
   )
 
 end Splitter

@@ -180,10 +180,10 @@ class Dock private (
     */
   def open(panel: String): Unit =
     if byId.contains(panel) then
-      setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.current)
+      setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative)
 
   /** Remove `panel` from the layout. */
-  def close(panel: String): Unit = setLayout(DockModel.close(now, panel), ChangeCause.current)
+  def close(panel: String): Unit = setLayout(DockModel.close(now, panel), ChangeCause.imperative)
 
   /**
     * The number of groups. Groups are numbered from 0 in reading order (depth first), so group `i`
@@ -212,10 +212,9 @@ class Dock private (
     * panel isn't registered or its tab isn't on the page.
     */
   def focusPanel(panel: String): Boolean =
-    byId.contains(panel) && {
-      open(panel)
+    byId.contains(panel) &&
+      setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative) &&
       focusTabNow(panel)
-    }
 
   private def focusTabNow(panel: String): Boolean =
     Option(dom.document.getElementById(tabId(panel))) match
@@ -470,12 +469,13 @@ class Dock private (
         "click",
         e =>
           if !suppressClick then
-            setLayout(DockModel.activate(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
             // The pointer drag keeps the press from focusing the tab
-            e.currentTarget match
-              case el: dom.HTMLElement =>
-                el.focus()
-              case _ =>
+            if setLayout(DockModel.activate(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
+            then
+              e.currentTarget match
+                case el: dom.HTMLElement =>
+                  el.focus()
+                case _ =>
       ),
       drag.bind,
       span(cls -> "uni-dock__tab-label", data("slot") -> "dock-tab-label", panel.tab),
@@ -494,7 +494,7 @@ class Dock private (
             "click",
             e =>
               e.stopPropagation()
-              ChangeCause.during(ChangeCause.of(ChangeReason.Press, e))(close(panel.id))
+              setLayout(DockModel.close(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
           )
         )
       )

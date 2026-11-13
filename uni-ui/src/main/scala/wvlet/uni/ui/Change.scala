@@ -14,9 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.all.*
-import wvlet.uni.dom.all.given
-import wvlet.uni.rx.RxVar
+import wvlet.uni.rx.{Cancelable, RxVar}
 
 /** Who made a change: a pointer (mouse, touch, or pen), the keyboard, app code, or an AI agent. */
 enum ChangeSource:
@@ -202,7 +200,8 @@ private[ui] object ChangeGate:
 
   /**
     * Asks `handler` about setting `target` to `value`, and writes it unless the handler canceled.
-    * Returns true when the value changed. Nothing is reported when the value is already current.
+    * Returns true when `target` holds `value` afterwards: the change was accepted, or the value was
+    * already current (which is not reported). Returns false when the handler canceled it.
     * `beforeWrite` runs once the change is accepted, just before the write.
     */
   def write[A](
@@ -215,7 +214,7 @@ private[ui] object ChangeGate:
   ): Boolean =
     val previous = target.get
     if previous == value then
-      false
+      true
     else
       val d = ChangeDetails(key, value, previous, cause.reason, ChangeSource.resolve(cause.source))
       handler(d)
@@ -231,8 +230,8 @@ end ChangeGate
 /**
   * A stand-in for an app's `RxVar`, for code that writes the variable itself, such as a two-way
   * `value.bind` or a `PaneResize` drag. A write asks the change handler first and reaches `target`
-  * only when accepted; a refused write leaves this variable unchanged too. Render [[mirror]] in the
-  * component so the stand-in follows writes the app makes to `target`.
+  * only when accepted; a refused write leaves this variable unchanged too. [[follow]] keeps the
+  * stand-in in step with writes the app makes to `target`.
   *
   * @param cause
   *   the cause of a write, read when it happens
@@ -250,29 +249,23 @@ private[ui] class GatedVar[A](
 
   override def update(updater: A => A, force: Boolean = false): Unit =
     val v = updater(get)
-    if holding() then
-      super.update(_ => v, force)
-    else if ChangeGate.write(target, key, v, cause(), handler()) || v == target.get then
+    if holding() || ChangeGate.write(target, key, v, cause(), handler()) then
       super.update(_ => v, force)
 
   /** Sends a held draft to `target`. Returns false when it was refused, leaving `target` as is. */
   def commit(): Boolean =
-    val draft = get
-    ChangeGate.write(target, key, draft, cause(), handler())
-    if target.get != draft then
+    val accepted = ChangeGate.write(target, key, get, cause(), handler())
+    if !accepted then
       super.update(_ => target.get)
-    target.get == draft
+    accepted
 
-  /** Keeps this variable equal to `target` while it is rendered. */
-  def mirror: DomNode = wvlet
-    .uni
-    .dom
-    .embedAsNode(
-      target.map[DomNode] { t =>
-        if t != get && !holding() then
-          super.update(_ => t)
-        DomNode.empty
-      }
-    )
+  /**
+    * Keeps this variable equal to `target`, for app writes. Call it on mount and cancel the result
+    * on unmount.
+    */
+  def follow(): Cancelable = target.foreach { t =>
+    if t != get && !holding() then
+      super.update(_ => t)
+  }
 
 end GatedVar

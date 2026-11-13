@@ -138,7 +138,7 @@ private[ui] class ListCore[A, K](
   // Choosing the selected row again still runs onSelect, as before (to open it, say)
   private def select(a: A, cause: ChangeCause): Unit =
     val k = Some(key(a))
-    if ChangeGate.write(selected, "selected", k, cause, changeHandler) || selected.get == k then
+    if ChangeGate.write(selected, "selected", k, cause, changeHandler) then
       ChangeCause.during(cause)(onSelect(a))
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =

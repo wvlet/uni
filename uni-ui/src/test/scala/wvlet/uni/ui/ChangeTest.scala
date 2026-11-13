@@ -136,8 +136,41 @@ class ChangeTest extends DomTestSupport:
     rec.seen.size shouldBe 0
     text.get shouldBe ""
     fireEvent.custom(el, "compositionend")
-    text.get shouldBe "日本"
-    rec.seen.size shouldBe 1
+    // The commit waits a tick, for browsers that send the last input after compositionend
+    settle().map { _ =>
+      text.get shouldBe "日本"
+      rec.seen.size shouldBe 1
+    }
+  }
+
+  test("an input event after compositionend is gated once") {
+    val text = Rx.variable("")
+    val rec  = Recorder()
+    val m    = mount(Input(text).onChange(rec.handler))
+    val el   = m.get("input").asInstanceOf[dom.HTMLInputElement]
+    fireEvent.custom(el, "compositionstart")
+    fireEvent.input(el, "に")
+    fireEvent.custom(el, "compositionend")
+    fireEvent.input(el, "日本")
+    settle().map { _ =>
+      text.get shouldBe "日本"
+      rec.seen.map(_.value).toSeq shouldBe Seq("日本")
+    }
+  }
+
+  test("a menu item's action is skipped when onChange keeps the menu open") {
+    val open = Rx.variable(true)
+    var ran  = false
+    val rec  = Recorder()
+    mount(
+      Menu(open)(Button("More"))(MenuItem("Delete").onSelect(() => ran = true)).onChange(
+        rec.handler
+      )
+    )
+    rec.refuse = true
+    fireEvent.click(find("[data-slot=menu-item]"))
+    open.get shouldBe true
+    ran shouldBe false
   }
 
   test("ChangeSource.withSource attributes changes to an agent") {

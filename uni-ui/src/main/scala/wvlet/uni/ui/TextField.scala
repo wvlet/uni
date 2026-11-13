@@ -16,7 +16,7 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 
 import scala.language.implicitConversions
 
@@ -39,8 +39,9 @@ private[ui] def fieldModifiers(
   * in the field and goes through `onChange` once the composition ends.
   */
 private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
-  private var composing = false
-  private val gated     = GatedVar(
+  private var composing             = false
+  private var following: Cancelable = Cancelable.empty
+  private val gated                 = GatedVar(
     text,
     "value",
     handler,
@@ -48,31 +49,48 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
     () => composing
   )
 
-  private def restore(e: dom.Event): Unit =
-    e.currentTarget match
+  private def restore(target: dom.EventTarget): Unit =
+    target match
       case f: dom.HTMLInputElement if f.value != gated.get =>
         f.value = gated.get
       case f: dom.HTMLTextAreaElement if f.value != gated.get =>
         f.value = gated.get
       case _ =>
 
+  /** Follow app writes to `text` while the field is mounted. */
+  def mount(): Unit =
+    following.cancel
+    following = gated.follow()
+
+  def unmount(): Unit =
+    following.cancel
+    following = Cancelable.empty
+
   def modifiers: Seq[DomNode] = Seq(
     value.bind(gated),
-    gated.mirror,
     EventListenerBinding("compositionstart", _ => composing = true),
     EventListenerBinding(
       "compositionend",
       e =>
         composing = false
-        if !gated.commit() then
-          restore(e)
+        val field = e.currentTarget
+        // Browsers differ on whether the last input event comes before or after compositionend.
+        // When it comes after, it passes the gate itself, and this commit finds nothing new
+        dom
+          .window
+          .setTimeout(
+            () =>
+              if !gated.commit() then
+                restore(field),
+            0
+          )
     ),
     // Runs after the binding's own listener: put back an edit that onChange refused
     EventListenerBinding(
       "input",
       e =>
         if !composing then
-          restore(e)
+          restore(e.currentTarget)
     )
   )
 
@@ -111,6 +129,12 @@ class Input(
   /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
   def onChange(f: ChangeHandler): Input = copy(changeHandler = f)
 
+  private val field = GatedText(text, () => changeHandler)
+
+  // Before the first render, so app writes right after mounting reach the field
+  override def beforeRender: Unit  = field.mount()
+  override def beforeUnmount: Unit = field.unmount()
+
   def withType(t: String): Input = copy(inputType = t)
 
   def withPlaceholder(p: String): Input = copy(placeholderText = Some(p))
@@ -129,7 +153,7 @@ class Input(
     tpe          -> inputType,
     cls          -> "uni-input",
     data("slot") -> "input",
-    GatedText(text, () => changeHandler).modifiers,
+    field.modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 
@@ -171,6 +195,12 @@ class Textarea(
   /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
   def onChange(f: ChangeHandler): Textarea = copy(changeHandler = f)
 
+  private val field = GatedText(text, () => changeHandler)
+
+  // Before the first render, so app writes right after mounting reach the field
+  override def beforeRender: Unit  = field.mount()
+  override def beforeUnmount: Unit = field.unmount()
+
   def withRows(n: Int): Textarea = copy(rowCount = n)
 
   def withPlaceholder(p: String): Textarea = copy(placeholderText = Some(p))
@@ -187,7 +217,7 @@ class Textarea(
     cls          -> "uni-textarea",
     data("slot") -> "textarea",
     rows         -> rowCount.toString,
-    GatedText(text, () => changeHandler).modifiers,
+    field.modifiers,
     fieldModifiers(placeholderText, label, invalid, disabledState)
   )
 

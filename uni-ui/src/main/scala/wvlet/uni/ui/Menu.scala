@@ -85,7 +85,7 @@ private[ui] object MenuList:
   def first(menu: dom.Element): Option[dom.HTMLElement] = items(menu).headOption
   def last(menu: dom.Element): Option[dom.HTMLElement]  = items(menu).lastOption
 
-  private def onKey(menu: dom.Element, e: dom.KeyboardEvent, close: () => Unit): Unit =
+  private def onKey(menu: dom.Element, e: dom.KeyboardEvent, close: () => Boolean): Unit =
     val all     = items(menu)
     val current = all.indexWhere(_ eq dom.document.activeElement)
     e.key match
@@ -93,9 +93,12 @@ private[ui] object MenuList:
         e.preventDefault()
         all.lift(current).foreach(_.click())
       case "Tab" =>
-        // Close and let the Tab move on from the trigger
-        ChangeCause.during(ChangeCause(ChangeReason.FocusOut, ChangeSource.Keyboard))(close())
-        FocusTrap.continueTab(e)
+        // Close and let the Tab move on from the trigger; a refused close keeps focus in the menu
+        if ChangeCause.during(ChangeCause(ChangeReason.FocusOut, ChangeSource.Keyboard))(close())
+        then
+          FocusTrap.continueTab(e)
+        else
+          e.preventDefault()
       case k =>
         RovingFocus
           .nextIndex(k, current, all.size, Orientation.Vertical)
@@ -115,7 +118,7 @@ private[ui] object MenuList:
       menuId: String,
       entries: Seq[MenuEntry],
       labelledBy: Option[String],
-      close: () => Unit
+      close: () => Boolean
   ): RxElement = div(
     id              -> menuId,
     cls             -> "uni-menu",
@@ -165,9 +168,10 @@ private[ui] object MenuList:
             e =>
               if !disabledNow then
                 // Close first, so focus is back on the trigger before the action opens a dialog
+                // A close that onChange refuses skips the action, as in AlertDialog
                 ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
-                  close()
-                  item.action()
+                  if close() then
+                    item.action()
                 }
           ),
           span(cls -> "uni-menu__check", ariaHidden -> "true"),
@@ -224,7 +228,7 @@ class Menu private (
   /** Called before the menu opens or closes; `cancel()` keeps it as it is. Key: `open`. */
   def onChange(f: ChangeHandler): Menu = copy(changeHandler = f)
 
-  private def setOpen(v: Boolean, cause: ChangeCause): Unit = ChangeGate.write(
+  private def setOpen(v: Boolean, cause: ChangeCause): Boolean = ChangeGate.write(
     open,
     "open",
     v,
@@ -237,7 +241,7 @@ class Menu private (
       case "ArrowDown" | "ArrowUp" =>
         e.preventDefault()
         focusLast = e.key == "ArrowUp"
-        setOpen(true, ChangeCause.of(ChangeReason.NavigationKey, e))
+        setOpen(true, ChangeCause.of(ChangeReason.NavigationKey, e)): Unit
       case _ =>
 
   private def list(exit: Presence.Exit): RxElement = OverlaySurface(
@@ -250,7 +254,7 @@ class Menu private (
     offset = 4,
     modal = false,
     dismissOnOutside = true,
-    onDismiss = () => setOpen(false, ChangeCause.current),
+    onDismiss = () => setOpen(false, ChangeCause.current): Unit,
     initialFocus =
       el =>
         val target =
@@ -271,7 +275,10 @@ class Menu private (
     ariaExpanded  -> open.map(_.toString),
     ariaControls  -> menuId,
     data("state") -> open.map(Popover.stateName),
-    EventListenerBinding("click", e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e))),
+    EventListenerBinding(
+      "click",
+      e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e)): Unit
+    ),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
     Presence(open)(exit => Portal.toBody(list(exit)))
   )
@@ -315,7 +322,14 @@ class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
 
   private def list(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
-    MenuList.render(menuId, entries, None, () => open := false),
+    MenuList.render(
+      menuId,
+      entries,
+      None,
+      () =>
+        open := false
+        true
+    ),
     anchor = () => Some(at),
     inside = el => Seq(el),
     side = Side.Bottom,
