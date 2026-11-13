@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentDom, AgentRegistry, UiItem}
-import wvlet.uni.ui.base.{Ids, RovingFocus}
+import wvlet.uni.ui.base.{Ids, RovingFocus, TextDirection}
 
 import scala.language.implicitConversions
 
@@ -79,7 +79,7 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
   private def onKey(e: dom.KeyboardEvent): Unit =
     val current = tabs.indexWhere(_.value == selected.get)
     RovingFocus
-      .nextIndex(e.key, math.max(current, 0), tabs.size)
+      .nextIndex(e.key, math.max(current, 0), tabs.size, rtl = TextDirection.mirrors(e))
       .foreach { i =>
         e.preventDefault()
         // Move focus along with the selection, unless onChange refused it

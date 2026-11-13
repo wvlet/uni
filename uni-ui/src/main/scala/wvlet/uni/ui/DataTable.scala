@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.ui.agent.AgentAction
-import wvlet.uni.ui.base.Windowing
+import wvlet.uni.ui.base.{TextDirection, Windowing}
 
 import scala.language.implicitConversions
 
@@ -180,7 +180,7 @@ class DataTable[A, K] private (
     else if rowEnd && e.shiftKey && !toRow && !e.altKey && multiSelected.nonEmpty then
       false
     else
-      DataTable.nextColumn(e.key, activeColumn.get, columns.size) match
+      DataTable.nextColumn(e.key, activeColumn.get, columns.size, TextDirection.mirrors(e)) match
         case Some(c) =>
           if c != activeColumn.get then
             activeColumn := c
@@ -389,13 +389,14 @@ object DataTable:
 
   /**
     * The active column after `key` in a row of `count` cells: Left and Right move by one and stop
-    * at the ends, and Home and End go to the first and last cell.
+    * at the ends, and Home and End go to the first and last cell. With `rtl`, the table is laid out
+    * right to left, so Left moves toward the last cell.
     */
-  def nextColumn(key: String, current: Int, count: Int): Option[Int] =
+  def nextColumn(key: String, current: Int, count: Int, rtl: Boolean = false): Option[Int] =
     if count <= 0 then
       None
     else
-      key match
+      TextDirection.logicalKey(key, rtl) match
         case "ArrowLeft" =>
           Some(math.max(current - 1, 0))
         case "ArrowRight" =>

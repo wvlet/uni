@@ -26,7 +26,8 @@ import wvlet.uni.ui.base.{
   Ids,
   Orientation,
   Reorder,
-  RovingFocus
+  RovingFocus,
+  TextDirection
 }
 
 import scala.collection.mutable
@@ -538,12 +539,7 @@ class Dock private (
           // Even when the tab can't move further, so Alt+ArrowLeft doesn't go Back in the browser
           e.preventDefault()
           // In a right-to-left layout, ArrowLeft moves the tab toward the end
-          val rtl =
-            e.target match
-              case el: dom.Element =>
-                Reorder.isRtl(el)
-              case _ =>
-                false
+          val rtl = TextDirection.isRtl(e)
           Reorder
             .keyTarget(e.key, i, tabs.size, Orientation.Horizontal, rtl)
             .foreach { to =>
@@ -563,7 +559,7 @@ class Dock private (
             }
       else
         RovingFocus
-          .nextIndex(e.key, math.max(i, 0), tabs.size)
+          .nextIndex(e.key, math.max(i, 0), tabs.size, rtl = TextDirection.mirrors(e))
           .foreach { n =>
             e.preventDefault()
             val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
@@ -707,6 +703,11 @@ class Dock private (
     )
 
     def onKey(e: dom.KeyboardEvent): Unit =
+      // In a right-to-left row the first pane is on the right, so ArrowLeft grows it
+      val key = TextDirection.logicalKey(
+        e.key,
+        dir == SplitDirection.Row && TextDirection.mirrors(e)
+      )
       val (back, forward) =
         if dir == SplitDirection.Row then
           ("ArrowLeft", "ArrowRight")
@@ -718,7 +719,7 @@ class Dock private (
         else
           Splitter.step
       val delta: Option[Double] =
-        e.key match
+        key match
           case k if k == back =>
             Some(-step)
           case k if k == forward =>

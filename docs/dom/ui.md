@@ -480,7 +480,8 @@ A failing check lists each violation on one line, with a rule id you can filter 
   references (`aria-controls`, `aria-labelledby`, ...) that point to an element in the document.
 - **Keyboard:** then it presses the keys the pattern requires and checks where the focus or the
   active item went. These keys change state (Escape closes a dialog), so call `checkPattern` last;
-  pass `keyboard = false` to check the structure only.
+  pass `keyboard = false` to check the structure only. In a right-to-left layout it expects
+  ArrowLeft and ArrowRight mirrored.
 
 | Pattern | Pass | uni-ui component |
 |---------|------|------------------|

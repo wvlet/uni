@@ -32,6 +32,22 @@ class RovingFocusTest extends UniTest:
     RovingFocus.nextIndex("ArrowLeft", 0, 3, Orientation.Vertical) shouldBe None
   }
 
+  test("horizontal arrows mirror in a right-to-left group") {
+    RovingFocus.nextIndex("ArrowLeft", 0, 3, rtl = true) shouldBe Some(1)
+    RovingFocus.nextIndex("ArrowRight", 0, 3, rtl = true) shouldBe Some(2)
+    RovingFocus.nextIndex("End", 0, 3, rtl = true) shouldBe Some(2)
+    // Vertical groups don't mirror
+    RovingFocus.nextIndex("ArrowDown", 0, 3, Orientation.Vertical, rtl = true) shouldBe Some(1)
+    RovingFocus.nextIndex("ArrowLeft", 0, 3, Orientation.Vertical, rtl = true) shouldBe None
+  }
+
+  test("logicalKey swaps only ArrowLeft and ArrowRight, only right to left") {
+    TextDirection.logicalKey("ArrowLeft", rtl = true) shouldBe "ArrowRight"
+    TextDirection.logicalKey("ArrowRight", rtl = true) shouldBe "ArrowLeft"
+    TextDirection.logicalKey("ArrowUp", rtl = true) shouldBe "ArrowUp"
+    TextDirection.logicalKey("ArrowLeft", rtl = false) shouldBe "ArrowLeft"
+  }
+
   test("an empty group never navigates") {
     RovingFocus.nextIndex("Home", 0, 0) shouldBe None
   }

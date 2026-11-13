@@ -275,6 +275,25 @@ class DockTest extends DomTestSupport:
     m.queryAll(".uni-dock__separator").head shouldBe sep
   }
 
+  test("ArrowLeft grows the first pane of a right-to-left row") {
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    val m      = mount(
+      div(dir -> "rtl", styleAttr -> "width: 600px; height: 400px; display: flex", dock(layout))
+    )
+    val sep           = m.get(".uni-dock__separator")
+    def first: Double =
+      layout.get.root match
+        case Split(_, _, ss) =>
+          ss.head
+        case _ =>
+          0
+    fireEvent.keyDown(sep, "ArrowLeft")
+    (first > 0.5) shouldBe true
+    fireEvent.keyDown(sep, "ArrowRight")
+    fireEvent.keyDown(sep, "ArrowRight")
+    (first < 0.5) shouldBe true
+  }
+
   test("dragging a separator resizes the split") {
     val layout = Rx.variable(DockLayout(column(group("a"), group("b"))))
     val m      = mountDock(dock(layout))

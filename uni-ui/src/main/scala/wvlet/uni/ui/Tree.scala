@@ -173,7 +173,7 @@ class Tree[A, K] private (
     val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
     e.key match
       case k @ ("ArrowLeft" | "ArrowRight") =>
-        TreeModel.onKey(k, current, i, pageSize = 1) match
+        TreeModel.onKey(k, current, i, pageSize = 1, rtl = TextDirection.mirrors(e)) match
           case Some(TreeAction.Expand(key)) =>
             setExpanded(expanded.get + key, cause)
             true

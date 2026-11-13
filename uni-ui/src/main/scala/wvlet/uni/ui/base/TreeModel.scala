@@ -75,15 +75,18 @@ object TreeModel:
     *   - Up, Down, Home, End, PageUp, PageDown move as in [[ListNavigation]].
     *   - Right expands a collapsed row, or moves to the first child of an expanded one.
     *   - Left collapses an expanded row, or moves to the parent.
+    *
+    * With `rtl`, the tree is laid out right to left, so Left and Right swap.
     */
   def onKey[A, K](
       key: String,
       rows: Seq[TreeRow[A, K]],
       current: Int,
-      pageSize: Int
+      pageSize: Int,
+      rtl: Boolean = false
   ): Option[TreeAction[K]] =
     val row = rows.lift(current)
-    key match
+    TextDirection.logicalKey(key, rtl) match
       case "ArrowRight" =>
         row.flatMap { r =>
           if r.expandable && !r.expanded then

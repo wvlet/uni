@@ -246,6 +246,13 @@ private[testing] object AriaChecks:
     !dom.document.contains(el) || attr(el, "data-state").contains("closed") ||
       el.hasAttribute("hidden")
 
+  // ArrowRight moves toward the end, except right to left, where the APG mirrors Left and Right
+  private def endward(el: dom.Element): (String, String) =
+    if dom.window.getComputedStyle(el).direction == "rtl" then
+      ("ArrowLeft", "ArrowRight")
+    else
+      ("ArrowRight", "ArrowLeft")
+
   private def press(key: String, shift: Boolean = false): Unit =
     val target = Option(active).getOrElse(dom.document.body)
     fireEvent.keyDown(target, key, shiftKey = shift): Unit
@@ -390,7 +397,7 @@ private[testing] object AriaChecks:
             if vertical then
               ("ArrowDown", "ArrowUp")
             else
-              ("ArrowRight", "ArrowLeft")
+              endward(list)
           val index =
             () => current(list, tabList).map(t => tabList.indexWhere(_ eq t)).getOrElse(-1)
           def go(key: String)(expected: Int => Set[Int]) =
@@ -429,7 +436,7 @@ private[testing] object AriaChecks:
             role(m) == "menubar" || attr(m, "aria-orientation").contains("horizontal")
           val (next, prv) =
             if horizontal then
-              ("ArrowRight", "ArrowLeft")
+              endward(m)
             else
               ("ArrowDown", "ArrowUp")
           val index           = () => current(m, its).map(t => its.indexWhere(_ eq t)).getOrElse(-1)
@@ -696,7 +703,9 @@ private[testing] object AriaChecks:
             () => current(t, treeItems).map(x => treeItems.indexWhere(_ eq x)).getOrElse(-1)
           def go(key: String)(expected: Int => Set[Int]) =
             nav(c, "keyboard", () => t, key, index)(expected)
-          // Right opens a closed row and Left closes an open one; Home leaves the first row current
+          // Right opens a closed row and Left closes an open one (mirrored right to left); Home
+          // leaves the first row current
+          val (open, close)                               = endward(t)
           def toggle(key: String, to: String): List[Step] = List(
             () => press(key),
             () =>
@@ -707,9 +716,9 @@ private[testing] object AriaChecks:
           val openClose =
             attr(ts.head, "aria-expanded") match
               case Some("false") =>
-                toggle("ArrowRight", "true") ++ toggle("ArrowLeft", "false")
+                toggle(open, "true") ++ toggle(close, "false")
               case Some("true") =>
-                toggle("ArrowLeft", "false") ++ toggle("ArrowRight", "true")
+                toggle(close, "false") ++ toggle(open, "true")
               case _ =>
                 Nil
           List[Step](() => focus(host(t, ts))) ++
@@ -789,7 +798,8 @@ private[testing] object AriaChecks:
             // Rows that take the focus as a whole have no column to move in
             () =>
               if colIndex() >= 0 then
-                pair("ArrowRight", "ArrowLeft", colIndex, colCount)()
+                val (forward, back) = endward(g)
+                pair(forward, back, colIndex, colCount)()
           )
 
   end grid

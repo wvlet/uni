@@ -80,7 +80,8 @@ case class AriaViolation(rule: String, element: String, message: String):
   * Tab, Escape) with [[fireEvent]] and checks where the focus or the active item moved. These
   * checks change the widget's state (a dialog closes on Escape), so run `checkPattern` last in a
   * test. They stop at the first keyboard violation, since later keys would start from the wrong
-  * place.
+  * place. In a right-to-left layout (`dir="rtl"` or CSS `direction: rtl`), they expect ArrowLeft
+  * and ArrowRight mirrored, as the APG requires.
   *
   * Open overlays and `settle()` before checking them, so their initial focus is in place:
   * {{{
