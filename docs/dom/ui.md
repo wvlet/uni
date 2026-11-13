@@ -252,6 +252,11 @@ Dock(layout, "Dock")(
   keeps its state. `dock.open(id)` shows a panel, adding it back if the user closed it, and
   `dock.hidden` lists the closed ones. A panel with `.withClosable(false)` can't be closed and is
   added back when a saved layout is missing it.
+- **Focus from code.** `dock.focusGroup(i)` moves keyboard focus to the active tab of group `i`,
+  counted from 0 in reading order (the tab list named "group 1" is index 0), and `dock.groupCount`
+  tells how many there are. `dock.focusPanel(id)` shows a panel and focuses its tab. Both return
+  false when there is nothing to focus. The Dock binds no keys itself, so pick your own shortcuts:
+  `(1 to 9).foreach(n => Keyboard.bind(s"ctrl+${n}", () => dock.focusGroup(n - 1)))`.
 - **Old saves.** The Dock drops ids it doesn't know, so removing a panel from the app never breaks a
   saved layout. The JSON carries a format `version`; a save that is unreadable or from a newer
   version falls back to your default.

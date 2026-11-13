@@ -167,6 +167,47 @@ class Dock private (
   /** Remove `panel` from the layout. */
   def close(panel: String): Unit = layout := DockModel.close(now, panel)
 
+  /**
+    * The number of groups. Groups are numbered from 0 in reading order (depth first), so group `i`
+    * has the accessible name "group i+1".
+    */
+  val groupCount: Rx[Int] = distinct(current.map(l => DockModel.groups(l.root).size))
+
+  /**
+    * Move keyboard focus to the active tab of group `index` (from 0, in reading order), as an
+    * editor's Ctrl+1, Ctrl+2 shortcuts do. Returns false, and leaves focus alone, when there is no
+    * such group or the Dock isn't mounted.
+    */
+  def focusGroup(index: Int): Boolean =
+    val root = now.root
+    DockModel
+      .groups(root)
+      .lift(index)
+      .flatMap(DockModel.nodeAt(root, _))
+      .collect { case DockNode.Group(_, Some(a)) =>
+        a
+      }
+      .exists(focusTabNow)
+
+  /**
+    * Show `panel`, as [[open]] does, and move keyboard focus to its tab. Returns false when the
+    * panel isn't registered or its tab isn't on the page.
+    */
+  def focusPanel(panel: String): Boolean =
+    byId.contains(panel) && {
+      open(panel)
+      focusTabNow(panel)
+    }
+
+  private def focusTabNow(panel: String): Boolean =
+    Option(dom.document.getElementById(tabId(panel))) match
+      case Some(el: dom.HTMLElement) =>
+        el.focus()
+        // A tab in a hidden container can't take focus
+        dom.document.activeElement eq el
+      case _ =>
+        false
+
   // Panel content, created on first show and kept for moves between groups
   private val contents = mutable.Map.empty[String, RxElement]
 
