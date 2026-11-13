@@ -209,6 +209,10 @@ class CollectionTest extends DomTestSupport:
       Seq("n", "e", "w", " ", "y").foreach(k => fireEvent.keyDown(list, k))
       keys.get shouldBe Set.empty
       activeRow(list).map(_.textContent) shouldBe Some("New York")
+      // Space with a modifier is not part of the search
+      fireEvent.keyDown(list, "n")
+      fireEvent.keyDown(list, " ", ctrlKey = true)
+      keys.get.nonEmpty shouldBe true
     }
   }
 

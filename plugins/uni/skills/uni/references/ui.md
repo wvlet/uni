@@ -234,8 +234,8 @@ Announce.prepare()                    // once at startup, so the first message i
 Announce.polite("Response complete")  // screen readers only
 ```
 
-- `Typeahead().onKey(e, labels, activeIndex)`: buffered search ("ca" finds "Cat"). While
-  `typeahead.searching`, send Space to `onKey` rather than selecting, so "new york" works.
+- `Typeahead().onKey(e, labels, activeIndex)`: buffered search ("ca" finds "Cat"). When
+  `typeahead.joinsSearch(e)`, send Space to `onKey` rather than selecting, so "new york" works.
 - `FocusRecovery.within("li")` on a list keeps focus in it when the focused item is removed.
 - `RovingFocus`, `ListNavigation`, `FocusTrap`/`FocusReturn`, `Dismiss`, `Anchored`, `Windowing`.
 - Right-to-left (`dir="rtl"`): uni-ui widgets mirror ArrowLeft/ArrowRight on their own. For your

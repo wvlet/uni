@@ -119,7 +119,7 @@ private[ui] object MenuList:
     val all     = items(menu)
     val current = all.indexWhere(_ eq dom.document.activeElement)
     e.key match
-      case " " if typeahead.searching =>
+      case " " if typeahead.joinsSearch(e) =>
         // Space inside a search is part of it ("new york"), not a click
         e.preventDefault()
         typeahead.onKey(e, all.map(_.textContent), current).foreach(all(_).focus())

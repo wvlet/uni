@@ -132,8 +132,9 @@ ul(
 Keys with Ctrl, Cmd, or Alt, and keys typed during IME composition, are not part of a search.
 
 While a search is under way, `typeahead.searching` is true and Space is a character of it, so
-"new york" finds "New York". If your widget selects or activates on Space, check `searching` first
-and send the Space to `onKey` instead. Select, Menu, VirtualList, and Tree already do.
+"new york" finds "New York". If your widget selects or activates on Space, check
+`typeahead.joinsSearch(e)` (a plain Space during a search) first and send the Space to `onKey`
+instead. Select, Menu, VirtualList, and Tree already do.
 
 ## Selection
 

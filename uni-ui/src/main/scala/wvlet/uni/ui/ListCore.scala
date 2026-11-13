@@ -204,7 +204,7 @@ private[ui] class ListCore[A, K](
     if fromContainer && !Keyboard.isComposing(e) && !e.defaultPrevented then
       val i = activeIndex
       e.key match
-        case " " if typeaheadLabel.nonEmpty && typeahead.searching =>
+        case " " if typeaheadLabel.nonEmpty && typeahead.joinsSearch(e) =>
           // Space inside a search is part of it ("new york"), not a selection
           e.preventDefault()
           typeaheadLabel.flatMap(label => typeahead.onKey(e, current.map(label), i)).foreach(moveTo)

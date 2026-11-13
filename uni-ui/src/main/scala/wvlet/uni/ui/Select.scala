@@ -96,7 +96,7 @@ class Select[A] private (
     if !Keyboard.isComposing(e) then
       val i = active.get.map(current.indexOf).getOrElse(-1)
       e.key match
-        case " " if typeahead.searching =>
+        case " " if typeahead.joinsSearch(e) =>
           // Space inside a search is part of it ("new york"), not a choice
           e.preventDefault()
           typeahead.onKey(e, current.map(optionLabel), i).foreach(moveTo)
