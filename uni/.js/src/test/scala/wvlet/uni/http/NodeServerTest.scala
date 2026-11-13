@@ -329,4 +329,22 @@ class NodeServerTest extends UniTest:
       }
   }
 
+  test("end an empty FileContent body") {
+    import wvlet.uni.io.FileSystem
+    val dir = FileSystem.createTempDirectory("node-empty-file")
+    FileSystem.writeString(dir / "a.txt", "abc")
+    Http
+      .server
+      .withPort(0)
+      .withHandler(_ => Response.ok(HttpContent.FileContent(dir / "a.txt", 1, 0)))
+      .startAndAwait { server =>
+        asyncClient(server)
+          .send(Request.get("/"))
+          .map { r =>
+            r.status shouldBe HttpStatus.Ok_200
+            r.contentAsString.getOrElse("") shouldBe ""
+          }
+      }
+  }
+
 end NodeServerTest

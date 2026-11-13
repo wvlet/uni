@@ -294,24 +294,44 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
           warn(s"Failed to open ${file.path}: ${e.getMessage}")
           writeBufferedResponse(res, errorResponse(e))
           return
-    setHeaders(res, response.headers)
-    file
-      .contentType
-      .foreach { ct =>
-        res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
-      }
-    res.applyDynamic("setHeader")(HttpHeader.ContentLength, file.length.toString)
-    res.updateDynamic("statusCode")(response.status.code)
-    val stream = fs.createReadStream(
-      null,
-      js.Dynamic
-        .literal(
-          fd = fd,
-          start = file.offset.toDouble,
-          end = (file.offset + file.length - 1).toDouble,
-          autoClose = true
+    try
+      setHeaders(res, response.headers)
+      file
+        .contentType
+        .foreach { ct =>
+          res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
+        }
+      res.applyDynamic("setHeader")(HttpHeader.ContentLength, file.length.toString)
+      res.updateDynamic("statusCode")(response.status.code)
+      if file.isEmpty then
+        // createReadStream can't express an empty range (end = start - 1)
+        fs.closeSync(fd)
+        res.applyDynamic("end")()
+      else
+        streamFile(
+          res,
+          file,
+          fs.createReadStream(
+            null,
+            js.Dynamic
+              .literal(
+                fd = fd,
+                start = file.offset.toDouble,
+                end = (file.offset + file.length - 1).toDouble,
+                autoClose = true
+              )
+          )
         )
-    )
+    catch
+      case e: Throwable =>
+        // Nothing owns the fd until the read stream is created
+        fs.closeSync(fd)
+        throw e
+    end try
+
+  end writeFileResponse
+
+  private def streamFile(res: js.Dynamic, file: HttpContent.FileContent, stream: js.Dynamic): Unit =
     var sent                                    = 0.0
     val onData: js.Function1[js.Dynamic, Unit]  = chunk => sent += chunk.length.asInstanceOf[Double]
     val onError: js.Function1[js.Dynamic, Unit] =
@@ -334,8 +354,6 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     res.applyDynamic("on")("close", onClose)
     // end = false: the response is ended in onEnd, once the whole body was read
     stream.applyDynamic("pipe")(res, js.Dynamic.literal(end = false))
-
-  end writeFileResponse
 
   private def writeSseResponse(res: js.Dynamic, response: Response): Unit =
     // Stream Server-Sent Events. Node uses chunked transfer encoding automatically when no

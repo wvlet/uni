@@ -30,6 +30,7 @@ import io.netty.channel.socket.nio.NioServerSocketChannel
 import io.netty.handler.codec.http.{
   HttpContentCompressor,
   HttpContentEncoder,
+  HttpHeaderNames,
   HttpResponse as NettyHttpResponse,
   HttpObjectAggregator,
   HttpServerCodec,
@@ -331,6 +332,11 @@ end NettyHttpServer
 /**
   * Compresses responses as HttpContentCompressor does, except `206 Partial Content`: its
   * Content-Range counts the bytes of the uncompressed file, so encoding them would break it.
+  *
+  * A compressed body is a different representation from the identity bytes a 206 slices, so its
+  * strong ETag becomes weak, as nginx does. A client resuming a gzip download with `If-Range` then
+  * gets the whole file instead of identity bytes appended to gzip ones; `If-None-Match` still
+  * matches, since it compares weakly.
   */
 private[netty] class IdentityRangeCompressor extends HttpContentCompressor:
   override protected def beginEncode(
@@ -340,7 +346,12 @@ private[netty] class IdentityRangeCompressor extends HttpContentCompressor:
     if response.status().code() == 206 then
       null
     else
-      super.beginEncode(response, acceptEncoding)
+      val result = super.beginEncode(response, acceptEncoding)
+      if result != null then
+        Option(response.headers().get(HttpHeaderNames.ETAG))
+          .filter(_.startsWith("\""))
+          .foreach(tag => response.headers().set(HttpHeaderNames.ETAG, s"W/${tag}"))
+      result
 
 object NettyHttpServer:
   private[netty] val CompressorHandler             = "compressor"

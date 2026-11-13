@@ -72,6 +72,12 @@ class NettyStaticFilesTest extends UniTest:
       val r = get(port, "/app.js", "Accept-Encoding" -> "gzip")
       r.statusCode() shouldBe 200
       r.headers().firstValue("Content-Encoding").orElse("") shouldBe "gzip"
+      // A gzip body is another representation, so its ETag must not satisfy If-Range
+      val etag = r.headers().firstValue("ETag").orElse("")
+      etag shouldMatch { case s"W/\"${_}\"" =>
+      }
+      val resumed = get(port, "/app.js", "Range" -> "bytes=5-", "If-Range" -> etag)
+      resumed.statusCode() shouldBe 200
       val unzipped = java
         .util
         .zip
