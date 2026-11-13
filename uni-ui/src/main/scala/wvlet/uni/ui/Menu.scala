@@ -16,7 +16,8 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 import wvlet.uni.ui.base.*
 
 import scala.language.implicitConversions
@@ -84,6 +85,22 @@ private[ui] object MenuList:
         nodes(i).asInstanceOf[dom.HTMLElement]
     }
 
+  def itemBinding(item: MenuItem): AgentBinding =
+    new AgentBinding:
+      private var checked: Option[Boolean] = None
+      override def kind: String            = "menuitem"
+      override def value: Option[String]   = checked.map(c =>
+        if c then
+          "checked"
+        else
+          "unchecked"
+      )
+      override def watch(): Cancelable = item
+        .checked
+        .map(_.subscribe(c => checked = Some(c)))
+        .getOrElse(Cancelable.empty)
+      override def actions: Seq[AgentAction] = Seq(AgentAction.press(this, "Choose it"))
+
   def first(menu: dom.Element): Option[dom.HTMLElement] = items(menu).headOption
   def last(menu: dom.Element): Option[dom.HTMLElement]  = items(menu).lastOption
 
@@ -143,6 +160,7 @@ private[ui] object MenuList:
           cls          -> "uni-menu__item",
           data("slot") -> "menu-item",
           tabindex     -> "-1",
+          AgentRegistry.attach(MenuList.itemBinding(item)),
           ariaDisabled ->
             item
               .disabledState
@@ -265,8 +283,32 @@ class Menu private (
     returnFocus = true
   )
 
+  private object agentBinding extends AgentBinding:
+    override def kind: String           = "menu"
+    override def priority: Int          = 1
+    override def states: Seq[AnyRef]    = Seq(open)
+    override def value: Option[String]  = Some(Popover.stateName(open.get))
+    override def format(v: Any): String = Popover.stateName(v == true)
+
+    override def actions: Seq[AgentAction] =
+      if open.get then
+        Seq(
+          AgentAction("close", "Close the menu")(() =>
+            setOpen(false, AgentAction.cause(ChangeReason.Press)): Unit
+          )
+        )
+      else
+        Seq(
+          AgentAction("open", "Open the menu to list its items")(() =>
+            setOpen(true, AgentAction.cause(ChangeReason.Press)): Unit
+          )
+        )
+
+  end agentBinding
+
   override def render: RxElement = trigger(
     triggerRef.binding,
+    AgentRegistry.attach(agentBinding),
     id           -> triggerId,
     ariaHaspopup -> "menu",
     ariaExpanded -> open.map(_.toString),

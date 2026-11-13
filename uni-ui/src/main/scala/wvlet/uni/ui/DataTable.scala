@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.agent.AgentAction
 import wvlet.uni.ui.base.Windowing
 
 import scala.language.implicitConversions
@@ -276,6 +277,29 @@ class DataTable[A, K] private (
 
   end headerCell
 
+  private def sortActions: Seq[AgentAction] =
+    val sortable = columns.filter(_.ordering.isDefined)
+    val choices  = sortable.flatMap(c => Seq(s"${c.id} ascending", s"${c.id} descending"))
+    if sortable.isEmpty then
+      Nil
+    else
+      Seq(
+        AgentAction.choice("sort", "Sort the rows by a column", choices) { i =>
+          val direction =
+            if i % 2 == 0 then
+              SortDirection.Ascending
+            else
+              SortDirection.Descending
+          ChangeGate.write(
+            sort,
+            "sort",
+            Some(SortBy(sortable(i / 2).id, direction)),
+            AgentAction.cause(ChangeReason.Press),
+            changeHandler
+          ): Unit
+        }
+      )
+
   override def render: RxElement =
     // Lazy, so each cell can take its id from the list that renders it
     lazy val core: ListCore[A, K] = ListCore[A, K](
@@ -284,6 +308,8 @@ class DataTable[A, K] private (
       rowHeight,
       VirtualList.defaultOverscan,
       containerClass = "uni-table",
+      agentKind = "table",
+      agentActions = () => sortActions,
       containerAttrs = Seq(
         role -> "grid",
         label.map(ariaLabel -> _).getOrElse(DomNode.empty),

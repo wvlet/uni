@@ -16,7 +16,8 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry, UiItem}
 import wvlet.uni.ui.base.*
 
 import scala.collection.mutable
@@ -185,8 +186,29 @@ class Select[A] private (
 
   end list
 
+  private object agentBinding extends AgentBinding:
+    private var latest: Seq[A]          = Seq.empty
+    override def kind: String           = "select"
+    override def value: Option[String]  = Some(optionLabel(selected.get))
+    override def states: Seq[AnyRef]    = Seq(selected)
+    override def format(v: Any): String = optionLabel(v.asInstanceOf[A])
+    override def watch(): Cancelable    = options.subscribe(xs => latest = xs)
+
+    private def labels: Seq[String] = AgentBinding.itemLabels(latest.map(optionLabel))
+
+    override def items: Seq[UiItem] = labels.zip(latest).map((l, a) => UiItem(l, a == selected.get))
+
+    override def actions: Seq[AgentAction] = Seq(
+      AgentAction.choice("select", "Choose an option", labels)(i =>
+        choose(latest(i), AgentAction.cause(ChangeReason.ItemPress))
+      )
+    )
+
+  end agentBinding
+
   override def render: RxElement = button(
     triggerRef.binding,
+    AgentRegistry.attach(agentBinding),
     id           -> triggerId,
     tpe          -> "button",
     cls          -> "uni-select",

@@ -171,6 +171,30 @@ ChangeSource.withSource(ChangeSource.Agent)(menuOpen := false)
 
 Writes the app makes itself (`open := false`) are not reported.
 
+## Letting an AI agent operate the UI
+
+`UiAgent` (package `wvlet.uni.ui.agent`) exposes the components on screen to an agent: refs,
+kinds, labels, values, items, and the actions they allow, each with a JSON Schema for its
+value. Agent actions run as `ChangeSource.Agent` through `onChange`, which can cancel them.
+
+```scala
+import wvlet.uni.ui.agent.{AgentPolicy, UiAgent}
+
+val deleteButton = Button("Delete").danger(UiAgent.confirm("Delete the project?"))
+val tokenField   = Input(Rx.variable("")).withLabel("Token")(UiAgent.secret)
+
+val agent = UiAgent.install(AgentPolicy.allowAll) // or AgentPolicy.readOnly
+agent.snapshot()                                   // Seq[UiNode]
+agent.act("select:region", "select", Some("oregon"))
+agent.changes(since = 0)                           // people's changes since a cursor
+agent.installWebMcp()                              // WebMCP tools where the browser has them
+```
+
+- `UiAgent.hidden` removes a subtree, `UiAgent.secret` redacts a value (password fields always
+  are), `UiAgent.confirm(msg)` asks the human first, and `UiAgent.ref("name")` sets a stable ref.
+- `agent.api` is `wvlet.uni.agent.UiAgentApi` (JSON text), so
+  `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools.
+
 ## Behaviors for your own widgets
 
 `wvlet.uni.ui.base` holds the interaction logic uni-ui is built from. Each behavior is a pure model

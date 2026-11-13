@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentDom, AgentRegistry, UiItem}
 import wvlet.uni.ui.base.{Ids, RovingFocus}
 
 import scala.language.implicitConversions
@@ -92,7 +93,39 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
             case _ =>
       }
 
+  private object agentBinding extends AgentBinding:
+    override def kind: String        = "tabs"
+    override def states: Seq[AnyRef] = Seq(selected)
+
+    private def labels: Seq[String] = AgentBinding.itemLabels(
+      element
+        .toSeq
+        .flatMap { el =>
+          val xs = el.querySelectorAll("[role=tab]")
+          (0 until xs.length).map(i => AgentDom.labelOf(xs(i)))
+        }
+    )
+
+    override def format(v: Any): String = labels
+      .lift(tabs.indexWhere(_.value == v))
+      .getOrElse(String.valueOf(v))
+
+    override def value: Option[String] = labels.lift(tabs.indexWhere(_.value == selected.get))
+
+    override def items: Seq[UiItem] = labels
+      .zip(tabs)
+      .map((l, t) => UiItem(l, t.value == selected.get))
+
+    override def actions: Seq[AgentAction] = Seq(
+      AgentAction.choice("select", "Show a tab", labels)(i =>
+        select(tabs(i).value, AgentAction.cause(ChangeReason.Press))
+      )
+    )
+
+  end agentBinding
+
   override def render: RxElement = div(
+    AgentRegistry.attach(agentBinding),
     role         -> "tablist",
     cls          -> "uni-tabs",
     data("slot") -> "tab-list",

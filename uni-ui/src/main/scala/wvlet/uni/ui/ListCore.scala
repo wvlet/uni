@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry, UiItem}
 import wvlet.uni.ui.base.*
 
 import scala.collection.mutable
@@ -69,7 +70,9 @@ private[ui] class ListCore[A, K](
     header: DomNode,
     activeCell: Rx[Option[Int]] = Rx.const(None),
     changeHandler: ChangeHandler = ChangeGate.noHandler,
-    slot: String = "list"
+    slot: String = "list",
+    agentKind: String = "list",
+    agentActions: () => Seq[AgentAction] = () => Nil
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -304,6 +307,53 @@ private[ui] class ListCore[A, K](
       renderRow(a)
     )
 
+  private object agentBinding extends AgentBinding:
+    override def kind: String = agentKind
+
+    private def labelOf(a: A): String = typeaheadLabel.fold(String.valueOf(key(a)))(_(a))
+    private def labels: Seq[String]   = AgentBinding.itemLabels(current.map(labelOf))
+
+    private def selectedKeys: Set[K] =
+      selection match
+        case ListSelection.Single(s) =>
+          s.get.toSet
+        case ListSelection.Multi(keys) =>
+          keys.get
+
+    override def states: Seq[AnyRef] =
+      selection match
+        case ListSelection.Single(s) =>
+          Seq(s)
+        case ListSelection.Multi(keys) =>
+          Seq(keys)
+
+    override def format(v: Any): String =
+      val keys: Iterable[Any] =
+        v match
+          case o: Option[?] =>
+            o
+          case s: Iterable[?] =>
+            s
+          case other =>
+            Seq(other)
+      val names = current.map(a => (key(a): Any) -> labelOf(a)).toMap
+      keys.map(k => names.getOrElse(k, String.valueOf(k))).mkString(", ")
+
+    override def value: Option[String] =
+      val keys = selectedKeys
+      Option.when(keys.nonEmpty)(format(keys))
+
+    override def items: Seq[UiItem] = labels
+      .zip(current)
+      .map((l, a) => UiItem(l, selectedKeys.contains(key(a))))
+
+    override def actions: Seq[AgentAction] =
+      AgentAction.choice("select", "Select a row, as a click does", labels)(i =>
+        select(current(i), AgentAction.cause(ChangeReason.ItemPress))
+      ) +: agentActions()
+
+  end agentBinding
+
   override def render: RxElement =
     val rows = Rx
       .join(items, viewport)
@@ -314,8 +364,9 @@ private[ui] class ListCore[A, K](
         xs.slice(start, end)
       }
     div(
-      cls                  -> s"uni-list ${containerClass}",
-      data("slot")         -> slot,
+      cls          -> s"uni-list ${containerClass}",
+      data("slot") -> slot,
+      AgentRegistry.attach(agentBinding),
       tabindex             -> "0",
       styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",
       ariaActivedescendant ->

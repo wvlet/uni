@@ -337,6 +337,53 @@ Button("Delete").onClick { () =>
 }
 ```
 
+## Agents
+
+`UiAgent` lets an AI agent read and operate the components on screen, without screenshots. It
+is off until the app installs it. A snapshot lists each component with a `ref`, its kind,
+label, value, items, and the actions it allows now. Each action carries a JSON Schema for its
+value: a select's `select` action lists the option labels as an `enum`.
+
+```scala
+import wvlet.uni.ui.agent.{AgentPolicy, UiAgent}
+
+val agentRegion = Rx.variable("tokyo")
+
+val form = div(
+  Select(agentRegion, Seq("tokyo", "oregon"))(identity).withLabel("Region"),
+  Button("Delete project").danger(UiAgent.confirm("Delete the project?")),
+  Input(Rx.variable("sk-123")).withLabel("API key")(UiAgent.secret),
+  div(UiAgent.hidden, Button("Billing"))
+)
+
+val agent = UiAgent.install(AgentPolicy.allowAll)
+agent.snapshot()                                      // Seq[UiNode]: ref, kind, label, ...
+agent.act("select:region", "select", Some("oregon")) // Rx[ActResult]
+agent.changes(since = 0)                              // what people changed, and a cursor
+```
+
+- **Actions.** `press` (button, menu item), `setText` (text field), `select` (select, tabs,
+  list, tree), `sort` (table), `open`/`close` (menu), and `close` (dialog). The agent's change
+  goes through the component's `onChange` with `ChangeSource.Agent`, so a handler can cancel
+  it, and `act` then reports `canceled`.
+- **Policy.** `AgentPolicy.allowAll` (the default), `AgentPolicy.readOnly`, or
+  `AgentPolicy.allow(t => t.kind != "button")`. Snapshots list only allowed actions, and a
+  disabled component lists none.
+- **Marks.** `UiAgent.ref("name")` sets a stable ref (otherwise `kind:label`).
+  `UiAgent.hidden` removes a subtree; so do `hidden`, `inert`, and `aria-hidden`.
+  `UiAgent.secret` shows the value as `<redacted>`, as every password field does.
+  `UiAgent.confirm(message)` makes the agent wait while the human allows or denies the action
+  in a dialog. Every other agent action is refused until they answer.
+- **Changes.** `agent.changes(cursor)` returns what people and app code changed since the
+  cursor, without the agent's own changes, so an agent can catch up at the start of its turn.
+  `agent.subscribe(c => ...)` sees every change as it happens.
+- **Transports.** `agent.api` is the same API as JSON text (`wvlet.uni.agent.UiAgentApi`).
+  `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools, and
+  `agent.installWebMcp()` registers it with the browser's WebMCP (`document.modelContext`)
+  where the browser offers it.
+
+Tests can drive a view the same way an agent does: mount it, then call `snapshot()` and `act`.
+
 ## Parts
 
 Every element a component renders carries `data-slot`, a stable name for CSS, tests, and
