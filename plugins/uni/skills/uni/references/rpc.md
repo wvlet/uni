@@ -198,10 +198,11 @@ def printReply(http: HttpAsyncClient): Unit =
   for `call`. A failure mid-stream arrives as an `rpc-error` event and fails the
   `Rx` with the server's `RPCException`.
 - Streaming calls are never retried.
-- Cancelling the `Rx` (unsubscribe, `take(n)`) stops the server stream over fetch
-  and Electron IPC.
-- Streams over HTTP (JVM and Node servers, JVM and fetch clients) and over Electron
-  IPC when the preload bridge exposes `stream` (see `electron.md`).
+- Cancelling the `Rx` (unsubscribe, `take(n)`) stops the server stream over HTTP
+  (fetch, JVM, and Native clients) and Electron IPC.
+- Streams over HTTP (JVM, Node, and Native servers; fetch, JVM, and Native
+  clients) and over Electron IPC when the preload bridge exposes `stream` (see
+  `electron.md`).
 - sbt-uni's generated `AsyncClient` calls `stream` for `RxStream[A]` methods and
   `call` for `Rx[A]` ones; `SyncClient` leaves `RxStream` methods out.
 

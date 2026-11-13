@@ -32,5 +32,5 @@ Uni RPC was unary: `RPCDispatcher` answered with the first value of an `Rx` resu
 
 - `ElectronTestbed` fakes `ipcMain.on`, the sender `webContents` (async, ordered delivery), and `closeRenderer()`, so stream tests run without Electron.
 - `ElectronTestbed` also fakes the cancel message (the bridge's `stream` returns a cancel function), `reloadRenderer()`, and `navigateInPage()`.
-- The JVM (`JavaHttpChannel`) and Native (`CurlChannel`) clients don't abort on cancel yet; they can adopt `onCancel` the same way. Streams from a permitted iframe stop on main-frame navigation or `destroyed`, not on the iframe's own navigation.
+- The JVM (`JavaHttpAsyncChannel`) and Native (`CurlAsyncChannel`) clients abort the request on `onCancel` too (update 2026-11-12). Native streams through libcurl's multi interface for this, so chunks arrive as they are received. Streams from a permitted iframe stop on main-frame navigation or `destroyed`, not on the iframe's own navigation.
 - The `sbt-uni` client generator still writes `call` for every method. Generating `stream` needs a marker (see Alternatives). Update (2026-11-07): the return type `RxStream[A]` (an `Rx` subtype in `wvlet.uni.rx`, as in airframe-grpc) is that marker. Negotiation still decides streaming on the server.

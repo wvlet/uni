@@ -14,13 +14,17 @@
 package wvlet.uni.http
 
 import wvlet.uni.control.Retry
+import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, TimeUnit}
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+import scala.jdk.CollectionConverters.*
 
 /**
   * Runs the async client (`CurlAsyncChannel`) against the in-process Native server over loopback: a
-  * 2xx body, a 4xx failure, and a 5xx that exhausts the `Rx.delay`-based retry loop.
+  * 2xx body, a 4xx failure, a 5xx that exhausts the `Rx.delay`-based retry loop, and streamed
+  * Server-Sent Events, including a client cancel.
   */
 class NativeHttpAsyncClientTest extends UniTest:
 
@@ -75,6 +79,78 @@ class NativeHttpAsyncClientTest extends UniTest:
       // maxRetry bounds the total number of attempts
       e.retryContext.retryCount shouldBe 2
       hits.get() shouldBe 2
+    }
+  }
+
+  private def withSSEServer[A](events: Rx[ServerSentEvent])(body: String => A): A =
+    NativeServerConfig()
+      .withRxHandler { req =>
+        if req.path == "/events" then
+          Rx.single(Response.eventStream(events))
+        else
+          Rx.single(Response.notFound("not found"))
+      }
+      // The server checks an idle stream's socket for a disconnect at this interval
+      .withIdleTimeoutMillis(100)
+      .withPort(0)
+      .start { server =>
+        body(s"http://127.0.0.1:${server.localPort}")
+      }
+
+  test("sendSSE streams every event, then completes") {
+    val events = Seq("a", "b", "c").map(ServerSentEvent.data)
+    withSSEServer(Rx.fromSeq(events)) { url =>
+      val client   = Http.client.withBaseUri(url).newAsyncClient
+      val received = CopyOnWriteArrayList[String]()
+      val done     = CountDownLatch(1)
+      RxRunner.run(client.sendSSE(Request.get("/events"))) {
+        case OnNext(e) =>
+          received.add(e.asInstanceOf[ServerSentEvent].data)
+        case OnError(_) | OnCompletion =>
+          done.countDown()
+      }
+      done.await(5, TimeUnit.SECONDS) shouldBe true
+      received.asScala.toSeq shouldBe Seq("a", "b", "c")
+    }
+  }
+
+  test("sendSSE fails with HttpException for a 4xx response") {
+    withSSEServer(Rx.empty) { url =>
+      val client = Http.client.withBaseUri(url).newAsyncClient
+      val error  = AtomicReference[Throwable]()
+      val done   = CountDownLatch(1)
+      RxRunner.run(client.sendSSE(Request.get("/missing"))) {
+        case OnError(e) =>
+          error.set(e)
+          done.countDown()
+        case OnCompletion =>
+          done.countDown()
+        case _ =>
+      }
+      done.await(5, TimeUnit.SECONDS) shouldBe true
+      error.get() shouldMatch { case e: HttpException =>
+        e.statusCode shouldBe Some(404)
+      }
+    }
+  }
+
+  test("deliver events before the stream ends, and stop the server stream on cancel") {
+    val cancelled = CountDownLatch(1)
+    // An endless stream: it ends only when the server cancels it, so a client that buffered the
+    // body would never see the first event
+    val ticks = Rx.variable(ServerSentEvent.data("tick"))
+    withSSEServer(ticks.onCancel(cancelled.countDown())) { url =>
+      val client       = Http.client.withBaseUri(url).newAsyncClient
+      val received     = CountDownLatch(1)
+      val subscription =
+        RxRunner.run(client.sendSSE(Request.get("/events"))) {
+          case OnNext(_) =>
+            received.countDown()
+          case _ =>
+        }
+      received.await(5, TimeUnit.SECONDS) shouldBe true
+      subscription.cancel
+      cancelled.await(5, TimeUnit.SECONDS) shouldBe true
     }
   }
 

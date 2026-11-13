@@ -110,9 +110,9 @@ private[http] object JavaHttpChannelHelper:
       inputStream.close()
 
   /**
-    * Stream chunks read from the input stream returned by `open`. Each subscription calls `open`
-    * on the blocking scheduler once it is subscribed, so no chunk is emitted before the subscriber
-    * is ready, and one subscription's request is independent of another's. An exception thrown by
+    * Stream chunks read from the input stream returned by `open`. Each subscription calls `open` on
+    * the blocking scheduler once it is subscribed, so no chunk is emitted before the subscriber is
+    * ready, and one subscription's request is independent of another's. An exception thrown by
     * `open` fails the stream. Cancelling the subscription before the body ends aborts the transfer
     * through the given [[StreamTransfer]].
     */
@@ -171,10 +171,10 @@ end JavaHttpChannelHelper
   * closed body.
   */
 private[http] class StreamTransfer:
-  private var cancelled                    = false
-  private var reader: Thread               = null
+  private var cancelled                     = false
+  private var reader: Thread                = null
   private var pending: CompletableFuture[?] = null
-  private var body: InputStream            = null
+  private var body: InputStream             = null
 
   def isCancelled: Boolean = synchronized(cancelled)
 
@@ -200,7 +200,8 @@ private[http] class StreamTransfer:
         future.cancel(true)
       pending = future
     }
-    try future.get()
+    try
+      future.get()
     catch
       case e: ExecutionException if e.getCause != null =>
         throw e.getCause
@@ -225,7 +226,8 @@ private[http] class StreamTransfer:
     if f != null then
       f.cancel(true)
     if in != null then
-      try in.close()
+      try
+        in.close()
       catch
         case _: Throwable =>
           ()
@@ -312,7 +314,7 @@ class JavaHttpAsyncChannel extends HttpAsyncChannel:
     val httpResp = transfer.await(
       javaClient.sendAsync(buildRequest(request, config), BodyHandlers.ofInputStream())
     )
-    val head     = readResponseHead(httpResp)
+    val head = readResponseHead(httpResp)
     try
       onResponse(head)
       if head.isSuccessful then
