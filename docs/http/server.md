@@ -496,6 +496,8 @@ HttpAccessLogFilter.addEntry(request, "user_id", user.id)
 ```
 
 - `authorization`, `proxy-authorization`, `cookie`, `set-cookie`, and `x-api-key` are logged as `[redacted]`. `withRedactedHeaders(...)` replaces the list, and `withExcludedHeaders(...)` leaves headers out.
+- A request that reaches an `@Endpoint` or RPC method also gets `rpc_interface`, `rpc_class`, `rpc_method`, and `rpc_args`, the decoded method arguments. These fields are recorded even when the method throws.
+- Parameters and fields marked `@secret` (`wvlet.uni.surface.secret`) are left out of `rpc_args`, at any depth inside case classes, `Seq`, `Option`, `Map`, and arrays. A value whose fields can't be inspected, such as an argument typed as a sealed trait, is logged as its class name, never as its `toString`. `Request` arguments are skipped. `noRpcArgs()` turns `rpc_args` off.
 - A controller exception is logged with status 500 and its class and message, and is then rendered by the server as usual.
 - An SSE response gets a second entry when the stream ends (`stream_event_count`, `stream_bytes`, `stream_duration_ms`), written to the stream writer.
 - `jsonFile` writes JSON lines with daily and size-based rotation. For Fluentd or another sink, implement `HttpAccessLogWriter.write(entry: Map[String, Any])`.

@@ -18,6 +18,7 @@ import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.io.IOPath
 import wvlet.uni.log.FileLogHandlerConfig
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.secret
 import wvlet.uni.test.UniTest
 
 import java.net.URI
@@ -28,7 +29,16 @@ import java.nio.file.Files
 object HttpAccessLogTest:
   val UserId: RequestAttribute[String] = RequestAttribute("userId")
 
+  case class ChatBody(
+      model: String,
+      @secret
+      prompt: String
+  )
+
   class LoggedController:
+    @Endpoint(HttpMethod.POST, "/chat/:room")
+    def chat(request: Request, room: String, body: ChatBody): String = "ok"
+
     @Endpoint(HttpMethod.GET, "/hello")
     def hello(): String = "hello"
 
@@ -68,6 +78,15 @@ class HttpAccessLogTest extends UniTest:
     val builder = HttpRequest.newBuilder(URI.create(url)).GET()
     headers.foreach((k, v) => builder.header(k, v))
     client.send(builder.build(), HttpResponse.BodyHandlers.ofString(UTF_8))
+
+  private def post(url: String, json: String): HttpResponse[String] = client.send(
+    HttpRequest
+      .newBuilder(URI.create(url))
+      .header("Content-Type", "application/json")
+      .POST(HttpRequest.BodyPublishers.ofString(json))
+      .build(),
+    HttpResponse.BodyHandlers.ofString(UTF_8)
+  )
 
   // Entries are written as the response completes, which can be just after the client has it
   private def awaitEntries(w: InMemoryHttpAccessLogWriter, n: Int): Seq[Map[String, Any]] =
@@ -115,9 +134,23 @@ class HttpAccessLogTest extends UniTest:
         entries(1)("status_code") shouldBe 500
         entries(1)("exception_class") shouldBe "java.lang.IllegalStateException"
         entries(1)("exception_message") shouldBe "boom"
+        entries(1)("rpc_method") shouldBe "error"
       }
     }
     logs.warnings shouldContain "Error in Rx handler: boom"
+  }
+
+  test("log @Endpoint arguments without @secret values or the Request") {
+    val w = HttpAccessLogWriter.inMemory()
+    withServer(HttpAccessLogFilter(w)) { base =>
+      post(s"${base}/chat/r1", """{"model":"m1","prompt":"hidden"}""").statusCode() shouldBe 200
+      val e = awaitEntries(w, 1).head
+      e("rpc_interface") shouldBe "wvlet.uni.http.netty.HttpAccessLogTest.LoggedController"
+      e("rpc_class") shouldBe classOf[LoggedController].getName
+      e("rpc_method") shouldBe "chat"
+      e("rpc_args") shouldBe Map("room" -> "r1", "body" -> Map("model" -> "m1"))
+      HttpAccessLogWriter.toJson(e).contains("hidden") shouldBe false
+    }
   }
 
   test("log a finished SSE stream to the stream writer") {
