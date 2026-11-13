@@ -120,13 +120,14 @@ class HttpAccessLogFilter(
     val responses = rx.transformTry {
       case Success(response) =>
         if logged.compareAndSet(false, true) then
+          val rpc = rpcEntries(context)
           write(
             writer,
-            requestEntry(request, startMillis) ++ responseEntry(response, startNanos) ++
-              rpcEntries(context) ++ context.entries ++ extraEntries(request, Some(response))
+            requestEntry(request, startMillis) ++ responseEntry(response, startNanos) ++ rpc ++
+              context.entries ++ extraEntries(request, Some(response))
           )
           if response.isEventStream then
-            Success(response.withEvents(logStream(request, response, startMillis, context)))
+            Success(response.withEvents(logStream(request, response, startMillis, context, rpc)))
           else
             Success(response)
         else
@@ -163,7 +164,8 @@ class HttpAccessLogFilter(
       request: Request,
       response: Response,
       startMillis: Long,
-      context: HttpAccessLogFilter.LogContext
+      context: HttpAccessLogFilter.LogContext,
+      rpc: Map[String, Any]
   ): Rx[ServerSentEvent] =
     val streamStartNanos                                 = System.nanoTime()
     var count                                            = 0L
@@ -176,8 +178,8 @@ class HttpAccessLogFilter(
             "stream_event_count" -> count,
             "stream_bytes"       -> bytes,
             "stream_duration_ms" -> elapsedMillis(streamStartNanos)
-          ) ++ error.map(exceptionEntry).getOrElse(Map.empty) ++ rpcEntries(context) ++
-          context.entries ++ extraEntries(request, Some(response))
+          ) ++ error.map(exceptionEntry).getOrElse(Map.empty) ++ rpc ++ context.entries ++
+          extraEntries(request, Some(response))
       write(config.streamWriter.getOrElse(writer), entry)
 
     val counted = response

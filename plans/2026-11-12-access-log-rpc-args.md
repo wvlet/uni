@@ -35,7 +35,7 @@ Lane: Standard. It adds a public config API and changes what every access log en
   - Arguments are logged when the controller throws, and the entry survives a decode failure.
   - Both the RPC path and the `@Endpoint` path (Netty) are covered.
   - `noRpcArgs()` turns logging off.
-- **Docs.** Update `docs/http/server.md`, `docs/guide/for-ai-agents.md`, and the uni skill, with a version bump.
+- **Docs.** Update `docs/http/server.md`. `for-ai-agents.md` and the uni skill don't cover the access log, and no API is renamed or removed, so they stay as they are.
 
 ## Alternatives and Why Not?
 

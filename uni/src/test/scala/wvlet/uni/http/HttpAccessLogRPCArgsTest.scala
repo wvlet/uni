@@ -77,6 +77,7 @@ object HttpAccessLogRPCArgsTest:
         color: Color,
         credential: Credential,
         arr: Array[Message],
+        bytes: Array[Byte],
         request: Request
     ): Unit
 
@@ -169,6 +170,7 @@ class HttpAccessLogRPCArgsTest extends UniTest:
           Color.Red,
           Credential.Token("hidden2"),
           Array(Message("user", "hidden3")),
+          Array[Byte](1, 2, 3),
           Request.get("/")
         )
       ),
@@ -180,6 +182,7 @@ class HttpAccessLogRPCArgsTest extends UniTest:
     args("color") shouldBe Color.Red
     args("credential") shouldBe Credential.Token("").getClass.getName
     args("arr") shouldBe Seq(Map("role" -> "user"))
+    args("bytes") shouldBe "[3 bytes]"
     args.contains("request") shouldBe false
     HttpAccessLogWriter.toJson(entry).contains("hidden") shouldBe false
   }

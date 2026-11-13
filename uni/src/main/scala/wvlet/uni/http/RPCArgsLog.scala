@@ -71,6 +71,9 @@ private[http] object RPCArgsLog:
         null
       case _ if depth > MaxDepth =>
         className(v)
+      // A body or file can be large, and its bytes are rarely readable in a log
+      case b: Array[Byte] =>
+        s"[${b.length} bytes]"
       case _ if isScalar(v) =>
         v
       case o: Option[?] =>
@@ -107,7 +110,7 @@ private[http] object RPCArgsLog:
   private def isScalar(v: Any): Boolean =
     v match
       case _: String | _: Boolean | _: Char | _: java.lang.Number | _: ULID | _: java.util.UUID |
-          _: java.time.Instant | _: Array[Byte] | _: java.lang.Enum[?] =>
+          _: java.time.Instant | _: java.lang.Enum[?] =>
         true
       // An enum case with fields prints them in toString, so only a singleton case is a scalar
       case e: scala.reflect.Enum =>
