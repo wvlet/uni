@@ -19,7 +19,8 @@ import wvlet.uni.rx.Cancelable
   * A program running in a pseudo-terminal (PTY): what a [[TerminalEmulator]] talks to.
   *
   * Starting a PTY needs operating-system support that is not pure Scala, so backends live with the
-  * platform: on Node.js and Electron, wrap the `node-pty` package with `NodePty`.
+  * platform: `PosixPty` on the JVM (Java 22+) and Scala Native, for Linux and macOS, and on Node.js
+  * and Electron, `NodePty`, which wraps the `node-pty` package.
   */
 trait PtyProcess:
   /**
@@ -56,5 +57,8 @@ object PtyProcess:
     * to the program.
     */
   def connect(terminal: TerminalEmulator, process: PtyProcess): Cancelable =
+    // Replies first: output the process already buffered reaches the terminal at once, and the
+    // terminal's answers to queries in it (DSR, DA) must reach the process
+    val input = terminal.onData(process.write)
     process.onData(terminal.write)
-    terminal.onData(process.write)
+    input
