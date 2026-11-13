@@ -502,6 +502,15 @@
     box-shadow: inset -2px 0 0 var(--uni-accent);
   }
 
+  /* In a right-to-left row, "before" is the item's right edge */
+  [data-reorder-item][data-reorder-axis='horizontal'][data-drop='before']:dir(rtl) {
+    box-shadow: inset -2px 0 0 var(--uni-accent);
+  }
+
+  [data-reorder-item][data-reorder-axis='horizontal'][data-drop='after']:dir(rtl) {
+    box-shadow: inset 2px 0 0 var(--uni-accent);
+  }
+
   [data-reorder-handle] {
     cursor: grab;
     touch-action: none;
