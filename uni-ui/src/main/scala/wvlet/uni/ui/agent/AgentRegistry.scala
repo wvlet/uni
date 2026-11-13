@@ -98,8 +98,8 @@ private[ui] trait AgentBinding:
   def kind: String
 
   /**
-    * When two components share an element, as a [[wvlet.uni.ui.Menu]] does with its trigger
-    * button, agents see the one with the higher priority.
+    * When two components share an element, as a [[wvlet.uni.ui.Menu]] does with its trigger button,
+    * agents see the one with the higher priority.
     */
   def priority: Int = 0
 
@@ -141,7 +141,7 @@ private[ui] object AgentBinding:
 private[ui] object AgentRegistry:
 
   private[agent] class Entry(val binding: AgentBinding, val element: dom.Element):
-    var ref: Option[String] = None
+    var ref: Option[String]  = None
     var watching: Cancelable = Cancelable.empty
 
   private val ElementKey = "__uniAgent"
@@ -183,7 +183,12 @@ private[ui] object AgentRegistry:
   private def remove(e: Entry): Unit =
     e.watching.cancel
     entries -= e
-    e.binding.states.foreach(s => if byState.get(s) eq e then byState.remove(s))
+    e.binding
+      .states
+      .foreach(s =>
+        if byState.get(s) eq e then
+          byState.remove(s)
+      )
     val el = e.element.asInstanceOf[js.Dynamic]
     if el.selectDynamic(ElementKey).asInstanceOf[js.Any] eq e.asInstanceOf[js.Any] then
       // Another component on the same element takes over
@@ -216,16 +221,17 @@ private[ui] object AgentRegistry:
               else
                 s"${e.binding.kind}:${label}"
             val taken = entries.flatMap(_.ref).toSet
-            val r     = Iterator
-              .from(1)
-              .map(n =>
-                if n == 1 then
-                  base
-                else
-                  s"${base}-${n}"
-              )
-              .find(!taken.contains(_))
-              .get
+            val r     =
+              Iterator
+                .from(1)
+                .map(n =>
+                  if n == 1 then
+                    base
+                  else
+                    s"${base}-${n}"
+                )
+                .find(!taken.contains(_))
+                .get
             e.ref = Some(r)
             r
 
@@ -246,8 +252,8 @@ private[ui] object AgentRegistry:
   def report(target: AnyRef, d: ChangeDetails[Any]): Unit =
     tracked.foreach(_ += d)
     if !d.canceled && listeners.nonEmpty then
-      val entry  = Option(byState.get(target)).filter(entries.contains)
-      val secret = entry.exists(e => AgentDom.isSecret(e.element))
+      val entry                = Option(byState.get(target)).filter(entries.contains)
+      val secret               = entry.exists(e => AgentDom.isSecret(e.element))
       def text(v: Any): String =
         if secret then
           AgentDom.Redacted
@@ -278,7 +284,7 @@ private[ui] object AgentDom:
       .map(_.trim)
       .filter(_.nonEmpty)
     def textOf(n: dom.Node): String = Option(n.textContent).getOrElse("")
-    def labelled: Option[String] = attr("aria-labelledby").map(
+    def labelled: Option[String]    = attr("aria-labelledby").map(
       _.split("\\s+")
         .flatMap(id => Option(dom.document.getElementById(id)))
         .map(textOf)
@@ -316,16 +322,17 @@ private[ui] object AgentDom:
 
   /** True when `el` or an ancestor hides it from agents, or it is not in the document. */
   def isHidden(el: dom.Element): Boolean =
-    !el.isConnected || Iterator
-      .iterate(el)(e =>
-        e.parentNode match
-          case p: dom.Element =>
-            p
-          case _ =>
-            null
-      )
-      .takeWhile(_ != null)
-      .exists(hidesSubtree)
+    !el.isConnected ||
+      Iterator
+        .iterate(el)(e =>
+          e.parentNode match
+            case p: dom.Element =>
+              p
+            case _ =>
+              null
+        )
+        .takeWhile(_ != null)
+        .exists(hidesSubtree)
 
   /** A password field, or inside `UiAgent.secret`. */
   def isSecret(el: dom.Element): Boolean =

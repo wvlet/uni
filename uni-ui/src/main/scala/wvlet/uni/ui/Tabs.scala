@@ -106,8 +106,9 @@ class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends R
         }
     )
 
-    override def format(v: Any): String =
-      labels.lift(tabs.indexWhere(_.value == v)).getOrElse(String.valueOf(v))
+    override def format(v: Any): String = labels
+      .lift(tabs.indexWhere(_.value == v))
+      .getOrElse(String.valueOf(v))
 
     override def value: Option[String] = labels.lift(tabs.indexWhere(_.value == selected.get))
 

@@ -36,10 +36,8 @@ class UiAgentTest extends DomTestSupport:
     .asInstanceOf[dom.HTMLElement]
 
   // An agent that answers confirmations with `answer` instead of a dialog
-  private def install(
-      policy: AgentPolicy = AgentPolicy.allowAll,
-      answer: Boolean = true
-  ): UiAgent = UiAgent.install(policy.withConfirm(_ => Rx.const(answer)))
+  private def install(policy: AgentPolicy = AgentPolicy.allowAll, answer: Boolean = true): UiAgent =
+    UiAgent.install(policy.withConfirm(_ => Rx.const(answer)))
 
   private def node(agent: UiAgent, kind: String): UiNode = agent.query(kind = Some(kind)).head
 
@@ -63,7 +61,8 @@ class UiAgentTest extends DomTestSupport:
     select.value shouldBe Some("Tokyo")
     select.items shouldBe Seq(UiItem("Tokyo", selected = true), UiItem("Oregon"))
     val schema = select.action("select").flatMap(_.input).get
-    schema.get("enum") shouldBe Some(JSONArray(IndexedSeq(JSONString("Tokyo"), JSONString("Oregon"))))
+    schema.get("enum") shouldBe
+      Some(JSONArray(IndexedSeq(JSONString("Tokyo"), JSONString("Oregon"))))
     nodes(2).action("setText").isDefined shouldBe true
     agent.uninstall()
   }
@@ -72,9 +71,7 @@ class UiAgentTest extends DomTestSupport:
     val region = Rx.variable("tokyo")
     val seen   = ArrayBuffer.empty[ChangeDetails[Any]]
     mount(
-      Select(region, Seq("tokyo", "oregon"))(identity)
-        .withLabel("Region")
-        .onChange(d => seen += d)
+      Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region").onChange(d => seen += d)
     )
     val agent = install()
     agent
@@ -131,7 +128,9 @@ class UiAgentTest extends DomTestSupport:
   test("an agent types into a text field, and a password reads as redacted") {
     val name = Rx.variable("")
     val pass = Rx.variable("hunter2")
-    mount(div(Input(name).withLabel("Name"), Input(pass).withLabel("Password").withType("password")))
+    mount(
+      div(Input(name).withLabel("Name"), Input(pass).withLabel("Password").withType("password"))
+    )
     val agent = install()
     node(agent, "textfield").ref shouldBe "textfield:name"
     agent.query(text = Some("password")).head.value shouldBe Some("<redacted>")
@@ -229,8 +228,8 @@ class UiAgentTest extends DomTestSupport:
 
   test("changes lists what people changed since a cursor, without the agent's own") {
     val region = Rx.variable("tokyo")
-    val m      = mount(Select(region, Seq("tokyo", "oregon", "paris"))(identity).withLabel("Region"))
-    val agent  = install()
+    val m     = mount(Select(region, Seq("tokyo", "oregon", "paris"))(identity).withLabel("Region"))
+    val agent = install()
     val (none, start) = agent.changes()
     none shouldBe Nil
     fireEvent.click(m.get("button"))
@@ -325,9 +324,9 @@ class UiAgentTest extends DomTestSupport:
   }
 
   test("installWebMcp registers the tools with document.modelContext and unregisters them") {
-    val region     = Rx.variable("tokyo")
-    val registered = ArrayBuffer.empty[js.Dynamic]
-    var signal     = Option.empty[js.Dynamic]
+    val region                                               = Rx.variable("tokyo")
+    val registered                                           = ArrayBuffer.empty[js.Dynamic]
+    var signal                                               = Option.empty[js.Dynamic]
     val register: js.Function2[js.Dynamic, js.Dynamic, Unit] =
       (tool, options) =>
         registered += tool

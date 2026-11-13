@@ -364,8 +364,8 @@ private[ui] class ListCore[A, K](
         xs.slice(start, end)
       }
     div(
-      cls                  -> s"uni-list ${containerClass}",
-      data("slot")         -> slot,
+      cls          -> s"uni-list ${containerClass}",
+      data("slot") -> slot,
       AgentRegistry.attach(agentBinding),
       tabindex             -> "0",
       styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",

@@ -78,8 +78,8 @@ object AgentPolicy:
   */
 class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
 
-  private val bufferSize = 500
-  private val buffer     = mutable.ArrayDeque.empty[UiChange]
+  private val bufferSize               = 500
+  private val buffer                   = mutable.ArrayDeque.empty[UiChange]
   private var subscription: Cancelable = AgentRegistry.subscribe { c =>
     if c.source != ChangeSource.Agent then
       buffer.append(c)
@@ -115,7 +115,7 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
     val ref      = AgentRegistry.refOf(e)
     val disabled = AgentDom.isDisabled(e.element)
     val items    = b.items
-    val actions =
+    val actions  =
       if disabled then
         Nil
       else
@@ -199,22 +199,23 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
     val result = Rx.variable(Option.empty[ActResult])
     UiAgent.confirming = true
     var answer = Cancelable.empty
-    answer = RxRunner.run(policy.confirm(message)) {
-      case OnNext(ok) if result.get.isEmpty =>
-        UiAgent.confirming = false
-        result :=
-          Some(
-            if ok == true then
-              run(ref, a, value)
-            else
-              ActResult(ActStatus.Declined, "The human declined")
-          )
-        answer.cancel
-      case OnError(err) if result.get.isEmpty =>
-        UiAgent.confirming = false
-        result := Some(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
-      case _ =>
-    }
+    answer =
+      RxRunner.run(policy.confirm(message)) {
+        case OnNext(ok) if result.get.isEmpty =>
+          UiAgent.confirming = false
+          result :=
+            Some(
+              if ok == true then
+                run(ref, a, value)
+              else
+                ActResult(ActStatus.Declined, "The human declined")
+            )
+          answer.cancel
+        case OnError(err) if result.get.isEmpty =>
+          UiAgent.confirming = false
+          result := Some(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
+        case _ =>
+      }
     result.filter(_.isDefined).map(_.get)
 
   private def run(ref: String, a: AgentAction, value: Option[String]): ActResult =
@@ -252,18 +253,13 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
       override def query(kind: Option[String], text: Option[String], ref: Option[String]): String =
         list(UiAgent.this.query(kind, text, ref))
 
-      override def act(ref: String, action: String, value: Option[String]): Rx[String] = UiAgent
-        .this
-        .act(ref, action, value)
-        .map(_.toJSON.toJSON)
+      override def act(ref: String, action: String, value: Option[String]): Rx[String] =
+        UiAgent.this.act(ref, action, value).map(_.toJSON.toJSON)
 
       override def changes(since: Long): String =
         val (xs, cursor) = UiAgent.this.changes(since)
         JSONObject(
-          Seq(
-            "changes" -> JSONArray(xs.map(_.toJSON).toIndexedSeq),
-            "cursor"  -> JSONLong(cursor)
-          )
+          Seq("changes" -> JSONArray(xs.map(_.toJSON).toIndexedSeq), "cursor" -> JSONLong(cursor))
         ).toJSON
 
   /**
@@ -291,7 +287,8 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
               execute = execute,
               annotations = js.Dynamic.literal(readOnlyHint = t.name != "act")
             )
-          try mc.registerTool(tool, js.Dynamic.literal(signal = controller.signal))
+          try
+            mc.registerTool(tool, js.Dynamic.literal(signal = controller.signal))
           catch
             case NonFatal(err) =>
               dom.console.warn(s"WebMCP registerTool(${t.name}) failed: ${err.getMessage}")
@@ -343,7 +340,7 @@ object UiAgent:
     val host   = dom.document.createElement("div")
     host.setAttribute(HiddenAttr, "true")
     dom.document.body.appendChild(host)
-    var rendered = Cancelable.empty
+    var rendered                  = Cancelable.empty
     def finish(ok: Boolean): Unit =
       answer := Some(ok)
       // After the dialog's own click handling is done
@@ -374,7 +371,9 @@ object UiAgent:
     val params = js.Dynamic.literal(name = name, arguments = Option(args).getOrElse(js.Object()))
     val line   = js
       .JSON
-      .stringify(js.Dynamic.literal(jsonrpc = "2.0", id = 1, method = "tools/call", params = params))
+      .stringify(
+        js.Dynamic.literal(jsonrpc = "2.0", id = 1, method = "tools/call", params = params)
+      )
     js.Promise[js.Any] { (resolve, reject) =>
       RxRunner.run(server.handleMessage(line)) {
         case OnNext(v) =>

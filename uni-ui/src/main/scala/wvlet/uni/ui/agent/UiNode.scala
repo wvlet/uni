@@ -43,8 +43,8 @@ case class UiAction(name: String, description: String, input: Option[JSONObject]
   *   the handle for [[UiAgent.act]]: an explicit [[UiAgent.ref]], or one derived from the kind and
   *   label, stable while the component stays mounted
   * @param value
-  *   the current value as text: the chosen option, the typed text, `open` or `closed`. Secret values
-  *   read `<redacted>`
+  *   the current value as text: the chosen option, the typed text, `open` or `closed`. Secret
+  *   values read `<redacted>`
   * @param moreItems
   *   how many items were left out of `items` to keep the snapshot small
   */

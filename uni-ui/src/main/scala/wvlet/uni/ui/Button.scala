@@ -115,6 +115,7 @@ object Button:
     new AgentBinding:
       override def kind: String              = "button"
       override def actions: Seq[AgentAction] = Seq(AgentAction.press(this))
+
   private val noAction: () => Unit = () => ()
 
   def apply(content: DomNode*): Button =

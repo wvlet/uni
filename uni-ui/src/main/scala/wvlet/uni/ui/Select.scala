@@ -196,9 +196,7 @@ class Select[A] private (
 
     private def labels: Seq[String] = AgentBinding.itemLabels(latest.map(optionLabel))
 
-    override def items: Seq[UiItem] = labels
-      .zip(latest)
-      .map((l, a) => UiItem(l, a == selected.get))
+    override def items: Seq[UiItem] = labels.zip(latest).map((l, a) => UiItem(l, a == selected.get))
 
     override def actions: Seq[AgentAction] = Seq(
       AgentAction.choice("select", "Choose an option", labels)(i =>

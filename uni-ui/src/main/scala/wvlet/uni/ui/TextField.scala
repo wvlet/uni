@@ -68,9 +68,9 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
     following = Cancelable.empty
 
   private object agentBinding extends AgentBinding:
-    override def kind: String           = "textfield"
-    override def value: Option[String]  = Some(gated.get)
-    override def states: Seq[AnyRef]    = Seq(text)
+    override def kind: String              = "textfield"
+    override def value: Option[String]     = Some(gated.get)
+    override def states: Seq[AnyRef]       = Seq(text)
     override def actions: Seq[AgentAction] = Seq(
       AgentAction.text("setText", "Replace the field's text")(v => gated := v)
     )
