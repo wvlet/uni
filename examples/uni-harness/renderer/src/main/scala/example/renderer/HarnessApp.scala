@@ -2,9 +2,12 @@ package example.renderer
 
 import example.api.ChatApiClient
 import org.scalajs.dom
+import wvlet.uni.agent.UiAgentApi
 import wvlet.uni.dom.all.renderTo
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http
+import wvlet.uni.http.rpc.RPCRouter
+import wvlet.uni.ui.agent.UiAgent
 
 import scala.scalajs.js
 import scala.scalajs.js.annotation.JSExportTopLevel
@@ -39,6 +42,18 @@ object HarnessApp:
     val api   = TrackedChatApi(ChatApiClient(Http.client.newAsyncClient), log)
     val store = ChatStore(api, explain(transport))
     Shell(Layout.persistent(), store, log, transport).renderTo("app")
+    serveAgent(window)
+
+  /**
+    * When the app runs with `--agent-bridge`, let an AI agent read and operate the UI: install
+    * `UiAgent` and serve its `UiAgentApi` to the main process, whose MCP endpoint forwards each
+    * tool call here. Without the flag the preload sets no `agentBridge`, and nothing is installed.
+    */
+  private def serveAgent(window: js.Dynamic): Unit =
+    val bridge = window.uniHarness
+    if js.typeOf(bridge) != "undefined" && bridge.agentBridge.asInstanceOf[Any] == true then
+      val agent = UiAgent.install()
+      ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))
 
   /**
     * A 404 over HTTP means no ChatApi server is behind this page: typically a browser opened on the

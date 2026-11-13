@@ -42,6 +42,15 @@ import scala.scalajs.js
   *     id)`. The main process then cancels the method's `Rx` and sends nothing more for that id. It
   *     also cancels every stream of a `webContents` when its main frame starts a cross-document
   *     navigation (including a reload), and when the `webContents` is destroyed.
+  *
+  * The main process can also call services the renderer serves ([[ElectronMainChannel]] and
+  * [[ElectronRenderer.serve]]), with the same payloads in the other direction:
+  *
+  *   - The main process sends `webContents.send(reverseChannel(channel), id, requestPayload)`.
+  *   - The preload hands the payload to the handler the renderer registered with
+  *     `bridge.serve(handler)`, and sends the response payload back with
+  *     `ipcRenderer.send(reverseReplyChannel(channel), id, responsePayload)`. Before the renderer
+  *     calls `serve`, the preload answers at once with an `UNAVAILABLE_I2` RPC error.
   */
 object ElectronIPC:
 
@@ -66,6 +75,12 @@ object ElectronIPC:
 
   /** The channel a renderer sends `(id)` on to cancel one of its streaming calls. */
   def streamCancelChannel(channel: String): String = s"${channel}-stream-cancel"
+
+  /** The channel the main process sends `(id, requestPayload)` on to call the renderer. */
+  def reverseChannel(channel: String): String = s"${channel}-reverse"
+
+  /** The channel a renderer answers a main-process call on, with `(id, responsePayload)`. */
+  def reverseReplyChannel(channel: String): String = s"${channel}-reverse-reply"
 
   /** A stream message (main side): `{ kind, ... }`. */
   private[electron] def streamHead(response: Response): js.Object =
