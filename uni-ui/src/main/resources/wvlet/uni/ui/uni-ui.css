@@ -728,6 +728,20 @@
     }
   }
 
+  /* Exit: a closing overlay stays in the document, marked closed, until this animation ends */
+  @keyframes uni-overlay-out {
+    to {
+      opacity: 0;
+      transform: translateY(var(--uni-overlay-shift, 0)) scale(0.98);
+    }
+  }
+
+  /* :is, not :where, so this outranks the entry animation on each component */
+  :is(.uni-popover, .uni-menu, .uni-listbox, .uni-tooltip, .uni-dialog, .uni-toast)[data-state='closed'] {
+    animation: uni-overlay-out 0.1s ease-in forwards;
+    pointer-events: none;
+  }
+
   :where(.uni-popover, .uni-menu, .uni-listbox, .uni-tooltip)[data-side='bottom'] {
     --uni-overlay-shift: -4px;
   }
@@ -917,6 +931,17 @@
     from {
       opacity: 0;
     }
+  }
+
+  @keyframes uni-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  .uni-dialog-backdrop[data-state='closed'] {
+    animation: uni-fade-out 0.1s ease-in forwards;
+    pointer-events: none;
   }
 
   /* Toast */
@@ -1247,7 +1272,9 @@
     .uni-tooltip,
     .uni-dialog,
     .uni-dialog-backdrop,
-    .uni-toast {
+    .uni-toast,
+    :is(.uni-popover, .uni-menu, .uni-listbox, .uni-tooltip, .uni-dialog, .uni-toast)[data-state],
+    .uni-dialog-backdrop[data-state] {
       animation: none;
     }
   }

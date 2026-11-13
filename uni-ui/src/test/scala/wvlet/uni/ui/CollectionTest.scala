@@ -389,7 +389,8 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(paletteInput, "Enter")
       log.get shouldBe Seq("dock")
       open.get shouldBe false
-      find(".uni-palette") shouldBe None
+      // uni-ui.css is loaded here, so the palette is still fading out
+      find(".uni-dialog--palette").map(_.getAttribute("data-state")) shouldBe Some("closed")
       (active eq opener) shouldBe true
     }
   }

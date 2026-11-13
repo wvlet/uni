@@ -120,7 +120,8 @@ class Dialog private (
       case _ =>
         None
 
-  private def surface: RxElement = OverlaySurface(
+  private def surface(exit: Presence.Exit): RxElement = OverlaySurface(
+    exit,
     div(
       cls           -> classes("uni-dialog-backdrop"),
       data("state") -> "open",
@@ -175,14 +176,7 @@ class Dialog private (
   )
 
   // Renders nothing in place: the dialog lives at the end of <body> while open
-  override def render: RxElement = Embedded(
-    open.map { o =>
-      if o then
-        Portal.toBody(surface)
-      else
-        DomNode.empty
-    }
-  )
+  override def render: RxElement = Presence(open)(exit => Portal.toBody(surface(exit)))
 
 end Dialog
 

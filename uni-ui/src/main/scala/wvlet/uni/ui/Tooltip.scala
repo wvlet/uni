@@ -89,7 +89,8 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
         hide()
       case _ =>
 
-  private def tip: RxElement = OverlaySurface(
+  private def tip(exit: Presence.Exit): RxElement = OverlaySurface(
+    exit,
     div(id -> tipId, cls -> "uni-tooltip", role -> "tooltip", data("state") -> "open", text),
     anchor = () => triggerRef.current.map(Rect.of),
     inside = el => Seq(el),
@@ -121,12 +122,7 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
     EventListenerBinding("focus", onFocus),
     EventListenerBinding("blur", _ => hide()),
     EventListenerBinding("keydown", onKeyDown),
-    shown.map { s =>
-      if s then
-        Portal.toBody(tip)
-      else
-        DomNode.empty
-    }
+    Presence(shown)(exit => Portal.toBody(tip(exit)))
   )
 
   override def beforeUnmount: Unit = cancelTimer()
