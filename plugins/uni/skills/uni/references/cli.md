@@ -137,3 +137,22 @@ div(styleAttr -> "height: 400px", view)
 
 The PTY needs the native `node-pty` addon, which the app installs and passes to
 `NodePty.spawn`; see the uni-harness example's Terminal tab.
+
+On the JVM (Java 22+) and Scala Native, `PosixPty.spawn` runs a program in a
+real PTY on Linux and macOS, with no extra dependency. The program gets the PTY
+as its controlling terminal, so `stty size`, Ctrl-C, and SIGWINCH on `resize`
+work. On Windows and older JVMs it throws `UnsupportedOperationException`, so
+check `PosixPty.isSupported` (or `unsupportedReason`):
+
+```scala
+import wvlet.uni.cli.term.{PosixPty, PtyOptions, PtyProcess}
+
+def runShell(): Unit =
+  if PosixPty.isSupported then
+    val terminal = TerminalEmulator(TerminalConfig(cols = 80, rows = 24))
+    val shell    = PosixPty.spawn("bash", Seq("-l"), PtyOptions().withSize(80, 24))
+    PtyProcess.connect(terminal, shell) // connect before output can be missed
+    shell.onExit(code => println(s"exit ${code}")) // 128 + signal if killed
+    shell.resize(100, 30)                          // the program gets SIGWINCH
+    shell.kill()                                   // SIGHUP, like closing a window
+```

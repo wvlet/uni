@@ -111,6 +111,15 @@ val nativeBuildSettings = Seq[Setting[?]](
   Compile / doc / scalacOptions ~= (_.filterNot(_.startsWith("-Xplugin")))
 )
 
+// Sources shared by the JVM and Scala Native but not Scala.js, such as code that starts threads or
+// processes, live in <project>/.jvm-native
+val jvmNativeSharedSources = Seq[Setting[?]](
+  Compile / unmanagedSourceDirectories +=
+    baseDirectory.value.getParentFile / ".jvm-native" / "src" / "main" / "scala",
+  Test / unmanagedSourceDirectories +=
+    baseDirectory.value.getParentFile / ".jvm-native" / "src" / "test" / "scala"
+)
+
 val noPublish = Seq(
   publishArtifact := false,
   publish         := {},
@@ -216,8 +225,9 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     description :=
       "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
   )
+  .jvmSettings(jvmNativeSharedSources)
   .jsSettings(jsBuildSettings)
-  .nativeSettings(nativeBuildSettings)
+  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources)
   .dependsOn(core, test % Test)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file

@@ -19,7 +19,8 @@ import wvlet.uni.rx.Cancelable
   * A program running in a pseudo-terminal (PTY): what a [[TerminalEmulator]] talks to.
   *
   * Starting a PTY needs operating-system support that is not pure Scala, so backends live with the
-  * platform: on Node.js and Electron, wrap the `node-pty` package with `NodePty`.
+  * platform: `PosixPty` on the JVM (Java 22+) and Scala Native, for Linux and macOS, and on Node.js
+  * and Electron, `NodePty`, which wraps the `node-pty` package.
   */
 trait PtyProcess:
   /**

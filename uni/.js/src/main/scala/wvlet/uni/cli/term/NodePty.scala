@@ -16,22 +16,6 @@ package wvlet.uni.cli.term
 import scala.scalajs.js
 
 /**
-  * Options for starting a program with [[NodePty.spawn]]
-  */
-case class PtyOptions(
-    cols: Int = 80,
-    rows: Int = 24,
-    cwd: Option[String] = None,
-    env: Map[String, String] = Map.empty,
-    termName: String = "xterm-256color"
-):
-  def withSize(cols: Int, rows: Int): PtyOptions    = copy(cols = cols, rows = rows)
-  def withCwd(cwd: String): PtyOptions              = copy(cwd = Some(cwd))
-  def noCwd(): PtyOptions                           = copy(cwd = None)
-  def withEnv(env: Map[String, String]): PtyOptions = copy(env = env)
-  def withTermName(termName: String): PtyOptions    = copy(termName = termName)
-
-/**
   * Starts programs in a pseudo-terminal on Node.js and in Electron's main process, through the
   * [[https://github.com/microsoft/node-pty node-pty]] package.
   *
