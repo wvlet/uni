@@ -256,7 +256,7 @@ Dock(layout, "Dock")(
   counted from 0 in reading order (the tab list named "group 1" is index 0), and `dock.groupCount`
   tells how many there are. `dock.focusPanel(id)` shows a panel and focuses its tab. Both return
   false when there is nothing to focus. The Dock binds no keys itself, so pick your own shortcuts:
-  `Keyboard.bindAll((1 to 9).map(n => s"ctrl+${n}" -> (() => dock.focusGroup(n - 1)))*)`.
+  `(1 to 9).foreach(n => Keyboard.bind(s"ctrl+${n}", () => dock.focusGroup(n - 1)))`.
 - **Old saves.** The Dock drops ids it doesn't know, so removing a panel from the app never breaks a
   saved layout. The JSON carries a format `version`; a save that is unreadable or from a newer
   version falls back to your default.

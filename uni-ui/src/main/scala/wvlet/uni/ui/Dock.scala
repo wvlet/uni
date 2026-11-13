@@ -171,7 +171,7 @@ class Dock private (
     * The number of groups. Groups are numbered from 0 in reading order (depth first), so group `i`
     * has the accessible name "group i+1".
     */
-  val groupCount: Rx[Int] = current.map(l => DockModel.groups(l.root).size)
+  val groupCount: Rx[Int] = distinct(current.map(l => DockModel.groups(l.root).size))
 
   /**
     * Move keyboard focus to the active tab of group `index` (from 0, in reading order), as an
@@ -203,7 +203,8 @@ class Dock private (
     Option(dom.document.getElementById(tabId(panel))) match
       case Some(el: dom.HTMLElement) =>
         el.focus()
-        true
+        // A tab in a hidden container can't take focus
+        dom.document.activeElement eq el
       case _ =>
         false
 
