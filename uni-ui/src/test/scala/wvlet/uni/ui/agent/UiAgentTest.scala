@@ -315,6 +315,22 @@ class UiAgentTest extends DomTestSupport:
     )
     val agent = install()
     node(agent, "list").actions.map(_.name) shouldContain "move"
+    // A person's move shows in the change feed, with row labels
+    val start = agent.changes()._2
+    val list  = find(".uni-virtual-list")
+    list.focus()
+    fireEvent.keyDown(list, "ArrowDown", altKey = true)
+    agent.changes(start)._1.map(c => (c.ref, c.key, c.previous, c.value, c.source)) shouldBe
+      Seq(
+        (
+          Some("list:numbers"),
+          "order",
+          "Item 1, Item 2, Item 3",
+          "Item 2, Item 1, Item 3",
+          ChangeSource.Keyboard
+        )
+      )
+    sources.clear()
     Rx.join(
         agent.act("list:numbers", "move", Some("Item 3 to 1")),
         agent.act("list:numbers", "move", Some("Item 9 to 1")),
@@ -322,7 +338,7 @@ class UiAgentTest extends DomTestSupport:
       )
       .map { (ok, unknown, outOfRange) =>
         ok.status shouldBe ActStatus.Applied
-        items.get shouldBe Seq(3, 1, 2)
+        items.get shouldBe Seq(3, 2, 1)
         sources.toSeq shouldBe Seq(ChangeSource.Agent)
         unknown.status shouldNotBe ActStatus.Applied
         outOfRange.message shouldContain "Position must be 1 to 3"

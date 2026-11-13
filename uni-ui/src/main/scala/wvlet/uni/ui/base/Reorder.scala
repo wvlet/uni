@@ -431,7 +431,8 @@ object Reorder:
 
     def ofItems[A, K](items: RxVar[Seq[A]], key: A => K): Store[K] =
       new Store[K]:
-        def keys: Rx[Seq[K]] = items.map(_.map(key))
+        // One mapped Rx, shared by every item's drop marker
+        val keys: Rx[Seq[K]] = items.map(_.map(key))
         def current: Seq[K]  = items.get.map(key)
         def write(next: Seq[K], cause: ChangeCause, handler: ChangeHandler): Boolean =
           val byKey = items.get.map(a => key(a) -> a).toMap

@@ -368,17 +368,22 @@ private[ui] class ListCore[A, K](
           keys.get
 
     override def states: Seq[AnyRef] =
-      selection match
-        case ListSelection.Single(s) =>
-          Seq(s)
-        case ListSelection.Multi(keys) =>
-          Seq(keys)
+      (
+        selection match
+          case ListSelection.Single(s) =>
+            s
+          case ListSelection.Multi(keys) =>
+            keys
+      ) +: reorderable.toSeq
 
     override def format(v: Any): String =
       val keys: Iterable[Any] =
         v match
           case o: Option[?] =>
             o
+          // The rows in a new order, from reorderable
+          case rows: Seq[?] =>
+            rows.map(a => key(a.asInstanceOf[A]))
           case s: Iterable[?] =>
             s
           case other =>
