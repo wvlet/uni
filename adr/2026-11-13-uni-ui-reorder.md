@@ -25,5 +25,9 @@ Step 3 of `plans/2026-11-13-ui-sdk-learnings.md` lists `Reorder` (pointer and ke
 
 ## Consequences
 
-- Selected items move together only through `withSelection`; `Tree` has no multi-select yet, and neither `VirtualList` nor `DataTable` wires `Reorder` in, so apps add `reorder.item(k)` to their rows.
+- Selected items move together only through `withSelection`. `Tree` is not reorderable (nested drop targets fall outside a one-list model).
+- Follow-up: `VirtualList` and `DataTable` take `.withReorder(itemsVar)`, built on `Reorder.by(items)(key)`, which reorders an `RxVar` of items rather than keys, so there is no second key-order variable to keep in step. Moves go through the component's own `onChange` (key `order`), and its multi-select is the `withSelection` set.
+  - These lists keep focus on the container (`aria-activedescendant`), so `ListCore` handles Alt+Arrow/Home/End for the active row by key and index; this works on rows far outside the rendered window. Drags already survive the dragged row unmounting (`PointerDrag` listens on `window`), and the drop point is computed among the rendered rows, which always cover the viewport.
+  - A `DataTable` with a column sort applied can't be reordered: the manual order means nothing under a sort, and moving would have to rewrite the app's data into sorted order.
+  - The lists' agent binding adds a `move` action (`"<row label> to <position>"`).
 - Only the Alt+Arrow move keys are mirrored in RTL. Plain arrow navigation in `RovingFocus`, `Tree`, `Panes`, and `DataTable` still reads Left/Right as left-to-right, which is a separate follow-up.

@@ -17,7 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry, UiItem}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentInputError, AgentRegistry, UiItem}
 import wvlet.uni.ui.base.*
 
 import scala.collection.mutable
@@ -50,6 +50,10 @@ import scala.language.implicitConversions
   * @param activeCell
   *   the active cell within the active row, for a grid; `aria-activedescendant` then names that
   *   cell (`cellId`) instead of the row
+  * @param reorder
+  *   lets the user reorder the rows: each rendered row becomes a [[Reorder.item]], and Alt+Arrow,
+  *   Alt+Home, and Alt+End move the active row (with the selection, when it is selected) by key, so
+  *   they work on rows scrolled out of view too
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -72,7 +76,8 @@ private[ui] class ListCore[A, K](
     changeHandler: ChangeHandler = ChangeGate.noHandler,
     slot: String = "list",
     agentKind: String = "list",
-    agentActions: () => Seq[AgentAction] = () => Nil
+    agentActions: () => Seq[AgentAction] = () => Nil,
+    reorder: Option[Reorder[K]] = None
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -225,6 +230,8 @@ private[ui] class ListCore[A, K](
               e.preventDefault()
               select(a, ChangeCause.of(ChangeReason.ItemPress, e))
             }
+        case _ if moveByKey(i, e) =>
+          ()
         case _ if extraKey(e, i, moveTo) =>
           e.preventDefault()
         case _ if multi.exists(_.onKey(e, order)) =>
@@ -249,6 +256,19 @@ private[ui] class ListCore[A, K](
     end if
 
   end onKeyDown
+
+  // Alt+Arrow, Alt+Home, or Alt+End on the active row: move it, then keep it in view
+  private def moveByKey(i: Int, e: dom.KeyboardEvent): Boolean = reorder.exists { r =>
+    current
+      .lift(i)
+      .map(key)
+      .exists { k =>
+        val handled = r.onMoveKey(k, e)
+        if handled then
+          index.get.get(k).foreach(moveTo)
+        handled
+      }
+  }
 
   // Focusing the list shows where the keys will start: the selected row, else the first
   private def onFocus(): Unit =
@@ -297,6 +317,16 @@ private[ui] class ListCore[A, K](
             None
         ),
       rowAttrs(a, index.map(_.getOrElse(k, -1)), window.map(_._2)),
+      reorder.map { r =>
+        DomNode.group(
+          r.item(k),
+          // A drag's pointerdown keeps the browser from focusing the list, as a click would
+          EventListenerBinding(
+            "pointerdown",
+            _ => root.filterNot(_.contains(dom.document.activeElement)).foreach(_.focus())
+          )
+        )
+      },
       EventListenerBinding(
         "click",
         e =>
@@ -306,6 +336,8 @@ private[ui] class ListCore[A, K](
       ),
       renderRow(a)
     )
+
+  end row
 
   private object agentBinding extends AgentBinding:
     override def kind: String = agentKind
@@ -350,7 +382,24 @@ private[ui] class ListCore[A, K](
     override def actions: Seq[AgentAction] =
       AgentAction.choice("select", "Select a row, as a click does", labels)(i =>
         select(current(i), AgentAction.cause(ChangeReason.ItemPress))
-      ) +: agentActions()
+      ) +: (moveAction.toSeq ++ agentActions())
+
+    private def moveAction: Option[AgentAction] = reorder
+      .filter(_.isEnabled)
+      .map { r =>
+        AgentAction.text(
+          "move",
+          "Move a row: '<row label> to <position>', where position 1 is the first row"
+        ) { v =>
+          val (target, to) = ListCore.parseMove(v, current.size)
+          val i            = labels.indexOf(target)
+          if i < 0 then
+            throw AgentInputError(
+              s"No row '${target}'. Rows: ${labels.take(AgentAction.maxChoices).mkString(", ")}"
+            )
+          r.moveTo(key(current(i)), to, AgentAction.cause(ChangeReason.Imperative))
+        }
+      }
 
   end agentBinding
 
@@ -396,6 +445,31 @@ private[ui] class ListCore[A, K](
     )
 
   end render
+
+end ListCore
+
+private[ui] object ListCore:
+  /**
+    * The row label and the position (from 0) in an agent's `move` value, `"<label> to <n>"` with
+    * `n` from 1, or `first` or `last`.
+    */
+  def parseMove(v: String, size: Int): (String, Int) =
+    val at = v.lastIndexOf(" to ")
+    if at < 0 then
+      throw AgentInputError(s"Write '<row label> to <position>', not '${v}'")
+    val position = v.substring(at + 4).trim
+    val to       =
+      position.toLowerCase match
+        case "first" =>
+          0
+        case "last" =>
+          size - 1
+        case n =>
+          n.toIntOption
+            .filter(p => p >= 1 && p <= size)
+            .map(_ - 1)
+            .getOrElse(throw AgentInputError(s"Position must be 1 to ${size}, first, or last"))
+    (v.substring(0, at), to)
 
 end ListCore
 

@@ -303,6 +303,33 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("an agent moves a row of a reorderable list, through onChange") {
+    val items   = Rx.variable(Seq(1, 2, 3))
+    val sources = scala.collection.mutable.ArrayBuffer.empty[ChangeSource]
+    mount(
+      VirtualList(items, 24)(identity)(i => span(s"Item ${i}"))
+        .withLabel("Numbers")
+        .withTypeahead(i => s"Item ${i}")
+        .withReorder(items)
+        .onChange(d => sources += d.source)
+    )
+    val agent = install()
+    node(agent, "list").actions.map(_.name) shouldContain "move"
+    Rx.join(
+        agent.act("list:numbers", "move", Some("Item 3 to 1")),
+        agent.act("list:numbers", "move", Some("Item 9 to 1")),
+        agent.act("list:numbers", "move", Some("Item 1 to 7"))
+      )
+      .map { (ok, unknown, outOfRange) =>
+        ok.status shouldBe ActStatus.Applied
+        items.get shouldBe Seq(3, 1, 2)
+        sources.toSeq shouldBe Seq(ChangeSource.Agent)
+        unknown.status shouldNotBe ActStatus.Applied
+        outOfRange.message shouldContain "Position must be 1 to 3"
+        agent.uninstall()
+      }
+  }
+
   test("the JSON API serves as MCP tools") {
     val region = Rx.variable("tokyo")
     mount(Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region"))

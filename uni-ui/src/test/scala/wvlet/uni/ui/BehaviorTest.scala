@@ -187,6 +187,8 @@ class BehaviorTest extends DomTestSupport:
 
   test("announce adds the message to a hidden live region") {
     Announce.prepare()
+    // Lines other tests announced may still be in the region
+    Announce.clear()
     Announce.polite("Response complete")
     Announce.polite("Response complete")
     val region = find("[data-slot=announcer][aria-live=polite]")

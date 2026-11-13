@@ -16,6 +16,7 @@ package wvlet.uni.ui
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.base.Reorder
 
 import scala.language.implicitConversions
 
@@ -47,7 +48,8 @@ class VirtualList[A, K] private (
     overscan: Int,
     typeahead: Option[A => String],
     changeHandler: ChangeHandler,
-    multiSelected: Option[RxVar[Set[K]]]
+    multiSelected: Option[RxVar[Set[K]]],
+    reorderable: Option[RxVar[Seq[A]]]
 ) extends RxElement:
 
   private def copy(
@@ -57,7 +59,8 @@ class VirtualList[A, K] private (
       overscan: Int = overscan,
       typeahead: Option[A => String] = typeahead,
       changeHandler: ChangeHandler = changeHandler,
-      multiSelected: Option[RxVar[Set[K]]] = multiSelected
+      multiSelected: Option[RxVar[Set[K]]] = multiSelected,
+      reorderable: Option[RxVar[Seq[A]]] = reorderable
   ): VirtualList[A, K] =
     new VirtualList(
       items,
@@ -70,7 +73,8 @@ class VirtualList[A, K] private (
       overscan,
       typeahead,
       changeHandler,
-      multiSelected
+      multiSelected,
+      reorderable
     )
 
   /** The accessible name of the list. */
@@ -90,10 +94,26 @@ class VirtualList[A, K] private (
   /** Selects one row at a time, in [[withSelected]]'s variable (the default). */
   def noMultiSelect(): VirtualList[A, K] = copy(multiSelected = None)
 
+  /**
+    * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
+    * and Alt+End on the highlighted row, as [[base.Reorder]] does. The new order is written to
+    * `order`, the variable the list shows, after [[onChange]] sees it under the key `order`. With
+    * [[withMultiSelect]], a selected row moves the whole selection as one block.
+    *
+    * {{{
+    *   VirtualList(tasks, rowHeight = 32)(_.id)(t => span(t.title)).withReorder(tasks)
+    * }}}
+    */
+  def withReorder(order: RxVar[Seq[A]]): VirtualList[A, K] = copy(reorderable = Some(order))
+  def noReorder(): VirtualList[A, K]                       = copy(reorderable = None)
+
   /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): VirtualList[A, K] = copy(onSelectFn = f)
 
-  /** Called before Enter or a click changes the selection; `cancel()` keeps it. Key: `selected`. */
+  /**
+    * Called before Enter or a click changes the selection, or before a move changes the order;
+    * `cancel()` keeps it. Keys: `selected` and `order`.
+    */
   def onChange(f: ChangeHandler): VirtualList[A, K] = copy(changeHandler = f)
 
   /** How many rows to render beyond each edge of the view (8 by default). */
@@ -103,28 +123,39 @@ class VirtualList[A, K] private (
   def withTypeahead(label: A => String): VirtualList[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): VirtualList[A, K]                     = copy(typeahead = None)
 
-  override def render: RxElement = ListCore[A, K](
-    items,
-    key,
-    rowHeight,
-    overscan,
-    containerClass = "uni-virtual-list",
-    containerAttrs = Seq(role -> "listbox", label.map(ariaLabel -> _).getOrElse(DomNode.empty)),
-    containerStyle = "",
-    spacerAttrs = Seq(role -> "presentation"),
-    rowRole = "option",
-    rowAttrs =
-      (_, i, count) =>
-        Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
-    renderRow = renderRow,
-    selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
-    onSelect = onSelectFn,
-    typeaheadLabel = typeahead,
-    extraKey = (_, _, _) => false,
-    header = DomNode.empty,
-    changeHandler = changeHandler,
-    slot = "virtual-list"
-  )
+  override def render: RxElement =
+    val reorder = reorderable.map { o =>
+      val r = Reorder
+        .by(o, label = typeahead.getOrElse((a: A) => String.valueOf(key(a))))(key)
+        .onChange(changeHandler)
+      multiSelected.foreach(r.withSelection)
+      r
+    }
+    ListCore[A, K](
+      items,
+      key,
+      rowHeight,
+      overscan,
+      containerClass = "uni-virtual-list",
+      containerAttrs = Seq(role -> "listbox", label.map(ariaLabel -> _).getOrElse(DomNode.empty)),
+      containerStyle = "",
+      spacerAttrs = Seq(role -> "presentation"),
+      rowRole = "option",
+      rowAttrs =
+        (_, i, count) =>
+          Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
+      renderRow = renderRow,
+      selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
+      onSelect = onSelectFn,
+      typeaheadLabel = typeahead,
+      extraKey = (_, _, _) => false,
+      header = DomNode.empty,
+      changeHandler = changeHandler,
+      slot = "virtual-list",
+      reorder = reorder
+    )
+
+  end render
 
 end VirtualList
 
@@ -146,5 +177,6 @@ object VirtualList:
       overscan = defaultOverscan,
       typeahead = None,
       changeHandler = ChangeGate.noHandler,
-      multiSelected = None
+      multiSelected = None,
+      reorderable = None
     )

@@ -208,6 +208,139 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  private def wait(ms: Int): Rx[Unit] =
+    val p = scala.concurrent.Promise[Unit]()
+    dom.window.setTimeout(() => p.success(()), ms)
+    Rx.future(p.future)(using scala.concurrent.ExecutionContext.parasitic)
+
+  private def center(el: dom.Element): (Double, Double) =
+    val r = el.getBoundingClientRect()
+    (r.left + r.width / 2, r.top + r.height / 2)
+
+  test("Alt+Arrow keys move the active row of a reorderable list, even far down a long list") {
+    val items  = Rx.variable[Seq[Int]](1 to 1000)
+    var cancel = false
+    val seen   = scala.collection.mutable.ArrayBuffer.empty[ChangeDetails[Any]]
+    val m      = mount(
+      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+        .withReorder(items)
+        .onChange { d =>
+          seen += d
+          if cancel then
+            d.cancel()
+        }(styleAttr += "height: 200px")
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      list.focus()
+      fireEvent.keyDown(list, "End")
+      activeRow(list).map(_.textContent) shouldBe Some("Item 1000")
+      fireEvent.keyDown(list, "Home", altKey = true)
+      items.get.take(3) shouldBe Seq(1000, 1, 2)
+      seen.last.key shouldBe "order"
+      seen.last.reason shouldBe ChangeReason.NavigationKey
+      seen.last.source shouldBe ChangeSource.Keyboard
+      // The moved row stays active and comes into view
+      activeRow(list).map(_.textContent) shouldBe Some("Item 1000")
+      list.scrollTop shouldBe 0
+      fireEvent.keyDown(list, "ArrowDown", altKey = true)
+      items.get.take(3) shouldBe Seq(1, 1000, 2)
+      cancel = true
+      fireEvent.keyDown(list, "ArrowDown", altKey = true)
+      items.get.take(3) shouldBe Seq(1, 1000, 2)
+      // Without Alt, the keys still navigate
+      fireEvent.keyDown(list, "ArrowDown")
+      activeRow(list).map(_.textContent) shouldBe Some("Item 2")
+    }
+  }
+
+  test("a reorderable multi-select list moves the selected rows together") {
+    val items = Rx.variable[Seq[Int]](1 to 6)
+    val keys  = Rx.variable(Set.empty[Int])
+    val m     = mount(
+      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+        .withMultiSelect(keys)
+        .withReorder(items)
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      fireEvent.click(m.getByText("Item 2"))
+      fireEvent.click(m.getByText("Item 4"), ctrlKey = true)
+      keys.get shouldBe Set(2, 4)
+      list.focus()
+      fireEvent.keyDown(list, "ArrowDown", altKey = true)
+      items.get shouldBe Seq(1, 3, 5, 2, 4, 6)
+      find("[data-slot=announcer][aria-live=polite]").map(_.textContent) shouldMatch {
+        case Some(t) if t.contains("Moved 2 items to position 4 of 6") =>
+      }
+    }
+  }
+
+  test("dragging a row past the edge of a reorderable list scrolls it and drops below") {
+    val items = Rx.variable[Seq[Int]](1 to 200)
+    val m     = mount(
+      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}")).withReorder(items)(
+        styleAttr += "height: 200px"
+      )
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle()
+      .flatMap { _ =>
+        val row    = m.getByText("Item 1").closest(".uni-list__row")
+        val (x, y) = center(row)
+        fireEvent.pointerDown(row, clientX = x, clientY = y)
+        fireEvent.pointerMove(
+          dom.window,
+          clientX = x,
+          clientY = list.getBoundingClientRect().bottom - 1
+        )
+        row.getAttribute("data-dragging") shouldBe "true"
+        (dom.document.activeElement eq list) shouldBe true
+        wait(600)
+      }
+      .map { _ =>
+        // Far enough that the dragged row itself has left the rendered window
+        (list.scrollTop > 300) shouldBe true
+        m.queryAll(".uni-list__row").exists(_.textContent == "Item 1") shouldBe false
+        fireEvent.pointerUp(
+          dom.window,
+          clientX = 0,
+          clientY = list.getBoundingClientRect().bottom - 1
+        )
+        (items.get.indexOf(1) > 20) shouldBe true
+        items.get.sorted shouldBe (1 to 200)
+      }
+  }
+
+  test("a reorderable data table moves rows only while it is unsorted") {
+    val rows = Rx.variable(calls)
+    val sort = Rx.variable(Option(SortBy("millis")))
+    val m    = mount(
+      DataTable(rows)(_.id)(
+        Column[Call]("method", "Method")(c => span(c.method)),
+        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")).sortBy(_.millis)
+      ).withSort(sort).withReorder(rows)
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.focus()
+      fireEvent.keyDown(table, "ArrowDown", altKey = true)
+      rows.get shouldBe calls
+      val first  = m.getByText("get").closest(".uni-list__row")
+      val (x, y) = center(first)
+      fireEvent.pointerDown(first, clientX = x, clientY = y)
+      fireEvent.pointerMove(dom.window, clientX = x, clientY = y + 40)
+      first.getAttribute("data-dragging") shouldBe "false"
+      fireEvent.pointerUp(dom.window, clientX = x, clientY = y + 40)
+      rows.get shouldBe calls
+
+      sort := None
+      // The active row is the first one, "list"
+      fireEvent.keyDown(table, "ArrowDown", altKey = true)
+      rows.get.map(_.method) shouldBe Seq("send", "list", "get")
+    }
+  }
+
   private case class FileNode(name: String, kids: Seq[FileNode] = Seq.empty)
 
   private val files = Seq(

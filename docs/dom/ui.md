@@ -195,9 +195,9 @@ div(
 
 | Component | What it does |
 |-----------|--------------|
-| `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)` |
+| `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)` |
 | `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
-| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection |
+| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)` |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
 - **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
@@ -222,8 +222,17 @@ div(
 - **Multi-select in a table.** Shift with Home or End extends the selection to the first or last
   row instead of moving along the row, since rows are what a table selects. Plain Home and End
   still go to the row's first and last cell.
-- **State.** Selection, open tree rows, and the sort are `RxVar`s you can pass in, so the app can
-  set them or save them, for example with `Storage.local`.
+- **Reordering.** `.withReorder(itemsVar)` on a list or table lets the user move rows, as
+  [`Reorder`](./behaviors#reorder) does: drag a row (near the top or bottom edge the list
+  scrolls), or press Alt+ArrowUp, Alt+ArrowDown, Alt+Home, or Alt+End to move the highlighted
+  row. Pass the `RxVar` the component shows; the new order is written there after `onChange`
+  sees it with the key `order`, and each move is announced. With `.withMultiSelect`, a selected
+  row moves the whole selection as one block. The keys work by position, so they move a row far
+  down a long list, and a drag keeps going after the dragged row scrolls out of the window. A
+  table can't be reordered while a column sort is applied; clear the sort to move rows. An AI
+  agent can move a row with the `move` action (see [Agents](#agents)).
+- **State.** Selection, open tree rows, the sort, and the order are `RxVar`s you can pass in, so
+  the app can set them or save them, for example with `Storage.local`.
 - **The palette.** While the query is empty, the palette lists commands in order under their
   groups. Once the user types, the best matches come first, with the matched letters marked. It
   closes before running a command, so focus goes back to where it was. uni-ui doesn't bind ⌘K, so
@@ -244,6 +253,22 @@ CommandPalette(
 
 `wvlet.uni.ui.base` holds the logic they run on, with no DOM: `Windowing` (which rows to render),
 `ListNavigation`, `TreeModel` (flattening and the tree keys), and `Fuzzy` (matching and scores).
+
+A reorderable task list, where the selected tasks move together:
+
+```scala
+case class Task(id: Int, title: String)
+
+val tasks  = Rx.variable(Seq(Task(1, "Write"), Task(2, "Review"), Task(3, "Ship")))
+val picked = Rx.variable(Set.empty[Int])
+
+VirtualList(tasks, rowHeight = 32)(_.id)(t => span(t.title))
+  .withLabel("Tasks")
+  .withTypeahead(_.title)
+  .withMultiSelect(picked)
+  .withReorder(tasks)
+  .onChange(d => if d.key == "order" && d.source == ChangeSource.Agent then d.cancel())
+```
 
 ## Dock
 
@@ -297,7 +322,8 @@ Dock(layout, "Dock")(
 ## Changes
 
 Components write user input into the `RxVar`s you pass them: `open`, `selected`, a field's
-text, a tree's open rows, a table's sort, a splitter's size, a dock's layout. `onChange` sees
+text, a tree's open rows, a table's sort, a reorderable list's order, a splitter's size, a
+dock's layout. `onChange` sees
 each such change before it lands. The handler gets a `ChangeDetails` with the `key` that
 changes, the new `value` and the `previous` one, a `reason`, and a `source`. Calling
 `cancel()` keeps the old value:
@@ -363,7 +389,8 @@ agent.changes(since = 0)                              // what people changed, an
 ```
 
 - **Actions.** `press` (button, menu item), `setText` (text field), `select` (select, tabs,
-  list, tree), `sort` (table), `open`/`close` (menu), and `close` (dialog). The agent's change
+  list, tree), `sort` (table), `move` (a list or table with `.withReorder`, as `"Review to 1"`),
+  `open`/`close` (menu), and `close` (dialog). The agent's change
   goes through the component's `onChange` with `ChangeSource.Agent`, so a handler can cancel
   it, and `act` then reports `canceled`.
 - **Policy.** `AgentPolicy.allowAll` (the default), `AgentPolicy.readOnly`, or
