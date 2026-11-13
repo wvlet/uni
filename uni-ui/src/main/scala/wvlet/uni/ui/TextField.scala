@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 
 import scala.language.implicitConversions
 
@@ -66,7 +67,16 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
     following.cancel
     following = Cancelable.empty
 
+  private object agentBinding extends AgentBinding:
+    override def kind: String           = "textfield"
+    override def value: Option[String]  = Some(gated.get)
+    override def states: Seq[AnyRef]    = Seq(text)
+    override def actions: Seq[AgentAction] = Seq(
+      AgentAction.text("setText", "Replace the field's text")(v => gated := v)
+    )
+
   def modifiers: Seq[DomNode] = Seq(
+    AgentRegistry.attach(agentBinding),
     value.bind(gated),
     EventListenerBinding("compositionstart", _ => composing = true),
     EventListenerBinding(

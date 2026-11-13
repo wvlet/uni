@@ -16,6 +16,7 @@ package wvlet.uni.ui
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 
 import scala.language.implicitConversions
 
@@ -90,6 +91,7 @@ class Button private (
       cls      -> s"uni-button uni-button--${variant.cssName} uni-button--${size.cssName}${shape}",
       disabled -> disabledState,
       data("slot") -> "button",
+      AgentRegistry.attach(Button.binding),
       label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
       // A listener, so an app's own `onclick` modifier runs alongside the action. Browsers drop
       // real clicks on a disabled button, but not ones dispatched from scripts
@@ -108,6 +110,11 @@ end Button
 
 object Button:
   // `new` is required in this file: the `apply(content*)` below replaces the constructor proxy
+
+  private[ui] def binding: AgentBinding =
+    new AgentBinding:
+      override def kind: String              = "button"
+      override def actions: Seq[AgentAction] = Seq(AgentAction.press(this))
   private val noAction: () => Unit = () => ()
 
   def apply(content: DomNode*): Button =

@@ -249,7 +249,8 @@ class Tree[A, K] private (
     extraKey = (e, i, moveTo) => onKey(e, i, moveTo),
     header = DomNode.empty,
     changeHandler = changeHandler,
-    slot = "tree"
+    slot = "tree",
+    agentKind = "tree"
   )
 
 end Tree

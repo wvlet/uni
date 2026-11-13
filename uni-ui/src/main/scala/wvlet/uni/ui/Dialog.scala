@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.RxVar
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 import wvlet.uni.ui.base.*
 
 import scala.language.implicitConversions
@@ -139,6 +140,16 @@ class Dialog private (
       case _ =>
         None
 
+  private object agentBinding extends AgentBinding:
+    override def kind: String              = "dialog"
+    override def states: Seq[AnyRef]       = Seq(open)
+    override def format(v: Any): String    = Popover.stateName(v == true)
+    override def actions: Seq[AgentAction] = Seq(
+      AgentAction("close", "Close the dialog, like Escape")(() =>
+        ChangeCause.during(AgentAction.cause(ChangeReason.Imperative))(dismiss())
+      )
+    )
+
   private def surface(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
     div(
@@ -150,6 +161,7 @@ class Dialog private (
         cls          -> classes("uni-dialog"),
         role         -> dialogRole,
         data("slot") -> slot,
+        AgentRegistry.attach(agentBinding),
         accessibleName.map(n => ariaLabel -> n).getOrElse(DomNode.empty),
         ariaModal     -> "true",
         tabindex      -> "-1",

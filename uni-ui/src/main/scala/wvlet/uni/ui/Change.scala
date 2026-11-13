@@ -218,6 +218,7 @@ private[ui] object ChangeGate:
     else
       val d = ChangeDetails(key, value, previous, cause.reason, ChangeSource.resolve(cause.source))
       handler(d)
+      agent.AgentRegistry.report(target, d)
       if d.canceled then
         false
       else
