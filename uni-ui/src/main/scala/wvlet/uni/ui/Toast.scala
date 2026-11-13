@@ -16,7 +16,7 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Cancelable, Rx}
 
 import scala.collection.mutable
 import scala.language.implicitConversions
@@ -49,6 +49,10 @@ class Toaster extends RxElement:
   private val items  = Rx.variable(Seq.empty[Toast])
   private val timers = mutable.Map.empty[Int, Int]
   private var nextId = 0
+  // The toasts in the document: `items` plus dismissed ones still playing their exit animation
+  private val onScreen = Rx.variable(Seq.empty[Toast])
+  private val elements = mutable.Map.empty[Int, DomRef[dom.HTMLElement]]
+  private val exits    = mutable.Map.empty[Int, Cancelable]
 
   /** The toasts on screen, oldest first. */
   def toasts: Rx[Seq[Toast]] = items
@@ -67,6 +71,7 @@ class Toaster extends RxElement:
     nextId += 1
     val t = Toast(nextId, message, variant, durationMs)
     items.update(_ :+ t)
+    onScreen.update(_ :+ t)
     startTimer(t)
     t.id
 
@@ -90,11 +95,33 @@ class Toaster extends RxElement:
 
   def dismiss(id: Int): Unit =
     stopTimer(id)
+    // Start the exit first: without an animation the toast is gone when `toasts` drops it
+    leave(id)
     items.update(_.filterNot(_.id == id))
 
   def clear(): Unit =
+    val ids = items.get.map(_.id)
     timers.keys.toSeq.foreach(stopTimer)
+    ids.foreach(leave)
     items := Seq.empty
+
+  // Keeps the toast on screen until its exit animation ends
+  private def leave(id: Int): Unit =
+    def remove(): Unit =
+      exits.remove(id)
+      elements.remove(id)
+      onScreen.update(_.filterNot(_.id == id))
+    elements.get(id).flatMap(_.current) match
+      case Some(el) if !exits.contains(id) =>
+        // Hold a placeholder first: the animation may end (and call remove) right away
+        exits(id) = Cancelable.empty
+        val c = ExitAnimation.run(el)(() => remove())
+        if exits.contains(id) then
+          exits(id) = c
+      case Some(_) =>
+        () // Already leaving
+      case None =>
+        remove()
 
   private def startTimer(t: Toast): Unit =
     stopTimer(t.id)
@@ -105,14 +132,17 @@ class Toaster extends RxElement:
 
   private def view(t: Toast): RxElement =
     // Resume only when neither the pointer nor focus is on the toast
-    var hovered        = false
-    var focused        = false
+    var hovered = false
+    var focused = false
+    val ref     = DomRef[dom.HTMLElement]()
+    elements(t.id) = ref
     def pause(): Unit  = stopTimer(t.id)
     def resume(): Unit =
       if !hovered && !focused then
         startTimer(t)
     div(
       cls -> s"uni-toast uni-toast--${t.variant.cssName}",
+      ref.binding,
       if t.variant == ToastVariant.Error then
         role -> "alert"
       else
@@ -155,12 +185,17 @@ class Toaster extends RxElement:
         cls       -> "uni-toaster",
         ariaLabel -> "Notifications",
         ariaLive  -> "polite",
-        each(items)(_.id)(view)
+        each(onScreen)(_.id)(view)
       )
     )
   )
 
-  override def beforeUnmount: Unit = timers.keys.toSeq.foreach(stopTimer)
+  override def beforeUnmount: Unit =
+    timers.keys.toSeq.foreach(stopTimer)
+    exits.values.foreach(_.cancel)
+    exits.clear()
+    // Toasts that were leaving don't come back if the Toaster mounts again
+    onScreen := items.get
 
 end Toaster
 

@@ -220,7 +220,8 @@ class Menu private (
         open := true
       case _ =>
 
-  private def list: RxElement = OverlaySurface(
+  private def list(exit: Presence.Exit): RxElement = OverlaySurface(
+    exit,
     MenuList.render(menuId, entries, Some(triggerId), () => open := false),
     anchor = () => triggerRef.current.map(Rect.of),
     inside = el => el +: triggerRef.current.toSeq,
@@ -252,12 +253,7 @@ class Menu private (
     data("state") -> open.map(Popover.stateName),
     EventListenerBinding("click", _ => open.update(!_)),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
-    open.map { o =>
-      if o then
-        Portal.toBody(list)
-      else
-        DomNode.empty
-    }
+    Presence(open)(exit => Portal.toBody(list(exit)))
   )
 
 end Menu
@@ -297,7 +293,8 @@ class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
     open := false
     open := true
 
-  private def list: RxElement = OverlaySurface(
+  private def list(exit: Presence.Exit): RxElement = OverlaySurface(
+    exit,
     MenuList.render(menuId, entries, None, () => open := false),
     anchor = () => Some(at),
     inside = el => Seq(el),
@@ -314,12 +311,7 @@ class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
   override def render: RxElement = target(
     targetRef.binding,
     EventListenerBinding("contextmenu", onContextMenu),
-    open.map { o =>
-      if o then
-        Portal.toBody(list)
-      else
-        DomNode.empty
-    }
+    Presence(open)(exit => Portal.toBody(list(exit)))
   )
 
 end ContextMenu

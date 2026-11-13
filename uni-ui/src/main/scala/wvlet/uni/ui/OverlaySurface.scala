@@ -22,9 +22,10 @@ import scala.scalajs.js
 
 /**
   * The open state of one overlay: renders `content`, and once it is in the document places it next
-  * to the anchor, joins the [[Dismiss]] stack, and moves focus into it. As it unmounts, it leaves
-  * the stack and returns focus. Each overlay component renders one inside `Portal.toBody` while it
-  * is open.
+  * to the anchor, joins the [[Dismiss]] stack, and moves focus into it. When `exit.open` turns
+  * false it closes at once (leaves the stack and returns focus), then plays its [[ExitAnimation]]
+  * and calls `exit.done` so [[Presence]] unmounts it. Each overlay component renders one inside
+  * `Portal.toBody` through `Presence`.
   *
   * @param anchor
   *   the rectangle to place the overlay next to; None leaves placement to CSS (dialogs, toasts)
@@ -38,6 +39,7 @@ import scala.scalajs.js
   *   presses keep going to the menu or dialog under it
   */
 private[ui] class OverlaySurface(
+    exit: Presence.Exit,
     content: RxElement,
     anchor: () => Option[Rect],
     inside: dom.HTMLElement => Seq[dom.Element],
@@ -55,11 +57,36 @@ private[ui] class OverlaySurface(
   private var cleanup: Cancelable              = Cancelable.empty
   private var focusReturn: Option[FocusReturn] = None
   private var unmounted                        = false
+  private var closing                          = false
+  private var watch: Cancelable                = Cancelable.empty
+  private var exiting: Cancelable              = Cancelable.empty
 
   // Runs as the overlay opens, while focus is still on the trigger
   override def beforeRender: Unit =
     if returnFocus then
       focusReturn = Some(FocusReturn())
+    watch.cancel
+    watch = exit
+      .open
+      .subscribe { o =>
+        if !o then
+          close()
+      }
+
+  // Closes at once, so focus and Escape move on while the exit animation still plays
+  private def close(): Unit =
+    if !closing && !unmounted then
+      closing = true
+      cleanup.cancel
+      cleanup = Cancelable.empty
+      focusReturn.foreach(_.restore(root))
+      focusReturn = None
+      root match
+        case Some(el) =>
+          exiting = ExitAnimation.run(el)(exit.done)
+        case None =>
+          // Closed before it reached the document: nothing to animate
+          exit.done()
 
   override def render: RxElement = content
 
@@ -73,7 +100,7 @@ private[ui] class OverlaySurface(
   override def onMount(node: Any): Unit =
     node match
       // onMount fires a step after rendering: skip it when the overlay already closed
-      case el: dom.HTMLElement if !unmounted && dom.document.contains(el) =>
+      case el: dom.HTMLElement if !unmounted && !closing && dom.document.contains(el) =>
         root = Some(el)
         reposition()
         val layer =
@@ -103,6 +130,8 @@ private[ui] class OverlaySurface(
 
   override def beforeUnmount: Unit =
     unmounted = true
+    watch.cancel
+    exiting.cancel
     cleanup.cancel
     cleanup = Cancelable.empty
     focusReturn.foreach(_.restore(root))

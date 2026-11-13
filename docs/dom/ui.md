@@ -148,6 +148,11 @@ They all behave the same way:
   items, and Enter or Space chooses one.
 - **Placement.** An anchored overlay flips to the other side of its trigger when there's no room,
   and shifts to stay inside the window. Its final side is in `data-side`.
+- **Animation.** Overlays fade in on open and out on close. A closing overlay gets
+  `data-state="closed"` and `inert`, and stays in the document until its exit animation ends.
+  Focus and Escape have already moved on by then. Style
+  `.uni-popover[data-state='closed']` (and the other overlay classes) to change the exit; with
+  `animation: none`, or under `prefers-reduced-motion`, overlays unmount at once.
 
 `wvlet.uni.ui.base` holds the pieces they share, for building your own overlay: `Anchored.place`
 (placement math), `Dismiss` (the Escape and outside-press stack), `FocusTrap`, and `FocusReturn`.

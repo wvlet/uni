@@ -61,7 +61,8 @@ class Popover private (
   def withLabel(l: String): Popover = copy(label = Some(l))
   def noLabel(): Popover            = copy(label = None)
 
-  private def panel: RxElement = OverlaySurface(
+  private def panel(exit: Presence.Exit): RxElement = OverlaySurface(
+    exit,
     div(
       id            -> contentId,
       cls           -> "uni-popover",
@@ -91,12 +92,7 @@ class Popover private (
     ariaControls  -> contentId,
     data("state") -> open.map(Popover.stateName),
     EventListenerBinding("click", _ => open.update(!_)),
-    open.map { o =>
-      if o then
-        Portal.toBody(panel)
-      else
-        DomNode.empty
-    }
+    Presence(open)(exit => Portal.toBody(panel(exit)))
   )
 
 end Popover

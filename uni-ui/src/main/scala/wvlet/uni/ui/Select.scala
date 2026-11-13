@@ -114,11 +114,12 @@ class Select[A] private (
         open := true
       case _ =>
 
-  private def list: RxElement =
+  private def list(exit: Presence.Exit): RxElement =
     active := Some(selected.get)
     // As wide as the trigger at least, so the list lines up under it
     val minWidth = triggerRef.current.map(t => s"min-width: ${Rect.of(t).width}px").getOrElse("")
     OverlaySurface(
+      exit,
       div(
         id            -> listId,
         cls           -> "uni-listbox",
@@ -197,12 +198,7 @@ class Select[A] private (
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
     span(cls -> "uni-select__value", selected.map(optionLabel)),
     span(cls -> "uni-select__chevron", ariaHidden -> "true"),
-    open.map { o =>
-      if o then
-        Portal.toBody(list)
-      else
-        DomNode.empty
-    }
+    Presence(open)(exit => Portal.toBody(list(exit)))
   )
 
 end Select
