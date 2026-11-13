@@ -138,7 +138,8 @@ class Toaster extends RxElement:
     elements(t.id) = ref
     def pause(): Unit  = stopTimer(t.id)
     def resume(): Unit =
-      if !hovered && !focused then
+      // A leaving toast loses hover and focus as it turns inert: don't start a new timer for it
+      if !hovered && !focused && !exits.contains(t.id) then
         startTimer(t)
     div(
       cls -> s"uni-toast uni-toast--${t.variant.cssName}",
@@ -196,6 +197,7 @@ class Toaster extends RxElement:
     exits.clear()
     // Toasts that were leaving don't come back if the Toaster mounts again
     onScreen := items.get
+    elements.filterInPlace((id, _) => items.get.exists(_.id == id))
 
 end Toaster
 
