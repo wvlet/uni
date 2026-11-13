@@ -532,12 +532,14 @@ class Dock private (
         closeTab(panel, tabs, ChangeCause.of(ChangeReason.DeleteKey, e))
       else if e.altKey then
         // Alt+ArrowLeft/Right, Home, End: move the tab within its group, as Reorder does in a list
-        if !e.ctrlKey && !e.metaKey && !e.shiftKey then
+        if !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+          Reorder.isMoveKey(e.key, Orientation.Horizontal)
+        then
+          // Even when the tab can't move further, so Alt+ArrowLeft doesn't go Back in the browser
+          e.preventDefault()
           Reorder
             .keyTarget(e.key, i, tabs.size, Orientation.Horizontal)
             .foreach { to =>
-              // Also keeps Alt+ArrowLeft from going Back in the browser
-              e.preventDefault()
               // DockModel.move takes an insertion point in the tabs before the move
               val at =
                 if to > i then

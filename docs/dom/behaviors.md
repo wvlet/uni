@@ -194,8 +194,8 @@ ul(
 - uni-ui.css marks the dragged item (`data-dragging="true"`) and the drop line
   (`data-drop="before"` or `"after"`). Restyle them with `[data-reorder-item][data-drop]`.
 - `reorder.moveTo(k, index)` moves an item from code, and `Reorder.moved`, `Reorder.dropIndex`,
-  and `Reorder.keyTarget` are the pure math, for widgets that do their own drag. The Dock uses the
-  same keys to move a tab within its group.
+  and `Reorder.keyTarget` are the pure math, for widgets that do their own drag. In the Dock,
+  Alt+ArrowLeft, Alt+ArrowRight, Alt+Home, and Alt+End move a tab within its group.
 
 ## FocusRecovery
 

@@ -146,6 +146,9 @@ class DockTest extends DomTestSupport:
     tabTexts(m) shouldBe Seq(Seq("b", "c", "a"))
     fireEvent.keyDown(tabOf(m, "a"), "ArrowLeft", altKey = true)
     tabTexts(m) shouldBe Seq(Seq("b", "a", "c"))
+    // At the start, nothing moves, but the browser still doesn't go Back
+    fireEvent.keyDown(tabOf(m, "b"), "ArrowLeft", altKey = true) shouldBe false
+    tabTexts(m) shouldBe Seq(Seq("b", "a", "c"))
     settle().map { _ =>
       active shouldBe tabOf(m, "a")
     }

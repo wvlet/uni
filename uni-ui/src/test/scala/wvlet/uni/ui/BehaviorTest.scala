@@ -258,6 +258,24 @@ class BehaviorTest extends DomTestSupport:
     find("li.item-a").getAttribute("data-dragging") shouldBe "false"
   }
 
+  test("reorder keeps the browser default off at the ends, and leaves keys in a field alone") {
+    val order   = Rx.variable(Seq("a", "b"))
+    val reorder = Reorder(order, orientation = Orientation.Horizontal)
+    mount(
+      div(
+        order.each(identity)(t =>
+          div(cls -> s"item-${t}", tabindex -> "0", reorder.item(t), input(cls -> s"field-${t}"))
+        )
+      )
+    )
+    fireEvent.keyDown(find(".item-a"), "ArrowLeft", altKey = true) shouldBe false
+    order.get shouldBe Seq("a", "b")
+    fireEvent.keyDown(find(".field-a"), "ArrowRight", altKey = true) shouldBe true
+    order.get shouldBe Seq("a", "b")
+    fireEvent.keyDown(find(".item-a"), "ArrowRight", altKey = true)
+    order.get shouldBe Seq("b", "a")
+  }
+
   test("a canceled reorder keeps the order") {
     val order   = Rx.variable(Seq("a", "b"))
     val reorder = Reorder(order).onChange(_.cancel())

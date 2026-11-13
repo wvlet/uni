@@ -52,6 +52,7 @@ class Reorder[K](
   private val dropVar: RxVar[Option[Int]]  = Rx.variable(None)
   private val elements                     = scala.collection.mutable.Map.empty[K, dom.HTMLElement]
   private var dragStart: (Double, Double)  = (0, 0)
+  private var dragActive: Boolean          = false
   private var dragMoved: Boolean           = false
   private var suppressClick: Boolean       = false
   private var stopDrag: () => Unit         = () => ()
@@ -105,16 +106,16 @@ class Reorder[K](
     EventListenerBinding(
       "keydown",
       {
-        case e: dom.KeyboardEvent if e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey =>
+        case e: dom.KeyboardEvent
+            if e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+              Reorder.isMoveKey(e.key, orientation) && !Reorder.inField(e.target) =>
+          // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
+          e.preventDefault()
+          e.stopPropagation()
           val o = order.get
           Reorder
             .keyTarget(e.key, o.indexOf(k), o.size, orientation)
-            .foreach { to =>
-              // Also keeps Alt+ArrowLeft from going Back in the browser
-              e.preventDefault()
-              e.stopPropagation()
-              moveTo(k, to, ChangeCause.of(ChangeReason.NavigationKey, e))
-            }
+            .foreach(to => moveTo(k, to, ChangeCause.of(ChangeReason.NavigationKey, e)))
         case _ =>
       }
     ),
@@ -122,7 +123,8 @@ class Reorder[K](
       onMove = (dx, dy) => moveDrag(k, dx, dy),
       onStart = startDrag,
       onEnd = () => endDrag(k),
-      canStart = Reorder.canStart
+      // One drag at a time: a second finger on another item doesn't start another
+      canStart = e => !dragActive && Reorder.canStart(e)
     ).bind
   )
 
@@ -144,6 +146,7 @@ class Reorder[K](
   // --- Pointer drag ------------------------------------------------------------------------------
 
   private def startDrag(e: dom.PointerEvent): Unit =
+    dragActive = true
     dragStart = (e.clientX, e.clientY)
     dragMoved = false
     val cancel: js.Function1[dom.Event, Unit] =
@@ -210,6 +213,7 @@ class Reorder[K](
 
   private def endDrag(k: K): Unit =
     stopDrag()
+    dragActive = false
     if dragMoved then
       suppressClick = true
       dom.window.setTimeout(() => suppressClick = false, 0)
@@ -246,10 +250,27 @@ object Reorder:
       case (t: dom.Element, item: dom.Element) =>
         val fromHandle = Option(t.closest("[data-reorder-handle]")).exists(item.contains)
         val hasHandle  = item.querySelector("[data-reorder-handle]") != null
-        fromHandle ||
-        (!hasHandle && t.closest("input, textarea, select, [contenteditable]") == null)
+        fromHandle || (!hasHandle && !inField(t))
       case _ =>
         true
+
+  // Keys and presses in a text field belong to the field
+  private def inField(t: dom.EventTarget): Boolean =
+    t match
+      case el: dom.Element =>
+        el.closest("input, textarea, select, [contenteditable]") != null
+      case _ =>
+        false
+
+  /** Whether Alt+`key` is a [[keyTarget]] key along `orientation`, whether or not it moves. */
+  def isMoveKey(key: String, orientation: Orientation = Orientation.Vertical): Boolean =
+    key == "Home" || key == "End" || (
+      orientation match
+        case Orientation.Vertical =>
+          key == "ArrowUp" || key == "ArrowDown"
+        case Orientation.Horizontal =>
+          key == "ArrowLeft" || key == "ArrowRight"
+    )
 
   /** `order` with the item at `from` moved to position `to`, clamped to the list. */
   def moved[K](order: Seq[K], from: Int, to: Int): Seq[K] =
