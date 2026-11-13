@@ -21,6 +21,7 @@ import java.net.http.HttpClient.Redirect
 import java.net.http.HttpRequest.BodyPublishers
 import java.net.http.HttpResponse.BodyHandlers
 import java.net.http.HttpClient
+import java.util.concurrent.{CancellationException, CompletableFuture, ExecutionException}
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.function.Consumer
 import java.util.zip.{GZIPInputStream, InflaterInputStream}
@@ -109,39 +110,51 @@ private[http] object JavaHttpChannelHelper:
       inputStream.close()
 
   /**
-    * Stream chunks read from the input stream returned by `open`. Reading runs on the blocking
-    * scheduler and starts only once the stream is subscribed, so no chunk is emitted before the
-    * subscriber is ready. An exception thrown by `open` fails the stream.
+    * Stream chunks read from the input stream returned by `open`. Each subscription calls `open`
+    * on the blocking scheduler once it is subscribed, so no chunk is emitted before the subscriber
+    * is ready, and one subscription's request is independent of another's. An exception thrown by
+    * `open` fails the stream. Cancelling the subscription before the body ends aborts the transfer
+    * through the given [[StreamTransfer]].
     */
-  def streamChunks(open: () => InputStream): Rx[Array[Byte]] =
-    val source  = Rx.variable[Option[Array[Byte]]](None)
-    val started = AtomicBoolean(false)
+  def streamChunks(open: StreamTransfer => InputStream): Rx[Array[Byte]] = Rx
+    .single(())
+    .flatMap { _ =>
+      val source   = Rx.variable[Option[Array[Byte]]](None)
+      val transfer = StreamTransfer()
+      val started  = AtomicBoolean(false)
 
-    def readAll(): Unit =
-      try
-        val stream = open()
+      def readAll(): Unit =
         try
-          val buffer = new Array[Byte](8192)
-          var len    = stream.read(buffer)
-          while len != -1 do
-            if len > 0 then
-              source.set(Some(java.util.Arrays.copyOf(buffer, len)))
-            len = stream.read(buffer)
-          source.stop()
+          transfer.enter()
+          val stream = transfer.register(open(transfer))
+          try
+            val buffer = new Array[Byte](8192)
+            var len    = stream.read(buffer)
+            while len != -1 do
+              if len > 0 then
+                source.set(Some(java.util.Arrays.copyOf(buffer, len)))
+              len = stream.read(buffer)
+            source.stop()
+          finally
+            stream.close()
+        catch
+          case _: Throwable if transfer.isCancelled =>
+          // Cancelled: the abort's error has no one to report to
+          case e: Throwable =>
+            source.setException(e)
         finally
-          stream.close()
-      catch
-        case e: Throwable =>
-          source.setException(e)
+          transfer.leave()
 
-    source
-      .tap { chunk =>
-        // RxVar emits its current value (None) right after registering a subscriber
-        if chunk.isEmpty && started.compareAndSet(false, true) then
-          RxScheduler.blocking.execute(() => readAll())
-      }
-      .filter(_.isDefined)
-      .map(_.get)
+      source
+        .tap { chunk =>
+          // RxVar emits its current value (None) right after registering a subscriber
+          if chunk.isEmpty && started.compareAndSet(false, true) then
+            RxScheduler.blocking.execute(() => readAll())
+        }
+        .onCancel(transfer.cancel())
+        .filter(_.isDefined)
+        .map(_.get)
+    }
 
   end streamChunks
 
@@ -150,6 +163,74 @@ private[http] object JavaHttpChannelHelper:
       head.contentType.exists(_.isEventStream)
 
 end JavaHttpChannelHelper
+
+/**
+  * The in-flight state of one streamed response, so that a cancel from another thread can abort it.
+  * Cancelling cancels the pending request, closes the body, and interrupts the reader thread while
+  * it is inside the transfer (between `enter` and `leave`), since a blocked read may not notice the
+  * closed body.
+  */
+private[http] class StreamTransfer:
+  private var cancelled                    = false
+  private var reader: Thread               = null
+  private var pending: CompletableFuture[?] = null
+  private var body: InputStream            = null
+
+  def isCancelled: Boolean = synchronized(cancelled)
+
+  def enter(): Unit = synchronized {
+    if cancelled then
+      throw CancellationException("The stream was cancelled")
+    reader = Thread.currentThread()
+  }
+
+  def leave(): Unit =
+    synchronized {
+      reader = null
+    }
+    // Clear an interrupt from cancel() so it doesn't leak into the next task of the pooled thread
+    Thread.interrupted()
+
+  /**
+    * Wait for the response of a request sent with `sendAsync`. Cancelling cancels the request.
+    */
+  def await[A](future: CompletableFuture[A]): A =
+    synchronized {
+      if cancelled then
+        future.cancel(true)
+      pending = future
+    }
+    try future.get()
+    catch
+      case e: ExecutionException if e.getCause != null =>
+        throw e.getCause
+
+  def register(in: InputStream): InputStream =
+    val alreadyCancelled = synchronized {
+      body = in
+      cancelled
+    }
+    if alreadyCancelled then
+      in.close()
+      throw CancellationException("The stream was cancelled")
+    in
+
+  def cancel(): Unit =
+    val (f, in) = synchronized {
+      cancelled = true
+      if reader != null then
+        reader.interrupt()
+      (pending, body)
+    }
+    if f != null then
+      f.cancel(true)
+    if in != null then
+      try in.close()
+      catch
+        case _: Throwable =>
+          ()
+
+end StreamTransfer
 
 /**
   * Synchronous HTTP channel implementation using Java 11+ HttpClient.
@@ -169,7 +250,7 @@ class JavaHttpChannel extends HttpChannel:
     if isEventStreamResponse(request, head) then
       // Leave the event stream unread; the client dispatches the events to the request's handler
       head.withEvents(
-        ServerSentEventParser.parseStream(streamChunks(() => openBody(head, httpResp)))
+        ServerSentEventParser.parseStream(streamChunks(_ => openBody(head, httpResp)))
       )
     else
       readResponseBody(head, httpResp)
@@ -217,16 +298,20 @@ class JavaHttpAsyncChannel extends HttpAsyncChannel:
     deferred.get
 
   override def sendStreaming(request: Request, config: HttpClientConfig): Rx[Array[Byte]] =
-    streamChunks { () =>
-      javaClient.send(buildRequest(request, config), BodyHandlers.ofInputStream()).body()
+    streamChunks { transfer =>
+      transfer
+        .await(javaClient.sendAsync(buildRequest(request, config), BodyHandlers.ofInputStream()))
+        .body()
     }
 
   override def sendStreaming(
       request: Request,
       config: HttpClientConfig,
       onResponse: Response => Unit
-  ): Rx[Array[Byte]] = streamChunks { () =>
-    val httpResp = javaClient.send(buildRequest(request, config), BodyHandlers.ofInputStream())
+  ): Rx[Array[Byte]] = streamChunks { transfer =>
+    val httpResp = transfer.await(
+      javaClient.sendAsync(buildRequest(request, config), BodyHandlers.ofInputStream())
+    )
     val head     = readResponseHead(httpResp)
     try
       onResponse(head)
