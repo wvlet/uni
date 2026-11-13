@@ -41,12 +41,16 @@ import scala.scalajs.js
   *   a CSS cursor (e.g. "col-resize") shown on the whole page while dragging, so it does not
   *   flicker as the pointer leaves the handle. The previous cursor is restored when the drag ends.
   *   Empty keeps the page cursor.
+  * @param canStart
+  *   whether a `pointerdown` may start a drag, such as only one on a grip inside the element. A
+  *   refused press keeps its default action (focus, text selection).
   */
 class PointerDrag(
     onMove: (Double, Double) => Unit,
     onStart: dom.PointerEvent => Unit = _ => (),
     onEnd: () => Unit = () => (),
-    cursor: String = ""
+    cursor: String = "",
+    canStart: dom.PointerEvent => Boolean = _ => true
 ):
   private val draggingVar: RxVar[Boolean] = Rx.variable(false)
 
@@ -58,7 +62,7 @@ class PointerDrag(
 
   private def start(e: dom.PointerEvent): Unit =
     // Only the primary button (left mouse button, touch, or pen contact) drags
-    if e.button == 0 && !draggingVar.get then
+    if e.button == 0 && !draggingVar.get && canStart(e) then
       // Keep the browser from selecting text or starting a native drag
       e.preventDefault()
       val startX = e.clientX

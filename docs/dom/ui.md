@@ -263,8 +263,9 @@ Dock(layout, "Dock")(
 - **Rearranging.** Drag a tab onto another group's tabs to move it there, onto the middle of a
   group to add it, or onto one of a group's edges to split the group. A preview shows where it will
   land, and Escape cancels. A group that loses its last tab disappears.
-- **Keyboard.** In a tab bar, the arrow keys, Home, and End switch tabs, and Delete closes a
-  closable tab. A tab's context menu (right-click, Shift+F10, or the context-menu key) moves it left,
+- **Keyboard.** In a tab bar, the arrow keys, Home, and End switch tabs. With Alt, the same keys
+  move the focused tab within its group, as [`Reorder`](./behaviors#reorder) does in a list.
+  Delete closes a closable tab. A tab's context menu (right-click, Shift+F10, or the context-menu key) moves it left,
   right, or to the next group, splits it right or down, and closes it. The border between two
   children is a separator: the arrow keys move it, Shift moves it farther, Home and End go to the
   limits, and Enter shares the space equally. No child gets smaller than `.withMinPanelSize(px)`

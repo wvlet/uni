@@ -197,6 +197,11 @@ val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEn
 val picked    = Rx.variable(Set.empty[String])
 val selection = Selection(picked)
 
+// Reorder by drag, or Alt+ArrowUp/Down on a focused item; each move is announced
+val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))
+val reorder = Reorder(tasks)
+val taskList = ul(tasks.each(identity)(t => li(tabindex -> "0", reorder.item(t), t)))
+
 Announce.prepare()                    // once at startup, so the first message is read
 Announce.polite("Response complete")  // screen readers only
 ```

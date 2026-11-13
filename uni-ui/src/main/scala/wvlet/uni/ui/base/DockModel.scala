@@ -421,8 +421,8 @@ object DockModel:
       case (Some(from), Some(DockNode.Group(ps, _))) =>
         // Removing the tab first shifts the later tabs of the same group left by one
         val at =
-          if from == target && ps.indexOf(panel) < index then
-            index - 1
+          if from == target then
+            Reorder.landing(ps.indexOf(panel), index)
           else
             index
         val detached = detach(layout.root, panel)

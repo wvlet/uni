@@ -18,7 +18,16 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.PointerDrag
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.ui.base.{DockModel, DockPath, FocusRecovery, Ids, RovingFocus}
+import wvlet.uni.ui.base.{
+  Announce,
+  DockModel,
+  DockPath,
+  FocusRecovery,
+  Ids,
+  Orientation,
+  Reorder,
+  RovingFocus
+}
 
 import scala.collection.mutable
 import scala.language.implicitConversions
@@ -90,10 +99,11 @@ object DockPanel:
   * The user drags a tab onto another group's tabs to move it there, onto a group's center to add
   * it, or onto one of its edges to split the group. Escape cancels a drag. Without a pointer, a
   * tab's context menu (right-click, Shift+F10, or the context-menu key) moves and splits it. With
-  * focus on a tab, the arrow keys, Home, and End switch tabs, and Delete closes a closable one. The
-  * border between split children is a separator: drag it, or focus it and press the arrow keys
-  * (Shift for larger steps), Home and End for the limits, or Enter to share the space equally. No
-  * child gets smaller than [[withMinPanelSize]].
+  * focus on a tab, the arrow keys, Home, and End switch tabs, the same keys with Alt move the tab
+  * within its group (as [[base.Reorder]] does), and Delete closes a closable one. The border
+  * between split children is a separator: drag it, or focus it and press the arrow keys (Shift for
+  * larger steps), Home and End for the limits, or Enter to share the space equally. No child gets
+  * smaller than [[withMinPanelSize]].
   *
   * The dock is a `div.uni-dock`; groups are `div.uni-dock__group` with a `role="tablist"` of
   * `role="tab"` tabs and a `role="tabpanel"`, and `data-top="true"` on the groups along the top
@@ -508,7 +518,7 @@ class Dock private (
     if setLayout(DockModel.close(now, panel), cause) then
       FocusRecovery.neighbor(tabs, panel).foreach(focusTab)
 
-  private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String]): Unit =
+  private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String], path: DockPath): Unit =
     val focused = Option(e.target)
       .collect { case el: dom.Element =>
         el.closest("[role=tab]")
@@ -520,6 +530,30 @@ class Dock private (
       if e.key == "Delete" && byId.get(panel).exists(_.closable) then
         e.preventDefault()
         closeTab(panel, tabs, ChangeCause.of(ChangeReason.DeleteKey, e))
+      else if e.altKey then
+        // Alt+ArrowLeft/Right, Home, End: move the tab within its group, as Reorder does in a list
+        if !e.ctrlKey && !e.metaKey && !e.shiftKey &&
+          Reorder.isMoveKey(e.key, Orientation.Horizontal)
+        then
+          // Even when the tab can't move further, so Alt+ArrowLeft doesn't go Back in the browser
+          e.preventDefault()
+          Reorder
+            .keyTarget(e.key, i, tabs.size, Orientation.Horizontal)
+            .foreach { to =>
+              // DockModel.move takes an insertion point in the tabs before the move
+              val at =
+                if to > i then
+                  to + 1
+                else
+                  to
+              val cause = ChangeCause.of(ChangeReason.NavigationKey, e)
+              if setLayout(DockModel.move(now, panel, path, at), cause) then
+                Announce.polite(
+                  s"Moved ${byId.get(panel).map(_.title).getOrElse(panel)} to position ${to +
+                      1} of ${tabs.size}"
+                )
+                focusTab(panel)
+            }
       else
         RovingFocus
           .nextIndex(e.key, math.max(i, 0), tabs.size)
@@ -532,7 +566,10 @@ class Dock private (
                   el.focus()
                 case _ =>
           }
+      end if
     }
+
+  end onTabKey
 
   // --- Layout nodes ------------------------------------------------------------------------------
 
@@ -572,7 +609,10 @@ class Dock private (
           cls          -> "uni-dock__tabs",
           data("slot") -> "dock-tabs",
           ariaLabel    -> name,
-          EventListenerBinding("keydown", e => onTabKey(e.asInstanceOf[dom.KeyboardEvent], tabs)),
+          EventListenerBinding(
+            "keydown",
+            e => onTabKey(e.asInstanceOf[dom.KeyboardEvent], tabs, path)
+          ),
           Rx.const(tabs).each(identity)(id => tab(byId(id), path, tabs, groupCount, active))
         ),
         when(corner && actions.nonEmpty, div(cls -> "uni-dock__actions", actions))
