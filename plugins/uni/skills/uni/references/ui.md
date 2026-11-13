@@ -138,7 +138,10 @@ val table = DataTable(calls)(_.id)(
   Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
 ).withLabel("RPC calls")
   // Shift/Ctrl+click, Shift+Arrow, Space, Ctrl+A; withSelected(optionVar) for one row
-  .withMultiSelect(pickedIds)(styleAttr += "height: 320px")
+  .withMultiSelect(pickedIds)
+  // Drag a row or press Alt+ArrowUp/Down to move it; selected rows move together. The new order
+  // goes to `calls` through onChange (key "order"); off while a column sort is applied
+  .withReorder(calls)(styleAttr += "height: 320px")
 
 val palette = CommandPalette(
   paletteOpen,
@@ -151,8 +154,8 @@ Keyboard.bind("meta+k", () => paletteOpen := true)
 ## Watching and refusing changes
 
 `onChange` on a component sees each change it is about to make to an `RxVar` you passed in
-(`open`, `selected`, text `value`, `expanded`, `sort`, `size`, `layout`). `d.cancel()` keeps the
-old value. `d.source` is `Pointer`, `Keyboard`, `Programmatic`, or `Agent`. Inside `onClick`,
+(`open`, `selected`, text `value`, `expanded`, `sort`, `order`, `size`, `layout`). `d.cancel()`
+keeps the old value. `d.source` is `Pointer`, `Keyboard`, `Programmatic`, or `Agent`. Inside `onClick`,
 `onSelect`, and similar callbacks, `ChangeCause.current` gives the same reason and source.
 
 ```scala
@@ -186,6 +189,7 @@ val tokenField   = Input(Rx.variable("")).withLabel("Token")(UiAgent.secret)
 val agent = UiAgent.install(AgentPolicy.allowAll) // or AgentPolicy.readOnly
 agent.snapshot()                                   // Seq[UiNode]
 agent.act("select:region", "select", Some("oregon"))
+agent.act("table:rpc-calls", "move", Some("1 to 3")) // a .withReorder list or table
 agent.changes(since = 0)                           // people's changes since a cursor
 agent.installWebMcp()                              // WebMCP tools where the browser has them
 ```
@@ -229,6 +233,7 @@ val selection = Selection(picked)
 val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))
 val reorder = Reorder(tasks).withSelection(picked)
 val taskList = ul(tasks.each(identity)(t => li(tabindex -> "0", reorder.item(t), t)))
+// When the RxVar holds items rather than keys: Reorder.by(items, label = _.title)(_.id)
 
 Announce.prepare()                    // once at startup, so the first message is read
 Announce.polite("Response complete")  // screen readers only

@@ -108,7 +108,8 @@ class DataTable[A, K] private (
     onSelectFn: A => Unit,
     rowHeight: Int,
     changeHandler: ChangeHandler,
-    multiSelected: Option[RxVar[Set[K]]]
+    multiSelected: Option[RxVar[Set[K]]],
+    reorderable: Option[RxVar[Seq[A]]]
 ) extends RxElement:
 
   private def copy(
@@ -118,7 +119,8 @@ class DataTable[A, K] private (
       onSelectFn: A => Unit = onSelectFn,
       rowHeight: Int = rowHeight,
       changeHandler: ChangeHandler = changeHandler,
-      multiSelected: Option[RxVar[Set[K]]] = multiSelected
+      multiSelected: Option[RxVar[Set[K]]] = multiSelected,
+      reorderable: Option[RxVar[Seq[A]]] = reorderable
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -130,7 +132,8 @@ class DataTable[A, K] private (
       onSelectFn,
       rowHeight,
       changeHandler,
-      multiSelected
+      multiSelected,
+      reorderable
     )
 
   /** The accessible name of the table. */
@@ -153,12 +156,22 @@ class DataTable[A, K] private (
   /** Selects one row at a time, in [[withSelected]]'s variable (the default). */
   def noMultiSelect(): DataTable[A, K] = copy(multiSelected = None)
 
+  /**
+    * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
+    * and Alt+End on the active row, as [[base.Reorder]] does. The new order is written to `order`,
+    * the variable the table shows, after [[onChange]] sees it under the key `order`. With
+    * [[withMultiSelect]], a selected row moves the whole selection as one block. While a column
+    * sort is applied, the rows keep the sorted order and can't be moved.
+    */
+  def withReorder(order: RxVar[Seq[A]]): DataTable[A, K] = copy(reorderable = Some(order))
+  def noReorder(): DataTable[A, K]                       = copy(reorderable = None)
+
   /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): DataTable[A, K] = copy(onSelectFn = f)
 
   /**
-    * Called before the selection or the sort changes; `cancel()` keeps the current state. Keys:
-    * `selected` and `sort`.
+    * Called before the selection, the sort, or the order changes; `cancel()` keeps the current
+    * state. Keys: `selected`, `sort`, and `order`.
     */
   def onChange(f: ChangeHandler): DataTable[A, K] = copy(changeHandler = f)
 
@@ -363,7 +376,9 @@ class DataTable[A, K] private (
           columns.zipWithIndex.map(headerCell)
         )
       ),
-      activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c))
+      activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c)),
+      reorderable = reorderable,
+      reorderEnabled = () => sort.get.isEmpty
     )
     core
 
@@ -384,7 +399,8 @@ object DataTable:
       onSelectFn = _ => (),
       rowHeight = 32,
       changeHandler = ChangeGate.noHandler,
-      multiSelected = None
+      multiSelected = None,
+      reorderable = None
     )
 
   /**

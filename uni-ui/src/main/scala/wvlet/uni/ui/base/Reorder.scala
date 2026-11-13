@@ -39,6 +39,10 @@ import scala.scalajs.js
   * With [[withSelection]], dragging or moving a selected item moves every selected item together,
   * as one block in their current order.
   *
+  * When the app's variable holds the items themselves rather than their keys, use [[Reorder.by]].
+  * [[wvlet.uni.ui.VirtualList.withReorder]] and [[wvlet.uni.ui.DataTable.withReorder]] wire one
+  * into their rows.
+  *
   * Put [[Reorder.handle]] on an element inside an item to start drags only from that element.
   * Space, Enter, and letter keys are left alone, so [[Selection]] and [[Typeahead]] work on the
   * same items.
@@ -46,11 +50,17 @@ import scala.scalajs.js
   * @param label
   *   the name of an item in announcements, such as "Moved Review to position 1 of 3"
   */
-class Reorder[K](
-    val order: RxVar[Seq[K]],
-    label: K => String = (k: K) => k.toString,
-    orientation: Orientation = Orientation.Vertical
+class Reorder[K] private[ui] (
+    store: Reorder.Store[K],
+    label: K => String,
+    orientation: Orientation
 ):
+  def this(
+      order: RxVar[Seq[K]],
+      label: K => String = (k: K) => k.toString,
+      orientation: Orientation = Orientation.Vertical
+  ) = this(Reorder.Store.ofKeys(order), label, orientation)
+
   private var handler: ChangeHandler          = ChangeGate.noHandler
   private var selected: Option[RxVar[Set[K]]] = None
   private val draggedVar: RxVar[Option[K]]    = Rx.variable(None)
@@ -66,6 +76,7 @@ class Reorder[K](
   private var scroller: Option[dom.HTMLElement] = None
   private var dragRtl: Boolean                  = false
   private var scrollFrame: Option[Int]          = None
+  private var enabled: () => Boolean            = () => true
 
   /** Sees every move before it lands; `cancel()` keeps the previous order. */
   def onChange(f: ChangeHandler): this.type =
@@ -80,6 +91,19 @@ class Reorder[K](
   def withSelection(s: RxVar[Set[K]]): this.type =
     selected = Some(s)
     this
+
+  /** The keys in their current order. */
+  def order: Rx[Seq[K]] = store.keys
+
+  /**
+    * Turns reordering off while `f` is false: drags don't start and the move keys are left alone,
+    * as in a table sorted by a column.
+    */
+  private[ui] def enabledWhen(f: () => Boolean): this.type =
+    enabled = f
+    this
+
+  private[ui] def isEnabled: Boolean = enabled()
 
   /** The item being dragged, once the pointer moved past the drag threshold. */
   def dragging: Rx[Option[K]] = draggedVar
@@ -117,14 +141,14 @@ class Reorder[K](
     * order or [[onChange]] canceled the move. Focus stays on the moved item that had it.
     */
   def moveAll(keys: Set[K], to: Int, cause: ChangeCause = ChangeCause.current): Boolean =
-    val current = order.get
+    val current = store.current
     val moving  = current.filter(keys.contains)
     if moving.isEmpty then
       false
     else
       val next    = Reorder.movedAll(current, keys, to)
       val focused = moving.find(m => elements.get(m).exists(_.contains(dom.document.activeElement)))
-      val accepted = ChangeGate.write(order, "order", next, cause, handler)
+      val accepted = store.write(next, cause, handler)
       if accepted && next != current then
         val at   = next.indexOf(moving.head) + 1
         val what =
@@ -149,18 +173,16 @@ class Reorder[K](
     DomAttribute("data-reorder-axis", orientation.toString.toLowerCase),
     DomAttribute("aria-description", Reorder.keyHint(orientation)),
     DomAttribute("data-dragging", draggedGroupVar.map(g => g.contains(k).toString)),
-    DomAttribute("data-drop", Rx.join(dropVar, order).map((d, o) => Reorder.dropSide(d, o, k))),
+    DomAttribute(
+      "data-drop",
+      Rx.join(dropVar, store.keys).map((d, o) => Reorder.dropSide(d, o, k))
+    ),
     OnMount(el => attach(k, el)),
     EventListenerBinding(
       "keydown",
       {
-        case e: dom.KeyboardEvent
-            if e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey &&
-              Reorder.isMoveKey(e.key, orientation) && !Reorder.inField(e.target) =>
-          // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
-          e.preventDefault()
+        case e: dom.KeyboardEvent if !Reorder.inField(e.target) && onMoveKey(k, e) =>
           e.stopPropagation()
-          moveByKey(k, e)
         case _ =>
       }
     ),
@@ -169,12 +191,27 @@ class Reorder[K](
       onStart = startDrag,
       onEnd = () => endDrag(k),
       // One drag at a time: a second finger on another item doesn't start another
-      canStart = e => !dragActive && Reorder.canStart(e)
+      canStart = e => !dragActive && enabled() && Reorder.canStart(e)
     ).bind
   )
 
+  /**
+    * Handles Alt+`e.key` as a move of `k` (and the selection with it): true when it is a move key,
+    * whether or not `k` could move. A list that keeps focus on its container calls this for its
+    * active row.
+    */
+  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean =
+    val isMove =
+      e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && enabled() &&
+        Reorder.isMoveKey(e.key, orientation)
+    if isMove then
+      // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
+      e.preventDefault()
+      moveByKey(k, e)
+    isMove
+
   private def moveByKey(k: K, e: dom.KeyboardEvent): Unit =
-    val o     = order.get
+    val o     = store.current
     val group = groupOf(k)
     // The block's position among the other items, taken where the pressed item is: a scattered
     // selection gathers there
@@ -194,7 +231,8 @@ class Reorder[K](
       e =>
         if suppressClick then
           e.preventDefault()
-          e.stopPropagation()
+          // Immediate: a list's row may listen for clicks on the item element itself
+          e.stopImmediatePropagation()
     el.addEventListener("click", onClick, useCapture = true)
     Cancelable { () =>
       el.removeEventListener("click", onClick, useCapture = true)
@@ -287,7 +325,7 @@ class Reorder[K](
     scrollFrame = None
 
   private def dropAt(group: Set[K], x: Double, y: Double): Option[Int] =
-    val o    = order.get
+    val o    = store.current
     val sign =
       if dragRtl then
         -1.0
@@ -340,7 +378,7 @@ class Reorder[K](
       dropVar
         .get
         .foreach { at =>
-          val o = order.get
+          val o = store.current
           moveAll(
             group,
             Reorder.landingOf(o, group, at),
@@ -357,6 +395,51 @@ class Reorder[K](
 end Reorder
 
 object Reorder:
+  /**
+    * Reorders the items in `items`, matched by `key`, and writes them back in the new order: for an
+    * app whose variable holds the items rather than their keys.
+    *
+    * {{{
+    *   val tasks   = Rx.variable(Seq(Task(1, "Write"), Task(2, "Review")))
+    *   val reorder = Reorder.by(tasks, label = _.title)(_.id)
+    *   ul(tasks.each(_.id)(t => li(tabindex -> "0", reorder.item(t.id), t.title)))
+    * }}}
+    *
+    * [[onChange]] then sees the new `Seq[A]` as its value.
+    */
+  def by[A, K](
+      items: RxVar[Seq[A]],
+      label: A => String = (a: A) => a.toString,
+      orientation: Orientation = Orientation.Vertical
+  )(key: A => K): Reorder[K] =
+    def labelOf(k: K): String = items.get.find(key(_) == k).fold(k.toString)(label)
+    new Reorder(Store.ofItems(items, key), labelOf, orientation)
+
+  /** Where a [[Reorder]] reads and writes the order. */
+  private[ui] trait Store[K]:
+    def keys: Rx[Seq[K]]
+    def current: Seq[K]
+    def write(next: Seq[K], cause: ChangeCause, handler: ChangeHandler): Boolean
+
+  private[ui] object Store:
+    def ofKeys[K](order: RxVar[Seq[K]]): Store[K] =
+      new Store[K]:
+        def keys: Rx[Seq[K]]                                                         = order
+        def current: Seq[K]                                                          = order.get
+        def write(next: Seq[K], cause: ChangeCause, handler: ChangeHandler): Boolean = ChangeGate
+          .write(order, "order", next, cause, handler)
+
+    def ofItems[A, K](items: RxVar[Seq[A]], key: A => K): Store[K] =
+      new Store[K]:
+        // One mapped Rx, shared by every item's drop marker
+        val keys: Rx[Seq[K]] = items.map(_.map(key))
+        def current: Seq[K]  = items.get.map(key)
+        def write(next: Seq[K], cause: ChangeCause, handler: ChangeHandler): Boolean =
+          val byKey = items.get.map(a => key(a) -> a).toMap
+          ChangeGate.write(items, "order", next.map(byKey), cause, handler)
+
+  end Store
+
   /** How far, in CSS pixels, the pointer moves before a press becomes a drag. */
   val dragThreshold: Double = 4
 

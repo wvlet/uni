@@ -199,6 +199,10 @@ ul(
   element starts a drag, so the rest of the item can hold text fields or buttons.
 - Space, Enter, and letter keys are left alone, so `Selection` and `Typeahead` work on the same
   items. Focus stays on the moved item.
+- When the `RxVar` holds the items rather than their keys, `Reorder.by(items, label = _.title)(_.id)`
+  matches them by key and writes the moved items back; `onChange` then sees the new `Seq` of
+  items. `VirtualList` and `DataTable` wire one in with `.withReorder(itemsVar)`, see
+  [Collections](./ui#collections).
 - `Reorder(order, label = _.title)` names items in announcements, and
   `orientation = Orientation.Horizontal` uses Alt+ArrowLeft and Alt+ArrowRight for a row. In a
   right-to-left layout (`dir="rtl"` on the row or an ancestor) the two keys swap, so the item moves
