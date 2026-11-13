@@ -219,7 +219,9 @@ private[http] class StreamTransfer:
   def cancel(): Unit =
     val (f, in) = synchronized {
       cancelled = true
-      if reader != null then
+      // A downstream `take(n)` cancels on the reader thread itself; interrupting it would fail the
+      // subscriber's own blocking calls before the reader returns
+      if reader != null && (reader ne Thread.currentThread()) then
         reader.interrupt()
       (pending, body)
     }

@@ -72,6 +72,9 @@ class CurlChannel extends HttpChannel:
       if multi == null then
         throw IOException("Failed to initialize curl multi handle")
       try
+        // CURLOPT_TIMEOUT_MS limits the whole transfer, which would end a long stream. A stream has
+        // no total timeout, as on the JVM, where the read timeout covers only the response head.
+        curl_easy_setopt_long(curl, CURLOPT_TIMEOUT_MS, 0L)
         checkMultiError(curl_multi_add_handle(multi, curl), "adding the transfer")
         try
           val running              = stackalloc[CInt]()
@@ -199,6 +202,10 @@ class CurlChannel extends HttpChannel:
         // Follow redirects handled by DefaultHttpSyncClient, but set FOLLOWLOCATION to 0
         // to let uni's redirect handling work
         curl_easy_setopt_long(curl, CURLOPT_FOLLOWLOCATION, 0L)
+
+        // Keep a proxy's `200 Connection established` out of the header output, so it isn't taken
+        // for the response's own header block
+        curl_easy_setopt_long(curl, CURLOPT_SUPPRESS_CONNECT_HEADERS, 1L)
 
         // Set write callback for response body
         curl_easy_setopt_callback(curl, CURLOPT_WRITEFUNCTION, writeCallback)

@@ -84,6 +84,8 @@ object CurlBindings:
   final val CURLOPT_WRITEFUNCTION: CInt     = 20011
   final val CURLOPT_HEADERFUNCTION: CInt    = 20079
   final val CURLOPT_ACCEPT_ENCODING: CInt   = 10102
+  // libcurl 7.54.0+
+  final val CURLOPT_SUPPRESS_CONNECT_HEADERS: CInt = 265
 
   // CURLINFO codes
   final val CURLINFO_RESPONSE_CODE: CInt = 0x200002
