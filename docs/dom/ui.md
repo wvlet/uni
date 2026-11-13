@@ -196,7 +196,7 @@ div(
 | Component | What it does |
 |-----------|--------------|
 | `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)` |
-| `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
+| `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
 | `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
@@ -208,13 +208,20 @@ div(
   Tables move by cell, as in the WAI-ARIA grid pattern: Left and Right move along the row, Home
   and End go to its first and last cell, and Ctrl (or ⌘) with Home or End goes to the first or
   last row. `aria-activedescendant` then names the cell, and Enter still selects its row.
-- **Multi-select.** `.withMultiSelect(setVar)` on a list or table lets the user select several
+- **Multi-select.** `.withMultiSelect(setVar)` on a list, tree, or table lets the user select several
   rows, as in a file list. A click selects one row, Shift+click selects a range from the anchor,
-  and Ctrl (or ⌘)+click adds or removes a row. Shift with an arrow key, PageUp, or PageDown extends
-  the range, Space toggles the highlighted row, Ctrl+A selects all, and Escape clears. Enter and a
+  and Ctrl (or ⌘)+click adds or removes a row. Shift with an arrow key, Home, End, PageUp, or PageDown
+  extends the range, Space toggles the highlighted row, Ctrl+A selects all, and Escape clears. Enter and a
   plain click still run `onSelect`. The container gets `aria-multiselectable="true"`, and
   `onChange` reports each change with the key `selected` and a `Set` value. The keys of rows that
   are filtered out stay in the set until the app removes them.
+- **Multi-select in a tree.** Ranges and Ctrl+A cover the visible rows, so the children of a closed
+  row are never selected by accident, and Left and Right keep their tree meaning even with Shift.
+  Closing a row deselects the rows it hides, reported to `onChange` as a `selected` change after
+  the `expanded` one; cancel it to keep them. Opening a row never changes the selection.
+- **Multi-select in a table.** Shift with Home or End extends the selection to the first or last
+  row instead of moving along the row, since rows are what a table selects. Plain Home and End
+  still go to the row's first and last cell.
 - **State.** Selection, open tree rows, and the sort are `RxVar`s you can pass in, so the app can
   set them or save them, for example with `Storage.local`.
 - **The palette.** While the query is empty, the palette lists commands in order under their

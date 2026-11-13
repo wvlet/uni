@@ -193,7 +193,7 @@ val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEn
   prompt := ""
 })
 
-// Multi-select in your own list (VirtualList and DataTable have .withMultiSelect)
+// Multi-select in your own list (VirtualList, Tree, and DataTable have .withMultiSelect)
 val picked    = Rx.variable(Set.empty[String])
 val selection = Selection(picked)
 

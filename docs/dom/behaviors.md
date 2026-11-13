@@ -36,7 +36,7 @@ import scala.language.implicitConversions
 | `RovingFocus` | Arrow keys, Home, and End within a group with one tab stop | Tabs, Menu, Toolbar |
 | `ListNavigation` | Arrow keys, PageUp/PageDown, Home, and End in a long list | VirtualList, DataTable, Tree |
 | `Typeahead` | Typing the start of a label jumps to that item | Select, Menu, VirtualList, Tree |
-| `Selection` | Multi-select: click, Ctrl/Cmd to toggle, Shift for a range | VirtualList, DataTable (`withMultiSelect`), your lists |
+| `Selection` | Multi-select: click, Ctrl/Cmd to toggle, Shift for a range | VirtualList, Tree, DataTable (`withMultiSelect`), your lists |
 | `Reorder` | Drag an item, or press Alt+Arrow keys, to move it within a list | Dock tabs (keys), your lists |
 | `FocusRecovery` | Keeps focus in a list when the focused item is removed | Dock tabs |
 | `FocusTrap`, `FocusReturn` | Keep Tab inside a dialog; restore focus when it closes | Dialog, Popover |
@@ -161,7 +161,7 @@ ul(
 takes an optional `ChangeCause`; the default is `ChangeCause.current`. `setAnchor` moves the range
 start without changing the selection.
 
-`VirtualList` and `DataTable` already use `Selection` through `.withMultiSelect(setVar)`, which
+`VirtualList`, `Tree`, and `DataTable` already use `Selection` through `.withMultiSelect(setVar)`, which
 also wires Shift+Arrow and Space. See [UI Components](./ui).
 
 ## Reorder

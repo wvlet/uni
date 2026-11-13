@@ -89,7 +89,8 @@ object Column:
   * A click on a sortable header cycles ascending, descending, and unsorted. The table is one tab
   * stop that moves by cell, as in the WAI-ARIA grid pattern: Up, Down, PageUp, and PageDown move
   * the highlighted row and keep the column; Left and Right move along the row; Home and End go to
-  * the row's first and last cell, and Ctrl (or ⌘) with Home or End to the first and last row.
+  * the row's first and last cell, and Ctrl (or ⌘) with Home or End to the first and last row. With
+  * [[withMultiSelect]], Shift with Home or End extends the selection to the first or last row.
   * `aria-activedescendant` names the active cell, which has `data-active="true"`. Enter or a click
   * selects the row, and a click also makes its cell active. The container is
   * `div.uni-list.uni-table` with `role="grid"`; the header row is `div.uni-table__header`, and each
@@ -143,8 +144,8 @@ class DataTable[A, K] private (
 
   /**
     * Lets the user select several rows, whose keys live in `s`: Shift or Ctrl (⌘) with a click,
-    * Shift with Up, Down, PageUp, or PageDown, Space, Ctrl+A, and Escape change the set, as in a
-    * file list. The table then leaves [[withSelected]]'s variable alone.
+    * Shift with Up, Down, Home, End, PageUp, or PageDown, Space, Ctrl+A, and Escape change the set,
+    * as in a file list. The table then leaves [[withSelected]]'s variable alone.
     */
   def withMultiSelect(s: RxVar[Set[K]]): DataTable[A, K] = copy(multiSelected = Some(s))
 
@@ -170,8 +171,12 @@ class DataTable[A, K] private (
     val toRow  = e.ctrlKey || e.metaKey
     val rowEnd = e.key == "Home" || e.key == "End"
     // Left or Right with a modifier (Alt+Left is Back in some browsers) belong to the app. Home and
-    // End are always handled here, so the list never reads them as a row jump without Ctrl or ⌘.
+    // End are handled here, so the list never reads them as a row jump without Ctrl or ⌘, except
+    // Shift with Home or End in a multiple selection: rows are what it selects, so the list extends
+    // the selection to the first or last row and the column stays.
     if !rowEnd && (e.altKey || e.shiftKey || toRow) then
+      false
+    else if rowEnd && e.shiftKey && !toRow && !e.altKey && multiSelected.nonEmpty then
       false
     else
       DataTable.nextColumn(e.key, activeColumn.get, columns.size) match

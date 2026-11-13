@@ -21,5 +21,5 @@ uni-ui widgets share their interaction logic (roving focus, dismissal, anchoring
 
 ## Consequences
 
-- `Selection` ships as a model. A follow-up wired it into `VirtualList` and `DataTable` as an additive `withMultiSelect(RxVar[Set[K]])`, so their `selected: RxVar[Option[K]]` API stays unchanged.
+- `Selection` ships as a model. A follow-up wired it into `VirtualList` and `DataTable` as an additive `withMultiSelect(RxVar[Set[K]])`, so their `selected: RxVar[Option[K]]` API stays unchanged. `Tree` later took the same option; its ranges cover the visible rows, and closing a row deselects the rows it hides, so an action on the selection never reaches rows the user can't see.
 - In Select and VirtualList, Space still selects instead of continuing a typeahead search.
