@@ -710,12 +710,17 @@ plain 404. The response doesn't say why, so it reveals nothing about the file sy
   JSON, source maps, SVG, images, fonts, WebAssembly). Other extensions are served as
   `application/octet-stream`, and every response sets `X-Content-Type-Options: nosniff` so a
   browser never guesses a type. Add a type with `withContentType("glb", ContentType("model/gltf-binary"))`.
+- **Caching**: every file gets an `ETag` from its size and modification time, and
+  `Cache-Control: no-cache`, so the browser revalidates on each load. A request whose
+  `If-None-Match` matches gets `304 Not Modified` without the file being read, and a new build is
+  picked up on the next load. Set another policy with `withCacheControl("max-age=3600")`, or send
+  none with `noCacheControl`.
 
 Filters run in the order you add them. Add `StaticFiles` after an authentication filter to protect
 the files, or before it to keep them public.
 
 ::: tip For app bundles
-Each request reads the whole file, with no `Range` requests, caching headers, or streaming. That
+A request that is not answered with 304 reads the whole file, with no `Range` requests or streaming. That
 fits the HTML, scripts, and assets of a web app. Put large media behind a CDN or a dedicated file
 server.
 :::

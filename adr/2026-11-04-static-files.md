@@ -17,8 +17,11 @@
 - **`GET` only.** Other methods, `HEAD` included, go to `next`, so an API on the same paths keeps working. `HEAD` can be added later. It needs the `GET` headers with no body, and this change did not verify how each backend handles that.
 - **SPA fallback on the next handler's 404.** `withSpaFallback(true)` serves the index file only when `next` answers 404 to a `GET` whose `Accept` includes `text/html`. API routes therefore keep their own 404s, and so do script, image, and JSON requests, so a missing asset never comes back as HTML.
 
+- **A strong ETag from size and mtime, with `Cache-Control: no-cache` by default** (added 2026-11-12). The tag is `"<size>-<mtime ms>"` in hex, as nginx does. It costs only the lstat that `findFile` already does, so a matching `If-None-Match` (weak comparison per RFC 9110: `*`, or any listed tag with or without `W/`) gets a 304 without reading the file. A content hash was rejected because it reads the whole file even for a 304, which Range and streaming are meant to remove, and a weak tag because `If-Range` needs a strong one. `no-cache` makes the browser revalidate each load, so a deploy is never hidden behind a stale `index.html`; `withCacheControl` or `noCacheControl` changes it, for every file alike (a per-path policy for hashed assets is left for later). `Last-Modified` is not sent: browsers revalidate with the ETag, and Scala.js would need a hand-written HTTP-date formatter.
+- **The HTTP client follows only 301, 302, 303, 307, and 308**, as the Fetch standard does. It used to treat every 3xx as a redirect, so a 304 for a conditional request failed with "Redirect response missing Location header".
+
 ## Consequences
 
-- Files are read whole on each request: no `Range`, ETag, caching headers, or streaming. That fits app bundles. Large media and cache control can be added later without changing the defaults.
+- Files are read whole on each request that is not answered with 304: no `Range` or streaming. That fits app bundles. Large media can be added later without changing the defaults.
 - A missing root behaves as an empty directory, so a dev server can start before the first build.
 - uni-harness uses `StaticFiles(dir).withSpaFallback(true)` and no longer has its own class.

@@ -160,7 +160,10 @@ Http
   file gets `X-Content-Type-Options: nosniff`.
 - Filters run in the order added, so add `StaticFiles` after an auth filter to
   protect the files, or before it to keep them public.
-- Files are read whole per request (no `Range`, caching headers, or streaming).
+- Each file gets an `ETag` (size and mtime) and `Cache-Control: no-cache`; a
+  matching `If-None-Match` gets 304. Change the policy with
+  `withCacheControl("max-age=3600")` or drop it with `noCacheControl`.
+- Files are read whole per request (no `Range` or streaming).
 
 ## CORS (JVM, Node.js, Native)
 

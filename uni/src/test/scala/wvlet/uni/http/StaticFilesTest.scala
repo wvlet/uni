@@ -202,4 +202,66 @@ class StaticFilesTest extends UniTest:
       found.contentAsString shouldBe Some("route")
   }
 
+  private def etagOf(path: String): String =
+    files.serve(path).flatMap(_.header(HttpHeader.ETag)).get
+
+  private def conditional(path: String, ifNoneMatch: String): Option[Response] = files.serve(
+    Request.get(path).addHeader(HttpHeader.IfNoneMatch, ifNoneMatch)
+  )
+
+  test("send a strong ETag and Cache-Control: no-cache") {
+    val r = files.serve("/assets/app.js")
+    r.flatMap(_.header(HttpHeader.ETag)).get shouldMatch { case s"\"${_}-${_}\"" =>
+    }
+    r.flatMap(_.header(HttpHeader.CacheControl)) shouldBe Some("no-cache")
+  }
+
+  test("change the ETag when the file changes") {
+    val file = site / "assets" / "version.txt"
+    FileSystem.writeString(file, "v1")
+    val before = etagOf("/assets/version.txt")
+    FileSystem.writeString(file, "version 2")
+    etagOf("/assets/version.txt") shouldNotBe before
+  }
+
+  test("answer 304 without a body when If-None-Match matches") {
+    val etag = etagOf("/assets/app.js")
+    for value <- Seq(etag, s"W/${etag}", s"\"other\", ${etag}", "*") do
+      val r = conditional("/assets/app.js", value)
+      r.map(_.status) shouldBe Some(HttpStatus.NotModified_304)
+      r.flatMap(_.contentAsString) shouldBe None
+      r.flatMap(_.header(HttpHeader.ETag)) shouldBe Some(etag)
+      r.flatMap(_.header(HttpHeader.CacheControl)) shouldBe Some("no-cache")
+  }
+
+  test("serve the file when If-None-Match does not match") {
+    val r = conditional("/assets/app.js", "\"stale\"")
+    r.map(_.status) shouldBe Some(HttpStatus.Ok_200)
+    r.flatMap(_.contentAsString) shouldBe Some("console.log(1)")
+  }
+
+  test("answer 304 for the SPA fallback when the index file is unchanged") {
+    val spa  = files.withSpaFallback(true)
+    val etag = etagOf("/")
+    val req  = Request
+      .get("/chats/42")
+      .addHeader(HttpHeader.Accept, "text/html")
+      .addHeader(HttpHeader.IfNoneMatch, etag)
+    spa(req, notFound).map { r =>
+      r.status shouldBe HttpStatus.NotModified_304
+    }
+  }
+
+  test("configure Cache-Control") {
+    files
+      .withCacheControl("max-age=60")
+      .serve("/assets/app.js")
+      .flatMap(_.header(HttpHeader.CacheControl)) shouldBe Some("max-age=60")
+    files.noCacheControl.serve("/assets/app.js").flatMap(_.header(HttpHeader.CacheControl)) shouldBe
+      None
+    intercept[IllegalArgumentException] {
+      files.withCacheControl("a\r\nSet-Cookie: x=1")
+    }
+  }
+
 end StaticFilesTest

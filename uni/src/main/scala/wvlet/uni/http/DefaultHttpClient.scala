@@ -67,7 +67,7 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
   private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): HttpResponse =
     val response = sendWithRetry(request)
 
-    if config.followRedirects && response.isRedirection then
+    if config.followRedirects && DefaultHttpClient.isFollowableRedirect(response.status) then
       handleRedirect(request, response, redirectCount)
     else
       response
@@ -186,7 +186,7 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
 
   private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): Rx[HttpResponse] =
     sendWithRetry(request).flatMap { response =>
-      if config.followRedirects && response.isRedirection then
+      if config.followRedirects && DefaultHttpClient.isFollowableRedirect(response.status) then
         handleRedirect(request, response, redirectCount)
       else
         Rx.single(response)
@@ -268,3 +268,16 @@ private[http] object DefaultHttpSyncClient:
 private[http] object DefaultHttpAsyncClient:
   def apply(config: HttpClientConfig, channel: HttpAsyncChannel): DefaultHttpAsyncClient =
     new DefaultHttpAsyncClient(config, channel)
+
+private[http] object DefaultHttpClient:
+  /**
+    * The 3xx statuses that redirect to a `Location` (as in the Fetch standard). Others, such as
+    * `304 Not Modified` for a conditional request, go back to the caller.
+    */
+  def isFollowableRedirect(status: HttpStatus): Boolean =
+    status match
+      case HttpStatus.MovedPermanently_301 | HttpStatus.Found_302 | HttpStatus.SeeOther_303 |
+          HttpStatus.TemporaryRedirect_307 | HttpStatus.PermanentRedirect_308 =>
+        true
+      case _ =>
+        false

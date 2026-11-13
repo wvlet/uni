@@ -30,6 +30,10 @@ import java.nio.charset.StandardCharsets
   * links below the root, dotfiles (except `.well-known/`), and directories without an index file
   * are never served. Every file response sets `X-Content-Type-Options: nosniff`.
   *
+  * Each file response carries a strong `ETag` derived from the file's size and modification time,
+  * and `Cache-Control: no-cache` by default, so browsers revalidate on each load and a matching
+  * `If-None-Match` gets `304 Not Modified` without the file being read.
+  *
   * Files are read whole on each request, so it suits app bundles rather than large media. It runs
   * on the JVM, Node.js, and Scala Native, and fails at construction in a browser.
   *
@@ -45,7 +49,9 @@ case class StaticFiles(
     dotfiles: Boolean = false,
     indexFile: String = "index.html",
     // Content-Type by lower-case file extension; others are application/octet-stream
-    contentTypes: Map[String, ContentType] = StaticFiles.defaultContentTypes
+    contentTypes: Map[String, ContentType] = StaticFiles.defaultContentTypes,
+    // Cache-Control of every file response; None sends no Cache-Control
+    cacheControl: Option[String] = Some("no-cache")
 ) extends RxHttpFilter:
   require(
     StaticFilesCompat.hasFileSystem,
@@ -72,6 +78,13 @@ case class StaticFiles(
   def noDotfiles: StaticFiles                        = withDotfiles(false)
   def withIndexFile(name: String): StaticFiles       = copy(indexFile = name)
 
+  /** Set the Cache-Control of every file response, e.g. `max-age=3600`. */
+  def withCacheControl(value: String): StaticFiles =
+    HttpServerSecurity.validateHeader(HttpHeader.CacheControl, value)
+    copy(cacheControl = Some(value))
+
+  def noCacheControl: StaticFiles = copy(cacheControl = None)
+
   /** Add or override the Content-Type for a file extension (without the dot). */
   def withContentType(extension: String, contentType: ContentType): StaticFiles = copy(
     contentTypes = contentTypes + (extension.toLowerCase -> contentType)
@@ -81,7 +94,7 @@ case class StaticFiles(
     if request.method != HttpMethod.GET then
       next.handle(request)
     else
-      serve(request.path) match
+      serve(request) match
         case Some(response) =>
           Rx.single(response)
         case None if spaFallback && acceptsHtml(request) =>
@@ -89,7 +102,7 @@ case class StaticFiles(
             .handle(request)
             .map { response =>
               if response.status == HttpStatus.NotFound_404 then
-                serve("/").getOrElse(response)
+                serveFile("/", ifNoneMatch(request)).getOrElse(response)
               else
                 response
             }
@@ -97,53 +110,79 @@ case class StaticFiles(
           next.handle(request)
 
   /** The response for a URL path, or None when no servable file matches it. */
-  def serve(urlPath: String): Option[Response] = StaticFiles
-    .segments(urlPath, dotfiles)
-    .flatMap { (segments, isDirectory) =>
-      // A directory is served only with a trailing slash, so relative URLs in its index resolve
-      findFile(
-        if isDirectory then
-          segments :+ indexFile
-        else
-          segments
-      )
-    }
-    .flatMap(file)
+  def serve(urlPath: String): Option[Response] = serveFile(urlPath, None)
+
+  /**
+    * The response for a request's path, or None when no servable file matches it. A matching
+    * `If-None-Match` gives `304 Not Modified`.
+    */
+  def serve(request: Request): Option[Response] = serveFile(request.path, ifNoneMatch(request))
+
+  private def ifNoneMatch(request: Request): Option[String] = request.header(HttpHeader.IfNoneMatch)
+
+  private def serveFile(urlPath: String, ifNoneMatch: Option[String]): Option[Response] =
+    StaticFiles
+      .segments(urlPath, dotfiles)
+      .flatMap { (segments, isDirectory) =>
+        // A directory is served only with a trailing slash, so relative URLs in its index resolve
+        findFile(
+          if isDirectory then
+            segments :+ indexFile
+          else
+            segments
+        )
+      }
+      .flatMap((path, stat) => file(path, stat, ifNoneMatch))
 
   /**
     * The file at `segments` under the root, when every component exists and none is a symbolic
     * link. Each component is checked with lstat, so a link anywhere below the root is refused.
     */
-  private def findFile(segments: Seq[String]): Option[IOPath] =
+  private def findFile(segments: Seq[String]): Option[(IOPath, StaticFileStat)] =
     var path  = rootPath
+    var stat  = StaticFileStat(FileType.NotFound, 0L, 0L)
     var found = segments.nonEmpty
     val it    = segments.iterator
     while found && it.hasNext do
       path = IOPath(path.segments :+ it.next(), path.isAbsolute)
       // lstat: a link, junction, or other reparse point fails both checks
-      val fileType = StaticFilesCompat.fileType(path)
+      stat = StaticFilesCompat.stat(path)
       found =
         if it.hasNext then
-          fileType == FileType.Directory
+          stat.fileType == FileType.Directory
         else
-          fileType == FileType.File
-    Option.when(found)(path)
+          stat.fileType == FileType.File
+    Option.when(found)((path, stat))
 
   /** The file as a response, or None when it can't be read (permissions, deleted meanwhile). */
-  private def file(path: IOPath): Option[Response] =
-    val contentType = contentTypes.getOrElse(
-      path.extension.toLowerCase,
-      ContentType.ApplicationOctetStream
-    )
-    try
-      Some(
-        Response
-          .ok(HttpContent.bytes(StaticFilesCompat.readBytes(path), contentType))
-          .addHeader("X-Content-Type-Options", "nosniff")
+  private def file(
+      path: IOPath,
+      stat: StaticFileStat,
+      ifNoneMatch: Option[String]
+  ): Option[Response] =
+    val etag = StaticFiles.etag(stat)
+    if ifNoneMatch.exists(StaticFiles.matchesETag(_, etag)) then
+      // The client's copy is current, so the file is not read
+      Some(withFileHeaders(Response.notModified, etag))
+    else
+      val contentType = contentTypes.getOrElse(
+        path.extension.toLowerCase,
+        ContentType.ApplicationOctetStream
       )
-    catch
-      case _: Exception =>
-        None
+      try
+        Some(
+          withFileHeaders(
+            Response.ok(HttpContent.bytes(StaticFilesCompat.readBytes(path), contentType)),
+            etag
+          )
+        )
+      catch
+        case _: Exception =>
+          None
+
+  private def withFileHeaders(response: Response, etag: String): Response =
+    val r = response.addHeader("X-Content-Type-Options", "nosniff").addHeader(HttpHeader.ETag, etag)
+    cacheControl.fold(r)(r.addHeader(HttpHeader.CacheControl, _))
 
   private def acceptsHtml(request: Request): Boolean = request
     .headers
@@ -152,7 +191,24 @@ case class StaticFiles(
 
 end StaticFiles
 
+/** What [[StaticFiles]] needs from lstat: the type, size, and mtime in epoch milliseconds. */
+private[http] case class StaticFileStat(fileType: FileType, size: Long, lastModifiedMillis: Long)
+
 object StaticFiles:
+
+  /**
+    * A strong entity tag from the file's size and mtime, as nginx does. It needs no read of the
+    * file, so a 304 stays cheap and the tag works for responses that stream the file.
+    */
+  private[http] def etag(stat: StaticFileStat): String =
+    s"\"${stat.size.toHexString}-${stat.lastModifiedMillis.toHexString}\""
+
+  /**
+    * Whether an `If-None-Match` value matches `etag`, by the weak comparison RFC 9110 specifies for
+    * it: `*`, or any listed tag with or without the `W/` prefix.
+    */
+  private[http] def matchesETag(ifNoneMatch: String, etag: String): Boolean =
+    ifNoneMatch.trim == "*" || ifNoneMatch.split(',').exists(_.trim.stripPrefix("W/") == etag)
 
   private val utf8Text = Seq(
     "html"        -> "text/html",
