@@ -452,7 +452,7 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
-  test("a table names rows by withRowLabel, and a selection change names only the changed rows") {
+  test("a table names rows by withRowLabel, and a selection change reuses the labels") {
     case class User(id: Int, name: String)
     val rows  = Rx.const((1 to 200).map(i => User(i, s"User ${i}")))
     val row   = Rx.variable(Option.empty[Int])
@@ -476,7 +476,7 @@ class UiAgentTest extends DomTestSupport:
     fireEvent.click(find("[data-slot=data-table-row]:nth-child(2)"))
     row.get shouldBe Some(2)
     agent.changes(start)._1.map(c => (c.previous, c.value)) shouldBe Seq(("", "User 2"))
-    calls shouldBe afterSnapshot + 1
+    calls shouldBe afterSnapshot
     agent
       .act("table:users", "select", Some("User 5"))
       .map { r =>

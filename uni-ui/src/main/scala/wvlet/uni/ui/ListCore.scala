@@ -404,13 +404,9 @@ private[ui] class ListCore[A, K](
             s
           case other =>
             Seq(other)
-      // Only the changed keys are named, so a change costs O(keys), not O(rows)
+      // Only the changed keys are looked up, with the same (deduplicated) labels as `items`
       val idx = index.get.asInstanceOf[Map[Any, Int]]
-      keys
-        .map(k =>
-          idx.get(k).filter(_ < current.size).fold(String.valueOf(k))(i => nameOf(current(i)))
-        )
-        .mkString(", ")
+      keys.map(k => idx.get(k).fold(String.valueOf(k))(labels)).mkString(", ")
 
     override def value: Option[String] =
       val keys = selectedKeys
