@@ -537,8 +537,15 @@ class Dock private (
         then
           // Even when the tab can't move further, so Alt+ArrowLeft doesn't go Back in the browser
           e.preventDefault()
+          // In a right-to-left layout, ArrowLeft moves the tab toward the end
+          val rtl =
+            e.target match
+              case el: dom.Element =>
+                Reorder.isRtl(el)
+              case _ =>
+                false
           Reorder
-            .keyTarget(e.key, i, tabs.size, Orientation.Horizontal)
+            .keyTarget(e.key, i, tabs.size, Orientation.Horizontal, rtl)
             .foreach { to =>
               // DockModel.move takes an insertion point in the tabs before the move
               val at =

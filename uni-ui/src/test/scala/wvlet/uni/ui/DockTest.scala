@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.all.{div, styleAttr}
+import wvlet.uni.dom.all.{dir, div, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.{Rx, RxVar}
@@ -152,6 +152,17 @@ class DockTest extends DomTestSupport:
     settle().map { _ =>
       active shouldBe tabOf(m, "a")
     }
+  }
+
+  test("Alt+ArrowLeft moves a tab toward the end in a right-to-left layout") {
+    val layout = Rx.variable(DockLayout.of("a", "b", "c"))
+    val m      = mount(
+      div(dir -> "rtl", styleAttr -> "width: 600px; height: 400px; display: flex", dock(layout))
+    )
+    fireEvent.keyDown(tabOf(m, "a"), "ArrowLeft", altKey = true)
+    tabTexts(m) shouldBe Seq(Seq("b", "a", "c"))
+    fireEvent.keyDown(tabOf(m, "a"), "ArrowRight", altKey = true)
+    tabTexts(m) shouldBe Seq(Seq("a", "b", "c"))
   }
 
   test("Close in the tab menu moves focus to the neighbor tab") {

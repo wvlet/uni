@@ -276,6 +276,105 @@ class BehaviorTest extends DomTestSupport:
     order.get shouldBe Seq("b", "a")
   }
 
+  test("reorder moves the selected items together with Alt+Arrow keys") {
+    val order    = Rx.variable(Seq("a", "b", "c", "d", "e"))
+    val selected = Rx.variable(Set("b", "d"))
+    val seen     = ArrayBuffer.empty[ChangeDetails[Any]]
+    val reorder  = Reorder(order).withSelection(selected).onChange(d => seen += d)
+    reorderList(reorder)
+    find("li.item-d").focus()
+    // The scattered selection gathers where the pressed item is, then moves one step
+    fireEvent.keyDown(find("li.item-d"), "ArrowDown", altKey = true)
+    order.get shouldBe Seq("a", "c", "e", "b", "d")
+    seen.size shouldBe 1
+    (dom.document.activeElement eq find("li.item-d")) shouldBe true
+    find("[data-slot=announcer][aria-live=polite]").textContent shouldContain
+      "Moved 2 items to position 4 of 5"
+    fireEvent.keyDown(find("li.item-d"), "Home", altKey = true)
+    order.get shouldBe Seq("b", "d", "a", "c", "e")
+    selected.get shouldBe Set("b", "d")
+    // An item outside the selection moves alone
+    fireEvent.keyDown(find("li.item-a"), "ArrowUp", altKey = true)
+    order.get shouldBe Seq("b", "a", "d", "c", "e")
+  }
+
+  test("reorder drags the selected items together, and a cancel keeps the order") {
+    val order    = Rx.variable(Seq("a", "b", "c", "d"))
+    val selected = Rx.variable(Set("a", "b"))
+    var cancel   = true
+    val seen     = ArrayBuffer.empty[ChangeDetails[Any]]
+    val reorder  = Reorder(order)
+      .withSelection(selected)
+      .onChange { d =>
+        seen += d
+        if cancel then
+          d.cancel()
+      }
+    reorderList(reorder)
+    val (x, y)       = centerY(find("li.item-a"))
+    val d            = find("li.item-d").getBoundingClientRect()
+    def drag(): Unit =
+      fireEvent.pointerDown(find("li.item-a"), clientX = x, clientY = y)
+      fireEvent.pointerMove(dom.window, clientX = x, clientY = d.bottom - 2)
+      find("li.item-b").getAttribute("data-dragging") shouldBe "true"
+      find("li.item-c").getAttribute("data-dragging") shouldBe "false"
+      fireEvent.pointerUp(dom.window, clientX = x, clientY = d.bottom - 2)
+
+    drag()
+    order.get shouldBe Seq("a", "b", "c", "d")
+    seen.size shouldBe 1
+    cancel = false
+    drag()
+    order.get shouldBe Seq("c", "d", "a", "b")
+    seen.size shouldBe 2
+    seen.last.reason shouldBe ChangeReason.Drag
+    find("[data-slot=announcer][aria-live=polite]").textContent shouldContain
+      "Moved 2 items to position 3 of 4"
+  }
+
+  test("reorder scrolls its container while dragging near the edge") {
+    val order   = Rx.variable[Seq[String]]((1 to 30).map(i => s"i${i}"))
+    val reorder = Reorder(order)
+    mount(
+      ul(
+        cls       -> "scroller",
+        styleAttr -> "height: 200px; overflow-y: auto; margin: 0; padding: 0",
+        order.each(identity)(t =>
+          li(cls -> s"item-${t}", styleAttr -> "height: 30px", reorder.item(t), t)
+        )
+      )
+    )
+    val scroller = find("ul.scroller")
+    val r        = scroller.getBoundingClientRect()
+    val (x, y)   = centerY(find("li.item-i1"))
+    fireEvent.pointerDown(find("li.item-i1"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = x, clientY = r.bottom - 1)
+    val p = scala.concurrent.Promise[Unit]()
+    dom.window.setTimeout(() => p.success(()), 200)
+    Rx.future(p.future)(using scala.concurrent.ExecutionContext.parasitic)
+      .map { _ =>
+        (scroller.scrollTop > 0) shouldBe true
+        fireEvent.pointerUp(dom.window, clientX = x, clientY = r.bottom - 1)
+        // Dropped on the row now under the pointer, past the first screenful
+        (order.get.indexOf("i1") > 6) shouldBe true
+      }
+  }
+
+  test("reorder mirrors Alt+ArrowLeft/Right in a right-to-left row") {
+    val order   = Rx.variable(Seq("a", "b", "c"))
+    val reorder = Reorder(order, orientation = Orientation.Horizontal)
+    mount(
+      div(
+        dir -> "rtl",
+        order.each(identity)(t => div(cls -> s"item-${t}", tabindex -> "0", reorder.item(t), t))
+      )
+    )
+    fireEvent.keyDown(find(".item-a"), "ArrowLeft", altKey = true)
+    order.get shouldBe Seq("b", "a", "c")
+    fireEvent.keyDown(find(".item-a"), "ArrowRight", altKey = true)
+    order.get shouldBe Seq("a", "b", "c")
+  }
+
   test("a canceled reorder keeps the order") {
     val order   = Rx.variable(Seq("a", "b"))
     val reorder = Reorder(order).onChange(_.cancel())

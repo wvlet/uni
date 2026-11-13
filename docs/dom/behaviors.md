@@ -167,8 +167,9 @@ also wires Shift+Arrow and Space. See [UI Components](./ui).
 ## Reorder
 
 `Reorder` lets the user change the order of a list. Dragging an item shows a line where it would
-land and moves it on release; Escape cancels the drag. On a focused item, Alt+ArrowUp and
-Alt+ArrowDown move it one step, and Alt+Home and Alt+End move it to either end. The order lives in
+land and moves it on release; Escape cancels the drag. Dragging near the edge of the list's scroll
+container scrolls it. On a focused item, Alt+ArrowUp and Alt+ArrowDown move it one step, and
+Alt+Home and Alt+End move it to either end. The order lives in
 your `RxVar`, `onChange` sees each move (reason `drag` or `navigation-key`) and can cancel it, and
 every move is announced to screen readers, such as "Moved Review to position 1 of 3".
 
@@ -190,12 +191,20 @@ ul(
 - Space, Enter, and letter keys are left alone, so `Selection` and `Typeahead` work on the same
   items. Focus stays on the moved item.
 - `Reorder(order, label = _.title)` names items in announcements, and
-  `orientation = Orientation.Horizontal` uses Alt+ArrowLeft and Alt+ArrowRight for a row.
+  `orientation = Orientation.Horizontal` uses Alt+ArrowLeft and Alt+ArrowRight for a row. In a
+  right-to-left layout (`dir="rtl"` on the row or an ancestor) the two keys swap, so the item moves
+  the way the arrow points.
+- `reorder.withSelection(selected)` moves the selected items together. Pass the same `RxVar` as a
+  `Selection` or a list's `withMultiSelect`. Dragging a selected item, or pressing Alt+Arrow on it,
+  moves every selected item as one block in their current order, as one `onChange`, announced as
+  "Moved 3 items to position 2 of 10". An item outside the selection moves alone.
 - uni-ui.css marks the dragged item (`data-dragging="true"`) and the drop line
   (`data-drop="before"` or `"after"`). Restyle them with `[data-reorder-item][data-drop]`.
-- `reorder.moveTo(k, index)` moves an item from code, and `Reorder.moved`, `Reorder.dropIndex`,
-  and `Reorder.keyTarget` are the pure math, for widgets that do their own drag. In the Dock,
-  Alt+ArrowLeft, Alt+ArrowRight, Alt+Home, and Alt+End move a tab within its group.
+- `reorder.moveTo(k, index)` and `reorder.moveAll(keys, index)` move items from code, and
+  `Reorder.moved`, `Reorder.movedAll`, `Reorder.dropIndex`, `Reorder.keyTarget`, and
+  `Reorder.autoscrollStep` are the pure math, for widgets that do their own drag. In the Dock,
+  Alt+ArrowLeft, Alt+ArrowRight, Alt+Home, and Alt+End move a tab within its group, mirrored in a
+  right-to-left layout.
 
 ## FocusRecovery
 

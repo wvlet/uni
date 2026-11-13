@@ -152,4 +152,35 @@ class BehaviorModelTest extends UniTest:
     Reorder.keyTarget(" ", 1, 3) shouldBe None
   }
 
+  test("reorder keys in a right-to-left row move toward the end with ArrowLeft") {
+    Reorder.keyTarget("ArrowLeft", 1, 3, Orientation.Horizontal, rtl = true) shouldBe Some(2)
+    Reorder.keyTarget("ArrowRight", 1, 3, Orientation.Horizontal, rtl = true) shouldBe Some(0)
+    Reorder.keyTarget("Home", 1, 3, Orientation.Horizontal, rtl = true) shouldBe Some(0)
+    // Vertical lists don't mirror
+    Reorder.keyTarget("ArrowDown", 1, 3, Orientation.Vertical, rtl = true) shouldBe Some(2)
+  }
+
+  test("reorder moves several items as one block in their current order") {
+    val abcde = Seq("a", "b", "c", "d", "e")
+    Reorder.movedAll(abcde, Set("b", "d"), 0) shouldBe Seq("b", "d", "a", "c", "e")
+    Reorder.movedAll(abcde, Set("d", "b"), 3) shouldBe Seq("a", "c", "e", "b", "d")
+    Reorder.movedAll(abcde, Set("b", "d"), 9) shouldBe Seq("a", "c", "e", "b", "d")
+    Reorder.movedAll(abcde, Set("x"), 0) shouldBe abcde
+    // Insertion point 4 (before e) leaves a and c before the block
+    Reorder.landingOf(abcde, Set("b", "d"), 4) shouldBe 2
+    Reorder.movedTo(abcde, Set("b", "d"), 4) shouldBe Seq("a", "c", "b", "d", "e")
+    Reorder.movedTo(abcde, Set("b", "c"), 2) shouldBe abcde
+  }
+
+  test("reorder autoscrolls faster closer to the edge, and not in the middle") {
+    Reorder.autoscrollStep(200, 0, 400) shouldBe 0.0
+    Reorder.autoscrollStep(0, 0, 400) shouldBe -16.0
+    Reorder.autoscrollStep(-50, 0, 400) shouldBe -16.0
+    Reorder.autoscrollStep(380, 0, 400) shouldBe 8.0
+    Reorder.autoscrollStep(400, 0, 400) shouldBe 16.0
+    // A small container gets a smaller edge zone
+    Reorder.autoscrollStep(25, 0, 100) shouldBe 0.0
+    Reorder.autoscrollStep(15, 0, 100) shouldBe -4.0
+  }
+
 end BehaviorModelTest

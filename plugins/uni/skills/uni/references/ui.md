@@ -197,9 +197,11 @@ val promptBox = textarea(value.bind(prompt), history.keys(prompt), Keyboard.onEn
 val picked    = Rx.variable(Set.empty[String])
 val selection = Selection(picked)
 
-// Reorder by drag, or Alt+ArrowUp/Down on a focused item; each move is announced
+// Reorder by drag, or Alt+ArrowUp/Down on a focused item; each move is announced.
+// withSelection (the same Set var as Selection) moves the selected items together;
+// drags near the edge of the list's scroll container autoscroll
 val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))
-val reorder = Reorder(tasks)
+val reorder = Reorder(tasks).withSelection(picked)
 val taskList = ul(tasks.each(identity)(t => li(tabindex -> "0", reorder.item(t), t)))
 
 Announce.prepare()                    // once at startup, so the first message is read
