@@ -123,4 +123,33 @@ class BehaviorModelTest extends UniTest:
     StickToBottom.isNear(800, 1000, 100, 48) shouldBe false
   }
 
+  test("reorder moves an item to a position, clamped to the list") {
+    val abc = Seq("a", "b", "c")
+    Reorder.moved(abc, 0, 2) shouldBe Seq("b", "c", "a")
+    Reorder.moved(abc, 2, 0) shouldBe Seq("c", "a", "b")
+    Reorder.moved(abc, 1, 9) shouldBe Seq("a", "c", "b")
+    Reorder.moved(abc, 5, 0) shouldBe abc
+  }
+
+  test("reorder turns an insertion point into the position the item lands on") {
+    // Inserting after the item itself: removing it first shifts later items left
+    Reorder.landing(1, 3) shouldBe 2
+    Reorder.landing(1, 2) shouldBe 1
+    Reorder.landing(1, 0) shouldBe 0
+    Reorder.dropIndex(Seq(10.0, 30.0, 50.0), 5) shouldBe 0
+    Reorder.dropIndex(Seq(10.0, 30.0, 50.0), 31) shouldBe 2
+    Reorder.dropIndex(Seq(10.0, 30.0, 50.0), 99) shouldBe 3
+  }
+
+  test("reorder keys move one step along the axis, or to either end") {
+    Reorder.keyTarget("ArrowDown", 0, 3) shouldBe Some(1)
+    Reorder.keyTarget("ArrowUp", 0, 3) shouldBe None
+    Reorder.keyTarget("End", 0, 3) shouldBe Some(2)
+    Reorder.keyTarget("Home", 2, 3) shouldBe Some(0)
+    Reorder.keyTarget("Home", 0, 3) shouldBe None
+    Reorder.keyTarget("ArrowLeft", 1, 3, Orientation.Horizontal) shouldBe Some(0)
+    Reorder.keyTarget("ArrowLeft", 1, 3) shouldBe None
+    Reorder.keyTarget(" ", 1, 3) shouldBe None
+  }
+
 end BehaviorModelTest

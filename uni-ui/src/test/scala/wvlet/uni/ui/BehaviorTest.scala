@@ -199,4 +199,100 @@ class BehaviorTest extends DomTestSupport:
     region.textContent shouldBe ""
   }
 
+  private def reorderList(reorder: Reorder[String]): Unit = mount(
+    ul(
+      cls -> "rl",
+      reorder
+        .order
+        .each(identity)(t => li(cls -> s"item-${t}", tabindex -> "0", reorder.item(t), t))
+    )
+  )
+
+  private def centerY(el: dom.Element): (Double, Double) =
+    val r = el.getBoundingClientRect()
+    (r.left + r.width / 2, r.top + r.height / 2)
+
+  test("reorder moves the focused item with Alt+Arrow keys and keeps focus on it") {
+    val order   = Rx.variable(Seq("a", "b", "c"))
+    val seen    = ArrayBuffer.empty[ChangeDetails[Any]]
+    val reorder = Reorder(order).onChange(d => seen += d)
+    reorderList(reorder)
+    find("li.item-a").focus()
+    fireEvent.keyDown(find("li.item-a"), "ArrowDown", altKey = true)
+    order.get shouldBe Seq("b", "a", "c")
+    seen.last.reason shouldBe ChangeReason.NavigationKey
+    seen.last.source shouldBe ChangeSource.Keyboard
+    (dom.document.activeElement eq find("li.item-a")) shouldBe true
+    find("[data-slot=announcer][aria-live=polite]").textContent shouldContain
+      "Moved a to position 2 of 3"
+    fireEvent.keyDown(find("li.item-a"), "End", altKey = true)
+    order.get shouldBe Seq("b", "c", "a")
+    // Without Alt, the keys are left to the list
+    fireEvent.keyDown(find("li.item-a"), "Home")
+    order.get shouldBe Seq("b", "c", "a")
+  }
+
+  test("reorder moves a dragged item where it is dropped, and Escape cancels the drag") {
+    val order   = Rx.variable(Seq("a", "b", "c"))
+    val seen    = ArrayBuffer.empty[ChangeDetails[Any]]
+    val reorder = Reorder(order).onChange(d => seen += d)
+    reorderList(reorder)
+    val (x, y) = centerY(find("li.item-a"))
+    val c      = find("li.item-c").getBoundingClientRect()
+
+    fireEvent.pointerDown(find("li.item-a"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = x, clientY = c.bottom - 2)
+    find("li.item-a").getAttribute("data-dragging") shouldBe "true"
+    find("li.item-c").getAttribute("data-drop") shouldBe "after"
+    fireEvent.keyDown(dom.window, "Escape")
+    find("li.item-c").hasAttribute("data-drop") shouldBe false
+    fireEvent.pointerUp(dom.window, clientX = x, clientY = c.bottom - 2)
+    order.get shouldBe Seq("a", "b", "c")
+
+    fireEvent.pointerDown(find("li.item-a"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = x, clientY = c.bottom - 2)
+    fireEvent.pointerUp(dom.window, clientX = x, clientY = c.bottom - 2)
+    order.get shouldBe Seq("b", "c", "a")
+    seen.last.reason shouldBe ChangeReason.Drag
+    seen.last.source shouldBe ChangeSource.Pointer
+    find("li.item-a").getAttribute("data-dragging") shouldBe "false"
+  }
+
+  test("a canceled reorder keeps the order") {
+    val order   = Rx.variable(Seq("a", "b"))
+    val reorder = Reorder(order).onChange(_.cancel())
+    reorderList(reorder)
+    fireEvent.keyDown(find("li.item-b"), "ArrowUp", altKey = true)
+    order.get shouldBe Seq("a", "b")
+  }
+
+  test("with a handle, only presses on the handle start a reorder drag") {
+    val order   = Rx.variable(Seq("a", "b"))
+    val reorder = Reorder(order)
+    mount(
+      ul(
+        order.each(identity)(t =>
+          li(
+            cls -> s"item-${t}",
+
+            reorder.item(t),
+            span(cls -> s"grip-${t}", Reorder.handle, "::"),
+            span(cls -> s"text-${t}", t)
+          )
+        )
+      )
+    )
+    val (x, y) = centerY(find(".text-a"))
+    val b      = find("li.item-b").getBoundingClientRect()
+    fireEvent.pointerDown(find(".text-a"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = x, clientY = b.bottom - 2)
+    fireEvent.pointerUp(dom.window, clientX = x, clientY = b.bottom - 2)
+    order.get shouldBe Seq("a", "b")
+    val (gx, gy) = centerY(find(".grip-a"))
+    fireEvent.pointerDown(find(".grip-a"), clientX = gx, clientY = gy)
+    fireEvent.pointerMove(dom.window, clientX = gx, clientY = b.bottom - 2)
+    fireEvent.pointerUp(dom.window, clientX = gx, clientY = b.bottom - 2)
+    order.get shouldBe Seq("b", "a")
+  }
+
 end BehaviorTest

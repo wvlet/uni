@@ -136,6 +136,21 @@ class DockTest extends DomTestSupport:
     }
   }
 
+  test("Alt with the arrow keys, Home, or End moves a tab within its group") {
+    val layout = Rx.variable(DockLayout.of("a", "b", "c"))
+    val m      = mountDock(dock(layout))
+    tabOf(m, "a").focus()
+    fireEvent.keyDown(tabOf(m, "a"), "ArrowRight", altKey = true)
+    tabTexts(m) shouldBe Seq(Seq("b", "a", "c"))
+    fireEvent.keyDown(tabOf(m, "a"), "End", altKey = true)
+    tabTexts(m) shouldBe Seq(Seq("b", "c", "a"))
+    fireEvent.keyDown(tabOf(m, "a"), "ArrowLeft", altKey = true)
+    tabTexts(m) shouldBe Seq(Seq("b", "a", "c"))
+    settle().map { _ =>
+      active shouldBe tabOf(m, "a")
+    }
+  }
+
   test("Close in the tab menu moves focus to the neighbor tab") {
     val layout = Rx.variable(DockLayout.of("a", "b", "c"))
     val m      = mountDock(dock(layout))

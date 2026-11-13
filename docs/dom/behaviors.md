@@ -37,6 +37,7 @@ import scala.language.implicitConversions
 | `ListNavigation` | Arrow keys, PageUp/PageDown, Home, and End in a long list | VirtualList, DataTable, Tree |
 | `Typeahead` | Typing the start of a label jumps to that item | Select, Menu, VirtualList, Tree |
 | `Selection` | Multi-select: click, Ctrl/Cmd to toggle, Shift for a range | VirtualList, DataTable (`withMultiSelect`), your lists |
+| `Reorder` | Drag an item, or press Alt+Arrow keys, to move it within a list | Dock tabs (keys), your lists |
 | `FocusRecovery` | Keeps focus in a list when the focused item is removed | Dock tabs |
 | `FocusTrap`, `FocusReturn` | Keep Tab inside a dialog; restore focus when it closes | Dialog, Popover |
 | `Dismiss` | Escape and outside presses close the topmost overlay only | all overlays |
@@ -162,6 +163,39 @@ start without changing the selection.
 
 `VirtualList` and `DataTable` already use `Selection` through `.withMultiSelect(setVar)`, which
 also wires Shift+Arrow and Space. See [UI Components](./ui).
+
+## Reorder
+
+`Reorder` lets the user change the order of a list. Dragging an item shows a line where it would
+land and moves it on release; Escape cancels the drag. On a focused item, Alt+ArrowUp and
+Alt+ArrowDown move it one step, and Alt+Home and Alt+End move it to either end. The order lives in
+your `RxVar`, `onChange` sees each move (reason `drag` or `navigation-key`) and can cancel it, and
+every move is announced to screen readers, such as "Moved Review to position 1 of 3".
+
+```scala
+val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))
+val reorder = Reorder(tasks).onChange { d =>
+  if d.source == ChangeSource.Agent then d.cancel()
+}
+
+ul(
+  tasks.each(identity) { t =>
+    li(tabindex -> "0", reorder.item(t), span(Reorder.handle, "⋮⋮"), t)
+  }
+)
+```
+
+- `reorder.item(k)` goes on each item. With `Reorder.handle` on an element inside it, only that
+  element starts a drag, so the rest of the item can hold text fields or buttons.
+- Space, Enter, and letter keys are left alone, so `Selection` and `Typeahead` work on the same
+  items. Focus stays on the moved item.
+- `Reorder(order, label = _.title)` names items in announcements, and
+  `orientation = Orientation.Horizontal` uses Alt+ArrowLeft and Alt+ArrowRight for a row.
+- uni-ui.css marks the dragged item (`data-dragging="true"`) and the drop line
+  (`data-drop="before"` or `"after"`). Restyle them with `[data-reorder-item][data-drop]`.
+- `reorder.moveTo(k, index)` moves an item from code, and `Reorder.moved`, `Reorder.dropIndex`,
+  and `Reorder.keyTarget` are the pure math, for widgets that do their own drag. The Dock uses the
+  same keys to move a tab within its group.
 
 ## FocusRecovery
 
