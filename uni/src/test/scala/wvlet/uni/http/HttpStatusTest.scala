@@ -156,10 +156,10 @@ class HttpStatusTest extends UniTest:
 
   test("clients follow only the redirects that carry a Location") {
     val followed = Seq(301, 302, 303, 307, 308).map(HttpStatus.ofCode)
-    followed.forall(DefaultHttpClient.isFollowableRedirect) shouldBe true
+    followed.forall(_.isFollowableRedirect) shouldBe true
     // A 304 answers a conditional request; the caller gets it back
-    DefaultHttpClient.isFollowableRedirect(HttpStatus.NotModified_304) shouldBe false
-    DefaultHttpClient.isFollowableRedirect(HttpStatus.MultipleChoices_300) shouldBe false
+    HttpStatus.NotModified_304.isFollowableRedirect shouldBe false
+    HttpStatus.MultipleChoices_300.isFollowableRedirect shouldBe false
   }
 
 end HttpStatusTest

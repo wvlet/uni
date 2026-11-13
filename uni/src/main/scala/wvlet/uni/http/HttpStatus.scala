@@ -104,9 +104,23 @@ enum HttpStatus(val code: Int, val reason: String):
   def isInformational: Boolean = HttpStatus.isInformational(code)
   def isSuccessful: Boolean    = HttpStatus.isSuccessful(code)
   def isRedirection: Boolean   = HttpStatus.isRedirection(code)
-  def isClientError: Boolean   = HttpStatus.isClientError(code)
-  def isServerError: Boolean   = HttpStatus.isServerError(code)
-  def isUnknownState: Boolean  = HttpStatus.isUnknownState(code)
+
+  /**
+    * Whether a client follows this status to its `Location`: 301, 302, 303, 307, and 308, as in the
+    * Fetch standard. Other 3xx, such as `304 Not Modified` for a conditional request, go back to
+    * the caller.
+    */
+  def isFollowableRedirect: Boolean =
+    this match
+      case MovedPermanently_301 | Found_302 | SeeOther_303 | TemporaryRedirect_307 |
+          PermanentRedirect_308 =>
+        true
+      case _ =>
+        false
+
+  def isClientError: Boolean  = HttpStatus.isClientError(code)
+  def isServerError: Boolean  = HttpStatus.isServerError(code)
+  def isUnknownState: Boolean = HttpStatus.isUnknownState(code)
 
   def isRetryable: Boolean =
     this match

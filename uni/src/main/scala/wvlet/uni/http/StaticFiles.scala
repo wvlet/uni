@@ -63,6 +63,9 @@ case class StaticFiles(
     s"indexFile must be a plain file name: ${indexFile}"
   )
 
+  // Fail at construction, not on every request, when the value could split the response
+  cacheControl.foreach(HttpServerSecurity.validateHeader(HttpHeader.CacheControl, _))
+
   private lazy val rootPath: IOPath =
     val p   = IOPath.parse(root)
     val abs =
@@ -79,9 +82,7 @@ case class StaticFiles(
   def withIndexFile(name: String): StaticFiles       = copy(indexFile = name)
 
   /** Set the Cache-Control of every file response, e.g. `max-age=3600`. */
-  def withCacheControl(value: String): StaticFiles =
-    HttpServerSecurity.validateHeader(HttpHeader.CacheControl, value)
-    copy(cacheControl = Some(value))
+  def withCacheControl(value: String): StaticFiles = copy(cacheControl = Some(value))
 
   def noCacheControl: StaticFiles = copy(cacheControl = None)
 
