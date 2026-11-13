@@ -104,6 +104,17 @@ private[ui] object MenuList:
   def first(menu: dom.Element): Option[dom.HTMLElement] = items(menu).headOption
   def last(menu: dom.Element): Option[dom.HTMLElement]  = items(menu).lastOption
 
+  /**
+    * The item to focus when a menu opens: its first, or its last for ArrowUp. Opening starts a new
+    * search, not one left over from the last menu.
+    */
+  def opening(menu: dom.Element, atLast: Boolean): Option[dom.HTMLElement] =
+    typeahead.reset()
+    if atLast then
+      last(menu)
+    else
+      first(menu)
+
   private def onKey(menu: dom.Element, e: dom.KeyboardEvent, close: () => Boolean): Unit =
     val all     = items(menu)
     val current = all.indexWhere(_ eq dom.document.activeElement)
@@ -137,73 +148,68 @@ private[ui] object MenuList:
       entries: Seq[MenuEntry],
       labelledBy: Option[String],
       close: () => Boolean
-  ): RxElement =
-    // A menu that opens starts a new search, not one left over from the last menu
-    typeahead.reset()
-    div(
-      id              -> menuId,
-      cls             -> "uni-menu",
-      role            -> "menu",
-      tabindex        -> "-1",
-      ariaOrientation -> "vertical",
-      data("state")   -> "open",
-      data("slot")    -> "menu",
-      labelledBy.map(l => ariaLabelledby -> l).getOrElse(DomNode.empty),
-      EventListenerBinding(
-        "keydown",
-        e =>
-          e.currentTarget match
-            case m: dom.Element if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
-              onKey(m, e.asInstanceOf[dom.KeyboardEvent], close)
-            case _ =>
-      ),
-      entries.map {
-        case MenuSeparator =>
-          div(role -> "separator", cls -> "uni-menu__separator", data("slot") -> "menu-separator")
-        case item: MenuItem =>
-          var disabledNow = false
-          div(
-            role         -> item.checked.map(_ => "menuitemcheckbox").getOrElse("menuitem"),
-            cls          -> "uni-menu__item",
-            data("slot") -> "menu-item",
-            tabindex     -> "-1",
-            AgentRegistry.attach(MenuList.itemBinding(item)),
-            ariaDisabled ->
-              item
-                .disabledState
-                .map { d =>
-                  disabledNow = d
-                  d.toString
-                },
-            item.checked.map(c => ariaChecked -> c.map(_.toString)).getOrElse(DomNode.empty),
-            // The pointer moves focus, so the highlight and the keyboard position stay one
-            EventListenerBinding(
-              "pointermove",
-              e =>
-                e.currentTarget match
-                  case el: dom.HTMLElement if !disabledNow && !(el eq dom.document.activeElement) =>
-                    el.focus()
-                  case _ =>
-            ),
-            EventListenerBinding(
-              "click",
-              e =>
-                if !disabledNow then
-                  // Close first, so focus is back on the trigger before the action opens a dialog
-                  // A close that onChange refuses skips the action, as in AlertDialog
-                  ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
-                    if close() then
-                      item.action()
-                  }
-            ),
-            span(cls -> "uni-menu__check", ariaHidden -> "true"),
-            span(cls -> "uni-menu__label", item.content),
-            item.shortcut.map(s => span(cls -> "uni-menu__shortcut", s)).getOrElse(DomNode.empty)
-          )
-      }
-    )
-
-  end render
+  ): RxElement = div(
+    id              -> menuId,
+    cls             -> "uni-menu",
+    role            -> "menu",
+    tabindex        -> "-1",
+    ariaOrientation -> "vertical",
+    data("state")   -> "open",
+    data("slot")    -> "menu",
+    labelledBy.map(l => ariaLabelledby -> l).getOrElse(DomNode.empty),
+    EventListenerBinding(
+      "keydown",
+      e =>
+        e.currentTarget match
+          case m: dom.Element if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
+            onKey(m, e.asInstanceOf[dom.KeyboardEvent], close)
+          case _ =>
+    ),
+    entries.map {
+      case MenuSeparator =>
+        div(role -> "separator", cls -> "uni-menu__separator", data("slot") -> "menu-separator")
+      case item: MenuItem =>
+        var disabledNow = false
+        div(
+          role         -> item.checked.map(_ => "menuitemcheckbox").getOrElse("menuitem"),
+          cls          -> "uni-menu__item",
+          data("slot") -> "menu-item",
+          tabindex     -> "-1",
+          AgentRegistry.attach(MenuList.itemBinding(item)),
+          ariaDisabled ->
+            item
+              .disabledState
+              .map { d =>
+                disabledNow = d
+                d.toString
+              },
+          item.checked.map(c => ariaChecked -> c.map(_.toString)).getOrElse(DomNode.empty),
+          // The pointer moves focus, so the highlight and the keyboard position stay one
+          EventListenerBinding(
+            "pointermove",
+            e =>
+              e.currentTarget match
+                case el: dom.HTMLElement if !disabledNow && !(el eq dom.document.activeElement) =>
+                  el.focus()
+                case _ =>
+          ),
+          EventListenerBinding(
+            "click",
+            e =>
+              if !disabledNow then
+                // Close first, so focus is back on the trigger before the action opens a dialog
+                // A close that onChange refuses skips the action, as in AlertDialog
+                ChangeCause.during(ChangeCause.of(ChangeReason.ItemPress, e)) {
+                  if close() then
+                    item.action()
+                }
+          ),
+          span(cls -> "uni-menu__check", ariaHidden -> "true"),
+          span(cls -> "uni-menu__label", item.content),
+          item.shortcut.map(s => span(cls -> "uni-menu__shortcut", s)).getOrElse(DomNode.empty)
+        )
+    }
+  )
 
 end MenuList
 
@@ -281,11 +287,7 @@ class Menu private (
     onDismiss = () => setOpen(false, ChangeCause.current): Unit,
     initialFocus =
       el =>
-        val target =
-          if focusLast then
-            MenuList.last(el)
-          else
-            MenuList.first(el)
+        val target = MenuList.opening(el, atLast = focusLast)
         focusLast = false
         target.orElse(Some(el))
     ,
@@ -387,7 +389,7 @@ class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
     modal = false,
     dismissOnOutside = true,
     onDismiss = () => open := false,
-    initialFocus = el => MenuList.first(el).orElse(Some(el)),
+    initialFocus = el => MenuList.opening(el, atLast = false).orElse(Some(el)),
     returnFocus = true
   )
 
