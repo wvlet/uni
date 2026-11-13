@@ -29,18 +29,25 @@ private[http] object StaticFilesCompat:
 
   def currentDirectory: IOPath = IOPath.parse(js.Dynamic.global.process.cwd().asInstanceOf[String])
 
-  /** The type of `path` without following a symbolic link (lstat). */
-  def fileType(path: IOPath): FileType =
+  /** The type, size, and mtime of `path` without following a symbolic link (lstat). */
+  def stat(path: IOPath): StaticFileStat =
     val stats = fs.lstatSync(path.posixPath, js.Dynamic.literal(throwIfNoEntry = false))
     if js.isUndefined(stats) then
-      FileType.NotFound
-    else if stats.isSymbolicLink().asInstanceOf[Boolean] then
-      FileType.SymbolicLink
-    else if stats.isFile().asInstanceOf[Boolean] then
-      FileType.File
-    else if stats.isDirectory().asInstanceOf[Boolean] then
-      FileType.Directory
+      StaticFileStat(FileType.NotFound, 0L, 0L)
     else
-      FileType.Other
+      val fileType =
+        if stats.isSymbolicLink().asInstanceOf[Boolean] then
+          FileType.SymbolicLink
+        else if stats.isFile().asInstanceOf[Boolean] then
+          FileType.File
+        else if stats.isDirectory().asInstanceOf[Boolean] then
+          FileType.Directory
+        else
+          FileType.Other
+      StaticFileStat(
+        fileType,
+        stats.size.asInstanceOf[Double].toLong,
+        stats.mtimeMs.asInstanceOf[Double].toLong
+      )
 
   def readBytes(path: IOPath): Array[Byte] = NodeBytes.toBytes(fs.readFileSync(path.posixPath))

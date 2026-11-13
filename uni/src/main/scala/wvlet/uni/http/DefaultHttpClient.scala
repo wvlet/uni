@@ -67,7 +67,7 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
   private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): HttpResponse =
     val response = sendWithRetry(request)
 
-    if config.followRedirects && response.isRedirection then
+    if config.followRedirects && response.status.isFollowableRedirect then
       handleRedirect(request, response, redirectCount)
     else
       response
@@ -186,7 +186,7 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
 
   private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): Rx[HttpResponse] =
     sendWithRetry(request).flatMap { response =>
-      if config.followRedirects && response.isRedirection then
+      if config.followRedirects && response.status.isFollowableRedirect then
         handleRedirect(request, response, redirectCount)
       else
         Rx.single(response)

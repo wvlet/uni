@@ -154,4 +154,12 @@ class HttpStatusTest extends UniTest:
     HttpStatus.InternalServerError_500.toString shouldBe "500 Internal Server Error"
   }
 
+  test("clients follow only the redirects that carry a Location") {
+    val followed = Seq(301, 302, 303, 307, 308).map(HttpStatus.ofCode)
+    followed.forall(_.isFollowableRedirect) shouldBe true
+    // A 304 answers a conditional request; the caller gets it back
+    HttpStatus.NotModified_304.isFollowableRedirect shouldBe false
+    HttpStatus.MultipleChoices_300.isFollowableRedirect shouldBe false
+  }
+
 end HttpStatusTest

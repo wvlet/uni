@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.io.{FileSystem, FileType, IOPath}
+import wvlet.uni.io.{FileSystem, IOPath}
 
 /** File access for [[StaticFiles]], through uni-core `FileSystem`. */
 private[http] object StaticFilesCompat:
@@ -21,7 +21,9 @@ private[http] object StaticFilesCompat:
 
   def currentDirectory: IOPath = FileSystem.currentDirectory
 
-  /** The type of `path` without following a symbolic link (lstat). */
-  def fileType(path: IOPath): FileType = FileSystem.info(path).fileType
+  /** The type, size, and mtime of `path` without following a symbolic link (lstat). */
+  def stat(path: IOPath): StaticFileStat =
+    val info = FileSystem.info(path)
+    StaticFileStat(info.fileType, info.size, info.lastModified.map(_.toEpochMilli).getOrElse(0L))
 
   def readBytes(path: IOPath): Array[Byte] = FileSystem.readBytes(path)
