@@ -78,6 +78,7 @@ private[ui] class ListCore[A, K](
 
   // The latest list, for keyboard moves; kept in step by the rendered rows
   private var current: Seq[A]                    = Seq.empty
+  private val typeahead                          = Typeahead()
   private var root: Option[dom.HTMLElement]      = None
   private var spacer: Option[dom.Element]        = None
   private var resize: Option[dom.ResizeObserver] = None
@@ -159,14 +160,7 @@ private[ui] class ListCore[A, K](
         case k =>
           ListNavigation
             .nextIndex(k, i, current.size, pageSize)
-            .orElse {
-              typeaheadLabel.flatMap { label =>
-                if k.length == 1 && !e.ctrlKey && !e.metaKey && !e.altKey then
-                  RovingFocus.typeahead(current.map(label), i, k)
-                else
-                  None
-              }
-            }
+            .orElse(typeaheadLabel.flatMap(label => typeahead.onKey(e, current.map(label), i)))
             .foreach { n =>
               e.preventDefault()
               moveTo(n)

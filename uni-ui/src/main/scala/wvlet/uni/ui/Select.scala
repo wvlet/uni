@@ -55,6 +55,7 @@ class Select[A] private (
   private val optionIds                       = mutable.Map.empty[A, String]
   // The latest list, for keyboard moves; kept in step by the rendered list
   private var current: Seq[A] = Seq.empty
+  private val typeahead       = Typeahead()
 
   private def copy(
       label: Option[String] = label,
@@ -101,12 +102,7 @@ class Select[A] private (
         case k =>
           RovingFocus
             .nextIndex(k, i, current.size, Orientation.Vertical)
-            .orElse {
-              if k.length == 1 && !e.ctrlKey && !e.metaKey && !e.altKey then
-                RovingFocus.typeahead(current.map(optionLabel), i, k)
-              else
-                None
-            }
+            .orElse(typeahead.onKey(e, current.map(optionLabel), i))
             .foreach { n =>
               e.preventDefault()
               moveTo(n)

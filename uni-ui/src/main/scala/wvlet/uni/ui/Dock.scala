@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.PointerDrag
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.ui.base.{DockModel, DockPath, Ids, RovingFocus}
+import wvlet.uni.ui.base.{DockModel, DockPath, FocusRecovery, Ids, RovingFocus}
 
 import scala.collection.mutable
 import scala.language.implicitConversions
@@ -505,9 +505,8 @@ class Dock private (
 
   // Close a tab from the keyboard and move focus to its neighbor, as an editor does
   private def closeTab(panel: String, tabs: Seq[String], cause: ChangeCause): Unit =
-    val i = tabs.indexOf(panel)
     if setLayout(DockModel.close(now, panel), cause) then
-      tabs.lift(i + 1).orElse(tabs.lift(i - 1)).foreach(focusTab)
+      FocusRecovery.neighbor(tabs, panel).foreach(focusTab)
 
   private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String]): Unit =
     val focused = Option(e.target)

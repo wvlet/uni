@@ -384,6 +384,12 @@ object DomRenderer extends LogSupport:
           val jsListener: js.Function1[dom.Event, Unit] = lb.listener
           node.addEventListener(lb.eventName, jsListener)
           Cancelable(() => node.removeEventListener(lb.eventName, jsListener))
+        case om: OnMount =>
+          node match
+            case elem: dom.HTMLElement =>
+              om.attach(elem)
+            case _ =>
+              Cancelable.empty
         // Ref bindings
         case rb: RefBinding[?] =>
           node match
