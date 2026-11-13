@@ -50,10 +50,12 @@ import scala.language.implicitConversions
   * @param activeCell
   *   the active cell within the active row, for a grid; `aria-activedescendant` then names that
   *   cell (`cellId`) instead of the row
-  * @param reorder
-  *   lets the user reorder the rows: each rendered row becomes a [[Reorder.item]], and Alt+Arrow,
-  *   Alt+Home, and Alt+End move the active row (with the selection, when it is selected) by key, so
-  *   they work on rows scrolled out of view too
+  * @param reorderable
+  *   the variable `items` shows, to let the user reorder the rows: each rendered row becomes a
+  *   [[Reorder.item]], and Alt+Arrow, Alt+Home, and Alt+End move the active row (with the
+  *   selection, when it is selected) by key, so they work on rows scrolled out of view too
+  * @param reorderEnabled
+  *   false while the rows can't be moved, as in a sorted table
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -77,7 +79,8 @@ private[ui] class ListCore[A, K](
     slot: String = "list",
     agentKind: String = "list",
     agentActions: () => Seq[AgentAction] = () => Nil,
-    reorder: Option[Reorder[K]] = None
+    reorderable: Option[RxVar[Seq[A]]] = None,
+    reorderEnabled: () => Boolean = () => true
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -102,6 +105,18 @@ private[ui] class ListCore[A, K](
         Some(Selection(keys).onChange(changeHandler))
       case ListSelection.Single(_) =>
         None
+
+  private val reorder: Option[Reorder[K]] = reorderable.map { o =>
+    val r = Reorder
+      .by(o, label = typeaheadLabel.getOrElse((a: A) => String.valueOf(key(a))))(key)
+      .onChange(changeHandler)
+      .enabledWhen(reorderEnabled)
+    selection match
+      case ListSelection.Multi(keys) =>
+        r.withSelection(keys)
+      case ListSelection.Single(_) =>
+        r
+  }
 
   private def isSelected(k: K): Rx[Boolean] =
     selection match

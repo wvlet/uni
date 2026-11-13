@@ -16,7 +16,6 @@ package wvlet.uni.ui
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
-import wvlet.uni.ui.base.Reorder
 
 import scala.language.implicitConversions
 
@@ -123,37 +122,29 @@ class VirtualList[A, K] private (
   def withTypeahead(label: A => String): VirtualList[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): VirtualList[A, K]                     = copy(typeahead = None)
 
-  override def render: RxElement =
-    val reorder = reorderable.map { o =>
-      val r = Reorder
-        .by(o, label = typeahead.getOrElse((a: A) => String.valueOf(key(a))))(key)
-        .onChange(changeHandler)
-      multiSelected.foreach(r.withSelection)
-      r
-    }
-    ListCore[A, K](
-      items,
-      key,
-      rowHeight,
-      overscan,
-      containerClass = "uni-virtual-list",
-      containerAttrs = Seq(role -> "listbox", label.map(ariaLabel -> _).getOrElse(DomNode.empty)),
-      containerStyle = "",
-      spacerAttrs = Seq(role -> "presentation"),
-      rowRole = "option",
-      rowAttrs =
-        (_, i, count) =>
-          Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
-      renderRow = renderRow,
-      selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
-      onSelect = onSelectFn,
-      typeaheadLabel = typeahead,
-      extraKey = (_, _, _) => false,
-      header = DomNode.empty,
-      changeHandler = changeHandler,
-      slot = "virtual-list",
-      reorder = reorder
-    )
+  override def render: RxElement = ListCore[A, K](
+    items,
+    key,
+    rowHeight,
+    overscan,
+    containerClass = "uni-virtual-list",
+    containerAttrs = Seq(role -> "listbox", label.map(ariaLabel -> _).getOrElse(DomNode.empty)),
+    containerStyle = "",
+    spacerAttrs = Seq(role -> "presentation"),
+    rowRole = "option",
+    rowAttrs =
+      (_, i, count) =>
+        Seq(ariaPosinset -> i.map(n => (n + 1).toString), ariaSetsize -> count.map(_.toString)),
+    renderRow = renderRow,
+    selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
+    onSelect = onSelectFn,
+    typeaheadLabel = typeahead,
+    extraKey = (_, _, _) => false,
+    header = DomNode.empty,
+    changeHandler = changeHandler,
+    slot = "virtual-list",
+    reorderable = reorderable
+  )
 
   end render
 

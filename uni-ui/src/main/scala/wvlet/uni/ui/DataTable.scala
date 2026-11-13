@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.ui.agent.AgentAction
-import wvlet.uni.ui.base.{Reorder, TextDirection, Windowing}
+import wvlet.uni.ui.base.{TextDirection, Windowing}
 
 import scala.language.implicitConversions
 
@@ -314,14 +314,6 @@ class DataTable[A, K] private (
       )
 
   override def render: RxElement =
-    val reorder = reorderable.map { o =>
-      val r = Reorder
-        .by(o, label = (a: A) => String.valueOf(key(a)))(key)
-        .onChange(changeHandler)
-        .enabledWhen(() => sort.get.isEmpty)
-      multiSelected.foreach(r.withSelection)
-      r
-    }
     // Lazy, so each cell can take its id from the list that renders it
     lazy val core: ListCore[A, K] = ListCore[A, K](
       sorted,
@@ -385,7 +377,8 @@ class DataTable[A, K] private (
         )
       ),
       activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c)),
-      reorder = reorder
+      reorderable = reorderable,
+      reorderEnabled = () => sort.get.isEmpty
     )
     core
 
