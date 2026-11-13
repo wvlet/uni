@@ -46,6 +46,8 @@ jobs:
               - SCALA_VERSION
               # The docSnippets project compiles the skill's Markdown snippets (projectJVM/test)
               - 'plugins/uni/skills/**'
+              # docSnippetsJS compiles the UI pages' snippets (projectJS/test)
+              - 'docs/dom/**'
   code_format:
     name: Code format
     needs: changes

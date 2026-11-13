@@ -10,6 +10,11 @@ Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`),
 (`docs/blog/`). A root is a directory or one Markdown file. To cover
 more pages, add a root and its package prefix to `docSnippets` in `build.sbt`.
 
+Scala.js-only pages (the skill's `references/ui.md` and `docs/dom/*.md`) compile in
+`docSnippetsJS` (`docs/snippets-js/`) against `uni.js` and `uni-ui`, with stubs under
+`docs/snippets-js/src/test/scala/`. Its fences are compiled but not run, since a `test`
+fence there would need a browser. `docSnippets` passes `exclude` so it skips those pages.
+
 ```bash
 ./sbt docSnippets/Test/compile   # compile every snippet
 ./sbt docSnippets/test           # also run the `scala test` fences

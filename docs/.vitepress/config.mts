@@ -2,10 +2,31 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import llmstxt from 'vitepress-plugin-llms'
 import { fetchLatestVersion } from './fetchLatestVersion'
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+
+// The llms plugin publishes a section's main page (dom/index.md) as /dom.md, outside dom/, so the
+// section's own llms.txt and llms-full.txt leave it out. Put it first in both.
+async function addSectionMainPages(outDir: string) {
+  const entries = await readdir(outDir, { withFileTypes: true })
+  await Promise.all(
+    entries
+      .filter((e) => e.isDirectory() && existsSync(join(outDir, e.name, 'llms.txt')))
+      .filter((e) => existsSync(join(outDir, `${e.name}.md`)))
+      .map(async (e) => {
+        const page = await readFile(join(outDir, `${e.name}.md`), 'utf8')
+        const title = page.match(/^# (.+)$/m)?.[1] ?? e.name
+        const toc = join(outDir, e.name, 'llms.txt')
+        const link = `- [${title}](${SITE_URL}${e.name}.md)`
+        const text = await readFile(toc, 'utf8')
+        await writeFile(toc, text.replace(/^## Table of Contents\n+/m, (h) => `${h}${link}\n\n`))
+        const full = join(outDir, e.name, 'llms-full.txt')
+        await writeFile(full, `${page.trimEnd()}\n\n${await readFile(full, 'utf8')}`)
+      })
+  )
+}
 
 const FALLBACK_VERSION = '2026.1.22'
 const VERSION_TOKEN = '__UNI_VERSION__'
@@ -141,7 +162,10 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         excludeBlog: false,
         ignoreFiles: ['blog/index.md'],
         // Publish the home page as /uni/index.md and in llms-full.txt; its body is the answer-first summary
-        excludeIndexPage: false
+        excludeIndexPage: false,
+        // Also publish llms.txt / llms-full.txt per top-level section (/uni/dom/llms.txt, /uni/http/llms.txt,
+        // ...), so an agent working in one area loads only that area
+        experimental: { depth: 2 }
       })
     ]
   },
@@ -149,6 +173,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
   // The llms plugin copies Markdown sources verbatim, so resolve the version tokens in its output too
   async buildEnd(siteConfig) {
     await writeFile(join(siteConfig.outDir, 'blog', 'feed.xml'), atomFeed())
+    await addSectionMainPages(siteConfig.outDir)
     const files = await readdir(siteConfig.outDir, { recursive: true })
     await Promise.all(
       files

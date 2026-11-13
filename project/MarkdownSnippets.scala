@@ -73,13 +73,20 @@ object MarkdownSnippets:
   /**
     * Generate sources for every Markdown file under each root into outDir, and delete stale files
     * there. A root is a directory or a single Markdown file, and comes with the package prefix of
-    * its generated code.
+    * its generated code. Markdown files in `exclude` are skipped, so a directory root can leave out
+    * a page that another project compiles (the Scala.js-only `references/ui.md`).
     */
-  def generate(roots: Seq[(File, String)], baseDir: File, outDir: File): Seq[File] =
+  def generate(
+      roots: Seq[(File, String)],
+      baseDir: File,
+      outDir: File,
+      exclude: Set[File] = Set.empty
+  ): Seq[File] =
+    val excluded  = exclude.map(_.getCanonicalFile)
     val generated =
       for
         (root, prefix) <- roots
-        md             <- markdownFiles(root)
+        md             <- markdownFiles(root).filterNot(f => excluded(f.getCanonicalFile))
         out            <- generateFile(md, root, prefix, baseDir, outDir)
       yield out
     generated

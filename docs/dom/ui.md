@@ -14,7 +14,7 @@ app restyles a component by setting variables, not by changing Scala code.
 
 Add the artifact to a Scala.js project:
 
-```scala
+```scala sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-ui" % "<version>"
 ```
 
@@ -22,7 +22,7 @@ Load `uni-ui.css` once. It ships in the jar at `wvlet/uni/ui/uni-ui.css`. The
 [sbt-uni plugin](../build/sbt-uni#uni-ui-stylesheet) copies it out of the jar on every compile, so
 the file always matches the uni-ui version your app links:
 
-```scala
+```scala sbt
 // project/plugins.sbt
 addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
 
@@ -58,7 +58,9 @@ Pass extra attributes as modifiers, and use `cls +=` so the component's own clas
 ```scala
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
+import wvlet.uni.rx.Rx
 import wvlet.uni.ui.*
+import scala.language.implicitConversions
 
 val draft = Rx.variable("")
 val busy  = Rx.variable(false)
@@ -168,6 +170,8 @@ component keeps its own `style`.
 case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
 case class Call(id: Long, method: String, millis: Double)
 
+val roots    = Seq(FileNode("src", "src", Seq(FileNode("src/main", "main"))))
+val calls    = Rx.variable(Seq(Call(1, "getUser", 3.2)))
 val expanded = Rx.variable(Set("src"))
 val sort     = Rx.variable(Option(SortBy("millis", SortDirection.Descending)))
 
@@ -177,7 +181,7 @@ div(
   Tree(Rx.const(roots), (f: FileNode) => f.children)(_.path)(f => span(f.name))
     .withLabel("Files")
     .withExpanded(expanded)
-    .onSelect(f => open(f)),
+    .onSelect(f => openFile(f)),
   DataTable(calls)(_.id)(
     Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
     Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
@@ -239,7 +243,7 @@ val layout = Storage.local(
 Dock(layout, "Dock")(
   DockPanel("details", "Details")(DetailsView()),
   DockPanel("activity", "Activity")(ActivityLog()).withTab(Icons.activity, "Activity", Badge(count)),
-  DockPanel("terminal", "Terminal")(TerminalView()).withClosable(false)
+  DockPanel("terminal", "Terminal")(ShellView()).withClosable(false)
 ).withActions(IconButton("Close dock", Icons.panelRight).onClick(() => dockOpen := false))
 ```
 
@@ -312,6 +316,8 @@ To change colors, set the variables after `uni-ui.css`:
 Components render into a real DOM with [uni-dom testing](./#testing-components):
 
 ```scala
+import wvlet.uni.dom.testing.*
+
 class SendButtonTest extends DomTestSupport:
   test("send runs once per click") {
     var sent = 0
