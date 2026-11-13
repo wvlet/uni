@@ -188,6 +188,11 @@ class CollectionTest extends DomTestSupport:
       keys.get shouldBe Set.empty
       fireEvent.keyDown(list, "Enter")
       keys.get shouldBe Set(5)
+      // After Escape drops the anchor, Shift+click extends from the highlighted row
+      fireEvent.keyDown(list, "Escape")
+      fireEvent.keyDown(list, "ArrowUp")
+      fireEvent.click(m.getByText("Item 2"), shiftKey = true)
+      keys.get shouldBe Set(2, 3, 4)
     }
   }
 

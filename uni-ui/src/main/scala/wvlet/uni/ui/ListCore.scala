@@ -168,23 +168,28 @@ private[ui] class ListCore[A, K](
     if accepted then
       ChangeCause.during(cause)(onSelect(a))
 
+  // With no anchor yet, a Shift range starts at the row that was active (index `from`)
+  private def seedAnchor(sel: Selection[K], from: Int): Unit =
+    if !sel.anchor.exists(index.get.contains) then
+      sel.setAnchor(current.lift(from).map(key))
+
   // A click: Shift and Ctrl (⌘) extend or toggle a multiple selection; a plain click selects
-  private def press(a: A, e: dom.MouseEvent): Unit =
+  private def press(a: A, from: Int, e: dom.MouseEvent): Unit =
     multi match
       case Some(sel) if e.shiftKey || e.ctrlKey || e.metaKey =>
+        if e.shiftKey then
+          seedAnchor(sel, from)
         sel.press(key(a), order, e)
       case _ =>
         select(a, ChangeCause.of(ChangeReason.ItemPress, e))
 
-  // Move to row `n` and, with Shift in a multiple selection, extend the selection to it from the
-  // anchor, which starts at the row that was active when there is none yet
+  // Move to row `n` and, with Shift in a multiple selection, extend the selection to it
   private def navigate(n: Int, from: Int, e: dom.KeyboardEvent): Unit =
     moveTo(n)
     multi
       .filter(_ => e.shiftKey)
       .foreach { sel =>
-        if !sel.anchor.exists(index.get.contains) then
-          sel.setAnchor(current.lift(from).map(key))
+        seedAnchor(sel, from)
         current
           .lift(n)
           .foreach(a => sel.extendTo(key(a), order, ChangeCause.of(ChangeReason.NavigationKey, e)))
@@ -292,8 +297,9 @@ private[ui] class ListCore[A, K](
       EventListenerBinding(
         "click",
         e =>
+          val from = activeIndex
           active := Some(k)
-          press(a, e.asInstanceOf[dom.MouseEvent])
+          press(a, from, e.asInstanceOf[dom.MouseEvent])
       ),
       renderRow(a)
     )
