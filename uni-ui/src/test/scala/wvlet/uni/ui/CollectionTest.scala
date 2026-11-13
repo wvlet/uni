@@ -292,6 +292,31 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("a data table scrolls a wide row to the active cell and leaves modified arrows alone") {
+    val m = mount(
+      DataTable(Rx.const(calls))(_.id)(
+        (1 to 6).map(n =>
+          Column[Call](s"c${n}", s"C${n}")(c => span(s"${c.id}-${n}")).withWidth("200px")
+        )*
+      )(styleAttr += "width: 300px; height: 200px")
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def cell  = activeRow(table).map(_.textContent)
+    settle().map { _ =>
+      table.focus()
+      fireEvent.keyDown(table, "End")
+      cell shouldBe Some("1-6")
+      (table.scrollLeft > 0) shouldBe true
+      fireEvent.keyDown(table, "Home")
+      table.scrollLeft shouldBe 0
+
+      // Alt+Arrow and Ctrl or ⌘ with Left or Right belong to the app or the browser
+      fireEvent.keyDown(table, "ArrowRight", altKey = true) shouldBe true
+      fireEvent.keyDown(table, "ArrowRight", metaKey = true) shouldBe true
+      cell shouldBe Some("1-1")
+    }
+  }
+
   test("nextColumn moves along a row and stops at its ends") {
     DataTable.nextColumn("ArrowRight", 0, 3) shouldBe Some(1)
     DataTable.nextColumn("ArrowRight", 2, 3) shouldBe Some(2)

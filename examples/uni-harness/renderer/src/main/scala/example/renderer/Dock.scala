@@ -3,7 +3,19 @@ package example.renderer
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
-import wvlet.uni.ui.{Badge, DockLayout, DockPanel, Edge, FoldablePane, Splitter, VirtualList}
+import wvlet.uni.ui.{
+  Badge,
+  Column,
+  DataTable,
+  DockLayout,
+  DockPanel,
+  Edge,
+  FoldablePane,
+  SortBy,
+  SortDirection,
+  Splitter,
+  VirtualList
+}
 import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
@@ -185,9 +197,66 @@ end DetailsView
 
 /**
   * Every RPC call, newest first, with its time relative to the slowest. The log keeps hundreds of
-  * calls, so it renders through a [[VirtualList]]: only the rows in view are in the DOM.
+  * calls, so it renders through a [[VirtualList]]: only the rows in view are in the DOM. The
+  * "Table" view shows the same calls in a sortable [[DataTable]], which moves by cell.
   */
 class ActivityLog(log: RpcLog) extends RxElement:
+  private[renderer] val asTable = Rx.variable(false)
+  private val sort              = Rx.variable(Option.empty[SortBy])
+
+  private def viewButton(label: String, table: Boolean): RxElement = button(
+    tpe         -> "button",
+    ariaPressed -> asTable.map(t => (t == table).toString),
+    cls         ->
+      asTable.map { t =>
+        val tone =
+          if t == table then
+            "bg-hover text-fg"
+          else
+            "text-faint hover:text-fg"
+        s"rounded px-1.5 py-0.5 ${tone}"
+      },
+    onclick -> (() => asTable := table),
+    label
+  )
+
+  private def mono(s: String): RxElement = span(cls -> "font-mono text-[11.5px] tabular-nums", s)
+
+  // Wider than a narrow dock on purpose, so the table also scrolls sideways to the active cell
+  private def table: RxElement =
+    DataTable(log.calls)(_.id)(
+      Column[RpcCall]("id", "#")(c => mono(c.id.toString)).sortBy(_.id).withWidth("44px").alignEnd,
+      Column[RpcCall]("method", "Method")(c =>
+        span(cls -> "truncate font-mono text-[11.5px]", c.method)
+      ).sortBy(_.method).withWidth("minmax(140px, 1fr)"),
+      Column[RpcCall]("millis", "Time")(c => mono(f"${c.millis}%.1f ms"))
+        .sortBy(_.millis)
+        .withWidth("80px")
+        .alignEnd,
+      Column[RpcCall]("first", "First")(c => mono(c.firstMillis.fold("–")(f => f"${f}%.0f ms")))
+        .sortBy(_.firstMillis.getOrElse(-1.0))
+        .withWidth("72px")
+        .alignEnd,
+      Column[RpcCall]("events", "Events")(c => mono(c.events.toString))
+        .sortBy(_.events)
+        .withWidth("64px")
+        .alignEnd,
+      Column[RpcCall]("ok", "Status")(c =>
+        span(
+          cls -> (
+            if c.ok then
+              "text-muted"
+            else
+              "text-red-500"
+          ),
+          if c.ok then
+            "ok"
+          else
+            "failed"
+        )
+      ).sortBy(_.ok).withWidth("64px")
+    ).withLabel("RPC calls").withSort(sort).withRowHeight(30)(cls += "min-h-0 flex-1 text-[12px]")
+
   // Each call with the slowest time, computed once per update. A row renders again only when its
   // pair changes, which is when a new slowest call arrives.
   private val rows: Rx[Seq[(RpcCall, Double)]] = log
@@ -240,14 +309,26 @@ class ActivityLog(log: RpcLog) extends RxElement:
           p(cls -> "px-2 py-8 text-center text-[12px] text-faint", "No calls yet")
         else
           div(
-            cls -> "flex items-center justify-between px-1 pt-1 pb-2 text-[11px] text-faint",
-            span(s"Last ${Ui.plural(calls.size, "call")}"),
-            span(f"avg ${calls.map(_.millis).sum / calls.size}%.1f ms")
+            cls -> "flex items-center gap-2 px-1 pt-1 pb-2 text-[11px] text-faint",
+            span(cls -> "flex-1", s"Last ${Ui.plural(calls.size, "call")}"),
+            span(f"avg ${calls.map(_.millis).sum / calls.size}%.1f ms"),
+            div(
+              role      -> "group",
+              ariaLabel -> "Activity view",
+              cls       -> "flex gap-0.5",
+              viewButton("List", table = false),
+              viewButton("Table", table = true)
+            )
           )
       },
-    VirtualList(rows, rowHeight = 44)(_._1.id)(row.tupled).withLabel("RPC calls")(
-      cls += "min-h-0 flex-1"
-    )
+    asTable.map { t =>
+      if t then
+        table
+      else
+        VirtualList(rows, rowHeight = 44)(_._1.id)(row.tupled).withLabel("RPC calls")(
+          cls += "min-h-0 flex-1"
+        )
+    }
   )
 
 end ActivityLog

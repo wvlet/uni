@@ -38,7 +38,8 @@ flowchart LR
   its first part and how many events it delivered.
 - **Components that take only what they use.** `Composer(onSend, busy)`, `Bubble(message, current)`,
   and `IconRail(layout)`; `FoldablePane` and `ResizeHandle` (a styled grip on uni-dom's `PaneResize`) are shared by the sidebar and the dock.
-  `TrackedChatApi` decorates the API to feed the dock's Activity log.
+  `TrackedChatApi` decorates the API to feed the dock's Activity log. Its **Table** view shows the same calls
+  in a sortable uni-ui `DataTable` that moves by cell (arrow keys, Home and End).
 - **A workspace UI in Rx HTML**, in Uni's teal and silver with the Uni logo, light and dark:
   - [`Shell.scala`](renderer/src/main/scala/example/renderer/Shell.scala): the title bar, the icon
     rail, and the resizable sidebar with chats (search, Today/Earlier groups), files, and settings.

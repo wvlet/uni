@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.base.Windowing
 
 import scala.language.implicitConversions
 
@@ -135,15 +136,35 @@ class DataTable[A, K] private (
   private val activeColumn = Rx.variable(0)
 
   private def onKey(e: dom.KeyboardEvent): Boolean =
-    val toRow = e.ctrlKey || e.metaKey
-    DataTable.nextColumn(e.key, activeColumn.get, columns.size) match
-      case Some(c) =>
-        if c != activeColumn.get then
-          activeColumn := c
-        // Ctrl+Home and Ctrl+End also move the row, through the list's own Home and End
-        !(toRow && (e.key == "Home" || e.key == "End"))
-      case None =>
-        false
+    val toRow  = e.ctrlKey || e.metaKey
+    val rowEnd = e.key == "Home" || e.key == "End"
+    // Alt+Arrow (Back in some browsers) and Ctrl or ⌘ with Left or Right belong to the app
+    if e.altKey || e.shiftKey || (toRow && !rowEnd) then
+      false
+    else
+      DataTable.nextColumn(e.key, activeColumn.get, columns.size) match
+        case Some(c) =>
+          if c != activeColumn.get then
+            activeColumn := c
+          e.currentTarget match
+            case el: dom.HTMLElement =>
+              revealColumn(el, c)
+            case _ =>
+          // Ctrl+Home and Ctrl+End also move the row, through the list's own Home and End
+          !(toRow && rowEnd)
+        case None =>
+          false
+
+  // Scroll a table wider than its box so that column `c` is in view. The header cell has the same
+  // track as the column's cells and is always rendered.
+  private def revealColumn(el: dom.HTMLElement, c: Int): Unit = Option(
+    el.querySelector(s":scope > .uni-table__header > .uni-table__header-row > :nth-child(${c + 1})")
+  ).foreach { cell =>
+    val left = cell.getBoundingClientRect().left - el.getBoundingClientRect().left + el.scrollLeft
+    Windowing
+      .revealSpan(left, cell.getBoundingClientRect().width, el.scrollLeft, el.clientWidth)
+      .foreach(x => el.scrollLeft = x)
+  }
 
   private def cellClass(c: Column[A]): String =
     if c.end then
