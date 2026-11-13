@@ -14,6 +14,7 @@
 package wvlet.uni.http.rpc
 
 import wvlet.uni.http.ContentType
+import wvlet.uni.http.HttpAccessLogFilter
 import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -85,10 +86,19 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
           )
 
   private def handle(instance: Any, route: RPCRoute, request: Request): Rx[Response] =
+    def record(args: Seq[Any]): Unit = HttpAccessLogFilter.recordRPCCall(
+      request,
+      route.serviceName,
+      instance.getClass.getName,
+      route.codec.method,
+      args
+    )
     try
+      record(Seq.empty)
       // Decode parameters from the request body
       val json = request.content.asString.getOrElse("")
       val args = route.codec.decodeParams(json, Some(instance))
+      record(args)
 
       // Invoke the method
       val result = route.codec.method.call(instance, args*)
@@ -117,6 +127,9 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       case e: Exception =>
         warn(s"Unexpected error in RPC handler: ${e.getMessage}", e)
         Rx.single(errorResponse(e))
+    end try
+
+  end handle
 
   private def successResponse(value: Any, route: RPCRoute): Response =
     val json = route.codec.encodeResult(value)

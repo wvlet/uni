@@ -15,6 +15,7 @@ package wvlet.uni.http
 
 import wvlet.uni.log.{FileLogHandler, FileLogHandlerConfig, LogFormatter, LogLevel, LogRecord}
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.MethodSurface
 import wvlet.uni.weaver.codec.AnyWeaver
 
 import java.time.Instant
@@ -35,12 +36,16 @@ import scala.util.{Failure, Success}
   * @param extraEntries
   *   Adds application fields to every entry, e.g. a user id from a request attribute. The response
   *   is `None` when the handler failed
+  * @param rpcArgs
+  *   Whether to log the decoded arguments of the `@Endpoint` or RPC method as `rpc_args`. Arguments
+  *   and fields annotated with `@secret` are always left out. Default: true
   */
 case class HttpAccessLogConfig(
     streamWriter: Option[HttpAccessLogWriter] = None,
     redactedHeaders: Set[String] = HttpAccessLogConfig.DefaultRedactedHeaders,
     excludedHeaders: Set[String] = Set.empty,
-    extraEntries: (Request, Option[Response]) => Map[String, Any] = (_, _) => Map.empty
+    extraEntries: (Request, Option[Response]) => Map[String, Any] = (_, _) => Map.empty,
+    rpcArgs: Boolean = true
 ):
   def withStreamWriter(w: HttpAccessLogWriter): HttpAccessLogConfig = copy(streamWriter = Some(w))
   def noStreamWriter(): HttpAccessLogConfig                         = copy(streamWriter = None)
@@ -55,6 +60,9 @@ case class HttpAccessLogConfig(
 
   def withExtraEntries(f: (Request, Option[Response]) => Map[String, Any]): HttpAccessLogConfig =
     copy(extraEntries = f)
+
+  def withRpcArgs(enabled: Boolean = true): HttpAccessLogConfig = copy(rpcArgs = enabled)
+  def noRpcArgs(): HttpAccessLogConfig                          = copy(rpcArgs = false)
 
 object HttpAccessLogConfig:
   val DefaultRedactedHeaders: Set[String] = Set(
@@ -71,6 +79,13 @@ object HttpAccessLogConfig:
   * `request_size`, `remote_address`, `host`, `user_agent`, `status_code`, `status_code_name`,
   * `response_time_ms`, `response_size`, `request_header`, `response_header`, and `exception_class`
   * / `exception_message` when the handler failed.
+  *
+  * When the request reaches an `@Endpoint` or RPC method, the entry also has `rpc_interface`,
+  * `rpc_class`, `rpc_method`, and `rpc_args`, the decoded method arguments. Arguments and fields
+  * annotated with `@secret` are left out of `rpc_args`, at any depth inside case classes, `Seq`,
+  * `Option`, `Map`, and arrays. A value whose fields can't be inspected (e.g. one typed as a sealed
+  * trait) is logged as its class name. The arguments are logged even when the method throws.
+  * Disable `rpc_args` with [[HttpAccessLogConfig.noRpcArgs]].
   *
   * Add it as the outermost filter so it sees the final response; inner filters and controllers add
   * fields to the entry with [[HttpAccessLogFilter.addEntry]]. A handler exception is logged with
@@ -105,13 +120,14 @@ class HttpAccessLogFilter(
     val responses = rx.transformTry {
       case Success(response) =>
         if logged.compareAndSet(false, true) then
+          val rpc = rpcEntries(context)
           write(
             writer,
-            requestEntry(request, startMillis) ++ responseEntry(response, startNanos) ++
+            requestEntry(request, startMillis) ++ responseEntry(response, startNanos) ++ rpc ++
               context.entries ++ extraEntries(request, Some(response))
           )
           if response.isEventStream then
-            Success(response.withEvents(logStream(request, response, startMillis, context)))
+            Success(response.withEvents(logStream(request, response, startMillis, context, rpc)))
           else
             Success(response)
         else
@@ -122,7 +138,8 @@ class HttpAccessLogFilter(
           write(
             writer,
             requestEntry(request, startMillis) ++ statusEntry(status, startNanos) ++
-              exceptionEntry(e) ++ context.entries ++ extraEntries(request, None)
+              exceptionEntry(e) ++ rpcEntries(context) ++ context.entries ++
+              extraEntries(request, None)
           )
         Failure(e)
     }
@@ -134,8 +151,8 @@ class HttpAccessLogFilter(
           write(
             writer,
             requestEntry(request, startMillis) ++
-              statusEntry(HttpStatus.NotFound_404, startNanos) ++ context.entries ++
-              extraEntries(request, None)
+              statusEntry(HttpStatus.NotFound_404, startNanos) ++ rpcEntries(context) ++
+              context.entries ++ extraEntries(request, None)
           )
         Rx.empty[Response]
       }
@@ -147,7 +164,8 @@ class HttpAccessLogFilter(
       request: Request,
       response: Response,
       startMillis: Long,
-      context: HttpAccessLogFilter.LogContext
+      context: HttpAccessLogFilter.LogContext,
+      rpc: Map[String, Any]
   ): Rx[ServerSentEvent] =
     val streamStartNanos                                 = System.nanoTime()
     var count                                            = 0L
@@ -160,7 +178,7 @@ class HttpAccessLogFilter(
             "stream_event_count" -> count,
             "stream_bytes"       -> bytes,
             "stream_duration_ms" -> elapsedMillis(streamStartNanos)
-          ) ++ error.map(exceptionEntry).getOrElse(Map.empty) ++ context.entries ++
+          ) ++ error.map(exceptionEntry).getOrElse(Map.empty) ++ rpc ++ context.entries ++
           extraEntries(request, Some(response))
       write(config.streamWriter.getOrElse(writer), entry)
 
@@ -202,6 +220,18 @@ class HttpAccessLogFilter(
     "status_code_name" -> status.reason,
     "response_time_ms" -> elapsedMillis(startNanos)
   )
+
+  private def rpcEntries(context: HttpAccessLogFilter.LogContext): Map[String, Any] =
+    context.rpcCall match
+      case None =>
+        Map.empty
+      case Some(call) =>
+        try
+          RPCArgsLog.entries(call, config.rpcArgs)
+        catch
+          case NonFatal(e) =>
+            HttpAccessLogFilter.logger.warn(s"Failed to log RPC arguments: ${e}")
+            Map.empty
 
   // A failing application callback must not fail the request it logs
   private def extraEntries(request: Request, response: Option[Response]): Map[String, Any] =
@@ -261,13 +291,41 @@ object HttpAccessLogFilter:
     .attribute(ContextKey)
     .foreach(_.add(key, value))
 
+  /**
+    * Record the `@Endpoint` or RPC method handling this request, for the `rpc_*` fields of its
+    * entry. Called by the router and the RPC dispatcher once the method is resolved (with no
+    * arguments) and again once the arguments are decoded, before the method runs, so the entry has
+    * them even when the method throws. Does nothing when no [[HttpAccessLogFilter]] handles the
+    * request.
+    */
+  private[http] def recordRPCCall(
+      request: Request,
+      interfaceName: String,
+      className: String,
+      method: MethodSurface,
+      args: Seq[Any]
+  ): Unit = request
+    .attribute(ContextKey)
+    .foreach(_.rpcCall = Some(RPCCall(interfaceName, className, method, args)))
+
+  private[http] case class RPCCall(
+      interfaceName: String,
+      className: String,
+      method: MethodSurface,
+      args: Seq[Any]
+  )
+
   private[http] class LogContext:
     private val fields = mutable.LinkedHashMap.empty[String, Any]
+    @volatile
+    var rpcCall: Option[RPCCall] = None
 
     def add(key: String, value: Any): Unit = synchronized(fields.update(key, value))
     def entries: Map[String, Any]          = synchronized(fields.toMap)
 
   private[http] val ContextKey: RequestAttribute[LogContext] = RequestAttribute("httpAccessLog")
+
+end HttpAccessLogFilter
 
 /**
   * A sink for [[HttpAccessLogFilter]] entries. Implement `write` to send entries elsewhere, e.g. to

@@ -13,7 +13,7 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{HttpAccessLogFilter, Request, Response, RxHttpFilter, RxHttpHandler}
 import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
@@ -164,14 +164,24 @@ class RouterHandler(
 
   private def handleRoute(request: Request, routeMatch: RouteMatch): Rx[Response] =
     try
-      val controller = controllerProvider.get(routeMatch.route.controllerSurface)
-      val args       = mapper.bindParameters(
+      val route                        = routeMatch.route
+      val controller                   = controllerProvider.get(route.controllerSurface)
+      def record(args: Seq[Any]): Unit = HttpAccessLogFilter.recordRPCCall(
         request,
-        routeMatch.route.methodSurface,
+        route.controllerSurface.fullName,
+        controller.getClass.getName,
+        route.methodSurface,
+        args
+      )
+      record(Seq.empty)
+      val args = mapper.bindParameters(
+        request,
+        route.methodSurface,
         routeMatch.pathParams,
         Some(controller),
-        routeMatch.route.paramWeavers
+        route.paramWeavers
       )
+      record(args)
       val result = routeMatch.route.methodSurface.call(controller, args*)
       val weaver = returnWeavers.get(routeMatch.route)
       if weaver == null then
