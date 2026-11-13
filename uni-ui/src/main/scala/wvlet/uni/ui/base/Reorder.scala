@@ -172,21 +172,24 @@ class Reorder[K](
   private def dropAt(k: K, x: Double, y: Double): Option[Int] =
     val o    = order.get
     val from = o.indexOf(k)
-    // Midpoints of the items that are on screen, in order
-    val mids = o.flatMap { key =>
-      elements
-        .get(key)
-        .filter(_.isConnected)
-        .map { el =>
-          val r = el.getBoundingClientRect()
-          orientation match
-            case Orientation.Vertical =>
-              r.top + r.height / 2
-            case Orientation.Horizontal =>
-              r.left + r.width / 2
-        }
-    }
-    if from < 0 || mids.size != o.size then
+    // Positions and midpoints of the items that are rendered, in order. A windowed list renders
+    // only some of them; the pointer can then land only between those.
+    val mids = o
+      .zipWithIndex
+      .flatMap { (key, i) =>
+        elements
+          .get(key)
+          .filter(_.isConnected)
+          .map { el =>
+            val r = el.getBoundingClientRect()
+            orientation match
+              case Orientation.Vertical =>
+                (i, r.top + r.height / 2)
+              case Orientation.Horizontal =>
+                (i, r.left + r.width / 2)
+          }
+      }
+    if from < 0 || mids.isEmpty then
       None
     else
       val pos =
@@ -195,7 +198,15 @@ class Reorder[K](
             y
           case Orientation.Horizontal =>
             x
-      Some(Reorder.dropIndex(mids, pos)).filter(at => Reorder.landing(from, at) != from)
+      val at =
+        Reorder.dropIndex(mids.map(_._2), pos) match
+          case j if j < mids.size =>
+            mids(j)._1
+          case _ =>
+            mids.last._1 + 1
+      Some(at).filter(at => Reorder.landing(from, at) != from)
+
+  end dropAt
 
   private def endDrag(k: K): Unit =
     stopDrag()
