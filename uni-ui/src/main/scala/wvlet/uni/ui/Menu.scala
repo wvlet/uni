@@ -74,6 +74,8 @@ object MenuItem:
 
 /** The open menu list shared by [[Menu]] and [[ContextMenu]]. */
 private[ui] object MenuList:
+  // One menu has the keyboard at a time, so they share the search
+  private val typeahead = Typeahead()
 
   private def items(menu: dom.Element): Seq[dom.HTMLElement] =
     val nodes = menu.querySelectorAll("[role^=menuitem]")
@@ -102,13 +104,8 @@ private[ui] object MenuList:
       case k =>
         RovingFocus
           .nextIndex(k, current, all.size, Orientation.Vertical)
-          .orElse {
-            // Typeahead: a printable key jumps to the next item that starts with it
-            if k.length == 1 && !e.ctrlKey && !e.metaKey && !e.altKey then
-              RovingFocus.typeahead(all.map(_.textContent), current, k)
-            else
-              None
-          }
+          // Typing the start of an item's label jumps to it
+          .orElse(typeahead.onKey(e, all.map(_.textContent), current))
           .foreach { i =>
             e.preventDefault()
             all(i).focus()
