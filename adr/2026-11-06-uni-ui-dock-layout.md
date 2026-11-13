@@ -19,7 +19,7 @@ uni-ui phase 3 adds a Dock: panels in tab groups and splits that the user drags 
 - **Derive the codec with `derives Weaver`**: blocked at first by the recursion limits above. Adopted in version 2 once #878 fixed derivation.
 - **Keep the version 1 shape through a case-name option in `WeaverConfig`**: the config is per call, so a Dock nested in an app's own state would follow that app's settings, and the saved shape wouldn't be fixed.
 - **Pixel sizes in the layout**: they break when the window size changes between sessions.
-- **Stable group ids in the format**: they're useful for a future "focus group N" API, but paths are enough for now and keep the saved JSON minimal.
+- **Stable group ids in the format**: considered for a "focus group N" API, but `Dock#focusGroup(i)` numbers groups by their 0-based reading order instead, the same order as the "group N" accessible names, so the saved JSON stays minimal.
 - **A mutable widget tree (as in GoldenLayout)**: harder to save, compare, and test than a value in an `RxVar`.
 - **HTML5 drag-and-drop**: drag images and drop rules vary in Electron, `fireEvent` can't drive it, and it offers no keyboard path anyway.
 

@@ -325,4 +325,52 @@ class DockTest extends DomTestSupport:
     m.queryAll(".uni-dock__actions .fold").size shouldBe 1
   }
 
+  test("focusGroup focuses a group's active tab by its index in reading order") {
+    val layout = Rx.variable(
+      DockLayout(row(Group(Seq("a", "b"), Some("b")), column(group("c"), group("d"))))
+    )
+    val d     = dock(layout, panel("d"))
+    val m     = mountDock(d)
+    var count = 0
+    val c     = d.groupCount.run(n => count = n)
+    count shouldBe 3
+    d.focusGroup(0) shouldBe true
+    active shouldBe tabOf(m, "b")
+    d.focusGroup(2) shouldBe true
+    active shouldBe tabOf(m, "d")
+    // The focused group is where open adds a panel
+    d.close("a")
+    d.focusGroup(1) shouldBe true
+    d.open("a")
+    layout.get.root shouldBe row(group("b"), column(Group(Seq("c", "a"), Some("a")), group("d")))
+
+    d.focusGroup(3) shouldBe false
+    d.focusGroup(-1) shouldBe false
+    active shouldBe tabOf(m, "a")
+    c.cancel
+  }
+
+  test("focusGroup follows the new numbering after a split") {
+    val layout = Rx.variable(DockLayout.of("a", "b"))
+    val d      = dock(layout)
+    val m      = mountDock(d)
+    d.focusGroup(1) shouldBe false
+    layout := DockModel.split(layout.get, "b", Nil, DockSide.Bottom)
+    d.focusGroup(1) shouldBe true
+    active shouldBe tabOf(m, "b")
+  }
+
+  test("focusPanel shows a hidden panel and focuses its tab") {
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    val d      = dock(layout)
+    val m      = mountDock(d)
+    d.focusGroup(1) shouldBe true
+    d.focusPanel("c") shouldBe true
+    layout.get.root shouldBe row(group("a"), Group(Seq("b", "c"), Some("c")))
+    active shouldBe tabOf(m, "c")
+    d.focusPanel("a") shouldBe true
+    active shouldBe tabOf(m, "a")
+    d.focusPanel("unknown") shouldBe false
+  }
+
 end DockTest
