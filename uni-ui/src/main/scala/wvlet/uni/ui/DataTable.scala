@@ -105,7 +105,8 @@ class DataTable[A, K] private (
     selected: RxVar[Option[K]],
     onSelectFn: A => Unit,
     rowHeight: Int,
-    changeHandler: ChangeHandler
+    changeHandler: ChangeHandler,
+    multiSelected: Option[RxVar[Set[K]]]
 ) extends RxElement:
 
   private def copy(
@@ -114,9 +115,21 @@ class DataTable[A, K] private (
       selected: RxVar[Option[K]] = selected,
       onSelectFn: A => Unit = onSelectFn,
       rowHeight: Int = rowHeight,
-      changeHandler: ChangeHandler = changeHandler
+      changeHandler: ChangeHandler = changeHandler,
+      multiSelected: Option[RxVar[Set[K]]] = multiSelected
   ): DataTable[A, K] =
-    new DataTable(rows, key, columns, label, sort, selected, onSelectFn, rowHeight, changeHandler)
+    new DataTable(
+      rows,
+      key,
+      columns,
+      label,
+      sort,
+      selected,
+      onSelectFn,
+      rowHeight,
+      changeHandler,
+      multiSelected
+    )
 
   /** The accessible name of the table. */
   def withLabel(l: String): DataTable[A, K] = copy(label = Some(l))
@@ -127,6 +140,16 @@ class DataTable[A, K] private (
 
   /** The key of the selected row, set by Enter or a click. */
   def withSelected(s: RxVar[Option[K]]): DataTable[A, K] = copy(selected = s)
+
+  /**
+    * Lets the user select several rows, whose keys live in `s`: Shift or Ctrl (⌘) with a click,
+    * Shift with Up, Down, PageUp, or PageDown, Space, Ctrl+A, and Escape change the set, as in a
+    * file list. The table then leaves [[withSelected]]'s variable alone.
+    */
+  def withMultiSelect(s: RxVar[Set[K]]): DataTable[A, K] = copy(multiSelected = Some(s))
+
+  /** Selects one row at a time, in [[withSelected]]'s variable (the default). */
+  def noMultiSelect(): DataTable[A, K] = copy(multiSelected = None)
 
   /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
   def onSelect(f: A => Unit): DataTable[A, K] = copy(onSelectFn = f)
@@ -292,7 +315,7 @@ class DataTable[A, K] private (
                 c.cell(a)
               )
             },
-      selected = selected,
+      selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
       onSelect = onSelectFn,
       changeHandler = changeHandler,
       slot = "data-table",
@@ -329,7 +352,8 @@ object DataTable:
       selected = Rx.variable(None),
       onSelectFn = _ => (),
       rowHeight = 32,
-      changeHandler = ChangeGate.noHandler
+      changeHandler = ChangeGate.noHandler,
+      multiSelected = None
     )
 
   /**

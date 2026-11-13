@@ -48,6 +48,12 @@ class Selection[K](val selected: RxVar[Set[K]]):
   /** The item a Shift range starts from: the last item selected or toggled on its own. */
   def anchor: Option[K] = anchorKey
 
+  /**
+    * Moves the anchor without changing the selection, as a list does when Shift+Arrow starts a
+    * range from the row it was on.
+    */
+  def setAnchor(k: Option[K]): Unit = anchorKey = k
+
   def isSelected(k: K): Rx[Boolean] = selected.map(_.contains(k))
 
   /** Selects only `k`. */
@@ -107,7 +113,8 @@ class Selection[K](val selected: RxVar[Set[K]]):
 
   /**
     * Ctrl+A or Cmd+A selects everything, and Escape clears the selection. Returns true when it
-    * handled the key, so the caller can call `preventDefault()`.
+    * handled the key, so the caller can call `preventDefault()`. An Escape that [[onChange]]
+    * cancels returns false, so it can still close an enclosing dialog.
     */
   def onKey(e: dom.KeyboardEvent, order: Seq[K]): Boolean =
     if (e.ctrlKey || e.metaKey) && e.key.toLowerCase == "a" then
@@ -115,7 +122,6 @@ class Selection[K](val selected: RxVar[Set[K]]):
       true
     else if e.key == "Escape" && selected.get.nonEmpty then
       clear(ChangeCause.of(ChangeReason.EscapeKey, e))
-      true
     else
       false
 

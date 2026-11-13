@@ -32,6 +32,11 @@ import scala.language.implicitConversions
   * Space, or a click selects a row. Keys from elements inside a row (a button in a cell) are left
   * alone.
   *
+  * With [[ListSelection.Multi]] the selection is a set of keys, kept by a [[Selection]]: a click
+  * selects one row, Shift or Ctrl (⌘) with a click extends or toggles, Shift with a navigation key
+  * extends from the anchor, Space toggles the active row, Ctrl+A selects all, and Escape clears.
+  * Enter and a plain click still run `onSelect`.
+  *
   * @param header
   *   content above the rows inside the scroll container, such as a table's sticky header row; the
   *   rows' windowing starts below it
@@ -57,7 +62,7 @@ private[ui] class ListCore[A, K](
     rowRole: String,
     rowAttrs: (A, Rx[Int], Rx[Int]) => DomNode,
     renderRow: A => DomNode,
-    selected: RxVar[Option[K]],
+    selection: ListSelection[K],
     onSelect: A => Unit,
     typeaheadLabel: Option[A => String],
     extraKey: (dom.KeyboardEvent, Int, Int => Unit) => Boolean,
@@ -82,6 +87,22 @@ private[ui] class ListCore[A, K](
   private var root: Option[dom.HTMLElement]      = None
   private var spacer: Option[dom.Element]        = None
   private var resize: Option[dom.ResizeObserver] = None
+
+  private val multi: Option[Selection[K]] =
+    selection match
+      case ListSelection.Multi(keys) =>
+        Some(Selection(keys).onChange(changeHandler))
+      case ListSelection.Single(_) =>
+        None
+
+  private def isSelected(k: K): Rx[Boolean] =
+    selection match
+      case ListSelection.Single(s) =>
+        s.map(_.contains(k))
+      case ListSelection.Multi(keys) =>
+        keys.map(_.contains(k))
+
+  private def order: Seq[K] = current.map(key)
 
   private def rowId(k: K): String = ids.getOrElseUpdate(k, Ids.next(s"${listId}-row"))
 
@@ -138,9 +159,41 @@ private[ui] class ListCore[A, K](
 
   // Choosing the selected row again still runs onSelect, as before (to open it, say)
   private def select(a: A, cause: ChangeCause): Unit =
-    val k = Some(key(a))
-    if ChangeGate.write(selected, "selected", k, cause, changeHandler) then
+    val accepted =
+      selection match
+        case ListSelection.Single(s) =>
+          ChangeGate.write(s, "selected", Some(key(a)), cause, changeHandler)
+        case ListSelection.Multi(_) =>
+          multi.exists(_.select(key(a), cause))
+    if accepted then
       ChangeCause.during(cause)(onSelect(a))
+
+  // With no anchor yet, a Shift range starts at the row that was active (index `from`)
+  private def seedAnchor(sel: Selection[K], from: Int): Unit =
+    if !sel.anchor.exists(index.get.contains) then
+      sel.setAnchor(current.lift(from).map(key))
+
+  // A click: Shift and Ctrl (⌘) extend or toggle a multiple selection; a plain click selects
+  private def press(a: A, from: Int, e: dom.MouseEvent): Unit =
+    multi match
+      case Some(sel) if e.shiftKey || e.ctrlKey || e.metaKey =>
+        if e.shiftKey then
+          seedAnchor(sel, from)
+        sel.press(key(a), order, e)
+      case _ =>
+        select(a, ChangeCause.of(ChangeReason.ItemPress, e))
+
+  // Move to row `n` and, with Shift in a multiple selection, extend the selection to it
+  private def navigate(n: Int, from: Int, e: dom.KeyboardEvent): Unit =
+    moveTo(n)
+    multi
+      .filter(_ => e.shiftKey)
+      .foreach { sel =>
+        seedAnchor(sel, from)
+        current
+          .lift(n)
+          .foreach(a => sel.extendTo(key(a), order, ChangeCause.of(ChangeReason.NavigationKey, e)))
+      }
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     // Keys typed into a control inside a row belong to that control
@@ -148,6 +201,20 @@ private[ui] class ListCore[A, K](
     if fromContainer && !Keyboard.isComposing(e) && !e.defaultPrevented then
       val i = activeIndex
       e.key match
+        case " " if multi.nonEmpty =>
+          // Space toggles the active row, and Shift+Space extends the selection to it
+          current
+            .lift(i)
+            .foreach { a =>
+              e.preventDefault()
+              val cause = ChangeCause.of(ChangeReason.ItemPress, e)
+              multi.foreach { sel =>
+                if e.shiftKey then
+                  sel.extendTo(key(a), order, cause)
+                else
+                  sel.toggle(key(a), cause)
+              }
+            }
         case "Enter" | " " =>
           current
             .lift(i)
@@ -157,21 +224,42 @@ private[ui] class ListCore[A, K](
             }
         case _ if extraKey(e, i, moveTo) =>
           e.preventDefault()
+        case _ if multi.exists(_.onKey(e, order)) =>
+          e.preventDefault()
         case k =>
           ListNavigation
             .nextIndex(k, i, current.size, pageSize)
-            .orElse(typeaheadLabel.flatMap(label => typeahead.onKey(e, current.map(label), i)))
-            .foreach { n =>
+            .map(n => (n, true))
+            .orElse(
+              typeaheadLabel
+                .flatMap(label => typeahead.onKey(e, current.map(label), i))
+                .map(n => (n, false))
+            )
+            .foreach { (n, isNavigation) =>
               e.preventDefault()
-              moveTo(n)
+              if isNavigation then
+                navigate(n, i, e)
+              else
+                moveTo(n)
             }
+      end match
+    end if
 
   end onKeyDown
 
   // Focusing the list shows where the keys will start: the selected row, else the first
   private def onFocus(): Unit =
     if active.get.isEmpty then
-      active := selected.get.filter(index.get.contains).orElse(current.headOption.map(key))
+      val start =
+        selection match
+          case ListSelection.Single(s) =>
+            s.get.filter(index.get.contains)
+          case ListSelection.Multi(keys) =>
+            multi
+              .flatMap(_.anchor)
+              .filter(k => keys.get.contains(k) && index.get.contains(k))
+              .orElse(order.find(keys.get.contains))
+      active := start.orElse(current.headOption.map(key))
 
   override def onMount(node: Any): Unit =
     node match
@@ -197,7 +285,7 @@ private[ui] class ListCore[A, K](
       role           -> rowRole,
       cls            -> "uni-list__row",
       data("slot")   -> s"${slot}-row",
-      ariaSelected   -> selected.map(s => s.contains(k).toString),
+      ariaSelected   -> isSelected(k).map(_.toString),
       data("active") ->
         active.map(x =>
           if x.contains(k) then
@@ -209,8 +297,9 @@ private[ui] class ListCore[A, K](
       EventListenerBinding(
         "click",
         e =>
+          val from = activeIndex
           active := Some(k)
-          select(a, ChangeCause.of(ChangeReason.ItemPress, e))
+          press(a, from, e.asInstanceOf[dom.MouseEvent])
       ),
       renderRow(a)
     )
@@ -234,6 +323,11 @@ private[ui] class ListCore[A, K](
           .map { (a, c) =>
             a.map(k => c.fold(rowId(k))(cellId(k, _)))
           },
+      if multi.nonEmpty then
+        ariaMultiselectable -> "true"
+      else
+        DomNode.empty
+      ,
       containerAttrs,
       EventListenerBinding("scroll", _ => measure()),
       EventListenerBinding("focus", _ => onFocus()),
@@ -253,3 +347,8 @@ private[ui] class ListCore[A, K](
   end render
 
 end ListCore
+
+/** Whether a list selects one row or a set of rows. */
+private[ui] enum ListSelection[K]:
+  case Single(selected: RxVar[Option[K]])
+  case Multi(selected: RxVar[Set[K]])
