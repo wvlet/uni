@@ -717,14 +717,21 @@ plain 404. The response doesn't say why, so it reveals nothing about the file sy
   `If-None-Match` matches gets `304 Not Modified` without the file being read, and a new build is
   picked up on the next load. Set another policy with `withCacheControl("max-age=3600")`, or send
   none with `noCacheControl`.
+- **Range requests**: every file response sends `Accept-Ranges: bytes`. A single range
+  (`Range: bytes=0-1023`, `bytes=1024-`, or `bytes=-512`) gets `206 Partial Content`, so a
+  `<video>` can seek and a download can resume. A range that starts past the end gets `416`.
+  Requests for several ranges get the whole file. With `If-Range`, the range is served only while
+  the client's ETag still matches.
+- **Streaming**: files are sent from disk in bounded chunks, never read whole into memory, on
+  every backend.
 
 Filters run in the order you add them. Add `StaticFiles` after an authentication filter to protect
 the files, or before it to keep them public.
 
-::: tip For app bundles
-A request that is not answered with 304 reads the whole file, with no `Range` requests or streaming. That
-fits the HTML, scripts, and assets of a web app. Put large media behind a CDN or a dedicated file
-server.
+::: tip Serving a file from a handler
+A handler can stream a file, or part of one, too: `Response.ok(HttpContent.FileContent(path,
+offset, length, Some(contentType)))`. The server reads it in chunks as it sends, and code that
+needs the bytes (`contentAsBytes`) reads the range on demand.
 :::
 
 ## WebSocket

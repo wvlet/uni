@@ -33,6 +33,8 @@ class StaticFilesTest extends UniTest:
     FileSystem.writeString(site / "assets" / "app.CSS", "body{}")
     FileSystem.writeString(site / "assets" / "data.bin", "bin")
     FileSystem.writeString(site / "assets" / "a b é.txt", "spaced")
+    FileSystem.writeString(site / "assets" / "digits.txt", "0123456789")
+    FileSystem.writeString(site / "assets" / "empty.txt", "")
     FileSystem.writeString(site / "docs" / "index.html", "<h1>docs</h1>")
     FileSystem.writeString(site / ".env", "TOKEN=1")
     FileSystem.writeString(site / ".git" / "config", "[core]")
@@ -261,6 +263,115 @@ class StaticFilesTest extends UniTest:
       None
     intercept[IllegalArgumentException] {
       files.withCacheControl("a\r\nSet-Cookie: x=1")
+    }
+  }
+
+  private def ranged(path: String, headers: (String, String)*): Response =
+    files.serve(headers.foldLeft(Request.get(path))((r, h) => r.addHeader(h._1, h._2))).get
+
+  test("parse a single byte range") {
+    import StaticFiles.ByteRange.*
+    StaticFiles.parseRange("bytes=0-3", 10) shouldBe Partial(0, 3)
+    StaticFiles.parseRange("bytes=4-", 10) shouldBe Partial(4, 9)
+    StaticFiles.parseRange("bytes=-3", 10) shouldBe Partial(7, 9)
+    StaticFiles.parseRange("bytes=-30", 10) shouldBe Partial(0, 9)
+    StaticFiles.parseRange("bytes=5-100", 10) shouldBe Partial(5, 9)
+    StaticFiles.parseRange("Bytes=1-2", 10) shouldBe Partial(1, 2)
+  }
+
+  test("treat several ranges, other units, and bad syntax as no Range") {
+    import StaticFiles.ByteRange.*
+    for value <- Seq(
+        "bytes=0-1,4-5",
+        "items=0-1",
+        "bytes=3-1",
+        "bytes=a-b",
+        "bytes=-",
+        "bytes=1",
+        "bytes=+1-2",
+        "bytes=99999999999999999999-"
+      )
+    do
+      StaticFiles.parseRange(value, 10) shouldBe Full
+  }
+
+  test("find a range past the end unsatisfiable") {
+    import StaticFiles.ByteRange.*
+    StaticFiles.parseRange("bytes=10-", 10) shouldBe Unsatisfiable
+    StaticFiles.parseRange("bytes=-0", 10) shouldBe Unsatisfiable
+    StaticFiles.parseRange("bytes=-1", 0) shouldBe Unsatisfiable
+  }
+
+  test("answer a Range with 206 Partial Content") {
+    val r = ranged("/assets/digits.txt", HttpHeader.Range -> "bytes=2-5")
+    r.status shouldBe HttpStatus.PartialContent_206
+    r.contentAsString shouldBe Some("2345")
+    r.header(HttpHeader.ContentRange) shouldBe Some("bytes 2-5/10")
+    r.header(HttpHeader.AcceptRanges) shouldBe Some("bytes")
+    r.header(HttpHeader.ETag) shouldBe Some(etagOf("/assets/digits.txt"))
+    r.header("X-Content-Type-Options") shouldBe Some("nosniff")
+    r.contentType.map(_.fullType) shouldBe Some("text/plain")
+    ranged("/assets/digits.txt", HttpHeader.Range -> "bytes=-3").contentAsString shouldBe
+      Some("789")
+  }
+
+  test("answer 416 for a range past the end of the file") {
+    val r = ranged("/assets/digits.txt", HttpHeader.Range -> "bytes=10-")
+    r.status shouldBe HttpStatus.RangeNotSatisfiable_416
+    r.header(HttpHeader.ContentRange) shouldBe Some("bytes */10")
+    r.contentAsString shouldBe None
+    ranged("/assets/empty.txt", HttpHeader.Range -> "bytes=0-").status shouldBe
+      HttpStatus.RangeNotSatisfiable_416
+  }
+
+  test("serve the whole file for several ranges") {
+    val r = ranged("/assets/digits.txt", HttpHeader.Range -> "bytes=0-1,4-5")
+    r.status shouldBe HttpStatus.Ok_200
+    r.contentAsString shouldBe Some("0123456789")
+    r.header(HttpHeader.ContentRange) shouldBe None
+  }
+
+  test("honor the Range only when If-Range matches the ETag") {
+    val etag    = etagOf("/assets/digits.txt")
+    val current = ranged(
+      "/assets/digits.txt",
+      HttpHeader.Range   -> "bytes=0-0",
+      HttpHeader.IfRange -> etag
+    )
+    current.status shouldBe HttpStatus.PartialContent_206
+    current.contentAsString shouldBe Some("0")
+    for stale <- Seq("\"stale\"", s"W/${etag}", "Thu, 01 Jan 2026 00:00:00 GMT") do
+      val r = ranged(
+        "/assets/digits.txt",
+        HttpHeader.Range   -> "bytes=0-0",
+        HttpHeader.IfRange -> stale
+      )
+      r.status shouldBe HttpStatus.Ok_200
+      r.contentAsString shouldBe Some("0123456789")
+  }
+
+  test("answer 304 before looking at the Range") {
+    val etag = etagOf("/assets/digits.txt")
+    ranged("/assets/digits.txt", HttpHeader.Range -> "bytes=0-0", HttpHeader.IfNoneMatch -> etag)
+      .status shouldBe HttpStatus.NotModified_304
+  }
+
+  test("send file bodies as FileContent, read only on demand") {
+    val r = files.serve("/assets/digits.txt").get
+    r.header(HttpHeader.AcceptRanges) shouldBe Some("bytes")
+    r.content shouldMatch { case HttpContent.FileContent(_, 0, 10, _) =>
+    }
+    // An empty file needs no file body
+    files.serve("/assets/empty.txt").map(_.content) shouldBe Some(HttpContent.Empty)
+  }
+
+  test("read a FileContent range") {
+    val c = HttpContent.FileContent(site / "assets" / "digits.txt", 3, 4)
+    c.toContentString shouldBe "3456"
+    c.length shouldBe 4
+    // A range past the end of the file fails instead of returning short content
+    intercept[Exception] {
+      HttpContent.FileContent(site / "assets" / "digits.txt", 8, 4).toContentBytes
     }
   }
 

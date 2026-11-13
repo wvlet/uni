@@ -18,9 +18,10 @@ import wvlet.uni.io.{FileType, IOPath}
 import scala.scalajs.js
 
 /**
-  * File access for [[StaticFiles]] on Node.js. Node's `fs` is loaded at run time, not through
-  * uni-core `FileSystem`, whose static `import "fs"` would break a browser bundle that merely links
-  * StaticFiles (e.g. a renderer whose tests link the app's server code).
+  * File access for [[StaticFiles]] and [[HttpContent.FileContent]] on Node.js. Node's `fs` is
+  * loaded at run time, not through uni-core `FileSystem`, whose static `import "fs"` would break a
+  * browser bundle that merely links StaticFiles (e.g. a renderer whose tests link the app's server
+  * code).
   */
 private[http] object StaticFilesCompat:
   def hasFileSystem: Boolean = NodeModules.isNode
@@ -50,4 +51,31 @@ private[http] object StaticFilesCompat:
         stats.mtimeMs.asInstanceOf[Double].toLong
       )
 
-  def readBytes(path: IOPath): Array[Byte] = NodeBytes.toBytes(fs.readFileSync(path.posixPath))
+  /** Whether the file can be opened for reading now. */
+  def canRead(path: IOPath): Boolean =
+    try
+      fs.closeSync(fs.openSync(path.posixPath, "r"))
+      true
+    catch
+      case _: Throwable =>
+        false
+
+  /** `length` bytes of the file from `offset`. Fails when the file is shorter. */
+  def readRange(path: IOPath, offset: Long, length: Long): Array[Byte] =
+    require(length <= Int.MaxValue, s"A range of ${length} bytes does not fit in an array")
+    val buf = js.Dynamic.global.Buffer.alloc(length.toDouble)
+    val fd  = fs.openSync(path.posixPath, "r")
+    try
+      var pos = 0.0
+      while pos < length.toDouble do
+        val n = fs
+          .readSync(fd, buf, pos, length.toDouble - pos, offset.toDouble + pos)
+          .asInstanceOf[Double]
+        if n <= 0 then
+          throw java.io.EOFException(s"${path} ended before ${offset + length} bytes")
+        pos += n
+    finally
+      fs.closeSync(fd)
+    NodeBytes.toBytes(buf)
+
+end StaticFilesCompat

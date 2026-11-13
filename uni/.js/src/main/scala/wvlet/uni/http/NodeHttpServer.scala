@@ -246,26 +246,114 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       if response.isEventStream then
         writeSseResponse(res, response)
       else
-        setHeaders(res, response.headers)
-        response
-          .content
-          .contentType
-          .foreach { ct =>
-            res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
-          }
-        res.updateDynamic("statusCode")(response.status.code)
-        val bytes = response.content.toContentBytes
-        if bytes.isEmpty then
-          res.applyDynamic("end")()
-        else
-          // Node sets Content-Length automatically for a buffered body. The body must be a
-          // Uint8Array/Buffer (Node rejects Int8Array), so view the bytes as unsigned.
-          res.applyDynamic("end")(NodeBytes.toUint8Array(bytes))
+        response.content match
+          case file: HttpContent.FileContent =>
+            writeFileResponse(res, response, file)
+          case _ =>
+            writeBufferedResponse(res, response)
     catch
       case e: Throwable =>
         warn(s"Failed to write response: ${e.getMessage}", e)
 
   end writeResponse
+
+  private def writeBufferedResponse(res: js.Dynamic, response: Response): Unit =
+    setHeaders(res, response.headers)
+    response
+      .content
+      .contentType
+      .foreach { ct =>
+        res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
+      }
+    res.updateDynamic("statusCode")(response.status.code)
+    val bytes = response.content.toContentBytes
+    if bytes.isEmpty then
+      res.applyDynamic("end")()
+    else
+      // Node sets Content-Length automatically for a buffered body. The body must be a
+      // Uint8Array/Buffer (Node rejects Int8Array), so view the bytes as unsigned.
+      res.applyDynamic("end")(NodeBytes.toUint8Array(bytes))
+
+  /**
+    * Stream a file body with `fs.createReadStream`, which reads in bounded chunks and pauses while
+    * the socket is backed up. A file that ends early leaves the response short of its
+    * Content-Length, so the response is destroyed instead of ended.
+    */
+  private def writeFileResponse(
+      res: js.Dynamic,
+      response: Response,
+      file: HttpContent.FileContent
+  ): Unit =
+    val fs = NodeModules.builtin("fs")
+    // Open synchronously before writing headers, so a file that can't be read gets an error response
+    val fd =
+      try
+        fs.openSync(file.path.posixPath, "r")
+      catch
+        case e: Throwable =>
+          warn(s"Failed to open ${file.path}: ${e.getMessage}")
+          writeBufferedResponse(res, errorResponse(e))
+          return
+    try
+      setHeaders(res, response.headers)
+      file
+        .contentType
+        .foreach { ct =>
+          res.applyDynamic("setHeader")(HttpHeader.ContentType, ct.value)
+        }
+      res.applyDynamic("setHeader")(HttpHeader.ContentLength, file.length.toString)
+      res.updateDynamic("statusCode")(response.status.code)
+      if file.isEmpty then
+        // createReadStream can't express an empty range (end = start - 1)
+        fs.closeSync(fd)
+        res.applyDynamic("end")()
+      else
+        streamFile(
+          res,
+          file,
+          fs.createReadStream(
+            null,
+            js.Dynamic
+              .literal(
+                fd = fd,
+                start = file.offset.toDouble,
+                end = (file.offset + file.length - 1).toDouble,
+                autoClose = true
+              )
+          )
+        )
+    catch
+      case e: Throwable =>
+        // Nothing owns the fd until the read stream is created
+        fs.closeSync(fd)
+        throw e
+    end try
+
+  end writeFileResponse
+
+  private def streamFile(res: js.Dynamic, file: HttpContent.FileContent, stream: js.Dynamic): Unit =
+    var sent                                    = 0.0
+    val onData: js.Function1[js.Dynamic, Unit]  = chunk => sent += chunk.length.asInstanceOf[Double]
+    val onError: js.Function1[js.Dynamic, Unit] =
+      e =>
+        warn(s"Failed to read ${file.path}: ${e.message}")
+        res.applyDynamic("destroy")()
+    val onEnd: js.Function0[Unit] =
+      () =>
+        if sent < file.length.toDouble then
+          // The file shrank after its size was taken: the body can't meet its Content-Length
+          warn(s"${file.path} ended after ${sent} of ${file.length} bytes")
+          res.applyDynamic("destroy")()
+        else
+          res.applyDynamic("end")()
+    // A client that disconnects stops the read, which closes the file
+    val onClose: js.Function0[Unit] = () => stream.applyDynamic("destroy")()
+    stream.applyDynamic("on")("data", onData)
+    stream.applyDynamic("on")("error", onError)
+    stream.applyDynamic("on")("end", onEnd)
+    res.applyDynamic("on")("close", onClose)
+    // end = false: the response is ended in onEnd, once the whole body was read
+    stream.applyDynamic("pipe")(res, js.Dynamic.literal(end = false))
 
   private def writeSseResponse(res: js.Dynamic, response: Response): Unit =
     // Stream Server-Sent Events. Node uses chunked transfer encoding automatically when no

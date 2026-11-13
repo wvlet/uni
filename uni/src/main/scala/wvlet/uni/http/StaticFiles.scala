@@ -34,8 +34,10 @@ import java.nio.charset.StandardCharsets
   * and `Cache-Control: no-cache` by default, so browsers revalidate on each load and a matching
   * `If-None-Match` gets `304 Not Modified` without the file being read.
   *
-  * Files are read whole on each request, so it suits app bundles rather than large media. It runs
-  * on the JVM, Node.js, and Scala Native, and fails at construction in a browser.
+  * A single byte range (`Range: bytes=0-1023`, `bytes=1024-`, or `bytes=-512`) gets `206 Partial
+  * Content`, so media can seek and downloads resume; `If-Range` must match the ETag. Several ranges
+  * get the whole file. Files are streamed from disk in bounded chunks rather than read into memory.
+  * It runs on the JVM, Node.js, and Scala Native, and fails at construction in a browser.
   *
   * @param root
   *   the directory to serve. A relative path resolves against the current directory. It is read on
@@ -103,7 +105,7 @@ case class StaticFiles(
             .handle(request)
             .map { response =>
               if response.status == HttpStatus.NotFound_404 then
-                serveFile("/", ifNoneMatch(request)).getOrElse(response)
+                serveFile("/", request.headers).getOrElse(response)
               else
                 response
             }
@@ -111,29 +113,27 @@ case class StaticFiles(
           next.handle(request)
 
   /** The response for a URL path, or None when no servable file matches it. */
-  def serve(urlPath: String): Option[Response] = serveFile(urlPath, None)
+  def serve(urlPath: String): Option[Response] = serveFile(urlPath, HttpMultiMap.empty)
 
   /**
     * The response for a request's path, or None when no servable file matches it. A matching
-    * `If-None-Match` gives `304 Not Modified`.
+    * `If-None-Match` gives `304 Not Modified`, and a single `Range` gives `206 Partial Content` (or
+    * `416` when it starts past the end of the file).
     */
-  def serve(request: Request): Option[Response] = serveFile(request.path, ifNoneMatch(request))
+  def serve(request: Request): Option[Response] = serveFile(request.path, request.headers)
 
-  private def ifNoneMatch(request: Request): Option[String] = request.header(HttpHeader.IfNoneMatch)
-
-  private def serveFile(urlPath: String, ifNoneMatch: Option[String]): Option[Response] =
-    StaticFiles
-      .segments(urlPath, dotfiles)
-      .flatMap { (segments, isDirectory) =>
-        // A directory is served only with a trailing slash, so relative URLs in its index resolve
-        findFile(
-          if isDirectory then
-            segments :+ indexFile
-          else
-            segments
-        )
-      }
-      .flatMap((path, stat) => file(path, stat, ifNoneMatch))
+  private def serveFile(urlPath: String, headers: HttpMultiMap): Option[Response] = StaticFiles
+    .segments(urlPath, dotfiles)
+    .flatMap { (segments, isDirectory) =>
+      // A directory is served only with a trailing slash, so relative URLs in its index resolve
+      findFile(
+        if isDirectory then
+          segments :+ indexFile
+        else
+          segments
+      )
+    }
+    .flatMap((path, stat) => file(path, stat, headers))
 
   /**
     * The file at `segments` under the root, when every component exists and none is a symbolic
@@ -156,33 +156,53 @@ case class StaticFiles(
     Option.when(found)((path, stat))
 
   /** The file as a response, or None when it can't be read (permissions, deleted meanwhile). */
-  private def file(
-      path: IOPath,
-      stat: StaticFileStat,
-      ifNoneMatch: Option[String]
-  ): Option[Response] =
+  private def file(path: IOPath, stat: StaticFileStat, headers: HttpMultiMap): Option[Response] =
     val etag = StaticFiles.etag(stat)
-    if ifNoneMatch.exists(StaticFiles.matchesETag(_, etag)) then
-      // The client's copy is current, so the file is not read
+    if headers.get(HttpHeader.IfNoneMatch).exists(StaticFiles.matchesETag(_, etag)) then
+      // The client's copy is current, so the file is not opened
       Some(withFileHeaders(Response.notModified, etag))
+    else if !StaticFilesCompat.canRead(path) then
+      None
     else
       val contentType = contentTypes.getOrElse(
         path.extension.toLowerCase,
         ContentType.ApplicationOctetStream
       )
-      try
-        Some(
-          withFileHeaders(
-            Response.ok(HttpContent.bytes(StaticFilesCompat.readBytes(path), contentType)),
-            etag
-          )
-        )
-      catch
-        case _: Exception =>
-          None
+      // If-Range: honor the Range only while the client's partial copy is still this version
+      val range = headers
+        .get(HttpHeader.Range)
+        .filter(_ => headers.get(HttpHeader.IfRange).forall(_.trim == etag))
+        .map(StaticFiles.parseRange(_, stat.size))
+        .getOrElse(StaticFiles.ByteRange.Full)
+      val response =
+        range match
+          case StaticFiles.ByteRange.Full =>
+            Response.ok(content(path, 0, stat.size, contentType))
+          case StaticFiles.ByteRange.Partial(start, end) =>
+            Response(HttpStatus.PartialContent_206)
+              .withContent(content(path, start, end - start + 1, contentType))
+              .addHeader(HttpHeader.ContentRange, s"bytes ${start}-${end}/${stat.size}")
+          case StaticFiles.ByteRange.Unsatisfiable =>
+            Response(HttpStatus.RangeNotSatisfiable_416).addHeader(
+              HttpHeader.ContentRange,
+              s"bytes */${stat.size}"
+            )
+      Some(withFileHeaders(response, etag))
+    end if
+
+  end file
+
+  private def content(path: IOPath, offset: Long, length: Long, contentType: ContentType) =
+    if length == 0 then
+      HttpContent.Empty
+    else
+      HttpContent.FileContent(path, offset, length, Some(contentType))
 
   private def withFileHeaders(response: Response, etag: String): Response =
-    val r = response.addHeader("X-Content-Type-Options", "nosniff").addHeader(HttpHeader.ETag, etag)
+    val r = response
+      .addHeader("X-Content-Type-Options", "nosniff")
+      .addHeader(HttpHeader.ETag, etag)
+      .addHeader(HttpHeader.AcceptRanges, "bytes")
     cacheControl.fold(r)(r.addHeader(HttpHeader.CacheControl, _))
 
   private def acceptsHtml(request: Request): Boolean = request
@@ -210,6 +230,63 @@ object StaticFiles:
     */
   private[http] def matchesETag(ifNoneMatch: String, etag: String): Boolean =
     ifNoneMatch.trim == "*" || ifNoneMatch.split(',').exists(_.trim.stripPrefix("W/") == etag)
+
+  /** What a `Range` header selects from a file. */
+  private[http] enum ByteRange:
+    // No usable Range: serve the whole file with 200
+    case Full
+    // Bytes start to end, both inclusive
+    case Partial(start: Long, end: Long)
+    // A valid range that selects nothing of the file: 416
+    case Unsatisfiable
+
+  /**
+    * Parse a `Range` header for a file of `size` bytes. Only a single byte range is served; several
+    * ranges, another unit, or bad syntax give `Full`, which RFC 9110 allows a server to answer with
+    * the whole representation.
+    */
+  private[http] def parseRange(value: String, size: Long): ByteRange =
+    val v = value.trim
+    if !v.regionMatches(true, 0, "bytes=", 0, 6) then
+      ByteRange.Full
+    else
+      val spec                            = v.substring(6).trim
+      def number(s: String): Option[Long] =
+        Option.when(s.nonEmpty && s.forall(c => c >= '0' && c <= '9'))(s.toLongOption).flatten
+      spec.indexOf('-') match
+        case -1 =>
+          ByteRange.Full
+        case _ if spec.contains(',') =>
+          ByteRange.Full
+        case 0 =>
+          // bytes=-n: the last n bytes
+          number(spec.substring(1)) match
+            case Some(n) if n > 0 && size > 0 =>
+              ByteRange.Partial(math.max(0L, size - n), size - 1)
+            case Some(_) =>
+              ByteRange.Unsatisfiable
+            case None =>
+              ByteRange.Full
+        case dash =>
+          val first = number(spec.substring(0, dash).trim)
+          val rest  = spec.substring(dash + 1).trim
+          val last  =
+            if rest.isEmpty then
+              Some(Long.MaxValue)
+            else
+              number(rest)
+          (first, last) match
+            case (Some(a), Some(b)) if b >= a =>
+              if a >= size then
+                ByteRange.Unsatisfiable
+              else
+                ByteRange.Partial(a, math.min(b, size - 1))
+            case _ =>
+              ByteRange.Full
+      end match
+    end if
+
+  end parseRange
 
   private val utf8Text = Seq(
     "html"        -> "text/html",
