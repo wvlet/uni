@@ -176,7 +176,7 @@ class DataTable[A, K] private (
     // the selection to the first or last row and the column stays.
     if !rowEnd && (e.altKey || e.shiftKey || toRow) then
       false
-    else if rowEnd && e.shiftKey && multiSelected.nonEmpty then
+    else if rowEnd && e.shiftKey && !toRow && !e.altKey && multiSelected.nonEmpty then
       false
     else
       DataTable.nextColumn(e.key, activeColumn.get, columns.size) match

@@ -431,6 +431,13 @@ class CollectionTest extends DomTestSupport:
       // Plain Home still moves within the row
       fireEvent.keyDown(table, "Home")
       activeRow(table).map(_.textContent) shouldBe Some("get")
+      // Ctrl+Shift+Home also goes to the first cell, as Ctrl+Home does
+      fireEvent.keyDown(table, "ArrowRight")
+      fireEvent.keyDown(table, "Home", ctrlKey = true, shiftKey = true)
+      activeRow(table).map(_.textContent) shouldBe Some("list")
+      keys.get shouldBe Set(1)
+      fireEvent.keyDown(table, "End", ctrlKey = true, shiftKey = true)
+      keys.get shouldBe Set(1, 2, 3)
       fireEvent.click(m.getByText("list"), ctrlKey = true)
       keys.get shouldBe Set(2, 3)
       m.getByText("list").closest(".uni-list__row").getAttribute("aria-selected") shouldBe "false"
