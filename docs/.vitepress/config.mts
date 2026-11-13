@@ -23,7 +23,8 @@ async function addSectionMainPages(outDir: string) {
         const text = await readFile(toc, 'utf8')
         await writeFile(toc, text.replace(/^## Table of Contents\n+/m, (h) => `${h}${link}\n\n`))
         const full = join(outDir, e.name, 'llms-full.txt')
-        await writeFile(full, `${page.trimEnd()}\n\n${await readFile(full, 'utf8')}`)
+        // The plugin separates pages with `\n---\n\n`
+        await writeFile(full, `${page.trimEnd()}\n---\n\n${await readFile(full, 'utf8')}`)
       })
   )
 }
