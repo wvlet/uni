@@ -35,6 +35,17 @@ object CurlBindings:
   type CURL = Ptr[Byte]
 
   /**
+    * Opaque handle for a curl multi session
+    */
+  type CURLM = Ptr[Byte]
+
+  /**
+    * `CURLMsg` from `curl_multi_info_read`: (msg, easy_handle, data). `data` is a union of `void*`
+    * and the transfer's `CURLcode` result.
+    */
+  type CURLMsg = CStruct3[CInt, CURL, Ptr[Byte]]
+
+  /**
     * Linked list structure for headers and other string lists
     */
   type CurlSlist = CStruct2[CString, Ptr[Byte]]
@@ -73,9 +84,15 @@ object CurlBindings:
   final val CURLOPT_WRITEFUNCTION: CInt     = 20011
   final val CURLOPT_HEADERFUNCTION: CInt    = 20079
   final val CURLOPT_ACCEPT_ENCODING: CInt   = 10102
+  // libcurl 7.54.0+
+  final val CURLOPT_SUPPRESS_CONNECT_HEADERS: CInt = 265
 
   // CURLINFO codes
   final val CURLINFO_RESPONSE_CODE: CInt = 0x200002
+
+  // Multi interface
+  final val CURLM_OK: CInt     = 0
+  final val CURLMSG_DONE: CInt = 1
 
   // HTTP version options
   final val CURL_HTTP_VERSION_1_1: Long = 2L
@@ -102,6 +119,41 @@ object CurlBindings:
     @blocking
     @name("curl_easy_perform")
     def easyPerform(curl: CURL): CInt = extern
+
+    @name("curl_multi_init")
+    def multiInit(): CURLM = extern
+
+    @name("curl_multi_cleanup")
+    def multiCleanup(multi: CURLM): CInt = extern
+
+    @name("curl_multi_add_handle")
+    def multiAddHandle(multi: CURLM, curl: CURL): CInt = extern
+
+    @name("curl_multi_remove_handle")
+    def multiRemoveHandle(multi: CURLM, curl: CURL): CInt = extern
+
+    // Runs the transfer as far as it can without blocking, so it needs no `@blocking`; callbacks
+    // run inside it
+    @name("curl_multi_perform")
+    def multiPerform(multi: CURLM, runningHandles: Ptr[CInt]): CInt = extern
+
+    // Waits on the network; `@blocking` for the same reason as `curl_easy_perform`. No callback runs
+    // inside it. (`curl_multi_poll` would need libcurl 7.66.)
+    @blocking
+    @name("curl_multi_wait")
+    def multiWait(
+        multi: CURLM,
+        extraFds: Ptr[Byte],
+        extraNfds: CUnsignedInt,
+        timeoutMs: CInt,
+        numfds: Ptr[CInt]
+    ): CInt = extern
+
+    @name("curl_multi_info_read")
+    def multiInfoRead(multi: CURLM, msgsInQueue: Ptr[CInt]): Ptr[CURLMsg] = extern
+
+    @name("curl_multi_strerror")
+    def multiStrerror(code: CInt): CString = extern
 
     // curl_easy_setopt / curl_easy_getinfo are C variadic functions that Scala Native cannot call
     // correctly (a fixed-arity extern uses the wrong calling convention for the variadic arg, and a
@@ -132,6 +184,32 @@ object CurlBindings:
   def curl_easy_init(): CURL              = Extern.easyInit()
   def curl_easy_cleanup(curl: CURL): Unit = Extern.easyCleanup(curl)
   def curl_easy_perform(curl: CURL): CInt = Extern.easyPerform(curl)
+
+  def curl_multi_init(): CURLM                                 = Extern.multiInit()
+  def curl_multi_cleanup(multi: CURLM): CInt                   = Extern.multiCleanup(multi)
+  def curl_multi_add_handle(multi: CURLM, curl: CURL): CInt    = Extern.multiAddHandle(multi, curl)
+  def curl_multi_remove_handle(multi: CURLM, curl: CURL): CInt = Extern.multiRemoveHandle(
+    multi,
+    curl
+  )
+
+  def curl_multi_perform(multi: CURLM, runningHandles: Ptr[CInt]): CInt = Extern.multiPerform(
+    multi,
+    runningHandles
+  )
+
+  def curl_multi_wait(multi: CURLM, timeoutMs: CInt, numfds: Ptr[CInt]): CInt = Extern.multiWait(
+    multi,
+    null,
+    0.toUInt,
+    timeoutMs,
+    numfds
+  )
+
+  def curl_multi_info_read(multi: CURLM, msgsInQueue: Ptr[CInt]): Ptr[CURLMsg] = Extern
+    .multiInfoRead(multi, msgsInQueue)
+
+  def curl_multi_strerror(code: CInt): CString = Extern.multiStrerror(code)
 
   def curl_easy_setopt_long(curl: CURL, option: CInt, parameter: Long): CInt = Extern
     .uni_curl_easy_setopt_long(curl, option, parameter)
@@ -251,6 +329,14 @@ object CurlCallbacks:
         bytes(i) = !(buffer._1 + i)
         i += 1
       bytes
+
+  /**
+    * Copy out the buffered data and empty the buffer, keeping its allocation for reuse.
+    */
+  def takeBufferData(buffer: Ptr[ResponseBuffer]): Array[Byte] =
+    val bytes = getBufferData(buffer)
+    buffer._2 = 0L
+    bytes
 
   def getBufferString(buffer: Ptr[ResponseBuffer]): String =
     new String(getBufferData(buffer), "UTF-8")

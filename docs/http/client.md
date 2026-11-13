@@ -42,10 +42,11 @@ code is platform-agnostic. A few platform constraints are worth knowing:
 - **Scala Native requires libcurl**, both to link and at runtime; the factory
   initializes it globally the first time a client is created. See
   [Linking libcurl on Scala Native](#linking-libcurl-on-scala-native) below.
-- **The Scala Native async client wraps the blocking libcurl call.** Each attempt
-  blocks the thread that runs it (the subscriber for the first attempt, the Rx
-  scheduler for retries), and `sendStreaming` delivers the whole body as a
-  single chunk.
+- **The Scala Native async client wraps the blocking libcurl call.** Each `send`
+  attempt blocks the thread that runs it (the subscriber for the first attempt,
+  the Rx scheduler for retries). `sendStreaming` and `sendSSE` run on the
+  blocking scheduler instead and emit chunks as they arrive; cancelling the
+  subscription closes the connection.
 - **The async client is the cross-platform common denominator.** If you target
   the browser, prefer the async API everywhere so the same code compiles for
   every platform.

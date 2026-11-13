@@ -32,5 +32,5 @@ Through 2026.1.30, `HttpAsyncChannel.sendStreaming` returned only body chunks. A
 - Chunks go through the `RxVar` as `Option[Array[Byte]]`, never as parsed events. `RxVar.set` skips a value equal to the current one, so two identical consecutive events would be lost; arrays compare by reference.
 - `Rx.queue` (`RxQueue`) was not used: `RxRunner` re-polls an `RxSource`'s `next` in a synchronous loop.
 - Tests of async streams must wait for a terminal event (`RxRunner` plus a bounded queue), not use `Rx.toSeq`, which can return before the stream completes.
-- Cancelling an SSE subscription does not abort an in-flight JVM body read; the reader stops at end of stream. Abort-on-cancel and `Last-Event-ID` reconnect are open follow-ups.
-- Native curl and Electron use the buffered default.
+- Cancelling an SSE subscription does not abort an in-flight JVM body read; the reader stops at end of stream. Abort-on-cancel and `Last-Event-ID` reconnect are open follow-ups. Update (2026-11-12): JVM and Native abort on cancel (`onCancel`), and each subscription of `streamChunks` sends its own request.
+- Native curl and Electron use the buffered default. Update (2026-11-12): Native streams through libcurl's multi interface (`CurlChannel.stream`). Curl callbacks only fill malloc'd buffers, and Scala drains them between `curl_multi_perform` calls, because `curl_multi_wait` is `@blocking` (#847). A stream clears `CURLOPT_TIMEOUT_MS`, which would otherwise cap the whole transfer. `curl_multi_wait` is used instead of `curl_multi_poll` to keep the libcurl 7.56 minimum.

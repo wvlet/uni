@@ -418,6 +418,39 @@ class NettyServerTest extends UniTest:
       }
   }
 
+  test("stop the server stream when a JVM client cancels its SSE subscription") {
+    import java.util.concurrent.{CountDownLatch, TimeUnit}
+    import wvlet.uni.http.Http
+    import wvlet.uni.rx.{Cancelable, OnNext, RxRunner}
+
+    val cancelled = CountDownLatch(1)
+    // An endless stream: it ends only when the server cancels it
+    val ticks = Rx.variable(ServerSentEvent.data("tick"))
+    NettyServerConfig()
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      .withRxHandler { _ =>
+        Rx.single(Response.eventStream(ticks.onCancel(cancelled.countDown())))
+      }
+      .start { server =>
+        val client = Http.client.withBaseUri(s"http://localhost:${server.localPort}").newAsyncClient
+        try
+          val received     = CountDownLatch(1)
+          var subscription = Cancelable.empty
+          subscription =
+            RxRunner.run(client.sendSSE(Request.get("/events"))) {
+              case OnNext(_) =>
+                received.countDown()
+              case _ =>
+            }
+          received.await(5, TimeUnit.SECONDS) shouldBe true
+          subscription.cancel
+          cancelled.await(5, TimeUnit.SECONDS) shouldBe true
+        finally
+          client.close()
+      }
+  }
+
   test("should bind query parameters to @Endpoint method parameters") {
     NettyServerConfig()
       .withPort(0)
