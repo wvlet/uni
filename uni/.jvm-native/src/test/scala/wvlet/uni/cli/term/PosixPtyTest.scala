@@ -116,6 +116,14 @@ class PosixPtyTest extends UniTest:
     r.process.resize(10, 10)
   }
 
+  test("write does not block when the program does not read") {
+    val r     = sh("sleep 0.5")
+    val start = System.currentTimeMillis()
+    r.process.write("x" * (1 << 20))
+    (System.currentTimeMillis() - start < 1000) shouldBe true
+    r.awaitExit() shouldBe 0
+  }
+
   test("output before the first listener is kept") {
     PosixPty.unsupportedReason.foreach(reason => skip(reason))
     val p = PosixPty.spawn("sh", Seq("-c", "echo early"))

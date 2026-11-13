@@ -41,7 +41,7 @@ private[term] object PtyShim:
   def uni_pty_read(fd: CInt, buf: Ptr[Byte], len: CInt, timeoutMs: CInt): CInt = extern
 
   @blocking
-  def uni_pty_write(fd: CInt, buf: Ptr[Byte], len: CInt): CInt = extern
+  def uni_pty_write(fd: CInt, buf: Ptr[Byte], len: CInt, timeoutMs: CInt): CInt = extern
 
   def uni_pty_resize(fd: CInt, cols: CInt, rows: CInt): CInt = extern
 
@@ -109,8 +109,11 @@ private[term] object NativePtyOps extends PosixPtyOps:
     timeoutMillis
   )
 
-  override def write(fd: Int, buf: Array[Byte], len: Int): Boolean =
-    len == 0 || PtyShim.uni_pty_write(fd, buf.at(0), len) == 0
+  override def write(fd: Int, buf: Array[Byte], offset: Int, len: Int, timeoutMillis: Int): Int =
+    if len == 0 then
+      0
+    else
+      PtyShim.uni_pty_write(fd, buf.at(offset), len, timeoutMillis)
 
   override def resize(fd: Int, cols: Int, rows: Int): Unit = PtyShim.uni_pty_resize(fd, cols, rows)
 

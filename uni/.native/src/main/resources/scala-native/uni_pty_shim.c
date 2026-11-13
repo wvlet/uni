@@ -37,7 +37,10 @@ int uni_pty_read(int fd, void *buf, int len, int timeout_ms) {
   (void)fd; (void)buf; (void)len; (void)timeout_ms;
   return -1;
 }
-int uni_pty_write(int fd, const void *buf, int len) { (void)fd; (void)buf; (void)len; return -1; }
+int uni_pty_write(int fd, const void *buf, int len, int timeout_ms) {
+  (void)fd; (void)buf; (void)len; (void)timeout_ms;
+  return -1;
+}
 int uni_pty_resize(int fd, int cols, int rows) { (void)fd; (void)cols; (void)rows; return -1; }
 int uni_pty_wait(int pid) { (void)pid; return -1; }
 int uni_pty_kill(int pid, int sig) { (void)pid; (void)sig; return -1; }
@@ -63,6 +66,13 @@ const char *uni_pty_strerror(int err) { (void)err; return "PTYs are not supporte
 
 int uni_pty_supported(void) { return 1; }
 
+#if !defined(__APPLE__)
+/* glibc added this in 2.29 and musl in 1.1.24. A weak reference keeps binaries building and
+ * starting on older C libraries; there, a cwd fails with ENOSYS. */
+extern int posix_spawn_file_actions_addchdir_np(posix_spawn_file_actions_t *, const char *)
+    __attribute__((weak));
+#endif
+
 /* Returns the child's pid and stores the master fd, or returns -errno */
 int uni_pty_spawn(const char *file, char *const argv[], char *const envp[], const char *cwd,
                   int cols, int rows, int *master_fd) {
@@ -77,6 +87,8 @@ int uni_pty_spawn(const char *file, char *const argv[], char *const envp[], cons
   if (master < 0) return -errno;
   /* Programs started by other threads must not inherit the master, or the PTY never closes */
   fcntl(master, F_SETFD, FD_CLOEXEC);
+  /* Non-blocking, so a writer thread waiting on a program that does not read can stop */
+  fcntl(master, F_SETFL, fcntl(master, F_GETFL) | O_NONBLOCK);
   if (grantpt(master) != 0 || unlockpt(master) != 0) {
     err = errno;
     close(master);
@@ -117,12 +129,21 @@ int uni_pty_spawn(const char *file, char *const argv[], char *const envp[], cons
   posix_spawn_file_actions_adddup2(&actions, 0, 1);
   posix_spawn_file_actions_adddup2(&actions, 0, 2);
   if (cwd != NULL) {
+#if !defined(__APPLE__)
+    if (posix_spawn_file_actions_addchdir_np == NULL) {
+      posix_spawn_file_actions_destroy(&actions);
+      posix_spawnattr_destroy(&attr);
+      close(slave_fd);
+      close(master);
+      return -ENOSYS;
+    }
+#endif
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #endif
-    /* glibc 2.29+, musl 1.1.24+, and macOS 10.15+. macOS 26 renamed it to the POSIX 2024 name
-     * posix_spawn_file_actions_addchdir, but keeps this one. */
+    /* macOS 10.15+; macOS 26 renamed it to the POSIX 2024 name posix_spawn_file_actions_addchdir,
+     * but keeps this one */
     posix_spawn_file_actions_addchdir_np(&actions, cwd);
 #if defined(__clang__)
 #pragma clang diagnostic pop
@@ -141,38 +162,39 @@ int uni_pty_spawn(const char *file, char *const argv[], char *const envp[], cons
   return (int)pid;
 }
 
-/* Returns the number of bytes read, 0 on timeout, or -1 when the PTY is closed */
-int uni_pty_read(int fd, void *buf, int len, int timeout_ms) {
+/* Waits up to timeout_ms for events. Returns 1 when ready, 0 on timeout, or -1 */
+static int wait_for(int fd, short events, int timeout_ms) {
   struct pollfd p;
-  ssize_t n;
   int r;
   p.fd = fd;
-  p.events = POLLIN;
+  p.events = events;
   p.revents = 0;
   r = poll(&p, 1, timeout_ms);
   if (r == 0 || (r < 0 && errno == EINTR)) return 0;
-  if (r < 0) return -1;
-  do {
-    n = read(fd, buf, (size_t)len);
-  } while (n < 0 && errno == EINTR);
-  /* Linux reports EIO once every slave fd is closed; macOS reports end of file */
-  if (n <= 0) return n < 0 && errno == EAGAIN ? 0 : -1;
-  return (int)n;
+  return r < 0 ? -1 : 1;
 }
 
-/* Returns 0 once all bytes are written, or -1 */
-int uni_pty_write(int fd, const void *buf, int len) {
-  const char *p = (const char *)buf;
-  while (len > 0) {
-    ssize_t n = write(fd, p, (size_t)len);
-    if (n < 0) {
-      if (errno == EINTR) continue;
-      return -1;
-    }
-    p += n;
-    len -= (int)n;
-  }
-  return 0;
+/* Returns the number of bytes read, 0 on timeout, or -1 when the PTY is closed */
+int uni_pty_read(int fd, void *buf, int len, int timeout_ms) {
+  ssize_t n;
+  int ready = wait_for(fd, POLLIN, timeout_ms);
+  if (ready <= 0) return ready;
+  n = read(fd, buf, (size_t)len);
+  if (n > 0) return (int)n;
+  if (n < 0 && (errno == EAGAIN || errno == EINTR)) return 0;
+  /* Linux reports EIO once every slave fd is closed; macOS reports end of file */
+  return -1;
+}
+
+/* Waits up to timeout_ms for room. Returns the number of bytes written, 0 on timeout, or -1 when
+ * the PTY is closed */
+int uni_pty_write(int fd, const void *buf, int len, int timeout_ms) {
+  ssize_t n;
+  int ready = wait_for(fd, POLLOUT, timeout_ms);
+  if (ready <= 0) return ready;
+  n = write(fd, buf, (size_t)len);
+  if (n >= 0) return (int)n;
+  return errno == EAGAIN || errno == EINTR ? 0 : -1;
 }
 
 int uni_pty_resize(int fd, int cols, int rows) {

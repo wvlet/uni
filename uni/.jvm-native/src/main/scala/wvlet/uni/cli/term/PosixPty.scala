@@ -16,8 +16,8 @@ package wvlet.uni.cli.term
 import wvlet.uni.log.LogSupport
 
 import java.nio.charset.StandardCharsets
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import scala.collection.mutable.ArrayBuffer
 
@@ -106,9 +106,10 @@ private[term] trait PosixPtyOps:
   def read(fd: Int, buf: Array[Byte], timeoutMillis: Int): Int
 
   /**
-    * Write all `len` bytes. Returns false if the PTY is gone.
+    * Wait up to `timeoutMillis` for room, then write up to `len` bytes of `buf` from `offset`.
+    * Returns the number of bytes written, 0 on timeout, or -1 if the PTY is gone.
     */
-  def write(fd: Int, buf: Array[Byte], len: Int): Boolean
+  def write(fd: Int, buf: Array[Byte], offset: Int, len: Int, timeoutMillis: Int): Int
 
   def resize(fd: Int, cols: Int, rows: Int): Unit
 
@@ -136,8 +137,13 @@ private[term] object PosixPtyOps:
       128 + (status & 0x7f)
 
 /**
-  * A running PTY program. A reader thread delivers output, and a waiter thread reaps the program,
-  * lets the reader drain the remaining output, closes the PTY, and then reports the exit.
+  * A running PTY program. A reader thread delivers output, a writer thread sends queued input, and
+  * a waiter thread reaps the program, lets the reader drain the remaining output, stops the writer,
+  * closes the PTY, and then reports the exit.
+  *
+  * Input goes through a queue so that `write` never blocks its caller. Listeners run on the reader
+  * thread, and `PtyProcess.connect` writes the terminal's replies from there: a blocking write
+  * would stop the reader while the program waits for its output to be read.
   */
 private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: String)
     extends PtyProcess
@@ -145,15 +151,17 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
   import PosixPtyProcess.*
 
   private val ioLock = Object()
-  // Guarded by ioLock: true once the master fd is closed, so its number is never reused by mistake
+  // Set under ioLock once the master fd is closed, so its number is never reused by mistake
+  @volatile
   private var closed = false
+
   // Set once the program has been reaped, so kill() never signals a recycled pid
   @volatile
   private var reaped = false
 
   private val dataLock     = Object()
   private val dataPending  = ArrayBuffer.empty[String]
-  private val dataHandlers = CopyOnWriteArrayList[String => Unit]()
+  private val dataHandlers = ArrayBuffer.empty[String => Unit]
 
   private val exitLock     = Object()
   private var exitStatus   = Option.empty[Int]
@@ -163,9 +171,17 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
   @volatile
   private var stopReading = false
 
+  private val writeQueue = LinkedBlockingQueue[Array[Byte]]()
+  @volatile
+  private var stopWriting = false
+
   private val reader = Thread(() => readLoop(), s"uni-pty-reader-${pid}")
   reader.setDaemon(true)
   reader.start()
+
+  private val writer = Thread(() => writeLoop(), s"uni-pty-writer-${pid}")
+  writer.setDaemon(true)
+  writer.start()
 
   private val waiter = Thread(() => waitLoop(), s"uni-pty-waiter-${pid}")
   waiter.setDaemon(true)
@@ -189,6 +205,23 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
     finally
       readerDone.countDown()
 
+  private def writeLoop(): Unit =
+    try
+      while !stopWriting do
+        val chunk = writeQueue.poll(PollMillis, TimeUnit.MILLISECONDS)
+        if chunk != null then
+          var offset = 0
+          while offset < chunk.length && !stopWriting do
+            val n = ops.write(fd, chunk, offset, chunk.length - offset, PollMillis)
+            if n < 0 then
+              // The PTY is gone; the waiter reports the exit
+              stopWriting = true
+            else
+              offset += n
+    catch
+      case e: Throwable =>
+        warn(s"Writing to the PTY of ${name} (pid ${pid}) failed", e)
+
   private def waitLoop(): Unit =
     val code =
       try
@@ -203,6 +236,8 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
     if !readerDone.await(DrainMillis, TimeUnit.MILLISECONDS) then
       stopReading = true
       readerDone.await()
+    stopWriting = true
+    writer.join()
     ioLock.synchronized {
       closed = true
       ops.close(fd)
@@ -219,7 +254,7 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
         if dataHandlers.isEmpty then
           dataPending += data
         else
-          dataHandlers.forEach(h => runHandler(h(data)))
+          dataHandlers.foreach(h => runHandler(h(data)))
       }
 
   private def runHandler(body: => Unit): Unit =
@@ -230,11 +265,8 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
         warn(s"A PTY listener for ${name} failed", e)
 
   override def write(data: String): Unit =
-    val bytes = data.getBytes(StandardCharsets.UTF_8)
-    ioLock.synchronized {
-      if !closed then
-        ops.write(fd, bytes, bytes.length)
-    }
+    if !closed && data.nonEmpty then
+      writeQueue.add(data.getBytes(StandardCharsets.UTF_8))
 
   override def resize(cols: Int, rows: Int): Unit = ioLock.synchronized {
     if !closed then
@@ -242,7 +274,7 @@ private[term] class PosixPtyProcess(ops: PosixPtyOps, pid: Int, fd: Int, name: S
   }
 
   override def onData(listener: String => Unit): Unit = dataLock.synchronized {
-    dataHandlers.add(listener)
+    dataHandlers += listener
     // Output that arrived before the first listener
     dataPending.foreach(d => runHandler(listener(d)))
     dataPending.clear()

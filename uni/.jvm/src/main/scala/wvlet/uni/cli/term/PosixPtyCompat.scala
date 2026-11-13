@@ -85,6 +85,9 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
   private final val O_RDWR     = 2
   private final val F_SETFD    = 2
   private final val FD_CLOEXEC = 1
+  private final val F_GETFL    = 3
+  private final val F_SETFL    = 4
+  private final val POLLOUT    = 4
   private final val EINTR      = 4
   private final val EAGAIN     =
     if isMac then
@@ -92,7 +95,14 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
     else
       11
 
-  private final val POLLIN   = 1
+  private final val POLLIN      = 1
+  private final val ScratchSize = 8192
+  private final val O_NONBLOCK  =
+    if isMac then
+      0x4
+    else
+      0x800
+
   private final val O_NOCTTY =
     if isMac then
       0x20000
@@ -205,10 +215,11 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
   )
 
   // glibc 2.29+ and macOS 10.15+
-  private lazy val actionsAddchdir = fn(
-    "posix_spawn_file_actions_addchdir_np",
-    FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS)
-  )
+  private val actionsAddchdir: Option[MethodHandle] = libc
+    .find("posix_spawn_file_actions_addchdir_np")
+    .map(linker.downcallHandle(_, FunctionDescriptor.of(JAVA_INT, ADDRESS, ADDRESS)))
+    .map(Option(_))
+    .orElse(None)
 
   private val posixSpawnp = fn(
     "posix_spawnp",
@@ -286,6 +297,9 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
       try
         // Programs started by other threads must not inherit the master, or the PTY never closes
         fcntl.invokeWithArguments(Int.box(master), Int.box(F_SETFD), Int.box(FD_CLOEXEC))
+        // Non-blocking, so a writer thread waiting on a program that does not read can stop
+        val flags = int(fcntl.invokeWithArguments(Int.box(master), Int.box(F_GETFL), Int.box(0)))
+        fcntl.invokeWithArguments(Int.box(master), Int.box(F_SETFL), Int.box(flags | O_NONBLOCK))
         if int(grantpt.invokeWithArguments(state, Int.box(master))) != 0 ||
           int(unlockpt.invokeWithArguments(state, Int.box(master))) != 0
         then
@@ -338,7 +352,13 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
           actionsAdddup2.invokeWithArguments(actions, Int.box(0), Int.box(1))
           actionsAdddup2.invokeWithArguments(actions, Int.box(0), Int.box(2))
           cwd.foreach { dir =>
-            actionsAddchdir.invokeWithArguments(actions, arena.allocateFrom(dir))
+            actionsAddchdir match
+              case Some(f) =>
+                f.invokeWithArguments(actions, arena.allocateFrom(dir))
+              case None =>
+                throw IOException(
+                  "This C library cannot set the working directory of a spawned program (glibc 2.29+ can)"
+                )
           }
 
           val pid = arena.allocate(JAVA_INT)
@@ -390,71 +410,73 @@ private[term] class JvmPtyOps(isMac: Boolean) extends PosixPtyOps:
     val state = arena.allocate(stateLayout)
     ioctl.invokeWithArguments(state, Int.box(fd), Long.box(TIOCSWINSZ), ws)
 
+  /**
+    * Native memory for one reader or writer thread, reused across calls
+    */
+  private class Scratch:
+    private val arena = Arena.ofAuto()
+    val state         = arena.allocate(stateLayout)
+    // struct pollfd { int fd; short events; short revents; }
+    val pollFd = arena.allocate(8)
+    val buffer = arena.allocate(ScratchSize)
+
+  private val scratch = ThreadLocal.withInitial(() => Scratch())
+
+  private val oneFd: AnyRef =
+    if isMac then
+      Int.box(1)
+    else
+      Long.box(1L)
+
+  /**
+    * Wait up to `timeoutMillis` for `events`. Returns 1 when ready, 0 on timeout, or -1.
+    */
+  private def await(s: Scratch, fd: Int, events: Int, timeoutMillis: Int): Int =
+    s.pollFd.set(JAVA_INT, 0, fd)
+    s.pollFd.set(JAVA_SHORT, 4, events.toShort)
+    s.pollFd.set(JAVA_SHORT, 6, 0.toShort)
+    val ready = int(poll.invokeWithArguments(s.state, s.pollFd, oneFd, Int.box(timeoutMillis)))
+    if ready == 0 || (ready < 0 && errno(s.state) == EINTR) then
+      0
+    else if ready < 0 then
+      -1
+    else
+      1
+
   override def read(fd: Int, buf: Array[Byte], timeoutMillis: Int): Int =
-    val arena = Arena.ofConfined()
-    try
-      val state = arena.allocate(stateLayout)
-      // struct pollfd { int fd; short events; short revents; }
-      val pfd = arena.allocate(8)
-      pfd.set(JAVA_INT, 0, fd)
-      pfd.set(JAVA_SHORT, 4, POLLIN.toShort)
-      val nfds: AnyRef =
-        if isMac then
-          Int.box(1)
-        else
-          Long.box(1L)
-      val ready = int(poll.invokeWithArguments(state, pfd, nfds, Int.box(timeoutMillis)))
-      if ready == 0 || (ready < 0 && errno(state) == EINTR) then
+    val s     = scratch.get()
+    val ready = await(s, fd, POLLIN, timeoutMillis)
+    if ready <= 0 then
+      ready
+    else
+      val len = math.min(buf.length, ScratchSize).toLong
+      val n   = long(readFn.invokeWithArguments(s.state, Int.box(fd), s.buffer, Long.box(len)))
+      if n > 0 then
+        MemorySegment.copy(s.buffer, JAVA_BYTE, 0, buf, 0, n.toInt)
+        n.toInt
+      else if n < 0 && (errno(s.state) == EAGAIN || errno(s.state) == EINTR) then
         0
-      else if ready < 0 then
-        -1
       else
-        val native = arena.allocate(buf.length.toLong)
-        var n      = 0L
-        var retry  = true
-        while retry do
-          n = long(
-            readFn.invokeWithArguments(state, Int.box(fd), native, Long.box(buf.length.toLong))
-          )
-          retry = n < 0 && errno(state) == EINTR
-        if n > 0 then
-          MemorySegment.copy(native, JAVA_BYTE, 0, buf, 0, n.toInt)
-          n.toInt
-        else if n < 0 && errno(state) == EAGAIN then
-          0
-        else
-          // Linux reports EIO once every slave fd is closed; macOS reports end of file
-          -1
-    finally
-      arena.close()
-    end try
+        // Linux reports EIO once every slave fd is closed; macOS reports end of file
+        -1
 
-  end read
-
-  override def write(fd: Int, buf: Array[Byte], len: Int): Boolean =
-    val arena = Arena.ofConfined()
-    try
-      val state  = arena.allocate(stateLayout)
-      val native = arena.allocate(math.max(1, len).toLong)
-      MemorySegment.copy(buf, 0, native, JAVA_BYTE, 0, len)
-      var offset = 0L
-      var ok     = true
-      while ok && offset < len do
-        val n = long(
-          writeFn.invokeWithArguments(
-            state,
-            Int.box(fd),
-            native.asSlice(offset),
-            Long.box(len - offset)
-          )
-        )
-        if n >= 0 then
-          offset += n
-        else if errno(state) != EINTR then
-          ok = false
-      ok
-    finally
-      arena.close()
+  override def write(fd: Int, buf: Array[Byte], offset: Int, len: Int, timeoutMillis: Int): Int =
+    val s     = scratch.get()
+    val ready = await(s, fd, POLLOUT, timeoutMillis)
+    if ready <= 0 then
+      ready
+    else
+      val chunk = math.min(len, ScratchSize)
+      MemorySegment.copy(buf, offset, s.buffer, JAVA_BYTE, 0, chunk)
+      val n = long(
+        writeFn.invokeWithArguments(s.state, Int.box(fd), s.buffer, Long.box(chunk.toLong))
+      )
+      if n >= 0 then
+        n.toInt
+      else if errno(s.state) == EAGAIN || errno(s.state) == EINTR then
+        0
+      else
+        -1
 
   override def resize(fd: Int, cols: Int, rows: Int): Unit =
     val arena = Arena.ofConfined()
