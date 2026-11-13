@@ -12,7 +12,6 @@ import wvlet.uni.ui.{
   Edge,
   FoldablePane,
   SortBy,
-  SortDirection,
   Splitter,
   VirtualList
 }
@@ -201,8 +200,8 @@ end DetailsView
   * "Table" view shows the same calls in a sortable [[DataTable]], which moves by cell.
   */
 class ActivityLog(log: RpcLog) extends RxElement:
-  private[renderer] val asTable = Rx.variable(false)
-  private val sort              = Rx.variable(Option.empty[SortBy])
+  private val asTable = Rx.variable(false)
+  private val sort    = Rx.variable(Option.empty[SortBy])
 
   private def viewButton(label: String, table: Boolean): RxElement = button(
     tpe         -> "button",
@@ -241,20 +240,14 @@ class ActivityLog(log: RpcLog) extends RxElement:
         .sortBy(_.events)
         .withWidth("64px")
         .alignEnd,
-      Column[RpcCall]("ok", "Status")(c =>
-        span(
-          cls -> (
-            if c.ok then
-              "text-muted"
-            else
-              "text-red-500"
-          ),
+      Column[RpcCall]("ok", "Status") { c =>
+        val (tone, text) =
           if c.ok then
-            "ok"
+            ("text-muted", "ok")
           else
-            "failed"
-        )
-      ).sortBy(_.ok).withWidth("64px")
+            ("text-red-500", "failed")
+        span(cls -> tone, text)
+      }.sortBy(_.ok).withWidth("64px")
     ).withLabel("RPC calls").withSort(sort).withRowHeight(30)(cls += "min-h-0 flex-1 text-[12px]")
 
   // Each call with the slowest time, computed once per update. A row renders again only when its

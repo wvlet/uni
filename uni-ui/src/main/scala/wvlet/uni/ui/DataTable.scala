@@ -138,8 +138,9 @@ class DataTable[A, K] private (
   private def onKey(e: dom.KeyboardEvent): Boolean =
     val toRow  = e.ctrlKey || e.metaKey
     val rowEnd = e.key == "Home" || e.key == "End"
-    // Alt+Arrow (Back in some browsers) and Ctrl or ⌘ with Left or Right belong to the app
-    if e.altKey || e.shiftKey || (toRow && !rowEnd) then
+    // Left or Right with a modifier (Alt+Left is Back in some browsers) belong to the app. Home and
+    // End are always handled here, so the list never reads them as a row jump without Ctrl or ⌘.
+    if !rowEnd && (e.altKey || e.shiftKey || toRow) then
       false
     else
       DataTable.nextColumn(e.key, activeColumn.get, columns.size) match

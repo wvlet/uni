@@ -313,7 +313,12 @@ class CollectionTest extends DomTestSupport:
       // Alt+Arrow and Ctrl or ⌘ with Left or Right belong to the app or the browser
       fireEvent.keyDown(table, "ArrowRight", altKey = true) shouldBe true
       fireEvent.keyDown(table, "ArrowRight", metaKey = true) shouldBe true
+      fireEvent.keyDown(table, "ArrowRight", shiftKey = true) shouldBe true
       cell shouldBe Some("1-1")
+      // Shift+End still moves along the row, not to the last row
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "End", shiftKey = true)
+      cell shouldBe Some("2-6")
     }
   }
 
