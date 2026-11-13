@@ -452,4 +452,45 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("a table names rows by withRowLabel, and a selection change reuses the labels") {
+    case class User(id: Int, name: String)
+    val rows  = Rx.const((1 to 200).map(i => User(i, s"User ${i}")))
+    val row   = Rx.variable(Option.empty[Int])
+    var calls = 0
+    mount(
+      DataTable(rows)(_.id)(Column[User]("name", "Name")(u => span(u.name)))
+        .withLabel("Users")
+        .withSelected(row)
+        .withRowLabel { u =>
+          calls += 1
+          u.name
+        }
+    )
+    val agent = install()
+    node(agent, "table").items.take(2).map(_.label) shouldBe Seq("User 1", "User 2")
+    // A second snapshot of the same rows reuses the labels
+    val afterSnapshot = calls
+    node(agent, "table")
+    calls shouldBe afterSnapshot
+    val (_, start) = agent.changes()
+    fireEvent.click(find("[data-slot=data-table-row]:nth-child(2)"))
+    row.get shouldBe Some(2)
+    agent.changes(start)._1.map(c => (c.previous, c.value)) shouldBe Seq(("", "User 2"))
+    calls shouldBe afterSnapshot
+    agent
+      .act("table:users", "select", Some("User 5"))
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        row.get shouldBe Some(5)
+        agent.uninstall()
+      }
+  }
+
+  test("a table without withRowLabel names rows by key") {
+    mount(DataTable(Rx.const(Seq(7, 8)))(identity)(Column[Int]("n", "N")(i => span(i.toString))))
+    val agent = install()
+    node(agent, "table").items.map(_.label) shouldBe Seq("7", "8")
+    agent.uninstall()
+  }
+
 end UiAgentTest
