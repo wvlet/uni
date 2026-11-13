@@ -391,5 +391,51 @@ class SendButtonTest extends DomTestSupport:
   }
 ```
 
+### Checking ARIA patterns
+
+`checkPattern(root, pattern)` checks a widget against its
+[WAI-ARIA Authoring Practices](https://www.w3.org/WAI/ARIA/apg/patterns/) pattern and emits the
+violations it finds. uni-ui runs it on every component in its own tests; run it on your widgets
+too, including ones built from the [behaviors](./behaviors).
+
+```scala
+import org.scalajs.dom
+import wvlet.uni.test.empty
+
+class MorePatternTest extends DomTestSupport:
+  test("the More menu follows the menu pattern") {
+    val open = Rx.variable(false)
+    mount(Menu(open)(Button("More"))(MenuItem("Rename"), MenuItem("Delete")))
+    open := true
+    // An overlay focuses its first item in onMount, so settle before checking
+    settle()
+      .flatMap(_ => checkPattern(dom.document.querySelector("[role=menu]"), AriaPattern.Menu))
+      .map(_ shouldBe empty)
+  }
+```
+
+A failing check lists each violation on one line, with a rule id you can filter on:
+`[menu/item-name] div[role=menuitem]: needs an accessible name (aria-label, aria-labelledby, or text)`.
+
+- **Structure:** roles and the roles they own, required states (`aria-selected`, `aria-expanded`,
+  `aria-checked`, `aria-level`), one focus model (a single tab stop, or `aria-activedescendant` on a
+  focusable container), and, stricter than the APG, an accessible name on every widget and id
+  references (`aria-controls`, `aria-labelledby`, ...) that point to an element in the document.
+- **Keyboard:** then it presses the keys the pattern requires and checks where the focus or the
+  active item went. These keys change state (Escape closes a dialog), so call `checkPattern` last;
+  pass `keyboard = false` to check the structure only.
+
+| Pattern | Pass | uni-ui component |
+|---------|------|------------------|
+| `Tabs` | the `tablist` or an element containing it | `TabList` with `TabPanel`, `Dock` |
+| `Menu` | the open `menu` | `Menu`, `ContextMenu` |
+| `MenuButton` | the closed trigger (it opens and closes the menu) | `Menu` |
+| `Listbox` | the `listbox` | `Select` (open), `VirtualList` |
+| `Combobox` | the `combobox` input | `CommandPalette` |
+| `Dialog` / `AlertDialog` | the open dialog | `Dialog`, `AlertDialog`, `CommandPalette` |
+| `Tree` | the `tree` | `Tree` |
+| `Grid` | the `grid` | `DataTable` |
+| `Tooltip` | the shown `tooltip` | `Tooltip` |
+
 [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) builds a full
 workspace shell with these components and Tailwind CSS.
