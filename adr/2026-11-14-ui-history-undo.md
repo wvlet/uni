@@ -27,4 +27,5 @@
 
 - Dock layout, pane sizes, and other components without an agent binding are recorded but report `unsupported` until they get a binding.
 - An app that writes a target directly (outside the gate) after the agent changed it makes the agent's entry a `conflict`, which keeps the app's value.
+- A revert goes through the `onChange` handler captured with the change. If the component unmounts and a new one mounts on the same `RxVar` with a different handler, the revert still uses the old one. Reading the live handler would need every binding to expose it.
 - There is no redo. An app that needs it can re-run the agent's suggestion.

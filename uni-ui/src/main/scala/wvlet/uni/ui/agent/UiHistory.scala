@@ -157,23 +157,22 @@ end UiStage
   * undone. Components hidden from agents are not recorded, and secret values are never kept.
   */
 class UiHistory private (limit: Int):
+  require(limit > 0, s"limit must be positive: ${limit}")
 
   private class Record(
       val seq: Long,
       val target: RxVar[Any],
-      val handler: ChangeHandler,
-      // The raw values, only for reversible entries, so secrets are never kept
-      val values: Option[(Any, Any)],
+      // The raw values and the handler to revert through, only for reversible entries, so secrets
+      // and unreversible components' handlers are never kept
+      val undoable: Option[(Any, Any, ChangeHandler)],
       val owned: Boolean,
       base: HistoryEntry
   ):
-    var state: EntryState         = EntryState.Live
-    var stage: Option[UiStage]    = None
-    def source: ChangeSource      = base.source
-    def entry: HistoryEntry       = base.copy(state = state, stage = stage.map(_.label))
-    def reversible: Boolean       = base.reversible
-    def notUndone: Boolean        = state != EntryState.Undone
-    override def toString: String = entry.toString
+    var state: EntryState      = EntryState.Live
+    var stage: Option[UiStage] = None
+    def source: ChangeSource   = base.source
+    def entry: HistoryEntry    = base.copy(state = state, stage = stage.map(_.label))
+    def notUndone: Boolean     = state != EntryState.Undone
 
   private val records                    = mutable.ArrayDeque.empty[Record]
   private var seq                        = 0L
@@ -191,8 +190,7 @@ class UiHistory private (limit: Int):
       val rec = Record(
         seq,
         r.target,
-        r.handler,
-        Option.when(reversible)((d.previous, d.value)),
+        Option.when(reversible)((d.previous, d.value, r.handler)),
         r.owner.isDefined,
         HistoryEntry(
           seq = seq,
@@ -244,18 +242,18 @@ class UiHistory private (limit: Int):
 
   private def undoOne(r: Record): UndoResult =
     def result(s: UndoStatus, message: String = "") = UndoResult(r.entry, s, message)
-    r.values match
+    r.undoable match
       case _ if r.state != EntryState.Live =>
         result(UndoStatus.Skipped, s"The change is already ${r.state.name}")
       case None =>
         result(UndoStatus.Unsupported, unsupportedReason(r))
       case Some(_) if AgentRegistry.ownerOf(r.target).isEmpty =>
         result(UndoStatus.Missing, "The component is not on screen")
-      case Some((_, value)) if r.target.get != value =>
+      case Some((_, value, _)) if r.target.get != value =>
         result(UndoStatus.Conflict, "The value changed since")
       case Some(_) if records.exists(o => o.seq > r.seq && (o.target eq r.target) && o.notUndone) =>
         result(UndoStatus.Conflict, "A later change to the same state is still in effect")
-      case Some((previous, _)) =>
+      case Some((previous, _, handler)) =>
         reverting = true
         val accepted =
           try ChangeGate.write(
@@ -263,7 +261,7 @@ class UiHistory private (limit: Int):
               r.entry.key,
               previous,
               ChangeCause(ChangeReason.Undo, ChangeSource.Programmatic),
-              r.handler
+              handler
             )
           finally reverting = false
         if accepted then
