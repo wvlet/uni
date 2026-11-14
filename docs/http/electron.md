@@ -212,7 +212,7 @@ Use `Http.client.newAsyncClient`; `newSyncClient` throws.
 ## Calling the renderer from the main process
 
 Some services live in the renderer because they need the page, such as a
-[`UiAgent`](../dom/ui#agents) that reads the DOM. The main process calls them over a reverse
+[`UiAgent`](../dom/agents) that reads the DOM. The main process calls them over a reverse
 channel with the same payloads: it sends `(id, request)` on `uni-rpc-reverse` to one window's
 `webContents`, and the renderer answers `(id, response)` on `uni-rpc-reverse-reply`.
 

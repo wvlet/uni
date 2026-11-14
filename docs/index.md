@@ -153,4 +153,5 @@ CLI and server, is built on `uni`, `uni-test`, and `uni-netty`.
 |--------|----------|-----------|
 | `uni` | Design, logging, JSON/MessagePack, Rx, HTTP client, Node.js/Native HTTP servers, RPC, MCP, [CLI utilities](/cli/), [Web UI](/dom/) (Scala.js) | JVM, Scala.js, Scala Native |
 | `uni-netty` | Netty HTTP server, annotation router, HTTP RPC server | JVM |
+| `uni-ui` | [UI components](/dom/ui) for uni-dom: controls, overlays, virtualized collections, a dock, and `UiAgent` for AI agents | Scala.js |
 | `uni-test` | UniTest framework | JVM, Scala.js, Scala Native |

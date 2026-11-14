@@ -110,7 +110,8 @@ how APIs map between them.
 | Module | Description |
 |--------|-------------|
 | [CLI](/cli/) | Terminal styling, progress bars, command launching |
-| [Web UI](/dom/) | Reactive browser UIs with RxElement (Scala.js) |
+| [Web UI](/dom/) | Reactive browser UIs (Scala.js): RxElement and the HTML DSL in `uni`, ready-made components in `uni-ui` |
+| [Desktop Apps](/http/electron) | Electron apps with a Scala.js renderer and typed RPC to the main process |
 
 #### Testing
 

@@ -289,6 +289,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
       { text: 'For AI Agents', link: '/guide/for-ai-agents' },
       { text: 'Book', link: '/book/' },
       { text: 'Modules', link: '/core/' },
+      { text: 'UI', link: '/dom/' },
       { text: 'Blog', link: '/blog/' },
       {
         text: 'GitHub',
@@ -446,8 +447,6 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'OpenAPI', link: '/http/openapi' },
-            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
-            { text: 'Electron Tutorial', link: '/http/electron-tutorial' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
@@ -481,9 +480,20 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         {
           text: 'Web UI (Scala.js)',
           items: [
-            { text: 'RxElement', link: '/dom/' },
-            { text: 'UI Components', link: '/dom/ui' },
-            { text: 'Behaviors', link: '/dom/behaviors' }
+            { text: 'Overview', link: '/dom/' },
+            { text: 'RxElement & HTML DSL', link: '/dom/rxelement' },
+            { text: 'Components', link: '/dom/ui' },
+            { text: 'Controls', link: '/dom/controls' },
+            { text: 'Overlays', link: '/dom/overlays' },
+            { text: 'Collections', link: '/dom/collections' },
+            { text: 'Layout & Dock', link: '/dom/layout' },
+            { text: 'Behaviors', link: '/dom/behaviors' },
+            { text: 'Changes & Parts', link: '/dom/changes' },
+            { text: 'Agents', link: '/dom/agents' },
+            { text: 'Theming', link: '/dom/theming' },
+            { text: 'Testing', link: '/dom/testing' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
+            { text: 'Electron Tutorial', link: '/http/electron-tutorial' }
           ]
         },
         {
@@ -555,8 +565,6 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Router', link: '/http/router' },
             { text: 'RPC', link: '/http/rpc' },
             { text: 'OpenAPI', link: '/http/openapi' },
-            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
-            { text: 'Electron Tutorial', link: '/http/electron-tutorial' },
             { text: 'Server-Sent Events', link: '/http/sse' },
             { text: 'WebSocket Client', link: '/http/websocket' },
             { text: 'Retry Strategies', link: '/http/retry' }
@@ -590,9 +598,20 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         {
           text: 'Web UI (Scala.js)',
           items: [
-            { text: 'RxElement', link: '/dom/' },
-            { text: 'UI Components', link: '/dom/ui' },
-            { text: 'Behaviors', link: '/dom/behaviors' }
+            { text: 'Overview', link: '/dom/' },
+            { text: 'RxElement & HTML DSL', link: '/dom/rxelement' },
+            { text: 'Components', link: '/dom/ui' },
+            { text: 'Controls', link: '/dom/controls' },
+            { text: 'Overlays', link: '/dom/overlays' },
+            { text: 'Collections', link: '/dom/collections' },
+            { text: 'Layout & Dock', link: '/dom/layout' },
+            { text: 'Behaviors', link: '/dom/behaviors' },
+            { text: 'Changes & Parts', link: '/dom/changes' },
+            { text: 'Agents', link: '/dom/agents' },
+            { text: 'Theming', link: '/dom/theming' },
+            { text: 'Testing', link: '/dom/testing' },
+            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
+            { text: 'Electron Tutorial', link: '/http/electron-tutorial' }
           ]
         },
         {
