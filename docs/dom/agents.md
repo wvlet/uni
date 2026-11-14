@@ -71,6 +71,43 @@ agent.changes(since = 0)                              // what people changed, an
   (see [Calling the renderer from the main process](../http/electron#calling-the-renderer-from-the-main-process)).
 
 
+## History and undo
+
+`UiHistory` records the changes components make to app state, by people, app code, and agents,
+so the app can show them and revert what the agent did. A stage collects the agent's
+suggestions for the human to accept or revert together.
+
+```scala
+import wvlet.uni.ui.agent.{UiHistory, UndoStatus}
+
+val history = UiHistory.record()
+val stage   = history.stage("Suggested region")   // the agent's next changes join it
+agent.act("select:region", "select", Some("tokyo"))
+stage.entries.map(_.describe)                      // Seq("Agent set Region to tokyo")
+stage.revert()                                     // or stage.accept()
+val results = history.undoSource(ChangeSource.Agent)
+results.filter(_.status == UndoStatus.Conflict)    // agent changes a person edited since
+history.close()
+```
+
+- **Recorded.** Each change to app state a component writes through its gate: `selected`,
+  `value`, `sort`, `expanded`, `order`, `open`, and so on, with its ref, label, before and after
+  text, reason, and source. Button presses, menu-item actions, and other app callbacks are not
+  changes, so they are not recorded and cannot be undone.
+- **Undo.** `undoSource(ChangeSource.Agent)` and `undo(entry)` go newest first and write the
+  previous value back through the component's `onChange` with `ChangeReason.Undo`, so the app can
+  cancel it. Each `UndoResult` says `reverted`, `conflict` (the value changed since, so the newer
+  value stays), `canceled`, `missing` (the component is not mounted; nothing is written),
+  `unsupported`, or `skipped` (already undone or accepted).
+- **Not undone.** `open` (overlay visibility), secret and password values, and components without
+  an agent binding report `unsupported`. Secret values read `<redacted>` and are never kept.
+  Components inside `UiAgent.hidden` are not recorded.
+- **Stages.** One stage is open at a time, and only agent changes join it. `revert()` keeps the
+  edits a person made meanwhile; `accept()` keeps the changes, and `undoSource` skips them later.
+- **No loops, no agent replay.** A revert is not recorded as a new change; other listeners see it
+  as a `Programmatic` change with reason `undo`. History is app-side only: `UiAgentApi` has no
+  undo or redo, so an agent cannot use it to get around the policy or a confirmation.
+
 ## Driving an Electron app over MCP
 
 [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) shows the

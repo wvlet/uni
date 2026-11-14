@@ -99,6 +99,9 @@ object ChangeReason:
   /** A call from app code, such as `dock.open(id)`. */
   val Imperative = ChangeReason("imperative")
 
+  /** A revert of an earlier change by [[agent.UiHistory]]. */
+  val Undo = ChangeReason("undo")
+
 end ChangeReason
 
 /**
@@ -218,7 +221,7 @@ private[ui] object ChangeGate:
     else
       val d = ChangeDetails(key, value, previous, cause.reason, ChangeSource.resolve(cause.source))
       handler(d)
-      agent.AgentRegistry.report(target, d)
+      agent.AgentRegistry.report(target, d, handler)
       if d.canceled then
         false
       else

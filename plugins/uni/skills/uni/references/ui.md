@@ -216,6 +216,23 @@ agent.installWebMcp()                              // WebMCP tools where the bro
   the main process with `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))` (see
   [electron.md](electron.md)).
 
+`UiHistory` records those changes by source, so the app can revert what the agent did without
+losing the human's edits, or stage the agent's suggestions to accept or revert together:
+
+```scala
+import wvlet.uni.ui.agent.UiHistory
+
+val changeLog = UiHistory.record()
+val stage     = changeLog.stage("Suggested values") // agent changes join it until accepted/reverted
+stage.revert()                                       // or stage.accept(); Seq[UndoResult]
+changeLog.undoSource(ChangeSource.Agent)             // newest first; `conflict` keeps later edits
+changeLog.entries.map(_.describe)                    // "Agent set Region to oregon"
+```
+
+- Undo writes back through `onChange` with `ChangeReason.Undo` (cancelable) and is not recorded as
+  a new change. Presses and app callbacks are not recorded; `open`, secret values, and unbound
+  components report `unsupported`; an unmounted component reports `missing`.
+
 ## Behaviors for your own widgets
 
 `wvlet.uni.ui.base` holds the interaction logic uni-ui is built from. Each behavior is a pure model
