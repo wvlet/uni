@@ -63,7 +63,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
       icon: RxElement,
       badge: Rx[String],
       attention: Rx[Boolean] = Rx.const(false)
-  )(content: => RxElement): DockPanel = DockPanel(t.id, t.label)(content)
+  )(content: => RxElement): DockPanel = DockPanel(t.id, title = t.label, content = content)
     .withTab(
       icon,
       t.label,
@@ -81,26 +81,32 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
   private lazy val panels = wvlet
     .uni
     .ui
-    .Dock(layout.dockLayout, "Dock views")(
-      panel(DockTab.Details, Icons.info, Rx.const(""))(
-        div(cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4", DetailsView(store, transport))
-      ),
-      panel(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString))(
-        // The log scrolls inside its own list
-        div(cls -> "flex min-h-0 flex-1 flex-col px-3 pb-4", ActivityLog(log))
-      ),
-      panel(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)(
-        div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
+    .Dock(
+      layout.dockLayout,
+      label = "Dock views",
+      panels = Seq(
+        panel(DockTab.Details, Icons.info, Rx.const(""))(
+          div(cls -> "min-h-0 flex-1 overflow-y-auto px-3 pb-4", DetailsView(store, transport))
+        ),
+        panel(DockTab.Activity, Icons.activity, log.calls.map(_.size.toString))(
+          // The log scrolls inside its own list
+          div(cls -> "flex min-h-0 flex-1 flex-col px-3 pb-4", ActivityLog(log))
+        ),
+        panel(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)(
+          div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
+        )
       )
     )
     .withActions(
       Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
     )
 
-  override def render: RxElement =
-    FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))(
-      panels(cls += "harness-dock")
-    )
+  override def render: RxElement = FoldablePane(
+    layout.dockOpen,
+    width = layout.dockWidth,
+    edge = Edge.Left,
+    content = Seq(panels(cls += "harness-dock"))
+  ).withSplitter(handle)
 
 end Dock
 
@@ -223,31 +229,45 @@ class ActivityLog(log: RpcLog) extends RxElement:
 
   // Wider than a narrow dock on purpose, so the table also scrolls sideways to the active cell
   private def table: RxElement =
-    DataTable(log.calls)(_.id)(
-      Column[RpcCall]("id", "#")(c => mono(c.id.toString)).sortBy(_.id).withWidth("44px").alignEnd,
-      Column[RpcCall]("method", "Method")(c =>
-        span(cls -> "truncate font-mono text-[11.5px]", c.method)
-      ).sortBy(_.method).withWidth("minmax(140px, 1fr)"),
-      Column[RpcCall]("millis", "Time")(c => mono(f"${c.millis}%.1f ms"))
-        .sortBy(_.millis)
-        .withWidth("80px")
-        .alignEnd,
-      Column[RpcCall]("first", "First")(c => mono(c.firstMillis.fold("–")(f => f"${f}%.0f ms")))
-        .sortBy(_.firstMillis.getOrElse(-1.0))
-        .withWidth("72px")
-        .alignEnd,
-      Column[RpcCall]("events", "Events")(c => mono(c.events.toString))
-        .sortBy(_.events)
-        .withWidth("64px")
-        .alignEnd,
-      Column[RpcCall]("ok", "Status") { c =>
-        val (tone, text) =
-          if c.ok then
-            ("text-muted", "ok")
-          else
-            ("text-red-500", "failed")
-        span(cls -> tone, text)
-      }.sortBy(_.ok).withWidth("64px")
+    DataTable(
+      log.calls,
+      key = _.id,
+      columns = Seq(
+        Column[RpcCall]("id", "#", cell = c => mono(c.id.toString))
+          .sortBy(_.id)
+          .withWidth("44px")
+          .alignEnd,
+        Column[RpcCall](
+          "method",
+          "Method",
+          cell = c => span(cls -> "truncate font-mono text-[11.5px]", c.method)
+        ).sortBy(_.method).withWidth("minmax(140px, 1fr)"),
+        Column[RpcCall]("millis", "Time", cell = c => mono(f"${c.millis}%.1f ms"))
+          .sortBy(_.millis)
+          .withWidth("80px")
+          .alignEnd,
+        Column[RpcCall](
+          "first",
+          "First",
+          cell = c => mono(c.firstMillis.fold("–")(f => f"${f}%.0f ms"))
+        ).sortBy(_.firstMillis.getOrElse(-1.0)).withWidth("72px").alignEnd,
+        Column[RpcCall]("events", "Events", cell = c => mono(c.events.toString))
+          .sortBy(_.events)
+          .withWidth("64px")
+          .alignEnd,
+        Column[RpcCall](
+          "ok",
+          "Status",
+          cell =
+            c =>
+              val (tone, text) =
+                if c.ok then
+                  ("text-muted", "ok")
+                else
+                  ("text-red-500", "failed")
+              span(cls -> tone, text)
+        ).sortBy(_.ok).withWidth("64px")
+      )
     ).withLabel("RPC calls").withSort(sort).withRowHeight(30)(cls += "min-h-0 flex-1 text-[12px]")
 
   // Each call with the slowest time, computed once per update. A row renders again only when its
@@ -318,9 +338,9 @@ class ActivityLog(log: RpcLog) extends RxElement:
       if t then
         table
       else
-        VirtualList(rows, rowHeight = 44)(_._1.id)(row.tupled).withLabel("RPC calls")(
-          cls += "min-h-0 flex-1"
-        )
+        VirtualList(rows, rowHeight = 44, key = _._1.id, render = row.tupled).withLabel(
+          "RPC calls"
+        )(cls += "min-h-0 flex-1")
     }
   )
 

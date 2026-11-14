@@ -49,49 +49,52 @@ class PatternTest extends DomTestSupport:
 
   test("tabs") {
     val tab  = Rx.variable("details")
-    val tabs =
-      TabList(tab, "Dock")(
-        Tab("details", "Details"),
-        Tab("activity", "Activity"),
-        Tab("logs", "Logs")
-      )
-    val m = mount(div(tabs, TabPanel(tabs)(t => span(t))))
+    val tabs = TabList(
+      tab,
+      label = "Dock",
+      tabs = Seq(Tab("details", "Details"), Tab("activity", "Activity"), Tab("logs", "Logs"))
+    )
+    val m = mount(div(tabs, TabPanel(tabs, render = t => span(t))))
     check(m.container, AriaPattern.Tabs)
   }
 
   test("tabs right to left") {
     val tab  = Rx.variable("details")
-    val tabs =
-      TabList(tab, "Dock")(
-        Tab("details", "Details"),
-        Tab("activity", "Activity"),
-        Tab("logs", "Logs")
-      )
-    val m = rtl(div(tabs, TabPanel(tabs)(t => span(t))))
+    val tabs = TabList(
+      tab,
+      label = "Dock",
+      tabs = Seq(Tab("details", "Details"), Tab("activity", "Activity"), Tab("logs", "Logs"))
+    )
+    val m = rtl(div(tabs, TabPanel(tabs, render = t => span(t))))
     check(m.container, AriaPattern.Tabs)
   }
 
   test("dock tabs") {
     import DockNode.group
     val layout = Rx.variable(DockLayout(group("a", "b", "c")))
-    val panels = Seq("a", "b", "c").map(id => DockPanel(id, id.capitalize)(div(s"${id} content")))
-    val m      = mount(
+    val panels = Seq("a", "b", "c").map(id =>
+      DockPanel(id, title = id.capitalize, content = div(s"${id} content"))
+    )
+    val m = mount(
       div(
         wvlet.uni.dom.all.styleAttr -> "width: 600px; height: 400px",
-        Dock(layout, "Dock")(panels*)
+        Dock(layout, label = "Dock", panels = panels)
       )
     )
     check(m.container, AriaPattern.Tabs)
   }
 
-  private def menu(open: wvlet.uni.rx.RxVar[Boolean]) =
-    Menu(open)(Button("More"))(
+  private def menu(open: wvlet.uni.rx.RxVar[Boolean]) = Menu(
+    open,
+    trigger = Button("More"),
+    entries = Seq(
       MenuItem("Rename"),
       MenuSeparator,
       MenuItem("Wrap lines").withChecked(Rx.const(true)),
       MenuItem("Archive").withDisabled(true),
       MenuItem("Delete")
     )
+  )
 
   test("menu button") {
     val m = mount(menu(Rx.variable(false)))
@@ -105,7 +108,7 @@ class PatternTest extends DomTestSupport:
   }
 
   test("context menu") {
-    val m      = mount(ContextMenu(div("Message"))(MenuItem("Copy"), MenuItem("Quote")))
+    val m = mount(ContextMenu(div("Message"), entries = Seq(MenuItem("Copy"), MenuItem("Quote"))))
     val target = m.getByText("Message")
     target.asInstanceOf[dom.HTMLElement].tabIndex = 0
     target.asInstanceOf[dom.HTMLElement].focus()
@@ -114,15 +117,21 @@ class PatternTest extends DomTestSupport:
   }
 
   test("select listbox") {
-    val m = mount(Select(Rx.variable("sonnet"), Seq("haiku", "sonnet", "opus"))(identity))
+    val m = mount(
+      Select(Rx.variable("sonnet"), options = Seq("haiku", "sonnet", "opus"), optionLabel = s => s)
+    )
     openFrom(m.get("button"))
     check(find("[role=listbox]"), AriaPattern.Listbox)
   }
 
   test("virtual list") {
     val m = mount(
-      VirtualList(Rx.const((1 to 50).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
-        .withLabel("Numbers")
+      VirtualList(
+        Rx.const((1 to 50).toSeq),
+        rowHeight = 20,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withLabel("Numbers")
     )
     check(m.container, AriaPattern.Listbox)
   }
@@ -144,7 +153,7 @@ class PatternTest extends DomTestSupport:
   test("dialog") {
     val open = Rx.variable(true)
     mount(
-      Dialog(open)(input(wvlet.uni.dom.all.ariaLabel -> "Name"))
+      Dialog(open, content = Seq(input(wvlet.uni.dom.all.ariaLabel -> "Name")))
         .withTitle("Rename")
         .withDescription("Pick a new name")
         .withActions(Button("Cancel"), Button("Save"))
@@ -154,7 +163,7 @@ class PatternTest extends DomTestSupport:
 
   test("alert dialog") {
     val open = Rx.variable(true)
-    mount(AlertDialog(open)("Delete the project?").withConfirmLabel("Delete"))
+    mount(AlertDialog(open, title = "Delete the project?").withConfirmLabel("Delete"))
     check(find("[role=alertdialog]"), AriaPattern.AlertDialog)
   }
 
@@ -167,7 +176,12 @@ class PatternTest extends DomTestSupport:
       FileNode("README.md")
     )
     val m = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name)).withLabel("Files")
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withLabel("Files")
     )
     check(m.container, AriaPattern.Tree)
   }
@@ -175,7 +189,12 @@ class PatternTest extends DomTestSupport:
   test("tree right to left") {
     val files = Seq(FileNode("src", Seq(FileNode("Main.scala"))), FileNode("README.md"))
     val m     = rtl(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name)).withLabel("Files")
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withLabel("Files")
     )
     check(m.container, AriaPattern.Tree)
   }
@@ -187,8 +206,12 @@ class PatternTest extends DomTestSupport:
       FileNode("README.md")
     )
     val m = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
-        .withLabel("Files")
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withLabel("Files")
         .withExpanded(Rx.variable(Set("src")))
         .withMultiSelect(Rx.variable(Set("Main.scala", "build.sbt")))
     )
@@ -200,9 +223,13 @@ class PatternTest extends DomTestSupport:
   test("data table grid") {
     val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
     val m     = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString))
+        )
       ).withLabel("Calls")
     )
     check(m.container, AriaPattern.Grid)
@@ -211,9 +238,13 @@ class PatternTest extends DomTestSupport:
   test("data table grid right to left") {
     val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5))
     val m     = rtl(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString))
+        )
       ).withLabel("Calls")
     )
     check(m.container, AriaPattern.Grid)
@@ -222,16 +253,20 @@ class PatternTest extends DomTestSupport:
   test("multi-select data table grid") {
     val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
     val m     = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString))
+        )
       ).withLabel("Calls").withMultiSelect(Rx.variable(Set(1, 3)))
     )
     check(m.container, AriaPattern.Grid)
   }
 
   test("tooltip") {
-    val m = mount(Tooltip("Copy the link")(Button("Copy")).withDelay(0))
+    val m = mount(Tooltip("Copy the link", trigger = Button("Copy")).withDelay(0))
     fireEvent.pointerEnter(m.get("button"))
     check(find("[role=tooltip]"), AriaPattern.Tooltip)
   }

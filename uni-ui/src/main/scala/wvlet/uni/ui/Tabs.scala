@@ -33,20 +33,20 @@ class Tab[A](val value: A, val content: DomNode*)
   * screen readers (`aria-controls` and `aria-labelledby`):
   * {{{
   *   val tab  = Rx.variable(DockTab.Details)
-  *   val tabs = TabList(tab, "Dock")(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity"))
+  *   val tabs = TabList(tab, label = "Dock", tabs = Seq(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity")))
   *   div(
   *     tabs,
-  *     TabPanel(tabs) {
+  *     TabPanel(tabs, render = {
   *       case DockTab.Details  => DetailsView()
   *       case DockTab.Activity => ActivityLog()
-  *     }
+  *     })
   *   )
   * }}}
   *
   * @param label
   *   the accessible name of the list
   */
-class TabList[A](val selected: RxVar[A], label: String)(tabs: Tab[A]*) extends RxElement:
+class TabList[A](val selected: RxVar[A], label: String, tabs: Seq[Tab[A]]) extends RxElement:
 
   // Unique per list, so two lists on one page never share ids
   private val idPrefix = Ids.next("uni-tabs")
@@ -164,7 +164,7 @@ end TabList
   * The content of the selected tab of `tabs`: `render` runs again whenever the selection changes.
   * The panel is a flex column that fills the space it is given.
   */
-class TabPanel[A](tabs: TabList[A])(renderTab: A => RxElement) extends RxElement:
+class TabPanel[A] private (tabs: TabList[A], renderTab: A => RxElement) extends RxElement:
   override def render: RxElement = div(
     role           -> "tabpanel",
     id             -> tabs.panelId,
@@ -173,3 +173,7 @@ class TabPanel[A](tabs: TabList[A])(renderTab: A => RxElement) extends RxElement
     ariaLabelledby -> tabs.selected.map(tabs.tabId),
     tabs.selected.map(renderTab)
   )
+
+object TabPanel:
+  // `new` is required here: the `apply` below replaces the constructor proxy
+  def apply[A](tabs: TabList[A], render: A => RxElement): TabPanel[A] = new TabPanel(tabs, render)

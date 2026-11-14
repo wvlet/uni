@@ -106,7 +106,7 @@ end ChangeReason
   * The component's `onChange` handler sees it before it lands, and `cancel()` keeps the old value.
   *
   * {{{
-  *   Select(region, regions)(_.label).onChange { d =>
+  *   Select(region, options = regions, optionLabel = _.label).onChange { d =>
   *     if d.source == ChangeSource.Agent && d.value == Region.Restricted then d.cancel()
   *   }
   * }}}

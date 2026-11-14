@@ -339,7 +339,7 @@ class CommandPalette(
 
   end Body
 
-  private val dialog = Dialog(open)(Body())
+  private val dialog = Dialog(open, content = Seq(Body()))
     .withVariant("palette")
     .withSlot("command-palette-dialog")
     .withAccessibleName(label)

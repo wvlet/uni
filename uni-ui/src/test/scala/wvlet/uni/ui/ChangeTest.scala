@@ -45,7 +45,9 @@ class ChangeTest extends DomTestSupport:
   test("a popover reports the press that opens it and the Escape that closes it") {
     val open = Rx.variable(false)
     val rec  = Recorder()
-    val m    = mount(Popover(open)(Button("Filter"))("Details").onChange(rec.handler))
+    val m    = mount(
+      Popover(open, trigger = Button("Filter"), content = Seq("Details")).onChange(rec.handler)
+    )
     fireEvent.click(m.get("button"))
     open.get shouldBe true
     rec.last.key shouldBe "open"
@@ -65,7 +67,7 @@ class ChangeTest extends DomTestSupport:
   test("cancel() keeps a popover open") {
     val open = Rx.variable(true)
     val rec  = Recorder()
-    mount(Popover(open)(Button("Filter"))("Details").onChange(rec.handler))
+    mount(Popover(open, trigger = Button("Filter"), content = Seq("Details")).onChange(rec.handler))
     rec.refuse = true
     settle().map { _ =>
       fireEvent.keyDown(dom.document.body, "Escape")
@@ -77,7 +79,9 @@ class ChangeTest extends DomTestSupport:
   test("a select reports the chosen option, and a refused one keeps the selection") {
     val region = Rx.variable("tokyo")
     val rec    = Recorder()
-    val m      = mount(Select(region, Seq("tokyo", "oregon"))(identity).onChange(rec.handler))
+    val m      = mount(
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).onChange(rec.handler)
+    )
     fireEvent.click(m.get("button"))
     fireEvent.click(find("[data-slot=select-option]:nth-child(2)"))
     region.get shouldBe "oregon"
@@ -90,9 +94,11 @@ class ChangeTest extends DomTestSupport:
   }
 
   test("arrow keys on tabs report navigation-key, and a refused move keeps focus") {
-    val tab   = Rx.variable("a")
-    val rec   = Recorder()
-    val tabs  = TabList(tab, "Views")(Tab("a", "A"), Tab("b", "B")).onChange(rec.handler)
+    val tab  = Rx.variable("a")
+    val rec  = Recorder()
+    val tabs = TabList(tab, label = "Views", tabs = Seq(Tab("a", "A"), Tab("b", "B"))).onChange(
+      rec.handler
+    )
     val m     = mount(tabs)
     val list  = m.get("[role=tablist]")
     val first = m.get("[role=tab]").asInstanceOf[dom.HTMLElement]
@@ -163,9 +169,11 @@ class ChangeTest extends DomTestSupport:
     var ran  = false
     val rec  = Recorder()
     mount(
-      Menu(open)(Button("More"))(MenuItem("Delete").onSelect(() => ran = true)).onChange(
-        rec.handler
-      )
+      Menu(
+        open,
+        trigger = Button("More"),
+        entries = Seq(MenuItem("Delete").onSelect(() => ran = true))
+      ).onChange(rec.handler)
     )
     rec.refuse = true
     fireEvent.click(find("[data-slot=menu-item]"))
@@ -176,7 +184,9 @@ class ChangeTest extends DomTestSupport:
   test("ChangeSource.withSource attributes changes to an agent") {
     val open = Rx.variable(false)
     val rec  = Recorder()
-    val m    = mount(Popover(open)(Button("Filter"))("Details").onChange(rec.handler))
+    val m    = mount(
+      Popover(open, trigger = Button("Filter"), content = Seq("Details")).onChange(rec.handler)
+    )
     ChangeSource.withSource(ChangeSource.Agent)(fireEvent.click(m.get("button")))
     rec.last.source shouldBe ChangeSource.Agent
   }
@@ -197,7 +207,9 @@ class ChangeTest extends DomTestSupport:
     val open      = Rx.variable(true)
     var confirmed = false
     val rec       = Recorder()
-    mount(AlertDialog(open)("Delete?").onConfirm(() => confirmed = true).onChange(rec.handler))
+    mount(
+      AlertDialog(open, title = "Delete?").onConfirm(() => confirmed = true).onChange(rec.handler)
+    )
     rec.refuse = true
     fireEvent.click(find("[data-slot=alert-dialog-actions] button:last-child"))
     open.get shouldBe true
@@ -214,12 +226,17 @@ class ChangeTest extends DomTestSupport:
     case class Node(name: String, children: Seq[Node] = Seq.empty)
     val rec   = Recorder()
     val sort  = Rx.variable(Option.empty[SortBy])
-    val table = DataTable(Rx.const(Seq(Row(1, "b"), Row(2, "a"))))(_.id)(
-      Column[Row]("name", "Name")(r => span(r.name)).sortBy(_.name)
+    val table = DataTable(
+      Rx.const(Seq(Row(1, "b"), Row(2, "a"))),
+      key = _.id,
+      columns = Seq(Column[Row]("name", "Name", cell = r => span(r.name)).sortBy(_.name))
     ).withSort(sort).onChange(rec.handler)
     val open = Rx.variable(Set.empty[String])
-    val tree = Tree(Rx.const(Seq(Node("src", Seq(Node("main"))))), (n: Node) => n.children)(_.name)(
-      n => span(n.name)
+    val tree = Tree(
+      Rx.const(Seq(Node("src", Seq(Node("main"))))),
+      children = (n: Node) => n.children,
+      key = _.name,
+      render = n => span(n.name)
     ).withExpanded(open).onChange(rec.handler)
     val m = mount(div(table, tree))
     fireEvent.click(m.get("[data-slot=data-table-sort]"))
@@ -269,8 +286,8 @@ class ChangeTest extends DomTestSupport:
       div(
         Button("Save"),
         Input(Rx.variable("")),
-        TabList(Rx.variable(1), "Tabs")(Tab(1, "One")),
-        Dialog(open)("Body").withTitle("Title"),
+        TabList(Rx.variable(1), label = "Tabs", tabs = Seq(Tab(1, "One"))),
+        Dialog(open, content = Seq("Body")).withTitle("Title"),
         Badge("3")
       )
     )

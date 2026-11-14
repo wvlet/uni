@@ -33,8 +33,8 @@ case class SortBy(column: String, direction: SortDirection = SortDirection.Ascen
   * One column of a [[DataTable]]: an id (used by [[SortBy]]), a header, and how to render a cell.
   *
   * {{{
-  *   Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method)
-  *   Column[Call]("millis", "Time")(c => f"${c.millis}%.1f ms").sortBy(_.millis).withWidth("96px").alignEnd
+  *   Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method)
+  *   Column[Call]("millis", "Time", cell = c => f"${c.millis}%.1f ms").sortBy(_.millis).withWidth("96px").alignEnd
   * }}}
   *
   * @param width
@@ -71,7 +71,7 @@ end Column
 
 object Column:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply[A](id: String, header: String)(cell: A => DomNode): Column[A] =
+  def apply[A](id: String, header: String, cell: A => DomNode): Column[A] =
     new Column(id, header, cell, ordering = None, width = "minmax(0, 1fr)", end = false)
 
 /**
@@ -81,10 +81,10 @@ object Column:
   *
   * {{{
   *   val sort = Rx.variable(Option(SortBy("millis", SortDirection.Descending)))
-  *   DataTable(log.calls)(_.id)(
-  *     Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
-  *     Column[Call]("millis", "Time")(c => f"${c.millis}%.1f ms").sortBy(_.millis).alignEnd
-  *   ).withLabel("RPC calls").withSort(sort).onSelect(c => show(c))
+  *   DataTable(log.calls, key = _.id, columns = Seq(
+  *     Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+  *     Column[Call]("millis", "Time", cell = c => f"${c.millis}%.1f ms").sortBy(_.millis).alignEnd
+  *   )).withLabel("RPC calls").withSort(sort).onSelect(c => show(c))
   * }}}
   *
   * A click on a sortable header cycles ascending, descending, and unsorted. The table is one tab
@@ -400,7 +400,7 @@ end DataTable
 
 object DataTable:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply[A, K](rows: Rx[Seq[A]])(key: A => K)(columns: Column[A]*): DataTable[A, K] =
+  def apply[A, K](rows: Rx[Seq[A]], key: A => K, columns: Seq[Column[A]]): DataTable[A, K] =
     new DataTable(
       rows,
       key,

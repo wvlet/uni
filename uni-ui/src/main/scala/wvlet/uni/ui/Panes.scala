@@ -36,20 +36,25 @@ enum Edge(val cssName: String):
   *   val open  = Rx.variable(true)
   *   val width = Rx.variable(272)
   *   val range = SizeRange(min = 208, default = 272, max = 480)
-  *   FoldablePane(open, width, Edge.Right, Some(Splitter(width, range, Edge.Right, "Resize sidebar")))(
-  *     Sidebar()
-  *   )
+  *   FoldablePane(open, width = width, edge = Edge.Right, content = Seq(Sidebar()))
+  *     .withSplitter(Splitter(width, range, Edge.Right, "Resize sidebar"))
   * }}}
   *
   * The pane is an `<aside class="uni-pane">` with `data-edge` and `data-state="open|closed"`.
   */
-class FoldablePane(
+class FoldablePane private (
     open: Rx[Boolean],
     width: Rx[Int],
     edge: Edge,
-    splitter: Option[Splitter] = None
-)(content: DomNode*)
-    extends RxElement:
+    content: Seq[DomNode],
+    splitter: Option[Splitter]
+) extends RxElement:
+
+  /** A [[Splitter]] on the pane's inner edge that resizes it. */
+  def withSplitter(s: Splitter): FoldablePane =
+    new FoldablePane(open, width, edge, content, Some(s))
+
+  def noSplitter(): FoldablePane = new FoldablePane(open, width, edge, content, None)
 
   private val dragging: Rx[Boolean] = splitter.map(_.dragging).getOrElse(Rx.const(false))
 
@@ -86,6 +91,11 @@ class FoldablePane(
   )
 
 end FoldablePane
+
+object FoldablePane:
+  // `new` is required here: the `apply` below replaces the constructor proxy
+  def apply(open: Rx[Boolean], width: Rx[Int], edge: Edge, content: Seq[DomNode]): FoldablePane =
+    new FoldablePane(open, width, edge, content, None)
 
 /**
   * A grip on a pane's inner edge that resizes it: drag it, or focus it and press the arrow keys.

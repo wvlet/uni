@@ -23,10 +23,10 @@ val unsaved  = Rx.variable(true)
 val settings = Rx.variable("general")
 
 div(
-  Select(region, Seq("tokyo", "oregon", "frankfurt"))(identity).onChange { d =>
+  Select(region, options = Seq("tokyo", "oregon", "frankfurt"), optionLabel = s => s).onChange { d =>
     if d.source == ChangeSource.Agent && d.value == "frankfurt" then d.cancel()
   },
-  TabList(settings, "Settings")(Tab("general", "General"), Tab("billing", "Billing"))
+  TabList(settings, label = "Settings", tabs = Seq(Tab("general", "General"), Tab("billing", "Billing")))
     .onChange(d => if unsaved.get then d.cancel())
 )
 ```

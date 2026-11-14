@@ -96,7 +96,13 @@ class ComponentTest extends DomTestSupport:
 
   test("tabs select on click and mark one tab stop") {
     val sel = Rx.variable(Pick.A)
-    val m   = mount(TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C")))
+    val m   = mount(
+      TabList(
+        sel,
+        label = "Picks",
+        tabs = Seq(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C"))
+      )
+    )
     m.get("[role=tablist]").getAttribute("aria-label") shouldBe "Picks"
     tabs(m).map(_.getAttribute("aria-selected")) shouldBe Seq("true", "false", "false")
     tabs(m).map(_.getAttribute("tabindex")) shouldBe Seq("0", "-1", "-1")
@@ -107,7 +113,13 @@ class ComponentTest extends DomTestSupport:
 
   test("arrow keys, Home, and End move the selection and the focus") {
     val sel = Rx.variable(Pick.A)
-    val m   = mount(TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C")))
+    val m   = mount(
+      TabList(
+        sel,
+        label = "Picks",
+        tabs = Seq(Tab(Pick.A, "A"), Tab(Pick.B, "B"), Tab(Pick.C, "C"))
+      )
+    )
     fireEvent.keyDown(tabs(m)(0), "ArrowRight")
     sel.get shouldBe Pick.B
     dom.document.activeElement shouldBe tabs(m)(1)
@@ -123,9 +135,13 @@ class ComponentTest extends DomTestSupport:
 
   test("a tab panel renders the selected tab's content") {
     val sel  = Rx.variable(Pick.A)
-    val tabs = TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"))
+    val tabs = TabList(sel, label = "Picks", tabs = Seq(Tab(Pick.A, "A"), Tab(Pick.B, "B")))
     val m    = mount(
-      wvlet.uni.dom.all.div(tabs, TabPanel(tabs)(p => wvlet.uni.dom.all.div(s"panel ${p}")))
+      wvlet
+        .uni
+        .dom
+        .all
+        .div(tabs, TabPanel(tabs, render = p => wvlet.uni.dom.all.div(s"panel ${p}")))
     )
     val panel = m.get("[role=tabpanel]")
     panel.textContent shouldBe "panel A"
@@ -139,8 +155,8 @@ class ComponentTest extends DomTestSupport:
   }
 
   test("two tab lists never share ids") {
-    val a = TabList(Rx.variable(Pick.A), "One")(Tab(Pick.A, "A"))
-    val b = TabList(Rx.variable(Pick.A), "Two")(Tab(Pick.A, "A"))
+    val a = TabList(Rx.variable(Pick.A), label = "One", tabs = Seq(Tab(Pick.A, "A")))
+    val b = TabList(Rx.variable(Pick.A), label = "Two", tabs = Seq(Tab(Pick.A, "A")))
     (a.panelId == b.panelId) shouldBe false
   }
 
@@ -160,7 +176,7 @@ class ComponentTest extends DomTestSupport:
     val sel  = Rx.variable(Pick.A)
     var keys = 0
     val m2   = mount(
-      TabList(sel, "Picks")(Tab(Pick.A, "A"), Tab(Pick.B, "B"))(
+      TabList(sel, label = "Picks", tabs = Seq(Tab(Pick.A, "A"), Tab(Pick.B, "B")))(
         onkeydown -> { () =>
           keys += 1
         }
@@ -176,7 +192,9 @@ class ComponentTest extends DomTestSupport:
 
   test("a foldable pane collapses to zero width and back") {
     val open = Rx.variable(true)
-    val m    = mount(FoldablePane(open, Rx.variable(300), Edge.Left)())
+    val m    = mount(
+      FoldablePane(open, width = Rx.variable(300), edge = Edge.Left, content = Seq.empty)
+    )
     paneWidth(m) shouldBe "300px"
     m.get("aside").getAttribute("data-state") shouldBe "open"
     open := false
@@ -189,12 +207,8 @@ class ComponentTest extends DomTestSupport:
   test("dragging a splitter resizes within its range, and double-click resets") {
     val width = Rx.variable(300)
     val m     = mount(
-      FoldablePane(
-        Rx.variable(true),
-        width,
-        Edge.Right,
-        Some(Splitter(width, range, Edge.Right, "Resize"))
-      )()
+      FoldablePane(Rx.variable(true), width = width, edge = Edge.Right, content = Seq.empty)
+        .withSplitter(Splitter(width, range, Edge.Right, "Resize"))
     )
     val grip = m.get("[role=separator]")
     grip.getAttribute("aria-label") shouldBe "Resize"

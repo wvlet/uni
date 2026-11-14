@@ -87,7 +87,7 @@ case class AriaViolation(rule: String, element: String, message: String):
   * {{{
   *   test("the menu follows the APG") {
   *     val open = Rx.variable(true)
-  *     mount(Menu(open)(Button("More"))(MenuItem("Copy"), MenuItem("Paste")))
+  *     mount(Menu(open, trigger = Button("More"), entries = Seq(MenuItem("Copy"), MenuItem("Paste"))))
   *     settle().flatMap(_ => checkPattern(dom.document.querySelector("[role=menu]"), AriaPattern.Menu))
   *       .map(_ shouldBe empty)
   *   }

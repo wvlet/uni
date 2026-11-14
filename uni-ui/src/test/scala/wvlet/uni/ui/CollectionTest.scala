@@ -49,9 +49,8 @@ class CollectionTest extends DomTestSupport:
   test("a virtual list renders only the rows in view and follows scrolling") {
     val items = Rx.variable((1 to 1000).toSeq)
     val m     = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}")).withLabel("Numbers")(
-        styleAttr += "height: 200px"
-      )
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))
+        .withLabel("Numbers")(styleAttr += "height: 200px")
     )
     val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -76,7 +75,7 @@ class CollectionTest extends DomTestSupport:
   test("a virtual list keeps a row's node while the list changes around it") {
     val items = Rx.variable(Seq(1, 2, 3))
     val m     = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))(
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))(
         styleAttr += "height: 200px"
       )
     )
@@ -92,9 +91,12 @@ class CollectionTest extends DomTestSupport:
     val selected = Rx.variable(Option.empty[Int])
     var chosen   = Seq.empty[Int]
     val m        = mount(
-      VirtualList(Rx.const((1 to 100).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
-        .withSelected(selected)
-        .onSelect(i => chosen :+= i)(styleAttr += "height: 200px")
+      VirtualList(
+        Rx.const((1 to 100).toSeq),
+        rowHeight = 20,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withSelected(selected).onSelect(i => chosen :+= i)(styleAttr += "height: 200px")
     )
     val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -121,8 +123,12 @@ class CollectionTest extends DomTestSupport:
     var chosen  = Seq.empty[Int]
     var reasons = Seq.empty[ChangeReason]
     val m       = mount(
-      VirtualList(Rx.const((1 to 5).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
-        .withSelected(single)
+      VirtualList(
+        Rx.const((1 to 5).toSeq),
+        rowHeight = 20,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withSelected(single)
         .withMultiSelect(keys)
         .onSelect(i => chosen :+= i)
         .onChange(d => reasons :+= d.reason)
@@ -152,8 +158,12 @@ class CollectionTest extends DomTestSupport:
     val keys = Rx.variable(Set.empty[Int])
     var veto = false
     val m    = mount(
-      VirtualList(Rx.const((1 to 5).toSeq), rowHeight = 20)(identity)(i => span(s"Item ${i}"))
-        .withMultiSelect(keys)
+      VirtualList(
+        Rx.const((1 to 5).toSeq),
+        rowHeight = 20,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withMultiSelect(keys)
         .onChange(d =>
           if veto then
             d.cancel()
@@ -199,8 +209,11 @@ class CollectionTest extends DomTestSupport:
   test("Space inside a typeahead search is part of it in a multi-select list") {
     val keys = Rx.variable(Set.empty[String])
     val m    = mount(
-      VirtualList(Rx.const(Seq("New Delhi", "Newark", "New York")), rowHeight = 20)(identity)(
-        span(_)
+      VirtualList(
+        Rx.const(Seq("New Delhi", "Newark", "New York")),
+        rowHeight = 20,
+        key = identity,
+        render = span(_)
       ).withMultiSelect(keys).withTypeahead(identity)
     )
     val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
@@ -219,8 +232,12 @@ class CollectionTest extends DomTestSupport:
   test("a virtual list leaves keys from controls inside its rows alone") {
     var chosen = 0
     val m      = mount(
-      VirtualList(Rx.const(Seq(1, 2)), rowHeight = 24)(identity)(i => htmlButton(s"Edit ${i}"))
-        .onSelect(_ => chosen += 1)
+      VirtualList(
+        Rx.const(Seq(1, 2)),
+        rowHeight = 24,
+        key = identity,
+        render = i => htmlButton(s"Edit ${i}")
+      ).onSelect(_ => chosen += 1)
     )
     settle().map { _ =>
       fireEvent.keyDown(m.getByText("Edit 1"), "Enter")
@@ -242,7 +259,7 @@ class CollectionTest extends DomTestSupport:
     var cancel = false
     val seen   = scala.collection.mutable.ArrayBuffer.empty[ChangeDetails[Any]]
     val m      = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))
         .withReorder(items)
         .onChange { d =>
           seen += d
@@ -278,7 +295,7 @@ class CollectionTest extends DomTestSupport:
     val items = Rx.variable[Seq[Int]](1 to 6)
     val keys  = Rx.variable(Set.empty[Int])
     val m     = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}"))
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))
         .withMultiSelect(keys)
         .withReorder(items)
     )
@@ -299,9 +316,8 @@ class CollectionTest extends DomTestSupport:
   test("dragging a row past the edge of a reorderable list scrolls it and drops below") {
     val items = Rx.variable[Seq[Int]](1 to 200)
     val m     = mount(
-      VirtualList(items, rowHeight = 20)(identity)(i => span(s"Item ${i}")).withReorder(items)(
-        styleAttr += "height: 200px"
-      )
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))
+        .withReorder(items)(styleAttr += "height: 200px")
     )
     val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
     settle()
@@ -336,9 +352,13 @@ class CollectionTest extends DomTestSupport:
     val rows = Rx.variable(calls)
     val sort = Rx.variable(Option(SortBy("millis")))
     val m    = mount(
-      DataTable(rows)(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")).sortBy(_.millis)
+      DataTable(
+        rows,
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f")).sortBy(_.millis)
+        )
       ).withSort(sort).withReorder(rows)
     )
     val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
@@ -371,9 +391,12 @@ class CollectionTest extends DomTestSupport:
   test("a tree opens and closes rows with the keyboard and keeps ARIA in step") {
     val expanded = Rx.variable(Set.empty[String])
     val m        = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
-        .withLabel("Files")
-        .withExpanded(expanded)
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withLabel("Files").withExpanded(expanded)
     )
     val tree = m.get(".uni-tree").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -405,9 +428,12 @@ class CollectionTest extends DomTestSupport:
   test("a click on a tree's chevron toggles the row without selecting it") {
     val selected = Rx.variable(Option.empty[String])
     val m        = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
-        .withSelected(selected)
-        .withTypeahead(_.name)
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withSelected(selected).withTypeahead(_.name)
     )
     val tree = m.get(".uni-tree").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -430,8 +456,12 @@ class CollectionTest extends DomTestSupport:
     val single   = Rx.variable(Option.empty[String])
     var chosen   = Seq.empty[String]
     val m        = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
-        .withExpanded(expanded)
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withExpanded(expanded)
         .withSelected(single)
         .withMultiSelect(keys)
         .onSelect(f => chosen :+= f.name)
@@ -470,8 +500,12 @@ class CollectionTest extends DomTestSupport:
     var veto     = false
     var changes  = Seq.empty[String]
     val m        = mount(
-      Tree(Rx.const(files), (f: FileNode) => f.kids)(_.name)(f => span(f.name))
-        .withExpanded(expanded)
+      Tree(
+        Rx.const(files),
+        children = (f: FileNode) => f.kids,
+        key = _.name,
+        render = f => span(f.name)
+      ).withExpanded(expanded)
         .withMultiSelect(keys)
         .onChange { d =>
           changes :+= d.key
@@ -508,10 +542,16 @@ class CollectionTest extends DomTestSupport:
   test("a data table sorts by its headers and labels rows and columns") {
     val sort = Rx.variable(Option.empty[SortBy])
     val m    = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
-        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")).sortBy(_.millis).alignEnd,
-        Column[Call]("id", "Id")(c => span(c.id.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+            .sortBy(_.millis)
+            .alignEnd,
+          Column[Call]("id", "Id", cell = c => span(c.id.toString))
+        )
       ).withLabel("Calls").withSort(sort)
     )
     def methods = m.queryAll(".uni-list__row").map(_.querySelector(".uni-table__cell").textContent)
@@ -545,8 +585,11 @@ class CollectionTest extends DomTestSupport:
   test("a data table selects rows with the keyboard") {
     var chosen = Option.empty[Call]
     val m      = mount(
-      DataTable(Rx.const(calls))(_.id)(Column[Call]("method", "Method")(c => span(c.method)))
-        .onSelect(c => chosen = Some(c))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(Column[Call]("method", "Method", cell = c => span(c.method)))
+      ).onSelect(c => chosen = Some(c))
     )
     val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
     settle().map { _ =>
@@ -560,9 +603,13 @@ class CollectionTest extends DomTestSupport:
   test("a multi-select data table extends with Shift and keeps grid keys") {
     val keys = Rx.variable(Set.empty[Int])
     val m    = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(c.millis.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString))
+        )
       ).withMultiSelect(keys)
     )
     val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
@@ -600,10 +647,14 @@ class CollectionTest extends DomTestSupport:
 
   test("a data table moves by cell and names the active cell") {
     val m = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        Column[Call]("method", "Method")(c => span(c.method)),
-        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f")),
-        Column[Call]("id", "Id")(c => span(c.id.toString))
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f")),
+          Column[Call]("id", "Id", cell = c => span(c.id.toString))
+        )
       )
     )
     val table  = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
@@ -646,10 +697,12 @@ class CollectionTest extends DomTestSupport:
 
   test("a data table scrolls a wide row to the active cell and leaves modified arrows alone") {
     val m = mount(
-      DataTable(Rx.const(calls))(_.id)(
-        (1 to 6).map(n =>
-          Column[Call](s"c${n}", s"C${n}")(c => span(s"${c.id}-${n}")).withWidth("200px")
-        )*
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = (1 to 6).map(n =>
+          Column[Call](s"c${n}", s"C${n}", cell = c => span(s"${c.id}-${n}")).withWidth("200px")
+        )
       )(styleAttr += "width: 300px; height: 200px")
     )
     val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
@@ -692,7 +745,7 @@ class CollectionTest extends DomTestSupport:
     DataTable.nextSort(Some(SortBy("a")), "a") shouldBe Some(SortBy("a", SortDirection.Descending))
     DataTable.nextSort(Some(SortBy("a", SortDirection.Descending)), "a") shouldBe None
     DataTable.nextSort(Some(SortBy("a", SortDirection.Descending)), "b") shouldBe Some(SortBy("b"))
-    val cols = Seq(Column[Call]("millis", "Time")(c => span("")).sortBy(_.millis))
+    val cols = Seq(Column[Call]("millis", "Time", cell = c => span("")).sortBy(_.millis))
     DataTable.sortRows(calls, cols, Some(SortBy("nope"))) shouldBe calls
   }
 

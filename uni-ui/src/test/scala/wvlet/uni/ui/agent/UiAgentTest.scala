@@ -47,7 +47,9 @@ class UiAgentTest extends DomTestSupport:
     mount(
       div(
         Button("Save"),
-        Select(region, Seq("tokyo", "oregon"))(_.capitalize).withLabel("Region"),
+        Select(region, options = Seq("tokyo", "oregon"), optionLabel = _.capitalize).withLabel(
+          "Region"
+        ),
         Input(query).withLabel("Search")
       )
     )
@@ -71,7 +73,9 @@ class UiAgentTest extends DomTestSupport:
     val region = Rx.variable("tokyo")
     val seen   = ArrayBuffer.empty[ChangeDetails[Any]]
     mount(
-      Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region").onChange(d => seen += d)
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s)
+        .withLabel("Region")
+        .onChange(d => seen += d)
     )
     val agent = install()
     agent
@@ -89,7 +93,7 @@ class UiAgentTest extends DomTestSupport:
   test("onChange can cancel an agent's change") {
     val region = Rx.variable("tokyo")
     mount(
-      Select(region, Seq("tokyo", "oregon"))(identity)
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s)
         .withLabel("Region")
         .onChange(d =>
           if d.source == ChangeSource.Agent then
@@ -108,7 +112,9 @@ class UiAgentTest extends DomTestSupport:
 
   test("a bad value, an unknown action, and an unknown ref are refused") {
     val region = Rx.variable("tokyo")
-    mount(Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region"))
+    mount(
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region")
+    )
     val agent = install()
     Rx.join(
         agent.act("select:region", "select", Some("paris")),
@@ -228,8 +234,12 @@ class UiAgentTest extends DomTestSupport:
 
   test("changes lists what people changed since a cursor, without the agent's own") {
     val region = Rx.variable("tokyo")
-    val m     = mount(Select(region, Seq("tokyo", "oregon", "paris"))(identity).withLabel("Region"))
-    val agent = install()
+    val m      = mount(
+      Select(region, options = Seq("tokyo", "oregon", "paris"), optionLabel = s => s).withLabel(
+        "Region"
+      )
+    )
+    val agent         = install()
     val (none, start) = agent.changes()
     none shouldBe Nil
     fireEvent.click(m.get("button"))
@@ -248,7 +258,13 @@ class UiAgentTest extends DomTestSupport:
   test("an agent opens a menu, then presses an item") {
     val open    = Rx.variable(false)
     var renamed = 0
-    mount(Menu(open)(Button("Actions"))(MenuItem("Rename").onSelect(() => renamed += 1)))
+    mount(
+      Menu(
+        open,
+        trigger = Button("Actions"),
+        entries = Seq(MenuItem("Rename").onSelect(() => renamed += 1))
+      )
+    )
     val agent = install()
     node(agent, "menu").action("open").isDefined shouldBe true
     agent
@@ -277,14 +293,16 @@ class UiAgentTest extends DomTestSupport:
     val items = Rx.const(Seq(1, 2, 3))
     mount(
       div(
-        TabList(tab, "Views")(Tab("chat", "Chat"), Tab("logs", "Logs")),
-        VirtualList(items, 24)(identity)(i => span(s"Item ${i}"))
+        TabList(tab, label = "Views", tabs = Seq(Tab("chat", "Chat"), Tab("logs", "Logs"))),
+        VirtualList(items, rowHeight = 24, key = identity, render = i => span(s"Item ${i}"))
           .withLabel("Numbers")
           .withSelected(row)
           .withTypeahead(i => s"Item ${i}"),
-        DataTable(items)(identity)(Column[Int]("n", "N")(i => span(i.toString)).sortBy(identity))
-          .withLabel("Table")
-          .withSort(sort)
+        DataTable(
+          items,
+          key = identity,
+          columns = Seq(Column[Int]("n", "N", cell = i => span(i.toString)).sortBy(identity))
+        ).withLabel("Table").withSort(sort)
       )
     )
     val agent = install()
@@ -307,7 +325,7 @@ class UiAgentTest extends DomTestSupport:
     val items   = Rx.variable(Seq(1, 2, 3))
     val sources = scala.collection.mutable.ArrayBuffer.empty[ChangeSource]
     mount(
-      VirtualList(items, 24)(identity)(i => span(s"Item ${i}"))
+      VirtualList(items, rowHeight = 24, key = identity, render = i => span(s"Item ${i}"))
         .withLabel("Numbers")
         .withTypeahead(i => s"Item ${i}")
         .withReorder(items)
@@ -348,7 +366,9 @@ class UiAgentTest extends DomTestSupport:
 
   test("the JSON API serves as MCP tools") {
     val region = Rx.variable("tokyo")
-    mount(Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region"))
+    mount(
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region")
+    )
     val agent  = install()
     val server = MCPServer().withTools[UiAgentApi](agent.api)
     server.tools.map(_.name) shouldBe Seq("act", "changes", "query", "snapshot")
@@ -378,7 +398,9 @@ class UiAgentTest extends DomTestSupport:
         registered += tool
         signal = Some(options.signal)
     dom.document.asInstanceOf[js.Dynamic].modelContext = js.Dynamic.literal(registerTool = register)
-    mount(Select(region, Seq("tokyo", "oregon"))(identity).withLabel("Region"))
+    mount(
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region")
+    )
     val agent = install()
     val off   = agent.installWebMcp()
     registered.map(_.name.asInstanceOf[String]) shouldBe Seq("act", "changes", "query", "snapshot")
@@ -422,8 +444,10 @@ class UiAgentTest extends DomTestSupport:
   }
 
   test("changes inside a hidden subtree stay out of the feed") {
-    val plan  = Rx.variable("free")
-    val m     = mount(div(UiAgent.hidden, Select(plan, Seq("free", "team"))(identity)))
+    val plan = Rx.variable("free")
+    val m    = mount(
+      div(UiAgent.hidden, Select(plan, options = Seq("free", "team"), optionLabel = s => s))
+    )
     val agent = install()
     fireEvent.click(m.get("button"))
     fireEvent.click(find("[role=option]:nth-child(2)"))
@@ -436,7 +460,9 @@ class UiAgentTest extends DomTestSupport:
     val rows = Rx.const((1 to 150).toSeq)
     val row  = Rx.variable(Option.empty[Int])
     mount(
-      VirtualList(rows, 24)(identity)(i => span(i.toString)).withLabel("Rows").withSelected(row)
+      VirtualList(rows, rowHeight = 24, key = identity, render = i => span(i.toString))
+        .withLabel("Rows")
+        .withSelected(row)
     )
     val agent = install()
     val list  = node(agent, "list")
@@ -458,8 +484,11 @@ class UiAgentTest extends DomTestSupport:
     val row   = Rx.variable(Option.empty[Int])
     var calls = 0
     mount(
-      DataTable(rows)(_.id)(Column[User]("name", "Name")(u => span(u.name)))
-        .withLabel("Users")
+      DataTable(
+        rows,
+        key = _.id,
+        columns = Seq(Column[User]("name", "Name", cell = u => span(u.name)))
+      ).withLabel("Users")
         .withSelected(row)
         .withRowLabel { u =>
           calls += 1
@@ -487,7 +516,13 @@ class UiAgentTest extends DomTestSupport:
   }
 
   test("a table without withRowLabel names rows by key") {
-    mount(DataTable(Rx.const(Seq(7, 8)))(identity)(Column[Int]("n", "N")(i => span(i.toString))))
+    mount(
+      DataTable(
+        Rx.const(Seq(7, 8)),
+        key = identity,
+        columns = Seq(Column[Int]("n", "N", cell = i => span(i.toString)))
+      )
+    )
     val agent = install()
     node(agent, "table").items.map(_.label) shouldBe Seq("7", "8")
     agent.uninstall()

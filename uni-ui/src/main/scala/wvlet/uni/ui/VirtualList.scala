@@ -25,7 +25,7 @@ import scala.language.implicitConversions
   * parent that bounds it), or it grows to fit every row.
   *
   * {{{
-  *   VirtualList(log.lines, rowHeight = 24)(_.id)(line => span(line.text))
+  *   VirtualList(log.lines, rowHeight = 24, key = _.id, render = line => span(line.text))
   *     .withLabel("Log")
   *     .onSelect(line => open(line))
   * }}}
@@ -100,7 +100,7 @@ class VirtualList[A, K] private (
     * [[withMultiSelect]], a selected row moves the whole selection as one block.
     *
     * {{{
-    *   VirtualList(tasks, rowHeight = 32)(_.id)(t => span(t.title)).withReorder(tasks)
+    *   VirtualList(tasks, rowHeight = 32, key = _.id, render = t => span(t.title)).withReorder(tasks)
     * }}}
     */
   def withReorder(order: RxVar[Seq[A]]): VirtualList[A, K] = copy(reorderable = Some(order))
@@ -154,9 +154,12 @@ object VirtualList:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   private[ui] val defaultOverscan = 8
 
-  def apply[A, K](items: Rx[Seq[A]], rowHeight: Int)(
-      key: A => K
-  )(render: A => DomNode): VirtualList[A, K] =
+  def apply[A, K](
+      items: Rx[Seq[A]],
+      rowHeight: Int,
+      key: A => K,
+      render: A => DomNode
+  ): VirtualList[A, K] =
     new VirtualList(
       items,
       rowHeight,

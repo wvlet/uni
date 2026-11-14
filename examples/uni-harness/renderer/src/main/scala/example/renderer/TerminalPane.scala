@@ -150,16 +150,18 @@ class TerminalPane(
 
   private def header: RxElement = div(
     cls -> "flex h-7 shrink-0 items-center gap-2 px-1",
-    Tooltip(title.map(TerminalPane.displayTitle))(
-      span(
+    Tooltip(
+      title.map(TerminalPane.displayTitle),
+      trigger = span(
         cls -> "min-w-0 flex-1 truncate font-mono text-[11px] text-muted",
         title.map(TerminalPane.displayTitle)
       )
     ).withSide(Side.Bottom),
     failed.map {
       case Some(c) =>
-        Tooltip(s"Ask the chat why this command exited with ${c.exitCode.getOrElse(0)}")(
-          button(
+        Tooltip(
+          s"Ask the chat why this command exited with ${c.exitCode.getOrElse(0)}",
+          trigger = button(
             cls ->
               "rounded-md border border-line px-2 py-0.5 text-[11px] font-medium text-fg transition hover:bg-hover active:scale-95",
             onclick -> { () =>

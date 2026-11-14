@@ -20,7 +20,7 @@ import wvlet.uni.ui.agent.{AgentPolicy, UiAgent}
 val agentRegion = Rx.variable("tokyo")
 
 val form = div(
-  Select(agentRegion, Seq("tokyo", "oregon"))(identity).withLabel("Region"),
+  Select(agentRegion, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region"),
   Button("Delete project").danger(UiAgent.confirm("Delete the project?")),
   Input(Rx.variable("sk-123")).withLabel("API key")(UiAgent.secret),
   div(UiAgent.hidden, Button("Billing"))

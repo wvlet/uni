@@ -221,11 +221,11 @@ end MenuList
   *
   * {{{
   *   val open = Rx.variable(false)
-  *   Menu(open)(IconButton("More", Icons.more))(
+  *   Menu(open, trigger = IconButton("More", Icons.more), entries = Seq(
   *     MenuItem("Rename").onSelect(() => rename()),
   *     MenuSeparator,
   *     MenuItem("Delete").onSelect(() => confirmDelete := true)
-  *   )
+  *   ))
   * }}}
   *
   * The list is `div.uni-menu` with `role="menu"`, rendered at the end of `<body>`; rows are
@@ -338,7 +338,7 @@ end Menu
 
 object Menu:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply(open: RxVar[Boolean])(trigger: RxElement)(entries: MenuEntry*): Menu =
+  def apply(open: RxVar[Boolean], trigger: RxElement, entries: Seq[MenuEntry]): Menu =
     new Menu(open, trigger, entries, Side.Bottom, Align.Start, ChangeGate.noHandler)
 
 /**
@@ -346,13 +346,13 @@ object Menu:
   * context-menu key or Shift+F10), in place of the browser's own menu.
   *
   * {{{
-  *   ContextMenu(messageView)(
+  *   ContextMenu(messageView, entries = Seq(
   *     MenuItem("Copy").onSelect(() => Clipboard.writeText(text)),
   *     MenuItem("Quote").onSelect(() => quote(text))
-  *   )
+  *   ))
   * }}}
   */
-class ContextMenu(target: RxElement)(entries: MenuEntry*) extends RxElement:
+class ContextMenu(target: RxElement, entries: Seq[MenuEntry]) extends RxElement:
   private val menuId                         = Ids.next("uni-context-menu")
   private val open                           = Rx.variable(false)
   private val targetRef: DomRef[dom.Element] = DomRef[dom.Element]()

@@ -116,13 +116,16 @@ class VisualTest extends UniTest:
       Logs
 
   visual("tabs") {
-    val tabs =
-      TabList(Rx.variable(Pick.Calls), "Views")(
+    val tabs = TabList(
+      Rx.variable(Pick.Calls),
+      label = "Views",
+      tabs = Seq(
         Tab(Pick.Output, "Output"),
         Tab(Pick.Calls, "Calls", Badge("3")),
         Tab(Pick.Logs, "Logs")
       )
-    gallery(tabs, TabPanel(tabs)(p => div(s"Content of ${p}")))
+    )
+    gallery(tabs, TabPanel(tabs, render = p => div(s"Content of ${p}")))
   }
 
   // Press the grip so the splitter shows its line, and release it after the shot
@@ -142,12 +145,17 @@ class VisualTest extends UniTest:
         style := "display: flex; height: 120px; border: 1px solid var(--uni-line);",
         FoldablePane(
           Rx.const(true),
-          width,
-          Edge.Right,
-          Some(Splitter(width, range, Edge.Right, "Resize"))
-        )(div("Open pane")),
+          width = width,
+          edge = Edge.Right,
+          content = Seq(div("Open pane"))
+        ).withSplitter(Splitter(width, range, Edge.Right, "Resize")),
         div(style := "flex: 1; padding: 8px;", "Main"),
-        FoldablePane(Rx.const(false), Rx.const(120), Edge.Left)(div("Closed pane"))
+        FoldablePane(
+          Rx.const(false),
+          width = Rx.const(120),
+          edge = Edge.Left,
+          content = Seq(div("Closed pane"))
+        )
       )
     )
   }
@@ -176,19 +184,29 @@ class VisualTest extends UniTest:
       Entry("build.sbt")
     )
     gallery(
-      VirtualList(Rx.const((1 to 50).toSeq), rowHeight = 28)(identity)(i => span(s"Item ${i}"))
-        .withSelected(Rx.variable(Some(2)))(styleAttr += "height: 96px"),
-      Tree(Rx.const(files), (e: Entry) => e.kids)(_.name)(e => span(e.name))
-        .withExpanded(Rx.variable(Set("src")))
+      VirtualList(
+        Rx.const((1 to 50).toSeq),
+        rowHeight = 28,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withSelected(Rx.variable(Some(2)))(styleAttr += "height: 96px"),
+      Tree(
+        Rx.const(files),
+        children = (e: Entry) => e.kids,
+        key = _.name,
+        render = e => span(e.name)
+      ).withExpanded(Rx.variable(Set("src")))
         .withSelected(Rx.variable(Some("Util.scala")))(styleAttr += "height: 140px"),
       DataTable(
-        Rx.const(Seq(Call("listConversations", 4.2), Call("send", 12.5), Call("get", 1.5)))
-      )(_.method)(
-        Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
-        Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms"))
-          .sortBy(_.millis)
-          .withWidth("96px")
-          .alignEnd
+        Rx.const(Seq(Call("listConversations", 4.2), Call("send", 12.5), Call("get", 1.5))),
+        key = _.method,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f ms"))
+            .sortBy(_.millis)
+            .withWidth("96px")
+            .alignEnd
+        )
       ).withSort(Rx.variable(Some(SortBy("millis", SortDirection.Descending))))(
         styleAttr += "height: 132px"
       )
@@ -212,12 +230,18 @@ class VisualTest extends UniTest:
       div(
         style := "display: flex; height: 220px; border: 1px solid var(--uni-line); " +
           "border-radius: var(--uni-radius-lg); overflow: hidden; background: var(--uni-panel);",
-        Dock(layout, "Dock")(
-          DockPanel("details", "Details")(text("Conversation details")),
-          DockPanel("activity", "Activity")(text("RPC calls")),
-          DockPanel("terminal", "Terminal")(text("$ sbt test")).withClosable(false),
-          DockPanel("log", "Log")(text("Server started")),
-          DockPanel("problems", "Problems")(text("No problems"))
+        Dock(
+          layout,
+          label = "Dock",
+          panels = Seq(
+            DockPanel("details", title = "Details", content = text("Conversation details")),
+            DockPanel("activity", title = "Activity", content = text("RPC calls")),
+            DockPanel("terminal", title = "Terminal", content = text("$ sbt test")).withClosable(
+              false
+            ),
+            DockPanel("log", title = "Log", content = text("Server started")),
+            DockPanel("problems", title = "Problems", content = text("No problems"))
+          )
         )
       )
     )

@@ -28,8 +28,8 @@ import scala.language.implicitConversions
   * `aria-describedby` points to it.
   *
   * {{{
-  *   Tooltip("Close dock")(IconButton("Close dock", Icons.close).onClick(...))
-  *   Tooltip(title.map(t => s"Terminal: ${t}"))(button(...)).withSide(Side.Right)
+  *   Tooltip("Close dock", trigger = IconButton("Close dock", Icons.close).onClick(...))
+  *   Tooltip(title.map(t => s"Terminal: ${t}"), trigger = button(...)).withSide(Side.Right)
   * }}}
   *
   * The label is `div.uni-tooltip` with `role="tooltip"` and `data-side`. It holds text only; use a
@@ -140,8 +140,8 @@ object Tooltip:
   // `new` is required in this file: the `apply`s below replace the constructor proxy
   private val defaultDelayMs = 500
 
-  def apply(text: String)(trigger: RxElement): Tooltip =
+  def apply(text: String, trigger: RxElement): Tooltip =
     new Tooltip(Rx.const(text), trigger, Side.Top, defaultDelayMs)
 
-  def apply(text: Rx[String])(trigger: RxElement): Tooltip =
+  def apply(text: Rx[String], trigger: RxElement): Tooltip =
     new Tooltip(text, trigger, Side.Top, defaultDelayMs)

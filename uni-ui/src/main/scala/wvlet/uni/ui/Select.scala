@@ -33,7 +33,7 @@ import scala.scalajs.js
   *
   * {{{
   *   val model = Rx.variable("sonnet")
-  *   Select(model, Seq("opus", "sonnet", "haiku"))(_.capitalize).withLabel("Model")
+  *   Select(model, options = Seq("opus", "sonnet", "haiku"), optionLabel = _.capitalize).withLabel("Model")
   * }}}
   *
   * `options` can be an `Rx[Seq[A]]` whose list changes while open; each option is keyed by its
@@ -243,8 +243,11 @@ end Select
 
 object Select:
   // `new` is required in this file: the `apply`s below replace the constructor proxy
-  def apply[A](selected: RxVar[A], options: Rx[Seq[A]])(optionLabel: A => String): Select[A] =
+  def apply[A](selected: RxVar[A], options: Rx[Seq[A]], optionLabel: A => String): Select[A] =
     new Select(selected, options, optionLabel, None, Rx.const(false), ChangeGate.noHandler)
 
-  def apply[A](selected: RxVar[A], options: Seq[A])(optionLabel: A => String): Select[A] =
-    apply(selected, Rx.const(options))(optionLabel)
+  def apply[A](selected: RxVar[A], options: Seq[A], optionLabel: A => String): Select[A] = apply(
+    selected,
+    Rx.const(options),
+    optionLabel
+  )
