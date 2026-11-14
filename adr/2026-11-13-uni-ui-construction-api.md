@@ -9,10 +9,10 @@ Many uni-ui components were built with curried parameter lists: `VirtualList(ite
 - A component takes **exactly one parameter list**, holding what it cannot work without, in the order state → data → key → render/trigger → entries/content.
 - Entries and content are required arguments too (a menu without entries makes no sense). A multi-valued argument is a named `Seq` (`entries`, `content`, `columns`, `tabs`, `panels`), never varargs and never a second list.
 - Everything optional is a `withXXX`/`noXXX` builder. `FoldablePane`'s splitter moved from a default parameter to `.withSplitter(s)`.
-- Docs, the `uni` skill, and examples name every argument after the first; the first is the obvious subject (`open`, `items`, `rows`, `selected`, `text`).
+- Docs, the `uni` skill, and examples name every function, trigger, and multi-value argument, plus any argument whose type does not show its role (`title = "..."`, `label = "..."`). Plain leading values such as `Column("name", "Name", ...)` or `Splitter(size, range, edge, label)` stay positional.
 - `Tree`'s `children: A => Seq[A]` is a function over the app's data, not a children list, so it is a named argument like `key` and `render`.
 - `Column` is a per-row template (the table's renderer), so `columns` is an argument, not children.
-- Components whose only argument is their content keep varargs: `Button(content*)`, `Tab(value, content*)`, `Badge(content*)`, `StatusBar(content*)`.
+- Components whose content is the component itself keep it as trailing varargs, with no other multi-value argument to confuse it with: `Button(content*)`, `Tab(value, content*)`, `Badge(content*)`, `StatusBar(content*)`.
 - The curried forms were removed without deprecated forwarders, so AI agents see only one shape.
 
 ## Alternatives

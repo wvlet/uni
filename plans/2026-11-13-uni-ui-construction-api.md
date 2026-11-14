@@ -22,7 +22,7 @@ Lane: Standard. This breaks the public API of 14 components, plus the `Column` a
 - Arguments come in the order *state → data → key → render/trigger → entries/content*.
 - A multi-valued argument is a named `Seq` (`entries = Seq(...)`, `columns = Seq(...)`, `tabs = Seq(...)`, `panels = Seq(...)`, `content = Seq(...)`). It is never varargs and never a second list.
 - Everything optional is a `withXXX`/`noXXX` builder.
-- Docs, the skill, and examples name every argument after the first. The first is the obvious subject (`open`, `items`, `rows`, `selected`, `text`).
+- Docs, the skill, and examples name every function, trigger, and multi-value argument, plus any argument whose type does not show its role (`title =`, `label =`).
 - `Tree`'s `children: A => Seq[A]` keeps its name. It reads child nodes from the data, and the tree renders only the visible rows.
 
 **Changed**

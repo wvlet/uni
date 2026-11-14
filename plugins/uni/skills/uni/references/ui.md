@@ -111,9 +111,10 @@ val composer = div(
 )
 ```
 
-Every component takes one parameter list of the arguments it cannot work without. Name each
-argument after the first (`key = _.id`, `render = ...`, `trigger = ...`), and pass several values
-as a `Seq` (`entries = Seq(...)`, `content = Seq(...)`). Options are `withXXX` methods.
+Every component takes one parameter list of the arguments it cannot work without. Name the
+functions, triggers, and multi-value arguments (`key = _.id`, `render = ...`, `trigger = ...`), and
+pass several values as a `Seq` (`entries = Seq(...)`, `content = Seq(...)`). Options are `withXXX`
+methods.
 
 | Group | Components |
 |-------|------------|
