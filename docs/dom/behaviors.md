@@ -1,4 +1,8 @@
-# Behaviors (uni-ui)
+---
+description: Build your own accessible Scala.js widgets from the interaction logic uni-ui components are made of — roving focus, typeahead, selection, reordering, stick-to-bottom scrolling, and announcements.
+---
+
+# Behaviors
 
 A behavior is one piece of interaction logic, such as arrow-key navigation, a typeahead search, or
 keeping a chat scrolled to its newest message. Each one does a single job, separate from any markup
@@ -17,7 +21,7 @@ Most behaviors come in two parts:
 
 A behavior that changes state your app owns, such as `Selection` or `InputHistory`, writes it the
 same way the components do. Your `onChange` handler sees each change first, with its
-[reason and source](./ui#changes), and can cancel it.
+[reason and source](./changes), and can cancel it.
 
 ```scala
 import org.scalajs.dom
@@ -171,7 +175,7 @@ takes an optional `ChangeCause`; the default is `ChangeCause.current`. `setAncho
 start without changing the selection.
 
 `VirtualList`, `Tree`, and `DataTable` already use `Selection` through `.withMultiSelect(setVar)`, which
-also wires Shift+Arrow and Space. See [UI Components](./ui).
+also wires Shift+Arrow and Space. See [Collections](./collections).
 
 ## Reorder
 
@@ -202,7 +206,7 @@ ul(
 - When the `RxVar` holds the items rather than their keys, `Reorder.by(items, label = _.title)(_.id)`
   matches them by key and writes the moved items back; `onChange` then sees the new `Seq` of
   items. `VirtualList` and `DataTable` wire one in with `.withReorder(itemsVar)`, see
-  [Collections](./ui#collections).
+  [Collections](./collections).
 - `Reorder(order, label = _.title)` names items in announcements, and
   `orientation = Orientation.Horizontal` uses Alt+ArrowLeft and Alt+ArrowRight for a row. In a
   right-to-left layout (`dir="rtl"` on the row or an ancestor) the two keys swap, so the item moves

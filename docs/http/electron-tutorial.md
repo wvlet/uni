@@ -323,4 +323,4 @@ pnpm package   # → installers under dist/
   - The web build serves the service and the built renderer from one `Http.server`, using
     `StaticFiles` with an SPA fallback.
   - Components are tested in headless Chromium with `DomTestSupport` from uni-test (see [Testing
-    components](/dom/#testing-components)).
+    components](/dom/testing)).
