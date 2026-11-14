@@ -45,8 +45,8 @@ div(
 
 | Component | What it does |
 |-----------|--------------|
-| `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)`, and `.withRowLabel(a => text)` names rows for `UiAgent` |
-| `Tree(roots, children = a => Seq(...), key = a => k, render = a => node)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight`, and `.withRowLabel(a => text)` names rows for `UiAgent` |
+| `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)`. `.withRowLabel(a => text)` names rows for `UiAgent` |
+| `Tree(roots, children = a => Seq(...), key = a => k, render = a => node)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight`. `.withRowLabel(a => text)` names rows for `UiAgent` |
 | `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent` |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
