@@ -81,7 +81,8 @@ private[ui] class ListCore[A, K](
     agentActions: () => Seq[AgentAction] = () => Nil,
     reorderable: Option[RxVar[Seq[A]]] = None,
     reorderEnabled: () => Boolean = () => true,
-    // The text that names an item for agents; typeahead text, then the key, when absent
+    // The text that names an item for agents and reorder announcements; typeahead text, then the
+    // key, when absent
     itemLabel: Option[A => String] = None
 ) extends RxElement:
 
@@ -108,11 +109,13 @@ private[ui] class ListCore[A, K](
       case ListSelection.Single(_) =>
         None
 
+  // The name of an item for agents and reorder announcements
+  private val nameOf: A => String = itemLabel
+    .orElse(typeaheadLabel)
+    .getOrElse(a => String.valueOf(key(a)))
+
   private val reorder: Option[Reorder[K]] = reorderable.map { o =>
-    val r = Reorder
-      .by(o, label = typeaheadLabel.getOrElse((a: A) => String.valueOf(key(a))))(key)
-      .onChange(changeHandler)
-      .enabledWhen(reorderEnabled)
+    val r = Reorder.by(o, label = nameOf)(key).onChange(changeHandler).enabledWhen(reorderEnabled)
     selection match
       case ListSelection.Multi(keys) =>
         r.withSelection(keys)
@@ -362,10 +365,6 @@ private[ui] class ListCore[A, K](
 
   private object agentBinding extends AgentBinding:
     override def kind: String = agentKind
-
-    private val nameOf: A => String = itemLabel
-      .orElse(typeaheadLabel)
-      .getOrElse(a => String.valueOf(key(a)))
 
     // Labels for the rows in `labelsOf`, rebuilt only when the rows change
     private var labelsOf: Seq[A]    = Seq.empty

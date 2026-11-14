@@ -48,7 +48,8 @@ class VirtualList[A, K] private (
     typeahead: Option[A => String],
     changeHandler: ChangeHandler,
     multiSelected: Option[RxVar[Set[K]]],
-    reorderable: Option[RxVar[Seq[A]]]
+    reorderable: Option[RxVar[Seq[A]]],
+    rowLabel: Option[A => String]
 ) extends RxElement:
 
   private def copy(
@@ -59,7 +60,8 @@ class VirtualList[A, K] private (
       typeahead: Option[A => String] = typeahead,
       changeHandler: ChangeHandler = changeHandler,
       multiSelected: Option[RxVar[Set[K]]] = multiSelected,
-      reorderable: Option[RxVar[Seq[A]]] = reorderable
+      reorderable: Option[RxVar[Seq[A]]] = reorderable,
+      rowLabel: Option[A => String] = rowLabel
   ): VirtualList[A, K] =
     new VirtualList(
       items,
@@ -73,7 +75,8 @@ class VirtualList[A, K] private (
       typeahead,
       changeHandler,
       multiSelected,
-      reorderable
+      reorderable,
+      rowLabel
     )
 
   /** The accessible name of the list. */
@@ -122,6 +125,14 @@ class VirtualList[A, K] private (
   def withTypeahead(label: A => String): VirtualList[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): VirtualList[A, K]                     = copy(typeahead = None)
 
+  /**
+    * The text that names a row for [[agent.UiAgent]] (snapshot items, the `select` action, and the
+    * change feed) and in reorder announcements. Without it, a row is named by its [[withTypeahead]]
+    * text, then by its key's `toString`. It doesn't turn on typeahead.
+    */
+  def withRowLabel(f: A => String): VirtualList[A, K] = copy(rowLabel = Some(f))
+  def noRowLabel(): VirtualList[A, K]                 = copy(rowLabel = None)
+
   override def render: RxElement = ListCore[A, K](
     items,
     key,
@@ -143,7 +154,8 @@ class VirtualList[A, K] private (
     header = DomNode.empty,
     changeHandler = changeHandler,
     slot = "virtual-list",
-    reorderable = reorderable
+    reorderable = reorderable,
+    itemLabel = rowLabel
   )
 
   end render
@@ -172,5 +184,6 @@ object VirtualList:
       typeahead = None,
       changeHandler = ChangeGate.noHandler,
       multiSelected = None,
-      reorderable = None
+      reorderable = None,
+      rowLabel = None
     )

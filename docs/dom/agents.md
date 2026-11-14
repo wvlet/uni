@@ -45,8 +45,21 @@ agent.changes(since = 0)                              // what people changed, an
   `UiAgent.secret` shows the value as `<redacted>`, as every password field does.
   `UiAgent.confirm(message)` makes the agent wait while the human allows or denies the action
   in a dialog. Every other agent action is refused until they answer.
-- **Item labels.** A list or tree names its items by `.withTypeahead(label)`, and a table its
-  rows by `.withRowLabel(label)`; without one, an item is named by its key's `toString`.
+- **Item labels.** A list, tree, or table names its rows by `.withRowLabel(label)` in
+  snapshot items, the `select` action, and the change feed. Without one, a list or tree falls
+  back to its `.withTypeahead(label)` text, then every component to the key's `toString`.
+  `withRowLabel` doesn't turn on typeahead, and typing still matches the typeahead text.
+  Labels follow the rows: replaced rows and newly opened tree rows get theirs at the next
+  snapshot.
+
+  ```scala
+  case class Doc(id: Int, title: String)
+  val docs = Rx.variable(Seq(Doc(1, "Plan"), Doc(2, "Notes")))
+
+  VirtualList(docs, rowHeight = 24, key = _.id, render = d => span(d.title))
+    .withTypeahead(_.title)
+    .withRowLabel(d => s"${d.title} (#${d.id})") // agents see "Plan (#1)"
+  ```
 - **Changes.** `agent.changes(cursor)` returns what people and app code changed since the
   cursor, without the agent's own changes, so an agent can catch up at the start of its turn.
   `agent.subscribe(c => ...)` sees every change as it happens.

@@ -57,7 +57,8 @@ class Tree[A, K] private (
     onSelectFn: A => Unit,
     rowHeight: Int,
     typeahead: Option[A => String],
-    changeHandler: ChangeHandler
+    changeHandler: ChangeHandler,
+    rowLabel: Option[A => String]
 ) extends RxElement:
 
   private def copy(
@@ -68,7 +69,8 @@ class Tree[A, K] private (
       onSelectFn: A => Unit = onSelectFn,
       rowHeight: Int = rowHeight,
       typeahead: Option[A => String] = typeahead,
-      changeHandler: ChangeHandler = changeHandler
+      changeHandler: ChangeHandler = changeHandler,
+      rowLabel: Option[A => String] = rowLabel
   ): Tree[A, K] =
     new Tree(
       roots,
@@ -82,7 +84,8 @@ class Tree[A, K] private (
       onSelectFn,
       rowHeight,
       typeahead,
-      changeHandler
+      changeHandler,
+      rowLabel
     )
 
   /** The accessible name of the tree. */
@@ -122,6 +125,14 @@ class Tree[A, K] private (
   /** Typing a letter moves to the next row whose label starts with it. */
   def withTypeahead(label: A => String): Tree[A, K] = copy(typeahead = Some(label))
   def noTypeahead(): Tree[A, K]                     = copy(typeahead = None)
+
+  /**
+    * The text that names a row for [[agent.UiAgent]] (snapshot items, the `select` action, and the
+    * change feed). Without it, a row is named by its [[withTypeahead]] text, then by its key's
+    * `toString`. It doesn't turn on typeahead.
+    */
+  def withRowLabel(f: A => String): Tree[A, K] = copy(rowLabel = Some(f))
+  def noRowLabel(): Tree[A, K]                 = copy(rowLabel = None)
 
   // Closing a row hides its descendants, so they leave a multiple selection: an action on the
   // selection should never reach rows the user can't see. They are found before the write, since
@@ -250,7 +261,8 @@ class Tree[A, K] private (
     header = DomNode.empty,
     changeHandler = changeHandler,
     slot = "tree",
-    agentKind = "tree"
+    agentKind = "tree",
+    itemLabel = rowLabel.map(f => (r: TreeRow[A, K]) => f(r.item))
   )
 
 end Tree
@@ -275,5 +287,6 @@ object Tree:
       onSelectFn = _ => (),
       rowHeight = 28,
       typeahead = None,
-      changeHandler = ChangeGate.noHandler
+      changeHandler = ChangeGate.noHandler,
+      rowLabel = None
     )
