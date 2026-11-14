@@ -33,7 +33,11 @@ class Tab[A](val value: A, val content: DomNode*)
   * screen readers (`aria-controls` and `aria-labelledby`):
   * {{{
   *   val tab  = Rx.variable(DockTab.Details)
-  *   val tabs = TabList(tab, label = "Dock", tabs = Seq(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity")))
+  *   val tabs = TabList(
+  *     tab,
+  *     label = "Dock",
+  *     tabs = Seq(Tab(DockTab.Details, "Details"), Tab(DockTab.Activity, "Activity"))
+  *   )
   *   div(
   *     tabs,
   *     TabPanel(tabs, render = {
