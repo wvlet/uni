@@ -179,9 +179,10 @@ class DataTable[A, K] private (
   def onChange(f: ChangeHandler): DataTable[A, K] = copy(changeHandler = f)
 
   /**
-    * The text that names a row for [[wvlet.uni.ui.agent.UiAgent]]: its snapshot items, its `select`
-    * action, and its change feed. Without it, a row is named by its key's `toString`. Labels are
-    * computed once per `rows` value, so `f` should depend only on the row.
+    * The text that names a row for [[wvlet.uni.ui.agent.UiAgent]] (its snapshot items, its `select`
+    * action, and its change feed) and in reorder announcements. Without it, a row is named by its
+    * key's `toString`. Labels are computed once per `rows` value, so `f` should depend only on the
+    * row.
     */
   def withRowLabel(f: A => String): DataTable[A, K] = copy(rowLabel = Some(f))
   def noRowLabel(): DataTable[A, K]                 = copy(rowLabel = None)

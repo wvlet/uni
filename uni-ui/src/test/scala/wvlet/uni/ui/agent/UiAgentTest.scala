@@ -528,4 +528,79 @@ class UiAgentTest extends DomTestSupport:
     agent.uninstall()
   }
 
+  test("a list names rows by withRowLabel, apart from its typeahead text") {
+    case class Task(id: Int, title: String)
+    val items = Rx.variable(Seq(Task(1, "apple"), Task(2, "banana"), Task(3, "cherry")))
+    val row   = Rx.variable(Option.empty[Int])
+    mount(
+      VirtualList(items, rowHeight = 24, key = _.id, render = t => span(t.title))
+        .withLabel("Tasks")
+        .withSelected(row)
+        .withTypeahead(_.title)
+        .withRowLabel(t => s"Task ${t.id}: ${t.title}")
+        .withReorder(items)
+    )
+    val agent = install()
+    node(agent, "list").items.map(_.label) shouldBe
+      Seq("Task 1: apple", "Task 2: banana", "Task 3: cherry")
+    // Typing still matches the typeahead text, not the row label
+    val list = find(".uni-virtual-list")
+    list.focus()
+    fireEvent.keyDown(list, "c")
+    find("[data-active=true]").textContent shouldBe "cherry"
+    // A click, a move, and its announcement name rows by the row label
+    val start = agent.changes()._2
+    fireEvent.click(find(".uni-list__row"))
+    fireEvent.keyDown(list, "ArrowDown", altKey = true)
+    agent.changes(start)._1.map(c => (c.key, c.previous, c.value)) shouldBe
+      Seq(
+        ("selected", "", "Task 1: apple"),
+        (
+          "order",
+          "Task 1: apple, Task 2: banana, Task 3: cherry",
+          "Task 2: banana, Task 1: apple, Task 3: cherry"
+        )
+      )
+    find("[data-slot=announcer][aria-live=polite]").textContent shouldContain
+      "Moved Task 1: apple to position 2"
+    // New rows get new labels
+    items := Seq(Task(1, "apricot"), Task(4, "date"))
+    node(agent, "list").items.map(_.label) shouldBe Seq("Task 1: apricot", "Task 4: date")
+    agent
+      .act("list:tasks", "select", Some("Task 4: date"))
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        row.get shouldBe Some(4)
+        agent.uninstall()
+      }
+  }
+
+  test("a tree names rows by withRowLabel, and newly opened rows get labels") {
+    case class File(path: String, kids: Seq[File] = Nil)
+    val roots    = Seq(File("src", Seq(File("src/Main.scala"))), File("build.sbt"))
+    val expanded = Rx.variable(Set.empty[String])
+    val selected = Rx.variable(Option.empty[String])
+    mount(
+      Tree(Rx.const(roots), children = _.kids, key = _.path, render = f => span(f.path))
+        .withLabel("Files")
+        .withExpanded(expanded)
+        .withSelected(selected)
+        .withRowLabel(f => f.path.split('/').last)
+    )
+    val agent = install()
+    node(agent, "tree").items.map(_.label) shouldBe Seq("src", "build.sbt")
+    expanded := Set("src")
+    node(agent, "tree").items.map(_.label) shouldBe Seq("src", "Main.scala", "build.sbt")
+    val start = agent.changes()._2
+    fireEvent.click(find(".uni-list__row:nth-child(3)"))
+    agent.changes(start)._1.map(c => (c.key, c.value)) shouldBe Seq(("selected", "build.sbt"))
+    agent
+      .act("tree:files", "select", Some("Main.scala"))
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        selected.get shouldBe Some("src/Main.scala")
+        agent.uninstall()
+      }
+  }
+
 end UiAgentTest
