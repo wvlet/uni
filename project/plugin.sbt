@@ -21,7 +21,7 @@ val SCALAJS_VERSION = sys.env.getOrElse("SCALAJS_VERSION", "1.22.0")
 addSbtPlugin("org.scala-js" % "sbt-scalajs" % SCALAJS_VERSION)
 
 // For running Scala.js tests in Node.js
-libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.6.0"
+libraryDependencies += "org.scala-js" %% "scalajs-env-nodejs" % "1.7.0"
 
 // For running Scala.js DOM tests in a real headless browser (Chromium via Playwright). Unlike
 // jsdom, this supports ES modules and a faithful DOM, and Chromium matches the Electron renderer.
