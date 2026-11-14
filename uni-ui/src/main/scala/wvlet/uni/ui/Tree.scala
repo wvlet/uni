@@ -28,7 +28,7 @@ import scala.language.implicitConversions
   *
   * {{{
   *   val expanded = Rx.variable(Set("src"))
-  *   Tree(Rx.const(roots), (f: FileNode) => f.children)(_.path)(f => span(f.name))
+  *   Tree(Rx.const(roots), children = _.children, key = _.path, render = f => span(f.name))
   *     .withLabel("Files")
   *     .withExpanded(expanded)
   *     .onSelect(f => openFile(f))
@@ -257,9 +257,12 @@ end Tree
 
 object Tree:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply[A, K](roots: Rx[Seq[A]], children: A => Seq[A])(
-      key: A => K
-  )(render: A => DomNode): Tree[A, K] =
+  def apply[A, K](
+      roots: Rx[Seq[A]],
+      children: A => Seq[A],
+      key: A => K,
+      render: A => DomNode
+  ): Tree[A, K] =
     new Tree(
       roots,
       children,

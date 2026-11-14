@@ -21,14 +21,19 @@ val menuOpen   = Rx.variable(false)
 val confirm    = Rx.variable(false)
 
 div(
-  Popover(filterOpen)(Button("Filter"))(Input(query).withLabel("Filter")).withAlign(Align.End),
-  Tooltip("Close dock")(IconButton("Close dock", closeIcon)).withSide(Side.Left),
-  Menu(menuOpen)(IconButton("More", moreIcon))(
-    MenuItem("Rename").onSelect(() => rename()),
-    MenuSeparator,
-    MenuItem("Delete").onSelect(() => confirm := true)
+  Popover(filterOpen, trigger = Button("Filter"), content = Seq(Input(query).withLabel("Filter")))
+    .withAlign(Align.End),
+  Tooltip("Close dock", trigger = IconButton("Close dock", closeIcon)).withSide(Side.Left),
+  Menu(
+    menuOpen,
+    trigger = IconButton("More", moreIcon),
+    entries = Seq(
+      MenuItem("Rename").onSelect(() => rename()),
+      MenuSeparator,
+      MenuItem("Delete").onSelect(() => confirm := true)
+    )
   ),
-  AlertDialog(confirm)("Delete this session?")
+  AlertDialog(confirm, title = "Delete this session?")
     .withDescription("Its messages can't be restored.")
     .withConfirmLabel("Delete")
     .danger
@@ -38,13 +43,13 @@ div(
 
 | Component | What it does |
 |-----------|--------------|
-| `Popover(open)(trigger)(content*)` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
-| `Tooltip(text)(trigger)` | A text label that shows on hover (after `.withDelay(ms)`, 500 by default) and on keyboard focus; `text` can be an `Rx[String]` |
-| `Menu(open)(trigger)(entries*)` | A list of `MenuItem`s and `MenuSeparator`s. Items take `.onSelect`, `.withShortcut`, `.withDisabled`, and `.withChecked(rx)` |
-| `ContextMenu(target)(entries*)` | A menu that opens at the pointer when `target` is right-clicked |
-| `Dialog(open)(content*)` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |
-| `AlertDialog(open)(title)` | A confirm-or-cancel dialog: `.onConfirm`, `.onCancel`, `.withConfirmLabel`, `.danger` |
-| `Select(selected, options)(label)` | A button with a list of options, bound to an `RxVar[A]`; `options` can be an `Rx[Seq[A]]` |
+| `Popover(open, trigger = element, content = Seq(...))` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
+| `Tooltip(text, trigger = element)` | A text label that shows on hover (after `.withDelay(ms)`, 500 by default) and on keyboard focus; `text` can be an `Rx[String]` |
+| `Menu(open, trigger = element, entries = Seq(...))` | A list of `MenuItem`s and `MenuSeparator`s. Items take `.onSelect`, `.withShortcut`, `.withDisabled`, and `.withChecked(rx)` |
+| `ContextMenu(target, entries = Seq(...))` | A menu that opens at the pointer when `target` is right-clicked |
+| `Dialog(open, content = Seq(...))` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |
+| `AlertDialog(open, title = "...")` | A confirm-or-cancel dialog: `.onConfirm`, `.onCancel`, `.withConfirmLabel`, `.danger` |
+| `Select(selected, options = Seq(...), optionLabel = a => text)` | A button with a list of options, bound to an `RxVar[A]`; `options` can be an `Rx[Seq[A]]` |
 | `Toaster()` | Mount one per app, then call `.info`, `.success`, or `.error` on it to show a message |
 
 They all behave the same way:

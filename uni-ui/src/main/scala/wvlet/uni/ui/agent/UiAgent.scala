@@ -378,7 +378,7 @@ object UiAgent:
         )
     rendered = DomRenderer.renderTo(
       host,
-      AlertDialog(open)(message)
+      AlertDialog(open, title = message)
         .withDescription("An AI agent asked to do this.")
         .withConfirmLabel("Allow")
         .withCancelLabel("Deny")

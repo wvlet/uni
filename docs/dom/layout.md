@@ -8,7 +8,7 @@ Side panes that fold and resize, a status bar, and a `Dock` of panels the user r
 
 | Component | What it does |
 |-----------|--------------|
-| `FoldablePane(open, width, edge, splitter)(content*)` | A side pane that folds to zero width; its content never reflows |
+| `FoldablePane(open, width = w, edge = e, content = Seq(...)).withSplitter(splitter)` | A side pane that folds to zero width; its content never reflows |
 | `Splitter(size, range, edge, label)` | A resize grip. Drag it, or press the arrow keys (Shift for bigger steps); double-click or Enter resets |
 | `StatusBar(content*)` | A bar along the bottom; `StatusBar.spacer` pushes the rest to the end |
 
@@ -25,9 +25,8 @@ val open  = Rx.variable(true)
 val width = Rx.variable(272)
 val range = SizeRange(min = 208, default = 272, max = 480)
 
-FoldablePane(open, width, Edge.Right, Some(Splitter(width, range, Edge.Right, "Resize sidebar")))(
-  ChatList()
-)
+FoldablePane(open, width = width, edge = Edge.Right, content = Seq(ChatList()))
+  .withSplitter(Splitter(width, range, Edge.Right, "Resize sidebar"))
 ```
 
 `Edge` names the pane's inner side, the one that faces the main content: `Edge.Right` for a left
@@ -45,10 +44,15 @@ val layout = Storage.local(
   DockLayout(DockNode.column(DockNode.group("details", "activity"), DockNode.group("terminal")))
 )
 
-Dock(layout, "Dock")(
-  DockPanel("details", "Details")(DetailsView()),
-  DockPanel("activity", "Activity")(ActivityLog()).withTab(Icons.activity, "Activity", Badge(count)),
-  DockPanel("terminal", "Terminal")(ShellView()).withClosable(false)
+Dock(
+  layout,
+  label = "Dock",
+  panels = Seq(
+    DockPanel("details", title = "Details", content = DetailsView()),
+    DockPanel("activity", title = "Activity", content = ActivityLog())
+      .withTab(Icons.activity, "Activity", Badge(count)),
+    DockPanel("terminal", title = "Terminal", content = ShellView()).withClosable(false)
+  )
 ).withActions(IconButton("Close dock", Icons.panelRight).onClick(() => dockOpen := false))
 ```
 

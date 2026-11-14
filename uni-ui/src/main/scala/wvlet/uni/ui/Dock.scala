@@ -43,7 +43,7 @@ export wvlet.uni.ui.base.{DockLayout, DockNode, DockSide, SplitDirection}
   * group keeps its state (a terminal keeps its shell, a list its scroll position).
   *
   * {{{
-  *   DockPanel("terminal", "Terminal")(TerminalView())
+  *   DockPanel("terminal", title = "Terminal", content = TerminalView())
   *     .withTab(Icons.terminal, "Terminal", Badge(unread))
   *     .withClosable(false)
   * }}}
@@ -80,7 +80,7 @@ end DockPanel
 
 object DockPanel:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply(id: String, title: String)(content: => RxElement): DockPanel =
+  def apply(id: String, title: String, content: => RxElement): DockPanel =
     new DockPanel(id, title, () => content, Seq.empty, true)
 
 /**
@@ -88,10 +88,10 @@ object DockPanel:
   * `layout`, which the app owns and usually saves:
   * {{{
   *   val layout = Storage.local("app.dock", DockLayout(DockNode.column(DockNode.group("details"), DockNode.group("terminal"))))
-  *   Dock(layout, "Dock")(
-  *     DockPanel("details", "Details")(DetailsView()),
-  *     DockPanel("terminal", "Terminal")(TerminalView())
-  *   )
+  *   Dock(layout, label = "Dock", panels = Seq(
+  *     DockPanel("details", title = "Details", content = DetailsView()),
+  *     DockPanel("terminal", title = "Terminal", content = TerminalView())
+  *   ))
   * }}}
   *
   * The layout refers to panels by id. Ids the Dock doesn't know are dropped, so an old save never
@@ -510,7 +510,7 @@ class Dock private (
         )
       )
     )
-    ContextMenu(face)(menu(panel, path, tabs, groupCount)*)
+    ContextMenu(face, entries = menu(panel, path, tabs, groupCount))
 
   end tab
 
@@ -883,7 +883,7 @@ end Dock
 
 object Dock:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply(layout: RxVar[DockLayout], label: String)(panels: DockPanel*): Dock =
+  def apply(layout: RxVar[DockLayout], label: String, panels: Seq[DockPanel]): Dock =
     new Dock(
       layout,
       label,

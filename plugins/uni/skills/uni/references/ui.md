@@ -93,14 +93,17 @@ val composer = div(
   Textarea(message).withRows(4).withPlaceholder("Write a message"),
   Button("Send").primary.withDisabled(busy).onClick(() => send(message.get)),
   IconButton("Close", closeIcon).onClick(() => busy := false),
-  TabList(view, "Views")(Tab("chat", "Chat"), Tab("logs", "Logs")),
-  Select(region, Seq("tokyo", "oregon"))(r => r.capitalize),
-  Tooltip("More actions")(
-    Menu(menuOpen)(IconButton("More", closeIcon))(
-      MenuItem("Delete").onSelect(() => confirmDel := true)
+  TabList(view, label = "Views", tabs = Seq(Tab("chat", "Chat"), Tab("logs", "Logs"))),
+  Select(region, options = Seq("tokyo", "oregon"), optionLabel = r => r.capitalize),
+  Tooltip(
+    "More actions",
+    trigger = Menu(
+      menuOpen,
+      trigger = IconButton("More", closeIcon),
+      entries = Seq(MenuItem("Delete").onSelect(() => confirmDel := true))
     ).withAlign(Align.End)
   ).withSide(Side.Left),
-  AlertDialog(confirmDel)("Delete this session?")
+  AlertDialog(confirmDel, title = "Delete this session?")
     .withConfirmLabel("Delete")
     .danger
     .onConfirm(() => deleteSession()),
@@ -108,13 +111,18 @@ val composer = div(
 )
 ```
 
+Every component takes one parameter list of the arguments it cannot work without. Name the
+functions, triggers, and multi-value arguments (`key = _.id`, `render = ...`, `trigger = ...`), and
+pass several values as a `Seq` (`entries = Seq(...)`, `content = Seq(...)`). Options are `withXXX`
+methods.
+
 | Group | Components |
 |-------|------------|
-| Controls | `Button` (`.primary`, `.ghost`, `.danger`, `.small`), `IconButton(label, icon)`, `Input(rxVar)`, `Textarea(rxVar)`, `Select(rxVar, options)(label)` |
-| Navigation and layout | `TabList(rxVar, label)(Tab(value, content*)*)`, `TabPanel(tabs)(render)`, `FoldablePane(open, width, edge, splitter)(content*)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label)(DockPanel(id, title)(content)*)` |
+| Controls | `Button` (`.primary`, `.ghost`, `.danger`, `.small`), `IconButton(label, icon)`, `Input(rxVar)`, `Textarea(rxVar)`, `Select(rxVar, options = Seq(...), optionLabel = a => text)` |
+| Navigation and layout | `TabList(rxVar, label = "...", tabs = Seq(Tab(value, content*)))`, `TabPanel(tabs, render = a => element)`, `FoldablePane(open, width = w, edge = e, content = Seq(...)).withSplitter(splitter)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label = "...", panels = Seq(DockPanel(id, title = "...", content = element)))` |
 | Display | `Badge`, `Kbd`, `StatusBar` |
-| Overlays | `Popover(open)(trigger)(content*)`, `Tooltip(text)(trigger)`, `Menu(open)(trigger)(MenuItem*)`, `ContextMenu(target)(entries*)`, `Dialog(open)(content*)`, `AlertDialog(open)(title)`, `Toaster()` with `.info`/`.success`/`.error` |
-| Collections (windowed, fixed row height) | `VirtualList(itemsRx, rowHeight)(key)(render)`, `Tree(rootsRx, children)(key)(render)`, `DataTable(rowsRx)(key)(Column(id, header)(cell)*)`, `CommandPalette(open, commandsRx)` |
+| Overlays | `Popover(open, trigger = element, content = Seq(...))`, `Tooltip(text, trigger = element)`, `Menu(open, trigger = element, entries = Seq(MenuItem(...), ...))`, `ContextMenu(target, entries = Seq(...))`, `Dialog(open, content = Seq(...))`, `AlertDialog(open, title = "...")`, `Toaster()` with `.info`/`.success`/`.error` |
+| Collections (windowed, fixed row height) | `VirtualList(itemsRx, rowHeight = 24, key = a => k, render = a => node)`, `Tree(rootsRx, children = a => Seq(...), key = a => k, render = a => node)`, `DataTable(rowsRx, key = a => k, columns = Seq(Column(id, header, cell = a => node), ...))`, `CommandPalette(open, commandsRx)` |
 | Theme | `ColorScheme.bind(rxVar)` with `ColorScheme.System`/`Light`/`Dark` |
 
 Overlays render at the end of `<body>` and share one behavior:
@@ -133,9 +141,13 @@ val calls       = Rx.variable(Seq(Call(1, "getUser", 3.2)))
 val pickedIds   = Rx.variable(Set.empty[Long])
 val paletteOpen = Rx.variable(false)
 
-val table = DataTable(calls)(_.id)(
-  Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
-  Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
+val table = DataTable(
+  calls,
+  key = _.id,
+  columns = Seq(
+    Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+    Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
+  )
 ).withLabel("RPC calls")
   // Shift/Ctrl+click, Shift+Arrow, Space, Ctrl+A; withSelected(optionVar) for one row
   .withMultiSelect(pickedIds)
@@ -161,10 +173,10 @@ keeps the old value. `d.source` is `Pointer`, `Keyboard`, `Programmatic`, or `Ag
 ```scala
 val unsaved = Rx.variable(false)
 
-val guardedTabs = TabList(view, "Views")(Tab("chat", "Chat"), Tab("logs", "Logs"))
+val guardedTabs = TabList(view, label = "Views", tabs = Seq(Tab("chat", "Chat"), Tab("logs", "Logs")))
   .onChange(d => if unsaved.get then d.cancel())
 
-val agentSafeRegion = Select(region, Seq("tokyo", "oregon"))(identity).onChange { d =>
+val agentSafeRegion = Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).onChange { d =>
   if d.source == ChangeSource.Agent then d.cancel()
 }
 
@@ -288,7 +300,7 @@ class ComposerTest extends DomTestSupport:
 
   test("Delete asks for confirmation") {
     val open = Rx.variable(false)
-    mount(AlertDialog(open)("Delete?").withConfirmLabel("Delete"))
+    mount(AlertDialog(open, title = "Delete?").withConfirmLabel("Delete"))
     open := true
     org.scalajs.dom.document.querySelector("[role=alertdialog]") shouldNotBe null
   }
@@ -305,7 +317,9 @@ import wvlet.uni.test.empty
 
 class ModelPickerTest extends DomTestSupport:
   test("the model picker follows the listbox pattern") {
-    val m = mount(Select(Rx.variable("sonnet"), Seq("haiku", "sonnet"))(identity).withLabel("Model"))
+    val m = mount(
+      Select(Rx.variable("sonnet"), options = Seq("haiku", "sonnet"), optionLabel = s => s).withLabel("Model")
+    )
     fireEvent.click(m.get("button"))
     settle()
       .flatMap(_ => checkPattern(org.scalajs.dom.document.querySelector("[role=listbox]"), AriaPattern.Listbox))

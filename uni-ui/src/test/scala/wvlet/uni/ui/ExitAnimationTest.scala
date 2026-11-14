@@ -53,7 +53,7 @@ class ExitAnimationTest extends DomTestSupport:
 
   test("a closed popover returns focus at once and leaves the document after its exit") {
     val open = Rx.variable(false)
-    mount(div(Popover(open)(Button("Filter"))(htmlButton("Apply"))))
+    mount(div(Popover(open, trigger = Button("Filter"), content = Seq(htmlButton("Apply")))))
     val trigger = find(".uni-button").get
     trigger.focus()
     open := true
@@ -73,7 +73,7 @@ class ExitAnimationTest extends DomTestSupport:
 
   test("a dialog fades out its backdrop and panel together") {
     val open = Rx.variable(true)
-    mount(div(Dialog(open)(htmlButton("OK")).withTitle("Hello")))
+    mount(div(Dialog(open, content = Seq(htmlButton("OK"))).withTitle("Hello")))
     settle().flatMap { _ =>
       open := false
       find(".uni-dialog-backdrop").get.getAttribute("data-state") shouldBe "closed"
@@ -84,7 +84,7 @@ class ExitAnimationTest extends DomTestSupport:
 
   test("reopening during the exit shows one fresh overlay") {
     val open = Rx.variable(true)
-    mount(div(Popover(open)(Button("Filter"))(htmlButton("Apply"))))
+    mount(div(Popover(open, trigger = Button("Filter"), content = Seq(htmlButton("Apply")))))
     settle().map { _ =>
       open := false
       find(".uni-popover").get.getAttribute("data-state") shouldBe "closed"
@@ -100,9 +100,12 @@ class ExitAnimationTest extends DomTestSupport:
     val popoverOpen = Rx.variable(false)
     mount(
       div(
-        Dialog(dialogOpen)(Popover(popoverOpen)(Button("Filter"))(htmlButton("Apply"))).withTitle(
-          "Settings"
-        )
+        Dialog(
+          dialogOpen,
+          content = Seq(
+            Popover(popoverOpen, trigger = Button("Filter"), content = Seq(htmlButton("Apply")))
+          )
+        ).withTitle("Settings")
       )
     )
     settle()

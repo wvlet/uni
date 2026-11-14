@@ -29,9 +29,7 @@ import scala.language.implicitConversions
   *
   * {{{
   *   val open = Rx.variable(false)
-  *   Dialog(open)(
-  *     Input(name).withLabel("Name")
-  *   ).withTitle("Rename session")
+  *   Dialog(open, content = Seq(Input(name).withLabel("Name"))).withTitle("Rename session")
   *     .withActions(Button("Cancel").onClick(() => open := false), Button("Save").primary.onClick(save))
   * }}}
   *
@@ -228,7 +226,7 @@ object Dialog:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   private val noop: () => Unit = () => ()
 
-  def apply(open: RxVar[Boolean])(content: DomNode*): Dialog =
+  def apply(open: RxVar[Boolean], content: Seq[DomNode]): Dialog =
     new Dialog(
       open,
       content,
@@ -246,7 +244,7 @@ object Dialog:
   * on a backdrop click. Escape cancels.
   *
   * {{{
-  *   AlertDialog(confirmDelete)("Delete this session?")
+  *   AlertDialog(confirmDelete, title = "Delete this session?")
   *     .withDescription("Its messages can't be restored.")
   *     .withConfirmLabel("Delete")
   *     .danger
@@ -328,7 +326,7 @@ class AlertDialog private (
         b.danger
       else
         b.primary
-    val dialog = Dialog(open)()
+    val dialog = Dialog(open, content = Seq.empty)
       .withTitle(title)
       .withActions(
         Button(cancelLabel).onClick(() => close(cancel))(autofocus -> true),
@@ -347,5 +345,5 @@ object AlertDialog:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   private val noop: () => Unit = () => ()
 
-  def apply(open: RxVar[Boolean])(title: String): AlertDialog =
+  def apply(open: RxVar[Boolean], title: String): AlertDialog =
     new AlertDialog(open, title, None, "Confirm", "Cancel", false, noop, noop, ChangeGate.noHandler)

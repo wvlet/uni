@@ -16,7 +16,7 @@ object Ui:
       icon: RxElement,
       action: () => Unit,
       tipSide: Side = Side.Bottom
-  ): RxElement = Tooltip(label)(IconButton(label, icon).onClick(action)).withSide(tipSide)
+  ): RxElement = Tooltip(label, trigger = IconButton(label, icon).onClick(action)).withSide(tipSide)
 
   /** A keyboard key cap. */
   def keyCap(k: String): RxElement = Kbd(k)

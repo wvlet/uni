@@ -44,14 +44,17 @@ class DockTest extends DomTestSupport:
 
   private def panel(id: String, closable: Boolean = true): DockPanel = DockPanel(
     id,
-    id.capitalize
-  ) {
-    created(id) += 1
-    div(s"${id} content")
-  }.withClosable(closable)
+    title = id.capitalize,
+    content =
+      created(id) += 1
+      div(s"${id} content")
+  ).withClosable(closable)
 
-  private def dock(layout: RxVar[DockLayout], extra: DockPanel*): Dock =
-    Dock(layout, "Dock")((Seq(panel("a"), panel("b"), panel("c")) ++ extra)*)
+  private def dock(layout: RxVar[DockLayout], extra: DockPanel*): Dock = Dock(
+    layout,
+    label = "Dock",
+    panels = (Seq(panel("a"), panel("b"), panel("c")) ++ extra)
+  )
 
   private def mountDock(d: Dock): Mounted = mount(
     div(styleAttr -> "width: 600px; height: 400px; display: flex", d)
@@ -180,7 +183,7 @@ class DockTest extends DomTestSupport:
 
   test("panel ids that differ only in punctuation get distinct tab ids") {
     val layout = Rx.variable(DockLayout.of("x.y", "x_y"))
-    val m      = mountDock(Dock(layout, "Dock")(panel("x.y"), panel("x_y")))
+    val m      = mountDock(Dock(layout, label = "Dock", panels = Seq(panel("x.y"), panel("x_y"))))
     (tabOf(m, "x.y").id == tabOf(m, "x_y").id) shouldBe false
   }
 

@@ -25,15 +25,19 @@ val expanded = Rx.variable(Set("src"))
 val sort     = Rx.variable(Option(SortBy("millis", SortDirection.Descending)))
 
 div(
-  VirtualList(log.lines, rowHeight = 24)(_.id)(line => span(line.text))
+  VirtualList(log.lines, rowHeight = 24, key = _.id, render = line => span(line.text))
     .withLabel("Log")(styleAttr += "height: 320px"),
-  Tree(Rx.const(roots), (f: FileNode) => f.children)(_.path)(f => span(f.name))
+  Tree(Rx.const(roots), children = _.children, key = _.path, render = f => span(f.name))
     .withLabel("Files")
     .withExpanded(expanded)
     .onSelect(f => openFile(f)),
-  DataTable(calls)(_.id)(
-    Column[Call]("method", "Method")(c => span(c.method)).sortBy(_.method),
-    Column[Call]("millis", "Time")(c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
+  DataTable(
+    calls,
+    key = _.id,
+    columns = Seq(
+      Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+      Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f ms")).sortBy(_.millis).alignEnd
+    )
   ).withLabel("RPC calls")
     .withSort(sort)
 )
@@ -41,9 +45,9 @@ div(
 
 | Component | What it does |
 |-----------|--------------|
-| `VirtualList(items, rowHeight)(key)(render)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)` |
-| `Tree(roots, children)(key)(render)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
-| `DataTable(rows)(key)(columns*)` | A table (`role="grid"`) with a sticky header. A `Column(id, header)(cell)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent` |
+| `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)` |
+| `Tree(roots, children = a => Seq(...), key = a => k, render = a => node)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight` |
+| `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent` |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
 - **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
@@ -108,7 +112,7 @@ case class Task(id: Int, title: String)
 val tasks  = Rx.variable(Seq(Task(1, "Write"), Task(2, "Review"), Task(3, "Ship")))
 val picked = Rx.variable(Set.empty[Int])
 
-VirtualList(tasks, rowHeight = 32)(_.id)(t => span(t.title))
+VirtualList(tasks, rowHeight = 32, key = _.id, render = t => span(t.title))
   .withLabel("Tasks")
   .withTypeahead(_.title)
   .withMultiSelect(picked)

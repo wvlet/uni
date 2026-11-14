@@ -28,9 +28,9 @@ import scala.language.implicitConversions
   *
   * {{{
   *   val open = Rx.variable(false)
-  *   Popover(open)(Button("Filter"))(
-  *     div(Input(query).withLabel("Filter"))
-  *   ).withSide(Side.Bottom).withAlign(Align.End)
+  *   Popover(open, trigger = Button("Filter"), content = Seq(Input(query).withLabel("Filter")))
+  *     .withSide(Side.Bottom)
+  *     .withAlign(Align.End)
   * }}}
   *
   * The panel is `div.uni-popover` with `role="dialog"`, rendered at the end of `<body>` so pane
@@ -114,7 +114,7 @@ end Popover
 
 object Popover:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply(open: RxVar[Boolean])(trigger: RxElement)(content: DomNode*): Popover =
+  def apply(open: RxVar[Boolean], trigger: RxElement, content: Seq[DomNode]): Popover =
     new Popover(open, trigger, content, Side.Bottom, Align.Start, None, ChangeGate.noHandler)
 
   private[ui] def stateName(open: Boolean): String =

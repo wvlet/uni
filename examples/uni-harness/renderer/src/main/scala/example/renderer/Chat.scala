@@ -324,8 +324,9 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
       ),
       div(
         cls -> "flex items-center gap-1.5 px-2.5 pb-2.5",
-        Tooltip("Attachments: add your own")(
-          button(
+        Tooltip(
+          "Attachments: add your own",
+          trigger = button(
             ariaLabel -> "Attach",
             cls       ->
               "grid size-8 place-items-center rounded-lg text-faint transition hover:bg-hover hover:text-fg",

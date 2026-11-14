@@ -81,8 +81,9 @@ class IconRail(layout: Layout) extends RxElement:
 
   private def railButton(v: View, icon: RxElement): RxElement =
     val active = Rx.join(layout.view, layout.sidebarOpen).map((cur, open) => cur == v && open)
-    Tooltip(v.label)(
-      button(
+    Tooltip(
+      v.label,
+      trigger = button(
         ariaLabel -> v.label,
         cls       ->
           active.map { on =>
@@ -109,17 +110,22 @@ class IconRail(layout: Layout) extends RxElement:
       )
     ).withSide(Side.Right)
 
+  end railButton
+
   private val themeMenuOpen = Rx.variable(false)
 
   // The theme button opens a menu of the three schemes, with a check on the current one
-  private def themeButton: RxElement = Tooltip("Theme")(
-    Menu(themeMenuOpen)(themeIcon)(
-      ColorScheme
+  private def themeButton: RxElement = Tooltip(
+    "Theme",
+    trigger = Menu(
+      themeMenuOpen,
+      trigger = themeIcon,
+      entries = ColorScheme
         .values
         .toSeq
         .map { s =>
           MenuItem(s.label).withChecked(layout.theme.map(_ == s)).onSelect(() => layout.theme := s)
-        }*
+        }
     ).withSide(Side.Right).withAlign(Align.End)
   ).withSide(Side.Right)
 
@@ -140,8 +146,9 @@ class IconRail(layout: Layout) extends RxElement:
   )
 
   // The account slot: a rail button like the others, holding an avatar with a status dot
-  private def account: RxElement = Tooltip("Account (local)")(
-    button(
+  private def account: RxElement = Tooltip(
+    "Account (local)",
+    trigger = button(
       ariaLabel -> "Account",
       cls       ->
         "mt-1 grid size-9 place-items-center rounded-lg transition hover:bg-hover active:scale-95",
@@ -195,8 +202,11 @@ class Sidebar(
       case View.Settings =>
         span("Saved in this browser")
 
-  override def render: RxElement =
-    FoldablePane(layout.sidebarOpen, layout.sidebarWidth, Edge.Right, Some(handle))(
+  override def render: RxElement = FoldablePane(
+    layout.sidebarOpen,
+    width = layout.sidebarWidth,
+    edge = Edge.Right,
+    content = Seq(
       layout
         .view
         .map { v =>
@@ -221,6 +231,7 @@ class Sidebar(
           )
         }
     )
+  ).withSplitter(handle)
 
 end Sidebar
 
@@ -362,15 +373,20 @@ class FileTree extends RxElement:
 
   override def render: RxElement = div(
     cls -> "flex min-h-0 flex-1 flex-col px-2 pb-3",
-    Tree(Rx.const(roots), (e: FileEntry) => e.children)(_.path)(e =>
-      Seq[DomNode](
-        if e.children.nonEmpty then
-          span(cls -> "text-brand", Icons.folder)
-        else
-          span(cls -> "text-faint", Icons.code)
-        ,
-        span(cls -> "truncate", e.name)
-      )
+    Tree(
+      Rx.const(roots),
+      children = (e: FileEntry) => e.children,
+      key = _.path,
+      render =
+        e =>
+          Seq[DomNode](
+            if e.children.nonEmpty then
+              span(cls -> "text-brand", Icons.folder)
+            else
+              span(cls -> "text-faint", Icons.code)
+            ,
+            span(cls -> "truncate", e.name)
+          )
     ).withLabel("Files")
       .withExpanded(expanded)
       .withTypeahead(_.name)

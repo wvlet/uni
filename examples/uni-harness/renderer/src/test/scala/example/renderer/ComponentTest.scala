@@ -78,7 +78,9 @@ class ComponentTest extends DomTestSupport:
 
   test("a foldable pane collapses to zero width and back") {
     val open = Rx.variable(true)
-    val m    = mount(FoldablePane(open, Rx.variable(300), Edge.Left)())
+    val m    = mount(
+      FoldablePane(open, width = Rx.variable(300), edge = Edge.Left, content = Seq.empty)
+    )
     paneWidth(m) shouldBe "300px"
     open := false
     paneWidth(m) shouldBe "0px"
@@ -87,8 +89,11 @@ class ComponentTest extends DomTestSupport:
   test("dragging the resize handle changes the width within its range") {
     val width  = Rx.variable(272)
     val handle = Splitter(width, Layout.sidebarWidth, Edge.Right, "Resize")
-    val m      = mount(FoldablePane(Rx.variable(true), width, Edge.Right, Some(handle))())
-    val grip   = m.get("[role=separator]")
+    val m      = mount(
+      FoldablePane(Rx.variable(true), width = width, edge = Edge.Right, content = Seq.empty)
+        .withSplitter(handle)
+    )
+    val grip = m.get("[role=separator]")
     fireEvent.pointerDown(grip, clientX = 300)
     fireEvent.pointerMove(dom.window, clientX = 350)
     width.get shouldBe 322
@@ -115,8 +120,11 @@ class ComponentTest extends DomTestSupport:
   test("the dock's left-edge handle resizes the shared dock width and resets it") {
     val layout = Layout.inMemory()
     val handle = Splitter(layout.dockWidth, Layout.dockWidth, Edge.Left, "Resize dock")
-    val m      = mount(FoldablePane(layout.dockOpen, layout.dockWidth, Edge.Left, Some(handle))())
-    val grip   = m.get("[role=separator]")
+    val m      = mount(
+      FoldablePane(layout.dockOpen, width = layout.dockWidth, edge = Edge.Left, content = Seq.empty)
+        .withSplitter(handle)
+    )
+    val grip = m.get("[role=separator]")
     fireEvent.pointerDown(grip, clientX = 900)
     fireEvent.pointerMove(dom.window, clientX = 0)
     fireEvent.pointerUp(dom.window, clientX = 0)

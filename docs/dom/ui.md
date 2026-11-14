@@ -20,6 +20,10 @@ made of: keyboard navigation, typeahead, selection, focus handling, and stick-to
 ## Conventions
 
 Each component is an `RxElement` that takes the `Rx` values it reads. Options are `withXXX` methods.
+A component takes one parameter list of the arguments it cannot work without. Name the functions,
+triggers, and multi-value arguments at the call site, so each one says what it is (`key = _.id`,
+`render = ...`, `trigger = ...`). An argument that holds several values, such as menu entries or
+dialog content, is a `Seq`: `entries = Seq(...)`.
 Pass extra attributes as modifiers, and use `cls +=` so the component's own classes stay.
 
 - **State you own.** Components write user input into the `RxVar`s you pass them, and

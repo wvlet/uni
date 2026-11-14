@@ -120,7 +120,7 @@ import wvlet.uni.test.empty
 class MorePatternTest extends DomTestSupport:
   test("the More menu follows the menu pattern") {
     val open = Rx.variable(false)
-    mount(Menu(open)(Button("More"))(MenuItem("Rename"), MenuItem("Delete")))
+    mount(Menu(open, trigger = Button("More"), entries = Seq(MenuItem("Rename"), MenuItem("Delete"))))
     open := true
     // An overlay focuses its first item in onMount, so settle before checking
     settle()
