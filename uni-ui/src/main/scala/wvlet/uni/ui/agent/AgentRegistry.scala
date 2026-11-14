@@ -16,8 +16,8 @@ package wvlet.uni.ui.agent
 import org.scalajs.dom
 import wvlet.uni.dom.{DomNode, DomRef, RefBinding}
 import wvlet.uni.json.JSON.JSONObject
-import wvlet.uni.rx.Cancelable
-import wvlet.uni.ui.{ChangeCause, ChangeDetails, ChangeReason, ChangeSource}
+import wvlet.uni.rx.{Cancelable, RxVar}
+import wvlet.uni.ui.{ChangeCause, ChangeDetails, ChangeHandler, ChangeReason, ChangeSource}
 
 import scala.collection.mutable
 import scala.scalajs.js
@@ -163,6 +163,7 @@ private[ui] object AgentRegistry:
 
   private var seq       = 0L
   private val listeners = mutable.ArrayBuffer.empty[UiChange => Unit]
+  private val recorders = mutable.ArrayBuffer.empty[Reported => Unit]
   // The changes reported while an agent action runs, to tell whether the app canceled it
   private var tracked: Option[mutable.ArrayBuffer[ChangeDetails[Any]]] = None
 
@@ -260,41 +261,71 @@ private[ui] object AgentRegistry:
     finally tracked = saved
     buf.toSeq
 
+  /**
+    * A committed change as [[UiHistory]] sees it: the target and the handler, so the change can be
+    * written back through the same gate.
+    *
+    * @param owner
+    *   the registered component that owns `target`, if any
+    */
+  private[agent] class Reported(
+      val target: RxVar[Any],
+      val details: ChangeDetails[Any],
+      val handler: ChangeHandler,
+      val owner: Option[Entry]
+  ):
+    val secret: Boolean = owner.exists(e => AgentDom.isSecret(e.element))
+
+    /** `v` as text for agents and history: formatted by the owner, or redacted when secret. */
+    def text(v: Any): String =
+      if secret then
+        AgentDom.Redacted
+      else
+        owner.fold(String.valueOf(v))(_.binding.format(v))
+
+  /** Calls `f` with every committed change of a component that is not hidden from agents. */
+  def record(f: Reported => Unit): Cancelable =
+    recorders += f
+    Cancelable(() => recorders -= f)
+
+  /** The mounted component that owns `target`, if any. */
+  def ownerOf(target: AnyRef): Option[Entry] = Option(byState.get(target)).filter(e =>
+    entries.contains(e) && e.element.isConnected
+  )
+
   /** Called by `ChangeGate` once the app's handler has seen a change to `target`. */
-  def report(target: AnyRef, d: ChangeDetails[Any]): Unit =
+  def report(target: RxVar[?], d: ChangeDetails[Any], handler: ChangeHandler): Unit =
     tracked.foreach(_ += d)
-    val entry = Option(byState.get(target)).filter(entries.contains)
-    // A component inside `UiAgent.hidden` stays out of the feed, as it does out of snapshots
-    if !d.canceled && listeners.nonEmpty && !entry.exists(e => AgentDom.isHidden(e.element)) then
-      val secret               = entry.exists(e => AgentDom.isSecret(e.element))
-      def text(v: Any): String =
-        if secret then
-          AgentDom.Redacted
-        else
-          entry.fold(String.valueOf(v))(_.binding.format(v))
-      seq += 1
-      val change = UiChange(
-        seq,
-        entry.map(refOf),
-        entry.map(_.binding.kind),
-        d.key,
-        text(d.previous),
-        text(d.value),
-        d.reason.name,
-        d.source
-      )
-      // A failing listener must not stop the write the app's handler already accepted
-      listeners
-        .toSeq
-        .foreach { f =>
-          try
-            f(change)
-          catch
-            case NonFatal(err) =>
-              dom.console.warn(s"UiAgent change listener failed: ${err.getMessage}")
-        }
+    if !d.canceled && (listeners.nonEmpty || recorders.nonEmpty) then
+      val entry = Option(byState.get(target)).filter(entries.contains)
+      // A component inside `UiAgent.hidden` stays out of the feed, as it does out of snapshots
+      if !entry.exists(e => AgentDom.isHidden(e.element)) then
+        val r = Reported(target.asInstanceOf[RxVar[Any]], d, handler, entry)
+        notify(recorders.toSeq, r, "UiHistory")
+        if listeners.nonEmpty then
+          seq += 1
+          val change = UiChange(
+            seq,
+            entry.map(refOf),
+            entry.map(_.binding.kind),
+            d.key,
+            r.text(d.previous),
+            r.text(d.value),
+            d.reason.name,
+            d.source
+          )
+          notify(listeners.toSeq, change, "UiAgent change listener")
 
   end report
+
+  // A failing listener must not stop the write the app's handler already accepted
+  private def notify[A](fs: Seq[A => Unit], a: A, name: String): Unit = fs.foreach { f =>
+    try
+      f(a)
+    catch
+      case NonFatal(err) =>
+        dom.console.warn(s"${name} failed: ${err.getMessage}")
+  }
 
 end AgentRegistry
 
