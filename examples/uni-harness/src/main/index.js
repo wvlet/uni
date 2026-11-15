@@ -36,8 +36,23 @@ function createWindow() {
   })
   if (agentBridge) attachAgentBridge(win.webContents)
 
-  // Never open a bare app window from the page; links go to the system browser through uniShell
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  // Links go to the system browser through uniShell, so the page opens no other window, except a
+  // blank same-origin one that the Dock moves a detached panel into (`Dock.withDetach`). Its frame
+  // name starts with `uni-dock-`. It keeps this window's webPreferences (context isolation on, no
+  // Node), and the renderer only moves its own DOM into it.
+  win.webContents.setWindowOpenHandler(({ url, frameName }) =>
+    url === 'about:blank' && frameName.startsWith('uni-dock-')
+      ? {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            minWidth: 320,
+            minHeight: 240,
+            autoHideMenuBar: true,
+            backgroundColor: nativeTheme.shouldUseDarkColors ? '#061114' : '#eef3f4'
+          }
+        }
+      : { action: 'deny' }
+  )
 
   // electron-vite serves the renderer from a dev server in `dev`, and from a file in `build`.
   if (process.env.ELECTRON_RENDERER_URL) {

@@ -620,6 +620,106 @@
     opacity: 1;
   }
 
+  /* Floating groups: a layer over the grid that lets the pointer through between floats */
+  .uni-dock__floats {
+    position: absolute;
+    z-index: 20;
+    inset: 0;
+    pointer-events: none;
+  }
+
+  .uni-dock__float {
+    position: absolute;
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid var(--uni-line);
+    border-radius: var(--uni-radius-lg);
+    background: var(--uni-panel);
+    box-shadow: var(--uni-overlay-shadow);
+    pointer-events: auto;
+  }
+
+  .uni-dock__float-grip {
+    flex-shrink: 0;
+    align-self: stretch;
+    width: 14px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--uni-radius-sm);
+    /* A column of dots */
+    background: radial-gradient(circle, var(--uni-faint) 1px, transparent 1.5px) center / 6px 6px
+      repeat-y;
+    cursor: grab;
+    touch-action: none;
+  }
+
+  .uni-dock__float-grip:hover,
+  .uni-dock__float-grip[data-dragging='true'] {
+    background-color: var(--uni-hover);
+  }
+
+  .uni-dock__float-grip:focus-visible {
+    outline: 2px solid var(--uni-focus);
+    outline-offset: 1px;
+  }
+
+  .uni-dock__float-resize {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 14px;
+    height: 14px;
+    background: linear-gradient(
+      135deg,
+      transparent 55%,
+      var(--uni-faint) 55%,
+      var(--uni-faint) 62%,
+      transparent 62%,
+      transparent 75%,
+      var(--uni-faint) 75%,
+      var(--uni-faint) 82%,
+      transparent 82%
+    );
+    cursor: nwse-resize;
+    touch-action: none;
+  }
+
+  /* A panel open in a window of its own leaves this note in its place */
+  .uni-dock__detached {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    color: var(--uni-muted);
+    font-size: var(--uni-font-size-sm);
+    text-align: center;
+  }
+
+  .uni-dock__detached-actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  .uni-dock__tab[data-detached='true'] .uni-dock__tab-label {
+    font-style: italic;
+  }
+
+  /* The body of a detached panel's window */
+  .uni-dock__window {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: var(--uni-panel);
+    color: var(--uni-fg);
+  }
+
   /* Where a dragged tab will land: a tinted zone, or a bar between tabs */
   .uni-dock__drop {
     position: absolute;

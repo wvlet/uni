@@ -100,6 +100,8 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
     .withActions(
       Ui.iconButton("Close dock  ⌘⇧B", Icons.panelRight, () => layout.toggleDock(), Side.Left)
     )
+    // Electron main allows the Dock's blank windows (src/main/index.js)
+    .withDetach(true)
 
   override def render: RxElement = FoldablePane(
     layout.dockOpen,

@@ -59,6 +59,22 @@ Dock(
 - **Layout.** A layout is a tree of `DockNode.Split(direction, children, sizes)` and
   `DockNode.Group(panels, active)`. `DockNode.row`, `DockNode.column`, and `DockNode.group` build
   one, and `sizes` are shares of the space that sum to 1. The layout names panels by id only.
+- **Floating groups.** "Float" in a tab's menu lifts the panel into a group floating over the grid,
+  saved in the layout's `floating` as a `DockFloat(panels, active, box)`. The `DockBox` holds its
+  left, top, width, and height as shares of the dock (0 to 1), so it keeps its place when the
+  window resizes and always stays inside the dock. Drag the grip at the left of its tab bar to move
+  it and its bottom-right corner to resize it, or focus the grip and press the arrow keys to move it
+  (Shift+arrow keys resize it, 16px a step). Tabs move into and out of a float as between other
+  groups; a float holds one group, so a drop anywhere on it adds the tab. "Dock" in the menu puts a
+  panel back into the grid. Pressing a float brings it to the front.
+- **Detached windows.** With `.withDetach(true)`, "Open in new window" moves a panel into a browser
+  window of its own, for a second monitor, and `dock.detach(id)` does the same from code. The
+  content keeps its state, the page's styles and theme come along, and its tab shows where it went.
+  The panel comes back when the window closes, on `dock.reattach(id)`, or when the panel is closed;
+  `dock.detached` lists the detached panels. A detached window isn't saved, because a browser blocks
+  windows that open without a click, so after a reload the panel is back in its tab. The window
+  comes from `window.open` on the same origin, so an Electron app must allow `about:blank` in its
+  `setWindowOpenHandler`. Menus and popovers opened inside the window still show in the main window.
 - **Rearranging.** Drag a tab onto another group's tabs to move it there, onto the middle of a
   group to add it, or onto one of a group's edges to split the group. A preview shows where it will
   land, and Escape cancels. A group that loses its last tab disappears.
@@ -82,6 +98,6 @@ Dock(
   saved layout. The JSON carries a format `version`; a save that is unreadable or from a newer
   version falls back to your default.
 - **Changing it from code.** `DockModel` in `wvlet.uni.ui.base` holds the operations the Dock runs
-  (`move`, `split`, `close`, `open`, `resize`) as pure functions on a `DockLayout`, so you can set
+  (`move`, `split`, `close`, `open`, `resize`, `float`, `dock`, `withBox`) as pure functions on a `DockLayout`, so you can set
   a layout from a command or test one without a DOM. `layout.open(id)` and `layout.close(id)` are
   shortcuts.

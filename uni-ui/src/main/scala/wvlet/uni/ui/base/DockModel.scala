@@ -68,8 +68,31 @@ object DockNode:
 end DockNode
 
 /**
-  * The arrangement of a [[wvlet.uni.ui.Dock]]: a tree of splits and tab groups. It is plain data
-  * held in an `RxVar`, so the app decides where it is saved:
+  * Where a floating group sits over the dock: its left and top edges, width, and height as
+  * fractions of the dock's size (0 to 1), so it keeps its place when the window resizes.
+  */
+case class DockBox(x: Double, y: Double, width: Double, height: Double) derives Weaver
+
+object DockBox:
+  /** Where a float goes when there is nothing to place it by. */
+  val default: DockBox = DockBox(0.1, 0.1, 0.5, 0.5)
+
+/**
+  * A tab group floating over the dock's grid, in `box`. Like a [[DockNode.Group]], it shows the
+  * `active` one of its `panels`.
+  */
+case class DockFloat(panels: Seq[String], active: Option[String], box: DockBox) derives Weaver:
+  /** The group of this float's tabs. */
+  def group: DockNode = DockNode.Group(panels, active)
+
+object DockFloat:
+  /** A float of `panels` in `box`, showing the first one. */
+  def of(box: DockBox, panels: String*): DockFloat = DockFloat(panels, panels.headOption, box)
+
+/**
+  * The arrangement of a [[wvlet.uni.ui.Dock]]: a tree of splits and tab groups, and the groups
+  * `floating` over it (the last one on top). It is plain data held in an `RxVar`, so the app
+  * decides where it is saved:
   * {{{
   *   val layout = Storage.local("app.dock", DockLayout(DockNode.row(DockNode.group("files"), DockNode.group("editor"))))
   * }}}
@@ -77,7 +100,7 @@ end DockNode
   * The saved JSON carries a format version ([[DockLayout.version]]). A save that is unreadable or
   * from a newer version decodes to None, so `Storage.local` falls back to the default.
   */
-case class DockLayout(root: DockNode):
+case class DockLayout(root: DockNode, floating: Seq[DockFloat] = Seq.empty):
   /** This layout as JSON, with the format version. */
   def toJSON: String = DockLayout.toJSONValue(this).toJSON
 
@@ -87,12 +110,12 @@ case class DockLayout(root: DockNode):
   /** Remove `panel` from the layout. */
   def close(panel: String): DockLayout = DockModel.close(this, panel)
 
-  /** The panels the user can see: the active tab of each group. */
-  def visible: Set[String] = DockModel.visible(root)
+  /** The panels the user can see: the active tab of each group, floating ones included. */
+  def visible: Set[String] = DockModel.visible(this)
 
 object DockLayout:
   /** The current format version, written as `"version"` in the JSON. */
-  val version: Int = 2
+  val version: Int = 3
 
   /** A layout with no panels. */
   val empty: DockLayout = DockLayout(DockNode.Group(Seq.empty, None))
@@ -103,32 +126,46 @@ object DockLayout:
   // Fixed rather than the caller's config, so an app's Weaver settings never change the saved shape
   private val format = WeaverConfig().withOmitNoneFields(true)
 
-  /** The saved form: `{"version":2,"root":...}`, with `root` in the derived `DockNode` format. */
+  private def toJSONValueOf[A](a: A)(using w: Weaver[A]): JSONValue = JSONValueWeaver.unpackJson(
+    MessagePack.newUnpacker(w.toMsgPack(a, format))
+  )
+
+  /**
+    * The saved form: `{"version":3,"root":...,"floating":[...]}`, with `root` and `floating` in
+    * their derived formats. `floating` is left out when there are no floats.
+    */
   def toJSONValue(l: DockLayout): JSONValue = JSONObject(
-    Seq(
-      "version" -> JSONLong(version),
-      "root"    ->
-        JSONValueWeaver.unpackJson(
-          MessagePack.newUnpacker(summon[Weaver[DockNode]].toMsgPack(l.root, format))
-        )
+    Seq("version" -> JSONLong(version), "root" -> toJSONValueOf(l.root)) ++ (
+      if l.floating.isEmpty then
+        Seq.empty
+      else
+        Seq("floating" -> toJSONValueOf(l.floating))
     )
   )
 
   /** Reads a saved layout, migrating older versions; None when it is unreadable or newer. */
   def fromJSONValue(v: JSONValue): Option[DockLayout] =
-    def decode(root: JSONValue): Option[DockLayout] =
+    def decode(root: JSONValue, floating: Option[JSONValue]): Option[DockLayout] =
       try
-        Some(DockLayout(summon[Weaver[DockNode]].fromJSONValue(root, format)))
+        Some(
+          DockLayout(
+            summon[Weaver[DockNode]].fromJSONValue(root, format),
+            floating.map(summon[Weaver[Seq[DockFloat]]].fromJSONValue(_, format)).getOrElse(Nil)
+          )
+        )
       catch
         case NonFatal(_) =>
           None
     v match
       case o: JSONObject =>
         (o.get("version"), o.get("root")) match
+          case (Some(JSONLong(3)), Some(root)) =>
+            decode(root, o.get("floating"))
+          // Versions 1 and 2 had no floating groups
           case (Some(JSONLong(2)), Some(root)) =>
-            decode(root)
+            decode(root, None)
           case (Some(JSONLong(1)), Some(root)) =>
-            decode(fromV1(root))
+            decode(fromV1(root), None)
           case _ =>
             None
       case _ =>
@@ -192,7 +229,10 @@ object DockLayout:
 
 end DockLayout
 
-/** A step down the layout tree: the index of a child in each split from the root. */
+/**
+  * A step down the layout tree: the index of a child in each split from the root. The group of
+  * floating group `i` has the path `List(-1 - i)` ([[DockModel.floatPath]]).
+  */
 type DockPath = List[Int]
 
 /**
@@ -201,17 +241,33 @@ type DockPath = List[Int]
   */
 object DockModel:
 
+  /** The smallest width or height of a floating group, as a share of the dock. */
+  val minFloatShare: Double = 0.05
+
+  /** The path of floating group `index`. */
+  def floatPath(index: Int): DockPath = List(-1 - index)
+
+  /** The index of the floating group at `path`, if it is one. */
+  def floatIndex(path: DockPath): Option[Int] =
+    path match
+      case n :: Nil if n < 0 =>
+        Some(-1 - n)
+      case _ =>
+        None
+
   /**
     * Clean a layout up, on load and after every operation:
-    *   - drop panels that `keep` rejects (unknown ids) and repeated ids;
-    *   - remove empty groups, collapse single-child splits, and flatten a split nested in the same
-    *     direction into its parent;
+    *   - drop panels that `keep` rejects (unknown ids) and repeated ids, keeping the first in
+    *     reading order (the grid, then the floats);
+    *   - remove empty groups and floats, collapse single-child splits, and flatten a split nested
+    *     in the same direction into its parent;
     *   - reset sizes that are missing or not positive to equal shares, and rescale them to sum to
     *     1;
     *   - make `active` a panel of its group;
+    *   - keep each float's box inside the dock ([[fixBox]]);
     *   - append `required` panels that are missing to the first group.
     *
-    * An empty layout becomes [[DockLayout.empty]].
+    * An empty grid becomes [[DockLayout.empty]]'s root.
     */
   def normalize(
       layout: DockLayout,
@@ -258,10 +314,17 @@ object DockModel:
 
     end go
 
-    val root    = go(layout.root).getOrElse(DockLayout.empty.root)
+    val root     = go(layout.root).getOrElse(DockLayout.empty.root)
+    val floating = layout
+      .floating
+      .flatMap { f =>
+        go(f.group).collect { case DockNode.Group(ps, a) =>
+          DockFloat(ps, a, fixBox(f.box))
+        }
+      }
     val missing = required.filter(p => keep(p) && !seen.contains(p))
     if missing.isEmpty then
-      DockLayout(root)
+      DockLayout(root, floating)
     else
       val first = firstGroup(root)
       DockLayout(
@@ -271,12 +334,38 @@ object DockModel:
             DockNode.Group(all, active.orElse(all.headOption))
           case other =>
             other
-        }
+        },
+        floating
       )
 
   end normalize
 
-  /** The node at `path`, if there is one. */
+  /**
+    * Keep a float's box inside the dock: width and height between [[minFloatShare]] and 1, and the
+    * edges within 0 and 1. A value that is not a number takes the one of [[DockBox.default]].
+    */
+  def fixBox(b: DockBox): DockBox =
+    def finite(v: Double, fallback: Double): Double =
+      if v.isNaN || v.isInfinite then
+        fallback
+      else
+        v
+    def share(v: Double, fallback: Double): Double =
+      val s = finite(v, fallback)
+      if s <= 0 then
+        fallback
+      else
+        math.max(minFloatShare, math.min(1.0, s))
+    val w = share(b.width, DockBox.default.width)
+    val h = share(b.height, DockBox.default.height)
+    DockBox(
+      math.max(0.0, math.min(1.0 - w, finite(b.x, DockBox.default.x))),
+      math.max(0.0, math.min(1.0 - h, finite(b.y, DockBox.default.y))),
+      w,
+      h
+    )
+
+  /** The node at `path` in the grid under `root`, if there is one. */
   def nodeAt(root: DockNode, path: DockPath): Option[DockNode] =
     path match
       case Nil =>
@@ -288,7 +377,15 @@ object DockModel:
           case _ =>
             None
 
-  /** The paths of every group, in reading order (depth first). */
+  /** The node at `path`: a node of the grid, or the group of a float. */
+  def nodeAt(layout: DockLayout, path: DockPath): Option[DockNode] =
+    floatIndex(path) match
+      case Some(i) =>
+        layout.floating.lift(i).map(_.group)
+      case None =>
+        nodeAt(layout.root, path)
+
+  /** The paths of every group in the grid, in reading order (depth first). */
   def groups(root: DockNode): Seq[DockPath] =
     def go(n: DockNode, path: DockPath): Seq[DockPath] =
       n match
@@ -297,6 +394,10 @@ object DockModel:
         case DockNode.Split(_, cs, _) =>
           cs.zipWithIndex.flatMap((c, i) => go(c, path :+ i))
     go(root, Nil)
+
+  /** The paths of every group: the grid's in reading order, then the floats' from the bottom. */
+  def groups(layout: DockLayout): Seq[DockPath] =
+    groups(layout.root) ++ layout.floating.indices.map(floatPath)
 
   /** The path of the first group. */
   def firstGroup(root: DockNode): DockPath = groups(root).headOption.getOrElse(Nil)
@@ -323,17 +424,24 @@ object DockModel:
           go(cs.head, path :+ 0)
     go(root, Nil)
 
-  /** The path of the group holding `panel`. */
-  def groupOf(root: DockNode, panel: String): Option[DockPath] = groups(root).find { p =>
-    nodeAt(root, p).exists {
-      case DockNode.Group(ps, _) =>
-        ps.contains(panel)
-      case _ =>
-        false
-    }
+  private def holds(n: Option[DockNode], panel: String): Boolean = n.exists {
+    case DockNode.Group(ps, _) =>
+      ps.contains(panel)
+    case _ =>
+      false
   }
 
-  /** Every panel in the layout, in reading order. */
+  /** The path of the group in the grid holding `panel`. */
+  def groupOf(root: DockNode, panel: String): Option[DockPath] = groups(root).find(p =>
+    holds(nodeAt(root, p), panel)
+  )
+
+  /** The path of the group holding `panel`, in the grid or a float. */
+  def groupOf(layout: DockLayout, panel: String): Option[DockPath] = groups(layout).find(p =>
+    holds(nodeAt(layout, p), panel)
+  )
+
+  /** Every panel in the grid, in reading order. */
   def panels(root: DockNode): Seq[String] =
     root match
       case DockNode.Group(ps, _) =>
@@ -341,13 +449,21 @@ object DockModel:
       case DockNode.Split(_, cs, _) =>
         cs.flatMap(panels)
 
-  /** The panels the user can see: the active one of each group. */
+  /** Every panel in the layout: the grid's in reading order, then the floats'. */
+  def panels(layout: DockLayout): Seq[String] =
+    panels(layout.root) ++ layout.floating.flatMap(_.panels)
+
+  /** The panels the user can see in the grid: the active one of each group. */
   def visible(root: DockNode): Set[String] =
     root match
       case DockNode.Group(_, active) =>
         active.toSet
       case DockNode.Split(_, cs, _) =>
         cs.flatMap(visible).toSet
+
+  /** The panels the user can see: the active one of each group, floating ones included. */
+  def visible(layout: DockLayout): Set[String] =
+    visible(layout.root) ++ layout.floating.flatMap(_.active)
 
   /**
     * The layout's structure without sizes or active tabs: what has to be rebuilt when it changes.
@@ -359,6 +475,14 @@ object DockModel:
       case DockNode.Split(d, cs, _) =>
         DockNode.Split(d, cs.map(shape), Seq.empty)
 
+  private val noBox = DockBox(0, 0, 0, 0)
+
+  /** The structure of the grid and the floats, without sizes, boxes, or active tabs. */
+  def shape(layout: DockLayout): DockLayout = DockLayout(
+    shape(layout.root),
+    layout.floating.map(f => DockFloat(f.panels, None, noBox))
+  )
+
   private def updateAt(root: DockNode, path: DockPath)(f: DockNode => DockNode): DockNode =
     path match
       case Nil =>
@@ -369,6 +493,20 @@ object DockModel:
             DockNode.Split(d, cs.updated(i, updateAt(cs(i), rest)(f)), ss)
           case other =>
             other
+
+  private def updateAt(layout: DockLayout, path: DockPath)(f: DockNode => DockNode): DockLayout =
+    floatIndex(path) match
+      case Some(i) if layout.floating.isDefinedAt(i) =>
+        val fl = layout.floating(i)
+        f(fl.group) match
+          case DockNode.Group(ps, a) =>
+            layout.copy(floating = layout.floating.updated(i, DockFloat(ps, a, fl.box)))
+          case _ =>
+            layout
+      case Some(_) =>
+        layout
+      case None =>
+        layout.copy(root = updateAt(layout.root, path)(f))
 
   // Takes `panel` out of its group but leaves the group in place, even if empty, so the paths
   // of the other nodes stay valid until the result is normalized
@@ -389,6 +527,19 @@ object DockModel:
       case DockNode.Split(d, cs, ss) =>
         DockNode.Split(d, cs.map(detach(_, panel)), ss)
 
+  private def detach(layout: DockLayout, panel: String): DockLayout = DockLayout(
+    detach(layout.root, panel),
+    layout
+      .floating
+      .map { f =>
+        detach(f.group, panel) match
+          case DockNode.Group(ps, a) =>
+            DockFloat(ps, a, f.box)
+          case _ =>
+            f
+      }
+  )
+
   private def insert(group: DockNode, panel: String, index: Int): DockNode =
     group match
       case DockNode.Group(ps, _) =>
@@ -397,27 +548,33 @@ object DockModel:
       case other =>
         other
 
+  private def isGroup(layout: DockLayout, path: DockPath): Boolean =
+    nodeAt(layout, path) match
+      case Some(_: DockNode.Group) =>
+        true
+      case _ =>
+        false
+
   /** Show `panel` in its group. */
   def activate(layout: DockLayout, panel: String): DockLayout =
-    groupOf(layout.root, panel) match
+    groupOf(layout, panel) match
       case Some(path) =>
-        DockLayout(
-          updateAt(layout.root, path) {
-            case DockNode.Group(ps, _) =>
-              DockNode.Group(ps, Some(panel))
-            case other =>
-              other
-          }
-        )
+        updateAt(layout, path) {
+          case DockNode.Group(ps, _) =>
+            DockNode.Group(ps, Some(panel))
+          case other =>
+            other
+        }
       case None =>
         layout
 
   /**
-    * Move `panel` into the group at `target`, before the tab at `index` (the end when `index` is
-    * past the last tab), and show it. Within its own group, this reorders the tabs.
+    * Move `panel` into the group at `target` (in the grid or a float), before the tab at `index`
+    * (the end when `index` is past the last tab), and show it. Within its own group, this reorders
+    * the tabs.
     */
   def move(layout: DockLayout, panel: String, target: DockPath, index: Int): DockLayout =
-    (groupOf(layout.root, panel), nodeAt(layout.root, target)) match
+    (groupOf(layout, panel), nodeAt(layout, target)) match
       case (Some(from), Some(DockNode.Group(ps, _))) =>
         // Removing the tab first shifts the later tabs of the same group left by one
         val at =
@@ -425,20 +582,20 @@ object DockModel:
             Reorder.landing(ps.indexOf(panel), index)
           else
             index
-        val detached = detach(layout.root, panel)
-        normalize(DockLayout(updateAt(detached, target)(insert(_, panel, at))))
+        normalize(updateAt(detach(layout, panel), target)(insert(_, panel, at)))
       case _ =>
         layout
 
   /**
     * Move `panel` beside the group at `target`, splitting it on `side`. `DockSide.Center` moves the
-    * panel into the group instead. Splitting a group's only tab off itself does nothing.
+    * panel into the group instead, and so does any side of a floating group, which holds one group
+    * only. Splitting a group's only tab off itself does nothing.
     */
   def split(layout: DockLayout, panel: String, target: DockPath, side: DockSide): DockLayout =
-    nodeAt(layout.root, target) match
-      case Some(DockNode.Group(ps, _)) if groupOf(layout.root, panel).isDefined =>
+    nodeAt(layout, target) match
+      case Some(DockNode.Group(ps, _)) if groupOf(layout, panel).isDefined =>
         side match
-          case DockSide.Center =>
+          case _ if side == DockSide.Center || floatIndex(target).isDefined =>
             move(layout, panel, target, ps.size)
           case _ if ps == Seq(panel) =>
             layout
@@ -449,10 +606,9 @@ object DockModel:
                   SplitDirection.Row
                 case _ =>
                   SplitDirection.Column
-            val before   = side == DockSide.Left || side == DockSide.Top
-            val detached = detach(layout.root, panel)
-            val result   =
-              updateAt(detached, target) { g =>
+            val before = side == DockSide.Left || side == DockSide.Top
+            normalize(
+              updateAt(detach(layout, panel), target) { g =>
                 val added = DockNode.group(panel)
                 val cs    =
                   if before then
@@ -461,43 +617,75 @@ object DockModel:
                     Seq(g, added)
                 DockNode.Split(dir, cs, Seq(0.5, 0.5))
               }
-            normalize(DockLayout(result))
+            )
       case _ =>
         layout
 
   /** Remove `panel` from the layout. */
-  def close(layout: DockLayout, panel: String): DockLayout = normalize(
-    DockLayout(detach(layout.root, panel))
-  )
+  def close(layout: DockLayout, panel: String): DockLayout = normalize(detach(layout, panel))
 
   /**
     * Show `panel`: activate it when it is in the layout, otherwise add it to the group at `target`
-    * (the first group when `target` is not a group) and show it there.
+    * (the first group of the grid when `target` is not a group) and show it there.
     */
   def open(layout: DockLayout, panel: String, target: Option[DockPath] = None): DockLayout =
-    if groupOf(layout.root, panel).isDefined then
+    if groupOf(layout, panel).isDefined then
       activate(layout, panel)
     else
-      val path = target
-        .filter(p =>
-          nodeAt(layout.root, p).exists {
-            case _: DockNode.Group =>
-              true
-            case _ =>
-              false
-          }
-        )
-        .getOrElse(firstGroup(layout.root))
-      normalize(DockLayout(updateAt(layout.root, path)(g => insert(g, panel, Int.MaxValue))))
+      val path = target.filter(isGroup(layout, _)).getOrElse(firstGroup(layout.root))
+      normalize(updateAt(layout, path)(g => insert(g, panel, Int.MaxValue)))
+
+  /**
+    * Lift `panel` out of its group into a new floating group in `box`, on top of the others. A
+    * panel that is already the only tab of a float stays where it is.
+    */
+  def float(layout: DockLayout, panel: String, box: DockBox = DockBox.default): DockLayout =
+    groupOf(layout, panel) match
+      case Some(path) if !(floatIndex(path).isDefined && holdsOnly(layout, path, panel)) =>
+        val detached = detach(layout, panel)
+        normalize(detached.copy(floating = detached.floating :+ DockFloat.of(fixBox(box), panel)))
+      case _ =>
+        layout
+
+  private def holdsOnly(layout: DockLayout, path: DockPath, panel: String): Boolean = nodeAt(
+    layout,
+    path
+  ).exists {
+    case DockNode.Group(ps, _) =>
+      ps == Seq(panel)
+    case _ =>
+      false
+  }
+
+  /**
+    * Put `panel` back into the grid, at the end of its first group, when it is in a float. A float
+    * left without tabs disappears.
+    */
+  def dock(layout: DockLayout, panel: String): DockLayout =
+    groupOf(layout, panel) match
+      case Some(path) if floatIndex(path).isDefined =>
+        move(layout, panel, firstGroup(layout.root), Int.MaxValue)
+      case _ =>
+        layout
+
+  /** Move or resize floating group `index` to `box`, kept inside the dock. */
+  def withBox(layout: DockLayout, index: Int, box: DockBox): DockLayout =
+    if layout.floating.isDefinedAt(index) then
+      layout.copy(floating =
+        layout.floating.updated(index, layout.floating(index).copy(box = fixBox(box)))
+      )
+    else
+      layout
 
   /** Replace the sizes of the split at `path`. */
-  def withSizes(layout: DockLayout, path: DockPath, sizes: Seq[Double]): DockLayout = DockLayout(
-    updateAt(layout.root, path) {
-      case DockNode.Split(d, cs, _) if sizes.size == cs.size =>
-        DockNode.Split(d, cs, sizes)
-      case other =>
-        other
-    }
+  def withSizes(layout: DockLayout, path: DockPath, sizes: Seq[Double]): DockLayout = layout.copy(
+    root =
+      updateAt(layout.root, path) {
+        case DockNode.Split(d, cs, _) if sizes.size == cs.size =>
+          DockNode.Split(d, cs, sizes)
+        case other =>
+          other
+      }
   )
 
   /**
