@@ -16,7 +16,8 @@ package wvlet.uni.http.rpc
 import wvlet.uni.http
 
 // Aliases for the names these types had before they moved to wvlet.uni.http, so RPC, Electron
-// IPC, and MCP servers can share them. The wire format did not change.
+// IPC, and MCP servers can share them. The wire format did not change. Type aliases keep source
+// compatibility only; binaries compiled against the old classes must be rebuilt.
 
 @deprecated("Use wvlet.uni.http.ServiceStatus", "2026.1.42")
 type RPCStatus = http.ServiceStatus

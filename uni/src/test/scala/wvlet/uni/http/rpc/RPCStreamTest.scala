@@ -13,7 +13,6 @@
  */
 package wvlet.uni.http.rpc
 
-import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.*
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner, RxStream}
 import wvlet.uni.test.UniTest

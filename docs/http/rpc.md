@@ -259,7 +259,7 @@ streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED
 
 - **Errors.** A failure before the method returns gets the usual error response, which fails the
   `Rx` with an `HttpException`, as a unary call does. A failure after the stream started is sent
-  as an `rpc-error` event carrying the [RPC error](#rpcexception) JSON. It ends the stream and
+  as an `rpc-error` event carrying the [RPC error](#serviceexception) JSON. It ends the stream and
   fails the `Rx` with that `ServiceException`.
 - **No retry.** A stream that has started cannot be replayed, so streaming calls are sent once.
 - **Cancellation.** Cancelling the `Rx` (an unsubscribe, or `take(n)`) stops the server stream:
@@ -291,7 +291,7 @@ replies this way, in Electron and in the browser.
 
 ## RPC Status Codes
 
-`ServiceStatus` (in `wvlet.uni.http`) provides structured error codes organized by category. RPC, Electron IPC, and MCP servers share these statuses. Before version 2026.1.42 it was called `RPCStatus`, and the old names remain as deprecated aliases in `wvlet.uni.http.rpc`.
+`ServiceStatus` (in `wvlet.uni.http`) provides structured error codes organized by category. RPC, Electron IPC, and MCP servers share these statuses. Before version 2026.1.42 it was called `RPCStatus`, and the old names remain as deprecated aliases in `wvlet.uni.http.rpc`. The aliases keep source compatibility only: recompile libraries built against the old names.
 
 | Category | HTTP Status | Retryable | Description |
 |----------|-------------|-----------|-------------|

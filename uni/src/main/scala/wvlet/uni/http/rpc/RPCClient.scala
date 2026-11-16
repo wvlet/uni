@@ -13,7 +13,6 @@
  */
 package wvlet.uni.http.rpc
 
-import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.*
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.JSONObject
