@@ -13,10 +13,12 @@ Maven Central still requires a `-javadoc.jar` for every artifact, so these jars 
 - It applies to the Scala.js and Scala Native platforms of uni-core, uni, and uni-test. The JVM jars are unchanged.
 - Scala.js is included even though it adds JS-only APIs (`wvlet.uni.dom`, `wvlet.uni.electron`, the Playwright test helpers). Those stay documented in the guides on the uni website. Keeping full Scala.js docs would have saved only about half as much.
 - Modules without a JVM artifact keep full Scaladoc: uni-ui is Scala.js only, so its Scaladoc is the only place its API is published.
+- The sbt plugins (sbt-uni, sbt-uni-crossproject, sbt-uni-playwright) and uni-jsenv-playwright use `minimizePluginJavadoc` from the same file. Their page links to the plugin's guide on the uni website and its source on GitHub, because there is no other artifact with their Scaladoc. Users configure the plugins through settings described in the guides, so the Scaladoc added little, while each jar was ~0.5 MB, mostly Scaladoc's own scripts. The plugin sub-builds compile `project/MinimizeJavadoc.scala` into their metabuild instead of copying it.
 - The setting lives in the main build, not in sbt-uni-crossproject. The plugin is consumed as a published release, and choosing what to publish is the build's policy, not the plugin's.
 
 ## Consequences
 
 - javadoc.io no longer shows Scaladoc for the `_sjs1_3` and `_native0.5_3` artifacts of these modules. Readers follow the link to the `_3` artifact instead.
+- javadoc.io no longer shows Scaladoc for the sbt plugins or uni-jsenv-playwright. Readers follow the links to the guide and the source.
 - A new cross-built module with a published JVM artifact should add `minimizeJavadoc` to its `.jsSettings` and `.nativeSettings`. A Scala.js-only or Native-only module must not.
 - If the JS-only APIs need Scaladoc again, a possible follow-up is to run scaladoc on only the JS-only packages (`-skip-by-id`) and link shared types to the JVM docs with `-external-mappings`.

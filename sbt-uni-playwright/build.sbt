@@ -2,6 +2,8 @@
 // Replaces the unmaintained, Scala-2.12-only, cats-effect-based io.github.gmkumar2005 env so uni
 // can run Scala.js tests in a real ES-module browser on sbt 2.x without those constraints.
 
+import MinimizeJavadoc.minimizePluginJavadoc
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
@@ -69,7 +71,11 @@ lazy val jsenv = project
         "org.scala-js"            %% "scalajs-js-envs" % SCALAJS_JS_ENVS_VERSION,
         "com.microsoft.playwright" % "playwright"      % PLAYWRIGHT_VERSION,
         "org.scalameta"           %% "munit"           % "1.1.0" % Test
-      )
+      ),
+    minimizePluginJavadoc(
+      guide = "build/sbt-uni-playwright",
+      sourceDir = "sbt-uni-playwright/jsenv/src/main/scala"
+    )
   )
 
 // The sbt 2.x plugin. Bundles the JSEnv and adds ergonomic settings plus a browser-install task.
@@ -87,7 +93,11 @@ lazy val plugin = project
     scriptedLaunchOpts := {
       scriptedLaunchOpts.value ++ Seq("-Xmx1024M", s"-Dplugin.version=${version.value}")
     },
-    scriptedBufferLog := false
+    scriptedBufferLog := false,
+    minimizePluginJavadoc(
+      guide = "build/sbt-uni-playwright",
+      sourceDir = "sbt-uni-playwright/plugin/src/main/scala"
+    )
   )
 
 lazy val root = project.in(file(".")).settings(publish / skip := true).aggregate(jsenv, plugin)

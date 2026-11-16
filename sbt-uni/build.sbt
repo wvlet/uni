@@ -1,6 +1,8 @@
 // sbt-uni: sbt 2.x plugin for uni
 // Written in Scala 3 (sbt 2.x metabuild). Code and OpenAPI generation fork a JVM on the app's uni.
 
+import MinimizeJavadoc.minimizePluginJavadoc
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
@@ -80,5 +82,6 @@ lazy val sbtUni = project
           s"-Dscala.version=${SCALA_VERSION}"
         )
     },
-    scriptedBufferLog := false
+    scriptedBufferLog := false,
+    minimizePluginJavadoc(guide = "build/sbt-uni", sourceDir = "sbt-uni/src/main/scala")
   )
