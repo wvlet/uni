@@ -27,6 +27,31 @@ private[log] object LogEnv extends LogEnvBase:
   override def defaultHandler: java.util.logging.Handler =
     new ConsoleLogHandler(SourceCodeLogFormatter)
 
+  // System.console() needs stdin and stdout to be terminals; since JDK 22 it can be non-null for
+  // redirected output, and Console.isTerminal tells them apart
+  override lazy val isStderrTerminal: Boolean =
+    val c = System.console()
+    c != null && {
+      try
+        classOf[java.io.Console].getMethod("isTerminal").invoke(c) == java.lang.Boolean.TRUE
+      catch
+        case _: NoSuchMethodException =>
+          true
+        case _: Exception =>
+          false
+    }
+
+  override def saveStackTrace(dir: String, fileName: String, content: String): Option[String] =
+    try
+      val d = java.nio.file.Paths.get(dir).toAbsolutePath
+      java.nio.file.Files.createDirectories(d)
+      val f = d.resolve(fileName)
+      java.nio.file.Files.write(f, content.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      Some(f.toString)
+    catch
+      case _: Exception =>
+        None
+
   /**
     * @param cl
     * @return

@@ -15,6 +15,7 @@ package wvlet.uni.test.spi
 
 import sbt.testing.*
 import wvlet.uni.cli.Tint
+import wvlet.uni.log.ShortStackTrace
 import wvlet.uni.test.AssertionFailure
 import wvlet.uni.test.TestException
 import wvlet.uni.test.TestResult
@@ -122,6 +123,7 @@ class UniTestTask(
       eventHandler: EventHandler,
       loggers: Array[sbt.testing.Logger]
   ): Array[Task] =
+    useConsoleStackTraceStyle(loggers)
     def run(): Unit = TestLogCapture.withSuiteThread {
       compat.runSuite(ec => runSuite(eventHandler, loggers)(using ec))
     }
@@ -141,9 +143,17 @@ class UniTestTask(
       continuation: Array[Task] => Unit
   ): Unit =
     given ExecutionContext = compat.executionContext
+    useConsoleStackTraceStyle(loggers)
     runSuite(eventHandler, loggers).foreach { _ =>
       continuation(Array.empty)
     }
+
+  /**
+    * Under sbt, the test JVM's stderr is rarely the user's terminal, so let sbt's loggers decide
+    * how exceptions logged inside tests show their stack traces. UniTestRunner.done restores it.
+    */
+  private def useConsoleStackTraceStyle(loggers: Array[sbt.testing.Logger]): Unit = ShortStackTrace
+    .setForConsole(config.stackTraceStyle(loggers.exists(_.ansiCodesSupported())))
 
   private def runSuite(eventHandler: EventHandler, loggers: Array[sbt.testing.Logger])(using
       ExecutionContext
@@ -164,6 +174,18 @@ class UniTestTask(
       }
 
   end runSuite
+
+  /**
+    * Print the stack trace of an error: short in a terminal, full in CI and redirected output
+    */
+  private def logStackTrace(e: Throwable, loggers: Array[sbt.testing.Logger]): Unit = loggers
+    .foreach { l =>
+      config.stackTraceStyle(l.ansiCodesSupported()) match
+        case Some(style) =>
+          l.error(style.format(e))
+        case None =>
+          l.trace(e)
+    }
 
   private def logClassHeader(className: String, loggers: Array[sbt.testing.Logger]): Unit = loggers
     .foreach(_.info(Tint.brightWhite(s"${className}:")))
@@ -195,7 +217,7 @@ class UniTestTask(
     cause match
       case _: TestSkipped | _: TestPending | _: TestCancelled | _: TestIgnored =>
       case _                                                                   =>
-        loggers.foreach(_.trace(cause))
+        logStackTrace(cause, loggers)
     suiteResult
 
   private def runTests(
@@ -311,7 +333,7 @@ class UniTestTask(
                               )
                             )
                           )
-                          loggers.foreach(_.trace(e))
+                          logStackTrace(e, loggers)
                           result
                         case None =>
                           result
@@ -410,7 +432,7 @@ class UniTestTask(
         }
       case TestResult.Error(name, msg, cause) =>
         loggers.foreach(_.error(Tint.red(s"  x ${name}: ${msg}") + Tint.gray(s" (${timeStr})")))
-        loggers.foreach(_.trace(cause))
+        logStackTrace(cause, loggers)
       case TestResult.Skipped(name, reason) =>
         loggers.foreach(
           _.info(Tint.yellow(s"  ~ ${name}: skipped - ${reason}") + Tint.gray(s" (${timeStr})"))

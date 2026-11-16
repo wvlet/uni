@@ -16,6 +16,7 @@ package wvlet.uni.test.spi
 import sbt.testing.Runner
 import sbt.testing.Task
 import sbt.testing.TaskDef
+import wvlet.uni.log.ShortStackTrace
 
 /**
   * sbt test runner for UniTest
@@ -48,6 +49,8 @@ class UniTestRunner(_args: Array[String], _remoteArgs: Array[String], testClassL
 
   override def done(): String =
     uninstallLogCapture()
+    // UniTestTask chose the console stack trace style from sbt's loggers
+    ShortStackTrace.resetForConsole()
     val summary = stats.summary
     if summary.isEmpty then
       ""

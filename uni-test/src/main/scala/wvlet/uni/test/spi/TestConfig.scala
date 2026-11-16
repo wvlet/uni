@@ -15,6 +15,7 @@ package wvlet.uni.test.spi
 
 import wvlet.uni.log.Logger
 import wvlet.uni.log.LogLevel
+import wvlet.uni.log.ShortStackTrace
 
 /**
   * Test configuration parsed from command-line arguments
@@ -46,6 +47,16 @@ case class TestConfig(
   def logCaptureEnabled: Boolean = logCapture.getOrElse(TestConfig.isCI(sys.env))
 
   /**
+    * How to print stack traces to sbt loggers. Short traces only when the logger reaches an
+    * interactive terminal (sbt reports it as ANSI support) outside CI; None means full traces.
+    */
+  def stackTraceStyle(ansiCodesSupported: Boolean): Option[ShortStackTrace] =
+    if !ansiCodesSupported || TestConfig.isCI(sys.env) then
+      None
+    else
+      Some(ShortStackTrace().withTraceDir(TestConfig.stackTraceDir))
+
+  /**
     * Whether a test with the given tags should run under this config. A test runs when it carries
     * every `--tags` tag (AND — each added tag narrows the selection) and none of the
     * `--exclude-tags` tags. With no `--tags`, all tests are included. Exclusion wins over
@@ -54,14 +65,19 @@ case class TestConfig(
   def includesTags(tags: Set[String]): Boolean =
     includeTags.subsetOf(tags) && !tags.exists(excludeTags.contains)
 
+end TestConfig
+
 object TestConfig:
 
   /**
     * GitHub Actions, CircleCI, and most other CI services set `CI=true`
     */
-  def isCI(env: Map[String, String]): Boolean = env
-    .get("CI")
-    .exists(v => v.nonEmpty && v != "false")
+  def isCI(env: Map[String, String]): Boolean = ShortStackTrace.isCI(env)
+
+  /**
+    * Where full stack traces of a test run are saved, relative to the working directory
+    */
+  val stackTraceDir: String = "target/uni-test/stacktraces"
 
   /**
     * Parse command-line arguments into TestConfig

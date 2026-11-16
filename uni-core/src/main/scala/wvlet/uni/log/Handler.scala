@@ -11,9 +11,13 @@ import java.util.logging as jl
   */
 class ConsoleLogHandler(formatter: LogFormatter, out: PrintStream = LogEnv.defaultConsoleOutput)
     extends jl.Handler:
-  override def publish(record: jl.LogRecord): Unit = out.println(formatter.format(record))
-  override def flush(): Unit                       = System.err.flush()
-  override def close(): Unit                       = {}
+  // Shorten stack traces when the console is an interactive terminal
+  override def publish(record: jl.LogRecord): Unit = out.println(
+    ShortStackTrace.withStyle(ShortStackTrace.forConsole)(formatter.format(record))
+  )
+
+  override def flush(): Unit = System.err.flush()
+  override def close(): Unit = {}
 
 /**
   * Handlers for discarding logs

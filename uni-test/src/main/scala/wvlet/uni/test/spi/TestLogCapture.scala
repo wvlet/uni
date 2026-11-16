@@ -15,6 +15,7 @@ package wvlet.uni.test.spi
 
 import wvlet.uni.log.LogFormatter.SourceCodeLogFormatter
 import wvlet.uni.log.Logger
+import wvlet.uni.log.ShortStackTrace
 
 import java.util.function.Supplier
 import java.util.logging as jl
@@ -158,7 +159,10 @@ private[test] object TestLogCapture:
       if removed || loggers == null then
         original.foreach(_.publish(record))
       else
-        val msg   = SourceCodeLogFormatter.format(record)
+        val msg =
+          ShortStackTrace.withStyle(ShortStackTrace.forConsole)(
+            SourceCodeLogFormatter.format(record)
+          )
         val level = record.getLevel.intValue()
         if level >= jl.Level.SEVERE.intValue() then
           loggers.foreach(_.error(msg))

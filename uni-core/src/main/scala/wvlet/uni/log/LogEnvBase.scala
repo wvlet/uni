@@ -17,6 +17,17 @@ private[log] trait LogEnvBase:
   def defaultConsoleOutput: PrintStream
 
   /**
+    * Whether stderr is an interactive terminal, so a person reads the console log
+    */
+  def isStderrTerminal: Boolean = false
+
+  /**
+    * Save a full stack trace to `dir/fileName` and return its absolute path, or None when files are
+    * unavailable (Scala.js) or the write failed
+    */
+  def saveStackTrace(dir: String, fileName: String, content: String): Option[String] = None
+
+  /**
     * @param cl
     * @return
     */

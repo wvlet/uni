@@ -29,6 +29,19 @@ private[log] object LogEnv extends LogEnvBase:
 
   override def defaultConsoleOutput: PrintStream = System.err
 
+  override lazy val isStderrTerminal: Boolean = scala.scalanative.posix.unistd.isatty(2) == 1
+
+  override def saveStackTrace(dir: String, fileName: String, content: String): Option[String] =
+    try
+      val d = java.nio.file.Paths.get(dir).toAbsolutePath
+      java.nio.file.Files.createDirectories(d)
+      val f = d.resolve(fileName)
+      java.nio.file.Files.write(f, content.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+      Some(f.toString)
+    catch
+      case _: Exception =>
+        None
+
   /**
     * @param cl
     * @return
@@ -41,3 +54,5 @@ private[log] object LogEnv extends LogEnvBase:
       // Remove trailing $xxx
       name = name.substring(0, pos)
     name
+
+end LogEnv

@@ -932,6 +932,14 @@ In CI (when the `CI` environment variable is set), UniTest on the JVM writes log
 Test / testOptions += Tests.Argument("--log-capture")    // or "--no-log-capture"
 ```
 
+### Stack Traces
+
+When sbt prints to an interactive terminal, an error shows a short stack trace: the exception, its first 5 frames outside sbt and UniTest, and 2 frames of each `Caused by:`. The last line links to a file under `target/uni-test/stacktraces/` that holds the full trace. Most terminals (iTerm2, VS Code, WezTerm, kitty, Windows Terminal) open the link on click. Exceptions logged inside tests, such as `warn("retrying", e)`, are shortened the same way.
+
+CI runs (the `CI` environment variable is set) and output redirected to a file or pipe keep the full trace inline. So does Scala.js, which has no file to save the trace in.
+
+Outside tests, the logger's console handler applies the same rule: short traces when stderr is a terminal outside CI, saved to `uni-stacktraces/` under the temp directory. Force a style with `ShortStackTrace.setForConsole(...)` (`Some(ShortStackTrace())` to shorten, `None` for full traces).
+
 ## Best Practices
 
 1. **Avoid mocks** - Use real implementations or in-memory versions

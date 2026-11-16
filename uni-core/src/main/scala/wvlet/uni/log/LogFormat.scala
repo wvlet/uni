@@ -99,9 +99,9 @@ object LogFormatter extends AnsiColorPalette:
   def appendStackTrace(m: String, r: LogRecord, coloring: Boolean = true): String =
     r.cause match
       case Some(ex) if coloring =>
-        s"${m}\n${highlightLog(r.level, formatStacktrace(ex))}"
+        s"${m}\n${highlightLog(r.level, ShortStackTrace.formatInCurrentStyle(ex))}"
       case Some(ex) =>
-        s"${m}\n${formatStacktrace(ex)}"
+        s"${m}\n${ShortStackTrace.formatInCurrentStyle(ex)}"
       case None =>
         m
 
@@ -216,7 +216,7 @@ object LogFormatter extends AnsiColorPalette:
       val m = r.getMessage()
       r.cause match
         case Some(ex) =>
-          s"${m}\n${formatStacktrace(ex)}"
+          s"${m}\n${ShortStackTrace.formatInCurrentStyle(ex)}"
         case None =>
           m
 
