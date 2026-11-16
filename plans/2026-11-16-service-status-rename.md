@@ -17,7 +17,7 @@ Lane: Standard — a public API rename across the http and rpc packages that use
 
 - **Name: `ServiceStatus`** (with `ServiceStatusType`). `ServiceStatus.NOT_FOUND_U5.newException("...")` reads as "the outcome of a service call", whatever the transport.
 - **Exception and message follow it:** `RPCException` becomes `ServiceException` and `RPCErrorMessage` becomes `ServiceErrorMessage`. Otherwise users would throw an `RPCException` from a plain HTTP endpoint.
-- **Package: `wvlet.uni.http`**, next to `HttpStatus`, which it maps to. RPC-only types (`RPCRouter`, `RPCClient`, `RPCStackTraceElement`, …) stay in `http.rpc`.
+- **Package: `wvlet.uni.http`**, next to `HttpStatus`, which it maps to. RPC-only types (`RPCRouter`, `RPCClient`, `RPCDispatcher`) stay in `http.rpc`; `RPCStackTraceElement` moves too, as `ServiceErrorMessage` refers to it.
 - **Compatibility:** `@deprecated` type and val aliases in `wvlet.uni.http.rpc` (`RPCStatus`, `RPCStatusType`, `RPCException`, `RPCErrorMessage`), so `import wvlet.uni.http.rpc.RPCStatus` and `case RPCStatus.NOT_FOUND_U5 =>` keep compiling, with a warning.
 - **Wire format unchanged:** the same `X-RPC-Status` header, codes, code names, and JSON/MessagePack fields. Old clients and servers keep working with new ones.
 - **Docs:** update `docs/http/rpc.md`, the book chapter, `for-ai-agents.md`, and the `uni` plugin skill (with a version bump) to the new names, and add an Airframe→Uni row.
