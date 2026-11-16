@@ -8,15 +8,15 @@ The API is the same on the JVM, Scala.js, and Scala Native. It is a port of airf
 
 ```scala
 import wvlet.uni.canvas.Canvas
+import wvlet.uni.control.Control
 
-val c = Canvas.newOffHeapCanvas(1024)
-try
+// withResource frees the memory when the block ends, even if it throws
+Control.withResource(Canvas.newOffHeapCanvas(1024)) { c =>
   c.writeInt(0, 10)
   c.writeLongBigEndian(8, 1234L)
   c.readInt(0)           // 10
   c.readLongBigEndian(8) // 1234
-finally
-  c.close()              // free the memory now
+}
 ```
 
 ## Creating canvases
@@ -75,6 +75,6 @@ and Scala.js report that case as `IllegalStateException`; Native can read freed 
 `Canvas.isOffHeapSupported` tells you whether `newOffHeapCanvas` works on the current platform.
 Heap canvases work everywhere.
 
-Close canvases explicitly, for example with `try`/`finally` or `scala.util.Using`. Freeing
+Close canvases explicitly, with `Control.withResource` or a `Resource` from `wvlet.uni.control`. Freeing
 after GC is a safety net for the JVM and Scala.js. It runs only when the GC notices the canvas
 is unreachable, which can be much later.

@@ -167,16 +167,16 @@ Scala Native frees it only then. On the JVM, off-heap canvases need Java 22+
 
 ```scala
 import wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}
+import wvlet.uni.control.Control
 
 val allocator = OffHeapMemoryAllocator()
-val c = allocator.newCanvas(1024)
-try
+// Closes the canvas when the block ends; prefer it over scala.util.Using
+Control.withResource(allocator.newCanvas(1024)) { c =>
   c.writeInt(0, 42)          // little-endian
   c.writeLongBigEndian(8, 7L)
   val view = c.slice(0, 16)  // shares memory with c
   assert(view.readInt(0) == 42)
-finally
-  c.close()
+}
 assert(allocator.allocatedMemorySize == 0L)
 
 val heap = Canvas.wrap(Array.ofDim[Byte](8)) // heap canvas over an existing array
