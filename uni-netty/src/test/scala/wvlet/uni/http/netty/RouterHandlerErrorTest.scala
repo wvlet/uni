@@ -13,7 +13,15 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.http.{HttpMethod, Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{
+  HttpMethod,
+  Request,
+  Response,
+  RxHttpFilter,
+  RxHttpHandler,
+  ServiceException,
+  ServiceStatus
+}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.required
@@ -33,6 +41,14 @@ object RouterHandlerErrorTest:
 
     @Endpoint(HttpMethod.GET, "/state-error")
     def stateError(): String = throw IllegalStateException("password=hunter2")
+
+    @Endpoint(HttpMethod.GET, "/not-found")
+    def notFound(): String = throw ServiceStatus.NOT_FOUND_U5.newException("no such item")
+
+    @Endpoint(HttpMethod.GET, "/rx-unavailable")
+    def rxUnavailable(): Rx[String] = Rx.exception(
+      ServiceStatus.UNAVAILABLE_I2.newException("try again later")
+    )
 
     @Endpoint(HttpMethod.GET, "/count")
     def count(
@@ -136,6 +152,35 @@ class RouterHandlerErrorTest extends UniTest:
         resp.body() shouldBe "password=hunter2"
       }
     logs.warnings shouldContain "Error in Rx handler: password=hunter2"
+  }
+
+  test("render a thrown ServiceException as its mapped response") {
+    val logs =
+      withServer(serverConfig) { base =>
+        val resp = get(s"${base}/not-found")
+        resp.statusCode() shouldBe 404
+        resp.headers().firstValue("X-RPC-Status").orElse(null) shouldBe
+          ServiceStatus.NOT_FOUND_U5.code.toString
+        resp.body() shouldNotContain "stackTrace"
+        val e = ServiceException.fromJson(resp.body())
+        e.status shouldBe ServiceStatus.NOT_FOUND_U5
+        e.message shouldBe "no such item"
+
+        val async = get(s"${base}/rx-unavailable")
+        async.statusCode() shouldBe ServiceStatus.UNAVAILABLE_I2.httpStatus.code
+        ServiceException.fromJson(async.body()).status shouldBe ServiceStatus.UNAVAILABLE_I2
+      }
+    // A client error is not logged as a server failure; a server-side status still is
+    logs.warnings shouldNotContain "no such item"
+    logs.warnings shouldContain "try again later"
+  }
+
+  test("include the ServiceException stack trace with the server's detailed errors") {
+    withServer(serverConfig.withDetailedErrors(true)) { base =>
+      val resp = get(s"${base}/not-found")
+      resp.statusCode() shouldBe 404
+      resp.body() shouldContain "stackTrace"
+    }
   }
 
   test("keep parameter mapping errors as 400") {

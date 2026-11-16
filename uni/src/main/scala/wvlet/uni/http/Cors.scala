@@ -158,7 +158,10 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter with LogSupport:
         case NonFatal(e) if responded.get() =>
           Rx.exception(e)
         case NonFatal(e) =>
-          warn(s"Error handling request: ${e.getMessage}", e)
+          if HttpServerSecurity.isClientError(e) then
+            debug(s"Error handling request: ${e.getMessage}", e)
+          else
+            warn(s"Error handling request: ${e.getMessage}", e)
           HttpAccessLogFilter.addEntry(request, "exception_class", e.getClass.getName)
           Option(e.getMessage).foreach(
             HttpAccessLogFilter.addEntry(request, "exception_message", _)

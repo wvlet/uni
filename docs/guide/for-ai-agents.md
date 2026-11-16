@@ -158,8 +158,10 @@ for background.
   429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
   of `HttpException`. Failed RPC client calls throw the same exceptions. Report
   server errors by throwing `ServiceStatus.NOT_FOUND_U5.newException("...")`
-  (`wvlet.uni.http.{ServiceStatus, ServiceException}`); `RPCStatus` is its
-  deprecated old name.
+  (`wvlet.uni.http.{ServiceStatus, ServiceException}`): RPC, `Router`, and
+  other `Http.server` endpoints answer with its HTTP status, the
+  `X-RPC-Status` header, and a JSON error body. `RPCStatus` is its deprecated
+  old name.
 - **Hand-writing test setup and teardown.** Bind servers, clients, and temp
   directories with `addDesign` / `addTestDesign` in a trait that extends
   `UniTest`, and take them as test arguments. A self-type fixture

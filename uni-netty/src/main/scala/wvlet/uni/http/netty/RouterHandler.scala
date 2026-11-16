@@ -34,7 +34,8 @@ import scala.util.control.NonFatal
   *
   * A controller or filter exception is returned as a failed `Rx` (as an exception inside a returned
   * `Rx` already is), so an enclosing [[RxHttpFilter]] can `recover` from the original exception.
-  * When no filter recovers, the server renders it as a generic 500 response.
+  * When no filter recovers, the server renders it: a [[wvlet.uni.http.ServiceException]] as its
+  * mapped status, `X-RPC-Status` header, and JSON error body, any other exception as a generic 500.
   *
   * @param router
   *   The router containing route definitions

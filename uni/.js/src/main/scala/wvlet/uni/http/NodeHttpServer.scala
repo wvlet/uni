@@ -162,7 +162,10 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
           runResponse(res, handler.handle(request))
         catch
           case e: Throwable =>
-            warn(s"Error handling request: ${e.getMessage}", e)
+            if HttpServerSecurity.isClientError(e) then
+              debug(s"Error handling request: ${e.getMessage}", e)
+            else
+              warn(s"Error handling request: ${e.getMessage}", e)
             writeResponse(res, errorResponse(e))
 
       val onData: js.Function1[js.Dynamic, Unit] =
@@ -187,7 +190,10 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       req.applyDynamic("on")("end", onEnd)
     catch
       case e: Throwable =>
-        warn(s"Error initializing request: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"Error initializing request: ${e.getMessage}", e)
+        else
+          warn(s"Error initializing request: ${e.getMessage}", e)
         writeResponse(res, errorResponse(e))
 
   end handleRequest
@@ -222,7 +228,10 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
       case OnNext(response) =>
         writeResponse(res, response.asInstanceOf[Response])
       case OnError(e) =>
-        warn(s"Error in Rx handler: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"Error in Rx handler: ${e.getMessage}", e)
+        else
+          warn(s"Error in Rx handler: ${e.getMessage}", e)
         writeResponse(res, errorResponse(e))
       case OnCompletion =>
         writeResponse(res, Response.notFound)

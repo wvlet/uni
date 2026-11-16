@@ -32,6 +32,41 @@ class HttpServerSecurityTest extends UniTest:
     detailed.contentAsString.get shouldContain "db.internal"
   }
 
+  test("render a ServiceException as its mapped status, header, and JSON body") {
+    val e    = ServiceStatus.NOT_FOUND_U5.newException("no such user")
+    val resp = HttpServerSecurity.errorResponse(e, detailedErrors = false)
+    resp.status shouldBe HttpStatus.NotFound_404
+    resp.header(HttpHeader.XRPCStatus) shouldBe Some(ServiceStatus.NOT_FOUND_U5.code.toString)
+    val restored = ServiceException.fromJson(resp.contentAsString.get)
+    restored.status shouldBe ServiceStatus.NOT_FOUND_U5
+    restored.message shouldBe "no such user"
+    resp.contentAsString.get shouldNotContain "stackTrace"
+  }
+
+  test("include a ServiceException stack trace only with detailed errors") {
+    val e = ServiceStatus.INVALID_ARGUMENT_U2.newException("bad input")
+    HttpServerSecurity.errorResponse(e, detailedErrors = true).contentAsString.get shouldContain
+      "stackTrace"
+
+    // Auth errors never report frames, and noStackTrace always wins
+    val auth = ServiceStatus.UNAUTHENTICATED_U13.newException("login required")
+    HttpServerSecurity
+      .errorResponse(auth, detailedErrors = true)
+      .contentAsString
+      .get shouldNotContain "stackTrace"
+    HttpServerSecurity
+      .errorResponse(e.noStackTrace, detailedErrors = true)
+      .contentAsString
+      .get shouldNotContain "stackTrace"
+  }
+
+  test("classify only 4xx ServiceExceptions as client errors") {
+    HttpServerSecurity.isClientError(ServiceStatus.NOT_FOUND_U5.newException("x")) shouldBe true
+    HttpServerSecurity.isClientError(ServiceStatus.INTERNAL_ERROR_I0.newException("x")) shouldBe
+      false
+    HttpServerSecurity.isClientError(IllegalArgumentException("x")) shouldBe false
+  }
+
   test("allow a WebSocket upgrade without an Origin header") {
     HttpServerSecurity.checkWebSocketOrigin(upgrade(None), Nil) shouldBe None
   }
