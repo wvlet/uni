@@ -3,7 +3,7 @@
 ## Goals
 
 - Stay within Maven Central's monthly per-organization publishing limit. The `wvlet` org is shared with airframe, and uni v2026.2.0 was blocked by the size limit.
-- Stop publishing near-duplicate Scaladoc for Scala.js and Scala Native: about 26 MB of each release, out of 88 MB. The release build also gets faster.
+- Stop publishing near-duplicate Scaladoc for Scala.js and Scala Native: about 25 MB of each release, out of 88 MB. The release build also gets faster.
 
 ## Background
 

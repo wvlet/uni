@@ -8,7 +8,7 @@ import sbt.Keys.*
   * Why: Maven Central caps how much each organization can publish per month
   * (https://central.sonatype.org/publish/maven-central-publishing-limits/), and the `wvlet`
   * organization is shared by uni and airframe. About 58% of a uni release was -javadoc.jar, and the
-  * Scala.js and Scala Native jars repeated nearly the same API as the JVM ones (about 26 MB per
+  * Scala.js and Scala Native jars repeated nearly the same API as the JVM ones (about 25 MB per
   * release). Maven Central still requires a -javadoc.jar for every artifact, so these platforms
   * publish (and sign) a jar with only index.html and README.md. Skipping scaladoc also makes the
   * release build faster.
