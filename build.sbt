@@ -4,6 +4,7 @@ import sbtide.Keys.ideSkipProject
 // jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
 import scala.language.implicitConversions
 import wvlet.uni.jsenv.playwright.{PlaywrightConfig, PlaywrightJSEnv}
+import MinimizeJavadoc.minimizeJavadoc
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -207,6 +208,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jsSettings(
     jsBuildSettings,
+    minimizeJavadoc,
     libraryDependencies ++=
       Seq(
         ("org.scala-js" %% "scalajs-java-logging" % JS_JAVA_LOGGING_VERSION).cross(
@@ -214,7 +216,7 @@ lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
         )
       )
   )
-  .nativeSettings(nativeBuildSettings)
+  .nativeSettings(nativeBuildSettings, minimizeJavadoc)
 
 // The 'uni' library for Scala JVM, Scala.js and Scala Native
 lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
@@ -227,8 +229,8 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
       "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
   )
   .jvmSettings(jvmNativeSharedSources)
-  .jsSettings(jsBuildSettings)
-  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources)
+  .jsSettings(jsBuildSettings, minimizeJavadoc)
+  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(core, test % Test)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
@@ -303,6 +305,7 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jsSettings(
     jsBuildSettings,
+    minimizeJavadoc,
     libraryDependencies ++=
       Seq(
         // Scala.js uses scalajs-test-interface for proper test discovery. This is the JVM-side
@@ -314,6 +317,7 @@ lazy val test = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .nativeSettings(
     nativeBuildSettings,
+    minimizeJavadoc,
     libraryDependencies ++=
       Seq(
         // Scala Native uses native test-interface
