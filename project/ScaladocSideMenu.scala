@@ -18,20 +18,25 @@ object ScaladocSideMenu:
   private val brokenLink = "`${baseUrl}/${loc.join(\"/\")}.html`"
   private val fixedLink  = "`${baseUrl.join(\"/\")}/${loc.join(\"/\")}.html`"
 
-  def patchUxJs(js: String): String = js.replace(brokenLink, fixedLink)
-
   val settings: Seq[Setting[?]] = Seq(
     Compile / doc / scalacOptions += "-dynamic-side-menu",
     // Def.uncached: the task writes the patched ux.js, which a cached result would not restore
     Compile / packageDoc / mappings :=
       Def.uncached {
         val converter = fileConverter.value
+        val log       = streams.value.log
         val patched   = (Compile / target).value / "scaladoc-patch" / "ux.js"
         (Compile / packageDoc / mappings)
           .value
           .map {
             case (ref, path @ "scripts/ux.js") =>
-              IO.write(patched, patchUxJs(IO.read(converter.toPath(ref).toFile)))
+              val js = IO.read(converter.toPath(ref).toFile)
+              if !js.contains(brokenLink) then
+                log.warn(
+                  "Scaladoc's ux.js no longer has the side menu link bug (scala/scala3#27403); " +
+                    "remove the patch in project/ScaladocSideMenu.scala"
+                )
+              IO.write(patched, js.replace(brokenLink, fixedLink))
               converter.toVirtualFile(patched.toPath) -> path
             case m =>
               m
