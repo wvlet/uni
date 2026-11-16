@@ -47,6 +47,13 @@ private[canvas] final class JSCanvas(
 
   override def isOffHeap: Boolean = true
 
+  // An Int8Array view of `length` bytes at view offset `o`
+  private def int8View(o: Double, length: Int): js.typedarray.Int8Array = JSInt8Array(
+    buffer,
+    base + o,
+    length.toDouble
+  ).asInstanceOf[js.typedarray.Int8Array]
+
   // Check the range and that the memory is not freed yet, then return the view offset
   private inline def at(offset: Long, length: Long): Double =
     checkRange(offset, length)
@@ -66,10 +73,9 @@ private[canvas] final class JSCanvas(
   override def readBytes(offset: Long, dest: Array[Byte], destOffset: Int, length: Int): Unit =
     Canvas.checkArrayRange(dest, destOffset, length)
     val o = at(offset, length)
-    var i = 0
-    while i < length do
-      dest(destOffset + i) = view.getInt8(o + i)
-      i += 1
+    // Bulk-copy through a typed array instead of calling DataView once per byte
+    val bytes = js.typedarray.int8Array2ByteArray(int8View(o, length))
+    System.arraycopy(bytes, 0, dest, destOffset, length)
 
   override def readBytes(offset: Long, dest: Canvas, destOffset: Long, length: Long): Unit =
     dest match
@@ -94,11 +100,13 @@ private[canvas] final class JSCanvas(
 
   override def writeBytes(offset: Long, src: Array[Byte], srcOffset: Int, length: Int): Unit =
     Canvas.checkArrayRange(src, srcOffset, length)
-    val o = at(offset, length)
-    var i = 0
-    while i < length do
-      view.setInt8(o + i, src(srcOffset + i))
-      i += 1
+    val o    = at(offset, length)
+    val part =
+      if srcOffset == 0 && length == src.length then
+        src
+      else
+        src.slice(srcOffset, srcOffset + length)
+    int8View(o, length).set(js.typedarray.byteArray2Int8Array(part))
 
   override def slice(offset: Long, length: Long): Canvas =
     at(offset, length)

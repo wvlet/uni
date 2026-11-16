@@ -17,6 +17,7 @@ import java.lang.foreign.Arena
 import java.lang.foreign.MemorySegment
 import java.lang.foreign.ValueLayout
 import java.lang.ref.Cleaner
+import java.lang.ref.Reference
 import java.nio.ByteOrder
 
 /**
@@ -34,31 +35,38 @@ private[canvas] final class FfmCanvas(
   override def size: Long         = segment.byteSize()
   override def isOffHeap: Boolean = true
 
-  override def readByte(offset: Long): Byte   = segment.get(Byte_, offset)
-  override def readShort(offset: Long): Short = segment.get(Short_, offset)
-  override def readInt(offset: Long): Int     = segment.get(Int_, offset)
-  override def readLong(offset: Long): Long   = segment.get(Long_, offset)
+  // Keep the owner reachable until the access ends. Otherwise the JIT may treat this canvas as
+  // unreachable during a long copy, and the cleaner could close the arena in the middle of it.
+  private inline def keepAlive[A](inline body: A): A =
+    try body
+    finally Reference.reachabilityFence(owner)
+
+  override def readByte(offset: Long): Byte   = keepAlive(segment.get(Byte_, offset))
+  override def readShort(offset: Long): Short = keepAlive(segment.get(Short_, offset))
+  override def readInt(offset: Long): Int     = keepAlive(segment.get(Int_, offset))
+  override def readLong(offset: Long): Long   = keepAlive(segment.get(Long_, offset))
 
   override def readBytes(offset: Long, dest: Array[Byte], destOffset: Int, length: Int): Unit =
-    MemorySegment.copy(segment, Byte_, offset, dest, destOffset, length)
+    keepAlive(MemorySegment.copy(segment, Byte_, offset, dest, destOffset, length))
 
   override def readBytes(offset: Long, dest: Canvas, destOffset: Long, length: Long): Unit =
     dest match
       case f: FfmCanvas =>
-        MemorySegment.copy(segment, offset, f.segment, destOffset, length)
+        keepAlive(f.keepAlive(MemorySegment.copy(segment, offset, f.segment, destOffset, length)))
       case _ =>
-        super.readBytes(offset, dest, destOffset, length)
+        keepAlive(super.readBytes(offset, dest, destOffset, length))
 
-  override def writeByte(offset: Long, v: Byte): Unit   = segment.set(Byte_, offset, v)
-  override def writeShort(offset: Long, v: Short): Unit = segment.set(Short_, offset, v)
-  override def writeInt(offset: Long, v: Int): Unit     = segment.set(Int_, offset, v)
-  override def writeLong(offset: Long, v: Long): Unit   = segment.set(Long_, offset, v)
+  override def writeByte(offset: Long, v: Byte): Unit   = keepAlive(segment.set(Byte_, offset, v))
+  override def writeShort(offset: Long, v: Short): Unit = keepAlive(segment.set(Short_, offset, v))
+  override def writeInt(offset: Long, v: Int): Unit     = keepAlive(segment.set(Int_, offset, v))
+  override def writeLong(offset: Long, v: Long): Unit   = keepAlive(segment.set(Long_, offset, v))
 
   override def writeBytes(offset: Long, src: Array[Byte], srcOffset: Int, length: Int): Unit =
-    MemorySegment.copy(src, srcOffset, segment, Byte_, offset, length)
+    keepAlive(MemorySegment.copy(src, srcOffset, segment, Byte_, offset, length))
 
   override def slice(offset: Long, length: Long): Canvas =
     checkRange(offset, length)
+    owner.allocation.ensureOpen()
     FfmCanvas(segment.asSlice(offset, length), owner)
 
   override def close(): Unit = owner.allocation.release()

@@ -32,7 +32,9 @@ private[canvas] object CanvasCompat:
 
 /**
   * An off-heap canvas over memory from `malloc`. Scala Native has no GC hook for freeing it, so the
-  * memory is freed only by `close()` or by closing its allocator.
+  * memory is freed only by `close()` or by closing its allocator. Do not close a canvas while
+  * another thread still reads or writes it: the open check cannot stop a read of memory that
+  * `close()` frees concurrently.
   */
 private[canvas] final class NativeCanvas(
     private[canvas] val ptr: Ptr[Byte],

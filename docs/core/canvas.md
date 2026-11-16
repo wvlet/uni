@@ -69,6 +69,9 @@ allocator.close()             // frees b and anything else still open
 | Scala.js | A JavaScript `ArrayBuffer`; `close()` detaches it where `ArrayBuffer.transfer` exists (Node.js 21+) | Yes, after GC (`FinalizationRegistry`) |
 | Scala Native | `malloc` / `free` | No: call `close()`, or close the allocator |
 
+On Scala Native, don't close a canvas while another thread still reads or writes it. The JVM
+and Scala.js report that case as `IllegalStateException`; Native can read freed memory.
+
 `Canvas.isOffHeapSupported` tells you whether `newOffHeapCanvas` works on the current platform.
 Heap canvases work everywhere.
 
