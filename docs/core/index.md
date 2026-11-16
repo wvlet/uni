@@ -14,6 +14,7 @@ The `uni` module provides essential utilities for Scala application development.
 | [Weaver](./weaver) | Derivation-based serialization (JSON / MessagePack / Map) |
 | [Surface](./surface) | Compile-time type introspection |
 | [FileSystem](./filesystem) | Cross-platform file I/O with IOPath |
+| [Canvas](./canvas) | Off-heap memory buffers larger than 2 GB, with `Long` offsets |
 | [YAML](../text/yaml) | YAML 1.2 parser with Weaver decoding and frontmatter |
 | [Markdown](../text/markdown) | CommonMark + GFM parser and safe HTML renderer |
 | [Cron](../text/cron) | Cron expression parser with next-run times and English descriptions |
@@ -56,6 +57,7 @@ wvlet.uni.msgpack  - MessagePack serialization
 wvlet.uni.surface  - Type reflection
 wvlet.uni.weaver   - Object serialization
 wvlet.uni.io       - Cross-platform file system
+wvlet.uni.canvas   - Off-heap memory buffers
 wvlet.uni.util     - ID generators and value types
 ```
 

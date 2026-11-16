@@ -13,6 +13,7 @@ during a migration.
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.http.netty.Netty.server` | `wvlet.uni.http.netty.Netty.server` (JVM only), or `Http.server` for cross-platform code |
 | `wvlet.airframe.http.filter.Cors` (`Cors.Policy`, `Cors.newFilter`) | `wvlet.uni.http.CorsFilter(CorsPolicy())`, added with `Http.server.withFilter` |
+| `wvlet.airframe.canvas.Canvas` | `wvlet.uni.canvas.Canvas`: `release` is `close()`, values are little-endian on every platform, and off-heap canvases need Java 22+ on the JVM |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
 | AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |
