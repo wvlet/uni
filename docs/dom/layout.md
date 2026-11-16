@@ -74,7 +74,9 @@ Dock(
   `dock.detached` lists the detached panels. A detached window isn't saved, because a browser blocks
   windows that open without a click, so after a reload the panel is back in its tab. The window
   comes from `window.open` on the same origin, so an Electron app must allow `about:blank` in its
-  `setWindowOpenHandler`. Menus and popovers opened inside the window still show in the main window.
+  `setWindowOpenHandler`, and should deny window opening and navigation in the new window
+  (`did-create-window`). Menus and popovers opened inside the window still show in the main window,
+  and stylesheets added to the page after the window opens don't reach it.
 - **Rearranging.** Drag a tab onto another group's tabs to move it there, onto the middle of a
   group to add it, or onto one of a group's edges to split the group. A preview shows where it will
   land, and Escape cancels. A group that loses its last tab disappears.

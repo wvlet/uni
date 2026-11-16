@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.all.{dir, div, styleAttr}
+import wvlet.uni.dom.all.{dir, div, id, styleAttr, RxElement}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.{Rx, RxVar}
@@ -584,6 +584,45 @@ class DockTest extends DomTestSupport:
           d.reattach("c")
           c.cancel
         }
+      }
+    }
+  }
+
+  test("a detached window follows the theme, mounts content once, and closes with the layout") {
+    val root = dom.document.documentElement
+    root.setAttribute("data-theme", "dark")
+    var mounts = 0
+    class Probe extends RxElement:
+      override def onMount(node: Any): Unit = mounts += 1
+      override def render: RxElement        = div(id -> "dock-probe", "probe content")
+    val layout = Rx.variable(DockLayout.of("a"))
+    val d      = Dock(
+      layout,
+      label = "Dock",
+      panels = Seq(panel("a"), DockPanel("probe", title = "Probe", content = Probe()))
+    ).withDetach(true)
+    val m = mountDock(d)
+    // Hidden: shown in the layout, but mounted only in the window
+    d.detach("probe") shouldBe true
+    val w = d.windowOf("probe").get
+    w.document.documentElement.getAttribute("data-theme") shouldBe "dark"
+    root.removeAttribute("data-theme")
+    settle().flatMap { _ =>
+      w.document.documentElement.hasAttribute("data-theme") shouldBe false
+      mounts shouldBe 1
+
+      // Bring back keeps keyboard focus in the dock
+      fireEvent.click(m.get(".uni-dock__detached button:last-child"))
+      d.windowOf("probe") shouldBe None
+      settle().flatMap { _ =>
+        active shouldBe tabOf(m, "probe")
+        // The app dropping a detached panel from the layout closes its window
+        d.detach("a") shouldBe true
+        val wa = d.windowOf("a").get
+        layout := DockLayout.of("probe")
+        d.windowOf("a") shouldBe None
+        wa.closed shouldBe true
+        settle()
       }
     }
   }

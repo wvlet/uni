@@ -904,7 +904,12 @@ object DomRenderer extends LogSupport:
               elem match
                 case e: dom.Element if Option(e.id).exists(_.nonEmpty) =>
                   val elementId = e.id
-                  Option(dom.document.getElementById(elementId)) match
+                  // The element's own document: it may be mounted in another window, such as a
+                  // panel detached from a Dock
+                  def found: Boolean = Option(e.ownerDocument).exists(d =>
+                    Option(d.getElementById(elementId)).isDefined
+                  )
+                  Option.when(found)(e) match
                     case Some(_) =>
                       rx.onMount(elem)
                     case None =>
@@ -912,7 +917,7 @@ object DomRenderer extends LogSupport:
                         .window
                         .setTimeout(
                           () =>
-                            if Option(dom.document.getElementById(elementId)).isDefined then
+                            if found then
                               rx.onMount(elem),
                           0
                         )

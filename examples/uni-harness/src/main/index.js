@@ -53,6 +53,12 @@ function createWindow() {
         }
       : { action: 'deny' }
   )
+  // A dock window shows only the renderer's own DOM: it opens no windows and goes nowhere, so a
+  // link inside a detached panel can't load a remote page with this window's preload
+  win.webContents.on('did-create-window', (child) => {
+    child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    child.webContents.on('will-navigate', (event) => event.preventDefault())
+  })
 
   // electron-vite serves the renderer from a dev server in `dev`, and from a file in `build`.
   if (process.env.ELECTRON_RENDERER_URL) {

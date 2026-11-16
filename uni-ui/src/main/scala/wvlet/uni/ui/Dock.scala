@@ -147,13 +147,13 @@ class Dock private (
     */
   def onChange(f: ChangeHandler): Dock = copy(changeHandler = f)
 
-  private def setLayout(l: DockLayout, cause: ChangeCause): Boolean =
-    val written = ChangeGate.write(layout, "layout", l, cause, changeHandler)
-    // A panel closed while in a window of its own closes the window too
-    if written && popups.nonEmpty then
-      val in = DockModel.panels(now).toSet
-      popups.keys.filterNot(in).toList.foreach(reattach)
-    written
+  private def setLayout(l: DockLayout, cause: ChangeCause): Boolean = ChangeGate.write(
+    layout,
+    "layout",
+    l,
+    cause,
+    changeHandler
+  )
 
   /** The smallest size of a split child in pixels (120 by default). */
   def withMinPanelSize(px: Int): Dock = copy(minPanelSize = px)
@@ -288,12 +288,21 @@ class Dock private (
 
   private val dockRef: DomRef[dom.HTMLElement] = DomRef[dom.HTMLElement]()
 
+  private var closedWatch: Cancelable = Cancelable.empty
+
   override def onMount(node: Any): Unit =
     // Save the cleaned-up layout, so unknown ids leave the app's storage too
     layout := now
     dom.window.addEventListener("pagehide", closeWindows)
+    // A panel that leaves the layout closes its window, whoever changed the layout
+    closedWatch = current.run { l =>
+      if popups.nonEmpty then
+        val in = DockModel.panels(l).toSet
+        popups.keys.filterNot(in).toList.foreach(reattach)
+    }
 
   override def beforeUnmount: Unit =
+    closedWatch.cancel
     dom.window.removeEventListener("pagehide", closeWindows)
     closeWindows(())
 
@@ -335,13 +344,20 @@ class Dock private (
             case None =>
               false
             case Some(win) =>
-              if DockModel.groupOf(now, panel).isEmpty then
-                setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative)
-              // Unmount the content from the dock before it mounts in the window
+              // Before the panel shows or leaves the dock, so its content never mounts there on
+              // the way to the window
               detachedIds := detachedIds.get + panel
-              popups(panel) = mountWindow(panel, win)
-              watchWindows()
-              true
+              val shown =
+                DockModel.groupOf(now, panel).isDefined ||
+                  setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative)
+              if shown then
+                popups(panel) = mountWindow(panel, win)
+                watchWindows()
+              else
+                // The app kept the panel hidden
+                detachedIds := detachedIds.get - panel
+                win.close()
+              shown
 
   /** Bring `panel` back from its window into its tab, and close the window. */
   def reattach(panel: String): Unit = popups
@@ -381,6 +397,11 @@ class Dock private (
           dom.document.body            -> doc.body
         )
       do
+        // Removed ones too: ColorScheme.System removes data-theme
+        val stale = (0 until to.attributes.length)
+          .map(to.attributes(_).name)
+          .filterNot(from.hasAttribute)
+        stale.foreach(to.removeAttribute)
         val as = from.attributes
         (0 until as.length).foreach { i =>
           to.setAttribute(as(i).name, as(i).value)
@@ -440,7 +461,11 @@ class Dock private (
     div(
       cls -> "uni-dock__detached-actions",
       Button("Show window").onClick(() => focusWindow(panel)),
-      Button("Bring back").onClick(() => reattach(panel))
+      Button("Bring back").onClick { () =>
+        reattach(panel)
+        // This button goes away with the note
+        focusTab(panel)
+      }
     )
   )
 
@@ -1197,20 +1222,27 @@ class Dock private (
   override def render: RxElement =
     // Sizes, boxes, and the active tabs update in place while the structure stays the same; a new
     // structure rebuilds the tree, and the old group paths no longer apply
-    def live(shape: DockLayout): Rx[DockLayout] = current.filter(l => shapeOf(l) == shape)
+    // The grid and the floats rebuild apart, so a change in a float leaves the grid's content
+    // alone. Each also needs the number of groups, which names the groups and the menus use.
+    def gridKey(l: DockLayout): (DockNode, Int) =
+      val s = shapeOf(l)
+      (s.root, DockModel.groups(s).size)
+    def floatsKey(l: DockLayout): (Seq[DockFloat], Int) =
+      val s = shapeOf(l)
+      (s.floating, DockModel.groups(s.root).size)
     div(
       cls              -> "uni-dock",
       data("slot")     -> "dock",
       data("dragging") -> dragged.map(_.isDefined.toString),
       dockRef.binding,
-      distinct(current.map(shapeOf)).map { shape =>
+      distinct(current.map(gridKey)).map { key =>
         focusedGroup = None
-        val root = shape.root
+        val (root, n) = key
         node(
           root,
           Nil,
-          live(shape),
-          DockModel.groups(shape).size,
+          current.filter(gridKey(_) == key),
+          n,
           DockModel.cornerGroup(root),
           DockModel.topGroups(root)
         )
@@ -1218,10 +1250,12 @@ class Dock private (
       div(
         cls          -> "uni-dock__floats",
         data("slot") -> "dock-floats",
-        distinct(current.map(shapeOf)).map { shape =>
-          stack := shape.floating.indices
-          val n = DockModel.groups(shape).size
-          shape.floating.zipWithIndex.map((f, i) => floatGroup(i, f.panels, live(shape), n))
+        distinct(current.map(floatsKey)).map { key =>
+          focusedGroup = None
+          val (floats, gridGroups) = key
+          stack := floats.indices
+          val live = current.filter(floatsKey(_) == key)
+          floats.zipWithIndex.map((f, i) => floatGroup(i, f.panels, live, gridGroups + floats.size))
         }
       ),
       drop.map {
