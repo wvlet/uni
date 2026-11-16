@@ -55,7 +55,7 @@ object MinimizeJavadoc:
         writePage(
           (Compile / doc / target).value,
           title = s"${moduleName.value} API documentation",
-          intro = "To keep releases small, the Scaladoc of the uni sbt plugins is not published. See:",
+          intro = "To keep releases small, the Scaladoc of this artifact is not published. See:",
           links = Seq("Guide: " -> s"${siteUrl}${guide}", "Source code: " -> sourceUrl)
         )
       }
