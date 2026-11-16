@@ -138,8 +138,9 @@ class CorsFilter(policy: CorsPolicy) extends RxHttpFilter with LogSupport:
         // response carries no CORS headers
         next.handle(request).map(addVary(_, HttpHeader.Origin))
 
-  // The server renders an unrecovered failure after every filter has returned, so its 500 would
-  // carry no CORS headers. Answer the 500 here instead, keeping the exception in the logs.
+  // The server renders an unrecovered failure after every filter has returned, so its error
+  // response would carry no CORS headers. Render it here instead (a 500, or a ServiceException's
+  // mapped response), keeping the exception in the logs.
   private def recoverFailure(request: Request, next: RxHttpHandler): Rx[Response] =
     val rx =
       try
