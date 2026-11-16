@@ -133,6 +133,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.http.netty.Netty.server` | `wvlet.uni.http.netty.Netty.server` (JVM only), or `Http.server` for cross-platform code |
 | `wvlet.airframe.http.filter.Cors` (`Cors.Policy`, `Cors.newFilter`) | `wvlet.uni.http.CorsFilter(CorsPolicy())`, added with `Http.server.withFilter` |
+| `wvlet.airframe.http.RPCStatus` / `RPCException` | `wvlet.uni.http.ServiceStatus` / `ServiceException`: same status names and codes, shared by RPC, Electron IPC, and MCP |
 | `wvlet.airframe.canvas.Canvas` | `wvlet.uni.canvas.Canvas`: `release` is `close()`, values are little-endian on every platform, and off-heap canvases need Java 22+ on the JVM |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
@@ -155,7 +156,10 @@ for background.
 - **Checking `isSuccessful` after `send`.** The HTTP client throws for non-2xx
   responses. Most 4xx statuses throw `HttpException`. Retryable statuses (5xx,
   429) throw `HttpMaxRetryException` after the retries, and it is not a subclass
-  of `HttpException`. Failed RPC client calls throw the same exceptions.
+  of `HttpException`. Failed RPC client calls throw the same exceptions. Report
+  server errors by throwing `ServiceStatus.NOT_FOUND_U5.newException("...")`
+  (`wvlet.uni.http.{ServiceStatus, ServiceException}`); `RPCStatus` is its
+  deprecated old name.
 - **Hand-writing test setup and teardown.** Bind servers, clients, and temp
   directories with `addDesign` / `addTestDesign` in a trait that extends
   `UniTest`, and take them as test arguments. A self-type fixture

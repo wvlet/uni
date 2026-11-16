@@ -11,9 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.http.rpc
+package wvlet.uni.http
 
-import wvlet.uni.http.{HttpHeader, Response}
 import wvlet.uni.json.JSON
 import wvlet.uni.msgpack.spi.MsgPack
 import wvlet.uni.weaver.{Weaver, WeaverConfig}
@@ -21,12 +20,12 @@ import wvlet.uni.weaver.{Weaver, WeaverConfig}
 import scala.util.Try
 
 /**
-  * RPC exception for reporting errors across RPC boundaries.
+  * Exception for reporting a [[ServiceStatus]] to the caller across a service boundary.
   *
-  * Create using: `RPCStatus.INVALID_REQUEST_U1.newException("error message")`
+  * Create using: `ServiceStatus.INVALID_REQUEST_U1.newException("error message")`
   */
-case class RPCException(
-    status: RPCStatus = RPCStatus.INTERNAL_ERROR_I0,
+case class ServiceException(
+    status: ServiceStatus = ServiceStatus.INTERNAL_ERROR_I0,
     message: String = "",
     cause: Option[Throwable] = None,
     appErrorCode: Option[Int] = None,
@@ -37,7 +36,7 @@ case class RPCException(
     * Suppress stack trace in the RPC error response, even when the server runs with
     * `detailedErrors` enabled.
     */
-  def noStackTrace: RPCException = copy(includeStackTrace = Some(false))
+  def noStackTrace: ServiceException = copy(includeStackTrace = Some(false))
 
   /**
     * Whether [[toMessage]], [[toJson]], [[toMsgPack]], and [[toResponse]] include the stack trace.
@@ -50,15 +49,15 @@ case class RPCException(
   /**
     * Convert to serializable error message
     */
-  def toMessage: RPCErrorMessage = toMessage(shouldReportStackTrace)
+  def toMessage: ServiceErrorMessage = toMessage(shouldReportStackTrace)
 
-  private def toMessage(reportStackTrace: Boolean): RPCErrorMessage =
+  private def toMessage(reportStackTrace: Boolean): ServiceErrorMessage =
     val stackTrace =
       if reportStackTrace then
-        Some(getStackTrace.toSeq.map(RPCStackTraceElement.fromJava))
+        Some(getStackTrace.toSeq.map(ServiceStackTraceElement.fromJava))
       else
         None
-    RPCErrorMessage(
+    ServiceErrorMessage(
       code = status.code,
       codeName = status.name,
       message = message,
@@ -83,24 +82,24 @@ case class RPCException(
 
   /**
     * Convert to HTTP response for a server. With `detailedErrors`, the stack trace is included
-    * unless the status hides it ([[RPCStatus.shouldReportStackTrace]]) or `includeStackTrace` is
-    * set explicitly.
+    * unless the status hides it ([[ServiceStatus.shouldReportStackTrace]]) or `includeStackTrace`
+    * is set explicitly.
     */
-  private[rpc] def toResponse(detailedErrors: Boolean): Response = toResponse(
+  private[http] def toResponse(detailedErrors: Boolean): Response = toResponse(
     toMessage(includeStackTrace.getOrElse(detailedErrors && status.shouldReportStackTrace))
   )
 
-  private def toResponse(m: RPCErrorMessage): Response = Response(status.httpStatus)
+  private def toResponse(m: ServiceErrorMessage): Response = Response(status.httpStatus)
     .addHeader(HttpHeader.XRPCStatus, status.code.toString)
     .withJsonContent(m.toJson)
 
-end RPCException
+end ServiceException
 
 /**
-  * A stack frame reported in [[RPCErrorMessage]]. The field names match Airframe's
+  * A stack frame reported in [[ServiceErrorMessage]]. The field names match Airframe's
   * `GenericStackTraceElement`, so error bodies are wire-compatible with Airframe RPC.
   */
-case class RPCStackTraceElement(
+case class ServiceStackTraceElement(
     className: String,
     methodName: String,
     fileName: Option[String] = None,
@@ -113,8 +112,8 @@ case class RPCStackTraceElement(
     lineNumber
   )
 
-object RPCStackTraceElement:
-  def fromJava(e: StackTraceElement): RPCStackTraceElement = RPCStackTraceElement(
+object ServiceStackTraceElement:
+  def fromJava(e: StackTraceElement): ServiceStackTraceElement = ServiceStackTraceElement(
     className = e.getClassName,
     methodName = e.getMethodName,
     fileName = Option(e.getFileName),
@@ -122,43 +121,43 @@ object RPCStackTraceElement:
   )
 
 /**
-  * Serializable RPC error message model
+  * Serializable error message model (wire-compatible with Airframe RPC)
   *
   * @param stackTrace
   *   the server-side stack trace, present only when the server opted in (see
-  *   [[RPCException.shouldReportStackTrace]]). Clients restore it when present.
+  *   [[ServiceException.shouldReportStackTrace]]). Clients restore it when present.
   */
-case class RPCErrorMessage(
-    code: Int = RPCStatus.UNKNOWN_I1.code,
-    codeName: String = RPCStatus.UNKNOWN_I1.name,
+case class ServiceErrorMessage(
+    code: Int = ServiceStatus.UNKNOWN_I1.code,
+    codeName: String = ServiceStatus.UNKNOWN_I1.name,
     message: String = "",
-    stackTrace: Option[Seq[RPCStackTraceElement]] = None,
+    stackTrace: Option[Seq[ServiceStackTraceElement]] = None,
     appErrorCode: Option[Int] = None
 ):
-  def toJson: String     = RPCErrorMessage.weaver.toJson(this, RPCErrorMessage.weaverConfig)
-  def toMsgPack: MsgPack = RPCErrorMessage.weaver.weave(this, RPCErrorMessage.weaverConfig)
+  def toJson: String     = ServiceErrorMessage.weaver.toJson(this, ServiceErrorMessage.weaverConfig)
+  def toMsgPack: MsgPack = ServiceErrorMessage.weaver.weave(this, ServiceErrorMessage.weaverConfig)
 
-object RPCErrorMessage:
-  given weaver: Weaver[RPCErrorMessage] = Weaver.derived[RPCErrorMessage]
+object ServiceErrorMessage:
+  given weaver: Weaver[ServiceErrorMessage] = Weaver.derived[ServiceErrorMessage]
 
   // Omit unset optional fields (e.g., stackTrace) instead of writing nulls, as Airframe does
   private val weaverConfig = WeaverConfig().withOmitNoneFields(true)
 
-  def fromJson(json: String): RPCErrorMessage        = weaver.fromJson(json)
-  def fromMsgPack(msgpack: MsgPack): RPCErrorMessage = weaver.unweave(msgpack)
+  def fromJson(json: String): ServiceErrorMessage        = weaver.fromJson(json)
+  def fromMsgPack(msgpack: MsgPack): ServiceErrorMessage = weaver.unweave(msgpack)
 
-end RPCErrorMessage
+end ServiceErrorMessage
 
-object RPCException:
+object ServiceException:
 
-  private def fromRPCErrorMessage(m: RPCErrorMessage): RPCException =
+  private def fromErrorMessage(m: ServiceErrorMessage): ServiceException =
     val status =
       try
-        RPCStatus.ofCode(m.code)
+        ServiceStatus.ofCode(m.code)
       catch
         case _: IllegalArgumentException =>
-          RPCStatus.UNKNOWN_I1
-    val ex = RPCException(
+          ServiceStatus.UNKNOWN_I1
+    val ex = ServiceException(
       status = status,
       message = m.message,
       cause = None,
@@ -168,25 +167,25 @@ object RPCException:
     m.stackTrace.foreach(frames => ex.setStackTrace(frames.map(_.toJava).toArray))
     ex
 
-  def fromJson(json: String): RPCException =
-    val m = RPCErrorMessage.fromJson(json)
-    fromRPCErrorMessage(m)
+  def fromJson(json: String): ServiceException =
+    val m = ServiceErrorMessage.fromJson(json)
+    fromErrorMessage(m)
 
-  def fromMsgPack(msgpack: MsgPack): RPCException =
-    val m = RPCErrorMessage.fromMsgPack(msgpack)
-    fromRPCErrorMessage(m)
+  def fromMsgPack(msgpack: MsgPack): ServiceException =
+    val m = ServiceErrorMessage.fromMsgPack(msgpack)
+    fromErrorMessage(m)
 
   /**
-    * Extract RPCException from HTTP response
+    * Extract ServiceException from HTTP response
     */
-  def fromResponse(response: Response): RPCException =
+  def fromResponse(response: Response): ServiceException =
     val rpcStatusOpt = response.header(HttpHeader.XRPCStatus).flatMap(x => Try(x.toInt).toOption)
-    def safeOfCode(code: Int): RPCStatus =
+    def safeOfCode(code: Int): ServiceStatus =
       try
-        RPCStatus.ofCode(code)
+        ServiceStatus.ofCode(code)
       catch
         case _: IllegalArgumentException =>
-          RPCStatus.UNKNOWN_I1
+          ServiceStatus.UNKNOWN_I1
 
     rpcStatusOpt match
       case Some(rpcStatusCode) =>
@@ -196,7 +195,7 @@ object RPCException:
             val status = safeOfCode(rpcStatusCode)
             status.newException(status.name)
           else
-            RPCException.fromJson(contentOpt.get)
+            ServiceException.fromJson(contentOpt.get)
         catch
           case e: Throwable =>
             safeOfCode(rpcStatusCode).newException(
@@ -205,7 +204,7 @@ object RPCException:
             )
       case None =>
         // No RPC status header - derive from HTTP status
-        val rpcStatus = RPCStatus.fromHttpStatus(response.status)
+        val rpcStatus = ServiceStatus.fromHttpStatus(response.status)
         rpcStatus.newException(response.contentAsString.getOrElse(s"RPC error: ${response.status}"))
 
-end RPCException
+end ServiceException

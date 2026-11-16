@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.ContentType
 import wvlet.uni.http.HttpAccessLogFilter
 import wvlet.uni.http.HttpHeader
@@ -42,7 +43,7 @@ import wvlet.uni.rx.Rx
   *   service routers to dispatch across. Paths are unique per service, so multiple services can be
   *   served through a single dispatcher.
   * @param detailedErrors
-  *   include stack traces of [[RPCException]]s, and the messages and stack traces of unexpected
+  *   include stack traces of [[ServiceException]]s, and the messages and stack traces of unexpected
   *   exceptions, in error responses. Off by default because such details leak internals; they are
   *   always logged on the server.
   */
@@ -67,7 +68,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
     // Only POST is allowed for RPC
     if request.method != HttpMethod.POST then
       Rx.single(
-        RPCStatus
+        ServiceStatus
           .INVALID_REQUEST_U1
           .newException(s"RPC requires POST method, got: ${request.method}")
           .toResponse(detailedErrors)
@@ -79,7 +80,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
         case None =>
           debug(s"RPC method not found: ${request.path}")
           Rx.single(
-            RPCStatus
+            ServiceStatus
               .NOT_FOUND_U5
               .newException(s"RPC method not found: ${request.path}")
               .toResponse(detailedErrors)
@@ -112,7 +113,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
         case rx: Rx[?] =>
           rx.map(v => successResponse(v, route))
             .recover {
-              case e: RPCException =>
+              case e: ServiceException =>
                 e.toResponse(detailedErrors)
               case e =>
                 warn(s"Unexpected error in RPC handler: ${e.getMessage}", e)
@@ -121,7 +122,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
         case value =>
           Rx.single(successResponse(value, route))
     catch
-      case e: RPCException =>
+      case e: ServiceException =>
         debug(s"RPC error: ${e.status} - ${e.message}")
         Rx.single(e.toResponse(detailedErrors))
       case e: Exception =>
@@ -135,7 +136,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
     val json = route.codec.encodeResult(value)
     Response
       .ok
-      .addHeader(HttpHeader.XRPCStatus, RPCStatus.SUCCESS_S0.code.toString)
+      .addHeader(HttpHeader.XRPCStatus, ServiceStatus.SUCCESS_S0.code.toString)
       .withJsonContent(json)
 
   private def streamResponse(rx: Rx[?], route: RPCRoute): Response =
@@ -147,27 +148,29 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       }
     Response
       .eventStream(events)
-      .addHeader(HttpHeader.XRPCStatus, RPCStatus.SUCCESS_S0.code.toString)
+      .addHeader(HttpHeader.XRPCStatus, ServiceStatus.SUCCESS_S0.code.toString)
 
   /** The JSON body [[errorResponse]] would send for `e`, for an error event in a stream. */
   private def errorMessageJson(e: Throwable): String =
-    if !e.isInstanceOf[RPCException] then
+    if !e.isInstanceOf[ServiceException] then
       warn(s"Unexpected error in RPC stream: ${e.getMessage}", e)
     errorResponse(e).contentAsString.getOrElse("")
 
   private def errorResponse(e: Throwable): Response =
     e match
-      case rpc: RPCException =>
+      case rpc: ServiceException =>
         rpc.toResponse(detailedErrors)
       case _ =>
         if detailedErrors then
-          val wrapped = RPCStatus.INTERNAL_ERROR_I0.newException(String.valueOf(e.getMessage), e)
+          val wrapped = ServiceStatus
+            .INTERNAL_ERROR_I0
+            .newException(String.valueOf(e.getMessage), e)
           // Report where the handler failed, not where it was wrapped, as the cause is not sent
           wrapped.setStackTrace(e.getStackTrace)
           wrapped.toResponse(detailedErrors)
         else
           // Hide the stack trace as well as the message, as both can leak internals
-          RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
+          ServiceStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
 
 end RPCDispatcher
 

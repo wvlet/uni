@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.json.JSON.JSONValue
@@ -79,18 +80,22 @@ case class MethodCodec(
               case Some(req: JSONObject) =>
                 decodeFromMap(req.v.toMap, methodOwner)
               case Some(_) =>
-                throw RPCStatus.INVALID_REQUEST_U1.newException("'request' field must be an object")
+                throw ServiceStatus
+                  .INVALID_REQUEST_U1
+                  .newException("'request' field must be an object")
               case None =>
-                throw RPCStatus
+                throw ServiceStatus
                   .INVALID_REQUEST_U1
                   .newException("Missing 'request' field in request body")
           case _ =>
-            throw RPCStatus.INVALID_REQUEST_U1.newException("Request body must be a JSON object")
+            throw ServiceStatus
+              .INVALID_REQUEST_U1
+              .newException("Request body must be a JSON object")
       catch
-        case e: RPCException =>
+        case e: ServiceException =>
           throw e
         case e: Exception =>
-          throw RPCStatus.INVALID_REQUEST_U1.newException(s"Invalid JSON: ${e.getMessage}", e)
+          throw ServiceStatus.INVALID_REQUEST_U1.newException(s"Invalid JSON: ${e.getMessage}", e)
 
   /**
     * Encode method return value to JSON string.
@@ -118,7 +123,7 @@ case class MethodCodec(
             found(i) = true
           catch
             case e: Exception =>
-              throw RPCStatus
+              throw ServiceStatus
                 .INVALID_ARGUMENT_U2
                 .newException(s"Failed to decode parameter '${param.name}': ${e.getMessage}", e)
         case None =>
@@ -138,7 +143,7 @@ case class MethodCodec(
           if param.surface.isOption then
             results(i) = None
           else
-            throw RPCStatus
+            throw ServiceStatus
               .INVALID_ARGUMENT_U2
               .newException(s"Missing required parameter: ${param.name}")
 

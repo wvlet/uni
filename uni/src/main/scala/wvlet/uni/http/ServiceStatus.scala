@@ -11,32 +11,31 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.http.rpc
-
-import wvlet.uni.http.HttpStatus
+package wvlet.uni.http
 
 /**
-  * RPC status type classification.
+  * Service status type classification.
   *
-  * Status types categorize RPC errors into groups that indicate whether the client should retry:
+  * Status types categorize service errors into groups that indicate whether the client should
+  * retry:
   *   - SUCCESS: Request completed successfully
   *   - USER_ERROR: Client error, not retryable (maps to 4xx HTTP)
   *   - INTERNAL_ERROR: Server error, generally retryable (maps to 5xx HTTP)
   *   - RESOURCE_EXHAUSTED: Resource limits exceeded, retry after backoff (maps to 429 HTTP)
   */
-enum RPCStatusType(val prefix: String, val minCode: Int, val maxCode: Int):
+enum ServiceStatusType(val prefix: String, val minCode: Int, val maxCode: Int):
 
   /** Successful responses */
-  case SUCCESS extends RPCStatusType("S", 0, 1000)
+  case SUCCESS extends ServiceStatusType("S", 0, 1000)
 
   /** User/client errors - not retryable in general */
-  case USER_ERROR extends RPCStatusType("U", 1000, 2000)
+  case USER_ERROR extends ServiceStatusType("U", 1000, 2000)
 
   /** Server internal errors - generally retryable */
-  case INTERNAL_ERROR extends RPCStatusType("I", 2000, 3000)
+  case INTERNAL_ERROR extends ServiceStatusType("I", 2000, 3000)
 
   /** Resource exhausted or quota exceeded - retry after backoff */
-  case RESOURCE_EXHAUSTED extends RPCStatusType("R", 3000, 4000)
+  case RESOURCE_EXHAUSTED extends ServiceStatusType("R", 3000, 4000)
 
   def codeRange: (Int, Int) = (minCode, maxCode)
 
@@ -53,27 +52,28 @@ enum RPCStatusType(val prefix: String, val minCode: Int, val maxCode: Int):
       case RESOURCE_EXHAUSTED =>
         httpStatus == HttpStatus.TooManyRequests_429
 
-end RPCStatusType
+end ServiceStatusType
 
-object RPCStatusType:
+object ServiceStatusType:
 
-  def ofPrefix(prefix: Char): RPCStatusType =
+  def ofPrefix(prefix: Char): ServiceStatusType =
     val p = prefix.toString
-    RPCStatusType
+    ServiceStatusType
       .values
       .find(_.prefix == p)
-      .getOrElse(throw IllegalArgumentException(s"Unknown RPCStatusType prefix: ${prefix}"))
+      .getOrElse(throw IllegalArgumentException(s"Unknown ServiceStatusType prefix: ${prefix}"))
 
-  def unapply(s: String): Option[RPCStatusType] =
+  def unapply(s: String): Option[ServiceStatusType] =
     val name = s.toUpperCase
-    RPCStatusType.values.find(_.toString == name)
+    ServiceStatusType.values.find(_.toString == name)
 
-end RPCStatusType
+end ServiceStatusType
 
-import RPCStatusType.*
+import ServiceStatusType.*
 
 /**
-  * Standard RPC status codes for generic RPC service implementation.
+  * Standard status codes for reporting the outcome of a service call (RPC, Electron IPC, MCP), with
+  * a mapping to and from [[HttpStatus]].
   *
   * Status naming convention: {DESCRIPTION}_{TYPE}{NUMBER}
   *   - TYPE: S (success), U (user error), I (internal error), R (resource exhausted)
@@ -81,130 +81,136 @@ import RPCStatusType.*
   *
   * Examples: SUCCESS_S0, INVALID_REQUEST_U1, INTERNAL_ERROR_I0, RESOURCE_EXHAUSTED_R0
   */
-enum RPCStatus(val statusType: RPCStatusType, val httpStatus: HttpStatus):
+enum ServiceStatus(val statusType: ServiceStatusType, val httpStatus: HttpStatus):
 
   // ============ Success ============
-  case SUCCESS_S0 extends RPCStatus(SUCCESS, HttpStatus.Ok_200)
+  case SUCCESS_S0 extends ServiceStatus(SUCCESS, HttpStatus.Ok_200)
 
   // ============ User Errors (non-retryable, 4xx) ============
 
   /** Generic user error */
-  case USER_ERROR_U0 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case USER_ERROR_U0 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** Invalid RPC request - user should not retry */
-  case INVALID_REQUEST_U1 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case INVALID_REQUEST_U1 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** RPC request arguments have invalid values */
-  case INVALID_ARGUMENT_U2 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case INVALID_ARGUMENT_U2 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** Syntax error in an RPC argument */
-  case SYNTAX_ERROR_U3 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case SYNTAX_ERROR_U3 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** Invalid range data in request argument */
-  case OUT_OF_RANGE_U4 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case OUT_OF_RANGE_U4 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** Requested resource or RPC method not found */
-  case NOT_FOUND_U5 extends RPCStatus(USER_ERROR, HttpStatus.NotFound_404)
+  case NOT_FOUND_U5 extends ServiceStatus(USER_ERROR, HttpStatus.NotFound_404)
 
   /** Resource creation failed - already exists */
-  case ALREADY_EXISTS_U6 extends RPCStatus(USER_ERROR, HttpStatus.Conflict_409)
+  case ALREADY_EXISTS_U6 extends ServiceStatus(USER_ERROR, HttpStatus.Conflict_409)
 
   /** Requested RPC method not supported */
-  case NOT_SUPPORTED_U7 extends RPCStatus(USER_ERROR, HttpStatus.MethodNotAllowed_405)
+  case NOT_SUPPORTED_U7 extends ServiceStatus(USER_ERROR, HttpStatus.MethodNotAllowed_405)
 
   /** Requested RPC method not implemented */
-  case UNIMPLEMENTED_U8 extends RPCStatus(USER_ERROR, HttpStatus.NotImplemented_501)
+  case UNIMPLEMENTED_U8 extends ServiceStatus(USER_ERROR, HttpStatus.NotImplemented_501)
 
   /** Precondition not met - client should not retry until state is fixed */
-  case UNEXPECTED_STATE_U9 extends RPCStatus(USER_ERROR, HttpStatus.PreconditionFailed_412)
+  case UNEXPECTED_STATE_U9 extends ServiceStatus(USER_ERROR, HttpStatus.PreconditionFailed_412)
 
   /** Inconsistent state - client should not retry until state is fixed */
-  case INCONSISTENT_STATE_U10 extends RPCStatus(USER_ERROR, HttpStatus.PreconditionFailed_412)
+  case INCONSISTENT_STATE_U10 extends ServiceStatus(USER_ERROR, HttpStatus.PreconditionFailed_412)
 
   /** Request cancelled by client */
-  case CANCELLED_U11 extends RPCStatus(USER_ERROR, HttpStatus.BadRequest_400)
+  case CANCELLED_U11 extends ServiceStatus(USER_ERROR, HttpStatus.BadRequest_400)
 
   /** Request aborted (deadlock, transaction conflict) - retry at higher level */
-  case ABORTED_U12 extends RPCStatus(USER_ERROR, HttpStatus.Conflict_409)
+  case ABORTED_U12 extends ServiceStatus(USER_ERROR, HttpStatus.Conflict_409)
 
   /** User not authenticated */
-  case UNAUTHENTICATED_U13 extends RPCStatus(USER_ERROR, HttpStatus.Unauthorized_401)
+  case UNAUTHENTICATED_U13 extends ServiceStatus(USER_ERROR, HttpStatus.Unauthorized_401)
 
   /** User lacks permission to access resource */
-  case PERMISSION_DENIED_U14 extends RPCStatus(USER_ERROR, HttpStatus.Forbidden_403)
+  case PERMISSION_DENIED_U14 extends ServiceStatus(USER_ERROR, HttpStatus.Forbidden_403)
 
   // ============ Internal Errors (retryable, 5xx) ============
 
   /** Internal failure - user can retry */
-  case INTERNAL_ERROR_I0 extends RPCStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
+  case INTERNAL_ERROR_I0 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
 
   /** Unknown internal error */
-  case UNKNOWN_I1 extends RPCStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
+  case UNKNOWN_I1 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
 
   /** Service unavailable */
-  case UNAVAILABLE_I2 extends RPCStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
+  case UNAVAILABLE_I2 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
 
   /** Service did not respond in time */
-  case TIMEOUT_I3 extends RPCStatus(INTERNAL_ERROR, HttpStatus.GatewayTimeout_504)
+  case TIMEOUT_I3 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.GatewayTimeout_504)
 
   /** Request cannot be processed within deadline - client may retry */
-  case DEADLINE_EXCEEDED_I4 extends RPCStatus(INTERNAL_ERROR, HttpStatus.GatewayTimeout_504)
+  case DEADLINE_EXCEEDED_I4 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.GatewayTimeout_504)
 
   /** Request interrupted at service */
-  case INTERRUPTED_I5 extends RPCStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
+  case INTERRUPTED_I5 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
 
   /** Service starting up - retry after delay */
-  case SERVICE_STARTING_UP_I6 extends RPCStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
+  case SERVICE_STARTING_UP_I6
+      extends ServiceStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
 
   /** Service shutting down */
-  case SERVICE_SHUTTING_DOWN_I7 extends RPCStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
+  case SERVICE_SHUTTING_DOWN_I7
+      extends ServiceStatus(INTERNAL_ERROR, HttpStatus.ServiceUnavailable_503)
 
   /** Data loss or corruption */
-  case DATA_LOSS_I8 extends RPCStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
+  case DATA_LOSS_I8 extends ServiceStatus(INTERNAL_ERROR, HttpStatus.InternalServerError_500)
 
   // ============ Resource Exhausted (429) ============
 
   /** Resource for completing request is insufficient */
-  case RESOURCE_EXHAUSTED_R0 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case RESOURCE_EXHAUSTED_R0
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Service experiencing insufficient memory */
-  case OUT_OF_MEMORY_R1 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case OUT_OF_MEMORY_R1 extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Too many requests - retry after delay */
-  case EXCEEDED_RATE_LIMIT_R2 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case EXCEEDED_RATE_LIMIT_R2
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** CPU usage limit reached */
-  case EXCEEDED_CPU_LIMIT_R3 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case EXCEEDED_CPU_LIMIT_R3
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Memory usage limit reached */
   case EXCEEDED_MEMORY_LIMIT_R4
-      extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Running time limit reached */
-  case EXCEEDED_TIME_LIMIT_R5 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case EXCEEDED_TIME_LIMIT_R5
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Data size limit reached */
   case EXCEEDED_DATA_SIZE_LIMIT_R6
-      extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Storage size limit reached */
   case EXCEEDED_STORAGE_LIMIT_R7
-      extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+      extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /** Budget exhausted */
-  case EXCEEDED_BUDGET_R8 extends RPCStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
+  case EXCEEDED_BUDGET_R8 extends ServiceStatus(RESOURCE_EXHAUSTED, HttpStatus.TooManyRequests_429)
 
   /**
     * Integer-based error code derived from the name
     */
-  lazy val code: Int = RPCStatus.extractErrorCode(toString)
+  lazy val code: Int = ServiceStatus.extractErrorCode(toString)
 
   /**
     * Status name (e.g., "INVALID_REQUEST_U1")
     */
   def name: String = toString
 
-  def isSuccess: Boolean = statusType == RPCStatusType.SUCCESS
+  def isSuccess: Boolean = statusType == ServiceStatusType.SUCCESS
   def isFailure: Boolean = !isSuccess
 
   /**
@@ -219,29 +225,29 @@ enum RPCStatus(val statusType: RPCStatusType, val httpStatus: HttpStatus):
         true
 
   /**
-    * Create a new RPCException with this status
+    * Create a new ServiceException with this status
     */
   def newException(
       message: String,
       cause: Throwable = null,
       appErrorCode: Option[Int] = None
-  ): RPCException = RPCException(
+  ): ServiceException = ServiceException(
     status = this,
     message = message,
     cause = Option(cause),
     appErrorCode = appErrorCode
   )
 
-end RPCStatus
+end ServiceStatus
 
-object RPCStatus:
+object ServiceStatus:
 
   // Lazy to avoid initialization order issues
-  private lazy val codeTable: Map[Int, RPCStatus]        = values.map(x => x.code -> x).toMap
-  private lazy val codeNameTable: Map[String, RPCStatus] = values.map(x => x.name -> x).toMap
+  private lazy val codeTable: Map[Int, ServiceStatus]        = values.map(x => x.code -> x).toMap
+  private lazy val codeNameTable: Map[String, ServiceStatus] = values.map(x => x.name -> x).toMap
 
   // HTTP status to RPC status mapping
-  private lazy val httpStatusMapping: Map[HttpStatus, RPCStatus] = Map(
+  private lazy val httpStatusMapping: Map[HttpStatus, ServiceStatus] = Map(
     // 2xx Success
     HttpStatus.Ok_200        -> SUCCESS_S0,
     HttpStatus.Created_201   -> SUCCESS_S0,
@@ -265,20 +271,20 @@ object RPCStatus:
     HttpStatus.GatewayTimeout_504      -> DEADLINE_EXCEEDED_I4
   )
 
-  def ofCode(code: Int): RPCStatus = codeTable.getOrElse(
+  def ofCode(code: Int): ServiceStatus = codeTable.getOrElse(
     code,
-    throw IllegalArgumentException(s"Invalid RPCStatus code: ${code}")
+    throw IllegalArgumentException(s"Invalid ServiceStatus code: ${code}")
   )
 
-  def ofCodeName(name: String): RPCStatus = codeNameTable.getOrElse(
+  def ofCodeName(name: String): ServiceStatus = codeNameTable.getOrElse(
     name,
-    throw IllegalArgumentException(s"Invalid RPCStatus name: ${name}")
+    throw IllegalArgumentException(s"Invalid ServiceStatus name: ${name}")
   )
 
   /**
-    * Map HttpStatus to RPCStatus
+    * Map HttpStatus to ServiceStatus
     */
-  def fromHttpStatus(httpStatus: HttpStatus): RPCStatus =
+  def fromHttpStatus(httpStatus: HttpStatus): ServiceStatus =
     httpStatusMapping.get(httpStatus) match
       case Some(status) =>
         status
@@ -295,7 +301,7 @@ object RPCStatus:
   /**
     * Extract error code from the status name suffix
     */
-  private[rpc] def extractErrorCode(name: String): Int =
+  private[http] def extractErrorCode(name: String): Int =
     val separatorPos = name.lastIndexOf("_")
     if separatorPos == -1 then
       throw AssertionError(s"Invalid code name ${name}. It must end with (S/U/I/R)[0-9]+")
@@ -306,7 +312,7 @@ object RPCStatus:
 
     try
       val errorCode  = suffix.substring(1).toInt
-      val statusType = RPCStatusType.ofPrefix(suffix.charAt(0))
+      val statusType = ServiceStatusType.ofPrefix(suffix.charAt(0))
       statusType.minCode + errorCode
     catch
       case e: NumberFormatException =>
@@ -314,4 +320,4 @@ object RPCStatus:
           s"Invalid code suffix ${name}. It must have an integer suffix: ${e.getMessage}"
         )
 
-end RPCStatus
+end ServiceStatus

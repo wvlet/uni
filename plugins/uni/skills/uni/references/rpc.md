@@ -38,20 +38,20 @@ Rules:
 
 ## 2. Implementation and errors
 
-Throw `RPCException` via an `RPCStatus` code. The client receives the same status.
+Throw `ServiceException` via a `ServiceStatus` code. The client receives the same status.
 
 ```scala
-import wvlet.uni.http.rpc.RPCStatus
+import wvlet.uni.http.ServiceStatus
 import wvlet.uni.rx.Rx
 
 class UserServiceImpl extends UserService:
   private var users = Map(1L -> User(1L, "alice"))
 
   def getUser(id: Long): User =
-    users.getOrElse(id, throw RPCStatus.NOT_FOUND_U5.newException(s"user ${id} not found"))
+    users.getOrElse(id, throw ServiceStatus.NOT_FOUND_U5.newException(s"user ${id} not found"))
 
   def createUser(name: String): User =
-    if name.isEmpty then throw RPCStatus.INVALID_ARGUMENT_U2.newException("name is empty")
+    if name.isEmpty then throw ServiceStatus.INVALID_ARGUMENT_U2.newException("name is empty")
     val u = User(users.size + 1L, name)
     users += u.id -> u
     u
@@ -132,20 +132,20 @@ val client = UserServiceClient.SyncClient(
 val user: User = client.getUser(1)
 ```
 
-A failed call throws the HTTP client's exception, not `RPCException`: a 4xx
+A failed call throws the HTTP client's exception, not `ServiceException`: a 4xx
 status throws `HttpException`, and a 5xx status (retried first) throws
 `HttpMaxRetryException`. Both carry the response; restore the server's
-`RPCException` from it:
+`ServiceException` from it:
 
 ```scala
 import wvlet.uni.http.HttpException
-import wvlet.uni.http.rpc.{RPCException, RPCStatus}
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 
 try client.getUser(99)
 catch
   case e: HttpException if e.response.isDefined =>
-    val rpcError = RPCException.fromResponse(e.response.get)
-    rpcError.status shouldBe RPCStatus.NOT_FOUND_U5 // or match on it
+    val rpcError = ServiceException.fromResponse(e.response.get)
+    rpcError.status shouldBe ServiceStatus.NOT_FOUND_U5 // or match on it
 ```
 
 ## Without codegen
@@ -196,7 +196,7 @@ def printReply(http: HttpAsyncClient): Unit =
 
 - A failure before the method returns fails the `Rx` with an `HttpException`, as
   for `call`. A failure mid-stream arrives as an `rpc-error` event and fails the
-  `Rx` with the server's `RPCException`.
+  `Rx` with the server's `ServiceException`.
 - Streaming calls are never retried.
 - Cancelling the `Rx` (unsubscribe, `take(n)`) stops the server stream over HTTP
   (fetch, JVM, and Native clients) and Electron IPC.

@@ -15,7 +15,8 @@ package wvlet.uni.electron
 
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.{Http, HttpException}
-import wvlet.uni.http.rpc.{RPCClient, RPCException, RPCRouter, RPCStatus}
+import wvlet.uni.http.{ServiceException, ServiceStatus}
+import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -39,7 +40,7 @@ class GreetingServiceImpl extends GreetingService:
   override def countTo(n: Int): Rx[Int]          = Rx.fromSeq(1 to n)
   override def failAfter(n: Int): Rx[Int]        = Rx
     .fromSeq(1 to n)
-    .concat(Rx.exception(RPCStatus.INVALID_ARGUMENT_U2.newException("too far")))
+    .concat(Rx.exception(ServiceStatus.INVALID_ARGUMENT_U2.newException("too far")))
 
   /** A stream that never ends by itself; `sent` counts the values it produced. */
   val tick                      = Rx.variable(0)
@@ -190,7 +191,7 @@ class ElectronRPCTest extends UniTest:
         e.getMessage
       }
       .map { result =>
-        result shouldContain RPCStatus.PERMISSION_DENIED_U14.name
+        result shouldContain ServiceStatus.PERMISSION_DENIED_U14.name
       }
   }
 
@@ -233,12 +234,12 @@ class ElectronRPCTest extends UniTest:
     }
   }
 
-  test("a failure while streaming over IPC ends with the server's RPCException") {
+  test("a failure while streaming over IPC ends with the server's ServiceException") {
     val testbed = ElectronTestbed.serve(RPCRouter.of[GreetingService](GreetingServiceImpl()))
     collect(streamClient(testbed).stream[Int]("failAfter", 2)).map { (values, failure) =>
       values shouldBe Seq(1, 2)
-      failure shouldMatch { case Some(e: RPCException) =>
-        e.status shouldBe RPCStatus.INVALID_ARGUMENT_U2
+      failure shouldMatch { case Some(e: ServiceException) =>
+        e.status shouldBe ServiceStatus.INVALID_ARGUMENT_U2
       }
     }
   }
@@ -252,7 +253,7 @@ class ElectronRPCTest extends UniTest:
       (values, failure) =>
         values shouldBe Seq.empty
         failure shouldMatch { case Some(e: HttpException) =>
-          e.getMessage shouldContain RPCStatus.PERMISSION_DENIED_U14.name
+          e.getMessage shouldContain ServiceStatus.PERMISSION_DENIED_U14.name
         }
     }
   }

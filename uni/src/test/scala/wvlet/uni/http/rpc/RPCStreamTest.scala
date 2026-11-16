@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.*
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner, RxStream}
 import wvlet.uni.test.UniTest
@@ -29,7 +30,7 @@ class CountApiImpl extends CountApi:
   def countTo(n: Int): Rx[Int]   = Rx.fromSeq(1 to n)
   def failAfter(n: Int): Rx[Int] = Rx
     .fromSeq(1 to n)
-    .concat(Rx.exception(RPCStatus.INVALID_ARGUMENT_U2.newException("too far")))
+    .concat(Rx.exception(ServiceStatus.INVALID_ARGUMENT_U2.newException("too far")))
 
   def answer(): Int = 42
 
@@ -119,11 +120,11 @@ class RPCStreamTest extends UniTest:
     collect(rpc.stream[Int]("answer")) shouldBe (Seq(42), None)
   }
 
-  test("a failure while streaming ends the stream with the server's RPCException") {
+  test("a failure while streaming ends the stream with the server's ServiceException") {
     val (values, failure) = collect(rpc.stream[Int]("failAfter", 2))
     values shouldBe Seq(1, 2)
-    failure shouldMatch { case Some(e: RPCException) =>
-      e.status shouldBe RPCStatus.INVALID_ARGUMENT_U2
+    failure shouldMatch { case Some(e: ServiceException) =>
+      e.status shouldBe ServiceStatus.INVALID_ARGUMENT_U2
       e.message shouldBe "too far"
     }
   }
@@ -142,8 +143,8 @@ class RPCStreamTest extends UniTest:
       )
     val (values, failure) = collect(old.stream[Int]("countTo", 3))
     values shouldBe Seq.empty
-    failure shouldMatch { case Some(e: RPCException) =>
-      e.status shouldBe RPCStatus.UNIMPLEMENTED_U8
+    failure shouldMatch { case Some(e: ServiceException) =>
+      e.status shouldBe ServiceStatus.UNIMPLEMENTED_U8
     }
   }
 

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.http.ServiceException
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.http.RxHttpHandler
@@ -28,7 +29,7 @@ import wvlet.uni.rx.Rx
   *   - Only POST method is allowed
   *   - Path format: /{serviceName}/{methodName}
   *   - Request body: {"request": {...params...}}
-  *   - Response: JSON result or RPCException
+  *   - Response: JSON result or ServiceException
   *
   * @param router
   *   The RPC router containing route definitions

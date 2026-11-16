@@ -13,7 +13,8 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
@@ -688,7 +689,7 @@ class NativeServerTest extends UniTest:
 
     val response = post(RPCDispatcher(router))
     response.status shouldBe 400
-    response.body shouldContain RPCStatus.INVALID_REQUEST_U1.name
+    response.body shouldContain ServiceStatus.INVALID_REQUEST_U1.name
     response.body shouldNotContain "stackTrace"
 
     post(RPCDispatcher(router).withDetailedErrors(true)).body shouldContain "stackTrace"
