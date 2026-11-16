@@ -25,7 +25,7 @@ import wvlet.uni.http.{
   HttpResponse,
   HttpStatus
 }
-import wvlet.uni.http.rpc.RPCStatus
+import wvlet.uni.http.ServiceStatus
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
@@ -109,12 +109,15 @@ class ElectronMainChannel(
                 if r.isSuccessful || r.header(HttpHeader.XRPCStatus).isDefined then
                   r
                 else if r.status == HttpStatus.ServiceUnavailable_503 then
-                  error(RPCStatus.UNAVAILABLE_I2, "The renderer does not serve this channel yet")
+                  error(
+                    ServiceStatus.UNAVAILABLE_I2,
+                    "The renderer does not serve this channel yet"
+                  )
                 else
-                  error(RPCStatus.fromHttpStatus(r.status), r.status.reason)
+                  error(ServiceStatus.fromHttpStatus(r.status), r.status.reason)
               catch
                 case e: Throwable =>
-                  error(RPCStatus.INTERNAL_ERROR_I0, s"Malformed reply: ${e.getMessage}")
+                  error(ServiceStatus.INTERNAL_ERROR_I0, s"Malformed reply: ${e.getMessage}")
             )
           }
       else if !isNullish(e) && (e.sender: js.Any) == (webContents: js.Any) then
@@ -160,7 +163,7 @@ class ElectronMainChannel(
         !isNullish(frame) && isNullish(frame.parent)
       }
 
-  private def error(status: RPCStatus, message: String): HttpResponse =
+  private def error(status: ServiceStatus, message: String): HttpResponse =
     status.newException(message).noStackTrace.toResponse
 
   private def complete(id: String, response: HttpResponse): Unit = pending
@@ -174,11 +177,11 @@ class ElectronMainChannel(
   private def failAll(message: String): Unit = pending
     .keys
     .toList
-    .foreach(id => complete(id, error(RPCStatus.UNAVAILABLE_I2, message)))
+    .foreach(id => complete(id, error(ServiceStatus.UNAVAILABLE_I2, message)))
 
   override def send(request: HttpRequest, clientConfig: HttpClientConfig): Rx[HttpResponse] =
     if isGone then
-      Rx.single(error(RPCStatus.UNAVAILABLE_I2, "The renderer is not available"))
+      Rx.single(error(ServiceStatus.UNAVAILABLE_I2, "The renderer is not available"))
     else
       nextId += 1
       val id = s"${idPrefix}-${nextId}"
@@ -190,7 +193,7 @@ class ElectronMainChannel(
             complete(
               id,
               error(
-                RPCStatus.DEADLINE_EXCEEDED_I4,
+                ServiceStatus.DEADLINE_EXCEEDED_I4,
                 s"The renderer did not reply within ${config.timeoutMillis} ms"
               )
             )
@@ -200,7 +203,7 @@ class ElectronMainChannel(
         webContents.applyDynamic("send")(requestChannel, id, ElectronIPC.toPayload(request))
       catch
         case e: Throwable =>
-          complete(id, error(RPCStatus.UNAVAILABLE_I2, s"Failed to reach the renderer: ${e}"))
+          complete(id, error(ServiceStatus.UNAVAILABLE_I2, s"Failed to reach the renderer: ${e}"))
       Rx.future(p.promise.future)
 
   override def sendStreaming(request: HttpRequest, config: HttpClientConfig): Rx[Array[Byte]] = Rx

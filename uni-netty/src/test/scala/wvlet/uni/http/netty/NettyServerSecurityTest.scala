@@ -21,7 +21,8 @@ import wvlet.uni.http.{
   ServerSentEvent,
   WebSocketHandler
 }
-import wvlet.uni.http.rpc.{RPCRouter, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.RPCRouter
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -135,7 +136,7 @@ class NettyServerSecurityTest extends UniTest:
         .withJsonContent("""{"request":{"message":"x"}}""")
       val response = rpc.handle(req).toSeq.head
       response.status shouldBe HttpStatus.InternalServerError_500
-      response.contentAsString.get shouldContain RPCStatus.INTERNAL_ERROR_I0.name
+      response.contentAsString.get shouldContain ServiceStatus.INTERNAL_ERROR_I0.name
       response.contentAsString.get.contains("db.internal") shouldBe false
       response.contentAsString.get.contains("stackTrace") shouldBe false
 

@@ -15,7 +15,8 @@ package wvlet.uni.electron
 
 import wvlet.uni.log.LogSupport
 import wvlet.uni.http.{Response, ServerSentEvent}
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, RxRunner}
 
 import scala.scalajs.js
@@ -89,7 +90,7 @@ object ElectronRPCServer extends LogSupport:
         else
           warn(s"Rejected Electron RPC call from ${ElectronRPCServerConfig.senderUrl(event)}")
           val rejection =
-            RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
+            ServiceStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
           js.Promise.resolve[js.Object](ElectronIPC.fromResponse(rejection))
     ipcMain.applyDynamic("handle")(config.channel, handler)
     val streams                                                   = RunningStreams()
@@ -102,7 +103,7 @@ object ElectronRPCServer extends LogSupport:
         else
           warn(s"Rejected Electron RPC stream from ${ElectronRPCServerConfig.senderUrl(event)}")
           val rejection =
-            RPCStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
+            ServiceStatus.PERMISSION_DENIED_U14.newException("Sender not allowed").toResponse
           reply.send(ElectronIPC.streamHead(rejection))
           reply.send(ElectronIPC.streamEnd)
     ipcMain.applyDynamic("on")(ElectronIPC.streamChannel(config.channel), streamHandler)
@@ -310,7 +311,11 @@ object ElectronRPCServer extends LogSupport:
         case OnError(e) =>
           warn(s"Unexpected error in RPC dispatch: ${e.getMessage}", e)
           val errorResponse =
-            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
+            ServiceStatus
+              .INTERNAL_ERROR_I0
+              .newException("Internal error", e)
+              .noStackTrace
+              .toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
         case OnCompletion =>
         // No value emitted: nothing to resolve with (should not happen for RPC).

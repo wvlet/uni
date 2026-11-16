@@ -77,8 +77,8 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
     * `text/event-stream`, so [[RPCDispatcher]] answers with Server-Sent Events.
     *
     * A failure before the stream starts fails the Rx with the same `HttpException` a unary call
-    * gets; a failure while streaming fails it with the server's [[RPCException]]. The call is not
-    * retried, as a stream that has started cannot be replayed.
+    * gets; a failure while streaming fails it with the server's [[ServiceException]]. The call is
+    * not retried, as a stream that has started cannot be replayed.
     */
   def streamAsync[A](client: HttpAsyncClient, methodName: String, args: Seq[Any]): Rx[A] =
     val codec  = lookupCodec(methodName)
@@ -100,7 +100,7 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
       .sendSSE(req)
       .map { event =>
         if event.event.contains(RPCDispatcher.ErrorEvent) then
-          throw RPCException.fromJson(event.data)
+          throw ServiceException.fromJson(event.data)
         else
           weaver.fromJson(event.data).asInstanceOf[A]
       }
@@ -111,7 +111,7 @@ class RPCClient(val serviceName: String, val codecs: Map[String, MethodCodec]):
               Rx.empty
             else
               Rx.exception(
-                RPCStatus
+                ServiceStatus
                   .UNIMPLEMENTED_U8
                   .newException(
                     s"${serviceName}.${methodName} answered without streaming. Does the server support streaming RPC?"

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.Surface
 import wvlet.uni.test.UniTest
@@ -36,7 +37,7 @@ class TestUserServiceImpl extends TestUserService:
 
   def getUser(id: Long): User = users.getOrElse(
     id,
-    throw RPCStatus.NOT_FOUND_U5.newException(s"User not found: ${id}")
+    throw ServiceStatus.NOT_FOUND_U5.newException(s"User not found: ${id}")
   )
 
   def createUser(name: String, email: String): User =
@@ -248,30 +249,30 @@ class MethodCodecTest extends UniTest:
   test("MethodCodec should throw on missing required parameter") {
     val codec = router.codecs("getUser")
 
-    val ex = intercept[RPCException] {
+    val ex = intercept[ServiceException] {
       codec.decodeParams("""{"request": {}}""")
     }
-    ex.status shouldBe RPCStatus.INVALID_ARGUMENT_U2
+    ex.status shouldBe ServiceStatus.INVALID_ARGUMENT_U2
     ex.message shouldContain "id"
   }
 
   test("MethodCodec should throw on missing request field") {
     val codec = router.codecs("getUser")
 
-    val ex = intercept[RPCException] {
+    val ex = intercept[ServiceException] {
       codec.decodeParams("""{"id": 123}""")
     }
-    ex.status shouldBe RPCStatus.INVALID_REQUEST_U1
+    ex.status shouldBe ServiceStatus.INVALID_REQUEST_U1
     ex.message shouldContain "request"
   }
 
   test("MethodCodec should throw INVALID_REQUEST on invalid JSON") {
     val codec = router.codecs("getUser")
 
-    val ex = intercept[RPCException] {
+    val ex = intercept[ServiceException] {
       codec.decodeParams("""not valid json""")
     }
-    ex.status shouldBe RPCStatus.INVALID_REQUEST_U1
+    ex.status shouldBe ServiceStatus.INVALID_REQUEST_U1
     ex.message shouldContain "Invalid JSON"
   }
 

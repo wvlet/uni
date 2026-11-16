@@ -14,7 +14,8 @@
 package wvlet.uni.mcp
 
 import wvlet.uni.http.{HttpHeader, HttpMethod, Request, Response}
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCException, RPCRoute, RPCRouter, RPCStatus}
+import wvlet.uni.http.{ServiceException, ServiceStatus}
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRoute, RPCRouter}
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{JSONArray, JSONBoolean, JSONObject, JSONString, JSONValue}
 import wvlet.uni.log.LogSupport
@@ -232,7 +233,7 @@ case class MCPServer(
   private def toolCallResponse(id: JSONValue, response: Response): String =
     val isSuccess = response
       .header(HttpHeader.XRPCStatus)
-      .contains(RPCStatus.SUCCESS_S0.code.toString)
+      .contains(ServiceStatus.SUCCESS_S0.code.toString)
     if isSuccess then
       val body = response.contentAsString.getOrElse("null")
       // A tool returning String is JSON-encoded as "..." by the RPC layer; unwrap it so MCP
@@ -252,9 +253,9 @@ case class MCPServer(
           body
       JsonRpc.resultResponse(id, toolResult(text, isError = false))
     else
-      val e = RPCException.fromResponse(response)
+      val e = ServiceException.fromResponse(response)
       e.status match
-        case RPCStatus.INVALID_REQUEST_U1 | RPCStatus.INVALID_ARGUMENT_U2 =>
+        case ServiceStatus.INVALID_REQUEST_U1 | ServiceStatus.INVALID_ARGUMENT_U2 =>
           // Malformed arguments are protocol-level errors per the MCP spec
           JsonRpc.errorResponse(id, JsonRpc.InvalidParams, e.message)
         case _ =>

@@ -13,6 +13,12 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.http.{
+  ServiceErrorMessage,
+  ServiceException,
+  ServiceStackTraceElement,
+  ServiceStatus
+}
 import wvlet.uni.http.{HttpHeader, HttpStatus, Request, Response}
 import wvlet.uni.test.UniTest
 
@@ -26,32 +32,29 @@ trait FailingService:
 class FailingServiceImpl extends FailingService:
   def fail(): String             = throw IllegalStateException("secret internal detail")
   def add(title: String): String = title
-  def unavailable(): String      = throw RPCStatus.UNAVAILABLE_I2.newException("busy")
-  def denied(): String           = throw RPCStatus.PERMISSION_DENIED_U14.newException("denied")
-  def hidden(): String           = throw RPCStatus.UNAVAILABLE_I2.newException("busy").noStackTrace
+  def unavailable(): String      = throw ServiceStatus.UNAVAILABLE_I2.newException("busy")
+  def denied(): String           = throw ServiceStatus.PERMISSION_DENIED_U14.newException("denied")
+  def hidden(): String = throw ServiceStatus.UNAVAILABLE_I2.newException("busy").noStackTrace
 
 class RPCErrorStackTraceTest extends UniTest:
 
-  private def withStackTrace(status: RPCStatus, message: String): RPCException = RPCException(
-    status = status,
-    message = message,
-    includeStackTrace = Some(true)
-  )
+  private def withStackTrace(status: ServiceStatus, message: String): ServiceException =
+    ServiceException(status = status, message = message, includeStackTrace = Some(true))
 
   test("omit stackTrace from the error body by default") {
-    for status <- Seq(RPCStatus.INVALID_REQUEST_U1, RPCStatus.INTERNAL_ERROR_I0) do
+    for status <- Seq(ServiceStatus.INVALID_REQUEST_U1, ServiceStatus.INTERNAL_ERROR_I0) do
       val ex = status.newException("probe message")
       ex.shouldReportStackTrace shouldBe false
       ex.toJson shouldNotContain "stackTrace"
       ex.toResponse.contentAsString.get shouldNotContain "stackTrace"
-      RPCErrorMessage.fromMsgPack(ex.toMsgPack).stackTrace shouldBe None
+      ServiceErrorMessage.fromMsgPack(ex.toMsgPack).stackTrace shouldBe None
   }
 
   test("include stackTrace in the error body when includeStackTrace is set") {
-    val ex = withStackTrace(RPCStatus.UNAVAILABLE_I2, "probe message")
+    val ex = withStackTrace(ServiceStatus.UNAVAILABLE_I2, "probe message")
     ex.shouldReportStackTrace shouldBe true
-    val m = RPCErrorMessage.fromJson(ex.toJson)
-    m.stackTrace shouldBe Some(ex.getStackTrace.toSeq.map(RPCStackTraceElement.fromJava))
+    val m = ServiceErrorMessage.fromJson(ex.toJson)
+    m.stackTrace shouldBe Some(ex.getStackTrace.toSeq.map(ServiceStackTraceElement.fromJava))
     (m.stackTrace.get.size > 0) shouldBe true
     ex.toJson shouldContain "\"stackTrace\""
     ex.toJson shouldContain "\"className\""
@@ -60,18 +63,18 @@ class RPCErrorStackTraceTest extends UniTest:
   }
 
   test("omit unset optional fields from the error body") {
-    RPCStatus.UNAVAILABLE_I2.newException("probe message").toJson shouldBe
+    ServiceStatus.UNAVAILABLE_I2.newException("probe message").toJson shouldBe
       """{"code":2002,"codeName":"UNAVAILABLE_I2","message":"probe message"}"""
   }
 
   test("restore the server-side stack trace on the client") {
     // Compare the serialized fields; Java module info in StackTraceElement is not transferred
-    def frames(e: Throwable) = e.getStackTrace.toSeq.map(RPCStackTraceElement.fromJava)
-    val original             = withStackTrace(RPCStatus.UNAVAILABLE_I2, "probe message")
+    def frames(e: Throwable) = e.getStackTrace.toSeq.map(ServiceStackTraceElement.fromJava)
+    val original             = withStackTrace(ServiceStatus.UNAVAILABLE_I2, "probe message")
     val expected             = frames(original)
 
-    frames(RPCException.fromJson(original.toJson)) shouldBe expected
-    frames(RPCException.fromMsgPack(original.toMsgPack)) shouldBe expected
+    frames(ServiceException.fromJson(original.toJson)) shouldBe expected
+    frames(ServiceException.fromMsgPack(original.toMsgPack)) shouldBe expected
   }
 
   test("parse error responses from servers that send stackTrace") {
@@ -79,25 +82,25 @@ class RPCErrorStackTraceTest extends UniTest:
     val body =
       """{"code":1001,"codeName":"INVALID_REQUEST_U1","message":"bad request","stackTrace":[{"className":"example.Server","methodName":"handle","fileName":"Server.scala","lineNumber":42}]}"""
     val response = Response(HttpStatus.BadRequest_400)
-      .addHeader(HttpHeader.XRPCStatus, RPCStatus.INVALID_REQUEST_U1.code.toString)
+      .addHeader(HttpHeader.XRPCStatus, ServiceStatus.INVALID_REQUEST_U1.code.toString)
       .withJsonContent(body)
-    val e = RPCException.fromResponse(response)
-    e.status shouldBe RPCStatus.INVALID_REQUEST_U1
+    val e = ServiceException.fromResponse(response)
+    e.status shouldBe ServiceStatus.INVALID_REQUEST_U1
     e.message shouldBe "bad request"
     e.getStackTrace.toSeq shouldBe
       Seq(StackTraceElement("example.Server", "handle", "Server.scala", 42))
   }
 
   test("parse error responses without stackTrace") {
-    val response = RPCStatus.INVALID_REQUEST_U1.newException("bad request").toResponse
-    val e        = RPCException.fromResponse(response)
-    e.status shouldBe RPCStatus.INVALID_REQUEST_U1
+    val response = ServiceStatus.INVALID_REQUEST_U1.newException("bad request").toResponse
+    val e        = ServiceException.fromResponse(response)
+    e.status shouldBe ServiceStatus.INVALID_REQUEST_U1
     e.message shouldBe "bad request"
   }
 
-  test("RPCStackTraceElement handles frames without a file name") {
+  test("ServiceStackTraceElement handles frames without a file name") {
     val frame = StackTraceElement("a.B", "run", null, -2)
-    val e     = RPCStackTraceElement.fromJava(frame)
+    val e     = ServiceStackTraceElement.fromJava(frame)
     e.fileName shouldBe None
     e.toJava shouldBe frame
   }
@@ -119,13 +122,13 @@ class RPCErrorStackTraceTest extends UniTest:
     // A client error: the request is missing the "request" wrapper
     val malformed   = """{"title":"hello"}"""
     val clientError = call(default, "add", malformed)
-    clientError shouldContain RPCStatus.INVALID_REQUEST_U1.name
+    clientError shouldContain ServiceStatus.INVALID_REQUEST_U1.name
     clientError shouldNotContain "stackTrace"
     call(detailed, "add", malformed) shouldContain "stackTrace"
 
-    // A server error thrown as RPCException by the handler
+    // A server error thrown as ServiceException by the handler
     val serverError = call(default, "unavailable")
-    serverError shouldContain RPCStatus.UNAVAILABLE_I2.name
+    serverError shouldContain ServiceStatus.UNAVAILABLE_I2.name
     serverError shouldNotContain "stackTrace"
     call(detailed, "unavailable") shouldContain "FailingServiceImpl"
   }

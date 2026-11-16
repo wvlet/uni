@@ -259,8 +259,8 @@ streaming, because it predates streaming RPC, the `Rx` fails with `UNIMPLEMENTED
 
 - **Errors.** A failure before the method returns gets the usual error response, which fails the
   `Rx` with an `HttpException`, as a unary call does. A failure after the stream started is sent
-  as an `rpc-error` event carrying the [RPC error](#rpcexception) JSON. It ends the stream and
-  fails the `Rx` with that `RPCException`.
+  as an `rpc-error` event carrying the [RPC error](#serviceexception) JSON. It ends the stream and
+  fails the `Rx` with that `ServiceException`.
 - **No retry.** A stream that has started cannot be replayed, so streaming calls are sent once.
 - **Cancellation.** Cancelling the `Rx` (an unsubscribe, or `take(n)`) stops the server stream:
   the client aborts the request (`fetch`, the JVM client, and libcurl on Scala Native), and the
@@ -291,7 +291,7 @@ replies this way, in Electron and in the browser.
 
 ## RPC Status Codes
 
-`RPCStatus` provides structured error codes organized by category:
+`ServiceStatus` (in `wvlet.uni.http`) provides structured error codes organized by category. RPC, Electron IPC, and MCP servers share these statuses. Before version 2026.1.42 it was called `RPCStatus`, and the old names remain as deprecated aliases in `wvlet.uni.http.rpc`. The aliases keep source compatibility only: recompile libraries built against the old names.
 
 | Category | HTTP Status | Retryable | Description |
 |----------|-------------|-----------|-------------|
@@ -303,23 +303,23 @@ replies this way, in Electron and in the browser.
 ### Common Status Codes
 
 ```scala
-import wvlet.uni.http.rpc.RPCStatus
+import wvlet.uni.http.ServiceStatus
 
 // User errors (not retryable)
-RPCStatus.INVALID_REQUEST_U1     // 400 - Malformed request
-RPCStatus.INVALID_ARGUMENT_U2    // 400 - Bad parameter values
-RPCStatus.NOT_FOUND_U5           // 404 - Resource not found
-RPCStatus.ALREADY_EXISTS_U6      // 409 - Resource already exists
-RPCStatus.UNAUTHENTICATED_U13    // 401 - Authentication required
-RPCStatus.PERMISSION_DENIED_U14  // 403 - Forbidden
+ServiceStatus.INVALID_REQUEST_U1     // 400 - Malformed request
+ServiceStatus.INVALID_ARGUMENT_U2    // 400 - Bad parameter values
+ServiceStatus.NOT_FOUND_U5           // 404 - Resource not found
+ServiceStatus.ALREADY_EXISTS_U6      // 409 - Resource already exists
+ServiceStatus.UNAUTHENTICATED_U13    // 401 - Authentication required
+ServiceStatus.PERMISSION_DENIED_U14  // 403 - Forbidden
 
 // Server errors (retryable)
-RPCStatus.INTERNAL_ERROR_I0      // 500 - Generic server error
-RPCStatus.UNAVAILABLE_I2         // 503 - Service unavailable
-RPCStatus.TIMEOUT_I3             // 504 - Timeout
+ServiceStatus.INTERNAL_ERROR_I0      // 500 - Generic server error
+ServiceStatus.UNAVAILABLE_I2         // 503 - Service unavailable
+ServiceStatus.TIMEOUT_I3             // 504 - Timeout
 
 // Resource errors (retry with backoff)
-RPCStatus.EXCEEDED_RATE_LIMIT_R2 // 429 - Rate limited
+ServiceStatus.EXCEEDED_RATE_LIMIT_R2 // 429 - Rate limited
 ```
 
 ## Error Handling
@@ -327,33 +327,33 @@ RPCStatus.EXCEEDED_RATE_LIMIT_R2 // 429 - Rate limited
 ### Throwing RPC Errors
 
 ```scala
-import wvlet.uni.http.rpc.{RPCStatus, RPCException}
+import wvlet.uni.http.{ServiceException, ServiceStatus}
 
 class UserServiceImpl extends UserService:
   def getUser(id: Long): User =
     if id <= 0 then
-      throw RPCStatus.INVALID_ARGUMENT_U2
+      throw ServiceStatus.INVALID_ARGUMENT_U2
         .newException(s"Invalid user id: ${id}")
     // ...
 ```
 
-### RPCException
+### ServiceException
 
-`RPCException` carries a status code and serializes to JSON or MessagePack for wire transport:
+`ServiceException` carries a status code and serializes to JSON or MessagePack for wire transport:
 
 ```scala
-val ex = RPCStatus.NOT_FOUND_U5.newException("User not found")
+val ex = ServiceStatus.NOT_FOUND_U5.newException("User not found")
 
 // Serialize
 val json: String = ex.toJson
 val response = ex.toResponse  // HTTP response with status header
 
 // Deserialize
-val recovered = RPCException.fromJson(json)
-val fromResp  = RPCException.fromResponse(response)
+val recovered = ServiceException.fromJson(json)
+val fromResp  = ServiceException.fromResponse(response)
 
 // Application-specific error codes
-val appEx = RPCStatus.USER_ERROR_U0
+val appEx = ServiceStatus.USER_ERROR_U0
   .newException("Insufficient balance", appErrorCode = Some(1001))
 ```
 
@@ -372,14 +372,14 @@ Electron IPC (`ElectronRPCServer`) has no such switch and never sends stack trac
 In detailed mode `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14` errors still omit stack traces, and so does an exception marked with `noStackTrace`:
 
 ```scala
-throw RPCStatus.INVALID_ARGUMENT_U2.newException("Invalid input").noStackTrace
+throw ServiceStatus.INVALID_ARGUMENT_U2.newException("Invalid input").noStackTrace
 ```
 
-Unexpected (non-`RPCException`) exceptions from a handler are wrapped as `INTERNAL_ERROR_I0` with no message or stack trace, unless detailed errors are enabled.
+Unexpected (non-`ServiceException`) exceptions from a handler are wrapped as `INTERNAL_ERROR_I0` with no message or stack trace, unless detailed errors are enabled.
 
-To always send the stack trace of one specific error, construct it with `RPCException(status, message, includeStackTrace = Some(true))`. Do this only when every client may see server internals.
+To always send the stack trace of one specific error, construct it with `ServiceException(status, message, includeStackTrace = Some(true))`. Do this only when every client may see server internals.
 
-On the client, `RPCException.fromJson`, `fromMsgPack`, and `fromResponse` restore the frames when the body has a `stackTrace` field, so responses from older Uni servers and Airframe RPC servers still decode.
+On the client, `ServiceException.fromJson`, `fromMsgPack`, and `fromResponse` restore the frames when the body has a `stackTrace` field, so responses from older Uni servers and Airframe RPC servers still decode.
 
 ## Best Practices
 

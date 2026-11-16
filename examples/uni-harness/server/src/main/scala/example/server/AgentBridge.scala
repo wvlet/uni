@@ -25,7 +25,8 @@ import wvlet.uni.http.{
   Response,
   RxHttpHandler
 }
-import wvlet.uni.http.rpc.{RPCClient, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.RPCClient
 import wvlet.uni.mcp.MCPServer
 import wvlet.uni.rx.Rx
 
@@ -98,7 +99,7 @@ object AgentBridge:
         case Some(c) =>
           rpc.callAsync[String](c, method, args)
         case None =>
-          Rx.exception(RPCStatus.UNAVAILABLE_I2.newException("No window is open"))
+          Rx.exception(ServiceStatus.UNAVAILABLE_I2.newException("No window is open"))
 
     override def snapshot(): Rx[String] = call("snapshot")
     override def query(

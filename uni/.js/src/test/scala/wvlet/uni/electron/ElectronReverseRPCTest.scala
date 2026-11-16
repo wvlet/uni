@@ -15,7 +15,8 @@ package wvlet.uni.electron
 
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.HttpAsyncClient
-import wvlet.uni.http.rpc.{RPCClient, RPCRouter, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -79,7 +80,7 @@ class ElectronReverseRPCTest extends UniTest:
     val testbed = ElectronTestbed()
     testbed.bridge()
     failureOf(rpc.callAsync[String](testbed.newMainClient(), "title", Seq.empty)).map { s =>
-      s shouldContain RPCStatus.UNAVAILABLE_I2.name
+      s shouldContain ServiceStatus.UNAVAILABLE_I2.name
     }
   }
 
@@ -88,7 +89,7 @@ class ElectronReverseRPCTest extends UniTest:
     val result            = failureOf(rpc.callAsync[String](client, "never", Seq.empty))
     js.timers.setTimeout(0)(testbed.closeRenderer())
     result.map { s =>
-      s shouldContain RPCStatus.UNAVAILABLE_I2.name
+      s shouldContain ServiceStatus.UNAVAILABLE_I2.name
     }
   }
 
@@ -98,11 +99,11 @@ class ElectronReverseRPCTest extends UniTest:
     js.timers.setTimeout(0)(testbed.reloadRenderer())
     result
       .flatMap { s =>
-        s shouldContain RPCStatus.UNAVAILABLE_I2.name
+        s shouldContain ServiceStatus.UNAVAILABLE_I2.name
         failureOf(rpc.callAsync[String](client, "title", Seq.empty))
       }
       .map { s =>
-        s shouldContain RPCStatus.UNAVAILABLE_I2.name
+        s shouldContain ServiceStatus.UNAVAILABLE_I2.name
       }
   }
 
@@ -111,7 +112,7 @@ class ElectronReverseRPCTest extends UniTest:
     ElectronRenderer.serve(testbed.bridge(), RPCRouter.of[PageService](PageServiceImpl()))
     val client = testbed.newMainClient(ElectronMainChannelConfig().withTimeoutMillis(10))
     failureOf(rpc.callAsync[String](client, "never", Seq.empty)).map { s =>
-      s shouldContain RPCStatus.DEADLINE_EXCEEDED_I4.name
+      s shouldContain ServiceStatus.DEADLINE_EXCEEDED_I4.name
     }
   }
 
@@ -167,7 +168,7 @@ class ElectronReverseRPCTest extends UniTest:
     reply(target, isTopLevel = false)
     result.map { s =>
       // Neither reply counted, so the call timed out
-      s shouldContain RPCStatus.DEADLINE_EXCEEDED_I4.name
+      s shouldContain ServiceStatus.DEADLINE_EXCEEDED_I4.name
     }
   }
 

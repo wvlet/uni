@@ -26,7 +26,8 @@ import wvlet.uni.http.{
   HttpResponse
 }
 import wvlet.uni.http.Response
-import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter, RPCStatus}
+import wvlet.uni.http.ServiceStatus
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
@@ -250,7 +251,11 @@ object ElectronRenderer:
       js.Promise[js.Object] { (resolve, _) =>
         def fail(e: Throwable): Unit = resolve(
           ElectronIPC.fromResponse(
-            RPCStatus.INTERNAL_ERROR_I0.newException("Internal error", e).noStackTrace.toResponse
+            ServiceStatus
+              .INTERNAL_ERROR_I0
+              .newException("Internal error", e)
+              .noStackTrace
+              .toResponse
           )
         )
         try

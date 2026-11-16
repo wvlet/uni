@@ -102,7 +102,7 @@ there is no human reading the bytes who would prefer JSON. The encoding
 is an internal detail you mostly never see.
 
 Errors cross the boundary as data too. When the server throws, the client
-sees an `RPCException` carrying a structured `RPCStatus` — a typed code
+sees a `ServiceException` carrying a structured `ServiceStatus` — a typed code
 like `NOT_FOUND` or `INVALID_ARGUMENT` — rather than a bare HTTP number
 you have to interpret. The [RPC reference](/http/rpc#rpc-status-codes)
 lists the status categories.
@@ -129,7 +129,7 @@ You can now connect two services without hand-written glue:
 - **`RPCRouter.of[T](impl)` + `RPCHandler`** serves it;
   **`sbt-uni`** generates the typed client.
 - Payloads ride **Weaver/MessagePack**; errors arrive as typed
-  **`RPCStatus`**.
+  **`ServiceStatus`**.
 - Reach for RPC when you own both ends, REST at the public edge.
 
 That closes Part V. Next, [Part VI](./ch11-00-cross-platform) steps back
