@@ -410,6 +410,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
             { text: 'Weaver (Serialization)', link: '/core/weaver' },
             { text: 'Type Introspection', link: '/core/surface' },
             { text: 'IO', link: '/core/io' },
+            { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' },
             { text: 'FileSystem', link: '/core/filesystem' },
             { text: 'SettingStore', link: '/core/settings' },
             { text: 'Result', link: '/core/result' },
