@@ -113,6 +113,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | Terminal pane (Scala.js) | `wvlet.uni.dom.{TerminalView, TerminalViewConfig, TerminalTheme}` | `TerminalView(term)` draws the emulator in the DOM, with Uni's `TerminalTheme.uniDark` by default; `view.setTheme(TerminalTheme.uniLight)` switches (`TerminalTheme.presets` lists all). OSC 8 links with `http`, `https`, or `mailto` (`TerminalLink.isAllowed`) open on Cmd+click (Ctrl elsewhere); in Electron pass `view.onLinkClick` a bridge to `shell.openExternal` in the main process. OSC 133 prompts get a green or red marker; `view.scrollToPreviousPrompt()` / `scrollToNextPrompt()` (Cmd+Up/Down, Ctrl+Shift+Up/Down elsewhere) jump between them |
 | Electron IPC (Scala.js) | `wvlet.uni.electron.{ElectronRPCServer, ElectronRenderer, ElectronMain}` | Renderer→main: `ElectronRPCServer.serve(ipcMain, router)` and `ElectronRenderer.install()`. Main→renderer: `ElectronRenderer.serve(router)` in the page (preload adds `serve`), `ElectronMain.newAsyncClient(ipcMain, webContents)` in main. See [Desktop Apps (Electron)](../http/electron) |
 | MCP server / client | `wvlet.uni.mcp.MCP` | `MCP.server.withTools[T](impl)...`, `MCP.client.connect(url)`; see [Build an MCP Server](../mcp/) |
+| Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `val c = Canvas.newOffHeapCanvas(size)` (`Long` size, beyond 2 GB), `c.writeInt(offset, v)`, `c.readLongBigEndian(offset)`, `c.slice(offset, length)`, then `c.close()` to free it now. Little-endian with `*BigEndian` variants; bounds-checked. JVM needs Java 22+ (FFM; check `Canvas.isOffHeapSupported`); Scala Native frees memory only on `close()`. Heap canvases: `Canvas.newCanvas(n)`, `Canvas.wrap(bytes)`. See [Canvas](../core/canvas) |
 | Retry / circuit breaker | `wvlet.uni.control.{Retry, CircuitBreaker}` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields. See [Command Launcher](../cli/launcher) |
 | Unit tests | `wvlet.uni.test.*` | `class T extends UniTest: test("...") { x shouldBe y }` |
@@ -132,6 +133,7 @@ platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 | `wvlet.airframe.http.Http` | `wvlet.uni.http.Http` |
 | `wvlet.airframe.http.netty.Netty.server` | `wvlet.uni.http.netty.Netty.server` (JVM only), or `Http.server` for cross-platform code |
 | `wvlet.airframe.http.filter.Cors` (`Cors.Policy`, `Cors.newFilter`) | `wvlet.uni.http.CorsFilter(CorsPolicy())`, added with `Http.server.withFilter` |
+| `wvlet.airframe.canvas.Canvas` | `wvlet.uni.canvas.Canvas`: `release` is `close()`, values are little-endian on every platform, and off-heap canvases need Java 22+ on the JVM |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
 | AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |

@@ -46,6 +46,7 @@ Scala Native.
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
 | MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
+| Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `Canvas.newOffHeapCanvas(size)` (`Long` offsets, beyond 2 GB), `readInt`/`writeLong` (little-endian; `*BigEndian` variants), `close()` frees it now; JVM needs Java 22+; see [references/core.md](references/core.md#off-heap-memory-canvas) |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |
 | Terminal emulator | `wvlet.uni.cli.term.TerminalEmulator`, `wvlet.uni.dom.TerminalView` (Scala.js) | `term.write(output)`, `term.screen.text`; `TerminalView(term)` draws it in the DOM; `PosixPty.spawn` (JVM, Native) or `NodePty.spawn` (Scala.js) runs a shell in a PTY; see [references/cli.md](references/cli.md#terminal-emulator) |
@@ -99,7 +100,7 @@ Read the reference for the task before writing code:
 
 | Task | Reference |
 |------|-----------|
-| Object wiring, logging, JSON, YAML, Markdown, cron, persisted settings, retry, MCP server | [references/core.md](references/core.md) |
+| Object wiring, logging, JSON, YAML, Markdown, cron, persisted settings, off-heap memory, retry, MCP server | [references/core.md](references/core.md) |
 | Typed RPC service, server, generated client, and streaming results | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
 | HTTP server, REST controllers, filters, CORS | [references/http-server.md](references/http-server.md) |

@@ -6,7 +6,7 @@ is copied by hand: `project/MarkdownSnippets.scala` generates one Scala file per
 Markdown file at compile time.
 
 Covered today: the `uni` skill (`plugins/uni/skills/uni/**/*.md`),
-`docs/guide/uni-vs-scala-toolkit.md`, `docs/core/unitest.md`, and the blog posts
+`docs/guide/uni-vs-scala-toolkit.md`, `docs/core/unitest.md`, `docs/core/settings.md`, `docs/core/canvas.md`, and the blog posts
 (`docs/blog/`). A root is a directory or one Markdown file. To cover
 more pages, add a root and its package prefix to `docSnippets` in `build.sbt`.
 

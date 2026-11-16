@@ -159,6 +159,29 @@ val inTest = SettingStore
   .load()
 ```
 
+## Off-heap memory (Canvas)
+
+A `Canvas` takes `Long` offsets, so it can exceed 2 GB. Free off-heap memory with `close()`;
+Scala Native frees it only then. On the JVM, off-heap canvases need Java 22+
+(`Canvas.isOffHeapSupported`).
+
+```scala
+import wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}
+
+val allocator = OffHeapMemoryAllocator()
+val c = allocator.newCanvas(1024)
+try
+  c.writeInt(0, 42)          // little-endian
+  c.writeLongBigEndian(8, 7L)
+  val view = c.slice(0, 16)  // shares memory with c
+  assert(view.readInt(0) == 42)
+finally
+  c.close()
+assert(allocator.allocatedMemorySize == 0L)
+
+val heap = Canvas.wrap(Array.ofDim[Byte](8)) // heap canvas over an existing array
+```
+
 ## Retry
 
 ```scala
