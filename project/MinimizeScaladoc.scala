@@ -2,8 +2,10 @@ import sbt.*
 import sbt.Keys.*
 
 /**
-  * Scaladoc settings for a small -javadoc.jar, which Maven Central's publishing limits require
-  * (https://central.sonatype.org/publish/maven-central-publishing-limits/).
+  * Shrinks the full Scaladoc of a published artifact by rendering its side menu dynamically.
+  *
+  * Why: Maven Central caps how much each organization can publish per month
+  * (https://central.sonatype.org/publish/maven-central-publishing-limits/); see MinimizeJavadoc.
   *
   * By default Scaladoc embeds the whole navigation side menu in every HTML page (~100 KB per page).
   * `-dynamic-side-menu` writes the menu once to dynamicSideMenu.json and renders it with JS.
@@ -13,12 +15,12 @@ import sbt.Keys.*
   * patched in below, is scala/scala3#27403. Remove the patch once uni builds with a Scala release
   * that includes that fix.
   */
-object ScaladocSideMenu:
+object MinimizeScaladoc:
   // In scripts/ux.js, baseUrl is an array of path segments, so `${baseUrl}` joins them with commas
   private val brokenLink = "`${baseUrl}/${loc.join(\"/\")}.html`"
   private val fixedLink  = "`${baseUrl.join(\"/\")}/${loc.join(\"/\")}.html`"
 
-  val settings: Seq[Setting[?]] = Seq(
+  val minimizeScaladoc: Seq[Setting[?]] = Seq(
     Compile / doc / scalacOptions += "-dynamic-side-menu",
     // Def.uncached: the task writes the patched ux.js, which a cached result would not restore
     Compile / packageDoc / mappings :=
@@ -34,7 +36,7 @@ object ScaladocSideMenu:
               if !js.contains(brokenLink) then
                 log.warn(
                   "Scaladoc's ux.js no longer has the side menu link bug (scala/scala3#27403); " +
-                    "remove the patch in project/ScaladocSideMenu.scala"
+                    "remove the patch in project/MinimizeScaladoc.scala"
                 )
               IO.write(patched, js.replace(brokenLink, fixedLink))
               converter.toVirtualFile(patched.toPath) -> path
@@ -43,3 +45,5 @@ object ScaladocSideMenu:
           }
       }
   )
+
+end MinimizeScaladoc

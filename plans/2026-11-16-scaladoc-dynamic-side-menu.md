@@ -15,9 +15,9 @@
 
 Lane: Express. This is a build-only change with no change to library behaviour. It touches published artifact packaging, which the launch prompt already asked for.
 
-- Add `-dynamic-side-menu` to `Compile / doc / scalacOptions` in the root `buildSettings`, so every published module gets it.
+- Add `-dynamic-side-menu` in the root `buildSettings`. Since #926 the Scala.js and Native jars of uni-core, uni and uni-test only link to the JVM docs, so this shrinks the remaining full Scaladoc jars (JVM, uni-ui).
 - Patch the one broken link expression in `scripts/ux.js` in `packageDoc / mappings`, the same hook salad-days uses. Remove the patch once uni builds with a Scala release that includes scala/scala3#27403.
-- Keep both settings in `project/ScaladocSideMenu.scala`, which also holds the explanation.
+- Name the setting `minimizeScaladoc` (`project/MinimizeScaladoc.scala`), after the action it performs, next to #926's `minimizeJavadoc`.
 - Leave the sbt plugin sub-builds unchanged: the flag saves about 5 KB per plugin jar, because their few pages carry little menu.
 
 ## Alternatives and Why Not?
