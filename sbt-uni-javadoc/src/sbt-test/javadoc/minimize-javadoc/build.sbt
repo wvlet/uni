@@ -9,7 +9,7 @@ ThisBuild / scmInfo      :=
   Some(ScmInfo(uri("https://github.com/example/repo"), "scm:git:git@github.com:example/repo.git"))
 
 def readJar(jar: File): Map[String, String] = {
-  val zip = new ZipFile(jar)
+  val zip = ZipFile(jar)
   try
     zip
       .entries()

@@ -39,8 +39,8 @@ private[javadoc] object MinimizeScaladoc:
               val js = IO.read(converter.toPath(ref).toFile)
               if !js.contains(brokenLink) then
                 log.warn(
-                  "Scaladoc's ux.js no longer has the side menu link bug (scala/scala3#27403); " +
-                    "remove the ux.js patch in sbt-uni-javadoc (MinimizeScaladoc.scala)"
+                  "Scaladoc's ux.js no longer has the side menu link bug (scala/scala3#27403), so " +
+                    "sbt-uni-javadoc's ux.js patch can be removed: https://github.com/wvlet/uni/issues"
                 )
               IO.write(patched, js.replace(brokenLink, fixedLink))
               converter.toVirtualFile(patched.toPath) -> path

@@ -10,7 +10,7 @@ TaskKey[Unit]("check") := {
   assert(opts.contains("-dynamic-side-menu"), s"-dynamic-side-menu is missing: ${opts}")
 
   val jar     = fileConverter.value.toPath((Compile / packageDoc).value).toFile
-  val zip     = new ZipFile(jar)
+  val zip     = ZipFile(jar)
   val entries = zip.entries().asScala.map(_.getName).toSet
   def read(name: String) = scala.io.Source.fromInputStream(zip.getInputStream(zip.getEntry(name))).mkString
   try {
