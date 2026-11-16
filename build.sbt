@@ -5,6 +5,7 @@ import sbtide.Keys.ideSkipProject
 import scala.language.implicitConversions
 import wvlet.uni.jsenv.playwright.{PlaywrightConfig, PlaywrightJSEnv}
 import MinimizeJavadoc.minimizeJavadoc
+import MinimizeScaladoc.minimizeScaladoc
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -72,7 +73,9 @@ val buildSettings = Seq[Setting[?]](
       "javax.annotation" % "javax.annotation-api" % "1.3.2" % Test
     ),
   testFrameworks += new TestFramework("wvlet.uni.test.Framework")
-)
+) ++
+  // Keep -javadoc.jar small for Maven Central's publishing limits (see project/MinimizeScaladoc.scala)
+  minimizeScaladoc
 
 val jsBuildSettings = Seq[Setting[?]](
   // Use Node.js environment for tests (required for FileSystem tests).
