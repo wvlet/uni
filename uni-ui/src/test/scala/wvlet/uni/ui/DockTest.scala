@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.all.{dir, div, styleAttr}
+import wvlet.uni.dom.all.{dir, div, id, styleAttr, RxElement}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.{Rx, RxVar}
@@ -422,6 +422,209 @@ class DockTest extends DomTestSupport:
     d.focusPanel("a") shouldBe true
     active shouldBe tabOf(m, "a")
     d.focusPanel("unknown") shouldBe false
+  }
+
+  // --- Floating groups and detached windows ---
+
+  private def near(a: Double, b: Double): Boolean = math.abs(a - b) < 1e-6
+
+  test("Float in the tab menu lifts a panel over the grid, and Dock puts it back") {
+    val layout = Rx.variable(DockLayout.of("a", "b"))
+    val m      = mountDock(dock(layout))
+    fireEvent.contextMenu(tabOf(m, "b"))
+    settle().flatMap { _ =>
+      fireEvent.click(menuItem("Float"))
+      layout.get.root shouldBe group("a")
+      layout.get.floating.map(_.panels) shouldBe Seq(Seq("b"))
+      val f = m.get(".uni-dock__float")
+      f.querySelector("[role=tabpanel]").textContent shouldBe "b content"
+      m.queryAll("[role=tablist]").map(_.getAttribute("aria-label")) shouldBe
+        Seq("Dock, group 1", "Dock, group 2")
+      // A little in from the group's corner, inside the dock
+      val b = layout.get.floating.head.box
+      (b.x > 0 && b.y > 0 && b.x + b.width <= 1 && b.y + b.height <= 1) shouldBe true
+      settle().flatMap { _ =>
+        active shouldBe tabOf(m, "b")
+        fireEvent.contextMenu(tabOf(m, "b"))
+        settle().map { _ =>
+          // A float holds one group
+          menuItem("Split right").getAttribute("aria-disabled") shouldBe "true"
+          fireEvent.click(menuItem("Dock"))
+          layout.get shouldBe DockLayout(Group(Seq("a", "b"), Some("b")))
+          m.queryAll(".uni-dock__float").size shouldBe 0
+        }
+      }
+    }
+  }
+
+  test("a float's grip moves it and its corner resizes it, by pointer and by key") {
+    val layout = Rx.variable(
+      DockLayout(group("a"), Seq(DockFloat.of(DockBox(0.1, 0.1, 0.5, 0.5), "b")))
+    )
+    val m    = mountDock(dock(layout))
+    def box  = layout.get.floating.head.box
+    val grip = m.get(".uni-dock__float-grip").asInstanceOf[dom.HTMLElement]
+    m.get(".uni-dock__float").getAttribute("style") shouldContain "left: 10%"
+
+    fireEvent.pointerDown(grip, clientX = 100, clientY = 100)
+    fireEvent.pointerMove(dom.window, clientX = 160, clientY = 140)
+    fireEvent.pointerUp(dom.window, clientX = 160, clientY = 140)
+    (near(box.x, 0.2) && near(box.y, 0.2)) shouldBe true
+    m.get(".uni-dock__float").getAttribute("style") shouldContain "left: 20%"
+    // It can't leave the dock
+    fireEvent.pointerDown(grip, clientX = 100, clientY = 100)
+    fireEvent.pointerMove(dom.window, clientX = 2000, clientY = 100)
+    fireEvent.pointerUp(dom.window, clientX = 2000, clientY = 100)
+    near(box.x, 0.5) shouldBe true
+
+    val corner = m.get(".uni-dock__float-resize")
+    fireEvent.pointerDown(corner, clientX = 300, clientY = 300)
+    fireEvent.pointerMove(dom.window, clientX = 0, clientY = 340)
+    fireEvent.pointerUp(dom.window, clientX = 0, clientY = 340)
+    // No smaller than the minimum panel size
+    (near(box.width, 120.0 / 600) && near(box.height, 0.6)) shouldBe true
+
+    grip.focus()
+    val before = box
+    fireEvent.keyDown(grip, "ArrowLeft")
+    near(box.x, before.x - 16.0 / 600) shouldBe true
+    fireEvent.keyDown(grip, "ArrowUp", shiftKey = true)
+    near(box.height, before.height - 16.0 / 400) shouldBe true
+    // Moving and resizing doesn't rebuild the float
+    (m.get(".uni-dock__float-grip") eq grip) shouldBe true
+  }
+
+  test("a tab dragged onto a float joins it, and pressing a float raises it") {
+    val boxA   = DockBox(0.5, 0.5, 0.4, 0.4)
+    val layout = Rx.variable(
+      DockLayout(
+        group("a", "c"),
+        Seq(DockFloat.of(boxA, "b"), DockFloat.of(DockBox(0, 0.5, 0.4, 0.4), "d"))
+      )
+    )
+    val m      = mountDock(dock(layout, panel("d")))
+    val floats = m.queryAll(".uni-dock__float")
+    floats.map(_.getAttribute("style").contains("z-index: 2")) shouldBe Seq(false, true)
+    fireEvent.pointerDown(floats.head, clientX = 400, clientY = 300)
+    fireEvent.pointerUp(dom.window, clientX = 400, clientY = 300)
+    m.queryAll(".uni-dock__float").map(_.getAttribute("style").contains("z-index: 2")) shouldBe
+      Seq(true, false)
+
+    val (x, y)   = center(tabOf(m, "a"))
+    val (px, py) = center(floats.head.querySelector("[role=tabpanel]"))
+    fireEvent.pointerDown(tabOf(m, "a"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = px + 30, clientY = py)
+    // The whole float, not a split
+    m.get(".uni-dock__drop").getAttribute("data-side") shouldBe "center"
+    fireEvent.pointerUp(dom.window, clientX = px + 30, clientY = py)
+    layout.get.floating.head shouldBe DockFloat(Seq("b", "a"), Some("a"), boxA)
+    layout.get.root shouldBe group("c")
+  }
+
+  test("a float's tab dragged onto an empty grid moves back there") {
+    val layout = Rx.variable(
+      DockLayout(DockLayout.empty.root, Seq(DockFloat.of(DockBox(0.5, 0, 0.5, 0.5), "a")))
+    )
+    val m = mountDock(dock(layout))
+    m.queryAll(".uni-dock__empty").size shouldBe 1
+    val (x, y) = center(tabOf(m, "a"))
+    fireEvent.pointerDown(tabOf(m, "a"), clientX = x, clientY = y)
+    fireEvent.pointerMove(dom.window, clientX = 150, clientY = 300)
+    fireEvent.pointerUp(dom.window, clientX = 150, clientY = 300)
+    layout.get shouldBe DockLayout(group("a"))
+  }
+
+  test("detach moves a panel into a window of its own, and it comes back when that closes") {
+    created.clear()
+    val layout = Rx.variable(DockLayout.of("a", "b"))
+    dock(layout).detach("a") shouldBe false
+    val d     = dock(layout).withDetach(true)
+    val m     = mountDock(d)
+    var shown = Set.empty[String]
+    val c     = d.detached.run(shown = _)
+
+    d.detach("a") shouldBe true
+    shown shouldBe Set("a")
+    tabOf(m, "a").getAttribute("data-detached") shouldBe "true"
+    m.get("[role=tabpanel]").textContent shouldContain "A is open in another window."
+    val w = d.windowOf("a").get
+    w.document.title shouldBe "A"
+    w.document.querySelector(".uni-dock__window").textContent shouldBe "a content"
+    // The page's styles come along
+    (w.document.querySelectorAll("style").length > 0) shouldBe true
+    created("a") shouldBe 1
+
+    // The window closing brings the panel back, with the same content
+    fireEvent.dispatch(w, dom.Event("pagehide"))
+    shown shouldBe Set.empty
+    d.windowOf("a") shouldBe None
+    tabOf(m, "a").getAttribute("data-detached") shouldBe "false"
+    m.get("[role=tabpanel]").textContent shouldBe "a content"
+    created("a") shouldBe 1
+
+    // From the tab menu, and back
+    fireEvent.contextMenu(tabOf(m, "b"))
+    settle().flatMap { _ =>
+      fireEvent.click(menuItem("Open in new window"))
+      shown shouldBe Set("b")
+      fireEvent.contextMenu(tabOf(m, "b"))
+      settle().flatMap { _ =>
+        fireEvent.click(menuItem("Bring back from window"))
+        shown shouldBe Set.empty
+        // Closing a detached panel closes its window
+        d.detach("b") shouldBe true
+        val wb = d.windowOf("b").get
+        d.close("b")
+        shown shouldBe Set.empty
+        wb.closed shouldBe true
+        // A hidden panel is shown in the layout first
+        d.detach("c") shouldBe true
+        DockModel.panels(layout.get) shouldContain "c"
+        settle().map { _ =>
+          d.reattach("c")
+          c.cancel
+        }
+      }
+    }
+  }
+
+  test("a detached window follows the theme, mounts content once, and closes with the layout") {
+    val root = dom.document.documentElement
+    root.setAttribute("data-theme", "dark")
+    var mounts = 0
+    class Probe extends RxElement:
+      override def onMount(node: Any): Unit = mounts += 1
+      override def render: RxElement        = div(id -> "dock-probe", "probe content")
+    val layout = Rx.variable(DockLayout.of("a"))
+    val d      = Dock(
+      layout,
+      label = "Dock",
+      panels = Seq(panel("a"), DockPanel("probe", title = "Probe", content = Probe()))
+    ).withDetach(true)
+    val m = mountDock(d)
+    // Hidden: shown in the layout, but mounted only in the window
+    d.detach("probe") shouldBe true
+    val w = d.windowOf("probe").get
+    w.document.documentElement.getAttribute("data-theme") shouldBe "dark"
+    root.removeAttribute("data-theme")
+    settle().flatMap { _ =>
+      w.document.documentElement.hasAttribute("data-theme") shouldBe false
+      mounts shouldBe 1
+
+      // Bring back keeps keyboard focus in the dock
+      fireEvent.click(m.get(".uni-dock__detached button:last-child"))
+      d.windowOf("probe") shouldBe None
+      settle().flatMap { _ =>
+        active shouldBe tabOf(m, "probe")
+        // The app dropping a detached panel from the layout closes its window
+        d.detach("a") shouldBe true
+        val wa = d.windowOf("a").get
+        layout := DockLayout.of("probe")
+        d.windowOf("a") shouldBe None
+        wa.closed shouldBe true
+        settle()
+      }
+    }
   }
 
 end DockTest

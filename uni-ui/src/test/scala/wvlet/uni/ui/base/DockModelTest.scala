@@ -147,7 +147,7 @@ class DockModelTest extends UniTest:
         Split(Column, Seq(Group(Seq("b", "c"), Some("c")), group("d")), Seq(0.7, 0.3))
       )
     )
-    l.toJSON shouldContain "\"version\":2"
+    l.toJSON shouldContain "\"version\":3"
     l.toJSON shouldContain "\"@type\":\"Split\""
     l.toJSON shouldContain "\"direction\":\"Column\""
     DockLayout.fromJSON(l.toJSON) shouldBe Some(l)
@@ -159,7 +159,7 @@ class DockModelTest extends UniTest:
   test("an unreadable or newer save decodes to None") {
     DockLayout.fromJSON("not json") shouldBe None
     DockLayout.fromJSON("""{"root":{"@type":"Group","panels":["a"]}}""") shouldBe None
-    DockLayout.fromJSON("""{"version":3,"root":{"@type":"Group","panels":["a"]}}""") shouldBe None
+    DockLayout.fromJSON("""{"version":4,"root":{"@type":"Group","panels":["a"]}}""") shouldBe None
     DockLayout.fromJSON("""{"version":2,"root":{"@type":"Tabs"}}""") shouldBe None
     DockLayout.fromJSON("""{"version":2,"root":{"@type":"Group","panels":["a"]}}""") shouldBe
       Some(DockLayout(Group(Seq("a"), None)))
@@ -228,6 +228,98 @@ class DockModelTest extends UniTest:
     DockModel.cornerGroup(group("a")) shouldBe Nil
     DockModel.topGroups(row(group("a"), column(group("b"), group("c")))) shouldBe
       Set(List(0), List(1, 0))
+  }
+
+  // --- Floating groups ---
+
+  private val box = DockBox(0.2, 0.1, 0.4, 0.5)
+
+  test("float lifts a panel into a floating group on top, and dock puts it back") {
+    val l = DockModel.float(DockLayout(row(group("a", "b"), group("c"))), "b", box)
+    l shouldBe DockLayout(row(group("a"), group("c")), Seq(DockFloat.of(box, "b")))
+    // The float's only tab stays where it is
+    DockModel.float(l, "b", DockBox.default) shouldBe l
+    // A second float goes on top
+    val two = DockModel.float(l, "c", DockBox.default)
+    two.root shouldBe group("a")
+    two.floating.map(_.panels) shouldBe Seq(Seq("b"), Seq("c"))
+    DockModel.groups(two) shouldBe Seq(Nil, List(-1), List(-2))
+
+    DockModel.dock(l, "b") shouldBe DockLayout(row(Group(Seq("a", "b"), Some("b")), group("c")))
+    // A panel in the grid isn't docked again
+    DockModel.dock(l, "a") shouldBe l
+  }
+
+  test("tabs move between floats and the grid, and a float takes splits in its center") {
+    val l = DockLayout(group("a", "b"), Seq(DockFloat.of(box, "c")))
+    val f = DockModel.floatPath(0)
+    DockModel.floatIndex(f) shouldBe Some(0)
+    DockModel.floatIndex(List(0)) shouldBe None
+    DockModel.groupOf(l, "c") shouldBe Some(f)
+
+    DockModel.move(l, "a", f, 0) shouldBe
+      DockLayout(group("b"), Seq(DockFloat(Seq("a", "c"), Some("a"), box)))
+    DockModel.split(l, "a", f, DockSide.Left) shouldBe
+      DockLayout(group("b"), Seq(DockFloat(Seq("c", "a"), Some("a"), box)))
+    // Moving the float's last tab out removes the float
+    DockModel.move(l, "c", Nil, 0) shouldBe DockLayout(Group(Seq("c", "a", "b"), Some("c")))
+    DockModel.split(l, "c", Nil, DockSide.Right) shouldBe
+      DockLayout(row(group("a", "b"), group("c")))
+    DockModel.close(l, "c") shouldBe DockLayout(group("a", "b"))
+    DockModel
+      .activate(DockLayout(group("a"), Seq(DockFloat.of(box, "b", "c"))), "c")
+      .floating shouldBe Seq(DockFloat(Seq("b", "c"), Some("c"), box))
+    DockModel.open(l, "d", Some(f)).floating shouldBe Seq(DockFloat(Seq("c", "d"), Some("d"), box))
+  }
+
+  test("floats count in visible, panels, and the shape") {
+    val l = DockLayout(group("a", "b"), Seq(DockFloat(Seq("c", "d"), Some("d"), box)))
+    DockModel.visible(l) shouldBe Set("a", "d")
+    l.visible shouldBe Set("a", "d")
+    DockModel.panels(l) shouldBe Seq("a", "b", "c", "d")
+    // Moving or switching tabs in a float doesn't change the shape
+    DockModel.shape(DockModel.withBox(l, 0, DockBox.default)) shouldBe DockModel.shape(l)
+    DockModel.shape(DockModel.activate(l, "c")) shouldBe DockModel.shape(l)
+    DockModel.shape(DockModel.float(l, "a", box)) shouldNotBe DockModel.shape(l)
+  }
+
+  test("normalize drops empty and repeated floats, and keeps boxes inside the dock") {
+    val l = DockLayout(
+      group("a"),
+      Seq(
+        DockFloat.of(box, "a"),
+        DockFloat.of(box, "zzz"),
+        DockFloat(Seq("b"), Some("gone"), DockBox(0.9, -1, 0.5, 2)),
+        DockFloat.of(DockBox(Double.NaN, 0, 0, Double.PositiveInfinity), "c")
+      )
+    )
+    DockModel.normalize(l, known.contains, required = Seq("d")) shouldBe
+      DockLayout(
+        Group(Seq("a", "d"), Some("a")),
+        Seq(
+          DockFloat.of(DockBox(0.5, 0, 0.5, 1), "b"),
+          DockFloat.of(DockBox(0.1, 0, 0.5, 0.5), "c")
+        )
+      )
+    DockModel.fixBox(DockBox(0, 0, 0.001, 0.5)).width shouldBe DockModel.minFloatShare
+    DockModel
+      .withBox(DockLayout(group("a"), Seq(DockFloat.of(box, "b"))), 0, DockBox(0.8, 0.8, 0.4, 0.4))
+      .floating
+      .map(_.box) shouldBe Seq(DockBox(0.6, 0.6, 0.4, 0.4))
+  }
+
+  test("floats are saved in version 3, and older saves load without floats") {
+    val l = DockLayout(group("a"), Seq(DockFloat(Seq("b", "c"), Some("c"), box)))
+    l.toJSON shouldContain "\"floating\":["
+    DockLayout.fromJSON(l.toJSON) shouldBe Some(l)
+    Weaver.fromJson[DockLayout](Weaver.toJson(l)) shouldBe l
+    // No floats, no key
+    DockLayout(group("a")).toJSON shouldNotContain "floating"
+    DockLayout.fromJSON("""{"version":3,"root":{"@type":"Group","panels":["a"]}}""") shouldBe
+      Some(DockLayout(Group(Seq("a"), None)))
+    DockLayout.fromJSON(
+      """{"version":3,"root":{"@type":"Group","panels":["a"]},"floating":[{"panels":"x"}]}"""
+    ) shouldBe None
   }
 
 end DockModelTest
