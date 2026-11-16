@@ -5,6 +5,8 @@
 // plugin provides just that surface: crossProject(JVMPlatform, JSPlatform, NativePlatform) with
 // shared sources in <base>/src and platform code in <base>/.jvm, .js, .native.
 
+import MinimizeJavadoc.minimizePluginJavadoc
+
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
@@ -61,5 +63,9 @@ lazy val sbtUniCrossProject = project
     scriptedLaunchOpts := {
       scriptedLaunchOpts.value ++ Seq("-Xmx1024M", s"-Dplugin.version=${version.value}")
     },
-    scriptedBufferLog := false
+    scriptedBufferLog := false,
+    minimizePluginJavadoc(
+      guide = "build/sbt-uni-crossproject",
+      sourceDir = "sbt-uni-crossproject/src/main/scala"
+    )
   )
