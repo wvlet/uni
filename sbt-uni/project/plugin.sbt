@@ -4,6 +4,7 @@ addSbtPlugin("org.scalameta"  % "sbt-scalafmt" % "2.6.2")
 
 libraryDependencies += "org.scala-sbt" %% "scripted-plugin" % sbtVersion.value
 
-// Compile the root build's MinimizeJavadoc into this build, so the plugins share its javadoc page
-Compile / unmanagedSources +=
-  baseDirectory.value.getParentFile.getParentFile / "project" / "MinimizeJavadoc.scala"
+// Compile sbt-uni-javadoc (minimizePluginJavadoc) from source, as it is not published yet. After its
+// first release, replace this with addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % ...).
+Compile / unmanagedSourceDirectories +=
+  baseDirectory.value.getParentFile.getParentFile / "sbt-uni-javadoc" / "src" / "main" / "scala"

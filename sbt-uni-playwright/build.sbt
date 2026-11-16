@@ -2,11 +2,12 @@
 // Replaces the unmaintained, Scala-2.12-only, cats-effect-based io.github.gmkumar2005 env so uni
 // can run Scala.js tests in a real ES-module browser on sbt 2.x without those constraints.
 
-import MinimizeJavadoc.minimizePluginJavadoc
-
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
+
+// The guides that the plugin's link-only javadoc page (minimizePluginJavadoc) points to
+ThisBuild / javadocSiteUrl := "https://wvlet.org/uni/"
 
 ThisBuild / dynverSonatypeSnapshots := true
 ThisBuild / dynverSeparator         := "-"

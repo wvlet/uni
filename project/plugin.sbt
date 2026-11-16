@@ -40,3 +40,10 @@ scalacOptions ++= Seq("-deprecation", "-feature")
 
 // Strips fonts and inkuire.js from Scaladoc output to keep -javadoc.jar small (scala/scala3#26387)
 addSbtPlugin("com.eed3si9n" % "sbt-salad-days" % "0.2.0")
+
+// minimizeScaladoc, minimizeJavadoc, and minimizePluginJavadoc (sbt-uni-javadoc), compiled from
+// source because uni plugins resolve at UNI_PLUGIN_VERSION, which predates sbt-uni-javadoc. After
+// its first release, replace this and sbt-salad-days above (a dependency of sbt-uni-javadoc) with
+// addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % UNI_PLUGIN_VERSION).
+Compile / unmanagedSourceDirectories +=
+  baseDirectory.value.getParentFile / "sbt-uni-javadoc" / "src" / "main" / "scala"

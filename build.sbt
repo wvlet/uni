@@ -4,8 +4,6 @@ import sbtide.Keys.ideSkipProject
 // jvmProjects/jsProjects/nativeProjects lists); sbt 2.x requires opting into that implicit conversion.
 import scala.language.implicitConversions
 import wvlet.uni.jsenv.playwright.{PlaywrightConfig, PlaywrightJSEnv}
-import MinimizeJavadoc.minimizeJavadoc
-import MinimizeScaladoc.minimizeScaladoc
 
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
@@ -74,7 +72,7 @@ val buildSettings = Seq[Setting[?]](
     ),
   testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 ) ++
-  // Keep -javadoc.jar small for Maven Central's publishing limits (see project/MinimizeScaladoc.scala)
+  // Keep -javadoc.jar small for Maven Central's publishing limits (see docs/build/sbt-uni-javadoc.md)
   minimizeScaladoc
 
 val jsBuildSettings = Seq[Setting[?]](

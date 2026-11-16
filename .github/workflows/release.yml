@@ -42,7 +42,7 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
         run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
-      # The four builds live in separate directories with their own sbt servers and write to disjoint
+      # The five builds live in separate directories with their own sbt servers and write to disjoint
       # paths under the shared staging dir, so they can stage concurrently. `parallel` waits for all
       # of them (and fails if any failed) before sonaRelease runs.
       - parallel:
@@ -61,6 +61,10 @@ jobs:
         - name: Stage sbt-uni-crossproject
           env: *sbt-env
           working-directory: sbt-uni-crossproject
+          run: sbt publishSigned
+        - name: Stage sbt-uni-javadoc
+          env: *sbt-env
+          working-directory: sbt-uni-javadoc
           run: sbt publishSigned
         # Scope publishSigned to the two published modules (a bare publishSigned would also stage the
         # empty aggregate root).

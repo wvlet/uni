@@ -5,11 +5,12 @@
 // plugin provides just that surface: crossProject(JVMPlatform, JSPlatform, NativePlatform) with
 // shared sources in <base>/src and platform code in <base>/.jvm, .js, .native.
 
-import MinimizeJavadoc.minimizePluginJavadoc
-
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
+
+// The guides that the plugin's link-only javadoc page (minimizePluginJavadoc) points to
+ThisBuild / javadocSiteUrl := "https://wvlet.org/uni/"
 
 ThisBuild / dynverSonatypeSnapshots := true
 ThisBuild / dynverSeparator         := "-"

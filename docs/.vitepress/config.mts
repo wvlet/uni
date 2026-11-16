@@ -502,7 +502,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           items: [
             { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
             { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
-            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' }
+            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
+            { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
           ]
         }
       ],
@@ -620,7 +621,8 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           items: [
             { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
             { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
-            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' }
+            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
+            { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
           ]
         }
       ]

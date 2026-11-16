@@ -1,0 +1,5 @@
+# minimizeJavadoc links to the JVM artifact on javadoc.io and to homepage
+> core/check
+# minimizePluginJavadoc links to the guide under javadocSiteUrl and the source under scmInfo
+> plugin/check
+> defaults/check
