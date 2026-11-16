@@ -115,7 +115,10 @@ class NettyRequestHandler(
               runRxResponse(ctx, response, keepAlive)
     catch
       case e: Exception =>
-        warn(s"Error handling request: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"Error handling request: ${e.getMessage}", e)
+        else
+          warn(s"Error handling request: ${e.getMessage}", e)
         sendResponse(ctx, errorResponse(e), keepAlive)
 
   private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
@@ -165,7 +168,10 @@ class NettyRequestHandler(
         route.filter.apply(request, gate)
       catch
         case NonFatal(e) =>
-          warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+          if HttpServerSecurity.isClientError(e) then
+            debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+          else
+            warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
           sendResponse(ctx, errorResponse(e), keepAlive = false)
           return
 
@@ -187,7 +193,10 @@ class NettyRequestHandler(
               nettyRequest.release()
         case OnError(e) =>
           if handled.compareAndSet(false, true) then
-            warn(s"WebSocket upgrade error: ${e.getMessage}", e)
+            if HttpServerSecurity.isClientError(e) then
+              debug(s"WebSocket upgrade error: ${e.getMessage}", e)
+            else
+              warn(s"WebSocket upgrade error: ${e.getMessage}", e)
             sendResponse(ctx, errorResponse(e), keepAlive = false)
             nettyRequest.release()
         case OnCompletion =>
@@ -200,9 +209,13 @@ class NettyRequestHandler(
     catch
       case NonFatal(e) =>
         if handled.compareAndSet(false, true) then
-          warn(s"WebSocket upgrade failed: ${e.getMessage}", e)
+          if HttpServerSecurity.isClientError(e) then
+            debug(s"WebSocket upgrade failed: ${e.getMessage}", e)
+          else
+            warn(s"WebSocket upgrade failed: ${e.getMessage}", e)
           sendResponse(ctx, errorResponse(e), keepAlive = false)
           nettyRequest.release()
+    end try
   end handleWebSocketUpgrade
 
   private def doWebSocketHandshake(
@@ -313,7 +326,10 @@ class NettyRequestHandler(
               sendResponse(ctx, errorResponse(e), keepAlive = false)
       case OnError(e) =>
         if responded.compareAndSet(false, true) then
-          warn(s"Error in Rx handler: ${e.getMessage}", e)
+          if HttpServerSecurity.isClientError(e) then
+            debug(s"Error in Rx handler: ${e.getMessage}", e)
+          else
+            warn(s"Error in Rx handler: ${e.getMessage}", e)
           sendResponse(ctx, errorResponse(e), keepAlive)
       case OnCompletion =>
         if responded.compareAndSet(false, true) then

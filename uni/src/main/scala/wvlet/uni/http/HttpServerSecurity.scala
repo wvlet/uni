@@ -23,17 +23,36 @@ private[uni] object HttpServerSecurity:
   final val InternalServerErrorMessage = "Internal Server Error"
 
   /**
-    * Build the 500 response for an unexpected server-side failure. Exception messages can carry
-    * file paths, SQL, hostnames or credentials (including those of an upstream service the handler
-    * called), so they reach the client only when `detailedErrors` is enabled. The caller is
-    * expected to log the full exception. Handlers that want a specific status return a [[Response]]
-    * instead.
+    * Build the response for an exception that no handler or filter turned into a response.
+    *
+    * A [[ServiceException]] becomes its mapped response: `status.httpStatus`, the `X-RPC-Status`
+    * header, and the [[ServiceErrorMessage]] JSON body, with a stack trace only when
+    * `detailedErrors` is on and the status allows one (see [[ServiceException.toResponse]]).
+    *
+    * Any other exception is an unexpected server-side failure and becomes a 500. Exception messages
+    * can carry file paths, SQL, hostnames or credentials (including those of an upstream service
+    * the handler called), so they reach the client only when `detailedErrors` is enabled. The
+    * caller is expected to log the full exception.
     */
   def errorResponse(e: Throwable, detailedErrors: Boolean): Response =
-    if detailedErrors then
-      Response.internalServerError(String.valueOf(e.getMessage))
-    else
-      Response.internalServerError(InternalServerErrorMessage)
+    e match
+      case se: ServiceException =>
+        se.toResponse(detailedErrors)
+      case _ if detailedErrors =>
+        Response.internalServerError(String.valueOf(e.getMessage))
+      case _ =>
+        Response.internalServerError(InternalServerErrorMessage)
+
+  /**
+    * Whether `e` reports a client error (a [[ServiceException]] with a 4xx status), which servers
+    * log at debug level rather than as a server failure.
+    */
+  def isClientError(e: Throwable): Boolean =
+    e match
+      case se: ServiceException =>
+        se.status.httpStatus.isClientError
+      case _ =>
+        false
 
   /**
     * Check the `Origin` of a WebSocket upgrade to prevent cross-site WebSocket hijacking: browsers

@@ -19,4 +19,4 @@
 ## Consequences
 
 - Source compatibility only: a library compiled against the old `wvlet.uni.http.rpc.RPCException` class must be recompiled, since type aliases don't restore the old class files.
-- The HTTP router doesn't yet turn a thrown `ServiceException` into its mapped response; that is a separate follow-up.
+- The HTTP router didn't yet turn a thrown `ServiceException` into its mapped response; [a follow-up](2026-11-16-server-service-exception-response.md) added that for every server.

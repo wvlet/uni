@@ -79,8 +79,9 @@ encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit.
 - **Checking `isSuccessful` after `send`.** The HTTP client throws on non-2xx:
   `HttpException` for most 4xx, `HttpMaxRetryException` (not a subclass) after
   retrying 5xx/429. RPC client calls fail the same way. Report server errors
-  with `ServiceStatus.NOT_FOUND_U5.newException("...")` (`wvlet.uni.http`);
-  `RPCStatus` is its deprecated old name.
+  with `ServiceStatus.NOT_FOUND_U5.newException("...")` (`wvlet.uni.http`) from
+  RPC, `Router`, or any `Http.server` handler: the response gets its HTTP
+  status. `RPCStatus` is its deprecated old name.
 - **Hand-written JSON codecs.** Add `derives Weaver` to the case class.
 - **A second object-wiring framework or logging backend next to Uni.** Uni
   already provides them. A JSON library the project already uses (such as uPickle)

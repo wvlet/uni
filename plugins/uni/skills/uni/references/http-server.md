@@ -134,7 +134,10 @@ Http.server.withPort(8080).withFilter(errors).withFilter(auth).withRxHandler(han
 Filters see exceptions from `RouterHandler` controllers and failed `Rx` values.
 In a functional handler, return `Rx.exception(e)` rather than throwing, or the
 filter never sees the error. Unrecovered exceptions become a plain
-`500 Internal Server Error`; enable `.withDetailedErrors(true)` only in
+`500 Internal Server Error`, except a thrown
+`ServiceStatus.NOT_FOUND_U5.newException("...")` (`wvlet.uni.http`), which
+answers with its HTTP status (404), the `X-RPC-Status` header, and the JSON
+error body that RPC endpoints send. Enable `.withDetailedErrors(true)` only in
 development.
 
 ## Static files (JVM, Node.js, Native)
@@ -190,7 +193,8 @@ Http
 - `withAllowedOrigins("*")` with `withAllowCredentials(true)` throws.
 - A disallowed preflight gets 403; other requests from a disallowed origin are
   handled without CORS headers. A handler failure from an allowed origin becomes a
-  500 with CORS headers (body always `Internal Server Error`). Add error filters
+  500 with CORS headers (body always `Internal Server Error`; a `ServiceException`
+  keeps its status). Add error filters
   that map exceptions to statuses after `CorsFilter`, so they run inside it.
 
 ## Lifecycle

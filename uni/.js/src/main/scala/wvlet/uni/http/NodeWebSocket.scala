@@ -100,7 +100,10 @@ private[http] object NodeWebSocket extends LogSupport:
         else
           writeHttpClose(socket, resp)
       case OnError(e) =>
-        warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+        else
+          warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
         writeHttpClose(socket, HttpServerSecurity.errorResponse(e, detailedErrors))
       case OnCompletion =>
         // Filter completed without a verdict: close the connection rather than leave it hanging.

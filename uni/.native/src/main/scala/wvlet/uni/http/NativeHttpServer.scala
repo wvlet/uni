@@ -361,7 +361,10 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
       checkHeaders(awaitRx(handler.handle(request)))
     catch
       case NonFatal(e) =>
-        warn(s"Error handling request: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"Error handling request: ${e.getMessage}", e)
+        else
+          warn(s"Error handling request: ${e.getMessage}", e)
         errorResponse(e)
 
   private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
@@ -394,7 +397,10 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
         result.set(response.asInstanceOf[Response])
         latch.countDown()
       case OnError(e) =>
-        warn(s"Error in handler: ${e.getMessage}", e)
+        if HttpServerSecurity.isClientError(e) then
+          debug(s"Error in handler: ${e.getMessage}", e)
+        else
+          warn(s"Error in handler: ${e.getMessage}", e)
         result.set(errorResponse(e))
         latch.countDown()
       case OnCompletion =>
@@ -444,7 +450,10 @@ class NativeHttpServer(config: NativeServerConfig) extends HttpServer with LogSu
             checkHeaders(awaitRx(route.filter.apply(request, gate)))
           catch
             case NonFatal(e) =>
-              warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+              if HttpServerSecurity.isClientError(e) then
+                debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
+              else
+                warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
               errorResponse(e)
         if !verdict.isSuccessful then
           NativeSocket.sendAll(
