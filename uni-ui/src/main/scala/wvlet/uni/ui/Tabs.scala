@@ -98,8 +98,9 @@ class TabList[A](val selected: RxVar[A], label: String, tabs: Seq[Tab[A]]) exten
       }
 
   private object agentBinding extends AgentBinding:
-    override def kind: String        = "tabs"
-    override def states: Seq[AnyRef] = Seq(selected)
+    override def kind: String                 = "tabs"
+    override def states: Seq[AnyRef]          = Seq(selected)
+    override def changeHandler: ChangeHandler = TabList.this.changeHandler
 
     private def labels: Seq[String] = AgentBinding.itemLabels(
       element

@@ -18,6 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.{DomRenderer, PointerDrag}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentRegistry, StateOwner}
 import wvlet.uni.ui.base.{
   Announce,
   DockBox,
@@ -146,6 +147,19 @@ class Dock private (
     * Key: `layout`.
     */
   def onChange(f: ChangeHandler): Dock = copy(changeHandler = f)
+
+  // Owns the layout for UiHistory, so an undo asks this dock's handler; agents don't see it
+  private object stateOwner extends StateOwner:
+    override def kind: String                 = "dock"
+    override def states: Seq[AnyRef]          = Seq(layout)
+    override def changeHandler: ChangeHandler = Dock.this.changeHandler
+    override def label: Option[String]        = Some(Dock.this.label)
+    override def format(v: Any): String       =
+      v match
+        case l: DockLayout =>
+          l.toJSON
+        case other =>
+          String.valueOf(other)
 
   private def setLayout(l: DockLayout, cause: ChangeCause): Boolean = ChangeGate.write(
     layout,
@@ -524,20 +538,28 @@ class Dock private (
   private def floatGroup(i: Int, tabs: Seq[String], live: Rx[DockLayout], groupCount: Int) =
     val path = DockModel.floatPath(i)
     val box  = distinct(live.map(_.floating.lift(i).map(_.box).getOrElse(DockBox.default)))
-    def pct(v: Double)               = f"${v * 100}%.4f%%"
-    var from: DockBox                = DockBox.default
+    def pct(v: Double) = f"${v * 100}%.4f%%"
+    var from: DockBox  = DockBox.default
+    // One drag, one UiHistory entry
+    var gesture: AnyRef              = Object()
     val drag: Boolean => PointerDrag =
       resize =>
         PointerDrag(
           onMove =
             (dx, dy) =>
               val cause = ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
-              if resize then
-                resizeFloat(i, from, dx, dy, cause)
-              else
-                moveFloat(i, from, dx, dy, cause)
+              ChangeGate.inGesture(gesture) {
+                if resize then
+                  resizeFloat(i, from, dx, dy, cause)
+                else
+                  moveFloat(i, from, dx, dy, cause)
+              }
           ,
-          onStart = _ => from = boxOf(i),
+          onStart =
+            _ =>
+              from = boxOf(i)
+              gesture = Object()
+          ,
           cursor =
             if resize then
               "nwse-resize"
@@ -1058,24 +1080,29 @@ class Dock private (
 
     var startSizes: Seq[Double] = Seq.empty
     var startPx: Double         = 0
+    // One drag, one UiHistory entry
+    var gesture: AnyRef = Object()
     // In a right-to-left row the first pane is on the right, so a leftward drag grows it, as
     // ArrowLeft does
     var sign: Double = 1
     val drag         = PointerDrag(
       onMove =
         (dx, dy) =>
-          resizeBy(
-            startSizes,
-            startPx,
-            if dir == SplitDirection.Row then
-              sign * dx
-            else
-              dy
-            ,
-            ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
-          ),
+          ChangeGate.inGesture(gesture) {
+            resizeBy(
+              startSizes,
+              startPx,
+              if dir == SplitDirection.Row then
+                sign * dx
+              else
+                dy
+              ,
+              ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
+            )
+          },
       onStart =
         e =>
+          gesture = Object()
           startSizes = sizes
           startPx = available
           sign =
@@ -1243,6 +1270,7 @@ class Dock private (
       data("slot")     -> "dock",
       data("dragging") -> dragged.map(_.isDefined.toString),
       dockRef.binding,
+      AgentRegistry.own(stateOwner),
       distinct(current.map(gridKey)).map { key =>
         focusedGroup = None
         val (root, n) = key

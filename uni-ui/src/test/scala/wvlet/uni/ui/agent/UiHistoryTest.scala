@@ -14,6 +14,7 @@
 package wvlet.uni.ui.agent
 
 import org.scalajs.dom
+import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.all.div
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
@@ -316,6 +317,108 @@ class UiHistoryTest extends DomTestSupport:
     intercept[IllegalStateException] {
       history.stage("again")
     }
+    agent.uninstall()
+  }
+
+  test("a revert asks the handler of the component that owns the state now") {
+    val name  = Rx.variable("")
+    val first = mount(Input(name).withLabel("Name"))
+    val agent = install()
+    val hist  = UiHistory.record()
+    agent.act("textfield:name", "setText", Some("Bob"))
+    first.unmount()
+    // A new field on the same state, whose handler refuses undo
+    val seen   = ArrayBuffer.empty[ChangeReason]
+    val second = mount(
+      Input(name)
+        .withLabel("Name")
+        .onChange { d =>
+          seen += d.reason
+          if d.reason == ChangeReason.Undo then
+            d.cancel()
+        }
+    )
+    hist.undoSource(ChangeSource.Agent).map(_.status) shouldBe Seq(UndoStatus.Canceled)
+    seen shouldBe Seq(ChangeReason.Undo)
+    name.get shouldBe "Bob"
+    second.unmount()
+    hist.close()
+    agent.uninstall()
+  }
+
+  test("a Dock layout change is undone through the dock's onChange") {
+    val layout = Rx.variable(DockLayout.of("a", "b"))
+    val seen   = ArrayBuffer.empty[ChangeReason]
+    val d      = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(DockPanel("a", "A", div("a")), DockPanel("b", "B", div("b")))
+    ).onChange(c => seen += c.reason)
+    mount(div(d))
+    val agent   = install()
+    val history = UiHistory.record()
+    d.close("b")
+    layout.get shouldBe DockLayout.of("a")
+    val entry = history.entries.head
+    (entry.kind, entry.label, entry.key, entry.ref, entry.reversible) shouldBe
+      (Some("dock"), "Workspace", "layout", None, true)
+
+    history.undo(entry).status shouldBe UndoStatus.Reverted
+    layout.get shouldBe DockLayout.of("a", "b")
+    seen.last shouldBe ChangeReason.Undo
+    // Agents still don't see the dock
+    agent.snapshot().map(_.kind) shouldNotContain "dock"
+    history.close()
+    agent.uninstall()
+  }
+
+  test("a Dock layout changed again since is a conflict") {
+    val layout = Rx.variable(DockLayout.of("a", "b"))
+    val d      = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(DockPanel("a", "A", div("a")), DockPanel("b", "B", div("b")))
+    )
+    mount(div(d))
+    val history = UiHistory.record()
+    d.close("b")
+    layout := DockLayout.of("a", "c")
+    history.undo(history.entries.head).status shouldBe UndoStatus.Conflict
+    layout.get shouldBe DockLayout.of("a", "c")
+    history.close()
+  }
+
+  test("one splitter drag is one entry, undone in one step") {
+    val width   = Rx.variable(300)
+    val range   = SizeRange(min = 200, default = 300, max = 400)
+    val m       = mount(Splitter(width, range, Edge.Right, "Resize sidebar"))
+    val agent   = install()
+    val history = UiHistory.record()
+    val grip    = m.get("[role=separator]")
+    fireEvent.pointerDown(grip, clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 320)
+    fireEvent.pointerMove(dom.window, clientX = 350)
+    fireEvent.pointerUp(dom.window, clientX = 350)
+    // A second drag is an entry of its own
+    fireEvent.pointerDown(grip, clientX = 350)
+    fireEvent.pointerMove(dom.window, clientX = 370)
+    fireEvent.pointerUp(dom.window, clientX = 370)
+    width.get shouldBe 370
+    history.entries.map(e => (e.kind, e.label, e.previous, e.value)) shouldBe
+      Seq(
+        (Some("splitter"), "Resize sidebar", "300", "350"),
+        (Some("splitter"), "Resize sidebar", "350", "370")
+      )
+    agent.snapshot().map(_.kind) shouldNotContain "splitter"
+
+    history.undoSource(ChangeSource.Pointer).map(_.status) shouldBe
+      Seq(UndoStatus.Reverted, UndoStatus.Reverted)
+    width.get shouldBe 300
+    // Keyboard steps stay one entry each
+    fireEvent.keyDown(grip, "ArrowRight")
+    fireEvent.keyDown(grip, "ArrowRight")
+    history.entries.count(_.source == ChangeSource.Keyboard) shouldBe 2
+    history.close()
     agent.uninstall()
   }
 

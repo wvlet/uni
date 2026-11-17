@@ -201,6 +201,18 @@ end ChangeCause
 private[ui] object ChangeGate:
   val noHandler: ChangeHandler = _ => ()
 
+  private var gesture: Option[AnyRef] = None
+
+  /**
+    * Marks the changes inside `body` as part of the pointer drag `token`, so [[agent.UiHistory]]
+    * keeps one entry for the whole drag. Create a new token when a drag starts.
+    */
+  def inGesture[A](token: AnyRef)(body: => A): A =
+    val saved = gesture
+    gesture = Some(token)
+    try body
+    finally gesture = saved
+
   /**
     * Asks `handler` about setting `target` to `value`, and writes it unless the handler canceled.
     * Returns true when `target` holds `value` afterwards: the change was accepted, or the value was
@@ -221,7 +233,7 @@ private[ui] object ChangeGate:
     else
       val d = ChangeDetails(key, value, previous, cause.reason, ChangeSource.resolve(cause.source))
       handler(d)
-      agent.AgentRegistry.report(target, d, handler)
+      agent.AgentRegistry.report(target, d, gesture)
       if d.canceled then
         false
       else
@@ -242,18 +254,22 @@ end ChangeGate
   * @param holding
   *   true while writes stay in this variable as a draft, such as during an IME composition;
   *   [[commit]] sends the draft on afterwards
+  * @param gesture
+  *   the pointer drag a write is part of, read when it happens; see [[ChangeGate.inGesture]]
   */
 private[ui] class GatedVar[A](
     target: RxVar[A],
     key: String,
     handler: () => ChangeHandler,
     cause: () => ChangeCause,
-    holding: () => Boolean = () => false
+    holding: () => Boolean = () => false,
+    gesture: () => Option[AnyRef] = () => None
 ) extends RxVar[A](target.get):
 
   override def update(updater: A => A, force: Boolean = false): Unit =
-    val v = updater(get)
-    if holding() || ChangeGate.write(target, key, v, cause(), handler()) then
+    val v       = updater(get)
+    def write() = ChangeGate.write(target, key, v, cause(), handler())
+    if holding() || gesture().fold(write())(ChangeGate.inGesture(_)(write())) then
       super.update(_ => v, force)
 
   /** Sends a held draft to `target`. Returns false when it was refused, leaving `target` as is. */

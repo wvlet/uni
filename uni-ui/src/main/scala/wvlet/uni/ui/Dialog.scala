@@ -139,10 +139,11 @@ class Dialog private (
         None
 
   private object agentBinding extends AgentBinding:
-    override def kind: String              = "dialog"
-    override def states: Seq[AnyRef]       = Seq(open)
-    override def format(v: Any): String    = Popover.stateName(v == true)
-    override def actions: Seq[AgentAction] = Seq(
+    override def kind: String                 = "dialog"
+    override def states: Seq[AnyRef]          = Seq(open)
+    override def changeHandler: ChangeHandler = Dialog.this.changeHandler
+    override def format(v: Any): String       = Popover.stateName(v == true)
+    override def actions: Seq[AgentAction]    = Seq(
       AgentAction("close", "Close the dialog, like Escape")(() =>
         ChangeCause.during(AgentAction.cause(ChangeReason.Imperative))(dismiss())
       )

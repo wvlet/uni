@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentRegistry, StateOwner}
 
 import scala.language.implicitConversions
 
@@ -119,13 +120,23 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     changeHandler = f
     this
 
+  // The drag the next writes belong to, so UiHistory keeps one entry per drag
+  private var gesture: Option[AnyRef] = None
+
   // PaneResize writes the size on its own during a drag, so it writes this stand-in
   private val gated = GatedVar(
     size,
     "size",
     () => changeHandler,
-    () => ChangeCause.ambientOr(ChangeCause(ChangeReason.Drag, ChangeSource.Pointer))
+    () => ChangeCause.ambientOr(ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)),
+    gesture = () => gesture
   )
+
+  // Owns the size for UiHistory, so an undo asks this splitter's handler; agents don't see it
+  private object stateOwner extends StateOwner:
+    override def kind: String                 = "splitter"
+    override def states: Seq[AnyRef]          = Seq(size)
+    override def changeHandler: ChangeHandler = Splitter.this.changeHandler
 
   private val resize = PaneResize(
     gated,
@@ -142,10 +153,17 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
 
   private var following: Cancelable = Cancelable.empty
 
-  // Follow app writes to `size` while the grip is rendered
+  // Follow app writes to `size` while the grip is rendered, and mark each drag as one gesture
   override def beforeRender: Unit =
     following.cancel
-    following = gated.follow()
+    following = Cancelable.merge(
+      gated.follow(),
+      resize
+        .dragging
+        .subscribe { d =>
+          gesture = Option.when(d)(Object())
+        }
+    )
 
   override def beforeUnmount: Unit =
     following.cancel
@@ -206,7 +224,8 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
     ariaValuenow     -> size.map(_.toString),
     // A listener, so an app's own `onkeydown` modifier runs alongside the arrow keys
     EventListenerBinding("keydown", e => onKey(e.asInstanceOf[dom.KeyboardEvent])),
-    resize.bind
+    resize.bind,
+    AgentRegistry.own(stateOwner)
   )
 
 end Splitter

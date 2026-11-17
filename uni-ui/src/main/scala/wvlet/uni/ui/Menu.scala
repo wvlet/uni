@@ -87,9 +87,10 @@ private[ui] object MenuList:
 
   def itemBinding(item: MenuItem): AgentBinding =
     new AgentBinding:
-      private var checked: Option[Boolean] = None
-      override def kind: String            = "menuitem"
-      override def value: Option[String]   = checked.map(c =>
+      private var checked: Option[Boolean]      = None
+      override def kind: String                 = "menuitem"
+      override def changeHandler: ChangeHandler = ChangeGate.noHandler
+      override def value: Option[String]        = checked.map(c =>
         if c then
           "checked"
         else
@@ -295,11 +296,12 @@ class Menu private (
   )
 
   private object agentBinding extends AgentBinding:
-    override def kind: String           = "menu"
-    override def priority: Int          = 1
-    override def states: Seq[AnyRef]    = Seq(open)
-    override def value: Option[String]  = Some(Popover.stateName(open.get))
-    override def format(v: Any): String = Popover.stateName(v == true)
+    override def kind: String                 = "menu"
+    override def priority: Int                = 1
+    override def states: Seq[AnyRef]          = Seq(open)
+    override def changeHandler: ChangeHandler = Menu.this.changeHandler
+    override def value: Option[String]        = Some(Popover.stateName(open.get))
+    override def format(v: Any): String       = Popover.stateName(v == true)
 
     override def actions: Seq[AgentAction] =
       if open.get then
