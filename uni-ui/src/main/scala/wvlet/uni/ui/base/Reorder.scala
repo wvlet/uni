@@ -19,6 +19,7 @@ import wvlet.uni.dom.all.{ariaHidden, cls, span, stringToDomNode}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason, ChangeSource}
 
+import scala.language.implicitConversions
 import scala.scalajs.js
 
 /**
