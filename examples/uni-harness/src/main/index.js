@@ -69,8 +69,10 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  // Register the ChatApi on Electron IPC before opening any window.
-  wireMainProcess(ipcMain)
+  // Register the ChatApi on Electron IPC before opening any window. Conversations are saved in
+  // userData/conversations.json: ~/Library/Application Support/Uni Harness on macOS when packaged
+  // (`uni-harness` under `pnpm dev`, which takes the name from package.json)
+  wireMainProcess(ipcMain, app.getPath('userData'))
   // Run a shell for the renderer's Terminal tab
   wireTerminal(ipcMain, pty)
   // Open the Terminal tab's links in the system browser

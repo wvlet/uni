@@ -141,4 +141,9 @@ small.
 
 - The web server binds to `127.0.0.1` and has no authentication. Add both before you expose it
   beyond your machine.
-- Conversations live in memory and reset when the process exits.
+- Conversations are saved with Uni's [`SettingStore`](../../docs/core/settings.md), as
+  `conversations.json`, when a chat is created, a prompt is stored, and a reply is complete. The
+  desktop app keeps the file in Electron's `userData` directory: `~/Library/Application
+  Support/Uni Harness/` on macOS (`…/uni-harness/` under `pnpm dev`), `%APPDATA%\Uni Harness\` on
+  Windows, and `~/.config/Uni Harness/` on Linux. Delete the file to start over. The browser app
+  keeps conversations in memory unless `UNI_HARNESS_DATA_DIR` names a directory to save them in.
