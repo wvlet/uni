@@ -175,8 +175,9 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(item("Dark"))
     layout.theme.get shouldBe ColorScheme.Dark
     root.getAttribute("data-theme") shouldBe "dark"
-    // Choosing closes the menu
-    dom.document.querySelector(".uni-menu") shouldBe null
+    // Choosing closes the menu; it stays marked closed until its exit ends
+    trigger.getAttribute("aria-expanded") shouldBe "false"
+    dom.document.querySelector(".uni-menu:not([data-state=closed])") shouldBe null
     fireEvent.click(trigger)
     fireEvent.click(item("Light"))
     root.getAttribute("data-theme") shouldBe "light"

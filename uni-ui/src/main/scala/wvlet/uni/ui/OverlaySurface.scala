@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.RxElement
+import wvlet.uni.dom.{DomRef, RxElement}
 import wvlet.uni.rx.Cancelable
 import wvlet.uni.ui.base.*
 
@@ -61,8 +61,8 @@ private[ui] class OverlaySurface(
   private var closing                          = false
   private var watch: Cancelable                = Cancelable.empty
   private var exiting: Cancelable              = Cancelable.empty
-  // Closed before onMount: the exit animation plays once the element is in the document
-  private var exitPending = false
+  // Set while rendering, so an overlay closed before onMount can still play its exit
+  private val rendered = DomRef[dom.HTMLElement]()
 
   // Runs as the overlay opens, while focus is still on the trigger
   override def beforeRender: Unit =
@@ -84,14 +84,15 @@ private[ui] class OverlaySurface(
       cleanup = Cancelable.empty
       focusReturn.foreach(_.restore(root))
       focusReturn = None
-      root match
+      // Before onMount (closed in the frame it opened), the rendered element plays the exit
+      root.orElse(rendered.current.filter(dom.document.contains)) match
         case Some(el) =>
           exiting = ExitAnimation.run(el)(exit.done)
         case None =>
-          // Closed before onMount, as in the frame it opened: onMount plays the exit
-          exitPending = true
+          // Never reached the document: nothing to animate
+          exit.done()
 
-  override def render: RxElement = content
+  override def render: RxElement = content.add(rendered.binding)
 
   private def reposition(): Unit =
     for
@@ -122,14 +123,7 @@ private[ui] class OverlaySurface(
 
   override def onMount(node: Any): Unit =
     node match
-      // onMount fires a step after rendering: an overlay closed before then only plays its exit
-      case el: dom.HTMLElement if !unmounted && exitPending =>
-        exitPending = false
-        if dom.document.contains(el) then
-          root = Some(el)
-          exiting = ExitAnimation.run(el)(exit.done)
-        else
-          exit.done()
+      // onMount fires a step after rendering: skip it when the overlay already closed
       case el: dom.HTMLElement if !unmounted && !closing && dom.document.contains(el) =>
         root = Some(el)
         reposition()
@@ -153,10 +147,6 @@ private[ui] class OverlaySurface(
             Cancelable.empty
         cleanup = Cancelable.merge(Seq(layer, background, placement))
         initialFocus(el).foreach(_.focus())
-      case _ if !unmounted && exitPending =>
-        // Not an element to animate: end the exit so Presence unmounts it
-        exitPending = false
-        exit.done()
       case _ =>
 
   override def beforeUnmount: Unit =
