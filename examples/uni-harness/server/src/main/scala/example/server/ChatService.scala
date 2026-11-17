@@ -75,10 +75,13 @@ class ChatService(
     c
 
   // Open on an empty conversation, where the renderer shows its welcome screen. An empty one left
-  // from the last run is reused, so restarts don't pile up blank chats.
-  private val latest = conversations.values.maxByOption(_.updatedAt)
-  if !latest.exists(c => messages.get(c.id).forall(_.isEmpty)) then
-    newConversation()
+  // from the last run is reused and moved to the top, so restarts don't pile up blank chats.
+  conversations.values.find(c => messages.get(c.id).forall(_.isEmpty)) match
+    case Some(empty) =>
+      conversations(empty.id) = empty.copy(updatedAt = now())
+      save()
+    case None =>
+      newConversation()
 
   override def listConversations(): Rx[Seq[Conversation]] = Rx.single(
     conversations.values.toSeq.sortBy(c => -c.updatedAt)

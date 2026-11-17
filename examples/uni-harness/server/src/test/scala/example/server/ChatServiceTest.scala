@@ -130,6 +130,30 @@ class ChatServiceTest extends UniTest:
       }
   }
 
+  test("a restart reuses an empty chat that is not the most recent one") {
+    val backend = InMemoryStoreBackend()
+    var clock   = 1000L
+    val first   = ChatService(respond = p => Rx.single(p), now = () => clock, backend = backend)
+    first
+      .listConversations()
+      .flatMap { cs =>
+        val used = cs.head.id
+        clock = 2000L
+        // A blank chat, then a newer prompt in the first one
+        first
+          .createConversation()
+          .flatMap { blank =>
+            clock = 3000L
+            send(first, used, "later").map(_ => blank.id)
+          }
+      }
+      .flatMap { blank =>
+        clock = 4000L
+        val again = ChatService(backend = backend, now = () => clock)
+        again.listConversations().map(cs => cs.map(_.id) shouldBe Seq(blank, "c-1"))
+      }
+  }
+
   test("a restart reuses the empty chat left from the last run") {
     val backend = InMemoryStoreBackend()
     ChatService(backend = backend)
