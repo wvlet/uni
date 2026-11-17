@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
 import wvlet.uni.ui.agent.AgentAction
-import wvlet.uni.ui.base.{TextDirection, Windowing}
+import wvlet.uni.ui.base.{Reorder, TextDirection, Windowing}
 
 import scala.language.implicitConversions
 
@@ -391,7 +391,7 @@ class DataTable[A, K] private (
       ),
       activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c)),
       reorderable = reorderable,
-      reorderEnabled = () => sort.get.isEmpty
+      reorderEnabled = Reorder.Enabled.when(sort)(_.isEmpty)
     )
     core
 

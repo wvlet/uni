@@ -194,13 +194,16 @@ val reorder = Reorder(tasks).onChange { d =>
 
 ul(
   tasks.each(identity) { t =>
-    li(tabindex -> "0", reorder.item(t), span(Reorder.handle, "⋮⋮"), t)
+    li(tabindex -> "0", reorder.item(t), Reorder.grip, t)
   }
 )
 ```
 
-- `reorder.item(k)` goes on each item. With `Reorder.handle` on an element inside it, only that
-  element starts a drag, so the rest of the item can hold text fields or buttons.
+- `reorder.item(k)` goes on each item. `Reorder.grip` is a ready-made grip icon; with it, or with
+  `Reorder.handle` on an element of your own, only that element starts a drag, so the rest of the
+  item can hold text fields or buttons. On a touch screen, a drag starts only from a grip, and a
+  swipe elsewhere on the item scrolls. The grip is hidden from screen readers, which move items
+  with the keys.
 - Space, Enter, and letter keys are left alone, so `Selection` and `Typeahead` work on the same
   items. Focus stays on the moved item.
 - When the `RxVar` holds the items rather than their keys, `Reorder.by(items, label = _.title)(_.id)`
