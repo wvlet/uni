@@ -15,9 +15,11 @@ package wvlet.uni.ui.base
 
 import org.scalajs.dom
 import wvlet.uni.dom.{DomAttribute, DomNode, EventListenerBinding, OnMount, PointerDrag}
+import wvlet.uni.dom.all.{ariaHidden, cls, span, stringToDomNode}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason, ChangeSource}
 
+import scala.language.implicitConversions
 import scala.scalajs.js
 
 /**
@@ -43,9 +45,10 @@ import scala.scalajs.js
   * [[wvlet.uni.ui.VirtualList.withReorder]] and [[wvlet.uni.ui.DataTable.withReorder]] wire one
   * into their rows.
   *
-  * Put [[Reorder.handle]] on an element inside an item to start drags only from that element.
-  * Space, Enter, and letter keys are left alone, so [[Selection]] and [[Typeahead]] work on the
-  * same items.
+  * Put [[Reorder.grip]] in an item, or [[Reorder.handle]] on an element of your own, to start drags
+  * only from that element. A touch press starts a drag only from such a grip, so swiping an item
+  * scrolls the page as usual. Space, Enter, and letter keys are left alone, so [[Selection]] and
+  * [[Typeahead]] work on the same items.
   *
   * @param label
   *   the name of an item in announcements, such as "Moved Review to position 1 of 3"
@@ -76,7 +79,7 @@ class Reorder[K] private[ui] (
   private var scroller: Option[dom.HTMLElement] = None
   private var dragRtl: Boolean                  = false
   private var scrollFrame: Option[Int]          = None
-  private var enabled: () => Boolean            = () => true
+  private var enabled: Reorder.Enabled          = Reorder.Enabled.always
 
   /** Sees every move before it lands; `cancel()` keeps the previous order. */
   def onChange(f: ChangeHandler): this.type =
@@ -96,14 +99,14 @@ class Reorder[K] private[ui] (
   def order: Rx[Seq[K]] = store.keys
 
   /**
-    * Turns reordering off while `f` is false: drags don't start and the move keys are left alone,
-    * as in a table sorted by a column.
+    * Turns reordering off while `e` is false, as in a table sorted by a column: drags don't start,
+    * the move keys are left alone, and items drop their move hint and hide their grip.
     */
-  private[ui] def enabledWhen(f: () => Boolean): this.type =
-    enabled = f
+  private[ui] def enabledWhen(e: Reorder.Enabled): this.type =
+    enabled = e
     this
 
-  private[ui] def isEnabled: Boolean = enabled()
+  private[ui] def isEnabled: Boolean = enabled.now()
 
   /** The item being dragged, once the pointer moved past the drag threshold. */
   def dragging: Rx[Option[K]] = draggedVar
@@ -166,12 +169,17 @@ class Reorder[K] private[ui] (
   /**
     * The modifier to put on each item: it starts drags, handles Alt+Arrow keys, and marks the item
     * with `data-reorder-item`, `data-dragging` while dragged, and `data-drop="before"` or `"after"`
-    * where the dragged items would land.
+    * where the dragged items would land. While reordering is off, the item has
+    * `data-reorder-off="true"` and no move hint.
     */
   def item(k: K): DomNode = DomNode.group(
     DomAttribute("data-reorder-item", "true"),
     DomAttribute("data-reorder-axis", orientation.toString.toLowerCase),
-    DomAttribute("aria-description", Reorder.keyHint(orientation)),
+    DomAttribute(
+      "aria-description",
+      enabled.on.map(on => Option.when(on)(Reorder.keyHint(orientation)))
+    ),
+    DomAttribute("data-reorder-off", enabled.on.map(on => Option.when(!on)("true"))),
     DomAttribute("data-dragging", draggedGroupVar.map(g => g.contains(k).toString)),
     DomAttribute(
       "data-drop",
@@ -191,7 +199,7 @@ class Reorder[K] private[ui] (
       onStart = startDrag,
       onEnd = () => endDrag(k),
       // One drag at a time: a second finger on another item doesn't start another
-      canStart = e => !dragActive && enabled() && Reorder.canStart(e)
+      canStart = e => !dragActive && isEnabled && Reorder.canStart(e)
     ).bind
   )
 
@@ -202,7 +210,7 @@ class Reorder[K] private[ui] (
     */
   private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean =
     val isMove =
-      e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && enabled() &&
+      e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && isEnabled &&
         Reorder.isMoveKey(e.key, orientation)
     if isMove then
       // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
@@ -415,6 +423,18 @@ object Reorder:
     def labelOf(k: K): String = items.get.find(key(_) == k).fold(k.toString)(label)
     new Reorder(Store.ofItems(items, key), labelOf, orientation)
 
+  /** Whether reordering is on: `on` for rendering, `now` for reading it during an event. */
+  private[ui] class Enabled(val on: Rx[Boolean], val now: () => Boolean)
+
+  private[ui] object Enabled:
+    val always: Enabled = Enabled(Rx.const(true), () => true)
+
+    /** On while `f` holds for the value of `state`. */
+    def when[S](state: RxVar[S])(f: S => Boolean): Enabled = Enabled(
+      state.map(f),
+      () => f(state.get)
+    )
+
   /** Where a [[Reorder]] reads and writes the order. */
   private[ui] trait Store[K]:
     def keys: Rx[Seq[K]]
@@ -445,17 +465,30 @@ object Reorder:
 
   /**
     * Put this on an element inside a [[Reorder.item]], such as a grip icon, so drags start only
-    * from it. Presses elsewhere in the item then click as usual.
+    * from it. Presses elsewhere in the item then click as usual. It sets `touch-action: none`, so a
+    * touch drag on it moves the item instead of scrolling. [[grip]] is a ready-made one.
     */
   val handle: DomNode = DomAttribute("data-reorder-handle", "true")
 
-  // With a handle in the item, only presses on it drag; presses on a field never do
+  /**
+    * A grip icon to put inside a [[Reorder.item]]: drags start from it, including touch drags,
+    * which elsewhere on the item scroll instead. It is hidden from screen readers, which move items
+    * with the keys, and hidden while reordering is off.
+    *
+    * {{{
+    *   li(tabindex -> "0", reorder.item(t), Reorder.grip, t)
+    * }}}
+    */
+  def grip: DomNode = span(cls -> "uni-reorder-grip", ariaHidden -> "true", handle, "⋮⋮")
+
+  // With a handle in the item, only presses on it drag; presses on a field never do. A touch press
+  // outside a handle scrolls, so it never drags.
   private def canStart(e: dom.PointerEvent): Boolean =
     (e.target, e.currentTarget) match
       case (t: dom.Element, item: dom.Element) =>
         val fromHandle = Option(t.closest("[data-reorder-handle]")).exists(item.contains)
         val hasHandle  = item.querySelector("[data-reorder-handle]") != null
-        fromHandle || (!hasHandle && !inField(t))
+        fromHandle || (!hasHandle && !inField(t) && e.pointerType != "touch")
       case _ =>
         true
 

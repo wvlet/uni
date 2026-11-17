@@ -152,7 +152,8 @@ val table = DataTable(
   // Shift/Ctrl+click, Shift+Arrow, Space, Ctrl+A; withSelected(optionVar) for one row
   .withMultiSelect(pickedIds)
   // Drag a row or press Alt+ArrowUp/Down to move it; selected rows move together. The new order
-  // goes to `calls` through onChange (key "order"); off while a column sort is applied
+  // goes to `calls` through onChange (key "order"); off while a column sort is applied. On touch,
+  // drags start only from a Reorder.grip in the row (e.g. a Column cell = _ => Reorder.grip)
   .withReorder(calls)(styleAttr += "height: 320px")
 
 val palette = CommandPalette(
@@ -264,7 +265,9 @@ val selection = Selection(picked)
 // drags near the edge of the list's scroll container autoscroll
 val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))
 val reorder = Reorder(tasks).withSelection(picked)
-val taskList = ul(tasks.each(identity)(t => li(tabindex -> "0", reorder.item(t), t)))
+// Reorder.grip: a grip icon that starts drags, including touch (a swipe elsewhere scrolls);
+// Reorder.handle marks your own element as the grip
+val taskList = ul(tasks.each(identity)(t => li(tabindex -> "0", reorder.item(t), Reorder.grip, t)))
 // When the RxVar holds items rather than keys: Reorder.by(items, label = _.title)(_.id)
 
 Announce.prepare()                    // once at startup, so the first message is read

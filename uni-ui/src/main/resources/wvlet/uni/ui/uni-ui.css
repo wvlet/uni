@@ -516,6 +516,27 @@
     touch-action: none;
   }
 
+  /* A ready-made grip: a hit area large enough for a finger */
+  .uni-reorder-grip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 24px;
+    min-height: 24px;
+    color: var(--uni-faint);
+    user-select: none;
+  }
+
+  .uni-reorder-grip:hover {
+    color: var(--uni-fg);
+  }
+
+  /* While reordering is off, as in a sorted table, grips are hidden but keep their space */
+  [data-reorder-off='true'] [data-reorder-handle] {
+    visibility: hidden;
+    cursor: default;
+  }
+
   .uni-dock__tab-label {
     display: flex;
     align-items: center;

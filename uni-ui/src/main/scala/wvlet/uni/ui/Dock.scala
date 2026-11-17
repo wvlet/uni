@@ -1058,23 +1058,31 @@ class Dock private (
 
     var startSizes: Seq[Double] = Seq.empty
     var startPx: Double         = 0
-    val drag                    = PointerDrag(
+    // In a right-to-left row the first pane is on the right, so a leftward drag grows it, as
+    // ArrowLeft does
+    var sign: Double = 1
+    val drag         = PointerDrag(
       onMove =
         (dx, dy) =>
           resizeBy(
             startSizes,
             startPx,
             if dir == SplitDirection.Row then
-              dx
+              sign * dx
             else
               dy
             ,
             ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
           ),
       onStart =
-        _ =>
+        e =>
           startSizes = sizes
           startPx = available
+          sign =
+            if dir == SplitDirection.Row && TextDirection.isRtl(e) then
+              -1
+            else
+              1
       ,
       cursor =
         if dir == SplitDirection.Row then

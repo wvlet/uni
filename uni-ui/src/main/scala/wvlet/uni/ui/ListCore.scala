@@ -55,7 +55,7 @@ import scala.language.implicitConversions
   *   [[Reorder.item]], and Alt+Arrow, Alt+Home, and Alt+End move the active row (with the
   *   selection, when it is selected) by key, so they work on rows scrolled out of view too
   * @param reorderEnabled
-  *   false while the rows can't be moved, as in a sorted table
+  *   off while the rows can't be moved, as in a sorted table
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -80,7 +80,7 @@ private[ui] class ListCore[A, K](
     agentKind: String = "list",
     agentActions: () => Seq[AgentAction] = () => Nil,
     reorderable: Option[RxVar[Seq[A]]] = None,
-    reorderEnabled: () => Boolean = () => true,
+    reorderEnabled: Reorder.Enabled = Reorder.Enabled.always,
     // The text that names an item for agents and reorder announcements; typeahead text, then the
     // key, when absent
     itemLabel: Option[A => String] = None

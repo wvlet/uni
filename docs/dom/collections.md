@@ -14,6 +14,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
 import wvlet.uni.ui.*
+import wvlet.uni.ui.base.Reorder
 import scala.language.implicitConversions
 
 case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
@@ -78,8 +79,10 @@ div(
   row. Pass the `RxVar` the component shows; the new order is written there after `onChange`
   sees it with the key `order`, and each move is announced. With `.withMultiSelect`, a selected
   row moves the whole selection as one block. The keys work by position, so they move a row far
-  down a long list, and a drag keeps going after the dragged row scrolls out of the window. A
-  table can't be reordered while a column sort is applied; clear the sort to move rows. An AI
+  down a long list, and a drag keeps going after the dragged row scrolls out of the window. Put
+  `Reorder.grip` in a row (or a table cell) so touch users can drag it; without one, a swipe on a
+  row scrolls. A table can't be reordered while a column sort is applied: rows lose their move
+  hint and grips are hidden until the sort is cleared. An AI
   agent can move a row with the `move` action (see [Agents](./agents)).
 - **State.** Selection, open tree rows, the sort, and the order are `RxVar`s you can pass in, so
   the app can set them or save them, for example with `Storage.local`.
@@ -112,7 +115,7 @@ case class Task(id: Int, title: String)
 val tasks  = Rx.variable(Seq(Task(1, "Write"), Task(2, "Review"), Task(3, "Ship")))
 val picked = Rx.variable(Set.empty[Int])
 
-VirtualList(tasks, rowHeight = 32, key = _.id, render = t => span(t.title))
+VirtualList(tasks, rowHeight = 32, key = _.id, render = t => div(Reorder.grip, span(t.title)))
   .withLabel("Tasks")
   .withTypeahead(_.title)
   .withMultiSelect(picked)

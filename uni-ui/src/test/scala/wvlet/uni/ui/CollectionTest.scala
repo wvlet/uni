@@ -18,6 +18,7 @@ import wvlet.uni.dom.all.{button as htmlButton, div, span, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.ui.base.Reorder
 
 import scala.language.implicitConversions
 
@@ -348,6 +349,55 @@ class CollectionTest extends DomTestSupport:
       }
   }
 
+  test("a touch press on a reorderable row without a grip scrolls instead of dragging") {
+    val items = Rx.variable[Seq[Int]](1 to 6)
+    val m     = mount(
+      VirtualList(items, rowHeight = 20, key = identity, render = i => span(s"Item ${i}"))
+        .withReorder(items)
+    )
+    settle().map { _ =>
+      val row    = m.getByText("Item 1").closest(".uni-list__row")
+      val (x, y) = center(row)
+      fireEvent.pointerDown(row, clientX = x, clientY = y, pointerType = "touch")
+      fireEvent.pointerMove(dom.window, clientX = x, clientY = y + 50, pointerType = "touch")
+      row.getAttribute("data-dragging") shouldBe "false"
+      fireEvent.pointerUp(dom.window, clientX = x, clientY = y + 50, pointerType = "touch")
+      items.get shouldBe (1 to 6)
+
+      // A mouse still drags from anywhere on the row
+      fireEvent.pointerDown(row, clientX = x, clientY = y)
+      fireEvent.pointerMove(dom.window, clientX = x, clientY = y + 50)
+      row.getAttribute("data-dragging") shouldBe "true"
+      fireEvent.pointerUp(dom.window, clientX = x, clientY = y + 50)
+      items.get.head shouldBe 2
+    }
+  }
+
+  test("a touch drag from a row's Reorder.grip moves the row") {
+    val items = Rx.variable[Seq[Int]](1 to 6)
+    val m     = mount(
+      VirtualList(
+        items,
+        rowHeight = 20,
+        key = identity,
+        render = i => div(Reorder.grip, span(s"Item ${i}"))
+      ).withReorder(items)
+    )
+    settle().map { _ =>
+      val row  = m.getByText("Item 1").closest(".uni-list__row")
+      val grip = row.querySelector(".uni-reorder-grip")
+      grip.getAttribute("aria-hidden") shouldBe "true"
+      dom.window.getComputedStyle(grip).getPropertyValue("touch-action") shouldBe "none"
+      val (x, y)  = center(grip)
+      val (_, y3) = center(m.getByText("Item 3"))
+      fireEvent.pointerDown(grip, clientX = x, clientY = y, pointerType = "touch")
+      fireEvent.pointerMove(dom.window, clientX = x, clientY = y3 + 5, pointerType = "touch")
+      row.getAttribute("data-dragging") shouldBe "true"
+      fireEvent.pointerUp(dom.window, clientX = x, clientY = y3 + 5, pointerType = "touch")
+      items.get shouldBe Seq(2, 3, 1, 4, 5, 6)
+    }
+  }
+
   test("a reorderable data table moves rows only while it is unsorted") {
     val rows = Rx.variable(calls)
     val sort = Rx.variable(Option(SortBy("millis")))
@@ -357,12 +407,22 @@ class CollectionTest extends DomTestSupport:
         key = _.id,
         columns = Seq(
           Column[Call]("method", "Method", cell = c => span(c.method)),
-          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f")).sortBy(_.millis)
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f")).sortBy(_.millis),
+          Column[Call]("move", "Move", cell = _ => Reorder.grip)
         )
       ).withSort(sort).withReorder(rows)
     )
-    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    val table                                = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def hint(method: String): Option[String] = Option(
+      m.getByText(method).closest(".uni-list__row").getAttribute("aria-description")
+    )
+    def gripShown(method: String): Boolean =
+      val grip = m.getByText(method).closest(".uni-list__row").querySelector(".uni-reorder-grip")
+      dom.window.getComputedStyle(grip).visibility == "visible"
     settle().map { _ =>
+      // Sorted: no move hint, and the grips are hidden
+      hint("get") shouldBe None
+      gripShown("get") shouldBe false
       table.focus()
       fireEvent.keyDown(table, "ArrowDown", altKey = true)
       rows.get shouldBe calls
@@ -375,6 +435,10 @@ class CollectionTest extends DomTestSupport:
       rows.get shouldBe calls
 
       sort := None
+      hint("get") shouldMatch {
+        case Some(h) if h.contains("Alt+ArrowUp") =>
+      }
+      gripShown("get") shouldBe true
       // The active row is the first one, "list"
       fireEvent.keyDown(table, "ArrowDown", altKey = true)
       rows.get.map(_.method) shouldBe Seq("send", "list", "get")
