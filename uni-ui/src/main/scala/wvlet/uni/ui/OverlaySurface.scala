@@ -100,16 +100,16 @@ private[ui] class OverlaySurface(
     do
       Anchored.applyTo(el, a, side, align, offset)
 
-  // Places the overlay again whenever the anchor moves: on scroll, on resize, or during a CSS
-  // transition or layout shift that fires no event. One rect read per frame while open
+  // Places the overlay again whenever the anchor or the viewport moves: on scroll, on resize, or
+  // during a CSS transition or layout shift that fires no event. Checked once per frame while open
   private def follow(): Cancelable =
-    var last: Option[Rect]                    = anchor()
+    var last                                  = (anchor(), Rect.viewport)
     var frame                                 = 0
     var stopped                               = false
     lazy val tick: js.Function1[Double, Unit] =
       _ =>
         if !stopped then
-          val now = anchor()
+          val now = (anchor(), Rect.viewport)
           if now != last then
             last = now
             reposition()

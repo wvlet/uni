@@ -25,6 +25,6 @@ uni-ui phase 2 adds Popover, Tooltip, Menu, ContextMenu, Dialog, AlertDialog, Se
 ## Consequences
 
 - New overlays should use `Dismiss` and `FocusReturn` (or `OverlaySurface` inside uni-ui) rather than `ClickOutside`, so nesting keeps working.
-- The page behind a modal dialog isn't made `inert`; the Tab trap and `aria-modal` cover keyboard and screen-reader users.
+- The page behind a modal dialog wasn't made `inert`; the Tab trap and `aria-modal` covered keyboard and screen-reader users. [2026-11-16-uni-ui-modal-inert-and-nested-close](2026-11-16-uni-ui-modal-inert-and-nested-close.md) added `inert` and replaced the resize and scroll listeners with a per-frame check.
 - Overlays unmounted immediately on close, with no exit animations. [2026-11-12-uni-ui-overlay-exit-animations](2026-11-12-uni-ui-overlay-exit-animations.md) added them.
 - `data-state`, `data-side`, `data-active`, and the `uni-popover`/`uni-menu`/`uni-listbox`/`uni-dialog`/`uni-tooltip`/`uni-toast` class names are public API.
