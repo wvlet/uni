@@ -33,14 +33,7 @@ class TerminalPane(
   private[renderer] val term = TerminalEmulator(TerminalConfig().withScrollbackLines(5000))
   private val view           = TerminalView(term, TerminalViewConfig().withFontSize(12.5))
 
-  private def preloadBridge(name: String): Option[js.Dynamic] =
-    val b = dom.window.asInstanceOf[js.Dynamic].selectDynamic(name)
-    if js.isUndefined(b) || b == null then
-      None
-    else
-      Some(b)
-
-  private val bridge: Option[js.Dynamic] = preloadBridge("uniPty")
+  private val bridge: Option[js.Dynamic] = Ui.preloadBridge("uniPty")
 
   private var started                = false
   private var themeWatch: Cancelable = Cancelable.empty
@@ -77,11 +70,8 @@ class TerminalPane(
       onAsk(TerminalPane.explainPrompt(c))
     }
 
-  // In Electron, the main process opens links in the system browser. In a browser the view's
-  // default, window.open, opens a new tab.
-  preloadBridge("uniShell").foreach { shell =>
-    view.onLinkClick(uri => shell.openExternal(uri))
-  }
+  // Links open in the system browser in Electron, in a new tab in a browser
+  view.onLinkClick(Ui.openLink)
 
   view.onResize { (cols, rows) =>
     if started && !exited.get then

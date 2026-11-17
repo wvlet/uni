@@ -287,3 +287,131 @@ body {
 .flow-dot {
   animation: travel 2.2s ease-in-out infinite;
 }
+
+/*
+ * A reply rendered from Markdown (MarkdownView). Spacing stays compact for chat; colors come from
+ * the theme variables, so both themes work.
+ */
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown :is(p, ul, ol, blockquote, pre, .markdown-table, hr) {
+  margin: 0.6em 0;
+}
+
+.markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--h-fg);
+}
+
+.markdown h1 {
+  font-size: 1.35em;
+}
+
+.markdown h2 {
+  font-size: 1.2em;
+}
+
+.markdown h3 {
+  font-size: 1.08em;
+}
+
+.markdown :is(ul, ol) {
+  padding-left: 1.4em;
+}
+
+.markdown ul {
+  list-style: disc;
+}
+
+.markdown ol {
+  list-style: decimal;
+}
+
+.markdown li > :is(ul, ol) {
+  margin: 0.2em 0;
+}
+
+.markdown li.markdown-task {
+  list-style: none;
+  margin-left: -1.3em;
+}
+
+.markdown li.markdown-task > input {
+  margin-right: 0.45em;
+  vertical-align: -1px;
+  accent-color: var(--h-brand);
+}
+
+.markdown a {
+  color: var(--h-brand);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown blockquote {
+  border-left: 3px solid var(--h-line);
+  padding-left: 0.9em;
+  color: var(--h-muted);
+}
+
+.markdown hr {
+  border: 0;
+  border-top: 1px solid var(--h-line);
+}
+
+.markdown code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  padding: 0.1em 0.35em;
+  border-radius: 5px;
+  background: var(--h-hover);
+}
+
+.markdown pre {
+  overflow-x: auto;
+  padding: 0.75em 0.95em;
+  border: 1px solid var(--h-line);
+  border-radius: 10px;
+  background: var(--h-panel);
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.markdown pre code {
+  padding: 0;
+  background: none;
+  font-size: 12.5px;
+}
+
+.markdown pre.markdown-html {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.markdown-table {
+  overflow-x: auto;
+}
+
+.markdown table {
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.markdown :is(th, td) {
+  border: 1px solid var(--h-line);
+  padding: 0.3em 0.7em;
+}
+
+.markdown th {
+  background: var(--h-panel);
+  font-weight: 600;
+}

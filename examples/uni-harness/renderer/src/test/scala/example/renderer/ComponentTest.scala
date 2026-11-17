@@ -419,6 +419,43 @@ class ComponentTest extends DomTestSupport:
       }
   }
 
+  test("a reply renders its Markdown as elements") {
+    val m = mount(
+      MarkdownView(
+        source =
+          "# Plan\n\n- **bold** and `code`\n- [x] done\n\n```scala\nval x = 1\n```\n\n| a | b |\n|---|--:|\n| 1 | 2 |\n",
+        openLink = _ => ()
+      )
+    )
+    m.get("h1").textContent shouldBe "Plan"
+    m.get("li strong").textContent shouldBe "bold"
+    m.get("li code").textContent shouldBe "code"
+    m.get("li.markdown-task input").asInstanceOf[dom.html.Input].checked shouldBe true
+    m.get("pre").getAttribute("data-language") shouldBe "scala"
+    m.get("pre code").textContent shouldBe "val x = 1\n"
+    m.get("td:last-child").getAttribute("style") shouldContain "right"
+  }
+
+  test("a reply shows raw HTML as text and links only safe URLs") {
+    val opened = mutable.Buffer.empty[String]
+    val m      = mount(
+      MarkdownView(
+        source =
+          "<b>hi</b> <script>x()</script>\n\n[ok](https://wvlet.org/uni) [bad](javascript:alert(1)) ![logo](https://example.com/a.png)",
+        openLink = opened += _
+      )
+    )
+    m.query.queryAll("b, script").size shouldBe 0
+    m.get("p").textContent shouldContain "<b>hi</b>"
+    m.query.queryAll("img").size shouldBe 0
+    val links = m.query.queryAll("a")
+    links.map(_.getAttribute("href")) shouldBe
+      Seq("https://wvlet.org/uni", "https://example.com/a.png")
+    links.last.textContent shouldBe "logo"
+    fireEvent.click(links.head)
+    opened.toSeq shouldBe Seq("https://wvlet.org/uni")
+  }
+
   test("renaming a conversation keeps the other rows in the chat list") {
     val store = ChatStore(ChatService(respond = p => Rx.single(s"echo: ${p}")))
     def rows  = dom.document.querySelectorAll("button.group").toSeq

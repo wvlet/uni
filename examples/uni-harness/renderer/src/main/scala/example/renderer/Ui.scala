@@ -1,11 +1,13 @@
 package example.renderer
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.ui.{IconButton, Kbd, Tooltip}
 import wvlet.uni.ui.base.Side
 
 import scala.language.implicitConversions
+import scala.scalajs.js
 
 /** Small building blocks shared by the panes. */
 object Ui:
@@ -32,5 +34,24 @@ object Ui:
       s"${n} ${word}"
     else
       s"${n} ${word}s"
+
+  /** A bridge that the Electron preload script exposes on `window`, absent in a browser. */
+  def preloadBridge(name: String): Option[js.Dynamic] =
+    val b = dom.window.asInstanceOf[js.Dynamic].selectDynamic(name)
+    if js.isUndefined(b) || b == null then
+      None
+    else
+      Some(b)
+
+  /**
+    * Open a link outside the app: in the system browser through the preload's `uniShell` in
+    * Electron, in a new tab in a browser.
+    */
+  def openLink(url: String): Unit =
+    preloadBridge("uniShell") match
+      case Some(shell) =>
+        shell.openExternal(url)
+      case None =>
+        dom.window.open(url, "_blank", "noopener,noreferrer")
 
 end Ui

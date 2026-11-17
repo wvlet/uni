@@ -236,7 +236,10 @@ class Bubble(m: ChatMessage, current: Option[Rx[ChatMessage]] = None) extends Rx
             span(cls -> "font-semibold", "Uni"),
             span(cls -> "text-faint", clock(m.createdAt))
           ),
-          div(cls -> "text-[14px] leading-7 whitespace-pre-wrap text-fg/90", now.map(_.text)),
+          div(
+            cls -> "text-[14px] leading-7 text-fg/90",
+            now.map(c => MarkdownView(source = c.text, openLink = Ui.openLink))
+          ),
           div(
             cls -> "mt-1 -ml-1.5 flex gap-0.5 opacity-0 transition group-hover:opacity-100",
             button(
