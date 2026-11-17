@@ -404,6 +404,11 @@ class UiHistoryTest extends DomTestSupport:
     fireEvent.pointerMove(dom.window, clientX = 370)
     fireEvent.pointerUp(dom.window, clientX = 370)
     width.get shouldBe 370
+    // A drag back to where it started changes nothing, so it leaves no entry
+    fireEvent.pointerDown(grip, clientX = 370)
+    fireEvent.pointerMove(dom.window, clientX = 390)
+    fireEvent.pointerMove(dom.window, clientX = 370)
+    fireEvent.pointerUp(dom.window, clientX = 370)
     history.entries.map(e => (e.kind, e.label, e.previous, e.value)) shouldBe
       Seq(
         (Some("splitter"), "Resize sidebar", "300", "350"),

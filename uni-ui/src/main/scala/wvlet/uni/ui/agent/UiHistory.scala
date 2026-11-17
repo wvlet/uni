@@ -188,15 +188,22 @@ class UiHistory private (limit: Int):
       records.lastOption.filter(sameDrag(_, r)) match
         case Some(last) =>
           // One entry per drag: keep the value before the drag and take the newest value
-          last.undoable = last.undoable.map((previous, _) => (previous, r.details.value))
-          last.base = last.base.copy(value = r.text(r.details.value))
+          val value = r.text(r.details.value)
+          if value == last.base.previous then
+            // The drag ended where it started, so it changed nothing
+            records.removeLast()
+          else
+            last.undoable = last.undoable.map((previous, _) => (previous, r.details.value))
+            last.base = last.base.copy(value = value)
         case None =>
           append(r)
 
-  // A step of the drag that made `last`, when nothing else was recorded in between
+  // A drag step of the drag that made `last`, when nothing else was recorded in between. Other
+  // writes during a drag, such as an arrow key, stay entries of their own
   private def sameDrag(last: Record, r: AgentRegistry.Reported): Boolean =
-    r.gesture.exists(g => last.gesture.exists(_ eq g)) && (last.target eq r.target) &&
-      last.state == EntryState.Live
+    r.gesture.exists(g => last.gesture.exists(_ eq g)) &&
+      (last.target eq r.target) && last.state == EntryState.Live &&
+      r.details.reason == ChangeReason.Drag && last.base.reason == ChangeReason.Drag.name
 
   private def append(r: AgentRegistry.Reported): Unit =
     val d          = r.details
