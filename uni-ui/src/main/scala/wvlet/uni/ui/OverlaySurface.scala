@@ -22,9 +22,10 @@ import scala.scalajs.js
 
 /**
   * The open state of one overlay: renders `content`, and once it is in the document places it next
-  * to the anchor, joins the [[Dismiss]] stack, and moves focus into it. When `exit.open` turns
-  * false it closes at once (leaves the stack and returns focus), then plays its [[ExitAnimation]]
-  * and calls `exit.done` so [[Presence]] unmounts it. Each overlay component renders one inside
+  * to the anchor (following it each frame while it moves), joins the [[Dismiss]] stack, makes the
+  * page behind a modal [[ModalInert]], and moves focus into it. When `exit.open` turns false it
+  * closes at once (leaves the stack and returns focus), then plays its [[ExitAnimation]] and calls
+  * `exit.done` so [[Presence]] unmounts it. Each overlay component renders one inside
   * `Portal.toBody` through `Presence`.
   *
   * @param anchor
@@ -60,6 +61,8 @@ private[ui] class OverlaySurface(
   private var closing                          = false
   private var watch: Cancelable                = Cancelable.empty
   private var exiting: Cancelable              = Cancelable.empty
+  // Closed before onMount: the exit animation plays once the element is in the document
+  private var exitPending = false
 
   // Runs as the overlay opens, while focus is still on the trigger
   override def beforeRender: Unit =
@@ -85,8 +88,8 @@ private[ui] class OverlaySurface(
         case Some(el) =>
           exiting = ExitAnimation.run(el)(exit.done)
         case None =>
-          // Closed before it reached the document: nothing to animate
-          exit.done()
+          // Closed before onMount, as in the frame it opened: onMount plays the exit
+          exitPending = true
 
   override def render: RxElement = content
 
@@ -97,9 +100,36 @@ private[ui] class OverlaySurface(
     do
       Anchored.applyTo(el, a, side, align, offset)
 
+  // Places the overlay again whenever the anchor moves: on scroll, on resize, or during a CSS
+  // transition or layout shift that fires no event. One rect read per frame while open
+  private def follow(): Cancelable =
+    var last: Option[Rect]                    = anchor()
+    var frame                                 = 0
+    var stopped                               = false
+    lazy val tick: js.Function1[Double, Unit] =
+      _ =>
+        if !stopped then
+          val now = anchor()
+          if now != last then
+            last = now
+            reposition()
+          frame = dom.window.requestAnimationFrame(tick)
+    frame = dom.window.requestAnimationFrame(tick)
+    Cancelable { () =>
+      stopped = true
+      dom.window.cancelAnimationFrame(frame)
+    }
+
   override def onMount(node: Any): Unit =
     node match
-      // onMount fires a step after rendering: skip it when the overlay already closed
+      // onMount fires a step after rendering: an overlay closed before then only plays its exit
+      case el: dom.HTMLElement if !unmounted && exitPending =>
+        exitPending = false
+        if dom.document.contains(el) then
+          root = Some(el)
+          exiting = ExitAnimation.run(el)(exit.done)
+        else
+          exit.done()
       case el: dom.HTMLElement if !unmounted && !closing && dom.document.contains(el) =>
         root = Some(el)
         reposition()
@@ -108,23 +138,20 @@ private[ui] class OverlaySurface(
             Dismiss.push(DismissLayer(() => inside(el), modal, dismissOnOutside, onDismiss))
           else
             Cancelable.empty
+        val background =
+          if modal then
+            ModalInert.push(el)
+          else
+            Cancelable.empty
         val placement =
           if anchor().isDefined then
-            val onMove: js.Function1[dom.Event, Unit] = _ => reposition()
-            dom.window.addEventListener("resize", onMove)
-            // Capture, so scrolling any container (not only the page) moves the overlay along
-            dom.document.addEventListener("scroll", onMove, useCapture = true)
             // Content that grows or shrinks (a filtered list) is placed again
             val resize = dom.ResizeObserver((_, _) => reposition())
             resize.observe(el)
-            Cancelable { () =>
-              dom.window.removeEventListener("resize", onMove)
-              dom.document.removeEventListener("scroll", onMove, useCapture = true)
-              resize.disconnect()
-            }
+            Cancelable.merge(follow(), Cancelable(() => resize.disconnect()))
           else
             Cancelable.empty
-        cleanup = Cancelable.merge(layer, placement)
+        cleanup = Cancelable.merge(Seq(layer, background, placement))
         initialFocus(el).foreach(_.focus())
       case _ =>
 

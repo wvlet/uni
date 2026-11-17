@@ -411,4 +411,153 @@ class OverlayTest extends DomTestSupport:
     }
   }
 
+  // Turns true once `cond` holds, checking every few milliseconds
+  private def becomes(cond: => Boolean): Rx[Boolean] =
+    val v           = Rx.variable(cond)
+    var handle: Int = 0
+    handle = dom
+      .window
+      .setInterval(
+        () =>
+          if cond then
+            dom.window.clearInterval(handle)
+            v := true,
+        5
+      )
+    awaitValue(v)(identity)
+
+  private def inert(el: dom.Element): Boolean = el.closest("[inert]") != null
+
+  test("the page behind a modal dialog is inert until it closes") {
+    val open   = Rx.variable(false)
+    val toasts = Toaster()
+    val m      = mount(
+      div(
+        htmlButton(wvlet.uni.dom.all.cls -> "behind", "Behind"),
+        Dialog(open, content = Seq(htmlButton(wvlet.uni.dom.all.cls -> "inside", "Inside")))
+      )
+    )
+    val appInert = mount(div(wvlet.uni.dom.all.cls -> "app-inert"))
+    appInert.container.setAttribute("inert", "")
+    mount(toasts)
+    val behind = m.get(".behind")
+    open := true
+    settle().map { _ =>
+      inert(behind) shouldBe true
+      inert(find(".inside").get) shouldBe false
+      // Toasts stay live under the dialog
+      inert(find(".uni-toaster").get) shouldBe false
+      open := false
+      inert(behind) shouldBe false
+      // An app's own inert is left alone
+      appInert.container.hasAttribute("inert") shouldBe true
+    }
+  }
+
+  test("a nested dialog makes the dialog underneath inert, and only the top one") {
+    val outer = Rx.variable(true)
+    val inner = Rx.variable(false)
+    mount(
+      div(
+        Dialog(
+          outer,
+          content = Seq(
+            htmlButton(wvlet.uni.dom.all.cls -> "outer-button", "Outer"),
+            Dialog(
+              inner,
+              content = Seq(htmlButton(wvlet.uni.dom.all.cls -> "inner-button", "Inner"))
+            )
+          )
+        )
+      )
+    )
+    settle()
+      .flatMap { _ =>
+        inert(find(".outer-button").get) shouldBe false
+        inner := true
+        settle()
+      }
+      .map { _ =>
+        inert(find(".outer-button").get) shouldBe true
+        inert(find(".inner-button").get) shouldBe false
+        inner := false
+        inert(find(".outer-button").get) shouldBe false
+      }
+  }
+
+  test("a popover opened inside a dialog stays live and closes with it") {
+    val dialogOpen  = Rx.variable(true)
+    val popoverOpen = Rx.variable(false)
+    val seen        = scala.collection.mutable.ArrayBuffer.empty[ChangeDetails[Any]]
+    mount(
+      div(
+        Dialog(
+          dialogOpen,
+          content = Seq(
+            Popover(
+              popoverOpen,
+              trigger = Button("Filter"),
+              content = Seq(htmlButton(wvlet.uni.dom.all.cls -> "apply", "Apply"))
+            ).onChange(d => seen += d)
+          )
+        )
+      )
+    )
+    settle()
+      .flatMap { _ =>
+        popoverOpen := true
+        settle()
+      }
+      .map { _ =>
+        inert(find(".apply").get) shouldBe false
+        dialogOpen := false
+        popoverOpen.get shouldBe false
+        seen.map(_.reason) shouldBe Seq(ChangeReason.ParentClose)
+      }
+  }
+
+  test("a nested popover whose onChange cancels stays open in state") {
+    val dialogOpen  = Rx.variable(true)
+    val popoverOpen = Rx.variable(false)
+    mount(
+      div(
+        Dialog(
+          dialogOpen,
+          content = Seq(
+            Popover(popoverOpen, trigger = Button("Filter"), content = Seq("Details")).onChange(d =>
+              if d.reason == ChangeReason.ParentClose then
+                d.cancel()
+            )
+          )
+        )
+      )
+    )
+    settle()
+      .flatMap { _ =>
+        popoverOpen := true
+        settle()
+      }
+      .map { _ =>
+        dialogOpen := false
+        popoverOpen.get shouldBe true
+      }
+  }
+
+  test("an open popover follows an anchor that moves without a scroll or resize event") {
+    val open    = Rx.variable(false)
+    val m       = mount(div(Popover(open, trigger = Button("Filter"), content = Seq("Details"))))
+    val trigger = m.get(".uni-button").asInstanceOf[dom.HTMLElement]
+    open := true
+    settle().flatMap { _ =>
+      val panel  = find(".uni-popover").get
+      val before = panel.style.left
+      // A layout change with no event, as during a CSS transition
+      trigger.style.marginLeft = "120px"
+      becomes(panel.style.left != before).map { _ =>
+        val expected = trigger.getBoundingClientRect().left
+        panel.style.left shouldBe s"${expected}px"
+      }
+    }
+  }
+
 end OverlayTest
