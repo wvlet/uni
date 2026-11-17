@@ -76,7 +76,7 @@ jobs:
       # main red (#654, #655). Check them here, inside the required Code format check.
       - name: scalafmt (sbt plugin sub-builds)
         run: |
-          for dir in sbt-uni sbt-uni-playwright sbt-uni-crossproject; do
+          for dir in sbt-uni sbt-uni-playwright sbt-uni-crossproject sbt-uni-javadoc; do
             (cd "$dir" && ../sbt scalafmtCheckAll)
           done
       # The electron-app example is a standalone sbt build too, with its own .scalafmt.conf
@@ -363,4 +363,22 @@ jobs:
       # Native sources to NIR (no nativeLink/run), so no clang/LLVM toolchain or Node.js is needed.
       - name: Build and scripted-test the plugin
         working-directory: sbt-uni-crossproject
+        run: sbt "scalafmtCheckAll; publishLocal; scripted"
+  test_sbt_uni_javadoc:
+    name: sbt-uni-javadoc scripted test
+    needs: changes
+    if: ${{ needs.changes.outputs.src == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '23'
+          cache: sbt
+      - name: Install sbt
+        uses: sbt/setup-sbt@v1
+      # The scripted tests run Scaladoc for Scala 3 and Scala 2.13 projects and check the jars
+      - name: Build and scripted-test the plugin
+        working-directory: sbt-uni-javadoc
         run: sbt "scalafmtCheckAll; publishLocal; scripted"

@@ -1,11 +1,12 @@
 // sbt-uni: sbt 2.x plugin for uni
 // Written in Scala 3 (sbt 2.x metabuild). Code and OpenAPI generation fork a JVM on the app's uni.
 
-import MinimizeJavadoc.minimizePluginJavadoc
-
 Global / onChangedBuildSource := ReloadOnSourceChanges
 
 ThisBuild / organization := "org.wvlet.uni"
+
+// The guides that the plugin's link-only javadoc page (minimizePluginJavadoc) points to
+ThisBuild / javadocSiteUrl := "https://wvlet.org/uni/"
 
 // Use dynamic snapshot version strings for non tagged versions
 ThisBuild / dynverSonatypeSnapshots := true

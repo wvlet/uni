@@ -148,6 +148,7 @@ Uni also ships sbt plugins for **sbt 2.x**, usable in any sbt 2.x project
 | [`sbt-uni`](https://wvlet.org/uni/build/sbt-uni) | Type-safe HTTP/RPC client generation from service traits, `~uniRestart` — background fork-run on every code change (an sbt 2.x port of sbt-revolver's `reStart`), OpenAPI generation, and `uniUiCss` to copy uni-ui's stylesheet into web assets |
 | [`sbt-uni-crossproject`](https://wvlet.org/uni/build/sbt-uni-crossproject) | `crossProject(...)` for building one source tree for JVM, Scala.js, and Scala Native — a single-plugin replacement for portable-scala's `sbt-crossproject`, which is not available for sbt 2.x |
 | [`sbt-uni-playwright`](https://wvlet.org/uni/build/sbt-uni-playwright) | Run Scala.js tests in a real headless browser (Chromium, Firefox, or WebKit) via Playwright — ES module support and a faithful DOM, with no Node.js installation required |
+| [`sbt-uni-javadoc`](https://wvlet.org/uni/build/sbt-uni-javadoc) | Shrink `-javadoc.jar` to stay within Maven Central's publishing limits: a dynamic Scaladoc side menu, and link-only javadoc for Scala.js/Native and sbt plugin artifacts (includes sbt-salad-days) |
 
 Add the ones you need to `project/plugins.sbt`:
 
@@ -162,6 +163,9 @@ addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "<version>")
 
 // Run Scala.js tests in a real browser
 addSbtPlugin("org.wvlet.uni" % "sbt-uni-playwright" % "<version>")
+
+// Shrink -javadoc.jar for Maven Central's publishing limits
+addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % "<version>")
 ```
 
 For example, `sbt-uni-crossproject` defines cross-platform projects with
