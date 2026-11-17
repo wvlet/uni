@@ -195,8 +195,8 @@ class UiHistory private (limit: Int):
 
   // A step of the drag that made `last`, when nothing else was recorded in between
   private def sameDrag(last: Record, r: AgentRegistry.Reported): Boolean =
-    r.gesture.isDefined && last.gesture.exists(g => r.gesture.exists(_ eq g)) &&
-      (last.target eq r.target) && last.state == EntryState.Live
+    r.gesture.exists(g => last.gesture.exists(_ eq g)) && (last.target eq r.target) &&
+      last.state == EntryState.Live
 
   private def append(r: AgentRegistry.Reported): Unit =
     val d          = r.details
