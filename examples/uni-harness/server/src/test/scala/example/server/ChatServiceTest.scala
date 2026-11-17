@@ -1,8 +1,11 @@
 package example.server
 
 import example.api.{ChatEvent, ChatReply}
+import wvlet.uni.config.InMemoryStoreBackend
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
+
+import scala.scalajs.js
 
 class ChatServiceTest extends UniTest:
   // An instant model and a fixed clock keep the tests fast and deterministic
@@ -96,6 +99,81 @@ class ChatServiceTest extends UniTest:
     s.createConversation()
       .flatMap(c => send(s, c.id, "newest").map(_ => c.id))
       .flatMap(id => s.listConversations().map(cs => cs.head.id shouldBe id))
+  }
+
+  test("a restarted service keeps the conversations, their messages, and new ids") {
+    val backend = InMemoryStoreBackend()
+    val first   = ChatService(
+      respond = p => Rx.single(s"echo: ${p}"),
+      now = () => 1000L,
+      backend = backend
+    )
+    first
+      .listConversations()
+      .flatMap(cs => send(first, cs.head.id, "Hello Uni"))
+      .flatMap { reply =>
+        val second = ChatService(respond = p => Rx.single(p), now = () => 2000L, backend = backend)
+        second
+          .listConversations()
+          .flatMap { cs =>
+            // The used chat is kept, and an empty one with a new id opens for the next prompt
+            cs.map(_.title) shouldBe Seq("New chat", "Hello Uni")
+            Seq(reply.conversation.id, reply.user.id, reply.assistant.id).contains(
+              cs.head.id
+            ) shouldBe false
+            second.listMessages(reply.conversation.id)
+          }
+          .map { ms =>
+            ms.map(m => (m.role, m.text)) shouldBe
+              Seq("user" -> "Hello Uni", "assistant" -> "echo: Hello Uni")
+          }
+      }
+  }
+
+  test("a restart reuses an empty chat that is not the most recent one") {
+    val backend = InMemoryStoreBackend()
+    var clock   = 1000L
+    val first   = ChatService(respond = p => Rx.single(p), now = () => clock, backend = backend)
+    first
+      .listConversations()
+      .flatMap { cs =>
+        val used = cs.head.id
+        clock = 2000L
+        // A blank chat, then a newer prompt in the first one
+        first
+          .createConversation()
+          .flatMap { blank =>
+            clock = 3000L
+            send(first, used, "later").map(_ => blank.id)
+          }
+      }
+      .flatMap { blank =>
+        clock = 4000L
+        val again = ChatService(backend = backend, now = () => clock)
+        again.listConversations().map(cs => cs.map(_.id) shouldBe Seq(blank, "c-1"))
+      }
+  }
+
+  test("a restart reuses the empty chat left from the last run") {
+    val backend = InMemoryStoreBackend()
+    ChatService(backend = backend)
+    val again = ChatService(backend = backend)
+    again.listConversations().map(_.size shouldBe 1)
+  }
+
+  test("saves conversations to conversations.json in a directory") {
+    val fs  = js.Dynamic.global.require("fs")
+    val os  = js.Dynamic.global.require("os")
+    val dir = fs.mkdtempSync(s"${os.tmpdir()}/uni-harness-").toString
+    try
+      ChatService(backend = ChatService.inDirectory(s"${dir}/data"))
+      val saved = fs.readFileSync(s"${dir}/data/${ChatService.fileName}", "utf8").toString
+      saved shouldContain "\"conversations\""
+      ChatService(backend = ChatService.inDirectory(s"${dir}/data"))
+        .listConversations()
+        .map(_.size shouldBe 1)
+    finally
+      fs.rmSync(dir, js.Dynamic.literal(recursive = true, force = true))
   }
 
 end ChatServiceTest

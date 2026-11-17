@@ -12,20 +12,34 @@ import scala.scalajs.js.annotation.JSExportTopLevel
 /**
   * Exposes one [[ChatService]] two ways:
   *
-  *   - `wireMainProcess(ipcMain)`: over Electron IPC, called from `src/main/index.js`.
+  *   - `wireMainProcess(ipcMain, dataDir)`: over Electron IPC, called from `src/main/index.js`.
+  *     Conversations are saved in `dataDir` (Electron's `userData` directory).
   *   - `startWebServer(port, staticDir)`: over HTTP with `Http.server` (Node), for the browser. In
-  *     production it also serves the built renderer from `staticDir`.
+  *     production it also serves the built renderer from `staticDir`. Conversations stay in memory
+  *     unless `UNI_HARNESS_DATA_DIR` names a directory to save them in.
   */
 object HarnessServer:
 
-  private lazy val router = RPCRouter.of[ChatApi](ChatService())
+  private def router(dataDir: Option[String]) = RPCRouter.of[ChatApi](
+    dataDir.fold(ChatService())(dir => ChatService(backend = ChatService.inDirectory(dir)))
+  )
 
   @JSExportTopLevel("wireMainProcess")
-  def wireMainProcess(ipcMain: js.Dynamic): Unit = ElectronRPCServer.serve(ipcMain, router)
+  def wireMainProcess(ipcMain: js.Dynamic, dataDir: String): Unit = ElectronRPCServer.serve(
+    ipcMain,
+    router(Some(dataDir))
+  )
 
   @JSExportTopLevel("startWebServer")
   def startWebServer(port: Int, staticDir: js.UndefOr[String]): HttpServer =
-    val dispatcher = RPCDispatcher(router)
+    val dataDir = js
+      .Dynamic
+      .global
+      .process
+      .env
+      .UNI_HARNESS_DATA_DIR
+      .asInstanceOf[js.UndefOr[String]]
+    val dispatcher = RPCDispatcher(router(dataDir.toOption.filter(_.nonEmpty)))
     val server     = Http.server.withHost("127.0.0.1").withPort(port)
     // Unknown page paths fall back to index.html, so a reload on any view still loads the app
     staticDir
