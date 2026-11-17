@@ -70,12 +70,8 @@ class TerminalPane(
       onAsk(TerminalPane.explainPrompt(c))
     }
 
-  // In Electron, the main process opens links in the system browser. In a browser the view's
-  // default, window.open, opens a new tab.
-  Ui.preloadBridge("uniShell")
-    .foreach { shell =>
-      view.onLinkClick(uri => shell.openExternal(uri))
-    }
+  // Links open in the system browser in Electron, in a new tab in a browser
+  view.onLinkClick(Ui.openLink)
 
   view.onResize { (cols, rows) =>
     if started && !exited.get then

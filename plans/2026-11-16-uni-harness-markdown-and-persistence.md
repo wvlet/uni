@@ -33,7 +33,7 @@ Persistence (server):
 - Web build: memory only by default. Set `UNI_HARNESS_DATA_DIR` to save chats to a directory you choose.
 - Writes happen when a chat is created, when a prompt is stored (`Started`), and when a reply finishes (`Done`), never on each streamed part. A reply cut off by quitting keeps its prompt but has no reply.
 - On load, ids continue after the highest saved id. An empty "New chat" left from the last run is reused, so relaunching doesn't pile up blank chats.
-- A corrupt file is renamed aside and the app starts fresh (`SettingStore` does this already). Version 1 of the schema; no migrations yet.
+- A corrupt file is renamed aside and the app starts fresh (`SettingStore` does this already). The file starts at schema version 0 (`SettingStore`'s default), with no migrations yet.
 - No delete-chat UI and no size cap (out of scope). The README names the file to remove.
 - Tests: `MarkdownView` rendering and link safety, in ComponentTest. `ChatService` reloading from a temporary directory, in ChatServiceTest.
 
