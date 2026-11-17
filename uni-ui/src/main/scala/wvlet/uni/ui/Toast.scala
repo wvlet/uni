@@ -188,6 +188,8 @@ class Toaster extends RxElement:
         data("slot") -> "toaster",
         ariaLabel    -> "Notifications",
         ariaLive     -> "polite",
+        // Toasts stay clickable under a modal dialog
+        data("uni-keep-live") -> "",
         each(onScreen)(_.id)(view)
       )
     )

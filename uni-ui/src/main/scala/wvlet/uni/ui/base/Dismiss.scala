@@ -50,6 +50,8 @@ class DismissLayer(
   *   - A press outside dismisses each non-modal overlay from the top until one contains the target.
   *     A modal overlay (a dialog) stops the walk, so a click on its backdrop never closes what lies
   *     beneath it.
+  *   - When an overlay leaves the stack, the overlays opened from inside it (a popover whose
+  *     trigger is in a dialog) are dismissed too, with [[ChangeReason.ParentClose]].
   *
   * {{{
   *   val layer = Dismiss.push(DismissLayer(() => Seq(content, trigger), modal = false,
@@ -69,11 +71,39 @@ object Dismiss:
     if listeners.isEmpty then
       listeners = Some(install())
     Cancelable { () =>
+      val nested = nestedIn(layer)
       layers -= layer
       if layers.isEmpty then
         listeners.foreach(_.cancel)
         listeners = None
+      // Close what was opened from inside this overlay, from the top. Each one goes through its
+      // own onChange, and closing it removes it from the stack
+      if nested.nonEmpty then
+        val cause = ChangeCause(ChangeReason.ParentClose, ChangeCause.current.source)
+        nested
+          .reverseIterator
+          .foreach { n =>
+            if layers.contains(n) then
+              ChangeCause.during(cause)(n.onDismiss())
+          }
     }
+
+  // The layers above `layer` opened from inside it, directly or through another nested layer
+  private def nestedIn(layer: DismissLayer): Seq[DismissLayer] =
+    val idx = layers.indexOf(layer)
+    if idx < 0 then
+      Seq.empty
+    else
+      val parents = ArrayBuffer(layer)
+      val nested  = ArrayBuffer.empty[DismissLayer]
+      layers
+        .drop(idx + 1)
+        .foreach { l =>
+          if l.inside().exists(e => parents.exists(_.contains(e))) then
+            parents += l
+            nested += l
+        }
+      nested.toSeq
 
   /** The topmost open overlay. */
   def top: Option[DismissLayer] = layers.lastOption

@@ -32,7 +32,8 @@ div(
 ```
 
 - **Reasons.** `ChangeReason` names the interaction: `Press`, `ItemPress`, `ActionPress`,
-  `EscapeKey`, `OutsidePress`, `NavigationKey`, `Typeahead`, `Input`, `Drag`, `Reset`,
+  `EscapeKey`, `OutsidePress`, `ParentClose` (a dialog closed with this overlay open inside it),
+  `NavigationKey`, `Typeahead`, `Input`, `Drag`, `Reset`,
   `DeleteKey`, `FocusOut`, and `Imperative` for calls such as `dock.open(id)`. Make your own
   with `ChangeReason("voice-command")`.
 - **Sources.** `ChangeSource` is `Pointer` (mouse, touch, or pen), `Keyboard`, `Programmatic`,

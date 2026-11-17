@@ -41,7 +41,8 @@ agent.changes(since = 0)                              // what people changed, an
   `AgentPolicy.allow(t => t.kind != "button")`. Snapshots list only allowed actions, and a
   disabled component lists none.
 - **Marks.** `UiAgent.ref("name")` sets a stable ref (otherwise `kind:label`).
-  `UiAgent.hidden` removes a subtree; so do `hidden`, `inert`, and `aria-hidden`.
+  `UiAgent.hidden` removes a subtree; so do `hidden`, `inert`, and `aria-hidden`. An open
+  dialog makes the page behind it `inert`, so the agent sees and acts only on the dialog.
   `UiAgent.secret` shows the value as `<redacted>`, as every password field does.
   `UiAgent.confirm(message)` makes the agent wait while the human allows or denies the action
   in a dialog. Every other agent action is refused until they answer.

@@ -128,7 +128,10 @@ methods.
 Overlays render at the end of `<body>` and share one behavior:
 - Escape or a press outside closes the top overlay only.
 - Focus moves into the overlay on open and back to the trigger on close.
-- Anchored overlays flip and shift to stay in the window.
+- Anchored overlays flip and shift to stay in the window, and follow a moving trigger.
+- A dialog makes the rest of the page `inert` (except toasts), so pointers and `UiAgent` reach
+  only the dialog; closing it closes the overlays opened inside it (`onChange` reason
+  `parent-close`).
 - To close one from code, set its `open := false`.
 
 Collections are one tab stop. They track the highlighted row with `aria-activedescendant`, and

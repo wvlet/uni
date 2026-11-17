@@ -75,6 +75,9 @@ object ChangeReason:
   val EscapeKey    = ChangeReason("escape-key")
   val OutsidePress = ChangeReason("outside-press")
 
+  /** The overlay this one was opened from closed, such as a dialog holding an open popover. */
+  val ParentClose = ChangeReason("parent-close")
+
   /** Arrow keys, Home, End, PageUp, or PageDown. */
   val NavigationKey = ChangeReason("navigation-key")
 

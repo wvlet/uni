@@ -603,4 +603,32 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("an agent can't reach controls behind a modal dialog") {
+    val open    = Rx.variable(false)
+    var pressed = 0
+    mount(
+      div(
+        Button("Save").onClick(() => pressed += 1),
+        Dialog(open, content = Seq(Button("Confirm")))
+      )
+    )
+    val agent = install()
+    agent.snapshot().map(_.ref) shouldContain "button:save"
+    open := true
+    settle()
+      .flatMap { _ =>
+        val refs = agent.snapshot().map(_.ref)
+        refs.exists(_.startsWith("dialog:")) shouldBe true
+        refs.contains("button:save") shouldBe false
+        agent.act("button:save", "press")
+      }
+      .map { r =>
+        r.status shouldBe ActStatus.NotFound
+        pressed shouldBe 0
+        open := false
+        agent.snapshot().map(_.ref) shouldContain "button:save"
+        agent.uninstall()
+      }
+  }
+
 end UiAgentTest

@@ -20,6 +20,5 @@ uni-ui overlays (Popover, Menu, ContextMenu, Select, Tooltip, Dialog, AlertDialo
 
 ## Consequences
 
-- An overlay closed in the same frame it opened (before `onMount`) unmounts without an exit.
-- An overlay portaled from inside a closing dialog (a Popover or Select in its body) isn't closed by the dialog's close. It stays visible during the dialog's exit and unmounts with it.
+- An overlay closed in the same frame it opened (before `onMount`) unmounted without an exit, and an overlay portaled from inside a closing dialog stayed open until it unmounted with the dialog. [2026-11-16-uni-ui-modal-inert-and-nested-close](2026-11-16-uni-ui-modal-inert-and-nested-close.md) fixed both.
 - Tests that load uni-ui.css and assert that an overlay is gone right after closing must wait for the exit or check `data-state="closed"` instead.

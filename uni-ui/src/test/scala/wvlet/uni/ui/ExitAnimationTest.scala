@@ -159,4 +159,18 @@ class ExitAnimationTest extends DomTestSupport:
     dom.document.body.removeChild(el)
   }
 
+  test("an overlay closed in the frame it opened still plays its exit") {
+    val open = Rx.variable(false)
+    mount(div(Popover(open, trigger = Button("Filter"), content = Seq(htmlButton("Apply")))))
+    open := true
+    open := false
+    settle().flatMap { _ =>
+      // onMount came after the close: the exit plays instead of the overlay vanishing
+      val panel = find(".uni-popover").get
+      panel.getAttribute("data-state") shouldBe "closed"
+      panel.hasAttribute("inert") shouldBe true
+      becomes(find(".uni-popover").isEmpty)
+    }
+  }
+
 end ExitAnimationTest
