@@ -10,7 +10,7 @@
 - `UiAgent` already hides `inert` subtrees, so the agent reaches only the dialog without agent-side changes.
 - When a `Dismiss` layer leaves the stack, it dismisses the layers above it that were opened from inside it (one of their `inside` elements lies inside it, checked transitively), top first, with `ChangeReason.ParentClose`. Each goes through its own `onChange`, so a handler can still cancel; the overlay then keeps `open = true` but unmounts with the dialog.
 - An open anchored overlay compares the anchor rect and the viewport once per animation frame and repositions when either changes. This replaces the `resize` and `scroll` listeners; the `ResizeObserver` on the overlay stays.
-- `close()` before `onMount` defers the exit to `onMount`, which plays it without joining the stack or moving focus.
+- `close()` before `onMount` plays the exit at once on the element a `DomRef` captured during rendering. Waiting for `onMount` would leave the element looking open (`data-state="open"`, not `inert`) to synchronous readers such as a `UiAgent` snapshot.
 
 ## Alternatives
 
