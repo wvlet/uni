@@ -119,9 +119,15 @@ object ChatService:
 
   /** The mock model: think for a moment, then echo a word every 30 ms. */
   def mockModel(prompt: String): Rx[String] =
-    val words = parts(
-      s"You said: “${prompt}”\n\nI am the mock model in ChatService. Replace me with your LLM's or agent's token stream, and this reply arrives the same way: as typed ChatEvents, streamed over IPC or HTTP by one RPC call."
-    )
+    val words = parts(s"""You said: “${prompt}”
+         |
+         |I am the **mock model** in `ChatService`. Replace me with your LLM's or agent's token stream, and this reply arrives the same way:
+         |
+         |- as typed `ChatEvent`s
+         |- streamed over IPC or HTTP by one RPC call
+         |- rendered as Markdown by `MarkdownView`
+         |
+         |See [Uni](https://wvlet.org/uni/) for more.""".stripMargin)
     Rx.delay(500, TimeUnit.MILLISECONDS)
       .flatMap(_ => Rx.intervalMillis(30).take(words.size))
       .scan(-1)((i, _) => i + 1)

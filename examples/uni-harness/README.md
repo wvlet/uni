@@ -54,6 +54,11 @@ flowchart LR
   ⌘↑/⌘↓ (Ctrl+Shift+↑/↓) jump between prompts, and a failed command offers **Explain error**, which
   asks the chat about the command and its output. Set `UNI_HARNESS_NO_SHELL_INTEGRATION=1` to
   start the shell unchanged.
+- **Replies in Markdown.** [`MarkdownView`](renderer/src/main/scala/example/renderer/MarkdownView.scala)
+  parses each reply with Uni's [Markdown parser](../../docs/text/markdown.md) and builds the
+  elements from its AST, with no `innerHTML`: raw HTML shows as text, only `http`, `https`, and
+  `mailto` links are clickable (they open in the system browser in Electron, a new tab on the web),
+  and images show as links, so a reply loads nothing from remote hosts. Prompts stay plain text.
 - **Keyboard shortcuts.** `Keyboard.bindAll`: ⌘B / Ctrl+B folds the sidebar, ⌘⇧B / Ctrl+Shift+B
   toggles the dock, ⌘K / Ctrl+K searches chats.
 - **A composer that respects IME input.** Enter sends, Shift+Enter adds a newline, and Enter during
