@@ -153,6 +153,10 @@ private[ui] class OverlaySurface(
             Cancelable.empty
         cleanup = Cancelable.merge(Seq(layer, background, placement))
         initialFocus(el).foreach(_.focus())
+      case _ if !unmounted && exitPending =>
+        // Not an element to animate: end the exit so Presence unmounts it
+        exitPending = false
+        exit.done()
       case _ =>
 
   override def beforeUnmount: Unit =
