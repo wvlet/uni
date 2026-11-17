@@ -14,7 +14,7 @@
 package wvlet.uni.ui.agent
 
 import wvlet.uni.rx.{Cancelable, RxVar}
-import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason, ChangeSource}
+import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeReason, ChangeSource}
 
 import scala.collection.mutable
 
@@ -37,8 +37,8 @@ enum EntryState(val name: String):
   * @param previous
   *   the value before the change, as text; `<redacted>` for a secret field
   * @param reversible
-  *   false for changes that undo leaves alone: overlay `open` state, secret values, and components
-  *   with no agent binding
+  *   false for changes that undo leaves alone: overlay `open` state, secret values, and state no
+  *   mounted component owns
   * @param stage
   *   the label of the [[UiStage]] the change joined, if any
   */
@@ -162,11 +162,12 @@ class UiHistory private (limit: Int):
   private class Record(
       val seq: Long,
       val target: RxVar[Any],
-      // The raw values and the handler to revert through, only for reversible entries, so secrets
-      // and unreversible components' handlers are never kept
-      val undoable: Option[(Any, Any, ChangeHandler)],
+      // The raw values, only for reversible entries, so secrets are never kept. The revert goes
+      // through the handler of the component that owns the target then, not the one kept here
+      var undoable: Option[(Any, Any)],
       val owned: Boolean,
-      base: HistoryEntry
+      val gesture: Option[AnyRef],
+      var base: HistoryEntry
   ):
     var state: EntryState      = EntryState.Live
     var stage: Option[UiStage] = None
@@ -184,33 +185,57 @@ class UiHistory private (limit: Int):
   private def add(r: AgentRegistry.Reported): Unit =
     // A revert this history makes is not a new change, so undo cannot undo itself
     if !reverting then
-      val d          = r.details
-      val reversible = r.owner.isDefined && !r.secret && d.key != "open"
-      seq += 1
-      val rec = Record(
-        seq,
-        r.target,
-        Option.when(reversible)((d.previous, d.value, r.handler)),
-        r.owner.isDefined,
-        HistoryEntry(
-          seq = seq,
-          ref = r.owner.map(AgentRegistry.refOf),
-          kind = r.owner.map(_.binding.kind),
-          label = r.owner.fold("")(e => AgentDom.labelOf(e.element)),
-          key = d.key,
-          previous = r.text(d.previous),
-          value = r.text(d.value),
-          reason = d.reason.name,
-          source = d.source,
-          reversible = reversible,
-          state = EntryState.Live
-        )
+      records.lastOption.filter(sameDrag(_, r)) match
+        case Some(last) =>
+          // One entry per drag: keep the value before the drag and take the newest value
+          val value = r.text(r.details.value)
+          if value == last.base.previous then
+            // The drag ended where it started, so it changed nothing
+            records.removeLast()
+          else
+            last.undoable = last.undoable.map((previous, _) => (previous, r.details.value))
+            last.base = last.base.copy(value = value)
+        case None =>
+          append(r)
+
+  // A drag step of the drag that made `last`, when nothing else was recorded in between. Other
+  // writes during a drag, such as an arrow key, stay entries of their own
+  private def sameDrag(last: Record, r: AgentRegistry.Reported): Boolean =
+    r.gesture.exists(g => last.gesture.exists(_ eq g)) &&
+      (last.target eq r.target) && last.state == EntryState.Live &&
+      r.details.reason == ChangeReason.Drag && last.base.reason == ChangeReason.Drag.name
+
+  private def append(r: AgentRegistry.Reported): Unit =
+    val d          = r.details
+    val reversible = r.owner.isDefined && !r.secret && d.key != "open"
+    seq += 1
+    val rec = Record(
+      seq,
+      r.target,
+      Option.when(reversible)((d.previous, d.value)),
+      r.owner.isDefined,
+      r.gesture,
+      HistoryEntry(
+        seq = seq,
+        ref = r.owner.flatMap(_.agent).map(AgentRegistry.refOf),
+        kind = r.owner.map(_.state.kind),
+        label = r.owner.fold("")(o => o.state.label.getOrElse(AgentDom.labelOf(o.element))),
+        key = d.key,
+        previous = r.text(d.previous),
+        value = r.text(d.value),
+        reason = d.reason.name,
+        source = d.source,
+        reversible = reversible,
+        state = EntryState.Live
       )
-      if d.source == ChangeSource.Agent then
-        rec.stage = openStage
-      records.append(rec)
-      while records.size > limit do
-        records.removeHead()
+    )
+    if d.source == ChangeSource.Agent then
+      rec.stage = openStage
+    records.append(rec)
+    while records.size > limit do
+      records.removeHead()
+
+  end append
 
   /** The recorded changes, oldest first. Keeps the latest `limit`. */
   def entries: Seq[HistoryEntry] = records.map(_.entry).toSeq
@@ -242,18 +267,21 @@ class UiHistory private (limit: Int):
 
   private def undoOne(r: Record): UndoResult =
     def result(s: UndoStatus, message: String = "") = UndoResult(r.entry, s, message)
+    // The component that owns the state now, which may have remounted with a new handler
+    val owner = AgentRegistry.ownerOf(r.target)
     r.undoable match
       case _ if r.state != EntryState.Live =>
         result(UndoStatus.Skipped, s"The change is already ${r.state.name}")
       case None =>
         result(UndoStatus.Unsupported, unsupportedReason(r))
-      case Some(_) if AgentRegistry.ownerOf(r.target).isEmpty =>
+      case Some(_) if owner.isEmpty =>
         result(UndoStatus.Missing, "The component is not on screen")
-      case Some((_, value, _)) if r.target.get != value =>
+      case Some((_, value)) if r.target.get != value =>
         result(UndoStatus.Conflict, "The value changed since")
       case Some(_) if records.exists(o => o.seq > r.seq && (o.target eq r.target) && o.notUndone) =>
         result(UndoStatus.Conflict, "A later change to the same state is still in effect")
-      case Some((previous, _, handler)) =>
+      case Some((previous, _)) =>
+        val handler = owner.fold(ChangeGate.noHandler)(_.state.changeHandler)
         reverting = true
         val accepted =
           try ChangeGate.write(
@@ -270,9 +298,11 @@ class UiHistory private (limit: Int):
         else
           result(UndoStatus.Canceled, "The app canceled the revert")
 
+  end undoOne
+
   private def unsupportedReason(r: Record): String =
     if !r.owned then
-      "The component has no agent binding"
+      "No component owns the state"
     else if r.entry.key == "open" then
       "Opening and closing overlays is not undone"
     else

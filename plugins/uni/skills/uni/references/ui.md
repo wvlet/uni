@@ -230,9 +230,10 @@ changeLog.undoSource(ChangeSource.Agent)             // newest first; `conflict`
 changeLog.entries.map(_.describe)                    // "Agent set Region to oregon"
 ```
 
-- Undo writes back through `onChange` with `ChangeReason.Undo` (cancelable) and is not recorded as
-  a new change. Presses and app callbacks are not recorded; `open`, secret values, and unbound
-  components report `unsupported`; an unmounted component reports `missing`.
+- Undo writes back through the current owner's `onChange` with `ChangeReason.Undo` (cancelable)
+  and is not recorded as a new change. Dock layouts and splitter sizes are undoable; one drag is
+  one entry. Presses and app callbacks are not recorded; `open` and secret values report
+  `unsupported`; an unmounted component reports `missing`.
 
 ## Behaviors for your own widgets
 

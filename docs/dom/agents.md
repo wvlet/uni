@@ -95,12 +95,16 @@ history.close()
   text, reason, and source. Button presses, menu-item actions, and other app callbacks are not
   changes, so they are not recorded and cannot be undone.
 - **Undo.** `undoSource(ChangeSource.Agent)` and `undo(entry)` go newest first and write the
-  previous value back through the component's `onChange` with `ChangeReason.Undo`, so the app can
-  cancel it. Each `UndoResult` says `reverted`, `conflict` (the value changed since, so the newer
+  previous value back through the `onChange` of the component that owns the state now (a field
+  remounted with a new handler is asked, not the old one), with `ChangeReason.Undo`, so the app
+  can cancel it. Each `UndoResult` says `reverted`, `conflict` (the value changed since, so the newer
   value stays), `canceled`, `missing` (the component is not mounted; nothing is written),
   `unsupported`, or `skipped` (already undone or accepted).
-- **Not undone.** `open` (overlay visibility), secret and password values, and components without
-  an agent binding report `unsupported`. Secret values read `<redacted>` and are never kept.
+- **Dock and splitters.** `Dock` layout changes (kind `dock`, key `layout`) and `Splitter` sizes
+  (kind `splitter`, key `size`) are undone too, though agents don't see these components. One
+  pointer drag is one entry, from the value before the drag to the last one.
+- **Not undone.** `open` (overlay visibility), secret and password values, and state no mounted
+  component owns report `unsupported`. Secret values read `<redacted>` and are never kept.
   Components inside `UiAgent.hidden` are not recorded.
 - **Stages.** One stage is open at a time, and only agent changes join it. `revert()` keeps the
   edits a person made meanwhile; `accept()` keeps the changes, and `undoSource` skips them later.

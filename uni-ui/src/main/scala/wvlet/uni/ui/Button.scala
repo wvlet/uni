@@ -113,8 +113,9 @@ object Button:
 
   private[ui] def binding: AgentBinding =
     new AgentBinding:
-      override def kind: String              = "button"
-      override def actions: Seq[AgentAction] = Seq(AgentAction.press(this))
+      override def kind: String                 = "button"
+      override def changeHandler: ChangeHandler = ChangeGate.noHandler
+      override def actions: Seq[AgentAction]    = Seq(AgentAction.press(this))
 
   private val noAction: () => Unit = () => ()
 

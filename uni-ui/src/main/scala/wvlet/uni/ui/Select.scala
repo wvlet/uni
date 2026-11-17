@@ -192,12 +192,13 @@ class Select[A] private (
   end list
 
   private object agentBinding extends AgentBinding:
-    private var latest: Seq[A]          = Seq.empty
-    override def kind: String           = "select"
-    override def value: Option[String]  = Some(optionLabel(selected.get))
-    override def states: Seq[AnyRef]    = Seq(selected)
-    override def format(v: Any): String = optionLabel(v.asInstanceOf[A])
-    override def watch(): Cancelable    = options.subscribe(xs => latest = xs)
+    private var latest: Seq[A]                = Seq.empty
+    override def kind: String                 = "select"
+    override def value: Option[String]        = Some(optionLabel(selected.get))
+    override def states: Seq[AnyRef]          = Seq(selected)
+    override def changeHandler: ChangeHandler = Select.this.changeHandler
+    override def format(v: Any): String       = optionLabel(v.asInstanceOf[A])
+    override def watch(): Cancelable          = options.subscribe(xs => latest = xs)
 
     private def labels: Seq[String] = AgentBinding.itemLabels(latest.map(optionLabel))
 

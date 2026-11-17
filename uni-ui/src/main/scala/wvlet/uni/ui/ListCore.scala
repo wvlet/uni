@@ -364,7 +364,8 @@ private[ui] class ListCore[A, K](
   end row
 
   private object agentBinding extends AgentBinding:
-    override def kind: String = agentKind
+    override def kind: String                 = agentKind
+    override def changeHandler: ChangeHandler = ListCore.this.changeHandler
 
     // Labels for the rows in `labelsOf`, rebuilt only when the rows change
     private var labelsOf: Seq[A]    = Seq.empty

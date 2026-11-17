@@ -101,14 +101,34 @@ private[ui] object AgentAction:
 end AgentAction
 
 /**
+  * A mounted component that writes app state through `ChangeGate`: the `RxVar`s it writes and the
+  * `onChange` handler it asks now. [[UiHistory]] reverts a change through the handler of the
+  * component that owns the state at that time, not the one the change was made through.
+  */
+private[ui] trait StateOwner:
+  /** The component kind, such as `select`. */
+  def kind: String
+
+  /** The `RxVar`s this component writes. */
+  def states: Seq[AnyRef]
+
+  /** The component's current `onChange` handler, or `ChangeGate.noHandler` when it has none. */
+  def changeHandler: ChangeHandler
+
+  /** The name [[UiHistory]] entries use, when the element's accessible name doesn't fit. */
+  def label: Option[String] = None
+
+  /** Text for a value of one of [[states]], for the change feed and the history. */
+  def format(v: Any): String = String.valueOf(v)
+
+end StateOwner
+
+/**
   * How a uni-ui component describes itself to [[UiAgent]]. A component adds
   * `AgentRegistry.attach(binding)` to its root element; the binding is live while the element is
   * mounted.
   */
-private[ui] trait AgentBinding:
-  /** The component kind, such as `select`. */
-  def kind: String
-
+private[ui] trait AgentBinding extends StateOwner:
   /**
     * When two components share an element, as a [[wvlet.uni.ui.Menu]] does with its trigger button,
     * agents see the one with the higher priority.
@@ -127,9 +147,6 @@ private[ui] trait AgentBinding:
 
   /** The `RxVar`s this component writes, so [[UiAgent.changes]] can name the component. */
   def states: Seq[AnyRef] = Nil
-
-  /** Text for a value of one of [[states]], for the change feed. */
-  def format(v: Any): String = String.valueOf(v)
 
   /** Subscriptions this binding keeps while mounted, such as on a list of options. */
   def watch(): Cancelable = Cancelable.empty
@@ -159,7 +176,18 @@ private[ui] object AgentRegistry:
   private val ElementKey = "__uniAgent"
 
   private val entries = mutable.LinkedHashSet.empty[Entry]
-  private val byState = java.util.IdentityHashMap[AnyRef, Entry]()
+
+  /**
+    * A mounted component that owns state: an agent binding, or a component without one, such as a
+    * Dock, that [[UiHistory]] still reverts through.
+    */
+  private[agent] class Owner(
+      val state: StateOwner,
+      val element: dom.Element,
+      val agent: Option[Entry]
+  )
+
+  private val byState = java.util.IdentityHashMap[AnyRef, Owner]()
 
   private var seq       = 0L
   private val listeners = mutable.ArrayBuffer.empty[UiChange => Unit]
@@ -168,48 +196,61 @@ private[ui] object AgentRegistry:
   private var tracked: Option[mutable.ArrayBuffer[ChangeDetails[Any]]] = None
 
   /** Registers `binding` while the element this modifier is placed on is mounted. */
-  def attach(binding: AgentBinding): DomNode = RefBinding(Hook(binding))
+  def attach(binding: AgentBinding): DomNode = RefBinding(Hook(binding, Some(binding)))
 
-  private class Hook(binding: AgentBinding) extends DomRef[dom.Element]:
-    private var entry: Option[Entry] = None
+  /**
+    * Registers `owner` as the owner of its states while the element this modifier is placed on is
+    * mounted, so [[UiHistory]] can revert its changes. Agents don't see it.
+    */
+  def own(owner: StateOwner): DomNode = RefBinding(Hook(owner, None))
+
+  private class Hook(owner: StateOwner, binding: Option[AgentBinding]) extends DomRef[dom.Element]:
+    private var mounted: Option[Owner] = None
 
     override def set(elem: dom.Element): Unit =
       super.set(elem)
-      entry.foreach(remove)
-      val e = Entry(binding, elem)
-      binding.element = Some(elem)
-      entries += e
-      if entryOf(elem).forall(_.binding.priority <= binding.priority) then
-        elem.asInstanceOf[js.Dynamic].updateDynamic(ElementKey)(e.asInstanceOf[js.Any])
-      binding.states.foreach(s => byState.put(s, e))
-      e.watching = binding.watch()
-      entry = Some(e)
+      mounted.foreach(remove)
+      val entry = binding.map { b =>
+        val e = Entry(b, elem)
+        b.element = Some(elem)
+        entries += e
+        if entryOf(elem).forall(_.binding.priority <= b.priority) then
+          elem.asInstanceOf[js.Dynamic].updateDynamic(ElementKey)(e.asInstanceOf[js.Any])
+        e
+      }
+      val o = Owner(owner, elem, entry)
+      owner.states.foreach(s => byState.put(s, o))
+      entry.foreach(e => e.watching = e.binding.watch())
+      mounted = Some(o)
 
     override def clear(): Unit =
       super.clear()
-      entry.foreach(remove)
-      entry = None
-      binding.element = None
+      mounted.foreach(remove)
+      mounted = None
+      binding.foreach(_.element = None)
 
   end Hook
 
-  private def remove(e: Entry): Unit =
-    e.watching.cancel
-    entries -= e
-    e.binding
+  private def remove(o: Owner): Unit =
+    o.state
       .states
       .foreach(s =>
-        if byState.get(s) eq e then
+        if byState.get(s) eq o then
           byState.remove(s)
       )
-    val el = e.element.asInstanceOf[js.Dynamic]
-    if el.selectDynamic(ElementKey).asInstanceOf[js.Any] eq e.asInstanceOf[js.Any] then
-      // Another component on the same element takes over
-      entries.filter(_.element eq e.element).maxByOption(_.binding.priority) match
-        case Some(other) =>
-          el.updateDynamic(ElementKey)(other.asInstanceOf[js.Any])
-        case None =>
-          js.special.delete(el, ElementKey)
+    o.agent
+      .foreach { e =>
+        e.watching.cancel
+        entries -= e
+        val el = e.element.asInstanceOf[js.Dynamic]
+        if el.selectDynamic(ElementKey).asInstanceOf[js.Any] eq e.asInstanceOf[js.Any] then
+          // Another component on the same element takes over
+          entries.filter(_.element eq e.element).maxByOption(_.binding.priority) match
+            case Some(other) =>
+              el.updateDynamic(ElementKey)(other.asInstanceOf[js.Any])
+            case None =>
+              js.special.delete(el, ElementKey)
+      }
 
   def entryOf(el: dom.Element): Option[Entry] =
     val v = el.asInstanceOf[js.Dynamic].selectDynamic(ElementKey).asInstanceOf[js.UndefOr[Entry]]
@@ -262,26 +303,27 @@ private[ui] object AgentRegistry:
     buf.toSeq
 
   /**
-    * A committed change as [[UiHistory]] sees it: the target and the handler, so the change can be
-    * written back through the same gate.
+    * A committed change as [[UiHistory]] sees it.
     *
     * @param owner
-    *   the registered component that owns `target`, if any
+    *   the mounted component that owns `target`, if any
+    * @param gesture
+    *   the pointer drag the change is part of, if any; see `ChangeGate.inGesture`
     */
   private[agent] class Reported(
       val target: RxVar[Any],
       val details: ChangeDetails[Any],
-      val handler: ChangeHandler,
-      val owner: Option[Entry]
+      val owner: Option[Owner],
+      val gesture: Option[AnyRef]
   ):
-    val secret: Boolean = owner.exists(e => AgentDom.isSecret(e.element))
+    val secret: Boolean = owner.exists(o => AgentDom.isSecret(o.element))
 
     /** `v` as text for agents and history: formatted by the owner, or redacted when secret. */
     def text(v: Any): String =
       if secret then
         AgentDom.Redacted
       else
-        owner.fold(String.valueOf(v))(_.binding.format(v))
+        owner.fold(String.valueOf(v))(_.state.format(v))
 
   /** Calls `f` with every committed change of a component that is not hidden from agents. */
   def record(f: Reported => Unit): Cancelable =
@@ -289,20 +331,22 @@ private[ui] object AgentRegistry:
     Cancelable(() => recorders -= f)
 
   /** The mounted component that owns `target`, if any. */
-  def ownerOf(target: AnyRef): Option[Entry] = Option(byState.get(target)).filter(e =>
-    entries.contains(e) && e.element.isConnected
+  def ownerOf(target: AnyRef): Option[Owner] = Option(byState.get(target)).filter(
+    _.element.isConnected
   )
 
   /** Called by `ChangeGate` once the app's handler has seen a change to `target`. */
-  def report(target: RxVar[?], d: ChangeDetails[Any], handler: ChangeHandler): Unit =
+  def report(target: RxVar[?], d: ChangeDetails[Any], gesture: Option[AnyRef]): Unit =
     tracked.foreach(_ += d)
     if !d.canceled && (listeners.nonEmpty || recorders.nonEmpty) then
-      val entry = Option(byState.get(target)).filter(entries.contains)
+      val owner = Option(byState.get(target))
       // A component inside `UiAgent.hidden` stays out of the feed, as it does out of snapshots
-      if !entry.exists(e => AgentDom.isHidden(e.element)) then
-        val r = Reported(target.asInstanceOf[RxVar[Any]], d, handler, entry)
+      if !owner.exists(o => AgentDom.isHidden(o.element)) then
+        val r = Reported(target.asInstanceOf[RxVar[Any]], d, owner, gesture)
         notify(recorders.toSeq, r, "UiHistory")
         if listeners.nonEmpty then
+          // Only components agents see are named in the feed
+          val entry = owner.flatMap(_.agent)
           seq += 1
           val change = UiChange(
             seq,
