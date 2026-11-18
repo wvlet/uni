@@ -27,11 +27,11 @@ If any of the above is unverified, drop the claim.
   Use it in `libraryDependencies` examples instead of a hardcoded
   version. Likewise **`__SCALA_VERSION__`** is replaced with `SCALA_3`
   from the root `build.sbt`; use it for `scalaVersion` in samples.
-- **Sidebars are duplicated.** `docs/.vitepress/config.mts` defines
-  sidebars for `/guide/` **and** `/`. Adding a page requires updating
-  both — a single-location edit silently leaves the page un-navigable.
-  UI pages (`/dom/`, `/http/electron*`) go in `uiSidebar` instead; the
-  Web UI group of both sidebars is built from it.
+- **Sidebars are built from shared lists.** In `docs/.vitepress/config.mts`,
+  a new module page goes in `moduleGroups`, a guide page in
+  `gettingStarted`, and a UI page (`/dom/`, `/http/electron*`) in
+  `uiSidebar`. The `/guide/` and `/` sidebars are built from them, so a
+  page not in these lists is un-navigable.
 - **`srcExclude: ['**/AGENTS.md']`** keeps these files out of the
   rendered site, so it is safe to put contributor notes next to the
   content they describe.
@@ -77,5 +77,5 @@ The site is read by AI agents as much as by people.
 ## Before merging
 
 - Every symbol appears in current source (verified, not recalled).
-- Sidebar updated in both `/guide/` and `/` entries (`uiSidebar` for UI pages).
+- Page added to `moduleGroups`, `gettingStarted`, or `uiSidebar`.
 - `pnpm docs:build` succeeds (catches dead links `dev` misses).
