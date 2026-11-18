@@ -175,18 +175,22 @@ object PointerDrag:
       e =>
         e.preventDefault()
         e.stopImmediatePropagation()
+    def stop(): Unit =
+      dom.window.removeEventListener("click", click, useCapture = true)
+      dom.window.removeEventListener("pointerup", up, useCapture = true)
+      dom.window.removeEventListener("pointercancel", up, useCapture = true)
+      dom.window.removeEventListener("pointerdown", press, useCapture = true)
     lazy val up: js.Function1[dom.PointerEvent, Unit] =
       ev =>
         if ev.pointerId == pointerId then
-          dom.window.removeEventListener("pointerup", up, useCapture = true)
-          dom.window.removeEventListener("pointercancel", up, useCapture = true)
           // The click follows the pointerup in the same task
-          dom
-            .window
-            .setTimeout(() => dom.window.removeEventListener("click", click, useCapture = true), 0)
+          dom.window.setTimeout(() => stop(), 0)
+    // A missed release (no capture, outside the window) must not swallow the next press's click
+    lazy val press: js.Function1[dom.Event, Unit] = _ => stop()
     dom.window.addEventListener("click", click, useCapture = true)
     dom.window.addEventListener("pointerup", up, useCapture = true)
     dom.window.addEventListener("pointercancel", up, useCapture = true)
+    dom.window.addEventListener("pointerdown", press, useCapture = true)
 
 end PointerDrag
 
@@ -293,11 +297,23 @@ class PaneResize(
   )
 
   // A value written later from outside a drag; a refused write is not retried
-  private def keepInRange(): Cancelable = size.foreach { v =>
-    val clamped = range.clamp(v)
-    if clamped != v then
-      onClamp.fold(size := clamped)(_(clamped))
-  }
+  private def keepInRange(): Cancelable =
+    var mounted       = true
+    def clamp(): Unit =
+      val v       = size.get
+      val clamped = range.clamp(v)
+      if mounted && clamped != v then
+        onClamp.fold(size := clamped)(_(clamped))
+    val watching = size.foreach { v =>
+      if range.clamp(v) != v then
+        // In a microtask, so every subscriber sees the written value before the clamped one, and
+        // none is left holding the out-of-range value; nothing paints in between
+        js.Promise.resolve[Unit](()).`then`[Unit](_ => clamp())
+    }
+    Cancelable { () =>
+      mounted = false
+      watching.cancel
+    }
 
   /** True while the handle is being dragged, e.g. to turn off a width transition. */
   def dragging: Rx[Boolean] = drag.dragging

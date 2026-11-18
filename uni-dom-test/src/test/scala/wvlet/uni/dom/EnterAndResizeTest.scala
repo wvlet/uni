@@ -213,6 +213,12 @@ class EnterAndResizeTest extends DomTestSupport:
       log.toSeq shouldBe Seq("move 30", "cancel keydown dragging=true")
       // Escape after the drag is an ordinary key
       fireEvent.keyDown(dom.window, "Escape") shouldBe true
+      // A release the page missed doesn't swallow the click of the next press
+      fireEvent.pointerDown(m.get(".handle"), clientX = 100)
+      fireEvent.keyDown(dom.window, "Escape")
+      fireEvent.pointerDown(dom.document.body, pointerId = 2)
+      fireEvent.click(m.get(".handle"))
+      log.last shouldBe "click"
     finally
       dom.document.removeEventListener("keydown", docKey)
   }
@@ -252,16 +258,23 @@ class EnterAndResizeTest extends DomTestSupport:
     val m     = mount(
       div(cls -> "grip", PaneResize(width, SizeRange(200, 300, 400), ResizeDirection.Right).bind)
     )
+    val shown = mutable.Buffer.empty[Int]
+    val sub   = width.subscribe(shown += _)
     // Another tab on an older build may write a size outside the range
     width := 960
-    width.get shouldBe 400
-    width := 10
-    width.get shouldBe 200
-    width := 250
-    width.get shouldBe 250
-    m.unmount()
-    width := 960
-    width.get shouldBe 960
+    settle().flatMap { _ =>
+      width.get shouldBe 400
+      // A later subscriber ends on the clamped size too
+      shown.last shouldBe 400
+      width := 10
+      settle().map { _ =>
+        width.get shouldBe 200
+        sub.cancel
+        m.unmount()
+        width := 960
+        settle().map(_ => width.get shouldBe 960)
+      }
+    }
   }
 
   test("PaneResize clamps to the range and resets on double-click") {

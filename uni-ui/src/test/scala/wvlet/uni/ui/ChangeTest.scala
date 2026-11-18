@@ -358,10 +358,12 @@ class ChangeTest extends DomTestSupport:
         .onChange(rec.handler)
     )
     width := 960
-    width.get shouldBe 480
-    (rec.last.previous, rec.last.value) shouldBe (960, 480)
-    rec.last.reason shouldBe ChangeReason.Imperative
-    rec.last.source shouldBe ChangeSource.Programmatic
+    settle().map { _ =>
+      width.get shouldBe 480
+      (rec.last.previous, rec.last.value) shouldBe (960, 480)
+      rec.last.reason shouldBe ChangeReason.Imperative
+      rec.last.source shouldBe ChangeSource.Programmatic
+    }
   }
 
   test("components name their parts with data-slot") {
