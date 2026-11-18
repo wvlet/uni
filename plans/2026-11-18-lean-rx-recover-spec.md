@@ -20,6 +20,7 @@
 Lane: Express — spec and tests, plus the one-line `take` fix below, which the user approved ("Fix in this PR"). No always-gate area.
 
 - **Fix found by the model:** in continuous mode, `take(n)` skipped its completion when the nth value's downstream returned `Stop` (after a downstream error), although the same `Stop` is ignored for the values before the nth. It now completes in continuous mode either way; the take ADR records the amendment.
+- **Second fix, found in review** (user: "Fix this in the PR too"): `recover` answered `Continue` whatever the downstream returned, so a failure after `recover` did not stop the source and the sink received events after `OnError`. It now returns the downstream's answer; 3-operator cases (`x rec:0 boom:0`) cover it.
 
 - **Model** (`UniSpec/RxRecover.lean`, on top of `UniSpec/Rx.lean`):
   - `map`, `filter`, a throwing `map`, and `recover` act on each event and never cut the trace themselves;

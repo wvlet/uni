@@ -11,9 +11,10 @@ never cut the trace; `take` keeps its own end. The run mode decides where the tr
 - **continuous** (`RxRunner.runContinuously`): terminal events and `Stop` are transient, so neither
   cut applies.
 
-`recover` answers `Continue`, so a recovered error ends the stream only when it came from the
-source, which has already stopped: the stream then goes quiet. A recovered operator error lets the
-source continue. `GenRxRecoverCases.lean` evaluates `run` to generate the cases `RxRecoverSpecTest`
+`recover` passes on the downstream's answer to the recovered value, so a recovered error ends the
+stream only when it came from the source, which has already stopped: the stream then goes quiet.
+A recovered operator error lets the source continue, unless an operator after `recover` fails on
+the recovered value, which stops it like any other error. `GenRxRecoverCases.lean` evaluates `run` to generate the cases `RxRecoverSpecTest`
 replays.
 -/
 
@@ -114,7 +115,10 @@ theorem recover_operator_error_continues (k r : Int) (vs : List Int) :
 
 /-! ## Continuous mode -/
 
-/-- Continuous mode delivers events after an error or a completion. -/
+/-- Continuous mode delivers every source event, including those after an error or a completion. -/
+theorem continuous_delivers_all (s : List Event) : run .continuous [] s = s := rfl
+
+/-- For example, events after an error and a completion still arrive. -/
 theorem continuous_delivers_after_terminal :
     run .continuous [] [.fail, .next 1, .done, .next 2] = [.fail, .next 1, .done, .next 2] := rfl
 

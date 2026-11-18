@@ -56,8 +56,9 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   stream open with no completion in default mode, while a recovered operator error continues to
   completion; continuous mode delivers events after a terminal one; `take` still ends at the first
   terminal event in continuous mode. Its cases found that continuous-mode `take(n)` skipped its
-  completion when the nth value's downstream failed, now fixed (see
-  `2026-10-19-rx-take-completion.md`).
+  completion when the nth value's downstream failed, and review of the model found `recover`
+  ignoring the downstream's `Stop`, so events reached the sink after `OnError`. Both are fixed
+  (see `2026-10-19-rx-take-completion.md` and `2026-10-14-rx-completion-semantics.md`).
 - Next candidates: `recoverWith`, continuous-mode `flatMap`/`merge`, `parFlatMap` ordering, and
   MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);

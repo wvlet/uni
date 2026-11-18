@@ -617,9 +617,10 @@ class RxRunner(
               effect(ev)
             case OnError(e) if f.isDefinedAt(e) =>
               Try(effect(OnNext(f(e)))) match
-                case Success(x) =>
-                  // recovery succeeded
-                  RxResult.Continue
+                case Success(result) =>
+                  // Recovery succeeded: pass on the downstream's answer, which is Stop when an
+                  // operator after recover failed on the recovered value
+                  result
                 case Failure(e) =>
                   effect(OnError(e))
             case other =>

@@ -28,7 +28,9 @@ def ops : List (String × (List Event → List Event)) :=
     ("rec:0", recoverE 0) ]
 
 def pipelines : List (List (String × (List Event → List Event))) :=
-  ops.map (fun o => [o]) ++ ops.flatMap (fun a => ops.map (fun b => [a, b]))
+  ops.map (fun o => [o]) ++ ops.flatMap (fun a => ops.map (fun b => [a, b])) ++
+    -- An operator after recover that fails on the recovered value must stop the source
+    ops.map (fun a => [a, ("rec:0", recoverE 0), ("boom:0", boomE 0)])
 
 /-- Inputs, including events after a terminal one, which only continuous mode delivers. -/
 def inputs : List (List Event) :=
