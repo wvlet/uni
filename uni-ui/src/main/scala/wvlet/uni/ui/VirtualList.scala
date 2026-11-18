@@ -49,7 +49,8 @@ class VirtualList[A, K] private (
     changeHandler: ChangeHandler,
     multiSelected: Option[RxVar[Set[K]]],
     reorderable: Option[RxVar[Seq[A]]],
-    rowLabel: Option[A => String]
+    rowLabel: Option[A => String],
+    agentConfirm: Option[A => Option[String]]
 ) extends RxElement:
 
   private def copy(
@@ -61,7 +62,8 @@ class VirtualList[A, K] private (
       changeHandler: ChangeHandler = changeHandler,
       multiSelected: Option[RxVar[Set[K]]] = multiSelected,
       reorderable: Option[RxVar[Seq[A]]] = reorderable,
-      rowLabel: Option[A => String] = rowLabel
+      rowLabel: Option[A => String] = rowLabel,
+      agentConfirm: Option[A => Option[String]] = agentConfirm
   ): VirtualList[A, K] =
     new VirtualList(
       items,
@@ -76,7 +78,8 @@ class VirtualList[A, K] private (
       changeHandler,
       multiSelected,
       reorderable,
-      rowLabel
+      rowLabel,
+      agentConfirm
     )
 
   /** The accessible name of the list. */
@@ -133,6 +136,18 @@ class VirtualList[A, K] private (
   def withRowLabel(f: A => String): VirtualList[A, K] = copy(rowLabel = Some(f))
   def noRowLabel(): VirtualList[A, K]                 = copy(rowLabel = None)
 
+  /**
+    * Rows an agent may select or drop from the selection only after the human allows it: `f` gives
+    * the question for a guarded row, or None. It works for rows scrolled out of view too, since it
+    * reads the data rather than the rendered row.
+    *
+    * {{{
+    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of ${u.name}?"))
+    * }}}
+    */
+  def withAgentConfirm(f: A => Option[String]): VirtualList[A, K] = copy(agentConfirm = Some(f))
+  def noAgentConfirm(): VirtualList[A, K]                         = copy(agentConfirm = None)
+
   override def render: RxElement = ListCore[A, K](
     items,
     key,
@@ -155,7 +170,8 @@ class VirtualList[A, K] private (
     changeHandler = changeHandler,
     slot = "virtual-list",
     reorderable = reorderable,
-    itemLabel = rowLabel
+    itemLabel = rowLabel,
+    agentConfirm = agentConfirm
   )
 
   end render
@@ -185,5 +201,6 @@ object VirtualList:
       changeHandler = ChangeGate.noHandler,
       multiSelected = None,
       reorderable = None,
-      rowLabel = None
+      rowLabel = None,
+      agentConfirm = None
     )

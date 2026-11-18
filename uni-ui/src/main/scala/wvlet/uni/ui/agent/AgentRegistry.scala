@@ -31,13 +31,18 @@ private[ui] class AgentInputError(message: String) extends Exception(message)
   *
   * @param run
   *   makes the change, given the agent's value; throws [[AgentInputError]] for a bad value
+  * @param confirm
+  *   the question to ask the human before running with the agent's value, if any, such as for a row
+  *   marked by a list's `withAgentConfirm`
   */
 private[ui] case class AgentAction(
     name: String,
     description: String,
     input: Option[JSONObject],
-    run: Option[String] => Unit
-)
+    run: Option[String] => Unit,
+    confirm: Option[String] => Option[String] = _ => None
+):
+  def withConfirm(f: Option[String] => Option[String]): AgentAction = copy(confirm = f)
 
 private[ui] object AgentAction:
   def apply(name: String, description: String)(run: () => Unit): AgentAction = AgentAction(
@@ -144,6 +149,18 @@ private[ui] trait AgentBinding extends StateOwner:
 
   /** The actions available now; [[UiAgent]] drops them while the component is disabled. */
   def actions: Seq[AgentAction] = Nil
+
+  /** True while people can't edit it, as a `readonly` field; [[UiAgent]] then drops its actions. */
+  def readOnly: Boolean = false
+
+  /** The name agents read, when the element's accessible name doesn't fit, as for a toast. */
+  def name: Option[String] = None
+
+  /**
+    * False for a component whose text is its items or its value, such as a list or a select: it is
+    * then named only by its own label, never by the text inside it.
+    */
+  def namedByText: Boolean = true
 
   /** The `RxVar`s this component writes, so [[UiAgent.changes]] can name the component. */
   def states: Seq[AnyRef] = Nil
@@ -268,7 +285,7 @@ private[ui] object AgentRegistry:
           case Some(r) =>
             r
           case None =>
-            val label = AgentDom.slug(AgentDom.labelOf(e.element))
+            val label = AgentDom.slug(nameOf(e))
             val base  =
               if label.isEmpty then
                 e.binding.kind
@@ -288,6 +305,13 @@ private[ui] object AgentRegistry:
                 .get
             e.ref = Some(r)
             r
+
+  /** The name agents read for `e`. */
+  def nameOf(e: Entry): String = e
+    .binding
+    .name
+    .map(AgentDom.collapse(_).take(80))
+    .getOrElse(AgentDom.labelOf(e.element, byText = e.binding.namedByText))
 
   def subscribe(f: UiChange => Unit): Cancelable =
     listeners += f
@@ -377,8 +401,11 @@ end AgentRegistry
 private[ui] object AgentDom:
   val Redacted = "<redacted>"
 
-  /** The element's accessible name, roughly: aria-label, aria-labelledby, a label, or its text. */
-  def labelOf(el: dom.Element): String =
+  /**
+    * The element's accessible name, roughly: aria-label, aria-labelledby, a label, or, when
+    * `byText`, its text.
+    */
+  def labelOf(el: dom.Element, byText: Boolean = true): String =
     def attr(name: String): Option[String] = Option(el.getAttribute(name))
       .map(_.trim)
       .filter(_.nonEmpty)
@@ -401,8 +428,15 @@ private[ui] object AgentDom:
       .orElse(fieldLabels.filter(_.trim.nonEmpty))
       .orElse(attr("placeholder"))
       .orElse(attr("title"))
-      .getOrElse(textOf(el))
+      .getOrElse(
+        if byText then
+          textOf(el)
+        else
+          ""
+      )
     collapse(raw).take(80)
+
+  end labelOf
 
   def collapse(s: String): String = s.trim.replaceAll("\\s+", " ")
 
@@ -436,6 +470,11 @@ private[ui] object AgentDom:
   /** A password field, or inside `UiAgent.secret`. */
   def isSecret(el: dom.Element): Boolean =
     el.getAttribute("type") == "password" || el.closest(s"[${UiAgent.SecretAttr}]") != null
+
+  /** A `readonly` field, or one marked `aria-readonly`. */
+  def isReadOnly(el: dom.Element): Boolean =
+    (el.asInstanceOf[js.Dynamic].selectDynamic("readOnly"): Any) == true ||
+      el.getAttribute("aria-readonly") == "true"
 
   def isDisabled(el: dom.Element): Boolean =
     (el.asInstanceOf[js.Dynamic].selectDynamic("disabled"): Any) == true ||

@@ -192,8 +192,10 @@ class Select[A] private (
   end list
 
   private object agentBinding extends AgentBinding:
-    private var latest: Seq[A]                = Seq.empty
-    override def kind: String                 = "select"
+    private var latest: Seq[A] = Seq.empty
+    override def kind: String  = "select"
+    // Unlabeled, it would be named by its value, the chosen option's label
+    override def namedByText: Boolean         = false
     override def value: Option[String]        = Some(optionLabel(selected.get))
     override def states: Seq[AnyRef]          = Seq(selected)
     override def changeHandler: ChangeHandler = Select.this.changeHandler

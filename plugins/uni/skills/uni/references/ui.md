@@ -212,6 +212,12 @@ agent.installWebMcp()                              // WebMCP tools where the bro
 
 - `UiAgent.hidden` removes a subtree, `UiAgent.secret` redacts a value (password fields always
   are), `UiAgent.confirm(msg)` asks the human first, and `UiAgent.ref("name")` sets a stable ref.
+- `.withAgentConfirm(r => Option(msg))` on `VirtualList`, `Tree`, or `DataTable` asks the human
+  before an agent selects a guarded row or drops one from the selection. A field with
+  `.withReadOnly(true)` lists no agent actions.
+- A toast is a `toast` node with `dismiss`; an open `CommandPalette` is a `commandpalette` node
+  whose `run` takes one command label. Agents can't press ⌘K, so give them an opener (a
+  button that sets `open`). Unlabeled lists, tables, selects, and dialogs read as their kind.
 - Agents see list, tree, and table rows by `.withRowLabel(r => text)` on `VirtualList`, `Tree`,
   or `DataTable`; otherwise by the `.withTypeahead` text, then the key's `toString`.
   `withRowLabel` doesn't turn on typeahead.

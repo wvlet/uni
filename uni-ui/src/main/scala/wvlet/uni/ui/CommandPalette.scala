@@ -16,7 +16,8 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry, UiItem}
 import wvlet.uni.ui.base.*
 
 import scala.language.implicitConversions
@@ -295,6 +296,30 @@ class CommandPalette(
   // Set by the one subscription to `rows` (the list), so the empty state doesn't search again
   private val noResults = Rx.variable(false)
 
+  /**
+    * The open palette as agents see it: every command, not only those the query lists, and `run`,
+    * which runs one by its label as Enter does, closing the palette through `onChange` first.
+    */
+  private object agentBinding extends AgentBinding:
+    private var latest: Seq[Command]          = Seq.empty
+    override def kind: String                 = "commandpalette"
+    override def name: Option[String]         = Some(CommandPalette.this.label)
+    override def namedByText: Boolean         = false
+    override def changeHandler: ChangeHandler = CommandPalette.this.changeHandler
+    override def watch(): Cancelable          = commands.subscribe(xs => latest = xs)
+
+    private def labels: Seq[String] = AgentBinding.itemLabels(latest.map(_.label))
+
+    override def items: Seq[UiItem] = labels.map(UiItem(_))
+
+    override def actions: Seq[AgentAction] = Seq(
+      AgentAction.choice("run", "Run a command, as Enter does", labels)(i =>
+        run(latest(i), AgentAction.cause(ChangeReason.ItemPress))
+      )
+    )
+
+  end agentBinding
+
   // Starts empty each time the palette opens
   private class Body extends RxElement:
     override def beforeRender: Unit =
@@ -306,6 +331,7 @@ class CommandPalette(
     override def render: RxElement = div(
       cls          -> "uni-palette",
       data("slot") -> "command-palette",
+      AgentRegistry.attach(agentBinding),
       input(
         tpe                  -> "text",
         cls                  -> "uni-palette__input",

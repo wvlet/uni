@@ -17,6 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry, UiAgent}
 
 import scala.collection.mutable
 import scala.language.implicitConversions
@@ -145,6 +146,7 @@ class Toaster extends RxElement:
       cls          -> s"uni-toast uni-toast--${t.variant.cssName}",
       data("slot") -> "toast",
       ref.binding,
+      AgentRegistry.attach(agentBinding(t)),
       if t.variant == ToastVariant.Error then
         role -> "alert"
       else
@@ -176,10 +178,22 @@ class Toaster extends RxElement:
           resume()
       ),
       div(cls -> "uni-toast__message", data("slot") -> "toast-message", t.message),
-      IconButton("Dismiss", "×").small.onClick(() => dismiss(t.id))
+      // Agents dismiss the toast itself, so its close button isn't listed apart from it
+      IconButton("Dismiss", "×").small.onClick(() => dismiss(t.id))(UiAgent.hidden)
     )
 
   end view
+
+  // A toast as agents see it: named by its message, with the close button's action
+  private def agentBinding(t: Toast): AgentBinding =
+    new AgentBinding:
+      override def kind: String                 = "toast"
+      override def name: Option[String]         = Some(t.message)
+      override def value: Option[String]        = Some(t.variant.cssName)
+      override def changeHandler: ChangeHandler = ChangeGate.noHandler
+      override def actions: Seq[AgentAction]    = Seq(
+        AgentAction("dismiss", "Close the toast, as its close button does")(() => dismiss(t.id))
+      )
 
   override def render: RxElement = Embedded(
     Portal.toBody(

@@ -58,7 +58,8 @@ class Tree[A, K] private (
     rowHeight: Int,
     typeahead: Option[A => String],
     changeHandler: ChangeHandler,
-    rowLabel: Option[A => String]
+    rowLabel: Option[A => String],
+    agentConfirm: Option[A => Option[String]]
 ) extends RxElement:
 
   private def copy(
@@ -70,7 +71,8 @@ class Tree[A, K] private (
       rowHeight: Int = rowHeight,
       typeahead: Option[A => String] = typeahead,
       changeHandler: ChangeHandler = changeHandler,
-      rowLabel: Option[A => String] = rowLabel
+      rowLabel: Option[A => String] = rowLabel,
+      agentConfirm: Option[A => Option[String]] = agentConfirm
   ): Tree[A, K] =
     new Tree(
       roots,
@@ -85,7 +87,8 @@ class Tree[A, K] private (
       rowHeight,
       typeahead,
       changeHandler,
-      rowLabel
+      rowLabel,
+      agentConfirm
     )
 
   /** The accessible name of the tree. */
@@ -133,6 +136,18 @@ class Tree[A, K] private (
     */
   def withRowLabel(f: A => String): Tree[A, K] = copy(rowLabel = Some(f))
   def noRowLabel(): Tree[A, K]                 = copy(rowLabel = None)
+
+  /**
+    * Rows an agent may select or drop from the selection only after the human allows it: `f` gives
+    * the question for a guarded row, or None. It works for rows scrolled out of view too, since it
+    * reads the data rather than the rendered row.
+    *
+    * {{{
+    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of ${u.name}?"))
+    * }}}
+    */
+  def withAgentConfirm(f: A => Option[String]): Tree[A, K] = copy(agentConfirm = Some(f))
+  def noAgentConfirm(): Tree[A, K]                         = copy(agentConfirm = None)
 
   // Closing a row hides its descendants, so they leave a multiple selection: an action on the
   // selection should never reach rows the user can't see. They are found before the write, since
@@ -262,7 +277,8 @@ class Tree[A, K] private (
     changeHandler = changeHandler,
     slot = "tree",
     agentKind = "tree",
-    itemLabel = rowLabel.map(f => (r: TreeRow[A, K]) => f(r.item))
+    itemLabel = rowLabel.map(f => (r: TreeRow[A, K]) => f(r.item)),
+    agentConfirm = agentConfirm.map(f => (r: TreeRow[A, K]) => f(r.item))
   )
 
 end Tree
@@ -288,5 +304,6 @@ object Tree:
       rowHeight = 28,
       typeahead = None,
       changeHandler = ChangeGate.noHandler,
-      rowLabel = None
+      rowLabel = None,
+      agentConfirm = None
     )

@@ -34,18 +34,48 @@ agent.changes(since = 0)                              // what people changed, an
 
 - **Actions.** `press` (button, menu item), `setText` (text field), `select` (select, tabs,
   list, tree), `sort` (table), `move` (a list or table with `.withReorder`, as `"Review to 1"`),
-  `open`/`close` (menu), and `close` (dialog). The agent's change
+  `open`/`close` (menu), `close` (dialog), `dismiss` (toast), and `run` (an open
+  `CommandPalette`). The agent's change
   goes through the component's `onChange` with `ChangeSource.Agent`, so a handler can cancel
   it, and `act` then reports `canceled`.
 - **Policy.** `AgentPolicy.allowAll` (the default), `AgentPolicy.readOnly`, or
-  `AgentPolicy.allow(t => t.kind != "button")`. Snapshots list only allowed actions, and a
-  disabled component lists none.
+  `AgentPolicy.allow(t => t.kind != "button")`. Snapshots list only allowed actions. A
+  disabled component lists none, and neither does a field with `.withReadOnly(true)`, which
+  reads `readOnly: true`.
+- **Values.** An action refuses a value it can't use, and `act` says why: a label that isn't
+  among the items, or text that isn't a number for an `Input` of type `number` (`"1,499.5"` is
+  refused; `"1499.5"` and `"1e3"` are taken).
 - **Marks.** `UiAgent.ref("name")` sets a stable ref (otherwise `kind:label`).
   `UiAgent.hidden` removes a subtree; so do `hidden`, `inert`, and `aria-hidden`. An open
   dialog makes the page behind it `inert`, so the agent sees and acts only on the dialog.
   `UiAgent.secret` shows the value as `<redacted>`, as every password field does.
   `UiAgent.confirm(message)` makes the agent wait while the human allows or denies the action
   in a dialog. Every other agent action is refused until they answer.
+- **Guarded rows.** `.withAgentConfirm(row => Option[String])` on a `VirtualList`, `Tree`, or
+  `DataTable` asks the human before an agent's `select` adds a guarded row to the selection or
+  drops one from it, in single and multiple selection alike. It reads the row data, so it also
+  covers rows scrolled out of view. Dropping a selected row the list no longer shows (filtered
+  out, say) asks too, since the guard can't read it.
+
+  ```scala
+  case class Member(name: String, role: String)
+  val members = Rx.variable(Seq(Member("Ada", "admin"), Member("Bob", "viewer")))
+  val chosen  = Rx.variable(Set.empty[String])
+
+  VirtualList(members, rowHeight = 24, key = _.name, render = m => span(m.name))
+    .withMultiSelect(chosen)
+    .withAgentConfirm(m => Option.when(m.role == "admin")(s"Change the selection of ${m.name}?"))
+  ```
+- **Names.** A ref comes from the component's accessible name. A list, tree, table, select,
+  dialog, or palette is named only by its own `aria-label`, `<label>`, `aria-labelledby`, or
+  `title` (`.withLabel`, a dialog's title), never by the rows or the value inside it. An
+  unlabeled one reads as its kind (`list`, `list-2`). A toast is named by its message.
+- **Toasts and the palette.** Each toast is a `toast` node, named by its message, with its
+  variant as the value and a `dismiss` action. An open `CommandPalette` is a `commandpalette`
+  node that lists every command (not only those the query shows) and runs one per `run`, as
+  Enter does. The palette closes through its `onChange` first, so a handler can cancel the
+  run. Apps usually open the palette with ⌘K, which an agent can't press, so give agents an
+  opener, such as a button that sets `open`.
 - **Item labels.** A list, tree, or table names its rows by `.withRowLabel(label)` in
   snapshot items, the `select` action, and the change feed. Without one, a list or tree falls
   back to its `.withTypeahead(label)` text, then every component to the key's `toString`.

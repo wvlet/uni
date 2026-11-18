@@ -83,7 +83,9 @@ private[ui] class ListCore[A, K](
     reorderEnabled: Reorder.Enabled = Reorder.Enabled.always,
     // The text that names an item for agents and reorder announcements; typeahead text, then the
     // key, when absent
-    itemLabel: Option[A => String] = None
+    itemLabel: Option[A => String] = None,
+    // The question an agent's selection change must ask the human first, for a row it adds or drops
+    agentConfirm: Option[A => Option[String]] = None
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -366,6 +368,8 @@ private[ui] class ListCore[A, K](
   private object agentBinding extends AgentBinding:
     override def kind: String                 = agentKind
     override def changeHandler: ChangeHandler = ListCore.this.changeHandler
+    // Unlabeled, a list would take every row's text as its name
+    override def namedByText: Boolean = false
 
     // Labels for the rows in `labelsOf`, rebuilt only when the rows change
     private var labelsOf: Seq[A]    = Seq.empty
@@ -417,9 +421,38 @@ private[ui] class ListCore[A, K](
       labels.zip(current).map((l, a) => UiItem(l, keys.contains(key(a))))
 
     override def actions: Seq[AgentAction] =
-      AgentAction.choice("select", "Select a row, as a click does", labels)(i =>
-        select(current(i), AgentAction.cause(ChangeReason.ItemPress))
-      ) +: (moveAction.toSeq ++ agentActions())
+      AgentAction
+        .choice("select", "Select a row, as a click does", labels)(i =>
+          select(current(i), AgentAction.cause(ChangeReason.ItemPress))
+        )
+        .withConfirm(v => agentConfirm.flatMap(guarded(_, v))) +:
+        (moveAction.toSeq ++ agentActions())
+
+    // Selecting the row labeled `v` replaces the selection, as a plain click does: ask about the
+    // first marked row that it adds or drops
+    private def guarded(f: A => Option[String], v: Option[String]): Option[String] = v
+      .map(labels.indexOf)
+      .filter(_ >= 0)
+      .flatMap { i =>
+        val target = current(i)
+        val before = selectedKeys
+        val idx    = index.get
+        val added  = Option.unless(before.contains(key(target)))(target)
+        val gone   = before.filterNot(_ == key(target)).toSeq
+        // A dropped row the list no longer shows (filtered out, or under a closed tree row) can't
+        // be checked, so ask rather than let it go unseen
+        val unseen = gone.count(k => !idx.contains(k))
+        val rows   = (added.toSeq ++ gone.flatMap(idx.get).sorted.flatMap(current.lift))
+        rows
+          .iterator
+          .flatMap(f)
+          .nextOption()
+          .orElse(
+            Option.when(unseen > 0)(
+              s"Change the selection, dropping ${unseen} selected row(s) not listed now?"
+            )
+          )
+      }
 
     private def moveAction: Option[AgentAction] = reorder
       .filter(_.isEnabled)

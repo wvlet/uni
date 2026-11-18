@@ -618,7 +618,7 @@ class UiAgentTest extends DomTestSupport:
     settle()
       .flatMap { _ =>
         val refs = agent.snapshot().map(_.ref)
-        refs.exists(_.startsWith("dialog:")) shouldBe true
+        refs.exists(_.startsWith("dialog")) shouldBe true
         refs.contains("button:save") shouldBe false
         agent.act("button:save", "press")
       }
@@ -629,6 +629,211 @@ class UiAgentTest extends DomTestSupport:
         agent.snapshot().map(_.ref) shouldContain "button:save"
         agent.uninstall()
       }
+  }
+
+  test("a read-only field lists no actions and refuses an agent's edit") {
+    val id = Rx.variable("ord-42")
+    mount(Input(id).withLabel("Order id").withReadOnly(true))
+    val agent = install()
+    val n     = node(agent, "textfield")
+    n.readOnly shouldBe true
+    n.actions shouldBe Nil
+    n.toJSON.get("readOnly") shouldBe Some(JSON.JSONBoolean(true))
+    find("input").hasAttribute("readonly") shouldBe true
+    agent
+      .act("textfield:order-id", "setText", Some("ord-1"))
+      .map { r =>
+        r.status shouldBe ActStatus.Refused
+        r.message shouldContain "read-only"
+        id.get shouldBe "ord-42"
+        agent.uninstall()
+      }
+  }
+
+  test("a number field refuses text that isn't a number, such as grouped digits") {
+    val price = Rx.variable("")
+    mount(Input(price).withLabel("Price").withType("number"))
+    val agent = install()
+    Rx.join(
+        agent.act("textfield:price", "setText", Some("1,499.5")),
+        agent.act("textfield:price", "setText", Some("1e3"))
+      )
+      .map { (grouped, plain) =>
+        grouped.status shouldBe ActStatus.Refused
+        grouped.message shouldContain "not a number"
+        plain.status shouldBe ActStatus.Applied
+        price.get shouldBe "1e3"
+        agent.uninstall()
+      }
+  }
+
+  test("an agent asks before it adds or drops a row marked by withAgentConfirm") {
+    val roles  = Rx.variable(Set("admin"))
+    val single = Rx.variable(Option("viewer"))
+    val asked  = ArrayBuffer.empty[String]
+    val guard  = (r: String) => Option.when(r == "admin")("Change the admin role?")
+    val rows   = Rx.const(Seq("viewer", "editor", "admin"))
+    mount(
+      div(
+        VirtualList(rows, rowHeight = 24, key = identity, render = r => span(r))
+          .withLabel("Roles")
+          .withRowLabel(identity)
+          .withMultiSelect(roles)
+          .withAgentConfirm(guard),
+        VirtualList(rows, rowHeight = 24, key = identity, render = r => span(r))
+          .withLabel("Role")
+          .withRowLabel(identity)
+          .withSelected(single)
+          .withAgentConfirm(guard)
+      )
+    )
+    val no = UiAgent.install(
+      AgentPolicy
+        .allowAll
+        .withConfirm { m =>
+          asked += m
+          Rx.const(false)
+        }
+    )
+    val yes = install(answer = true)
+    no.act("list:roles", "select", Some("editor"))
+      .flatMap { dropped =>
+        dropped.status shouldBe ActStatus.Declined
+        roles.get shouldBe Set("admin")
+        no.act("list:role", "select", Some("admin"))
+      }
+      .flatMap { added =>
+        added.status shouldBe ActStatus.Declined
+        single.get shouldBe Some("viewer")
+        asked.toSeq shouldBe Seq("Change the admin role?", "Change the admin role?")
+        // A step that touches no marked row doesn't ask
+        no.act("list:role", "select", Some("editor"))
+      }
+      .flatMap { plain =>
+        plain.status shouldBe ActStatus.Applied
+        single.get shouldBe Some("editor")
+        asked.size shouldBe 2
+        yes.act("list:roles", "select", Some("viewer"))
+      }
+      .map { allowed =>
+        allowed.status shouldBe ActStatus.Applied
+        roles.get shouldBe Set("viewer")
+        no.uninstall()
+        yes.uninstall()
+      }
+  }
+
+  test("an agent asks before it drops a selected row that the list no longer shows") {
+    val rows  = Rx.variable(Seq("viewer", "editor", "admin"))
+    val roles = Rx.variable(Set("admin"))
+    mount(
+      VirtualList(rows, rowHeight = 24, key = identity, render = r => span(r))
+        .withLabel("Roles")
+        .withRowLabel(identity)
+        .withMultiSelect(roles)
+        .withAgentConfirm(r => Option.when(r == "admin")("Change the admin role?"))
+    )
+    val agent = install(answer = false)
+    // Filtered out, so the guard can't read the row
+    rows := Seq("viewer", "editor")
+    settle()
+      .flatMap(_ => agent.act("list:roles", "select", Some("editor")))
+      .map { r =>
+        r.status shouldBe ActStatus.Declined
+        roles.get shouldBe Set("admin")
+        agent.uninstall()
+      }
+  }
+
+  test("a toast is listed by its message and an agent dismisses it") {
+    val toasts = Toaster()
+    mount(div(toasts))
+    val agent = install()
+    // An empty region isn't listed
+    agent.snapshot() shouldBe Nil
+    toasts.success("Session saved", durationMs = 0)
+    agent.snapshot().map(n => (n.kind, n.label, n.value)) shouldBe
+      Seq(("toast", "Session saved", Some("success")))
+    agent.snapshot().head.children shouldBe Nil
+    agent
+      .act("toast:session-saved", "dismiss")
+      .map { r =>
+        r.status shouldBe ActStatus.Applied
+        dom.document.querySelectorAll(".uni-toast").length shouldBe 0
+        agent.uninstall()
+      }
+  }
+
+  test("an agent runs a command from the open palette, through onChange, and undoes it") {
+    val open     = Rx.variable(false)
+    val region   = Rx.variable("tokyo")
+    val sources  = ArrayBuffer.empty[ChangeSource]
+    var cancel   = false
+    val commands = Seq(
+      Command("help", "Show help"),
+      Command("oregon", "Switch to Oregon").onRun(() =>
+        ChangeGate.write(region, "selected", "oregon", ChangeCause.current, ChangeGate.noHandler)
+      )
+    )
+    mount(
+      div(
+        Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region"),
+        CommandPalette(open, Rx.const(commands))
+          .withLimit(1)
+          .onChange { d =>
+            sources += d.source
+            if cancel then
+              d.cancel()
+          }
+      )
+    )
+    val agent   = install()
+    val history = UiHistory.record()
+    open := true
+    settle()
+      .flatMap { _ =>
+        val palette = node(agent, "commandpalette")
+        palette.ref shouldBe "commandpalette:command-palette"
+        // Every command, not only the one the limit lists
+        palette.items.map(_.label) shouldBe Seq("Show help", "Switch to Oregon")
+        cancel = true
+        agent.act(palette.ref, "run", Some("Switch to Oregon"))
+      }
+      .flatMap { canceled =>
+        canceled.status shouldBe ActStatus.Canceled
+        region.get shouldBe "tokyo"
+        cancel = false
+        agent.act("commandpalette:command-palette", "run", Some("Switch to Oregon"))
+      }
+      .map { ran =>
+        ran.status shouldBe ActStatus.Applied
+        sources.toSeq shouldBe Seq(ChangeSource.Agent, ChangeSource.Agent)
+        (open.get, region.get) shouldBe (false, "oregon")
+        // The command's own write reverts; the palette closing is recorded but not undone
+        history.undoSource(ChangeSource.Agent).map(_.status) shouldBe
+          Seq(UndoStatus.Reverted, UndoStatus.Unsupported)
+        region.get shouldBe "tokyo"
+        history.close()
+        agent.uninstall()
+      }
+  }
+
+  test("an unlabeled list or select is named by its kind, not by the text inside it") {
+    val region = Rx.variable("tokyo")
+    mount(
+      div(
+        VirtualList(
+          Rx.const(Seq(1, 2)),
+          rowHeight = 24,
+          key = identity,
+          render = i => span(s"Row ${i}")
+        ),
+        Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s)
+      )
+    )
+    val agent = install()
+    agent.snapshot().map(n => (n.ref, n.label)) shouldBe Seq(("list", ""), ("select", ""))
+    agent.uninstall()
   }
 
 end UiAgentTest
