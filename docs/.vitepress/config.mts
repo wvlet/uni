@@ -331,7 +331,11 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         // ...), so an agent working in one area loads only that area
         experimental: { depth: 2 }
       })
-    ]
+    ],
+    // vitepress-plugin-mermaid asks Vite to pre-bundle some of mermaid's CommonJS deps (dayjs, ...) by
+    // bare name, but pnpm keeps them under mermaid, so the dev server can't resolve them and serves
+    // them unbundled, which breaks every page. Pre-bundle mermaid itself, which covers all its deps.
+    optimizeDeps: { include: ['mermaid'] }
   },
 
   // The llms plugin copies Markdown sources verbatim, so resolve the version tokens in its output too
