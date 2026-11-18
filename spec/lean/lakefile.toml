@@ -1,0 +1,9 @@
+name = "uni-spec"
+defaultTargets = ["UniSpec", "gen-rx-cases"]
+
+[[lean_lib]]
+name = "UniSpec"
+
+[[lean_exe]]
+name = "gen-rx-cases"
+root = "GenRxCases"
