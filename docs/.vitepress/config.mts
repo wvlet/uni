@@ -126,6 +126,125 @@ const uiSidebar = [
 ]
 const uiPages = uiSidebar.filter((g) => g.text !== 'Other Modules').flatMap((g) => g.items)
 
+// Getting Started pages, shared by the Guide and module sidebars
+const gettingStarted = {
+  text: 'Getting Started',
+  items: [
+    { text: 'Introduction', link: '/guide/' },
+    { text: 'Installation', link: '/guide/installation' },
+    { text: 'Design Principles', link: '/guide/principles' },
+    { text: 'For AI Agents', link: '/guide/for-ai-agents' },
+    { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
+  ]
+}
+
+// Every module area, defined once. The module sidebar lists them in full; the Guide sidebar
+// links to each area's first page (its overview), so the two can't drift apart.
+const moduleGroups = [
+  {
+    text: 'Core',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/core/' },
+      { text: 'Design', link: '/core/design' },
+      { text: 'UniTest', link: '/core/unitest' },
+      { text: 'Logging', link: '/core/logging' },
+      { text: 'JSON Processing', link: '/core/json' },
+      { text: 'MessagePack', link: '/core/msgpack' },
+      { text: 'Weaver (Serialization)', link: '/core/weaver' },
+      { text: 'Type Introspection', link: '/core/surface' },
+      { text: 'IO', link: '/core/io' },
+      { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' },
+      { text: 'FileSystem', link: '/core/filesystem' },
+      { text: 'SettingStore', link: '/core/settings' },
+      { text: 'Result', link: '/core/result' },
+      { text: 'Utilities', link: '/core/utilities' }
+    ]
+  },
+  {
+    text: 'Text Formats',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/text/' },
+      { text: 'JSON', link: '/core/json' },
+      { text: 'YAML', link: '/text/yaml' },
+      { text: 'Markdown', link: '/text/markdown' },
+      { text: 'Cron', link: '/text/cron' }
+    ]
+  },
+  {
+    text: 'Control Flow',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/control/' },
+      { text: 'Retry Logic', link: '/control/retry' },
+      { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
+      { text: 'Rate Limiter', link: '/control/rate-limiter' },
+      { text: 'Caching', link: '/control/cache' },
+      { text: 'Resource Management', link: '/control/resource' },
+      { text: 'Background Task', link: '/control/background-task' }
+    ]
+  },
+  {
+    text: 'HTTP',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/http/' },
+      { text: 'HTTP Client', link: '/http/client' },
+      { text: 'REST Server', link: '/http/server' },
+      { text: 'Router', link: '/http/router' },
+      { text: 'RPC', link: '/http/rpc' },
+      { text: 'OpenAPI', link: '/http/openapi' },
+      { text: 'Server-Sent Events', link: '/http/sse' },
+      { text: 'WebSocket Client', link: '/http/websocket' },
+      { text: 'Retry Strategies', link: '/http/retry' }
+    ]
+  },
+  {
+    text: 'MCP',
+    collapsed: true,
+    items: [
+      { text: 'Build an MCP Server', link: '/mcp/' }
+    ]
+  },
+  {
+    text: 'Reactive Streams',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/rx/' },
+      { text: 'Basics', link: '/rx/basics' },
+      { text: 'Operators', link: '/rx/operators' },
+      { text: 'Concurrency', link: '/rx/concurrency' }
+    ]
+  },
+  {
+    text: 'CLI',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/cli/' },
+      { text: 'Terminal Styling', link: '/cli/tint' },
+      { text: 'Progress Indicators', link: '/cli/progress' },
+      { text: 'Line Editing', link: '/cli/line-reader' },
+      { text: 'Command Launcher', link: '/cli/launcher' }
+    ]
+  },
+  {
+    text: 'Web UI (Scala.js)',
+    collapsed: true,
+    items: uiPages
+  },
+  {
+    text: 'Build Tooling',
+    collapsed: true,
+    items: [
+      { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
+      { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
+      { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
+      { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
+    ]
+  }
+]
+
 // Reads the flat `key: value` frontmatter of the posts; used for the sidebar and the Atom feed
 const blogPosts: BlogPost[] = readdirSync(blogDir)
   .map((f) => BLOG_POST_SOURCE.exec(`blog/${f}`))
@@ -198,7 +317,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         description: 'One Scala 3 library for the whole stack, on JVM, Scala.js, and Scala Native',
         details: SITE_DESCRIPTION +
           ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.',
-        // The `/guide/` and `/` sidebars are identical; list them once so the llms.txt TOC has no duplicates
+        // The `/` sidebar lists every guide and module page; `/guide/` only links to module overviews
         sidebar: (sidebar) =>
           sidebar && !Array.isArray(sidebar)
             ? [...sidebar['/book/'], ...sidebar['/'], ...sidebar['/blog/']]
@@ -435,214 +554,13 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         }
       ],
       '/guide/': [
+        gettingStarted,
         {
-          text: 'Getting Started',
-          items: [
-            { text: 'Introduction', link: '/guide/' },
-            { text: 'Installation', link: '/guide/installation' },
-            { text: 'Design Principles', link: '/guide/principles' },
-            { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
-          ]
-        },
-        {
-          text: 'Core',
-          items: [
-            { text: 'Overview', link: '/core/' },
-            { text: 'Design', link: '/core/design' },
-            { text: 'UniTest', link: '/core/unitest' },
-            { text: 'Logging', link: '/core/logging' },
-            { text: 'JSON Processing', link: '/core/json' },
-            { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Weaver (Serialization)', link: '/core/weaver' },
-            { text: 'Type Introspection', link: '/core/surface' },
-            { text: 'IO', link: '/core/io' },
-            { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' },
-            { text: 'FileSystem', link: '/core/filesystem' },
-            { text: 'SettingStore', link: '/core/settings' },
-            { text: 'Result', link: '/core/result' },
-            { text: 'Utilities', link: '/core/utilities' }
-          ]
-        },
-        {
-          text: 'Text Formats',
-          items: [
-            { text: 'Overview', link: '/text/' },
-            { text: 'JSON', link: '/core/json' },
-            { text: 'YAML', link: '/text/yaml' },
-            { text: 'Markdown', link: '/text/markdown' },
-            { text: 'Cron', link: '/text/cron' }
-          ]
-        },
-        {
-          text: 'Control Flow',
-          items: [
-            { text: 'Overview', link: '/control/' },
-            { text: 'Retry Logic', link: '/control/retry' },
-            { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
-            { text: 'Rate Limiter', link: '/control/rate-limiter' },
-            { text: 'Caching', link: '/control/cache' },
-            { text: 'Resource Management', link: '/control/resource' },
-            { text: 'Background Task', link: '/control/background-task' }
-          ]
-        },
-        {
-          text: 'HTTP',
-          items: [
-            { text: 'Overview', link: '/http/' },
-            { text: 'HTTP Client', link: '/http/client' },
-            { text: 'REST Server', link: '/http/server' },
-            { text: 'Router', link: '/http/router' },
-            { text: 'RPC', link: '/http/rpc' },
-            { text: 'OpenAPI', link: '/http/openapi' },
-            { text: 'Server-Sent Events', link: '/http/sse' },
-            { text: 'WebSocket Client', link: '/http/websocket' },
-            { text: 'Retry Strategies', link: '/http/retry' }
-          ]
-        },
-        {
-          text: 'MCP',
-          items: [
-            { text: 'Build an MCP Server', link: '/mcp/' }
-          ]
-        },
-        {
-          text: 'Reactive Streams',
-          items: [
-            { text: 'Overview', link: '/rx/' },
-            { text: 'Basics', link: '/rx/basics' },
-            { text: 'Operators', link: '/rx/operators' },
-            { text: 'Concurrency', link: '/rx/concurrency' }
-          ]
-        },
-        {
-          text: 'CLI',
-          items: [
-            { text: 'Overview', link: '/cli/' },
-            { text: 'Terminal Styling', link: '/cli/tint' },
-            { text: 'Progress Indicators', link: '/cli/progress' },
-            { text: 'Line Editing', link: '/cli/line-reader' },
-            { text: 'Command Launcher', link: '/cli/launcher' }
-          ]
-        },
-        {
-          text: 'Web UI (Scala.js)',
-          items: uiPages
-        },
-        {
-          text: 'Build Tooling',
-          items: [
-            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
-            { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
-            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
-            { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
-          ]
+          text: 'Modules',
+          items: moduleGroups.map((g) => ({ text: g.text, link: g.items[0].link }))
         }
       ],
-      '/': [
-        {
-          text: 'Getting Started',
-          items: [
-            { text: 'Introduction', link: '/guide/' },
-            { text: 'Installation', link: '/guide/installation' },
-            { text: 'Design Principles', link: '/guide/principles' },
-            { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-            { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
-          ]
-        },
-        {
-          text: 'Core',
-          items: [
-            { text: 'Overview', link: '/core/' },
-            { text: 'Design', link: '/core/design' },
-            { text: 'UniTest', link: '/core/unitest' },
-            { text: 'Logging', link: '/core/logging' },
-            { text: 'JSON Processing', link: '/core/json' },
-            { text: 'MessagePack', link: '/core/msgpack' },
-            { text: 'Weaver (Serialization)', link: '/core/weaver' },
-            { text: 'Type Introspection', link: '/core/surface' },
-            { text: 'IO', link: '/core/io' },
-            { text: 'FileSystem', link: '/core/filesystem' },
-            { text: 'SettingStore', link: '/core/settings' },
-            { text: 'Result', link: '/core/result' },
-            { text: 'Utilities', link: '/core/utilities' }
-          ]
-        },
-        {
-          text: 'Text Formats',
-          items: [
-            { text: 'Overview', link: '/text/' },
-            { text: 'JSON', link: '/core/json' },
-            { text: 'YAML', link: '/text/yaml' },
-            { text: 'Markdown', link: '/text/markdown' },
-            { text: 'Cron', link: '/text/cron' }
-          ]
-        },
-        {
-          text: 'Control Flow',
-          items: [
-            { text: 'Overview', link: '/control/' },
-            { text: 'Retry Logic', link: '/control/retry' },
-            { text: 'Circuit Breaker', link: '/control/circuit-breaker' },
-            { text: 'Rate Limiter', link: '/control/rate-limiter' },
-            { text: 'Caching', link: '/control/cache' },
-            { text: 'Resource Management', link: '/control/resource' },
-            { text: 'Background Task', link: '/control/background-task' }
-          ]
-        },
-        {
-          text: 'HTTP',
-          items: [
-            { text: 'Overview', link: '/http/' },
-            { text: 'HTTP Client', link: '/http/client' },
-            { text: 'REST Server', link: '/http/server' },
-            { text: 'Router', link: '/http/router' },
-            { text: 'RPC', link: '/http/rpc' },
-            { text: 'OpenAPI', link: '/http/openapi' },
-            { text: 'Server-Sent Events', link: '/http/sse' },
-            { text: 'WebSocket Client', link: '/http/websocket' },
-            { text: 'Retry Strategies', link: '/http/retry' }
-          ]
-        },
-        {
-          text: 'MCP',
-          items: [
-            { text: 'Build an MCP Server', link: '/mcp/' }
-          ]
-        },
-        {
-          text: 'Reactive Streams',
-          items: [
-            { text: 'Overview', link: '/rx/' },
-            { text: 'Basics', link: '/rx/basics' },
-            { text: 'Operators', link: '/rx/operators' },
-            { text: 'Concurrency', link: '/rx/concurrency' }
-          ]
-        },
-        {
-          text: 'CLI',
-          items: [
-            { text: 'Overview', link: '/cli/' },
-            { text: 'Terminal Styling', link: '/cli/tint' },
-            { text: 'Progress Indicators', link: '/cli/progress' },
-            { text: 'Line Editing', link: '/cli/line-reader' },
-            { text: 'Command Launcher', link: '/cli/launcher' }
-          ]
-        },
-        {
-          text: 'Web UI (Scala.js)',
-          items: uiPages
-        },
-        {
-          text: 'Build Tooling',
-          items: [
-            { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
-            { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
-            { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
-            { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
-          ]
-        }
-      ]
+      '/': [{ ...gettingStarted, collapsed: true }, ...moduleGroups]
     },
 
     socialLinks: [
