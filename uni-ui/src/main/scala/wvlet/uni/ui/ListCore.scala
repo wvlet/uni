@@ -438,13 +438,20 @@ private[ui] class ListCore[A, K](
         val before = selectedKeys
         val idx    = index.get
         val added  = Option.unless(before.contains(key(target)))(target)
-        val gone   = before
-          .filterNot(_ == key(target))
-          .toSeq
-          .flatMap(idx.get)
-          .sorted
-          .flatMap(current.lift)
-        (added.toSeq ++ gone).iterator.flatMap(f).nextOption()
+        val gone   = before.filterNot(_ == key(target)).toSeq
+        // A dropped row the list no longer shows (filtered out, or under a closed tree row) can't
+        // be checked, so ask rather than let it go unseen
+        val unseen = gone.count(k => !idx.contains(k))
+        val rows   = (added.toSeq ++ gone.flatMap(idx.get).sorted.flatMap(current.lift))
+        rows
+          .iterator
+          .flatMap(f)
+          .nextOption()
+          .orElse(
+            Option.when(unseen > 0)(
+              s"Change the selection, dropping ${unseen} selected row(s) not listed now?"
+            )
+          )
       }
 
     private def moveAction: Option[AgentAction] = reorder

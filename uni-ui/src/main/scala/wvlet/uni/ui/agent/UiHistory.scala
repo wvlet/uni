@@ -219,13 +219,13 @@ class UiHistory private (limit: Int):
         seq = seq,
         ref = r.owner.flatMap(_.agent).map(AgentRegistry.refOf),
         kind = r.owner.map(_.state.kind),
-        label = r
-          .owner
-          .fold("")(o =>
-            o.state
-              .label
-              .getOrElse(o.agent.fold(AgentDom.labelOf(o.element))(AgentRegistry.nameOf))
-          ),
+        label =
+          r.owner
+            .fold("")(o =>
+              o.state
+                .label
+                .getOrElse(o.agent.fold(AgentDom.labelOf(o.element))(AgentRegistry.nameOf))
+            ),
         key = d.key,
         previous = r.text(d.previous),
         value = r.text(d.value),

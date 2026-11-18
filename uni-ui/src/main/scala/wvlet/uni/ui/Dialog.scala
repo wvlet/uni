@@ -140,7 +140,7 @@ class Dialog private (
 
   private object agentBinding extends AgentBinding:
     override def kind: String = "dialog"
-    // Unlabeled, it would take the text inside it (the chosen option, the dialog's content)
+    // Unlabeled, it would be named by all the text of its content
     override def namedByText: Boolean         = false
     override def states: Seq[AnyRef]          = Seq(open)
     override def changeHandler: ChangeHandler = Dialog.this.changeHandler

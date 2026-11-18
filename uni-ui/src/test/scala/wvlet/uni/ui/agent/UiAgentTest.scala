@@ -723,6 +723,28 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("an agent asks before it drops a selected row that the list no longer shows") {
+    val rows  = Rx.variable(Seq("viewer", "editor", "admin"))
+    val roles = Rx.variable(Set("admin"))
+    mount(
+      VirtualList(rows, rowHeight = 24, key = identity, render = r => span(r))
+        .withLabel("Roles")
+        .withRowLabel(identity)
+        .withMultiSelect(roles)
+        .withAgentConfirm(r => Option.when(r == "admin")("Change the admin role?"))
+    )
+    val agent = install(answer = false)
+    // Filtered out, so the guard can't read the row
+    rows := Seq("viewer", "editor")
+    settle()
+      .flatMap(_ => agent.act("list:roles", "select", Some("editor")))
+      .map { r =>
+        r.status shouldBe ActStatus.Declined
+        roles.get shouldBe Set("admin")
+        agent.uninstall()
+      }
+  }
+
   test("a toast is listed by its message and an agent dismisses it") {
     val toasts = Toaster()
     mount(div(toasts))

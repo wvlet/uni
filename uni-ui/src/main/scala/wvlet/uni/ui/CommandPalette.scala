@@ -296,7 +296,6 @@ class CommandPalette(
   // Set by the one subscription to `rows` (the list), so the empty state doesn't search again
   private val noResults = Rx.variable(false)
 
-  // Starts empty each time the palette opens
   /**
     * The open palette as agents see it: every command, not only those the query lists, and `run`,
     * which runs one by its label as Enter does, closing the palette through `onChange` first.
@@ -321,6 +320,7 @@ class CommandPalette(
 
   end agentBinding
 
+  // Starts empty each time the palette opens
   private class Body extends RxElement:
     override def beforeRender: Unit =
       query := ""
