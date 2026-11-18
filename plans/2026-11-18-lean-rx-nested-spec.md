@@ -29,7 +29,7 @@ Lane: Express — spec and tests only, no library change, no always-gate area. T
   - `open` emits `x` and goes quiet;
   - `failOdd` fails on odd values;
   - `empty` completes at once.
-- **Replay** (`RxNestedSpecTest`): builds each pipeline from `Rx.queue` sources with `concat`, `RxParallel.merge`, and `flatMap`, then compares the events `RxRunner` emits.
+- **Replay** (`RxNestedSpecTest`): builds each pipeline from `Rx.queue` sources with `concat`, `Rx.MergeOp` (directly, so 0 and 1 sources skip `RxParallel.merge`'s shortcuts), and `flatMap`, then compares the events `RxRunner` emits.
 - **CI:** the `Lean spec` job builds the new model and also checks the new generated file; the path filter adds it.
 - **Out of scope:** asynchronous interleavings (the merge-ending theorem covers their completion, but the cases are synchronous only), `recover`, continuous mode, `parFlatMap`, and `transformRx`.
 

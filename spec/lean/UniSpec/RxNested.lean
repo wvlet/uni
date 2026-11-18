@@ -12,8 +12,8 @@ observes. Sources are synchronous, as the pre-filled `Rx.queue`s in `RxNestedSpe
 - `concat` subscribes the second stream only when the first completes.
 
 The theorems state the completion rules of `adr/2026-10-14-rx-completion-semantics.md` (`flatMap`)
-and `adr/2026-10-27-rx-merge-parflatmap.md` (`merge`). `merge_ending` shows the ending of `merge`
-does not depend on subscription order, so the rule holds for asynchronous interleavings too.
+and `adr/2026-10-27-rx-merge-parflatmap.md` (`merge`). `merge_ending_perm` shows the ending of
+`merge` does not depend on subscription order, so the rule holds for asynchronous interleavings too.
 -/
 
 namespace UniSpec.Rx
@@ -248,10 +248,32 @@ theorem flatMapGo_done (f : Int → List Event) (o : Bool) (s : List Event)
     | done => rfl
     | fail => simp [flatMapGo, ending] at h
 
-/-- `flatMap` completes only after its input completes (and, by `flatMapGo`, only when the last
-nested stream has completed too). -/
+/-- `flatMap` completes only after its input completes. -/
 theorem flatMap_done (f : Int → List Event) (s : List Event)
     (h : ending (flatMap f s) = some .done) : ending s = some .done := flatMapGo_done f false s h
+
+theorem flatMapGo_done_last (f : Int → List Event) (vs : List Int) (x : Int) (rest : List Event)
+    (o : Bool) (h : ending (flatMapGo f o (nexts (vs ++ [x]) ++ .done :: rest)) = some .done) :
+    ending (f x) = some .done := by
+  induction vs generalizing o with
+  | nil =>
+    simp only [nexts, List.nil_append, List.map_cons, List.map_nil, List.cons_append,
+      flatMapGo] at h
+    rw [ending_values_append] at h
+    rcases ending_cases (f x) with hf | hf | hf <;> simp [hf, ending] at h ⊢
+  | cons v vs ih =>
+    simp only [nexts, List.cons_append, List.map_cons, flatMapGo] at h
+    rw [ending_values_append] at h
+    rcases ending_cases (f v) with hf | hf | hf <;> simp only [hf] at h
+    · exact ih true h
+    · exact ih false h
+    · simp [ending] at h
+
+/-- When `flatMap` completes, the nested stream of the last input value completed too: the
+operator never completes while a nested stream is still running. -/
+theorem flatMap_done_last (f : Int → List Event) (vs : List Int) (x : Int) (rest : List Event)
+    (h : ending (flatMap f (nexts (vs ++ [x]) ++ .done :: rest)) = some .done) :
+    ending (f x) = some .done := flatMapGo_done_last f vs x rest false h
 
 /-- A quiet nested stream holds back the completion of its input. -/
 theorem flatMap_waits_for_nested (f : Int → List Event) (x : Int) (s : List Event)
