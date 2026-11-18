@@ -18,12 +18,22 @@ package wvlet.uni.cli.term
   * only links whose scheme is in an allowlist: by default `http`, `https`, and `mailto`. Other
   * schemes, such as `javascript:`, `file:`, or an app's own handler, are not opened.
   *
+  * [[findUrls]] finds plain `http` and `https` URLs in text without OSC 8 markup, so a terminal app
+  * can make them clickable too.
+  *
   * {{{
   *   TerminalLink.isAllowed("https://wvlet.org/uni") // true
   *   TerminalLink.isAllowed("file:///etc/passwd")    // false
+  *   TerminalLink.findUrls("see https://wvlet.org/uni.")
+  *   // Seq(TerminalLink.UrlMatch(start = 4, end = 25, uri = "https://wvlet.org/uni"))
   * }}}
   */
 object TerminalLink:
+  /**
+    * A URL found in text: the characters from `start` (inclusive) to `end` (exclusive)
+    */
+  case class UrlMatch(start: Int, end: Int, uri: String)
+
   /**
     * The schemes opened by default
     */
@@ -52,5 +62,79 @@ object TerminalLink:
     */
   def isAllowed(uri: String, schemes: Set[String] = defaultSchemes): Boolean =
     !uri.exists(c => c <= ' ' || c == '\u007f') && scheme(uri).exists(schemes.contains)
+
+  /**
+    * Find plain `http://` and `https://` URLs in text. A URL ends at whitespace, a non-ASCII
+    * character, or one of `<>"` and backtick. Trailing sentence punctuation (`.,;:!?`), quotes, and
+    * closing brackets without a matching opening bracket in the URL are left out, so
+    * `(see https://wvlet.org/uni).` finds `https://wvlet.org/uni`.
+    */
+  def findUrls(text: String): Seq[UrlMatch] =
+    val found = Seq.newBuilder[UrlMatch]
+    var i     = 0
+    while i < text.length do
+      val start = schemeStart(text, i)
+      if start < 0 then
+        i = text.length
+      else
+        var end = start
+        while end < text.length && isUrlChar(text.charAt(end)) do
+          end += 1
+        end = trimEnd(text, start, end)
+        val afterScheme = text.indexOf("//", start) + 2
+        if end > afterScheme then
+          found += UrlMatch(start, end, text.substring(start, end))
+          i = end
+        else
+          i = afterScheme
+    found.result()
+
+  // The index of the next `http://` or `https://` (in any case) at or after `from` that does not
+  // continue a word, or -1
+  private def schemeStart(text: String, from: Int): Int =
+    var i      = from
+    var result = -1
+    while result < 0 && i < text.length do
+      val c = text.charAt(i)
+      if (c == 'h' || c == 'H') &&
+        (i == 0 || !text.charAt(i - 1).isLetterOrDigit) && (
+          text.regionMatches(true, i, "https://", 0, 8) ||
+            text.regionMatches(true, i, "http://", 0, 7)
+        )
+      then
+        result = i
+      i += 1
+    result
+
+  private def isUrlChar(c: Char): Boolean =
+    c > ' ' && c < 0x7f && c != '<' && c != '>' && c != '"' && c != '`'
+
+  // Drop trailing punctuation and closing brackets that do not close a bracket in the URL
+  private def trimEnd(text: String, start: Int, end: Int): Int =
+    var e       = end
+    var trimmed = true
+    while trimmed && e > start do
+      trimmed = false
+      val c = text.charAt(e - 1)
+      if ".,;:!?'\"*".contains(c) then
+        e -= 1
+        trimmed = true
+      else
+        val open =
+          c match
+            case ')' =>
+              '('
+            case ']' =>
+              '['
+            case '}' =>
+              '{'
+            case _ =>
+              0.toChar
+        if open != 0 then
+          val url = text.substring(start, e)
+          if url.count(_ == open) < url.count(_ == c) then
+            e -= 1
+            trimmed = true
+    e
 
 end TerminalLink

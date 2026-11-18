@@ -250,6 +250,172 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  test("open plain URLs in the output like OSC 8 links") {
+    val (term, view, m, _) = setup()
+    val opened             = mutable.ArrayBuffer.empty[String]
+    view.onLinkClick(opened += _)
+    settle().map { _ =>
+      term.write("see https://wvlet.org/uni. or file:///etc/passwd")
+      view.renderNow()
+      val ls = links(m)
+      ls.map(_.textContent) shouldBe Seq("https://wvlet.org/uni")
+      ls.head.getAttribute("data-uri") shouldBe "https://wvlet.org/uni"
+      fireEvent.click(ls.head, ctrlKey = true, metaKey = true)
+      opened.toSeq shouldBe Seq("https://wvlet.org/uni")
+    }
+  }
+
+  test("open the whole URL from any row it wraps across") {
+    val (term, view, m, _) = setup()
+    val opened             = mutable.ArrayBuffer.empty[String]
+    view.onLinkClick(opened += _)
+    settle().map { _ =>
+      val url = "https://wvlet.org/" + "a" * term.cols
+      // The URL arrives in two writes, so its first row is drawn before the rest exists
+      term.write(url.take(term.cols + 2))
+      view.renderNow()
+      term.write(url.drop(term.cols + 2) + " done")
+      view.renderNow()
+      val ls = links(m)
+      ls.size shouldBe 2
+      ls.map(_.getAttribute("data-uri")).distinct shouldBe Seq(url)
+      fireEvent.click(ls.head, ctrlKey = true, metaKey = true)
+      fireEvent.click(ls.last, ctrlKey = true, metaKey = true)
+      opened.toSeq shouldBe Seq(url, url)
+    }
+  }
+
+  test("keep OSC 8 links over URLs found in their text") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write(
+        osc8("https://a.example", "https://b.example") + " " +
+          osc8("file:///x", "https://c.example")
+      )
+      view.renderNow()
+      links(m).map(_.getAttribute("data-uri")) shouldBe Seq("https://a.example")
+    }
+  }
+
+  test("show plain URLs as text with noUrlDetection") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 3))
+    val view = TerminalView(term, TerminalViewConfig().noUrlDetection())
+    val m    = mount(div(styleAttr -> "width: 400px; height: 200px;", view))
+    settle().map { _ =>
+      term.write("https://wvlet.org " + osc8("https://wvlet.org", "web"))
+      view.renderNow()
+      links(m).map(_.textContent) shouldBe Seq("web")
+    }
+  }
+
+  private def select(row: dom.Element, from: Int, until: Int): dom.Selection =
+    val text  = row.firstChild
+    val range = dom.document.createRange()
+    range.setStart(text, from)
+    range.setEnd(text, until)
+    val sel = dom.window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+    sel
+
+  test("keep the selection when its row redraws") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("hello world")
+      view.renderNow()
+      val sel = select(m.container.querySelectorAll(".uni-term-row")(0), 6, 11)
+      sel.toString shouldBe "world"
+      // Moving the cursor redraws the row it left
+      term.write("\u001b[2D!")
+      view.renderNow()
+      rowTexts(m).head shouldBe "hello wor!d"
+      sel.toString shouldBe "wor!d"
+    }
+  }
+
+  test("hold row redraws while the user drags a selection") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("hello")
+      view.renderNow()
+      val row = m.container.querySelectorAll(".uni-term-row")(0)
+      fireEvent.mouseDown(row)
+      term.write(" world")
+      view.renderNow()
+      rowTexts(m).head shouldBe "hello"
+      fireEvent.mouseUp(dom.window)
+      view.renderNow()
+      rowTexts(m).head shouldBe "hello world"
+    }
+  }
+
+  test("draw again when a drag moves selected text instead of selecting") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("hello")
+      view.renderNow()
+      val pane = m.container.querySelector(".uni-terminal")
+      fireEvent.mouseDown(m.container.querySelectorAll(".uni-term-row")(0))
+      pane.dispatchEvent(
+        dom.Event(
+          "dragstart",
+          new dom.EventInit:
+            bubbles = true
+        )
+      )
+      term.write(" world")
+      view.renderNow()
+      rowTexts(m).head shouldBe "hello world"
+    }
+  }
+
+  test("update the rest of a wrapped URL when its first row changes") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("https://wvlet.org/" + "a" * term.cols)
+      view.renderNow()
+      links(m).size shouldBe 2
+      // Overwrite the scheme on the first row only
+      term.write("\u001b[1;1Hxxxxx")
+      view.renderNow()
+      links(m) shouldBe Seq.empty
+    }
+  }
+
+  test("move the selection with its text as output scrolls") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("first line\r\nsecond")
+      view.renderNow()
+      val screenRow = m.container.querySelectorAll(".uni-term-screen .uni-term-row")(1)
+      val sel       = select(screenRow, 0, 6)
+      sel.toString shouldBe "second"
+      term.write("\r\n" * (term.rows + 2) + "last")
+      view.renderNow()
+      sel.toString shouldBe "second"
+      sel
+        .anchorNode
+        .parentNode
+        .asInstanceOf[dom.Element]
+        .closest(".uni-term-scrollback") shouldNotBe null
+    }
+  }
+
+  test("drop the selection when its line leaves the scrollback") {
+    val term = TerminalEmulator(TerminalConfig(cols = 20, rows = 2, scrollbackLines = 2))
+    val view = TerminalView(term)
+    val m    = mount(div(styleAttr -> "width: 400px; height: 44px;", view))
+    settle().map { _ =>
+      term.write("old")
+      view.renderNow()
+      val sel = select(m.container.querySelectorAll(".uni-term-row")(0), 0, 3)
+      sel.toString shouldBe "old"
+      term.write("\r\n" * 8 + "new")
+      view.renderNow()
+      sel.toString shouldBe ""
+    }
+  }
+
   test("show the open affordance while the modifier is held") {
     val (term, view, m, _) = setup()
     settle().map { _ =>
