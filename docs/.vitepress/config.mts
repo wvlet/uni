@@ -82,6 +82,50 @@ interface BlogPost {
   image?: string
 }
 
+// Shown on the UI pages (`/dom/` and the Electron pages). The Web UI group of the `/guide/`
+// and `/` sidebars (which feed llms.txt) is built from it, so a new UI page is added here only.
+const uiSidebar = [
+  {
+    text: 'Getting Started',
+    items: [
+      { text: 'Overview', link: '/dom/' },
+      { text: 'RxElement & HTML DSL', link: '/dom/rxelement' }
+    ]
+  },
+  {
+    text: 'Components',
+    items: [
+      { text: 'Components', link: '/dom/ui' },
+      { text: 'Controls', link: '/dom/controls' },
+      { text: 'Overlays', link: '/dom/overlays' },
+      { text: 'Collections', link: '/dom/collections' },
+      { text: 'Layout & Dock', link: '/dom/layout' }
+    ]
+  },
+  {
+    text: 'Building Blocks',
+    items: [
+      { text: 'Behaviors', link: '/dom/behaviors' },
+      { text: 'Changes & Parts', link: '/dom/changes' },
+      { text: 'Agents', link: '/dom/agents' },
+      { text: 'Theming', link: '/dom/theming' },
+      { text: 'Testing', link: '/dom/testing' }
+    ]
+  },
+  {
+    text: 'Desktop',
+    items: [
+      { text: 'Desktop Apps (Electron)', link: '/http/electron' },
+      { text: 'Electron Tutorial', link: '/http/electron-tutorial' }
+    ]
+  },
+  {
+    text: 'Other Modules',
+    items: [{ text: 'All Modules', link: '/core/' }]
+  }
+]
+const uiPages = uiSidebar.filter((g) => g.text !== 'Other Modules').flatMap((g) => g.items)
+
 // Reads the flat `key: value` frontmatter of the posts; used for the sidebar and the Atom feed
 const blogPosts: BlogPost[] = readdirSync(blogDir)
   .map((f) => BLOG_POST_SOURCE.exec(`blog/${f}`))
@@ -289,7 +333,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
       { text: 'For AI Agents', link: '/guide/for-ai-agents' },
       { text: 'Book', link: '/book/' },
       { text: 'Modules', link: '/core/' },
-      { text: 'UI', link: '/dom/' },
+      { text: 'UI', link: '/dom/', activeMatch: '^/(dom/|http/electron)' },
       { text: 'Blog', link: '/blog/' },
       {
         text: 'GitHub',
@@ -378,6 +422,9 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           ]
         }
       ],
+      // UI pages get their own sidebar so the UI entries sit at the top, not below every module group
+      '/dom/': uiSidebar,
+      '/http/electron': uiSidebar,
       '/blog/': [
         {
           text: 'Blog',
@@ -480,22 +527,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         },
         {
           text: 'Web UI (Scala.js)',
-          items: [
-            { text: 'Overview', link: '/dom/' },
-            { text: 'RxElement & HTML DSL', link: '/dom/rxelement' },
-            { text: 'Components', link: '/dom/ui' },
-            { text: 'Controls', link: '/dom/controls' },
-            { text: 'Overlays', link: '/dom/overlays' },
-            { text: 'Collections', link: '/dom/collections' },
-            { text: 'Layout & Dock', link: '/dom/layout' },
-            { text: 'Behaviors', link: '/dom/behaviors' },
-            { text: 'Changes & Parts', link: '/dom/changes' },
-            { text: 'Agents', link: '/dom/agents' },
-            { text: 'Theming', link: '/dom/theming' },
-            { text: 'Testing', link: '/dom/testing' },
-            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
-            { text: 'Electron Tutorial', link: '/http/electron-tutorial' }
-          ]
+          items: uiPages
         },
         {
           text: 'Build Tooling',
@@ -599,22 +631,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         },
         {
           text: 'Web UI (Scala.js)',
-          items: [
-            { text: 'Overview', link: '/dom/' },
-            { text: 'RxElement & HTML DSL', link: '/dom/rxelement' },
-            { text: 'Components', link: '/dom/ui' },
-            { text: 'Controls', link: '/dom/controls' },
-            { text: 'Overlays', link: '/dom/overlays' },
-            { text: 'Collections', link: '/dom/collections' },
-            { text: 'Layout & Dock', link: '/dom/layout' },
-            { text: 'Behaviors', link: '/dom/behaviors' },
-            { text: 'Changes & Parts', link: '/dom/changes' },
-            { text: 'Agents', link: '/dom/agents' },
-            { text: 'Theming', link: '/dom/theming' },
-            { text: 'Testing', link: '/dom/testing' },
-            { text: 'Desktop Apps (Electron)', link: '/http/electron' },
-            { text: 'Electron Tutorial', link: '/http/electron-tutorial' }
-          ]
+          items: uiPages
         },
         {
           text: 'Build Tooling',
