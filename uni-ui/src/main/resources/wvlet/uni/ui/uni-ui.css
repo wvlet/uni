@@ -1278,6 +1278,26 @@
     border-bottom: 1px solid var(--uni-line);
   }
 
+  /*
+   * Cells clip their own text, so a table wider than its box shows every cell when it scrolls. The
+   * row and header boxes stay as wide as the table's box, so past it the cells take their row's
+   * background and draw its line, over the box's own line where the two meet.
+   */
+  .uni-table .uni-list__row {
+    overflow: visible;
+    align-items: stretch;
+  }
+
+  .uni-table .uni-list__row > .uni-table__cell {
+    background: inherit;
+    box-shadow: 0 1px var(--uni-line);
+  }
+
+  .uni-table__header-row > .uni-table__cell {
+    background: var(--uni-surface);
+    box-shadow: 0 1px var(--uni-line);
+  }
+
   .uni-table__cell {
     display: flex;
     align-items: center;
@@ -1294,7 +1314,9 @@
   }
 
   .uni-table:focus-visible .uni-table__cell[data-active='true'] {
-    box-shadow: inset 0 0 0 2px var(--uni-focus);
+    box-shadow:
+      inset 0 0 0 2px var(--uni-focus),
+      0 1px var(--uni-line);
   }
 
   /* With withSelectedCell, the selected cell takes the row's selected background */

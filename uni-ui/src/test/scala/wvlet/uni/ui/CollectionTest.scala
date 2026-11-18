@@ -778,6 +778,10 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "End")
       cell shouldBe Some("1-6")
       (table.scrollLeft > 0) shouldBe true
+      // The row doesn't clip the cell it scrolled to
+      val r   = activeRow(table).get.getBoundingClientRect()
+      val hit = dom.document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      (hit != null && hit.closest(".uni-table__cell") == activeRow(table).get) shouldBe true
       fireEvent.keyDown(table, "Home")
       table.scrollLeft shouldBe 0
 

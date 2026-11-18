@@ -304,7 +304,7 @@ class DataTable[A, K] private (
       case "Enter" | "F2" if plain(e) && !e.shiftKey =>
         activeCellWidgets(core).headOption match
           case Some(w) =>
-            w.focus()
+            DataTable.focusInPlace(w)
             true
           case None =>
             // Enter without a widget selects, as the list does; F2 has nothing to edit
@@ -337,7 +337,7 @@ class DataTable[A, K] private (
                 (i - 1 + ws.size) % ws.size
               else
                 (i + 1) % ws.size
-            ws.lift(n).foreach(_.focus())
+            ws.lift(n).foreach(DataTable.focusInPlace)
             true
           case _ =>
             false
@@ -411,6 +411,7 @@ class DataTable[A, K] private (
           e.target match
             case t: dom.Element
                 if (t ne el) && t.closest(".uni-list__spacer .uni-table__cell") != null =>
+              keepAligned(el, t)
               Some(t)
             case _ =>
               None
@@ -422,6 +423,20 @@ class DataTable[A, K] private (
     }
 
   end watchCells
+
+  // A focused widget in a clipped cell makes the browser scroll the row or cell, which have
+  // `overflow: hidden`, out of line with the header. Undo that, and scroll the table instead.
+  private def keepAligned(el: dom.HTMLElement, widget: dom.Element): Unit =
+    var n = widget.parentNode
+    while n != null && (n ne el) do
+      n match
+        case h: dom.HTMLElement if h.scrollLeft != 0 =>
+          h.scrollLeft = 0
+        case _ =>
+      n = n.parentNode
+    Option(widget.closest(".uni-table__cell"))
+      .flatMap(c => Option(c.getAttribute("aria-colindex")).flatMap(_.toIntOption))
+      .foreach(i => revealColumn(el, i - 1))
 
   private def writeSort(c: Column[A], cause: ChangeCause): Unit =
     ChangeGate.write(sort, "sort", DataTable.nextSort(sort.get, c.id), cause, changeHandler): Unit
@@ -704,6 +719,11 @@ object DataTable:
           Some(count - 1)
         case _ =>
           None
+
+  // Focus without the browser's own scrolling, which would scroll a clipped row; the table reveals
+  // the cell's column itself
+  private def focusInPlace(w: dom.HTMLElement): Unit =
+    w.asInstanceOf[js.Dynamic].focus(js.Dynamic.literal(preventScroll = true)): Unit
 
   /** The widgets in `cell` that Enter or F2 moves into, in document order. */
   private[ui] def widgetsIn(cell: dom.Element): Seq[dom.HTMLElement] = cell
