@@ -850,6 +850,11 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "End")
       fireEvent.keyDown(table, "Enter")
       sort.get shouldBe Some(SortBy("method", SortDirection.Descending))
+      // Modified moves stay on the header and never touch the rows behind it
+      fireEvent.keyDown(table, "ArrowDown", ctrlKey = true)
+      fireEvent.keyDown(table, "End", shiftKey = true)
+      cell shouldBe Some("Id")
+      rowSel.get shouldBe None
 
       // Down goes back to the first row (sorted by method, descending) and keeps the column
       fireEvent.keyDown(table, "ArrowDown")

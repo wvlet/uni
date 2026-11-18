@@ -286,8 +286,13 @@ class DataTable[A, K] private (
             true
           case None =>
             false
+      // Other moves (Ctrl+Down, Shift+End) would move or extend rows behind the header
+      case "ArrowDown" | "ArrowUp" | "ArrowLeft" | "ArrowRight" | "Home" | "End" | "PageUp" |
+          "PageDown" =>
+        true
       case _ =>
         false
+    end match
 
   end headerKey
 
@@ -329,7 +334,7 @@ class DataTable[A, K] private (
           case "Escape" | "F2" if plain(e) && !e.shiftKey =>
             core.container.foreach(_.focus())
             true
-          case "Tab" if plain(e) =>
+          case "Tab" if plain(e) && DataTable.widgetsIn(c).nonEmpty =>
             val ws = DataTable.widgetsIn(c)
             val i  = ws.indexWhere(_ eq e.target)
             val n  =
@@ -385,13 +390,22 @@ class DataTable[A, K] private (
   // Keep widgets in body cells out of the tab order as rows render, and bring the focus back to
   // the grid when the row of a focused widget scrolls out and unmounts
   private def watchCells(el: dom.HTMLElement): Cancelable =
-    def demote(): Unit = el
-      .querySelectorAll(s".uni-list__spacer .uni-table__cell :is(${Focus.focusableSelector})")
-      .toSeq
-      .foreach(_.setAttribute("tabindex", "-1"))
-    demote()
-    val observer = dom.MutationObserver { (_, _) =>
-      demote()
+    val inCell = s".uni-list__spacer .uni-table__cell :is(${Focus.focusableSelector})"
+    def demote(root: dom.Element): Unit =
+      (Seq(root).filter(_.matches(inCell)) ++ root.querySelectorAll(inCell).toSeq).foreach(
+        _.setAttribute("tabindex", "-1")
+      )
+    demote(el)
+    val observer = dom.MutationObserver { (records, _) =>
+      records.foreach(
+        _.addedNodes
+          .toSeq
+          .foreach {
+            case n: dom.Element =>
+              demote(n)
+            case _ =>
+          }
+      )
       widget
         .filterNot(el.contains)
         .foreach { _ =>
@@ -734,9 +748,9 @@ object DataTable:
     }
 
   // Focus.focusableSelector, plus the widgets the table took out of the tab order
-  private val widgetSelector: String =
-    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
-      "textarea:not([disabled]), [tabindex]:not([disabled])"
+  private val widgetSelector: String = Focus
+    .focusableSelector
+    .replace(":not([tabindex=\"-1\"])", "")
 
   /** The sort after a click on `column`'s header: ascending, then descending, then none. */
   def nextSort(current: Option[SortBy], column: String): Option[SortBy] =
