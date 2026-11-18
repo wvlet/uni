@@ -12,6 +12,9 @@ files:
   - out/preload/**/*
   - out/renderer/**/*
   - package.json
+  # node-pty ships prebuilds for every platform; keep only the one for this build's target. The app
+  # loads the build/Release binary electron-builder compiles for Electron first, and falls back to it.
+  - '!node_modules/node-pty/prebuilds/!(${platform}-${arch})/**'
 mac:
   target: dmg
 win:

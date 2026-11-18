@@ -2,6 +2,7 @@
   "name": "uni-harness",
   "version": "0.1.0",
   "description": "A chat workspace shell built with Uni + Scala.js, for Electron and the browser",
+  "author": "wvlet",
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
