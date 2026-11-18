@@ -74,8 +74,8 @@ real, or wrap a model that answers at once with `ChatService.atOnce`.
 
 `pnpm dev:agent` starts the app with `--agent-bridge`. The renderer installs uni-ui's `UiAgent` and
 serves it to the main process over Electron IPC (`ElectronRenderer.serve`). The main process then
-serves it as MCP tools (`snapshot`, `query`, `act`, `changes`) at a local URL and prints it with a
-fresh token:
+serves it as MCP tools (`windows`, `snapshot`, `query`, `act`, `changes`) at a local URL and prints
+it with a fresh token:
 
 ```text
 Agent bridge (MCP over HTTP): http://127.0.0.1:<port>/mcp
@@ -84,6 +84,9 @@ Agent bridge (MCP over HTTP): http://127.0.0.1:<port>/mcp
 ```
 
 Run the printed `claude mcp add` line, then ask the agent to fold the sidebar or switch the dock tab.
+Open more windows with File > New Window (Cmd/Ctrl+N). `windows` lists them, and the other tools
+take an optional `window` id; without one, a call goes to the focused window, or else the newest.
+Every result names the window that answered. Detached dock panels are not visible to the agent yet.
 The endpoint listens only on 127.0.0.1 and rejects requests without the token. Each launch picks a
 new port and token. Plain `pnpm dev` starts no endpoint.
 

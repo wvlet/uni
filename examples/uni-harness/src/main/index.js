@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, Menu, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 // The Scala.js `server` module, imported via vite-plugin-scalajs.
 import { wireMainProcess, wireTerminal, wireLinks, startAgentBridge, attachAgentBridge } from 'scalajs:main.js'
@@ -34,7 +34,11 @@ function createWindow() {
       additionalArguments: agentBridge ? ['--uni-agent-bridge'] : []
     }
   })
-  if (agentBridge) attachAgentBridge(win.webContents)
+  // Detached dock panels of this window, so focus in a panel counts as focus in the window
+  const docks = new Set()
+  // The bridge lists this window and can target it by `win.id` until it closes
+  if (agentBridge)
+    attachAgentBridge(win, () => win.isFocused() || [...docks].some((d) => d.isFocused()))
 
   // Links go to the system browser through uniShell, so the page opens no other window, except a
   // blank same-origin one that the Dock moves a detached panel into (`Dock.withDetach`). Its frame
@@ -56,6 +60,8 @@ function createWindow() {
   // A dock window shows only the renderer's own DOM: it opens no windows and goes nowhere, so a
   // link inside a detached panel can't load a remote page with this window's preload
   win.webContents.on('did-create-window', (child) => {
+    docks.add(child)
+    child.on('closed', () => docks.delete(child))
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     child.webContents.on('will-navigate', (event) => event.preventDefault())
   })
@@ -68,7 +74,29 @@ function createWindow() {
   }
 }
 
+// Electron's default menu, plus File > New Window to open another harness window
+function setMenu() {
+  const isMac = process.platform === 'darwin'
+  Menu.setApplicationMenu(
+    Menu.buildFromTemplate([
+      ...(isMac ? [{ role: 'appMenu' }] : []),
+      {
+        label: 'File',
+        submenu: [
+          { label: 'New Window', accelerator: 'CmdOrCtrl+N', click: () => createWindow() },
+          { type: 'separator' },
+          isMac ? { role: 'close' } : { role: 'quit' }
+        ]
+      },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' }
+    ])
+  )
+}
+
 app.whenReady().then(async () => {
+  setMenu()
   // Register the ChatApi on Electron IPC before opening any window. Conversations are saved in
   // userData/conversations.json: ~/Library/Application Support/Uni Harness on macOS when packaged
   // (`uni-harness` under `pnpm dev`, which takes the name from package.json)
