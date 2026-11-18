@@ -14,6 +14,7 @@
 package wvlet.uni.dom
 
 import org.scalajs.dom
+import wvlet.uni.cli.DisplayWidth
 import wvlet.uni.cli.term.*
 import wvlet.uni.rx.Cancelable
 
@@ -30,7 +31,8 @@ case class TerminalViewConfig(
     lineHeight: Double = 1.25,
     padding: Int = 4,
     macOptionIsMeta: Boolean = false,
-    linkSchemes: Set[String] = TerminalLink.defaultSchemes
+    linkSchemes: Set[String] = TerminalLink.defaultSchemes,
+    urlDetection: Boolean = true
 ):
   def withTheme(theme: TerminalTheme): TerminalViewConfig    = copy(theme = theme)
   def withFontFamily(fontFamily: String): TerminalViewConfig = copy(fontFamily = fontFamily)
@@ -58,6 +60,17 @@ case class TerminalViewConfig(
     */
   def noLinks(): TerminalViewConfig = copy(linkSchemes = Set.empty)
 
+  /**
+    * Make plain `http` and `https` URLs in the output clickable, like OSC 8 links (on by default).
+    * They also need their scheme in [[linkSchemes]].
+    */
+  def withUrlDetection(enabled: Boolean): TerminalViewConfig = copy(urlDetection = enabled)
+
+  /**
+    * Show plain URLs in the output as text; OSC 8 links still open
+    */
+  def noUrlDetection(): TerminalViewConfig = withUrlDetection(false)
+
 end TerminalViewConfig
 
 /**
@@ -70,7 +83,13 @@ end TerminalViewConfig
   * its container) and register [[onResize]] to tell the program.
   *
   * OSC 8 hyperlinks whose scheme is in [[TerminalViewConfig.linkSchemes]] open with Cmd+click on
-  * macOS and Ctrl+click elsewhere; see [[onLinkClick]].
+  * macOS and Ctrl+click elsewhere; see [[onLinkClick]]. Plain `http` and `https` URLs in the output
+  * open the same way, including URLs that wrap across rows (see
+  * [[TerminalViewConfig.withUrlDetection]]).
+  *
+  * A text selection stays on its text while rows redraw or scroll, until a resize or a switch to or
+  * from the alternate screen redraws the whole screen. While the user drags a selection, rows wait
+  * and redraw on mouseup.
   *
   * With shell integration (OSC 133), each prompt gets a marker in the left padding: dim while its
   * command runs, green when it succeeded, and red when it failed. Cmd+Up/Down (Ctrl+Shift+Up/Down
@@ -114,6 +133,7 @@ class TerminalView(
   private var focused            = false
   private var composing          = false
   private var mouseButton        = MouseButton.None
+  private var selecting          = false
   private val cleanups           = mutable.ArrayBuffer.empty[() => Unit]
 
   /**
@@ -344,9 +364,13 @@ class TerminalView(
 
   private[dom] def renderNow(): Unit =
     frameRequested = false
-    if container != null then
+    // Chromium restarts a drag selection whose text was redrawn, so rows wait for the mouseup
+    if container != null && !selecting then
       val screen   = terminal.screen
       val atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 2
+      val kept     = keptSelection()
+      val rebuild  =
+        screen.scrollbackVersion != renderedScrollback || screen.generation != renderedGeneration
       if screen.scrollbackVersion != renderedScrollback then
         rebuildScrollback(screen)
       else
@@ -362,16 +386,31 @@ class TerminalView(
       if screen.generation != renderedGeneration then
         rebuildScreen(screen)
       else
+        val redraw =
+          Array.tabulate(screen.rows)(row =>
+            screen.isDirty(row) || row == cursorRowDrawn || row == screen.cursorRow
+          )
+        if config.urlDetection then
+          // A changed row can extend a URL that starts on an earlier row of its wrapped line
+          var row = screen.rows - 1
+          while row > 0 do
+            if redraw(row) && screen.line(row).isWrapped then
+              redraw(row - 1) = true
+            row -= 1
         var row = 0
         while row < screen.rows do
-          if screen.isDirty(row) || row == cursorRowDrawn || row == screen.cursorRow then
+          if redraw(row) then
             drawRow(screenRows(row), screen.line(row), row)
           row += 1
       screen.clearDirty()
+      // A full rebuild moves lines, so the selection would land on other text
+      if !rebuild then
+        kept.foreach(restoreSelection)
       cursorRowDrawn = screen.cursorRow
       placeInput(screen)
       if atBottom then
         container.scrollTop = container.scrollHeight.toDouble
+    end if
 
   end renderNow
 
@@ -379,7 +418,7 @@ class TerminalView(
     scrollbackEl.textContent = ""
     var i = 0
     while i < screen.scrollback.size do
-      scrollbackEl.appendChild(staticRow(screen.scrollback(i)))
+      scrollbackEl.appendChild(staticRow(screen.scrollback(i), i))
       i += 1
     scrollbackRows = screen.scrollback.size
     renderedScrollback = screen.scrollbackVersion
@@ -392,7 +431,7 @@ class TerminalView(
     renderedTotal = screen.scrollbackTotal
     var i = screen.scrollback.size - added
     while i < screen.scrollback.size do
-      scrollbackEl.appendChild(staticRow(screen.scrollback(i)))
+      scrollbackEl.appendChild(staticRow(screen.scrollback(i), i))
       i += 1
     scrollbackRows += added
     while scrollbackRows > screen.scrollback.size do
@@ -427,13 +466,23 @@ class TerminalView(
     el.style.height = s"${cellHeight}px"
     el
 
-  private def staticRow(line: Line): dom.HTMLElement =
+  // A scrollback line, `index` in the scrollback
+  private def staticRow(line: Line, index: Int): dom.HTMLElement =
     val el = newRow()
-    drawRow(el, line, -1)
+    drawRow(el, line, -1, index)
     el
 
-  // Draw a line as runs of cells that share a style. `row` is the screen row, or -1 for scrollback.
-  private def drawRow(el: dom.HTMLElement, line: Line, row: Int): Unit =
+  // Draw a screen row
+  private def drawRow(el: dom.HTMLElement, line: Line, row: Int): Unit = drawRow(
+    el,
+    line,
+    row,
+    terminal.screen.scrollback.size + row
+  )
+
+  // Draw a line as runs of cells that share a style. `row` is the screen row, or -1 for scrollback;
+  // `index` is the line's index in the view's lines (see lineAt).
+  private def drawRow(el: dom.HTMLElement, line: Line, row: Int, index: Int): Unit =
     val screen    = terminal.screen
     val cursorCol =
       if row >= 0 && row == screen.cursorRow && screen.isCursorVisible then
@@ -442,9 +491,10 @@ class TerminalView(
         -1
     el.textContent = ""
     el.className = rowClass(line)
+    val urls          = detectedUrls(index)
     val text          = StringBuilder()
     var runStyle      = ""
-    var runLink       = 0
+    var runLink: Link = null
     var runCursor     = false
     def flush(): Unit =
       if text.nonEmpty then
@@ -458,14 +508,14 @@ class TerminalView(
         val isCursor = col == cursorCol
         val wide     = (flags & CellFlags.Wide) != 0
         val style    = cellStyle(line, col, isCursor, wide)
-        val link     = line.link(col)
+        val link     = linkOf(line, col, urls)
         val glyph    = glyphCss(line.codePoint(col))
         if glyph.nonEmpty then
           // A block or line character, drawn to fill its cell
           flush()
           el.appendChild(span(line.cellText(col), style + glyph, link, isCursor))
           runStyle = ""
-          runLink = 0
+          runLink = null
           runCursor = false
         else
           if style != runStyle || link != runLink || isCursor != runCursor || wide then
@@ -503,8 +553,26 @@ class TerminalView(
     else
       ""
 
-  private def span(text: String, style: String, link: Int, isCursor: Boolean): dom.Node =
-    if style.isEmpty && link == 0 && !isCursor then
+  // The link of a cell: its OSC 8 hyperlink, else a URL detected in the text. OSC 8 cells are never
+  // detected, even when their URI's scheme is not allowed.
+  private def linkOf(line: Line, col: Int, urls: Array[Link]): Link =
+    val id = line.link(col)
+    if id != 0 then
+      hyperlinks.getOrElseUpdate(
+        id,
+        terminal
+          .hyperlink(id)
+          .filter(TerminalLink.isAllowed(_, config.linkSchemes))
+          .map(Link(_, detected = false))
+          .orNull
+      )
+    else if urls != null && col < urls.length then
+      urls(col)
+    else
+      null
+
+  private def span(text: String, style: String, link: Link, isCursor: Boolean): dom.Node =
+    if style.isEmpty && link == null && !isCursor then
       dom.document.createTextNode(text)
     else
       val s = dom.document.createElement("span").asInstanceOf[dom.HTMLElement]
@@ -513,16 +581,102 @@ class TerminalView(
         s.style.cssText = style
       if isCursor then
         s.className = "uni-term-cursor"
-      if link != 0 then
-        terminal
-          .hyperlink(link)
-          .filter(TerminalLink.isAllowed(_, config.linkSchemes))
-          .foreach { uri =>
-            s.className = (s.className + " uni-term-link").trim
-            s.setAttribute("data-uri", uri)
-            s.setAttribute("title", s"${linkModifierLabel}+click to open ${uri}")
-          }
+      if link != null then
+        s.className = (s.className + " uni-term-link").trim
+        s.setAttribute("data-uri", link.uri)
+        if link.detected then
+          s.setAttribute("data-detected", "")
+        s.setAttribute("title", s"${linkModifierLabel}+click to open ${link.uri}")
       s
+
+  // ---- Detected URLs ----
+
+  // OSC 8 links by hyperlink id; ids are never reused for another URI
+  private val hyperlinks = mutable.HashMap.empty[Int, Link]
+
+  // The lines the view draws: the scrollback, then the screen. On the alternate screen, its rows
+  // do not continue scrollback lines.
+  private def lineAt(index: Int): Line =
+    val screen = terminal.screen
+    if screen.isAlternate && index >= screen.scrollback.size then
+      screen.line(index - screen.scrollback.size)
+    else
+      screen.historyLine(index)
+
+  private def lineCount: Int =
+    val screen = terminal.screen
+    if screen.isAlternate then
+      screen.scrollback.size + screen.rows
+    else
+      screen.historySize
+
+  // Detection finds only http and https URLs, so it is off when neither scheme opens
+  private lazy val detectsUrls: Boolean =
+    config.urlDetection && Seq("http", "https").exists(config.linkSchemes.contains)
+
+  // The URL at each column of a line, found in the whole wrapped line around it, or null when the
+  // line shows no URL
+  private def detectedUrls(index: Int): Array[Link] =
+    if !detectsUrls then
+      null
+    else
+      val screen = terminal.screen
+      val lo     =
+        if screen.isAlternate && index >= screen.scrollback.size then
+          screen.scrollback.size
+        else
+          0
+      val hi    = lineCount
+      var first = index
+      while first > lo && index - first < MaxWrappedLines && lineAt(first).isWrapped do
+        first -= 1
+      var last = index
+      while last + 1 < hi && last - index < MaxWrappedLines && lineAt(last + 1).isWrapped do
+        last += 1
+      // The text of the wrapped line, and the column of `index` each character belongs to
+      val text    = StringBuilder()
+      val charCol = mutable.ArrayBuffer.empty[Int]
+      var i       = first
+      while i <= last do
+        val line = lineAt(i)
+        var col  = 0
+        while col < line.length do
+          val t = line.cellText(col)
+          text.append(t)
+          var k = 0
+          while k < t.length do
+            charCol += (
+              if i == index then
+                col
+              else
+                -1
+            )
+            k += 1
+          col += 1
+        i += 1
+      if text.indexOf("://") < 0 then
+        null
+      else
+        val matches = TerminalLink.findUrls(text.toString)
+        val urls    = Array.ofDim[Link](lineAt(index).length)
+        var found   = false
+        matches.foreach { m =>
+          if TerminalLink.isAllowed(m.uri, config.linkSchemes) then
+            val link = Link(m.uri, detected = true)
+            var c    = m.start
+            while c < m.end do
+              val col = charCol(c)
+              if col >= 0 then
+                urls(col) = link
+                found = true
+              c += 1
+        }
+        if found then
+          urls
+        else
+          null
+
+  end detectedUrls
 
   // The 16 base colors refer to the theme's CSS variables, so setTheme recolors drawn cells
   private def color(c: Int, default: String): String =
@@ -745,9 +899,31 @@ class TerminalView(
   private def linkAt(e: dom.MouseEvent): Option[String] =
     e.target match
       case el: dom.Element =>
-        Option(el.closest(".uni-term-link")).flatMap(l => Option(l.getAttribute("data-uri")))
+        Option(el.closest(".uni-term-link")).flatMap { l =>
+          if l.hasAttribute("data-detected") then
+            // Read the URL from the lines now: its row may have been drawn before the rest of a
+            // long URL arrived
+            currentUrl(l).orElse(Option(l.getAttribute("data-uri")))
+          else
+            Option(l.getAttribute("data-uri"))
+        }
       case _ =>
         None
+
+  // The URL now detected at the first cell of a drawn link
+  private def currentUrl(link: dom.Element): Option[String] =
+    val row = link.closest(".uni-term-row")
+    if row == null then
+      None
+    else
+      for
+        number <- rowNumber(row)
+        index = lineIndex(number)
+        if index >= 0 && index < lineCount
+        col <- columnAt(row, link, 0)
+        urls = detectedUrls(index)
+        if urls != null && col < urls.length && urls(col) != null
+      yield urls(col).uri
 
   // A modifier click on a link opens it, even while a program tracks the mouse
   private def linkClick(e: dom.MouseEvent): Option[String] =
@@ -775,6 +951,148 @@ class TerminalView(
 
   private def scrollToBottom(): Unit = container.scrollTop = container.scrollHeight.toDouble
 
+  // ---- Selection ----
+
+  // Draw the rows held while the user dragged a selection
+  private def endSelecting(): Unit =
+    if selecting then
+      selecting = false
+      scheduleRender()
+
+  // A selection end, by line number (see rowNumber) and cell column, with the DOM node it was in
+  private case class SelectionEnd(number: Long, col: Int, node: dom.Node)
+
+  private case class KeptSelection(anchor: SelectionEnd, focus: SelectionEnd)
+
+  // The selection in the pane before rows redraw, when there is one to keep
+  private def keptSelection(): Option[KeptSelection] =
+    val sel = dom.window.getSelection()
+    if sel == null || sel.rangeCount == 0 || sel.isCollapsed then
+      None
+    else
+      for
+        anchor <- selectionEnd(sel.anchorNode, sel.anchorOffset)
+        focus  <- selectionEnd(sel.focusNode, sel.focusOffset)
+      yield KeptSelection(anchor, focus)
+
+  private def selectionEnd(node: dom.Node, offset: Int): Option[SelectionEnd] =
+    val el =
+      node match
+        case e: dom.Element =>
+          e
+        case null =>
+          null
+        case n =>
+          n.parentNode match
+            case e: dom.Element =>
+              e
+            case _ =>
+              null
+    val row =
+      if el == null || !container.contains(el) then
+        null
+      else
+        el.closest(".uni-term-row")
+    if row == null then
+      None
+    else
+      for
+        number <- rowNumber(row)
+        col    <- columnAt(row, node, offset)
+      yield SelectionEnd(number, col, node)
+
+  // Put the selection back on its lines after rows redrew. A selection whose line left the
+  // scrollback is dropped.
+  private def restoreSelection(kept: KeptSelection): Unit =
+    // A redrawn row replaces its text nodes; an end in a row element itself shifts silently
+    def moved(end: SelectionEnd): Boolean =
+      !end.node.isConnected || end.node.nodeType == dom.Node.ELEMENT_NODE
+    if moved(kept.anchor) || moved(kept.focus) then
+      val sel = dom.window.getSelection()
+      (position(kept.anchor), position(kept.focus)) match
+        case (Some((an, ao)), Some((fn, fo))) =>
+          sel.asInstanceOf[js.Dynamic].setBaseAndExtent(an, ao, fn, fo)
+        case _ =>
+          sel.removeAllRanges()
+
+  // The DOM position of a selection end in the drawn rows
+  private def position(end: SelectionEnd): Option[(dom.Node, Int)] = rowElement(end.number).map {
+    row =>
+      var width  = 0
+      var result = Option.empty[(dom.Node, Int)]
+      var last   = Option.empty[(dom.Node, Int)]
+      textNodes(row).foreach { node =>
+        val text = node.textContent
+        var i    = 0
+        while result.isEmpty && i < text.length do
+          if width >= end.col then
+            result = Some((node, i))
+          else
+            val cp = text.codePointAt(i)
+            width += DisplayWidth.ofCodePoint(cp)
+            i += Character.charCount(cp)
+        if result.isEmpty then
+          last = Some((node, text.length))
+      }
+      result.orElse(last).getOrElse((row, row.childNodes.length))
+  }
+
+  // The text nodes of a row, in order: text runs and the text of styled spans
+  private def textNodes(row: dom.Node): Seq[dom.Node] =
+    val nodes = row.childNodes
+    (0 until nodes.length).flatMap { i =>
+      val n = nodes(i)
+      if n.nodeType == dom.Node.TEXT_NODE then
+        Seq(n)
+      else
+        textNodes(n)
+    }
+
+  // The cell column of a DOM position in a row: the width of the row's text before it
+  private def columnAt(row: dom.Element, node: dom.Node, offset: Int): Option[Int] =
+    try
+      val range = dom.document.createRange()
+      range.setStart(row, 0)
+      range.setEnd(node, offset)
+      Some(DisplayWidth.of(range.toString))
+    catch
+      case _: Throwable =>
+        None
+
+  // The number of a drawn row's line, counted from the first line written to the terminal, so a
+  // line keeps its number when it scrolls into the scrollback
+  private def rowNumber(row: dom.Element): Option[Long] =
+    if row.parentNode == scrollbackEl then
+      var i       = 0
+      var sibling = row.previousElementSibling
+      while sibling != null do
+        i += 1
+        sibling = sibling.previousElementSibling
+      Some(renderedTotal - scrollbackRows + i)
+    else
+      val r = screenRows.indexOf(row)
+      if r >= 0 then
+        Some(renderedTotal + r)
+      else
+        None
+
+  // The drawn row of a line number
+  private def rowElement(number: Long): Option[dom.Element] =
+    val i = number - (renderedTotal - scrollbackRows)
+    if i >= 0 && i < scrollbackRows then
+      Some(scrollbackEl.children(i.toInt))
+    else
+      val r = number - renderedTotal
+      if r >= 0 && r < screenRows.size then
+        Some(screenRows(r.toInt))
+      else
+        None
+
+  // The index in lineAt of a line number, for the emulator's current lines
+  private def lineIndex(number: Long): Int =
+    val screen = terminal.screen
+    (number - (screen.scrollbackTotal - screen.scrollback.size)).toInt
+
   // ---- Mouse ----
 
   private def installMouse(): Unit =
@@ -788,6 +1106,9 @@ class TerminalView(
           mouseButton = buttonOf(me.button)
           sendMouse(me, MouseAction.Press, mouseButton)
           input.focus()
+        else if me.button == 0 then
+          // The browser starts a text selection: hold redraws until the drag ends
+          selecting = true
     )
     listen(
       dom.window,
@@ -797,6 +1118,7 @@ class TerminalView(
         if mouseButton != MouseButton.None && tracking(me) then
           sendMouse(me, MouseAction.Release, mouseButton)
         mouseButton = MouseButton.None
+        endSelecting()
     )
     listen(
       container,
@@ -814,7 +1136,13 @@ class TerminalView(
         showLinkModifier(linkModifier(ke.metaKey, ke.ctrlKey))
     listen(dom.window, "keydown", modifierKeys)
     listen(dom.window, "keyup", modifierKeys)
-    listen(dom.window, "blur", (_: dom.Event) => showLinkModifier(false))
+    listen(
+      dom.window,
+      "blur",
+      (_: dom.Event) =>
+        showLinkModifier(false)
+        endSelecting()
+    )
     listen(container, "mouseleave", (_: dom.Event) => showLinkModifier(false))
     listen(
       container,
@@ -896,6 +1224,12 @@ class TerminalView(
 end TerminalView
 
 object TerminalView:
+  // A link drawn on cells: an OSC 8 hyperlink, or a URL detected in the text
+  private case class Link(uri: String, detected: Boolean)
+
+  // How far URL detection looks for the rest of a wrapped line, in rows each way
+  private val MaxWrappedLines = 32
+
   // Theme colors as the CSS variables TerminalTheme.cssVariables defines
   private val AnsiColors  = Array.tabulate(16)(i => s"var(--uni-term-${i})")
   private val DefaultFg   = "var(--uni-term-fg)"

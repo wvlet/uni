@@ -113,12 +113,16 @@ term.onCommandFinished(c => if c.isFailed then println(c.output))
 // OSC 8 links come from program output: open only safe schemes
 assert(TerminalLink.isAllowed("https://wvlet.org/uni"))
 assert(!TerminalLink.isAllowed("javascript:alert(1)"))
+// Plain http/https URLs in text, without trailing punctuation
+assert(TerminalLink.findUrls("see https://wvlet.org/uni.").map(_.uri) == Seq("https://wvlet.org/uni"))
 ```
 
 In a Scala.js UI, `wvlet.uni.dom.TerminalView` draws the emulator in the DOM.
 It uses `TerminalTheme.uniDark` by default (presets: `uniLight`, `solarizedDark`,
 `nord`, `dracula`, and more in `TerminalTheme.presets`), switches with
-`setTheme`, and opens http/https/mailto links on Cmd+click (Ctrl elsewhere).
+`setTheme`, and opens http/https/mailto OSC 8 links and plain http/https URLs
+in the output on Cmd+click (Ctrl elsewhere; `noUrlDetection()` keeps plain URLs as text).
+A selection stays on its text while rows redraw or scroll.
 OSC 133 prompts get a green or red marker, and Cmd+Up/Down (Ctrl+Shift+Up/Down
 elsewhere) or `view.scrollToPreviousPrompt()` / `scrollToNextPrompt()` jump between them:
 
