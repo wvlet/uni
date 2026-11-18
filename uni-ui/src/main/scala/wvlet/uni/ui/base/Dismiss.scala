@@ -33,12 +33,16 @@ import scala.scalajs.js
   *   whether a pointer press outside the overlay dismisses it
   * @param onDismiss
   *   closes the overlay, for example `() => open := false`
+  * @param escapeFromInside
+  *   whether Escape dismisses the overlay only while focus is inside it, for a dialog rendered in
+  *   place, which leaves the rest of the page live
   */
 class DismissLayer(
     val inside: () => Seq[dom.Element],
     val modal: Boolean,
     val dismissOnOutside: Boolean,
-    val onDismiss: () => Unit
+    val onDismiss: () => Unit,
+    val escapeFromInside: Boolean = false
 ):
   def contains(target: dom.Node): Boolean = inside().exists(_.contains(target))
 
@@ -113,12 +117,14 @@ object Dismiss:
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     if e.key == "Escape" && !e.defaultPrevented && !Keyboard.isComposing(e) then
-      top.foreach { layer =>
-        e.preventDefault()
-        ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(
-          layer.onDismiss()
-        )
-      }
+      top
+        .filter(l => !l.escapeFromInside || Option(dom.document.activeElement).exists(l.contains))
+        .foreach { layer =>
+          e.preventDefault()
+          ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(
+            layer.onDismiss()
+          )
+        }
 
   private def onPointerDown(e: dom.Event): Unit =
     e.target match

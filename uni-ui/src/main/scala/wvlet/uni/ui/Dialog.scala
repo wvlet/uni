@@ -35,8 +35,9 @@ import scala.language.implicitConversions
   *
   * On open, focus goes to the first element with the `autofocus` attribute, else the first
   * focusable element, else the dialog itself. The panel is `div.uni-dialog` with `role="dialog"`
-  * and `aria-modal="true"`, inside `div.uni-dialog-backdrop`, both rendered at the end of `<body>`.
-  * The title and description label the dialog through `aria-labelledby` and `aria-describedby`.
+  * and `aria-modal="true"`, inside `div.uni-dialog-backdrop`, both rendered at the end of `<body>`
+  * unless [[withInline]] renders them in place. The title and description label the dialog through
+  * `aria-labelledby` and `aria-describedby`.
   */
 class Dialog private (
     open: RxVar[Boolean],
@@ -50,7 +51,8 @@ class Dialog private (
     variant: Option[String] = None,
     accessibleName: Option[String] = None,
     changeHandler: ChangeHandler = ChangeGate.noHandler,
-    slot: String = "dialog"
+    slot: String = "dialog",
+    inPlace: Boolean = false
 ) extends RxElement:
 
   private val baseId = Ids.next("uni-dialog")
@@ -65,7 +67,8 @@ class Dialog private (
       variant: Option[String] = variant,
       accessibleName: Option[String] = accessibleName,
       changeHandler: ChangeHandler = changeHandler,
-      slot: String = slot
+      slot: String = slot,
+      inPlace: Boolean = inPlace
   ): Dialog =
     new Dialog(
       open,
@@ -79,7 +82,8 @@ class Dialog private (
       variant,
       accessibleName,
       changeHandler,
-      slot
+      slot,
+      inPlace
     )
 
   /** The heading, which is also the dialog's accessible name. */
@@ -98,6 +102,17 @@ class Dialog private (
   def withDismissOnBackdrop(b: Boolean): Dialog = copy(dismissOnBackdrop = b)
   def noDismissOnBackdrop(): Dialog             = withDismissOnBackdrop(false)
 
+  /**
+    * Whether to render the dialog where it is instead of at the end of `<body>` (off by default),
+    * for a dialog inside a panel, a preview frame, or a test. Its backdrop covers the nearest
+    * positioned ancestor, so give that panel `position: relative`. It blocks only that panel: the
+    * content there outside the dialog is `inert` while it is open, and the rest of the page stays
+    * live, so the dialog leaves out `aria-modal` and Escape closes it only while focus is inside
+    * it. The focus trap, a press outside, `onChange`, and focus return work as for any dialog.
+    */
+  def withInline(b: Boolean): Dialog = copy(inPlace = b)
+  def noInline(): Dialog             = withInline(false)
+
   private[ui] def withRole(r: String): Dialog = copy(dialogRole = r)
 
   // A `--<v>` modifier on the panel and the backdrop, for components built on Dialog
@@ -109,7 +124,9 @@ class Dialog private (
   // The data-slot name of the panel, and the prefix of its parts
   private[ui] def withSlot(s: String): Dialog = copy(slot = s)
 
-  private def classes(base: String): String = variant.fold(base)(v => s"${base} ${base}--${v}")
+  private def classes(base: String): String =
+    val mods = variant.toSeq ++ Option.when(inPlace)("inline")
+    (base +: mods.map(m => s"${base}--${m}")).mkString(" ")
 
   /** Runs when Escape or the backdrop closes the dialog, before `open` turns false. */
   def onDismiss(f: () => Unit): Dialog = copy(onClose = f)
@@ -164,7 +181,11 @@ class Dialog private (
         data("slot") -> slot,
         AgentRegistry.attach(agentBinding),
         accessibleName.map(n => ariaLabel -> n).getOrElse(DomNode.empty),
-        ariaModal     -> "true",
+        if inPlace then
+          DomNode.empty
+        else
+          ariaModal -> "true"
+        ,
         tabindex      -> "-1",
         data("state") -> "open",
         title.map(_ => ariaLabelledby -> titleId).getOrElse(DomNode.empty),
@@ -217,11 +238,18 @@ class Dialog private (
             case _ =>
               FocusTrap.first(p).orElse(Some(p))
         },
-    returnFocus = true
+    returnFocus = true,
+    inPlace = inPlace
   )
 
-  // Renders nothing in place: the dialog lives at the end of <body> while open
-  override def render: RxElement = Presence(open)(exit => Portal.toBody(surface(exit)))
+  // Unless inline, renders nothing in place: the dialog lives at the end of <body> while open
+  override def render: RxElement =
+    Presence(open) { exit =>
+      if inPlace then
+        surface(exit)
+      else
+        Portal.toBody(surface(exit))
+    }
 
 end Dialog
 
@@ -263,7 +291,8 @@ class AlertDialog private (
     destructive: Boolean,
     confirm: () => Unit,
     cancel: () => Unit,
-    changeHandler: ChangeHandler
+    changeHandler: ChangeHandler,
+    inPlace: Boolean = false
 ) extends RxElement:
 
   private def copy(
@@ -273,7 +302,8 @@ class AlertDialog private (
       destructive: Boolean = destructive,
       confirm: () => Unit = confirm,
       cancel: () => Unit = cancel,
-      changeHandler: ChangeHandler = changeHandler
+      changeHandler: ChangeHandler = changeHandler,
+      inPlace: Boolean = inPlace
   ): AlertDialog =
     new AlertDialog(
       open,
@@ -284,7 +314,8 @@ class AlertDialog private (
       destructive,
       confirm,
       cancel,
-      changeHandler
+      changeHandler,
+      inPlace
     )
 
   def withDescription(d: String): AlertDialog = copy(description = Some(d))
@@ -292,6 +323,13 @@ class AlertDialog private (
 
   def withConfirmLabel(l: String): AlertDialog = copy(confirmLabel = l)
   def withCancelLabel(l: String): AlertDialog  = copy(cancelLabel = l)
+
+  /**
+    * Whether to render the dialog in place instead of at the end of `<body>`; see
+    * [[Dialog.withInline]].
+    */
+  def withInline(b: Boolean): AlertDialog = copy(inPlace = b)
+  def noInline(): AlertDialog             = withInline(false)
 
   /** Style the confirm button as destructive. */
   def danger: AlertDialog = copy(destructive = true)
@@ -340,6 +378,7 @@ class AlertDialog private (
       .withSlot("alert-dialog")
       .onChange(changeHandler)
       .onDismiss(cancel)
+      .withInline(inPlace)
     description.fold(dialog)(dialog.withDescription)
 
 end AlertDialog

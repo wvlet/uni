@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.all.{button as htmlButton, div}
+import wvlet.uni.dom.all.{button as htmlButton, cls, div}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
@@ -170,6 +170,27 @@ class ExitAnimationTest extends DomTestSupport:
       panel.getAttribute("data-state") shouldBe "closed"
       panel.hasAttribute("inert") shouldBe true
       becomes(find(".uni-popover").isEmpty)
+    }
+  }
+
+  test("the page is live as soon as a modal starts closing, and the closing dialog is inert") {
+    val open = Rx.variable(false)
+    mount(div(htmlButton(cls -> "opener", "Open"), Dialog(open, content = Seq(htmlButton("OK")))))
+    val opener = find(".opener").get
+    opener.focus()
+    open := true
+    settle().flatMap { _ =>
+      (opener.closest("[inert]") != null) shouldBe true
+      open := false
+      // Focus can return because the page is no longer inert, while the backdrop still fades out
+      val backdrop = find(".uni-dialog-backdrop").get
+      (ExitAnimation.durationMs(backdrop) > 0) shouldBe true
+      backdrop.hasAttribute("inert") shouldBe true
+      (opener.closest("[inert]") == null) shouldBe true
+      (dom.document.activeElement eq opener) shouldBe true
+      becomes(find(".uni-dialog-backdrop").isEmpty).map { _ =>
+        count("[inert]") shouldBe 0
+      }
     }
   }
 

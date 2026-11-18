@@ -25,6 +25,10 @@ import scala.collection.mutable.ArrayBuffer
   * after it and stay live, as does anything marked with [[ModalInert.keepLive]], such as the toast
   * region.
   *
+  * A modal rendered in place (an inline dialog) blocks only a region, the element its backdrop
+  * covers: everything in the region outside the modal becomes inert, and the rest of the page stays
+  * live.
+  *
   * Only elements this object made inert are restored, so an app's own `inert` stays.
   */
 private[ui] object ModalInert:
@@ -34,37 +38,60 @@ private[ui] object ModalInert:
     */
   val keepLive = "data-uni-keep-live"
 
-  private val modals = ArrayBuffer.empty[dom.Element]
+  // An open modal, and the region it blocks (None for the page)
+  private class Modal(val root: dom.Element, val region: Option[dom.Element])
+
+  private val modals = ArrayBuffer.empty[Modal]
   private val marked = ArrayBuffer.empty[dom.Element]
 
   /** Make the page behind `root` inert until the result is canceled. */
-  def push(root: dom.Element): Cancelable =
-    modals += root
+  def push(root: dom.Element): Cancelable = add(Modal(root, None))
+
+  /** Make the content of `region` outside `root` inert until the result is canceled. */
+  def pushWithin(root: dom.Element, region: dom.Element): Cancelable = add(
+    Modal(root, Some(region))
+  )
+
+  private def add(m: Modal): Cancelable =
+    modals += m
     refresh()
     Cancelable { () =>
-      modals -= root
+      modals -= m
       refresh()
     }
+
+  private def mark(c: dom.Element): Unit =
+    val live = c.hasAttribute(keepLive) || c.querySelector(s"[${keepLive}]") != null
+    if !live && !c.hasAttribute("inert") then
+      c.setAttribute("inert", "")
+      marked += c
 
   private def refresh(): Unit =
     marked.foreach(_.removeAttribute("inert"))
     marked.clear()
+    // The topmost page modal blocks the page; each in-place modal blocks its own region
     modals
+      .filter(_.region.isEmpty)
       .lastOption
-      .flatMap(bodyChildOf)
+      .flatMap(m => bodyChildOf(m.root))
       .foreach { holder =>
-        val body = dom.document.body
-        body
-          .children
-          .toSeq
-          .takeWhile(_ ne holder)
-          .foreach { c =>
-            val live = c.hasAttribute(keepLive) || c.querySelector(s"[${keepLive}]") != null
-            if !live && !c.hasAttribute("inert") then
-              c.setAttribute("inert", "")
-              marked += c
-          }
+        dom.document.body.children.toSeq.takeWhile(_ ne holder).foreach(mark)
       }
+    modals.foreach { m =>
+      m.region
+        .foreach { region =>
+          // Every sibling along the path from the modal up to the region
+          var cur: dom.Element = m.root
+          while cur != null && !(cur eq region) && region.contains(cur) do
+            cur =
+              cur.parentNode match
+                case parent: dom.Element =>
+                  parent.children.toSeq.filter(_ ne cur).foreach(mark)
+                  parent
+                case _ =>
+                  null
+        }
+    }
 
   // The child of <body> that holds `el`
   private def bodyChildOf(el: dom.Element): Option[dom.Element] =
