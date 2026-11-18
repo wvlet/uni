@@ -41,7 +41,16 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
 - Proof style: write encoders as if-chains and give each branch its own proof step. A `first | ... |
   ...` combinator that tries the wrong lemma can send Lean's defeq check into deep unfolding of `be
   k n` (maximum recursion), which `first` does not catch.
-- Next candidate: `flatMap`/`concat`/`merge` completion in the same Rx trace model.
+- `UniSpec/RxNested.lean` extends the Rx trace model to `concat`, `merge`, and `flatMap` with
+  synchronous sources, where `RxRunner` is deterministic: `merge` subscribes in order and
+  `flatMap` runs each nested stream to its end or until it goes quiet. Its theorems: `concat`
+  identity and associativity, `merge` completes exactly when every source completes and fails
+  exactly when one fails (an ending invariant under any reordering, so it also covers asynchronous
+  interleavings), and `flatMap` completes only after its input and last nested stream complete,
+  with the single-value identity laws. The cases use `Rx.MergeOp` directly so 0 and 1 sources go
+  through `RxRunner`'s merge rather than `RxParallel.merge`'s shortcuts.
+- Next candidates: `recover` and continuous mode in the trace model, `parFlatMap` ordering, and
+  MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);
   verifying the Scala code with Stainless (does not fit Uni's Scala 3 code); hand-written expected
   outputs in property tests (they restate the implementation's own assumptions).
