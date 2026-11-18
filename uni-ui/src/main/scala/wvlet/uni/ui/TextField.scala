@@ -17,7 +17,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
-import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentDom, AgentInputError, AgentRegistry}
 
 import scala.language.implicitConversions
 
@@ -26,12 +26,14 @@ private[ui] def fieldModifiers(
     placeholderText: Option[String],
     label: Option[String],
     invalid: Rx[Boolean],
-    disabledState: Rx[Boolean]
+    disabledState: Rx[Boolean],
+    readOnlyState: Rx[Boolean]
 ): Seq[DomNode] = Seq(
   placeholderText.map(p => placeholder -> p).getOrElse(DomNode.empty),
   label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
   ariaInvalid -> invalid.map(_.toString),
-  disabled    -> disabledState
+  disabled    -> disabledState,
+  readonly    -> readOnlyState
 )
 
 /**
@@ -72,8 +74,17 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
     override def value: Option[String]        = Some(gated.get)
     override def states: Seq[AnyRef]          = Seq(text)
     override def changeHandler: ChangeHandler = handler()
+    override def readOnly: Boolean            = element.exists(AgentDom.isReadOnly)
     override def actions: Seq[AgentAction]    = Seq(
-      AgentAction.text("setText", "Replace the field's text")(v => gated := v)
+      AgentAction.text("setText", "Replace the field's text") { v =>
+        if element.exists(_.getAttribute("type") == "number") && v.nonEmpty &&
+          !GatedText.isNumber(v)
+        then
+          throw AgentInputError(
+            s"'${v}' is not a number. Write digits without grouping separators, such as 1499.5"
+          )
+        gated := v
+      }
     )
 
   def modifiers: Seq[DomNode] = Seq(
@@ -107,6 +118,12 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
 
 end GatedText
 
+private object GatedText:
+  // The HTML "valid floating-point number": what an `<input type="number">` keeps
+  private val number = "-?(?:[0-9]+(?:\\.[0-9]+)?|\\.[0-9]+)(?:[eE][-+]?[0-9]+)?".r
+
+  def isNumber(s: String): Boolean = number.matches(s)
+
 /**
   * A one-line text field bound to `text`: typing updates the variable, and setting the variable
   * updates the field.
@@ -126,6 +143,7 @@ class Input(
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
     disabledState: Rx[Boolean] = Rx.const(false),
+    readOnlyState: Rx[Boolean] = Rx.const(false),
     changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
@@ -134,8 +152,18 @@ class Input(
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
       disabledState: Rx[Boolean] = disabledState,
+      readOnlyState: Rx[Boolean] = readOnlyState,
       changeHandler: ChangeHandler = changeHandler
-  ): Input = Input(text, inputType, placeholderText, label, invalid, disabledState, changeHandler)
+  ): Input = Input(
+    text,
+    inputType,
+    placeholderText,
+    label,
+    invalid,
+    disabledState,
+    readOnlyState,
+    changeHandler
+  )
 
   /** Called before typed text reaches `text`; `cancel()` puts the field back. Key: `value`. */
   def onChange(f: ChangeHandler): Input = copy(changeHandler = f)
@@ -160,12 +188,19 @@ class Input(
   def withDisabled(d: Rx[Boolean]): Input = copy(disabledState = d)
   def withDisabled(d: Boolean): Input     = withDisabled(Rx.const(d))
 
+  /**
+    * Show the text without letting people edit it: they can still select and copy it. Agents can't
+    * edit it either.
+    */
+  def withReadOnly(r: Rx[Boolean]): Input = copy(readOnlyState = r)
+  def withReadOnly(r: Boolean): Input     = withReadOnly(Rx.const(r))
+
   override def render: RxElement = input(
     tpe          -> inputType,
     cls          -> "uni-input",
     data("slot") -> "input",
     field.modifiers,
-    fieldModifiers(placeholderText, label, invalid, disabledState)
+    fieldModifiers(placeholderText, label, invalid, disabledState, readOnlyState)
   )
 
 end Input
@@ -184,6 +219,7 @@ class Textarea(
     label: Option[String] = None,
     invalid: Rx[Boolean] = Rx.const(false),
     disabledState: Rx[Boolean] = Rx.const(false),
+    readOnlyState: Rx[Boolean] = Rx.const(false),
     changeHandler: ChangeHandler = ChangeGate.noHandler
 ) extends RxElement:
   private def copy(
@@ -192,6 +228,7 @@ class Textarea(
       label: Option[String] = label,
       invalid: Rx[Boolean] = invalid,
       disabledState: Rx[Boolean] = disabledState,
+      readOnlyState: Rx[Boolean] = readOnlyState,
       changeHandler: ChangeHandler = changeHandler
   ): Textarea = Textarea(
     text,
@@ -200,6 +237,7 @@ class Textarea(
     label,
     invalid,
     disabledState,
+    readOnlyState,
     changeHandler
   )
 
@@ -224,12 +262,19 @@ class Textarea(
   def withDisabled(d: Rx[Boolean]): Textarea = copy(disabledState = d)
   def withDisabled(d: Boolean): Textarea     = withDisabled(Rx.const(d))
 
+  /**
+    * Show the text without letting people edit it: they can still select and copy it. Agents can't
+    * edit it either.
+    */
+  def withReadOnly(r: Rx[Boolean]): Textarea = copy(readOnlyState = r)
+  def withReadOnly(r: Boolean): Textarea     = withReadOnly(Rx.const(r))
+
   override def render: RxElement = textarea(
     cls          -> "uni-textarea",
     data("slot") -> "textarea",
     rows         -> rowCount.toString,
     field.modifiers,
-    fieldModifiers(placeholderText, label, invalid, disabledState)
+    fieldModifiers(placeholderText, label, invalid, disabledState, readOnlyState)
   )
 
 end Textarea

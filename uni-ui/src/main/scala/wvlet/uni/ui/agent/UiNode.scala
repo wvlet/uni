@@ -56,6 +56,7 @@ case class UiNode(
     items: Seq[UiItem] = Nil,
     moreItems: Int = 0,
     disabled: Boolean = false,
+    readOnly: Boolean = false,
     actions: Seq[UiAction] = Nil,
     children: Seq[UiNode] = Nil
 ):
@@ -73,6 +74,7 @@ case class UiNode(
     "items"     -> Option.when(items.nonEmpty)(JSONArray(items.map(_.toJSON).toIndexedSeq)),
     "moreItems" -> Option.when(moreItems > 0)(JSONLong(moreItems)),
     "disabled"  -> Option.when(disabled)(JSONBoolean(true)),
+    "readOnly"  -> Option.when(readOnly)(JSONBoolean(true)),
     "actions"   -> Option.when(actions.nonEmpty)(JSONArray(actions.map(_.toJSON).toIndexedSeq)),
     "children"  -> Option.when(children.nonEmpty)(JSONArray(children.map(_.toJSON).toIndexedSeq))
   )
@@ -90,7 +92,10 @@ enum ActStatus(val name: String):
   /** The human declined it in the confirmation dialog. */
   case Declined extends ActStatus("declined")
 
-  /** The policy forbids it, the component is disabled, or the action or value is not valid. */
+  /**
+    * The policy forbids it, the component is disabled or read-only, or the action or value is not
+    * valid.
+    */
   case Refused extends ActStatus("refused")
 
   /** No component on screen has the ref. */

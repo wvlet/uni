@@ -114,9 +114,10 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
     val b        = e.binding
     val ref      = AgentRegistry.refOf(e)
     val disabled = AgentDom.isDisabled(e.element)
+    val readOnly = b.readOnly
     val items    = b.items
     val actions  =
-      if disabled then
+      if disabled || readOnly then
         Nil
       else
         b.actions
@@ -125,7 +126,7 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
     UiNode(
       ref = ref,
       kind = b.kind,
-      label = AgentDom.labelOf(e.element),
+      label = AgentRegistry.nameOf(e),
       value =
         if AgentDom.isSecret(e.element) then
           b.value.map(_ => AgentDom.Redacted)
@@ -135,9 +136,12 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
       items = items.take(maxItems),
       moreItems = math.max(0, items.size - maxItems),
       disabled = disabled,
+      readOnly = readOnly,
       actions = actions,
       children = children
     )
+
+  end nodeOf
 
   /**
     * The components matching every given filter, flattened: `kind`, text in the label or value
@@ -187,10 +191,12 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
             Rx.const(ActResult(ActStatus.Refused, s"'${ref}' has no action '${action}'"))
           case Some(_) if node.disabled =>
             Rx.const(ActResult(ActStatus.Refused, s"'${ref}' is disabled"))
+          case Some(_) if node.readOnly =>
+            Rx.const(ActResult(ActStatus.Refused, s"'${ref}' is read-only"))
           case Some(_) if node.action(action).isEmpty =>
             Rx.const(ActResult(ActStatus.Refused, s"The policy does not allow '${action}'"))
           case Some(a) =>
-            AgentDom.confirmation(e.element) match
+            AgentDom.confirmation(e.element).orElse(a.confirm(value)) match
               case None =>
                 Rx.const(run(ref, a, value))
               case Some(message) =>

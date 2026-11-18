@@ -110,7 +110,8 @@ class DataTable[A, K] private (
     changeHandler: ChangeHandler,
     multiSelected: Option[RxVar[Set[K]]],
     reorderable: Option[RxVar[Seq[A]]],
-    rowLabel: Option[A => String]
+    rowLabel: Option[A => String],
+    agentConfirm: Option[A => Option[String]]
 ) extends RxElement:
 
   private def copy(
@@ -122,7 +123,8 @@ class DataTable[A, K] private (
       changeHandler: ChangeHandler = changeHandler,
       multiSelected: Option[RxVar[Set[K]]] = multiSelected,
       reorderable: Option[RxVar[Seq[A]]] = reorderable,
-      rowLabel: Option[A => String] = rowLabel
+      rowLabel: Option[A => String] = rowLabel,
+      agentConfirm: Option[A => Option[String]] = agentConfirm
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -136,7 +138,8 @@ class DataTable[A, K] private (
       changeHandler,
       multiSelected,
       reorderable,
-      rowLabel
+      rowLabel,
+      agentConfirm
     )
 
   /** The accessible name of the table. */
@@ -186,6 +189,18 @@ class DataTable[A, K] private (
     */
   def withRowLabel(f: A => String): DataTable[A, K] = copy(rowLabel = Some(f))
   def noRowLabel(): DataTable[A, K]                 = copy(rowLabel = None)
+
+  /**
+    * Rows an agent may select or drop from the selection only after the human allows it: `f` gives
+    * the question for a guarded row, or None. It works for rows scrolled out of view too, since it
+    * reads the data rather than the rendered row.
+    *
+    * {{{
+    *   .withAgentConfirm(u => Option.when(u.role == "admin")(s"Change the selection of ${u.name}?"))
+    * }}}
+    */
+  def withAgentConfirm(f: A => Option[String]): DataTable[A, K] = copy(agentConfirm = Some(f))
+  def noAgentConfirm(): DataTable[A, K]                         = copy(agentConfirm = None)
 
   /** The height of every row in pixels (32 by default). */
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
@@ -377,6 +392,7 @@ class DataTable[A, K] private (
       slot = "data-table",
       typeaheadLabel = None,
       itemLabel = rowLabel,
+      agentConfirm = agentConfirm,
       extraKey = (e, _, _) => onKey(e),
       header = div(
         role         -> "rowgroup",
@@ -414,7 +430,8 @@ object DataTable:
       changeHandler = ChangeGate.noHandler,
       multiSelected = None,
       reorderable = None,
-      rowLabel = None
+      rowLabel = None,
+      agentConfirm = None
     )
 
   /**
