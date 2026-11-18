@@ -29,7 +29,7 @@ import scala.language.implicitConversions
   *
   * {{{
   *   val open = Rx.variable(false)
-  *   Dialog(open, content = Seq(Input(name).withLabel("Name"))).withTitle("Rename session")
+  *   Dialog(open, content = Input(name).withLabel("Name")).withTitle("Rename session")
   *     .withActions(Button("Cancel").onClick(() => open := false), Button("Save").primary.onClick(save))
   * }}}
   *
@@ -257,10 +257,10 @@ object Dialog:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
   private val noop: () => Unit = () => ()
 
-  def apply(open: RxVar[Boolean], content: Seq[DomNode]): Dialog =
+  def apply(open: RxVar[Boolean], content: DomNode | Seq[DomNode]): Dialog =
     new Dialog(
       open,
-      content,
+      Content.nodes(content),
       title = None,
       description = None,
       actions = Seq.empty,

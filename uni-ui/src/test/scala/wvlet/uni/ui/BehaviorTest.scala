@@ -248,6 +248,29 @@ class BehaviorTest extends DomTestSupport:
     order.get shouldBe Seq("b", "c", "a")
   }
 
+  test("in a filtered list, Alt+Arrow moves an item past the next shown item") {
+    val order   = Rx.variable(Seq("a", "x1", "x2", "b", "c"))
+    val reorder = Reorder(order)
+    // Rows starting with x are filtered out of view
+    mount(
+      ul(
+        order
+          .map(_.filterNot(_.startsWith("x")))
+          .each(identity)(t => li(cls -> s"item-${t}", tabindex -> "0", reorder.item(t), t))
+      )
+    )
+    fireEvent.keyDown(find("li.item-a"), "ArrowDown", altKey = true)
+    order.get shouldBe Seq("x1", "x2", "b", "a", "c")
+    fireEvent.keyDown(find("li.item-a"), "ArrowUp", altKey = true)
+    order.get shouldBe Seq("x1", "x2", "a", "b", "c")
+    // No shown item above: the hidden ones stay above it
+    fireEvent.keyDown(find("li.item-a"), "ArrowUp", altKey = true)
+    order.get shouldBe Seq("x1", "x2", "a", "b", "c")
+    // Home and End still go to the ends of the full order
+    fireEvent.keyDown(find("li.item-a"), "Home", altKey = true)
+    order.get shouldBe Seq("a", "x1", "x2", "b", "c")
+  }
+
   test("reorder moves a dragged item where it is dropped, and Escape cancels the drag") {
     val order   = Rx.variable(Seq("a", "b", "c"))
     val seen    = ArrayBuffer.empty[ChangeDetails[Any]]

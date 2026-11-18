@@ -21,7 +21,7 @@ val menuOpen   = Rx.variable(false)
 val confirm    = Rx.variable(false)
 
 div(
-  Popover(filterOpen, trigger = Button("Filter"), content = Seq(Input(query).withLabel("Filter")))
+  Popover(filterOpen, trigger = Button("Filter"), content = Input(query).withLabel("Filter"))
     .withAlign(Align.End),
   Tooltip("Close dock", trigger = IconButton("Close dock", closeIcon)).withSide(Side.Left),
   Menu(
@@ -41,13 +41,15 @@ div(
 )
 ```
 
+`content` takes one element or a `Seq` of them: `content = form` or `content = Seq(hint, form)`.
+
 | Component | What it does |
 |-----------|--------------|
-| `Popover(open, trigger = element, content = Seq(...))` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
+| `Popover(open, trigger = element, content = element)` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
 | `Tooltip(text, trigger = element)` | A text label that shows on hover (after `.withDelay(ms)`, 500 by default) and on keyboard focus; `text` can be an `Rx[String]` |
 | `Menu(open, trigger = element, entries = Seq(...))` | A list of `MenuItem`s and `MenuSeparator`s. Items take `.onSelect`, `.withShortcut`, `.withDisabled`, and `.withChecked(rx)` |
 | `ContextMenu(target, entries = Seq(...))` | A menu that opens at the pointer when `target` is right-clicked |
-| `Dialog(open, content = Seq(...))` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |
+| `Dialog(open, content = element)` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |
 | `AlertDialog(open, title = "...")` | A confirm-or-cancel dialog: `.onConfirm`, `.onCancel`, `.withConfirmLabel`, `.danger` |
 | `Select(selected, options = Seq(...), optionLabel = a => text)` | A button with a list of options, bound to an `RxVar[A]`; `options` can be an `Rx[Seq[A]]` |
 | `Toaster()` | Mount one per app, then call `.info`, `.success`, or `.error` on it to show a message |
@@ -93,7 +95,7 @@ val sessionName = Rx.variable("")
 div(
   styleAttr -> "position: relative",
   Button("Rename").onClick(() => renameOpen := true),
-  Dialog(renameOpen, content = Seq(Input(sessionName).withLabel("Name")))
+  Dialog(renameOpen, content = Input(sessionName).withLabel("Name"))
     .withTitle("Rename")
     .withInline(true)
 )

@@ -184,6 +184,16 @@ class BehaviorModelTest extends UniTest:
     Reorder.keyTarget(" ", 1, 3) shouldBe None
   }
 
+  test("reorder arrow keys step past hidden items to the next shown one") {
+    // Five items; the moving one is at 1, and the others are shown, hidden, hidden, shown
+    val shown = Set(0, 3)
+    Reorder.keyTarget("ArrowDown", 1, 5, shown = shown) shouldBe Some(4)
+    Reorder.keyTarget("ArrowUp", 1, 5, shown = shown) shouldBe Some(0)
+    Reorder.keyTarget("ArrowUp", 0, 5, shown = Set(3)) shouldBe None
+    Reorder.keyTarget("ArrowDown", 4, 5, shown = Set(0)) shouldBe None
+    Reorder.keyTarget("End", 1, 5, shown = shown) shouldBe Some(4)
+  }
+
   test("reorder keys in a right-to-left row move toward the end with ArrowLeft") {
     Reorder.keyTarget("ArrowLeft", 1, 3, Orientation.Horizontal, rtl = true) shouldBe Some(2)
     Reorder.keyTarget("ArrowRight", 1, 3, Orientation.Horizontal, rtl = true) shouldBe Some(0)

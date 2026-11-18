@@ -76,7 +76,8 @@ div(
 - **Reordering.** `.withReorder(itemsVar)` on a list or table lets the user move rows, as
   [`Reorder`](./behaviors#reorder) does: drag a row (near the top or bottom edge the list
   scrolls), or press Alt+ArrowUp, Alt+ArrowDown, Alt+Home, or Alt+End to move the highlighted
-  row. Pass the `RxVar` the component shows; the new order is written there after `onChange`
+  row. Pass the `RxVar` the component shows, or the variable a filtered view comes from (an
+  arrow key then steps past the rows the filter hides); the new order is written there after `onChange`
   sees it with the key `order`, and each move is announced. With `.withMultiSelect`, a selected
   row moves the whole selection as one block. The keys work by position, so they move a row far
   down a long list, and a drag keeps going after the dragged row scrolls out of the window. Put

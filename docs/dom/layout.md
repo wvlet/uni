@@ -8,7 +8,7 @@ Side panes that fold and resize, a status bar, and a `Dock` of panels the user r
 
 | Component | What it does |
 |-----------|--------------|
-| `FoldablePane(open, width = w, edge = e, content = Seq(...)).withSplitter(splitter)` | A side pane that folds to zero width; its content never reflows |
+| `FoldablePane(open, width = w, edge = e, content = element).withSplitter(splitter)` | A side pane that folds to zero width; its content never reflows |
 | `Splitter(size, range, edge, label)` | A resize grip. Drag it, or press the arrow keys (Shift for bigger steps); double-click or Enter resets. Escape mid-drag puts the size back |
 | `StatusBar(content*)` | A bar along the bottom; `StatusBar.spacer` pushes the rest to the end |
 
@@ -25,7 +25,7 @@ val open  = Rx.variable(true)
 val width = Rx.variable(272)
 val range = SizeRange(min = 208, default = 272, max = 480)
 
-FoldablePane(open, width = width, edge = Edge.Right, content = Seq(ChatList()))
+FoldablePane(open, width = width, edge = Edge.Right, content = ChatList())
   .withSplitter(Splitter(width, range, Edge.Right, "Resize sidebar"))
 ```
 

@@ -182,9 +182,11 @@ also wires Shift+Arrow and Space. See [Collections](./collections).
 `Reorder` lets the user change the order of a list. Dragging an item shows a line where it would
 land and moves it on release; Escape cancels the drag. Dragging near the edge of the list's scroll
 container scrolls it. On a focused item, Alt+ArrowUp and Alt+ArrowDown move it one step, and
-Alt+Home and Alt+End move it to either end. The order lives in
-your `RxVar`, `onChange` sees each move (reason `drag` or `navigation-key`) and can cancel it, and
-every move is announced to screen readers, such as "Moved Review to position 1 of 3".
+Alt+Home and Alt+End move it to either end. When the list shows a filtered view of the order, a
+step passes over the items that aren't rendered and lands past the next one on screen, so every
+press visibly moves the item. The order lives in your `RxVar`, `onChange` sees each move (reason
+`drag` or `navigation-key`) and can cancel it, and every move is announced to screen readers, such
+as "Moved Review to position 1 of 3".
 
 ```scala
 val tasks   = Rx.variable(Seq("Write", "Review", "Ship"))

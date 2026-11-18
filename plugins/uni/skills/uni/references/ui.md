@@ -113,15 +113,16 @@ val composer = div(
 
 Every component takes one parameter list of the arguments it cannot work without. Name the
 functions, triggers, and multi-value arguments (`key = _.id`, `render = ...`, `trigger = ...`), and
-pass several values as a `Seq` (`entries = Seq(...)`, `content = Seq(...)`). Options are `withXXX`
+pass several values as a `Seq` (`entries = Seq(...)`). `content` takes one element or a `Seq`
+(`content = form`, `content = Seq(title, form)`). Options are `withXXX`
 methods.
 
 | Group | Components |
 |-------|------------|
 | Controls | `Button` (`.primary`, `.ghost`, `.danger`, `.small`), `IconButton(label, icon)`, `Input(rxVar)`, `Textarea(rxVar)`, `Select(rxVar, options = Seq(...), optionLabel = a => text)` |
-| Navigation and layout | `TabList(rxVar, label = "...", tabs = Seq(Tab(value, content*)))`, `TabPanel(tabs, render = a => element)`, `FoldablePane(open, width = w, edge = e, content = Seq(...)).withSplitter(splitter)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label = "...", panels = Seq(DockPanel(id, title = "...", content = element)))` (groups float over the grid as `DockLayout(root, floating = Seq(DockFloat.of(DockBox(x, y, w, h), ids*)))`; `.withDetach(true)` opens a panel in its own window) |
+| Navigation and layout | `TabList(rxVar, label = "...", tabs = Seq(Tab(value, content*)))`, `TabPanel(tabs, render = a => element)`, `FoldablePane(open, width = w, edge = e, content = element).withSplitter(splitter)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label = "...", panels = Seq(DockPanel(id, title = "...", content = element)))` (groups float over the grid as `DockLayout(root, floating = Seq(DockFloat.of(DockBox(x, y, w, h), ids*)))`; `.withDetach(true)` opens a panel in its own window) |
 | Display | `Badge`, `Kbd`, `StatusBar` |
-| Overlays | `Popover(open, trigger = element, content = Seq(...))`, `Tooltip(text, trigger = element)`, `Menu(open, trigger = element, entries = Seq(MenuItem(...), ...))`, `ContextMenu(target, entries = Seq(...))`, `Dialog(open, content = Seq(...))`, `AlertDialog(open, title = "...")`, `Toaster()` with `.info`/`.success`/`.error`. `.withInline(true)` renders a `Dialog`, `AlertDialog`, or `Popover` in place (a dialog blocks only its `position: relative` panel; CSS places an inline popover) |
+| Overlays | `Popover(open, trigger = element, content = element)`, `Tooltip(text, trigger = element)`, `Menu(open, trigger = element, entries = Seq(MenuItem(...), ...))`, `ContextMenu(target, entries = Seq(...))`, `Dialog(open, content = element)`, `AlertDialog(open, title = "...")`, `Toaster()` with `.info`/`.success`/`.error`. `.withInline(true)` renders a `Dialog`, `AlertDialog`, or `Popover` in place (a dialog blocks only its `position: relative` panel; CSS places an inline popover) |
 | Collections (windowed, fixed row height) | `VirtualList(itemsRx, rowHeight = 24, key = a => k, render = a => node)`, `Tree(rootsRx, children = a => Seq(...), key = a => k, render = a => node)`, `DataTable(rowsRx, key = a => k, columns = Seq(Column(id, header, cell = a => node), ...))`, `CommandPalette(open, commandsRx)` |
 | Theme | `ColorScheme.bind(rxVar)` with `ColorScheme.System`/`Light`/`Dark` |
 
