@@ -56,6 +56,14 @@ import scala.language.implicitConversions
   *   selection, when it is selected) by key, so they work on rows scrolled out of view too
   * @param reorderEnabled
   *   off while the rows can't be moved, as in a sorted table
+  * @param firstKey
+  *   handles a key before anything else, including keys from controls inside a row; true when it
+  *   handled the key. A grid uses it for its header row and to move into and out of cell widgets
+  * @param beforeFocus
+  *   runs when the list takes the focus, before it picks a start row
+  * @param headerActive
+  *   true while a header cell is active instead of a row, in the column `activeCell` names;
+  *   `aria-activedescendant` then names `headerCellId` of it, and focus picks no row
   */
 private[ui] class ListCore[A, K](
     items: Rx[Seq[A]],
@@ -85,7 +93,11 @@ private[ui] class ListCore[A, K](
     // key, when absent
     itemLabel: Option[A => String] = None,
     // The question an agent's selection change must ask the human first, for a row it adds or drops
-    agentConfirm: Option[A => Option[String]] = None
+    agentConfirm: Option[A => Option[String]] = None,
+    firstKey: dom.KeyboardEvent => Boolean = _ => false,
+    beforeFocus: () => Unit = () => (),
+    headerActive: RxVar[Boolean] = Rx.variable(false),
+    headerCellId: Int => String = i => s"header-${i}"
 ) extends RxElement:
 
   private val listId = Ids.next("uni-list")
@@ -108,7 +120,7 @@ private[ui] class ListCore[A, K](
     selection match
       case ListSelection.Multi(keys) =>
         Some(Selection(keys).onChange(changeHandler))
-      case ListSelection.Single(_) =>
+      case _ =>
         None
 
   // The name of an item for agents and reorder announcements
@@ -126,16 +138,19 @@ private[ui] class ListCore[A, K](
     selection match
       case ListSelection.Multi(keys) =>
         r.withSelection(keys)
-      case ListSelection.Single(_) =>
+      case _ =>
         r
   }
 
-  private def isSelected(k: K): Rx[Boolean] =
+  // Rows carry no aria-selected while a grid selects cells
+  private def isSelected(k: K): Option[Rx[Boolean]] =
     selection match
       case ListSelection.Single(s) =>
-        s.map(_.contains(k))
+        Some(s.map(_.contains(k)))
       case ListSelection.Multi(keys) =>
-        keys.map(_.contains(k))
+        Some(keys.map(_.contains(k)))
+      case ListSelection.Cell(_, _, _) =>
+        None
 
   private def order: Seq[K] = current.map(key)
 
@@ -146,6 +161,26 @@ private[ui] class ListCore[A, K](
 
   /** The key of the highlighted row. */
   private[ui] def activeKey: Rx[Option[K]] = active
+
+  /** The key of the highlighted row now. */
+  private[ui] def activeNow: Option[K] = active.get
+
+  /** Highlight row `k` (or none) without scrolling, as focus does. */
+  private[ui] def setActive(k: Option[K]): Unit =
+    if active.get != k then
+      active := k
+
+  /** The index of the highlighted row in the list, or -1. */
+  private[ui] def activeRowIndex: Int = activeIndex
+
+  /** The list as last rendered. */
+  private[ui] def rows: Seq[A] = current
+
+  /** The index of row `k`, if the list has it. */
+  private[ui] def indexOf(k: K): Option[Int] = index.get.get(k)
+
+  /** The scroll container, while mounted. */
+  private[ui] def container: Option[dom.HTMLElement] = root
 
   private def sync(xs: Seq[A]): Unit =
     if xs ne current then
@@ -192,14 +227,21 @@ private[ui] class ListCore[A, K](
       active := Some(key(a))
     }
 
-  // Choosing the selected row again still runs onSelect, as before (to open it, say)
-  private def select(a: A, cause: ChangeCause): Unit =
+  // Choosing the selected row again still runs onSelect, as before (to open it, say). A grid that
+  // selects cells selects `column` of the row, else its active column.
+  private def select(a: A, cause: ChangeCause, column: Option[String] = None): Unit =
     val accepted =
       selection match
         case ListSelection.Single(s) =>
           ChangeGate.write(s, "selected", Some(key(a)), cause, changeHandler)
         case ListSelection.Multi(_) =>
           multi.exists(_.select(key(a), cause))
+        case ListSelection.Cell(s, active, _) =>
+          column
+            .orElse(active())
+            .exists(c =>
+              ChangeGate.write(s, "selectedCell", Some(CellKey(key(a), c)), cause, changeHandler)
+            )
     if accepted then
       ChangeCause.during(cause)(onSelect(a))
 
@@ -233,7 +275,10 @@ private[ui] class ListCore[A, K](
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     // Keys typed into a control inside a row belong to that control
     val fromContainer = e.target eq e.currentTarget
-    if fromContainer && !Keyboard.isComposing(e) && !e.defaultPrevented then
+    val handled       = !Keyboard.isComposing(e) && !e.defaultPrevented && firstKey(e)
+    if handled then
+      e.preventDefault()
+    else if fromContainer && !Keyboard.isComposing(e) && !e.defaultPrevented then
       val i = activeIndex
       e.key match
         case " " if typeaheadLabel.nonEmpty && typeahead.joinsSearch(e) =>
@@ -303,11 +348,14 @@ private[ui] class ListCore[A, K](
 
   // Focusing the list shows where the keys will start: the selected row, else the first
   private def onFocus(): Unit =
-    if active.get.isEmpty then
+    beforeFocus()
+    if active.get.isEmpty && !headerActive.get then
       val start =
         selection match
           case ListSelection.Single(s) =>
             s.get.filter(index.get.contains)
+          case ListSelection.Cell(s, _, _) =>
+            s.get.map(_.row).filter(index.get.contains)
           case ListSelection.Multi(keys) =>
             multi
               .flatMap(_.anchor)
@@ -335,11 +383,11 @@ private[ui] class ListCore[A, K](
   private def row(a: A): RxElement =
     val k = key(a)
     div(
-      id             -> rowId(k),
-      role           -> rowRole,
-      cls            -> "uni-list__row",
-      data("slot")   -> s"${slot}-row",
-      ariaSelected   -> isSelected(k).map(_.toString),
+      id           -> rowId(k),
+      role         -> rowRole,
+      cls          -> "uni-list__row",
+      data("slot") -> s"${slot}-row",
+      isSelected(k).map(s => ariaSelected -> s.map(_.toString)).getOrElse(DomNode.empty),
       data("active") ->
         active.map(x =>
           if x.contains(k) then
@@ -391,6 +439,8 @@ private[ui] class ListCore[A, K](
           s.get.toSet
         case ListSelection.Multi(keys) =>
           keys.get
+        case ListSelection.Cell(s, _, _) =>
+          s.get.map(_.row).toSet
 
     override def states: Seq[AnyRef] =
       (
@@ -399,9 +449,34 @@ private[ui] class ListCore[A, K](
             s
           case ListSelection.Multi(keys) =>
             keys
+          case ListSelection.Cell(s, _, _) =>
+            s
       ) +: reorderable.toSeq
 
+    // A cell is named by its row's label and its column's header: "list · Method"
+    private def cellLabel(c: CellKey[?]): String =
+      val header =
+        selection match
+          case ListSelection.Cell(_, _, columns) =>
+            columns
+              .collectFirst { case (c.column, h) =>
+                h
+              }
+              .getOrElse(c.column)
+          case _ =>
+            c.column
+      s"${format(c.row)} ${ListCore.cellSeparator} ${header}"
+
     override def format(v: Any): String =
+      v match
+        case Some(c: CellKey[?]) =>
+          cellLabel(c)
+        case c: CellKey[?] =>
+          cellLabel(c)
+        case _ =>
+          formatKeys(v)
+
+    private def formatKeys(v: Any): String =
       val keys: Iterable[Any] =
         v match
           case o: Option[?] =>
@@ -418,20 +493,59 @@ private[ui] class ListCore[A, K](
       keys.map(k => idx.get(k).fold(String.valueOf(k))(labels)).mkString(", ")
 
     override def value: Option[String] =
-      val keys = selectedKeys
-      Option.when(keys.nonEmpty)(format(keys))
+      selection match
+        case ListSelection.Cell(s, _, _) =>
+          s.get.map(cellLabel)
+        case _ =>
+          val keys = selectedKeys
+          Option.when(keys.nonEmpty)(format(keys))
 
     override def items: Seq[UiItem] =
       val keys = selectedKeys
       labels.zip(current).map((l, a) => UiItem(l, keys.contains(key(a))))
 
     override def actions: Seq[AgentAction] =
-      AgentAction
-        .choice("select", "Select a row, as a click does", labels)(i =>
-          select(current(i), AgentAction.cause(ChangeReason.ItemPress))
+      val choose =
+        selection match
+          case ListSelection.Cell(_, _, columns) =>
+            AgentAction
+              .text(
+                "selectCell",
+                s"Select a cell, as a click does: '<row label> ${ListCore
+                    .cellSeparator} <column header>'"
+              ) { v =>
+                val (i, c) = findCell(v, columns)
+                select(current(i), AgentAction.cause(ChangeReason.ItemPress), Some(c))
+              }
+              .withConfirm(v => agentConfirm.flatMap(guarded(_, v.map(ListCore.cellRow))))
+          case _ =>
+            AgentAction
+              .choice("select", "Select a row, as a click does", labels)(i =>
+                select(current(i), AgentAction.cause(ChangeReason.ItemPress))
+              )
+              .withConfirm(v => agentConfirm.flatMap(guarded(_, v)))
+      choose +: (moveAction.toSeq ++ agentActions())
+
+    // The row index and column id an agent's `selectCell` value names
+    private def findCell(v: String, columns: Seq[(String, String)]): (Int, String) =
+      val i = labels.indexOf(ListCore.cellRow(v))
+      if i < 0 then
+        throw AgentInputError(
+          s"No row '${ListCore.cellRow(v)}'. Rows: ${labels
+              .take(AgentAction.maxChoices)
+              .mkString(", ")}"
         )
-        .withConfirm(v => agentConfirm.flatMap(guarded(_, v))) +:
-        (moveAction.toSeq ++ agentActions())
+      val header = ListCore.cellColumn(v)
+      val c      = columns
+        .collectFirst { case (id, `header`) =>
+          id
+        }
+        .getOrElse(
+          throw AgentInputError(
+            s"No column '${header}'. Columns: ${columns.map(_._2).mkString(", ")}"
+          )
+        )
+      (i, c)
 
     // Selecting the row labeled `v` replaces the selection, as a plain click does: ask about the
     // first marked row that it adds or drops
@@ -494,9 +608,12 @@ private[ui] class ListCore[A, K](
       tabindex             -> "0",
       styleAttr            -> s"--uni-row-height: ${rowHeight}px; ${containerStyle}",
       ariaActivedescendant ->
-        Rx.join(active, activeCell)
-          .map { (a, c) =>
-            a.map(k => c.fold(rowId(k))(cellId(k, _)))
+        Rx.join(active, activeCell, headerActive)
+          .map { (a, c, h) =>
+            if h then
+              c.map(headerCellId)
+            else
+              a.map(k => c.fold(rowId(k))(cellId(k, _)))
           },
       if multi.nonEmpty then
         ariaMultiselectable -> "true"
@@ -524,6 +641,25 @@ private[ui] class ListCore[A, K](
 end ListCore
 
 private[ui] object ListCore:
+  /** What separates the row label from the column header in a cell's agent label. */
+  val cellSeparator = "·"
+
+  /** The row label in an agent's cell label, `"<row> · <column>"`. */
+  def cellRow(v: String): String =
+    val at = v.lastIndexOf(s" ${cellSeparator} ")
+    if at < 0 then
+      v
+    else
+      v.substring(0, at)
+
+  /** The column header in an agent's cell label, or "" without one. */
+  def cellColumn(v: String): String =
+    val at = v.lastIndexOf(s" ${cellSeparator} ")
+    if at < 0 then
+      ""
+    else
+      v.substring(at + cellSeparator.length + 2)
+
   /**
     * The row label and the position (from 0) in an agent's `move` value, `"<label> to <n>"` with
     * `n` from 1, or `first` or `last`.
@@ -548,7 +684,17 @@ private[ui] object ListCore:
 
 end ListCore
 
-/** Whether a list selects one row or a set of rows. */
+/** Whether a list selects one row, a set of rows, or (in a grid) one cell. */
 private[ui] enum ListSelection[K]:
   case Single(selected: RxVar[Option[K]])
   case Multi(selected: RxVar[Set[K]])
+
+  /**
+    * One cell of a grid: `column` gives the id of the active column, and `columns` pairs each
+    * column id with its header, which names the cell for agents.
+    */
+  case Cell(
+      selected: RxVar[Option[CellKey[K]]],
+      column: () => Option[String],
+      columns: Seq[(String, String)]
+  )

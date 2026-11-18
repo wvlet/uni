@@ -247,11 +247,13 @@ class ComponentTest extends DomTestSupport:
     fireEvent.click(m.getByText("Method"))
     methods shouldBe Seq("createConversation", "listConversations", "sendMessage")
 
-    table.focus()
-    fireEvent.keyDown(table, "ArrowRight")
-    Option(dom.document.getElementById(table.getAttribute("aria-activedescendant"))).map(
-      _.textContent
-    ) shouldBe Some("createConversation")
+    // A header click makes that header cell active; Down moves into the first row
+    def activeCell = Option(
+      dom.document.getElementById(table.getAttribute("aria-activedescendant"))
+    ).map(_.textContent)
+    activeCell shouldBe Some("Method")
+    fireEvent.keyDown(table, "ArrowDown")
+    activeCell shouldBe Some("createConversation")
 
     fireEvent.click(m.getByText("List"))
     m.get("[role=listbox]").getAttribute("aria-label") shouldBe "RPC calls"
