@@ -167,6 +167,17 @@ object ChangeCause:
     ChangeSource.of(e)
   )
 
+  /**
+    * The cause of putting back what a cancelled pointer drag changed: Escape, or a `pointercancel`,
+    * which ends the drag like a release.
+    */
+  private[ui] def dragCancel(e: dom.Event): ChangeCause =
+    e match
+      case _: dom.KeyboardEvent =>
+        ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard)
+      case _ =>
+        ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
+
   private[ui] def imperative: ChangeCause = ChangeCause(
     ChangeReason.Imperative,
     ChangeSource.Programmatic

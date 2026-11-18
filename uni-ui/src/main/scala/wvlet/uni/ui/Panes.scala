@@ -148,7 +148,11 @@ class Splitter(size: RxVar[Int], range: SizeRange, edge: Edge, label: String) ex
       ResizeDirection.Left
     ,
     // A double-click restores the default size, reported as a reset like Enter
-    onDoubleClick = Some(() => setSize(range.default, ChangeReason.Reset, ChangeSource.Pointer))
+    onDoubleClick = Some(() => setSize(range.default, ChangeReason.Reset, ChangeSource.Pointer)),
+    // Escape puts the size back as an Escape; a pointercancel, as the end of the drag
+    onCancel = Some((start, e) => ChangeCause.during(ChangeCause.dragCancel(e))(gated := start)),
+    // An out-of-range size the app wrote; no user event caused the correction
+    onClamp = Some(v => ChangeCause.during(ChangeCause.imperative)(gated := v))
   )
 
   private var following: Cancelable = Cancelable.empty

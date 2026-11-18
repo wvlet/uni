@@ -565,6 +565,13 @@ class Dock private (
               "nwse-resize"
             else
               "grabbing"
+          ,
+          // Escape puts the group back where the drag started
+          onCancel = Some(e =>
+            ChangeGate.inGesture(gesture) {
+              setLayout(DockModel.withBox(now, i, from), ChangeCause.dragCancel(e))
+            }
+          )
         )
     val moving                            = drag(false)
     val sizing                            = drag(true)
@@ -645,7 +652,6 @@ class Dock private (
   private var dragStart: (Double, Double)    = (0, 0)
   private var dragMoved: Boolean             = false
   private var suppressClick: Boolean         = false
-  private var stopDrag: () => Unit           = () => ()
 
   private def dropAt(x: Double, y: Double): Option[Drop] =
     for
@@ -713,32 +719,17 @@ class Dock private (
   private def startDrag(e: dom.PointerEvent): Unit =
     dragStart = (e.clientX, e.clientY)
     dragMoved = false
-    val cancel: js.Function1[dom.Event, Unit] =
-      ev =>
-        ev match
-          case k: dom.KeyboardEvent if k.key != "Escape" =>
-          case _                                         =>
-            drop    := None
-            dragged := None
-    dom.window.addEventListener("keydown", cancel)
-    // Capture, so this runs before the drag's own pointercancel handler ends it
-    dom.window.addEventListener("pointercancel", cancel, useCapture = true)
-    stopDrag =
-      () =>
-        dom.window.removeEventListener("keydown", cancel)
-        dom.window.removeEventListener("pointercancel", cancel, useCapture = true)
 
   private def moveDrag(panel: String, dx: Double, dy: Double): Unit =
     if !dragMoved && math.hypot(dx, dy) >= Dock.dragThreshold then
       dragMoved = true
       dragged := Some(panel)
-    // dragged is cleared by Escape
     if dragMoved && dragged.get.contains(panel) then
       drop := dropAt(dragStart._1 + dx, dragStart._2 + dy)
 
-  private def endDrag(panel: String): Unit =
-    stopDrag()
-    if dragMoved then
+  private def endDrag(panel: String, commit: Boolean): Unit =
+    // After a cancel, PointerDrag swallows the click itself
+    if dragMoved && commit then
       // The click that follows the release shouldn't also select a tab
       suppressClick = true
       dom.window.setTimeout(() => suppressClick = false, 0)
@@ -849,7 +840,9 @@ class Dock private (
     val drag     = PointerDrag(
       onMove = (dx, dy) => moveDrag(panel.id, dx, dy),
       onStart = startDrag,
-      onEnd = () => endDrag(panel.id)
+      onEnd = () => endDrag(panel.id, commit = true),
+      // Escape drops nothing
+      onCancel = Some(_ => endDrag(panel.id, commit = false))
     )
     val face = div(
       role          -> "tab",
@@ -1116,6 +1109,13 @@ class Dock private (
           "col-resize"
         else
           "row-resize"
+      ,
+      // Escape puts the sizes from before the drag back
+      onCancel = Some(e =>
+        ChangeGate.inGesture(gesture) {
+          setLayout(DockModel.withSizes(now, path, startSizes), ChangeCause.dragCancel(e))
+        }
+      )
     )
 
     def onKey(e: dom.KeyboardEvent): Unit =

@@ -14,14 +14,15 @@
 package wvlet.uni.dom
 
 import org.scalajs.dom
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 
 import scala.scalajs.js
 
 /**
   * Pointer drag tracking for a handle element: a splitter, a slider thumb, or a draggable card.
   *
-  * Pressing the primary button on the handle starts a drag. Moves are tracked on `window`, so the
+  * Pressing the primary button on the handle starts a drag. The handle captures the pointer, so a
+  * release outside the browser window still ends the drag. Moves are tracked on `window`, so the
   * drag continues when the pointer leaves a thin handle, and it ends on `pointerup` or
   * `pointercancel`. `onMove` receives the distance `(dx, dy)` from the start point, in CSS pixels.
   *
@@ -31,12 +32,17 @@ import scala.scalajs.js
   *   drag.dragging // Rx[Boolean], e.g. to turn off transitions while dragging
   * }}}
   *
+  * With `onCancel`, Escape ends a drag as a cancel, and so does `pointercancel` (the browser took
+  * the gesture over). `onCancel` runs instead of `onEnd`, while [[dragging]] is still true, and
+  * should put back what the drag changed. The Escape key event is consumed, so it does not also
+  * close an enclosing dialog, and the click that follows the release is swallowed.
+  *
   * @param onMove
   *   called on every pointer move during a drag
   * @param onStart
   *   called when a drag starts, with the `pointerdown` event
   * @param onEnd
-  *   called when a drag ends, by release or cancel
+  *   called when a drag ends by release, or by `pointercancel` when there is no `onCancel`
   * @param cursor
   *   a CSS cursor (e.g. "col-resize") shown on the whole page while dragging, so it does not
   *   flicker as the pointer leaves the handle. The previous cursor is restored when the drag ends.
@@ -44,13 +50,17 @@ import scala.scalajs.js
   * @param canStart
   *   whether a `pointerdown` may start a drag, such as only one on a grip inside the element. A
   *   refused press keeps its default action (focus, text selection).
+  * @param onCancel
+  *   called when Escape or `pointercancel` cancels a drag, with that `keydown` or `pointercancel`
+  *   event. Without it, Escape is ignored
   */
 class PointerDrag(
     onMove: (Double, Double) => Unit,
     onStart: dom.PointerEvent => Unit = _ => (),
     onEnd: () => Unit = () => (),
     cursor: String = "",
-    canStart: dom.PointerEvent => Boolean = _ => true
+    canStart: dom.PointerEvent => Boolean = _ => true,
+    onCancel: Option[dom.Event => Unit] = None
 ):
   private val draggingVar: RxVar[Boolean] = Rx.variable(false)
 
@@ -70,27 +80,54 @@ class PointerDrag(
       // Follow only the pointer that started the drag, so a second finger does not move it
       val pointerId  = e.pointerId
       val prevCursor = dom.document.body.style.cursor
+      val handle     = e.currentTarget
       draggingVar := true
       if cursor.nonEmpty then
         dom.document.body.style.cursor = cursor
+      PointerDrag.capture(handle, pointerId)
       onStart(e)
       lazy val move: js.Function1[dom.PointerEvent, Unit] =
         (ev: dom.PointerEvent) =>
           if ev.pointerId == pointerId then
             onMove(ev.clientX - startX, ev.clientY - startY)
+      def finish(callback: () => Unit, releaseCapture: Boolean = true): Unit =
+        dom.window.removeEventListener("pointermove", move)
+        dom.window.removeEventListener("pointerup", end)
+        dom.window.removeEventListener("pointercancel", end)
+        dom.window.removeEventListener("keydown", escape, useCapture = true)
+        // Before `dragging` turns false, so a cancel's writes still belong to this drag
+        callback()
+        if releaseCapture then
+          PointerDrag.release(handle, pointerId)
+        if cursor.nonEmpty then
+          dom.document.body.style.cursor = prevCursor
+        draggingVar := false
       lazy val end: js.Function1[dom.PointerEvent, Unit] =
         (ev: dom.PointerEvent) =>
           if ev.pointerId == pointerId then
-            dom.window.removeEventListener("pointermove", move)
-            dom.window.removeEventListener("pointerup", end)
-            dom.window.removeEventListener("pointercancel", end)
-            if cursor.nonEmpty then
-              dom.document.body.style.cursor = prevCursor
-            draggingVar := false
-            onEnd()
+            onCancel match
+              case Some(cancel) if ev.`type` == "pointercancel" =>
+                finish(() => cancel(ev))
+              case _ =>
+                finish(() => ())
+                onEnd()
+      lazy val escape: js.Function1[dom.KeyboardEvent, Unit] =
+        (ev: dom.KeyboardEvent) =>
+          onCancel.foreach { cancel =>
+            if ev.key == "Escape" && !Keyboard.isComposing(ev) then
+              // Not also an overlay's dismiss or a list's clear-selection
+              ev.preventDefault()
+              ev.stopPropagation()
+              // Keep the capture, so the release is seen even outside the window; it ends with it
+              finish(() => cancel(ev), releaseCapture = false)
+              PointerDrag.swallowClickAfterRelease(pointerId)
+          }
       dom.window.addEventListener("pointermove", move)
       dom.window.addEventListener("pointerup", end)
       dom.window.addEventListener("pointercancel", end)
+      if onCancel.isDefined then
+        // Capture, so the drag sees Escape before any element or overlay does
+        dom.window.addEventListener("keydown", escape, useCapture = true)
 
   /**
     * The modifier to put on the handle element. Add `touch-action: none` to the handle (e.g.
@@ -104,6 +141,47 @@ class PointerDrag(
       case _ =>
     }
   )
+
+end PointerDrag
+
+object PointerDrag:
+  // Best effort: a synthetic event's pointer is not active, and some environments lack capture
+  private[dom] def capture(target: dom.EventTarget, pointerId: Double): Unit =
+    target match
+      case el: dom.Element if !js.isUndefined(el.asInstanceOf[js.Dynamic].setPointerCapture) =>
+        try
+          el.asInstanceOf[js.Dynamic].setPointerCapture(pointerId)
+        catch
+          case _: js.JavaScriptException =>
+      case _ =>
+
+  private def release(target: dom.EventTarget, pointerId: Double): Unit =
+    target match
+      case el: dom.Element if !js.isUndefined(el.asInstanceOf[js.Dynamic].releasePointerCapture) =>
+        try
+          el.asInstanceOf[js.Dynamic].releasePointerCapture(pointerId)
+        catch
+          case _: js.JavaScriptException =>
+      case _ =>
+
+  // After an Escape cancel the button is still down; its release must not click the handle
+  private def swallowClickAfterRelease(pointerId: Double): Unit =
+    lazy val click: js.Function1[dom.Event, Unit] =
+      e =>
+        e.preventDefault()
+        e.stopImmediatePropagation()
+    lazy val up: js.Function1[dom.PointerEvent, Unit] =
+      ev =>
+        if ev.pointerId == pointerId then
+          dom.window.removeEventListener("pointerup", up, useCapture = true)
+          dom.window.removeEventListener("pointercancel", up, useCapture = true)
+          // The click follows the pointerup in the same task
+          dom
+            .window
+            .setTimeout(() => dom.window.removeEventListener("click", click, useCapture = true), 0)
+    dom.window.addEventListener("click", click, useCapture = true)
+    dom.window.addEventListener("pointerup", up, useCapture = true)
+    dom.window.addEventListener("pointercancel", up, useCapture = true)
 
 end PointerDrag
 
@@ -150,8 +228,11 @@ enum ResizeDirection:
   *
   * The handle gets `role="separator"` and `aria-orientation`; give it an `aria-label` too.
   *
-  * Construction clamps `size` into `range`, so a stale value restored from storage (e.g. saved
-  * under a larger max) is corrected before the pane renders.
+  * Escape during a drag, or a `pointercancel`, puts back the size from before the drag.
+  *
+  * `size` is kept within `range`: construction clamps a stale value restored from storage (e.g.
+  * saved under a larger max) before the pane renders, and while the handle is mounted, a value
+  * written from outside a drag (e.g. by another tab through a storage event) is clamped too.
   *
   * @param size
   *   the pane's width (horizontal) or height (vertical) in CSS pixels
@@ -160,12 +241,19 @@ enum ResizeDirection:
   * @param onDoubleClick
   *   what a double-click on the handle does instead of [[reset]], e.g. a wrapper that reports the
   *   reset differently from a drag
+  * @param onCancel
+  *   what a cancelled drag does instead of writing the start size back to `size`. It receives the
+  *   start size and the Escape `keydown` or `pointercancel` event
+  * @param onClamp
+  *   what a clamp while mounted does instead of writing the clamped size to `size`
   */
 class PaneResize(
     size: RxVar[Int],
     range: SizeRange,
     grow: ResizeDirection,
-    onDoubleClick: Option[() => Unit] = None
+    onDoubleClick: Option[() => Unit] = None,
+    onCancel: Option[(Int, dom.Event) => Unit] = None,
+    onClamp: Option[Int => Unit] = None
 ):
   private var startSize = 0
 
@@ -195,7 +283,16 @@ class PaneResize(
         "col-resize"
       else
         "row-resize"
+    ,
+    onCancel = Some(e => onCancel.fold(size := startSize)(_(startSize, e)))
   )
+
+  // A value written later from outside a drag; a refused write is not retried
+  private def keepInRange(): Cancelable = size.foreach { v =>
+    val clamped = range.clamp(v)
+    if clamped != v then
+      onClamp.fold(size := clamped)(_(clamped))
+  }
 
   /** True while the handle is being dragged, e.g. to turn off a width transition. */
   def dragging: Rx[Boolean] = drag.dragging
@@ -216,7 +313,8 @@ class PaneResize(
         "horizontal"
     ),
     drag.bind,
-    EventListenerBinding("dblclick", _ => doubleClick())
+    EventListenerBinding("dblclick", _ => doubleClick()),
+    OnMount(_ => keepInRange())
   )
 
 end PaneResize

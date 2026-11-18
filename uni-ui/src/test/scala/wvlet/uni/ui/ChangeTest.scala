@@ -280,6 +280,90 @@ class ChangeTest extends DomTestSupport:
     rec.last.source shouldBe ChangeSource.Pointer
   }
 
+  test("Escape mid-drag puts a splitter's size back, reported as Escape") {
+    val width = Rx.variable(300)
+    val rec   = Recorder()
+    val m     = mount(
+      Splitter(width, SizeRange(min = 200, default = 272, max = 480), Edge.Right, "Resize")
+        .onChange(rec.handler)
+    )
+    val grip = m.get("[data-slot=splitter]")
+    fireEvent.pointerDown(grip, clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 340)
+    width.get shouldBe 340
+    fireEvent.keyDown(dom.window, "Escape")
+    width.get shouldBe 300
+    (rec.last.previous, rec.last.value) shouldBe (340, 300)
+    rec.last.reason shouldBe ChangeReason.EscapeKey
+    rec.last.source shouldBe ChangeSource.Keyboard
+    grip.getAttribute("data-dragging") shouldBe "false"
+
+    // A refused restore keeps the dragged size, and the drag still ends
+    fireEvent.pointerDown(grip, clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 320)
+    rec.refuse = true
+    fireEvent.keyDown(dom.window, "Escape")
+    width.get shouldBe 320
+    grip.getAttribute("data-dragging") shouldBe "false"
+  }
+
+  test("a pointercancel puts a splitter's size back, reported as a drag") {
+    val width = Rx.variable(300)
+    val rec   = Recorder()
+    val m     = mount(
+      Splitter(width, SizeRange(min = 200, default = 272, max = 480), Edge.Right, "Resize")
+        .onChange(rec.handler)
+    )
+    fireEvent.pointerDown(m.get("[data-slot=splitter]"), clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 340)
+    fireEvent.pointerCancel(dom.window)
+    width.get shouldBe 300
+    rec.last.reason shouldBe ChangeReason.Drag
+    rec.last.source shouldBe ChangeSource.Pointer
+  }
+
+  test("Escape mid-drag on a splitter in a dialog keeps the dialog open") {
+    val open  = Rx.variable(true)
+    val width = Rx.variable(300)
+    mount(
+      Dialog(
+        open,
+        content = Seq(
+          Splitter(width, SizeRange(min = 200, default = 272, max = 480), Edge.Right, "Resize")
+        )
+      )
+    )
+    // The dialog opens its Escape layer once mounted
+    settle().map { _ =>
+      // The dialog renders in a portal outside the mount point
+      val grip = dom.document.querySelector("[data-slot=splitter]")
+      fireEvent.pointerDown(grip, clientX = 300)
+      fireEvent.pointerMove(dom.window, clientX = 340)
+      // Escape on an element in the dialog, so it would reach the dialog's own listener
+      fireEvent.keyDown(grip, "Escape")
+      width.get shouldBe 300
+      open.get shouldBe true
+      fireEvent.pointerUp(grip, clientX = 340)
+      // The next Escape closes it
+      fireEvent.keyDown(grip, "Escape")
+      open.get shouldBe false
+    }
+  }
+
+  test("a splitter clamps a size the app writes later, reported as imperative") {
+    val width = Rx.variable(300)
+    val rec   = Recorder()
+    mount(
+      Splitter(width, SizeRange(min = 200, default = 272, max = 480), Edge.Right, "Resize")
+        .onChange(rec.handler)
+    )
+    width := 960
+    width.get shouldBe 480
+    (rec.last.previous, rec.last.value) shouldBe (960, 480)
+    rec.last.reason shouldBe ChangeReason.Imperative
+    rec.last.source shouldBe ChangeSource.Programmatic
+  }
+
   test("components name their parts with data-slot") {
     val open = Rx.variable(true)
     val m    = mount(
