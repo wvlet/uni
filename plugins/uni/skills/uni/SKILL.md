@@ -27,6 +27,11 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
 On sbt 2.x use `%%` for all platforms. On sbt 1.x use `%%%` for Scala.js and
 Scala Native.
 
+Every release is on `https://repo.wvlet.org/maven2`; only some reach Maven
+Central. For a newer version than Central has, an application adds
+`resolvers += "wvlet" at "https://repo.wvlet.org/maven2"`. A library published to
+Maven Central should depend on a Central version and not add that resolver.
+
 ## Canonical imports
 
 | Task | Import | Entry point |

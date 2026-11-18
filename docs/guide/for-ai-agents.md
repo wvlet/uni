@@ -83,6 +83,13 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 Uni requires Scala `__SCALA_VERSION__` or later. On sbt 2.x, use `%%` for all
 platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 
+`__UNI_VERSION__` is the newest version on Maven Central. Every release is also
+published to `https://repo.wvlet.org/maven2`, and newer versions may be only
+there. To use one, an application adds
+`resolvers += "wvlet" at "https://repo.wvlet.org/maven2"`. A library published
+to Maven Central should depend on a Central version and not add that resolver.
+See [Newest Releases](./installation#newest-releases).
+
 ## What are the canonical imports?
 
 | Task | Import | Entry point |
