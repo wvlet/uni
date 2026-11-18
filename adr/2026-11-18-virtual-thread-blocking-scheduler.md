@@ -8,7 +8,7 @@ Uni supports JDK 17+, and virtual threads exist from JDK 21. On JDK 21–23 a vi
 
 ## Decision
 
-- On JDK 24+ (`Runtime.version().feature() >= 24`), `RxScheduler.blocking` runs each task on a new virtual thread named `rx-blocking-N` (`Executors.newThreadPerTaskExecutor`).
+- On JDK 24+ (`Runtime.version().feature() >= 24`), `RxScheduler.blocking` runs each task on a new virtual thread named `rx-blocking-N` (numbered from 1, like the platform pool; `Executors.newThreadPerTaskExecutor`).
 - On JDK 17–23 it keeps the cached platform thread pool.
 - The delay timer keeps one platform thread and hands each fired task to the blocking executor, so delayed tasks also run on virtual threads.
 - `RxScheduler.default` stays a FIFO `ForkJoinPool` sized to the CPU count: CPU work gains nothing from virtual threads.

@@ -56,7 +56,7 @@ private[rx] object schedulerCompat:
     */
   private[rx] def virtualThreadBlockingScheduler(): RxScheduler =
     new BlockingScheduler(
-      Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("rx-blocking-", 0).factory())
+      Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("rx-blocking-", 1).factory())
     )
 
   /**
