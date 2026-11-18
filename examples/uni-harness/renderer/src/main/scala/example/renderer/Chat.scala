@@ -338,7 +338,7 @@ class Composer(onSend: String => Unit, busy: Rx[Boolean]) extends RxElement:
         ).withSide(Side.Bottom),
         span(
           cls ->
-            "flex items-center gap-1.5 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-medium text-brand",
+            "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-medium text-brand",
           Icons.sparkle,
           "Echo · mock"
         ),
