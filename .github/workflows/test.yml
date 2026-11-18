@@ -25,16 +25,16 @@ jobs:
             # Building Scala Native on Windows costs ~15 minutes, mostly toolchain setup, so the
             # Windows job sits behind this narrower filter: the C sources Scala Native compiles into
             # every downstream binary, the Native-only Scala, and the Scala Native version itself.
-            # The Lean spec and the Scala cases generated from it (see spec/lean/README.md)
-            lean:
-              - '.github/workflows/test.yml'
-              - 'spec/lean/**'
-              - 'uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala'
             native:
               - '.github/workflows/test.yml'
               - '**.c'
               - '**/.native/**'
               - 'project/**'
+            # The Lean spec and the Scala cases generated from it (see spec/lean/README.md)
+            lean:
+              - '.github/workflows/test.yml'
+              - 'spec/lean/**'
+              - 'uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'

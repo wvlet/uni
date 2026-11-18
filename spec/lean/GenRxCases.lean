@@ -12,17 +12,17 @@ open UniSpec.Rx
 inductive Op where
   | even
   | take (n : Nat)
-  | times10
+  | inc
 
 def Op.apply : Op → List Event → List Event
   | .even => UniSpec.Rx.filter (fun v => v % 2 == 0)
   | .take n => UniSpec.Rx.take n
-  | .times10 => UniSpec.Rx.map (· * 10)
+  | .inc => UniSpec.Rx.map (· + 1)
 
 def Op.render : Op → String
   | .even => "even"
   | .take n => s!"take:{n}"
-  | .times10 => "x10"
+  | .inc => "inc"
 
 def renderEvent : Event → String
   | .next v => toString v
@@ -33,7 +33,7 @@ def renderList {α} (f : α → String) : List α → String
   | [] => "-"
   | xs => " ".intercalate (xs.map f)
 
-def ops : List Op := [.even, .take 0, .take 1, .take 2, .times10]
+def ops : List Op := [.even, .take 0, .take 1, .take 2, .inc]
 
 def pipelines : List (List Op) :=
   ops.map (fun o => [o]) ++ ops.flatMap (fun a => ops.map (fun b => [a, b]))

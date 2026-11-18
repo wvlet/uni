@@ -46,8 +46,8 @@ class RxSpecTest extends UniTest:
     op match
       case "even" =>
         rx.filter(_ % 2 == 0)
-      case "x10" =>
-        rx.map(_ * 10)
+      case "inc" =>
+        rx.map(_ + 1)
       case s if s.startsWith("take:") =>
         rx.take(s.stripPrefix("take:").toLong)
       case other =>
