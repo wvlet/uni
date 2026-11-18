@@ -54,7 +54,8 @@ agent.changes(since = 0)                              // what people changed, an
 - **Guarded rows.** `.withAgentConfirm(row => Option[String])` on a `VirtualList`, `Tree`, or
   `DataTable` asks the human before an agent's `select` adds a guarded row to the selection or
   drops one from it, in single and multiple selection alike. It reads the row data, so it also
-  covers rows scrolled out of view.
+  covers rows scrolled out of view. Dropping a selected row the list no longer shows (filtered
+  out, say) asks too, since the guard can't read it.
 
   ```scala
   case class Member(name: String, role: String)
