@@ -35,6 +35,7 @@ jobs:
               - '.github/workflows/test.yml'
               - 'spec/lean/**'
               - 'uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala'
+              - 'uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -74,8 +75,9 @@ jobs:
       - name: Generated cases are up to date
         run: |
           lake exe gen-rx-cases
-          if ! git diff --exit-code -- ../../uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala; then
-            echo "::error::Run 'lake exe gen-rx-cases' in spec/lean and commit RxSpecCases.scala"
+          lake exe gen-msgpack-cases
+          if ! git diff --exit-code -- ../../uni/src/test/scala; then
+            echo "::error::Run 'lake exe gen-rx-cases' and 'lake exe gen-msgpack-cases' in spec/lean and commit the generated cases"
             exit 1
           fi
   code_format:
