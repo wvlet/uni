@@ -147,10 +147,11 @@ private[ui] class OverlaySurface(
             Cancelable.empty
         val background =
           if modal && inPlace then
-            // The positioned ancestor the backdrop covers
+            // The positioned ancestor the backdrop covers; without one, only the dialog's parent,
+            // so the page is never blocked
             val region =
               el.offsetParent match
-                case p: dom.Element =>
+                case p: dom.Element if !(p eq dom.document.body) =>
                   p
                 case _ =>
                   el.parentElement

@@ -5,7 +5,7 @@ description: uni-ui overlays for Scala.js — popovers, tooltips, menus, context
 # Overlays
 
 Popovers, tooltips, menus, dialogs, selects, and toasts render at the end of `<body>`, so a pane's
-`overflow: hidden` never clips them. The ones that open from a trigger take the trigger element and
+`overflow: hidden` never clips them. A dialog or popover can render [in place](#in-place) instead. The ones that open from a trigger take the trigger element and
 add `aria-expanded`, `aria-controls`, and the toggle to it.
 
 ```scala
@@ -60,9 +60,14 @@ They all behave the same way:
   `onChange` with reason `parent-close`; a handler that cancels keeps its `open` value.
 - **Modal.** While a dialog is open, the rest of the page is `inert`: pointers, the keyboard,
   screen readers, and [agents](./agents) reach only the dialog and the overlays opened from it.
-  The `Toaster` region stays live, so toasts can still be closed.
+  The `Toaster` region stays live, so toasts can still be closed. The page is live again as soon
+  as the dialog starts closing, so focus can go back while the dialog fades out. An
+  [inline](#in-place) dialog blocks only its panel.
 - **Focus.** Opening moves focus into the overlay, and closing moves it back to the trigger. A
-  dialog keeps Tab and Shift+Tab inside it and focuses the element with `autofocus` first.
+  dialog keeps Tab and Shift+Tab inside it and focuses the element with `autofocus` first. When
+  the trigger is gone, as when the dialog's action deleted the row it was in, focus moves to the
+  element now in its place, else the one before it. This also works when the row is deleted
+  right after `open := false`, and in a list that renders every row again.
 - **Keyboard.** In menus and selects, the arrow keys, Home, End, and typed letters move between
   items, and Enter or Space chooses one.
 - **Placement.** An anchored overlay flips to the other side of its trigger when there's no room,
@@ -74,6 +79,34 @@ They all behave the same way:
   plays its exit too. Style
   `.uni-popover[data-state='closed']` (and the other overlay classes) to change the exit; with
   `animation: none`, or under `prefers-reduced-motion`, overlays unmount at once.
+
+## In place
+
+`.withInline(true)` renders a `Dialog`, `AlertDialog`, or `Popover` where it is instead of at the
+end of `<body>`. Use it for a dialog inside a panel, an app preview, or a fixed corner widget,
+and in tests.
+
+```scala
+val renameOpen  = Rx.variable(false)
+val sessionName = Rx.variable("")
+
+div(
+  styleAttr -> "position: relative",
+  Button("Rename").onClick(() => renameOpen := true),
+  Dialog(renameOpen, content = Seq(Input(sessionName).withLabel("Name")))
+    .withTitle("Rename")
+    .withInline(true)
+)
+```
+
+- **Dialog.** The backdrop covers the nearest positioned ancestor, so give the panel
+  `position: relative`. While the dialog is open, the content of that panel outside the dialog is
+  `inert`, and the rest of the page stays live. So the dialog leaves out `aria-modal`, and Escape
+  closes it only while focus is inside it. The focus trap, a press outside, `onChange`, focus
+  return, and the exit animation work as usual.
+- **Popover.** The trigger and the panel are wrapped in `span.uni-popover-anchor`, and CSS places
+  the panel under the trigger. `withSide` and `withAlign` don't apply, and `data-side` is not set.
+  Style `.uni-popover--inline` to move it. Pane overflow can clip it.
 
 `wvlet.uni.ui.base` holds the pieces they share, for building your own overlay: `Anchored.place`
 (placement math), `Dismiss` (the Escape and outside-press stack), `FocusTrap`, and `FocusReturn`.
