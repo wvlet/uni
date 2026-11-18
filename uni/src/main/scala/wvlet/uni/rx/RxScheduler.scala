@@ -64,8 +64,9 @@ object RxScheduler:
   def apply(parallelism: Int): RxScheduler = schedulerCompat.createScheduler(parallelism)
 
   /**
-    * Create a scheduler optimized for blocking operations. This uses a cached thread pool that can
-    * grow as needed.
+    * The scheduler for blocking operations, such as file and network I/O. On JDK 24+ each task runs
+    * on its own virtual thread; on older JVMs it uses a cached thread pool that grows as needed.
+    * Scala.js and Scala Native use their own platform schedulers.
     */
   def blocking: RxScheduler = schedulerCompat.blockingScheduler
 

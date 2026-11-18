@@ -205,7 +205,7 @@ import wvlet.uni.rx.RxScheduler
 // Platform-dependent default scheduler
 val default = RxScheduler.default
 
-// Blocking I/O scheduler (cached thread pool)
+// Blocking I/O scheduler (virtual threads on JDK 24+, a cached thread pool on older JVMs)
 val blocking = RxScheduler.blocking
 
 // Custom parallelism
@@ -234,7 +234,7 @@ periodic.cancel
 
 | Platform | Default Scheduler | Blocking Scheduler |
 |----------|------------------|--------------------|
-| JVM | Work-stealing thread pool | Cached thread pool |
+| JVM | Work-stealing thread pool | A virtual thread per task on JDK 24+; cached thread pool on JDK 17–23 |
 | Scala.js | Microtask queue | Same (single-threaded) |
 | Scala Native | Fixed-size thread pool | Fixed-size thread pool |
 

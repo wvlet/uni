@@ -15,6 +15,7 @@ package wvlet.uni.rx
 
 import wvlet.uni.util.ThreadUtil
 
+import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ForkJoinPool
 import java.util.concurrent.ScheduledExecutorService
@@ -32,9 +33,39 @@ private[rx] object schedulerCompat:
   lazy val defaultScheduler: RxScheduler = createScheduler(Runtime.getRuntime.availableProcessors())
 
   /**
-    * Scheduler for blocking operations using a cached thread pool.
+    * Scheduler for blocking operations: virtual threads on JDK 24+, a cached platform thread pool
+    * on older JVMs.
     */
-  lazy val blockingScheduler: RxScheduler = new BlockingScheduler()
+  lazy val blockingScheduler: RxScheduler =
+    if useVirtualThreads(Runtime.version().feature()) then
+      virtualThreadBlockingScheduler()
+    else
+      platformThreadBlockingScheduler()
+
+  /**
+    * Whether the blocking scheduler runs on virtual threads for the given JDK feature version.
+    *
+    * JDK 21-23 pin a virtual thread to its carrier while it blocks inside `synchronized`, and once
+    * every carrier is pinned all virtual threads stop. JDK 24 (JEP 491) removes that pinning, so
+    * virtual threads are used only from JDK 24.
+    */
+  private[rx] def useVirtualThreads(jdkFeatureVersion: Int): Boolean = jdkFeatureVersion >= 24
+
+  /**
+    * A blocking scheduler that runs each task on a new virtual thread. Requires JDK 21+.
+    */
+  private[rx] def virtualThreadBlockingScheduler(): RxScheduler =
+    new BlockingScheduler(
+      Executors.newThreadPerTaskExecutor(Thread.ofVirtual().name("rx-blocking-", 0).factory())
+    )
+
+  /**
+    * A blocking scheduler backed by a cached pool of platform daemon threads.
+    */
+  private[rx] def platformThreadBlockingScheduler(): RxScheduler =
+    new BlockingScheduler(
+      Executors.newCachedThreadPool(ThreadUtil.newDaemonThreadFactory("rx-blocking"))
+    )
 
   /**
     * Create a work-stealing scheduler with the specified parallelism.
@@ -108,15 +139,10 @@ private[rx] object schedulerCompat:
   end WorkStealingScheduler
 
   /**
-    * Scheduler for blocking operations using a cached thread pool.
-    *
-    * This scheduler creates new threads as needed and reuses idle threads. It should only be used
-    * for blocking I/O operations that would otherwise starve the compute pool.
+    * Scheduler for blocking operations that would otherwise starve the compute pool. The executor
+    * starts a thread (virtual or platform) as tasks need one, so parallelism is unbounded.
     */
-  private class BlockingScheduler extends RxScheduler:
-    private val pool = Executors.newCachedThreadPool(
-      ThreadUtil.newDaemonThreadFactory("rx-blocking")
-    )
+  private class BlockingScheduler(pool: ExecutorService) extends RxScheduler:
 
     private val delayScheduler: ScheduledExecutorService = Executors.newScheduledThreadPool(
       1,
