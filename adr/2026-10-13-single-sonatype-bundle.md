@@ -1,5 +1,7 @@
 # Release every artifact as one Sonatype deployment
 
+> Update (2026-11-18): the staged bundle now goes to repo.wvlet.org on every tag, and to Maven Central only when promoted by hand. See [2026-11-18-wvlet-maven-repo.md](2026-11-18-wvlet-maven-repo.md).
+
 ## Context
 
 Each `v*` tag used to start six independent release workflows: JVM, Scala.js, Scala Native, `sbt-uni`, `sbt-uni-crossproject`, and `sbt-uni-playwright`. Each one ran its own `sonaRelease`, so a single release produced six Sonatype Central deployments. Sonatype Central is not a reliable target: uploads time out and validation can stall. When one deployment failed, the release was left half-published, and the published coordinates could not be re-uploaded to retry it.

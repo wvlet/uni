@@ -59,6 +59,53 @@ shared library — see
 [Linking libcurl on Scala Native](../http/client.md#linking-libcurl-on-scala-native).
 :::
 
+## Newest Releases
+
+Every uni release is published to the wvlet Maven repository,
+`https://repo.wvlet.org/maven2`. Maven Central limits how much a
+project may publish each month, so only some releases are copied there.
+The versions shown on this site are the newest ones on Maven Central and
+need no extra setup.
+
+To use a newer release (for example, a fix you need now), add the wvlet
+repository:
+
+```scala
+// build.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
+// project/plugins.sbt, only for an sbt plugin version that is not yet on Maven Central
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+```
+
+```scala
+// scala-cli
+//> using repository https://repo.wvlet.org/maven2
+```
+
+```scala
+// Mill (build.mill)
+def repositories = super.repositories() ++ Seq("https://repo.wvlet.org/maven2")
+```
+
+```kotlin
+// Gradle (build.gradle.kts)
+repositories {
+    mavenCentral()
+    maven("https://repo.wvlet.org/maven2")
+}
+```
+
+The artifacts and signatures are the same files that Maven Central gets,
+under the same coordinates. To go back, pin a version that is on Maven
+Central and remove the resolver.
+
+::: tip Publishing a library that depends on uni
+If your library is published to Maven Central, depend on a uni version
+that is on Maven Central and don't add the wvlet resolver to its build.
+Your users then need no extra resolver for uni.
+:::
+
 ## Imports
 
 Common imports for getting started:

@@ -1,24 +1,35 @@
 name: Release
 
+# Every v* tag publishes to the wvlet Maven repository (https://repo.wvlet.org/maven2, Cloudflare R2).
+# Maven Central caps how much an organization may publish each month, so only some releases go there:
+# run this workflow by hand with `central_version` to copy a version that is already in the wvlet repo
+# to Central. See adr/2026-11-18-wvlet-maven-repo.md.
+
 on:
   push:
     tags:
       - v*
   workflow_dispatch:
+    inputs:
+      central_version:
+        description: 'Copy this version (e.g. 2026.2.1) from repo.wvlet.org to Maven Central. Leave empty to release the selected tag to repo.wvlet.org.'
+        required: false
+        default: ''
+
+env:
+  R2_BUCKET: wvlet-maven
+  R2_PREFIX: maven2
 
 jobs:
   publish:
-    name: Publish to Sonatype
+    name: Publish to repo.wvlet.org
+    if: github.event_name == 'push' || inputs.central_version == ''
     runs-on: ubuntu-latest
     # Every build below stages its signed artifacts into the root's target/sona-staging (the plugin
-    # builds point their stagingDirectory there), and a single sonaRelease at the end uploads them as
-    # one Sonatype deployment. A release thus publishes completely or not at all, instead of risking
-    # a partial release across several separate deployments.
+    # builds point their stagingDirectory there), and the whole tree is uploaded at the end. A version
+    # already in the bucket is never overwritten, and artifacts go up before maven-metadata.xml.
     #
-    # Credentials are scoped to the steps that launch sbt, never exposed to third-party actions. Each
-    # sbt step carries both PGP and Sonatype vars: sbt 2.x may keep a persistent server per build, and
-    # env vars are captured when that server starts, so the root server started for staging must
-    # already see SONATYPE_* for the final sonaRelease.
+    # Credentials are scoped to the steps that need them, never exposed to third-party actions.
     steps:
       - uses: actions/checkout@v7
         with:
@@ -44,13 +55,11 @@ jobs:
         run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
       # The five builds live in separate directories with their own sbt servers and write to disjoint
       # paths under the shared staging dir, so they can stage concurrently. `parallel` waits for all
-      # of them (and fails if any failed) before sonaRelease runs.
+      # of them (and fails if any failed) before the upload runs.
       - parallel:
         - name: Stage uni (JVM, Scala.js, Scala Native)
           env: &sbt-env
             PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
-            SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
-            SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
           run: ./sbt "projectJVM/publishSigned; projectJS/publishSigned; projectNative/publishSigned"
         # The plugin builds do not depend on the uni version being released, so no local publish of uni
         # is needed first.
@@ -72,6 +81,55 @@ jobs:
           env: *sbt-env
           working-directory: sbt-uni-playwright
           run: sbt "jsenv/publishSigned; plugin/publishSigned"
-      - name: Release to Sonatype
-        env: *sbt-env
-        run: ./sbt sonaRelease
+      - name: Upload to repo.wvlet.org
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+        run: |
+          dest="s3://${R2_BUCKET}/${R2_PREFIX}"
+          python3 .github/scripts/maven_repo.py check target/sona-staging "${dest}"
+          aws s3 cp target/sona-staging/ "${dest}/" --recursive --exclude "*maven-metadata*"
+          # Rebuilt from the version directories now in the bucket, so concurrent releases need no lock
+          python3 .github/scripts/maven_repo.py metadata target/sona-staging "${dest}" target/repo-metadata
+          aws s3 cp target/repo-metadata/ "${dest}/" --recursive --cache-control "no-cache"
+
+  central:
+    name: Copy to Maven Central
+    if: github.event_name == 'workflow_dispatch' && inputs.central_version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Download the release from repo.wvlet.org
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          VERSION: ${{ inputs.central_version }}
+        run: |
+          aws s3 cp "s3://${R2_BUCKET}/${R2_PREFIX}/org/wvlet/uni/" repo/org/wvlet/uni/ --recursive \
+            --exclude "*" --include "*/${VERSION}/*"
+          python3 .github/scripts/maven_repo.py bundle repo "${VERSION}" bundle.zip
+      - name: Release to Maven Central
+        env:
+          SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
+          SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
+          VERSION: ${{ inputs.central_version }}
+        run: .github/scripts/central-release.sh bundle.zip "uni-${VERSION}"
+      # The version stays on repo.wvlet.org either way; open an issue so a rejected or stalled Central
+      # upload is noticed. Re-run this workflow with the same central_version to retry.
+      - name: Report a failed Central release
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.central_version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh issue create --repo "${GITHUB_REPOSITORY}" \
+            --title "Maven Central release of ${VERSION} failed" \
+            --body "Copying ${VERSION} from repo.wvlet.org to Maven Central failed: ${RUN_URL}. The version is still available from https://repo.wvlet.org/maven2. Check https://central.sonatype.com/publishing/deployments first: if the deployment was published after all, nothing is left to do. Otherwise re-run the Release workflow with central_version=${VERSION}."
