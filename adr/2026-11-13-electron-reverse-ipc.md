@@ -24,6 +24,14 @@
 
 ## Consequences
 
-- The bridge talks to one window at a time: `attachAgentBridge(webContents)` points it at the newest window.
+- ~~The bridge talks to one window at a time.~~ Superseded on 2026-11-18, see the addendum.
 - An error reply waits out uni's retry backoff once (about 1 s) even with `noRetry`, as the renderer→main channel already does. A fix belongs in `Retry`, not here.
 - The bearer token is the only credential, and it lives in the developer's terminal. The bridge is a development tool, not something to ship enabled.
+
+## Addendum (2026-11-18): any window
+
+- `attachAgentBridge(win)` takes the `BrowserWindow` and keeps one IPC client per window, dropped when the window closes.
+- The bridge serves its own `HarnessAgentApi` (in the harness, not uni): `UiAgentApi` plus a `windows` tool and an optional `window` id on each call. `UiAgentApi` stays a one-page API, since WebMCP and other single-page transports implement it too.
+- A call without an id goes to the focused window, or else the newest. Every result is `{"window": id, "result": ...}`, so an agent that relied on the default sees which window answered, and a `changes` cursor is valid only for its window.
+- Rejected: a stateful `selectWindow` tool (parallel calls race on it), and one endpoint per window (a new `claude mcp add` per window).
+- Detached dock panels render into their own popup document, which `UiAgent` does not walk, so the agent can't see them yet.

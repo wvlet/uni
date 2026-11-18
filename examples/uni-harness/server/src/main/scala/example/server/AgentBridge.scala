@@ -26,6 +26,7 @@ import wvlet.uni.http.{
   RxHttpHandler
 }
 import wvlet.uni.http.ServiceStatus
+import wvlet.uni.json.JSON
 import wvlet.uni.http.rpc.RPCClient
 import wvlet.uni.mcp.MCPServer
 import wvlet.uni.rx.Rx
@@ -42,8 +43,9 @@ import scala.scalajs.js.typedarray.Uint8Array
   * 127.0.0.1 at a port the OS picks, and every request must carry `Authorization: Bearer <token>`,
   * a random token made at startup. `src/main/index.js` prints the URL and the token.
   *
-  * Each MCP tool call goes to the renderer over the main→renderer IPC channel, where the renderer
-  * serves `UiAgentApi` with `ElectronRenderer.serve`.
+  * Each MCP tool call goes to one window's renderer over the main→renderer IPC channel, where the
+  * renderer serves `UiAgentApi` with `ElectronRenderer.serve`. The `windows` tool lists the open
+  * windows, and every other tool takes an optional window id (see [[HarnessAgentApi]]).
   */
 object AgentBridge:
 
@@ -72,12 +74,12 @@ object AgentBridge:
     }
 
   /** The MCP endpoint for `api`, behind the bearer token. */
-  def handler(api: UiAgentApi, token: String): RxHttpHandler =
+  def handler(api: HarnessAgentApi, token: String): RxHttpHandler =
     val mcp =
       MCPServer()
         .withName("uni-harness")
         .withVersion("0.1.0")
-        .withTools[UiAgentApi](api)
+        .withTools[HarnessAgentApi](api)
         .httpHandler
     RxHttpHandler { request =>
       if request.path != Path then
@@ -90,43 +92,110 @@ object AgentBridge:
         mcp.handle(request)
     }
 
-  /** `UiAgentApi` calls forwarded to the renderer through an RPC client. */
-  class Forwarder(client: () => Option[HttpAsyncClient]) extends UiAgentApi:
+  /**
+    * A window the bridge can send calls to: its Electron `BrowserWindow.id`, the RPC client of its
+    * renderer, and live reads of its title and focus.
+    */
+  class AgentWindow(
+      val id: Int,
+      val client: HttpAsyncClient,
+      title: () => String = () => "",
+      focused: () => Boolean = () => false
+  ):
+    def currentTitle: String      = title()
+    def isFocused: Boolean        = focused()
+    override def toString: String = s"AgentWindow(${id})"
+
+  /**
+    * The open windows, in the order they opened. A call without a window id goes to the focused
+    * window, or else to the newest one.
+    */
+  class AgentWindows:
+    private var opened: Vector[AgentWindow] = Vector.empty
+
+    def all: Seq[AgentWindow] = opened
+
+    def add(w: AgentWindow): Unit = opened = opened.filterNot(_.id == w.id) :+ w
+
+    def remove(id: Int): Unit =
+      opened.find(_.id == id).foreach(_.client.close())
+      opened = opened.filterNot(_.id == id)
+
+    /** The window a call without an id goes to. */
+    def default: Option[AgentWindow] = opened.findLast(_.isFocused).orElse(opened.lastOption)
+
+    def resolve(window: Option[Int]): Either[Exception, AgentWindow] =
+      window match
+        case Some(id) =>
+          opened
+            .find(_.id == id)
+            .toRight(
+              ServiceStatus
+                .NOT_FOUND_U5
+                .newException(s"No window ${id} is open; call windows to list the open windows")
+            )
+        case None =>
+          default.toRight(ServiceStatus.UNAVAILABLE_I2.newException("No window is open"))
+
+  end AgentWindows
+
+  /**
+    * The bridge's tools: `UiAgentApi` calls forwarded to the chosen window's renderer, plus
+    * `windows`. Each result wraps the renderer's JSON as `{"window": id, "result": ...}`, so the
+    * agent sees which window answered.
+    */
+  class Forwarder(opened: AgentWindows) extends HarnessAgentApi:
     private val rpc = RPCClient.of[UiAgentApi]
 
-    private def call(method: String, args: Any*): Rx[String] =
-      client() match
-        case Some(c) =>
-          rpc.callAsync[String](c, method, args)
-        case None =>
-          Rx.exception(ServiceStatus.UNAVAILABLE_I2.newException("No window is open"))
+    private def call(window: Option[Int], method: String, args: Any*): Rx[String] =
+      opened.resolve(window) match
+        case Right(w) =>
+          rpc
+            .callAsync[String](w.client, method, args)
+            .map(r => s"""{"window":${w.id},"result":${r}}""")
+        case Left(e) =>
+          Rx.exception(e)
 
-    override def snapshot(): Rx[String] = call("snapshot")
+    override def windows(): Rx[String] =
+      val default = opened.default.map(_.id)
+      val items   = opened
+        .all
+        .map { w =>
+          s"""{"id":${w.id},"title":"${JSON.quoteJSONString(w.currentTitle)}","focused":${w
+              .isFocused},"default":${default.contains(w.id)}}"""
+        }
+      Rx.single(items.mkString("""{"windows":[""", ",", "]}"))
+
+    override def snapshot(window: Option[Int]): Rx[String] = call(window, "snapshot")
     override def query(
         kind: Option[String],
         text: Option[String],
-        ref: Option[String]
-    ): Rx[String] = call("query", kind, text, ref)
+        ref: Option[String],
+        window: Option[Int]
+    ): Rx[String] = call(window, "query", kind, text, ref)
 
-    override def act(ref: String, action: String, value: Option[String]): Rx[String] = call(
-      "act",
-      ref,
-      action,
-      value
+    override def act(
+        ref: String,
+        action: String,
+        value: Option[String],
+        window: Option[Int]
+    ): Rx[String] = call(window, "act", ref, action, value)
+
+    override def changes(since: Long, window: Option[Int]): Rx[String] = call(
+      window,
+      "changes",
+      since
     )
-
-    override def changes(since: Long): Rx[String] = call("changes", since)
 
   end Forwarder
 
-  // The client of the window the bridge talks to; a new window replaces it
-  private var current: Option[HttpAsyncClient] = None
-  private var ipcMain: js.Dynamic              = js.Dynamic.literal()
-  private var server: Option[HttpServer]       = None
+  private val opened: AgentWindows       = AgentWindows()
+  private var ipcMain: js.Dynamic        = js.Dynamic.literal()
+  private var server: Option[HttpServer] = None
 
   /**
     * Start the bridge and resolve with `{ url, token }` once it listens. Call [[attach]] with each
-    * window's `webContents` so the bridge talks to it.
+    * `BrowserWindow` so the bridge can talk to it.
     */
   @JSExportTopLevel("startAgentBridge")
   def start(ipcMain: js.Dynamic): js.Promise[js.Object] =
@@ -138,7 +207,7 @@ object AgentBridge:
       .server
       .withHost("127.0.0.1")
       .withPort(0)
-      .withRxHandler(handler(Forwarder(() => current), token))
+      .withRxHandler(handler(Forwarder(opened), token))
       .start()
     server = Some(s)
     val ready = js.Promise[js.Object] { (resolve, reject) =>
@@ -158,15 +227,26 @@ object AgentBridge:
     ready
 
   /**
-    * Send the bridge's calls to this window's renderer. Calls never time out: an `act` on a
-    * `UiAgent.confirm` component waits for the human, and a timeout would report it failed while it
-    * could still apply. A closed or reloaded window still ends every waiting call.
+    * Let the bridge send calls to this `BrowserWindow`'s renderer, until the window closes. Calls
+    * never time out: an `act` on a `UiAgent.confirm` component waits for the human, and a timeout
+    * would report it failed while it could still apply. A closed or reloaded window still ends
+    * every waiting call.
     */
   @JSExportTopLevel("attachAgentBridge")
-  def attach(webContents: js.Dynamic): Unit =
-    current.foreach(_.close())
-    current = Some(
-      ElectronMain.newAsyncClient(ipcMain, webContents, ElectronMainChannelConfig().noTimeout)
+  def attach(win: js.Dynamic): Unit =
+    val id = win.id.asInstanceOf[Int]
+    opened.add(
+      AgentWindow(
+        id,
+        ElectronMain.newAsyncClient(
+          ipcMain,
+          win.webContents,
+          ElectronMainChannelConfig().noTimeout
+        ),
+        title = () => win.getTitle().asInstanceOf[String],
+        focused = () => win.isFocused().asInstanceOf[Boolean]
+      )
     )
+    win.on("closed", () => opened.remove(id))
 
 end AgentBridge

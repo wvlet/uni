@@ -22,8 +22,8 @@ import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
 /** A renderer-side `UiAgentApi` with one fixed screen, standing in for uni-ui's `UiAgent`. */
-class FixedScreen extends UiAgentApi:
-  override def snapshot(): Rx[String] = Rx.single("""[{"ref":"button:send","kind":"button"}]""")
+class FixedScreen(name: String = "send") extends UiAgentApi:
+  override def snapshot(): Rx[String] = Rx.single(s"""[{"ref":"button:${name}","kind":"button"}]""")
   override def query(kind: Option[String], text: Option[String], ref: Option[String]): Rx[String] =
     Rx.single(s"""{"kind":"${kind.getOrElse("")}"}""")
 
@@ -37,12 +37,29 @@ class AgentBridgeTest extends UniTest:
 
   private val token = AgentBridge.newToken()
 
-  /** The bridge, forwarding over the reverse IPC channel to a renderer serving [[FixedScreen]]. */
-  private def bridge() =
+  /** A window whose renderer serves [[FixedScreen]] over the reverse IPC channel. */
+  private def window(id: Int, name: String, focused: Boolean = false) =
     val testbed = ElectronTestbed()
-    ElectronRenderer.serve(testbed.bridge(), RPCRouter.of[UiAgentApi](FixedScreen()))
-    val client = testbed.newMainClient()
-    AgentBridge.handler(AgentBridge.Forwarder(() => Some(client)), token)
+    ElectronRenderer.serve(testbed.bridge(), RPCRouter.of[UiAgentApi](FixedScreen(name)))
+    AgentBridge.AgentWindow(id, testbed.newMainClient(), () => s"Window ${id}", () => focused)
+
+  private def windows(ws: AgentBridge.AgentWindow*) =
+    val opened = AgentBridge.AgentWindows()
+    ws.foreach(opened.add)
+    opened
+
+  /** The bridge, forwarding to the given windows. */
+  private def bridge(opened: AgentBridge.AgentWindows = windows(window(1, "send"))) = AgentBridge
+    .handler(AgentBridge.Forwarder(opened), token)
+
+  private def callTool(name: String, arguments: String) =
+    s"""{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"${name}",""" +
+      s""""arguments":${arguments}}}"""
+
+  private def bodyOf(opened: AgentBridge.AgentWindows, name: String, arguments: String = "{}") =
+    bridge(opened)
+      .handle(post(callTool(name, arguments), Some(s"Bearer ${token}")))
+      .map(_.contentAsString.getOrElse(""))
 
   private def post(body: String, auth: Option[String]): Request =
     val r = Request(HttpMethod.POST, AgentBridge.Path).withJsonContent(body)
@@ -57,13 +74,13 @@ class AgentBridgeTest extends UniTest:
     AgentBridge.newToken() shouldNotBe token
   }
 
-  test("list the UiAgentApi tools for a request with the token") {
+  test("list the bridge tools for a request with the token") {
     bridge()
       .handle(post(toolsList, Some(s"Bearer ${token}")))
       .map { r =>
         r.status shouldBe HttpStatus.Ok_200
         val body = r.contentAsString.getOrElse("")
-        Seq("snapshot", "query", "act", "changes").foreach { name =>
+        Seq("windows", "snapshot", "query", "act", "changes").foreach { name =>
           body shouldContain s""""name":"${name}""""
         }
       }
@@ -125,6 +142,67 @@ class AgentBridgeTest extends UniTest:
         body shouldContain "button:send"
         body shouldContain "\"isError\":false"
       }
+  }
+
+  test("windows lists the open windows and marks the default") {
+    bodyOf(windows(window(1, "a"), window(2, "b", focused = true), window(3, "c")), "windows").map {
+      body =>
+        body shouldContain """\"id\":1"""
+        body shouldContain """\"title\":\"Window 2\""""
+        body shouldContain """\"id\":2,\"title\":\"Window 2\",\"focused\":true,\"default\":true"""
+        body shouldContain """\"id\":3,\"title\":\"Window 3\",\"focused\":false,\"default\":false"""
+    }
+  }
+
+  test("a call without a window id goes to the focused window") {
+    bodyOf(windows(window(1, "a", focused = true), window(2, "b")), "snapshot").map { body =>
+      body shouldContain "button:a"
+      body shouldContain """\"window\":1"""
+    }
+  }
+
+  test("a call without a window id goes to the newest window when none is focused") {
+    bodyOf(windows(window(1, "a"), window(2, "b")), "snapshot").map { body =>
+      body shouldContain "button:b"
+      body shouldContain """\"window\":2"""
+    }
+  }
+
+  test("a call with a window id goes to that window") {
+    bodyOf(windows(window(1, "a"), window(2, "b", focused = true)), "snapshot", """{"window":1}""")
+      .map { body =>
+        body shouldContain "button:a"
+        body shouldNotContain "button:b"
+      }
+  }
+
+  test("an unknown window id is an error that points to windows") {
+    bodyOf(windows(window(1, "a")), "snapshot", """{"window":9}""").map { body =>
+      body shouldContain "\"isError\":true"
+      body shouldContain "call windows"
+    }
+  }
+
+  test("a closed window is no longer listed or targeted") {
+    val opened = windows(window(1, "a"), window(2, "b"))
+    opened.remove(2)
+    Rx.zip(
+        bodyOf(opened, "windows"),
+        bodyOf(opened, "snapshot", """{"window":2}"""),
+        bodyOf(opened, "snapshot")
+      )
+      .map { (list, closed, default) =>
+        list shouldNotContain """\"id\":2"""
+        closed shouldContain "\"isError\":true"
+        default shouldContain "button:a"
+      }
+  }
+
+  test("with no window open, a call fails") {
+    bodyOf(windows(), "snapshot").map { body =>
+      body shouldContain "\"isError\":true"
+      body shouldContain "No window is open"
+    }
   }
 
 end AgentBridgeTest
