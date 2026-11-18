@@ -234,8 +234,9 @@ def decodeMap : List Nat → Option (Nat × List Nat)
     else if b = 0xdf then readBE 4 rest
     else none
 
-/-- Lengths a header can encode: below `2^32`. -/
-def LenInRange (n : Nat) : Prop := n < 4294967296
+/-- Lengths Uni encodes and decodes: below `2^31`. The spec allows up to `2^32 - 1`, but the
+packers take an `Int` and `OffsetUnpacker` rejects 32-bit lengths above `Int.MaxValue`. -/
+def LenInRange (n : Nat) : Prop := n < 2147483648
 
 theorem decodeStr_encodeStr (n : Nat) (rest : List Nat) (h : LenInRange n) :
     decodeStr (encodeStr n ++ rest) = some (n, rest) := by
@@ -385,5 +386,30 @@ theorem encodeExt_shortest (t n : Nat) :
   repeat' split
   all_goals simp only [List.length_cons, List.length_append, be_length, List.length_nil]
   all_goals omega
+
+set_option hygiene false in
+/-- Shared proof step: every byte of a header encoding fits in a byte. -/
+macro "header_lt_256" : tactic => `(tactic| (
+  repeat' split at hb
+  all_goals simp only [List.mem_cons, List.mem_append, List.not_mem_nil, or_false, or_assoc] at hb
+  all_goals first
+    | omega
+    | (rcases hb with rfl | hb | rfl <;> first | decide | exact be_lt_256 _ _ _ hb | omega)
+    | (rcases hb with rfl | hb <;> first | decide | exact be_lt_256 _ _ _ hb)))
+
+theorem encodeStr_lt_256 (n : Nat) : ∀ b ∈ encodeStr n, b < 256 := by
+  intro b hb; unfold encodeStr at hb; header_lt_256
+
+theorem encodeBin_lt_256 (n : Nat) : ∀ b ∈ encodeBin n, b < 256 := by
+  intro b hb; unfold encodeBin at hb; header_lt_256
+
+theorem encodeArray_lt_256 (n : Nat) : ∀ b ∈ encodeArray n, b < 256 := by
+  intro b hb; unfold encodeArray at hb; header_lt_256
+
+theorem encodeMap_lt_256 (n : Nat) : ∀ b ∈ encodeMap n, b < 256 := by
+  intro b hb; unfold encodeMap at hb; header_lt_256
+
+theorem encodeExt_lt_256 (t n : Nat) (ht : t < 256) : ∀ b ∈ encodeExt t n, b < 256 := by
+  intro b hb; unfold encodeExt at hb; header_lt_256
 
 end UniSpec.MsgPack
