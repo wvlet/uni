@@ -134,3 +134,30 @@ res.use(c => Rx.single(c.length))          // release runs after use, even on er
 
 A fiber takes the first value of its `Rx`; an `Rx` that completes empty fails
 the fiber with `IllegalStateException`.
+
+## Fiber: plain blocking code
+
+`wvlet.uni.control.Fiber` (JVM and Scala Native, not Scala.js) runs ordinary blocking
+code concurrently, with no `Rx`. Fibers run on `RxScheduler.blocking`: virtual threads
+on JDK 24+, pooled OS threads on JDK 17–23 and Native.
+
+```scala
+import wvlet.uni.control.Fiber
+
+def load(i: Int): Int = i * 10                 // stands in for a blocking call
+
+val f = Fiber { load(1) }                      // starts now
+f.join()                                       // 10; rethrows the body's exception
+Fiber.parMap(1 to 100, maxConcurrency = 8)(load) // input order, <= 8 at a time
+Fiber.par(load(1), load(2))                    // (10, 20)
+Fiber.race(load(1), load(2))                   // first success; cancels the other
+Fiber.scope { s =>                             // no fork outlives the block;
+  val a = s.fork(load(1))                      // a failure cancels the others
+  val b = s.fork(load(2))
+  a.join() + b.join()
+}
+```
+
+`f.cancel()` interrupts the thread; `join()` then throws `FiberCancelledException`.
+For calls an interrupt can't stop (JDBC, FFI), register `Fiber.onCancel(() => stmt.cancel())`
+inside the body; CPU loops call `Fiber.checkCancelled()`.

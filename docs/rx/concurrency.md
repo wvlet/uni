@@ -195,6 +195,10 @@ Rx.parallel.race(Rx.single(1), Rx.single(2))                // first result wins
 - `parFlatMap` adds no threads: a nested stream runs where it is subscribed, so use an asynchronous one (`evalOnBlocking`, `start`, an HTTP call) to overlap work. `parMapN` does this for you.
 - `race`, `parSequence`, `parTraverse`, and `parZip` run each computation as a fiber on `RxScheduler.default` and take its first value. `parSequence` fails with the first error and cancels the rest; `race` cancels the slower computations. All of these work on every platform, including Scala.js.
 
+::: tip Plain blocking code
+For code written with blocking calls rather than `Rx`, [`Fiber`](../control/fiber) gives `join`, `parMap`, `race`, and scopes on the JVM and Scala Native.
+:::
+
 ## RxScheduler
 
 Platform-specific execution environment for Rx computations.

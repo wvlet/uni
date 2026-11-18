@@ -12,6 +12,7 @@ uni provides utilities for handling failures gracefully and managing resources p
 | [Cache](./cache) | TTL and LRU caching |
 | [Resource](./resource) | Safe resource acquisition and release |
 | [Background Task](./background-task) | Cancellable, progress-pollable background worker |
+| [Fiber](./fiber) | Run plain blocking code concurrently: join, parMap, race, scopes (JVM, Native) |
 
 ## Quick Example
 

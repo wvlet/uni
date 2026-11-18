@@ -95,6 +95,7 @@ how APIs map between them.
 | [Rx](/rx/) | Reactive streams and async data flows |
 | [Control](/control/) | Retry, circuit breaker, rate limiter, cache, resources |
 | [BackgroundTask](/control/background-task) | Cancellable, progress-pollable background workers |
+| [Fiber](/control/fiber) | Plain blocking code run concurrently, on virtual threads on JDK 24+ (JVM, Native) |
 
 #### HTTP & RPC
 

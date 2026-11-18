@@ -198,7 +198,8 @@ const moduleGroups = [
       { text: 'Rate Limiter', link: '/control/rate-limiter' },
       { text: 'Caching', link: '/control/cache' },
       { text: 'Resource Management', link: '/control/resource' },
-      { text: 'Background Task', link: '/control/background-task' }
+      { text: 'Background Task', link: '/control/background-task' },
+      { text: 'Fiber', link: '/control/fiber' }
     ]
   },
   {
