@@ -744,12 +744,14 @@ class CollectionTest extends DomTestSupport:
       cell shouldBe Some("send")
       fireEvent.keyDown(table, "ArrowLeft")
       cell shouldBe Some("send")
-      // Ctrl+End goes to the last cell of the last row, Meta+Home to the first of the first
+      // Ctrl+End goes to the last cell of the last row, Meta+Home to the header's first cell
       fireEvent.keyDown(table, "End", ctrlKey = true)
       cell shouldBe Some("3")
       fireEvent.keyDown(table, "Home", metaKey = true)
+      cell shouldBe Some("Method")
+      marked shouldBe Seq("Method")
+      fireEvent.keyDown(table, "ArrowDown")
       cell shouldBe Some("list")
-      marked shouldBe Seq("list")
 
       // A click makes the cell active and selects its row
       fireEvent.click(m.getByText("1.5"))
@@ -788,6 +790,242 @@ class CollectionTest extends DomTestSupport:
       fireEvent.keyDown(table, "ArrowDown")
       fireEvent.keyDown(table, "End", shiftKey = true)
       cell shouldBe Some("2-6")
+    }
+  }
+
+  test("a data table moves into its header row and sorts from the keyboard") {
+    val sort     = Rx.variable(Option.empty[SortBy])
+    val rowSel   = Rx.variable(Option.empty[Int])
+    var cancelIt = false
+    val m        = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f")).sortBy(_.millis),
+          Column[Call]("id", "Id", cell = c => span(c.id.toString))
+        )
+      ).withSort(sort)
+        .withSelected(rowSel)
+        .onChange { d =>
+          if cancelIt then
+            d.cancel()
+        }
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def cell  = activeRow(table).map(_.textContent)
+    settle().map { _ =>
+      // Sort buttons are no tab stops of their own
+      m.queryAll(".uni-table__sort").map(_.getAttribute("tabindex")) shouldBe Seq("-1", "-1")
+      table.focus()
+      fireEvent.keyDown(table, "ArrowRight")
+      fireEvent.keyDown(table, "ArrowUp")
+      cell shouldBe Some("Time")
+      activeRow(table).map(_.getAttribute("role")) shouldBe Some("columnheader")
+      m.queryAll("[data-active='true']").map(_.textContent) shouldBe Seq("Time")
+      // Up stays on the header; Left, Right, Home, and End move along it
+      fireEvent.keyDown(table, "ArrowUp")
+      cell shouldBe Some("Time")
+      fireEvent.keyDown(table, "End")
+      cell shouldBe Some("Id")
+      fireEvent.keyDown(table, "Home")
+      cell shouldBe Some("Method")
+
+      // Enter and Space sort as a click does, and never select a row
+      fireEvent.keyDown(table, "Enter")
+      sort.get shouldBe Some(SortBy("method"))
+      fireEvent.keyDown(table, " ")
+      sort.get shouldBe Some(SortBy("method", SortDirection.Descending))
+      rowSel.get shouldBe None
+      cancelIt = true
+      fireEvent.keyDown(table, "Enter")
+      sort.get shouldBe Some(SortBy("method", SortDirection.Descending))
+      cancelIt = false
+      // An unsortable header does nothing
+      fireEvent.keyDown(table, "End")
+      fireEvent.keyDown(table, "Enter")
+      sort.get shouldBe Some(SortBy("method", SortDirection.Descending))
+
+      // Down goes back to the first row (sorted by method, descending) and keeps the column
+      fireEvent.keyDown(table, "ArrowDown")
+      cell shouldBe Some("2")
+      // Ctrl+End from the header goes to the last cell of the last row
+      fireEvent.keyDown(table, "Home", ctrlKey = true)
+      cell shouldBe Some("Method")
+      fireEvent.keyDown(table, "End", ctrlKey = true)
+      cell shouldBe Some("3")
+
+      // A click on a header makes it active and keeps the focus on the grid
+      fireEvent.click(m.getByText("Time"))
+      cell shouldBe Some("Time")
+      active shouldBe table
+      sort.get shouldBe Some(SortBy("millis"))
+    }
+  }
+
+  test("a data table without rows starts on its header") {
+    val m = mount(
+      DataTable(
+        Rx.const(Seq.empty[Call]),
+        key = _.id,
+        columns = Seq(Column[Call]("method", "Method", cell = c => span(c.method)))
+      )
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.focus()
+      activeRow(table).map(_.textContent) shouldBe Some("Method")
+      fireEvent.keyDown(table, "ArrowDown")
+      activeRow(table).map(_.textContent) shouldBe Some("Method")
+    }
+  }
+
+  test("Enter and F2 move into a cell widget, Tab cycles in the cell, and Escape returns") {
+    var chosen = Option.empty[Int]
+    val m      = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call](
+            "actions",
+            "Actions",
+            cell = c => span(htmlButton("Open"), htmlButton("Copy"))
+          )
+        )
+      ).onSelect(c => chosen = Some(c.id))
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      // Widgets in cells leave the tab order
+      m.queryAll(".uni-list__row button").map(_.getAttribute("tabindex")).distinct shouldBe
+        Seq("-1")
+      table.focus()
+      // F2 on a cell without a widget does nothing; Enter selects as before
+      fireEvent.keyDown(table, "F2")
+      active shouldBe table
+      fireEvent.keyDown(table, "Enter")
+      chosen shouldBe Some(1)
+      chosen = None
+
+      fireEvent.keyDown(table, "ArrowRight")
+      fireEvent.keyDown(table, "Enter")
+      active.textContent shouldBe "Open"
+      chosen shouldBe None
+      // Tab and Shift+Tab cycle through the cell's widgets
+      fireEvent.keyDown(active, "Tab")
+      active.textContent shouldBe "Copy"
+      fireEvent.keyDown(active, "Tab")
+      active.textContent shouldBe "Open"
+      fireEvent.keyDown(active, "Tab", shiftKey = true)
+      active.textContent shouldBe "Copy"
+      // The widget keeps its own keys
+      fireEvent.keyDown(active, "ArrowDown")
+      active.textContent shouldBe "Copy"
+      fireEvent.keyDown(active, "Escape")
+      active shouldBe table
+      activeRow(table).map(_.textContent) shouldBe Some("OpenCopy")
+
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, "F2")
+      active.textContent shouldBe "Open"
+      fireEvent.keyDown(active, "F2")
+      active shouldBe table
+      // A widget that handles Escape itself keeps the focus
+      fireEvent.keyDown(table, "Enter")
+      val open = active
+      open.addEventListener("keydown", (e: dom.KeyboardEvent) => e.preventDefault())
+      fireEvent.keyDown(open, "Escape")
+      active shouldBe open
+    }
+  }
+
+  test("a data table brings the focus back when a focused cell widget's row goes away") {
+    val rows = Rx.variable(calls)
+    val m    = mount(
+      DataTable(
+        rows,
+        key = _.id,
+        columns = Seq(Column[Call]("open", "Open", cell = c => htmlButton(s"Open ${c.id}")))
+      )
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle()
+      .flatMap { _ =>
+        table.focus()
+        fireEvent.keyDown(table, "ArrowDown")
+        fireEvent.keyDown(table, "Enter")
+        active.textContent shouldBe "Open 2"
+        rows := calls.filterNot(_.id == 2)
+        settle()
+      }
+      .map { _ =>
+        active shouldBe table
+      }
+  }
+
+  test("a data table selects one cell with withSelectedCell") {
+    val cellVar = Rx.variable(Option.empty[CellKey[Int]])
+    val rowSel  = Rx.variable(Option.empty[Int])
+    val keys    = scala.collection.mutable.ArrayBuffer.empty[String]
+    var chosen  = Option.empty[Int]
+    val m       = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+        )
+      ).withSelected(rowSel)
+        .withMultiSelect(Rx.variable(Set.empty[Int]))
+        .withSelectedCell(cellVar)
+        .onSelect(c => chosen = Some(c.id))
+        .onChange(d => keys += d.key)
+    )
+    val table         = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    def selectedCells = m.queryAll(".uni-table__cell[aria-selected='true']").map(_.textContent)
+    settle().map { _ =>
+      // Rows carry no selection, and the multiple-selection keys are off
+      table.getAttribute("aria-multiselectable") shouldBe null
+      m.queryAll(".uni-list__row[aria-selected]").size shouldBe 0
+      m.queryAll(".uni-list__row .uni-table__cell[aria-selected='false']").size shouldBe 6
+      table.focus()
+      fireEvent.keyDown(table, "ArrowRight")
+      fireEvent.keyDown(table, "Enter")
+      cellVar.get shouldBe Some(CellKey(1, "millis"))
+      chosen shouldBe Some(1)
+      selectedCells shouldBe Seq("4.0")
+      fireEvent.keyDown(table, "ArrowDown")
+      fireEvent.keyDown(table, " ")
+      cellVar.get shouldBe Some(CellKey(2, "millis"))
+      fireEvent.keyDown(table, "a", ctrlKey = true)
+      fireEvent.click(m.getByText("get"))
+      cellVar.get shouldBe Some(CellKey(3, "method"))
+      chosen shouldBe Some(3)
+      selectedCells shouldBe Seq("get")
+      rowSel.get shouldBe None
+      keys.distinct shouldBe Seq("selectedCell")
+    }
+  }
+
+  test("focus starts at the selected cell") {
+    val m = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(f"${c.millis}%.1f"))
+        )
+      ).withSelectedCell(Rx.variable(Some(CellKey(2, "millis"))))
+    )
+    val table = m.get(".uni-table").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      table.focus()
+      activeRow(table).map(_.textContent) shouldBe Some("12.5")
     }
   }
 

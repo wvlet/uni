@@ -250,6 +250,51 @@ class PatternTest extends DomTestSupport:
     check(m.container, AriaPattern.Grid)
   }
 
+  test("data table grid with sortable headers") {
+    val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
+    val m     = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString)).sortBy(_.millis)
+        )
+      ).withLabel("Calls")
+    )
+    check(m.container, AriaPattern.Grid)
+  }
+
+  test("data table grid with sortable headers right to left") {
+    val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5))
+    val m     = rtl(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)).sortBy(_.method),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString)).sortBy(_.millis)
+        )
+      ).withLabel("Calls")
+    )
+    check(m.container, AriaPattern.Grid)
+  }
+
+  test("data table grid with cell selection") {
+    val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
+    val m     = mount(
+      DataTable(
+        Rx.const(calls),
+        key = _.id,
+        columns = Seq(
+          Column[Call]("method", "Method", cell = c => span(c.method)),
+          Column[Call]("millis", "Time", cell = c => span(c.millis.toString))
+        )
+      ).withLabel("Calls").withSelectedCell(Rx.variable(Some(CellKey(2, "millis"))))
+    )
+    check(m.container, AriaPattern.Grid)
+  }
+
   test("multi-select data table grid") {
     val calls = Seq(Call(1, "list", 4.0), Call(2, "send", 12.5), Call(3, "get", 1.5))
     val m     = mount(

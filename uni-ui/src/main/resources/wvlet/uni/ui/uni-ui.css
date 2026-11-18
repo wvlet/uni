@@ -1297,6 +1297,11 @@
     box-shadow: inset 0 0 0 2px var(--uni-focus);
   }
 
+  /* With withSelectedCell, the selected cell takes the row's selected background */
+  .uni-table .uni-list__row .uni-table__cell[aria-selected='true'] {
+    background: var(--uni-accent-soft);
+  }
+
   .uni-table__cell--end {
     justify-content: flex-end;
     font-variant-numeric: tabular-nums;

@@ -478,6 +478,52 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("an agent selects a table cell by row label and column header") {
+    case class User(id: Int, name: String, role: String)
+    val users = Seq(User(1, "Ann", "admin"), User(2, "Bob", "dev"))
+    val cell  = Rx.variable(Option.empty[CellKey[Int]])
+    mount(
+      DataTable(
+        Rx.const(users),
+        key = _.id,
+        columns = Seq(
+          Column[User]("name", "Name", cell = u => span(u.name)),
+          Column[User]("role", "Role", cell = u => span(u.role))
+        )
+      ).withLabel("Users")
+        .withRowLabel(_.name)
+        .withSelectedCell(cell)
+        .withAgentConfirm(u => Option.when(u.role == "admin")(s"Select ${u.name}?"))
+    )
+    val agent = install(answer = false)
+    node(agent, "table").actions.map(_.name).contains("select") shouldBe false
+    val (_, start) = agent.changes()
+    agent
+      .act("table:users", "selectCell", Some("Bob · Role"))
+      .flatMap { r =>
+        r.status shouldBe ActStatus.Applied
+        cell.get shouldBe Some(CellKey(2, "role"))
+        node(agent, "table").value shouldBe Some("Bob · Role")
+        node(agent, "table").items.map(i => (i.label, i.selected)) shouldBe
+          Seq(("Ann", false), ("Bob", true))
+        // A guarded row asks first; declined, the cell stays
+        agent.act("table:users", "selectCell", Some("Ann · Name"))
+      }
+      .flatMap { r =>
+        (r.status == ActStatus.Applied) shouldBe false
+        cell.get shouldBe Some(CellKey(2, "role"))
+        agent.act("table:users", "selectCell", Some("Bob · Nope"))
+      }
+      .map { r =>
+        (r.status == ActStatus.Applied) shouldBe false
+        fireEvent.click(find("[data-slot=data-table-row]:nth-child(1) [data-slot=data-table-cell]"))
+        cell.get shouldBe Some(CellKey(1, "name"))
+        agent.changes(start)._1.map(c => (c.previous, c.value)) shouldBe
+          Seq(("Bob · Role", "Ann · Name"))
+        agent.uninstall()
+      }
+  }
+
   test("a table names rows by withRowLabel, and a selection change reuses the labels") {
     case class User(id: Int, name: String)
     val rows  = Rx.const((1 to 200).map(i => User(i, s"User ${i}")))

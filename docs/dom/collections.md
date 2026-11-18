@@ -48,7 +48,7 @@ div(
 |-----------|--------------|
 | `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)`. `.withRowLabel(a => text)` names rows for `UiAgent`, and `.withAgentConfirm(a => Option(msg))` asks the human before an agent selects or drops a guarded row |
 | `Tree(roots, children = a => Seq(...), key = a => k, render = a => node)` | An expandable tree (`role="tree"`) over your own data. `.withExpanded(rxVar)` holds the open keys, plus `.withSelected` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead`, `.withRowHeight`. `.withRowLabel(a => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
-| `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
+| `DataTable(rows, key = a => k, columns = Seq(...))` | A table (`role="grid"`) with a sticky header. A `Column(id, header, cell = a => node)` takes `.sortBy(f)`, `.withWidth("120px")`, and `.alignEnd`; `.withSort(rxVar)` holds the `SortBy`, and `.withSelected(rxVar)` or `.withMultiSelect(setVar)` the selection, or `.withSelectedCell(cellVar)` one `CellKey(row, column)`; `.withReorder(rowsVar)`, and `.withRowLabel(r => text)` names rows for `UiAgent`; `.withAgentConfirm` as for lists |
 | `CommandPalette(open, commands)` | A ⌘K search box over `Command`s in a dialog near the top of the window. Typing filters by fuzzy match. `Command(id, label)` takes `.withGroup`, `.withHint`, `.withShortcut`, `.withKeywords`, and `.onRun` |
 
 - **Keys.** Each row is keyed, as with `each`, so a row keeps its DOM node while it stays in view and
@@ -57,8 +57,24 @@ div(
   highlighted row. The arrow keys, Home, End, PageUp, and PageDown move it. Enter or a click
   selects. In a tree, Right opens a row or enters it, and Left closes it or goes to the parent.
   Tables move by cell, as in the WAI-ARIA grid pattern: Left and Right move along the row, Home
-  and End go to its first and last cell, and Ctrl (or ⌘) with Home or End goes to the first or
-  last row. `aria-activedescendant` then names the cell, and Enter still selects its row.
+  and End go to its first and last cell, Ctrl (or ⌘) with Home goes to the header's first cell,
+  and with End to the last cell of the last row. `aria-activedescendant` then names the cell, and
+  Enter still selects its row.
+- **The table header.** The header row is part of the grid: Up from the first row moves to it,
+  Down goes back, and Enter or Space on a sortable header sorts as a click does (`onChange` key
+  `sort`). Sort buttons are not tab stops of their own, so the whole table is one tab stop. An
+  empty table starts on its header.
+- **Widgets in cells.** Enter or F2 on a cell that holds a button, link, or field moves the focus
+  into it, and Tab and Shift+Tab cycle through that cell's widgets. Escape or F2 brings the focus
+  back to the cell, unless the widget handles Escape itself (to close its own popup, say).
+  Widgets in cells leave the tab order, and if the row of a focused widget scrolls out, the focus
+  returns to the table. On a cell without a widget, Enter selects as before.
+- **Cell selection.** `.withSelectedCell(cellVar)` on a table, with an
+  `RxVar[Option[CellKey[K]]]`, selects one cell instead of a row: Enter, Space, or a click
+  selects the active cell, which gets `aria-selected="true"`, and `onSelect` runs with its row.
+  `onChange` sees the key `selectedCell`. Rows are then not selected, and the multi-select keys
+  are off. An agent picks a cell with `selectCell`, as `"Bob · Role"` (row label, then column
+  header).
 - **Multi-select.** `.withMultiSelect(setVar)` on a list, tree, or table lets the user select several
   rows, as in a file list. A click selects one row, Shift+click selects a range from the anchor,
   and Ctrl (or ⌘)+click adds or removes a row. Shift with an arrow key, Home, End, PageUp, or PageDown

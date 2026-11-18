@@ -33,7 +33,8 @@ agent.changes(since = 0)                              // what people changed, an
 ```
 
 - **Actions.** `press` (button, menu item), `setText` (text field), `select` (select, tabs,
-  list, tree), `sort` (table), `move` (a list or table with `.withReorder`, as `"Review to 1"`),
+  list, tree), `selectCell` (a table with `.withSelectedCell`, as `"Bob · Role"`), `sort`
+  (table), `move` (a list or table with `.withReorder`, as `"Review to 1"`),
   `open`/`close` (menu), `close` (dialog), `dismiss` (toast), and `run` (an open
   `CommandPalette`). The agent's change
   goes through the component's `onChange` with `ChangeSource.Agent`, so a handler can cancel

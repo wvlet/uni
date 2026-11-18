@@ -14,13 +14,15 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.{Focus, OnMount}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.{Rx, RxVar}
+import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 import wvlet.uni.ui.agent.AgentAction
-import wvlet.uni.ui.base.{Reorder, TextDirection, Windowing}
+import wvlet.uni.ui.base.{Ids, Reorder, TextDirection, Windowing}
 
 import scala.language.implicitConversions
+import scala.scalajs.js
 
 enum SortDirection:
   case Ascending,
@@ -28,6 +30,9 @@ enum SortDirection:
 
 /** Which column a [[DataTable]] is sorted by, and in which direction. */
 case class SortBy(column: String, direction: SortDirection = SortDirection.Ascending)
+
+/** One cell of a [[DataTable]]: the key of its row and the id of its column. */
+case class CellKey[K](row: K, column: String)
 
 /**
   * One column of a [[DataTable]]: an id (used by [[SortBy]]), a header, and how to render a cell.
@@ -90,12 +95,19 @@ object Column:
   * A click on a sortable header cycles ascending, descending, and unsorted. The table is one tab
   * stop that moves by cell, as in the WAI-ARIA grid pattern: Up, Down, PageUp, and PageDown move
   * the highlighted row and keep the column; Left and Right move along the row; Home and End go to
-  * the row's first and last cell, and Ctrl (or ⌘) with Home or End to the first and last row. With
-  * [[withMultiSelect]], Shift with Home or End extends the selection to the first or last row.
-  * `aria-activedescendant` names the active cell, which has `data-active="true"`. Enter or a click
-  * selects the row, and a click also makes its cell active. The container is
-  * `div.uni-list.uni-table` with `role="grid"`; the header row is `div.uni-table__header`, and each
-  * row is a `div.uni-list__row` of `div.uni-table__cell`s, laid out by the CSS grid in
+  * the row's first and last cell, Ctrl (or ⌘) with Home to the header's first cell, and with End to
+  * the last cell of the last row. With [[withMultiSelect]], Shift with Home or End extends the
+  * selection to the first or last row. `aria-activedescendant` names the active cell, which has
+  * `data-active="true"`. Enter or a click selects the row, and a click also makes its cell active.
+  *
+  * The header row is part of the grid: Up from the first row moves to it and Down back, and Enter
+  * or Space on a sortable header sorts as a click does, so sort buttons are not tab stops of their
+  * own. Enter or F2 on a cell that holds a widget (a button, a link, a field) moves the focus into
+  * it, Tab and Shift+Tab then cycle through that cell's widgets, and Escape or F2 brings the focus
+  * back to the cell; widgets in cells leave the tab order. With [[withSelectedCell]], Enter, Space,
+  * or a click selects the active cell instead of the row. The container is `div.uni-list.uni-table`
+  * with `role="grid"`; the header row is `div.uni-table__header`, and each row is a
+  * `div.uni-list__row` of `div.uni-table__cell`s, laid out by the CSS grid in
   * `--uni-table-columns`.
   */
 class DataTable[A, K] private (
@@ -111,7 +123,8 @@ class DataTable[A, K] private (
     multiSelected: Option[RxVar[Set[K]]],
     reorderable: Option[RxVar[Seq[A]]],
     rowLabel: Option[A => String],
-    agentConfirm: Option[A => Option[String]]
+    agentConfirm: Option[A => Option[String]],
+    selectedCell: Option[RxVar[Option[CellKey[K]]]]
 ) extends RxElement:
 
   private def copy(
@@ -124,7 +137,8 @@ class DataTable[A, K] private (
       multiSelected: Option[RxVar[Set[K]]] = multiSelected,
       reorderable: Option[RxVar[Seq[A]]] = reorderable,
       rowLabel: Option[A => String] = rowLabel,
-      agentConfirm: Option[A => Option[String]] = agentConfirm
+      agentConfirm: Option[A => Option[String]] = agentConfirm,
+      selectedCell: Option[RxVar[Option[CellKey[K]]]] = selectedCell
   ): DataTable[A, K] =
     new DataTable(
       rows,
@@ -139,7 +153,8 @@ class DataTable[A, K] private (
       multiSelected,
       reorderable,
       rowLabel,
-      agentConfirm
+      agentConfirm,
+      selectedCell
     )
 
   /** The accessible name of the table. */
@@ -163,6 +178,17 @@ class DataTable[A, K] private (
   def noMultiSelect(): DataTable[A, K] = copy(multiSelected = None)
 
   /**
+    * Lets the user select one cell, whose row key and column id live in `s`: Enter, Space, or a
+    * click selects the active cell, which then has `aria-selected="true"`, and [[onSelect]] runs
+    * with its row. While set, rows are not selected: the table leaves [[withSelected]]'s and
+    * [[withMultiSelect]]'s variables alone and its multiple-selection keys are off.
+    */
+  def withSelectedCell(s: RxVar[Option[CellKey[K]]]): DataTable[A, K] = copy(selectedCell = Some(s))
+
+  /** Selects rows again, as [[withSelected]] or [[withMultiSelect]] set them (the default). */
+  def noSelectedCell(): DataTable[A, K] = copy(selectedCell = None)
+
+  /**
     * Lets the user reorder the rows by dragging one, or with Alt+ArrowUp, Alt+ArrowDown, Alt+Home,
     * and Alt+End on the active row, as [[base.Reorder]] does. The new order is written to `order`,
     * the variable the table shows, after [[onChange]] sees it under the key `order`. With
@@ -172,12 +198,15 @@ class DataTable[A, K] private (
   def withReorder(order: RxVar[Seq[A]]): DataTable[A, K] = copy(reorderable = Some(order))
   def noReorder(): DataTable[A, K]                       = copy(reorderable = None)
 
-  /** Runs when Enter or a click selects a row; [[ChangeCause.current]] tells which. */
+  /**
+    * Runs when Enter or a click selects a row, or with [[withSelectedCell]] a cell in it;
+    * [[ChangeCause.current]] tells which.
+    */
   def onSelect(f: A => Unit): DataTable[A, K] = copy(onSelectFn = f)
 
   /**
     * Called before the selection, the sort, or the order changes; `cancel()` keeps the current
-    * state. Keys: `selected`, `sort`, and `order`.
+    * state. Keys: `selected` (rows), `selectedCell`, `sort`, and `order`.
     */
   def onChange(f: ChangeHandler): DataTable[A, K] = copy(changeHandler = f)
 
@@ -205,8 +234,197 @@ class DataTable[A, K] private (
   /** The height of every row in pixels (32 by default). */
   def withRowHeight(h: Int): DataTable[A, K] = copy(rowHeight = h)
 
-  // The active column; the row comes from the list's active row
-  private val activeColumn = Rx.variable(0)
+  // The active column; the row comes from the list's active row, or the header while `onHeader`
+  private val activeColumn                 = Rx.variable(0)
+  private val onHeader                     = Rx.variable(false)
+  private val tableId                      = Ids.next("uni-table")
+  private def headerCellId(i: Int): String = s"${tableId}-header-${i}"
+
+  // The list, set when the table renders, for the key and focus handlers
+  private var list: Option[ListCore[A, K]] = None
+  // A widget in a body cell that has the focus, to bring the focus back if its row unmounts
+  private var widget: Option[dom.Element] = None
+
+  private def plain(e: dom.KeyboardEvent): Boolean = !(e.altKey || e.ctrlKey || e.metaKey)
+
+  // Keys the table handles before the list's own: the header row, and moving into and out of
+  // widgets in cells
+  private def firstKey(e: dom.KeyboardEvent): Boolean = list.exists { core =>
+    if e.target ne e.currentTarget then
+      widgetKey(core, e)
+    else if onHeader.get then
+      headerKey(core, e)
+    else
+      bodyKey(core, e)
+  }
+
+  private def headerKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
+    val toRow = e.ctrlKey || e.metaKey
+    e.key match
+      case "ArrowDown" | "PageDown" if plain(e) =>
+        leaveHeader(core, 0)
+        true
+      case "ArrowUp" | "PageUp" if plain(e) =>
+        true
+      case "End" if toRow && !e.altKey =>
+        moveColumn(core, columns.size - 1)
+        leaveHeader(core, core.rows.size - 1)
+        true
+      case "Home" if toRow && !e.altKey =>
+        moveColumn(core, 0)
+        true
+      case "Enter" | " " if plain(e) && !e.shiftKey =>
+        columns
+          .lift(activeColumn.get)
+          .filter(_.ordering.isDefined)
+          .foreach(c => writeSort(c, ChangeCause.of(ChangeReason.Press, e)))
+        true
+      case _ if plain(e) && !e.shiftKey =>
+        DataTable.nextColumn(e.key, activeColumn.get, columns.size, TextDirection.mirrors(e)) match
+          case Some(c) =>
+            moveColumn(core, c)
+            true
+          case None =>
+            false
+      case _ =>
+        false
+
+  end headerKey
+
+  private def bodyKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
+    e.key match
+      case "ArrowUp" if plain(e) && !e.shiftKey && core.activeRowIndex == 0 =>
+        enterHeader(core, activeColumn.get)
+        true
+      // Ctrl+Shift+Home extends a multiple selection over rows, as the list does
+      case "Home" if (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey =>
+        core.container.foreach(_.scrollTop = 0)
+        enterHeader(core, 0)
+        true
+      case "Enter" | "F2" if plain(e) && !e.shiftKey =>
+        activeCellWidgets(core).headOption match
+          case Some(w) =>
+            w.focus()
+            true
+          case None =>
+            // Enter without a widget selects, as the list does; F2 has nothing to edit
+            e.key == "F2"
+      case _ =>
+        false
+
+  // Keys from a widget inside a body cell: Escape or F2 returns to the grid, and Tab cycles
+  // through the cell's widgets
+  private def widgetKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
+    val cell =
+      e.target match
+        case t: dom.Element =>
+          Option(t.closest(".uni-table__cell")).filter(c => core.container.exists(_.contains(c)))
+        case _ =>
+          None
+    cell.filter(_.closest(".uni-list__spacer") != null) match
+      case None =>
+        false
+      case Some(c) =>
+        e.key match
+          case "Escape" | "F2" if plain(e) && !e.shiftKey =>
+            core.container.foreach(_.focus())
+            true
+          case "Tab" if plain(e) =>
+            val ws = DataTable.widgetsIn(c)
+            val i  = ws.indexWhere(_ eq e.target)
+            val n  =
+              if e.shiftKey then
+                (i - 1 + ws.size) % ws.size
+              else
+                (i + 1) % ws.size
+            ws.lift(n).foreach(_.focus())
+            true
+          case _ =>
+            false
+
+  private def activeCellWidgets(core: ListCore[A, K]): Seq[dom.HTMLElement] =
+    for
+      root <- core.container.toSeq
+      k    <- core.activeNow.toSeq
+      cell <- Option(dom.document.getElementById(core.cellId(k, activeColumn.get))).toSeq
+      if root.contains(cell)
+      w <- DataTable.widgetsIn(cell)
+    yield w
+
+  private def moveColumn(core: ListCore[A, K], c: Int): Unit =
+    if c != activeColumn.get then
+      activeColumn := c
+    core.container.foreach(revealColumn(_, c))
+
+  private def enterHeader(core: ListCore[A, K], c: Int): Unit =
+    core.setActive(None)
+    onHeader := true
+    moveColumn(core, c)
+
+  private def leaveHeader(core: ListCore[A, K], row: Int): Unit =
+    if row >= 0 && row < core.rows.size then
+      onHeader := false
+      core.moveTo(row)
+
+  // Focus starts at the selected cell; a table without rows starts on its header
+  private def beforeFocus(): Unit = list.foreach { core =>
+    if !onHeader.get && core.activeNow.isEmpty then
+      if core.rows.isEmpty then
+        onHeader := true
+      else
+        selectedCell
+          .flatMap(_.get)
+          .foreach { c =>
+            val col = columns.indexWhere(_.id == c.column)
+            if col >= 0 && core.indexOf(c.row).nonEmpty then
+              activeColumn := col
+              core.setActive(Some(c.row))
+          }
+  }
+
+  // Keep widgets in body cells out of the tab order as rows render, and bring the focus back to
+  // the grid when the row of a focused widget scrolls out and unmounts
+  private def watchCells(el: dom.HTMLElement): Cancelable =
+    def demote(): Unit = el
+      .querySelectorAll(s".uni-list__spacer .uni-table__cell :is(${Focus.focusableSelector})")
+      .toSeq
+      .foreach(_.setAttribute("tabindex", "-1"))
+    demote()
+    val observer = dom.MutationObserver { (_, _) =>
+      demote()
+      widget
+        .filterNot(el.contains)
+        .foreach { _ =>
+          widget = None
+          val focused = Option(dom.document.activeElement)
+          if focused.forall(f => (f eq dom.document.body) || !f.isConnected) then
+            el.focus()
+        }
+    }
+    observer.observe(
+      el,
+      js.Dynamic.literal(childList = true, subtree = true).asInstanceOf[dom.MutationObserverInit]
+    )
+    val onFocusIn: js.Function1[dom.Event, Unit] =
+      e =>
+        widget =
+          e.target match
+            case t: dom.Element
+                if (t ne el) && t.closest(".uni-list__spacer .uni-table__cell") != null =>
+              Some(t)
+            case _ =>
+              None
+    el.addEventListener("focusin", onFocusIn)
+    Cancelable { () =>
+      observer.disconnect()
+      el.removeEventListener("focusin", onFocusIn)
+      widget = None
+    }
+
+  end watchCells
+
+  private def writeSort(c: Column[A], cause: ChangeCause): Unit =
+    ChangeGate.write(sort, "sort", DataTable.nextSort(sort.get, c.id), cause, changeHandler): Unit
 
   private def onKey(e: dom.KeyboardEvent): Boolean =
     val toRow  = e.ctrlKey || e.metaKey
@@ -256,7 +474,7 @@ class DataTable[A, K] private (
       DataTable.sortRows(xs, columns, s)
     }
 
-  private def headerCell(c: Column[A], i: Int): RxElement =
+  private def headerCell(core: => ListCore[A, K])(c: Column[A], i: Int): RxElement =
     val state = sort.map {
       case Some(SortBy(c.id, d)) =>
         Some(d)
@@ -264,10 +482,23 @@ class DataTable[A, K] private (
         None
     }
     div(
-      role         -> "columnheader",
-      cls          -> cellClass(c),
-      data("slot") -> "data-table-header-cell",
-      ariaColindex -> (i + 1).toString,
+      id             -> headerCellId(i),
+      role           -> "columnheader",
+      cls            -> cellClass(c),
+      data("slot")   -> "data-table-header-cell",
+      ariaColindex   -> (i + 1).toString,
+      data("active") ->
+        Rx.join(onHeader, activeColumn)
+          .map { (h, ac) =>
+            Option.when(h && ac == i)("true")
+          },
+      // A click makes the header cell active, and the grid keeps the keys
+      EventListenerBinding(
+        "click",
+        _ =>
+          enterHeader(core, i)
+          core.container.filterNot(_ eq dom.document.activeElement).foreach(_.focus())
+      ),
       c.ordering match
         case None =>
           span(c.header): DomNode
@@ -286,16 +517,11 @@ class DataTable[A, K] private (
               tpe          -> "button",
               cls          -> "uni-table__sort",
               data("slot") -> "data-table-sort",
+              // Enter or Space on the active header cell sorts, so the button is no tab stop
+              tabindex -> "-1",
               EventListenerBinding(
                 "click",
-                e =>
-                  ChangeGate.write(
-                    sort,
-                    "sort",
-                    DataTable.nextSort(sort.get, c.id),
-                    ChangeCause.of(ChangeReason.Press, e),
-                    changeHandler
-                  )
+                e => writeSort(c, ChangeCause.of(ChangeReason.Press, e))
               ),
               span(c.header),
               span(
@@ -354,7 +580,8 @@ class DataTable[A, K] private (
         role -> "grid",
         label.map(ariaLabel -> _).getOrElse(DomNode.empty),
         ariaColcount -> columns.size.toString,
-        ariaRowcount -> rows.map(xs => (xs.size + 1).toString)
+        ariaRowcount -> rows.map(xs => (xs.size + 1).toString),
+        OnMount(watchCells)
       ),
       containerStyle = s"--uni-table-columns: ${columns.map(_.width).mkString(" ")}",
       spacerAttrs = Seq(role -> "rowgroup"),
@@ -381,12 +608,29 @@ class DataTable[A, K] private (
                       else
                         None
                     },
-                // The row's click handler then selects the row
-                EventListenerBinding("click", _ => activeColumn := i),
+                selectedCell
+                  .map(s => ariaSelected -> s.map(_.contains(CellKey(k, c.id)).toString))
+                  .getOrElse(DomNode.empty),
+                // The row's click handler then selects the row, or this cell
+                EventListenerBinding(
+                  "click",
+                  _ =>
+                    onHeader     := false
+                    activeColumn := i
+                ),
                 c.cell(a)
               )
             },
-      selection = multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_)),
+      selection =
+        selectedCell.fold(
+          multiSelected.fold(ListSelection.Single(selected))(ListSelection.Multi(_))
+        )(s =>
+          ListSelection.Cell(
+            s,
+            column = () => columns.lift(activeColumn.get).map(_.id),
+            columns = columns.map(c => (c.id, c.header))
+          )
+        ),
       onSelect = onSelectFn,
       changeHandler = changeHandler,
       slot = "data-table",
@@ -402,13 +646,18 @@ class DataTable[A, K] private (
           role         -> "row",
           cls          -> "uni-table__header-row",
           ariaRowindex -> "1",
-          columns.zipWithIndex.map(headerCell)
+          columns.zipWithIndex.map(headerCell(core))
         )
       ),
       activeCell = activeColumn.map(c => Option.when(columns.nonEmpty)(c)),
       reorderable = reorderable,
-      reorderEnabled = Reorder.Enabled.when(sort)(_.isEmpty)
+      reorderEnabled = Reorder.Enabled.when(sort)(_.isEmpty),
+      firstKey = firstKey,
+      beforeFocus = () => beforeFocus(),
+      headerActive = onHeader,
+      headerCellId = headerCellId
     )
+    list = Some(core)
     core
 
   end render
@@ -431,7 +680,8 @@ object DataTable:
       multiSelected = None,
       reorderable = None,
       rowLabel = None,
-      agentConfirm = None
+      agentConfirm = None,
+      selectedCell = None
     )
 
   /**
@@ -454,6 +704,19 @@ object DataTable:
           Some(count - 1)
         case _ =>
           None
+
+  /** The widgets in `cell` that Enter or F2 moves into, in document order. */
+  private[ui] def widgetsIn(cell: dom.Element): Seq[dom.HTMLElement] = cell
+    .querySelectorAll(DataTable.widgetSelector)
+    .toSeq
+    .collect { case h: dom.HTMLElement =>
+      h
+    }
+
+  // Focus.focusableSelector, plus the widgets the table took out of the tab order
+  private val widgetSelector: String =
+    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
+      "textarea:not([disabled]), [tabindex]:not([disabled])"
 
   /** The sort after a click on `column`'s header: ascending, then descending, then none. */
   def nextSort(current: Option[SortBy], column: String): Option[SortBy] =
