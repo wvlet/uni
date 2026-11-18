@@ -427,4 +427,19 @@ class UiHistoryTest extends DomTestSupport:
     agent.uninstall()
   }
 
+  test("an Escape-cancelled splitter drag leaves no entry") {
+    val width   = Rx.variable(300)
+    val m       = mount(Splitter(width, SizeRange(200, 300, 400), Edge.Right, "Resize sidebar"))
+    val history = UiHistory.record()
+    val grip    = m.get("[role=separator]")
+    fireEvent.pointerDown(grip, clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 320)
+    fireEvent.pointerMove(dom.window, clientX = 350)
+    fireEvent.keyDown(dom.window, "Escape")
+    fireEvent.pointerUp(grip, clientX = 350)
+    width.get shouldBe 300
+    history.entries shouldBe Seq.empty
+    history.close()
+  }
+
 end UiHistoryTest

@@ -133,7 +133,8 @@ history.close()
   `unsupported`, or `skipped` (already undone or accepted).
 - **Dock and splitters.** `Dock` layout changes (kind `dock`, key `layout`) and `Splitter` sizes
   (kind `splitter`, key `size`) are undone too, though agents don't see these components. One
-  pointer drag is one entry, from the value before the drag to the last one.
+  pointer drag is one entry, from the value before the drag to the last one. A drag that Escape
+  cancels, or that ends where it started, leaves no entry.
 - **Not undone.** `open` (overlay visibility), secret and password values, and state no mounted
   component owns report `unsupported`. Secret values read `<redacted>` and are never kept.
   Components inside `UiAgent.hidden` are not recorded.

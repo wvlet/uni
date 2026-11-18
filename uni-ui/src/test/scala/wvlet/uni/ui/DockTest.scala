@@ -335,6 +335,19 @@ class DockTest extends DomTestSupport:
         fail(s"Unexpected ${other}")
   }
 
+  test("Escape mid-drag puts a separator's sizes back") {
+    val layout = Rx.variable(DockLayout(column(group("a"), group("b"))))
+    val m      = mountDock(dock(layout))
+    val before = layout.get
+    fireEvent.pointerDown(m.get(".uni-dock__separator"), clientX = 300, clientY = 200)
+    fireEvent.pointerMove(dom.window, clientX = 300, clientY = 250)
+    (layout.get == before) shouldBe false
+    fireEvent.keyDown(dom.window, "Escape")
+    layout.get shouldBe before
+    fireEvent.pointerMove(dom.window, clientX = 300, clientY = 300)
+    layout.get shouldBe before
+  }
+
   private def center(el: dom.Element): (Double, Double) =
     val r = el.getBoundingClientRect()
     (r.left + r.width / 2, r.top + r.height / 2)
@@ -515,6 +528,22 @@ class DockTest extends DomTestSupport:
     near(box.height, before.height - 16.0 / 400) shouldBe true
     // Moving and resizing doesn't rebuild the float
     (m.get(".uni-dock__float-grip") eq grip) shouldBe true
+  }
+
+  test("Escape mid-drag puts a float back where it was") {
+    val start  = DockBox(0.1, 0.1, 0.5, 0.5)
+    val layout = Rx.variable(DockLayout(group("a"), Seq(DockFloat.of(start, "b"))))
+    val m      = mountDock(dock(layout))
+    def box    = layout.get.floating.head.box
+    fireEvent.pointerDown(m.get(".uni-dock__float-grip"), clientX = 100, clientY = 100)
+    fireEvent.pointerMove(dom.window, clientX = 160, clientY = 140)
+    near(box.x, 0.2) shouldBe true
+    fireEvent.keyDown(dom.window, "Escape")
+    box shouldBe start
+    fireEvent.pointerDown(m.get(".uni-dock__float-resize"), clientX = 300, clientY = 300)
+    fireEvent.pointerMove(dom.window, clientX = 340, clientY = 340)
+    fireEvent.keyDown(dom.window, "Escape")
+    box shouldBe start
   }
 
   test("a tab dragged onto a float joins it, and pressing a float raises it") {

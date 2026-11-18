@@ -198,12 +198,13 @@ class UiHistory private (limit: Int):
         case None =>
           append(r)
 
-  // A drag step of the drag that made `last`, when nothing else was recorded in between. Other
-  // writes during a drag, such as an arrow key, stay entries of their own
+  // A drag step of the drag that made `last`, or the Escape that cancels it, when nothing else was
+  // recorded in between. Other writes during a drag, such as an arrow key, stay entries of their own
   private def sameDrag(last: Record, r: AgentRegistry.Reported): Boolean =
     r.gesture.exists(g => last.gesture.exists(_ eq g)) &&
       (last.target eq r.target) && last.state == EntryState.Live &&
-      r.details.reason == ChangeReason.Drag && last.base.reason == ChangeReason.Drag.name
+      (r.details.reason == ChangeReason.Drag || r.details.reason == ChangeReason.EscapeKey) &&
+      last.base.reason == ChangeReason.Drag.name
 
   private def append(r: AgentRegistry.Reported): Unit =
     val d          = r.details

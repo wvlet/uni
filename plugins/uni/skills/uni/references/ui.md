@@ -241,7 +241,7 @@ changeLog.entries.map(_.describe)                    // "Agent set Region to ore
 
 - Undo writes back through the current owner's `onChange` with `ChangeReason.Undo` (cancelable)
   and is not recorded as a new change. Dock layouts and splitter sizes are undoable; one drag is
-  one entry. Presses and app callbacks are not recorded; `open` and secret values report
+  one entry, and a drag cancelled with Escape (which puts the size back) leaves none. Presses and app callbacks are not recorded; `open` and secret values report
   `unsupported`; an unmounted component reports `missing`.
 
 ## Behaviors for your own widgets

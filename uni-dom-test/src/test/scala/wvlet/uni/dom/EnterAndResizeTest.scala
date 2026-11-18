@@ -160,6 +160,123 @@ class EnterAndResizeTest extends DomTestSupport:
       dom.document.body.style.cursor = ""
   }
 
+  test("PointerDrag captures the pointer on the handle and releases it at the end") {
+    val calls = mutable.Buffer.empty[String]
+    val drag  = PointerDrag(onMove = (_, _) => ())
+    val m     = mount(div(cls -> "handle", drag.bind))
+    val el    = m.get(".handle").asInstanceOf[js.Dynamic]
+    // A synthetic pointer is not active, so record the calls instead of capturing
+    el.setPointerCapture = (id: Double) => calls += s"capture ${id.toInt}"
+    el.releasePointerCapture = (id: Double) => calls += s"release ${id.toInt}"
+    fireEvent.pointerDown(m.get(".handle"), pointerId = 7)
+    calls.toSeq shouldBe Seq("capture 7")
+    fireEvent.pointerUp(dom.window, pointerId = 7)
+    calls.toSeq shouldBe Seq("capture 7", "release 7")
+  }
+
+  test("PointerDrag ignores Escape without onCancel") {
+    var ended = 0
+    val drag  = PointerDrag(onMove = (_, _) => (), onEnd = () => ended += 1)
+    val m     = mount(div(cls -> "handle", drag.bind))
+    fireEvent.pointerDown(m.get(".handle"))
+    fireEvent.keyDown(dom.window, "Escape") shouldBe true
+    drag.isDragging shouldBe true
+    fireEvent.pointerUp(dom.window)
+    ended shouldBe 1
+  }
+
+  test("PointerDrag cancels on Escape, consumes the key, and swallows the release's click") {
+    val log  = mutable.Buffer.empty[String]
+    var drag = Option.empty[PointerDrag]
+    drag = Some(
+      PointerDrag(
+        onMove = (dx, _) => log += s"move ${dx.toInt}",
+        onEnd = () => log += "end",
+        cursor = "col-resize",
+        onCancel = Some(e => log += s"cancel ${e.`type`} dragging=${drag.exists(_.isDragging)}")
+      )
+    )
+    val m = mount(div(cls -> "handle", onclick -> (() => log += "click"), drag.get.bind))
+    // An overlay or a list listening for Escape doesn't see the cancelling one
+    val docKey: js.Function1[dom.Event, Unit] = _ => log += "document key"
+    dom.document.addEventListener("keydown", docKey)
+    try
+      fireEvent.pointerDown(m.get(".handle"), clientX = 100)
+      fireEvent.pointerMove(dom.window, clientX = 130)
+      fireEvent.keyDown(dom.window, "Escape") shouldBe false
+      drag.get.isDragging shouldBe false
+      dom.document.body.style.cursor shouldBe ""
+      // Moves after the cancel are not tracked; the release clicks nothing
+      fireEvent.pointerMove(dom.window, clientX = 200)
+      fireEvent.pointerUp(m.get(".handle"))
+      fireEvent.click(m.get(".handle"))
+      log.toSeq shouldBe Seq("move 30", "cancel keydown dragging=true")
+      // Escape after the drag is an ordinary key
+      fireEvent.keyDown(dom.window, "Escape") shouldBe true
+      // A release the page missed doesn't swallow the click of the next press
+      fireEvent.pointerDown(m.get(".handle"), clientX = 100)
+      fireEvent.keyDown(dom.window, "Escape")
+      fireEvent.pointerDown(dom.document.body, pointerId = 2)
+      fireEvent.click(m.get(".handle"))
+      log.last shouldBe "click"
+    finally
+      dom.document.removeEventListener("keydown", docKey)
+  }
+
+  test("PointerDrag cancels on pointercancel when onCancel is given") {
+    val log  = mutable.Buffer.empty[String]
+    val drag = PointerDrag(
+      onMove = (_, _) => (),
+      onEnd = () => log += "end",
+      onCancel = Some(e => log += s"cancel ${e.`type`}")
+    )
+    val m = mount(div(cls -> "handle", drag.bind))
+    fireEvent.pointerDown(m.get(".handle"))
+    fireEvent.pointerCancel(dom.window)
+    drag.isDragging shouldBe false
+    fireEvent.pointerDown(m.get(".handle"))
+    fireEvent.pointerUp(dom.window)
+    log.toSeq shouldBe Seq("cancel pointercancel", "end")
+  }
+
+  test("PaneResize puts the start size back on Escape") {
+    val width = Rx.variable(300)
+    val m     = mount(
+      div(cls -> "grip", PaneResize(width, SizeRange(200, 300, 400), ResizeDirection.Right).bind)
+    )
+    fireEvent.pointerDown(m.get(".grip"), clientX = 300)
+    fireEvent.pointerMove(dom.window, clientX = 350)
+    width.get shouldBe 350
+    fireEvent.keyDown(dom.window, "Escape")
+    width.get shouldBe 300
+    fireEvent.pointerMove(dom.window, clientX = 380)
+    width.get shouldBe 300
+  }
+
+  test("PaneResize clamps a size written later while its handle is mounted") {
+    val width = Rx.variable(300)
+    val m     = mount(
+      div(cls -> "grip", PaneResize(width, SizeRange(200, 300, 400), ResizeDirection.Right).bind)
+    )
+    val shown = mutable.Buffer.empty[Int]
+    val sub   = width.subscribe(shown += _)
+    // Another tab on an older build may write a size outside the range
+    width := 960
+    settle().flatMap { _ =>
+      width.get shouldBe 400
+      // A later subscriber ends on the clamped size too
+      shown.last shouldBe 400
+      width := 10
+      settle().map { _ =>
+        width.get shouldBe 200
+        sub.cancel
+        m.unmount()
+        width := 960
+        settle().map(_ => width.get shouldBe 960)
+      }
+    }
+  }
+
   test("PaneResize clamps to the range and resets on double-click") {
     val width  = Rx.variable(272)
     val range  = SizeRange(min = 208, default = 272, max = 480)

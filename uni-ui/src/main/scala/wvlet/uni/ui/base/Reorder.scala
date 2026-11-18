@@ -75,7 +75,6 @@ class Reorder[K] private[ui] (
   private var dragActive: Boolean           = false
   private var dragMoved: Boolean            = false
   private var suppressClick: Boolean        = false
-  private var stopDrag: () => Unit          = () => ()
   private var scroller: Option[dom.HTMLElement] = None
   private var dragRtl: Boolean                  = false
   private var scrollFrame: Option[Int]          = None
@@ -197,7 +196,9 @@ class Reorder[K] private[ui] (
     PointerDrag(
       onMove = (dx, dy) => moveDrag(k, dx, dy),
       onStart = startDrag,
-      onEnd = () => endDrag(k),
+      onEnd = () => endDrag(k, commit = true),
+      // Escape moves nothing
+      onCancel = Some(_ => endDrag(k, commit = false)),
       // One drag at a time: a second finger on another item doesn't start another
       canStart = e => !dragActive && isEnabled && Reorder.canStart(e)
     ).bind
@@ -255,23 +256,6 @@ class Reorder[K] private[ui] (
     dragStart = (e.clientX, e.clientY)
     dragPointer = dragStart
     dragMoved = false
-    val cancel: js.Function1[dom.Event, Unit] =
-      ev =>
-        ev match
-          case k: dom.KeyboardEvent if k.key != "Escape" =>
-          case _                                         =>
-            stopScroll()
-            dropVar         := None
-            draggedVar      := None
-            draggedGroupVar := Set.empty
-    dom.window.addEventListener("keydown", cancel)
-    // Capture, so this runs before the drag's own pointercancel handler ends it
-    dom.window.addEventListener("pointercancel", cancel, useCapture = true)
-    stopDrag =
-      () =>
-        stopScroll()
-        dom.window.removeEventListener("keydown", cancel)
-        dom.window.removeEventListener("pointercancel", cancel, useCapture = true)
 
   private def moveDrag(k: K, dx: Double, dy: Double): Unit =
     dragPointer = (dragStart._1 + dx, dragStart._2 + dy)
@@ -286,8 +270,7 @@ class Reorder[K] private[ui] (
         }
       draggedVar      := Some(k)
       draggedGroupVar := groupOf(k)
-    // draggedVar is cleared by Escape
-    if dragMoved && draggedVar.get.contains(k) then
+    if dragMoved then
       updateDrop()
       if scrollFrame.isEmpty && autoscrollSpeed != 0 then
         scrollFrame = Some(dom.window.requestAnimationFrame(_ => autoscroll()))
@@ -376,10 +359,11 @@ class Reorder[K] private[ui] (
 
   end dropAt
 
-  private def endDrag(k: K): Unit =
-    stopDrag()
+  private def endDrag(k: K, commit: Boolean): Unit =
+    stopScroll()
     dragActive = false
-    if dragMoved then
+    // After a cancel, PointerDrag swallows the click itself
+    if dragMoved && commit then
       suppressClick = true
       dom.window.setTimeout(() => suppressClick = false, 0)
       val group = draggedGroupVar.get

@@ -274,7 +274,7 @@ The package includes reactive wrappers over common browser APIs. Each is an
 | `MediaQuery` | `MediaQuery.matches(query)` → `.rx: Rx[Boolean]` for responsive layouts |
 | `Focus` | Focus tracking (`active: Rx[Option[Element]]`), focus traps, autofocus on mount |
 | `Keyboard` | Global and scoped shortcuts — `Keyboard.bind("ctrl+s", () => save())`, `isPressed`, `modifiers`; `onEnter` for IME-safe Enter in text fields |
-| `PointerDrag` / `PaneResize` | Pointer drags tracked on `window` (`dragging: Rx[Boolean]`), and drag-to-resize handles for split panes and sidebars |
+| `PointerDrag` / `PaneResize` | Pointer drags that capture the pointer (`dragging: Rx[Boolean]`, optional Escape cancel), and drag-to-resize handles for split panes and sidebars |
 | `ClickOutside` | Detect clicks outside an element (`hide(visible)` for menus/popovers) |
 | `NetworkStatus` | `online`/`offline: Rx[Boolean]` |
 | `WindowScroll` / `WindowDimensions` / `WindowVisibility` | Reactive window scroll position, size, and tab visibility |
@@ -349,10 +349,20 @@ aside(
 `ResizeDirection` is the way the pointer moves to make the pane larger: `Right`
 for a left sidebar, `Left` for a right-hand dock, `Up` or `Down` for vertical
 splits. `resize.dragging` is an `Rx[Boolean]`, handy for turning off a width
-transition during the drag. Constructing a `PaneResize` clamps the current size
-into its range, so a width kept in `Storage.local` and saved under an older,
-wider range is corrected before the pane renders.
+transition during the drag. Escape during a drag, or a `pointercancel`, puts
+back the size from before the drag.
+
+The size stays within its range. Constructing a `PaneResize` clamps the current
+size, so a width kept in `Storage.local` and saved under an older, wider range is
+corrected before the pane renders. While the handle is mounted, a value written
+later from outside a drag, such as by another tab through a storage event, is
+clamped too.
 
 For other drags (sliders, movable cards), use `PointerDrag(onMove = (dx, dy) =>
-...)` directly; it reports the distance from the start point and ends on
-`pointerup` or `pointercancel`.
+...)` directly. It reports the distance from the start point, captures the
+pointer so a release outside the browser window still ends the drag, and ends on
+`pointerup` or `pointercancel`. Pass `onCancel = Some(e => ...)` to cancel on
+Escape too: `onCancel` runs instead of `onEnd`, on Escape or `pointercancel`,
+and should put back what the drag changed. The Escape is consumed, so it doesn't
+also close an enclosing dialog, and the click that follows the release is
+swallowed.
