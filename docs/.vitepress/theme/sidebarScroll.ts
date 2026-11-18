@@ -12,9 +12,9 @@ export async function revealActiveSidebarLink(): Promise<void> {
     if (!sidebar || !active) return
     const view = sidebar.getBoundingClientRect()
     const item = active.getBoundingClientRect()
-    // The top of the sidebar is covered by the nav bar on wide screens, so leave a margin
-    const margin = 64
-    if (item.top >= view.top + margin && item.bottom <= view.bottom - margin) return
+    // The top of the sidebar is covered by the nav bar title on wide screens, so leave a margin there
+    const topMargin = 64
+    if (item.top >= view.top + topMargin && item.bottom <= view.bottom) return
     sidebar.scrollTop += item.top - view.top - sidebar.clientHeight / 3
   })
 }
