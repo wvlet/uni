@@ -1,10 +1,12 @@
 package example.renderer
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx}
 import wvlet.uni.ui.{
   Badge,
+  CellKey,
   Column,
   DataTable,
   DockLayout,
@@ -205,11 +207,14 @@ end DetailsView
 /**
   * Every RPC call, newest first, with its time relative to the slowest. The log keeps hundreds of
   * calls, so it renders through a [[VirtualList]]: only the rows in view are in the DOM. The
-  * "Table" view shows the same calls in a sortable [[DataTable]], which moves by cell.
+  * "Table" view shows the same calls in a sortable [[DataTable]], which moves by cell, selects one
+  * cell, and has a Copy button in each row that Enter or F2 reaches.
   */
 class ActivityLog(log: RpcLog) extends RxElement:
   private val asTable = Rx.variable(false)
   private val sort    = Rx.variable(Option.empty[SortBy])
+  private val picked  = Rx.variable(Option.empty[CellKey[Long]])
+  private val copied  = Rx.variable(Option.empty[Long])
 
   private def viewButton(label: String, table: Boolean): RxElement = button(
     tpe         -> "button",
@@ -268,9 +273,47 @@ class ActivityLog(log: RpcLog) extends RxElement:
                 else
                   ("text-red-500", "failed")
               span(cls -> tone, text)
-        ).sortBy(_.ok).withWidth("64px")
+        ).sortBy(_.ok).withWidth("64px"),
+        Column[RpcCall](
+          "copy",
+          "Copy",
+          cell =
+            c =>
+              button(
+                tpe -> "button",
+                cls ->
+                  "rounded px-1.5 py-0.5 text-[11px] text-muted hover:bg-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand",
+                onclick -> { () =>
+                  dom.window.navigator.clipboard.writeText(c.method)
+                  copied := Some(c.id)
+                },
+                copied.map(id =>
+                  if id.contains(c.id) then
+                    "Copied"
+                  else
+                    "Copy"
+                )
+              )
+        ).withWidth("64px")
       )
-    ).withLabel("RPC calls").withSort(sort).withRowHeight(30)(cls += "min-h-0 flex-1 text-[12px]")
+    ).withLabel("RPC calls")
+      .withSort(sort)
+      .withSelectedCell(picked)
+      .withRowLabel(c => s"#${c.id} ${c.method}")
+      .withRowHeight(30)(cls += "min-h-0 flex-1 text-[12px]")
+
+  // The selected cell, as the app would read it from `picked`
+  private def pickedLine: RxElement = p(
+    cls -> "px-1 pt-2 text-[11px] text-faint",
+    Rx.join(picked, log.calls)
+      .map { (k, calls) =>
+        k.flatMap(k => calls.find(_.id == k.row).map(c => (k.column, c))) match
+          case Some((column, c)) =>
+            s"Selected: #${c.id} ${column}"
+          case None =>
+            "Select a cell with Enter, Space, or a click"
+      }
+  )
 
   // Each call with the slowest time, computed once per update. A row renders again only when its
   // pair changes, which is when a new slowest call arrives.
@@ -338,7 +381,7 @@ class ActivityLog(log: RpcLog) extends RxElement:
       },
     asTable.map { t =>
       if t then
-        table
+        div(cls -> "flex min-h-0 flex-1 flex-col", table, pickedLine)
       else
         VirtualList(rows, rowHeight = 44, key = _._1.id, render = row.tupled).withLabel(
           "RPC calls"
