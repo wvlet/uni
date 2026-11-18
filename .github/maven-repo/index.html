@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wvlet Maven Repository</title>
+<link rel="icon" href="https://wvlet.org/uni/favicon.svg">
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --border: #d1d9e0;
+    --code-bg: #f6f8fa; --accent: #0969da;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --border: #3d444d;
+      --code-bg: #161b22; --accent: #4493f8;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: 1.9rem; margin: 0 0 8px; }
+  h2 { font-size: 1.2rem; margin: 36px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
+  h3 { font-size: 1rem; margin: 20px 0 6px; }
+  p, li { color: var(--fg); }
+  .lead { color: var(--muted); margin-top: 0; }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.9em; }
+  :not(pre) > code { background: var(--code-bg); padding: 2px 5px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 12px 14px; overflow-x: auto; margin: 0;
+  }
+  .url { font-size: 1.05rem; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 0.9rem; }
+  footer { margin-top: 48px; color: var(--muted); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Wvlet Maven Repository</h1>
+  <p class="lead">Every release of the Wvlet projects is published here. Maven Central gets some of these releases, with the same files and signatures.</p>
+
+  <p class="url">Repository URL: <code>https://repo.wvlet.org/maven2</code></p>
+
+  <h2>Projects</h2>
+  <table>
+    <thead><tr><th>Project</th><th>Group ID</th><th>Latest version here</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><a href="https://wvlet.org/uni/">uni</a></td>
+        <td><code>org.wvlet.uni</code></td>
+        <td><code id="uni-version">see <a href="/maven2/org/wvlet/uni/uni_3/maven-metadata.xml">maven-metadata.xml</a></code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h2>Add the repository</h2>
+  <p>You only need this repository for versions that are not on Maven Central yet. Keep Maven Central in your build as well.</p>
+
+  <h3>sbt</h3>
+  <pre><code>// build.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
+// project/plugins.sbt, for an sbt plugin version that is not on Maven Central yet
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"</code></pre>
+
+  <h3>scala-cli</h3>
+  <pre><code>//> using repository https://repo.wvlet.org/maven2</code></pre>
+
+  <h3>Mill</h3>
+  <pre><code>def repositories = super.repositories() ++ Seq("https://repo.wvlet.org/maven2")</code></pre>
+
+  <h3>Gradle (Kotlin DSL)</h3>
+  <pre><code>repositories {
+    mavenCentral()
+    maven("https://repo.wvlet.org/maven2")
+}</code></pre>
+
+  <h3>Maven</h3>
+  <pre><code>&lt;repositories&gt;
+  &lt;repository&gt;
+    &lt;id&gt;wvlet&lt;/id&gt;
+    &lt;url&gt;https://repo.wvlet.org/maven2&lt;/url&gt;
+  &lt;/repository&gt;
+&lt;/repositories&gt;</code></pre>
+
+  <h2>Notes</h2>
+  <ul>
+    <li>If you publish a library to Maven Central, depend on versions that are on Maven Central and don't add this repository to its build. Your users then need no extra repository.</li>
+    <li>Folders can't be browsed here, but every file is served at its usual Maven path, for example <a href="/maven2/org/wvlet/uni/uni_3/maven-metadata.xml"><code>org/wvlet/uni/uni_3/maven-metadata.xml</code></a>.</li>
+    <li>Artifacts are signed with the same PGP key as the releases on Maven Central.</li>
+  </ul>
+
+  <footer>
+    See the <a href="https://wvlet.org/uni/guide/installation#newest-releases">uni installation guide</a> · Source: <a href="https://github.com/wvlet/uni">github.com/wvlet/uni</a>
+  </footer>
+</main>
+<script>
+  fetch("/maven2/org/wvlet/uni/uni_3/maven-metadata.xml", { cache: "no-cache" })
+    .then((res) => (res.ok ? res.text() : Promise.reject(res.status)))
+    .then((xml) => {
+      const version = new DOMParser().parseFromString(xml, "application/xml").querySelector("release")?.textContent;
+      if (version) document.getElementById("uni-version").textContent = version;
+    })
+    .catch(() => {});
+</script>
+</body>
+</html>

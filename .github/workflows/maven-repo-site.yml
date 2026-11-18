@@ -1,0 +1,35 @@
+name: Maven Repository Page
+
+# Uploads the landing page of https://repo.wvlet.org. R2 serves only exact object keys (no directory
+# listings or index documents), so the page is stored under each key a browser asks for.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/maven-repo/**'
+      - '.github/workflows/maven-repo-site.yml'
+  workflow_dispatch:
+
+jobs:
+  upload:
+    name: Upload landing page
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Upload to repo.wvlet.org
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
+          R2_BUCKET: wvlet-maven
+        run: |
+          # /maven2/ maps to the key "maven2/", and /maven2 to "maven2"
+          for key in index.html maven2/ maven2 maven2/index.html; do
+            aws s3api put-object --bucket "${R2_BUCKET}" --key "${key}" \
+              --body .github/maven-repo/index.html \
+              --content-type "text/html; charset=utf-8" --cache-control "max-age=300" > /dev/null
+            echo "Uploaded ${key}"
+          done
