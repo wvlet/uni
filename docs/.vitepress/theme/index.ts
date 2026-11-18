@@ -4,6 +4,7 @@ import type { Theme } from 'vitepress'
 import BlogPostMeta from './components/BlogPostMeta.vue'
 import ImageZoom from './components/ImageZoom.vue'
 import { oldAnchorTarget } from './oldAnchors'
+import { revealActiveSidebarLink } from './sidebarScroll'
 import './custom.css'
 
 export default {
@@ -25,6 +26,7 @@ export default {
     router.onAfterRouteChange = async (to) => {
       await previous?.(to)
       redirect()
+      revealActiveSidebarLink()
     }
     window.addEventListener('hashchange', redirect)
   }
