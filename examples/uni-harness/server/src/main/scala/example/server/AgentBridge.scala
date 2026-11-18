@@ -99,8 +99,8 @@ object AgentBridge:
   class AgentWindow(
       val id: Int,
       val client: HttpAsyncClient,
-      title: () => String = () => "",
-      focused: () => Boolean = () => false
+      title: () => String,
+      focused: () => Boolean
   ):
     def currentTitle: String      = title()
     def isFocused: Boolean        = focused()
@@ -230,10 +230,11 @@ object AgentBridge:
     * Let the bridge send calls to this `BrowserWindow`'s renderer, until the window closes. Calls
     * never time out: an `act` on a `UiAgent.confirm` component waits for the human, and a timeout
     * would report it failed while it could still apply. A closed or reloaded window still ends
-    * every waiting call.
+    * every waiting call. `isFocused` tells whether the user is in this window, including its
+    * detached dock panels, so a call without a window id goes there.
     */
   @JSExportTopLevel("attachAgentBridge")
-  def attach(win: js.Dynamic): Unit =
+  def attach(win: js.Dynamic, isFocused: js.Function0[Boolean]): Unit =
     val id = win.id.asInstanceOf[Int]
     opened.add(
       AgentWindow(
@@ -244,7 +245,7 @@ object AgentBridge:
           ElectronMainChannelConfig().noTimeout
         ),
         title = () => win.getTitle().asInstanceOf[String],
-        focused = () => win.isFocused().asInstanceOf[Boolean]
+        focused = () => isFocused()
       )
     )
     win.on("closed", () => opened.remove(id))

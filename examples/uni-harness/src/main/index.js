@@ -34,8 +34,11 @@ function createWindow() {
       additionalArguments: agentBridge ? ['--uni-agent-bridge'] : []
     }
   })
+  // Detached dock panels of this window, so focus in a panel counts as focus in the window
+  const docks = new Set()
   // The bridge lists this window and can target it by `win.id` until it closes
-  if (agentBridge) attachAgentBridge(win)
+  if (agentBridge)
+    attachAgentBridge(win, () => win.isFocused() || [...docks].some((d) => d.isFocused()))
 
   // Links go to the system browser through uniShell, so the page opens no other window, except a
   // blank same-origin one that the Dock moves a detached panel into (`Dock.withDetach`). Its frame
@@ -57,6 +60,8 @@ function createWindow() {
   // A dock window shows only the renderer's own DOM: it opens no windows and goes nowhere, so a
   // link inside a detached panel can't load a remote page with this window's preload
   win.webContents.on('did-create-window', (child) => {
+    docks.add(child)
+    child.on('closed', () => docks.delete(child))
     child.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     child.webContents.on('will-navigate', (event) => event.preventDefault())
   })
