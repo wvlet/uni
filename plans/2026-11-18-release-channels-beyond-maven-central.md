@@ -26,7 +26,7 @@ Lane: Standard. This changes where and how often we publish (packaging, an alway
 - **Two channels, same coordinates and signatures.**
   - **wvlet Maven repo** (new, e.g. `https://repo.wvlet.org/maven2`, a static Maven layout on Cloudflare R2): every tagged release goes here, as often as we like.
   - **Maven Central**: at most one uni release per calendar month, picked by hand (usually a milestone like `2026.2.0`, or the newest patch). This fits only if uni and airframe agree on a monthly MB split. Every version on Central also exists in the wvlet repo.
-  - The wvlet repo must be a real Maven repo: the release job also merges and uploads `maven-metadata.xml`, so Scala Steward, coursier `latest.release` and version ranges see new versions, not only exact pins.
+  - The wvlet repo must be a real Maven repo: the release job also rebuilds `maven-metadata.xml` from the bucket listing, so Scala Steward, coursier `latest.release` and version ranges see new versions, not only exact pins.
 - **User flow**
   - Library authors and conservative users change nothing. They depend on Central versions, and Scala Steward proposes them as before.
   - Applications that want a fix now add one resolver by hand. The docs give the line for sbt `resolvers` (and `project/plugins.sbt` for plugin versions), scala-cli `//> using repository`, Mill and Gradle. No plugin adds it silently. They know it worked when the version resolves and Scala Steward starts proposing wvlet-repo versions.

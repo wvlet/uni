@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       central_version:
-        description: 'Copy this version (e.g. 2026.2.1) from repo.wvlet.org to Maven Central. Leave empty to build and release the selected ref to repo.wvlet.org.'
+        description: 'Copy this version (e.g. 2026.2.1) from repo.wvlet.org to Maven Central. Leave empty to release the selected tag to repo.wvlet.org.'
         required: false
         default: ''
 
@@ -25,14 +25,9 @@ jobs:
     name: Publish to repo.wvlet.org
     if: github.event_name == 'push' || inputs.central_version == ''
     runs-on: ubuntu-latest
-    # Serialize releases so that two runs never merge maven-metadata.xml at the same time. (The group
-    # is per GitHub repository; airframe, which shares the bucket, must not release at the same moment.)
-    concurrency:
-      group: wvlet-maven-repo
-      cancel-in-progress: false
     # Every build below stages its signed artifacts into the root's target/sona-staging (the plugin
-    # builds point their stagingDirectory there), and the whole tree is uploaded at the end. Artifacts
-    # go up before maven-metadata.xml, so a failed upload never lists a version that is incomplete.
+    # builds point their stagingDirectory there), and the whole tree is uploaded at the end. A version
+    # already in the bucket is never overwritten, and artifacts go up before maven-metadata.xml.
     #
     # Credentials are scoped to the steps that need them, never exposed to third-party actions.
     steps:
@@ -91,19 +86,14 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
         run: |
-          endpoint="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
           dest="s3://${R2_BUCKET}/${R2_PREFIX}"
-          # Read the current metadata through the S3 API rather than the public URL, which may be cached
-          aws s3 cp "${dest}/" target/repo-existing/ --recursive --endpoint-url "${endpoint}" \
-            --exclude "*" --include "*/maven-metadata.xml"
-          mkdir -p target/repo-existing
-          python3 .github/scripts/maven_repo.py metadata target/sona-staging target/repo-existing target/repo-metadata
-          aws s3 cp target/sona-staging/ "${dest}/" --recursive --endpoint-url "${endpoint}" \
-            --exclude "*maven-metadata*"
-          aws s3 cp target/repo-metadata/ "${dest}/" --recursive --endpoint-url "${endpoint}" \
-            --cache-control "no-cache"
+          python3 .github/scripts/maven_repo.py check target/sona-staging "${dest}"
+          aws s3 cp target/sona-staging/ "${dest}/" --recursive --exclude "*maven-metadata*"
+          # Rebuilt from the version directories now in the bucket, so concurrent releases need no lock
+          python3 .github/scripts/maven_repo.py metadata target/sona-staging "${dest}" target/repo-metadata
+          aws s3 cp target/repo-metadata/ "${dest}/" --recursive --cache-control "no-cache"
 
   central:
     name: Copy to Maven Central
@@ -119,18 +109,18 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          AWS_ENDPOINT_URL: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
           VERSION: ${{ inputs.central_version }}
         run: |
           aws s3 cp "s3://${R2_BUCKET}/${R2_PREFIX}/org/wvlet/uni/" repo/org/wvlet/uni/ --recursive \
-            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
             --exclude "*" --include "*/${VERSION}/*"
           python3 .github/scripts/maven_repo.py bundle repo "${VERSION}" bundle.zip
       - name: Release to Maven Central
         env:
           SONATYPE_USERNAME: '${{ secrets.SONATYPE_USER }}'
           SONATYPE_PASSWORD: '${{ secrets.SONATYPE_PASS }}'
-        run: .github/scripts/central-release.sh bundle.zip "uni-${{ inputs.central_version }}"
+          VERSION: ${{ inputs.central_version }}
+        run: .github/scripts/central-release.sh bundle.zip "uni-${VERSION}"
       # The version stays on repo.wvlet.org either way; open an issue so a rejected or stalled Central
       # upload is noticed. Re-run this workflow with the same central_version to retry.
       - name: Report a failed Central release
@@ -142,4 +132,4 @@ jobs:
         run: |
           gh issue create --repo "${GITHUB_REPOSITORY}" \
             --title "Maven Central release of ${VERSION} failed" \
-            --body "Copying ${VERSION} from repo.wvlet.org to Maven Central failed: ${RUN_URL}. The version is still available from https://repo.wvlet.org/maven2. Re-run the Release workflow with central_version=${VERSION} to retry."
+            --body "Copying ${VERSION} from repo.wvlet.org to Maven Central failed: ${RUN_URL}. The version is still available from https://repo.wvlet.org/maven2. Check https://central.sonatype.com/publishing/deployments first: if the deployment was published after all, nothing is left to do. Otherwise re-run the Release workflow with central_version=${VERSION}."

@@ -13,15 +13,22 @@ name="$2"
 api="https://central.sonatype.com/api/v1/publisher"
 auth="Authorization: Bearer $(printf '%s:%s' "${SONATYPE_USERNAME}" "${SONATYPE_PASSWORD}" | base64 | tr -d '\n')"
 
-deployment_id=$(curl --fail-with-body -sS -X POST -H "${auth}" \
+if ! deployment_id=$(curl --fail-with-body -sS -X POST -H "${auth}" \
   --form "bundle=@${bundle}" \
-  "${api}/upload?name=${name}&publishingType=AUTOMATIC")
+  "${api}/upload?name=${name}&publishingType=AUTOMATIC"); then
+  echo "Upload rejected: ${deployment_id}"
+  exit 1
+fi
 echo "Deployment ${deployment_id} uploaded"
 
 # Validation and publishing usually take a few minutes; Central can stall, so give up after an hour.
 for _ in $(seq 1 120); do
   sleep 30
-  status=$(curl --fail-with-body -sS -X POST -H "${auth}" "${api}/status?id=${deployment_id}")
+  # Keep polling through a transient error; only Central's FAILED state or the timeout ends it.
+  if ! status=$(curl --fail-with-body -sS -X POST -H "${auth}" "${api}/status?id=${deployment_id}"); then
+    echo "Status check failed, retrying: ${status}"
+    continue
+  fi
   state=$(printf '%s' "${status}" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("deploymentState", ""))')
   echo "Deployment ${deployment_id}: ${state}"
   case "${state}" in
@@ -32,5 +39,5 @@ for _ in $(seq 1 120); do
       ;;
   esac
 done
-echo "Deployment ${deployment_id} did not finish within an hour"
+echo "Deployment ${deployment_id} did not finish within an hour; check https://central.sonatype.com/publishing/deployments"
 exit 1

@@ -3,11 +3,20 @@
 
 Subcommands:
 
-  metadata STAGING EXISTING_BASE OUT
-      For every artifact directory under STAGING (a Maven layout such as target/sona-staging), fetch
-      its current maven-metadata.xml from EXISTING_BASE (a URL or a local directory; missing files
-      mean a new artifact), add the staged versions, and write the merged maven-metadata.xml with
-      .md5 and .sha1 checksums to the same relative path under OUT.
+  check STAGING REPO
+      Fail if a version staged under STAGING (a Maven layout such as target/sona-staging) already has
+      a POM in REPO. A published version is never overwritten, so repo.wvlet.org keeps serving the
+      same files that may already have been copied to Maven Central.
+
+  metadata STAGING REPO OUT
+      For every artifact directory under STAGING, list the version directories that REPO holds for
+      it and write maven-metadata.xml (with .md5 and .sha1 checksums) to the same relative path under
+      OUT. Run it after the artifacts are uploaded. The metadata is rebuilt from what the repository
+      holds, not merged with the previous file, so two releases running at once (uni and airframe
+      share the bucket) need no lock: the later one lists both versions.
+
+  REPO is an `s3://bucket/prefix` URL (read with the aws CLI; set AWS_ENDPOINT_URL for R2) or a
+  local directory.
 
   bundle REPO_DIR VERSION OUT_ZIP
       Zip every file of VERSION under REPO_DIR (a Maven layout) into a Maven Central Portal bundle,
@@ -19,10 +28,8 @@ version directory, and its parent is the artifact directory.
 
 import hashlib
 import re
+import subprocess
 import sys
-import urllib.error
-import urllib.request
-import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -31,10 +38,11 @@ METADATA = "maven-metadata.xml"
 
 
 def version_key(v: str):
-    # Uni versions are YYYY.milestone.patch; compare numeric parts numerically and keep any
-    # non-numeric suffix after the plain release with the same numbers.
-    parts = re.split(r"[.\-]", v)
-    return [(0, int(p), "") if p.isdigit() else (1, 0, p) for p in parts]
+    # Uni versions are YYYY.milestone.patch. Compare the numbers numerically; a suffixed version
+    # (2026.2.1-RC1) sorts before the plain release with the same numbers, as in Maven.
+    base, _, suffix = v.partition("-")
+    nums = [int(p) if p.isdigit() else -1 for p in base.split(".")]
+    return (nums, 0 if suffix else 1, suffix)
 
 
 def find_versions(staging: Path):
@@ -50,26 +58,28 @@ def find_versions(staging: Path):
         yield artifact_dir.relative_to(staging), ".".join(group_path.parts), artifact_id, version
 
 
-def read_existing(base: str, rel: Path):
-    location = f"{base.rstrip('/')}/{rel.as_posix()}/{METADATA}"
-    if re.match(r"^https?://", base):
-        req = urllib.request.Request(location, headers={"Cache-Control": "no-cache"})
-        try:
-            with urllib.request.urlopen(req, timeout=30) as res:
-                return res.read()
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            raise
-    path = Path(location)
-    return path.read_bytes() if path.exists() else None
+def list_versions(repo: str, rel: Path):
+    """Version directories REPO holds for one artifact directory."""
+    if repo.startswith("s3://"):
+        out = subprocess.run(
+            ["aws", "s3", "ls", f"{repo.rstrip('/')}/{rel.as_posix()}/"],
+            capture_output=True,
+            text=True,
+        )
+        # `aws s3 ls` exits with 1 when the prefix does not exist yet (a new artifact)
+        if out.returncode not in (0, 1):
+            sys.exit(out.stderr)
+        return [m.group(1) for m in re.finditer(r"^\s*PRE (.+)/$", out.stdout, re.MULTILINE)]
+    path = Path(repo) / rel
+    return [d.name for d in path.iterdir() if d.is_dir()] if path.is_dir() else []
 
 
-def existing_versions(data):
-    if data is None:
-        return []
-    root = ET.fromstring(data)
-    return [v.text.strip() for v in root.findall("./versioning/versions/version") if v.text]
+def has_pom(repo: str, rel: Path, artifact_id: str, version: str) -> bool:
+    key = f"{rel.as_posix()}/{version}/{artifact_id}-{version}.pom"
+    if repo.startswith("s3://"):
+        out = subprocess.run(["aws", "s3", "ls", f"{repo.rstrip('/')}/{key}"], capture_output=True)
+        return out.returncode == 0
+    return (Path(repo) / key).exists()
 
 
 def render(group_id: str, artifact_id: str, versions) -> bytes:
@@ -95,17 +105,25 @@ def render(group_id: str, artifact_id: str, versions) -> bytes:
     return "\n".join(lines).encode("utf-8")
 
 
-def cmd_metadata(staging: str, base: str, out: str):
-    staging_path, out_path = Path(staging), Path(out)
+def cmd_check(staging: str, repo: str):
+    published = [
+        f"{artifact_id}:{version}"
+        for rel, _, artifact_id, version in find_versions(Path(staging))
+        if has_pom(repo, rel, artifact_id, version)
+    ]
+    if published:
+        sys.exit(f"Already published, refusing to overwrite: {', '.join(published)}")
+
+
+def cmd_metadata(staging: str, repo: str, out: str):
+    out_path = Path(out)
     artifacts = {}
-    for rel, group_id, artifact_id, version in find_versions(staging_path):
-        entry = artifacts.setdefault(rel, (group_id, artifact_id, set()))
-        entry[2].add(version)
+    for rel, group_id, artifact_id, version in find_versions(Path(staging)):
+        artifacts.setdefault(rel, (group_id, artifact_id, set()))[2].add(version)
     if not artifacts:
         sys.exit(f"No POM files found under {staging}")
     for rel, (group_id, artifact_id, versions) in sorted(artifacts.items()):
-        merged = existing_versions(read_existing(base, rel)) + sorted(versions)
-        data = render(group_id, artifact_id, merged)
+        data = render(group_id, artifact_id, list_versions(repo, rel) + sorted(versions))
         target = out_path / rel / METADATA
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(data)
@@ -130,7 +148,7 @@ def cmd_bundle(repo_dir: str, version: str, out_zip: str):
 
 
 if __name__ == "__main__":
-    commands = {"metadata": (cmd_metadata, 3), "bundle": (cmd_bundle, 3)}
+    commands = {"check": (cmd_check, 2), "metadata": (cmd_metadata, 3), "bundle": (cmd_bundle, 3)}
     if len(sys.argv) < 2 or sys.argv[1] not in commands or len(sys.argv) - 2 != commands[sys.argv[1]][1]:
         sys.exit(__doc__)
     fn, _ = commands[sys.argv[1]]
