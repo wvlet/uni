@@ -59,7 +59,7 @@ object FocusTrap:
   def continueTab(e: dom.KeyboardEvent): Unit =
     dom.document.activeElement match
       case el: dom.Element =>
-        Option(el.closest("[aria-modal='true']")).foreach(onKeyDown(_, e))
+        Option(el.closest("[aria-modal='true'], .uni-dialog--inline")).foreach(onKeyDown(_, e))
       case _ =>
 
   /** The first focusable element in `container`, if any. */
@@ -77,6 +77,11 @@ end FocusTrap
   *
   * Focus goes back only when it is inside the overlay or nowhere (on `<body>`), so closing an
   * overlay after the user clicked into another field doesn't steal focus from that field.
+  *
+  * When the element is gone, as when the overlay's action deleted the row that opened it, focus
+  * moves onward: to the element now in its place, else the one before it (see [[FocusPlace]]). The
+  * same happens when the element focus went back to is removed in the frame after the close, as
+  * when an app writes `open := false` and then deletes the row.
   */
 class FocusReturn:
   private val saved: Option[dom.HTMLElement] =
@@ -86,16 +91,138 @@ class FocusReturn:
       case _ =>
         None
 
+  // Where the element sat, read before the overlay is in the document
+  private val place: Option[FocusPlace] = saved.map(FocusPlace.of)
+
   /** The element that had focus when this was created. */
   def target: Option[dom.HTMLElement] = saved
 
   def restore(overlay: Option[dom.Element]): Unit =
-    val active = dom.document.activeElement
-    val lost = active == null || (active eq dom.document.body) || overlay.exists(_.contains(active))
-    if lost then
-      saved.filter(dom.document.contains(_)).foreach(_.focus())
+    if FocusReturn.lost(overlay) then
+      val outside = (e: dom.Element) => !overlay.exists(_.contains(e))
+      val next    = saved.filter(dom.document.contains(_)).orElse(place.flatMap(_.resolve(outside)))
+      next.foreach { el =>
+        el.focus()
+        FocusReturn.followOnward(el)
+      }
 
 end FocusReturn
+
+private[ui] object FocusReturn:
+  // Focus is inside the closing overlay, or nowhere
+  private def lost(overlay: Option[dom.Element]): Boolean =
+    val active = dom.document.activeElement
+    active == null ||
+    (active eq dom.document.body) || !dom.document.contains(active) ||
+    overlay.exists(_.contains(active))
+
+  // Keeps going onward when `el` leaves before the next frame and focus falls to the page
+  private def followOnward(el: dom.HTMLElement): Unit =
+    val place                          = FocusPlace.of(el)
+    var observer: dom.MutationObserver = null
+    var timer                          = 0
+    var frame                          = 0
+    def stop(): Unit                   =
+      observer.disconnect()
+      dom.window.clearTimeout(timer)
+      dom.window.cancelAnimationFrame(frame)
+    observer = dom.MutationObserver { (_, _) =>
+      if !dom.document.contains(el) then
+        stop()
+        if lost(None) then
+          place.resolve(_ => true).foreach(_.focus())
+    }
+    observer.observe(
+      dom.document.body,
+      new dom.MutationObserverInit:
+        childList = true
+        subtree = true
+    )
+    frame = dom.window.requestAnimationFrame(_ => stop())
+    // Frames pause in a hidden tab
+    timer = dom.window.setTimeout(() => stop(), 100)
+
+end FocusReturn
+
+/**
+  * Where a focusable element sits: its ancestors, and how many focusable elements precede it in
+  * each. Recorded while the element is in the document, so that once it is removed,
+  * [[FocusPlace.resolve]] can find what took its place, even when its neighbors were rendered again
+  * along with it.
+  */
+private[ui] class FocusPlace(levels: Seq[(dom.Element, Int)]):
+
+  /**
+    * The element now at this place, among those `allowed`: in the nearest ancestor still in the
+    * document, the focusable element at the same index, else its last one, else the ancestor itself
+    * when it can take focus. None when nothing is left.
+    */
+  def resolve(allowed: dom.Element => Boolean): Option[dom.HTMLElement] = levels
+    .iterator
+    .filter((a, _) => dom.document.contains(a))
+    .map { (a, index) =>
+      val candidates = FocusPlace
+        .candidates(a)
+        .filter(h => allowed(h) && h.closest("[inert]") == null)
+      // The first visible one from the index on, else the last visible one before it
+      candidates
+        .drop(index)
+        .find(FocusPlace.visible)
+        .orElse(candidates.take(index).reverseIterator.find(FocusPlace.visible))
+        .orElse(
+          a match
+            case h: dom.HTMLElement if h.hasAttribute("tabindex") && !(h eq dom.document.body) =>
+              Some(h)
+            case _ =>
+              None
+        )
+    }
+    .collectFirst { case Some(h) =>
+      h
+    }
+
+end FocusPlace
+
+private[ui] object FocusPlace:
+  // Without the visibility check of Focus.getFocusableElements, which reads a computed style per
+  // element: a place is recorded over the whole page each time an overlay opens
+  private def candidates(container: dom.Element): Seq[dom.HTMLElement] = container
+    .querySelectorAll(Focus.focusableSelector)
+    .toSeq
+    .collect { case h: dom.HTMLElement =>
+      h
+    }
+
+  private def visible(el: dom.HTMLElement): Boolean =
+    val style = dom.window.getComputedStyle(el)
+    style.display != "none" && style.visibility != "hidden"
+
+  private def parentOf(e: dom.Element): Option[dom.Element] =
+    e.parentNode match
+      case p: dom.Element =>
+        Some(p)
+      case _ =>
+        None
+
+  def of(el: dom.Element): FocusPlace =
+    val ancestors =
+      Iterator.iterate(parentOf(el))(_.flatMap(parentOf)).takeWhile(_.isDefined).flatten.toSeq
+    // One query for the whole page, then count the candidates before `el` within each ancestor.
+    // Those inside an ancestor are a suffix of `before`, so one backward scan counts them all
+    val before =
+      candidates(dom.document.body)
+        .takeWhile(f => (el.compareDocumentPosition(f) & dom.Node.DOCUMENT_POSITION_PRECEDING) != 0)
+        .toIndexedSeq
+    var i = before.size
+    FocusPlace(
+      ancestors.map { a =>
+        while i > 0 && a.contains(before(i - 1)) do
+          i -= 1
+        (a, before.size - i)
+      }
+    )
+
+end FocusPlace
 
 /** Unique element ids for linking ARIA attributes (`aria-controls`, `aria-labelledby`). */
 object Ids:

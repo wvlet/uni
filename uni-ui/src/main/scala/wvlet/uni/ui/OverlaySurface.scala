@@ -38,6 +38,10 @@ import scala.scalajs.js
   * @param stacked
   *   whether the overlay joins the [[Dismiss]] stack; a tooltip doesn't, so Escape and outside
   *   presses keep going to the menu or dialog under it
+  * @param inPlace
+  *   rendered in place instead of at the end of `<body>`: a modal one blocks only the region its
+  *   root covers (its offset parent), takes Escape only while focus is inside it, and lets outside
+  *   presses go on to the overlays under it
   */
 private[ui] class OverlaySurface(
     exit: Presence.Exit,
@@ -52,7 +56,8 @@ private[ui] class OverlaySurface(
     onDismiss: () => Unit,
     initialFocus: dom.HTMLElement => Option[dom.HTMLElement],
     returnFocus: Boolean,
-    stacked: Boolean = true
+    stacked: Boolean = true,
+    inPlace: Boolean = false
 ) extends RxElement:
   private var root: Option[dom.HTMLElement]    = None
   private var cleanup: Cancelable              = Cancelable.empty
@@ -129,11 +134,29 @@ private[ui] class OverlaySurface(
         reposition()
         val layer =
           if stacked then
-            Dismiss.push(DismissLayer(() => inside(el), modal, dismissOnOutside, onDismiss))
+            Dismiss.push(
+              DismissLayer(
+                () => inside(el),
+                modal = modal && !inPlace,
+                dismissOnOutside = dismissOnOutside,
+                onDismiss = onDismiss,
+                escapeFromInside = modal && inPlace
+              )
+            )
           else
             Cancelable.empty
         val background =
-          if modal then
+          if modal && inPlace then
+            // The positioned ancestor the backdrop covers; without one, only the dialog's parent,
+            // so the page is never blocked
+            val region =
+              el.offsetParent match
+                case p: dom.Element if !(p eq dom.document.body) =>
+                  Some(p)
+                case _ =>
+                  Option(el.parentElement).filterNot(_ eq dom.document.body)
+            region.fold(Cancelable.empty)(ModalInert.pushWithin(el, _))
+          else if modal then
             ModalInert.push(el)
           else
             Cancelable.empty

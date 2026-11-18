@@ -35,6 +35,7 @@ import scala.language.implicitConversions
   *
   * The panel is `div.uni-popover` with `role="dialog"`, rendered at the end of `<body>` so pane
   * overflow never clips it. It carries `data-side`, the side it ended up on after flipping.
+  * [[withInline]] renders it in place instead.
   */
 class Popover private (
     open: RxVar[Boolean],
@@ -43,7 +44,8 @@ class Popover private (
     side: Side,
     align: Align,
     label: Option[String],
-    changeHandler: ChangeHandler
+    changeHandler: ChangeHandler,
+    inPlace: Boolean = false
 ) extends RxElement:
 
   private val contentId                       = Ids.next("uni-popover")
@@ -53,8 +55,9 @@ class Popover private (
       side: Side = side,
       align: Align = align,
       label: Option[String] = label,
-      changeHandler: ChangeHandler = changeHandler
-  ): Popover = new Popover(open, trigger, content, side, align, label, changeHandler)
+      changeHandler: ChangeHandler = changeHandler,
+      inPlace: Boolean = inPlace
+  ): Popover = new Popover(open, trigger, content, side, align, label, changeHandler, inPlace)
 
   def withSide(s: Side): Popover   = copy(side = s)
   def withAlign(a: Align): Popover = copy(align = a)
@@ -62,6 +65,16 @@ class Popover private (
   /** The accessible name of the panel. */
   def withLabel(l: String): Popover = copy(label = Some(l))
   def noLabel(): Popover            = copy(label = None)
+
+  /**
+    * Whether to render the panel where the popover is instead of at the end of `<body>` (off by
+    * default), for a popover inside a frame or a fixed widget. The trigger and the panel are
+    * wrapped in `span.uni-popover-anchor`, and CSS, not script, places the panel under the trigger:
+    * `withSide` and `withAlign` don't apply, and `data-side` is not set. Style
+    * `.uni-popover--inline` to move it. Pane overflow can clip it.
+    */
+  def withInline(b: Boolean): Popover = copy(inPlace = b)
+  def noInline(): Popover             = withInline(false)
 
   /** Called before the popover opens or closes; `cancel()` keeps it as it is. Key: `open`. */
   def onChange(f: ChangeHandler): Popover = copy(changeHandler = f)
@@ -77,8 +90,13 @@ class Popover private (
   private def panel(exit: Presence.Exit): RxElement = OverlaySurface(
     exit,
     div(
-      id            -> contentId,
-      cls           -> "uni-popover",
+      id  -> contentId,
+      cls -> (
+        if inPlace then
+          "uni-popover uni-popover--inline"
+        else
+          "uni-popover"
+      ),
       data("slot")  -> "popover-content",
       role          -> "dialog",
       tabindex      -> "-1",
@@ -86,7 +104,14 @@ class Popover private (
       label.map(l => ariaLabel -> l).getOrElse(DomNode.empty),
       content
     ),
-    anchor = () => triggerRef.current.map(Rect.of),
+    // An inline panel is placed by CSS
+    anchor =
+      () =>
+        if inPlace then
+          None
+        else
+          triggerRef.current.map(Rect.of)
+    ,
     inside = el => el +: triggerRef.current.toSeq,
     side = side,
     align = align,
@@ -96,10 +121,11 @@ class Popover private (
     onDismiss = () => setOpen(false, ChangeCause.current),
     // The first field or button, else the panel itself, so Escape and Tab start from inside it
     initialFocus = el => FocusTrap.first(el).orElse(Some(el)),
-    returnFocus = true
+    returnFocus = true,
+    inPlace = inPlace
   )
 
-  override def render: RxElement = trigger(
+  private def wiredTrigger(modifiers: DomNode*): RxElement = trigger(
     triggerRef.binding,
     ariaHaspopup -> "dialog",
     ariaExpanded -> open.map(_.toString),
@@ -107,8 +133,20 @@ class Popover private (
     ariaControls  -> open.map(o => Option.when(o)(contentId)),
     data("state") -> open.map(Popover.stateName),
     EventListenerBinding("click", e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e))),
-    Presence(open)(exit => Portal.toBody(panel(exit)))
+    modifiers
   )
+
+  override def render: RxElement =
+    if inPlace then
+      // Next to the trigger, not inside it, where the trigger's click would toggle it
+      span(
+        cls          -> "uni-popover-anchor",
+        data("slot") -> "popover-anchor",
+        wiredTrigger(),
+        Presence(open)(exit => panel(exit))
+      )
+    else
+      wiredTrigger(Presence(open)(exit => Portal.toBody(panel(exit))))
 
 end Popover
 

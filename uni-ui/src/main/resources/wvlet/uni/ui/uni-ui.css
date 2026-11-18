@@ -869,6 +869,20 @@
     padding: 12px;
   }
 
+  /* An inline popover, placed by CSS under its trigger instead of by script */
+  .uni-popover-anchor {
+    position: relative;
+    display: inline-block;
+  }
+
+  .uni-popover--inline {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline-start: 0;
+    margin-block-start: 6px;
+    width: max-content;
+  }
+
   .uni-menu,
   .uni-listbox {
     min-width: 160px;
@@ -1093,6 +1107,11 @@
     to {
       opacity: 0;
     }
+  }
+
+  /* An inline dialog covers the nearest positioned ancestor instead of the viewport */
+  .uni-dialog-backdrop--inline {
+    position: absolute;
   }
 
   .uni-dialog-backdrop[data-state='closed'] {
