@@ -15,6 +15,7 @@ jobs:
     outputs:
       src: ${{ steps.filter.outputs.src }}
       native: ${{ steps.filter.outputs.native }}
+      lean: ${{ steps.filter.outputs.lean }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
@@ -29,6 +30,11 @@ jobs:
               - '**.c'
               - '**/.native/**'
               - 'project/**'
+            # The Lean spec and the Scala cases generated from it (see spec/lean/README.md)
+            lean:
+              - '.github/workflows/test.yml'
+              - 'spec/lean/**'
+              - 'uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -48,6 +54,30 @@ jobs:
               - 'plugins/uni/skills/**'
               # docSnippetsJS compiles the UI pages' snippets (projectJS/test)
               - 'docs/dom/**'
+  lean_spec:
+    name: Lean spec
+    needs: changes
+    if: ${{ needs.changes.outputs.lean == 'true' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: spec/lean
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install elan
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      # Builds the model, which checks every proof, and the case generator
+      - name: Check proofs
+        run: lake build
+      - name: Generated cases are up to date
+        run: |
+          lake exe gen-rx-cases
+          if ! git diff --exit-code -- ../../uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala; then
+            echo "::error::Run 'lake exe gen-rx-cases' in spec/lean and commit RxSpecCases.scala"
+            exit 1
+          fi
   code_format:
     name: Code format
     needs: changes
