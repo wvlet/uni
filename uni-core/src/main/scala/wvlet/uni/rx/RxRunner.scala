@@ -425,8 +425,10 @@ class RxRunner(
                     done.set(true)
                   result
                 else
-                  // Complete right after the nth value without waiting for the next upstream event
-                  if done.compareAndSet(false, true) && result.toContinue then
+                  // Complete right after the nth value without waiting for the next upstream event.
+                  // A downstream Stop suppresses it, except in continuous mode, where Stop after a
+                  // downstream error is transient (as for the values before the nth)
+                  if done.compareAndSet(false, true) && (continuous || result.toContinue) then
                     effect(OnCompletion)
                   c.cancel
                   RxResult.Stop
@@ -615,9 +617,10 @@ class RxRunner(
               effect(ev)
             case OnError(e) if f.isDefinedAt(e) =>
               Try(effect(OnNext(f(e)))) match
-                case Success(x) =>
-                  // recovery succeeded
-                  RxResult.Continue
+                case Success(result) =>
+                  // Recovery succeeded: pass on the downstream's answer, which is Stop when an
+                  // operator after recover failed on the recovered value
+                  result
                 case Failure(e) =>
                   effect(OnError(e))
             case other =>

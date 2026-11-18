@@ -1,5 +1,5 @@
 name = "uni-spec"
-defaultTargets = ["UniSpec", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases"]
+defaultTargets = ["UniSpec", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-rx-recover-cases"]
 
 [[lean_lib]]
 name = "UniSpec"
@@ -15,3 +15,7 @@ root = "GenMsgPackCases"
 [[lean_exe]]
 name = "gen-rx-nested-cases"
 root = "GenRxNestedCases"
+
+[[lean_exe]]
+name = "gen-rx-recover-cases"
+root = "GenRxRecoverCases"
