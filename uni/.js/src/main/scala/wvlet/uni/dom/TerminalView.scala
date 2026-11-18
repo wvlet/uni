@@ -227,6 +227,9 @@ class TerminalView(
   private def containerStyle: String =
     val vars = theme.cssVariables.map((name, value) => s"${name}: ${value};").mkString(" ")
     s"${vars} position: relative; height: 100%; width: 100%; box-sizing: border-box; overflow-y: auto; overflow-x: hidden; " +
+      // Keep the width when the scrollbar appears, so the first scrolled line does not resize
+      // the terminal (a resize rewraps every row and clears the selection)
+      "scrollbar-gutter: stable; " +
       s"padding: ${config.padding}px; background: var(--uni-term-bg); color: var(--uni-term-fg); " +
       s"font-family: ${config.fontFamily}; font-size: ${config.fontSize}px; " +
       s"line-height: ${config.lineHeight}; cursor: text; outline: none;"
