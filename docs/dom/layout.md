@@ -9,7 +9,7 @@ Side panes that fold and resize, a status bar, and a `Dock` of panels the user r
 | Component | What it does |
 |-----------|--------------|
 | `FoldablePane(open, width = w, edge = e, content = Seq(...)).withSplitter(splitter)` | A side pane that folds to zero width; its content never reflows |
-| `Splitter(size, range, edge, label)` | A resize grip. Drag it, or press the arrow keys (Shift for bigger steps); double-click or Enter resets |
+| `Splitter(size, range, edge, label)` | A resize grip. Drag it, or press the arrow keys (Shift for bigger steps); double-click or Enter resets. Escape mid-drag puts the size back |
 | `StatusBar(content*)` | A bar along the bottom; `StatusBar.spacer` pushes the rest to the end |
 
 A resizable sidebar:
@@ -85,7 +85,8 @@ Dock(
   Delete closes a closable tab. A tab's context menu (right-click, Shift+F10, or the context-menu key) moves it left,
   right, or to the next group, splits it right or down, and closes it. The border between two
   children is a separator: drag it, or use the arrow keys (Shift moves it farther), Home and End to
-  go to the limits, and Enter to share the space equally. In a right-to-left layout, the first pane
+  go to the limits, and Enter to share the space equally. Escape during a drag of a separator, or
+  of a floating group's grip or corner, puts it back where the drag started. In a right-to-left layout, the first pane
   of a row is on the right, and both the drag and the arrow keys follow it. No child gets smaller than `.withMinPanelSize(px)`
   (120 by default).
 - **Panels.** A panel's content is created the first time it shows and is kept, so moving a panel

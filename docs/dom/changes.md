@@ -36,6 +36,10 @@ div(
   `NavigationKey`, `Typeahead`, `Input`, `Drag`, `Reset`,
   `DeleteKey`, `FocusOut`, and `Imperative` for calls such as `dock.open(id)`. Make your own
   with `ChangeReason("voice-command")`.
+- **Cancelled drags.** Sizes change on every move of a drag, so Escape mid-drag on a `Splitter`, a
+  `Dock` separator, or a floating group reports one more change, back to the value before the
+  drag, with `EscapeKey` (a `pointercancel` reports it as `Drag`). Refusing it keeps the dragged
+  value. A clamp of an out-of-range size the app wrote to a `Splitter` is `Imperative`.
 - **Sources.** `ChangeSource` is `Pointer` (mouse, touch, or pen), `Keyboard`, `Programmatic`,
   or `Agent`. A click that Enter or Space made on a button counts as `Keyboard`. Code that
   wraps a block in `ChangeSource.withSource(ChangeSource.Agent) { ... }` marks every change
