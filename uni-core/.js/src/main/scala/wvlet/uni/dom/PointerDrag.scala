@@ -145,23 +145,28 @@ class PointerDrag(
 end PointerDrag
 
 object PointerDrag:
-  // Best effort: a synthetic event's pointer is not active, and some environments lack capture
-  private[dom] def capture(target: dom.EventTarget, pointerId: Double): Unit =
-    target match
-      case el: dom.Element if !js.isUndefined(el.asInstanceOf[js.Dynamic].setPointerCapture) =>
-        try
-          el.asInstanceOf[js.Dynamic].setPointerCapture(pointerId)
-        catch
-          case _: js.JavaScriptException =>
-      case _ =>
+  private def capture(target: dom.EventTarget, pointerId: Double): Unit = callCapture(
+    target,
+    "setPointerCapture",
+    pointerId
+  )
 
-  private def release(target: dom.EventTarget, pointerId: Double): Unit =
+  private def release(target: dom.EventTarget, pointerId: Double): Unit = callCapture(
+    target,
+    "releasePointerCapture",
+    pointerId
+  )
+
+  // Best effort: a synthetic event's pointer is not active, and some environments lack capture
+  private def callCapture(target: dom.EventTarget, method: String, pointerId: Double): Unit =
     target match
-      case el: dom.Element if !js.isUndefined(el.asInstanceOf[js.Dynamic].releasePointerCapture) =>
-        try
-          el.asInstanceOf[js.Dynamic].releasePointerCapture(pointerId)
-        catch
-          case _: js.JavaScriptException =>
+      case el: dom.Element =>
+        val d = el.asInstanceOf[js.Dynamic]
+        if js.typeOf(d.selectDynamic(method)) == "function" then
+          try
+            d.applyDynamic(method)(pointerId)
+          catch
+            case _: js.JavaScriptException =>
       case _ =>
 
   // After an Escape cancel the button is still down; its release must not click the handle

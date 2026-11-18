@@ -270,7 +270,7 @@ class Reorder[K] private[ui] (
         }
       draggedVar      := Some(k)
       draggedGroupVar := groupOf(k)
-    if dragMoved && draggedVar.get.contains(k) then
+    if dragMoved then
       updateDrop()
       if scrollFrame.isEmpty && autoscrollSpeed != 0 then
         scrollFrame = Some(dom.window.requestAnimationFrame(_ => autoscroll()))

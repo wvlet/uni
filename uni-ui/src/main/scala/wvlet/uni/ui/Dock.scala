@@ -724,7 +724,7 @@ class Dock private (
     if !dragMoved && math.hypot(dx, dy) >= Dock.dragThreshold then
       dragMoved = true
       dragged := Some(panel)
-    if dragMoved && dragged.get.contains(panel) then
+    if dragMoved then
       drop := dropAt(dragStart._1 + dx, dragStart._2 + dy)
 
   private def endDrag(panel: String, commit: Boolean): Unit =
