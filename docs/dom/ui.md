@@ -2,7 +2,7 @@
 description: uni-ui's components for Scala.js apps — controls, overlays, virtualized collections, and a dock — with ARIA, keyboard handling, and styling by CSS variables.
 ---
 
-# Components
+# Component Catalog
 
 `uni-ui` is a set of ready-made components for [RxElement](./rxelement) apps on Scala.js: buttons,
 text fields, tabs, foldable side panes, splitters, overlays (popovers, tooltips, menus, dialogs,

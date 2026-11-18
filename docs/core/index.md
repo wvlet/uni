@@ -1,24 +1,22 @@
-# Core Utilities
+# Core
 
-The `uni` module provides essential utilities for Scala application development.
+The `uni` module provides essential utilities for Scala application development. This
+section covers the building blocks most applications start with.
 
 ## Overview
 
 | Component | Description |
 |-----------|-------------|
 | [Design](./design) | Object wiring with lifecycle management |
-| [UniTest](./unitest) | Lightweight testing framework |
 | [Logging](./logging) | Structured logging with LogSupport |
-| [JSON](./json) | Pure Scala JSON parser and DSL |
-| [MessagePack](./msgpack) | Binary serialization format |
-| [Weaver](./weaver) | Derivation-based serialization (JSON / MessagePack / Map) |
-| [Surface](./surface) | Compile-time type introspection |
-| [FileSystem](./filesystem) | Cross-platform file I/O with IOPath |
-| [Canvas](./canvas) | Off-heap memory buffers larger than 2 GB, with `Long` offsets |
-| [YAML](../text/yaml) | YAML 1.2 parser with Weaver decoding and frontmatter |
-| [Markdown](../text/markdown) | CommonMark + GFM parser and safe HTML renderer |
-| [Cron](../text/cron) | Cron expression parser with next-run times and English descriptions |
+| [Type Introspection](./surface) | Compile-time type introspection with Surface |
+| [Result](./result) | A value that may have failed, with a typed error channel |
+| [SettingStore](./settings) | User settings that survive restarts |
 | [Utilities](./utilities) | IDs (UUIDv7, ULID, NanoId), encodings (Base62, CrockfordBase32), value types (DataSize, Count, ElapsedTime), timing (StopWatch, Timer) |
+
+The same module also has [Data & Serialization](../text/) (Weaver, JSON, MessagePack, YAML,
+Markdown, Cron), [Files & Memory](./io) (IO, FileSystem, Canvas), and the
+[UniTest](./unitest) test framework. See [All Modules](../modules) for the full list.
 
 ## Quick Start
 

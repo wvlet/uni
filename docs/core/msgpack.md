@@ -1,4 +1,4 @@
-# MessagePack Serialization
+# MessagePack
 
 MessagePack is a binary serialization format that's more compact and faster than JSON.
 

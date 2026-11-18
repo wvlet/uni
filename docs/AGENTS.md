@@ -28,9 +28,9 @@ If any of the above is unverified, drop the claim.
   version. Likewise **`__SCALA_VERSION__`** is replaced with `SCALA_3`
   from the root `build.sbt`; use it for `scalaVersion` in samples.
 - **Sidebars are built from shared lists.** In `docs/.vitepress/config.mts`,
-  a new module page goes in `moduleGroups`, a guide page in
+  a new module page goes in `moduleGroups` and in `docs/modules.md`, a guide page in
   `gettingStarted`, and a UI page (`/dom/`, `/http/electron*`) in
-  `uiSidebar`. The `/guide/` and `/` sidebars are built from them, so a
+  `uiSidebar`. The main sidebar (`/`, shared by guide and module pages) is built from them, so a
   page not in these lists is un-navigable.
 - **`srcExclude: ['**/AGENTS.md']`** keeps these files out of the
   rendered site, so it is safe to put contributor notes next to the

@@ -245,3 +245,5 @@ periodic.cancel
 3. **Use `evalOnBlocking`** for file I/O, network calls, and other blocking operations
 4. **Keep fibers lightweight** — avoid long-running blocking calls inside fibers
 5. **Use `RxRef`** for shared mutable state; use `Rx.variable` when you need change notifications
+
+For the reasoning behind this design, see the [uni-rx concurrency design note](../design/rx-concurrency).

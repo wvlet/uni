@@ -1,4 +1,4 @@
-# JSON Processing
+# JSON
 
 uni includes a pure Scala JSON parser with a convenient DSL for querying and manipulating JSON data.
 

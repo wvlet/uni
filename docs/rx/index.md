@@ -1,4 +1,4 @@
-# Reactive Streams
+# Reactive Streams (Rx)
 
 uni provides a lightweight reactive streams implementation for handling asynchronous data flows.
 
@@ -8,6 +8,7 @@ uni provides a lightweight reactive streams implementation for handling asynchro
 |-----------|-------------|
 | [Basics](./basics) | Creating and subscribing to streams |
 | [Operators](./operators) | Transforming and combining streams |
+| [Concurrency](./concurrency) | `RxRef`, `RxDeferred`, fibers, and semaphores |
 
 ## What is Rx?
 
