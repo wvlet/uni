@@ -117,8 +117,11 @@ object Dismiss:
 
   private def onKeyDown(e: dom.KeyboardEvent): Unit =
     if e.key == "Escape" && !e.defaultPrevented && !Keyboard.isComposing(e) then
-      top
-        .filter(l => !l.escapeFromInside || Option(dom.document.activeElement).exists(l.contains))
+      // The topmost layer that takes it: one taking Escape only from inside passes it on otherwise
+      val active = Option(dom.document.activeElement)
+      layers
+        .reverseIterator
+        .find(l => !l.escapeFromInside || active.exists(l.contains))
         .foreach { layer =>
           e.preventDefault()
           ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(

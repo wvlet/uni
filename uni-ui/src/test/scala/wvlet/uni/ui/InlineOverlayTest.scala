@@ -123,6 +123,35 @@ class InlineOverlayTest extends DomTestSupport:
     }
   }
 
+  test("Escape inside one inline dialog closes it while another one is on top") {
+    val first  = Rx.variable(true)
+    val second = Rx.variable(false)
+    mount(
+      div(
+        div(
+          styleAttr -> "position: relative",
+          Dialog(first, content = Seq(htmlButton(cls -> "in-first", "First"))).withInline(true)
+        ),
+        div(
+          styleAttr -> "position: relative",
+          Dialog(second, content = Seq(htmlButton("Second"))).withInline(true)
+        )
+      )
+    )
+    settle()
+      .flatMap { _ =>
+        second := true
+        settle()
+      }
+      .map { _ =>
+        val inFirst = find(".in-first").get
+        inFirst.focus()
+        fireEvent.keyDown(inFirst, "Escape")
+        first.get shouldBe false
+        second.get shouldBe true
+      }
+  }
+
   test("an agent rooted at the panel sees the inline dialog, not what it covers") {
     val open = Rx.variable(true)
     val m    = mount(

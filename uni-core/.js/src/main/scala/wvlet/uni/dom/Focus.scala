@@ -180,6 +180,14 @@ object Focus:
         ()
 
   /**
+    * A CSS selector for the elements that can take focus by Tab, before the visibility check
+    * [[getFocusableElements]] adds.
+    */
+  val focusableSelector: String =
+    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
+      "textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"]):not([disabled])"
+
+  /**
     * Get all focusable elements within a container.
     *
     * @param container
@@ -188,10 +196,7 @@ object Focus:
     *   Sequence of focusable elements
     */
   def getFocusableElements(container: dom.Element): Seq[dom.Element] =
-    val selector =
-      "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
-        "textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"]):not([disabled])"
-    val nodeList = container.querySelectorAll(selector)
+    val nodeList = container.querySelectorAll(focusableSelector)
     (0 until nodeList.length)
       .map(nodeList(_))
       .filter { elem =>

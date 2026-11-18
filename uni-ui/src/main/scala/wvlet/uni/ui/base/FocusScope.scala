@@ -184,14 +184,10 @@ private[ui] class FocusPlace(levels: Seq[(dom.Element, Int)]):
 end FocusPlace
 
 private[ui] object FocusPlace:
-  // Focus.getFocusableElements without its visibility check, which reads a computed style per
+  // Without the visibility check of Focus.getFocusableElements, which reads a computed style per
   // element: a place is recorded over the whole page each time an overlay opens
-  private val selector =
-    "button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), " +
-      "textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"]):not([disabled])"
-
   private def candidates(container: dom.Element): Seq[dom.HTMLElement] = container
-    .querySelectorAll(selector)
+    .querySelectorAll(Focus.focusableSelector)
     .toSeq
     .collect { case h: dom.HTMLElement =>
       h
@@ -211,11 +207,20 @@ private[ui] object FocusPlace:
   def of(el: dom.Element): FocusPlace =
     val ancestors =
       Iterator.iterate(parentOf(el))(_.flatMap(parentOf)).takeWhile(_.isDefined).flatten.toSeq
-    // One query for the whole page, then count the candidates before `el` within each ancestor
-    val before = candidates(dom.document.body).takeWhile(f =>
-      (el.compareDocumentPosition(f) & dom.Node.DOCUMENT_POSITION_PRECEDING) != 0
+    // One query for the whole page, then count the candidates before `el` within each ancestor.
+    // Those inside an ancestor are a suffix of `before`, so one backward scan counts them all
+    val before =
+      candidates(dom.document.body)
+        .takeWhile(f => (el.compareDocumentPosition(f) & dom.Node.DOCUMENT_POSITION_PRECEDING) != 0)
+        .toIndexedSeq
+    var i = before.size
+    FocusPlace(
+      ancestors.map { a =>
+        while i > 0 && a.contains(before(i - 1)) do
+          i -= 1
+        (a, before.size - i)
+      }
     )
-    FocusPlace(ancestors.map(a => (a, before.count(a.contains))))
 
 end FocusPlace
 

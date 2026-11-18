@@ -140,7 +140,7 @@ private[ui] class OverlaySurface(
                 modal = modal && !inPlace,
                 dismissOnOutside = dismissOnOutside,
                 onDismiss = onDismiss,
-                escapeFromInside = inPlace
+                escapeFromInside = modal && inPlace
               )
             )
           else
@@ -152,10 +152,10 @@ private[ui] class OverlaySurface(
             val region =
               el.offsetParent match
                 case p: dom.Element if !(p eq dom.document.body) =>
-                  p
+                  Some(p)
                 case _ =>
-                  el.parentElement
-            ModalInert.pushWithin(el, region)
+                  Option(el.parentElement).filterNot(_ eq dom.document.body)
+            region.fold(Cancelable.empty)(ModalInert.pushWithin(el, _))
           else if modal then
             ModalInert.push(el)
           else
