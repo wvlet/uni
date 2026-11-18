@@ -299,6 +299,59 @@ class FiberTest extends UniTest:
     innerCancelled.get() shouldBe true
   }
 
+  // A fork that, once cancelled, starts another fork that would sleep for a minute
+  private def forkAfterCancel(s: FiberScope, lateFinished: AtomicBoolean): Unit = s.fork {
+    while !Fiber.isCancelled do
+      try
+        Thread.sleep(1)
+      catch
+        case _: InterruptedException =>
+    s.fork {
+      Thread.sleep(60000)
+      lateFinished.set(true)
+    }
+  }
+
+  test("a fork started after the block throws is cancelled") {
+    val lateFinished = AtomicBoolean(false)
+    val start        = System.nanoTime()
+    intercept[IllegalArgumentException] {
+      Fiber.scope { s =>
+        forkAfterCancel(s, lateFinished)
+        throw IllegalArgumentException("block")
+      }
+    }
+    ((System.nanoTime() - start) / 1000000 < 10000) shouldBe true
+    lateFinished.get() shouldBe false
+  }
+
+  test("a fork started while the scope waits for an interrupted fiber is cancelled") {
+    val lateFinished = AtomicBoolean(false)
+    val forked       = CountDownLatch(1)
+    val outer        = Fiber {
+      Fiber.scope { s =>
+        forkAfterCancel(s, lateFinished)
+        forked.countDown()
+      }
+    }
+    forked.await(5, TimeUnit.SECONDS) shouldBe true
+    val start = System.nanoTime()
+    outer.cancel()
+    intercept[FiberCancelledException] {
+      outer.join()
+    }
+    ((System.nanoTime() - start) / 1000000 < 10000) shouldBe true
+    lateFinished.get() shouldBe false
+  }
+
+  test("race rethrows a shared failure without suppressing it into itself") {
+    val err = IllegalStateException("shared")
+    val e   = intercept[IllegalStateException] {
+      Fiber.race[Int](throw err, throw err)
+    }
+    (e eq err) shouldBe true
+  }
+
   test("fork on a closed scope throws") {
     var leaked: FiberScope = null
     Fiber.scope { s =>

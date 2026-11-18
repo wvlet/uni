@@ -15,8 +15,8 @@ Direct style without compiler support needs real threads. The JVM (virtual or pl
 - State changes (pending, running, done, cancelled), the thread reference, and the cancel hooks share one lock. Whichever of cancel and completion takes the lock first decides the result. Once cancel wins, `join()` throws `FiberCancelledException` even if the body swallowed the interrupt and returned a value.
 - `cancel()` interrupts only while it holds the lock and the body is running. The worker clears the thread reference under that lock when the body returns, then clears the interrupt flag, so no interrupt reaches the next task on a pooled thread.
 - A fiber runs its completion callbacks before it releases `join()` waiters, so a scope always sees a fork's failure once that fork has terminated.
-- `scope` waits for every fork, including forks started while it closes. The first non-cancelled failure cancels the others and is rethrown. A fork added while the scope is failing is cancelled at once. An interrupt while waiting cancels the forks, keeps waiting, then throws `FiberCancelledException`.
-- `parMap` requires `maxConcurrency` and forks from a launcher fiber that takes a semaphore permit per item. It never holds more threads than the limit, and a failure that cancels the scope also stops the launcher while it waits for a permit.
+- `scope` waits for every fork, including forks started while it closes. The first non-cancelled failure cancels the others and is rethrown. Once the scope starts cancelling (a fork failed, the block threw, or the waiting thread was interrupted), it cancels every fork, including forks added later, and keeps waiting for all of them; after an interrupt it then throws `FiberCancelledException`.
+- `parMap` requires `maxConcurrency` and forks from a launcher fiber that takes a semaphore permit per item. At most `maxConcurrency` bodies run at once, plus the launcher; a failure that cancels the scope also stops the launcher while it waits for a permit.
 - `race` fails only when every body fails, rethrowing the last failure with the others suppressed. It cancels and waits for the losers before returning.
 
 ## Why not

@@ -46,7 +46,8 @@ val fastest = Fiber.race(fetchFromPrimary(), fetchFromReplica())
 ```
 
 - `parMap` requires `maxConcurrency` and starts a fiber only when a slot frees
-  up, so it never holds more threads than the limit.
+  up, so at most `maxConcurrency` bodies run at once. One more fiber hands out
+  the slots.
 - `par` and `parMap` stop at the first failure: they cancel the rest and rethrow it.
 - `race` fails only when every body fails. It rethrows the last failure, with the
   others attached as suppressed exceptions. `race(bodies: Seq[() => A])` takes

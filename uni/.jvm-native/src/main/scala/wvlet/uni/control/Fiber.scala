@@ -45,8 +45,11 @@ final class FiberCancelledException extends RuntimeException("Fiber was cancelle
 final class Fiber[A] private (body: () => A):
   import Fiber.State
 
-  private val lock                                   = Object()
-  private var state: State                           = State.Pending
+  private val lock = Object()
+  // Written under lock; volatile so checkCancelled() in a CPU loop reads it without the lock
+  @volatile
+  private var state: State = State.Pending
+
   private var thread: Thread                         = null
   private var cancelHooks: List[() => Unit]          = Nil
   private var doneCallbacks: List[Result[A] => Unit] = Nil
@@ -68,7 +71,7 @@ final class Fiber[A] private (body: () => A):
 
   def isDone: Boolean = terminated.getCount == 0
 
-  def isCancelled: Boolean = lock.synchronized(state == State.Cancelled)
+  def isCancelled: Boolean = state == State.Cancelled
 
   /**
     * Cancel the fiber: interrupt its thread and run the hooks it registered with
@@ -282,7 +285,13 @@ object Fiber extends LogSupport:
       var failures = List.empty[Throwable]
       var winner   = Option.empty[A]
       while winner.isEmpty && failures.size < fibers.size do
-        results.take() match
+        val r =
+          try
+            results.take()
+          catch
+            case _: InterruptedException =>
+              throw FiberCancelledException()
+        r match
           case Result.Success(v) =>
             winner = Some(v)
           case Result.Failure(e) =>
@@ -292,7 +301,7 @@ object Fiber extends LogSupport:
           v
         case None =>
           val last = failures.head
-          failures.tail.reverse.foreach(last.addSuppressed)
+          failures.tail.reverse.filterNot(_ eq last).foreach(last.addSuppressed)
           throw last
     finally
       fibers.foreach(_.cancel())
@@ -341,6 +350,10 @@ final class FiberScope private[control] ():
   @volatile
   private var firstFailure: Throwable = null
 
+  // Set by cancelAll(); forks added afterwards are cancelled at once
+  @volatile
+  private var cancelling: Boolean = false
+
   /**
     * Start `body` as a fiber of this scope. Throws `IllegalStateException` once the scope has
     * closed.
@@ -357,20 +370,27 @@ final class FiberScope private[control] ():
         onFailure(e)
       case _ =>
     }
-    // A fork added while the scope is failing could miss cancelAll(), so cancel it here
-    if firstFailure != null then
+    // A fork added while the scope is being cancelled could miss cancelAll()'s snapshot. cancelAll()
+    // sets the flag under the same lock that adds forks, so one of the two always cancels it.
+    if cancelling then
       f.cancel()
     f.start()
 
   /** The first failure of a fork, if any. */
   private[control] def failure: Option[Throwable] = Option(firstFailure)
 
-  private[control] def cancelAll(): Unit = lock.synchronized(forks).foreach(_.cancel())
+  private[control] def cancelAll(): Unit =
+    val snapshot = lock.synchronized {
+      cancelling = true
+      forks
+    }
+    snapshot.foreach(_.cancel())
 
   /** Close the scope and wait for every fork, including any a fork starts while closing. */
   private[control] def close(): Unit =
-    var waited = 0
-    var done   = false
+    var waited      = 0
+    var done        = false
+    var interrupted = false
     try
       while !done do
         val pending = lock.synchronized {
@@ -381,11 +401,20 @@ final class FiberScope private[control] ():
         if pending.isEmpty then
           done = true
         else
-          Fiber.awaitAll(pending)
+          try
+            Fiber.awaitAll(pending)
+          catch
+            case _: FiberCancelledException =>
+              // Interrupted while waiting: cancel every fork, including ones a fork starts from
+              // now on, and keep waiting so none outlives the scope
+              interrupted = true
+              cancelAll()
           waited += pending.size
     finally lock.synchronized {
         closed = true
       }
+    if interrupted then
+      throw FiberCancelledException()
 
   private def onFailure(e: Throwable): Unit =
     val first = lock.synchronized {
