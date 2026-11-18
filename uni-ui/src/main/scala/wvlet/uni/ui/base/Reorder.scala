@@ -233,7 +233,7 @@ class Reorder[K] private[ui] (
     val group = groupOf(k)
     // The block's position among the other items, taken where the pressed item is: a scattered
     // selection gathers there
-    val others = o.filterNot(group.contains)
+    val others = o.filterNot(group.contains).toIndexedSeq
     val at     = o.takeWhile(_ != k).count(!group.contains(_))
     val rtl = orientation == Orientation.Horizontal && elements.get(k).exists(TextDirection.isRtl)
     if o.contains(k) then
