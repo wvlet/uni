@@ -117,7 +117,12 @@ private[ui] class ListCore[A, K](
     .getOrElse(a => String.valueOf(key(a)))
 
   private val reorder: Option[Reorder[K]] = reorderable.map { o =>
-    val r = Reorder.by(o, label = nameOf)(key).onChange(changeHandler).enabledWhen(reorderEnabled)
+    val r = Reorder
+      .by(o, label = nameOf)(key)
+      .onChange(changeHandler)
+      .enabledWhen(reorderEnabled)
+      // Every displayed row counts, even far outside the window; rows a filter hides don't
+      .showing(k => index.get.contains(k))
     selection match
       case ListSelection.Multi(keys) =>
         r.withSelection(keys)
@@ -289,8 +294,7 @@ private[ui] class ListCore[A, K](
       .lift(i)
       .map(key)
       .exists { k =>
-        // Step past items the list doesn't show, such as rows a filter hides
-        val handled = r.onMoveKey(k, e, index.get.contains)
+        val handled = r.onMoveKey(k, e)
         if handled then
           index.get.get(k).foreach(moveTo)
         handled

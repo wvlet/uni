@@ -79,6 +79,7 @@ class Reorder[K] private[ui] (
   private var dragRtl: Boolean                  = false
   private var scrollFrame: Option[Int]          = None
   private var enabled: Reorder.Enabled          = Reorder.Enabled.always
+  private var shownTest: Option[K => Boolean]   = None
 
   /** Sees every move before it lands; `cancel()` keeps the previous order. */
   def onChange(f: ChangeHandler): this.type =
@@ -106,6 +107,14 @@ class Reorder[K] private[ui] (
     this
 
   private[ui] def isEnabled: Boolean = enabled.now()
+
+  /**
+    * Tells which items the list shows, so the arrow keys step past the rest, such as rows a filter
+    * hides. Without it, the items whose [[item]] is mounted count as shown.
+    */
+  private[ui] def showing(f: K => Boolean): this.type =
+    shownTest = Some(f)
+    this
 
   /** The item being dragged, once the pointer moved past the drag threshold. */
   def dragging: Rx[Option[K]] = draggedVar
@@ -209,26 +218,21 @@ class Reorder[K] private[ui] (
     * whether or not `k` could move. A list that keeps focus on its container calls this for its
     * active row.
     */
-  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean = onMoveKey(k, e, isMounted)
-
-  /**
-    * As [[onMoveKey]], stepping past the items for which `shown` is false, such as rows a filter
-    * hides, so each arrow key visibly moves the item.
-    */
-  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent, shown: K => Boolean): Boolean =
+  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean =
     val isMove =
       e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && isEnabled &&
         Reorder.isMoveKey(e.key, orientation)
     if isMove then
       // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
       e.preventDefault()
-      moveByKey(k, e, shown)
+      moveByKey(k, e)
     isMove
 
   // A standalone list renders an item for each key it shows, so an unmounted item is hidden
   private def isMounted(k: K): Boolean = elements.get(k).exists(_.isConnected)
 
-  private def moveByKey(k: K, e: dom.KeyboardEvent, shown: K => Boolean): Unit =
+  private def moveByKey(k: K, e: dom.KeyboardEvent): Unit =
+    val shown = shownTest.getOrElse(isMounted)
     val o     = store.current
     val group = groupOf(k)
     // The block's position among the other items, taken where the pressed item is: a scattered
