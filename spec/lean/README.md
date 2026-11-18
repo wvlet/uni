@@ -8,6 +8,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | Model | Covers | Generated cases | Replayed by |
 | --- | --- | --- | --- |
 | `UniSpec/Rx.lean` | `map`, `filter`, `take` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala` | `RxSpecTest` (JVM, JS, Native) |
+| `UniSpec/MsgPack.lean` | MessagePack integer and str/bin/array/map/ext header bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
 
 You need Lean only to change a model. `./sbt test` runs the checked-in cases without it.
 
@@ -18,7 +19,8 @@ picks the Lean version in `lean-toolchain`. Then, in this directory:
 
 ```bash
 lake build              # check every proof and build the generator
-lake exe gen-rx-cases   # rewrite RxSpecCases.scala from the model
+lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
+lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
 ```
 
 Commit the regenerated Scala file with the model change. The `Lean spec` CI job fails when the
@@ -26,8 +28,10 @@ checked-in cases differ from the model's output.
 
 ## Changing a model
 
-- When `RxRunner` behaviour changes on purpose, change the model first, re-prove the theorems, and
-  regenerate. A failing `RxSpecTest` then shows where the Scala code disagrees with the new rule.
+- When `RxRunner` or `OffsetPacker` behaviour changes on purpose, change the model first, re-prove
+  the theorems, and regenerate. A failing spec test then shows where the Scala code disagrees with
+  the new rule.
 - When a theorem no longer holds, the rule it states changed: update the matching ADR as well.
-- The model leaves out downstream `Stop`, continuous mode, cancellation, and concurrency. Add a
-  theorem only for behaviour the model can express.
+- The Rx model leaves out downstream `Stop`, continuous mode, cancellation, and concurrency. The
+  MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch. Add a
+  theorem only for behaviour a model can express.
