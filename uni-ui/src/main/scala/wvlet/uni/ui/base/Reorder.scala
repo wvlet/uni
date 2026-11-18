@@ -209,27 +209,38 @@ class Reorder[K] private[ui] (
     * whether or not `k` could move. A list that keeps focus on its container calls this for its
     * active row.
     */
-  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean =
+  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent): Boolean = onMoveKey(k, e, isMounted)
+
+  /**
+    * As [[onMoveKey]], stepping past the items for which `shown` is false, such as rows a filter
+    * hides, so each arrow key visibly moves the item.
+    */
+  private[ui] def onMoveKey(k: K, e: dom.KeyboardEvent, shown: K => Boolean): Boolean =
     val isMove =
       e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && isEnabled &&
         Reorder.isMoveKey(e.key, orientation)
     if isMove then
       // Even when the item can't move further, so Alt+ArrowLeft doesn't go Back in the browser
       e.preventDefault()
-      moveByKey(k, e)
+      moveByKey(k, e, shown)
     isMove
 
-  private def moveByKey(k: K, e: dom.KeyboardEvent): Unit =
+  // A standalone list renders an item for each key it shows, so an unmounted item is hidden
+  private def isMounted(k: K): Boolean = elements.get(k).exists(_.isConnected)
+
+  private def moveByKey(k: K, e: dom.KeyboardEvent, shown: K => Boolean): Unit =
     val o     = store.current
     val group = groupOf(k)
     // The block's position among the other items, taken where the pressed item is: a scattered
     // selection gathers there
-    val rest = o.count(!group.contains(_))
-    val at   = o.takeWhile(_ != k).count(!group.contains(_))
-    val rtl  = orientation == Orientation.Horizontal && elements.get(k).exists(TextDirection.isRtl)
+    val others = o.filterNot(group.contains)
+    val at     = o.takeWhile(_ != k).count(!group.contains(_))
+    val rtl = orientation == Orientation.Horizontal && elements.get(k).exists(TextDirection.isRtl)
     if o.contains(k) then
       // At an end, a scattered selection still gathers in place
-      val to = Reorder.keyTarget(e.key, at, rest + 1, orientation, rtl).getOrElse(at)
+      val to = Reorder
+        .keyTarget(e.key, at, others.size + 1, orientation, rtl, i => shown(others(i)))
+        .getOrElse(at)
       if Reorder.movedAll(o, group, to) != o then
         moveAll(group, to, ChangeCause.of(ChangeReason.NavigationKey, e))
 
@@ -591,13 +602,18 @@ object Reorder:
     * the arrow keys along `orientation`, the start for Home, and the end for End. With `rtl`, a
     * horizontal list runs right to left, so ArrowLeft moves toward the end. None for other keys and
     * when the item can't move that way.
+    *
+    * With `shown`, an arrow key moves past the nearest other item that is shown, passing over
+    * hidden ones; `shown(i)` tells whether the `i`-th of the other `size - 1` items (the list
+    * without the moving item) is shown. With no shown item that way, the item can't move.
     */
   def keyTarget(
       key: String,
       from: Int,
       size: Int,
       orientation: Orientation = Orientation.Vertical,
-      rtl: Boolean = false
+      rtl: Boolean = false,
+      shown: Int => Boolean = _ => true
   ): Option[Int] =
     val (prevKey, nextKey) =
       orientation match
@@ -608,9 +624,11 @@ object Reorder:
     val to =
       TextDirection.logicalKey(key, rtl && orientation == Orientation.Horizontal) match
         case `prevKey` =>
-          Some(from - 1)
+          // The other item just before the moving one is the (from - 1)-th
+          (from - 1 to 0 by -1).find(shown)
         case `nextKey` =>
-          Some(from + 1)
+          // The other item just after it is the from-th; landing after it puts the item at i + 1
+          (from until size - 1).find(shown).map(_ + 1)
         case "Home" =>
           Some(0)
         case "End" =>

@@ -560,4 +560,26 @@ class OverlayTest extends DomTestSupport:
     }
   }
 
+  test("content takes one element or a Seq") {
+    val open = Rx.variable(true)
+    val form = div("Form")
+    mount(
+      div(
+        Dialog(open, content = form).withInline(true),
+        Dialog(open, content = Seq(div("Mixed"), "text")).withInline(true),
+        Popover(open, trigger = Button("One"), content = div("Single")).withInline(true),
+        Popover(open, trigger = Button("Many"), content = Seq("A", "B")).withInline(true),
+        FoldablePane(open, width = Rx.variable(200), edge = Edge.Left, content = div("Side")),
+        FoldablePane(open, width = Rx.variable(200), edge = Edge.Left, content = Seq.empty)
+      )
+    )
+    val dialogs = dom.document.querySelectorAll(".uni-dialog")
+    dialogs.length shouldBe 2
+    dialogs(0).textContent shouldContain "Form"
+    dialogs(1).textContent shouldContain "Mixedtext"
+    dom.document.body.textContent shouldContain "Single"
+    dom.document.body.textContent shouldContain "AB"
+    dom.document.body.textContent shouldContain "Side"
+  }
+
 end OverlayTest

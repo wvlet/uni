@@ -26,5 +26,5 @@ Many uni-ui components were built with curried parameter lists: `VirtualList(ite
 
 - `TabPanel(tabs) { case ... }` became `TabPanel(tabs, render = { case ... })`.
 - Overloaded `Select` cannot infer from `identity`; write `optionLabel = s => s`.
-- Single-element content needs a `Seq`: `Dialog(open, content = Seq(form))`.
+- Single-element content needed a `Seq`: `Dialog(open, content = Seq(form))`. Follow-up (2026-11-18): `Dialog`, `Popover`, and `FoldablePane` take `content: DomNode | Seq[DomNode]`, so `content = form` works too. A union rather than a `DomNode` overload: with two overloads, a mixed `Seq(div(...), "text")` no longer typed its elements as `DomNode` and failed to compile.
 - A `Column` infers its row type from `columns = Seq(...)` only when nothing is chained on it; with `.sortBy(...)` or `.withWidth(...)` write `Column[Row](...)`, since the chained call types the column first.

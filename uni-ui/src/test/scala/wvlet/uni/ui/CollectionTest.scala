@@ -292,6 +292,32 @@ class CollectionTest extends DomTestSupport:
     }
   }
 
+  test("Alt+Arrow in a filtered reorderable list steps past the rows the filter hides") {
+    val items = Rx.variable[Seq[Int]](1 to 6)
+    // Only odd rows are shown; moves still write the full order
+    val m = mount(
+      VirtualList(
+        items.map(_.filter(_ % 2 == 1)),
+        rowHeight = 20,
+        key = identity,
+        render = i => span(s"Item ${i}")
+      ).withReorder(items)(styleAttr += "height: 200px")
+    )
+    val list = m.get(".uni-virtual-list").asInstanceOf[dom.HTMLElement]
+    settle().map { _ =>
+      list.focus()
+      activeRow(list).map(_.textContent) shouldBe Some("Item 1")
+      fireEvent.keyDown(list, "ArrowDown", altKey = true)
+      items.get shouldBe Seq(2, 3, 1, 4, 5, 6)
+      activeRow(list).map(_.textContent) shouldBe Some("Item 1")
+      fireEvent.keyDown(list, "ArrowDown", altKey = true)
+      items.get shouldBe Seq(2, 3, 4, 5, 1, 6)
+      // Up lands just above Item 5, the next shown row; hidden 4 stays above
+      fireEvent.keyDown(list, "ArrowUp", altKey = true)
+      items.get shouldBe Seq(2, 3, 4, 1, 5, 6)
+    }
+  }
+
   test("a reorderable multi-select list moves the selected rows together") {
     val items = Rx.variable[Seq[Int]](1 to 6)
     val keys  = Rx.variable(Set.empty[Int])

@@ -289,7 +289,8 @@ private[ui] class ListCore[A, K](
       .lift(i)
       .map(key)
       .exists { k =>
-        val handled = r.onMoveKey(k, e)
+        // Step past items the list doesn't show, such as rows a filter hides
+        val handled = r.onMoveKey(k, e, index.get.contains)
         if handled then
           index.get.get(k).foreach(moveTo)
         handled

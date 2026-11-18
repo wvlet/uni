@@ -28,7 +28,7 @@ import scala.language.implicitConversions
   *
   * {{{
   *   val open = Rx.variable(false)
-  *   Popover(open, trigger = Button("Filter"), content = Seq(Input(query).withLabel("Filter")))
+  *   Popover(open, trigger = Button("Filter"), content = Input(query).withLabel("Filter"))
   *     .withSide(Side.Bottom)
   *     .withAlign(Align.End)
   * }}}
@@ -152,8 +152,16 @@ end Popover
 
 object Popover:
   // `new` is required in this file: the `apply` below replaces the constructor proxy
-  def apply(open: RxVar[Boolean], trigger: RxElement, content: Seq[DomNode]): Popover =
-    new Popover(open, trigger, content, Side.Bottom, Align.Start, None, ChangeGate.noHandler)
+  def apply(open: RxVar[Boolean], trigger: RxElement, content: DomNode | Seq[DomNode]): Popover =
+    new Popover(
+      open,
+      trigger,
+      Content.nodes(content),
+      Side.Bottom,
+      Align.Start,
+      None,
+      ChangeGate.noHandler
+    )
 
   private[ui] def stateName(open: Boolean): String =
     if open then
