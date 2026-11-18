@@ -222,7 +222,8 @@ class TerminalView(
 
   override def render: RxElement =
     import all.*
-    div(cls -> "uni-terminal", styleAttr -> containerStyle)
+    // Focusable, so keys typed after selecting text reach the pane's keydown handler
+    div(cls -> "uni-terminal", tabindex -> "-1", styleAttr -> containerStyle)
 
   private def containerStyle: String =
     val vars = theme.cssVariables.map((name, value) => s"${name}: ${value};").mkString(" ")
@@ -393,13 +394,18 @@ class TerminalView(
           Array.tabulate(screen.rows)(row =>
             screen.isDirty(row) || row == cursorRowDrawn || row == screen.cursorRow
           )
-        if config.urlDetection then
-          // A changed row can extend a URL that starts on an earlier row of its wrapped line
-          var row = screen.rows - 1
-          while row > 0 do
-            if redraw(row) && screen.line(row).isWrapped then
-              redraw(row - 1) = true
-            row -= 1
+        if detectsUrls then
+          // A changed row can change a URL that spans the other rows of its wrapped line
+          var up = screen.rows - 1
+          while up > 0 do
+            if redraw(up) && screen.line(up).isWrapped then
+              redraw(up - 1) = true
+            up -= 1
+          var down = 0
+          while down + 1 < screen.rows do
+            if redraw(down) && screen.line(down + 1).isWrapped then
+              redraw(down + 1) = true
+            down += 1
         var row = 0
         while row < screen.rows do
           if redraw(row) then
@@ -629,7 +635,12 @@ class TerminalView(
           screen.scrollback.size
         else
           0
-      val hi    = lineCount
+      // On the alternate screen, scrollback lines do not continue onto the screen either
+      val hi =
+        if screen.isAlternate && index < screen.scrollback.size then
+          screen.scrollback.size
+        else
+          lineCount
       var first = index
       while first > lo && index - first < MaxWrappedLines && lineAt(first).isWrapped do
         first -= 1
@@ -1146,6 +1157,8 @@ class TerminalView(
         showLinkModifier(false)
         endSelecting()
     )
+    // Dragging selected text is a drag and drop, which ends without a mouseup
+    listen(container, "dragstart", (_: dom.Event) => endSelecting())
     listen(container, "mouseleave", (_: dom.Event) => showLinkModifier(false))
     listen(
       container,

@@ -349,6 +349,39 @@ class TerminalViewTest extends DomTestSupport:
     }
   }
 
+  test("draw again when a drag moves selected text instead of selecting") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("hello")
+      view.renderNow()
+      val pane = m.container.querySelector(".uni-terminal")
+      fireEvent.mouseDown(m.container.querySelectorAll(".uni-term-row")(0))
+      pane.dispatchEvent(
+        dom.Event(
+          "dragstart",
+          new dom.EventInit:
+            bubbles = true
+        )
+      )
+      term.write(" world")
+      view.renderNow()
+      rowTexts(m).head shouldBe "hello world"
+    }
+  }
+
+  test("update the rest of a wrapped URL when its first row changes") {
+    val (term, view, m, _) = setup()
+    settle().map { _ =>
+      term.write("https://wvlet.org/" + "a" * term.cols)
+      view.renderNow()
+      links(m).size shouldBe 2
+      // Overwrite the scheme on the first row only
+      term.write("\u001b[1;1Hxxxxx")
+      view.renderNow()
+      links(m) shouldBe Seq.empty
+    }
+  }
+
   test("move the selection with its text as output scrolls") {
     val (term, view, m, _) = setup()
     settle().map { _ =>
