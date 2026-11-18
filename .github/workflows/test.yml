@@ -37,6 +37,7 @@ jobs:
               - 'uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala'
               - 'uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala'
               - 'uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala'
+              - 'uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -78,6 +79,7 @@ jobs:
           lake exe gen-rx-cases
           lake exe gen-msgpack-cases
           lake exe gen-rx-nested-cases
+          lake exe gen-rx-recover-cases
           if ! git diff --exit-code -- ../../uni/src/test/scala; then
             echo "::error::Run the gen-* executables in spec/lean (see spec/lean/README.md) and commit the generated cases"
             exit 1

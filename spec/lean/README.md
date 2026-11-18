@@ -9,6 +9,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | --- | --- | --- | --- |
 | `UniSpec/Rx.lean` | `map`, `filter`, `take` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala` | `RxSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxNested.lean` | `concat`, `merge`, `flatMap` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala` | `RxNestedSpecTest` (JVM, JS, Native) |
+| `UniSpec/RxRecover.lean` | `recover` and continuous mode (`runContinuously`) | `uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala` | `RxRecoverSpecTest` (JVM, JS, Native) |
 | `UniSpec/MsgPack.lean` | MessagePack integer and str/bin/array/map/ext header bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
 
 You need Lean only to change a model. `./sbt test` runs the checked-in cases without it.
@@ -22,6 +23,7 @@ picks the Lean version in `lean-toolchain`. Then, in this directory:
 lake build              # check every proof and build the generator
 lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
 lake exe gen-rx-nested-cases # rewrite RxNestedSpecCases.scala from the nested-stream Rx model
+lake exe gen-rx-recover-cases # rewrite RxRecoverSpecCases.scala from the recover/continuous model
 lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
 ```
 
@@ -34,7 +36,8 @@ checked-in cases differ from the model's output.
   the theorems, and regenerate. A failing spec test then shows where the Scala code disagrees with
   the new rule.
 - When a theorem no longer holds, the rule it states changed: update the matching ADR as well.
-- The Rx models leave out downstream `Stop`, continuous mode, cancellation, and concurrency; the
-  nested-stream cases are synchronous only. The
+- The Rx models leave out cancellation and concurrency, and model downstream `Stop` only as the
+  sink stopping at its first terminal event (default mode). The nested-stream cases are synchronous
+  only, and continuous mode covers `map`, `filter`, `take`, and `recover`. The
   MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch. Add a
   theorem only for behaviour a model can express.

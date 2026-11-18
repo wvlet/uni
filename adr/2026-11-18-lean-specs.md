@@ -49,7 +49,16 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   interleavings), and `flatMap` completes only after its input and last nested stream complete,
   with the single-value identity laws. The cases use `Rx.MergeOp` directly so 0 and 1 sources go
   through `RxRunner`'s merge rather than `RxParallel.merge`'s shortcuts.
-- Next candidates: `recover` and continuous mode in the trace model, `parFlatMap` ordering, and
+- `UniSpec/RxRecover.lean` covers `recover` and continuous mode. Operators act per event, and the
+  mode decides the cuts: default mode cuts at the source's first terminal event (`Rx.queue` stops
+  there) and at the sink's (it answers `Stop`); continuous mode cuts at neither, except inside
+  `take`. Theorems: a total `recover` never emits `OnError`; a recovered source error leaves the
+  stream open with no completion in default mode, while a recovered operator error continues to
+  completion; continuous mode delivers events after a terminal one; `take` still ends at the first
+  terminal event in continuous mode. Its cases found that continuous-mode `take(n)` skipped its
+  completion when the nth value's downstream failed, now fixed (see
+  `2026-10-19-rx-take-completion.md`).
+- Next candidates: `recoverWith`, continuous-mode `flatMap`/`merge`, `parFlatMap` ordering, and
   MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);
   verifying the Scala code with Stainless (does not fit Uni's Scala 3 code); hand-written expected

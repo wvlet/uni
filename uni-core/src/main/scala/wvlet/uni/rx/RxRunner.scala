@@ -425,8 +425,10 @@ class RxRunner(
                     done.set(true)
                   result
                 else
-                  // Complete right after the nth value without waiting for the next upstream event
-                  if done.compareAndSet(false, true) && result.toContinue then
+                  // Complete right after the nth value without waiting for the next upstream event.
+                  // A downstream Stop suppresses it, except in continuous mode, where Stop after a
+                  // downstream error is transient (as for the values before the nth)
+                  if done.compareAndSet(false, true) && (continuous || result.toContinue) then
                     effect(OnCompletion)
                   c.cancel
                   RxResult.Stop
