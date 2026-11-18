@@ -1,4 +1,4 @@
-# HTTP Framework
+# HTTP & RPC
 
 uni provides a cross-platform HTTP client and server — running on the JVM
 (Netty), Scala.js (Fetch / Node.js), and Scala Native (libcurl) — with
@@ -14,7 +14,10 @@ automatic retry, streaming support, and reactive integration.
 | [RPC](./rpc) | Type-safe remote calls over HTTP, with client code generation |
 | [Server-Sent Events](./sse) | One-way server→client streaming |
 | [WebSocket Client](./websocket) | Cross-platform bidirectional WebSocket client |
-| [Retry Strategies](./retry) | Automatic retry for transient failures |
+| [OpenAPI](./openapi) | OpenAPI 3.0 documents from `@Endpoint` routes |
+| [HTTP Retry Strategies](./retry) | Automatic retry for transient failures |
+| [MCP Server (stdio)](../mcp/) | A Scala trait as an MCP server that AI agents call as tools |
+| [Desktop Apps (Electron)](./electron) | Typed RPC between an Electron main process and a Scala.js renderer |
 
 ## Quick Start
 

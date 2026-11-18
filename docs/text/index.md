@@ -1,9 +1,11 @@
-# Text Formats
+# Data & Serialization
 
-Uni reads and writes common text formats in pure Scala. They work on JVM, Scala.js, and Scala Native with no extra dependencies. JSON is part of the core library, and the other formats are in `wvlet.uni.text`.
+Uni reads and writes common data formats in pure Scala. They work on JVM, Scala.js, and Scala Native with no extra dependencies. [Weaver](../core/weaver) turns case classes into JSON, MessagePack, or a `Map` from one `derives Weaver`. JSON and MessagePack are part of the core library, and the text formats are in `wvlet.uni.text`.
 
 | Package | Description |
 |---------|-------------|
+| [`wvlet.uni.weaver`](../core/weaver) | Codecs derived from case classes, for JSON, MessagePack, and `Map` |
+| [`wvlet.uni.msgpack.spi`](../core/msgpack) | Compact binary serialization |
 | [`wvlet.uni.json`](../core/json) | JSON parser, `JSONValue` tree, and query DSL. Weaver encodes and decodes case classes to JSON |
 | [`wvlet.uni.text.yaml`](./yaml) | YAML 1.2 parser that reads into the same `JSONValue` tree and decodes into case classes with Weaver, plus Markdown frontmatter |
 | [`wvlet.uni.text.markdown`](./markdown) | CommonMark + GitHub Flavored Markdown parser and HTML renderer |

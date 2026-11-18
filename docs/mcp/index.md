@@ -1,4 +1,4 @@
-# Build Your Own MCP Server (stdio)
+# MCP Server (stdio)
 
 `wvlet.uni.mcp` turns a plain Scala service trait into an [MCP (Model Context
 Protocol)](https://modelcontextprotocol.io/) server: every public method becomes

@@ -82,11 +82,11 @@ interface BlogPost {
   image?: string
 }
 
-// Shown on the UI pages (`/dom/` and the Electron pages). The Web UI group of the `/guide/`
-// and `/` sidebars (which feed llms.txt) is built from it, so a new UI page is added here only.
+// Shown on the UI pages (`/dom/` and the Electron pages). The Web UI group of the main sidebar
+// (which feeds llms.txt) is built from it, so a new UI page is added here only.
 const uiSidebar = [
   {
-    text: 'Getting Started',
+    text: 'Basics',
     items: [
       { text: 'Overview', link: '/dom/' },
       { text: 'RxElement & HTML DSL', link: '/dom/rxelement' }
@@ -95,7 +95,7 @@ const uiSidebar = [
   {
     text: 'Components',
     items: [
-      { text: 'Components', link: '/dom/ui' },
+      { text: 'Component Catalog', link: '/dom/ui' },
       { text: 'Controls', link: '/dom/controls' },
       { text: 'Overlays', link: '/dom/overlays' },
       { text: 'Collections', link: '/dom/collections' },
@@ -121,12 +121,12 @@ const uiSidebar = [
   },
   {
     text: 'Other Modules',
-    items: [{ text: 'All Modules', link: '/core/' }]
+    items: [{ text: 'All Modules', link: '/modules' }]
   }
 ]
 const uiPages = uiSidebar.filter((g) => g.text !== 'Other Modules').flatMap((g) => g.items)
 
-// Getting Started pages, shared by the Guide and module sidebars
+// Getting Started pages, at the top of the Guide and module sidebar
 const gettingStarted = {
   text: 'Getting Started',
   items: [
@@ -134,12 +134,14 @@ const gettingStarted = {
     { text: 'Installation', link: '/guide/installation' },
     { text: 'Design Principles', link: '/guide/principles' },
     { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-    { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' }
+    { text: 'Uni and the Scala Toolkit', link: '/guide/uni-vs-scala-toolkit' },
+    { text: 'All Modules', link: '/modules' }
   ]
 }
 
-// Every module area, defined once. The module sidebar lists them in full; the Guide sidebar
-// links to each area's first page (its overview), so the two can't drift apart.
+// Every module page, grouped by task. The group names and order match docs/modules.md and the
+// "What's inside" section of docs/guide/index.md. List each page once, so the sidebar highlights
+// one place, and use the page's H1 as its label.
 const moduleGroups = [
   {
     text: 'Core',
@@ -147,29 +149,43 @@ const moduleGroups = [
     items: [
       { text: 'Overview', link: '/core/' },
       { text: 'Design', link: '/core/design' },
-      { text: 'UniTest', link: '/core/unitest' },
       { text: 'Logging', link: '/core/logging' },
-      { text: 'JSON Processing', link: '/core/json' },
-      { text: 'MessagePack', link: '/core/msgpack' },
-      { text: 'Weaver (Serialization)', link: '/core/weaver' },
       { text: 'Type Introspection', link: '/core/surface' },
-      { text: 'IO', link: '/core/io' },
-      { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' },
-      { text: 'FileSystem', link: '/core/filesystem' },
-      { text: 'SettingStore', link: '/core/settings' },
       { text: 'Result', link: '/core/result' },
+      { text: 'SettingStore', link: '/core/settings' },
       { text: 'Utilities', link: '/core/utilities' }
     ]
   },
   {
-    text: 'Text Formats',
+    text: 'Data & Serialization',
     collapsed: true,
     items: [
       { text: 'Overview', link: '/text/' },
+      { text: 'Weaver', link: '/core/weaver' },
       { text: 'JSON', link: '/core/json' },
+      { text: 'MessagePack', link: '/core/msgpack' },
       { text: 'YAML', link: '/text/yaml' },
       { text: 'Markdown', link: '/text/markdown' },
       { text: 'Cron', link: '/text/cron' }
+    ]
+  },
+  {
+    text: 'Files & Memory',
+    collapsed: true,
+    items: [
+      { text: 'IO', link: '/core/io' },
+      { text: 'FileSystem', link: '/core/filesystem' },
+      { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' }
+    ]
+  },
+  {
+    text: 'Reactive Streams (Rx)',
+    collapsed: true,
+    items: [
+      { text: 'Overview', link: '/rx/' },
+      { text: 'Rx Basics', link: '/rx/basics' },
+      { text: 'Stream Operators', link: '/rx/operators' },
+      { text: 'Rx Concurrency', link: '/rx/concurrency' }
     ]
   },
   {
@@ -186,7 +202,7 @@ const moduleGroups = [
     ]
   },
   {
-    text: 'HTTP',
+    text: 'HTTP & RPC',
     collapsed: true,
     items: [
       { text: 'Overview', link: '/http/' },
@@ -197,24 +213,8 @@ const moduleGroups = [
       { text: 'OpenAPI', link: '/http/openapi' },
       { text: 'Server-Sent Events', link: '/http/sse' },
       { text: 'WebSocket Client', link: '/http/websocket' },
-      { text: 'Retry Strategies', link: '/http/retry' }
-    ]
-  },
-  {
-    text: 'MCP',
-    collapsed: true,
-    items: [
-      { text: 'Build an MCP Server', link: '/mcp/' }
-    ]
-  },
-  {
-    text: 'Reactive Streams',
-    collapsed: true,
-    items: [
-      { text: 'Overview', link: '/rx/' },
-      { text: 'Basics', link: '/rx/basics' },
-      { text: 'Operators', link: '/rx/operators' },
-      { text: 'Concurrency', link: '/rx/concurrency' }
+      { text: 'HTTP Retry Strategies', link: '/http/retry' },
+      { text: 'MCP Server (stdio)', link: '/mcp/' }
     ]
   },
   {
@@ -229,21 +229,26 @@ const moduleGroups = [
     ]
   },
   {
-    text: 'Web UI (Scala.js)',
-    collapsed: true,
-    items: uiPages
-  },
-  {
-    text: 'Build Tooling',
+    text: 'Testing & Build',
     collapsed: true,
     items: [
+      { text: 'UniTest', link: '/core/unitest' },
       { text: 'sbt-uni Plugin', link: '/build/sbt-uni' },
       { text: 'sbt-uni-playwright Plugin', link: '/build/sbt-uni-playwright' },
       { text: 'sbt-uni-crossproject Plugin', link: '/build/sbt-uni-crossproject' },
       { text: 'sbt-uni-javadoc Plugin', link: '/build/sbt-uni-javadoc' }
     ]
+  },
+  {
+    text: 'Web UI (Scala.js)',
+    collapsed: true,
+    items: uiPages
   }
 ]
+
+// One sidebar for the Guide and every module page, so it keeps its shape as readers move
+// between them
+const mainSidebar = [gettingStarted, ...moduleGroups]
 
 // Reads the flat `key: value` frontmatter of the posts; used for the sidebar and the Atom feed
 const blogPosts: BlogPost[] = readdirSync(blogDir)
@@ -317,7 +322,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         description: 'One Scala 3 library for the whole stack, on JVM, Scala.js, and Scala Native',
         details: SITE_DESCRIPTION +
           ' Start with /uni/guide/for-ai-agents.md for canonical imports, an Airframe migration table, and common mistakes.',
-        // The `/` sidebar lists every guide and module page; `/guide/` only links to module overviews
+        // The `/` sidebar lists every guide and module page, including the UI pages
         sidebar: (sidebar) =>
           sidebar && !Array.isArray(sidebar)
             ? [...sidebar['/book/'], ...sidebar['/'], ...sidebar['/blog/']]
@@ -451,13 +456,18 @@ export default withMermaid(defineConfig<UniThemeConfig>({
   themeConfig: {
     uniVersion,
     logo: '/uni-logo.svg',
+    // Each item names the area a page belongs to, so the nav always shows where the reader is
     nav: [
-      { text: 'Guide', link: '/guide/' },
-      { text: 'For AI Agents', link: '/guide/for-ai-agents' },
-      { text: 'Book', link: '/book/' },
-      { text: 'Modules', link: '/core/' },
+      { text: 'Guide', link: '/guide/', activeMatch: '^/guide/(?!for-ai-agents)' },
+      {
+        text: 'Modules',
+        link: '/modules',
+        activeMatch: '^/(modules|core|text|rx|control|http(?!/electron)|mcp|cli|build)(/|$)'
+      },
       { text: 'UI', link: '/dom/', activeMatch: '^/(dom/|http/electron)' },
-      { text: 'Blog', link: '/blog/' },
+      { text: 'Book', link: '/book/', activeMatch: '^/book/' },
+      { text: 'For AI Agents', link: '/guide/for-ai-agents' },
+      { text: 'Blog', link: '/blog/', activeMatch: '^/blog/' },
       {
         text: 'GitHub',
         link: 'https://github.com/wvlet/uni'
@@ -557,14 +567,7 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           ]
         }
       ],
-      '/guide/': [
-        gettingStarted,
-        {
-          text: 'Modules',
-          items: moduleGroups.map((g) => ({ text: g.text, link: g.items[0].link }))
-        }
-      ],
-      '/': [{ ...gettingStarted, collapsed: true }, ...moduleGroups]
+      '/': mainSidebar
     },
 
     socialLinks: [

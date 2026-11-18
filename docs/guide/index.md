@@ -123,4 +123,4 @@ how APIs map between them.
 
 - 📦 [**Installation**](./installation) — add Uni to your sbt / Scala CLI project
 - 🧭 [**Design Principles**](./principles) — the architecture and the *why*
-- 🔍 [**Core Utilities**](/core/) — start exploring the foundational APIs
+- 🔍 [**All Modules**](/modules) — every module page, grouped by task
