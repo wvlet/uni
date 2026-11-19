@@ -245,7 +245,12 @@ jobs:
           java-version: '25'
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Install LLVM
-        run: choco install llvm -y
+        # The runner image preinstalls an LLVM that can lag behind its MSVC STL (image 20261116 paired
+        # LLVM 20 with STL 14.52, which requires Clang 22+), and `choco install` skips a package that is
+        # already installed. `upgrade` installs it when missing and moves it to the latest otherwise.
+        run: |
+          choco upgrade llvm -y
+          clang --version
         shell: pwsh
       - name: Cache vcpkg artifacts
         uses: actions/cache@v6
