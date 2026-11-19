@@ -43,6 +43,17 @@ case class ModelWithAnnotations(
     category: String
 )
 
+object AnnotationText:
+  final val Suffix = " and a constant"
+
+// A long annotation string split with +, as scalafmt formats it
+case class ModelWithSplitString(
+    @label("a long label " + "split in " + "three")
+    id: String,
+    @label("a label" + AnnotationText.Suffix)
+    name: String
+)
+
 // Test case class with class-level annotations
 @label("labeled-model")
 @marker
@@ -196,6 +207,15 @@ class AnnotationTest extends UniTest:
       .of[LabeledModel]
       .annotations
       .exists(_.fullName.startsWith("scala.annotation.internal")) shouldBe false
+  }
+
+  test("extract a string annotation value concatenated from literals") {
+    val param = Surface.of[ModelWithSplitString].params.head
+    param.findAnnotation("label").flatMap(_.getAs[String]("value")) shouldBe
+      Some("a long label split in three")
+    val named = Surface.of[ModelWithSplitString].params(1)
+    named.findAnnotation("label").flatMap(_.getAs[String]("value")) shouldBe
+      Some("a label and a constant")
   }
 
   test("aliases forward class-level annotations") {

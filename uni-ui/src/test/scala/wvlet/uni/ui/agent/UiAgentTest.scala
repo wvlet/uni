@@ -389,34 +389,151 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  // Shadows the browser's own document.modelContext (if any) with a fake shaped like Chrome's
+  private def withModelContext[A](fake: js.Object)(body: => Rx[A]): Rx[A] =
+    js.Object
+      .defineProperty(
+        dom.document,
+        "modelContext",
+        js.Dynamic.literal(value = fake, configurable = true).asInstanceOf[js.PropertyDescriptor]
+      )
+    def restore(): Unit = js.special.delete(dom.document, "modelContext")
+    // Restore also when the body's synchronous assertions fail, so later tests see the real API
+    try
+      body.tapOn { case _ =>
+        restore()
+      }
+    catch
+      case e: Throwable =>
+        restore()
+        throw e
+
+  private def awaitJs[A](p: js.Any): Rx[A] =
+    Rx.future(p.asInstanceOf[js.Promise[A]].toFuture)(using
+      scala.concurrent.ExecutionContext.parasitic
+    )
+
   test("installWebMcp registers the tools with document.modelContext and unregisters them") {
-    val region                                               = Rx.variable("tokyo")
-    val registered                                           = ArrayBuffer.empty[js.Dynamic]
-    var signal                                               = Option.empty[js.Dynamic]
-    val register: js.Function2[js.Dynamic, js.Dynamic, Unit] =
+    val region     = Rx.variable("tokyo")
+    val registered = ArrayBuffer.empty[js.Dynamic]
+    var signal     = Option.empty[js.Dynamic]
+    // Like Chrome, registerTool returns a promise
+    val register: js.Function2[js.Dynamic, js.Dynamic, js.Promise[Unit]] =
       (tool, options) =>
         registered += tool
         signal = Some(options.signal)
-    dom.document.asInstanceOf[js.Dynamic].modelContext = js.Dynamic.literal(registerTool = register)
+        js.Promise.resolve[Unit](())
     mount(
       Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region")
     )
-    val agent = install()
-    val off   = agent.installWebMcp()
-    registered.map(_.name.asInstanceOf[String]) shouldBe Seq("act", "changes", "query", "snapshot")
-    val act = registered.head
-    act.inputSchema.required.asInstanceOf[js.Array[String]].toSeq shouldBe Seq("ref", "action")
-    val promise = act
-      .execute(js.Dynamic.literal(ref = "select:region", action = "select", value = "oregon"))
-      .asInstanceOf[js.Promise[js.Dynamic]]
-    Rx.future(promise.toFuture)(using scala.concurrent.ExecutionContext.parasitic)
-      .map { result =>
-        result.content.asInstanceOf[js.Array[js.Dynamic]](0).text.asInstanceOf[String] shouldContain
-          "applied"
+    withModelContext(js.Dynamic.literal(registerTool = register)) {
+      val agent = install()
+      val off   = agent.installWebMcp()
+      registered.map(_.name.asInstanceOf[String]) shouldBe
+        Seq("act", "changes", "query", "snapshot")
+      val act = registered.head
+      act.inputSchema.required.asInstanceOf[js.Array[String]].toSeq shouldBe Seq("ref", "action")
+      // Chrome rejects a tool without a description
+      registered.map(_.description.asInstanceOf[String]).filter(_.isEmpty) shouldBe Seq.empty
+      // The browser hands a string result to the agent as-is, so execute resolves with the text
+      awaitJs[String](
+        act.execute(js.Dynamic.literal(ref = "select:region", action = "select", value = "oregon"))
+      ).map { text =>
+        text shouldContain "applied"
         region.get shouldBe "oregon"
         off.cancel
         signal.get.aborted.asInstanceOf[Boolean] shouldBe true
-        js.special.delete(dom.document, "modelContext")
+        agent.uninstall()
+      }
+    }
+  }
+
+  test("a WebMCP tool error resolves with its message") {
+    val registered = ArrayBuffer.empty[js.Dynamic]
+    val register: js.Function2[js.Dynamic, js.Dynamic, js.Promise[Unit]] =
+      (tool, _) =>
+        registered += tool
+        js.Promise.resolve[Unit](())
+    mount(Button("Save"))
+    withModelContext(js.Dynamic.literal(registerTool = register)) {
+      val agent = install()
+      val off   = agent.installWebMcp()
+      // A browser replaces a rejection's message with a generic one, so the error is the result
+      awaitJs[String](
+        registered.head.execute(js.Dynamic.literal(ref = "button:missing", action = "click"))
+      ).map { text =>
+        text shouldContain "button:missing"
+        off.cancel
+        agent.uninstall()
+      }
+    }
+  }
+
+  test("installWebMcp warns about a rejected registration instead of leaving it unhandled") {
+    val warnings = ArrayBuffer.empty[String]
+    val console  = dom.console.asInstanceOf[js.Dynamic]
+    val warn     = console.warn
+    console.warn = ((msg: js.Any) => warnings += msg.toString): js.Function1[js.Any, Unit]
+    val register: js.Function2[js.Dynamic, js.Dynamic, js.Promise[Unit]] =
+      (tool, _) =>
+        if tool.name.asInstanceOf[String] == "act" then
+          js.Promise
+            .reject(js.JavaScriptException("InvalidStateError: Duplicate tool name"))
+            .asInstanceOf[js.Promise[Unit]]
+        else
+          js.Promise.resolve[Unit](())
+    mount(Button("Save"))
+    withModelContext(js.Dynamic.literal(registerTool = register)) {
+      val agent = install()
+      val off   = agent.installWebMcp()
+      // Let the rejection handler run
+      Rx.delay(10, java.util.concurrent.TimeUnit.MILLISECONDS)
+        .map { _ =>
+          console.warn = warn
+          warnings.exists(_.contains("registerTool(act) failed")) shouldBe true
+          off.cancel
+          agent.uninstall()
+        }
+    }
+  }
+
+  // Runs only in a browser with WebMCP: Chromium 150+ with --enable-features=WebMCP, which uni-ui's
+  // test launch passes. The build's Playwright Chromium (131) predates WebMCP, so CI skips it until
+  // Playwright is upgraded. uni-ui/src/test/webmcp/run-with-chrome.sh runs it against Chrome.
+  test("installWebMcp round-trips through the browser's own document.modelContext") {
+    if !js.Object.hasProperty(dom.document, "modelContext") then
+      skip("This browser has no WebMCP (document.modelContext)")
+    val mc     = dom.document.asInstanceOf[js.Dynamic].modelContext
+    val region = Rx.variable("tokyo")
+    mount(
+      Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel("Region")
+    )
+    val agent                      = install()
+    val off                        = agent.installWebMcp()
+    def tools: Rx[Seq[js.Dynamic]] = awaitJs[js.Array[js.Dynamic]](mc.getTools()).map(_.toSeq)
+    def run(name: String, input: js.Object): Rx[String] = tools.flatMap { ts =>
+      awaitJs[String](mc.executeTool(ts.find(_.name.asInstanceOf[String] == name).get, input))
+    }
+    // registerTool settles asynchronously, so give the registrations a moment
+    Rx.delay(100, java.util.concurrent.TimeUnit.MILLISECONDS)
+      .flatMap(_ => tools)
+      .flatMap { ts =>
+        ts.map(_.name.asInstanceOf[String]) shouldContain "snapshot"
+        run("snapshot", js.Object())
+      }
+      .flatMap { snapshot =>
+        JSON.parse(snapshot) shouldMatch { case _: JSONArray =>
+        }
+        run("act", js.Dynamic.literal(ref = "select:region", action = "select", value = "oregon"))
+      }
+      .flatMap { text =>
+        text shouldContain "applied"
+        region.get shouldBe "oregon"
+        off.cancel
+        tools
+      }
+      .map { ts =>
+        ts.map(_.name.asInstanceOf[String]) shouldNotContain "snapshot"
         agent.uninstall()
       }
   }
