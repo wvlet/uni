@@ -175,8 +175,8 @@ private[http] class HttpConnectionReader(
   end checkHeaderLine
 
   /**
-    * Scan lines from `from` until an empty line, checking line endings and the size limit.
-    * `onLine(lineStart, lineEnd)` sees each non-empty line and returns a 400 message or null.
+    * Scan lines from `from` until an empty line, checking line endings, the size limit, and each
+    * line as a header, which is added to `headers` unless it is null (trailers are dropped).
     * Returns the position after the empty line's LF, or -1 with the error in `scanError`.
     */
   private var scanError: ReadResult = null
@@ -186,35 +186,45 @@ private[http] class HttpConnectionReader(
       maxSize: Int,
       tooLarge: ReadResult,
       onEof: String,
-      onLine: (Int, Int) => String
+      headers: HttpMultiMap.Builder
   ): Int =
     var i         = from
     var lineStart = from
+    // Whether the previous byte was a CR. The byte before `from` is the LF that ended a line.
+    var cr = false
     while true do
-      val n = ensure(i)
-      if n <= 0 then
-        scanError = cutShort(n, onEof)
-        return -1
-      val b = at(i)
-      if b == '\n' then
-        if i == 0 || at(i - 1) != '\r' then
+      if i >= buffered then
+        val n = fill()
+        if n <= 0 then
+          scanError = cutShort(n, onEof)
+          return -1
+      else
+        val b = at(i)
+        if b == '\n' then
+          if !cr then
+            scanError = bad("Invalid line ending")
+            return -1
+          val lineEnd = i - 1
+          if lineEnd == lineStart then
+            return i + 1
+          val err = checkHeaderLine(lineStart, lineEnd)
+          if err != null then
+            scanError = bad(err)
+            return -1
+          if headers != null then
+            headers.add(latin1(lineStart, nameEnd), latin1(valueStart, valueEnd))
+          lineStart = i + 1
+          cr = false
+        else if cr then
           scanError = bad("Invalid line ending")
           return -1
-        val lineEnd = i - 1
-        if lineEnd == lineStart then
-          return i + 1
-        val err = onLine(lineStart, lineEnd)
-        if err != null then
-          scanError = bad(err)
+        else if b == '\r' then
+          cr = true
+        else if i - from >= maxSize then
+          scanError = tooLarge
           return -1
-        lineStart = i + 1
-      else if i > from && at(i - 1) == '\r' then
-        scanError = bad("Invalid line ending")
-        return -1
-      else if b != '\r' && i - from >= maxSize then
-        scanError = tooLarge
-        return -1
-      i += 1
+        i += 1
+    end while
     -1
 
   end scanLines
@@ -236,23 +246,28 @@ private[http] class HttpConnectionReader(
     // The request line: scan to its LF, checking line endings and its length
     var i       = 0
     var lineEnd = -1
+    var cr      = false
     while lineEnd < 0 do
-      val n = ensure(i)
-      if n <= 0 then
-        return if n < 0 && onlyWhitespaceBuffered then
-          ReadResult.Closed
-        else
-          cutShort(n, "Incomplete request")
-      val b = at(i)
-      if b == '\n' then
-        if at(i - 1) != '\r' then
+      if i >= buffered then
+        val n = fill()
+        if n <= 0 then
+          return if n < 0 && onlyWhitespaceBuffered then
+            ReadResult.Closed
+          else
+            cutShort(n, "Incomplete request")
+      else
+        val b = at(i)
+        if b == '\n' then
+          if !cr then
+            return bad("Invalid line ending")
+          lineEnd = i - 1
+        else if cr then
           return bad("Invalid line ending")
-        lineEnd = i - 1
-      else if i > 0 && at(i - 1) == '\r' then
-        return bad("Invalid line ending")
-      else if b != '\r' && i >= limits.maxInitialLineLength then
-        return ReadResult.Error(HttpStatus.UriTooLong_414, "Request line too long")
-      i += 1
+        else if b == '\r' then
+          cr = true
+        else if i >= limits.maxInitialLineLength then
+          return ReadResult.Error(HttpStatus.UriTooLong_414, "Request line too long")
+        i += 1
 
     // METHOD SP+ target SP+ HTTP/1.x
     var sp = 0
@@ -315,13 +330,9 @@ private[http] class HttpConnectionReader(
     val headEnd       = scanLines(
       headStart,
       limits.maxHeaderSize,
-      ReadResult.Error(HttpStatus.HeaderFieldsTooLarge_431, "Request header too large"),
+      HeaderTooLarge,
       "Incomplete request",
-      (from, until) =>
-        val err = checkHeaderLine(from, until)
-        if err == null then
-          headerBuilder.add(latin1(from, nameEnd), latin1(valueStart, valueEnd))
-        err
+      headerBuilder
     )
     if headEnd < 0 then
       return scanError
@@ -493,9 +504,9 @@ private[http] class HttpConnectionReader(
         val trailerEnd = scanLines(
           p,
           limits.maxHeaderSize,
-          ReadResult.Error(HttpStatus.HeaderFieldsTooLarge_431, "Request trailers too large"),
+          TrailersTooLarge,
           "Incomplete request body",
-          (from, until) => checkHeaderLine(from, until)
+          null
         )
         if trailerEnd < 0 then
           return Left(scanError)
@@ -521,6 +532,16 @@ end HttpConnectionReader
 
 private[http] object HttpConnectionReader:
   private final val InitialBufferSize = 8192
+
+  private val HeaderTooLarge = ReadResult.Error(
+    HttpStatus.HeaderFieldsTooLarge_431,
+    "Request header too large"
+  )
+
+  private val TrailersTooLarge = ReadResult.Error(
+    HttpStatus.HeaderFieldsTooLarge_431,
+    "Request trailers too large"
+  )
 
   private inline def isHttpWhitespace(b: Int): Boolean =
     b == '\r' || b == '\n' || b == ' ' || b == '\t'
