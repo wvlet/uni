@@ -571,8 +571,9 @@ abstract class SocketHttpServer private[http] (
               route
             else
               WebSocketRejection.rejectingRoute(route, verdict)
-          // Take a streaming slot only for a valid, accepted upgrade, so a rejected handshake gets
-          // its own status (403/400/426) and never holds a slot
+          // Take a streaming slot only for a completed handshake, so an HTTP rejection gets its own
+          // status (403/400/426) and never holds a slot. A readable rejection holds one for its
+          // close handshake; with every slot taken it gets 503 instead of 44xx.
           withStreamingSlot(conn) {
             val handshake =
               s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +

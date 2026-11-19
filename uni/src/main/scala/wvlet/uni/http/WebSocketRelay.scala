@@ -16,7 +16,6 @@ package wvlet.uni.http
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
-import java.nio.charset.StandardCharsets
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import scala.collection.mutable
 import scala.util.control.NonFatal
@@ -156,6 +155,26 @@ object WebSocketRelay:
     else
       clientCode
 
+  /** The UTF-8 byte length of `s`, without encoding it. */
+  private[http] def utf8Length(s: String): Long =
+    var n = 0L
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c < 0x80 then
+        n += 1
+      else if c < 0x800 then
+        n += 2
+      else if Character.isHighSurrogate(c) && i + 1 < s.length &&
+        Character.isLowSurrogate(s.charAt(i + 1))
+      then
+        n += 4
+        i += 1
+      else
+        n += 3
+      i += 1
+    n
+
   private[http] def connectFailureReason(e: Throwable): String =
     e match
       case h: HttpException if h.statusCode.isDefined =>
@@ -165,9 +184,10 @@ object WebSocketRelay:
 
 end WebSocketRelay
 
-private enum PendingFrame:
-  case Text(message: String)
-  case Binary(data: Array[Byte])
+/** A client frame and its payload size in bytes (text as UTF-8). */
+private enum PendingFrame(val size: Long):
+  case Text(message: String)     extends PendingFrame(WebSocketRelay.utf8Length(message))
+  case Binary(data: Array[Byte]) extends PendingFrame(data.length)
 
 /** One relayed session: the client connection's handler, which owns the upstream connection. */
 private class WebSocketRelaySession(config: WebSocketRelay)
@@ -253,28 +273,31 @@ private class WebSocketRelaySession(config: WebSocketRelay)
     ctx.close(WebSocketClose.InternalError, "relay error")
 
   private def toUpstream(frame: PendingFrame): Unit =
-    val size = frameSize(frame)
     // (the open upstream to send to, whether the pre-open queue overflowed)
     val (up, overflow) = synchronized {
       if clientDone || upstreamDone then
         (null, false)
       else if upstreamOpen then
         (upstream, false)
-      else if pendingBytes + size > config.maxPendingBytes then
+      else if pendingBytes + frame.size > config.maxPendingBytes then
+        // Latch the overflow so no later frame is queued past the dropped one: the session is over,
+        // and an upstream that opens now is closed at once.
+        recordClose(WebSocketRelaySide.Relay, WebSocketClose.TryAgainLater, "upstream not ready")
+        clientDone = true
+        pending.clear()
+        pendingBytes = 0
         (null, true)
       else
         pending.enqueue(frame)
-        pendingBytes += size
+        pendingBytes += frame.size
         (null, false)
     }
     if up != null then
-      send(up, frame, size)
+      send(up, frame)
     else if overflow then
-      // Drop the client, which also closes the upstream once it opens.
-      recordClose(WebSocketRelaySide.Relay, WebSocketClose.TryAgainLater, "upstream not ready")
       client.close(WebSocketClose.TryAgainLater, "upstream not ready")
 
-  private def send(up: WebSocketContext, frame: PendingFrame, size: Long): Unit =
+  private def send(up: WebSocketContext, frame: PendingFrame): Unit =
     try
       frame match
         case PendingFrame.Text(m) =>
@@ -282,17 +305,10 @@ private class WebSocketRelaySession(config: WebSocketRelay)
         case PendingFrame.Binary(d) =>
           up.send(d)
       framesToUpstream.incrementAndGet()
-      bytesToUpstream.addAndGet(size)
+      bytesToUpstream.addAndGet(frame.size)
     catch
       case NonFatal(e) =>
         debug(s"WebSocket relay send to upstream failed: ${e.getMessage}", e)
-
-  private def frameSize(frame: PendingFrame): Long =
-    frame match
-      case PendingFrame.Text(m) =>
-        m.getBytes(StandardCharsets.UTF_8).length
-      case PendingFrame.Binary(d) =>
-        d.length
 
   /** The upstream connect or handshake failed (or the upstream closed before opening). */
   private def upstreamFailed(e: Throwable): Unit =
@@ -366,7 +382,7 @@ private class WebSocketRelaySession(config: WebSocketRelay)
             pendingBytes = 0
             b
         }
-        batch.foreach(f => send(ctx, f, frameSize(f)))
+        batch.foreach(send(ctx, _))
       // The client closed while the queue was flushing, before it could see the upstream open.
       if clientGone then
         ctx.close(WebSocketRelay.upstreamCloseCode(closeCode), closeReason)
@@ -375,7 +391,7 @@ private class WebSocketRelaySession(config: WebSocketRelay)
       val c = client
       c.send(message)
       framesToClient.incrementAndGet()
-      bytesToClient.addAndGet(message.getBytes(StandardCharsets.UTF_8).length)
+      bytesToClient.addAndGet(WebSocketRelay.utf8Length(message))
 
     override def onBinaryMessage(ctx: WebSocketContext, message: Array[Byte]): Unit =
       val c = client
