@@ -232,6 +232,14 @@ abstract class SocketHttpServer private[http] (
       () => conn.write(HttpResponseWriter.Continue100)
     )
 
+    // Read what is already waiting, without waiting, before parking (see IdlePoller.park)
+    private val readNow: (Array[Byte], Int, Int) => Int =
+      (buf, off, len) =>
+        if !running.get() then
+          -1
+        else
+          conn.read(buf, off, len, 0)
+
     /** Serve requests on this worker until the connection closes or is handed to the poller. */
     def run(): Unit =
       var parked = false
@@ -253,11 +261,15 @@ abstract class SocketHttpServer private[http] (
         state.idle = true
         requestDeadline = 0L
         // Between requests, give the worker back: the poller resumes the connection once its next
-        // request arrives. Bytes already buffered (a pipelined request) are served right away.
+        // request arrives. Bytes already buffered (a pipelined request) or already waiting on the
+        // socket are served right away, and a peer that has closed ends the connection.
         val poller = idlePoller
-        if poller != null && running.get() && reader.drainLineBreaks() && poller.park(socket, this)
-        then
-          return true
+        if poller != null && running.get() && reader.drainLineBreaks() then
+          val n = reader.readWaiting(readNow)
+          if n < 0 then
+            return false
+          if n == 0 && poller.park(socket, this) then
+            return true
         val result = reader.readRequest()
         state.idle = false
         result match

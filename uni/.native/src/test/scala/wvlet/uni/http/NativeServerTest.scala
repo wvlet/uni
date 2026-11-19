@@ -24,7 +24,8 @@ import scala.util.control.NonFatal
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.meta.LinktimeInfo
 import scala.scalanative.posix.arpa.inet
-import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
+import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in, IPPROTO_TCP}
+import scala.scalanative.posix.netinet.tcp.TCP_NODELAY
 import scala.scalanative.posix.netinet.inOps.*
 import scala.scalanative.posix.sys.socket as csocket
 import scala.scalanative.posix.sys.socket.sockaddr
@@ -126,6 +127,35 @@ class NativeServerTest extends UniTest:
       NativeSocket.close(fd)
       throw RuntimeException(s"Failed to connect to 127.0.0.1:${port}")
     fd
+
+  test("should disable Nagle on accepted connections") {
+    val listener = NativeSocketListener("127.0.0.1", 0, 4)
+    try
+      val clientFd = connectLoopback(listener.port)
+      try
+        listener.accept() match
+          case conn: NativeSocketConnection =>
+            try
+              val value = stackalloc[CInt]()
+              val len   = stackalloc[csocket.socklen_t]()
+              !value = 0
+              !len = sizeof[CInt].toUInt
+              csocket.getsockopt(
+                conn.fd,
+                IPPROTO_TCP,
+                TCP_NODELAY,
+                value.asInstanceOf[Ptr[Byte]],
+                len
+              ) shouldBe 0
+              (!value != 0) shouldBe true
+            finally
+              conn.close()
+          case other =>
+            fail(s"Expected a NativeSocketConnection, got ${other}")
+      finally NativeSocket.close(clientFd)
+    finally
+      listener.close()
+  }
 
   test("should handle a GET request") {
     NativeServerConfig()

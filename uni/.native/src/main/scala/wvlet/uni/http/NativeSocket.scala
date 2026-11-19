@@ -15,7 +15,8 @@ package wvlet.uni.http
 
 import scala.scalanative.libc.string as cstring
 import scala.scalanative.posix.arpa.inet
-import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
+import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in, IPPROTO_TCP}
+import scala.scalanative.posix.netinet.tcp.TCP_NODELAY
 import scala.scalanative.posix.netinet.inOps.*
 import scala.scalanative.posix.sys.socket as csocket
 import scala.scalanative.posix.sys.socket.{sockaddr, socklen_t}
@@ -45,7 +46,8 @@ private[http] object SocketShim:
 
   /**
     * Non-blocking `recv` (`MSG_DONTWAIT`): the count, 0 at EOF, -1 on error, or -2 when nothing is
-    * waiting. Not `@blocking`, since it never waits. Always -2 on Windows.
+    * waiting. Not `@blocking`, since it never waits. Always -3 on Windows, which has no
+    * `MSG_DONTWAIT`: the caller can't tell whether bytes are waiting and polls.
     */
   def uni_socket_recv_ready(fd: CInt, buf: Ptr[Byte], len: CInt): CInt = extern
 
@@ -224,6 +226,22 @@ private[http] object NativeSocket:
     )
 
   /**
+    * Send each response piece at once rather than holding it until the previous one is acknowledged
+    * (Nagle), as the JVM server does: a response written in several pieces (a file, an SSE event, a
+    * WebSocket frame) would otherwise wait for the client's delayed ACK. Best effort.
+    */
+  def enableNoDelay(fd: Int): Unit =
+    val optval = stackalloc[CInt]()
+    !optval = 1
+    csocket.setsockopt(
+      fd,
+      IPPROTO_TCP,
+      TCP_NODELAY,
+      optval.asInstanceOf[Ptr[Byte]],
+      sizeof[CInt].toUInt
+    )
+
+  /**
     * Wait until `fd` is readable or `timeoutMillis` elapses, using `poll` (a portable millisecond
     * timeout — avoids the macOS `SO_RCVTIMEO`/`timeval` layout trap). Returns 1 if readable, 0 on
     * timeout, -1 if the peer hung up or `poll` errored.
@@ -302,13 +320,15 @@ private[http] class NativeSocketConnection(val fd: Int) extends SocketConnection
     // request is in flight), so read them first and poll only when there are none.
     val ready =
       if len <= 0 then
-        -2
+        -3
       else
         SocketShim.uni_socket_recv_ready(fd, buf.at(off), len)
     if ready > 0 then
       ready
     else if ready == 0 || ready == -1 then
       -1 // EOF or a failed socket
+    else if ready == -2 && timeoutMillis == 0 then
+      0 // Nothing waiting, and the caller won't wait
     else
       waitAndRecv(buf, off, len, timeoutMillis)
 
@@ -363,6 +383,7 @@ private[http] class NativeSocketListener(host: String, requestedPort: Int, backl
       null
     else
       NativeSocket.enableKeepAlive(clientFd)
+      NativeSocket.enableNoDelay(clientFd)
       NativeSocketConnection(clientFd)
 
   override def close(): Unit = NativeSocket.close(serverFd)

@@ -125,6 +125,18 @@ private[http] class HttpConnectionReader(
     else
       false
 
+  /**
+    * Between requests, with nothing buffered: read the bytes already waiting with `readNow`, which
+    * must not wait (it returns > 0 bytes, 0 when none are waiting, < 0 on EOF). Returns its result.
+    * A connection with nothing waiting can then wait for its next request elsewhere, without a
+    * separate readiness check.
+    */
+  def readWaiting(readNow: (Array[Byte], Int, Int) => Int): Int =
+    val n = readNow(buf, end, buf.length - end)
+    if n > 0 then
+      end += n
+    n
+
   private def onlyWhitespaceBuffered: Boolean =
     var i = start
     while i < end && isHttpWhitespace(buf(i) & 0xff) do
