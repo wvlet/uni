@@ -71,10 +71,8 @@ object Dismiss:
   // Dock panel was detached into
   private val listeners = ArrayBuffer.empty[(dom.Document, Cancelable)]
 
-  private def documentOf(layer: DismissLayer): dom.Document = layer
-    .inside()
-    .headOption
-    .fold(dom.document)(AnyRealm.documentOf)
+  private def documentOf(layer: DismissLayer): dom.Document =
+    layer.inside().headOption.fold(dom.document)(AnyRealm.documentOf)
 
   private def syncListeners(): Unit =
     val wanted: Seq[dom.Document] =
@@ -95,9 +93,7 @@ object Dismiss:
         entry._2.cancel
         listeners -= entry
       }
-    wanted
-      .filterNot(d => listeners.exists(_._1 eq d))
-      .foreach(d => listeners += (d -> install(d)))
+    wanted.filterNot(d => listeners.exists(_._1 eq d)).foreach(d => listeners += (d -> install(d)))
 
   /** Add an open overlay on top of the stack. Cancel the result when the overlay closes. */
   def push(layer: DismissLayer): Cancelable =
@@ -149,9 +145,7 @@ object Dismiss:
       val active = Option(AnyRealm.activeElementOf(doc))
       layers
         .reverseIterator
-        .find(l =>
-          (documentOf(l) eq doc) && (!l.escapeFromInside || active.exists(l.contains))
-        )
+        .find(l => (documentOf(l) eq doc) && (!l.escapeFromInside || active.exists(l.contains)))
         .foreach { layer =>
           e.preventDefault()
           ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(

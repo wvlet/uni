@@ -24,8 +24,9 @@ import scala.language.implicitConversions
 import scala.scalajs.js
 
 /**
-  * Components in a Dock panel detached into a window of its own. That window is a separate JS realm,
-  * so the events here are built from its own constructors, as a user's keys and pointer would be.
+  * Components in a Dock panel detached into a window of its own. That window is a separate JS
+  * realm, so the events here are built from its own constructors, as a user's keys and pointer
+  * would be.
   */
 class DetachedWindowTest extends DomTestSupport:
 
@@ -52,8 +53,12 @@ class DetachedWindowTest extends DomTestSupport:
     val ctor = w.asInstanceOf[js.Dynamic].selectDynamic(kind)
     js.Dynamic.newInstance(ctor)(tpe, init).asInstanceOf[dom.Event]
 
-  private def keyDown(w: dom.Window, target: dom.EventTarget, key: String, altKey: Boolean = false)
-      : Boolean =
+  private def keyDown(
+      w: dom.Window,
+      target: dom.EventTarget,
+      key: String,
+      altKey: Boolean = false
+  ): Boolean =
     val e = event(
       w,
       "KeyboardEvent",

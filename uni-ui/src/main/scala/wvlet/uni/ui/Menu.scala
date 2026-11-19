@@ -191,7 +191,8 @@ private[ui] object MenuList:
             "pointermove",
             e =>
               e.currentTarget match
-                case AnyRealm.HTMLElement(el) if !disabledNow && !(el eq AnyRealm.activeElementOf(el)) =>
+                case AnyRealm.HTMLElement(el)
+                    if !disabledNow && !(el eq AnyRealm.activeElementOf(el)) =>
                   el.focus()
                 case _ =>
           ),

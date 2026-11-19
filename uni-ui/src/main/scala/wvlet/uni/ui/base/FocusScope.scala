@@ -117,8 +117,7 @@ private[ui] object FocusReturn:
   private def lostIn(doc: dom.HTMLDocument, overlay: Option[dom.Element]): Boolean =
     val active = doc.activeElement
     active == null ||
-    (active eq doc.body) || !active.isConnected ||
-    overlay.exists(_.contains(active))
+    (active eq doc.body) || !active.isConnected || overlay.exists(_.contains(active))
 
   // Keeps going onward when `el` leaves before the next frame and focus falls to the page
   private def followOnward(el: dom.HTMLElement): Unit =

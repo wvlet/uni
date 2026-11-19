@@ -151,7 +151,7 @@ private[ui] class OverlaySurface(
           if modal && inPlace then
             // The positioned ancestor the backdrop covers; without one, only the dialog's parent,
             // so the page is never blocked
-            val body = AnyRealm.documentOf(el).body
+            val body   = AnyRealm.documentOf(el).body
             val region =
               el.offsetParent match
                 case AnyRealm.Element(p) if !(p eq body) =>

@@ -29,8 +29,8 @@ import scala.scalajs.js
 private[uni] object AnyRealm:
 
   /**
-    * True when `x` is an instance of the DOM class `name` (or a subclass) from any window. Tries this
-    * window's class first, then the constructor names along the prototype chain.
+    * True when `x` is an instance of the DOM class `name` (or a subclass) from any window. Tries
+    * this window's class first, then the constructor names along the prototype chain.
     */
   def is(x: Any, name: String): Boolean =
     if js.typeOf(x) != "object" || x == null then
@@ -92,9 +92,8 @@ private[uni] object AnyRealm:
     * A new `name` (such as `ResizeObserver`) from the window `node` is in. A `ResizeObserver` from
     * another window doesn't follow that window's layout: it reports a loop error each frame.
     */
-  def construct(node: dom.Node, name: String, args: js.Any*): js.Dynamic = js
-    .Dynamic
-    .newInstance(windowOf(node).asInstanceOf[js.Dynamic].selectDynamic(name))(args*)
+  def construct(node: dom.Node, name: String, args: js.Any*): js.Dynamic =
+    js.Dynamic.newInstance(windowOf(node).asInstanceOf[js.Dynamic].selectDynamic(name))(args*)
 
   /** A `ResizeObserver` from the window `node` is in; see [[construct]]. */
   def resizeObserver(

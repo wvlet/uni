@@ -57,7 +57,9 @@ object Announce:
   def prepare(): Unit = Seq("polite", "assertive").foreach(region(_, dom.document))
 
   /** Empties both regions, e.g. when the page changes. */
-  def clear(): Unit = Seq("polite", "assertive").foreach(p => find(p, dom.document).foreach(_.textContent = ""))
+  def clear(): Unit = Seq("polite", "assertive").foreach(p =>
+    find(p, dom.document).foreach(_.textContent = "")
+  )
 
   private def announce(message: String, politeness: String, doc: dom.HTMLDocument): Unit =
     if !message.isBlank then
@@ -84,28 +86,26 @@ object Announce:
     doc.querySelector(s"[data-slot=announcer][aria-live=${politeness}]")
   )
 
-  private def region(politeness: String, doc: dom.HTMLDocument): dom.Element = find(
-    politeness,
-    doc
-  ).getOrElse {
-    val r = doc.createElement("div")
-    r.setAttribute("data-slot", "announcer")
-    r.setAttribute("aria-live", politeness)
-    r.setAttribute(
-      "role",
-      if politeness == "assertive" then
-        "alert"
-      else
-        "status"
-    )
-    r.setAttribute("aria-atomic", "false")
-    // Hidden from view but not from assistive technology
-    r.setAttribute(
-      "style",
-      "position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"
-    )
-    doc.body.appendChild(r)
-    r
-  }
+  private def region(politeness: String, doc: dom.HTMLDocument): dom.Element = find(politeness, doc)
+    .getOrElse {
+      val r = doc.createElement("div")
+      r.setAttribute("data-slot", "announcer")
+      r.setAttribute("aria-live", politeness)
+      r.setAttribute(
+        "role",
+        if politeness == "assertive" then
+          "alert"
+        else
+          "status"
+      )
+      r.setAttribute("aria-atomic", "false")
+      // Hidden from view but not from assistive technology
+      r.setAttribute(
+        "style",
+        "position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0"
+      )
+      doc.body.appendChild(r)
+      r
+    }
 
 end Announce

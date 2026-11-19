@@ -47,6 +47,9 @@ flowchart LR
     prompt ideas, message bubbles with copy, replies that grow as they stream in, and the composer.
   - [`Dock.scala`](renderer/src/main/scala/example/renderer/Dock.scala): the resizable right dock, with the
     conversation, an animated call-path diagram, and a live log of every RPC call and its timing.
+    Its Notes tab ([`Notes.scala`](renderer/src/main/scala/example/renderer/Notes.scala)) keeps
+    quick notes with input history, Alt+Arrow reordering, a menu, and a tooltip; detach it to try
+    them in a window of its own.
 - **A terminal in the dock.** The Terminal tab runs your shell in a pty (Electron) or a demo shell
   (browser), drawn by Uni's pure-Scala emulator and `TerminalView`. zsh and bash start with
   [`ShellIntegration`](server/src/main/scala/example/server/ShellIntegration.scala), which loads

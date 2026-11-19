@@ -234,7 +234,7 @@ class Select[A] private (
       e =>
         e.currentTarget match
           case AnyRealm.HTMLButtonElement(b) if b.disabled =>
-          case _                                      =>
+          case _                                           =>
             open.update(!_)
     ),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),

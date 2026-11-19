@@ -72,7 +72,7 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
     e match
       // Touch has no hover: a tap is a click, not a request for a label
       case AnyRealm.PointerEvent(p) if p.pointerType == "touch" =>
-      case _                                               =>
+      case _                                                    =>
         showLater()
 
   private def onFocus(e: dom.Event): Unit =

@@ -158,7 +158,9 @@ class Reorder[K] private[ui] (
       false
     else
       val next    = Reorder.movedAll(current, keys, to)
-      val focused = moving.find(m => elements.get(m).exists(e => e.contains(AnyRealm.activeElementOf(e))))
+      val focused = moving.find(m =>
+        elements.get(m).exists(e => e.contains(AnyRealm.activeElementOf(e)))
+      )
       val accepted = store.write(next, cause, handler)
       if accepted && next != current then
         val at   = next.indexOf(moving.head) + 1
@@ -179,6 +181,8 @@ class Reorder[K] private[ui] (
           elements.get(f).filterNot(e => e.contains(AnyRealm.activeElementOf(e))).foreach(_.focus())
         }
       accepted
+
+  end moveAll
 
   /**
     * The modifier to put on each item: it starts drags, handles Alt+Arrow keys, and marks the item
@@ -582,7 +586,7 @@ object Reorder:
     * scroll only this container, not the page.
     */
   private def scrollContainer(el: dom.Element, orientation: Orientation): Option[dom.HTMLElement] =
-    val doc = AnyRealm.documentOf(el)
+    val doc                                  = AnyRealm.documentOf(el)
     def scrolls(e: dom.HTMLElement): Boolean =
       val style = AnyRealm.windowOf(e).getComputedStyle(e)
       orientation match
@@ -592,9 +596,7 @@ object Reorder:
           Set("auto", "scroll").contains(style.overflowX) && e.scrollWidth > e.clientWidth
     Iterator
       .iterate(el.parentNode)(_.parentNode)
-      .takeWhile(n =>
-        n != null && !(n eq doc.body) && !(n eq doc.documentElement)
-      )
+      .takeWhile(n => n != null && !(n eq doc.body) && !(n eq doc.documentElement))
       .collectFirst {
         case AnyRealm.HTMLElement(e) if scrolls(e) =>
           e
