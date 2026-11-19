@@ -11,6 +11,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | `UniSpec/RxNested.lean` | `concat`, `merge`, `flatMap` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala` | `RxNestedSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxRecover.lean` | `recover` and continuous mode (`runContinuously`) | `uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala` | `RxRecoverSpecTest` (JVM, JS, Native) |
 | `UniSpec/MsgPack.lean` | MessagePack integer and str/bin/array/map/ext header bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
+| `UniSpec/HttpReader.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
 
 You need Lean only to change a model. `./sbt test` runs the checked-in cases without it.
 
@@ -25,6 +26,7 @@ lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
 lake exe gen-rx-nested-cases # rewrite RxNestedSpecCases.scala from the nested-stream Rx model
 lake exe gen-rx-recover-cases # rewrite RxRecoverSpecCases.scala from the recover/continuous model
 lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
+lake exe gen-http-reader-cases # rewrite HttpReaderSpecCases.scala from the request-framing model
 ```
 
 Commit the regenerated Scala file with the model change. The `Lean spec` CI job fails when the

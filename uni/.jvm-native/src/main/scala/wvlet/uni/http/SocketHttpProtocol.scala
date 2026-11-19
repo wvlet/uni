@@ -14,7 +14,6 @@
 package wvlet.uni.http
 
 import java.nio.charset.StandardCharsets
-import scala.collection.mutable
 
 /**
   * Result of reading one request from a keep-alive connection.
@@ -25,79 +24,152 @@ private[http] enum ReadResult:
   case Closed
 
 /**
-  * A minimal HTTP/1.1 request reader over a byte-chunk source. Handles keep-alive (multiple
-  * requests per connection) by retaining any bytes read past the current request. Bodies are read
-  * by `Content-Length`; chunked request bodies are not supported (MVP) and yield a `BadRequest`.
+  * A minimal HTTP/1.1 request reader over a connection. Handles keep-alive (multiple requests per
+  * connection) by retaining any bytes read past the current request. Bodies are read by
+  * `Content-Length`; chunked request bodies are not supported and yield a `BadRequest`.
   *
-  * @param readChunk
-  *   reads the next batch of bytes from the socket; an empty array means EOF or timeout. The `idle`
-  *   argument is true when waiting for the first bytes of a new request (the buffer is empty) and
-  *   false once a request has started arriving, so the caller can apply an idle vs a read timeout.
+  * Bytes go straight from the socket into one growable `Array[Byte]`, and the request line and
+  * headers are parsed from it in place, so a request costs no per-byte boxing or line splitting.
+  *
+  * @param read
+  *   reads bytes from the socket into `(buf, off, len)`; returns the number read, or 0 or less on
+  *   EOF or timeout. The `idle` argument is true when waiting for the first bytes of a new request
+  *   (nothing is buffered) and false once a request has started arriving, so the caller can apply
+  *   an idle vs a read timeout.
   */
-private[http] class HttpConnectionReader(readChunk: Boolean => Array[Byte], maxRequestSize: Int):
+private[http] class HttpConnectionReader(
+    read: (Array[Byte], Int, Int, Boolean) => Int,
+    maxRequestSize: Int
+):
+  import HttpConnectionReader.*
 
-  // Amortized-O(1) append buffer (indexed scan, single slice per request) — avoids the O(n^2) of
-  // repeatedly concatenating Array[Byte].
-  private val buf = mutable.ArrayBuffer.empty[Byte]
+  private var buf = new Array[Byte](InitialBufferSize)
+  // Unconsumed bytes are buf[start, end)
+  private var start = 0
+  private var end   = 0
+  // Where the search for the header terminator resumes, so a request that arrives in many reads is
+  // scanned once rather than from its start after every read
+  private var scanFrom = 0
 
-  /** Append another chunk to the buffer. Returns false on EOF/timeout. */
+  private def buffered: Int = end - start
+
+  /** Read more bytes into the buffer, compacting or growing it first if full. False on EOF. */
   private def fill(): Boolean =
-    val chunk = readChunk(buf.isEmpty)
-    if chunk.isEmpty then
+    if end == buf.length then
+      if start > 0 then
+        System.arraycopy(buf, start, buf, 0, buffered)
+        scanFrom -= start
+        end -= start
+        start = 0
+      if end == buf.length then
+        buf = java.util.Arrays.copyOf(buf, buf.length * 2)
+    val n = read(buf, end, buf.length - end, buffered == 0)
+    if n <= 0 then
       false
     else
-      buf ++= chunk
+      end += n
       true
 
   private def isHttpWhitespace(b: Byte): Boolean = b == '\r' || b == '\n' || b == ' ' || b == '\t'
 
+  private def onlyWhitespaceBuffered: Boolean =
+    var i = start
+    while i < end && isHttpWhitespace(buf(i)) do
+      i += 1
+    i == end
+
   /** Index just past the `\r\n\r\n` header terminator, or -1 if not yet present. */
   private def headerEnd: Int =
-    var i = 0
-    val n = buf.length - 3
-    while i < n do
-      if buf(i) == '\r' && buf(i + 1) == '\n' && buf(i + 2) == '\r' && buf(i + 3) == '\n' then
+    var i     = math.max(start, scanFrom)
+    val limit = end - 3
+    while i < limit do
+      if buf(i + 3) != '\n' then
+        // The terminator can't end at i + 3, so skip ahead
+        i += 1
+      else if buf(i) == '\r' && buf(i + 1) == '\n' && buf(i + 2) == '\r' then
         return i + 4
-      i += 1
+      else
+        i += 1
+    scanFrom = math.max(start, end - 3)
     -1
+
+  /** Index of the next `\r\n` in buf[from, limit), or `limit` if there is none. */
+  private def lineEnd(from: Int, limit: Int): Int =
+    var i = from
+    while i + 1 < limit do
+      if buf(i) == '\r' && buf(i + 1) == '\n' then
+        return i
+      i += 1
+    limit
+
+  private def latin1(from: Int, until: Int): String = String(
+    buf,
+    from,
+    until - from,
+    StandardCharsets.ISO_8859_1
+  )
+
+  /** A Latin-1 string of buf[from, until) without leading and trailing spaces and tabs. */
+  private def trimmed(from: Int, until: Int): String =
+    var s = from
+    var e = until
+    while s < e && (buf(s) == ' ' || buf(s) == '\t') do
+      s += 1
+    while e > s && (buf(e - 1) == ' ' || buf(e - 1) == '\t') do
+      e -= 1
+    latin1(s, e)
 
   def readRequest(): ReadResult =
     // Accumulate until the header block is complete.
     var endIdx = headerEnd
     while endIdx < 0 do
-      if buf.length > maxRequestSize then
+      if buffered > maxRequestSize then
         return ReadResult.BadRequest("Request header too large")
       if !fill() then
         // Clean EOF: an empty or whitespace-only buffer (e.g. a trailing CRLF after a keep-alive
         // request) means the connection closed; anything else is a truncated request.
-        return if buf.forall(isHttpWhitespace) then
+        return if onlyWhitespaceBuffered then
           ReadResult.Closed
         else
           ReadResult.BadRequest("Incomplete request")
       endIdx = headerEnd
 
-    // Header block is bytes [0, endIdx-4); headers are ASCII/Latin-1.
-    val headerText = new String(buf.slice(0, endIdx - 4).toArray, StandardCharsets.ISO_8859_1)
+    // The header block is buf[start, blockEnd); headers are ASCII/Latin-1.
+    val blockEnd = endIdx - 4
     // Per RFC 7230, tolerate empty line(s) before the request line.
-    val lines = headerText.split("\r\n", -1).dropWhile(_.isEmpty)
-    if lines.isEmpty then
+    var lineStart = start
+    var lineStop  = lineEnd(lineStart, blockEnd)
+    while lineStop == lineStart && lineStart < blockEnd do
+      lineStart += 2
+      lineStop = lineEnd(lineStart, blockEnd)
+    if lineStart >= blockEnd then
       return ReadResult.BadRequest("Empty request line")
 
-    val requestLine = lines(0).split(" ")
-    if requestLine.length < 2 then
+    // Request line: METHOD SP target [SP version]
+    var sp = lineStart
+    while sp < lineStop && buf(sp) != ' ' do
+      sp += 1
+    var targetEnd = sp + 1
+    while targetEnd < lineStop && buf(targetEnd) != ' ' do
+      targetEnd += 1
+    var rest = sp + 1
+    while rest < lineStop && buf(rest) == ' ' do
+      rest += 1
+    if sp >= lineStop || rest >= lineStop then
       return ReadResult.BadRequest("Malformed request line")
-    val methodName = requestLine(0)
-    val target     = Request.decodeRequestTarget(requestLine(1))
+    val methodName = latin1(lineStart, sp)
+    val target     = Request.decodeRequestTarget(latin1(sp + 1, targetEnd))
 
     val headerBuilder = HttpMultiMap.newBuilder
-    var li            = 1
-    while li < lines.length do
-      val line = lines(li)
-      if line.nonEmpty then
-        val colon = line.indexOf(':')
-        if colon > 0 then
-          headerBuilder.add(line.substring(0, colon).trim, line.substring(colon + 1).trim)
-      li += 1
+    lineStart = lineStop + 2
+    while lineStart < blockEnd do
+      lineStop = lineEnd(lineStart, blockEnd)
+      var colon = lineStart
+      while colon < lineStop && buf(colon) != ':' do
+        colon += 1
+      if colon > lineStart && colon < lineStop then
+        headerBuilder.add(trimmed(lineStart, colon), trimmed(colon + 1, lineStop))
+      lineStart = lineStop + 2
     val headers = headerBuilder.result()
 
     if headers.get(HttpHeader.TransferEncoding).exists(_.toLowerCase.contains("chunked")) then
@@ -119,14 +191,25 @@ private[http] class HttpConnectionReader(readChunk: Boolean => Array[Byte], maxR
           case _ =>
             return ReadResult.BadRequest("Invalid Content-Length")
 
-    // Ensure the full body is buffered.
-    while buf.length - endIdx < contentLength do
+    // Ensure the full body is buffered. fill() may move the buffer's contents, so track the body by
+    // its offset from start.
+    val bodyOffset = endIdx - start
+    while buffered - bodyOffset < contentLength do
       if !fill() then
         return ReadResult.BadRequest("Incomplete request body")
 
-    val body = buf.slice(endIdx, endIdx + contentLength).toArray
-    // Drop the consumed bytes, retaining any leftover for the next (pipelined/keep-alive) request.
-    buf.remove(0, endIdx + contentLength)
+    val bodyStart = start + bodyOffset
+    val body      =
+      if contentLength == 0 then
+        Array.emptyByteArray
+      else
+        java.util.Arrays.copyOfRange(buf, bodyStart, bodyStart + contentLength)
+    // Consume the request, retaining any leftover for the next (pipelined/keep-alive) request.
+    start = bodyStart + contentLength
+    if start == end then
+      start = 0
+      end = 0
+    scanFrom = start
 
     HttpMethod.of(methodName) match
       case Some(method) =>
@@ -138,6 +221,9 @@ private[http] class HttpConnectionReader(readChunk: Boolean => Array[Byte], maxR
   end readRequest
 
 end HttpConnectionReader
+
+private[http] object HttpConnectionReader:
+  private final val InitialBufferSize = 8192
 
 /**
   * Serializes a [[Response]] to HTTP/1.1 wire bytes.

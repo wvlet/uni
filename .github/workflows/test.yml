@@ -38,6 +38,7 @@ jobs:
               - 'uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala'
               - 'uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala'
               - 'uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala'
+              - 'uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -80,7 +81,8 @@ jobs:
           lake exe gen-msgpack-cases
           lake exe gen-rx-nested-cases
           lake exe gen-rx-recover-cases
-          if ! git diff --exit-code -- ../../uni/src/test/scala; then
+          lake exe gen-http-reader-cases
+          if ! git diff --exit-code -- ../../uni/src/test/scala ../../uni/.jvm-native/src/test/scala; then
             echo "::error::Run the gen-* executables in spec/lean (see spec/lean/README.md) and commit the generated cases"
             exit 1
           fi
@@ -94,7 +96,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: scalafmt
         run: ./sbt scalafmtCheckAll
@@ -130,7 +132,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: Scala 3.x test
         run: JVM_OPTS="-Xms2g -Xmx4g" ./sbt "projectJVM/test"
@@ -152,7 +154,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -203,7 +205,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
       - name: Install libcurl
         # libgc: examples/rpc-native links the Boehm GC
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libgc-dev
@@ -240,7 +242,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Install LLVM
         run: choco install llvm -y
@@ -315,7 +317,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
@@ -338,7 +340,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1
@@ -364,7 +366,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1
@@ -391,7 +393,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1
@@ -410,7 +412,7 @@ jobs:
       - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '23'
+          java-version: '25'
           cache: sbt
       - name: Install sbt
         uses: sbt/setup-sbt@v1

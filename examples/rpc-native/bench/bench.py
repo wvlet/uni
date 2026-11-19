@@ -417,9 +417,10 @@ def environment(args):
 
 
 def report(args, tool, procs, containers):
-    jars = [j for j in read_out("jvm.cp", "").split(os.pathsep) if j]
-    jar_mb = sum(os.path.getsize(j) for j in jars if os.path.exists(j)) / 1e6
-    lines = ["## Typed RPC server: Scala Native vs. JVM", ""]
+    def jar_cell(jars):
+        jar_mb = sum(os.path.getsize(j) for j in jars if os.path.exists(j)) / 1e6
+        return f"JDK + {len(jars)} jars ({jar_mb:.1f} MB)"
+    lines = ["## Typed RPC server: Scala Native vs. JVM (Netty and built-in)", ""]
     lines += ["| | " + " | ".join(r["name"] for r in procs) + " |",
               "|---|" + "---|" * len(procs)]
     rows = [(f"launch → first RPC response, median of {args.runs} (ms)", "startup_ms", 0),
@@ -433,7 +434,7 @@ def report(args, tool, procs, containers):
         lines.append(f"| {label} | " + " | ".join(fmt(r.get(key), d) for r in procs) + " |")
     native_mb = os.path.getsize(args.native) / 1e6
     lines.append(f"| artifact | one {native_mb:.1f} MB binary | "
-                 + " | ".join(f"JDK + {len(jars)} jars ({jar_mb:.1f} MB)" for _ in procs[1:]) + " |")
+                 + " | ".join(jar_cell(r.get("jars", [])) for r in procs[1:]) + " |")
     if containers:
         lines += ["", "| container | image size (MB) | cold start, median of "
                   f"{args.runs} (ms) | min (ms) |", "|---|---|---|---|"]
@@ -484,8 +485,12 @@ def main():
     special = args.sweep or args.soak
     tool = None if args.no_load and not special else load_tool()
     jvm = [args.java, "-cp", cp]
-    targets = [("Native", [args.native]), ("JVM defaults", jvm + ["example.rpc.Main"]),
-               ("JVM small heap", jvm[:1] + args.jvm_small_opts.split() + jvm[1:]
+    # Without the Netty jars, Http.server falls back to uni's built-in server
+    builtin_cp = os.pathsep.join(j for j in cp.split(os.pathsep)
+                                 if not os.path.basename(j).startswith(("netty-", "uni-netty")))
+    targets = [("Native", [args.native]), ("JVM Netty", jvm + ["example.rpc.Main"]),
+               ("JVM built-in", [args.java, "-cp", builtin_cp, "example.rpc.Main"]),
+               ("JVM Netty, small heap", jvm[:1] + args.jvm_small_opts.split() + jvm[1:]
                 + ["example.rpc.Main"])]
     if special:
         results, out = {}, []
@@ -505,6 +510,9 @@ def main():
         return
     print("Benchmarking (one line per target)...", file=sys.stderr)
     procs = [bench_process(name, cmd, args, tool) for name, cmd in targets]
+    for r, (_, cmd) in zip(procs, targets):
+        if "-cp" in cmd:
+            r["jars"] = [j for j in cmd[cmd.index("-cp") + 1].split(os.pathsep) if j]
     containers = [bench_container(name, image, args)
                   for name, image in [("Native", args.native_image), ("JVM", args.jvm_image)] if image]
     if args.json:

@@ -14,9 +14,9 @@ on every platform. The **annotation router** (`@Endpoint`, `Router.of[T]`,
 
 ## Quick Start
 
-On the JVM, add the `uni-netty` module to your build (it pulls in `uni`
-transitively). On Scala.js and Scala Native, the server backends are included
-in `uni` itself:
+`Http.server` runs with `uni` alone on every platform (on the JVM it needs JDK
+24+). The annotation router below lives in the `uni-netty` module, so this
+example adds it (it pulls in `uni` transitively):
 
 ```scala
 // JVM only: Netty-based HTTP server
@@ -58,7 +58,7 @@ platform's backend, and each returns an [`HttpServer`](#server-lifecycle):
 
 | Platform | Backend for `Http.server` | Backend-only options |
 |----------|---------------------------|----------------------------------|
-| **JVM** | Netty (add the `uni-netty` module) | `Netty.options` (`wvlet.uni.http.netty.Netty`) |
+| **JVM** | Netty when `uni-netty` is on the classpath, otherwise the built-in server (JDK 24+) | `Netty.options` (`wvlet.uni.http.netty.Netty`) |
 | **Scala.js** | Node.js `http` | — (all settings are shared) |
 | **Scala Native** | native sockets | `Native.options` (`wvlet.uni.http.Native`) |
 
@@ -93,8 +93,12 @@ Http
 ```
 
 On the JVM, `uni-netty` registers Netty as the backend through
-`java.util.ServiceLoader`; without it on the classpath, `start()` fails with a
-message that says to add it. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
+`java.util.ServiceLoader`. Without it, `Http.server` starts uni's built-in
+server, which needs JDK 24+ and no other dependency. The built-in server runs
+the same HTTP/1.1 and WebSocket code as the Scala Native server, with one
+virtual thread per connection. It does not decode compressed request bodies;
+add `uni-netty` for that, for the annotation router, or for Netty's tuning
+options. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
 serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 
 ### Tuning one backend

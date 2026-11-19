@@ -20,24 +20,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
 /**
-  * Native WebSocket (RFC 6455) over a raw POSIX socket: the per-connection read loop driving the
-  * shared [[WebSocketFrameDecoder]] and bridging events to a [[WebSocketHandler]]. Framing and the
-  * handshake accept key live in the cross-platform [[WebSocketFrame]].
+  * WebSocket (RFC 6455) over a [[SocketConnection]], shared by Scala Native and the JVM's built-in
+  * server: the per-connection read loop driving the shared [[WebSocketFrameDecoder]] and bridging
+  * events to a [[WebSocketHandler]]. Framing and the handshake accept key live in the
+  * cross-platform [[WebSocketFrame]].
   */
-private[http] object NativeWebSocket extends LogSupport:
+private[http] object SocketWebSocket extends LogSupport:
 
   /**
     * Run a WebSocket connection: deliver `onOpen`, then read/dispatch frames until the peer closes
     * or the socket ends, guaranteeing `onClose` exactly once. Runs on the calling worker thread.
     */
   def serve(
-      clientFd: Int,
+      conn: SocketConnection,
       request: Request,
       handler: WebSocketHandler,
       maxFrameSize: Int,
       pingIntervalMillis: Int
   ): Unit =
-    val ctx                 = NativeWebSocketContext(clientFd, request)
+    val ctx                 = SocketWebSocketContext(conn, request)
     val closeNotified       = AtomicBoolean(false)
     def notifyClose(): Unit =
       if closeNotified.compareAndSet(false, true) then
@@ -55,7 +56,7 @@ private[http] object NativeWebSocket extends LogSupport:
           WebSocketDispatcher.safeOnError(handler, ctx, e)
 
       runReadLoop(
-        clientFd,
+        conn,
         maxFrameSize,
         pingIntervalMillis,
         expectMasked = true,
@@ -75,14 +76,13 @@ private[http] object NativeWebSocket extends LogSupport:
   end serve
 
   /**
-    * Poll/read/dispatch loop shared by the Native server and client. Uses `poll` so a periodic
-    * heartbeat (when `pingIntervalMillis > 0`) can ping an idle peer and close it if a Ping goes
-    * unanswered; with the heartbeat off it blocks (poll timeout -1) like a plain `recv`. `initial`
-    * is any bytes already read past the handshake (client side). Exceptions propagate to the
-    * caller.
+    * Read/dispatch loop shared by the servers and the Native client. Reads with a timeout so a
+    * periodic heartbeat (when `pingIntervalMillis > 0`) can ping an idle peer and close it if a
+    * Ping goes unanswered; with the heartbeat off a read waits without a limit. `initial` is any
+    * bytes already read past the handshake (client side). Exceptions propagate to the caller.
     */
   private[http] def runReadLoop(
-      fd: Int,
+      conn: SocketConnection,
       maxFrameSize: Int,
       pingIntervalMillis: Int,
       expectMasked: Boolean,
@@ -118,14 +118,11 @@ private[http] object NativeWebSocket extends LogSupport:
         )
       )
     var open = initial.isEmpty || feed(initial)
+    val buf  = new Array[Byte](ReadBufferSize)
     while open do
-      NativeSocket.waitReadable(fd, pollTimeout) match
-        case 1 =>
-          val chunk = NativeSocket.recvChunk(fd)
-          if chunk.isEmpty then
-            open = false
-          else
-            open = feed(chunk)
+      conn.read(buf, 0, buf.length, pollTimeout) match
+        case n if n > 0 =>
+          open = feed(java.util.Arrays.copyOf(buf, n))
         case 0 =>
           // Heartbeat tick (only reached when pingIntervalMillis > 0).
           if heartbeat != null then
@@ -142,13 +139,15 @@ private[http] object NativeWebSocket extends LogSupport:
 
   end runReadLoop
 
-end NativeWebSocket
+  private final val ReadBufferSize = 16 * 1024
+
+end SocketWebSocket
 
 /**
-  * Native [[WebSocketContext]]. Writes are serialized so `send`/`close` are safe from any thread
-  * (the read loop also writes pong/close frames).
+  * Server-side [[WebSocketContext]] over a [[SocketConnection]]. Writes are serialized so
+  * `send`/`close` are safe from any thread (the read loop also writes pong/close frames).
   */
-private[http] class NativeWebSocketContext(clientFd: Int, override val request: Request)
+private[http] class SocketWebSocketContext(conn: SocketConnection, override val request: Request)
     extends WebSocketContext:
 
   private val writeLock = Object()
@@ -180,7 +179,7 @@ private[http] class NativeWebSocketContext(clientFd: Int, override val request: 
       writeFrame(opcode, payload)
 
   private def writeFrame(opcode: Int, payload: Array[Byte]): Unit = writeLock.synchronized {
-    NativeSocket.sendAll(clientFd, WebSocketFrame.encodeFrame(opcode, payload))
+    conn.write(WebSocketFrame.encodeFrame(opcode, payload))
   }
 
-end NativeWebSocketContext
+end SocketWebSocketContext

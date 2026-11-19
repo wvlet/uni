@@ -49,6 +49,7 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   interleavings), and `flatMap` completes only after its input and last nested stream complete,
   with the single-value identity laws. The cases use `Rx.MergeOp` directly so 0 and 1 sources go
   through `RxRunner`'s merge rather than `RxParallel.merge`'s shortcuts.
+- `UniSpec/HttpReader.lean` models HTTP/1.1 request framing in `HttpConnectionReader` (see `2026-11-18-jvm-builtin-http-server.md`). `HttpReaderSpecTest` (JVM and Native, in `uni/.jvm-native`) replays each byte stream in reads of several sizes. The model leaves out the header-size limit, whose trip point depends on how bytes arrive.
 - `UniSpec/RxRecover.lean` covers `recover` and continuous mode. Operators act per event, and the
   mode decides the cuts: default mode cuts at the source's first terminal event (`Rx.queue` stops
   there) and at the sink's (it answers `Stop`); continuous mode cuts at neither, except inside

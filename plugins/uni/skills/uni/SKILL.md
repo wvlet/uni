@@ -47,7 +47,7 @@ Maven Central should depend on a Central version and not add that resolver.
 | Concurrent blocking code (JVM, Native) | `wvlet.uni.control.Fiber` | `Fiber { f() }.join()`, `Fiber.parMap(items, maxConcurrency = 16)(f)`, `Fiber.par(a, b)`, `Fiber.race(a, b)`, `Fiber.scope { s => s.fork(...) }`; virtual threads on JDK 24+; not on Scala.js (use `RxFiber`); see [references/rx.md](references/rx.md#fiber-plain-blocking-code) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`; Netty on the JVM needs `uni-netty`; JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`; on the JVM, Netty when `uni-netty` is on the classpath, otherwise a built-in server (JDK 24+); JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |
 | REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | [references/http-server.md](references/http-server.md) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
