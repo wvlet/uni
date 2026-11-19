@@ -103,8 +103,9 @@ class DataSizeTest extends UniTest:
 
   // Log-uniform non-negative Longs, so samples spread across every unit instead of
   // clustering near Long.MaxValue
-  private def logUniform(maxBits: Int): Gen[Long] =
-    Gen.chooseNum(0, maxBits).flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+  private def logUniform(maxBits: Int): Gen[Long] = Gen
+    .chooseNum(0, maxBits)
+    .flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
 
   test("succinct size string parses back within display precision") {
     forAll(logUniform(62)) { bytes =>

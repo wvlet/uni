@@ -19,8 +19,9 @@ import wvlet.uni.test.check.Gen
 class URLEncoderTest extends UniTest:
 
   private def isUnreserved(c: Char): Boolean =
-    (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
-      c == '-' || c == '_' || c == '.' || c == '~'
+    (c >= 'A' && c <= 'Z') ||
+      (c >= 'a' && c <= 'z') ||
+      (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '.' || c == '~'
 
   test("encode examples") {
     URLEncoder.encode("") shouldBe ""
