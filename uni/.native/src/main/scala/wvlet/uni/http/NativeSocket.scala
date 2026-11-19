@@ -291,9 +291,20 @@ private[http] class NativeSocketConnection(val fd: Int) extends SocketConnection
     len
   )
 
-  override def interrupt(): Unit = NativeSocket.shutdown(fd)
+  // stop() may interrupt a connection its worker has just closed. The fd number may then belong to
+  // another socket already, so shutdown and close must not run after close.
+  private var closed = false
 
-  override def close(): Unit = NativeSocket.close(fd)
+  override def interrupt(): Unit = synchronized {
+    if !closed then
+      NativeSocket.shutdown(fd)
+  }
+
+  override def close(): Unit = synchronized {
+    if !closed then
+      closed = true
+      NativeSocket.close(fd)
+  }
 
 end NativeSocketConnection
 

@@ -140,15 +140,25 @@ private[http] class JvmSocketListener(host: String, requestedPort: Int, backlog:
   override def port: Int = serverSocket.getLocalPort
 
   override def accept(): SocketConnection =
-    try
-      val socket = serverSocket.accept()
-      // Responses go out in one write each, so don't hold small ones back (Nagle)
-      socket.setTcpNoDelay(true)
-      socket.setKeepAlive(true)
-      JvmSocketConnection(socket)
-    catch
-      case _: IOException =>
-        null
+    val socket =
+      try
+        serverSocket.accept()
+      catch
+        case _: IOException =>
+          null
+    if socket == null then
+      null
+    else
+      try
+        // Responses go out in one write each, so don't hold small ones back (Nagle)
+        socket.setTcpNoDelay(true)
+        socket.setKeepAlive(true)
+        JvmSocketConnection(socket)
+      catch
+        case _: IOException =>
+          // The peer reset the connection before setup finished
+          socket.close()
+          null
 
   override def close(): Unit =
     try
