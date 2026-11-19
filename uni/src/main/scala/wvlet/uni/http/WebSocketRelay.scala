@@ -196,16 +196,13 @@ private class WebSocketRelaySession(config: WebSocketRelay)
   private val bytesToClient    = AtomicLong(0)
   private val reported         = AtomicBoolean(false)
 
-  /** Record the first close; returns true when this call was it. */
-  private def recordClose(side: WebSocketRelaySide, code: Int, reason: String): Boolean =
+  /** Record which side closed first, and with what status; later calls are ignored. */
+  private def recordClose(side: WebSocketRelaySide, code: Int, reason: String): Unit =
     synchronized {
       if closedBy == null then
         closedBy = side
         closeCode = code
         closeReason = reason
-        true
-      else
-        false
     }
 
   // --- client side ---
@@ -252,8 +249,8 @@ private class WebSocketRelaySession(config: WebSocketRelay)
 
   override def onError(ctx: WebSocketContext, e: Throwable): Unit =
     debug(s"WebSocket relay client error: ${e.getMessage}", e)
-    if recordClose(WebSocketRelaySide.Client, WebSocketClose.InternalError, "relay error") then
-      ctx.close(WebSocketClose.InternalError, "relay error")
+    recordClose(WebSocketRelaySide.Client, WebSocketClose.InternalError, "relay error")
+    ctx.close(WebSocketClose.InternalError, "relay error")
 
   private def toUpstream(frame: PendingFrame): Unit =
     val size = frameSize(frame)
