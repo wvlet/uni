@@ -237,7 +237,7 @@ class TerminalView(
 
   override def onMount(node: Any): Unit =
     node match
-      case el: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(el) =>
         container = el
         setup()
       case _ =>
@@ -912,7 +912,7 @@ class TerminalView(
 
   private def linkAt(e: dom.MouseEvent): Option[String] =
     e.target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         Option(el.closest(".uni-term-link")).flatMap { l =>
           if l.hasAttribute("data-detected") then
             // Read the URL from the lines now: its row may have been drawn before the rest of a
@@ -992,13 +992,13 @@ class TerminalView(
   private def selectionEnd(node: dom.Node, offset: Int): Option[SelectionEnd] =
     val el =
       node match
-        case e: dom.Element =>
+        case AnyRealm.Element(e) =>
           e
         case null =>
           null
         case n =>
           n.parentNode match
-            case e: dom.Element =>
+            case AnyRealm.Element(e) =>
               e
             case _ =>
               null

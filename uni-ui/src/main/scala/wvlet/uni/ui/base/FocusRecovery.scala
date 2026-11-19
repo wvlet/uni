@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.{DomNode, OnMount}
 import wvlet.uni.rx.Cancelable
@@ -54,14 +55,14 @@ object FocusRecovery:
     def items: Seq[dom.HTMLElement] = container
       .querySelectorAll(itemSelector)
       .toSeq
-      .collect { case h: dom.HTMLElement =>
+      .collect { case AnyRealm.HTMLElement(h) =>
         h
       }
 
     val onFocusIn: js.Function1[dom.Event, Unit] =
       e =>
         e.target match
-          case t: dom.Element =>
+          case AnyRealm.Element(t) =>
             focused = Option(t.closest(itemSelector))
               .filter(container.contains)
               .map(item => (item, items.indexWhere(_ eq item)))
@@ -84,13 +85,13 @@ object FocusRecovery:
 
     def itemIn(n: dom.Node, last: Boolean): Option[dom.HTMLElement] =
       n match
-        case e: dom.HTMLElement if e.matches(itemSelector) =>
+        case AnyRealm.HTMLElement(e) if e.matches(itemSelector) =>
           Some(e)
-        case e: dom.Element =>
+        case AnyRealm.Element(e) =>
           val inner = e
             .querySelectorAll(itemSelector)
             .toSeq
-            .collect { case h: dom.HTMLElement =>
+            .collect { case AnyRealm.HTMLElement(h) =>
               h
             }
           if last then

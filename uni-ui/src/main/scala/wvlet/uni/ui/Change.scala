@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.rx.{Cancelable, RxVar}
 
 import scala.scalajs.js
@@ -53,13 +54,10 @@ object ChangeSource:
     else
       Programmatic
 
-  // By shape, not class: an event in a Dock panel's own window comes from that window's realm, where
-  // `instanceof` this window's `KeyboardEvent` or `MouseEvent` is false
-  private[ui] def isKeyboard(e: dom.Event): Boolean =
-    e.`type`.startsWith("key") && !js.isUndefined(e.asInstanceOf[js.Dynamic].key)
+  // An event in a Dock panel's own window comes from that window's realm
+  private[ui] def isKeyboard(e: dom.Event): Boolean = AnyRealm.KeyboardEvent.test(e)
 
-  private[ui] def isMouse(e: dom.Event): Boolean =
-    !js.isUndefined(e.asInstanceOf[js.Dynamic].clientX)
+  private[ui] def isMouse(e: dom.Event): Boolean = AnyRealm.MouseEvent.test(e)
 
   private[ui] def resolve(detected: ChangeSource): ChangeSource = scoped.getOrElse(detected)
 

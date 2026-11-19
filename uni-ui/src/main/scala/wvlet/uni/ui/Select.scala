@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -232,7 +233,7 @@ class Select[A] private (
       "click",
       e =>
         e.currentTarget match
-          case b: dom.HTMLButtonElement if b.disabled =>
+          case AnyRealm.HTMLButtonElement(b) if b.disabled =>
           case _                                      =>
             open.update(!_)
     ),

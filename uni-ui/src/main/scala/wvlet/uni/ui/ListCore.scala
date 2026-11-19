@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -193,7 +194,7 @@ private[ui] class ListCore[A, K](
 
   /** The space rows have: the container's height minus the header above them. */
   private def rowsTop(el: dom.HTMLElement): Double = spacer
-    .collect { case s: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(s) =>
       s.offsetTop
     }
     .getOrElse(0.0)
@@ -365,7 +366,7 @@ private[ui] class ListCore[A, K](
 
   override def onMount(node: Any): Unit =
     node match
-      case el: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(el) =>
         root = Some(el)
         spacer = Option(el.querySelector(":scope > .uni-list__spacer"))
         measure()

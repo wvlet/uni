@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.{DomNode, OnMount}
 import wvlet.uni.rx.{Cancelable, Rx}
@@ -88,13 +89,13 @@ class StickToBottom(threshold: Double = 48):
         .foreach { r =>
           r.removedNodes
             .foreach {
-              case c: dom.Element =>
+              case AnyRealm.Element(c) =>
                 resize.unobserve(c)
               case _ =>
             }
           r.addedNodes
             .foreach {
-              case c: dom.Element =>
+              case AnyRealm.Element(c) =>
                 resize.observe(c)
               case _ =>
             }

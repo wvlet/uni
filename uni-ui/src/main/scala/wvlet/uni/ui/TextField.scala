@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -54,9 +55,9 @@ private class GatedText(text: RxVar[String], handler: () => ChangeHandler):
 
   private def restore(target: dom.EventTarget): Unit =
     target match
-      case f: dom.HTMLInputElement if f.value != gated.get =>
+      case AnyRealm.HTMLInputElement(f) if f.value != gated.get =>
         f.value = gated.get
-      case f: dom.HTMLTextAreaElement if f.value != gated.get =>
+      case AnyRealm.HTMLTextAreaElement(f) if f.value != gated.get =>
         f.value = gated.get
       case _ =>
 

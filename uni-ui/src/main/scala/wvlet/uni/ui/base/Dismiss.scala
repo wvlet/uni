@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.Keyboard
 import wvlet.uni.rx.Cancelable
@@ -131,7 +132,7 @@ object Dismiss:
 
   private def onPointerDown(e: dom.Event): Unit =
     e.target match
-      case target: dom.Node =>
+      case AnyRealm.Node(target) =>
         // Walk a snapshot from the top: dismissing changes the stack
         val it    = layers.reverseIterator.toList.iterator
         var going = true

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.{DomRef, RxElement}
 import wvlet.uni.rx.Cancelable
@@ -129,7 +130,7 @@ private[ui] class OverlaySurface(
   override def onMount(node: Any): Unit =
     node match
       // onMount fires a step after rendering: skip it when the overlay already closed
-      case el: dom.HTMLElement if !unmounted && !closing && dom.document.contains(el) =>
+      case AnyRealm.HTMLElement(el) if !unmounted && !closing && dom.document.contains(el) =>
         root = Some(el)
         reposition()
         val layer =
@@ -151,7 +152,7 @@ private[ui] class OverlaySurface(
             // so the page is never blocked
             val region =
               el.offsetParent match
-                case p: dom.Element if !(p eq dom.document.body) =>
+                case AnyRealm.Element(p) if !(p eq dom.document.body) =>
                   Some(p)
                 case _ =>
                   Option(el.parentElement).filterNot(_ eq dom.document.body)

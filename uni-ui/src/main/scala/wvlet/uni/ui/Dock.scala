@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -974,7 +975,7 @@ class Dock private (
             if setLayout(DockModel.activate(now, panel.id), ChangeCause.of(ChangeReason.Press, e))
             then
               e.currentTarget match
-                case el: dom.HTMLElement =>
+                case AnyRealm.HTMLElement(el) =>
                   el.focus()
                 case _ =>
               focusWindow(panel.id)
@@ -1012,7 +1013,7 @@ class Dock private (
 
   private def onTabKey(e: dom.KeyboardEvent, tabs: Seq[String], path: DockPath): Unit =
     val focused = Option(e.target)
-      .collect { case el: dom.Element =>
+      .collect { case AnyRealm.Element(el) =>
         el.closest("[role=tab]")
       }
       .flatMap(el => Option(el))

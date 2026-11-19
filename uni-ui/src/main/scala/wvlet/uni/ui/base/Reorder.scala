@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.{DomAttribute, DomNode, EventListenerBinding, OnMount, PointerDrag}
 import wvlet.uni.dom.all.{ariaHidden, cls, span, stringToDomNode}
@@ -197,7 +198,7 @@ class Reorder[K] private[ui] (
     EventListenerBinding(
       "keydown",
       {
-        case e: dom.KeyboardEvent if !Reorder.inField(e.target) && onMoveKey(k, e) =>
+        case AnyRealm.KeyboardEvent(e) if !Reorder.inField(e.target) && onMoveKey(k, e) =>
           e.stopPropagation()
         case _ =>
       }
@@ -494,7 +495,7 @@ object Reorder:
   // Keys and presses in a text field belong to the field
   private def inField(t: dom.EventTarget): Boolean =
     t match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         el.closest("input, textarea, select, [contenteditable]") != null
       case _ =>
         false
@@ -586,7 +587,7 @@ object Reorder:
         n != null && !(n eq dom.document.body) && !(n eq dom.document.documentElement)
       )
       .collectFirst {
-        case e: dom.HTMLElement if scrolls(e) =>
+        case AnyRealm.HTMLElement(e) if scrolls(e) =>
           e
       }
 

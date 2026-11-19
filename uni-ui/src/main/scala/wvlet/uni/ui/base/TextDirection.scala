@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 
 /**
@@ -27,7 +28,7 @@ object TextDirection:
   /** Whether the target of `e` is laid out right to left; false when it is not an element. */
   def isRtl(e: dom.Event): Boolean =
     e.target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         isRtl(el)
       case _ =>
         false

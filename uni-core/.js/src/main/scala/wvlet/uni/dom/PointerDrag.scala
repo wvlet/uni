@@ -136,7 +136,7 @@ class PointerDrag(
   def bind: DomNode = EventListenerBinding(
     "pointerdown",
     {
-      case e: dom.PointerEvent =>
+      case AnyRealm.PointerEvent(e) =>
         start(e)
       case _ =>
     }
@@ -160,7 +160,7 @@ object PointerDrag:
   // Best effort: a synthetic event's pointer is not active, and some environments lack capture
   private def callCapture(target: dom.EventTarget, method: String, pointerId: Double): Unit =
     target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         val d = el.asInstanceOf[js.Dynamic]
         if js.typeOf(d.selectDynamic(method)) == "function" then
           try

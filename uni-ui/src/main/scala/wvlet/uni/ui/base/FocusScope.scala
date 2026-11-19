@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui.base
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.Focus
 
@@ -45,7 +46,7 @@ object FocusTrap:
           else
             None
         next.foreach {
-          case el: dom.HTMLElement =>
+          case AnyRealm.HTMLElement(el) =>
             e.preventDefault()
             el.focus()
           case _ =>
@@ -58,14 +59,14 @@ object FocusTrap:
     */
   def continueTab(e: dom.KeyboardEvent): Unit =
     dom.document.activeElement match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         Option(el.closest("[aria-modal='true'], .uni-dialog--inline")).foreach(onKeyDown(_, e))
       case _ =>
 
   /** The first focusable element in `container`, if any. */
   def first(container: dom.Element): Option[dom.HTMLElement] = Focus
     .getFocusableElements(container)
-    .collectFirst { case el: dom.HTMLElement =>
+    .collectFirst { case AnyRealm.HTMLElement(el) =>
       el
     }
 
@@ -86,7 +87,7 @@ end FocusTrap
 class FocusReturn:
   private val saved: Option[dom.HTMLElement] =
     dom.document.activeElement match
-      case el: dom.HTMLElement if !(el eq dom.document.body) =>
+      case AnyRealm.HTMLElement(el) if !(el eq dom.document.body) =>
         Some(el)
       case _ =>
         None
@@ -171,7 +172,7 @@ private[ui] class FocusPlace(levels: Seq[(dom.Element, Int)]):
         .orElse(candidates.take(index).reverseIterator.find(FocusPlace.visible))
         .orElse(
           a match
-            case h: dom.HTMLElement if h.hasAttribute("tabindex") && !(h eq dom.document.body) =>
+            case AnyRealm.HTMLElement(h) if h.hasAttribute("tabindex") && !(h eq dom.document.body) =>
               Some(h)
             case _ =>
               None
@@ -189,7 +190,7 @@ private[ui] object FocusPlace:
   private def candidates(container: dom.Element): Seq[dom.HTMLElement] = container
     .querySelectorAll(Focus.focusableSelector)
     .toSeq
-    .collect { case h: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(h) =>
       h
     }
 
@@ -199,7 +200,7 @@ private[ui] object FocusPlace:
 
   private def parentOf(e: dom.Element): Option[dom.Element] =
     e.parentNode match
-      case p: dom.Element =>
+      case AnyRealm.Element(p) =>
         Some(p)
       case _ =>
         None

@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -162,7 +163,7 @@ private[ui] object MenuList:
       "keydown",
       e =>
         e.currentTarget match
-          case m: dom.Element if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
+          case AnyRealm.Element(m) if !Keyboard.isComposing(e.asInstanceOf[dom.KeyboardEvent]) =>
             onKey(m, e.asInstanceOf[dom.KeyboardEvent], close)
           case _ =>
     ),
@@ -190,7 +191,7 @@ private[ui] object MenuList:
             "pointermove",
             e =>
               e.currentTarget match
-                case el: dom.HTMLElement if !disabledNow && !(el eq dom.document.activeElement) =>
+                case AnyRealm.HTMLElement(el) if !disabledNow && !(el eq dom.document.activeElement) =>
                   el.focus()
                 case _ =>
           ),
@@ -365,7 +366,7 @@ class ContextMenu(target: RxElement, entries: Seq[MenuEntry]) extends RxElement:
     at =
       e match
         // A keyboard-opened menu has no pointer position: open it at the target
-        case m: dom.MouseEvent if m.clientX != 0 || m.clientY != 0 =>
+        case AnyRealm.MouseEvent(m) if m.clientX != 0 || m.clientY != 0 =>
           Rect.point(m.clientX, m.clientY)
         case _ =>
           targetRef.current.map(Rect.of).map(r => Rect.point(r.x, r.bottom)).getOrElse(at)

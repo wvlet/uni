@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -89,7 +90,7 @@ private[ui] object ExitAnimation:
           .children
           .toSeq
           .collect {
-            case c: dom.HTMLElement if c.hasAttribute("data-state") =>
+            case AnyRealm.HTMLElement(c) if c.hasAttribute("data-state") =>
               c
           }
     targets.foreach(_.setAttribute("data-state", "closed"))

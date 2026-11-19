@@ -13,6 +13,7 @@
  */
 package wvlet.uni.ui
 
+import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.{Focus, OnMount}
 import wvlet.uni.dom.all.*
@@ -322,7 +323,7 @@ class DataTable[A, K] private (
   private def widgetKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
     val cell =
       e.target match
-        case t: dom.Element =>
+        case AnyRealm.Element(t) =>
           Option(t.closest(".uni-table__cell")).filter(c => core.container.exists(_.contains(c)))
         case _ =>
           None
@@ -401,7 +402,7 @@ class DataTable[A, K] private (
         _.addedNodes
           .toSeq
           .foreach {
-            case n: dom.Element =>
+            case AnyRealm.Element(n) =>
               demote(n)
             case _ =>
           }
@@ -423,7 +424,7 @@ class DataTable[A, K] private (
       e =>
         widget =
           e.target match
-            case t: dom.Element
+            case AnyRealm.Element(t)
                 if (t ne el) && t.closest(".uni-list__spacer .uni-table__cell") != null =>
               keepAligned(el, t)
               Some(t)
@@ -444,7 +445,7 @@ class DataTable[A, K] private (
     var n = widget.parentNode
     while n != null && (n ne el) do
       n match
-        case h: dom.HTMLElement if h.scrollLeft != 0 =>
+        case AnyRealm.HTMLElement(h) if h.scrollLeft != 0 =>
           h.scrollLeft = 0
         case _ =>
       n = n.parentNode
@@ -472,7 +473,7 @@ class DataTable[A, K] private (
           if c != activeColumn.get then
             activeColumn := c
           e.currentTarget match
-            case el: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(el) =>
               revealColumn(el, c)
             case _ =>
           // Ctrl+Home and Ctrl+End also move the row, through the list's own Home and End
@@ -743,7 +744,7 @@ object DataTable:
   private[ui] def widgetsIn(cell: dom.Element): Seq[dom.HTMLElement] = cell
     .querySelectorAll(DataTable.widgetSelector)
     .toSeq
-    .collect { case h: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(h) =>
       h
     }
 
