@@ -397,9 +397,16 @@ class UiAgentTest extends DomTestSupport:
         "modelContext",
         js.Dynamic.literal(value = fake, configurable = true).asInstanceOf[js.PropertyDescriptor]
       )
-    body.tapOn { case _ =>
-      js.special.delete(dom.document, "modelContext")
-    }
+    def restore(): Unit = js.special.delete(dom.document, "modelContext")
+    // Restore also when the body's synchronous assertions fail, so later tests see the real API
+    try
+      body.tapOn { case _ =>
+        restore()
+      }
+    catch
+      case e: Throwable =>
+        restore()
+        throw e
 
   private def awaitJs[A](p: js.Any): Rx[A] =
     Rx.future(p.asInstanceOf[js.Promise[A]].toFuture)(using

@@ -1221,6 +1221,13 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
           l <- constantString(lhs)
           r <- constantString(rhs)
         yield l + r
+      // A reference to a constant, such as a `final val` String
+      case term: Term =>
+        term.tpe.widenTermRefByName match
+          case ConstantType(StringConstant(v)) =>
+            Some(v)
+          case _ =>
+            None
       case _ =>
         None
 
