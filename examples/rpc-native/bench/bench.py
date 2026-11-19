@@ -29,6 +29,9 @@ import time
 SERVICE = "/example.rpc.TodoApi"
 ADD_BODY = b'{"request":{"title":"hello"}}'
 LIST_BODY = b'{"request":{}}'
+# Boehm settings the example README recommends for a multi-threaded server. Set before any server
+# starts, unless the caller's environment already sets them; the JVM ignores them.
+BOEHM_ENV = {"GC_MARKERS": "1", "GC_INITIAL_HEAP_SIZE": "64m"}
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
 
@@ -411,7 +414,8 @@ def environment(args):
             f"{os.cpu_count()} CPUs",
             f"- CPU: {cpu_name()}",
             f"- JDK: {first_line([args.java, '-version'])}",
-            f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}",
+            f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}; "
+            + ", ".join(f"`{k}={os.environ[k]}`" for k in BOEHM_ENV),
             f"- JVM small heap options: `{args.jvm_small_opts}`",
             f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]
 
@@ -478,6 +482,8 @@ def main():
     p.add_argument("--sample", default="15s", help="RSS sampling interval for --soak")
     p.add_argument("--json", help="also write raw results to this file")
     args = p.parse_args()
+    for k, v in BOEHM_ENV.items():
+        os.environ.setdefault(k, v)
 
     cp = read_out("jvm.cp", None)
     if not os.path.exists(args.native) or cp is None:
