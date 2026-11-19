@@ -310,7 +310,10 @@ class TerminalView(
     val changed = terminal.onChange(() => scheduleRender())
     cleanups += (() => changed.cancel)
 
-    val observer = ResizeObserver((_, _) => fit())
+    // From the container's window, such as a detached Dock window
+    val observer = AnyRealm
+      .construct(container, "ResizeObserver", js.Any.fromFunction2((_: js.Any, _: js.Any) => fit()))
+      .asInstanceOf[ResizeObserver]
     observer.observe(container)
     cleanups += (() => observer.disconnect())
     // Measure again once web fonts finish loading

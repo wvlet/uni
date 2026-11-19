@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui.base
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 
 /**
   * Reading direction for horizontal keys. In a right-to-left layout, ArrowLeft moves toward the end

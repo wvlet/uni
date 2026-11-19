@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}

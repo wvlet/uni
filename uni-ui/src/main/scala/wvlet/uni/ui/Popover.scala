@@ -146,7 +146,7 @@ class Popover private (
         Presence(open)(exit => panel(exit))
       )
     else
-      wiredTrigger(Presence(open)(exit => Portal.toBody(panel(exit))))
+      wiredTrigger(Presence(open)(exit => OverlaySurface.portal(triggerRef)(panel(exit))))
 
 end Popover
 

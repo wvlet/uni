@@ -13,9 +13,8 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
-import wvlet.uni.dom.{Focus, OnMount}
+import wvlet.uni.dom.{AnyRealm, Focus, OnMount}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -411,8 +410,9 @@ class DataTable[A, K] private (
         .filterNot(el.contains)
         .foreach { _ =>
           widget = None
-          val focused = Option(dom.document.activeElement)
-          if focused.forall(f => (f eq dom.document.body) || !f.isConnected) then
+          val doc     = AnyRealm.documentOf(el)
+          val focused = Option(doc.activeElement)
+          if focused.forall(f => (f eq doc.body) || !f.isConnected) then
             el.focus()
         }
     }
@@ -527,7 +527,7 @@ class DataTable[A, K] private (
         "click",
         _ =>
           enterHeader(core, i)
-          core.container.filterNot(_ eq dom.document.activeElement).foreach(_.focus())
+          core.container.filterNot(c => c eq AnyRealm.activeElementOf(c)).foreach(_.focus())
       ),
       c.ordering match
         case None =>

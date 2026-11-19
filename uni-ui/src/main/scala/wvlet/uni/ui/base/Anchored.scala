@@ -14,6 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 
 /** The side of the anchor that an overlay sits on. `cssName` is the overlay's `data-side`. */
 enum Side(val cssName: String):
@@ -60,12 +61,12 @@ object Rect:
   def point(x: Double, y: Double): Rect = Rect(x, y, 0, 0)
 
   /** The visible part of the window. */
-  def viewport: Rect = Rect(
-    0,
-    0,
-    dom.document.documentElement.clientWidth.toDouble,
-    dom.document.documentElement.clientHeight.toDouble
-  )
+  def viewport: Rect = viewportOf(dom.document.documentElement)
+
+  /** The visible part of the window `node` is in, such as a detached Dock window. */
+  private[ui] def viewportOf(node: dom.Node): Rect =
+    val root = AnyRealm.documentOf(node).documentElement
+    Rect(0, 0, root.clientWidth.toDouble, root.clientHeight.toDouble)
 
 /** Where an overlay goes: its top-left corner and the side it ended up on. */
 case class Placement(x: Double, y: Double, side: Side)
@@ -188,7 +189,7 @@ object Anchored:
       anchor,
       overlay.offsetWidth.toDouble,
       overlay.offsetHeight.toDouble,
-      Rect.viewport,
+      Rect.viewportOf(overlay),
       side,
       align,
       offset

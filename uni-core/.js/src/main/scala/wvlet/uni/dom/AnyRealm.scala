@@ -88,6 +88,21 @@ private[uni] object AnyRealm:
     dom.window
   )
 
+  /**
+    * A new `name` (such as `ResizeObserver`) from the window `node` is in. A `ResizeObserver` from
+    * another window doesn't follow that window's layout: it reports a loop error each frame.
+    */
+  def construct(node: dom.Node, name: String, args: js.Any*): js.Dynamic = js
+    .Dynamic
+    .newInstance(windowOf(node).asInstanceOf[js.Dynamic].selectDynamic(name))(args*)
+
+  /** A `ResizeObserver` from the window `node` is in; see [[construct]]. */
+  def resizeObserver(
+      node: dom.Node,
+      callback: (js.Array[dom.ResizeObserverEntry], dom.ResizeObserver) => Unit
+  ): dom.ResizeObserver = construct(node, "ResizeObserver", js.Any.fromFunction2(callback))
+    .asInstanceOf[dom.ResizeObserver]
+
   /** The focused element of the document `node` belongs to. */
   def activeElementOf(node: dom.Node): dom.Element = documentOf(node).activeElement
 

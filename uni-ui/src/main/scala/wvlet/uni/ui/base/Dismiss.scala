@@ -13,9 +13,8 @@
  */
 package wvlet.uni.ui.base
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
-import wvlet.uni.dom.Keyboard
+import wvlet.uni.dom.{AnyRealm, Keyboard}
 import wvlet.uni.rx.Cancelable
 import wvlet.uni.ui.{ChangeCause, ChangeReason, ChangeSource}
 
@@ -68,19 +67,46 @@ class DismissLayer(
 object Dismiss:
   private val layers = ArrayBuffer.empty[DismissLayer]
 
-  private var listeners: Option[Cancelable] = None
+  // The documents listened on: the page's, and each one an open layer is in, such as the window a
+  // Dock panel was detached into
+  private val listeners = ArrayBuffer.empty[(dom.Document, Cancelable)]
+
+  private def documentOf(layer: DismissLayer): dom.Document = layer
+    .inside()
+    .headOption
+    .fold(dom.document)(AnyRealm.documentOf)
+
+  private def syncListeners(): Unit =
+    val wanted: Seq[dom.Document] =
+      if layers.isEmpty then
+        Seq.empty
+      else
+        (dom.document +: layers.toSeq.map(documentOf)).foldLeft(Seq.empty[dom.Document]) {
+          (seen, d) =>
+            if seen.exists(_ eq d) then
+              seen
+            else
+              seen :+ d
+        }
+    listeners
+      .filterNot((d, _) => wanted.exists(_ eq d))
+      .toList
+      .foreach { entry =>
+        entry._2.cancel
+        listeners -= entry
+      }
+    wanted
+      .filterNot(d => listeners.exists(_._1 eq d))
+      .foreach(d => listeners += (d -> install(d)))
 
   /** Add an open overlay on top of the stack. Cancel the result when the overlay closes. */
   def push(layer: DismissLayer): Cancelable =
     layers += layer
-    if listeners.isEmpty then
-      listeners = Some(install())
+    syncListeners()
     Cancelable { () =>
       val nested = nestedIn(layer)
       layers -= layer
-      if layers.isEmpty then
-        listeners.foreach(_.cancel)
-        listeners = None
+      syncListeners()
       // Close what was opened from inside this overlay, from the top. Each one goes through its
       // own onChange, and closing it removes it from the stack
       if nested.nonEmpty then
@@ -116,13 +142,16 @@ object Dismiss:
   /** True when `layer` is the topmost open overlay. */
   def isTop(layer: DismissLayer): Boolean = layers.lastOption.contains(layer)
 
-  private def onKeyDown(e: dom.KeyboardEvent): Unit =
+  private def onKeyDown(doc: dom.Document, e: dom.KeyboardEvent): Unit =
     if e.key == "Escape" && !e.defaultPrevented && !Keyboard.isComposing(e) then
-      // The topmost layer that takes it: one taking Escape only from inside passes it on otherwise
-      val active = Option(dom.document.activeElement)
+      // The topmost layer in this window that takes it: one taking Escape only from inside passes it
+      // on otherwise
+      val active = Option(AnyRealm.activeElementOf(doc))
       layers
         .reverseIterator
-        .find(l => !l.escapeFromInside || active.exists(l.contains))
+        .find(l =>
+          (documentOf(l) eq doc) && (!l.escapeFromInside || active.exists(l.contains))
+        )
         .foreach { layer =>
           e.preventDefault()
           ChangeCause.during(ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard))(
@@ -149,15 +178,15 @@ object Dismiss:
               going = false
       case _ =>
 
-  private def install(): Cancelable =
-    val key: js.Function1[dom.KeyboardEvent, Unit] = e => onKeyDown(e)
+  private def install(doc: dom.Document): Cancelable =
+    val key: js.Function1[dom.KeyboardEvent, Unit] = e => onKeyDown(doc, e)
     val press: js.Function1[dom.Event, Unit]       = e => onPointerDown(e)
-    dom.document.addEventListener("keydown", key)
+    doc.addEventListener("keydown", key)
     // Capture, so an app's stopPropagation inside the page doesn't hide the press
-    dom.document.addEventListener("pointerdown", press, useCapture = true)
+    doc.addEventListener("pointerdown", press, useCapture = true)
     Cancelable { () =>
-      dom.document.removeEventListener("keydown", key)
-      dom.document.removeEventListener("pointerdown", press, useCapture = true)
+      doc.removeEventListener("keydown", key)
+      doc.removeEventListener("pointerdown", press, useCapture = true)
     }
 
 end Dismiss

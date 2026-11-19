@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -240,7 +240,7 @@ class Select[A] private (
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
     span(cls -> "uni-select__value", data("slot")   -> "select-value", selected.map(optionLabel)),
     span(cls -> "uni-select__chevron", data("slot") -> "select-chevron", ariaHidden -> "true"),
-    Presence(open)(exit => Portal.toBody(list(exit)))
+    Presence(open)(exit => OverlaySurface.portal(triggerRef)(list(exit)))
   )
 
 end Select

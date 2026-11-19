@@ -13,9 +13,8 @@
  */
 package wvlet.uni.ui.agent
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, DomRef, RefBinding}
+import wvlet.uni.dom.{AnyRealm, DomNode, DomRef, RefBinding}
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.rx.{Cancelable, RxVar}
 import wvlet.uni.ui.{ChangeCause, ChangeDetails, ChangeHandler, ChangeReason, ChangeSource}

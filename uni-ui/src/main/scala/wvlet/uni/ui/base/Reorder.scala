@@ -13,9 +13,8 @@
  */
 package wvlet.uni.ui.base
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
-import wvlet.uni.dom.{DomAttribute, DomNode, EventListenerBinding, OnMount, PointerDrag}
+import wvlet.uni.dom.{AnyRealm, DomAttribute, DomNode, EventListenerBinding, OnMount, PointerDrag}
 import wvlet.uni.dom.all.{ariaHidden, cls, span, stringToDomNode}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason, ChangeSource}
@@ -159,7 +158,7 @@ class Reorder[K] private[ui] (
       false
     else
       val next    = Reorder.movedAll(current, keys, to)
-      val focused = moving.find(m => elements.get(m).exists(_.contains(dom.document.activeElement)))
+      val focused = moving.find(m => elements.get(m).exists(e => e.contains(AnyRealm.activeElementOf(e))))
       val accepted = store.write(next, cause, handler)
       if accepted && next != current then
         val at   = next.indexOf(moving.head) + 1
@@ -168,10 +167,16 @@ class Reorder[K] private[ui] (
             label(moving.head)
           else
             s"${moving.size} items"
-        Announce.polite(s"Moved ${what} to position ${at} of ${next.size}")
+        val message = s"Moved ${what} to position ${at} of ${next.size}"
+        // In the list's own window, such as a detached Dock panel
+        elements.get(moving.head) match
+          case Some(el) =>
+            Announce.politeNear(el, message)
+          case None =>
+            Announce.polite(message)
         // Moving or re-creating the item's node can drop its focus
         focused.foreach { f =>
-          elements.get(f).filterNot(_.contains(dom.document.activeElement)).foreach(_.focus())
+          elements.get(f).filterNot(e => e.contains(AnyRealm.activeElementOf(e))).foreach(_.focus())
         }
       accepted
 
@@ -289,7 +294,7 @@ class Reorder[K] private[ui] (
     if dragMoved then
       updateDrop()
       if scrollFrame.isEmpty && autoscrollSpeed != 0 then
-        scrollFrame = Some(dom.window.requestAnimationFrame(_ => autoscroll()))
+        scrollFrame = Some(frameWindow.requestAnimationFrame(_ => autoscroll()))
 
   private def updateDrop(): Unit =
     val group = draggedGroupVar.get
@@ -324,11 +329,14 @@ class Reorder[K] private[ui] (
           // Keep going only while the container still scrolls that way
           if (s.scrollLeft, s.scrollTop) != before then
             updateDrop()
-            scrollFrame = Some(dom.window.requestAnimationFrame(_ => autoscroll()))
+            scrollFrame = Some(frameWindow.requestAnimationFrame(_ => autoscroll()))
       }
 
+  // The scroller's window: a detached Dock window keeps running frames while the page is hidden
+  private def frameWindow: dom.Window = scroller.fold(dom.window)(AnyRealm.windowOf)
+
   private def stopScroll(): Unit =
-    scrollFrame.foreach(dom.window.cancelAnimationFrame)
+    scrollFrame.foreach(frameWindow.cancelAnimationFrame)
     scrollFrame = None
 
   private def dropAt(group: Set[K], x: Double, y: Double): Option[Int] =
@@ -574,8 +582,9 @@ object Reorder:
     * scroll only this container, not the page.
     */
   private def scrollContainer(el: dom.Element, orientation: Orientation): Option[dom.HTMLElement] =
+    val doc = AnyRealm.documentOf(el)
     def scrolls(e: dom.HTMLElement): Boolean =
-      val style = dom.window.getComputedStyle(e)
+      val style = AnyRealm.windowOf(e).getComputedStyle(e)
       orientation match
         case Orientation.Vertical =>
           Set("auto", "scroll").contains(style.overflowY) && e.scrollHeight > e.clientHeight
@@ -584,7 +593,7 @@ object Reorder:
     Iterator
       .iterate(el.parentNode)(_.parentNode)
       .takeWhile(n =>
-        n != null && !(n eq dom.document.body) && !(n eq dom.document.documentElement)
+        n != null && !(n eq doc.body) && !(n eq doc.documentElement)
       )
       .collectFirst {
         case AnyRealm.HTMLElement(e) if scrolls(e) =>

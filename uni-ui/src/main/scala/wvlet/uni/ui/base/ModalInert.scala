@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui.base
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.rx.Cancelable
 
 import scala.collection.mutable.ArrayBuffer

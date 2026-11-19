@@ -13,11 +13,10 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.dom.{DomRenderer, PointerDrag}
+import wvlet.uni.dom.{AnyRealm, DomRenderer, PointerDrag}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 import wvlet.uni.ui.base.{
@@ -30,7 +29,8 @@ import wvlet.uni.ui.base.{
   Orientation,
   Reorder,
   RovingFocus,
-  TextDirection
+  TextDirection,
+  Windows
 }
 
 import scala.collection.mutable
@@ -510,6 +510,8 @@ class Dock private (
     host.setAttribute("data-slot", "dock-window")
     host.setAttribute("data-panel", panel)
     doc.body.appendChild(host)
+    // Before rendering, so overlays and focus helpers find the window
+    val registered                            = Windows.add(doc)
     val rendered                              = DomRenderer.renderTo(host, contentOf(panel))
     val onHide: js.Function1[dom.Event, Unit] = _ => reattach(panel)
     win.addEventListener("pagehide", onHide)
@@ -520,6 +522,7 @@ class Dock private (
         observer.disconnect()
         win.removeEventListener("pagehide", onHide)
         rendered.cancel
+        registered.cancel
     )
 
   end mountWindow

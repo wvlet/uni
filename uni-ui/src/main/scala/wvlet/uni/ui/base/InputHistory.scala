@@ -13,9 +13,8 @@
  */
 package wvlet.uni.ui.base
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, EventListenerBinding, Keyboard}
+import wvlet.uni.dom.{AnyRealm, DomNode, EventListenerBinding, Keyboard}
 import wvlet.uni.rx.RxVar
 import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason}
 

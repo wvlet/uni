@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
@@ -130,7 +130,7 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
     EventListenerBinding("focus", onFocus),
     EventListenerBinding("blur", _ => hide()),
     EventListenerBinding("keydown", onKeyDown),
-    Presence(shown)(exit => Portal.toBody(tip(exit)))
+    Presence(shown)(exit => OverlaySurface.portal(triggerRef)(tip(exit)))
   )
 
   override def beforeUnmount: Unit = cancelTimer()

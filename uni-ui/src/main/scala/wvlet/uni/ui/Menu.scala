@@ -13,8 +13,8 @@
  */
 package wvlet.uni.ui
 
-import wvlet.uni.dom.AnyRealm
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -119,7 +119,7 @@ private[ui] object MenuList:
 
   private def onKey(menu: dom.Element, e: dom.KeyboardEvent, close: () => Boolean): Unit =
     val all     = items(menu)
-    val current = all.indexWhere(_ eq dom.document.activeElement)
+    val current = all.indexWhere(_ eq AnyRealm.activeElementOf(menu))
     e.key match
       case " " if typeahead.joinsSearch(e) =>
         // Space inside a search is part of it ("new york"), not a click
@@ -191,7 +191,7 @@ private[ui] object MenuList:
             "pointermove",
             e =>
               e.currentTarget match
-                case AnyRealm.HTMLElement(el) if !disabledNow && !(el eq dom.document.activeElement) =>
+                case AnyRealm.HTMLElement(el) if !disabledNow && !(el eq AnyRealm.activeElementOf(el)) =>
                   el.focus()
                 case _ =>
           ),
@@ -334,7 +334,7 @@ class Menu private (
       e => setOpen(!open.get, ChangeCause.of(ChangeReason.Press, e)): Unit
     ),
     EventListenerBinding("keydown", e => onTriggerKey(e.asInstanceOf[dom.KeyboardEvent])),
-    Presence(open)(exit => Portal.toBody(list(exit)))
+    Presence(open)(exit => OverlaySurface.portal(triggerRef)(list(exit)))
   )
 
 end Menu
@@ -399,7 +399,7 @@ class ContextMenu(target: RxElement, entries: Seq[MenuEntry]) extends RxElement:
   override def render: RxElement = target(
     targetRef.binding,
     EventListenerBinding("contextmenu", onContextMenu),
-    Presence(open)(exit => Portal.toBody(list(exit)))
+    Presence(open)(exit => OverlaySurface.portal(targetRef)(list(exit)))
   )
 
 end ContextMenu
