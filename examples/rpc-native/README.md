@@ -127,8 +127,8 @@ server with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m`. A profile at 16 connections
 waiting on Boehm's global allocation lock about 50 times longer than they spent on requests. The
 heap stayed ~2.5 MB, so Boehm ran a stop-the-world collection about every 27 requests, and its 15
 parallel marker threads made each one slower. With both settings, collections ran ~35 times less
-often, and throughput rose about 3x at 16 to 256 connections (10k–12k → 24k–52k req/s in one
-session on a loaded M5 Pro), with ~80 MB RSS instead of ~13 MB. Either setting alone helped little.
+often, and throughput rose 2x to 5x at 16 to 256 connections (at 16, 10k–12k → 24k–52k req/s;
+at 64 and 256, ~9k → 32k–39k; one session on a loaded M5 Pro), with ~80 MB RSS instead of ~13 MB. Either setting alone helped little.
 See [`plans/2026-11-19-native-server-throughput.md`](../../plans/2026-11-19-native-server-throughput.md)
 for the profile. Boehm needs `libgc` to
 build and run: `apt-get install libgc-dev` (Debian/Ubuntu) or `brew install bdw-gc` (macOS). The

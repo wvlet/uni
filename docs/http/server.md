@@ -205,7 +205,7 @@ Start the server with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m` in its environment
 defaults, the heap stays a few megabytes, so it collects every few dozen requests, and 15 marker
 threads (on 18 cores) stop every worker each time. In the
 [rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) these
-two settings served about 3x the requests per second at 16 to 256 connections, for about 65 MB more
+two settings served 2x to 5x the requests per second at 16 to 256 connections, for about 65 MB more
 RSS. Neither helps alone.
 :::
 

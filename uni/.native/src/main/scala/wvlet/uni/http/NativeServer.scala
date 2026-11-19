@@ -29,7 +29,7 @@ import wvlet.uni.rx.Rx
   * makes the server fail requests or abort under concurrent load. Run it with
   * `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m` in the environment: with Boehm's defaults, frequent
   * collections and parallel markers stall every worker on Boehm's allocation lock, and these two
-  * settings tripled throughput in the rpc-native benchmark.
+  * settings raised throughput 2x to 5x in the rpc-native benchmark.
   */
 @deprecated(
   "Use Http.server; set Native-only options with withBackend(Native.options...)",
