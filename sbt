@@ -311,9 +311,10 @@ download_url() {
 
   mkdir -p "${jar%/*}" && {
     if command -v curl >/dev/null 2>&1; then
-      curl --fail --silent --location "$url" --output "$jar"
+      # Retry, since Maven Central intermittently fails a request (often the .md5) in CI
+      curl --fail --silent --location --retry 5 --retry-all-errors --retry-delay 2 "$url" --output "$jar"
     elif command -v wget >/dev/null 2>&1; then
-      wget -q -O "$jar" "$url"
+      wget -q --tries=6 --waitretry=2 -O "$jar" "$url"
     fi
   } && [[ -r "$jar" ]]
 }
