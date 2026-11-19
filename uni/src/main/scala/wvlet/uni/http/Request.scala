@@ -228,8 +228,10 @@ object Request:
     * order. A parameter without `=` has an empty value.
     */
   def parseQueryString(query: String): Map[String, Seq[String]] =
+    // split("&"), not split('&'): Scala Native compiles a regex for the escaped form Scala's
+    // split(Char) passes on
     query
-      .split('&')
+      .split("&")
       .iterator
       .filter(_.nonEmpty)
       .map { pair =>

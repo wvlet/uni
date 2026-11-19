@@ -102,6 +102,14 @@ void uni_socket_no_sigpipe(int fd) { (void)fd; }
 
 int uni_socket_send_flags(void) { return 0; }
 
+/* No MSG_DONTWAIT on winsock: report "nothing waiting", so the caller polls as before. */
+int uni_socket_recv_ready(int fd, void *buf, int len) {
+  (void)fd;
+  (void)buf;
+  (void)len;
+  return -2;
+}
+
 #else
 
 #include <errno.h>
@@ -139,6 +147,26 @@ int uni_socket_send_flags(void) {
 #else
   return 0;
 #endif
+}
+
+/*
+ * Read the bytes already waiting on `fd`, without blocking. Returns the count (> 0), 0 when the
+ * peer has closed, -1 on an error, or -2 when nothing is waiting yet (the caller then waits with
+ * uni_socket_wait_readable). A connection resumed from the poller, or one whose next request is
+ * already in flight, has bytes waiting, so this saves the poll() before each recv().
+ */
+int uni_socket_recv_ready(int fd, void *buf, int len) {
+  ssize_t n;
+  do {
+    n = recv(fd, buf, (size_t)len, MSG_DONTWAIT);
+  } while (n < 0 && errno == EINTR);
+  if (n >= 0) {
+    return (int)n;
+  }
+  if (errno == EAGAIN || errno == EWOULDBLOCK) {
+    return -2;
+  }
+  return -1;
 }
 
 #endif

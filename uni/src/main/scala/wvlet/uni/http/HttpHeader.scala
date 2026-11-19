@@ -113,4 +113,87 @@ object HttpHeader:
   // RPC headers
   val XRPCStatus: String = "X-RPC-Status"
 
+  /**
+    * The lower-case form of each header name above, so [[HttpMultiMap]] lookups by these constants
+    * need no copy. A `java.util.HashMap` returns null for a miss, where a Scala `Map` would
+    * allocate an `Option`. Filled once here and only read afterwards.
+    */
+  private[http] val lowerCaseNames: java.util.HashMap[String, String] =
+    val m = java.util.HashMap[String, String]()
+    Seq(
+      CacheControl,
+      Connection,
+      Date,
+      Pragma,
+      Trailer,
+      TransferEncoding,
+      Upgrade,
+      Via,
+      Warning,
+      SecWebSocketKey,
+      SecWebSocketAccept,
+      SecWebSocketVersion,
+      SecWebSocketProtocol,
+      Accept,
+      AcceptCharset,
+      AcceptEncoding,
+      AcceptLanguage,
+      Authorization,
+      Cookie,
+      Expect,
+      From,
+      Host,
+      IfMatch,
+      IfModifiedSince,
+      IfNoneMatch,
+      IfRange,
+      IfUnmodifiedSince,
+      MaxForwards,
+      Origin,
+      ProxyAuthorization,
+      Range,
+      Referer,
+      TE,
+      UserAgent,
+      AcceptRanges,
+      Age,
+      ETag,
+      Location,
+      ProxyAuthenticate,
+      RetryAfter,
+      Server,
+      SetCookie,
+      Vary,
+      WWWAuthenticate,
+      Allow,
+      ContentDisposition,
+      ContentEncoding,
+      ContentLanguage,
+      ContentLength,
+      ContentLocation,
+      ContentMD5,
+      ContentRange,
+      ContentType,
+      Expires,
+      LastModified,
+      AccessControlAllowCredentials,
+      AccessControlAllowHeaders,
+      AccessControlAllowMethods,
+      AccessControlAllowOrigin,
+      AccessControlExposeHeaders,
+      AccessControlMaxAge,
+      AccessControlRequestHeaders,
+      AccessControlRequestMethod,
+      XForwardedFor,
+      XForwardedHost,
+      XForwardedProto,
+      XRealIP,
+      XRequestId,
+      XCorrelationId,
+      XRPCStatus
+    ).foreach(n => m.put(n, HttpMultiMap.lowerAscii(n)))
+    m
+
+  end lowerCaseNames
+
 end HttpHeader
