@@ -82,9 +82,9 @@ private[http] trait IdleConnection:
   */
 private[http] trait IdlePoller:
   /**
-    * Hand `conn` (over `socket`) to the poller until it is readable or times out. Returns false
-    * when the poller can't take it (it is closed, or bytes are already waiting); the caller still
-    * owns the connection then.
+    * Hand `conn` (over `socket`) to the poller until it is readable or times out. Call it only
+    * after a read found no bytes waiting. Returns false when the poller can't take it (it is
+    * closed); the caller still owns the connection then.
     */
   def park(socket: SocketConnection, conn: IdleConnection): Boolean
 

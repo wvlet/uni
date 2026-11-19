@@ -64,19 +64,17 @@ private[http] class NativeIdlePoller private (
   override def park(socket: SocketConnection, conn: IdleConnection): Boolean =
     socket match
       case s: NativeSocketConnection if !closed =>
-        // A request (or EOF) that already arrived is served at once, without a round trip here
-        if NativeSocket.waitReadable(s.fd, 0) != 0 then
-          false
+        // The caller has just found nothing to read. Bytes arriving since then still wake the
+        // poller: epoll and kqueue report a socket that is readable when it is registered.
+        val token = nextToken.getAndIncrement()
+        parked.put(token, Parked(conn, System.nanoTime() + idleNanos))
+        // Check closed after the put: close() sets it before taking every entry, so either it
+        // takes this one or we see it
+        if closed || SocketShim.uni_poller_add(pollerFd, s.fd, token) != 0 then
+          // Take the connection back, unless the poller already owns it
+          parked.remove(token) == null
         else
-          val token = nextToken.getAndIncrement()
-          parked.put(token, Parked(conn, System.nanoTime() + idleNanos))
-          // Check closed after the put: close() sets it before taking every entry, so either it
-          // takes this one or we see it
-          if closed || SocketShim.uni_poller_add(pollerFd, s.fd, token) != 0 then
-            // Take the connection back, unless the poller already owns it
-            parked.remove(token) == null
-          else
-            true
+          true
       case _ =>
         false
 
