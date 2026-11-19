@@ -14,11 +14,13 @@
 package wvlet.uni.http.netty
 
 import wvlet.uni.http.Response
+import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
 import java.io.ByteArrayOutputStream
 import java.net.Socket
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.zip.GZIPOutputStream
 
@@ -137,6 +139,24 @@ class NettyMalformedRequestTest extends UniTest:
       statuses(response) shouldBe Seq("200", "400")
       calls.get() shouldBe 1
     }
+  }
+
+  test("answer an earlier async response before rejecting a malformed one") {
+    NettyServerConfig()
+      .withPort(0)
+      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+      // The response is ready only after the malformed request has been read
+      .withRxHandler(_ => Rx.delay(300, TimeUnit.MILLISECONDS).map(_ => Response.ok("late")))
+      .start { s =>
+        val response = exchange(
+          s.localPort,
+          ascii(
+            "GET /a HTTP/1.1\r\nHost: localhost\r\n\r\nG(T / HTTP/1.1\r\nHost: localhost\r\n\r\n"
+          )
+        )
+        statuses(response) shouldBe Seq("200", "400")
+        response shouldContain "late"
+      }
   }
 
   test("keep serving well-formed requests") {

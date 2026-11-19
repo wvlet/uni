@@ -26,7 +26,7 @@
 Lane: Standard — a security-boundary fix (request smuggling) in the HTTP server.
 
 - A small handler right after the codec checks `decoderResult()` on every message, before decompression, aggregation, `Expect` handling, the Host check, routing, or any filter.
-- On failure it drops the message and passes a decode-failure signal down the pipeline. The request handler answers it in order after any earlier pipelined responses, with `Connection: close`, and closes the connection after the write. Netty has already discarded the remaining bytes, so nothing after the bad request is read as a new one.
+- On failure it drops the message and answers it itself with `Connection: close`, then closes the connection. It counts requests read minus responses written and holds the error until earlier pipelined responses are written, so they keep their order. Netty has already discarded the remaining bytes, so nothing after the bad request is read as a new one.
 - Status, matching the built-in socket server where it has one:
   - request line too long → 414;
   - headers too large → 431;
@@ -40,5 +40,5 @@ Lane: Standard — a security-boundary fix (request smuggling) in the HTTP serve
 ## Alternatives and Why Not?
 
 - **Check only in the request handler.** Smaller, but misses truncated chunks whenever request decompression is on (the default), and lets the aggregator send `100 Continue` or 413 for a bad request first.
-- **Write the error response from the early handler.** Could reach the wire before responses to earlier pipelined requests that are still running, so the client would pair responses with the wrong requests.
+- **Write the error from the request handler.** It sits after the response compressor, which never saw the dropped request and throws; removing the compressor would corrupt an earlier response still streaming, and the request handler can't tell when async responses are done.
 - **Keep uni-netty report-only in Garden.** The fix would have no regression guard; the weekly run is the only check that exercises these byte patterns.
