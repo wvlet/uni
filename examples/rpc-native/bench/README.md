@@ -12,7 +12,13 @@ heap with SerialGC and C1 only), so anyone can reproduce the numbers.
 | container image size, cold start | Optional: `docker run` → first successful response, with `--native-image` / `--jvm-image` |
 
 The output is a Markdown table followed by the OS, CPU, JDK, Scala Native mode, linked libraries,
-and load-tool settings.
+Boehm settings, and load-tool settings.
+
+The servers start with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m` (see the example README, "Garbage
+collector"), as does the container image (`ENV` in `Dockerfile.native`; `--native-image` runs
+keep it). For the local binary, set either variable yourself to override it, e.g.
+`GC_MARKERS=15 python3 bench.py` to compare against Boehm's default on 18 cores, which runs 15
+marker threads.
 
 ## Run locally
 

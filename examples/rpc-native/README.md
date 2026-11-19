@@ -120,7 +120,17 @@ with `SCALANATIVE_GC_TRAP_BASED_YIELDPOINTS=0` helped on arm64 but not on x86_64
 Boehm served every request.
 
 Boehm costs throughput: on the M5 Pro it served ~14k req/s against ~90k with Immix, at a p99 of
-~3 ms and ~11 MB RSS after load. The table above was measured with Immix. Boehm needs `libgc` to
+~3 ms and ~11 MB RSS after load. The table above was measured with Immix.
+
+Most of that cost comes from Boehm's defaults, so the container image and `bench.py` start the
+server with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m`. A profile at 16 connections found workers
+waiting on Boehm's global allocation lock about 50 times longer than they spent on requests. The
+heap stayed ~2.5 MB, so Boehm ran a stop-the-world collection about every 27 requests, and its 15
+parallel marker threads made each one slower. With both settings, collections ran ~35 times less
+often, and throughput rose 2x to 5x at 16 to 256 connections (at 16, 10k–12k → 24k–52k req/s;
+at 64 and 256, ~9k → 32k–39k; one session on a loaded M5 Pro), with ~80 MB RSS instead of ~13 MB. Either setting alone helped little.
+See [`plans/2026-11-19-native-server-throughput.md`](../../plans/2026-11-19-native-server-throughput.md)
+for the profile. Boehm needs `libgc` to
 build and run: `apt-get install libgc-dev` (Debian/Ubuntu) or `brew install bdw-gc` (macOS). The
 container image copies `libgc.so.1` next to the binary. Revisit Immix once a Scala Native release
 fixes the bug.
