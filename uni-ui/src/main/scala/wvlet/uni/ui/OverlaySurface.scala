@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.{DomRef, RxElement}
+import wvlet.uni.dom.{AnyRealm, DomNode, DomRef, Portal, RxElement}
 import wvlet.uni.rx.Cancelable
 import wvlet.uni.ui.base.*
 
@@ -26,7 +26,7 @@ import scala.scalajs.js
   * page behind a modal [[ModalInert]], and moves focus into it. When `exit.open` turns false it
   * closes at once (leaves the stack and returns focus), then plays its [[ExitAnimation]] and calls
   * `exit.done` so [[Presence]] unmounts it. Each overlay component renders one inside
-  * `Portal.toBody` through `Presence`.
+  * `OverlaySurface.portal` through `Presence`.
   *
   * @param anchor
   *   the rectangle to place the overlay next to; None leaves placement to CSS (dialogs, toasts)
@@ -90,7 +90,7 @@ private[ui] class OverlaySurface(
       focusReturn.foreach(_.restore(root))
       focusReturn = None
       // Before onMount (closed in the frame it opened), the rendered element plays the exit
-      root.orElse(rendered.current.filter(dom.document.contains)) match
+      root.orElse(rendered.current.filter(_.isConnected)) match
         case Some(el) =>
           exiting = ExitAnimation.run(el)(exit.done)
         case None =>
@@ -108,28 +108,30 @@ private[ui] class OverlaySurface(
 
   // Places the overlay again whenever the anchor or the viewport moves: on scroll, on resize, or
   // during a CSS transition or layout shift that fires no event. Checked once per frame while open
-  private def follow(): Cancelable =
-    var last                                  = (anchor(), Rect.viewport)
+  private def follow(el: dom.HTMLElement): Cancelable =
+    // The overlay's own window: a detached Dock window has its own viewport and frames
+    val win                                   = AnyRealm.windowOf(el)
+    var last                                  = (anchor(), Rect.viewportOf(el))
     var frame                                 = 0
     var stopped                               = false
     lazy val tick: js.Function1[Double, Unit] =
       _ =>
         if !stopped then
-          val now = (anchor(), Rect.viewport)
+          val now = (anchor(), Rect.viewportOf(el))
           if now != last then
             last = now
             reposition()
-          frame = dom.window.requestAnimationFrame(tick)
-    frame = dom.window.requestAnimationFrame(tick)
+          frame = win.requestAnimationFrame(tick)
+    frame = win.requestAnimationFrame(tick)
     Cancelable { () =>
       stopped = true
-      dom.window.cancelAnimationFrame(frame)
+      win.cancelAnimationFrame(frame)
     }
 
   override def onMount(node: Any): Unit =
     node match
       // onMount fires a step after rendering: skip it when the overlay already closed
-      case el: dom.HTMLElement if !unmounted && !closing && dom.document.contains(el) =>
+      case AnyRealm.HTMLElement(el) if !unmounted && !closing && el.isConnected =>
         root = Some(el)
         reposition()
         val layer =
@@ -149,12 +151,13 @@ private[ui] class OverlaySurface(
           if modal && inPlace then
             // The positioned ancestor the backdrop covers; without one, only the dialog's parent,
             // so the page is never blocked
+            val body   = AnyRealm.documentOf(el).body
             val region =
               el.offsetParent match
-                case p: dom.Element if !(p eq dom.document.body) =>
+                case AnyRealm.Element(p) if !(p eq body) =>
                   Some(p)
                 case _ =>
-                  Option(el.parentElement).filterNot(_ eq dom.document.body)
+                  Option(el.parentElement).filterNot(_ eq body)
             region.fold(Cancelable.empty)(ModalInert.pushWithin(el, _))
           else if modal then
             ModalInert.push(el)
@@ -163,9 +166,9 @@ private[ui] class OverlaySurface(
         val placement =
           if anchor().isDefined then
             // Content that grows or shrinks (a filtered list) is placed again
-            val resize = dom.ResizeObserver((_, _) => reposition())
+            val resize = AnyRealm.resizeObserver(el, (_, _) => reposition())
             resize.observe(el)
-            Cancelable.merge(follow(), Cancelable(() => resize.disconnect()))
+            Cancelable.merge(follow(el), Cancelable(() => resize.disconnect()))
           else
             Cancelable.empty
         cleanup = Cancelable.merge(Seq(layer, background, placement))
@@ -182,3 +185,15 @@ private[ui] class OverlaySurface(
     root = None
 
 end OverlaySurface
+
+private[ui] object OverlaySurface:
+  /**
+    * Renders an overlay at the end of the `<body>` its trigger is in: the page's, or that of the
+    * window a Dock panel was detached into.
+    */
+  def portal(trigger: DomRef[dom.Element])(content: DomNode): DomNode =
+    trigger.current match
+      case Some(t) =>
+        Portal.toElement(AnyRealm.documentOf(t).body)(content)
+      case None =>
+        Portal.toBody(content)

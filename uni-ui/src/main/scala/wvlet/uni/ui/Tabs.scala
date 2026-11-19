@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
@@ -89,9 +90,9 @@ class TabList[A](val selected: RxVar[A], label: String, tabs: Seq[Tab[A]]) exten
         // Move focus along with the selection, unless onChange refused it
         if select(tabs(i).value, ChangeCause.of(ChangeReason.NavigationKey, e)) then
           e.currentTarget match
-            case list: dom.Element =>
+            case AnyRealm.Element(list) =>
               list.querySelectorAll("[role=tab]")(i) match
-                case el: dom.HTMLElement =>
+                case AnyRealm.HTMLElement(el) =>
                   el.focus()
                 case _ =>
             case _ =>

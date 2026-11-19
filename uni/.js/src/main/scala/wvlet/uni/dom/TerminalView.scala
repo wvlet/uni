@@ -237,7 +237,7 @@ class TerminalView(
 
   override def onMount(node: Any): Unit =
     node match
-      case el: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(el) =>
         container = el
         setup()
       case _ =>
@@ -310,7 +310,10 @@ class TerminalView(
     val changed = terminal.onChange(() => scheduleRender())
     cleanups += (() => changed.cancel)
 
-    val observer = ResizeObserver((_, _) => fit())
+    // From the container's window, such as a detached Dock window
+    val observer = AnyRealm
+      .construct(container, "ResizeObserver", js.Any.fromFunction2((_: js.Any, _: js.Any) => fit()))
+      .asInstanceOf[ResizeObserver]
     observer.observe(container)
     cleanups += (() => observer.disconnect())
     // Measure again once web fonts finish loading
@@ -912,7 +915,7 @@ class TerminalView(
 
   private def linkAt(e: dom.MouseEvent): Option[String] =
     e.target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         Option(el.closest(".uni-term-link")).flatMap { l =>
           if l.hasAttribute("data-detected") then
             // Read the URL from the lines now: its row may have been drawn before the rest of a
@@ -992,13 +995,13 @@ class TerminalView(
   private def selectionEnd(node: dom.Node, offset: Int): Option[SelectionEnd] =
     val el =
       node match
-        case e: dom.Element =>
+        case AnyRealm.Element(e) =>
           e
         case null =>
           null
         case n =>
           n.parentNode match
-            case e: dom.Element =>
+            case AnyRealm.Element(e) =>
               e
             case _ =>
               null

@@ -23,6 +23,7 @@ enum DockTab(val label: String) derives StorageCodec:
   case Details  extends DockTab("Details")
   case Activity extends DockTab("Activity")
   case Terminal extends DockTab("Terminal")
+  case Notes    extends DockTab("Notes")
 
   def id: String = toString.toLowerCase
 

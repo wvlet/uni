@@ -14,7 +14,7 @@
 package wvlet.uni.ui.agent
 
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, DomRef, RefBinding}
+import wvlet.uni.dom.{AnyRealm, DomNode, DomRef, RefBinding}
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.rx.{Cancelable, RxVar}
 import wvlet.uni.ui.{ChangeCause, ChangeDetails, ChangeHandler, ChangeReason, ChangeSource}
@@ -57,7 +57,7 @@ private[ui] object AgentAction:
     AgentAction("press", description) { () =>
       b.element
         .foreach {
-          case h: dom.HTMLElement =>
+          case AnyRealm.HTMLElement(h) =>
             h.click()
           case _ =>
         }
@@ -466,7 +466,7 @@ private[ui] object AgentDom:
       Iterator
         .iterate(el)(e =>
           e.parentNode match
-            case p: dom.Element =>
+            case AnyRealm.Element(p) =>
               p
             case _ =>
               null

@@ -75,8 +75,10 @@ Dock(
   windows that open without a click, so after a reload the panel is back in its tab. The window
   comes from `window.open` on the same origin, so an Electron app must allow `about:blank` in its
   `setWindowOpenHandler`, and should deny window opening and navigation in the new window
-  (`did-create-window`). Menus and popovers opened inside the window still show in the main window,
-  and stylesheets added to the page after the window opens don't reach it.
+  (`did-create-window`). Menus, popovers, selects, and tooltips open inside the window, and focus,
+  Escape, and reordering work there as on the page. Dialogs and toasts still show in the main
+  window, global `Keyboard.bind` shortcuts don't hear keys pressed in it, and stylesheets added to
+  the page after the window opens don't reach it.
 - **Maximize.** The button at the end of a grid group's tab bar, or "Maximize group" in a tab's
   menu, makes that group fill the dock; the same button, or "Restore group", shows the rest again.
   The other groups and the floats are hidden (`hidden`, so screen readers and agents skip them),

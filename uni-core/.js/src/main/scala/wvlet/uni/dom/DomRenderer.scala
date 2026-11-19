@@ -56,7 +56,7 @@ object DomRenderer extends LogSupport:
     */
   def renderToHtml(node: dom.Node): String =
     node match
-      case e: dom.Element =>
+      case AnyRealm.Element(e) =>
         e.outerHTML
       case _ =>
         node.innerText
@@ -280,7 +280,7 @@ object DomRenderer extends LogSupport:
     */
   private def getNodeNamespace(node: dom.Node): DomNamespace =
     node match
-      case elem: dom.Element =>
+      case AnyRealm.Element(elem) =>
         Option(elem.namespaceURI) match
           case Some(DomNamespace.svg.uri) =>
             DomNamespace.svg
@@ -296,7 +296,7 @@ object DomRenderer extends LogSupport:
     */
   private def getNodeName(node: dom.Node): String =
     node match
-      case elem: dom.Element =>
+      case AnyRealm.Element(elem) =>
         elem.tagName.toLowerCase
       case _ =>
         ""
@@ -386,14 +386,14 @@ object DomRenderer extends LogSupport:
           Cancelable(() => node.removeEventListener(lb.eventName, jsListener))
         case om: OnMount =>
           node match
-            case elem: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(elem) =>
               om.attach(elem)
             case _ =>
               Cancelable.empty
         // Ref bindings
         case rb: RefBinding[?] =>
           node match
-            case elem: dom.Element =>
+            case AnyRealm.Element(elem) =>
               rb.ref.asInstanceOf[DomRef[dom.Element]].set(elem)
               Cancelable(() => rb.ref.asInstanceOf[DomRef[dom.Element]].clear())
             case _ =>
@@ -902,7 +902,7 @@ object DomRenderer extends LogSupport:
             .find(_ eq elem)
             .foreach { n =>
               elem match
-                case e: dom.Element if Option(e.id).exists(_.nonEmpty) =>
+                case AnyRealm.Element(e) if Option(e.id).exists(_.nonEmpty) =>
                   val elementId = e.id
                   // The element's own document: it may be mounted in another window, such as a
                   // panel detached from a Dock

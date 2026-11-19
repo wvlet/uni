@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
@@ -193,7 +194,7 @@ private[ui] class ListCore[A, K](
 
   /** The space rows have: the container's height minus the header above them. */
   private def rowsTop(el: dom.HTMLElement): Double = spacer
-    .collect { case s: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(s) =>
       s.offsetTop
     }
     .getOrElse(0.0)
@@ -365,11 +366,11 @@ private[ui] class ListCore[A, K](
 
   override def onMount(node: Any): Unit =
     node match
-      case el: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(el) =>
         root = Some(el)
         spacer = Option(el.querySelector(":scope > .uni-list__spacer"))
         measure()
-        val ro = dom.ResizeObserver((_, _) => measure())
+        val ro = AnyRealm.resizeObserver(el, (_, _) => measure())
         ro.observe(el)
         resize = Some(ro)
       case _ =>
@@ -402,7 +403,7 @@ private[ui] class ListCore[A, K](
           // A drag's pointerdown keeps the browser from focusing the list, as a click would
           EventListenerBinding(
             "pointerdown",
-            _ => root.filterNot(_.contains(dom.document.activeElement)).foreach(_.focus())
+            _ => root.filterNot(r => r.contains(AnyRealm.activeElementOf(r))).foreach(_.focus())
           )
         )
       },

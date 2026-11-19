@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
 
@@ -89,7 +90,7 @@ private[ui] object ExitAnimation:
           .children
           .toSeq
           .collect {
-            case c: dom.HTMLElement if c.hasAttribute("data-state") =>
+            case AnyRealm.HTMLElement(c) if c.hasAttribute("data-state") =>
               c
           }
     targets.foreach(_.setAttribute("data-state", "closed"))
@@ -99,6 +100,8 @@ private[ui] object ExitAnimation:
       done()
       Cancelable.empty
     else
+      // The root's own window, such as a detached Dock window
+      val win                                       = AnyRealm.windowOf(root)
       var pending                                   = durations.map(_._1)
       var finished                                  = false
       var timer                                     = 0
@@ -109,21 +112,21 @@ private[ui] object ExitAnimation:
             finish()
       def stop(): Unit =
         finished = true
-        dom.window.clearTimeout(timer)
+        win.clearTimeout(timer)
         root.removeEventListener("animationend", onEnd)
       def finish(): Unit =
         if !finished then
           stop()
           done()
       root.addEventListener("animationend", onEnd)
-      timer = dom.window.setTimeout(() => finish(), durations.map(_._2).max + marginMs)
+      timer = win.setTimeout(() => finish(), durations.map(_._2).max + marginMs)
       Cancelable(() => stop())
 
   end run
 
   /** The longest animation on `el` (duration plus delay) in milliseconds; 0 when there is none. */
   private[ui] def durationMs(el: dom.Element): Double =
-    val style = dom.window.getComputedStyle(el)
+    val style = AnyRealm.windowOf(el).getComputedStyle(el)
     if style.animationName == null || style.animationName.isEmpty || style.animationName == "none"
     then
       0

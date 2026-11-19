@@ -14,7 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, OnMount}
+import wvlet.uni.dom.{AnyRealm, DomNode, OnMount}
 import wvlet.uni.rx.Cancelable
 
 import scala.scalajs.js
@@ -54,14 +54,14 @@ object FocusRecovery:
     def items: Seq[dom.HTMLElement] = container
       .querySelectorAll(itemSelector)
       .toSeq
-      .collect { case h: dom.HTMLElement =>
+      .collect { case AnyRealm.HTMLElement(h) =>
         h
       }
 
     val onFocusIn: js.Function1[dom.Event, Unit] =
       e =>
         e.target match
-          case t: dom.Element =>
+          case AnyRealm.Element(t) =>
             focused = Option(t.closest(itemSelector))
               .filter(container.contains)
               .map(item => (item, items.indexWhere(_ eq item)))
@@ -75,7 +75,7 @@ object FocusRecovery:
           .setTimeout(
             () =>
               focused.foreach { case (item, _) =>
-                val active = Option(dom.document.activeElement)
+                val active = Option(AnyRealm.activeElementOf(container))
                 if container.contains(item) && !active.exists(container.contains) then
                   focused = None
               },
@@ -84,13 +84,13 @@ object FocusRecovery:
 
     def itemIn(n: dom.Node, last: Boolean): Option[dom.HTMLElement] =
       n match
-        case e: dom.HTMLElement if e.matches(itemSelector) =>
+        case AnyRealm.HTMLElement(e) if e.matches(itemSelector) =>
           Some(e)
-        case e: dom.Element =>
+        case AnyRealm.Element(e) =>
           val inner = e
             .querySelectorAll(itemSelector)
             .toSeq
-            .collect { case h: dom.HTMLElement =>
+            .collect { case AnyRealm.HTMLElement(h) =>
               h
             }
           if last then
@@ -108,8 +108,9 @@ object FocusRecovery:
         else
           focused = None
           // Focus is gone only when it fell back to the page; leave a focus the app moved
-          val lost = Option(dom.document.activeElement).forall { a =>
-            (a eq dom.document.body) || !dom.document.contains(a)
+          val doc  = AnyRealm.documentOf(container)
+          val lost = Option(doc.activeElement).forall { a =>
+            (a eq doc.body) || !a.isConnected
           }
           if lost then
             // The item now next to where the removed one was, else the same position

@@ -14,6 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.rx.Cancelable
 
 import scala.collection.mutable.ArrayBuffer
@@ -85,7 +86,7 @@ private[ui] object ModalInert:
           while cur != null && !(cur eq region) && region.contains(cur) do
             cur =
               cur.parentNode match
-                case parent: dom.Element =>
+                case AnyRealm.Element(parent) =>
                   parent.children.toSeq.filter(_ ne cur).foreach(mark)
                   parent
                 case _ =>
@@ -100,7 +101,7 @@ private[ui] object ModalInert:
     while cur != null && cur.parentNode != null && !(cur.parentNode eq body) do
       cur = cur.parentNode
     cur match
-      case e: dom.Element if e.parentNode eq body =>
+      case AnyRealm.Element(e) if e.parentNode eq body =>
         Some(e)
       case _ =>
         None

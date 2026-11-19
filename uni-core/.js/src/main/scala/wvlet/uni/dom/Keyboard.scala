@@ -246,7 +246,7 @@ object Keyboard:
   def onEnter(handler: () => Unit): DomNode = EventListenerBinding(
     "keydown",
     {
-      case e: dom.KeyboardEvent
+      case AnyRealm.KeyboardEvent(e)
           if e.key == "Enter" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey &&
             !isComposing(e) =>
         e.preventDefault()
@@ -272,7 +272,7 @@ object Keyboard:
     EventListenerBinding(
       "keydown",
       {
-        case e: dom.KeyboardEvent if !isComposing(e) =>
+        case AnyRealm.KeyboardEvent(e) if !isComposing(e) =>
           parsedBindings
             .find(_._1.matches(e))
             .foreach { case (_, handler) =>

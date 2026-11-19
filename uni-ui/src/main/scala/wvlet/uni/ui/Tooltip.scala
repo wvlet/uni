@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
@@ -70,20 +71,20 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
   private def onPointerEnter(e: dom.Event): Unit =
     e match
       // Touch has no hover: a tap is a click, not a request for a label
-      case p: dom.PointerEvent if p.pointerType == "touch" =>
-      case _                                               =>
+      case AnyRealm.PointerEvent(p) if p.pointerType == "touch" =>
+      case _                                                    =>
         showLater()
 
   private def onFocus(e: dom.Event): Unit =
     e.currentTarget match
       // Only keyboard focus: a mouse click also focuses a button, and the label would linger
-      case el: dom.Element if el.matches(":focus-visible") =>
+      case AnyRealm.Element(el) if el.matches(":focus-visible") =>
         show()
       case _ =>
 
   private def onKeyDown(e: dom.Event): Unit =
     e match
-      case k: dom.KeyboardEvent if k.key == "Escape" && shown.get =>
+      case AnyRealm.KeyboardEvent(k) if k.key == "Escape" && shown.get =>
         // Handled: an enclosing overlay stays open
         k.preventDefault()
         hide()
@@ -129,7 +130,7 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
     EventListenerBinding("focus", onFocus),
     EventListenerBinding("blur", _ => hide()),
     EventListenerBinding("keydown", onKeyDown),
-    Presence(shown)(exit => Portal.toBody(tip(exit)))
+    Presence(shown)(exit => OverlaySurface.portal(triggerRef)(tip(exit)))
   )
 
   override def beforeUnmount: Unit = cancelTimer()

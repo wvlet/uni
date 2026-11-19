@@ -147,7 +147,7 @@ private class TransitionElement(
 
   override def onMount(node: Any): Unit =
     node match
-      case elem: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(elem) =>
         containerRef = Some(elem)
 
         // Set initial visibility

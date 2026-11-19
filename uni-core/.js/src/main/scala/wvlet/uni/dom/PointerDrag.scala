@@ -78,12 +78,20 @@ class PointerDrag(
       val startX = e.clientX
       val startY = e.clientY
       // Follow only the pointer that started the drag, so a second finger does not move it
-      val pointerId  = e.pointerId
-      val prevCursor = dom.document.body.style.cursor
-      val handle     = e.currentTarget
+      val pointerId = e.pointerId
+      val handle    = e.currentTarget
+      // The handle's own window, such as one a Dock panel was detached into
+      val win =
+        handle match
+          case AnyRealm.Node(n) =>
+            AnyRealm.windowOf(n)
+          case _ =>
+            dom.window
+      val body       = win.document.body
+      val prevCursor = body.style.cursor
       draggingVar := true
       if cursor.nonEmpty then
-        dom.document.body.style.cursor = cursor
+        body.style.cursor = cursor
       PointerDrag.capture(handle, pointerId)
       onStart(e)
       lazy val move: js.Function1[dom.PointerEvent, Unit] =
@@ -91,16 +99,16 @@ class PointerDrag(
           if ev.pointerId == pointerId then
             onMove(ev.clientX - startX, ev.clientY - startY)
       def finish(callback: () => Unit, releaseCapture: Boolean = true): Unit =
-        dom.window.removeEventListener("pointermove", move)
-        dom.window.removeEventListener("pointerup", end)
-        dom.window.removeEventListener("pointercancel", end)
-        dom.window.removeEventListener("keydown", escape, useCapture = true)
+        win.removeEventListener("pointermove", move)
+        win.removeEventListener("pointerup", end)
+        win.removeEventListener("pointercancel", end)
+        win.removeEventListener("keydown", escape, useCapture = true)
         // Before `dragging` turns false, so a cancel's writes still belong to this drag
         callback()
         if releaseCapture then
           PointerDrag.release(handle, pointerId)
         if cursor.nonEmpty then
-          dom.document.body.style.cursor = prevCursor
+          body.style.cursor = prevCursor
         draggingVar := false
       lazy val end: js.Function1[dom.PointerEvent, Unit] =
         (ev: dom.PointerEvent) =>
@@ -120,14 +128,14 @@ class PointerDrag(
               ev.stopPropagation()
               // Keep the capture, so the release is seen even outside the window; it ends with it
               finish(() => cancel(ev), releaseCapture = false)
-              PointerDrag.swallowClickAfterRelease(pointerId)
+              PointerDrag.swallowClickAfterRelease(win, pointerId)
           }
-      dom.window.addEventListener("pointermove", move)
-      dom.window.addEventListener("pointerup", end)
-      dom.window.addEventListener("pointercancel", end)
+      win.addEventListener("pointermove", move)
+      win.addEventListener("pointerup", end)
+      win.addEventListener("pointercancel", end)
       if onCancel.isDefined then
         // Capture, so the drag sees Escape before any element or overlay does
-        dom.window.addEventListener("keydown", escape, useCapture = true)
+        win.addEventListener("keydown", escape, useCapture = true)
 
   /**
     * The modifier to put on the handle element. Add `touch-action: none` to the handle (e.g.
@@ -136,7 +144,7 @@ class PointerDrag(
   def bind: DomNode = EventListenerBinding(
     "pointerdown",
     {
-      case e: dom.PointerEvent =>
+      case AnyRealm.PointerEvent(e) =>
         start(e)
       case _ =>
     }
@@ -160,7 +168,7 @@ object PointerDrag:
   // Best effort: a synthetic event's pointer is not active, and some environments lack capture
   private def callCapture(target: dom.EventTarget, method: String, pointerId: Double): Unit =
     target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         val d = el.asInstanceOf[js.Dynamic]
         if js.typeOf(d.selectDynamic(method)) == "function" then
           try
@@ -170,27 +178,27 @@ object PointerDrag:
       case _ =>
 
   // After an Escape cancel the button is still down; its release must not click the handle
-  private def swallowClickAfterRelease(pointerId: Double): Unit =
+  private def swallowClickAfterRelease(win: dom.Window, pointerId: Double): Unit =
     lazy val click: js.Function1[dom.Event, Unit] =
       e =>
         e.preventDefault()
         e.stopImmediatePropagation()
     def stop(): Unit =
-      dom.window.removeEventListener("click", click, useCapture = true)
-      dom.window.removeEventListener("pointerup", up, useCapture = true)
-      dom.window.removeEventListener("pointercancel", up, useCapture = true)
-      dom.window.removeEventListener("pointerdown", press, useCapture = true)
+      win.removeEventListener("click", click, useCapture = true)
+      win.removeEventListener("pointerup", up, useCapture = true)
+      win.removeEventListener("pointercancel", up, useCapture = true)
+      win.removeEventListener("pointerdown", press, useCapture = true)
     lazy val up: js.Function1[dom.PointerEvent, Unit] =
       ev =>
         if ev.pointerId == pointerId then
           // The click follows the pointerup in the same task
-          dom.window.setTimeout(() => stop(), 0)
+          win.setTimeout(() => stop(), 0)
     // A missed release (no capture, outside the window) must not swallow the next press's click
     lazy val press: js.Function1[dom.Event, Unit] = _ => stop()
-    dom.window.addEventListener("click", click, useCapture = true)
-    dom.window.addEventListener("pointerup", up, useCapture = true)
-    dom.window.addEventListener("pointercancel", up, useCapture = true)
-    dom.window.addEventListener("pointerdown", press, useCapture = true)
+    win.addEventListener("click", click, useCapture = true)
+    win.addEventListener("pointerup", up, useCapture = true)
+    win.addEventListener("pointercancel", up, useCapture = true)
+    win.addEventListener("pointerdown", press, useCapture = true)
 
 end PointerDrag
 

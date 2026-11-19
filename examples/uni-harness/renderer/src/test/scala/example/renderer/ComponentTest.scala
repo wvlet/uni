@@ -328,7 +328,7 @@ class ComponentTest extends DomTestSupport:
       )
     )
     m.queryAll("[role=tab]").map(_.getAttribute("data-panel")).toSeq shouldBe
-      Seq("details", "activity", "terminal")
+      Seq("details", "activity", "terminal", "notes")
     // The fold button sits in the dock's top-right tab bar
     m.queryAll(".uni-dock__actions [aria-label^='Close dock']").size shouldBe 1
     layout.dockLayout := DockModel.split(layout.dockLayout.get, "terminal", Nil, DockSide.Bottom)

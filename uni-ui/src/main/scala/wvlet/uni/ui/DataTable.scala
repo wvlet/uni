@@ -14,7 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
-import wvlet.uni.dom.{Focus, OnMount}
+import wvlet.uni.dom.{AnyRealm, Focus, OnMount}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
@@ -322,7 +322,7 @@ class DataTable[A, K] private (
   private def widgetKey(core: ListCore[A, K], e: dom.KeyboardEvent): Boolean =
     val cell =
       e.target match
-        case t: dom.Element =>
+        case AnyRealm.Element(t) =>
           Option(t.closest(".uni-table__cell")).filter(c => core.container.exists(_.contains(c)))
         case _ =>
           None
@@ -401,7 +401,7 @@ class DataTable[A, K] private (
         _.addedNodes
           .toSeq
           .foreach {
-            case n: dom.Element =>
+            case AnyRealm.Element(n) =>
               demote(n)
             case _ =>
           }
@@ -410,8 +410,9 @@ class DataTable[A, K] private (
         .filterNot(el.contains)
         .foreach { _ =>
           widget = None
-          val focused = Option(dom.document.activeElement)
-          if focused.forall(f => (f eq dom.document.body) || !f.isConnected) then
+          val doc     = AnyRealm.documentOf(el)
+          val focused = Option(doc.activeElement)
+          if focused.forall(f => (f eq doc.body) || !f.isConnected) then
             el.focus()
         }
     }
@@ -423,7 +424,7 @@ class DataTable[A, K] private (
       e =>
         widget =
           e.target match
-            case t: dom.Element
+            case AnyRealm.Element(t)
                 if (t ne el) && t.closest(".uni-list__spacer .uni-table__cell") != null =>
               keepAligned(el, t)
               Some(t)
@@ -444,7 +445,7 @@ class DataTable[A, K] private (
     var n = widget.parentNode
     while n != null && (n ne el) do
       n match
-        case h: dom.HTMLElement if h.scrollLeft != 0 =>
+        case AnyRealm.HTMLElement(h) if h.scrollLeft != 0 =>
           h.scrollLeft = 0
         case _ =>
       n = n.parentNode
@@ -472,7 +473,7 @@ class DataTable[A, K] private (
           if c != activeColumn.get then
             activeColumn := c
           e.currentTarget match
-            case el: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(el) =>
               revealColumn(el, c)
             case _ =>
           // Ctrl+Home and Ctrl+End also move the row, through the list's own Home and End
@@ -526,7 +527,7 @@ class DataTable[A, K] private (
         "click",
         _ =>
           enterHeader(core, i)
-          core.container.filterNot(_ eq dom.document.activeElement).foreach(_.focus())
+          core.container.filterNot(c => c eq AnyRealm.activeElementOf(c)).foreach(_.focus())
       ),
       c.ordering match
         case None =>
@@ -743,7 +744,7 @@ object DataTable:
   private[ui] def widgetsIn(cell: dom.Element): Seq[dom.HTMLElement] = cell
     .querySelectorAll(DataTable.widgetSelector)
     .toSeq
-    .collect { case h: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(h) =>
       h
     }
 

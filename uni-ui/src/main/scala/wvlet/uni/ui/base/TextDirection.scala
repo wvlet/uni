@@ -14,6 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 
 /**
   * Reading direction for horizontal keys. In a right-to-left layout, ArrowLeft moves toward the end
@@ -27,7 +28,7 @@ object TextDirection:
   /** Whether the target of `e` is laid out right to left; false when it is not an element. */
   def isRtl(e: dom.Event): Boolean =
     e.target match
-      case el: dom.Element =>
+      case AnyRealm.Element(el) =>
         isRtl(el)
       case _ =>
         false

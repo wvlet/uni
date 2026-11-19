@@ -14,6 +14,7 @@
 package wvlet.uni.ui
 
 import org.scalajs.dom
+import wvlet.uni.dom.AnyRealm
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.RxVar
@@ -150,7 +151,7 @@ class Dialog private (
 
   private def panel(el: dom.HTMLElement): Option[dom.HTMLElement] =
     el.querySelector(".uni-dialog") match
-      case p: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(p) =>
         Some(p)
       case _ =>
         None
@@ -194,7 +195,7 @@ class Dialog private (
           "keydown",
           e =>
             e.currentTarget match
-              case p: dom.Element =>
+              case AnyRealm.Element(p) =>
                 FocusTrap.onKeyDown(p, e.asInstanceOf[dom.KeyboardEvent])
               case _ =>
         ),
@@ -233,7 +234,7 @@ class Dialog private (
       el =>
         panel(el).flatMap { p =>
           p.querySelector("[autofocus]") match
-            case a: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(a) =>
               Some(a)
             case _ =>
               FocusTrap.first(p).orElse(Some(p))

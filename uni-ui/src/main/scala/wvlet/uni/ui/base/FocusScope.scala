@@ -14,7 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
-import wvlet.uni.dom.Focus
+import wvlet.uni.dom.{AnyRealm, Focus}
 
 /**
   * Keeps Tab and Shift+Tab inside a container, for modal dialogs. Call [[FocusTrap.onKeyDown]] from
@@ -31,7 +31,7 @@ object FocusTrap:
   def onKeyDown(container: dom.Element, e: dom.KeyboardEvent): Unit =
     if e.key == "Tab" then
       val focusables = Focus.getFocusableElements(container)
-      val active     = dom.document.activeElement
+      val active     = AnyRealm.activeElementOf(container)
       if focusables.isEmpty then
         // Nothing to move to: keep focus where it is
         e.preventDefault()
@@ -45,7 +45,7 @@ object FocusTrap:
           else
             None
         next.foreach {
-          case el: dom.HTMLElement =>
+          case AnyRealm.HTMLElement(el) =>
             e.preventDefault()
             el.focus()
           case _ =>
@@ -57,15 +57,15 @@ object FocusTrap:
     * `<body>`, outside the dialog, so the dialog's own trap never saw the key.
     */
   def continueTab(e: dom.KeyboardEvent): Unit =
-    dom.document.activeElement match
-      case el: dom.Element =>
+    Windows.activeElement match
+      case AnyRealm.Element(el) =>
         Option(el.closest("[aria-modal='true'], .uni-dialog--inline")).foreach(onKeyDown(_, e))
       case _ =>
 
   /** The first focusable element in `container`, if any. */
   def first(container: dom.Element): Option[dom.HTMLElement] = Focus
     .getFocusableElements(container)
-    .collectFirst { case el: dom.HTMLElement =>
+    .collectFirst { case AnyRealm.HTMLElement(el) =>
       el
     }
 
@@ -85,8 +85,8 @@ end FocusTrap
   */
 class FocusReturn:
   private val saved: Option[dom.HTMLElement] =
-    dom.document.activeElement match
-      case el: dom.HTMLElement if !(el eq dom.document.body) =>
+    Windows.activeElement match
+      case AnyRealm.HTMLElement(el) if !(el eq AnyRealm.documentOf(el).body) =>
         Some(el)
       case _ =>
         None
@@ -100,7 +100,7 @@ class FocusReturn:
   def restore(overlay: Option[dom.Element]): Unit =
     if FocusReturn.lost(overlay) then
       val outside = (e: dom.Element) => !overlay.exists(_.contains(e))
-      val next    = saved.filter(dom.document.contains(_)).orElse(place.flatMap(_.resolve(outside)))
+      val next    = saved.filter(_.isConnected).orElse(place.flatMap(_.resolve(outside)))
       next.foreach { el =>
         el.focus()
         FocusReturn.followOnward(el)
@@ -111,10 +111,13 @@ end FocusReturn
 private[ui] object FocusReturn:
   // Focus is inside the closing overlay, or nowhere
   private def lost(overlay: Option[dom.Element]): Boolean =
-    val active = dom.document.activeElement
+    // The overlay's own window, such as a detached Dock window
+    lostIn(overlay.fold(Windows.focusedDocument)(AnyRealm.documentOf), overlay)
+
+  private def lostIn(doc: dom.HTMLDocument, overlay: Option[dom.Element]): Boolean =
+    val active = doc.activeElement
     active == null ||
-    (active eq dom.document.body) || !dom.document.contains(active) ||
-    overlay.exists(_.contains(active))
+    (active eq doc.body) || !active.isConnected || overlay.exists(_.contains(active))
 
   // Keeps going onward when `el` leaves before the next frame and focus falls to the page
   private def followOnward(el: dom.HTMLElement): Unit =
@@ -122,25 +125,27 @@ private[ui] object FocusReturn:
     var observer: dom.MutationObserver = null
     var timer                          = 0
     var frame                          = 0
+    val doc                            = AnyRealm.documentOf(el)
+    val win                            = AnyRealm.windowOf(el)
     def stop(): Unit                   =
       observer.disconnect()
-      dom.window.clearTimeout(timer)
-      dom.window.cancelAnimationFrame(frame)
+      win.clearTimeout(timer)
+      win.cancelAnimationFrame(frame)
     observer = dom.MutationObserver { (_, _) =>
-      if !dom.document.contains(el) then
+      if !el.isConnected then
         stop()
-        if lost(None) then
+        if lostIn(doc, None) then
           place.resolve(_ => true).foreach(_.focus())
     }
     observer.observe(
-      dom.document.body,
+      doc.body,
       new dom.MutationObserverInit:
         childList = true
         subtree = true
     )
-    frame = dom.window.requestAnimationFrame(_ => stop())
+    frame = win.requestAnimationFrame(_ => stop())
     // Frames pause in a hidden tab
-    timer = dom.window.setTimeout(() => stop(), 100)
+    timer = win.setTimeout(() => stop(), 100)
 
 end FocusReturn
 
@@ -159,7 +164,7 @@ private[ui] class FocusPlace(levels: Seq[(dom.Element, Int)]):
     */
   def resolve(allowed: dom.Element => Boolean): Option[dom.HTMLElement] = levels
     .iterator
-    .filter((a, _) => dom.document.contains(a))
+    .filter((a, _) => a.isConnected)
     .map { (a, index) =>
       val candidates = FocusPlace
         .candidates(a)
@@ -171,7 +176,8 @@ private[ui] class FocusPlace(levels: Seq[(dom.Element, Int)]):
         .orElse(candidates.take(index).reverseIterator.find(FocusPlace.visible))
         .orElse(
           a match
-            case h: dom.HTMLElement if h.hasAttribute("tabindex") && !(h eq dom.document.body) =>
+            case AnyRealm.HTMLElement(h)
+                if h.hasAttribute("tabindex") && !(h eq AnyRealm.documentOf(h).body) =>
               Some(h)
             case _ =>
               None
@@ -189,17 +195,17 @@ private[ui] object FocusPlace:
   private def candidates(container: dom.Element): Seq[dom.HTMLElement] = container
     .querySelectorAll(Focus.focusableSelector)
     .toSeq
-    .collect { case h: dom.HTMLElement =>
+    .collect { case AnyRealm.HTMLElement(h) =>
       h
     }
 
   private def visible(el: dom.HTMLElement): Boolean =
-    val style = dom.window.getComputedStyle(el)
+    val style = AnyRealm.windowOf(el).getComputedStyle(el)
     style.display != "none" && style.visibility != "hidden"
 
   private def parentOf(e: dom.Element): Option[dom.Element] =
     e.parentNode match
-      case p: dom.Element =>
+      case AnyRealm.Element(p) =>
         Some(p)
       case _ =>
         None
@@ -210,7 +216,7 @@ private[ui] object FocusPlace:
     // One query for the whole page, then count the candidates before `el` within each ancestor.
     // Those inside an ancestor are a suffix of `before`, so one backward scan counts them all
     val before =
-      candidates(dom.document.body)
+      candidates(AnyRealm.documentOf(el).body)
         .takeWhile(f => (el.compareDocumentPosition(f) & dom.Node.DOCUMENT_POSITION_PRECEDING) != 0)
         .toIndexedSeq
     var i = before.size

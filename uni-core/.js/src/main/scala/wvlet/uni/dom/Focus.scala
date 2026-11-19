@@ -125,7 +125,7 @@ object Focus:
     val restore: () => Unit =
       () =>
         previousElement match
-          case elem: dom.HTMLElement =>
+          case AnyRealm.HTMLElement(elem) =>
             elem.focus()
           case _ =>
             ()
@@ -141,7 +141,7 @@ object Focus:
     val previousElement = dom.document.activeElement
     () =>
       previousElement match
-        case elem: dom.HTMLElement =>
+        case AnyRealm.HTMLElement(elem) =>
           elem.focus()
         case _ =>
           ()
@@ -163,7 +163,7 @@ object Focus:
     *   Element ID
     */
   def focusById(id: String): Unit = Option(dom.document.getElementById(id)).foreach {
-    case elem: dom.HTMLElement =>
+    case AnyRealm.HTMLElement(elem) =>
       elem.focus()
     case _ =>
       ()
@@ -174,7 +174,7 @@ object Focus:
     */
   def blur(): Unit =
     dom.document.activeElement match
-      case elem: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(elem) =>
         elem.blur()
       case _ =>
         ()
@@ -202,7 +202,7 @@ object Focus:
       .filter { elem =>
         // Filter out invisible elements (display: none or visibility: hidden)
         elem match
-          case htmlElem: dom.HTMLElement =>
+          case AnyRealm.HTMLElement(htmlElem) =>
             val style = dom.window.getComputedStyle(htmlElem)
             style.display != "none" && style.visibility != "hidden"
           case _ =>
@@ -227,7 +227,7 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
 
   override def onMount(node: Any): Unit =
     node match
-      case container: dom.Element =>
+      case AnyRealm.Element(container) =>
         containerRef = Some(container)
         updateFocusables()
         // Focus the first focusable element, or the container itself if none
@@ -237,7 +237,7 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
           case _ =>
             // No focusable children, focus the container to activate the trap
             container match
-              case c: dom.HTMLElement =>
+              case AnyRealm.HTMLElement(c) =>
                 c.focus()
               case _ =>
                 ()
@@ -255,13 +255,13 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
       // Refresh focusables in case content changed
       updateFocusables()
 
-      val activeElement = dom.document.activeElement
+      val activeElement = containerRef.fold(dom.document.activeElement)(AnyRealm.activeElementOf)
       if e.shiftKey then
         // Shift+Tab: wrap to last if at first
         if firstFocusable.contains(activeElement) then
           e.preventDefault()
           lastFocusable.foreach {
-            case elem: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(elem) =>
               elem.focus()
             case _ =>
               ()
@@ -271,7 +271,7 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
         if lastFocusable.contains(activeElement) then
           e.preventDefault()
           firstFocusable.foreach {
-            case elem: dom.HTMLElement =>
+            case AnyRealm.HTMLElement(elem) =>
               elem.focus()
             case _ =>
               ()
@@ -293,7 +293,7 @@ end FocusTrap
 private case class FocusOnMount(delay: Int) extends RxElement:
   override def onMount(node: Any): Unit =
     node match
-      case elem: dom.HTMLElement =>
+      case AnyRealm.HTMLElement(elem) =>
         if delay > 0 then
           dom.window.setTimeout(() => elem.focus(), delay)
         else

@@ -24,8 +24,8 @@ import scala.language.implicitConversions
 /**
   * The right dock: context next to the chat, resizable from its left edge. "Details" shows the
   * conversation and how a call travels; "Activity" lists every RPC call with its round-trip time;
-  * "Terminal" runs a shell. The panels sit in a [[wvlet.uni.ui.Dock]], so the user can drag a tab
-  * to an edge to split the dock, such as Terminal under Details.
+  * "Terminal" runs a shell; "Notes" keeps quick notes. The panels sit in a [[wvlet.uni.ui.Dock]],
+  * so the user can drag a tab to an edge to split the dock, such as Terminal under Details.
   */
 class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) extends RxElement:
   // Set by a bell the user could not see; cleared once the Terminal panel is visible
@@ -77,7 +77,7 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
           span()
       }
     )
-    // The dock has only these three; closing one would leave no way back but the palette
+    // The dock has only these four; closing one would leave no way back but the palette
     .withClosable(false)
 
   private lazy val panels = wvlet
@@ -96,7 +96,8 @@ class Dock(layout: Layout, store: ChatStore, log: RpcLog, transport: Transport) 
         ),
         panel(DockTab.Terminal, Icons.terminal, Rx.const(""), terminalAttention)(
           div(cls -> "min-h-0 flex-1 px-3 pb-3", terminal)
-        )
+        ),
+        panel(DockTab.Notes, Icons.file, Rx.const(""))(NotesView())
       )
     )
     .withActions(

@@ -14,7 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, OnMount}
+import wvlet.uni.dom.{AnyRealm, DomNode, OnMount}
 import wvlet.uni.rx.{Cancelable, Rx}
 
 import scala.scalajs.js
@@ -78,7 +78,7 @@ class StickToBottom(threshold: Double = 48):
 
     // New content changes the children; a child can also grow by itself (an image loads, a
     // streamed reply re-renders), and the scroller can shrink (a composer grows under it)
-    val resize = dom.ResizeObserver((_, _) => pin())
+    val resize = AnyRealm.resizeObserver(el, (_, _) => pin())
     resize.observe(el)
     el.children.foreach(resize.observe)
     val mutation = dom.MutationObserver { (records, _) =>
@@ -88,13 +88,13 @@ class StickToBottom(threshold: Double = 48):
         .foreach { r =>
           r.removedNodes
             .foreach {
-              case c: dom.Element =>
+              case AnyRealm.Element(c) =>
                 resize.unobserve(c)
               case _ =>
             }
           r.addedNodes
             .foreach {
-              case c: dom.Element =>
+              case AnyRealm.Element(c) =>
                 resize.observe(c)
               case _ =>
             }

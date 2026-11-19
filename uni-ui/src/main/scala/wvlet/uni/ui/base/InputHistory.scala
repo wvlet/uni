@@ -14,7 +14,7 @@
 package wvlet.uni.ui.base
 
 import org.scalajs.dom
-import wvlet.uni.dom.{DomNode, EventListenerBinding, Keyboard}
+import wvlet.uni.dom.{AnyRealm, DomNode, EventListenerBinding, Keyboard}
 import wvlet.uni.rx.RxVar
 import wvlet.uni.ui.{ChangeCause, ChangeGate, ChangeHandler, ChangeReason}
 
@@ -118,15 +118,17 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
   def keys(value: RxVar[String], onChange: ChangeHandler = _ => ()): DomNode = EventListenerBinding(
     "keydown",
     {
-      case e: dom.KeyboardEvent
+      case AnyRealm.KeyboardEvent(e)
           if !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !Keyboard.isComposing(e) =>
         e.currentTarget match
-          case field: (dom.HTMLInputElement | dom.HTMLTextAreaElement) =>
+          case field
+              if AnyRealm.HTMLInputElement.test(field) ||
+                AnyRealm.HTMLTextAreaElement.test(field) =>
             val (text, caret, caretEnd) =
               field match
-                case i: dom.HTMLInputElement =>
+                case AnyRealm.HTMLInputElement(i) =>
                   (i.value, i.selectionStart, i.selectionEnd)
-                case t: dom.HTMLTextAreaElement =>
+                case AnyRealm.HTMLTextAreaElement(t) =>
                   (t.value, t.selectionStart, t.selectionEnd)
             val collapsed = caret == caretEnd
             val recalled  =
@@ -145,10 +147,10 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
               if ChangeGate.write(value, "value", v, cause, onChange) then
                 // The binding updated the field; put the caret at the end, as a terminal does
                 field match
-                  case i: dom.HTMLInputElement =>
+                  case AnyRealm.HTMLInputElement(i) =>
                     i.value = v
                     i.setSelectionRange(v.length, v.length)
-                  case t: dom.HTMLTextAreaElement =>
+                  case AnyRealm.HTMLTextAreaElement(t) =>
                     t.value = v
                     t.setSelectionRange(v.length, v.length)
               else

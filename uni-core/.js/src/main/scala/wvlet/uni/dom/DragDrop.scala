@@ -220,7 +220,7 @@ object DragDrop:
       ondragenter { (e: dom.DragEvent) =>
         e.preventDefault()
         e.currentTarget match
-          case elem: dom.Element =>
+          case AnyRealm.Element(elem) =>
             instance.setOverElement(Some(elem))
           case _ =>
             ()
@@ -299,7 +299,7 @@ object DragDrop:
         if !instance.currentlyDragging then
           instance.startDrag(DragData("file", "", "copy"))
         e.currentTarget match
-          case elem: dom.Element =>
+          case AnyRealm.Element(elem) =>
             instance.setOverElement(Some(elem))
           case _ =>
             ()
