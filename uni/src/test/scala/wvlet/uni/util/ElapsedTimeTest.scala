@@ -197,4 +197,33 @@ class ElapsedTimeTest extends UniTest:
     // TODO: Implement rounding test
   }
 
+  import UnitGens.*
+
+  test("succinct duration string parses back within display precision") {
+    forAll(logUniform(62)) { nanos =>
+      val e      = ElapsedTime.succinctNanos(nanos)
+      val parsed = ElapsedTime.parse(e.toString)
+      parsed.unit shouldBe e.unit
+      // toString keeps two decimals of the succinct unit
+      val nanosPerUnit = ElapsedTime.millisPerTimeUnit(e.unit) * 1000000
+      withinDisplayPrecision(parsed.valueIn(NANOSECONDS), nanos.toDouble, nanosPerUnit) shouldBe
+        true
+    }
+  }
+
+  test("convertToMostSuccinctTimeUnit keeps the duration") {
+    forAll(logUniform(62)) { nanos =>
+      val e = ElapsedTime.succinctNanos(nanos)
+      val n = e.valueIn(NANOSECONDS)
+      (math.abs(n - nanos.toDouble) <= math.max(1.0, nanos.toDouble * 1e-12)) shouldBe true
+    }
+  }
+
+  test("compareTo agrees with nanosecond counts") {
+    forAll(logUniform(52), logUniform(52)) { (a, b) =>
+      Integer.signum(ElapsedTime.succinctNanos(a).compareTo(ElapsedTime.succinctNanos(b))) shouldBe
+        Integer.signum(a.compareTo(b))
+    }
+  }
+
 end ElapsedTimeTest

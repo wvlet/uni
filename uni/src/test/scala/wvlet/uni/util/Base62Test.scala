@@ -93,4 +93,26 @@ class Base62Test extends UniTest:
     }
   }
 
+  test("decode128bits(encode128bits(hi, low)) restores any 128-bit value") {
+    forAll { (hi: Long, low: Long) =>
+      val encoded = Base62.encode128bits(hi, low)
+      encoded.length shouldBe 22
+      Base62.isValid(encoded) shouldBe true
+      Base62.decode128bits(encoded) shouldBe (hi, low)
+    }
+  }
+
+  test("string order of encoded values matches unsigned 128-bit order") {
+    forAll { (a: (Long, Long), b: (Long, Long)) =>
+      val numeric =
+        val c = java.lang.Long.compareUnsigned(a._1, b._1)
+        if c != 0 then
+          c
+        else
+          java.lang.Long.compareUnsigned(a._2, b._2)
+      val encoded = Base62.encode128bits(a._1, a._2).compareTo(Base62.encode128bits(b._1, b._2))
+      Integer.signum(encoded) shouldBe Integer.signum(numeric)
+    }
+  }
+
 end Base62Test

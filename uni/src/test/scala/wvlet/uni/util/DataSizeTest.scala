@@ -100,4 +100,32 @@ class DataSizeTest extends UniTest:
     "1PB".toDataSize.toBytes shouldBe 1L * 1024 * 1024 * 1024 * 1024 * 1024
   }
 
+  import UnitGens.*
+
+  test("succinct size string parses back within display precision") {
+    forAll(logUniform(62)) { bytes =>
+      val s      = DataSize.succinct(bytes)
+      val parsed = DataSize(s.toString)
+      parsed.unit shouldBe s.unit
+      // toString keeps two decimals of the succinct unit
+      withinDisplayPrecision(parsed.valueOf(BYTE), bytes.toDouble, s.unit.factor) shouldBe true
+    }
+  }
+
+  test("mostSuccinctDataSize keeps the size and picks a value in [1, 1024)") {
+    forAll(logUniform(62)) { bytes =>
+      val s = DataSize(bytes).mostSuccinctDataSize
+      s.valueOf(BYTE) shouldBe bytes.toDouble
+      if bytes >= 1 && s.unit != PETABYTE then
+        (s.value >= 1.0 && s.value < 1024.0) shouldBe true
+    }
+  }
+
+  test("compareTo agrees with byte counts") {
+    forAll(logUniform(52), logUniform(52)) { (a, b) =>
+      Integer.signum(DataSize.succinct(a).compareTo(DataSize.succinct(b))) shouldBe
+        Integer.signum(a.compareTo(b))
+    }
+  }
+
 end DataSizeTest

@@ -248,4 +248,36 @@ class UUIDv7Test extends UniTest:
     }
   }
 
+  // Any pair of Longs becomes a valid UUIDv7 once the version (7) and variant (2) bits are set
+  private def toUUIDv7(msb: Long, lsb: Long): UUIDv7 =
+    val m = (msb & ~0xf000L) | 0x7000L
+    val l = (lsb & 0x3fffffffffffffffL) | 0x8000000000000000L
+    new UUIDv7(m, l)
+
+  test("UUIDv7 string, Base62, bytes, and java.util.UUID conversions roundtrip") {
+    forAll { (msb: Long, lsb: Long) =>
+      val u = toUUIDv7(msb, lsb)
+      u.version shouldBe 7
+      u.variant shouldBe 2
+      UUIDv7.fromString(u.toString) shouldBe u
+      UUIDv7.fromBase62(u.toBase62) shouldBe u
+      UUIDv7.fromBytes(UUIDv7.toBytes(u)) shouldBe u
+      UUIDv7.fromUUID(u.toUUID) shouldBe u
+    }
+  }
+
+  test("UUIDv7.compareTo orders timestamps with the top bit set after smaller ones") {
+    val small = toUUIDv7(0L, 0L)
+    val large = toUUIDv7(-1L, 0L)
+    (small.compareTo(large) < 0) shouldBe true
+  }
+
+  test("UUIDv7 Base62 order matches compareTo") {
+    forAll { (a: (Long, Long), b: (Long, Long)) =>
+      val u1 = toUUIDv7(a._1, a._2)
+      val u2 = toUUIDv7(b._1, b._2)
+      Integer.signum(u1.toBase62.compareTo(u2.toBase62)) shouldBe Integer.signum(u1.compareTo(u2))
+    }
+  }
+
 end UUIDv7Test

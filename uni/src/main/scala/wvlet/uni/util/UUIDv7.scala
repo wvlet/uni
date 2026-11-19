@@ -59,17 +59,13 @@ final class UUIDv7 private[util] (val mostSignificantBits: Long, val leastSignif
     */
   override def toString: String = toUUID.toString
 
+  // Compare as unsigned 128-bit values, so the order matches the byte, string, and Base62 order
   override def compareTo(that: UUIDv7): Int =
-    if this.mostSignificantBits < that.mostSignificantBits then
-      -1
-    else if this.mostSignificantBits > that.mostSignificantBits then
-      1
-    else if this.leastSignificantBits < that.leastSignificantBits then
-      -1
-    else if this.leastSignificantBits > that.leastSignificantBits then
-      1
+    val c = java.lang.Long.compareUnsigned(this.mostSignificantBits, that.mostSignificantBits)
+    if c != 0 then
+      c
     else
-      0
+      java.lang.Long.compareUnsigned(this.leastSignificantBits, that.leastSignificantBits)
 
   override def hashCode(): Int =
     val H = 1234567
