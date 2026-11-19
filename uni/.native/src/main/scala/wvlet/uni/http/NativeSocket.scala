@@ -220,13 +220,30 @@ private[http] object NativeSocket:
       arr
 
   /**
+    * Receive up to `len` bytes (at most ChunkSize) into `buf` at `off`. Returns the number received,
+    * or 0 or less on EOF or error.
+    */
+  def recvInto(fd: Int, buf: Array[Byte], off: Int, len: Int): Int =
+    val max  = math.min(len, ChunkSize)
+    val cbuf = stackalloc[Byte](ChunkSize)
+    val n    = csocket.recv(fd, cbuf.asInstanceOf[Ptr[Byte]], max.toUInt, 0).toInt
+    var i    = 0
+    while i < n do
+      buf(off + i) = cbuf(i)
+      i += 1
+    n
+
+  /**
     * Send all of `data`, looping over partial writes. Returns false if the peer is gone.
     */
-  def sendAll(fd: Int, data: Array[Byte]): Boolean =
+  def sendAll(fd: Int, data: Array[Byte]): Boolean = sendAll(fd, data, 0, data.length)
+
+  /** Send all of `data[off, off + len)`, looping over partial writes. False if the peer is gone. */
+  def sendAll(fd: Int, data: Array[Byte], off: Int, len: Int): Boolean =
     val chunk = stackalloc[Byte](ChunkSize)
-    var pos   = 0
+    var pos   = off
     var ok    = true
-    val total = data.length
+    val total = off + len
     while ok && pos < total do
       val n = math.min(ChunkSize, total - pos)
       var i = 0
@@ -250,3 +267,52 @@ private[http] object NativeSocket:
   def shutdown(fd: Int): Unit = csocket.shutdown(fd, csocket.SHUT_RDWR)
 
 end NativeSocket
+
+/** A [[SocketConnection]] over a POSIX socket file descriptor. */
+private[http] class NativeSocketConnection(val fd: Int) extends SocketConnection:
+
+  override def read(buf: Array[Byte], off: Int, len: Int, timeoutMillis: Int): Int =
+    NativeSocket.waitReadable(fd, timeoutMillis) match
+      case 1 =>
+        val n = NativeSocket.recvInto(fd, buf, off, len)
+        if n > 0 then
+          n
+        else
+          -1 // a readable socket with no bytes is EOF
+      case 0 =>
+        0
+      case _ =>
+        -1
+
+  override def write(data: Array[Byte], off: Int, len: Int): Boolean = NativeSocket.sendAll(
+    fd,
+    data,
+    off,
+    len
+  )
+
+  override def interrupt(): Unit = NativeSocket.shutdown(fd)
+
+  override def close(): Unit = NativeSocket.close(fd)
+
+end NativeSocketConnection
+
+/** A listening POSIX socket. */
+private[http] class NativeSocketListener(host: String, requestedPort: Int, backlog: Int)
+    extends SocketListener:
+
+  private val (serverFd, boundPort) = NativeSocket.bindAndListen(host, requestedPort, backlog)
+
+  override def port: Int = boundPort
+
+  override def accept(): SocketConnection =
+    val clientFd = NativeSocket.accept(serverFd)
+    if clientFd < 0 then
+      null
+    else
+      NativeSocket.enableKeepAlive(clientFd)
+      NativeSocketConnection(clientFd)
+
+  override def close(): Unit = NativeSocket.close(serverFd)
+
+end NativeSocketListener

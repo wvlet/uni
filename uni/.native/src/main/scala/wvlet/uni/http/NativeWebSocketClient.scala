@@ -76,8 +76,8 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
         val reader = Thread(() =>
           try
-            NativeWebSocket.runReadLoop(
-              fd,
+            SocketWebSocket.runReadLoop(
+              NativeSocketConnection(fd),
               NativeWebSocketClient.MaxFrameSize,
               pingIntervalMillis,
               expectMasked = false,
