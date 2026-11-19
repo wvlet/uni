@@ -62,7 +62,7 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
         val conn                = WriteTrackingConnection(NativeSocketConnection(fd))
         val closeState          = WebSocketCloseState()
-        val ctx                 = NativeWebSocketClientContext(fd, conn, request, closeState)
+        val ctx                 = NativeWebSocketClientContext(conn, request, closeState)
         def notifyClose(): Unit =
           if conn.stalled then
             closeState.record(WebSocketClose.TryAgainLater, "write stalled")
@@ -100,7 +100,8 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
           finally
             NativeWebSocketClient.unwatch(conn)
             notifyClose()
-            NativeSocket.close(fd)
+            // Through conn, so a late watchdog abort can't shut down a reused fd number
+            conn.close()
         )
         reader.setDaemon(true)
         reader.setName("native-ws-client-reader")
@@ -255,7 +256,6 @@ end NativeWebSocketClient
   * writes are serialized so `send`/`close` are safe from any thread.
   */
 private class NativeWebSocketClientContext(
-    clientFd: Int,
     conn: SocketConnection,
     override val request: Request,
     closeState: WebSocketCloseState
@@ -282,7 +282,7 @@ private class NativeWebSocketClientContext(
       writeFrame(WebSocketFrame.OpClose, WebSocketFrame.closePayload(statusCode, reason))
       // Unblock the reader thread (parked in recv) so it exits and fires onClose promptly, rather
       // than waiting for an unresponsive server to echo the close or drop the connection.
-      NativeSocket.shutdown(clientFd)
+      conn.interrupt()
 
   private[http] def sendPong(payload: Array[Byte]): Unit =
     if !closed.get() then

@@ -106,8 +106,15 @@ class JSWebSocketClient extends WebSocketClient:
         val code   = event.code
         val reason = event.reason
         if !js.isUndefined(code) then
+          // 1005 is a close frame without a status, which the other backends report as 1000
+          val status =
+            code.asInstanceOf[Int] match
+              case 1005 =>
+                WebSocketClose.NormalClosure
+              case c =>
+                c
           closeState.record(
-            code.asInstanceOf[Int],
+            status,
             if js.isUndefined(reason) then
               ""
             else

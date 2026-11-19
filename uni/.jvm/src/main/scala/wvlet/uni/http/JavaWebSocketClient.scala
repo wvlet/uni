@@ -237,7 +237,8 @@ private class JavaWebSocketContext(
           }
       }
 
-  override def send(text: String): Unit = enqueue(text.length)(_.sendText(text, true))
+  override def send(text: String): Unit =
+    enqueue(JavaWebSocketContext.utf8Length(text))(_.sendText(text, true))
 
   override def send(data: Array[Byte]): Unit =
     enqueue(data.length)(_.sendBinary(ByteBuffer.wrap(data), true))
@@ -259,3 +260,24 @@ private class JavaWebSocketContext(
     enqueue(0)(_.sendClose(code, text))
 
 end JavaWebSocketContext
+
+private object JavaWebSocketContext:
+  /** The UTF-8 encoded length of `s`, without encoding it. */
+  def utf8Length(s: String): Int =
+    var n = 0
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c < 0x80 then
+        n += 1
+      else if c < 0x800 then
+        n += 2
+      else if Character.isHighSurrogate(c) && i + 1 < s.length &&
+        Character.isLowSurrogate(s.charAt(i + 1))
+      then
+        n += 4
+        i += 1
+      else
+        n += 3
+      i += 1
+    n

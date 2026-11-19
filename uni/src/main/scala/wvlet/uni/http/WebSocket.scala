@@ -49,7 +49,9 @@ trait WebSocketContext:
   /**
     * Close the connection with the given status code and reason. A code that may not be sent in a
     * close frame (1004–1006, 1015, or outside 1000–4999) is sent as 1011, and a reason longer than
-    * 123 UTF-8 bytes is cut to fit.
+    * 123 UTF-8 bytes is cut to fit. Runtime limits narrow this on two clients: the JDK client sends
+    * 1012–1014 as 1011, and the JS client, whose `WebSocket` API accepts only 1000 and 3000–4999,
+    * sends other codes as 1000.
     */
   def close(statusCode: Int, reason: String): Unit
 
