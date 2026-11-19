@@ -1,0 +1,67 @@
+# Request-smuggling and parser-confusion patterns, one payload per line, escaped like a JSON string
+# (\r, \n, \t, \", \\, \u00XX). The Lean cases in HttpReaderSpecCases.scala are added to these.
+# Content-Length and Transfer-Encoding together (CL.TE / TE.CL)
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 6\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\nX
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n5c\r\nGPOST / HTTP/1.1\r\n\r\n0\r\n\r\n
+# Duplicate or list-valued Content-Length
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3\r\nContent-Length: 4\r\n\r\nabcd
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 3, 3\r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: +3\r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 0x3\r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length:  3 \r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nContent-Length: 99999999999999999999\r\n\r\nabc
+# Transfer-Encoding variants
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked, identity\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: identity, chunked\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: Chunked\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: gzip\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding : chunked\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding:\tchunked\r\n\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: \u000bchunked\r\n\r\n0\r\n\r\n
+POST / HTTP/1.0\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n
+# Chunk sizes, extensions, and terminators
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0x3\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n 3\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3 \r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n+3\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3;ext=1\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3;ext\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\nabc\n0\n\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabcX\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n10000000000000003\r\nabc\r\n0\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nTrailer: x\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\r\nContent-Length: 5\r\n\r\n
+POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n0\n\r\n
+# Line endings and whitespace
+GET / HTTP/1.1\nHost: a\n\n
+GET / HTTP/1.1\rHost: a\r\r
+GET / HTTP/1.1\r\nHost: a\r\n \r\n\r\n
+GET / HTTP/1.1\r\n Host: a\r\n\r\n
+GET / HTTP/1.1\r\nHost: a\r\nX: y\r\n z\r\n\r\n
+GET / HTTP/1.1\r\nHost : a\r\n\r\n
+GET / HTTP/1.1\r\nHost:\u0000a\r\n\r\n
+GET / HTTP/1.1\r\nHo\u0000st: a\r\n\r\n
+GET / HTTP/1.1\r\n: a\r\nHost: a\r\n\r\n
+GET / HTTP/1.1\r\nHost a\r\n\r\n
+# Request line
+GET\t/ HTTP/1.1\r\nHost: a\r\n\r\n
+GET /\u0000 HTTP/1.1\r\nHost: a\r\n\r\n
+GET / HTTP/1.1 \r\nHost: a\r\n\r\n
+GET / HTTP/1.10\r\nHost: a\r\n\r\n
+GET / HTTP/2.0\r\nHost: a\r\n\r\n
+GET / http/1.1\r\nHost: a\r\n\r\n
+GET /\r\n\r\n
+get / HTTP/1.1\r\nHost: a\r\n\r\n
+G(T / HTTP/1.1\r\nHost: a\r\n\r\n
+GET http://a/ HTTP/1.1\r\nHost: b\r\n\r\n
+# Host
+GET / HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n
+GET / HTTP/1.1\r\nHost: a b\r\n\r\n
+# Expect and Content-Encoding (the built-in JVM server always decodes Content-Encoding)
+POST / HTTP/1.1\r\nHost: a\r\nExpect: 100-continue\r\nContent-Length: 3\r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nExpect: something\r\nContent-Length: 3\r\n\r\nabc
+POST / HTTP/1.1\r\nHost: a\r\nContent-Encoding: gzip\r\nContent-Length: 3\r\n\r\nabc
+# Pipelining
+GET /1 HTTP/1.1\r\nHost: a\r\n\r\nGET /2 HTTP/1.1\r\nHost: a\r\n\r\n
+POST /1 HTTP/1.1\r\nHost: a\r\nContent-Length: 0\r\n\r\nPOST /2 HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n\r\nGET /3 HTTP/1.1\r\nHost: a\r\n\r\n

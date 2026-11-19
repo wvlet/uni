@@ -1,0 +1,64 @@
+name: HTTP Garden
+
+# Differential HTTP/1.1 parser tests: Uni's built-in JVM server, its Scala Native server, and
+# uni-netty against HTTP Garden reference servers (hyper, Netty, Apache httpd). See
+# examples/http-garden/README.md. Runs weekly on main, when dispatched, and on pull requests that
+# change the Garden tooling itself, so it never goes stale. It is not a required check.
+on:
+  workflow_dispatch:
+    inputs:
+      mutations:
+        description: 'Random mutations of the seed payloads'
+        default: '500'
+      seed:
+        description: 'Random seed for the mutations'
+        default: '1'
+  schedule:
+    - cron: '17 4 * * 1'
+  pull_request:
+    paths:
+      - '.github/workflows/http-garden.yml'
+      - 'examples/http-garden/**'
+
+permissions:
+  contents: read
+
+jobs:
+  garden:
+    name: HTTP Garden
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: sbt
+      - uses: actions/setup-python@v6
+        with:
+          # HTTP Garden's tools need Python 3.13+
+          python-version: '3.13'
+      - name: Install dependencies
+        # libgc for the Native echo; Garden's Python dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y libgc-dev
+          python -m pip install --quiet docker pyyaml tqdm
+      - name: Run HTTP Garden
+        # bash with pipefail, so a failure in run.sh fails the step despite `| tee`
+        # run.sh prints only the Markdown summary to stdout; build output goes to stderr
+        shell: bash
+        env:
+          MUTATIONS: ${{ inputs.mutations || '500' }}
+          SEED: ${{ inputs.seed || '1' }}
+        run: |
+          PYTHON=python examples/http-garden/garden/run.sh --mutations "${MUTATIONS}" --seed "${SEED}" \
+            | tee -a "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: http-garden-report
+          path: |
+            examples/http-garden/garden/out/report.json
+            examples/http-garden/garden/out/*.log
+          if-no-files-found: ignore

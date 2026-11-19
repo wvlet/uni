@@ -1,0 +1,22 @@
+# Differences from every reference server that are accepted, so they don't fail the run.
+# Each entry: the server (uni_jvm or uni_native), the payload exactly as report.json prints it,
+# and why the difference is safe. Copy the payload from report.json in the run's artifact: the job
+# summary cuts long payloads. Fix a real bug in a separate PR instead of listing it here.
+- server: uni_jvm
+  payload: 'POST /size-space HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhello\r\n0\r\n\r\n'
+  reason: Uni rejects whitespace after the chunk size, which RFC 9112 allows only before ';'. Stricter than the references, and a rejection cannot desynchronize a proxy in front of it
+- server: uni_native
+  payload: 'POST /size-space HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5 \r\nhello\r\n0\r\n\r\n'
+  reason: Uni rejects whitespace after the chunk size, which RFC 9112 allows only before ';'. Stricter than the references, and a rejection cannot desynchronize a proxy in front of it
+- server: uni_jvm
+  payload: 'POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: identity, chunked\r\n\r\n0\r\n\r\n'
+  reason: Uni answers 501 to more than one transfer coding (RFC 9112 allows 501 for codings it does not support). A rejection cannot desynchronize a proxy in front of it
+- server: uni_native
+  payload: 'POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: identity, chunked\r\n\r\n0\r\n\r\n'
+  reason: Uni answers 501 to more than one transfer coding (RFC 9112 allows 501 for codings it does not support). A rejection cannot desynchronize a proxy in front of it
+- server: uni_jvm
+  payload: 'POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3 \r\nabc\r\n0\r\n\r\n'
+  reason: Uni rejects whitespace after the chunk size, which RFC 9112 allows only before ';'. Stricter than the references, and a rejection cannot desynchronize a proxy in front of it
+- server: uni_native
+  payload: 'POST / HTTP/1.1\r\nHost: a\r\nTransfer-Encoding: chunked\r\n\r\n3 \r\nabc\r\n0\r\n\r\n'
+  reason: Uni rejects whitespace after the chunk size, which RFC 9112 allows only before ';'. Stricter than the references, and a rejection cannot desynchronize a proxy in front of it
