@@ -7,7 +7,7 @@ the ports in UNI_SERVERS.
 
 For each payload, every Uni server is compared with every reference server. A difference counts
 as a finding when a Uni server agrees with none of the references, and it fails the run unless it
-is in known-differences.yml or the server is report-only.
+is in known-differences.yml.
 """
 
 import argparse
@@ -23,12 +23,11 @@ import yaml
 
 GARDEN = Path(sys.path[0]).parent
 
-# name -> (port, report-only)
-UNI_SERVERS: dict[str, tuple[int, bool]] = {
-    "uni_jvm": (18081, False),
-    "uni_native": (18082, False),
-    # uni-netty stays unchanged, so its differences are reported but never fail the run
-    "uni_netty": (18083, True),
+# name -> port
+UNI_SERVERS: dict[str, int] = {
+    "uni_jvm": 18081,
+    "uni_native": 18082,
+    "uni_netty": 18083,
 }
 
 # How Uni's servers differ from a plain echo in ways that never matter for smuggling
@@ -60,7 +59,7 @@ TIMEOUT = 0.5
 
 def register_uni_servers() -> None:
     """Add the Uni echo servers to the clone's config before Garden's modules read it."""
-    external = {name: {"x-props": {"role": "origin", "address": "127.0.0.1", "port": port}} for name, (port, _) in UNI_SERVERS.items()}
+    external = {name: {"x-props": {"role": "origin", "address": "127.0.0.1", "port": port}} for name, port in UNI_SERVERS.items()}
     (GARDEN / "external-services.yml").write_text(yaml.safe_dump(external))
     quirks_path = GARDEN / "quirks.yml"
     quirks = yaml.safe_load(quirks_path.read_text()) or {}
@@ -171,7 +170,7 @@ def main() -> int:
     for payload in payloads:
         results = dict(zip((s.name for s in servers), fanout([payload], servers)))
         only_status = False
-        for name, (_, report_only) in UNI_SERVERS.items():
+        for name in UNI_SERVERS:
             uni = SERVER_DICT[name]
             # Uni accepted a request whose name, value, or method has bytes the RFCs forbid
             invalid = any(isinstance(r, HTTPRequest) and not r.is_valid() for r in results[name])
@@ -187,25 +186,24 @@ def main() -> int:
                     "categories": categories,
                     "invalid": invalid,
                     "known": (name, payload) in known or (name in DECODES_CONTENT_ENCODING and b"content-encoding" in payload.lower()),
-                    "report_only": report_only,
                     "results": {n: describe(results[n]) for n in [name, *REFERENCES]},
                 }
             )
         status_only += only_status
 
-    failing = [f for f in findings if not f["known"] and not f["report_only"]]
+    failing = [f for f in findings if not f["known"]]
     args.report.write_text(json.dumps({"payloads": len(payloads), "findings": findings}, indent=2))
 
     print(f"## HTTP Garden: Uni vs. {', '.join(REFERENCES)}\n")
     print(f"- Payloads: {len(payloads)} ({len(seeds)} seeds, {args.mutations} mutations, seed {args.seed})")
-    print(f"- Findings: {len(findings)} ({len(failing)} new; uni_netty is report-only)")
+    print(f"- Findings: {len(findings)} ({len(failing)} new)")
     print(f"- Payloads where only the rejection status differs: {status_only} (not counted)")
     print("- Payloads are cut to 160 characters here; report.json in the artifact has them in full\n")
     if findings:
         print("| Server | Payload | Uni | " + " | ".join(REFERENCES) + " | Status |")
         print("|---|---|---|" + "---|" * len(REFERENCES) + "---|")
         for f in findings:
-            status = "known" if f["known"] else ("report-only" if f["report_only"] else "**new**")
+            status = "known" if f["known"] else "**new**"
             if f["invalid"]:
                 status += ", invalid request accepted"
             cells = [f["results"][n] for n in [f["server"], *REFERENCES]]

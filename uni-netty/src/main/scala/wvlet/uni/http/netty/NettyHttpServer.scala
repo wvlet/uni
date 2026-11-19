@@ -16,6 +16,7 @@ package wvlet.uni.http.netty
 import io.netty.bootstrap.ServerBootstrap
 import io.netty.channel.{
   Channel,
+  ChannelPipeline,
   ChannelInitializer,
   ChannelOption,
   EventLoopGroup,
@@ -31,11 +32,13 @@ import io.netty.handler.codec.http.{
   HttpContentCompressor,
   HttpContentEncoder,
   HttpHeaderNames,
+  HttpMessage,
   HttpResponse as NettyHttpResponse,
   HttpObjectAggregator,
   HttpServerCodec,
   HttpServerExpectContinueHandler,
-  HttpServerKeepAliveHandler
+  HttpServerKeepAliveHandler,
+  HttpUtil
 }
 import io.netty.handler.stream.ChunkedWriteHandler
 import io.netty.util.concurrent.{DefaultEventExecutorGroup, EventExecutorGroup, GlobalEventExecutor}
@@ -139,6 +142,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
                 config.maxContentLength
               )
             )
+            pipeline.addLast("decodeFailure", DecodeFailureHandler())
             pipeline.addLast("drain", ConnectionDrainHandler())
             if config.requestReadTimeoutMillis > 0 then
               pipeline.addLast(
@@ -150,7 +154,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
               val decompression = NettyRequestDecompression(config.maxDecompressedRequestSize)
               pipeline.addLast("requestDecompressor", decompression.decompressor)
               pipeline.addLast("requestDecompressionLimiter", decompression.limiter)
-            pipeline.addLast("aggregator", HttpObjectAggregator(config.maxContentLength))
+            pipeline.addLast("aggregator", BodyContinueAggregator(config.maxContentLength))
             pipeline.addLast(NettyHttpServer.CompressorHandler, IdentityRangeCompressor())
             pipeline.addLast("expectContinue", HttpServerExpectContinueHandler())
             pipeline.addLast("chunkedWriter", ChunkedWriteHandler())
@@ -328,6 +332,25 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
   override def localPort: Int = localSocketAddress.getPort
 
 end NettyHttpServer
+
+/**
+  * Sends `100 Continue` only for a request that has a body, as the built-in socket server does. RFC
+  * 9110 lets a server skip it when the framing shows no content, and a client with nothing to send
+  * has nothing to wait for.
+  */
+private[netty] class BodyContinueAggregator(maxContentLength: Int)
+    extends HttpObjectAggregator(maxContentLength):
+  override protected def newContinueResponse(
+      start: HttpMessage,
+      maxContentLength: Int,
+      pipeline: ChannelPipeline
+  ): Object =
+    if HttpUtil.isTransferEncodingChunked(start) || HttpUtil.getContentLength(start, 0L) > 0 then
+      super.newContinueResponse(start, maxContentLength, pipeline)
+    else
+      // Drop Expect too, or HttpServerExpectContinueHandler would send the 100 instead
+      HttpUtil.set100ContinueExpected(start, false)
+      null
 
 /**
   * Compresses responses as HttpContentCompressor does, except `206 Partial Content`: its
