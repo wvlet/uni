@@ -120,7 +120,7 @@ methods.
 | Group | Components |
 |-------|------------|
 | Controls | `Button` (`.primary`, `.ghost`, `.danger`, `.small`), `IconButton(label, icon)`, `Input(rxVar)`, `Textarea(rxVar)`, `Select(rxVar, options = Seq(...), optionLabel = a => text)` |
-| Navigation and layout | `TabList(rxVar, label = "...", tabs = Seq(Tab(value, content*)))`, `TabPanel(tabs, render = a => element)`, `FoldablePane(open, width = w, edge = e, content = element).withSplitter(splitter)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label = "...", panels = Seq(DockPanel(id, title = "...", content = element)))` (groups float over the grid as `DockLayout(root, floating = Seq(DockFloat.of(DockBox(x, y, w, h), ids*)))`; `.withDetach(true)` opens a panel in its own window) |
+| Navigation and layout | `TabList(rxVar, label = "...", tabs = Seq(Tab(value, content*)))`, `TabPanel(tabs, render = a => element)`, `FoldablePane(open, width = w, edge = e, content = element).withSplitter(splitter)`, `Splitter(size, range, edge, label)`, `Dock(layoutVar, label = "...", panels = Seq(DockPanel(id, title = "...", content = element)))` (groups float over the grid as `DockLayout(root, floating = Seq(DockFloat.of(DockBox(x, y, w, h), ids*)))`; `.withDetach(true)` opens a panel in its own window; `dock.maximize(id)` / `dock.restore()` make a grid group fill the dock, saved as `DockLayout.maximized`) |
 | Display | `Badge`, `Kbd`, `StatusBar` |
 | Overlays | `Popover(open, trigger = element, content = element)`, `Tooltip(text, trigger = element)`, `Menu(open, trigger = element, entries = Seq(MenuItem(...), ...))`, `ContextMenu(target, entries = Seq(...))`, `Dialog(open, content = element)`, `AlertDialog(open, title = "...")`, `Toaster()` with `.info`/`.success`/`.error`. `.withInline(true)` renders a `Dialog`, `AlertDialog`, or `Popover` in place (a dialog blocks only its `position: relative` panel; CSS places an inline popover) |
 | Collections (windowed, fixed row height) | `VirtualList(itemsRx, rowHeight = 24, key = a => k, render = a => node)`, `Tree(rootsRx, children = a => Seq(...), key = a => k, render = a => node)`, `DataTable(rowsRx, key = a => k, columns = Seq(Column(id, header, cell = a => node), ...))`, `CommandPalette(open, commandsRx)` |
@@ -225,6 +225,8 @@ agent.installWebMcp()                              // WebMCP tools where the bro
 - Agents see list, tree, and table rows by `.withRowLabel(r => text)` on `VirtualList`, `Tree`,
   or `DataTable`; otherwise by the `.withTypeahead` text, then the key's `toString`.
   `withRowLabel` doesn't turn on typeahead.
+- A `Dock` is a `dock` node with its panels' components inside, including those of panels
+  detached into their own windows. It offers `maximize` (a panel title) and `restore`.
 - `agent.api` is `wvlet.uni.agent.UiAgentApi` (JSON text; every method returns `Rx[String]`), so
   `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools. In Electron, serve it to
   the main process with `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))` (see

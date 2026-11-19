@@ -74,7 +74,8 @@ object AgentPolicy:
   *
   * @param root
   *   the element whose components the agent sees; overlays render into `document.body`, so the
-  *   default is the body
+  *   default is the body. A Dock under it also shows the panels detached into windows of their own,
+  *   inside the Dock's node.
   */
 class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
 
@@ -104,6 +105,8 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
         case Some(e) =>
           val kids = mutable.ArrayBuffer.empty[UiNode]
           children(kids)
+          // Components in the component's other windows, after those on the page
+          e.binding.windows.foreach(collect(_, kids))
           out += nodeOf(e, kids.toSeq)
         case None =>
           children(out)
@@ -162,14 +165,17 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
       .map(_.copy(children = Nil))
 
   // Only the entries a snapshot lists, so hidden or shadowed ones never claim or match a ref
-  private def find(ref: String): Option[(AgentRegistry.Entry, UiNode)] = AgentRegistry
-    .all
-    .filter(e =>
-      AgentRegistry.entryOf(e.element).contains(e) && !AgentDom.isHidden(e.element) &&
-        root().contains(e.element)
-    )
-    .find(e => AgentRegistry.refOf(e) == ref)
-    .map(e => (e, nodeOf(e, Nil)))
+  private def find(ref: String): Option[(AgentRegistry.Entry, UiNode)] =
+    val listed = AgentRegistry
+      .all
+      .filter(e => AgentRegistry.entryOf(e.element).contains(e) && !AgentDom.isHidden(e.element))
+    // The root, and the other windows of the components under it, as a snapshot walks them
+    val top   = root()
+    val roots = top +: listed.filter(e => top.contains(e.element)).flatMap(_.binding.windows)
+    listed
+      .filter(e => roots.exists(_.contains(e.element)))
+      .find(e => AgentRegistry.refOf(e) == ref)
+      .map(e => (e, nodeOf(e, Nil)))
 
   /**
     * Runs `action` on the component `ref`, as an agent. The result comes once the change is made,
@@ -200,6 +206,9 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
               case None =>
                 Rx.const(run(ref, a, value))
               case Some(message) =>
+                // The question shows in the main window, so bring it up from a detached panel's
+                if e.element.ownerDocument ne dom.document then
+                  dom.window.focus()
                 confirmThenRun(message, ref, a, value)
 
   private def confirmThenRun(

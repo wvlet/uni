@@ -18,7 +18,7 @@ import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.{DomRenderer, PointerDrag}
 import wvlet.uni.rx.{Cancelable, Rx, RxVar}
-import wvlet.uni.ui.agent.{AgentRegistry, StateOwner}
+import wvlet.uni.ui.agent.{AgentAction, AgentBinding, AgentRegistry}
 import wvlet.uni.ui.base.{
   Announce,
   DockBox,
@@ -115,12 +115,20 @@ object DockPanel:
   * [[withDetach]], "Open in new window" moves a panel into a browser window of its own until the
   * window closes; that is not saved in the layout.
   *
+  * The button at the end of a grid group's tab bar (and "Maximize group" in a tab's menu) makes the
+  * group fill the dock until the user restores it ([[maximize]]). The other groups and the floats
+  * are hidden but stay mounted, and the layout saves the state as [[DockLayout.maximized]].
+  *
   * The dock is a `div.uni-dock`; groups are `div.uni-dock__group` with a `role="tablist"` of
   * `role="tab"` tabs and a `role="tabpanel"`, and `data-top="true"` on the groups along the top
   * edge (to align their tab bar with a title bar). Splits are `div.uni-dock__split` with
   * `data-direction="row|column"`. A float is a `div.uni-dock__float` holding its group, with a
   * `button.uni-dock__float-grip` and a `div.uni-dock__float-resize`; a detached panel's tab has
-  * `data-detached="true"`.
+  * `data-detached="true"`. The maximize toggle is a `button.uni-dock__maximize` with
+  * `aria-pressed`, and the dock and its maximized group have `data-maximized="true"`.
+  *
+  * Agents see the dock as a `dock` node that can maximize and restore a group, with the panels'
+  * components inside it, including those of panels detached into their own windows.
   *
   * @param label
   *   the accessible name of the tab lists, such as "Dock"
@@ -148,18 +156,53 @@ class Dock private (
     */
   def onChange(f: ChangeHandler): Dock = copy(changeHandler = f)
 
-  // Owns the layout for UiHistory, so an undo asks this dock's handler; agents don't see it
-  private object stateOwner extends StateOwner:
+  // Owns the layout for UiHistory, so an undo asks this dock's handler. Agents see the dock as one
+  // node that can maximize and restore a group, with the panels' components, those in detached
+  // windows included, inside it.
+  private object agentBinding extends AgentBinding:
     override def kind: String                 = "dock"
     override def states: Seq[AnyRef]          = Seq(layout)
     override def changeHandler: ChangeHandler = Dock.this.changeHandler
     override def label: Option[String]        = Some(Dock.this.label)
+    override def name: Option[String]         = Some(Dock.this.label)
+    override def namedByText: Boolean         = false
     override def format(v: Any): String       =
       v match
         case l: DockLayout =>
           l.toJSON
         case other =>
           String.valueOf(other)
+
+    // The panels of the grid, whose groups can be maximized, by their titles
+    private def gridPanels: Seq[String] = DockModel.panels(now.root)
+    private def labels: Seq[String]     = AgentBinding.itemLabels(gridPanels.map(titleOf))
+
+    override def value: Option[String] = now
+      .maximized
+      .flatMap(p => labels.lift(gridPanels.indexOf(p)))
+
+    override def actions: Seq[AgentAction] =
+      val l = now
+      Option
+        .when(DockModel.groups(l).size > 1)(
+          AgentAction.choice("maximize", "Make the group of a panel fill the dock", labels) { i =>
+            setLayout(DockModel.maximize(now, gridPanels(i)), AgentAction.cause(ChangeReason.Press))
+          }
+        )
+        .toSeq ++
+        Option
+          .when(l.maximized.isDefined)(
+            AgentAction("restore", "Show every group again") { () =>
+              setLayout(DockModel.restore(now), AgentAction.cause(ChangeReason.Press))
+            }
+          )
+          .toSeq
+
+    override def windows: Seq[dom.Element] = popups.values.map(_.root).toSeq
+
+  end agentBinding
+
+  private def titleOf(panel: String): String = byId.get(panel).map(_.title).getOrElse(panel)
 
   private def setLayout(l: DockLayout, cause: ChangeCause): Boolean = ChangeGate.write(
     layout,
@@ -238,15 +281,19 @@ class Dock private (
 
   /**
     * Move keyboard focus to the active tab of group `index` (from 0, in reading order), as an
-    * editor's Ctrl+1, Ctrl+2 shortcuts do. Returns false, and leaves focus alone, when there is no
-    * such group or the Dock isn't mounted.
+    * editor's Ctrl+1, Ctrl+2 shortcuts do, restoring a maximized layout when the group is hidden.
+    * Returns false, and leaves focus alone, when there is no such group or the Dock isn't mounted.
     */
   def focusGroup(index: Int): Boolean =
-    val l = now
-    DockModel
-      .groups(l)
-      .lift(index)
-      .flatMap(DockModel.nodeAt(l, _))
+    val l      = now
+    val target = DockModel.groups(l).lift(index)
+    // A group hidden by a maximized one shows again first
+    val shown =
+      target.isEmpty || DockModel.maximizedGroup(l).forall(target.contains) ||
+        setLayout(DockModel.restore(l), ChangeCause.imperative)
+    shown &&
+    target
+      .flatMap(DockModel.nodeAt(now, _))
       .collect { case DockNode.Group(_, Some(a)) =>
         a
       }
@@ -260,6 +307,23 @@ class Dock private (
     byId.contains(panel) &&
       setLayout(DockModel.open(now, panel, focusedGroup), ChangeCause.imperative) &&
       focusTabNow(panel)
+
+  /** The panel whose group fills the dock ([[maximize]]), if one does. */
+  def maximized: Rx[Option[String]] = current.map(_.maximized)
+
+  /**
+    * Make the grid group holding `panel` fill the dock, hiding the other groups and the floats
+    * until [[restore]]. Returns false when the panel isn't in a grid group or the app canceled the
+    * change.
+    */
+  def maximize(panel: String): Boolean =
+    setLayout(DockModel.maximize(now, panel), ChangeCause.imperative) &&
+      now.maximized.contains(panel)
+
+  /** Show every group again after [[maximize]]. */
+  def restore(): Unit =
+    if now.maximized.isDefined then
+      setLayout(DockModel.restore(now), ChangeCause.imperative)
 
   private def focusTabNow(panel: String): Boolean =
     Option(dom.document.getElementById(tabId(panel))) match
@@ -304,6 +368,16 @@ class Dock private (
 
   private var closedWatch: Cancelable = Cancelable.empty
 
+  // The group showing the dock-wide actions: the corner one, or the one filling the dock. A move
+  // clears it first, so the old group unmounts the actions before the new one mounts them, and an
+  // action's own unmount never runs after its new mount.
+  private val actionsAt: RxVar[Option[DockPath]] = Rx.variable(None)
+  private var actionsWatch: Cancelable           = Cancelable.empty
+
+  private def actionsTarget(l: DockLayout): Option[DockPath] = Some(
+    DockModel.maximizedGroup(l).getOrElse(DockModel.cornerGroup(l.root))
+  )
+
   override def onMount(node: Any): Unit =
     // Save the cleaned-up layout, so unknown ids leave the app's storage too
     layout := now
@@ -317,14 +391,17 @@ class Dock private (
 
   override def beforeUnmount: Unit =
     closedWatch.cancel
+    actionsWatch.cancel
     dom.window.removeEventListener("pagehide", closeWindows)
     closeWindows(())
 
   // --- Detached windows --------------------------------------------------------------------------
 
-  private class Popup(val window: dom.Window, val stop: () => Unit)
+  // `root` holds the panel in the window, where agents look for its components too
+  private class Popup(val window: dom.Window, val root: dom.Element, val stop: () => Unit)
 
-  private val popups                          = mutable.Map.empty[String, Popup]
+  // In the order the windows opened, the order agents list them in
+  private val popups                          = mutable.LinkedHashMap.empty[String, Popup]
   private val detachedIds: RxVar[Set[String]] = Rx.variable(Set.empty)
   private var watch: Option[Int]              = None
 
@@ -437,6 +514,7 @@ class Dock private (
     win.addEventListener("pagehide", onHide)
     Popup(
       win,
+      host,
       () =>
         observer.disconnect()
         win.removeEventListener("pagehide", onHide)
@@ -616,7 +694,6 @@ class Dock private (
         path,
         live,
         groupCount,
-        corner = false,
         top = false,
         grip = Some(
           button(
@@ -766,6 +843,13 @@ class Dock private (
         0
       )
 
+  // Restore when the group of `panel` is the maximized one, otherwise maximize it
+  private def toggleMaximized(l: DockLayout, panel: String): DockLayout =
+    if DockModel.groupOf(l.root, panel).exists(DockModel.maximizedGroup(l).contains) then
+      DockModel.restore(l)
+    else
+      DockModel.maximize(l, panel)
+
   private def act(panel: String)(f: DockLayout => DockLayout): Unit =
     if setLayout(f(now), ChangeCause.current) then
       focusTab(panel)
@@ -778,30 +862,51 @@ class Dock private (
       () =>
         val gs = DockModel.groups(now)
         gs.lift((gs.indexOf(path) + 1) % gs.size).getOrElse(path)
+    // A float's way back to the grid comes first
+    val docking: Seq[MenuEntry] =
+      if floating then
+        Seq(MenuItem("Dock").onSelect(() => act(id)(DockModel.dock(_, id))), MenuSeparator)
+      else
+        Seq.empty
     val items =
-      Seq[MenuEntry](
-        MenuItem("Move left")
-          .withDisabled(i == 0)
-          .onSelect(() => act(id)(DockModel.move(_, id, path, i - 1))),
-        MenuItem("Move right")
-          .withDisabled(i == tabs.size - 1)
-          .onSelect(() => act(id)(DockModel.move(_, id, path, i + 2))),
-        MenuItem("Move to next group")
-          .withDisabled(groupCount < 2)
-          .onSelect(() => act(id)(l => DockModel.move(l, id, next(), Int.MaxValue))),
-        MenuSeparator,
-        MenuItem("Split right")
-          .withDisabled(tabs.size < 2 || floating)
-          .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Right))),
-        MenuItem("Split down")
-          .withDisabled(tabs.size < 2 || floating)
-          .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom))),
-        MenuSeparator,
-        if floating then
-          MenuItem("Dock").onSelect(() => act(id)(DockModel.dock(_, id)))
-        else
-          MenuItem("Float").onSelect(() => act(id)(DockModel.float(_, id, floatBox(path))))
-      ) ++
+      docking ++
+        Seq[MenuEntry](
+          MenuItem("Move left")
+            .withDisabled(i == 0)
+            .onSelect(() => act(id)(DockModel.move(_, id, path, i - 1))),
+          MenuItem("Move right")
+            .withDisabled(i == tabs.size - 1)
+            .onSelect(() => act(id)(DockModel.move(_, id, path, i + 2))),
+          MenuItem("Move to next group")
+            .withDisabled(groupCount < 2)
+            .onSelect(() => act(id)(l => DockModel.move(l, id, next(), Int.MaxValue))),
+          MenuSeparator,
+          MenuItem("Split right")
+            .withDisabled(tabs.size < 2 || floating)
+            .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Right))),
+          MenuItem("Split down")
+            .withDisabled(tabs.size < 2 || floating)
+            .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom)))
+        ) ++
+        Option
+          .when(!floating)(
+            Seq(
+              MenuSeparator,
+              MenuItem("Float").onSelect(() => act(id)(DockModel.float(_, id, floatBox(path))))
+            )
+          )
+          .toSeq
+          .flatten ++
+        Option.when(!floating && groupCount > 1)(
+          MenuItem(
+            current.map(l =>
+              if DockModel.maximizedGroup(l).contains(path) then
+                "Restore group"
+              else
+                "Maximize group"
+            )
+          ).onSelect(() => act(id)(toggleMaximized(_, id)))
+        ) ++
         Option.when(detachable)(
           MenuItem(
             detachedIds.map(d =>
@@ -967,7 +1072,6 @@ class Dock private (
       path: DockPath,
       live: Rx[DockLayout],
       groupCount: Int,
-      corner: Boolean,
       top: Boolean,
       grip: Option[RxElement] = None
   ): RxElement =
@@ -985,11 +1089,16 @@ class Dock private (
         s"${label}, group ${DockModel.groups(now).indexOf(path) + 1}"
       else
         label
+    val floating = DockModel.floatIndex(path).isDefined
+    val maxed    = distinct(live.map(DockModel.maximizedGroup(_).contains(path)))
+    // The dock-wide actions stay in reach: in the corner group, or in the group filling the dock
+    val showActions = distinct(actionsAt.map(_.contains(path)))
     div(
-      cls          -> "uni-dock__group",
-      data("slot") -> "dock-group",
-      data("path") -> pathAttr(path),
-      data("top")  -> top.toString,
+      cls               -> "uni-dock__group",
+      data("slot")      -> "dock-group",
+      data("path")      -> pathAttr(path),
+      data("top")       -> top.toString,
+      data("maximized") -> maxed.map(_.toString),
       EventListenerBinding("focusin", _ => focusedGroup = Some(path)),
       div(
         cls          -> "uni-dock__bar",
@@ -1006,7 +1115,36 @@ class Dock private (
           ),
           Rx.const(tabs).each(identity)(id => tab(byId(id), path, tabs, groupCount, active))
         ),
-        when(corner && actions.nonEmpty, div(cls -> "uni-dock__actions", actions))
+        when(
+          !floating && groupCount > 1,
+          button(
+            tpe          -> "button",
+            cls          -> "uni-dock__maximize",
+            data("slot") -> "dock-maximize",
+            ariaLabel    -> "Maximize group",
+            ariaPressed  -> maxed.map(_.toString),
+            titleAttr    ->
+              maxed.map(on =>
+                if on then
+                  "Restore"
+                else
+                  "Maximize"
+              ),
+            EventListenerBinding(
+              "click",
+              e => setLayout(toggleMaximized(now, tabs.head), ChangeCause.of(ChangeReason.Press, e))
+            )
+          )
+        ),
+        when(
+          actions.nonEmpty,
+          showActions.map(on =>
+            if on then
+              div(cls -> "uni-dock__actions", actions)
+            else
+              DomNode.empty
+          )
+        )
       ),
       div(
         role           -> "tabpanel",
@@ -1171,13 +1309,15 @@ class Dock private (
           "50"
     )
     div(
-      cls             -> "uni-dock__separator",
-      data("slot")    -> "dock-separator",
-      role            -> "separator",
-      tabindex        -> "0",
-      ariaLabel       -> "Resize panels",
-      titleAttr       -> "Drag to resize, Enter to share equally",
-      ariaOrientation -> (
+      cls          -> "uni-dock__separator",
+      data("slot") -> "dock-separator",
+      role         -> "separator",
+      // No borders to move while one group fills the dock
+      wvlet.uni.dom.all.hidden -> distinct(live.map(_.maximized.isDefined)),
+      tabindex                 -> "0",
+      ariaLabel                -> "Resize panels",
+      titleAttr                -> "Drag to resize, Enter to share equally",
+      ariaOrientation          -> (
         if dir == SplitDirection.Row then
           "vertical"
         else
@@ -1198,7 +1338,6 @@ class Dock private (
       path: DockPath,
       live: Rx[DockLayout],
       groupCount: Int,
-      corner: DockPath,
       tops: Set[DockPath]
   ): RxElement =
     n match
@@ -1221,10 +1360,11 @@ class Dock private (
           div(cls -> "uni-dock__empty", "No open panels")
         )
       case DockNode.Group(tabs, _) =>
-        group(tabs, path, live, groupCount, path == corner, tops.contains(path))
+        group(tabs, path, live, groupCount, tops.contains(path))
       case DockNode.Split(dir, children, _) =>
-        val splitRef = DomRef[dom.HTMLElement]()
-        val cells    = children
+        val splitRef  = DomRef[dom.HTMLElement]()
+        val maximized = distinct(live.map(DockModel.maximizedGroup))
+        val cells     = children
           .zipWithIndex
           .flatMap { (c, i) =>
             val grow = distinct(
@@ -1236,10 +1376,13 @@ class Dock private (
                     1.0
               )
             )
-            val cell = div(
+            val cellPath = path :+ i
+            val cell     = div(
               cls       -> "uni-dock__cell",
               styleAttr -> grow.map(g => f"flex: ${g}%.6f 1 0px"),
-              node(c, path :+ i, live, groupCount, corner, tops)
+              // Hidden unless it holds the maximized group, when one is
+              wvlet.uni.dom.all.hidden -> maximized.map(_.exists(m => !m.startsWith(cellPath))),
+              node(c, cellPath, live, groupCount, tops)
             )
             if i == 0 then
               Seq(cell)
@@ -1265,27 +1408,32 @@ class Dock private (
     def floatsKey(l: DockLayout): (Seq[DockFloat], Int) =
       val s = shapeOf(l)
       (s.floating, DockModel.groups(s.root).size)
+    // Subscribed before the tree, so the actions move before a rebuild mounts the new groups
+    actionsWatch.cancel
+    actionsWatch = current
+      .map(actionsTarget)
+      .run { t =>
+        if actionsAt.get != t then
+          actionsAt := None
+          actionsAt := t
+      }
     div(
-      cls              -> "uni-dock",
-      data("slot")     -> "dock",
-      data("dragging") -> dragged.map(_.isDefined.toString),
+      cls               -> "uni-dock",
+      data("slot")      -> "dock",
+      data("dragging")  -> dragged.map(_.isDefined.toString),
+      data("maximized") -> current.map(_.maximized.isDefined.toString),
       dockRef.binding,
-      AgentRegistry.own(stateOwner),
+      AgentRegistry.attach(agentBinding),
       distinct(current.map(gridKey)).map { key =>
         focusedGroup = None
         val (root, n) = key
-        node(
-          root,
-          Nil,
-          current.filter(gridKey(_) == key),
-          n,
-          DockModel.cornerGroup(root),
-          DockModel.topGroups(root)
-        )
+        node(root, Nil, current.filter(gridKey(_) == key), n, DockModel.topGroups(root))
       },
       div(
         cls          -> "uni-dock__floats",
         data("slot") -> "dock-floats",
+        // The floats hide while a group fills the dock, and come back on restore
+        wvlet.uni.dom.all.hidden -> distinct(current.map(DockModel.maximizedGroup(_).isDefined)),
         distinct(current.map(floatsKey)).map { key =>
           focusedGroup = None
           val (floats, gridGroups) = key

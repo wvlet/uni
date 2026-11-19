@@ -882,4 +882,177 @@ class UiAgentTest extends DomTestSupport:
     agent.uninstall()
   }
 
+  test("an agent maximizes a dock group and restores it, through onChange") {
+    val layout = Rx.variable(
+      DockLayout(DockNode.row(DockNode.group("files"), DockNode.group("editor")))
+    )
+    val seen   = ArrayBuffer.empty[ChangeSource]
+    var cancel = false
+    mount(
+      Dock(
+        layout,
+        label = "Workspace",
+        panels = Seq(
+          DockPanel("files", title = "Files", content = Button("Refresh")),
+          DockPanel("editor", title = "Editor", content = div("editor"))
+        )
+      ).onChange { c =>
+        seen += c.source
+        if cancel then
+          c.cancel()
+      }
+    )
+    val agent = install()
+    val dock  = agent.snapshot().head
+    (dock.ref, dock.kind, dock.label, dock.value) shouldBe
+      ("dock:workspace", "dock", "Workspace", None)
+    dock.actions.map(_.name) shouldBe Seq("maximize")
+    // The panels' components nest inside it
+    dock.children.map(_.ref) shouldBe Seq("button:refresh")
+
+    agent
+      .act("dock:workspace", "maximize", Some("Editor"))
+      .flatMap { r =>
+        r.status shouldBe ActStatus.Applied
+        layout.get.maximized shouldBe Some("editor")
+        seen.last shouldBe ChangeSource.Agent
+        val after = node(agent, "dock")
+        after.value shouldBe Some("Editor")
+        after.actions.map(_.name) shouldBe Seq("maximize", "restore")
+        // The hidden group's components are out of sight
+        after.children shouldBe Nil
+        cancel = true
+        agent.act("dock:workspace", "restore", None)
+      }
+      .map { r =>
+        r.status shouldBe ActStatus.Canceled
+        layout.get.maximized shouldBe Some("editor")
+        agent.uninstall()
+      }
+  }
+
+  test("an agent sees and acts on a panel detached into its own window") {
+    val layout = Rx.variable(
+      DockLayout(DockNode.row(DockNode.group("main"), DockNode.group("side")))
+    )
+    val region  = Rx.variable("tokyo")
+    var pressed = 0
+    val d       = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(
+        DockPanel("main", title = "Main", content = Button("Run")),
+        DockPanel(
+          "side",
+          title = "Side",
+          content = div(
+            span(wvlet.uni.dom.all.id -> "side-save-label", "Save draft"),
+            Button(wvlet.uni.dom.all.ariaLabelledby -> "side-save-label", "S").onClick(() =>
+              pressed += 1
+            ),
+            Select(region, options = Seq("tokyo", "oregon"), optionLabel = s => s).withLabel(
+              "Region"
+            )
+          )
+        )
+      )
+    ).withDetach(true)
+    mount(d)
+    val agent = install()
+    d.detach("side") shouldBe true
+    val w = d.windowOf("side").get
+    (w.document.querySelector("[aria-labelledby=side-save-label]") != null) shouldBe true
+    // The window's components come after the page's (with the note's buttons, so an agent can
+    // bring the panel back), inside the dock, named in their own document
+    agent.snapshot().head.children.map(c => (c.ref, c.label)) shouldBe
+      Seq(
+        ("button:run", "Run"),
+        ("button:show-window", "Show window"),
+        ("button:bring-back", "Bring back"),
+        ("button:save-draft", "Save draft"),
+        ("select:region", "Region")
+      )
+
+    Rx.join(
+        agent.act("button:save-draft", "press"),
+        agent.act("select:region", "select", Some("oregon"))
+      )
+      .map { (p, s) =>
+        Seq(p, s).map(_.status) shouldBe Seq.fill(2)(ActStatus.Applied)
+        pressed shouldBe 1
+        region.get shouldBe "oregon"
+        // Once the window closes, its components are back in the dock, and nothing is listed twice
+        d.reattach("side")
+        agent.snapshot().head.children.map(_.ref) shouldBe
+          Seq("button:run", "button:save-draft", "select:region")
+        agent.uninstall()
+      }
+  }
+
+  test("a person's click in a detached window reaches the change feed as a pointer change") {
+    val layout = Rx.variable(
+      DockLayout(DockNode.row(DockNode.group("main"), DockNode.group("side")))
+    )
+    val view = Rx.variable("chat")
+    val d    = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(
+        DockPanel("main", title = "Main", content = div("main")),
+        DockPanel(
+          "side",
+          title = "Side",
+          content = TabList(
+            view,
+            label = "Views",
+            tabs = Seq(Tab("chat", "Chat"), Tab("logs", "Logs"))
+          )
+        )
+      )
+    ).withDetach(true)
+    mount(d)
+    val agent = install()
+    d.detach("side") shouldBe true
+    val w          = d.windowOf("side").get
+    val (_, start) = agent.changes()
+    // An event made by the window's own realm, as a real click there is
+    val click =
+      js.Dynamic
+        .newInstance(w.asInstanceOf[js.Dynamic].MouseEvent)(
+          "click",
+          js.Dynamic.literal(bubbles = true, detail = 1)
+        )
+    w.document.querySelectorAll("[role=tab]")(1).dispatchEvent(click.asInstanceOf[dom.Event])
+    view.get shouldBe "logs"
+    agent.changes(start)._1.map(c => (c.ref, c.source)) shouldBe
+      Seq((Some("tabs:views"), ChangeSource.Pointer))
+    d.reattach("side")
+    agent.uninstall()
+  }
+
+  test("a scoped agent doesn't see the windows of a dock outside its root") {
+    val layout = Rx.variable(
+      DockLayout(DockNode.row(DockNode.group("main"), DockNode.group("side")))
+    )
+    val d = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(
+        DockPanel("main", title = "Main", content = div("main")),
+        DockPanel("side", title = "Side", content = Button("Hidden"))
+      )
+    ).withDetach(true)
+    val m = mount(div(div(wvlet.uni.dom.all.id -> "elsewhere", Button("Here")), d))
+    d.detach("side") shouldBe true
+    val agent = UiAgent.install(root = m.get("#elsewhere"))
+    agent.snapshot().map(_.ref) shouldBe Seq("button:here")
+    agent
+      .act("button:hidden", "press")
+      .map { r =>
+        r.status shouldBe ActStatus.NotFound
+        d.reattach("side")
+        agent.uninstall()
+      }
+  }
+
 end UiAgentTest

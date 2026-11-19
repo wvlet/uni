@@ -361,13 +361,13 @@ class UiHistoryTest extends DomTestSupport:
     layout.get shouldBe DockLayout.of("a")
     val entry = history.entries.head
     (entry.kind, entry.label, entry.key, entry.ref, entry.reversible) shouldBe
-      (Some("dock"), "Workspace", "layout", None, true)
+      (Some("dock"), "Workspace", "layout", Some("dock:workspace"), true)
 
     history.undo(entry).status shouldBe UndoStatus.Reverted
     layout.get shouldBe DockLayout.of("a", "b")
     seen.last shouldBe ChangeReason.Undo
-    // Agents still don't see the dock
-    agent.snapshot().map(_.kind) shouldNotContain "dock"
+    // One group: nothing to maximize, so the dock lists no actions
+    agent.snapshot().map(n => (n.kind, n.actions)) shouldBe Seq(("dock", Nil))
     history.close()
     agent.uninstall()
   }

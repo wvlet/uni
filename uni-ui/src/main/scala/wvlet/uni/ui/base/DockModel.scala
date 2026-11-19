@@ -90,9 +90,10 @@ object DockFloat:
   def of(box: DockBox, panels: String*): DockFloat = DockFloat(panels, panels.headOption, box)
 
 /**
-  * The arrangement of a [[wvlet.uni.ui.Dock]]: a tree of splits and tab groups, and the groups
-  * `floating` over it (the last one on top). It is plain data held in an `RxVar`, so the app
-  * decides where it is saved:
+  * The arrangement of a [[wvlet.uni.ui.Dock]]: a tree of splits and tab groups, the groups
+  * `floating` over it (the last one on top), and the group that is `maximized` to fill the dock,
+  * named by one of its panels. It is plain data held in an `RxVar`, so the app decides where it is
+  * saved:
   * {{{
   *   val layout = Storage.local("app.dock", DockLayout(DockNode.row(DockNode.group("files"), DockNode.group("editor"))))
   * }}}
@@ -100,7 +101,11 @@ object DockFloat:
   * The saved JSON carries a format version ([[DockLayout.version]]). A save that is unreadable or
   * from a newer version decodes to None, so `Storage.local` falls back to the default.
   */
-case class DockLayout(root: DockNode, floating: Seq[DockFloat] = Seq.empty):
+case class DockLayout(
+    root: DockNode,
+    floating: Seq[DockFloat] = Seq.empty,
+    maximized: Option[String] = None
+):
   /** This layout as JSON, with the format version. */
   def toJSON: String = DockLayout.toJSONValue(this).toJSON
 
@@ -110,7 +115,18 @@ case class DockLayout(root: DockNode, floating: Seq[DockFloat] = Seq.empty):
   /** Remove `panel` from the layout. */
   def close(panel: String): DockLayout = DockModel.close(this, panel)
 
-  /** The panels the user can see: the active tab of each group, floating ones included. */
+  /**
+    * Make the grid group holding `panel` fill the dock, hiding the other groups and the floats.
+    */
+  def maximize(panel: String): DockLayout = DockModel.maximize(this, panel)
+
+  /** Show every group again after [[maximize]]. */
+  def restore: DockLayout = DockModel.restore(this)
+
+  /**
+    * The panels the user can see: the active tab of each group, floating ones included, or only the
+    * maximized group's.
+    */
   def visible: Set[String] = DockModel.visible(this)
 
 object DockLayout:
@@ -131,8 +147,10 @@ object DockLayout:
   )
 
   /**
-    * The saved form: `{"version":3,"root":...,"floating":[...]}`, with `root` and `floating` in
-    * their derived formats. `floating` is left out when there are no floats.
+    * The saved form: `{"version":3,"root":...,"floating":[...],"maximized":"editor"}`, with `root`
+    * and `floating` in their derived formats. `floating` is left out when there are no floats, and
+    * `maximized` when no group is maximized. An older reader ignores `maximized`, so it needed no
+    * new version.
     */
   def toJSONValue(l: DockLayout): JSONValue = JSONObject(
     Seq("version" -> JSONLong(version), "root" -> toJSONValueOf(l.root)) ++ (
@@ -140,17 +158,25 @@ object DockLayout:
         Seq.empty
       else
         Seq("floating" -> toJSONValueOf(l.floating))
-    )
+    ) ++ l.maximized.map(p => "maximized" -> JSONString(p))
   )
 
   /** Reads a saved layout, migrating older versions; None when it is unreadable or newer. */
   def fromJSONValue(v: JSONValue): Option[DockLayout] =
-    def decode(root: JSONValue, floating: Option[JSONValue]): Option[DockLayout] =
+    def decode(
+        root: JSONValue,
+        floating: Option[JSONValue],
+        maximized: Option[JSONValue] = None
+    ): Option[DockLayout] =
       try
         Some(
           DockLayout(
             summon[Weaver[DockNode]].fromJSONValue(root, format),
-            floating.map(summon[Weaver[Seq[DockFloat]]].fromJSONValue(_, format)).getOrElse(Nil)
+            floating.map(summon[Weaver[Seq[DockFloat]]].fromJSONValue(_, format)).getOrElse(Nil),
+            // Anything but a panel id means no group is maximized
+            maximized.collect { case JSONString(p) =>
+              p
+            }
           )
         )
       catch
@@ -160,7 +186,7 @@ object DockLayout:
       case o: JSONObject =>
         (o.get("version"), o.get("root")) match
           case (Some(JSONLong(3)), Some(root)) =>
-            decode(root, o.get("floating"))
+            decode(root, o.get("floating"), o.get("maximized"))
           // Versions 1 and 2 had no floating groups
           case (Some(JSONLong(2)), Some(root)) =>
             decode(root, None)
@@ -170,6 +196,8 @@ object DockLayout:
             None
       case _ =>
         None
+
+  end fromJSONValue
 
   /**
     * Version 1 wrote `{"type":"split","direction":"row",...}`. Rename the discriminator and use the
@@ -265,7 +293,8 @@ object DockModel:
     *     1;
     *   - make `active` a panel of its group;
     *   - keep each float's box inside the dock ([[fixBox]]);
-    *   - append `required` panels that are missing to the first group.
+    *   - append `required` panels that are missing to the first group;
+    *   - clear `maximized` unless it names a panel in the grid and another group is left to hide.
     *
     * An empty grid becomes [[DockLayout.empty]]'s root.
     */
@@ -323,20 +352,22 @@ object DockModel:
         }
       }
     val missing = required.filter(p => keep(p) && !seen.contains(p))
-    if missing.isEmpty then
-      DockLayout(root, floating)
-    else
-      val first = firstGroup(root)
-      DockLayout(
-        updateAt(root, first) {
+    val grid    =
+      if missing.isEmpty then
+        root
+      else
+        updateAt(root, firstGroup(root)) {
           case DockNode.Group(ps, active) =>
             val all = ps ++ missing
             DockNode.Group(all, active.orElse(all.headOption))
           case other =>
             other
-        },
-        floating
-      )
+        }
+    // Only a group of the grid can be maximized, and only while there is another group to hide
+    val maximized = layout
+      .maximized
+      .filter(p => panels(grid).contains(p) && groups(grid).size + floating.size > 1)
+    DockLayout(grid, floating, maximized)
 
   end normalize
 
@@ -461,9 +492,47 @@ object DockModel:
       case DockNode.Split(_, cs, _) =>
         cs.flatMap(visible).toSet
 
-  /** The panels the user can see: the active one of each group, floating ones included. */
+  /**
+    * The panels the user can see: the active one of each group, floating ones included, or only the
+    * maximized group's.
+    */
   def visible(layout: DockLayout): Set[String] =
-    visible(layout.root) ++ layout.floating.flatMap(_.active)
+    maximizedGroup(layout) match
+      case Some(path) =>
+        nodeAt(layout.root, path).toSet.flatMap(visible)
+      case None =>
+        visible(layout.root) ++ layout.floating.flatMap(_.active)
+
+  /** The path of the maximized group, if one is. */
+  def maximizedGroup(layout: DockLayout): Option[DockPath] = layout
+    .maximized
+    .flatMap(groupOf(layout.root, _))
+
+  /**
+    * Make the grid group holding `panel` fill the dock. A panel that is in a float or not in the
+    * layout, or a layout with one group, stays as it is.
+    */
+  def maximize(layout: DockLayout, panel: String): DockLayout =
+    if groupOf(layout.root, panel).isDefined && groups(layout).size > 1 then
+      layout.copy(maximized = Some(panel))
+    else
+      layout
+
+  /** Show every group again. */
+  def restore(layout: DockLayout): DockLayout = layout.copy(maximized = None)
+
+  // An operation that changes what shows outside the maximized group restores the layout first,
+  // so nothing changes out of sight
+  private def restoreUnless(inside: Boolean)(l: DockLayout): DockLayout =
+    if inside then
+      l
+    else
+      restore(l)
+
+  // Whether `path` is the maximized group, or nothing is maximized
+  private def withinMaximized(layout: DockLayout, path: Option[DockPath]): Boolean = maximizedGroup(
+    layout
+  ).forall(m => path.contains(m))
 
   /**
     * The layout's structure without sizes or active tabs: what has to be rebuilt when it changes.
@@ -527,18 +596,31 @@ object DockModel:
       case DockNode.Split(d, cs, ss) =>
         DockNode.Split(d, cs.map(detach(_, panel)), ss)
 
-  private def detach(layout: DockLayout, panel: String): DockLayout = DockLayout(
-    detach(layout.root, panel),
-    layout
-      .floating
-      .map { f =>
-        detach(f.group, panel) match
-          case DockNode.Group(ps, a) =>
-            DockFloat(ps, a, f.box)
-          case _ =>
-            f
-      }
-  )
+  private def detach(layout: DockLayout, panel: String): DockLayout =
+    val rest = layout.copy(
+      root = detach(layout.root, panel),
+      floating = layout
+        .floating
+        .map { f =>
+          detach(f.group, panel) match
+            case DockNode.Group(ps, a) =>
+              DockFloat(ps, a, f.box)
+            case _ =>
+              f
+        }
+    )
+    // When the panel that names the maximized group leaves it, another tab of the group names it
+    if layout.maximized.contains(panel) then
+      rest.copy(maximized =
+        maximizedGroup(layout)
+          .flatMap(nodeAt(rest.root, _))
+          .collect {
+            case DockNode.Group(ps, a) if ps.nonEmpty =>
+              a.getOrElse(ps.head)
+          }
+      )
+    else
+      rest
 
   private def insert(group: DockNode, panel: String, index: Int): DockNode =
     group match
@@ -559,12 +641,14 @@ object DockModel:
   def activate(layout: DockLayout, panel: String): DockLayout =
     groupOf(layout, panel) match
       case Some(path) =>
-        updateAt(layout, path) {
-          case DockNode.Group(ps, _) =>
-            DockNode.Group(ps, Some(panel))
-          case other =>
-            other
-        }
+        restoreUnless(withinMaximized(layout, Some(path)))(
+          updateAt(layout, path) {
+            case DockNode.Group(ps, _) =>
+              DockNode.Group(ps, Some(panel))
+            case other =>
+              other
+          }
+        )
       case None =>
         layout
 
@@ -582,7 +666,14 @@ object DockModel:
             Reorder.landing(ps.indexOf(panel), index)
           else
             index
-        normalize(updateAt(detach(layout, panel), target)(insert(_, panel, at)))
+        val moved = updateAt(detach(layout, panel), target)(insert(_, panel, at))
+        normalize(
+          if from == target && withinMaximized(layout, Some(target)) then
+            // The panel naming the group stays in it, even when it was the group's only tab
+            moved.copy(maximized = layout.maximized)
+          else
+            restore(moved)
+        )
       case _ =>
         layout
 
@@ -608,7 +699,7 @@ object DockModel:
                   SplitDirection.Column
             val before = side == DockSide.Left || side == DockSide.Top
             normalize(
-              updateAt(detach(layout, panel), target) { g =>
+              updateAt(restore(detach(layout, panel)), target) { g =>
                 val added = DockNode.group(panel)
                 val cs    =
                   if before then
@@ -633,7 +724,11 @@ object DockModel:
       activate(layout, panel)
     else
       val path = target.filter(isGroup(layout, _)).getOrElse(firstGroup(layout.root))
-      normalize(updateAt(layout, path)(g => insert(g, panel, Int.MaxValue)))
+      normalize(
+        restoreUnless(withinMaximized(layout, Some(path)))(
+          updateAt(layout, path)(g => insert(g, panel, Int.MaxValue))
+        )
+      )
 
   /**
     * Lift `panel` out of its group into a new floating group in `box`, on top of the others. A
@@ -642,7 +737,7 @@ object DockModel:
   def float(layout: DockLayout, panel: String, box: DockBox = DockBox.default): DockLayout =
     groupOf(layout, panel) match
       case Some(path) if !(floatIndex(path).isDefined && holdsOnly(layout, path, panel)) =>
-        val detached = detach(layout, panel)
+        val detached = restore(detach(layout, panel))
         normalize(detached.copy(floating = detached.floating :+ DockFloat.of(fixBox(box), panel)))
       case _ =>
         layout
@@ -664,7 +759,7 @@ object DockModel:
   def dock(layout: DockLayout, panel: String): DockLayout =
     groupOf(layout, panel) match
       case Some(path) if floatIndex(path).isDefined =>
-        move(layout, panel, firstGroup(layout.root), Int.MaxValue)
+        move(restore(layout), panel, firstGroup(layout.root), Int.MaxValue)
       case _ =>
         layout
 
