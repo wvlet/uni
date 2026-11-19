@@ -38,7 +38,7 @@ Lane: Standard. Maximize is new user-facing behaviour. Two always-gate areas nee
 ### Maximize: decisions
 
 - The state lives in the layout as `DockLayout.maximized: Option[String]`: a panel id, meaning "the group that holds this panel". It is not a path, since paths are never saved. `normalize` clears it when the panel leaves the layout.
-- Every maximize and restore goes through `setLayout`, so `onChange` sees key `layout`. The `ChangeReason`s are new `Maximize` and `Restore`, and the `ChangeSource` is pointer, keyboard, imperative, or agent. Each one is a single `UiHistory` entry.
+- Every maximize and restore goes through `setLayout`, so `onChange` sees key `layout`. The `ChangeReason` describes the input, as for every other Dock change (`Press` for the toggle, the menu's own reason, `Imperative` from code), and the `ChangeSource` is pointer, keyboard, programmatic, or agent. Each one is a single `UiHistory` entry.
 - The saved format stays at version 3 and gains an optional `"maximized":"editor"` field, left out when empty. Today's decoder ignores unknown keys, so an older app still loads a newer save (just not maximized). Bumping to version 4 would make a downgraded app throw the whole saved layout away. The ADR's "every format change needs a new version" gets an addendum: a new optional field that old readers can safely ignore doesn't need one.
 - The hidden groups stay mounted, so their content keeps its state (scroll position, terminal buffer). Toggling doesn't rebuild the DOM, because `DockModel.shape` leaves `maximized` out of the structure it compares.
 - Public API, named-argument style as in #913:

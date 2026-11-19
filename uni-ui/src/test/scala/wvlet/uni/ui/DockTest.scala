@@ -485,6 +485,10 @@ class DockTest extends DomTestSupport:
         settle().map { _ =>
           // A float holds one group
           menuItem("Split right").getAttribute("aria-disabled") shouldBe "true"
+          // Its way back to the grid comes first, and it has no Float or Maximize
+          val labels = dom.document.querySelectorAll(".uni-menu [role=menuitem]")
+          labels(0).textContent shouldBe "Dock"
+          (0 until labels.length).map(labels(_).textContent) shouldNotContain "Maximize group"
           fireEvent.click(menuItem("Dock"))
           layout.get shouldBe DockLayout(Group(Seq("a", "b"), Some("b")))
           m.queryAll(".uni-dock__float").size shouldBe 0

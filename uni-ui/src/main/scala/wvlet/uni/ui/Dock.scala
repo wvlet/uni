@@ -852,30 +852,41 @@ class Dock private (
       () =>
         val gs = DockModel.groups(now)
         gs.lift((gs.indexOf(path) + 1) % gs.size).getOrElse(path)
+    // A float's way back to the grid comes first
+    val docking: Seq[MenuEntry] =
+      if floating then
+        Seq(MenuItem("Dock").onSelect(() => act(id)(DockModel.dock(_, id))), MenuSeparator)
+      else
+        Seq.empty
     val items =
-      Seq[MenuEntry](
-        MenuItem("Move left")
-          .withDisabled(i == 0)
-          .onSelect(() => act(id)(DockModel.move(_, id, path, i - 1))),
-        MenuItem("Move right")
-          .withDisabled(i == tabs.size - 1)
-          .onSelect(() => act(id)(DockModel.move(_, id, path, i + 2))),
-        MenuItem("Move to next group")
-          .withDisabled(groupCount < 2)
-          .onSelect(() => act(id)(l => DockModel.move(l, id, next(), Int.MaxValue))),
-        MenuSeparator,
-        MenuItem("Split right")
-          .withDisabled(tabs.size < 2 || floating)
-          .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Right))),
-        MenuItem("Split down")
-          .withDisabled(tabs.size < 2 || floating)
-          .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom))),
-        MenuSeparator,
-        if floating then
-          MenuItem("Dock").onSelect(() => act(id)(DockModel.dock(_, id)))
-        else
-          MenuItem("Float").onSelect(() => act(id)(DockModel.float(_, id, floatBox(path))))
-      ) ++
+      docking ++
+        Seq[MenuEntry](
+          MenuItem("Move left")
+            .withDisabled(i == 0)
+            .onSelect(() => act(id)(DockModel.move(_, id, path, i - 1))),
+          MenuItem("Move right")
+            .withDisabled(i == tabs.size - 1)
+            .onSelect(() => act(id)(DockModel.move(_, id, path, i + 2))),
+          MenuItem("Move to next group")
+            .withDisabled(groupCount < 2)
+            .onSelect(() => act(id)(l => DockModel.move(l, id, next(), Int.MaxValue))),
+          MenuSeparator,
+          MenuItem("Split right")
+            .withDisabled(tabs.size < 2 || floating)
+            .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Right))),
+          MenuItem("Split down")
+            .withDisabled(tabs.size < 2 || floating)
+            .onSelect(() => act(id)(DockModel.split(_, id, path, DockSide.Bottom)))
+        ) ++
+        Option
+          .when(!floating)(
+            Seq(
+              MenuSeparator,
+              MenuItem("Float").onSelect(() => act(id)(DockModel.float(_, id, floatBox(path))))
+            )
+          )
+          .toSeq
+          .flatten ++
         Option.when(!floating && groupCount > 1)(
           MenuItem(
             current.map(l =>
