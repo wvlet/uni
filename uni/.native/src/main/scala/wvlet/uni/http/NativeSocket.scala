@@ -240,6 +240,8 @@ private[http] object NativeSocket:
     val n   = recvInto(fd, buf, 0, ChunkSize)
     if n <= 0 then
       Array.emptyByteArray
+    else if n == ChunkSize then
+      buf
     else
       java.util.Arrays.copyOf(buf, n)
 

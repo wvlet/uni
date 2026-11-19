@@ -14,6 +14,7 @@
 package wvlet.uni.http
 
 import wvlet.uni.http.ServiceStatus
+import wvlet.uni.io.IOPath
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.test.UniTest
 
@@ -501,6 +502,8 @@ class NativeServerTest extends UniTest:
   )
 
   test("should serve more idle keep-alive connections than workers") {
+    if IOPath.isWindows then
+      skip("Windows has no idle poller yet: each connection keeps its worker")
     NativeServerConfig()
       .withHandler(req => Response.ok(req.path))
       .withWorkerThreads(2)
@@ -578,6 +581,8 @@ class NativeServerTest extends UniTest:
   }
 
   test("should close parked connections on stop") {
+    if IOPath.isWindows then
+      skip("Windows has no idle poller yet: each connection keeps its worker")
     val server = NativeServerConfig().withHandler(req => Response.ok(req.path)).withPort(0).start()
     val fd     = connectLoopback(server.localPort)
     try
