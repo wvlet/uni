@@ -425,9 +425,10 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
         // then fails requests or aborts under concurrent load
         .withGC(scala.scalanative.build.GC.boehm)
         // nativeBuildSettings links libcurl and zlib for every Native project in this repo. A
-        // server-only binary needs neither: dead-code elimination drops the HTTP client, so leave
-        // them out to build what a user's own project gets.
-        .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl", "-lz")))
+        // server-only binary needs only zlib (request decompression and response compression):
+        // dead-code elimination drops the HTTP client, so leave libcurl out to build what a user's
+        // own project gets.
+        .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl")))
     },
     // Build the test binary in debug mode so it links quickly. It keeps Boehm like the release
     // binary, except on Windows, whose CI runner has no libgc: there it falls back to Immix.

@@ -41,6 +41,12 @@ private[http] trait SocketConnection:
     */
   def interrupt(): Unit
 
+  /**
+    * Fail a write blocked on this connection, from another thread, when the peer stops reading. The
+    * writing thread still closes the connection.
+    */
+  def abort(): Unit = interrupt()
+
   def close(): Unit
 
 end SocketConnection

@@ -39,6 +39,21 @@ case class NativeOptions private (updates: Seq[NativeServerConfig => NativeServe
   def withReadTimeoutMillis(millis: Int): NativeOptions  = add(_.withReadTimeoutMillis(millis))
   def withMaxStreamingConnections(n: Int): NativeOptions = add(_.withMaxStreamingConnections(n))
 
+  def withMaxInitialLineLength(length: Int): NativeOptions = add(_.withMaxInitialLineLength(length))
+  def withMaxHeaderSize(bytes: Int): NativeOptions         = add(_.withMaxHeaderSize(bytes))
+  def withRequestReadTimeoutMillis(millis: Int): NativeOptions = add(
+    _.withRequestReadTimeoutMillis(millis)
+  )
+
+  def noRequestReadTimeout: NativeOptions                = add(_.noRequestReadTimeout)
+  def withWriteTimeoutMillis(millis: Int): NativeOptions = add(_.withWriteTimeoutMillis(millis))
+  def noWriteTimeout: NativeOptions                      = add(_.noWriteTimeout)
+  def withRequestDecompression: NativeOptions            = add(_.withRequestDecompression)
+  def noRequestDecompression: NativeOptions              = add(_.noRequestDecompression)
+  def withMaxDecompressedRequestSize(bytes: Int): NativeOptions = add(
+    _.withMaxDecompressedRequestSize(bytes)
+  )
+
 end NativeOptions
 
 object NativeOptions:

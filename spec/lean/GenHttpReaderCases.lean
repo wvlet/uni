@@ -19,67 +19,137 @@ def get (path : String) : String := s!"GET {path} HTTP/1.1\r\nHost: localhost\r\
 def post (path body : String) : String :=
   s!"POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {body.length}\r\n\r\n{body}"
 
+def chunkedPost (path : String) (chunks : String) : String :=
+  s!"POST {path} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n{chunks}"
+
 def inputs : List String := [
   -- Empty and idle connections
   "",
   "\r\n",
   " \t\r\n",
+  "  ",
   -- One request
   get "/",
   get "/a/b?x=1&y=%20",
   post "/echo" "hello",
   post "/echo" "",
   "PUT /x HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc",
-  "get /lower HTTP/1.1\r\n\r\n",
   "OPTIONS * HTTP/1.1\r\n\r\n",
-  "GET /no-version\r\n\r\n",
-  "GET  /two-spaces HTTP/1.1\r\n\r\n",
-  "GET /trailing-space \r\n\r\n",
+  "GET  /two-spaces  HTTP/1.1\r\n\r\n",
   -- Keep-alive and pipelining: the next request starts right after the body
   get "/1" ++ get "/2",
   post "/a" "xyz" ++ get "/b" ++ post "/c" "1234567890",
   get "/1" ++ "\r\n",
   "\r\n" ++ get "/after-blank-line",
-  "\r\n\r\n" ++ get "/after-blank-request",
+  "\r\n\r\n\n" ++ get "/after-blank-lines",
   post "/body-looks-like-a-request" "GET / HTTP/1.1\r\n\r\n",
-  -- Header parsing
-  "GET /h HTTP/1.1\r\nX-A:  spaced \t\r\nX-B:\r\nno-colon\r\n: no-name\r\n\r\n",
+  -- Connection and HTTP/1.0 keep-alive
+  "GET /close HTTP/1.1\r\nConnection: close\r\n\r\n" ++ get "/never-read",
+  "GET /close-in-list HTTP/1.1\r\nConnection: keep-alive, Close\r\n\r\n" ++ get "/never-read",
+  "GET /http10 HTTP/1.0\r\n\r\n" ++ get "/never-read",
+  "GET /http10-keep-alive HTTP/1.0\r\nConnection: Keep-Alive\r\n\r\n" ++ get "/next",
+  -- The request line
+  "get /lower-case-method HTTP/1.1\r\n\r\n",
+  "BREW /coffee HTTP/1.1\r\nContent-Length: 1\r\n\r\nx" ++ get "/never-read",
+  "GET /no-version\r\n\r\n",
+  "GET /trailing-space HTTP/1.1 \r\n\r\n",
+  "GET /http2 HTTP/2.0\r\n\r\n",
+  "GET /http09 HTTP/0.9\r\n\r\n",
+  "GET /bad-version HTTP/1.x\r\n\r\n",
+  "GET /lower-version http/1.1\r\n\r\n",
+  "G(T / HTTP/1.1\r\n\r\n",
+  "GET /tab\tin-target HTTP/1.1\r\n\r\n",
+  "GET /nul\x00 HTTP/1.1\r\n\r\n",
+  "GET /latin1-é HTTP/1.1\r\n\r\n",
+  -- Line endings: a bare CR or LF is rejected
+  "GET /bare-lf HTTP/1.1\nHost: localhost\r\n\r\n",
+  "GET /bare-lf-header HTTP/1.1\r\nHost: localhost\n\r\n",
+  "GET /bare-cr HTTP/1.1\r\nX-A: a\rb\r\n\r\n",
+  "GET /cr-cr HTTP/1.1\r\r\n\r\n",
+  "GET /lf-only HTTP/1.1\n\n",
+  -- Header lines
+  "GET /h HTTP/1.1\r\nX-A:  spaced \t\r\nX-B:\r\n\r\n",
+  "GET /no-colon HTTP/1.1\r\nno-colon\r\n\r\n",
+  "GET /no-name HTTP/1.1\r\n: no-name\r\n\r\n",
+  "GET /space-before-colon HTTP/1.1\r\nContent-Length : 0\r\n\r\n",
+  "GET /space-in-name HTTP/1.1\r\nX A: b\r\n\r\n",
+  "GET /obs-fold HTTP/1.1\r\nX-A: a\r\n b\r\n\r\n",
+  "GET /obs-fold-tab HTTP/1.1\r\nX-A: a\r\n\tb\r\n\r\n",
+  "GET /nul-in-value HTTP/1.1\r\nX-A: a\x00b\r\n\r\n",
+  "GET /del-in-value HTTP/1.1\r\nX-A: a\x7fb\r\n\r\n",
+  "GET /tab-in-value HTTP/1.1\r\nX-A: a\tb\r\n\r\n",
+  "GET /latin1-value HTTP/1.1\r\nX-A: café\r\n\r\n",
+  "GET /two-hosts HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n",
   "POST /lower-case-name HTTP/1.1\r\ncontent-length: 2\r\n\r\nok",
   "POST /tabs HTTP/1.1\r\nContent-Length:\t2\t\r\n\r\nok",
-  "POST /cr-in-value HTTP/1.1\r\nContent-Length: 2\r\r\n\r\nok",
   -- Content-Length
   "POST /same-twice HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 2\r\n\r\nok",
+  "POST /same-in-list HTTP/1.1\r\nContent-Length: 2, 2\r\n\r\nok",
   "POST /conflicting HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 3\r\n\r\nokk",
-  "POST /conflicting-spelling HTTP/1.1\r\nContent-Length: 2\r\nContent-Length: 02\r\n\r\nok",
   "POST /plus HTTP/1.1\r\nContent-Length: +2\r\n\r\nok",
   "POST /minus-zero HTTP/1.1\r\nContent-Length: -0\r\n\r\n",
-  "POST /negative HTTP/1.1\r\nContent-Length: -1\r\n\r\n",
   "POST /not-a-number HTTP/1.1\r\nContent-Length: 1x\r\n\r\nx",
+  "POST /hex HTTP/1.1\r\nContent-Length: 0x2\r\n\r\nok",
   "POST /empty HTTP/1.1\r\nContent-Length: \r\n\r\n",
+  "POST /leading-zeros HTTP/1.1\r\nContent-Length: 0002\r\n\r\nok",
   "POST /at-limit HTTP/1.1\r\nContent-Length: 100\r\n\r\n" ++ String.ofList (List.replicate 100 'a'),
   "POST /over-limit HTTP/1.1\r\nContent-Length: 101\r\n\r\n",
-  "POST /overflow HTTP/1.1\r\nContent-Length: 2147483648\r\n\r\n",
-  -- Chunked bodies are rejected
-  "POST /chunked HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
-  "POST /chunked-case HTTP/1.1\r\nTransfer-Encoding: gzip, Chunked\r\n\r\n",
-  "POST /chunked-and-length HTTP/1.1\r\nContent-Length: 1\r\nTransfer-Encoding: chunked\r\n\r\nx",
+  "POST /overflow HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
+  -- Chunked bodies
+  chunkedPost "/chunked" "5\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/chunked-many" "1\r\na\r\nA\r\n0123456789\r\n2\r\nbc\r\n0\r\n\r\n" ++ get "/next",
+  chunkedPost "/chunked-empty" "0\r\n\r\n",
+  chunkedPost "/chunked-ext" "5;name=value\r\nhello\r\n0;last\r\n\r\n",
+  chunkedPost "/chunked-trailers" "3\r\nabc\r\n0\r\nX-Checksum: 1\r\nX-B: 2\r\n\r\n" ++ get "/next",
+  chunkedPost "/chunked-upper-hex" "a\r\n0123456789\r\n0\r\n\r\n",
+  chunkedPost "/chunked-leading-zeros" "0005\r\nhello\r\n0\r\n\r\n",
+  "POST /chunked-case HTTP/1.1\r\nTransfer-Encoding: Chunked\r\n\r\n0\r\n\r\n",
+  chunkedPost "/chunk-at-limit" ("64\r\n" ++ String.ofList (List.replicate 100 'a') ++ "\r\n0\r\n\r\n"),
+  chunkedPost "/chunk-over-limit" "65\r\n",
+  chunkedPost "/chunks-over-limit" ("32\r\n" ++ String.ofList (List.replicate 50 'a') ++ "\r\n33\r\n"),
+  chunkedPost "/chunk-overflow" "ffffffffffffffffffff\r\n",
+  chunkedPost "/no-size" "\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/size-space" "5 \r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/size-plus" "+5\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/size-bare-lf" "5\nhello\r\n0\r\n\r\n",
+  chunkedPost "/ext-bare-lf" "5;a\nhello\r\n0\r\n\r\n",
+  chunkedPost "/ext-nul" "5;a\x00\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/data-too-long" "3\r\nhello\r\n0\r\n\r\n",
+  chunkedPost "/data-bare-lf" "5\r\nhello\n0\r\n\r\n",
+  chunkedPost "/trailer-obs-fold" "0\r\nX-A: a\r\n b\r\n\r\n",
+  chunkedPost "/trailer-bad-name" "0\r\nX A: a\r\n\r\n",
+  chunkedPost "/truncated-chunk" "5\r\nhel",
+  chunkedPost "/truncated-size" "5",
+  chunkedPost "/truncated-trailers" "0\r\nX-A: a\r\n",
+  -- Transfer-Encoding framing
+  "POST /chunked-and-length HTTP/1.1\r\nContent-Length: 3\r\nTransfer-Encoding: chunked\r\n\r\n1\r\nx\r\n0\r\n\r\n" ++ get "/never-read",
+  "POST /gzip-chunked HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n",
+  "POST /chunked-gzip HTTP/1.1\r\nTransfer-Encoding: chunked, gzip\r\n\r\n",
+  "POST /chunked-twice HTTP/1.1\r\nTransfer-Encoding: chunked\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
   "POST /identity HTTP/1.1\r\nTransfer-Encoding: identity\r\nContent-Length: 1\r\n\r\nx",
+  "POST /empty-te HTTP/1.1\r\nTransfer-Encoding: \r\n\r\n",
+  "POST /http10-chunked HTTP/1.0\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n",
+  -- Expect
+  "POST /expect HTTP/1.1\r\nExpect: 100-continue\r\nContent-Length: 2\r\n\r\nok",
+  "POST /expect-case HTTP/1.1\r\nExpect: 100-Continue\r\nContent-Length: 2\r\n\r\nok",
+  "POST /expect-other HTTP/1.1\r\nExpect: something\r\nContent-Length: 2\r\n\r\nok",
+  "POST /expect-http10 HTTP/1.0\r\nExpect: something\r\nContent-Length: 2\r\n\r\nok",
   -- Truncated and malformed requests
   "GET / HTTP/1.1\r\nHost: localhost\r\n",
   "GET / HTTP/1.1",
+  "GET / HTTP/1.1\r",
   "POST /short HTTP/1.1\r\nContent-Length: 5\r\n\r\nabc",
   get "/ok" ++ "GET /cut",
-  "\r\n\r\n",
   "GET\r\n\r\n",
   "GET \r\n\r\n",
   "GET    \r\n\r\n",
-  "BREW /coffee HTTP/1.1\r\nContent-Length: 1\r\n\r\nx" ++ get "/never-read",
+  " GET / HTTP/1.1\r\n\r\n",
   get "/1" ++ "BAD\r\n\r\n" ++ get "/never-read"
 ]
 
 def outcomeLine : Outcome → String
-  | .req m t b => s!"req {m} {t} {String.ofList b}"
-  | .bad msg => s!"bad {msg}"
+  | .req m t k b => s!"req {m} {t} {if k then "keep-alive" else "close"} {String.ofList b}"
+  | .bad code msg => s!"bad {code} {msg}"
   | .closed => "closed"
 
 /-- A Scala string literal of `s`. -/
@@ -90,7 +160,11 @@ def scalaString (s : String) : String :=
     | '\t' => "\\t"
     | '"' => "\\\""
     | '\\' => "\\\\"
-    | c => c.toString
+    | c =>
+      if c.toNat < 0x20 || c.toNat == 0x7f then
+        let h := String.ofList (Nat.toDigits 16 c.toNat)
+        "\\u" ++ String.ofList (List.replicate (4 - h.length) '0') ++ h
+      else c.toString
   "\"" ++ String.join (s.toList.map esc) ++ "\""
 
 def caseLine (input : String) : String :=
@@ -108,7 +182,8 @@ def scalaSource : String :=
     s!"  val maxRequestSize: Int = {maxSize}",
     "",
     "  // Each case: the bytes a client sends, ␞, then the reader's outcomes in order, separated by ␟.",
-    "  // An outcome is `req <method> <target> <body>`, `bad <message>`, or `closed`.",
+    "  // An outcome is `req <method> <target> <keep-alive|close> <body>`, `bad <status> <message>`,",
+    "  // or `closed`.",
     "  val cases: Seq[String] = Seq("
   ] ++ [",\n".intercalate (inputs.map caseLine), "  )", "", "end HttpReaderSpecCases", ""])
 

@@ -41,16 +41,31 @@ class HttpReaderSpecTest extends UniTest:
           pos += n
           n
       ,
-      HttpReaderSpecCases.maxRequestSize
+      // The model leaves out the line and header limits, so they never trip here
+      HttpReaderLimits(
+        maxInitialLineLength = 1 << 20,
+        maxHeaderSize = 1 << 20,
+        maxContentLength = HttpReaderSpecCases.maxRequestSize
+      )
     )
     val out  = Seq.newBuilder[String]
     var done = false
     while !done do
       reader.readRequest() match
-        case ReadResult.Req(request) =>
-          out += s"req ${request.method.name} ${request.uri} ${request.content.toContentString}"
-        case ReadResult.BadRequest(message) =>
-          out += s"bad ${message}"
+        case ReadResult.Req(request, keepAlive) =>
+          val connection =
+            if keepAlive then
+              "keep-alive"
+            else
+              "close"
+          out +=
+            s"req ${request.method.name} ${request.uri} ${connection} ${request
+                .content
+                .toContentString}"
+          if !keepAlive then
+            done = true
+        case ReadResult.Error(status, message) =>
+          out += s"bad ${status.code} ${message}"
           done = true
         case ReadResult.Closed =>
           out += "closed"
