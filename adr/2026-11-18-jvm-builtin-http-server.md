@@ -28,5 +28,5 @@ Uni already had its own HTTP/1.1 and WebSocket server for Scala Native: a reques
 ## Consequences
 
 - A JVM app on JDK 24+ can serve `Http.server` with `uni` alone. The `examples/rpc-native` benchmark adds a "JVM built-in" target (the same jars without Netty). In the first local sweep on an Apple M5 Pro (oha, keep-alive RPC calls), it served about 99k req/s at 16 connections and about 121k at 256, against about 94k and 108k for Netty, with lower p99 latency. Client and server shared the cores, so treat the numbers as a rough comparison.
-- The built-in server does not decode compressed request bodies. They reach the handler as sent, the same as on Native.
+- The built-in server does not decode compressed request bodies. They reach the handler as sent, the same as on Native. (Superseded by `2026-11-18-socket-server-netty-parity.md`, which also accepts chunked request bodies.)
 - Changing the reader's framing means changing the Lean model and regenerating its cases.

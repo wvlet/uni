@@ -96,15 +96,16 @@ On the JVM, `uni-netty` registers Netty as the backend through
 `java.util.ServiceLoader`. Without it, `Http.server` starts uni's built-in
 server, which needs JDK 24+ and no other dependency. The built-in server runs
 the same HTTP/1.1 and WebSocket code as the Scala Native server, with one
-virtual thread per connection. It does not decode compressed request bodies;
-add `uni-netty` for that, for the annotation router, or for Netty's tuning
-options. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
+virtual thread per connection. Like Netty, it limits the request line and headers,
+decodes chunked and gzip/deflate request bodies, answers `Expect: 100-continue`,
+and compresses responses for `Accept-Encoding`. Add `uni-netty` for the annotation
+router or for Netty's tuning options; the built-in server takes no options of its own. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
 serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 
 ### Tuning one backend
 
 `Http.server` also takes the size limits every backend has:
-`withMaxContentLength` (on Scala Native it covers the headers too),
+`withMaxContentLength` (the body, as sent or after chunked decoding),
 `withWebSocketMaxFrameSize`, and `withWebSocketPingIntervalMillis`. Settings
 you leave unset keep the backend's own default.
 
@@ -570,12 +571,13 @@ Netty-only options go in `Netty.options` and Native-only ones in
 
 ### Request Decompression
 
-The Netty server decodes request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` / `x-deflate` aliases) before any filter or handler sees them, and removes the `Content-Encoding` header. Other encodings such as `br` pass through unchanged.
+The Netty, built-in JVM, and Scala Native servers decode request bodies sent with `Content-Encoding: gzip` or `deflate` (and the `x-gzip` / `x-deflate` aliases) before any filter or handler sees them, and removes the `Content-Encoding` header. Other encodings such as `br` pass through unchanged.
 
 - A compressed body that decodes to more than `withMaxDecompressedRequestSize` bytes (default 64 MiB) gets a plain-text `413`, and the connection is closed. Uncompressed requests are not counted against this limit.
 - A malformed compressed body gets a plain-text `400`, and the connection is closed.
 - The decoded body must also fit in `withMaxContentLength`, so raise both for large compressed uploads.
-- `Netty.options.noRequestDecompression` passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it.
+- `Netty.options.noRequestDecompression` (`Native.options.noRequestDecompression` on Scala Native) passes the compressed bytes to the handler, e.g. to authenticate a request before inflating it. The built-in JVM server always decodes; add `uni-netty` to turn it off.
+- On Scala Native, the server links zlib (`libz`), which almost every system and base image provides.
 
 ### Security Defaults
 
@@ -587,12 +589,16 @@ All three backends start with these defaults:
 | 500 responses say only `Internal Server Error`; RPC errors say `Internal error`; a thrown `ServiceException` sends its message but no stack trace | Exception messages can leak file paths, SQL, hostnames, or credentials. The full exception is logged on the server | `.withDetailedErrors(true)` on the server config, which also covers `RouterHandler` controller exceptions; `RPCHandler(router).withDetailedErrors(true)` for RPC |
 | On a loopback server, requests whose `Host` is not `localhost`, `*.localhost`, `127.0.0.1` or `[::1]` get 403 | DNS rebinding: a web page can point its own host name at 127.0.0.1 and then read the local server as same-origin. The browser still sends the page's host name in `Host` | `.withAllowedHosts("app.example.com", "*.internal.example")` to replace the list, `.noHostCheck` to accept any. A server bound to `0.0.0.0` accepts any host unless `withAllowedHosts` is set |
 | WebSocket upgrades from another browser origin get 403 | Browsers attach cookies to cross-origin WebSocket handshakes (cross-site WebSocket hijacking) | `.withAllowedOrigins("https://app.example.com")`, or `"*"` for any origin |
-| Bounded request size | A single huge request cannot exhaust memory | `.withMaxContentLength` (defaults: Netty 64 KB, Node 1 MB with 413 for larger bodies, Native 1 MB including headers); `Netty.options.withMaxDecompressedRequestSize` for gzip/deflate bodies (default 64 MiB) |
-| Request read timeout (Netty: 30s) | Bounds slowloris clients and idle keep-alive connections | `Netty.options.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`. On Native: `Native.options.withIdleTimeoutMillis(...)` / `.withReadTimeoutMillis(...)` |
+| Bounded request size | A single huge request cannot exhaust memory | `.withMaxContentLength` for the body (defaults: Netty 64 KB, Node 1 MB, built-in and Native 1 MB; 413 for larger bodies). The request line (4 KB, else 414) and headers (8 KB, else 431) have their own limits on Netty, the built-in server, and Native (`Native.options.withMaxInitialLineLength` / `.withMaxHeaderSize`). `withMaxDecompressedRequestSize` for gzip/deflate bodies (default 64 MiB) |
+| Request read timeout (30 s) | Bounds slowloris clients that trickle a request | `Netty.options.withRequestReadTimeoutMillis(...)` / `.noRequestReadTimeout`; `Native.options.withRequestReadTimeoutMillis(...)` on Native. The built-in and Native servers measure from the request's first bytes (408 when it expires); idle keep-alive connections close after the idle timeout |
+| Response write timeout (built-in and Native: 30 s) | A client that stops reading a response cannot hold a thread | `Native.options.withWriteTimeoutMillis(...)` / `.noWriteTimeout` |
+| Strict request parsing | A front proxy and the server cannot disagree on where a request ends (request smuggling) | — A bare CR or LF, obs-fold, whitespace before a header colon, a header name that is not a token, control characters in a value, a non-numeric or repeated `Content-Length`, more than one `Host`, and a `Transfer-Encoding` other than `chunked` get 400 or 501. A request with both `Transfer-Encoding` and `Content-Length` is read as chunked and closes the connection |
 | Bounded long-lived connections | Idle Server-Sent Events streams (and WebSockets on Native) cannot exhaust threads or starve ordinary requests; over the limit they get 503 | `Netty.options.withMaxStreamingConnections(n)` / `Native.options.withMaxStreamingConnections(n)`. Netty default: 256 SSE streams. Native default: `workerThreads` minus up to 4 workers kept for ordinary requests |
 | CR, LF, or NUL in a header name or value is rejected | Prevents HTTP response splitting when a header echoes user input | — (`addHeader`/`setHeader` throw `IllegalArgumentException`) |
 
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
+
+On Scala Native, each connection holds one of the `workerThreads` workers (16 by default) while it is open. The timeouts above bound how long a slow client holds one, but a few slow or idle keep-alive clients can still keep every worker busy; raise `Native.options.withWorkerThreads(n)` for a server that faces many clients, or put a reverse proxy in front. The built-in JVM server runs each connection on a virtual thread and has no such limit.
 
 TLS is not built in: terminate HTTPS at a reverse proxy or load balancer.
 

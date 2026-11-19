@@ -72,6 +72,8 @@ class HttpReaderSpecTest extends UniTest:
           done = true
     out.result()
 
+  end outcomes
+
   HttpReaderSpecCases
     .cases
     .zipWithIndex

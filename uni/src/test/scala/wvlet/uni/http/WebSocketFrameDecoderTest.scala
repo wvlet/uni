@@ -251,4 +251,48 @@ class WebSocketFrameDecoderTest extends UniTest:
     events.size shouldBe 1
   }
 
+  test("fail a text message with invalid UTF-8 (1007), as Netty's Utf8FrameValidator does") {
+    Seq(
+      Array(0xc3.toByte),                                       // truncated sequence
+      Array(0xc0.toByte, 0xaf.toByte),                          // overlong '/'
+      Array(0xed.toByte, 0xa0.toByte, 0x80.toByte),             // a UTF-16 surrogate
+      Array(0xf4.toByte, 0x90.toByte, 0x80.toByte, 0x80.toByte) // above U+10FFFF
+    ).foreach { bytes =>
+      decode(frame(WebSocketFrame.OpText, bytes)) shouldMatch { case Seq(WsEvent.Fail(1007, _)) =>
+      }
+    }
+    // A code point split across fragments is valid once reassembled
+    val euro = "€".getBytes(StandardCharsets.UTF_8)
+    decode(
+      frame(WebSocketFrame.OpText, euro.take(1), fin = false) ++
+        frame(WebSocketFrame.OpContinuation, euro.drop(1))
+    ) shouldMatch { case Seq(WsEvent.Message(WebSocketFrame.OpText, data)) =>
+      new String(data, StandardCharsets.UTF_8) shouldBe "€"
+    }
+    // Binary messages are not checked
+    decode(frame(WebSocketFrame.OpBinary, Array(0xff.toByte))) shouldMatch {
+      case Seq(WsEvent.Message(WebSocketFrame.OpBinary, _)) =>
+    }
+  }
+
+  test("check close frames: status code and UTF-8 reason") {
+    def close(payload: Array[Byte]): Seq[WsEvent] = decode(frame(WebSocketFrame.OpClose, payload))
+    close(Array.emptyByteArray) shouldMatch { case Seq(WsEvent.PeerClose(1000, "")) =>
+    }
+    close(Array[Byte](0x03, 0xe8.toByte) ++ "bye".getBytes(StandardCharsets.UTF_8)) shouldMatch {
+      case Seq(WsEvent.PeerClose(1000, "bye")) =>
+    }
+    close(Array[Byte](0x03)) shouldMatch { case Seq(WsEvent.Fail(1002, _)) =>
+    }
+    // 1005 and 1006 are never sent on the wire, and 999 is outside every range
+    Seq(1005, 1006, 999, 2000, 5000).foreach { code =>
+      close(Array((code >> 8).toByte, (code & 0xff).toByte)) shouldMatch {
+        case Seq(WsEvent.Fail(1002, _)) =>
+      }
+    }
+    close(Array[Byte](0x0f, 0xa0.toByte) ++ Array(0xff.toByte)) shouldMatch {
+      case Seq(WsEvent.Fail(1007, _)) =>
+    }
+  }
+
 end WebSocketFrameDecoderTest

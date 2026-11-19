@@ -51,24 +51,29 @@ private[http] object RequestDecompression:
             try
               readCapped(in, maxSize) match
                 case None =>
-                  Left(Response(HttpStatus.PayloadTooLarge_413).withTextContent(
-                    "Decompressed request body too large"
-                  ))
+                  Left(
+                    Response(HttpStatus.PayloadTooLarge_413).withTextContent(
+                      "Decompressed request body too large"
+                    )
+                  )
                 case Some(decoded) =>
                   val headers = request
                     .headers
                     .remove(HttpHeader.ContentEncoding)
                     .set(HttpHeader.ContentLength, decoded.length.toString)
                   Right(
-                    request.copy(headers = headers, content = HttpContent.fromBytes(decoded, headers))
+                    request.copy(
+                      headers = headers,
+                      content = HttpContent.fromBytes(decoded, headers)
+                    )
                   )
-            finally
-              in.close()
+            finally in.close()
           catch
             case _: IOException =>
               Left(Response.badRequest("Malformed compressed request body"))
       case _ =>
         Right(request)
+    end match
 
   end decode
 
@@ -82,7 +87,8 @@ private[http] object RequestDecompression:
       GZIPInputStream(in, BufferSize)
     else
       val zlibWrapped =
-        body.length >= 2 && (body(0) & 0x0f) == 8 &&
+        body.length >= 2 &&
+          (body(0) & 0x0f) == 8 &&
           (((body(0) & 0xff) << 8) | (body(1) & 0xff)) % 31 == 0
       InflaterInputStream(in, Inflater(!zlibWrapped), BufferSize)
 
@@ -160,6 +166,8 @@ private[http] object ResponseCompression:
               .filter(_.startsWith("\""))
               .foreach(tag => headers = headers.set(HttpHeader.ETag, s"W/${tag}"))
             response.copy(headers = headers, content = HttpContent.bytes(out.toByteArray))
+      end if
+    end if
 
   end encode
 
@@ -169,9 +177,9 @@ private[http] object ResponseCompression:
     * acceptable.
     */
   private[http] def chooseEncoding(acceptEncoding: Seq[String]): Option[String] =
-    var gzipQ  = -1.0
-    var defQ   = -1.0
-    var starQ  = -1.0
+    var gzipQ = -1.0
+    var defQ  = -1.0
+    var starQ = -1.0
     HttpConnectionReader
       .tokens(acceptEncoding)
       .foreach { item =>
@@ -204,5 +212,7 @@ private[http] object ResponseCompression:
       Some("gzip")
     else
       None
+
+  end chooseEncoding
 
 end ResponseCompression

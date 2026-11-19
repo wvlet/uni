@@ -149,7 +149,7 @@ private[http] class WebSocketFrameDecoder(maxFrameSize: Int, expectMasked: Boole
         if fragmentOpcode != -1 then
           fail(emit, 1002, "data frame during a fragmented message")
         else if fin then
-          emit(WsEvent.Message(opcode, payload))
+          message(emit, opcode, payload)
         else
           fragmentOpcode = opcode
           fragments.clear()
@@ -162,23 +162,46 @@ private[http] class WebSocketFrameDecoder(maxFrameSize: Int, expectMasked: Boole
           if fragments.length > maxFrameSize then
             fail(emit, 1009, "message too big")
           else if fin then
-            emit(WsEvent.Message(fragmentOpcode, fragments.toArray))
-            fragments.clear()
+            val op = fragmentOpcode
             fragmentOpcode = -1
+            val data = fragments.toArray
+            fragments.clear()
+            message(emit, op, data)
       case OpClose =>
-        val code =
-          if payload.length >= 2 then
-            ((payload(0) & 0xff) << 8) | (payload(1) & 0xff)
+        // A close payload is empty, or a valid status code and a UTF-8 reason (RFC 6455 §5.5.1),
+        // as Netty's Utf8FrameValidator and close-frame checks require
+        if payload.length == 1 then
+          fail(emit, 1002, "invalid close frame")
+        else if payload.isEmpty then
+          emit(WsEvent.PeerClose(1000, ""))
+          terminated = true
+        else
+          val code = ((payload(0) & 0xff) << 8) | (payload(1) & 0xff)
+          if !WebSocketFrameDecoder.isValidCloseCode(code) then
+            fail(emit, 1002, "invalid close code")
+          else if !WebSocketFrameDecoder.isValidUtf8(payload, 2, payload.length) then
+            fail(emit, 1007, "invalid UTF-8 in close reason")
           else
-            1000
-        emit(WsEvent.PeerClose(code, ""))
-        terminated = true
+            emit(
+              WsEvent.PeerClose(
+                code,
+                String(payload, 2, payload.length - 2, java.nio.charset.StandardCharsets.UTF_8)
+              )
+            )
+            terminated = true
       case OpPing =>
         emit(WsEvent.Ping(payload))
       case OpPong =>
         emit(WsEvent.Pong(payload))
       case _ =>
         fail(emit, 1002, s"unsupported opcode ${opcode}")
+
+  /** A complete message; text must be valid UTF-8 (RFC 6455 §8.1), or the connection fails. */
+  private def message(emit: WsEvent => Unit, opcode: Int, data: Array[Byte]): Unit =
+    if opcode == OpText && !WebSocketFrameDecoder.isValidUtf8(data, 0, data.length) then
+      fail(emit, 1007, "invalid UTF-8 in text message")
+    else
+      emit(WsEvent.Message(opcode, data))
 
   /**
     * Emit a terminal failure and mark the decoder done. Always returns false (no further decoding).
@@ -187,5 +210,66 @@ private[http] class WebSocketFrameDecoder(maxFrameSize: Int, expectMasked: Boole
     emit(WsEvent.Fail(code, reason))
     terminated = true
     false
+
+end WebSocketFrameDecoder
+
+private[http] object WebSocketFrameDecoder:
+
+  /**
+    * Status codes a peer may send in a close frame (RFC 6455 §7.4): the defined ones except 1004
+    * (reserved) and 1005, 1006, 1015 (never sent on the wire), and the 3000-4999 range for
+    * libraries and applications.
+    */
+  def isValidCloseCode(code: Int): Boolean =
+    (code >= 1000 && code <= 1003) ||
+      (code >= 1007 && code <= 1014) ||
+      (code >= 3000 && code <= 4999)
+
+  /**
+    * Whether `bytes[from, until)` is well-formed UTF-8: no overlong forms, surrogates, or code
+    * points above U+10FFFF (RFC 3629).
+    */
+  def isValidUtf8(bytes: Array[Byte], from: Int, until: Int): Boolean =
+    var i = from
+    while i < until do
+      val b = bytes(i) & 0xff
+      if b < 0x80 then
+        i += 1
+      else
+        // The sequence length, and the allowed range of its second byte
+        val (n, lo, hi) =
+          if b >= 0xc2 && b <= 0xdf then
+            (2, 0x80, 0xbf)
+          else if b == 0xe0 then
+            (3, 0xa0, 0xbf)
+          else if b >= 0xe1 && b <= 0xec || b == 0xee || b == 0xef then
+            (3, 0x80, 0xbf)
+          else if b == 0xed then
+            (3, 0x80, 0x9f)
+          else if b == 0xf0 then
+            (4, 0x90, 0xbf)
+          else if b >= 0xf1 && b <= 0xf3 then
+            (4, 0x80, 0xbf)
+          else if b == 0xf4 then
+            (4, 0x80, 0x8f)
+          else
+            return false
+        if i + n > until then
+          return false
+        val b1 = bytes(i + 1) & 0xff
+        if b1 < lo || b1 > hi then
+          return false
+        var k = 2
+        while k < n do
+          val c = bytes(i + k) & 0xff
+          if c < 0x80 || c > 0xbf then
+            return false
+          k += 1
+        i += n
+      end if
+    end while
+    true
+
+  end isValidUtf8
 
 end WebSocketFrameDecoder

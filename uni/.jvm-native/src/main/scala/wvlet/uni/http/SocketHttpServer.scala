@@ -169,8 +169,9 @@ abstract class SocketHttpServer private[http] (
       val now = System.nanoTime()
       connections.forEach { state =>
         if state.conn.writeStalled(now, timeoutNanos) then
-          debug(s"Closing a connection whose response write stalled for ${limits
-              .writeTimeoutMillis} ms")
+          debug(
+            s"Closing a connection whose response write stalled for ${limits.writeTimeoutMillis} ms"
+          )
           try
             state.conn.abort()
           catch
@@ -308,6 +309,8 @@ abstract class SocketHttpServer private[http] (
                 ResponseCompression.encode(request, response)
             conn.write(HttpResponseWriter.serialize(encoded, keepAlive, includeBody = !isHead))
     keepAlive && sent
+
+  end handleHttpRequest
 
   /**
     * Send a file body in bounded chunks, so the file is never held in memory. Returns false when
@@ -638,8 +641,8 @@ private[http] object SocketHttpServer:
 
 /**
   * A connection that records when its current write started, so the server's watchdog can abort a
-  * write that makes no progress. A write goes out in pieces, and each piece restarts the clock, so a
-  * slow but moving client is never cut off.
+  * write that makes no progress. A write goes out in pieces, and each piece restarts the clock, so
+  * a slow but moving client is never cut off.
   */
 private[http] class WriteTrackingConnection(underlying: SocketConnection) extends SocketConnection:
   // System.nanoTime() when the current piece started, or 0 while no write is in progress
@@ -663,8 +666,7 @@ private[http] class WriteTrackingConnection(underlying: SocketConnection) extend
         pieceStarted = math.max(System.nanoTime(), 1L)
         ok = underlying.write(data, pos, n)
         pos += n
-    finally
-      pieceStarted = 0L
+    finally pieceStarted = 0L
     ok
 
   override def interrupt(): Unit = underlying.interrupt()

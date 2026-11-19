@@ -120,7 +120,10 @@ private[http] class HttpConnectionReader(
     StandardCharsets.ISO_8859_1
   )
 
-  private def bad(message: String): ReadResult = ReadResult.Error(HttpStatus.BadRequest_400, message)
+  private def bad(message: String): ReadResult = ReadResult.Error(
+    HttpStatus.BadRequest_400,
+    message
+  )
 
   /** The result of a read that ended before the request did. */
   private def cutShort(n: Int, message: String): ReadResult =
@@ -168,6 +171,8 @@ private[http] class HttpConnectionReader(
     valueStart = vs
     valueEnd = ve
     null
+
+  end checkHeaderLine
 
   /**
     * Scan lines from `from` until an empty line, checking line endings and the size limit.
@@ -234,11 +239,10 @@ private[http] class HttpConnectionReader(
     while lineEnd < 0 do
       val n = ensure(i)
       if n <= 0 then
-        return
-          if n < 0 && onlyWhitespaceBuffered then
-            ReadResult.Closed
-          else
-            cutShort(n, "Incomplete request")
+        return if n < 0 && onlyWhitespaceBuffered then
+          ReadResult.Closed
+        else
+          cutShort(n, "Incomplete request")
       val b = at(i)
       if b == '\n' then
         if at(i - 1) != '\r' then
@@ -286,7 +290,10 @@ private[http] class HttpConnectionReader(
         else if major == '1' && minor == '0' then
           true
         else
-          return ReadResult.Error(HttpStatus.HttpVersionNotSupported_505, "HTTP version not supported")
+          return ReadResult.Error(
+            HttpStatus.HttpVersionNotSupported_505,
+            "HTTP version not supported"
+          )
       else
         return bad("Invalid HTTP version")
     k = 0
@@ -321,14 +328,15 @@ private[http] class HttpConnectionReader(
     var headers = headerBuilder.result()
 
     // Method names are case-sensitive (RFC 9110 §9.1); uni-netty answers an unknown one with 501
-    val method = HttpMethod.of(methodName).filter(_.name == methodName) match
-      case Some(m) =>
-        m
-      case None =>
-        return ReadResult.Error(
-          HttpStatus.NotImplemented_501,
-          s"Unsupported HTTP method: ${methodName}"
-        )
+    val method =
+      HttpMethod.of(methodName).filter(_.name == methodName) match
+        case Some(m) =>
+          m
+        case None =>
+          return ReadResult.Error(
+            HttpStatus.NotImplemented_501,
+            s"Unsupported HTTP method: ${methodName}"
+          )
 
     if headers.getAll(HttpHeader.Host).sizeIs > 1 then
       return bad("Multiple Host headers")
@@ -381,7 +389,8 @@ private[http] class HttpConnectionReader(
 
     val connectionTokens = tokens(headers.getAll(HttpHeader.Connection))
     val keepAlive        =
-      !connectionTokens.contains("close") && (!http10 || connectionTokens.contains("keep-alive")) &&
+      !connectionTokens.contains("close") &&
+        (!http10 || connectionTokens.contains("keep-alive")) &&
         !(chunked && contentLengths.nonEmpty)
 
     val (body, bodyEnd) =
@@ -503,6 +512,7 @@ private[http] class HttpConnectionReader(
       System.arraycopy(buf, start + p, out, total, len)
       total += len
       p += len + 2
+    end while
     Left(bad("Unreachable"))
 
   end readChunked
@@ -543,10 +553,23 @@ private[http] object HttpConnectionReader:
     else
       -1
 
-  /** The comma-separated list elements of header values, trimmed and lower-cased. */
+  /**
+    * The comma-separated list elements of header values, trimmed and ASCII-lower-cased (the default
+    * locale could change `I`, and Scala Native has no `Locale.ROOT`).
+    */
   private[http] def tokens(values: Seq[String]): Seq[String] = values.flatMap(
-    _.split(",", -1).iterator.map(_.trim.toLowerCase(java.util.Locale.ROOT))
+    _.split(",", -1).iterator.map(t => asciiLower(t.trim))
   )
+
+  private def asciiLower(s: String): String =
+    val chars = s.toCharArray
+    var i     = 0
+    while i < chars.length do
+      val c = chars(i)
+      if c >= 'A' && c <= 'Z' then
+        chars(i) = (c + 32).toChar
+      i += 1
+    String(chars)
 
 end HttpConnectionReader
 
@@ -638,8 +661,7 @@ private[http] object HttpResponseWriter:
       .headers
       .entries
       .foreach { case (name, value) =>
-        if !isManagedHeader(name) && !name.equalsIgnoreCase(HttpHeader.CacheControl)
-        then
+        if !isManagedHeader(name) && !name.equalsIgnoreCase(HttpHeader.CacheControl) then
           sb.append(name).append(": ").append(value).append("\r\n")
       }
     sb.append(HttpHeader.ContentType)
@@ -674,7 +696,9 @@ private[http] object HttpResponseWriter:
       header ++ data ++ CRLF
 
   /** The interim response to `Expect: 100-continue`. */
-  val Continue100: Array[Byte] = "HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
+  val Continue100: Array[Byte] = "HTTP/1.1 100 Continue\r\n\r\n".getBytes(
+    StandardCharsets.ISO_8859_1
+  )
 
   /** The terminating zero-length chunk that ends a chunked body. */
   val finalChunk: Array[Byte] = "0\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
