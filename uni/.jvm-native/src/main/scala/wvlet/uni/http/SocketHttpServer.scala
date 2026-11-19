@@ -168,15 +168,15 @@ abstract class SocketHttpServer private[http] (
           ()
       val now = System.nanoTime()
       connections.forEach { state =>
-        if state.conn.writeStalled(now, timeoutNanos) then
-          debug(
-            s"Closing a connection whose response write stalled for ${limits.writeTimeoutMillis} ms"
-          )
-          try
-            state.conn.abort()
-          catch
-            case NonFatal(e) =>
-              debug(s"Error aborting a connection: ${e.getMessage}")
+        try
+          if state.conn.abortIfStalled(now, timeoutNanos) then
+            debug(
+              s"Closed a connection whose response write stalled for ${limits
+                  .writeTimeoutMillis} ms"
+            )
+        catch
+          case NonFatal(e) =>
+            debug(s"Error aborting a connection: ${e.getMessage}")
       }
 
   private def handleConnection(socket: SocketConnection): Unit =
@@ -649,7 +649,22 @@ private[http] class WriteTrackingConnection(underlying: SocketConnection) extend
   @volatile
   private var pieceStarted = 0L
 
-  def writeStalled(nowNanos: Long, timeoutNanos: Long): Boolean =
+  // Set when the write watchdog aborts this connection because the peer stopped reading
+  @volatile
+  private var abortedStalled = false
+
+  def stalled: Boolean = abortedStalled
+
+  /** Abort a write that made no progress for `timeoutNanos`. Returns true if it aborted. */
+  def abortIfStalled(nowNanos: Long, timeoutNanos: Long): Boolean =
+    if writeStalled(nowNanos, timeoutNanos) then
+      abortedStalled = true
+      underlying.abort()
+      true
+    else
+      false
+
+  private def writeStalled(nowNanos: Long, timeoutNanos: Long): Boolean =
     val t = pieceStarted
     t != 0L && nowNanos - t > timeoutNanos
 

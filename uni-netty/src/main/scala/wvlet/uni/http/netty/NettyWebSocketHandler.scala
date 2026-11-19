@@ -26,10 +26,16 @@ import io.netty.handler.codec.http.websocketx.{
   WebSocketServerHandshaker
 }
 import io.netty.handler.timeout.{IdleState, IdleStateEvent}
-import wvlet.uni.http.{Request, WebSocketContext, WebSocketHandler, WebSocketHeartbeat}
+import wvlet.uni.http.{
+  Request,
+  WebSocketClose,
+  WebSocketCloseState,
+  WebSocketContext,
+  WebSocketHandler,
+  WebSocketHeartbeat
+}
 import wvlet.uni.log.LogSupport
 
-import java.util.concurrent.atomic.AtomicBoolean
 import scala.util.control.NonFatal
 
 /**
@@ -42,21 +48,36 @@ private[netty] class NettyWebSocketContext(
     private[netty] val handshaker: WebSocketServerHandshaker
 ) extends WebSocketContext:
 
-  override def send(text: String): Unit = channel.writeAndFlush(TextWebSocketFrame(text))
+  private[netty] val closeState = WebSocketCloseState()
 
-  override def send(data: Array[Byte]): Unit = channel.writeAndFlush(
+  override def send(text: String): Unit = write(TextWebSocketFrame(text))
+
+  override def send(data: Array[Byte]): Unit = write(
     BinaryWebSocketFrame(Unpooled.wrappedBuffer(data))
   )
+
+  // writeAndFlush queues without limit when the client stops reading, so drop a client once too
+  // much is pending for it. The pending count includes writes still queued from other threads.
+  private def write(frame: WebSocketFrame): Unit =
+    val pending = channel.unsafe().outboundBuffer()
+    if pending != null && pending.totalPendingWriteBytes() > WebSocketClose.MaxPendingWriteBytes
+    then
+      frame.release()
+      closeState.record(WebSocketClose.TryAgainLater, "send buffer full")
+      channel.close()
+    else
+      channel.writeAndFlush(frame)
 
   override def close(): Unit = close(
     WebSocketCloseStatus.NORMAL_CLOSURE.code(),
     WebSocketCloseStatus.NORMAL_CLOSURE.reasonText()
   )
 
-  override def close(statusCode: Int, reason: String): Unit = handshaker.close(
-    channel,
-    CloseWebSocketFrame(statusCode, reason)
-  )
+  override def close(statusCode: Int, reason: String): Unit =
+    val code = WebSocketClose.sendableCode(statusCode)
+    val text = WebSocketClose.truncateReason(reason)
+    closeState.record(code, text)
+    handshaker.close(channel, CloseWebSocketFrame(code, text))
 
 end NettyWebSocketContext
 
@@ -71,10 +92,6 @@ private[netty] class NettyWebSocketHandler(
     pingIntervalMillis: Int
 ) extends SimpleChannelInboundHandler[WebSocketFrame]
     with LogSupport:
-
-  // Ensures onClose is delivered exactly once, whether triggered by an inbound Close frame or by
-  // channelInactive.
-  private val closeNotified = AtomicBoolean(false)
 
   // Heartbeat is driven by an IdleStateHandler in the pipeline (added only when pingInterval > 0).
   private val heartbeat =
@@ -95,6 +112,13 @@ private[netty] class NettyWebSocketHandler(
       case b: BinaryWebSocketFrame =>
         safeInvoke(handler.onBinaryMessage(wsContext, ByteBufUtil.getBytes(b.content())))
       case c: CloseWebSocketFrame =>
+        // statusCode is -1 for a close frame without a status, which the other backends read as 1000
+        val code =
+          if c.statusCode() < 0 then
+            WebSocketClose.NormalClosure
+          else
+            c.statusCode()
+        wsContext.closeState.record(code, c.reasonText())
         notifyClose()
         // Echo the close frame back and close the connection (retain to balance the auto-release).
         wsContext.handshaker.close(ctx.channel(), c.retain())
@@ -133,14 +157,9 @@ private[netty] class NettyWebSocketHandler(
       safeOnError(cause)
     ctx.close()
 
-  private def notifyClose(): Unit =
-    if closeNotified.compareAndSet(false, true) then
-      try
-        handler.onClose(wsContext)
-      catch
-        // onClose errors are logged, not routed to onError, to avoid re-entrancy during teardown.
-        case NonFatal(e) =>
-          warn(e)
+  // Delivered exactly once, whether triggered by an inbound Close frame or by channelInactive.
+  // onClose errors are logged, not routed to onError, to avoid re-entrancy during teardown.
+  private def notifyClose(): Unit = wsContext.closeState.notifyClose(handler, wsContext)
 
   private def safeInvoke(body: => Unit): Unit =
     try

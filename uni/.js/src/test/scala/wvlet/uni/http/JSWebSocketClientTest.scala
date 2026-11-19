@@ -28,9 +28,14 @@ class JSWebSocketClientTest extends UniTest:
   private given ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
 
   /** Open the connection and resolve with its [[WebSocketContext]] once the handshake completes. */
-  private def connect(uri: String, handler: WebSocketHandler): Future[WebSocketContext] =
+  private def connect(uri: String, handler: WebSocketHandler): Future[WebSocketContext] = connect(
+    Request.get(uri),
+    handler
+  )
+
+  private def connect(request: Request, handler: WebSocketHandler): Future[WebSocketContext] =
     val opened = Promise[WebSocketContext]()
-    RxRunner.runOnce(Http.webSocketClient.connect(uri, handler)) {
+    RxRunner.runOnce(Http.webSocketClient.connect(request, handler)) {
       case OnNext(ctx) =>
         opened.trySuccess(ctx.asInstanceOf[WebSocketContext])
       case OnError(e) =>
@@ -139,6 +144,88 @@ class JSWebSocketClientTest extends UniTest:
             _ = ctx.close()
             done <- closed.future
           yield done shouldBe true
+        Rx.future(result)
+      }
+  }
+
+  test("JS WebSocket client sends request headers with the upgrade on Node") {
+    NodeServerConfig()
+      .withPort(0)
+      .withWebSocketRoute("/ws/auth") { request =>
+        new WebSocketHandler:
+          override def onOpen(ctx: WebSocketContext): Unit = ctx.send(
+            request.header("Authorization").getOrElse("none")
+          )
+      }
+      .startAndAwait { server =>
+        val received = Promise[String]()
+        val handler  =
+          new WebSocketHandler:
+            override def onTextMessage(ctx: WebSocketContext, message: String): Unit = received
+              .trySuccess(message)
+        val request = Request
+          .get(s"ws://127.0.0.1:${server.localPort}/ws/auth")
+          .addHeader("Authorization", "Bearer secret")
+        val result =
+          for
+            ctx     <- connect(request, handler)
+            message <- received.future
+          yield
+            ctx.close()
+            message shouldBe "Bearer secret"
+        Rx.future(result)
+      }
+  }
+
+  test("JS WebSocket client and Node server report close codes in both directions") {
+    val serverSide = Promise[(Int, String)]()
+    NodeServerConfig()
+      .withPort(0)
+      .withWebSocketRoute("/ws/bye") { _ =>
+        new WebSocketHandler:
+          override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.close(
+            4001,
+            "x" * 300
+          )
+
+          override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
+            serverSide.trySuccess((statusCode, reason))
+      }
+      .startAndAwait { server =>
+        val client  = Promise[(Int, String)]()
+        val handler =
+          new WebSocketHandler:
+            override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
+              client.trySuccess((statusCode, reason))
+        val result =
+          for
+            ctx <- connect(s"ws://127.0.0.1:${server.localPort}/ws/bye", handler)
+            _ = ctx.send("close me")
+            c <- client.future
+            s <- serverSide.future
+          yield
+            c shouldBe (4001, "x" * 123)
+            s shouldBe (4001, "x" * 123)
+        Rx.future(result)
+      }
+  }
+
+  test("JS WebSocket client reports its own close code on the Node server") {
+    val serverSide = Promise[(Int, String)]()
+    NodeServerConfig()
+      .withPort(0)
+      .withWebSocketRoute("/ws/done") { _ =>
+        new WebSocketHandler:
+          override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
+            serverSide.trySuccess((statusCode, reason))
+      }
+      .startAndAwait { server =>
+        val result =
+          for
+            ctx <- connect(s"ws://127.0.0.1:${server.localPort}/ws/done", new WebSocketHandler {})
+            _ = ctx.close(4002, "done")
+            s <- serverSide.future
+          yield s shouldBe (4002, "done")
         Rx.future(result)
       }
   }

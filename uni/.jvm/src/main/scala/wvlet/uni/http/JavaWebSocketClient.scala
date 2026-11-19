@@ -26,7 +26,7 @@ import java.util.concurrent.{
   ScheduledFuture,
   TimeUnit
 }
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import scala.concurrent.{ExecutionContext, Promise}
 
 /**
@@ -39,16 +39,20 @@ class JavaWebSocketClient extends WebSocketClient:
   private given ExecutionContext = ExecutionContext.parasitic
 
   override def connect(
-      uri: String,
+      request: Request,
       handler: WebSocketHandler,
       pingIntervalMillis: Int
   ): Rx[WebSocketContext] =
     val opened   = Promise[WebSocketContext]()
-    val listener = JavaWebSocketListener(handler, Request.get(uri), opened, pingIntervalMillis)
-    JavaWebSocketClient
-      .sharedHttpClient
-      .newWebSocketBuilder()
-      .buildAsync(URI.create(uri), listener)
+    val listener = JavaWebSocketListener(handler, request, opened, pingIntervalMillis)
+    val builder  = JavaWebSocketClient.sharedHttpClient.newWebSocketBuilder()
+    try
+      WebSocketClient.upgradeHeaders(request).foreach((name, value) => builder.header(name, value))
+    catch
+      case e: IllegalArgumentException =>
+        return Rx.exception(e)
+    builder
+      .buildAsync(URI.create(request.fullUri), listener)
       .exceptionally { e =>
         // buildAsync wraps the cause in a CompletionException.
         opened.tryFailure(Option(e.getCause).getOrElse(e))
@@ -86,6 +90,7 @@ private class JavaWebSocketListener(
 
   private val textBuffer   = StringBuilder()
   private val binaryBuffer = java.io.ByteArrayOutputStream()
+  private val closeState   = WebSocketCloseState()
   private val closed       = AtomicBoolean(false)
   @volatile
   private var ctx: WebSocketContext = null
@@ -104,7 +109,7 @@ private class JavaWebSocketListener(
   override def onOpen(webSocket: WebSocket): Unit =
     // Request all messages up front so the JDK keeps delivering without per-message request() calls.
     webSocket.request(Long.MaxValue)
-    val c = JavaWebSocketContext(webSocket, connectRequest)
+    val c = JavaWebSocketContext(webSocket, connectRequest, closeState, () => notifyClose())
     ctx = c
     try
       handler.onOpen(c)
@@ -169,6 +174,7 @@ private class JavaWebSocketListener(
     null
 
   override def onClose(webSocket: WebSocket, statusCode: Int, reason: String): CompletionStage[?] =
+    closeState.record(statusCode, reason)
     notifyClose()
     null
 
@@ -191,11 +197,7 @@ private class JavaWebSocketListener(
       if heartbeatFuture != null then
         heartbeatFuture.cancel(false)
       if ctx != null then
-        try
-          handler.onClose(ctx)
-        catch
-          case scala.util.control.NonFatal(_) =>
-            ()
+        closeState.notifyClose(handler, ctx)
 
 end JavaWebSocketListener
 
@@ -203,30 +205,79 @@ end JavaWebSocketListener
   * [[WebSocketContext]] over a JDK `java.net.http.WebSocket`. `request` is the connect request.
   * Sends are serialized through a future chain (the JDK forbids overlapping sends).
   */
-private class JavaWebSocketContext(webSocket: WebSocket, override val request: Request)
-    extends WebSocketContext:
+private class JavaWebSocketContext(
+    webSocket: WebSocket,
+    override val request: Request,
+    closeState: WebSocketCloseState,
+    onAbort: () => Unit
+) extends WebSocketContext:
 
   // The JDK WebSocket requires each send to complete before the next is issued (else it throws
   // IllegalStateException), so serialize sends through a single CompletableFuture chain. The
   // `exceptionally` keeps the chain alive after a failed send rather than wedging all later sends.
   private val sendLock                                = Object()
   private var sendChain: CompletableFuture[WebSocket] = CompletableFuture.completedFuture(webSocket)
+  // Bytes in queued sends that haven't completed: the chain grows without limit when the server
+  // stops reading, so abort the connection past MaxPendingWriteBytes.
+  private val pendingBytes = AtomicLong(0)
 
-  private def enqueue(send: WebSocket => CompletableFuture[WebSocket]): Unit = sendLock
-    .synchronized {
-      sendChain = sendChain.thenCompose(ws => send(ws)).exceptionally(_ => webSocket)
-    }
+  private def enqueue(bytes: Int)(send: WebSocket => CompletableFuture[WebSocket]): Unit =
+    if pendingBytes.addAndGet(bytes) > WebSocketClose.MaxPendingWriteBytes then
+      closeState.record(WebSocketClose.TryAgainLater, "send buffer full")
+      webSocket.abort()
+      // abort() doesn't call the listener, so deliver onClose here
+      onAbort()
+    else
+      sendLock.synchronized {
+        sendChain = sendChain
+          .thenCompose(ws => send(ws))
+          .handle { (_, _) =>
+            pendingBytes.addAndGet(-bytes)
+            webSocket
+          }
+      }
 
-  override def send(text: String): Unit = enqueue(_.sendText(text, true))
+  override def send(text: String): Unit =
+    enqueue(JavaWebSocketContext.utf8Length(text))(_.sendText(text, true))
 
-  override def send(data: Array[Byte]): Unit = enqueue(_.sendBinary(ByteBuffer.wrap(data), true))
+  override def send(data: Array[Byte]): Unit =
+    enqueue(data.length)(_.sendBinary(ByteBuffer.wrap(data), true))
 
-  private[http] def sendPing(): Unit = enqueue(_.sendPing(ByteBuffer.allocate(0)))
+  private[http] def sendPing(): Unit = enqueue(0)(_.sendPing(ByteBuffer.allocate(0)))
 
   override def close(): Unit = close(WebSocket.NORMAL_CLOSURE, "")
 
-  override def close(statusCode: Int, reason: String): Unit = enqueue(
-    _.sendClose(statusCode, reason)
-  )
+  override def close(statusCode: Int, reason: String): Unit =
+    // A client may not send 1012-1014 (JDK `sendClose` rejects them), unlike a server.
+    val code =
+      WebSocketClose.sendableCode(statusCode) match
+        case c if c >= 1012 && c <= 1014 =>
+          WebSocketClose.InternalError
+        case c =>
+          c
+    val text = WebSocketClose.truncateReason(reason)
+    closeState.record(code, text)
+    enqueue(0)(_.sendClose(code, text))
 
 end JavaWebSocketContext
+
+private object JavaWebSocketContext:
+  /** The UTF-8 encoded length of `s`, without encoding it. */
+  def utf8Length(s: String): Int =
+    var n = 0
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c < 0x80 then
+        n += 1
+      else if c < 0x800 then
+        n += 2
+      else if Character.isHighSurrogate(c) && i + 1 < s.length &&
+        Character.isLowSurrogate(s.charAt(i + 1))
+      then
+        n += 4
+        i += 1
+      else
+        n += 3
+      i += 1
+    n

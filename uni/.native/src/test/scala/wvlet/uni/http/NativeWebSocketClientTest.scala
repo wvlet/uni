@@ -26,11 +26,16 @@ import java.util.concurrent.{CountDownLatch, LinkedBlockingQueue, TimeUnit}
 class NativeWebSocketClientTest extends UniTest:
 
   /** Open the connection and return its [[WebSocketContext]] (waits for the handshake). */
-  private def connect(uri: String, handler: WebSocketHandler): WebSocketContext =
+  private def connect(uri: String, handler: WebSocketHandler): WebSocketContext = connect(
+    Request.get(uri),
+    handler
+  )
+
+  private def connect(request: Request, handler: WebSocketHandler): WebSocketContext =
     val ref   = AtomicReference[WebSocketContext]()
     val error = AtomicReference[Throwable]()
     val ready = CountDownLatch(1)
-    RxRunner.runOnce(Http.webSocketClient.connect(uri, handler)) {
+    RxRunner.runOnce(Http.webSocketClient.connect(request, handler)) {
       case OnNext(ctx) =>
         ref.set(ctx.asInstanceOf[WebSocketContext]);
         ready.countDown()
@@ -124,6 +129,60 @@ class NativeWebSocketClientTest extends UniTest:
         val ctx = connect(s"ws://127.0.0.1:${server.localPort}/ws/life", handler)
         ctx.close()
         closed.await(10, TimeUnit.SECONDS) shouldBe true
+      }
+  }
+
+  test("Native WebSocket client sends request headers with the upgrade") {
+    NativeServerConfig()
+      .withPort(0)
+      .withWebSocketRoute("/ws/auth") { request =>
+        new WebSocketHandler:
+          override def onOpen(ctx: WebSocketContext): Unit = ctx.send(
+            request.header("Authorization").getOrElse("none")
+          )
+      }
+      .start { server =>
+        val messages = LinkedBlockingQueue[String]()
+        val handler  =
+          new WebSocketHandler:
+            override def onTextMessage(ctx: WebSocketContext, message: String): Unit = messages.put(
+              message
+            )
+        val ctx = connect(
+          Request
+            .get(s"ws://127.0.0.1:${server.localPort}/ws/auth")
+            .addHeader("Authorization", "Bearer secret"),
+          handler
+        )
+        try messages.poll(10, TimeUnit.SECONDS) shouldBe "Bearer secret"
+        finally ctx.close()
+      }
+  }
+
+  test("Native WebSocket client and server report close codes in both directions") {
+    val serverSide = LinkedBlockingQueue[(Int, String)]()
+    NativeServerConfig()
+      .withPort(0)
+      .withWebSocketRoute("/ws/bye") { _ =>
+        new WebSocketHandler:
+          override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.close(
+            4001,
+            "x" * 300
+          )
+
+          override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
+            serverSide.put((statusCode, reason))
+      }
+      .start { server =>
+        val client  = LinkedBlockingQueue[(Int, String)]()
+        val handler =
+          new WebSocketHandler:
+            override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
+              client.put((statusCode, reason))
+        val ctx = connect(s"ws://127.0.0.1:${server.localPort}/ws/bye", handler)
+        ctx.send("close me")
+        client.poll(10, TimeUnit.SECONDS) shouldBe (4001, "x" * 123)
+        serverSide.poll(10, TimeUnit.SECONDS) shouldBe (4001, "x" * 123)
       }
   }
 

@@ -13,6 +13,12 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.log.LogSupport
+
+import java.nio.charset.StandardCharsets
+import java.util.concurrent.atomic.AtomicBoolean
+import scala.util.control.NonFatal
+
 /**
   * A handle to a single, established WebSocket connection. `send`/`close` are safe to call from any
   * thread. Implementations are provided per backend (e.g. Netty on the JVM).
@@ -41,7 +47,11 @@ trait WebSocketContext:
   def close(): Unit
 
   /**
-    * Close the connection with the given status code and reason.
+    * Close the connection with the given status code and reason. A code that may not be sent in a
+    * close frame (1004–1006, 1015, or outside 1000–4999) is sent as 1011, and a reason longer than
+    * 123 UTF-8 bytes is cut to fit. Runtime limits narrow this on two clients: the JDK client sends
+    * 1012–1014 as 1011, and the JS client, whose `WebSocket` API accepts only 1000 and 3000–4999,
+    * sends other codes as 1000.
     */
   def close(statusCode: Int, reason: String): Unit
 
@@ -71,9 +81,18 @@ trait WebSocketHandler:
 
   /**
     * Called once when the connection closes, whether initiated by the client or the server.
-    * Delivered exactly once.
+    * Delivered exactly once. Override [[onClose(ctx, statusCode, reason)]] instead to see why the
+    * connection closed.
     */
   def onClose(ctx: WebSocketContext): Unit = {}
+
+  /**
+    * Called once when the connection closes, with the status code and reason of the first close
+    * frame sent or received: the peer's when it closed first, this side's when it did. The code is
+    * 1006 when the connection ended without a close frame, and 1013 when this side closed it
+    * because the peer stopped reading. Delivered exactly once; the default calls [[onClose(ctx)]].
+    */
+  def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit = onClose(ctx)
 
   /**
     * Called when a callback or the connection raises an error.
@@ -96,3 +115,79 @@ case class WebSocketRoute(
     handlerFactory: Request => WebSocketHandler,
     filter: RxHttpFilter = RxHttpFilter.identity
 )
+
+/**
+  * Close-frame rules shared by every backend (RFC 6455 §5.5 and §7.4): which status codes may be
+  * sent, and the reason's size limit.
+  */
+private[http] object WebSocketClose:
+  final val NormalClosure   = 1000
+  final val AbnormalClosure = 1006
+  final val InternalError   = 1011
+  final val TryAgainLater   = 1013
+
+  /** A close frame is a control frame (at most 125 bytes): 2 bytes of code plus the reason. */
+  final val MaxReasonBytes = 123
+
+  /**
+    * Outbound bytes a connection may queue for a peer that isn't reading, on the backends that
+    * queue sends (Netty, Node, and the JDK client). Past it the connection closes with 1013.
+    */
+  final val MaxPendingWriteBytes = 16 * 1024 * 1024
+
+  /** `code` when it may be sent in a close frame, else 1011 (internal error). */
+  def sendableCode(code: Int): Int =
+    if WebSocketFrameDecoder.isValidCloseCode(code) then
+      code
+    else
+      InternalError
+
+  /** `reason` cut to [[MaxReasonBytes]] UTF-8 bytes, on a character boundary. */
+  def truncateReason(reason: String): String =
+    if reason == null then
+      ""
+    // A char is at most 3 UTF-8 bytes, so 41 chars always fit.
+    else if reason.length <= MaxReasonBytes / 3 then
+      reason
+    else
+      val bytes = reason.getBytes(StandardCharsets.UTF_8)
+      if bytes.length <= MaxReasonBytes then
+        reason
+      else
+        var end = MaxReasonBytes
+        // Back up to the first byte of a multi-byte sequence (continuation bytes are 10xxxxxx).
+        while end > 0 && (bytes(end) & 0xc0) == 0x80 do
+          end -= 1
+        String(bytes, 0, end, StandardCharsets.UTF_8)
+
+end WebSocketClose
+
+/**
+  * Tracks how a connection closed and delivers `onClose` exactly once. The first [[record]] wins:
+  * the peer's close frame, or this side's close. With no record, `onClose` reports 1006.
+  */
+private[http] class WebSocketCloseState extends LogSupport:
+  private val notified = AtomicBoolean(false)
+  @volatile
+  private var status: (Int, String) = null
+
+  def record(statusCode: Int, reason: String): Unit = synchronized {
+    if status == null then
+      status = (statusCode, reason)
+  }
+
+  def notifyClose(handler: WebSocketHandler, ctx: WebSocketContext): Unit =
+    if notified.compareAndSet(false, true) then
+      val (code, reason) = synchronized {
+        if status == null then
+          (WebSocketClose.AbnormalClosure, "")
+        else
+          status
+      }
+      try
+        handler.onClose(ctx, code, reason)
+      catch
+        case NonFatal(e) =>
+          warn(s"onClose error: ${e.getMessage}")
+
+end WebSocketCloseState

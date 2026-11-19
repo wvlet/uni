@@ -126,11 +126,12 @@ private[http] object NodeWebSocket extends LogSupport:
     if isDestroyed(socket) then
       return
 
-    val handler   = route.handlerFactory(request)
-    val ctx       = NodeWebSocketContext(socket, request)
-    val decoder   = WebSocketFrameDecoder(maxFrameSize)
-    var closed    = false
-    val heartbeat =
+    val handler    = route.handlerFactory(request)
+    val closeState = WebSocketCloseState()
+    val ctx        = NodeWebSocketContext(socket, request, closeState)
+    val decoder    = WebSocketFrameDecoder(maxFrameSize)
+    var closed     = false
+    val heartbeat  =
       if pingIntervalMillis > 0 then
         WebSocketHeartbeat()
       else
@@ -146,11 +147,11 @@ private[http] object NodeWebSocket extends LogSupport:
           catch
             case NonFatal(_) =>
               ()
-        try
-          handler.onClose(ctx)
-        catch
-          case NonFatal(e) =>
-            warn(s"onClose error: ${e.getMessage}")
+        closeState.notifyClose(handler, ctx)
+
+    def onPeerClose(code: Int, reason: String): Unit =
+      closeState.record(code, reason)
+      notifyClose()
 
     def drive(bytes: Array[Byte]): Unit =
       if !closed then
@@ -160,7 +161,7 @@ private[http] object NodeWebSocket extends LogSupport:
                 handler,
                 ctx,
                 ctx.sendPong,
-                () => notifyClose(),
+                onPeerClose,
                 ev,
                 () =>
                   if heartbeat != null then
@@ -362,8 +363,11 @@ end NodeWebSocket
   * Node [[WebSocketContext]]. Single-threaded event loop, so a plain `var closed` guards writes;
   * all socket writes are wrapped (an uncaught throw on the loop crashes the process).
   */
-private[http] class NodeWebSocketContext(socket: js.Dynamic, override val request: Request)
-    extends WebSocketContext
+private[http] class NodeWebSocketContext(
+    socket: js.Dynamic,
+    override val request: Request,
+    closeState: WebSocketCloseState
+) extends WebSocketContext
     with LogSupport:
 
   private var closed = false
@@ -380,6 +384,10 @@ private[http] class NodeWebSocketContext(socket: js.Dynamic, override val reques
   override def close(statusCode: Int, reason: String): Unit =
     if !closed then
       closed = true
+      closeState.record(
+        WebSocketClose.sendableCode(statusCode),
+        WebSocketClose.truncateReason(reason)
+      )
       writeFrame(WebSocketFrame.OpClose, WebSocketFrame.closePayload(statusCode, reason))
       // Flush the close frame, then FIN — the socket 'close' event drives onClose. Not destroy(),
       // which could drop the still-buffered close frame.
@@ -411,6 +419,15 @@ private[http] class NodeWebSocketContext(socket: js.Dynamic, override val reques
       // slow consumer can't make us buffer unbounded; the 'drain' listener (wired in accept) resumes.
       if !accepted.asInstanceOf[Boolean] then
         socket.applyDynamic("pause")()
+        // Reads pausing doesn't stop the app's own sends (e.g. a relay forwarding another peer), so
+        // drop a peer that has stopped reading once too much is queued for it.
+        val pending = socket.writableLength
+        if !js.isUndefined(pending) &&
+          pending.asInstanceOf[Double] > WebSocketClose.MaxPendingWriteBytes
+        then
+          closed = true
+          closeState.record(WebSocketClose.TryAgainLater, "send buffer full")
+          socket.applyDynamic("destroy")()
     catch
       case NonFatal(e) =>
         debug(s"WebSocket write failed: ${e.getMessage}")

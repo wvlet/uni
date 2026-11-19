@@ -782,6 +782,7 @@ Http
 | `onTextMessage(ctx, message)` | A complete text message arrived |
 | `onBinaryMessage(ctx, message)` | A complete binary message arrived |
 | `onClose(ctx)` | The connection closed (client- or server-initiated); delivered exactly once |
+| `onClose(ctx, statusCode, reason)` | The same event, with the close status; its default calls `onClose(ctx)`. See [Close Status](./websocket#close-status) |
 | `onError(ctx, e)` | A callback or the connection raised an error |
 
 ### WebSocketContext
@@ -796,6 +797,11 @@ ctx.send(Array[Byte](1, 2, 3))   // send a binary message
 ctx.close()                      // close with 1000 (normal closure)
 ctx.close(1001, "going away")    // close with a status code and reason
 ```
+
+A reason longer than 123 UTF-8 bytes is cut to fit a close frame, and a code that
+may not be sent is sent as 1011. A client that stops reading is dropped (16 MiB of
+queued sends on Netty and Node, a 30 s stalled send on the built-in and Native
+servers), and `onClose` reports 1013. See [Slow Peers](./websocket#slow-peers).
 
 ### Allowed Origins
 

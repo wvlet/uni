@@ -20,8 +20,9 @@ import scala.util.control.NonFatal
 
 /**
   * Maps decoded [[WsEvent]]s to [[WebSocketHandler]] callbacks and outbound control frames, shared
-  * by the Native and Node.js backends. The platform-specific `sendPong` and `notifyClose` (the
-  * exactly-once onClose latch) are passed in; everything else is identical across backends.
+  * by the Native and Node.js backends. The platform-specific `sendPong` and `onPeerClose` (which
+  * records the peer's close status and fires the exactly-once onClose) are passed in; everything
+  * else is identical across backends.
   */
 private[http] object WebSocketDispatcher extends LogSupport:
 
@@ -29,7 +30,7 @@ private[http] object WebSocketDispatcher extends LogSupport:
       handler: WebSocketHandler,
       ctx: WebSocketContext,
       sendPong: Array[Byte] => Unit,
-      notifyClose: () => Unit,
+      onPeerClose: (Int, String) => Unit,
       event: WsEvent,
       onActivity: () => Unit = () => ()
   ): Unit =
@@ -48,9 +49,9 @@ private[http] object WebSocketDispatcher extends LogSupport:
         sendPong(data)
       case WsEvent.Pong(_) =>
       // ignore unsolicited pongs
-      case WsEvent.PeerClose(code, _) =>
+      case WsEvent.PeerClose(code, reason) =>
         // onClose before the echo, matching the original Native ordering (RFC 6455 §5.5.1).
-        notifyClose()
+        onPeerClose(code, reason)
         ctx.close(code, "")
       case WsEvent.Fail(code, reason) =>
         // onClose is driven by the connection teardown after this terminal event.
