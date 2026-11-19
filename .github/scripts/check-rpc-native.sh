@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Runs the examples/rpc-native binary (built by `exampleRpcNativeNative/nativeLink`), calls it over
-# HTTP, and asserts that it links no libcurl, zlib, or OpenSSL.
+# HTTP, and asserts that it links no libcurl or OpenSSL. It links zlib, which the server uses for
+# request decompression and response compression.
 #
 # The example's UniTest suite also runs on Native, but in a debug-mode test binary that links
 # libcurl for its typed client. This checks the release binary itself, and backs the example README's
@@ -18,8 +19,8 @@ fi
 
 echo "== Linked libraries of ${binary}"
 ldd "${binary}" | tee /tmp/rpc-native.ldd
-if grep -Eq 'libcurl|libz\.|libcrypto|libssl' /tmp/rpc-native.ldd; then
-  echo "ERROR: the server-only binary links libcurl, zlib, or OpenSSL"
+if grep -Eq 'libcurl|libcrypto|libssl' /tmp/rpc-native.ldd; then
+  echo "ERROR: the server-only binary links libcurl or OpenSSL"
   exit 1
 fi
 

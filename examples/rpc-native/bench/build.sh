@@ -2,6 +2,7 @@
 # Build both servers for bench.py into bench/out:
 #   out/rpc-native       the Scala Native binary
 #   out/libgc.so.1       the Boehm GC library it links (Linux only, for the container)
+#   out/libz.so.1        zlib, which it links for compression (Linux only, for the container)
 #   out/lib/*.jar        the JVM server's runtime classpath (also the JVM container's contents)
 #   out/jvm.cp           that classpath, for `java -cp`
 #   out/native-mode.txt  the Native build mode and LTO setting
@@ -34,6 +35,13 @@ if command -v ldd > /dev/null; then
     exit 1
   fi
   cp -L "${libgc}" "${OUT}/libgc.so.1"
+  # distroless/cc has no zlib, which the server links for request and response compression
+  libz="$(ldd "${OUT}/rpc-native" | awk '/libz\.so/ {print $3}')"
+  if [[ -z "${libz}" ]]; then
+    echo "ERROR: ${OUT}/rpc-native does not resolve libz; install zlib1g" >&2
+    exit 1
+  fi
+  cp -L "${libz}" "${OUT}/libz.so.1"
 fi
 
 (cd "${OUT}/lib" && ls *.jar | sed "s|^|${OUT}/lib/|" | paste -sd: -) > "${OUT}/jvm.cp"
