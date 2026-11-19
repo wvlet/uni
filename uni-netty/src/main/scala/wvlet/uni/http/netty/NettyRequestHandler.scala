@@ -97,7 +97,9 @@ class NettyRequestHandler(
 
   override def channelRead0(ctx: ChannelHandlerContext, nettyRequest: FullHttpRequest): Unit =
     val keepAlive = HttpUtil.isKeepAlive(nettyRequest)
-    if HttpMethod.of(nettyRequest.method().name()).isEmpty then
+    // Methods are case-sensitive (RFC 9110): `get` is not GET, as in the built-in socket server
+    val methodName = nettyRequest.method().name()
+    if !HttpMethod.of(methodName).exists(_.name == methodName) then
       sendResponse(ctx, Response.notImplemented, keepAlive)
       return
     try

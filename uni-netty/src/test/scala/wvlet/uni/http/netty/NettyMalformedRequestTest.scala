@@ -159,6 +159,44 @@ class NettyMalformedRequestTest extends UniTest:
       }
   }
 
+  test("answer a lowercase method with 501, not as the uppercase one") {
+    server.start { s =>
+      calls.set(0)
+      val response = exchange(
+        s.localPort,
+        ascii("get / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+      )
+      statuses(response) shouldBe Seq("501")
+      calls.get() shouldBe 0
+    }
+  }
+
+  test("skip 100 Continue for a request without a body") {
+    server.start { s =>
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "POST / HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n"
+        )
+      )
+      statuses(response) shouldBe Seq("200")
+    }
+  }
+
+  test("still send 100 Continue for a request with a body") {
+    server.start { s =>
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "POST / HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n" +
+            "Connection: close\r\n\r\nhello"
+        )
+      )
+      statuses(response) shouldBe Seq("100", "200")
+      response shouldContain "body=hello"
+    }
+  }
+
   test("keep serving well-formed requests") {
     server.start { s =>
       val response = exchange(
