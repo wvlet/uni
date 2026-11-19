@@ -35,7 +35,6 @@ def inputs : List String := [
   post "/echo" "",
   "PUT /x HTTP/1.1\r\nContent-Length: 3\r\n\r\nabc",
   "OPTIONS * HTTP/1.1\r\n\r\n",
-  "GET  /two-spaces  HTTP/1.1\r\n\r\n",
   -- Keep-alive and pipelining: the next request starts right after the body
   get "/1" ++ get "/2",
   post "/a" "xyz" ++ get "/b" ++ post "/c" "1234567890",
@@ -61,6 +60,16 @@ def inputs : List String := [
   "GET /tab\tin-target HTTP/1.1\r\n\r\n",
   "GET /nul\x00 HTTP/1.1\r\n\r\n",
   "GET /latin1-é HTTP/1.1\r\n\r\n",
+  -- Separators: exactly one SP between the words
+  "GET  /two-spaces-before-target HTTP/1.1\r\n\r\n",
+  "GET /two-spaces-before-version  HTTP/1.1\r\n\r\n",
+  "GET\t/tab-separator HTTP/1.1\r\n\r\n",
+  "GET /tab-before-version\tHTTP/1.1\r\n\r\n",
+  "GET\r /cr-separator HTTP/1.1\r\nHost: localhost\r\n\r\n" ++ get "/never-read",
+  "GET\x0b/vt-separator HTTP/1.1\r\n\r\n",
+  "GET\x0c/ff-separator HTTP/1.1\r\n\r\n",
+  " GET /leading-space HTTP/1.1\r\n\r\n",
+  get "/1" ++ "GET\t/2 HTTP/1.1\r\n\r\n",
   -- Line endings: a bare CR or LF is rejected
   "GET /bare-lf HTTP/1.1\nHost: localhost\r\n\r\n",
   "GET /bare-lf-header HTTP/1.1\r\nHost: localhost\n\r\n",
@@ -115,6 +124,8 @@ def inputs : List String := [
   chunkedPost "/chunks-over-limit" ("32\r\n" ++ String.ofList (List.replicate 50 'a') ++ "\r\n33\r\n"),
   chunkedPost "/chunk-overflow" "ffffffffffffffffffff\r\n",
   chunkedPost "/chunk-int-max" "7fffffff\r\n",
+  chunkedPost "/chunk-too-large-bare-lf" "7fffff\nff",
+  chunkedPost "/chunk-too-large-ext" "7fffff;x\r\n",
   chunkedPost "/chunk-int-max-plus-one" "80000000\r\n",
   chunkedPost "/no-size" "\r\nhello\r\n0\r\n\r\n",
   chunkedPost "/size-space" "5 \r\nhello\r\n0\r\n\r\n",

@@ -35,7 +35,6 @@ import io.netty.handler.codec.http.{
   HttpMessage,
   HttpResponse as NettyHttpResponse,
   HttpObjectAggregator,
-  HttpServerCodec,
   HttpServerExpectContinueHandler,
   HttpServerKeepAliveHandler,
   HttpUtil
@@ -134,14 +133,13 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
           override def initChannel(ch: SocketChannel): Unit =
             connections.add(ch)
             val pipeline = ch.pipeline()
-            pipeline.addLast(
-              "codec",
-              HttpServerCodec(
-                config.maxInitialLineLength,
-                config.maxHeaderSize,
-                config.maxContentLength
-              )
+            val codec    = StrictHttpServerCodec(
+              config.maxInitialLineLength,
+              config.maxHeaderSize,
+              config.maxContentLength
             )
+            pipeline.addLast("decoder", codec.decoder)
+            pipeline.addLast("encoder", codec.encoder)
             pipeline.addLast("decodeFailure", DecodeFailureHandler())
             pipeline.addLast("drain", ConnectionDrainHandler())
             if config.requestReadTimeoutMillis > 0 then

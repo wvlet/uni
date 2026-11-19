@@ -14,7 +14,8 @@ Bytes are `Char`s, read as Latin-1. The model leaves out three things:
 - Request-target decoding. The cases use ASCII targets, which decode to themselves.
 
 The reader is strict where a lenient one would let a front proxy and this server disagree on where
-a request ends (request smuggling), as Netty's decoder is: a bare CR or LF, obs-fold, a header name
+a request ends (request smuggling), as Netty's decoder is: anything but one SP between the words of
+the request line, a bare CR or LF, obs-fold, a header name
 that is not a token, control characters in values, a non-numeric or repeated `Content-Length`, and
 a `Transfer-Encoding` whose only coding is not `chunked` are rejected. A request with both
 `Transfer-Encoding` and `Content-Length` is framed by the first and closes the connection.
@@ -119,15 +120,17 @@ def readFields : Nat → Bytes → Fields
 
 /-! ## The request line -/
 
-/-- `METHOD SP+ target SP+ HTTP/1.x`: the method, the target, and whether it is HTTP/1.0. -/
+/-- `METHOD SP target SP HTTP/1.x`, with exactly one SP between the words (RFC 9112 §3): the
+method, the target, and whether it is HTTP/1.0. -/
 def parseRequestLine (line : Bytes) : Except (Nat × String) (Bytes × Bytes × Bool) := do
   let method := line.takeWhile (· ≠ ' ')
   let r1 := line.dropWhile (· ≠ ' ')
   if method.isEmpty || r1.isEmpty then throw (400, "Malformed request line")
-  let r2 := r1.dropWhile (· == ' ')
+  let r2 := r1.drop 1
   let target := r2.takeWhile (· ≠ ' ')
-  if target.isEmpty then throw (400, "Malformed request line")
-  let version := (r2.dropWhile (· ≠ ' ')).dropWhile (· == ' ')
+  let r3 := r2.dropWhile (· ≠ ' ')
+  if target.isEmpty || r3.isEmpty then throw (400, "Malformed request line")
+  let version := r3.drop 1
   if version.isEmpty || version.any (· == ' ') then throw (400, "Malformed request line")
   let http10 ← match version with
     | ['H', 'T', 'T', 'P', '/', '1', '.', '1'] => pure false
@@ -184,6 +187,9 @@ def frame (maxSize : Nat) (http10 : Bool) (headers : List (Bytes × Bytes)) :
     else
       let codings := tokens te
       if codings.getLast? != some "chunked".toList then .error (400, "Invalid Transfer-Encoding")
+      -- `chunked` must not be applied more than once (RFC 9112 §7.1)
+      else if codings.dropLast.contains "chunked".toList then
+        .error (400, "Invalid Transfer-Encoding")
       else if codings.length > 1 then .error (501, "Unsupported Transfer-Encoding")
       else .ok .chunked
   else
@@ -223,7 +229,7 @@ def hexValue (c : Char) : Option Nat :=
 
 inductive Size where
   | ok (size digits : Nat) (rest : Bytes)
-  | tooLarge
+  | tooLarge (rest : Bytes)
   | overflow
   | incomplete
   deriving Repr, DecidableEq
@@ -234,7 +240,7 @@ def restOfSize : Nat → Bytes → Size
   | _, [] => .incomplete
   | size, c :: t =>
     match hexValue c with
-    | none => if size > intMax then .overflow else .tooLarge
+    | none => if size > intMax then .overflow else .tooLarge (c :: t)
     | some v => restOfSize (size * 16 + v) t
 
 /-- Hex digits of a chunk size. The size may not exceed `maxLeft`, the body bytes still allowed. -/
@@ -271,6 +277,16 @@ inductive Body where
   | incomplete
   deriving Repr, DecidableEq
 
+/-- A chunk size over the limit: 413, but only once its line is well formed, so a malformed line
+still gets 400 whatever its size. -/
+def chunkTooLarge (r : Bytes) : Body :=
+  match skipChunkExt r with
+  | .incomplete => .incomplete
+  | .bad => .bad 400 "Invalid chunk extension"
+  | .ok ('\r' :: '\n' :: _) => .bad 413 "Request body too large"
+  | .ok (_ :: _ :: _) => .bad 400 "Invalid chunk size"
+  | .ok _ => .incomplete
+
 /-- Decode chunks after `total` body bytes `acc`: the body and the bytes after the trailers. Every
 chunk takes at least 3 bytes, so `s.length + 1` fuel is enough. -/
 def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
@@ -278,7 +294,7 @@ def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
   | fuel + 1, total, acc, s =>
     match readSize (maxSize - total) 0 0 s with
     | .incomplete => .incomplete
-    | .tooLarge => .bad 413 "Request body too large"
+    | .tooLarge r => chunkTooLarge r
     | .overflow => .bad 400 "Invalid chunk size"
     | .ok size digits r =>
       if digits == 0 then .bad 400 "Invalid chunk size"
@@ -476,6 +492,11 @@ theorem skipChunkExt_spec {s r : Bytes} (h : skipChunkExt s = .ok r) : r.length 
     subst h
     exact Nat.le_refl _
 
+/-- A chunk size over the limit never yields a body. -/
+theorem chunkTooLarge_not_ok {r body rest : Bytes} : chunkTooLarge r ≠ .ok body rest := by
+  unfold chunkTooLarge
+  split <;> simp
+
 /-- A chunked body never exceeds the limit, and decoding consumes at least one byte. -/
 theorem readChunks_spec {maxSize : Nat} :
     ∀ {fuel total : Nat} {acc s body rest : Bytes},
@@ -486,7 +507,7 @@ theorem readChunks_spec {maxSize : Nat} :
     unfold readChunks at h
     split at h
     · simp at h
-    · simp at h
+    · exact absurd h chunkTooLarge_not_ok
     · simp at h
     · rename_i size digits r hsize
       have ⟨hsz, hr⟩ := readSize_spec hsize (Nat.zero_le _)

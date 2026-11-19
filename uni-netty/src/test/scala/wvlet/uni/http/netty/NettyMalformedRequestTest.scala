@@ -248,6 +248,67 @@ class NettyMalformedRequestTest extends UniTest:
     )
   }
 
+  test("reject a request line whose words aren't separated by one SP") {
+    // Netty's decoder splits on any run of SP, HTAB, VT, FF, or CR; RFC 9112 allows one SP
+    val lines = Seq(
+      "GET  / HTTP/1.1",
+      "GET /  HTTP/1.1",
+      "GET\t/ HTTP/1.1",
+      "GET /\tHTTP/1.1",
+      "GET\u000b/ HTTP/1.1",
+      "GET /\u000cHTTP/1.1",
+      "GET\r / HTTP/1.1",
+      "GET / \rHTTP/1.1",
+      " GET / HTTP/1.1",
+      "\tGET / HTTP/1.1"
+    )
+    lines.foreach { line =>
+      rejected(ascii(s"${line}\r\nHost: localhost\r\n\r\n"), 400)
+    }
+  }
+
+  test("reject HTTP Garden's request line with a bare CR after the method") {
+    rejected(
+      ascii(
+        "GET\r /1 HTTP/1.1\r\nHost: localhos8\r\n\r\nBAD\r\n\r\n" +
+          "GET /never-read HTTP/1.1\r\nHost: loc\ralhost\r\n\r\n"
+      ),
+      400
+    )
+  }
+
+  test("answer an earlier pipelined request with a body before rejecting a bad separator") {
+    server.start { s =>
+      calls.set(0)
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "POST /a HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\nhello" +
+            "GET\t/b HTTP/1.1\r\nHost: localhost\r\n\r\n"
+        )
+      )
+      statuses(response) shouldBe Seq("200", "400")
+      response shouldContain "body=hello"
+      calls.get() shouldBe 1
+    }
+  }
+
+  test("send no body in a response to HEAD, and keep reading pipelined requests") {
+    server.start { s =>
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "HEAD / HTTP/1.1\r\nHost: localhost\r\n\r\n" +
+            "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+        )
+      )
+      statuses(response) shouldBe Seq("200", "200")
+      // Only the POST's body: the HEAD response announces a length but sends nothing
+      "body=".r.findAllMatchIn(response).size shouldBe 1
+      response shouldContain "body=ok"
+    }
+  }
+
   test("keep serving well-formed requests") {
     server.start { s =>
       val response = exchange(
