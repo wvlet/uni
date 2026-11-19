@@ -136,8 +136,15 @@ def main() -> int:
         s.timeout = TIMEOUT
     # Containers can take a moment to listen after `docker compose up -d`
     deadline = time.monotonic() + 120
+
+    def answers(server) -> bool:
+        try:
+            return bool(server.parsed_roundtrip([b"GET / HTTP/1.1\r\nHost: a\r\n\r\n"]))
+        except ConnectionRefusedError:
+            return False
+
     for s in servers:
-        while not s.parsed_roundtrip([b"GET / HTTP/1.1\r\nHost: a\r\n\r\n"]):
+        while not answers(s):
             if time.monotonic() > deadline:
                 print(f"{s.name} did not answer a plain GET", file=sys.stderr)
                 return 2
@@ -162,6 +169,7 @@ def main() -> int:
     status_only = 0  # payloads where the only differences are rejection statuses
     for payload in payloads:
         results = dict(zip((s.name for s in servers), fanout([payload], servers)))
+        only_status = False
         for name, (_, report_only) in UNI_SERVERS.items():
             uni = SERVER_DICT[name]
             # Uni accepted a request whose name, value, or method has bytes the RFCs forbid
@@ -169,7 +177,7 @@ def main() -> int:
             categories = {ref: categorize_discrepancy(results[name], results[ref], uni, SERVER_DICT[ref]).name for ref in REFERENCES}
             if not invalid and not all(c in FAILING for c in categories.values()):
                 if all(c in ("OK", "RESPONSE_DISCREPANCY") for c in categories.values()) and "RESPONSE_DISCREPANCY" in categories.values():
-                    status_only += 1
+                    only_status = True
                 continue
             findings.append(
                 {
@@ -182,6 +190,7 @@ def main() -> int:
                     "results": {n: describe(results[n]) for n in [name, *REFERENCES]},
                 }
             )
+        status_only += only_status
 
     failing = [f for f in findings if not f["known"] and not f["report_only"]]
     args.report.write_text(json.dumps({"payloads": len(payloads), "findings": findings}, indent=2))
@@ -189,7 +198,8 @@ def main() -> int:
     print(f"## HTTP Garden: Uni vs. {', '.join(REFERENCES)}\n")
     print(f"- Payloads: {len(payloads)} ({len(seeds)} seeds, {args.mutations} mutations, seed {args.seed})")
     print(f"- Findings: {len(findings)} ({len(failing)} new; uni_netty is report-only)")
-    print(f"- Payloads where only the rejection status differs: {status_only} (not counted)\n")
+    print(f"- Payloads where only the rejection status differs: {status_only} (not counted)")
+    print("- Payloads are cut to 160 characters here; report.json in the artifact has them in full\n")
     if findings:
         print("| Server | Payload | Uni | " + " | ".join(REFERENCES) + " | Status |")
         print("|---|---|---|" + "---|" * len(REFERENCES) + "---|")

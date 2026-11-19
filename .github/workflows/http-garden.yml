@@ -46,10 +46,13 @@ jobs:
           python -m pip install --quiet docker pyyaml tqdm
       - name: Run HTTP Garden
         # bash with pipefail, so a failure in run.sh fails the step despite `| tee`
+        # run.sh prints only the Markdown summary to stdout; build output goes to stderr
         shell: bash
+        env:
+          MUTATIONS: ${{ inputs.mutations || '500' }}
+          SEED: ${{ inputs.seed || '1' }}
         run: |
-          PYTHON=python examples/http-garden/garden/run.sh \
-            --mutations "${{ inputs.mutations || '500' }}" --seed "${{ inputs.seed || '1' }}" \
+          PYTHON=python examples/http-garden/garden/run.sh --mutations "${MUTATIONS}" --seed "${SEED}" \
             | tee -a "${GITHUB_STEP_SUMMARY}"
       - uses: actions/upload-artifact@v7
         if: always()

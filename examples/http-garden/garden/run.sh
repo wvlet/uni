@@ -22,8 +22,9 @@ GARDEN="${OUT}/http-garden" # compose names the network after this folder: http-
 PYTHON="${PYTHON:-python3}"
 mkdir -p "${OUT}"
 
+# Build and Docker output goes to stderr, so stdout holds only the Markdown summary
 cd "${ROOT}"
-./sbt -batch exampleHttpGardenJVM/stageGardenJars exampleHttpGardenNative/nativeLink
+./sbt -batch exampleHttpGardenJVM/stageGardenJars exampleHttpGardenNative/nativeLink >&2
 native="$(find target/out -type f -perm -u+x \
   -path '*/uni-example-http-garden/uni-example-http-garden' 2>/dev/null | head -1 || true)"
 if [[ -z "${native}" ]]; then
@@ -35,7 +36,7 @@ netty_cp="$(ls "${OUT}"/lib/*.jar | paste -sd: -)"
 builtin_cp="$(ls "${OUT}"/lib/*.jar | grep -v -E '/(netty-|uni-netty)' | paste -sd: -)"
 
 if [[ ! -d "${GARDEN}/.git" ]]; then
-  git clone --quiet "${GARDEN_REPO}" "${GARDEN}"
+  git clone --quiet "${GARDEN_REPO}" "${GARDEN}" >&2
 fi
 git -C "${GARDEN}" fetch --quiet origin "${GARDEN_COMMIT}"
 git -C "${GARDEN}" checkout --quiet --force "${GARDEN_COMMIT}"
@@ -59,6 +60,7 @@ start uni_native 18082 "${native}"
 start uni_netty 18083 java -cp "${netty_cp}" example.garden.GardenEcho
 
 (
+  exec >&2
   cd "${GARDEN}"
   docker pull --quiet debian:trixie-slim
   docker build --quiet ./images/http-garden-soil -t http-garden-soil

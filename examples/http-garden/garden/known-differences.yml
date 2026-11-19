@@ -1,4 +1,5 @@
 # Differences from every reference server that are accepted, so they don't fail the run.
-# Each entry: the server (uni_jvm or uni_native), the payload exactly as the report prints it,
-# and why the difference is safe. Fix a real bug in a separate PR instead of listing it here.
+# Each entry: the server (uni_jvm or uni_native), the payload exactly as report.json prints it,
+# and why the difference is safe. Copy the payload from report.json in the run's artifact: the job
+# summary cuts long payloads. Fix a real bug in a separate PR instead of listing it here.
 []
