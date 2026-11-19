@@ -52,7 +52,10 @@ function createWindow() {
             minWidth: 320,
             minHeight: 240,
             autoHideMenuBar: true,
-            backgroundColor: nativeTheme.shouldUseDarkColors ? '#061114' : '#eef3f4'
+            backgroundColor: nativeTheme.shouldUseDarkColors ? '#061114' : '#eef3f4',
+            // The same sandbox as this window: a child with another sandbox setting opens in a
+            // separate process with no opener, so `window.open` returns null and detach fails
+            webPreferences: { sandbox: false }
           }
         }
       : { action: 'deny' }

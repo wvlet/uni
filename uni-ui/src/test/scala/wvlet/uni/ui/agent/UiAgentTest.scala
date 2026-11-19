@@ -989,6 +989,47 @@ class UiAgentTest extends DomTestSupport:
       }
   }
 
+  test("a person's click in a detached window reaches the change feed as a pointer change") {
+    val layout = Rx.variable(
+      DockLayout(DockNode.row(DockNode.group("main"), DockNode.group("side")))
+    )
+    val view = Rx.variable("chat")
+    val d    = Dock(
+      layout,
+      label = "Workspace",
+      panels = Seq(
+        DockPanel("main", title = "Main", content = div("main")),
+        DockPanel(
+          "side",
+          title = "Side",
+          content = TabList(
+            view,
+            label = "Views",
+            tabs = Seq(Tab("chat", "Chat"), Tab("logs", "Logs"))
+          )
+        )
+      )
+    ).withDetach(true)
+    mount(d)
+    val agent = install()
+    d.detach("side") shouldBe true
+    val w          = d.windowOf("side").get
+    val (_, start) = agent.changes()
+    // An event made by the window's own realm, as a real click there is
+    val click =
+      js.Dynamic
+        .newInstance(w.asInstanceOf[js.Dynamic].MouseEvent)(
+          "click",
+          js.Dynamic.literal(bubbles = true, detail = 1)
+        )
+    w.document.querySelectorAll("[role=tab]")(1).dispatchEvent(click.asInstanceOf[dom.Event])
+    view.get shouldBe "logs"
+    agent.changes(start)._1.map(c => (c.ref, c.source)) shouldBe
+      Seq((Some("tabs:views"), ChangeSource.Pointer))
+    d.reattach("side")
+    agent.uninstall()
+  }
+
   test("a scoped agent doesn't see the windows of a dock outside its root") {
     val layout = Rx.variable(
       DockLayout(DockNode.row(DockNode.group("main"), DockNode.group("side")))

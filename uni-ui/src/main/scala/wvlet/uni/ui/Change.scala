@@ -16,6 +16,8 @@ package wvlet.uni.ui
 import org.scalajs.dom
 import wvlet.uni.rx.{Cancelable, RxVar}
 
+import scala.scalajs.js
+
 /** Who made a change: a pointer (mouse, touch, or pen), the keyboard, app code, or an AI agent. */
 enum ChangeSource:
   case Pointer,
@@ -41,15 +43,23 @@ object ChangeSource:
     * on a button), not from a pointer.
     */
   def of(e: dom.Event): ChangeSource =
-    e match
-      case _: dom.KeyboardEvent =>
+    if isKeyboard(e) then
+      Keyboard
+    else if isMouse(e) then
+      if e.`type` == "click" && e.asInstanceOf[js.Dynamic].detail.asInstanceOf[Int] == 0 then
         Keyboard
-      case m: dom.MouseEvent if e.`type` == "click" && m.detail == 0 =>
-        Keyboard
-      case _: dom.MouseEvent =>
+      else
         Pointer
-      case _ =>
-        Programmatic
+    else
+      Programmatic
+
+  // By shape, not class: an event in a Dock panel's own window comes from that window's realm, where
+  // `instanceof` this window's `KeyboardEvent` or `MouseEvent` is false
+  private[ui] def isKeyboard(e: dom.Event): Boolean =
+    e.`type`.startsWith("key") && !js.isUndefined(e.asInstanceOf[js.Dynamic].key)
+
+  private[ui] def isMouse(e: dom.Event): Boolean =
+    !js.isUndefined(e.asInstanceOf[js.Dynamic].clientX)
 
   private[ui] def resolve(detected: ChangeSource): ChangeSource = scoped.getOrElse(detected)
 
@@ -172,11 +182,10 @@ object ChangeCause:
     * which ends the drag like a release.
     */
   private[ui] def dragCancel(e: dom.Event): ChangeCause =
-    e match
-      case _: dom.KeyboardEvent =>
-        ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard)
-      case _ =>
-        ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
+    if ChangeSource.isKeyboard(e) then
+      ChangeCause(ChangeReason.EscapeKey, ChangeSource.Keyboard)
+    else
+      ChangeCause(ChangeReason.Drag, ChangeSource.Pointer)
 
   private[ui] def imperative: ChangeCause = ChangeCause(
     ChangeReason.Imperative,

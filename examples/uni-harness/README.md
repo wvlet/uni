@@ -86,7 +86,9 @@ Agent bridge (MCP over HTTP): http://127.0.0.1:<port>/mcp
 Run the printed `claude mcp add` line, then ask the agent to fold the sidebar or switch the dock tab.
 Open more windows with File > New Window (Cmd/Ctrl+N). `windows` lists them, and the other tools
 take an optional `window` id; without one, a call goes to the focused window, or else the newest.
-Every result names the window that answered. Detached dock panels are not visible to the agent yet.
+Every result names the window that answered. A dock panel opened in a window of its own stays in
+reach: its components show inside the `dock` node of the window it came from, which can also
+maximize and restore a dock group.
 The endpoint listens only on 127.0.0.1 and rejects requests without the token. Each launch picks a
 new port and token. Plain `pnpm dev` starts no endpoint.
 

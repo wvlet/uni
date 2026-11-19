@@ -708,6 +708,9 @@ class DockTest extends DomTestSupport:
     toggles(m)(1).getAttribute("aria-pressed") shouldBe "true"
     m.queryAll(".uni-dock__separator").forall(_.hasAttribute("hidden")) shouldBe true
     m.get(".uni-dock__floats").hasAttribute("hidden") shouldBe true
+    // It takes the whole dock, not only its old share
+    m.get(".uni-dock__group[data-path='1']").getBoundingClientRect().width shouldBe
+      m.get(".uni-dock").getBoundingClientRect().width
     // The hidden content stays mounted, so it keeps its state
     m.get(".uni-dock__group[data-path='0']").textContent shouldContain "a content"
     d.visible.run(v => v shouldBe Set("c")).cancel

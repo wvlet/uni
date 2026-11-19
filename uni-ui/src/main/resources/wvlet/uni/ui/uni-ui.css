@@ -637,6 +637,12 @@
     display: none;
   }
 
+  /* The cells holding the maximized group take all the space: their inline share (say 0.5) alone
+     would leave the rest empty, since flex-grow shares below 1 don't fill a line */
+  .uni-dock[data-maximized='true'] .uni-dock__cell:not([hidden]) {
+    flex: 1 1 0px !important;
+  }
+
   .uni-dock__actions {
     display: flex;
     flex-shrink: 0;
