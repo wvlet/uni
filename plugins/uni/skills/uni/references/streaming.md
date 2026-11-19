@@ -95,7 +95,8 @@ import wvlet.uni.http.Http
 - Cross-origin browser upgrades get 403 unless listed in `withAllowedOrigins`
   (`"*"` allows all). Clients that send no `Origin` are accepted.
 - `withWebSocketRoute(path, filter) { ... }` gates the upgrade with an
-  `RxHttpFilter`: a non-2xx response rejects it.
+  `RxHttpFilter`: a non-2xx response rejects it. Node.js and browser clients see
+  a rejected upgrade only as close 1006; see readable rejections below.
 - `onError` fires when a callback throws; a lost connection calls `onClose`
   (exactly once). Override `onClose(ctx, statusCode, reason)` for the close
   status: the first close frame sent or received, 1006 without one, and 1013 when
@@ -103,6 +104,44 @@ import wvlet.uni.http.Http
 - `ctx.close(code, reason)` cuts a reason over 123 bytes and sends an invalid code
   as 1011.
 - `withWebSocketMaxFrameSize(bytes)` (default 1 MB) bounds aggregated messages.
+
+## Readable rejections and relays
+
+`withCloseOnRejection()` makes a filter rejection accept the upgrade and close at
+once with 4000 + the HTTP status (401 → 4401, an empty `Rx` → 4403), the body as
+the reason. Origin and host checks still answer HTTP 403. `WebSocketRelay` pipes a
+session to an upstream WebSocket with its own headers, and reports usage per session:
+
+```scala
+import wvlet.uni.http.{Request, Response, RxHttpFilter, WebSocketRelay, WebSocketRoute}
+import wvlet.uni.rx.Rx
+
+val auth = RxHttpFilter { (request, next) =>
+  if request.header("Authorization").contains("Bearer app-token") then next.handle(request)
+  else Rx.single(Response.unauthorized.withTextContent("sign in first"))
+}
+
+val realtime = WebSocketRoute(
+  "/v1/realtime",
+  _ =>
+    WebSocketRelay(Request.get("wss://api.example.com/v1/realtime").withBearerToken("upstream-key"))
+      .withStatsReporter(stats => println(s"${stats.durationMillis} ms, ${stats.closedBy}"))
+      .newHandler(),
+  auth
+).withCloseOnRejection()
+
+@main def relayServer(): Unit =
+  Http.server.withPort(8080).withWebSocketRoute(realtime).start { server => server.awaitTermination() }
+```
+
+- Client frames sent before the upstream opens are queued up to
+  `withMaxPendingBytes` (1 MiB); past it the client gets 1013.
+- An unreachable or rejecting upstream closes the client with 4502
+  (`upstream status 401` on JVM and Native).
+- Closes are mirrored. Upstream codes other than 1000, 1001, and 3000–4999 reach
+  the client as 4900 + (code − 1000), e.g. 1011 → 4911; `ctx.close` never remaps.
+- `WebSocketRelayStats` has `durationMillis`, frames and bytes each way,
+  `statusCode`, `reason`, and `closedBy` (`Client`, `Upstream`, `Relay`).
 
 ## WebSocket client
 

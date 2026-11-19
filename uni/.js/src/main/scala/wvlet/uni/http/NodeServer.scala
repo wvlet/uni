@@ -96,8 +96,14 @@ case class NodeServerConfig(
   /** Register a WebSocket route with a filter that gates the upgrade handshake (e.g. for auth). */
   def withWebSocketRoute(path: String, filter: RxHttpFilter)(
       handlerFactory: Request => WebSocketHandler
-  ): NodeServerConfig = copy(webSocketRoutes =
-    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  ): NodeServerConfig = withWebSocketRoute(WebSocketRoute(path, handlerFactory, filter))
+
+  /**
+    * Register a configured WebSocket route, e.g. one built with
+    * `WebSocketRoute(path, factory, authFilter).withCloseOnRejection()`.
+    */
+  def withWebSocketRoute(route: WebSocketRoute): NodeServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ route
   )
 
   def withWebSocketMaxFrameSize(sizeInBytes: Int): NodeServerConfig =

@@ -109,12 +109,85 @@ end WebSocketHandler
   *
   * @param handlerFactory
   *   creates a fresh [[WebSocketHandler]] per accepted connection, given the upgrade request.
+  * @param closeOnRejection
+  *   when true, a filter rejection accepts the upgrade and closes at once with code 4000 + the
+  *   response status (401 becomes 4401), so Node and browser clients, which report a rejected
+  *   upgrade as 1006, can read why. See [[withCloseOnRejection]].
   */
 case class WebSocketRoute(
     path: String,
     handlerFactory: Request => WebSocketHandler,
-    filter: RxHttpFilter = RxHttpFilter.identity
-)
+    filter: RxHttpFilter = RxHttpFilter.identity,
+    closeOnRejection: Boolean = false
+):
+  def withPath(path: String): WebSocketRoute = copy(path = path)
+
+  def withHandlerFactory(handlerFactory: Request => WebSocketHandler): WebSocketRoute = copy(
+    handlerFactory = handlerFactory
+  )
+
+  def withFilter(filter: RxHttpFilter): WebSocketRoute = copy(filter = filter)
+
+  /**
+    * Answer a [[filter]] rejection with a WebSocket close the client can read, instead of an HTTP
+    * error status. The upgrade is accepted and closed at once, before the handler is created, with
+    * code 4000 + the response status (401 becomes 4401, 403 becomes 4403) and the response body,
+    * cut to 123 UTF-8 bytes, as the reason. A filter error is answered as its error response
+    * (usually 4500), and an empty `Rx` as 4403.
+    *
+    * Host and origin checks run before the filter and stay plain HTTP 403, so a cross-site page
+    * never completes a handshake. Malformed upgrades (400, 426) stay HTTP errors too.
+    */
+  def withCloseOnRejection(enabled: Boolean = true): WebSocketRoute = copy(closeOnRejection =
+    enabled
+  )
+
+  def noCloseOnRejection: WebSocketRoute = withCloseOnRejection(false)
+
+end WebSocketRoute
+
+/**
+  * Readable upgrade rejections ([[WebSocketRoute.withCloseOnRejection]]): the close a rejected
+  * upgrade is answered with, shared by every server backend.
+  */
+private[http] object WebSocketRejection:
+
+  /** Base of the close codes a rejection maps to: 4000 + the HTTP status. */
+  final val CloseCodeBase = 4000
+
+  /**
+    * The route to serve when its filter answered with a non-2xx `response`: the same route with a
+    * handler that closes at once with 4000 + the status.
+    */
+  def rejectingRoute(route: WebSocketRoute, response: Response): WebSocketRoute =
+    val (code, reason) = closeFor(response)
+    route.withHandlerFactory(_ => RejectingHandler(code, reason))
+
+  /** The close code and reason for a rejection `response`. */
+  def closeFor(response: Response): (Int, String) =
+    val status = response.statusCode
+    val code   =
+      if status >= 100 && status <= 999 then
+        CloseCodeBase + status
+      else
+        CloseCodeBase + HttpStatus.InternalServerError_500.code
+    val body =
+      try
+        response.contentAsString.getOrElse("")
+      catch
+        case NonFatal(_) =>
+          ""
+    val reason =
+      if body.nonEmpty then
+        body
+      else
+        response.status.reason
+    (code, WebSocketClose.truncateReason(reason))
+
+  private class RejectingHandler(code: Int, reason: String) extends WebSocketHandler:
+    override def onOpen(ctx: WebSocketContext): Unit = ctx.close(code, reason)
+
+end WebSocketRejection
 
 /**
   * Close-frame rules shared by every backend (RFC 6455 §5.5 and §7.4): which status codes may be

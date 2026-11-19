@@ -489,7 +489,7 @@ abstract class SocketHttpServer private[http] (
     * Block for the single Response produced by an Rx (the request handler, or a WebSocket upgrade
     * filter gate), bounded by the handler timeout so a never-completing Rx can't wedge the worker.
     */
-  private def awaitRx(rx: Rx[Response]): Response =
+  private def awaitRx(rx: Rx[Response], onEmpty: Response = Response.notFound): Response =
     val latch  = CountDownLatch(1)
     val result = AtomicReference[Response]()
     RxRunner.runOnce(rx) {
@@ -505,7 +505,7 @@ abstract class SocketHttpServer private[http] (
         latch.countDown()
       case OnCompletion =>
         // Completed without emitting a response.
-        result.compareAndSet(null, Response.notFound)
+        result.compareAndSet(null, onEmpty)
         latch.countDown()
     }
     if latch.await(limits.handlerTimeoutMillis, TimeUnit.MILLISECONDS) then
@@ -546,9 +546,15 @@ abstract class SocketHttpServer private[http] (
           upgradeRequest.set(req)
           Rx.single(Response.ok)
         }
+        // With readable rejections, an empty Rx is a 403 (closed as 4403); otherwise a 404.
+        val onEmpty =
+          if route.closeOnRejection then
+            Response.forbidden
+          else
+            Response.notFound
         val verdict =
           try
-            checkHeaders(awaitRx(route.filter.apply(request, gate)))
+            checkHeaders(awaitRx(route.filter.apply(request, gate), onEmpty))
           catch
             case NonFatal(e) =>
               if HttpServerSecurity.isClientError(e) then
@@ -556,11 +562,18 @@ abstract class SocketHttpServer private[http] (
               else
                 warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
               errorResponse(e)
-        if !verdict.isSuccessful then
+        if !verdict.isSuccessful && !route.closeOnRejection then
           conn.write(HttpResponseWriter.serialize(verdict, keepAlive = false, includeBody = true))
         else
-          // Take a streaming slot only for a valid, accepted upgrade, so a rejected handshake gets
-          // its own status (403/400/426) and never holds a slot
+          // A readable rejection completes the handshake and closes at once with 4000 + status.
+          val served =
+            if verdict.isSuccessful then
+              route
+            else
+              WebSocketRejection.rejectingRoute(route, verdict)
+          // Take a streaming slot only for a completed handshake, so an HTTP rejection gets its own
+          // status (403/400/426) and never holds a slot. A readable rejection holds one for its
+          // close handshake; with every slot taken it gets 503 instead of 44xx.
           withStreamingSlot(conn) {
             val handshake =
               s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
@@ -571,7 +584,7 @@ abstract class SocketHttpServer private[http] (
               SocketWebSocket.serve(
                 conn,
                 accepted,
-                route.handlerFactory(accepted),
+                served.handlerFactory(accepted),
                 limits.webSocketMaxFrameSize,
                 limits.webSocketPingIntervalMillis
               )

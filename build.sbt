@@ -346,7 +346,8 @@ lazy val netty = project
         ("io.netty" % "netty-transport-native-epoll" % NETTY_VERSION).classifier("linux-aarch_64")
       )
   )
-  .dependsOn(uni.jvm, test.jvm % Test)
+  // test->test: the Netty server runs the shared WebSocketRelaySpec
+  .dependsOn(uni.jvm % "compile->compile;test->test", test.jvm % Test)
 
 // Compile-checked code examples from The Uni Book (docs/book). Not published;
 // exists so CI catches API drift in the book's runnable snippets.
@@ -517,7 +518,8 @@ lazy val exampleMcpServer = project
     run / connectInput := true,
     outputStrategy     := Some(StdoutOutput)
   )
-  .dependsOn(uni.jvm, test.jvm % Test)
+  // test->test: the Netty server runs the shared WebSocketRelaySpec
+  .dependsOn(uni.jvm % "compile->compile;test->test", test.jvm % Test)
 
 lazy val exampleWebUi = project
   .in(file("examples/web-ui"))

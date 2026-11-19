@@ -55,7 +55,7 @@ class JavaWebSocketClient extends WebSocketClient:
       .buildAsync(URI.create(request.fullUri), listener)
       .exceptionally { e =>
         // buildAsync wraps the cause in a CompletionException.
-        opened.tryFailure(Option(e.getCause).getOrElse(e))
+        opened.tryFailure(JavaWebSocketClient.handshakeError(Option(e.getCause).getOrElse(e)))
         null
       }
     Rx.future(opened.future)
@@ -76,6 +76,29 @@ object JavaWebSocketClient:
     }
 
   def apply(): JavaWebSocketClient = new JavaWebSocketClient()
+
+  /**
+    * A rejected upgrade as an [[HttpException]] carrying the response status, as on Native, so a
+    * caller such as [[WebSocketRelay]] can report it.
+    */
+  private def handshakeError(e: Throwable): Throwable =
+    e match
+      case h: java.net.http.WebSocketHandshakeException if h.getResponse != null =>
+        val code = h.getResponse.statusCode()
+        new HttpException(
+          s"WebSocket upgrade rejected: ${code}",
+          if code >= 500 then
+            HttpErrorCode.ServerError
+          else
+            HttpErrorCode.ClientError
+          ,
+          Some(HttpStatus.ofCode(code)),
+          cause = h
+        )
+      case other =>
+        other
+
+end JavaWebSocketClient
 
 /**
   * JDK `WebSocket.Listener` that reassembles message fragments and delivers them to a

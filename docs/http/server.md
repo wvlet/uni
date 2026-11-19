@@ -746,7 +746,8 @@ needs the bytes (`contentAsBytes`) reads the range on demand.
 
 ## WebSocket
 
-The Netty server supports WebSocket connections. WebSocket routes are registered by path,
+Every server backend (Netty, the built-in JVM server, Scala Native, and Node.js) supports
+WebSocket connections. WebSocket routes are registered by path,
 separately from the REST router, because connections are stateful and bidirectional rather than
 request/response. A fresh `WebSocketHandler` is created per connection, so it may hold
 per-connection state; all of its callbacks have no-op defaults, so you override only what you need.
@@ -847,6 +848,68 @@ Http
   .start()
 ```
 
+### Readable Rejections
+
+Node.js and browser clients can't read the HTTP status of a rejected upgrade: they report it as
+close 1006 with no status, the same as a network failure. To let a client tell "not allowed" from
+"network down", register the route with `withCloseOnRejection()`. A filter rejection then accepts
+the upgrade and closes at once with code 4000 + the HTTP status, and the response body as the
+reason:
+
+```scala
+import wvlet.uni.http.WebSocketRoute
+
+Http
+  .server
+  .withPort(8080)
+  .withWebSocketRoute(
+    WebSocketRoute("/ws/secure", _ => handler, authFilter).withCloseOnRejection()
+  )
+  .start()
+```
+
+| Filter result | Close code |
+|---------------|------------|
+| `Response.unauthorized` (401) | 4401 |
+| `Response.forbidden` (403) | 4403 |
+| An empty `Rx` | 4403 |
+| A filter error | its error response, usually 4500 |
+
+The reason is cut to 123 UTF-8 bytes, and is the status phrase when the body is empty. The route's
+handler is never created for a rejected upgrade. The [allowed-origins](#allowed-origins) and host
+checks run before the filter and still answer plain HTTP 403, so a cross-site page never completes
+a handshake. Malformed upgrades (400, 426) stay HTTP errors too. Without `withCloseOnRejection()`,
+a rejection is a plain HTTP response, as before.
+
+### Relaying to an Upstream
+
+`WebSocketRelay` pipes a session to an upstream WebSocket server, for example from a voice client
+to a model's realtime API. The route filter still decides who may connect; the relay opens the
+upstream with its own headers and reports each session's usage for metering:
+
+```scala
+import wvlet.uni.http.{Request, WebSocketRelay, WebSocketRoute}
+
+Http
+  .server
+  .withPort(8080)
+  .withWebSocketRoute(
+    WebSocketRoute(
+      "/v1/realtime",
+      request =>
+        WebSocketRelay(
+          Request.get("wss://api.example.com/v1/realtime").withBearerToken(apiKey)
+        ).withStatsReporter { stats =>
+          meter(request, stats.durationMillis, stats.bytesToUpstream)
+        }.newHandler(),
+      authFilter
+    ).withCloseOnRejection()
+  )
+  .start()
+```
+
+See [Relaying a Session](./websocket#relaying-a-session) for the queueing and close-code rules.
+
 ### Frame Size
 
 Inbound messages are aggregated from continuation frames up to a configurable limit (1 MB by
@@ -860,8 +923,7 @@ Http
   .start()
 ```
 
-WebSocket support is server-side and JVM (Netty) only. WebSocket routes coexist with REST endpoints
-on the same server and port. For connecting *to* a WebSocket endpoint, see the cross-platform
+WebSocket routes coexist with REST endpoints on the same server and port. For connecting *to* a WebSocket endpoint, see the cross-platform
 [WebSocket Client](./websocket).
 
 ## Combining Controllers

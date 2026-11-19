@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.collection.mutable
+import scala.concurrent.{ExecutionContext, Promise}
 import scala.util.control.NonFatal
 
 /**
@@ -29,8 +30,8 @@ import scala.util.control.NonFatal
   * §5.3).
   *
   * Limitations: `ws://` only (no TLS on the raw socket); the host must be a dotted-quad IP or
-  * `localhost` (no DNS); `connect` blocks the caller through the TCP connect + handshake (the
-  * handshake read is bounded/timed, but the TCP connect itself has no timeout).
+  * `localhost` (no DNS); the TCP connect itself has no timeout (the handshake read is bounded and
+  * timed). `connect` returns at once and runs the connect and handshake on the connection's thread.
   */
 class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
@@ -39,10 +40,31 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
       handler: WebSocketHandler,
       pingIntervalMillis: Int
   ): Rx[WebSocketContext] =
+    val headers =
+      try
+        WebSocketClient.upgradeHeaders(request)
+      catch
+        case NonFatal(e) =>
+          return Rx.exception(e)
+    // Connect and run the handshake on the connection's own thread, which then becomes its reader,
+    // so the caller (e.g. a server handler opening an upstream) isn't blocked by a slow peer.
+    val opened = Promise[WebSocketContext]()
+    val thread = Thread(() => open(request, headers, handler, pingIntervalMillis, opened))
+    thread.setDaemon(true)
+    thread.setName("native-ws-client")
+    thread.start()
+    Rx.future(opened.future)(using ExecutionContext.parasitic)
+
+  private def open(
+      request: Request,
+      headers: Seq[(String, String)],
+      handler: WebSocketHandler,
+      pingIntervalMillis: Int,
+      opened: Promise[WebSocketContext]
+  ): Unit =
     try
-      val headers = WebSocketClient.upgradeHeaders(request)
-      val target  = NativeWebSocketClient.parse(request.fullUri)
-      val fd      = NativeSocket.connect(target.host, target.port)
+      val target = NativeWebSocketClient.parse(request.fullUri)
+      val fd     = NativeSocket.connect(target.host, target.port)
       try
         val key   = WebSocketFrame.newClientKey()
         val extra = headers.map((name, value) => s"${name}: ${value}\r\n").mkString
@@ -55,7 +77,13 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
         val handshake = NativeWebSocketClient.readHandshake(fd)
         if handshake.status != 101 then
-          throw HttpException.connectionFailed(s"WebSocket upgrade rejected: ${handshake.status}")
+          if handshake.status > 0 then
+            throw HttpException(
+              s"WebSocket upgrade rejected: ${handshake.status}",
+              HttpStatus.ofCode(handshake.status)
+            )
+          else
+            throw HttpException.connectionFailed("Malformed WebSocket upgrade response")
         if handshake.headers.getOrElse("sec-websocket-accept", "") != WebSocketFrame.acceptKey(key)
         then
           throw HttpException.connectionFailed("Invalid Sec-WebSocket-Accept in the handshake")
@@ -76,46 +104,43 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
             WebSocketDispatcher.safeOnError(handler, ctx, e)
 
         NativeWebSocketClient.watch(conn)
-        val reader = Thread(() =>
-          try
-            SocketWebSocket.runReadLoop(
-              conn,
-              NativeWebSocketClient.MaxFrameSize,
-              pingIntervalMillis,
-              expectMasked = false,
-              initial = handshake.leftover,
-              handler,
-              ctx,
-              ctx.sendPong,
-              ctx.sendPing,
-              (code, reason) =>
-                closeState.record(code, reason)
-                notifyClose()
-            )
-          catch
-            case NonFatal(e) =>
-              // Transport/read errors surface as onClose (via the finally), not onError — onError is
-              // reserved for handler-callback exceptions (those are wrapped in WebSocketDispatcher).
-              warn(s"WebSocket client read error: ${e.getMessage}")
-          finally
-            NativeWebSocketClient.unwatch(conn)
-            notifyClose()
-            // Through conn, so a late watchdog abort can't shut down a reused fd number
-            conn.close()
-        )
-        reader.setDaemon(true)
-        reader.setName("native-ws-client-reader")
-        reader.start()
-
-        Rx.single(ctx)
+        opened.trySuccess(ctx)
+        try
+          SocketWebSocket.runReadLoop(
+            conn,
+            NativeWebSocketClient.MaxFrameSize,
+            pingIntervalMillis,
+            expectMasked = false,
+            initial = handshake.leftover,
+            handler,
+            ctx,
+            ctx.sendPong,
+            ctx.sendPing,
+            (code, reason) =>
+              closeState.record(code, reason)
+              notifyClose()
+          )
+        catch
+          case NonFatal(e) =>
+            // Transport/read errors surface as onClose (via the finally), not onError — onError is
+            // reserved for handler-callback exceptions (those are wrapped in WebSocketDispatcher).
+            warn(s"WebSocket client read error: ${e.getMessage}")
+        finally
+          NativeWebSocketClient.unwatch(conn)
+          notifyClose()
+          // Through conn, so a late watchdog abort can't shut down a reused fd number
+          conn.close()
+        end try
       catch
         case NonFatal(e) =>
           NativeSocket.close(fd)
-          Rx.exception(e)
+          opened.tryFailure(e)
       end try
     catch
       case NonFatal(e) =>
-        Rx.exception(e)
+        opened.tryFailure(e)
+
+  end open
 
 end NativeWebSocketClient
 
