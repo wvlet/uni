@@ -256,6 +256,14 @@ static int uni_poller_register(int p, int fd, long long token, int one_shot) {
   struct epoll_event ev;
   ev.events   = EPOLLIN | EPOLLRDHUP | (one_shot ? EPOLLONESHOT : 0);
   ev.data.u64 = (uint64_t)token;
+  /* After its first park, a connection's fd stays registered (disarmed) in the epoll set, so
+   * re-arm it with one MOD call and fall back to ADD only for its first park. */
+  if (one_shot && epoll_ctl(p, EPOLL_CTL_MOD, fd, &ev) == 0) {
+    return 0;
+  }
+  if (one_shot && errno != ENOENT) {
+    return -1;
+  }
   return epoll_ctl(p, EPOLL_CTL_ADD, fd, &ev);
 #else
   struct kevent ev;
@@ -288,24 +296,7 @@ int uni_poller_create(int *wake) {
   return p;
 }
 
-int uni_poller_add(int p, int fd, long long token) {
-#if defined(UNI_POLLER_EPOLL)
-  /* After its first park, a connection's fd stays registered (disarmed) in the epoll set, so
-   * re-arm it with one MOD call and fall back to ADD only for its first park. */
-  struct epoll_event ev;
-  ev.events   = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
-  ev.data.u64 = (uint64_t)token;
-  if (epoll_ctl(p, EPOLL_CTL_MOD, fd, &ev) == 0) {
-    return 0;
-  }
-  if (errno == ENOENT) {
-    return epoll_ctl(p, EPOLL_CTL_ADD, fd, &ev);
-  }
-  return -1;
-#else
-  return uni_poller_register(p, fd, token, 1);
-#endif
-}
+int uni_poller_add(int p, int fd, long long token) { return uni_poller_register(p, fd, token, 1); }
 
 int uni_poller_wait(int p, long long *tokens, int max, int timeout_millis) {
   if (max > UNI_POLLER_MAX_EVENTS) {

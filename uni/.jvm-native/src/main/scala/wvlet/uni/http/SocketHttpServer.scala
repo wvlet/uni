@@ -234,11 +234,7 @@ abstract class SocketHttpServer private[http] (
 
     // Read what is already waiting, without waiting, before parking (see IdlePoller.park)
     private val readNow: (Array[Byte], Int, Int) => Int =
-      (buf, off, len) =>
-        if !running.get() then
-          -1
-        else
-          conn.read(buf, off, len, 0)
+      (buf, off, len) => conn.read(buf, off, len, 0)
 
     /** Serve requests on this worker until the connection closes or is handed to the poller. */
     def run(): Unit =
