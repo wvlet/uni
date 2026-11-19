@@ -19,6 +19,7 @@
 - **Shutdown order.** `stop()` sets `running = false`, closes the listener, then closes the poller: it wakes the poller thread, joins it, and the thread expires every parked connection. A park after that fails (the poller is closed), and the worker's reader sees the server stopping and closes the connection. A connection resumed into a pool that has shut down is closed by the poller. Busy connections then drain as before (ADR 2026-10-27).
 - **The JVM is unchanged.** `newIdlePoller` defaults to None, so the built-in server keeps one virtual thread per connection.
 - **Socket I/O reads and writes Scala arrays in place.** `recvInto` and `sendAll` pass `array.at(off)` to `recv`/`send`, which Scala Native's non-moving collectors allow (its own javalib does the same), instead of copying each byte through a `stackalloc` buffer in 8 KB pieces.
+- **A read tries `recv` first** (added in #978). `NativeSocketConnection.read` calls `uni_socket_recv_ready` (`recv` with `MSG_DONTWAIT`) and waits in `poll` only when nothing is waiting (`EAGAIN`), so a connection resumed from the poller, or one with a request in flight, costs one syscall per read instead of two, and `readTimeoutMillis` still holds. Windows has no `MSG_DONTWAIT` in winsock; there the shim reports "nothing waiting" and every read polls first, as before.
 - **Defaults stay**: 16 workers, and streaming connections (SSE, WebSocket) still hold a worker under `maxStreamingConnections` (12).
 
 ## Consequences

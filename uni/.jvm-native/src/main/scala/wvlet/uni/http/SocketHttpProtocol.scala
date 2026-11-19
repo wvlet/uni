@@ -601,18 +601,8 @@ private[http] object HttpConnectionReader:
     * locale could change `I`, and Scala Native has no `Locale.ROOT`).
     */
   private[http] def tokens(values: Seq[String]): Seq[String] = values.flatMap(
-    _.split(",", -1).iterator.map(t => asciiLower(t.trim))
+    _.split(",", -1).iterator.map(t => HttpMultiMap.lowerAscii(t.trim))
   )
-
-  private def asciiLower(s: String): String =
-    val chars = s.toCharArray
-    var i     = 0
-    while i < chars.length do
-      val c = chars(i)
-      if c >= 'A' && c <= 'Z' then
-        chars(i) = (c + 32).toChar
-      i += 1
-    String(chars)
 
 end HttpConnectionReader
 
