@@ -14,6 +14,7 @@
 package wvlet.uni.util
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.check.Gen
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 
@@ -98,6 +99,37 @@ class DataSizeTest extends UniTest:
     "1GB".toDataSize.toBytes shouldBe 1L * 1024 * 1024 * 1024
     "1TB".toDataSize.toBytes shouldBe 1L * 1024 * 1024 * 1024 * 1024
     "1PB".toDataSize.toBytes shouldBe 1L * 1024 * 1024 * 1024 * 1024 * 1024
+  }
+
+  // Log-uniform non-negative Longs, so samples spread across every unit instead of
+  // clustering near Long.MaxValue
+  private def logUniform(maxBits: Int): Gen[Long] =
+    Gen.chooseNum(0, maxBits).flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+
+  test("succinct size string parses back within display precision") {
+    forAll(logUniform(62)) { bytes =>
+      val s      = DataSize.succinct(bytes)
+      val parsed = DataSize(s.toString)
+      parsed.unit shouldBe s.unit
+      // toString keeps two decimals of the succinct unit
+      (math.abs(parsed.valueOf(BYTE) - bytes.toDouble) <= 0.005 * s.unit.factor) shouldBe true
+    }
+  }
+
+  test("mostSuccinctDataSize keeps the size and picks a value in [1, 1024)") {
+    forAll(logUniform(62)) { bytes =>
+      val s = DataSize(bytes).mostSuccinctDataSize
+      s.valueOf(BYTE) shouldBe bytes.toDouble
+      if bytes >= 1 && s.unit != PETABYTE then
+        (s.value >= 1.0 && s.value < 1024.0) shouldBe true
+    }
+  }
+
+  test("compareTo agrees with byte counts") {
+    forAll(logUniform(52), logUniform(52)) { (a, b) =>
+      Integer.signum(DataSize.succinct(a).compareTo(DataSize.succinct(b))) shouldBe
+        Integer.signum(a.compareTo(b))
+    }
   }
 
 end DataSizeTest

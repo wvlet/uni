@@ -15,6 +15,7 @@ package wvlet.uni.util
 
 import wvlet.uni.util.Count.CountUnit
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.check.Gen
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 
@@ -127,6 +128,31 @@ class CountTest extends UniTest:
     for u <- Count.units do
       CountUnit.unapply(u.unitString) shouldBe Some(u)
     CountUnit.unapply("X") shouldBe None
+  }
+
+  // Log-uniform non-negative Longs, so samples spread across every unit instead of
+  // clustering near Long.MaxValue
+  private def logUniform(maxBits: Int): Gen[Long] =
+    Gen.chooseNum(0, maxBits).flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+
+  test("succinct count string parses back within display precision") {
+    forAll(logUniform(62), Gen.oneOf(1L, -1L)) { (n, sign) =>
+      val x      = n * sign
+      val c      = Count.succinct(x)
+      val parsed = Count(c.toString)
+      parsed.unit shouldBe c.unit
+      // toString keeps two decimals of the succinct unit
+      (math.abs(parsed.value - x).toDouble <= 0.005 * c.unit.factor + 1) shouldBe true
+    }
+  }
+
+  test("mostSuccinctCount keeps the value and picks a magnitude in [1, 1000)") {
+    forAll(logUniform(62)) { n =>
+      val c = Count.succinct(n)
+      c.value shouldBe n
+      if n >= 1 && c.unit != Count.QUADRILLION then
+        (c.valueOf(c.unit) >= 1.0 && c.valueOf(c.unit) < 1000.0) shouldBe true
+    }
   }
 
 end CountTest

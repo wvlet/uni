@@ -14,6 +14,7 @@
 package wvlet.uni.util
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.test.check.Gen
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 
@@ -195,6 +196,37 @@ class ElapsedTimeTest extends UniTest:
 
   test("support rounding") {
     // TODO: Implement rounding test
+  }
+
+  // Log-uniform non-negative Longs, so samples spread across every unit instead of
+  // clustering near Long.MaxValue
+  private def logUniform(maxBits: Int): Gen[Long] =
+    Gen.chooseNum(0, maxBits).flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+
+  test("succinct duration string parses back within display precision") {
+    forAll(logUniform(62)) { nanos =>
+      val e      = ElapsedTime.succinctNanos(nanos)
+      val parsed = ElapsedTime.parse(e.toString)
+      parsed.unit shouldBe e.unit
+      // toString keeps two decimals of the succinct unit
+      val tolerance = 0.005 * ElapsedTime.millisPerTimeUnit(e.unit) * 1000000
+      (math.abs(parsed.valueIn(NANOSECONDS) - nanos.toDouble) <= tolerance) shouldBe true
+    }
+  }
+
+  test("convertToMostSuccinctTimeUnit keeps the duration") {
+    forAll(logUniform(62)) { nanos =>
+      val e = ElapsedTime.succinctNanos(nanos)
+      val n = e.valueIn(NANOSECONDS)
+      (math.abs(n - nanos.toDouble) <= math.max(1.0, nanos.toDouble * 1e-12)) shouldBe true
+    }
+  }
+
+  test("compareTo agrees with nanosecond counts") {
+    forAll(logUniform(52), logUniform(52)) { (a, b) =>
+      Integer.signum(ElapsedTime.succinctNanos(a).compareTo(ElapsedTime.succinctNanos(b))) shouldBe
+        Integer.signum(a.compareTo(b))
+    }
   }
 
 end ElapsedTimeTest
