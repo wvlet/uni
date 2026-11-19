@@ -14,7 +14,6 @@
 package wvlet.uni.util
 
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.check.Gen
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 
@@ -101,11 +100,7 @@ class DataSizeTest extends UniTest:
     "1PB".toDataSize.toBytes shouldBe 1L * 1024 * 1024 * 1024 * 1024 * 1024
   }
 
-  // Log-uniform non-negative Longs, so samples spread across every unit instead of
-  // clustering near Long.MaxValue
-  private def logUniform(maxBits: Int): Gen[Long] = Gen
-    .chooseNum(0, maxBits)
-    .flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+  import UnitGens.*
 
   test("succinct size string parses back within display precision") {
     forAll(logUniform(62)) { bytes =>
@@ -113,7 +108,7 @@ class DataSizeTest extends UniTest:
       val parsed = DataSize(s.toString)
       parsed.unit shouldBe s.unit
       // toString keeps two decimals of the succinct unit
-      (math.abs(parsed.valueOf(BYTE) - bytes.toDouble) <= 0.005 * s.unit.factor) shouldBe true
+      withinDisplayPrecision(parsed.valueOf(BYTE), bytes.toDouble, s.unit.factor) shouldBe true
     }
   }
 

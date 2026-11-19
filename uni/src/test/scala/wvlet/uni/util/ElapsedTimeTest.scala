@@ -14,7 +14,6 @@
 package wvlet.uni.util
 
 import wvlet.uni.test.UniTest
-import wvlet.uni.test.check.Gen
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
 
@@ -198,11 +197,7 @@ class ElapsedTimeTest extends UniTest:
     // TODO: Implement rounding test
   }
 
-  // Log-uniform non-negative Longs, so samples spread across every unit instead of
-  // clustering near Long.MaxValue
-  private def logUniform(maxBits: Int): Gen[Long] = Gen
-    .chooseNum(0, maxBits)
-    .flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+  import UnitGens.*
 
   test("succinct duration string parses back within display precision") {
     forAll(logUniform(62)) { nanos =>
@@ -210,8 +205,9 @@ class ElapsedTimeTest extends UniTest:
       val parsed = ElapsedTime.parse(e.toString)
       parsed.unit shouldBe e.unit
       // toString keeps two decimals of the succinct unit
-      val tolerance = 0.005 * ElapsedTime.millisPerTimeUnit(e.unit) * 1000000
-      (math.abs(parsed.valueIn(NANOSECONDS) - nanos.toDouble) <= tolerance) shouldBe true
+      val nanosPerUnit = ElapsedTime.millisPerTimeUnit(e.unit) * 1000000
+      withinDisplayPrecision(parsed.valueIn(NANOSECONDS), nanos.toDouble, nanosPerUnit) shouldBe
+        true
     }
   }
 

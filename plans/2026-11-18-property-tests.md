@@ -15,7 +15,7 @@
 
 ## Design
 
-- Lane: **Express** — tests only, no change to production code or public API, touches no always-gate area.
+- Lane: **Express** — tests, plus small fixes for bugs the properties find; no public API change, touches no always-gate area.
 - Add properties next to the existing example tests (same test class or a sibling `*PropertyTest`), keeping the examples as documentation.
 - Targets, in priority order:
   - `util` codecs: `Base64` bytes/string roundtrip and output alphabet; `URLEncoder` `decode(encode(s)) == s` and encoded output uses only unreserved chars and `%XX`; `Base62` 128-bit roundtrip; `UUIDv7` `toString`/`toBase62` roundtrips on values built by `newUUIDv7(ts)` from a seeded generator (parsers reject non-v7 bits).
@@ -25,6 +25,7 @@
 - Shared generators (e.g. a `JSONValue` Gen) live in test sources only; nothing is added to uni-test's public API unless a gap shows up — then it becomes a separate PR.
 - Keep the default sample count, so CI time stays flat; failures report the seed for replay.
 - If a property finds a real bug: fix it in this PR when the fix is small and local; otherwise mark the property `pending` with the counterexample and open a follow-up issue.
+- Found and fixed: `UUIDv7.compareTo` compared the high bits as signed Longs, so its order disagreed with the byte, string, and Base62 order once the timestamp's top bit is set. It now compares unsigned.
 - Out of scope for this PR, listed as follow-ups: `HttpMultiMap`, cron parsing, `YAMLFormatter`, `DisplayWidth`, `IOPath` normalization.
 
 ## Alternatives and Why Not?

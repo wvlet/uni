@@ -130,11 +130,7 @@ class CountTest extends UniTest:
     CountUnit.unapply("X") shouldBe None
   }
 
-  // Log-uniform non-negative Longs, so samples spread across every unit instead of
-  // clustering near Long.MaxValue
-  private def logUniform(maxBits: Int): Gen[Long] = Gen
-    .chooseNum(0, maxBits)
-    .flatMap(bits => Gen.chooseNum(0L, (1L << bits) - 1))
+  import UnitGens.*
 
   test("succinct count string parses back within display precision") {
     forAll(logUniform(62), Gen.oneOf(1L, -1L)) { (n, sign) =>

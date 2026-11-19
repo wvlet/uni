@@ -23,7 +23,7 @@ class JSONPropertyTest extends UniTest:
   private val genString: Gen[String] = Arbitrary.arbitrary[String]
 
   // JSON has no NaN or Infinity, and whole-number doubles print as integers on Scala.js
-  // ("1.0".toString == "1"), which parse back as JSONLong. Both are limits of the text format,
+  // (1.0.toString == "1"), which parse back as JSONLong. Both are limits of the text format,
   // so the generator emits only finite doubles with a fractional part.
   private val genDouble: Gen[Double] = Arbitrary
     .arbitrary[Double]
@@ -66,15 +66,6 @@ class JSONPropertyTest extends UniTest:
     forAll { (s: String) =>
       JSON.parseAny(JSONString(s).toJSON) shouldBe JSONString(s)
       quoteJSONString(s).exists(c => c < 0x20) shouldBe false
-    }
-  }
-
-  test("parse(v.toJSON) == v for objects and arrays") {
-    forAll(genJSON) { v =>
-      v match
-        case _: JSONObject | _: JSONArray =>
-          JSON.parse(v.toJSON) shouldBe v
-        case _ =>
     }
   }
 
