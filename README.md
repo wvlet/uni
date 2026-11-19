@@ -55,10 +55,16 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 
 ## Getting Started
 
-Add the dependencies you need to your `build.sbt` (replace `<version>`
-with the version shown in the Maven Central badge above):
+Add the dependencies you need to your `build.sbt`, replacing `<version>`
+with a uni version. Every release is published to the wvlet Maven
+repository, `https://repo.wvlet.org/maven2`, and only some are copied to
+Maven Central. The version on the Maven Central badge above needs no
+extra setup; for a newer release, add the wvlet resolver:
 
 ```scala
+// Only for a version newer than the Maven Central badge
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
 // Core utilities (Design, logging, JSON, MessagePack, Rx, HTTP client, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "<version>"
 
@@ -77,6 +83,10 @@ Native projects (sbt 2.x uses `%%` for all platforms):
 libraryDependencies += "org.wvlet.uni" %%% "uni" % "<version>"
 libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
 ```
+
+See [Newest Releases](https://wvlet.org/uni/guide/installation#newest-releases)
+for scala-cli, Mill, and Gradle setup, and for why a library published to
+Maven Central should depend only on uni versions that are on Maven Central.
 
 ### Using `uni`
 
@@ -153,6 +163,9 @@ Uni also ships sbt plugins for **sbt 2.x**, usable in any sbt 2.x project
 Add the ones you need to `project/plugins.sbt`:
 
 ```scala
+// Only for a plugin version newer than the Maven Central badge
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
 // HTTP/RPC client generation + background fork-run (~uniRestart)
 addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "<version>")
 
