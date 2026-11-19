@@ -43,6 +43,12 @@ private[http] object SocketShim:
 
   def uni_socket_close(fd: CInt): CInt = extern
 
+  /** Make a send to a closed peer fail with EPIPE instead of raising SIGPIPE (macOS). */
+  def uni_socket_no_sigpipe(fd: CInt): Unit = extern
+
+  /** Flags for every `send`: `MSG_NOSIGNAL` where it exists (Linux), else 0. */
+  def uni_socket_send_flags(): CInt = extern
+
 /**
   * Thin wrappers over POSIX TCP sockets (libc, via Scala Native's posixlib) for the Native HTTP
   * server. No external dependency or linker flag is required.
@@ -50,6 +56,9 @@ private[http] object SocketShim:
 private[http] object NativeSocket:
 
   private final val ChunkSize = 8192
+
+  // A send to a closed peer must fail, not kill the process with SIGPIPE.
+  private lazy val SendFlags: CInt = SocketShim.uni_socket_send_flags()
 
   /**
     * Initialize the socket subsystem. A no-op on unix; on Windows, winsock rejects every `socket()`
@@ -116,6 +125,7 @@ private[http] object NativeSocket:
     val fd = csocket.socket(csocket.AF_INET, csocket.SOCK_STREAM, 0)
     if fd < 0 then
       throw HttpException.connectionFailed("Failed to create socket")
+    SocketShim.uni_socket_no_sigpipe(fd)
     val addr = stackalloc[sockaddr_in]()
     cstring.memset(addr.asInstanceOf[Ptr[Byte]], 0, sizeof[sockaddr_in])
     addr.sin_family = csocket.AF_INET.toUShort
@@ -169,11 +179,15 @@ private[http] object NativeSocket:
     * Accept a connection, returning the client fd (or a negative value on error / when the
     * listening socket has been closed).
     */
-  def accept(serverFd: Int): Int = csocket.accept(
-    serverFd,
-    null.asInstanceOf[Ptr[sockaddr]],
-    null.asInstanceOf[Ptr[socklen_t]]
-  )
+  def accept(serverFd: Int): Int =
+    val fd = csocket.accept(
+      serverFd,
+      null.asInstanceOf[Ptr[sockaddr]],
+      null.asInstanceOf[Ptr[socklen_t]]
+    )
+    if fd >= 0 then
+      SocketShim.uni_socket_no_sigpipe(fd)
+    fd
 
   /** Enable TCP keep-alive so the OS eventually reaps a silently-dropped peer (best effort). */
   def enableKeepAlive(fd: Int): Unit =
@@ -252,7 +266,12 @@ private[http] object NativeSocket:
         i += 1
       var sent = 0
       while ok && sent < n do
-        val w = csocket.send(fd, (chunk + sent).asInstanceOf[Ptr[Byte]], (n - sent).toUInt, 0)
+        val w = csocket.send(
+          fd,
+          (chunk + sent).asInstanceOf[Ptr[Byte]],
+          (n - sent).toUInt,
+          SendFlags
+        )
         if w <= 0 then
           ok = false
         else

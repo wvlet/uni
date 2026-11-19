@@ -13,12 +13,13 @@
  */
 
 /*
- * The three places uni's Native sockets need something other than the POSIX call, so that
+ * The places uni's Native sockets need something other than the plain POSIX call, so that
  * NativeHttpServer / NativeWebSocket work on Windows as well as unix:
  *
  *   startup        POSIX: nothing.            Windows: WSAStartup, or every socket() fails.
  *   readable-wait  POSIX: poll().             Windows: WSAPoll().
  *   close          POSIX: close().            Windows: closesocket().
+ *   no SIGPIPE     macOS: SO_NOSIGPIPE.       Linux: MSG_NOSIGNAL.     Windows: nothing.
  *
  * Everything else uni calls — socket, bind, listen, accept, recv, send, setsockopt, shutdown — is
  * mapped onto winsock by Scala Native's own posixlib, and needs nothing from us.
@@ -95,10 +96,16 @@ int uni_socket_startup(void) {
  * file descriptors, not socket handles. Closing a socket with it leaks the socket. */
 int uni_socket_close(int fd) { return closesocket(UNI_POLL_FD(fd)); }
 
+/* Windows has no SIGPIPE: a send to a closed peer fails with WSAECONNRESET. */
+void uni_socket_no_sigpipe(int fd) { (void)fd; }
+
+int uni_socket_send_flags(void) { return 0; }
+
 #else
 
 #include <errno.h>
 #include <poll.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 typedef struct pollfd uni_pollfd;
@@ -109,6 +116,29 @@ typedef struct pollfd uni_pollfd;
 int uni_socket_startup(void) { return 0; }
 
 int uni_socket_close(int fd) { return close(fd); }
+
+/*
+ * A send to a peer that has closed raises SIGPIPE, whose default action kills the process. Turn it
+ * into an EPIPE error instead, per socket rather than with a process-wide signal(SIGPIPE, SIG_IGN)
+ * that would change how the app's own pipes (stdout into `head`) behave. macOS has no MSG_NOSIGNAL
+ * but takes SO_NOSIGPIPE on the socket; Linux takes MSG_NOSIGNAL on each send.
+ */
+void uni_socket_no_sigpipe(int fd) {
+#if defined(SO_NOSIGPIPE)
+  int on = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#else
+  (void)fd;
+#endif
+}
+
+int uni_socket_send_flags(void) {
+#if defined(MSG_NOSIGNAL)
+  return MSG_NOSIGNAL;
+#else
+  return 0;
+#endif
+}
 
 #endif
 

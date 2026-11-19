@@ -92,22 +92,45 @@ private[http] object NodeWebSocket extends LogSupport:
       upgradeRequest = r
       Rx.single(Response.ok)
     }
-    RxRunner.runOnce(route.filter.apply(request, gate)) {
+    // A readable rejection completes the handshake and closes at once with 4000 + status.
+    def reject(resp: Response): Unit =
+      if route.closeOnRejection then
+        accept(
+          socket,
+          head,
+          key,
+          WebSocketRejection.rejectingRoute(route, resp),
+          upgradeRequest,
+          maxFrameSize,
+          pingIntervalMillis
+        )
+      else
+        writeHttpClose(socket, resp)
+    val filtered =
+      try
+        route.filter.apply(request, gate)
+      catch
+        case NonFatal(e) =>
+          Rx.exception(e)
+    RxRunner.runOnce(filtered) {
       case OnNext(response) =>
         val resp = response.asInstanceOf[Response]
         if resp.isSuccessful then
           accept(socket, head, key, route, upgradeRequest, maxFrameSize, pingIntervalMillis)
         else
-          writeHttpClose(socket, resp)
+          reject(resp)
       case OnError(e) =>
         if HttpServerSecurity.isClientError(e) then
           debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
         else
           warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
-        writeHttpClose(socket, HttpServerSecurity.errorResponse(e, detailedErrors))
+        reject(HttpServerSecurity.errorResponse(e, detailedErrors))
       case OnCompletion =>
         // Filter completed without a verdict: close the connection rather than leave it hanging.
-        destroyQuietly(socket)
+        if route.closeOnRejection then
+          reject(Response.forbidden)
+        else
+          destroyQuietly(socket)
     }
 
   end gateAndAccept

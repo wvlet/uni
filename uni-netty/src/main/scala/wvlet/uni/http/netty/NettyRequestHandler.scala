@@ -55,6 +55,7 @@ import wvlet.uni.http.{
   Response,
   RxHttpHandler,
   ServerSentEvent,
+  WebSocketRejection,
   WebSocketRoute
 }
 import wvlet.uni.log.LogSupport
@@ -174,11 +175,35 @@ class NettyRequestHandler(
             debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
           else
             warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
-          sendResponse(ctx, errorResponse(e), keepAlive = false)
+          if route.closeOnRejection then
+            // doWebSocketHandshake releases the request it is handed
+            nettyRequest.retain()
+            doWebSocketHandshake(
+              ctx,
+              nettyRequest,
+              request,
+              WebSocketRejection.rejectingRoute(route, errorResponse(e))
+            )
+          else
+            sendResponse(ctx, errorResponse(e), keepAlive = false)
           return
 
     nettyRequest.retain()
     val handled = AtomicBoolean(false)
+    // A readable rejection completes the handshake and closes with 4000 + status; doWebSocketHandshake
+    // then owns the retained request.
+    def reject(response: Response): Unit =
+      if route.closeOnRejection then
+        doWebSocketHandshake(
+          ctx,
+          nettyRequest,
+          upgradeRequest.get(),
+          WebSocketRejection.rejectingRoute(route, response)
+        )
+      else
+        sendResponse(ctx, response, keepAlive = false)
+        nettyRequest.release()
+
     // Release the retained request exactly once: the success path hands ownership to
     // doWebSocketHandshake (released in its finally / on a rejected event-loop task); every other
     // path — including a synchronous failure inside RxRunner.runOnce — releases here. runOnce (not
@@ -191,22 +216,23 @@ class NettyRequestHandler(
             if response.isSuccessful then
               doWebSocketHandshake(ctx, nettyRequest, upgradeRequest.get(), route)
             else
-              sendResponse(ctx, response, keepAlive = false)
-              nettyRequest.release()
+              reject(response)
         case OnError(e) =>
           if handled.compareAndSet(false, true) then
             if HttpServerSecurity.isClientError(e) then
               debug(s"WebSocket upgrade error: ${e.getMessage}", e)
             else
               warn(s"WebSocket upgrade error: ${e.getMessage}", e)
-            sendResponse(ctx, errorResponse(e), keepAlive = false)
-            nettyRequest.release()
+            reject(errorResponse(e))
         case OnCompletion =>
           // The filter completed without emitting a response: release and close so the client
           // doesn't hang waiting for a handshake that won't come.
           if handled.compareAndSet(false, true) then
-            nettyRequest.release()
-            ctx.close()
+            if route.closeOnRejection then
+              reject(Response.forbidden)
+            else
+              nettyRequest.release()
+              ctx.close()
       }
     catch
       case NonFatal(e) =>

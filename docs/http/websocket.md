@@ -107,6 +107,62 @@ closed first, this side's when it did. It is 1006 when the connection ended
 without a close frame, and 1013 ("try again later") when this side dropped a
 peer that stopped reading.
 
+Codes a Uni server sends on its own:
+
+| Code | Meaning |
+|------|---------|
+| 4000 + HTTP status (4401, 4403, …) | The route filter rejected the upgrade, on a route with [readable rejections](./server#readable-rejections) |
+| 4502 | A [relay](#relaying-a-session) couldn't reach its upstream |
+| 4900–4999 | A relay's upstream closed with a code the client can't be given, such as 1011 (4911) |
+| 1013 | A peer stopped reading, or a relay's pre-open queue overflowed |
+
+A browser reports a close during the handshake as 1006. A client that closes on
+its own while connecting should treat that 1006 as a normal close.
+
+## Relaying a Session
+
+`WebSocketRelay` is a server handler that relays one client session to an
+upstream WebSocket server, text and binary frames both ways. Register it with
+`newHandler()` as a route's handler; see
+[Relaying to an Upstream](./server#relaying-to-an-upstream) for a full server.
+
+```scala
+import wvlet.uni.http.{Request, WebSocketRelay}
+
+val relay = WebSocketRelay(
+  Request.get("wss://api.example.com/v1/realtime").withBearerToken(apiKey)
+)
+  .withMaxPendingBytes(1024 * 1024)  // queue for client frames until the upstream opens
+  .withStatsReporter(stats => println(stats))
+```
+
+| Event | What the relay does |
+|-------|---------------------|
+| Client frames before the upstream opens | Queued in order, up to `maxPendingBytes` (1 MiB by default); past it the client is closed with 1013 |
+| Upstream connect or handshake fails | The client is closed with 4502, reason `upstream status 401` when the upstream answered with a status (JVM and Native), else `upstream connect failed` |
+| Client closes | The upstream is closed with the same code and reason; a dropped client (1006) closes it with 1001 |
+| Upstream closes with 1000, 1001, or 3000–4999 | The client is closed with the same code |
+| Upstream closes with another code | 1002–1099 map to 4902–4999 (1006 → 4906, 1011 → 4911), anything else to 4900 |
+| An error on either side | That side is closed with 1011, which closes the other |
+
+`ctx.close` itself never remaps codes; only the relay maps an upstream code it
+copies to the client. Remapping in `ctx.close` would rewrite an app's
+legitimate `close(1011, ...)`.
+
+When the client connection closes, the stats reporter gets one
+`WebSocketRelayStats` for the session:
+
+| Field | Meaning |
+|-------|---------|
+| `durationMillis` | Wall-clock time from the client's open to its close, e.g. for per-minute audio billing |
+| `framesToUpstream`, `bytesToUpstream` | Client frames sent to the upstream, and their payload bytes |
+| `framesToClient`, `bytesToClient` | Upstream frames sent to the client |
+| `statusCode`, `reason` | The close status of the side that closed first, as it reported it (the upstream's own code, before mapping) |
+| `closedBy` | `WebSocketRelaySide.Client`, `Upstream`, or `Relay` (connect failure or queue overflow) |
+
+The relay decides nothing about auth or billing: authenticate the client in the
+route filter, and meter from the stats.
+
 ## Slow Peers
 
 A peer that stops reading can't make a connection hold memory or a thread
@@ -157,6 +213,6 @@ without WebSocket support the base client throws
 ## See Also
 
 - [Server-side WebSocket](./server#websocket) — register `WebSocketHandler`
-  routes on a Netty server (JVM).
+  routes, readable rejections, and relays on any Uni server.
 - [Server-Sent Events](./sse) — one-way server→client streaming when you don't
   need a bidirectional channel.

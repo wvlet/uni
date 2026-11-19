@@ -155,8 +155,14 @@ case class NettyServerConfig(
     */
   def withWebSocketRoute(path: String, filter: RxHttpFilter)(
       handlerFactory: Request => WebSocketHandler
-  ): NettyServerConfig = copy(webSocketRoutes =
-    webSocketRoutes :+ WebSocketRoute(path, handlerFactory, filter)
+  ): NettyServerConfig = withWebSocketRoute(WebSocketRoute(path, handlerFactory, filter))
+
+  /**
+    * Register a configured WebSocket route, e.g. one built with
+    * `WebSocketRoute(path, factory, authFilter).withCloseOnRejection()`.
+    */
+  def withWebSocketRoute(route: WebSocketRoute): NettyServerConfig = copy(webSocketRoutes =
+    webSocketRoutes :+ route
   )
 
   def withWebSocketMaxFrameSize(sizeInBytes: Int): NettyServerConfig =

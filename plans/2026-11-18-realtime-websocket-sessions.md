@@ -99,3 +99,8 @@ Out of scope:
 - **Remapping every 1002–1015 code in `ctx.close`.** It would silently turn an app's valid `close(1011, ...)` into an app code. The mapping into 49xx belongs in the relay, where an upstream code is copied to a client.
 - **Binary audio frames end to end instead of base64 JSON.** They save about 33%, but a relay to OpenAI must keep OpenAI's wire format. The typed-session follow-up can use binary frames where Uni owns both ends.
 - **One send-buffer byte limit on every backend.** The socket backends write synchronously, so their buffered bytes are always near zero. Their failure mode is a blocked thread, which a write timeout bounds.
+
+## Design gate
+
+- 2026-11-18: the user approved this note on the Standard direction card ("Approve"), which covered the whole note and stated that it changes the WebSocket upgrade's auth boundary, and chose "Two PRs".
+- PR 1 (#967) shipped the primitives. PR 2 ships `WebSocketRelay` and readable rejections under the same approval, without deviating from the decisions above. Implementation choices: the route option is `WebSocketRoute.withCloseOnRejection()`; the Native client now connects on its own thread so a relay's pre-open queue applies there; Native sockets no longer raise SIGPIPE. See `adr/2026-11-18-websocket-readable-rejections-and-relay.md`.
