@@ -368,6 +368,16 @@ class Dock private (
 
   private var closedWatch: Cancelable = Cancelable.empty
 
+  // The group showing the dock-wide actions: the corner one, or the one filling the dock. A move
+  // clears it first, so the old group unmounts the actions before the new one mounts them, and an
+  // action's own unmount never runs after its new mount.
+  private val actionsAt: RxVar[Option[DockPath]] = Rx.variable(None)
+  private var actionsWatch: Cancelable           = Cancelable.empty
+
+  private def actionsTarget(l: DockLayout): Option[DockPath] = Some(
+    DockModel.maximizedGroup(l).getOrElse(DockModel.cornerGroup(l.root))
+  )
+
   override def onMount(node: Any): Unit =
     // Save the cleaned-up layout, so unknown ids leave the app's storage too
     layout := now
@@ -381,6 +391,7 @@ class Dock private (
 
   override def beforeUnmount: Unit =
     closedWatch.cancel
+    actionsWatch.cancel
     dom.window.removeEventListener("pagehide", closeWindows)
     closeWindows(())
 
@@ -683,7 +694,6 @@ class Dock private (
         path,
         live,
         groupCount,
-        corner = false,
         top = false,
         grip = Some(
           button(
@@ -1062,7 +1072,6 @@ class Dock private (
       path: DockPath,
       live: Rx[DockLayout],
       groupCount: Int,
-      corner: Boolean,
       top: Boolean,
       grip: Option[RxElement] = None
   ): RxElement =
@@ -1083,15 +1092,7 @@ class Dock private (
     val floating = DockModel.floatIndex(path).isDefined
     val maxed    = distinct(live.map(DockModel.maximizedGroup(_).contains(path)))
     // The dock-wide actions stay in reach: in the corner group, or in the group filling the dock
-    val showActions = distinct(
-      live.map(l =>
-        DockModel.maximizedGroup(l) match
-          case Some(m) =>
-            m == path
-          case None =>
-            corner
-      )
-    )
+    val showActions = distinct(actionsAt.map(_.contains(path)))
     div(
       cls               -> "uni-dock__group",
       data("slot")      -> "dock-group",
@@ -1337,7 +1338,6 @@ class Dock private (
       path: DockPath,
       live: Rx[DockLayout],
       groupCount: Int,
-      corner: DockPath,
       tops: Set[DockPath]
   ): RxElement =
     n match
@@ -1360,7 +1360,7 @@ class Dock private (
           div(cls -> "uni-dock__empty", "No open panels")
         )
       case DockNode.Group(tabs, _) =>
-        group(tabs, path, live, groupCount, path == corner, tops.contains(path))
+        group(tabs, path, live, groupCount, tops.contains(path))
       case DockNode.Split(dir, children, _) =>
         val splitRef  = DomRef[dom.HTMLElement]()
         val maximized = distinct(live.map(DockModel.maximizedGroup))
@@ -1382,7 +1382,7 @@ class Dock private (
               styleAttr -> grow.map(g => f"flex: ${g}%.6f 1 0px"),
               // Hidden unless it holds the maximized group, when one is
               wvlet.uni.dom.all.hidden -> maximized.map(_.exists(m => !m.startsWith(cellPath))),
-              node(c, cellPath, live, groupCount, corner, tops)
+              node(c, cellPath, live, groupCount, tops)
             )
             if i == 0 then
               Seq(cell)
@@ -1408,6 +1408,15 @@ class Dock private (
     def floatsKey(l: DockLayout): (Seq[DockFloat], Int) =
       val s = shapeOf(l)
       (s.floating, DockModel.groups(s.root).size)
+    // Subscribed before the tree, so the actions move before a rebuild mounts the new groups
+    actionsWatch.cancel
+    actionsWatch = current
+      .map(actionsTarget)
+      .run { t =>
+        if actionsAt.get != t then
+          actionsAt := None
+          actionsAt := t
+      }
     div(
       cls               -> "uni-dock",
       data("slot")      -> "dock",
@@ -1418,14 +1427,7 @@ class Dock private (
       distinct(current.map(gridKey)).map { key =>
         focusedGroup = None
         val (root, n) = key
-        node(
-          root,
-          Nil,
-          current.filter(gridKey(_) == key),
-          n,
-          DockModel.cornerGroup(root),
-          DockModel.topGroups(root)
-        )
+        node(root, Nil, current.filter(gridKey(_) == key), n, DockModel.topGroups(root))
       },
       div(
         cls          -> "uni-dock__floats",

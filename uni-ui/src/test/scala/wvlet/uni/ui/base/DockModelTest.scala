@@ -344,6 +344,17 @@ class DockModelTest extends UniTest:
     DockModel.withSizes(m, Nil, Seq(0.3, 0.7)).maximized shouldBe Some("a")
     // The group of a hidden panel, or a new one in it, keeps it too
     DockModel.close(m, "c").maximized shouldBe Some("a")
+    // A group's only tab dropped back on its own tabs stays maximized
+    val lone = DockLayout(row(group("a"), group("c"))).maximize("a")
+    DockModel.move(lone, "a", List(0), 0).maximized shouldBe Some("a")
+  }
+
+  test("maximize needs another group to hide, and losing the last other group restores") {
+    DockLayout.of("a", "b").maximize("a").maximized shouldBe None
+    val m = DockLayout(row(group("a"), group("c"))).maximize("a")
+    m.maximized shouldBe Some("a")
+    // The hidden group's last tab closes (from code or an agent): one group is left
+    DockModel.close(m, "c").maximized shouldBe None
   }
 
   test("anything that shows outside the maximized group restores first") {

@@ -773,14 +773,24 @@ class DockTest extends DomTestSupport:
   }
 
   test("the dock's actions move to the maximized group") {
-    val layout  = Rx.variable(DockLayout(row(group("a"), group("b"))))
-    val m       = mountDock(dock(layout).withActions(div(wvlet.uni.dom.all.cls -> "fold", "Fold")))
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    // Never mounted twice: the old group unmounts the actions before the new one mounts them
+    var alive    = 0
+    var maxAlive = 0
+    class Fold extends RxElement:
+      override def beforeUnmount: Unit = alive -= 1
+      override def render: RxElement   =
+        alive += 1
+        maxAlive = math.max(maxAlive, alive)
+        div(wvlet.uni.dom.all.cls -> "fold", "Fold")
+    val m       = mountDock(dock(layout).withActions(Fold()))
     def holders = m.queryAll(".uni-dock__group").filter(_.querySelector(".fold") != null)
     holders.map(_.getAttribute("data-path")) shouldBe Seq("1")
     layout := layout.get.maximize("a")
     holders.map(_.getAttribute("data-path")) shouldBe Seq("0")
     layout := layout.get.restore
     holders.map(_.getAttribute("data-path")) shouldBe Seq("1")
+    (alive, maxAlive) shouldBe (1, 1)
   }
 
 end DockTest

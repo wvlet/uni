@@ -88,7 +88,8 @@ Dock(
   `maximized`, the id of a panel in the group, so it is saved, goes through `onChange`, and undoes
   like any other layout change. From code, `dock.maximize(id)` (false when the panel isn't in a
   grid group or `onChange` canceled it), `dock.restore()`, and `dock.maximized`; `DockLayout`
-  has `maximize(id)` and `restore` too. The toggle doesn't show while the dock has one group.
+  has `maximize(id)` and `restore` too. The toggle doesn't show while the dock has one group, and a dock left with one group is no
+  longer maximized.
 - **Rearranging.** Drag a tab onto another group's tabs to move it there, onto the middle of a
   group to add it, or onto one of a group's edges to split the group. A preview shows where it will
   land, and Escape cancels. A group that loses its last tab disappears.

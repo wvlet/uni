@@ -294,7 +294,7 @@ object DockModel:
     *   - make `active` a panel of its group;
     *   - keep each float's box inside the dock ([[fixBox]]);
     *   - append `required` panels that are missing to the first group;
-    *   - clear `maximized` unless it names a panel in the grid.
+    *   - clear `maximized` unless it names a panel in the grid and another group is left to hide.
     *
     * An empty grid becomes [[DockLayout.empty]]'s root.
     */
@@ -363,8 +363,11 @@ object DockModel:
           case other =>
             other
         }
-    // Only a group of the grid can be maximized
-    DockLayout(grid, floating, layout.maximized.filter(panels(grid).contains))
+    // Only a group of the grid can be maximized, and only while there is another group to hide
+    val maximized = layout
+      .maximized
+      .filter(p => panels(grid).contains(p) && groups(grid).size + floating.size > 1)
+    DockLayout(grid, floating, maximized)
 
   end normalize
 
@@ -507,10 +510,10 @@ object DockModel:
 
   /**
     * Make the grid group holding `panel` fill the dock. A panel that is in a float or not in the
-    * layout leaves the layout as it is.
+    * layout, or a layout with one group, stays as it is.
     */
   def maximize(layout: DockLayout, panel: String): DockLayout =
-    if groupOf(layout.root, panel).isDefined then
+    if groupOf(layout.root, panel).isDefined && groups(layout).size > 1 then
       layout.copy(maximized = Some(panel))
     else
       layout
@@ -663,9 +666,13 @@ object DockModel:
             Reorder.landing(ps.indexOf(panel), index)
           else
             index
-        val inside = from == target && withinMaximized(layout, Some(target))
+        val moved = updateAt(detach(layout, panel), target)(insert(_, panel, at))
         normalize(
-          restoreUnless(inside)(updateAt(detach(layout, panel), target)(insert(_, panel, at)))
+          if from == target && withinMaximized(layout, Some(target)) then
+            // The panel naming the group stays in it, even when it was the group's only tab
+            moved.copy(maximized = layout.maximized)
+          else
+            restore(moved)
         )
       case _ =>
         layout
