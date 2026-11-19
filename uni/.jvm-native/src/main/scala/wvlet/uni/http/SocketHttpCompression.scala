@@ -45,9 +45,14 @@ private[http] object RequestDecompression:
         if body.isEmpty then
           Right(request.removeHeader(HttpHeader.ContentEncoding))
         else
-          val gzip = encoding.endsWith("gzip")
+          val gzip     = encoding.endsWith("gzip")
+          val inflater =
+            if gzip then
+              null
+            else
+              Inflater(!isZlibWrapped(body))
           try
-            val in = open(body, gzip)
+            val in = open(body, inflater)
             try
               readCapped(in, maxSize) match
                 case None =>
@@ -67,10 +72,15 @@ private[http] object RequestDecompression:
                       content = HttpContent.fromBytes(decoded, headers)
                     )
                   )
-            finally in.close()
+            finally
+              in.close()
+              // A stream given its own Inflater doesn't free it, and Native has no finalizers
+              if inflater != null then
+                inflater.end()
           catch
             case _: IOException =>
               Left(Response.badRequest("Malformed compressed request body"))
+        end if
       case _ =>
         Right(request)
     end match
@@ -81,16 +91,17 @@ private[http] object RequestDecompression:
     * A decoder of `body`. deflate accepts both zlib-wrapped and raw data, as Netty's `ZLIB_OR_NONE`
     * does, because clients send either.
     */
-  private def open(body: Array[Byte], gzip: Boolean): InputStream =
+  private def open(body: Array[Byte], inflater: Inflater): InputStream =
     val in = ByteArrayInputStream(body)
-    if gzip then
+    if inflater == null then
       GZIPInputStream(in, BufferSize)
     else
-      val zlibWrapped =
-        body.length >= 2 &&
-          (body(0) & 0x0f) == 8 &&
-          (((body(0) & 0xff) << 8) | (body(1) & 0xff)) % 31 == 0
-      InflaterInputStream(in, Inflater(!zlibWrapped), BufferSize)
+      InflaterInputStream(in, inflater, BufferSize)
+
+  private def isZlibWrapped(body: Array[Byte]): Boolean =
+    body.length >= 2 &&
+      (body(0) & 0x0f) == 8 &&
+      (((body(0) & 0xff) << 8) | (body(1) & 0xff)) % 31 == 0
 
   /** All bytes of `in`, or None once they exceed `maxSize`. */
   private def readCapped(in: InputStream, maxSize: Int): Option[Array[Byte]] =
@@ -128,8 +139,9 @@ private[http] object ResponseCompression:
     */
   def encode(request: Request, response: Response): Response =
     val code = response.status.code
-    if code < 200 || code == 204 || code == 206 || code == 304 ||
-      response.headers.contains(HttpHeader.ContentEncoding)
+    // Most API clients send no Accept-Encoding, so check it before touching the body
+    if !request.headers.contains(HttpHeader.AcceptEncoding) || code < 200 || code == 204 ||
+      code == 206 || code == 304 || response.headers.contains(HttpHeader.ContentEncoding)
     then
       response
     else
@@ -142,13 +154,18 @@ private[http] object ResponseCompression:
             response
           case Some(encoding) =>
             val out = ByteArrayOutputStream(body.length / 2)
-            val enc =
-              if encoding == "gzip" then
-                GZIPOutputStream(out)
-              else
-                DeflaterOutputStream(out, Deflater(Level))
-            enc.write(body)
-            enc.close()
+            if encoding == "gzip" then
+              val enc = GZIPOutputStream(out)
+              enc.write(body)
+              enc.close()
+            else
+              val deflater = Deflater(Level)
+              try
+                val enc = DeflaterOutputStream(out, deflater)
+                enc.write(body)
+                enc.close()
+              finally
+                deflater.end()
             val contentType = response
               .headers
               .get(HttpHeader.ContentType)
@@ -173,8 +190,8 @@ private[http] object ResponseCompression:
 
   /**
     * gzip or deflate by their q-values, as Netty's `HttpContentCompressor.determineEncoding` picks
-    * them: the higher one wins and gzip wins a tie; `*` alone means gzip. None when neither is
-    * acceptable.
+    * them: the higher one wins and gzip wins a tie; `*` stands for whichever of gzip, then deflate,
+    * is not listed. None when neither is acceptable.
     */
   private[http] def chooseEncoding(acceptEncoding: Seq[String]): Option[String] =
     var gzipQ = -1.0
@@ -208,8 +225,10 @@ private[http] object ResponseCompression:
         Some("gzip")
       else
         Some("deflate")
-    else if starQ > 0 && gzipQ < 0 && defQ < 0 then
+    else if starQ > 0 && gzipQ < 0 then
       Some("gzip")
+    else if starQ > 0 && defQ < 0 then
+      Some("deflate")
     else
       None
 

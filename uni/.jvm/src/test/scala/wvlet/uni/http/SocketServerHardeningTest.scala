@@ -155,6 +155,11 @@ class SocketServerHardeningTest extends UniTest:
         server,
         s"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: ${2 * 1024 * 1024}\r\n\r\n"
       ).status shouldBe 413
+      // An endless run of zero digits in a chunk size can't grow the buffer forever
+      request(
+        server,
+        s"POST /echo HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n${"0" * 5000}"
+      ).status shouldBe 400
     }
   }
 
@@ -384,6 +389,9 @@ class SocketServerHardeningTest extends UniTest:
         "GET /big HTTP/1.1\r\nHost: localhost\r\nAccept-Encoding: gzip;q=0.5, deflate\r\n\r\n"
       )
       d.headers("content-encoding") shouldBe "deflate"
+      ResponseCompression.chooseEncoding(Seq("gzip;q=0, *")) shouldBe Some("deflate")
+      ResponseCompression.chooseEncoding(Seq("*")) shouldBe Some("gzip")
+      ResponseCompression.chooseEncoding(Seq("br, identity")) shouldBe None
 
       // Identity when not asked for, for small bodies, and for HEAD
       request(server, "GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n")

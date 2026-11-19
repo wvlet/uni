@@ -30,7 +30,7 @@ private[http] enum ReadResult:
   * Size limits of one request, as Netty's `HttpServerCodec` and `HttpObjectAggregator` set them.
   *
   * @param maxInitialLineLength
-  *   the request line, and the size line of a chunk (414 when exceeded)
+  *   the request line (414 when exceeded), and the size line of a chunk (400)
   * @param maxHeaderSize
   *   the header block after the request line, and the trailers of a chunked body (431)
   * @param maxContentLength
@@ -473,6 +473,9 @@ private[http] class HttpConnectionReader(
           digits += 1
           if size > limits.maxContentLength - total then
             return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
+          // Leading zeros keep the size at 0, so bound the digits too
+          if p - lineStart >= limits.maxInitialLineLength then
+            return Left(bad("Chunk size line too long"))
           p += 1
       if digits == 0 then
         return Left(bad("Invalid chunk size"))
