@@ -10,6 +10,7 @@ template you can copy: one or two Scala files, a README that explains what it sh
 | [`repl`](repl/) | JVM, Node.js, Scala Native | `LineReader` with history, Tab completion, highlighting, multi-line statements, and chord key bindings, from one source |
 | [`rest-server`](rest-server/) | JVM | `Http.server` (Netty) with `Router` REST endpoints and an `RPCRouter` service, a typed RPC client, `Design` wiring, and a UniTest suite that starts the server |
 | [`rpc-native`](rpc-native/) | JVM, Scala Native | One `TodoApi` server built with `Http.server`, the same code as a Scala Native binary (no JVM) and on the JVM (Netty), a typed client, a UniTest suite, and a reproducible [benchmark](rpc-native/bench/) |
+| [`http-garden`](http-garden/) | JVM, Scala Native | An HTTP Garden echo origin for differential parser tests of the built-in JVM, Native, and uni-netty servers, run by a weekly workflow |
 | [`mcp-server`](mcp-server/) | JVM | A stdio MCP server with `MCP.server.withTools[...]`, tested in-process, and how to add it to Claude Code |
 | [`web-ui`](web-ui/) | Scala.js | A todo list with `RxElement`, `Rx.variable`, and two-way form binding, loaded by a static `index.html` |
 | [`electron-app`](electron-app/) | Scala.js | A desktop app that calls the main process over Electron IPC with Uni RPC (standalone build) |

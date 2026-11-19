@@ -160,6 +160,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   exampleRestServer,
   exampleMcpServer,
   exampleRpcNative.jvm,
+  exampleHttpGarden.jvm,
   test.jvm
 )
 
@@ -182,6 +183,7 @@ lazy val nativeProjects: Seq[ProjectReference] = Seq(
   exampleCli.native,
   exampleRepl.native,
   exampleRpcNative.native,
+  exampleHttpGarden.native,
   test.native
 )
 
@@ -460,6 +462,47 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
   .dependsOn(uni, test % Test)
 
 lazy val stageBenchJars = taskKey[File]("Copy the runtime classpath jars for the benchmark")
+
+// HTTP Garden origin: echoes how Uni parsed each request, for differential parser testing.
+// Built and run only by .github/workflows/http-garden.yml; see examples/http-garden/README.md
+lazy val exampleHttpGarden = crossProject(JVMPlatform, NativePlatform)
+  .crossType(CrossType.Full)
+  .in(file("examples/http-garden"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-http-garden",
+    description := "HTTP Garden echo origin for Uni's HTTP servers",
+    Compile / mainClass := Some("example.garden.GardenEcho")
+  )
+  .nativeSettings(
+    nativeBuildSettings,
+    nativeConfig ~= { c =>
+      // Boehm GC, as in exampleRpcNative: the server runs several worker threads
+      c.withGC(scala.scalanative.build.GC.boehm)
+        .withLinkingOptions(c.linkingOptions.filterNot(Set("-lcurl")))
+    },
+    // Compile-only in the Native CI job (adr/2026-10-27-in-build-examples.md)
+    Test / loadedTestFrameworks := Def.uncached(Map.empty)
+  )
+  .jvmSettings(
+    // For examples/http-garden/garden/build.sh: copy the runtime classpath (jars) to garden/out/lib
+    stageGardenJars :=
+      Def.uncached {
+        val converter = fileConverter.value
+        val dir       = baseDirectory.value.getParentFile / "garden" / "out" / "lib"
+        IO.delete(dir)
+        (Runtime / fullClasspath)
+          .value
+          .map(a => converter.toPath(a.data).toFile)
+          .foreach(jar => IO.copyFile(jar, dir / jar.getName))
+        dir
+      }
+  )
+  .jvmConfigure(_.dependsOn(netty))
+  .dependsOn(uni)
+
+lazy val stageGardenJars = taskKey[File]("Copy the runtime classpath jars for the HTTP Garden run")
 
 lazy val exampleMcpServer = project
   .in(file("examples/mcp-server"))
