@@ -88,6 +88,12 @@ def corpus_inputs(path: Path) -> list[bytes]:
     return [decode(l) for l in lines if l.strip() and not l.startswith("#")]
 
 
+def unknown_method(payload: bytes) -> bool:
+    """Whether the first request's method is outside Uni's list, so Uni's 501 is expected."""
+    method = payload.split(b" ", 1)[0].decode("latin1")
+    return method not in UNI_QUIRKS["method-whitelist"]
+
+
 def show(b: bytes) -> str:
     return json.dumps(b.decode("latin1"))[1:-1]
 
@@ -167,6 +173,7 @@ def main() -> int:
 
     findings = []  # every Uni server that agrees with no reference
     status_only = 0  # payloads where the only differences are rejection statuses
+    status_differences = []  # each Uni server whose rejection status differs from a reference's
     for payload in payloads:
         results = dict(zip((s.name for s in servers), fanout([payload], servers)))
         only_status = False
@@ -178,6 +185,15 @@ def main() -> int:
             if not invalid and not all(c in FAILING for c in categories.values()):
                 if all(c in ("OK", "RESPONSE_DISCREPANCY") for c in categories.values()) and "RESPONSE_DISCREPANCY" in categories.values():
                     only_status = True
+                    status_differences.append(
+                        {
+                            "server": name,
+                            "payload": show(payload),
+                            # Uni's 501 for a method outside its list is the declared quirk
+                            "unknown_method": unknown_method(payload) and describe(results[name]).startswith("501"),
+                            "results": {n: describe(results[n]) for n in [name, *REFERENCES]},
+                        }
+                    )
                 continue
             findings.append(
                 {
@@ -192,12 +208,29 @@ def main() -> int:
         status_only += only_status
 
     failing = [f for f in findings if not f["known"]]
-    args.report.write_text(json.dumps({"payloads": len(payloads), "findings": findings}, indent=2))
+    args.report.write_text(json.dumps({"payloads": len(payloads), "findings": findings, "status_differences": status_differences}, indent=2))
 
     print(f"## HTTP Garden: Uni vs. {', '.join(REFERENCES)}\n")
     print(f"- Payloads: {len(payloads)} ({len(seeds)} seeds, {args.mutations} mutations, seed {args.seed})")
     print(f"- Findings: {len(findings)} ({len(failing)} new)")
-    print(f"- Payloads where only the rejection status differs: {status_only} (not counted)")
+    expected = sum(1 for d in status_differences if d["unknown_method"])
+    print(
+        f"- Payloads where only the rejection status differs: {status_only} (not counted);"
+        f" {expected} of the server answers are 501 for a method outside Uni's list"
+    )
+    # Group by the statuses each server answered, so a mismatch that repeats shows as one row
+    groups: dict[tuple, int] = {}
+    for d in status_differences:
+        if d["unknown_method"]:
+            continue
+        key = (d["server"], *(d["results"][n] for n in [d["server"], *REFERENCES]))
+        groups[key] = groups.get(key, 0) + 1
+    if groups:
+        print("\n| Server | Uni | " + " | ".join(REFERENCES) + " | Payloads |")
+        print("|---|---|" + "---|" * len(REFERENCES) + "---|")
+        for key, count in sorted(groups.items(), key=lambda kv: -kv[1]):
+            print("| " + " | ".join(c[:60].rstrip("\\").replace("|", "\\|") for c in key) + f" | {count} |")
+        print()
     print("- Payloads are cut to 160 characters here; report.json in the artifact has them in full\n")
     if findings:
         print("| Server | Payload | Uni | " + " | ".join(REFERENCES) + " | Status |")

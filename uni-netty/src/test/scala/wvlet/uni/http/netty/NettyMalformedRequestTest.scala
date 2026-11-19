@@ -197,6 +197,57 @@ class NettyMalformedRequestTest extends UniTest:
     }
   }
 
+  test("reject an HTTP version other than 1.0 and 1.1 with 505") {
+    rejected(ascii("GET / HTTP/2.0\r\nHost: localhost\r\n\r\n"), 505)
+  }
+
+  test("check the version before the method") {
+    rejected(ascii("BREW / HTTP/2.0\r\nHost: localhost\r\n\r\n"), 505)
+  }
+
+  test("reject a protocol other than HTTP with 400") {
+    rejected(ascii("GET / FOO/1.1\r\nHost: localhost\r\n\r\n"), 400)
+  }
+
+  test("answer earlier pipelined requests before rejecting an unsupported version") {
+    server.start { s =>
+      calls.set(0)
+      val response = exchange(
+        s.localPort,
+        ascii(
+          "GET /a HTTP/1.1\r\nHost: localhost\r\n\r\nGET /b HTTP/2.0\r\nHost: localhost\r\n\r\n"
+        )
+      )
+      statuses(response) shouldBe Seq("200", "505")
+      calls.get() shouldBe 1
+    }
+  }
+
+  test("still serve HTTP/1.0") {
+    server.start { s =>
+      val response = exchange(s.localPort, ascii("GET / HTTP/1.0\r\nHost: localhost\r\n\r\n"))
+      statuses(response) shouldBe Seq("200")
+    }
+  }
+
+  // The built-in server gives the same statuses (HttpReaderSpecCases)
+  test("reject a Content-Length that doesn't fit in a Long with 400") {
+    rejected(
+      ascii("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 99999999999999999999\r\n\r\n"),
+      400
+    )
+  }
+
+  test("reject a chunk size that doesn't fit in an Int with 400") {
+    rejected(
+      ascii(
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n" +
+          "ffffffffffffffffffff\r\n"
+      ),
+      400
+    )
+  }
+
   test("keep serving well-formed requests") {
     server.start { s =>
       val response = exchange(

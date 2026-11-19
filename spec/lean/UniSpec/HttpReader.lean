@@ -166,6 +166,10 @@ def tokens (vs : List Bytes) : List Bytes := vs.flatMap fun v => (splitComma v).
 
 def digitsValue (s : Bytes) : Nat := s.foldl (fun acc c => acc * 10 + (c.toNat - '0'.toNat)) 0
 
+/-- The largest Content-Length and chunk size Netty parses (`Long.MAX_VALUE`, `Integer.MAX_VALUE`). -/
+def longMax : Nat := 2 ^ 63 - 1
+def intMax : Nat := 2 ^ 31 - 1
+
 inductive Framing where
   | length (n : Nat)
   | chunked
@@ -188,6 +192,8 @@ def frame (maxSize : Nat) (http10 : Bool) (headers : List (Bytes × Bytes)) :
     | [v] =>
       if v.contains ',' then .error (400, "Multiple Content-Length values")
       else if v.isEmpty || !v.all Char.isDigit then .error (400, "Invalid Content-Length")
+      -- A value that doesn't fit in a Long is not a length (Netty's `Long.parseLong`): 400, not 413
+      else if digitsValue v > longMax then .error (400, "Invalid Content-Length")
       else if digitsValue v > maxSize then .error (413, "Request body too large")
       else .ok (.length (digitsValue v))
     | _ :: _ :: _ => .error (400, "Multiple Content-Length values")
@@ -218,8 +224,18 @@ def hexValue (c : Char) : Option Nat :=
 inductive Size where
   | ok (size digits : Nat) (rest : Bytes)
   | tooLarge
+  | overflow
   | incomplete
   deriving Repr, DecidableEq
+
+/-- The rest of a chunk size past `maxLeft`: a size that doesn't fit in an Int is not a size
+(Netty's chunk-size parser), so it is told apart from one that is only too large. -/
+def restOfSize : Nat → Bytes → Size
+  | _, [] => .incomplete
+  | size, c :: t =>
+    match hexValue c with
+    | none => if size > intMax then .overflow else .tooLarge
+    | some v => restOfSize (size * 16 + v) t
 
 /-- Hex digits of a chunk size. The size may not exceed `maxLeft`, the body bytes still allowed. -/
 def readSize (maxLeft : Nat) : Nat → Nat → Bytes → Size
@@ -228,7 +244,7 @@ def readSize (maxLeft : Nat) : Nat → Nat → Bytes → Size
     match hexValue c with
     | none => .ok size digits (c :: t)
     | some v =>
-      if size * 16 + v > maxLeft then .tooLarge else readSize maxLeft (size * 16 + v) (digits + 1) t
+      if size * 16 + v > maxLeft then restOfSize (size * 16 + v) t else readSize maxLeft (size * 16 + v) (digits + 1) t
 
 inductive Ext where
   | ok (rest : Bytes)
@@ -263,6 +279,7 @@ def readChunks (maxSize : Nat) : Nat → Nat → Bytes → Bytes → Body
     match readSize (maxSize - total) 0 0 s with
     | .incomplete => .incomplete
     | .tooLarge => .bad 413 "Request body too large"
+    | .overflow => .bad 400 "Invalid chunk size"
     | .ok size digits r =>
       if digits == 0 then .bad 400 "Invalid chunk size"
       else
@@ -318,14 +335,15 @@ def readHead (s0 : Bytes) : HeadResult :=
 
 /-- Check the head and read the body: the outcome and the bytes left for the next request. -/
 def readBody (maxSize : Nat) (hd : Head) : Outcome × Bytes :=
-  match methodOf hd.method with
-  | none => (.bad 501 s!"Unsupported HTTP method: {String.ofList hd.method}", [])
-  | some m =>
-    if (values hd.headers "host").length > 1 then (.bad 400 "Multiple Host headers", [])
-    else
-      match frame maxSize hd.http10 hd.headers with
-      | .error (c, msg) => (.bad c msg, [])
-      | .ok fr =>
+  if (values hd.headers "host").length > 1 then (.bad 400 "Multiple Host headers", [])
+  else
+    match frame maxSize hd.http10 hd.headers with
+    | .error (c, msg) => (.bad c msg, [])
+    | .ok fr =>
+      -- After the framing headers, so a request with broken ones gets 400, as in uni-netty
+      match methodOf hd.method with
+      | none => (.bad 501 s!"Unsupported HTTP method: {String.ofList hd.method}", [])
+      | some m =>
         match checkExpect hd.http10 hd.headers with
         | .error (c, msg) => (.bad c msg, [])
         | .ok () =>
@@ -412,6 +430,15 @@ theorem readFields_split : ∀ {fuel : Nat} {s : Bytes} {fs : List (Bytes × Byt
         · rename_i o ho
           cases o <;> simp_all
 
+theorem restOfSize_not_ok : ∀ {size : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
+    restOfSize size s ≠ .ok sz d r
+  | _, [], _, _, _ => by simp [restOfSize]
+  | size, c :: t, sz, d, r => by
+    unfold restOfSize
+    split
+    · split <;> simp
+    · exact restOfSize_not_ok
+
 theorem readSize_spec : ∀ {maxLeft size digits : Nat} {s : Bytes} {sz d : Nat} {r : Bytes},
     readSize maxLeft size digits s = .ok sz d r → size ≤ maxLeft → sz ≤ maxLeft ∧ r.length ≤ s.length
   | _, _, _, [], _, _, _, h, _ => by simp [readSize] at h
@@ -422,7 +449,7 @@ theorem readSize_spec : ∀ {maxLeft size digits : Nat} {s : Bytes} {sz d : Nat}
       obtain ⟨rfl, -, rfl⟩ := h
       exact ⟨hle, by simp⟩
     · split at h
-      · simp at h
+      · exact absurd h restOfSize_not_ok
       · rename_i hgt
         have ⟨h1, h2⟩ := readSize_spec h (by omega)
         exact ⟨h1, by simp; omega⟩
@@ -458,6 +485,7 @@ theorem readChunks_spec {maxSize : Nat} :
   | fuel + 1, total, acc, s, body, rest, h, hacc, htot => by
     unfold readChunks at h
     split at h
+    · simp at h
     · simp at h
     · simp at h
     · rename_i size digits r hsize

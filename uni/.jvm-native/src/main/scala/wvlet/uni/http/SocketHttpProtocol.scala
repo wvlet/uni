@@ -338,17 +338,6 @@ private[http] class HttpConnectionReader(
       return scanError
     var headers = headerBuilder.result()
 
-    // Method names are case-sensitive (RFC 9110 §9.1); uni-netty answers an unknown one with 501
-    val method =
-      HttpMethod.of(methodName).filter(_.name == methodName) match
-        case Some(m) =>
-          m
-        case None =>
-          return ReadResult.Error(
-            HttpStatus.NotImplemented_501,
-            s"Unsupported HTTP method: ${methodName}"
-          )
-
     if headers.getAll(HttpHeader.Host).sizeIs > 1 then
       return bad("Multiple Host headers")
 
@@ -373,14 +362,26 @@ private[http] class HttpConnectionReader(
       val v = contentLengths.head
       if v.isEmpty || !v.forall(c => c >= '0' && c <= '9') then
         return bad("Invalid Content-Length")
-      // Cap while accumulating, so a huge value can't overflow
-      var n = 0L
-      v.foreach { c =>
-        n = math.min(n * 10 + (c - '0'), limits.maxContentLength.toLong + 1)
-      }
-      if n > limits.maxContentLength then
-        return ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large")
-      contentLength = n.toInt
+      // A value that doesn't fit in a Long is not a length, as in Netty: 400, not 413
+      v.toLongOption match
+        case None =>
+          return bad("Invalid Content-Length")
+        case Some(n) if n > limits.maxContentLength =>
+          return ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large")
+        case Some(n) =>
+          contentLength = n.toInt
+
+    // Method names are case-sensitive (RFC 9110 §9.1); uni-netty answers an unknown one with 501.
+    // Checked after the framing headers, so a request with broken ones gets 400, as in uni-netty.
+    val method =
+      HttpMethod.of(methodName).filter(_.name == methodName) match
+        case Some(m) =>
+          m
+        case None =>
+          return ReadResult.Error(
+            HttpStatus.NotImplemented_501,
+            s"Unsupported HTTP method: ${methodName}"
+          )
 
     // Expect (RFC 9110 §10.1.1); HTTP/1.0 doesn't define it, so it is ignored there, as in Netty
     var expectContinue = false
@@ -469,16 +470,18 @@ private[http] class HttpConnectionReader(
         if v < 0 then
           reading = false
         else
-          size = size * 16 + v
+          // Cap just past Int.MaxValue, so a huge size can't overflow
+          size = math.min(size * 16 + v, Int.MaxValue.toLong + 1)
           digits += 1
-          if size > limits.maxContentLength - total then
-            return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
           // Leading zeros keep the size at 0, so bound the digits too
           if p - lineStart >= limits.maxInitialLineLength then
             return Left(bad("Chunk size line too long"))
           p += 1
-      if digits == 0 then
+      // A size that doesn't fit in an Int is not a size, as in Netty: 400, not 413
+      if digits == 0 || size > Int.MaxValue then
         return Left(bad("Invalid chunk size"))
+      if size > limits.maxContentLength - total then
+        return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
       if b == ';' then
         // chunk-ext: anything but control characters, up to the CR
         p += 1
