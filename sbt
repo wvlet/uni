@@ -341,7 +341,8 @@ acquire_sbt_jar() {
         vlog "SBT versions < 1.0 do not have published MD5 checksums, skipping check"
         echo ""
         ;;
-      *)   verify_sbt_jar "${sbt_jar}" ;;
+      # Remove an unverified jar, or the next run would use it without checking
+      *)   verify_sbt_jar "${sbt_jar}" || { rm -f "${sbt_jar}"; false; } ;;
     esac
   }
 }
