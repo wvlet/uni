@@ -17,6 +17,7 @@ import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
 import java.nio.charset.StandardCharsets
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import scala.collection.mutable
 import scala.util.control.NonFatal
@@ -34,20 +35,22 @@ import scala.util.control.NonFatal
 class NativeWebSocketClient extends WebSocketClient with LogSupport:
 
   override def connect(
-      uri: String,
+      request: Request,
       handler: WebSocketHandler,
       pingIntervalMillis: Int
   ): Rx[WebSocketContext] =
     try
-      val target = NativeWebSocketClient.parse(uri)
-      val fd     = NativeSocket.connect(target.host, target.port)
+      val headers = WebSocketClient.upgradeHeaders(request)
+      val target  = NativeWebSocketClient.parse(request.fullUri)
+      val fd      = NativeSocket.connect(target.host, target.port)
       try
-        val key     = WebSocketFrame.newClientKey()
-        val request =
+        val key   = WebSocketFrame.newClientKey()
+        val extra = headers.map((name, value) => s"${name}: ${value}\r\n").mkString
+        val head  =
           s"GET ${target.path} HTTP/1.1\r\nHost: ${target.host}:${target.port}\r\n" +
             s"Upgrade: websocket\r\nConnection: Upgrade\r\n" +
-            s"Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n\r\n"
-        if !NativeSocket.sendAll(fd, request.getBytes(StandardCharsets.ISO_8859_1)) then
+            s"Sec-WebSocket-Key: ${key}\r\nSec-WebSocket-Version: 13\r\n${extra}\r\n"
+        if !NativeSocket.sendAll(fd, head.getBytes(StandardCharsets.ISO_8859_1)) then
           throw HttpException.connectionFailed("Failed to send the WebSocket upgrade request")
 
         val handshake = NativeWebSocketClient.readHandshake(fd)
@@ -57,15 +60,13 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
         then
           throw HttpException.connectionFailed("Invalid Sec-WebSocket-Accept in the handshake")
 
-        val ctx                 = NativeWebSocketClientContext(fd, Request.get(uri))
-        val closeNotified       = AtomicBoolean(false)
+        val conn                = WriteTrackingConnection(NativeSocketConnection(fd))
+        val closeState          = WebSocketCloseState()
+        val ctx                 = NativeWebSocketClientContext(fd, conn, request, closeState)
         def notifyClose(): Unit =
-          if closeNotified.compareAndSet(false, true) then
-            try
-              handler.onClose(ctx)
-            catch
-              case NonFatal(e) =>
-                warn(s"onClose error: ${e.getMessage}")
+          if conn.stalled then
+            closeState.record(WebSocketClose.TryAgainLater, "write stalled")
+          closeState.notifyClose(handler, ctx)
 
         // onOpen before the reader starts, so it precedes any delivered message.
         try
@@ -74,10 +75,11 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
           case NonFatal(e) =>
             WebSocketDispatcher.safeOnError(handler, ctx, e)
 
+        NativeWebSocketClient.watch(conn)
         val reader = Thread(() =>
           try
             SocketWebSocket.runReadLoop(
-              NativeSocketConnection(fd),
+              conn,
               NativeWebSocketClient.MaxFrameSize,
               pingIntervalMillis,
               expectMasked = false,
@@ -86,7 +88,9 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
               ctx,
               ctx.sendPong,
               ctx.sendPing,
-              () => notifyClose()
+              (code, reason) =>
+                closeState.record(code, reason)
+                notifyClose()
             )
           catch
             case NonFatal(e) =>
@@ -94,6 +98,7 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
               // reserved for handler-callback exceptions (those are wrapped in WebSocketDispatcher).
               warn(s"WebSocket client read error: ${e.getMessage}")
           finally
+            NativeWebSocketClient.unwatch(conn)
             notifyClose()
             NativeSocket.close(fd)
         )
@@ -118,7 +123,37 @@ object NativeWebSocketClient:
   private final val MaxHandshakeBytes      = 64 * 1024
   private final val HandshakeTimeoutMillis = 30000
 
+  // A send the server stops reading fails after this long, as on the socket servers
+  private final val WriteTimeoutNanos = 30000L * 1000000L
+
   def apply(): NativeWebSocketClient = new NativeWebSocketClient()
+
+  // Open client connections, checked by one daemon watchdog for writes that stopped making progress
+  private val connections = ConcurrentHashMap.newKeySet[WriteTrackingConnection]()
+
+  private lazy val watchdog: Thread =
+    val t = Thread(() =>
+      while true do
+        Thread.sleep(1000)
+        val now = System.nanoTime()
+        connections.forEach { c =>
+          try
+            c.abortIfStalled(now, WriteTimeoutNanos)
+          catch
+            case NonFatal(_) =>
+              ()
+        }
+    )
+    t.setDaemon(true)
+    t.setName("native-ws-client-write-watchdog")
+    t.start()
+    t
+
+  private def watch(conn: WriteTrackingConnection): Unit =
+    connections.add(conn)
+    watchdog
+
+  private def unwatch(conn: WriteTrackingConnection): Unit = connections.remove(conn)
 
   private case class Target(host: String, port: Int, path: String)
 
@@ -219,8 +254,12 @@ end NativeWebSocketClient
   * Native client [[WebSocketContext]]. Outbound frames are masked (client->server requirement);
   * writes are serialized so `send`/`close` are safe from any thread.
   */
-private class NativeWebSocketClientContext(clientFd: Int, override val request: Request)
-    extends WebSocketContext:
+private class NativeWebSocketClientContext(
+    clientFd: Int,
+    conn: SocketConnection,
+    override val request: Request,
+    closeState: WebSocketCloseState
+) extends WebSocketContext:
 
   private val writeLock = Object()
   private val closed    = AtomicBoolean(false)
@@ -236,6 +275,10 @@ private class NativeWebSocketClientContext(clientFd: Int, override val request: 
 
   override def close(statusCode: Int, reason: String): Unit =
     if closed.compareAndSet(false, true) then
+      closeState.record(
+        WebSocketClose.sendableCode(statusCode),
+        WebSocketClose.truncateReason(reason)
+      )
       writeFrame(WebSocketFrame.OpClose, WebSocketFrame.closePayload(statusCode, reason))
       // Unblock the reader thread (parked in recv) so it exits and fires onClose promptly, rather
       // than waiting for an unresponsive server to echo the close or drop the connection.
@@ -254,10 +297,7 @@ private class NativeWebSocketClientContext(clientFd: Int, override val request: 
       writeFrame(opcode, payload)
 
   private def writeFrame(opcode: Int, payload: Array[Byte]): Unit = writeLock.synchronized {
-    NativeSocket.sendAll(
-      clientFd,
-      WebSocketFrame.encodeMaskedFrame(opcode, payload, WebSocketFrame.newMaskingKey())
-    )
+    conn.write(WebSocketFrame.encodeMaskedFrame(opcode, payload, WebSocketFrame.newMaskingKey()))
   }
 
 end NativeWebSocketClientContext

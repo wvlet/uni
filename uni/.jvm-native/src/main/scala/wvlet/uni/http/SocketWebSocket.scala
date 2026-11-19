@@ -38,15 +38,15 @@ private[http] object SocketWebSocket extends LogSupport:
       maxFrameSize: Int,
       pingIntervalMillis: Int
   ): Unit =
-    val ctx                 = SocketWebSocketContext(conn, request)
-    val closeNotified       = AtomicBoolean(false)
+    val closeState          = WebSocketCloseState()
+    val ctx                 = SocketWebSocketContext(conn, request, closeState)
     def notifyClose(): Unit =
-      if closeNotified.compareAndSet(false, true) then
-        try
-          handler.onClose(ctx)
-        catch
-          case NonFatal(e) =>
-            warn(s"onClose error: ${e.getMessage}")
+      // The write watchdog aborted a write the peer stopped reading (see WriteTrackingConnection).
+      conn match
+        case w: WriteTrackingConnection if w.stalled =>
+          closeState.record(WebSocketClose.TryAgainLater, "write stalled")
+        case _ =>
+      closeState.notifyClose(handler, ctx)
 
     try
       try
@@ -65,7 +65,9 @@ private[http] object SocketWebSocket extends LogSupport:
         ctx,
         ctx.sendPong,
         ctx.sendPing,
-        () => notifyClose()
+        (code, reason) =>
+          closeState.record(code, reason)
+          notifyClose()
       )
     catch
       case NonFatal(e) =>
@@ -91,7 +93,7 @@ private[http] object SocketWebSocket extends LogSupport:
       ctx: WebSocketContext,
       sendPong: Array[Byte] => Unit,
       sendPing: Array[Byte] => Unit,
-      notifyClose: () => Unit
+      onPeerClose: (Int, String) => Unit
   ): Unit =
     val decoder   = WebSocketFrameDecoder(maxFrameSize, expectMasked)
     val heartbeat =
@@ -110,7 +112,7 @@ private[http] object SocketWebSocket extends LogSupport:
           handler,
           ctx,
           sendPong,
-          notifyClose,
+          onPeerClose,
           ev,
           () =>
             if heartbeat != null then
@@ -147,8 +149,11 @@ end SocketWebSocket
   * Server-side [[WebSocketContext]] over a [[SocketConnection]]. Writes are serialized so
   * `send`/`close` are safe from any thread (the read loop also writes pong/close frames).
   */
-private[http] class SocketWebSocketContext(conn: SocketConnection, override val request: Request)
-    extends WebSocketContext:
+private[http] class SocketWebSocketContext(
+    conn: SocketConnection,
+    override val request: Request,
+    closeState: WebSocketCloseState
+) extends WebSocketContext:
 
   private val writeLock = Object()
   private val closed    = AtomicBoolean(false)
@@ -164,6 +169,10 @@ private[http] class SocketWebSocketContext(conn: SocketConnection, override val 
 
   override def close(statusCode: Int, reason: String): Unit =
     if closed.compareAndSet(false, true) then
+      closeState.record(
+        WebSocketClose.sendableCode(statusCode),
+        WebSocketClose.truncateReason(reason)
+      )
       writeFrame(WebSocketFrame.OpClose, WebSocketFrame.closePayload(statusCode, reason))
 
   private[http] def sendPong(payload: Array[Byte]): Unit =

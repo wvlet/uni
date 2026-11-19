@@ -97,7 +97,11 @@ import wvlet.uni.http.Http
 - `withWebSocketRoute(path, filter) { ... }` gates the upgrade with an
   `RxHttpFilter`: a non-2xx response rejects it.
 - `onError` fires when a callback throws; a lost connection calls `onClose`
-  (exactly once).
+  (exactly once). Override `onClose(ctx, statusCode, reason)` for the close
+  status: the first close frame sent or received, 1006 without one, and 1013 when
+  a peer that stopped reading was dropped.
+- `ctx.close(code, reason)` cuts a reason over 123 bytes and sends an invalid code
+  as 1011.
 - `withWebSocketMaxFrameSize(bytes)` (default 1 MB) bounds aggregated messages.
 
 ## WebSocket client
@@ -117,4 +121,19 @@ Http.webSocketClient
 
 `connect(url, handler, pingIntervalMillis = 30000)` adds a ping heartbeat on JVM
 and Native (ignored on Scala.js). A handshake failure fails the `connect` stream.
+
+To send upgrade headers such as `Authorization`, pass a `Request` instead of a URL
+(JVM, Native, and Node.js; a browser can't send them, so there it fails):
+
+```scala
+import wvlet.uni.http.Request
+
+Http.webSocketClient
+  .connect(
+    Request.get("ws://localhost:8080/ws/echo").addHeader("Authorization", "Bearer token"),
+    handler
+  )
+  .run { ctx => ctx.send("hello") }
+```
+
 `ctx.send(bytes)` sends binary; `ctx.close(code, reason)` closes with a status.

@@ -90,12 +90,16 @@ private[http] object WebSocketFrame:
         i += 1
       h
 
-  /** A Close-frame payload: a 2-byte big-endian status code followed by the UTF-8 reason. */
+  /**
+    * A Close-frame payload: a 2-byte big-endian status code followed by the UTF-8 reason. A code
+    * that may not be sent becomes 1011, and the reason is cut to fit a control frame.
+    */
   def closePayload(statusCode: Int, reason: String): Array[Byte] =
-    val reasonBytes = reason.getBytes(StandardCharsets.UTF_8)
+    val code        = WebSocketClose.sendableCode(statusCode)
+    val reasonBytes = WebSocketClose.truncateReason(reason).getBytes(StandardCharsets.UTF_8)
     val payload     = new Array[Byte](2 + reasonBytes.length)
-    payload(0) = ((statusCode >>> 8) & 0xff).toByte
-    payload(1) = (statusCode & 0xff).toByte
+    payload(0) = ((code >>> 8) & 0xff).toByte
+    payload(1) = (code & 0xff).toByte
     System.arraycopy(reasonBytes, 0, payload, 2, reasonBytes.length)
     payload
 

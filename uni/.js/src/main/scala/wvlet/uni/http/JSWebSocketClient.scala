@@ -23,15 +23,17 @@ import scala.util.control.NonFatal
 
 /**
   * Minimal facade for the global `WebSocket` (browsers and Node.js >= 22, which provides it as a
-  * stable global). The runtime performs the handshake, masking, and framing.
+  * stable global). The runtime performs the handshake, masking, and framing. Node's WebSocket
+  * (undici) also takes `{ headers }` as the second argument; browsers take only subprotocols.
   */
 @js.native
 @JSGlobal("WebSocket")
-private class JsWebSocket(url: String) extends js.Object:
+private class JsWebSocket(url: String, options: js.UndefOr[js.Object] = js.undefined)
+    extends js.Object:
   var binaryType: String                        = js.native
   var onopen: js.Function1[js.Any, Unit]        = js.native
   var onmessage: js.Function1[js.Dynamic, Unit] = js.native
-  var onclose: js.Function1[js.Any, Unit]       = js.native
+  var onclose: js.Function1[js.Dynamic, Unit]   = js.native
   var onerror: js.Function1[js.Any, Unit]       = js.native
   def send(data: String): Unit                  = js.native
   def send(data: Int8Array): Unit               = js.native
@@ -48,24 +50,35 @@ class JSWebSocketClient extends WebSocketClient:
 
   // pingIntervalMillis is ignored: the browser/Node global WebSocket can't send protocol pings.
   override def connect(
-      uri: String,
+      request: Request,
       handler: WebSocketHandler,
       pingIntervalMillis: Int
   ): Rx[WebSocketContext] =
-    val opened = Promise[WebSocketContext]()
-    val ws     = new JsWebSocket(uri)
-    ws.binaryType = "arraybuffer"
-    val ctx    = JSWebSocketContext(ws, Request.get(uri))
-    var closed = false
+    try
+      open(request, handler)
+    catch
+      case NonFatal(e) =>
+        Rx.exception(e)
 
-    def notifyClose(): Unit =
-      if !closed then
-        closed = true
-        try
-          handler.onClose(ctx)
-        catch
-          case NonFatal(_) =>
-            ()
+  private def open(request: Request, handler: WebSocketHandler): Rx[WebSocketContext] =
+    val headers                        = WebSocketClient.upgradeHeaders(request)
+    val options: js.UndefOr[js.Object] =
+      if headers.isEmpty then
+        js.undefined
+      else if NodeModules.isNode then
+        js.Dynamic.literal(headers = js.Dictionary(headers*))
+      else
+        throw IllegalArgumentException(
+          "Browsers can't send headers on a WebSocket upgrade; pass a token in the URL query instead"
+        )
+    val uri    = request.fullUri
+    val opened = Promise[WebSocketContext]()
+    val ws     = new JsWebSocket(uri, options)
+    ws.binaryType = "arraybuffer"
+    val closeState = WebSocketCloseState()
+    val ctx        = JSWebSocketContext(ws, request, closeState)
+
+    def notifyClose(): Unit = closeState.notifyClose(handler, ctx)
 
     def deliver(action: () => Unit): Unit =
       try
@@ -88,7 +101,19 @@ class JSWebSocketClient extends WebSocketClient:
           // binaryType = "arraybuffer", so binary frames arrive as an ArrayBuffer.
           val bytes = Int8Array(data.asInstanceOf[ArrayBuffer]).toArray
           deliver(() => handler.onBinaryMessage(ctx, bytes))
-    ws.onclose = (_: js.Any) => notifyClose()
+    ws.onclose =
+      (event: js.Dynamic) =>
+        val code   = event.code
+        val reason = event.reason
+        if !js.isUndefined(code) then
+          closeState.record(
+            code.asInstanceOf[Int],
+            if js.isUndefined(reason) then
+              ""
+            else
+              reason.asInstanceOf[String]
+          )
+        notifyClose()
     ws.onerror =
       (_: js.Any) =>
         // Transport error maps to onClose (matching the other backends); surface pre-open failures.
@@ -97,7 +122,7 @@ class JSWebSocketClient extends WebSocketClient:
 
     Rx.future(opened.future)
 
-  end connect
+  end open
 
 end JSWebSocketClient
 
@@ -105,8 +130,11 @@ object JSWebSocketClient:
   def apply(): JSWebSocketClient = new JSWebSocketClient()
 
 /** [[WebSocketContext]] over the global `WebSocket`. `request` is the connect request. */
-private class JSWebSocketContext(ws: JsWebSocket, override val request: Request)
-    extends WebSocketContext:
+private class JSWebSocketContext(
+    ws: JsWebSocket,
+    override val request: Request,
+    closeState: WebSocketCloseState
+) extends WebSocketContext:
 
   override def send(text: String): Unit = ws.send(text)
 
@@ -114,8 +142,20 @@ private class JSWebSocketContext(ws: JsWebSocket, override val request: Request)
   // accepts any ArrayBufferView; the signed Int8Array shares the same bytes.
   override def send(data: Array[Byte]): Unit = ws.send(data.toTypedArray)
 
-  override def close(): Unit = ws.close()
+  override def close(): Unit = close(WebSocketClose.NormalClosure, "")
 
-  override def close(statusCode: Int, reason: String): Unit = ws.close(statusCode, reason)
+  // The JS WebSocket API throws on codes other than 1000 and 3000-4999, and on reasons over 123
+  // bytes. Recording first also makes a close during the handshake report 1000, not the 1006 the
+  // runtime reports for it.
+  override def close(statusCode: Int, reason: String): Unit =
+    val code =
+      if statusCode == WebSocketClose.NormalClosure || (statusCode >= 3000 && statusCode <= 4999)
+      then
+        statusCode
+      else
+        WebSocketClose.NormalClosure
+    val text = WebSocketClose.truncateReason(reason)
+    closeState.record(code, text)
+    ws.close(code, text)
 
 end JSWebSocketContext
