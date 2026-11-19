@@ -77,6 +77,18 @@ Dock(
   `setWindowOpenHandler`, and should deny window opening and navigation in the new window
   (`did-create-window`). Menus and popovers opened inside the window still show in the main window,
   and stylesheets added to the page after the window opens don't reach it.
+- **Maximize.** The button at the end of a grid group's tab bar, or "Maximize group" in a tab's
+  menu, makes that group fill the dock; the same button, or "Restore group", shows the rest again.
+  The other groups and the floats are hidden (`hidden`, so screen readers and agents skip them),
+  but stay mounted and keep their state, and the dock's actions move to the maximized group. The
+  dock and the group get `data-maximized="true"`. Switching or reordering tabs in the group keeps
+  it maximized; anything that has to show another group restores first: opening or focusing a
+  panel elsewhere, `dock.focusGroup(i)` for a hidden group, moving a tab out, splitting, floating,
+  or docking. A float can't be maximized; dock it first. The layout keeps the state as
+  `maximized`, the id of a panel in the group, so it is saved, goes through `onChange`, and undoes
+  like any other layout change. From code, `dock.maximize(id)` (false when the panel isn't in a
+  grid group or `onChange` canceled it), `dock.restore()`, and `dock.maximized`; `DockLayout`
+  has `maximize(id)` and `restore` too. The toggle doesn't show while the dock has one group.
 - **Rearranging.** Drag a tab onto another group's tabs to move it there, onto the middle of a
   group to add it, or onto one of a group's edges to split the group. A preview shows where it will
   land, and Escape cancels. A group that loses its last tab disappears.
@@ -100,8 +112,9 @@ Dock(
   `(1 to 9).foreach(n => Keyboard.bind(s"ctrl+${n}", () => dock.focusGroup(n - 1)))`.
 - **Old saves.** The Dock drops ids it doesn't know, so removing a panel from the app never breaks a
   saved layout. The JSON carries a format `version`; a save that is unreadable or from a newer
-  version falls back to your default.
+  version falls back to your default. `maximized` is an optional field of version 3, so an app
+  from before it still loads a newer save, just not maximized.
 - **Changing it from code.** `DockModel` in `wvlet.uni.ui.base` holds the operations the Dock runs
-  (`move`, `split`, `close`, `open`, `resize`, `float`, `dock`, `withBox`) as pure functions on a `DockLayout`, so you can set
+  (`move`, `split`, `close`, `open`, `resize`, `float`, `dock`, `withBox`, `maximize`, `restore`) as pure functions on a `DockLayout`, so you can set
   a layout from a command or test one without a DOM. `layout.open(id)` and `layout.close(id)` are
   shortcuts.

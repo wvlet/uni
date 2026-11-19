@@ -168,6 +168,12 @@ private[ui] trait AgentBinding extends StateOwner:
   /** Subscriptions this binding keeps while mounted, such as on a list of options. */
   def watch(): Cancelable = Cancelable.empty
 
+  /**
+    * Roots in other windows whose components belong to this one, such as a Dock's detached panels.
+    * Agents see them as more children of this component.
+    */
+  def windows: Seq[dom.Element] = Nil
+
 end AgentBinding
 
 private[ui] object AgentBinding:
@@ -412,7 +418,8 @@ private[ui] object AgentDom:
     def textOf(n: dom.Node): String = Option(n.textContent).getOrElse("")
     def labelled: Option[String]    = attr("aria-labelledby").map(
       _.split("\\s+")
-        .flatMap(id => Option(dom.document.getElementById(id)))
+        // In the element's own document, which is another window's for a detached panel
+        .flatMap(id => Option(Option(el.ownerDocument).getOrElse(dom.document).getElementById(id)))
         .map(textOf)
         .mkString(" ")
     )

@@ -92,6 +92,17 @@ agent.changes(since = 0)                              // what people changed, an
     .withTypeahead(_.title)
     .withRowLabel(d => s"${d.title} (#${d.id})") // agents see "Plan (#1)"
   ```
+- **Dock.** A `Dock` is a `dock` node named by its label, with the panels' components inside
+  it. Its value is the title of the panel whose group is maximized, if any. It offers `maximize`
+  (one of the grid's panel titles) while it has more than one group, and `restore` while a
+  group is maximized; both go through the dock's `onChange`. Other rearranging (moving,
+  splitting, floating) isn't offered to agents.
+- **Detached windows.** A panel the user opened in a window of its own (`Dock.withDetach`) stays
+  in reach: its components come after the page's inside the `dock` node, `act` works on them,
+  and labels such as `aria-labelledby` are read in the window's own document. The note left in
+  the panel's tab offers `Show window` and `Bring back` buttons. An agent installed with a
+  `root` sees a dock's windows only when the dock is inside that root. A `UiAgent.confirm`
+  question for a component in a window shows in the main window, which comes to the front.
 - **Changes.** `agent.changes(cursor)` returns what people and app code changed since the
   cursor, without the agent's own changes, so an agent can catch up at the start of its turn.
   `agent.subscribe(c => ...)` sees every change as it happens.
@@ -132,8 +143,9 @@ history.close()
   can cancel it. Each `UndoResult` says `reverted`, `conflict` (the value changed since, so the newer
   value stays), `canceled`, `missing` (the component is not mounted; nothing is written),
   `unsupported`, or `skipped` (already undone or accepted).
-- **Dock and splitters.** `Dock` layout changes (kind `dock`, key `layout`) and `Splitter` sizes
-  (kind `splitter`, key `size`) are undone too, though agents don't see these components. One
+- **Dock and splitters.** `Dock` layout changes (kind `dock`, key `layout`), maximize and restore
+  included, and `Splitter` sizes (kind `splitter`, key `size`) are undone too, though agents
+  don't see splitters. One
   pointer drag is one entry, from the value before the drag to the last one. A drag that Escape
   cancels, or that ends where it started, leaves no entry.
 - **Not undone.** `open` (overlay visibility), secret and password values, and state no mounted

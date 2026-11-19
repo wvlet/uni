@@ -322,4 +322,68 @@ class DockModelTest extends UniTest:
     ) shouldBe None
   }
 
+  private val three = DockLayout(row(group("a", "b"), group("c")), Seq(DockFloat.of(box, "d")))
+
+  test("maximize names a grid group by one of its panels, and only it stays visible") {
+    val m = three.maximize("b")
+    m.maximized shouldBe Some("b")
+    DockModel.maximizedGroup(m) shouldBe Some(List(0))
+    m.visible shouldBe Set("a")
+    m.restore shouldBe three
+    // A float or a panel outside the layout can't be maximized
+    three.maximize("d") shouldBe three
+    three.maximize("zzz") shouldBe three
+    // The structure is the same, so the dock doesn't rebuild on a toggle
+    DockModel.shape(m) shouldBe DockModel.shape(three)
+  }
+
+  test("switching and reordering tabs in the maximized group keep it maximized") {
+    val m = three.maximize("a")
+    DockModel.activate(m, "b").maximized shouldBe Some("a")
+    DockModel.move(m, "b", List(0), 0).maximized shouldBe Some("a")
+    DockModel.withSizes(m, Nil, Seq(0.3, 0.7)).maximized shouldBe Some("a")
+    // The group of a hidden panel, or a new one in it, keeps it too
+    DockModel.close(m, "c").maximized shouldBe Some("a")
+  }
+
+  test("anything that shows outside the maximized group restores first") {
+    val m = three.maximize("a")
+    DockModel.activate(m, "c").maximized shouldBe None
+    DockModel.move(m, "a", List(1), 0).maximized shouldBe None
+    DockModel.move(m, "c", List(0), 0).maximized shouldBe None
+    DockModel.split(m, "a", List(0), DockSide.Right).maximized shouldBe None
+    DockModel.float(m, "a").maximized shouldBe None
+    DockModel.dock(m, "d").maximized shouldBe None
+    DockModel
+      .open(DockLayout(row(group("a"), group("c"))).maximize("a"), "b", Some(List(1)))
+      .maximized shouldBe None
+    // Opened into the maximized group, it stays
+    DockModel
+      .open(DockLayout(row(group("a"), group("c"))).maximize("a"), "b", Some(List(0)))
+      .maximized shouldBe Some("a")
+  }
+
+  test("closing the panel that names the maximized group passes it on, and the last tab restores") {
+    val m     = three.maximize("a")
+    val after = DockModel.close(m, "a")
+    after.maximized shouldBe Some("b")
+    DockModel.maximizedGroup(after) shouldBe Some(List(0))
+    DockModel.close(after, "b").maximized shouldBe None
+    // A panel that normalize drops takes the maximized state with it
+    DockModel.normalize(DockLayout(group("a"), maximized = Some("zzz"))).maximized shouldBe None
+  }
+
+  test("the maximized group is saved in version 3, and saves without it load restored") {
+    val m = three.maximize("b")
+    m.toJSON shouldContain "\"maximized\":\"b\""
+    m.toJSON shouldContain "\"version\":3"
+    DockLayout.fromJSON(m.toJSON) shouldBe Some(m)
+    Weaver.fromJson[DockLayout](Weaver.toJson(m)) shouldBe m
+    three.toJSON shouldNotContain "maximized"
+    // Not a panel id: not maximized
+    DockLayout.fromJSON(
+      """{"version":3,"root":{"@type":"Group","panels":["a"]},"maximized":1}"""
+    ) shouldBe Some(DockLayout(Group(Seq("a"), None)))
+  }
+
 end DockModelTest

@@ -679,4 +679,101 @@ class DockTest extends DomTestSupport:
     }
   }
 
+  private def toggles(m: Mounted): Seq[dom.HTMLElement] = m
+    .queryAll(".uni-dock__maximize")
+    .map(_.asInstanceOf[dom.HTMLElement])
+
+  private def shown(m: Mounted): Seq[String] = m
+    .queryAll(".uni-dock__group")
+    .filter(_.closest("[hidden]") == null)
+    .map(_.getAttribute("data-path"))
+
+  test("the maximize toggle fills the dock with one group and restores it") {
+    val layout = Rx.variable(
+      DockLayout(row(group("a", "b"), group("c")), Seq(DockFloat.of(DockBox.default, "d")))
+    )
+    val seen = scala.collection.mutable.ArrayBuffer.empty[(ChangeReason, ChangeSource)]
+    val d    = dock(layout, panel("d")).onChange(c => seen += ((c.reason, c.source)))
+    val m    = mountDock(d)
+    // The grid groups have one; the float doesn't
+    toggles(m).size shouldBe 2
+    shown(m) shouldBe Seq("0", "1", "-1")
+
+    fireEvent.click(toggles(m)(1))
+    layout.get.maximized shouldBe Some("c")
+    seen.last shouldBe (ChangeReason.Press, ChangeSource.Pointer)
+    shown(m) shouldBe Seq("1")
+    m.get(".uni-dock").getAttribute("data-maximized") shouldBe "true"
+    m.get(".uni-dock__group[data-path='1']").getAttribute("data-maximized") shouldBe "true"
+    toggles(m)(1).getAttribute("aria-pressed") shouldBe "true"
+    m.queryAll(".uni-dock__separator").forall(_.hasAttribute("hidden")) shouldBe true
+    m.get(".uni-dock__floats").hasAttribute("hidden") shouldBe true
+    // The hidden content stays mounted, so it keeps its state
+    m.get(".uni-dock__group[data-path='0']").textContent shouldContain "a content"
+    d.visible.run(v => v shouldBe Set("c")).cancel
+
+    fireEvent.click(toggles(m)(1))
+    layout.get.maximized shouldBe None
+    shown(m) shouldBe Seq("0", "1", "-1")
+    toggles(m)(1).getAttribute("aria-pressed") shouldBe "false"
+  }
+
+  test("a lone group has no toggle, and the tab menu maximizes from the keyboard") {
+    val one = Rx.variable(DockLayout.of("a", "b"))
+    toggles(mountDock(dock(one))).size shouldBe 0
+
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    val m      = mountDock(dock(layout))
+    fireEvent.contextMenu(tabOf(m, "a"))
+    settle().flatMap { _ =>
+      fireEvent.click(menuItem("Maximize group"))
+      layout.get.maximized shouldBe Some("a")
+      shown(m) shouldBe Seq("0")
+      fireEvent.contextMenu(tabOf(m, "a"))
+      settle().flatMap { _ =>
+        fireEvent.click(menuItem("Restore group"))
+        layout.get.maximized shouldBe None
+        settle()
+      }
+    }
+  }
+
+  test("maximize and restore go through onChange, and focusGroup restores a hidden group") {
+    val layout = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    var cancel = true
+    val d      = dock(layout).onChange(c =>
+      if cancel then
+        c.cancel()
+    )
+    val m = mountDock(d)
+    d.maximize("a") shouldBe false
+    layout.get.maximized shouldBe None
+    cancel = false
+    d.maximize("a") shouldBe true
+    var now = Option.empty[String]
+    val c   = d.maximized.run(now = _)
+    now shouldBe Some("a")
+    d.maximize("zzz") shouldBe false
+
+    // Focusing a hidden group shows every group again
+    d.focusGroup(1) shouldBe true
+    active shouldBe tabOf(m, "b")
+    now shouldBe None
+    d.maximize("b") shouldBe true
+    d.restore()
+    now shouldBe None
+    c.cancel
+  }
+
+  test("the dock's actions move to the maximized group") {
+    val layout  = Rx.variable(DockLayout(row(group("a"), group("b"))))
+    val m       = mountDock(dock(layout).withActions(div(wvlet.uni.dom.all.cls -> "fold", "Fold")))
+    def holders = m.queryAll(".uni-dock__group").filter(_.querySelector(".fold") != null)
+    holders.map(_.getAttribute("data-path")) shouldBe Seq("1")
+    layout := layout.get.maximize("a")
+    holders.map(_.getAttribute("data-path")) shouldBe Seq("0")
+    layout := layout.get.restore
+    holders.map(_.getAttribute("data-path")) shouldBe Seq("1")
+  }
+
 end DockTest
