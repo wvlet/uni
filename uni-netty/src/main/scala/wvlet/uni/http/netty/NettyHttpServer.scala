@@ -139,6 +139,7 @@ class NettyHttpServer(config: NettyServerConfig) extends HttpServer with LogSupp
                 config.maxContentLength
               )
             )
+            pipeline.addLast("decodeFailure", DecodeFailureHandler())
             pipeline.addLast("drain", ConnectionDrainHandler())
             if config.requestReadTimeoutMillis > 0 then
               pipeline.addLast(

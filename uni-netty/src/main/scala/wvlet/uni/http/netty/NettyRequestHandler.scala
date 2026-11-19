@@ -121,6 +121,17 @@ class NettyRequestHandler(
           warn(s"Error handling request: ${e.getMessage}", e)
         sendResponse(ctx, errorResponse(e), keepAlive)
 
+  override def userEventTriggered(ctx: ChannelHandlerContext, evt: Any): Unit =
+    evt match
+      case f: DecodeFailure =>
+        debug(s"Rejected a malformed request: ${f.cause.getMessage}")
+        // The compressor never saw this request and would refuse to encode a response for it
+        if ctx.pipeline().get(NettyHttpServer.CompressorHandler) != null then
+          ctx.pipeline().remove(NettyHttpServer.CompressorHandler)
+        sendResponse(ctx, Response(f.status).withTextContent(f.status.reason), keepAlive = false)
+      case _ =>
+        super.userEventTriggered(ctx, evt)
+
   private def errorResponse(e: Throwable): Response = HttpServerSecurity.errorResponse(
     e,
     detailedErrors

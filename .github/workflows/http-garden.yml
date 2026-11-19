@@ -19,6 +19,7 @@ on:
     paths:
       - '.github/workflows/http-garden.yml'
       - 'examples/http-garden/**'
+      - 'uni-netty/**'
 
 permissions:
   contents: read
