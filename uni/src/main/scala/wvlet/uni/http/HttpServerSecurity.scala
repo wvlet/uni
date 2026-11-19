@@ -124,7 +124,7 @@ private[uni] object HttpServerSecurity:
     allowedHosts.contains("*") || {
       val name = hostName(host)
       allowedHosts.exists { entry =>
-        val e = entry.trim.toLowerCase
+        val e = HttpMultiMap.lower(entry.trim)
         if e.startsWith("*.") then
           name.endsWith(e.substring(1))
         else
@@ -134,7 +134,8 @@ private[uni] object HttpServerSecurity:
 
   /** The host name of a `Host` value, without the port, lower-cased. IPv6 keeps its brackets. */
   private def hostName(host: String): String =
-    val h    = host.trim.toLowerCase
+    // Runs for every request and allowlist entry: lower() leaves lower-case names uncopied
+    val h    = HttpMultiMap.lower(host.trim)
     val name =
       if h.startsWith("[") then
         h.indexOf(']') match

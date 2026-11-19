@@ -143,4 +143,44 @@ class HttpMultiMapTest extends UniTest:
     keys.contains("X-Custom") shouldBe true
   }
 
+  test("a builder gives the same map as repeated add") {
+    val pairs = Seq(
+      "Host"           -> "a",
+      "content-type"   -> "text/plain",
+      "X-Multi"        -> "1",
+      "Accept"         -> "*/*",
+      "x-multi"        -> "2",
+      "User-Agent"     -> "t",
+      "X-MULTI"        -> "3",
+      "Content-Length" -> "0"
+    )
+    val b = HttpMultiMap.newBuilder
+    pairs.foreach((k, v) => b.add(k, v))
+    val built = b.result()
+    val added = pairs.foldLeft(HttpMultiMap.empty)((m, kv) => m.add(kv._1, kv._2))
+    built.entries shouldBe added.entries
+    built.toMap shouldBe added.toMap
+    built.keys.toSeq shouldBe added.keys.toSeq
+    // The first spelling of a name is kept, and values keep their order
+    built.getAll("x-multi") shouldBe Seq("1", "2", "3")
+    built.entries.filter(_._1.equalsIgnoreCase("x-multi")).map(_._1).distinct shouldBe
+      Seq("X-Multi")
+  }
+
+  test("a builder keeps the insertion order of a few keys") {
+    val b = HttpMultiMap.newBuilder
+    b.add("B", "1").add("A", "2").add("C", "3")
+    b.result().entries shouldBe Seq("B" -> "1", "A" -> "2", "C" -> "3")
+  }
+
+  test("lookups lower-case ASCII and non-ASCII names") {
+    HttpMultiMap.lower("content-type") shouldBe "content-type"
+    HttpMultiMap.lower(HttpHeader.ContentType) shouldBe "content-type"
+    HttpMultiMap.lower("X-Custom-Header") shouldBe "x-custom-header"
+    HttpMultiMap.lower("X-Ünïcode") shouldBe "x-ünïcode"
+    val map = HttpMultiMap("X-Ünïcode" -> "v", "X-Custom-Header" -> "w")
+    map.get("x-ÜNÏCODE") shouldBe Some("v")
+    map.get("x-custom-HEADER") shouldBe Some("w")
+  }
+
 end HttpMultiMapTest

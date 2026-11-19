@@ -28,12 +28,14 @@ class HttpMultiMap private (
   /**
     * Get the first value for a key (case-insensitive)
     */
-  def get(key: String): Option[String] = underlying.get(key.toLowerCase).flatMap(_.headOption)
+  def get(key: String): Option[String] = underlying
+    .get(HttpMultiMap.lower(key))
+    .flatMap(_.headOption)
 
   /**
     * Get all values for a key (case-insensitive)
     */
-  def getAll(key: String): Seq[String] = underlying.getOrElse(key.toLowerCase, Seq.empty)
+  def getAll(key: String): Seq[String] = underlying.getOrElse(HttpMultiMap.lower(key), Seq.empty)
 
   /**
     * Get the first value or a default
@@ -43,13 +45,13 @@ class HttpMultiMap private (
   /**
     * Check if a key exists (case-insensitive)
     */
-  def contains(key: String): Boolean = underlying.contains(key.toLowerCase)
+  def contains(key: String): Boolean = underlying.contains(HttpMultiMap.lower(key))
 
   /**
     * Add a value to a key, preserving existing values
     */
   def add(key: String, value: String): HttpMultiMap =
-    val lowerKey     = key.toLowerCase
+    val lowerKey     = HttpMultiMap.lower(key)
     val existingVals = underlying.getOrElse(lowerKey, Seq.empty)
     val newOrigKeys  =
       if originalKeys.contains(lowerKey) then
@@ -62,7 +64,7 @@ class HttpMultiMap private (
     * Set a key to a single value, replacing any existing values
     */
   def set(key: String, value: String): HttpMultiMap =
-    val lowerKey    = key.toLowerCase
+    val lowerKey    = HttpMultiMap.lower(key)
     val newOrigKeys =
       if originalKeys.contains(lowerKey) then
         originalKeys
@@ -74,7 +76,7 @@ class HttpMultiMap private (
     * Remove all values for a key (case-insensitive)
     */
   def remove(key: String): HttpMultiMap =
-    val lowerKey = key.toLowerCase
+    val lowerKey = HttpMultiMap.lower(key)
     HttpMultiMap.create(underlying - lowerKey, originalKeys - lowerKey)
 
   /**
@@ -148,11 +150,57 @@ object HttpMultiMap:
       vs.foldLeft(acc)((a, v) => a.add(k, v))
     }
 
+  /**
+    * The lookup form of a key. Header names are ASCII, so ASCII keys lower-case without
+    * `String.toLowerCase`, and come back unchanged when already lower-case. Scala Native's
+    * `toLowerCase` copies every string through a `StringBuilder`, and every add, get, and contains
+    * goes through here. Other keys use `toLowerCase`, as before.
+    */
+  private[http] def lower(key: String): String =
+    var i     = 0
+    var upper = false
+    while i < key.length do
+      val c = key.charAt(i)
+      if c >= 0x80 then
+        return key.toLowerCase
+      if c >= 'A' && c <= 'Z' then
+        upper = true
+      i += 1
+    if !upper then
+      key
+    else
+      val known = HttpHeader.lowerCaseNames.get(key)
+      if known != null then
+        known
+      else
+        lowerAscii(key)
+
+  private[http] def lowerAscii(key: String): String =
+    val chars = key.toCharArray
+    var i     = 0
+    while i < chars.length do
+      val c = chars(i)
+      if c >= 'A' && c <= 'Z' then
+        chars(i) = (c + 32).toChar
+      i += 1
+    String(chars)
+
+  /**
+    * Collects entries in mutable maps and builds the immutable maps once, instead of copying both
+    * on every add. Insertion-ordered, so the result iterates as one built with repeated `add`.
+    */
   class Builder:
-    private var map: HttpMultiMap = empty
+    private val values       = scala.collection.mutable.LinkedHashMap.empty[String, Seq[String]]
+    private val originalKeys = scala.collection.mutable.LinkedHashMap.empty[String, String]
 
     def add(key: String, value: String): Builder =
-      map = map.add(key, value)
+      val lowerKey = lower(key)
+      values.get(lowerKey) match
+        case Some(vs) =>
+          values.update(lowerKey, vs :+ value)
+        case None =>
+          values.update(lowerKey, Seq(value))
+          originalKeys.update(lowerKey, key)
       this
 
     def +=(entry: (String, String)): Builder = add(entry._1, entry._2)
@@ -161,7 +209,7 @@ object HttpMultiMap:
       entries.foreach(e => add(e._1, e._2))
       this
 
-    def result(): HttpMultiMap = map
+    def result(): HttpMultiMap = create(values.toMap, originalKeys.toMap)
 
   def newBuilder: Builder = Builder()
 

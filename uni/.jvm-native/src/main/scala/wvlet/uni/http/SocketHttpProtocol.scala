@@ -131,12 +131,10 @@ private[http] class HttpConnectionReader(
       i += 1
     i == end
 
-  private def latin1(from: Int, until: Int): String = String(
-    buf,
-    start + from,
-    until - from,
-    StandardCharsets.ISO_8859_1
-  )
+  // ISO-8859-1 maps each byte to the char with the same code. The hibyte constructor fills the
+  // string directly; Scala Native decodes the Charset form through a CharsetDecoder and CharBuffer.
+  @annotation.nowarn("cat=deprecation")
+  private def latin1(from: Int, until: Int): String = String(buf, 0, start + from, until - from)
 
   private def bad(message: String): ReadResult = ReadResult.Error(
     HttpStatus.BadRequest_400,
@@ -603,18 +601,8 @@ private[http] object HttpConnectionReader:
     * locale could change `I`, and Scala Native has no `Locale.ROOT`).
     */
   private[http] def tokens(values: Seq[String]): Seq[String] = values.flatMap(
-    _.split(",", -1).iterator.map(t => asciiLower(t.trim))
+    _.split(",", -1).iterator.map(t => HttpMultiMap.lowerAscii(t.trim))
   )
-
-  private def asciiLower(s: String): String =
-    val chars = s.toCharArray
-    var i     = 0
-    while i < chars.length do
-      val c = chars(i)
-      if c >= 'A' && c <= 'Z' then
-        chars(i) = (c + 32).toChar
-      i += 1
-    String(chars)
 
 end HttpConnectionReader
 
@@ -644,7 +632,7 @@ private[http] object HttpResponseWriter:
   /** The status line and headers of a response whose body has `contentLength` bytes. */
   def serializeHead(response: Response, keepAlive: Boolean, contentLength: Long): Array[Byte] =
     val code = response.status.code
-    val sb   = StringBuilder()
+    val sb   = StringBuilder(256)
     sb.append("HTTP/1.1 ").append(code).append(" ").append(response.status.reason).append("\r\n")
 
     // Copy response headers, but skip the ones we set explicitly below to avoid duplicates.
@@ -678,9 +666,27 @@ private[http] object HttpResponseWriter:
       .append("\r\n")
     sb.append("\r\n")
 
-    sb.toString.getBytes(StandardCharsets.ISO_8859_1)
+    latin1Bytes(sb)
 
   end serializeHead
+
+  /**
+    * `sb` as ISO-8859-1 bytes, with `?` for each char above 0xff (header values are validated, so
+    * none are expected). Scala Native's `getBytes(Charset)` goes through a CharsetEncoder and
+    * ByteBuffer per call.
+    */
+  private def latin1Bytes(sb: StringBuilder): Array[Byte] =
+    val out = new Array[Byte](sb.length)
+    var i   = 0
+    while i < out.length do
+      val c = sb.charAt(i)
+      out(i) =
+        if c <= 0xff then
+          c.toByte
+        else
+          '?'.toByte
+      i += 1
+    out
 
   // The writer frames every response itself, so a handler's Transfer-Encoding is dropped: next to
   // the writer's Content-Length it would let a client or proxy read a different body length

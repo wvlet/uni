@@ -43,6 +43,12 @@ private[http] object SocketShim:
 
   def uni_socket_close(fd: CInt): CInt = extern
 
+  /**
+    * Non-blocking `recv` (`MSG_DONTWAIT`): the count, 0 at EOF, -1 on error, or -2 when nothing is
+    * waiting. Not `@blocking`, since it never waits. Always -2 on Windows.
+    */
+  def uni_socket_recv_ready(fd: CInt, buf: Ptr[Byte], len: CInt): CInt = extern
+
   /** Make a send to a closed peer fail with EPIPE instead of raising SIGPIPE (macOS). */
   def uni_socket_no_sigpipe(fd: CInt): Unit = extern
 
@@ -292,6 +298,21 @@ end NativeSocket
 private[http] class NativeSocketConnection(val fd: Int) extends SocketConnection:
 
   override def read(buf: Array[Byte], off: Int, len: Int, timeoutMillis: Int): Int =
+    // Bytes are usually already waiting (the poller just reported the socket readable, or the next
+    // request is in flight), so read them first and poll only when there are none.
+    val ready =
+      if len <= 0 then
+        -2
+      else
+        SocketShim.uni_socket_recv_ready(fd, buf.at(off), len)
+    if ready > 0 then
+      ready
+    else if ready == 0 || ready == -1 then
+      -1 // EOF or a failed socket
+    else
+      waitAndRecv(buf, off, len, timeoutMillis)
+
+  private def waitAndRecv(buf: Array[Byte], off: Int, len: Int, timeoutMillis: Int): Int =
     NativeSocket.waitReadable(fd, timeoutMillis) match
       case 1 =>
         val n = NativeSocket.recvInto(fd, buf, off, len)

@@ -190,8 +190,19 @@ object RPCDispatcher:
     */
   def acceptsEventStream(request: Request): Boolean = request
     .header(HttpHeader.Accept)
-    .exists(
-      _.split(',')
-        .headOption
-        .exists(_.split(';').head.trim.equalsIgnoreCase(ContentType.TextEventStream.value))
-    )
+    .exists { accept =>
+      // indexOf, not split(','): Scala's split(Char) escapes the separator, and on Scala Native an
+      // escaped separator compiles a regex on every call
+      val first     = before(accept, ',')
+      val mediaType = before(first, ';')
+      mediaType.trim.equalsIgnoreCase(ContentType.TextEventStream.value)
+    }
+
+  private def before(s: String, sep: Char): String =
+    s.indexOf(sep) match
+      case -1 =>
+        s
+      case i =>
+        s.substring(0, i)
+
+end RPCDispatcher
