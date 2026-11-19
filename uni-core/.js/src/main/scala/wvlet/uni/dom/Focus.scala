@@ -255,7 +255,7 @@ private case class FocusTrap(children: Seq[DomNode]) extends RxElement:
       // Refresh focusables in case content changed
       updateFocusables()
 
-      val activeElement = dom.document.activeElement
+      val activeElement = containerRef.fold(dom.document.activeElement)(AnyRealm.activeElementOf)
       if e.shiftKey then
         // Shift+Tab: wrap to last if at first
         if firstFocusable.contains(activeElement) then

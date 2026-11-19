@@ -14,9 +14,18 @@ import scala.language.implicitConversions
   * Alt+ArrowDown reorder the list, and the menu sorts or clears it. Detach the panel ("Open in new
   * window" on its tab) and these work the same in their own window.
   */
+/** A note; the id keeps two notes with the same text apart in the list. */
+case class Note(id: Int, text: String)
+
 class NotesView extends RxElement:
-  private val notes: RxVar[Seq[String]] = Rx.variable(
-    Seq("Try Alt+ArrowUp on a note", "Detach this panel", "Read the Dock docs")
+  private var nextId = 0
+
+  private def note(text: String): Note =
+    nextId += 1
+    Note(nextId, text)
+
+  private val notes: RxVar[Seq[Note]] = Rx.variable(
+    Seq("Try Alt+ArrowUp on a note", "Detach this panel", "Read the Dock docs").map(note)
   )
 
   private val draft    = Rx.variable("")
@@ -27,7 +36,7 @@ class NotesView extends RxElement:
     val text = draft.get.trim
     if text.nonEmpty then
       history.add(text)
-      notes.update(_ :+ text)
+      notes.update(_ :+ note(text))
       draft := ""
 
   private def actions: RxElement = Tooltip(
@@ -41,7 +50,7 @@ class NotesView extends RxElement:
         "Actions"
       ),
       entries = Seq(
-        MenuItem("Sort A–Z").onSelect(() => notes.update(_.sorted)),
+        MenuItem("Sort A–Z").onSelect(() => notes.update(_.sortBy(_.text))),
         MenuItem("Clear all").onSelect(() => notes := Seq.empty)
       )
     ).withSide(Side.Bottom)
@@ -60,7 +69,7 @@ class NotesView extends RxElement:
       history.keys(draft),
       Keyboard.onEnter(() => add())
     ),
-    VirtualList(notes, rowHeight = 32, key = identity, render = n => span(cls -> "text-[13px]", n))
+    VirtualList(notes, rowHeight = 32, key = _.id, render = n => span(cls -> "text-[13px]", n.text))
       .withReorder(notes)(ariaLabel -> "Notes", cls += "min-h-0 flex-1")
   )
 

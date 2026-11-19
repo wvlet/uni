@@ -121,7 +121,9 @@ class InputHistory(capacity: Int = 100, initial: Seq[String] = Nil):
       case AnyRealm.KeyboardEvent(e)
           if !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && !Keyboard.isComposing(e) =>
         e.currentTarget match
-          case field: (dom.HTMLInputElement | dom.HTMLTextAreaElement) =>
+          case field
+              if AnyRealm.HTMLInputElement.test(field) ||
+                AnyRealm.HTMLTextAreaElement.test(field) =>
             val (text, caret, caretEnd) =
               field match
                 case AnyRealm.HTMLInputElement(i) =>

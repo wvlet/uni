@@ -39,6 +39,9 @@ private[uni] object AnyRealm:
       val c = js.Dynamic.global.globalThis.selectDynamic(name)
       if !js.isUndefined(c) && js.special.instanceof(x, c) then
         true
+      else if js.special.instanceof(x, js.Dynamic.global.globalThis.Object) then
+        // From this window: the miss above settles it
+        false
       else
         var p     = js.Object.getPrototypeOf(x.asInstanceOf[js.Object])
         var found = false

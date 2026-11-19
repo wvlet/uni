@@ -68,19 +68,19 @@ object Announce:
       // A new node, rather than new text, makes a repeated message read again
       val line = doc.createElement("div")
       line.textContent = message
+      // The region's own window, whose timers keep running while the page is hidden
+      val win = Option(doc.defaultView).getOrElse(dom.window)
       if fresh then
         // Give screen readers time to notice the new region first
-        dom.window.setTimeout(() => r.appendChild(line), freshDelayMillis)
+        win.setTimeout(() => r.appendChild(line), freshDelayMillis)
       else
         r.appendChild(line)
-      dom
-        .window
-        .setTimeout(
-          () =>
-            if (line.parentNode eq r) && (r.lastChild ne line) then
-              r.removeChild(line),
-          keepMillis
-        )
+      win.setTimeout(
+        () =>
+          if (line.parentNode eq r) && (r.lastChild ne line) then
+            r.removeChild(line),
+        keepMillis
+      )
 
   private def find(politeness: String, doc: dom.HTMLDocument): Option[dom.Element] = Option(
     doc.querySelector(s"[data-slot=announcer][aria-live=${politeness}]")
