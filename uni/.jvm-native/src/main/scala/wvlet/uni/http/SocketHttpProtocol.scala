@@ -269,23 +269,19 @@ private[http] class HttpConnectionReader(
           return ReadResult.Error(HttpStatus.UriTooLong_414, "Request line too long")
         i += 1
 
-    // METHOD SP+ target SP+ HTTP/1.x
+    // METHOD SP target SP HTTP/1.x, with exactly one SP between the words (RFC 9112 Section 3)
     var sp = 0
     while sp < lineEnd && at(sp) != ' ' do
       sp += 1
     if sp == 0 || sp == lineEnd then
       return bad("Malformed request line")
-    var targetStart = sp
-    while targetStart < lineEnd && at(targetStart) == ' ' do
-      targetStart += 1
-    var targetEnd = targetStart
+    val targetStart = sp + 1
+    var targetEnd   = targetStart
     while targetEnd < lineEnd && at(targetEnd) != ' ' do
       targetEnd += 1
-    if targetEnd == targetStart then
+    if targetEnd == targetStart || targetEnd == lineEnd then
       return bad("Malformed request line")
-    var versionStart = targetEnd
-    while versionStart < lineEnd && at(versionStart) == ' ' do
-      versionStart += 1
+    val versionStart = targetEnd + 1
     if versionStart == lineEnd then
       return bad("Malformed request line")
     var k = versionStart
@@ -353,6 +349,9 @@ private[http] class HttpConnectionReader(
         return bad("Transfer-Encoding is not allowed in HTTP/1.0")
       val codings = tokens(transferEncodings)
       if codings.last != "chunked" then
+        return bad("Invalid Transfer-Encoding")
+      // `chunked` must not be applied more than once (RFC 9112 Section 7.1)
+      if codings.init.contains("chunked") then
         return bad("Invalid Transfer-Encoding")
       if codings.sizeIs > 1 then
         return ReadResult.Error(HttpStatus.NotImplemented_501, "Unsupported Transfer-Encoding")
@@ -480,8 +479,6 @@ private[http] class HttpConnectionReader(
       // A size that doesn't fit in an Int is not a size, as in Netty: 400, not 413
       if digits == 0 || size > Int.MaxValue then
         return Left(bad("Invalid chunk size"))
-      if size > limits.maxContentLength - total then
-        return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
       if b == ';' then
         // chunk-ext: anything but control characters, up to the CR
         p += 1
@@ -504,6 +501,9 @@ private[http] class HttpConnectionReader(
         return Left(cutShort(n, "Incomplete request body"))
       if at(p) != '\r' || at(p + 1) != '\n' then
         return Left(bad("Invalid chunk size"))
+      // Only a well-formed size line gets 413, so a malformed one gets 400 whatever its size
+      if size > limits.maxContentLength - total then
+        return Left(ReadResult.Error(HttpStatus.PayloadTooLarge_413, "Request body too large"))
       p += 2
       if size == 0 then
         // Trailers, up to the empty line; they are checked like headers, then dropped
