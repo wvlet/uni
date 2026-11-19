@@ -64,3 +64,29 @@ private[http] trait SocketListener:
 
   /** Stop listening, unblocking a thread waiting in [[accept]]. */
   def close(): Unit
+
+/**
+  * A connection waiting for its next request in an [[IdlePoller]]. The poller owns it until it
+  * calls exactly one of these, once.
+  */
+private[http] trait IdleConnection:
+  /** The connection is readable (a request, or the peer closing): serve it on a worker again. */
+  def resume(): Unit
+
+  /** The connection sat idle past the idle timeout, or the poller closed: close it. */
+  def expire(): Unit
+
+/**
+  * Watches connections between requests, so an idle keep-alive connection holds no worker thread.
+  * Scala Native implements it with epoll or kqueue.
+  */
+private[http] trait IdlePoller:
+  /**
+    * Hand `conn` (over `socket`) to the poller until it is readable or times out. Returns false
+    * when the poller can't take it (it is closed, or bytes are already waiting); the caller still
+    * owns the connection then.
+    */
+  def park(socket: SocketConnection, conn: IdleConnection): Boolean
+
+  /** Stop watching, expiring every parked connection, and wait for the poller thread to exit. */
+  def close(): Unit

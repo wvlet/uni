@@ -49,10 +49,11 @@ python3 examples/rpc-native/bench/bench.py --soak 10m --sample 15s   # per targe
 
 - `--sweep` runs each connection count in turn against one server per target, after one warm-up.
   It reports req/s, p50/p99, failed requests, and RSS after each level. It also times one request
-  on a fresh connection, sent 1 s into each level. NativeServer serves each keep-alive connection
-  on its own worker thread (16 by default), so once 16 connections are open, a new connection
-  waits until one closes. The sweep shows that as "no response", and the load tool's numbers then
-  cover only the 16 connections that hold a worker.
+  on a fresh connection, sent 1 s into each level. A server that keeps each keep-alive connection
+  on its own worker thread queues a new connection once all workers are taken. The sweep shows
+  that as "no response", and the load tool's numbers then cover only the connections that hold a
+  worker. NativeServer on Windows does that (16 workers by default). On Linux and macOS, idle
+  connections wait in an epoll/kqueue poller instead and hold no worker.
 - `--soak` holds load as back-to-back `--sample` runs and reads RSS after each one. It prints the
   RSS time series per target and a verdict: "levels off" when the second half's peak is within
   1 MB or 5% of the last first-half reading, "still growing" otherwise. The verdict also says

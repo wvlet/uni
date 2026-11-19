@@ -49,6 +49,22 @@ private[http] object SocketShim:
   /** Flags for every `send`: `MSG_NOSIGNAL` where it exists (Linux), else 0. */
   def uni_socket_send_flags(): CInt = extern
 
+  /** An epoll/kqueue fd with a wake pipe in `wake(0)`/`wake(1)`, or -1 where unsupported. */
+  def uni_poller_create(wake: Ptr[CInt]): CInt = extern
+
+  /** Watch `fd` for readability once, reporting `token`. */
+  def uni_poller_add(poller: CInt, fd: CInt, token: CLongLong): CInt = extern
+
+  /** Wait for ready tokens; `@blocking` for the same reason as `uni_socket_wait_readable`. */
+  @blocking
+  def uni_poller_wait(poller: CInt, tokens: Ptr[CLongLong], max: CInt, timeoutMillis: CInt): CInt =
+    extern
+
+  def uni_poller_wake(wakeWriteFd: CInt): Unit = extern
+  def uni_poller_drain(wakeReadFd: CInt): Unit = extern
+
+end SocketShim
+
 /**
   * Thin wrappers over POSIX TCP sockets (libc, via Scala Native's posixlib) for the Native HTTP
   * server. No external dependency or linker flag is required.
@@ -220,63 +236,48 @@ private[http] object NativeSocket:
     * end-of-connection).
     */
   def recvChunk(fd: Int): Array[Byte] =
-    val cbuf = stackalloc[Byte](ChunkSize)
-    val n    = csocket.recv(fd, cbuf.asInstanceOf[Ptr[Byte]], ChunkSize.toUInt, 0)
+    val buf = new Array[Byte](ChunkSize)
+    val n   = recvInto(fd, buf, 0, ChunkSize)
     if n <= 0 then
       Array.emptyByteArray
+    else if n == ChunkSize then
+      buf
     else
-      val len = n.toInt
-      val arr = new Array[Byte](len)
-      var i   = 0
-      while i < len do
-        arr(i) = cbuf(i)
-        i += 1
-      arr
+      java.util.Arrays.copyOf(buf, n)
 
   /**
-    * Receive up to `len` bytes (at most ChunkSize) into `buf` at `off`. Returns the number
-    * received, or 0 or less on EOF or error.
+    * Receive up to `len` bytes into `buf` at `off`. Returns the number received, or 0 or less on
+    * EOF or error.
+    *
+    * `recv` writes straight into the array: Scala Native's collectors never move objects, and `buf`
+    * stays reachable from this frame while `recv` (a `@blocking` call) runs, as in Scala Native's
+    * own socket code.
     */
   def recvInto(fd: Int, buf: Array[Byte], off: Int, len: Int): Int =
-    val max  = math.min(len, ChunkSize)
-    val cbuf = stackalloc[Byte](ChunkSize)
-    val n    = csocket.recv(fd, cbuf.asInstanceOf[Ptr[Byte]], max.toUInt, 0).toInt
-    var i    = 0
-    while i < n do
-      buf(off + i) = cbuf(i)
-      i += 1
-    n
+    if len <= 0 then
+      0
+    else
+      csocket.recv(fd, buf.at(off), len.toUInt, 0).toInt
 
   /**
     * Send all of `data`, looping over partial writes. Returns false if the peer is gone.
     */
   def sendAll(fd: Int, data: Array[Byte]): Boolean = sendAll(fd, data, 0, data.length)
 
-  /** Send all of `data[off, off + len)`, looping over partial writes. False if the peer is gone. */
+  /**
+    * Send all of `data[off, off + len)` straight from the array (see [[recvInto]]), looping over
+    * partial writes. False if the peer is gone.
+    */
   def sendAll(fd: Int, data: Array[Byte], off: Int, len: Int): Boolean =
-    val chunk = stackalloc[Byte](ChunkSize)
     var pos   = off
-    var ok    = true
     val total = off + len
+    var ok    = true
     while ok && pos < total do
-      val n = math.min(ChunkSize, total - pos)
-      var i = 0
-      while i < n do
-        chunk(i) = data(pos + i)
-        i += 1
-      var sent = 0
-      while ok && sent < n do
-        val w = csocket.send(
-          fd,
-          (chunk + sent).asInstanceOf[Ptr[Byte]],
-          (n - sent).toUInt,
-          SendFlags
-        )
-        if w <= 0 then
-          ok = false
-        else
-          sent += w.toInt
-      pos += n
+      val w = csocket.send(fd, data.at(pos), (total - pos).toUInt, SendFlags)
+      if w <= 0 then
+        ok = false
+      else
+        pos += w.toInt
     ok
 
   /** `closesocket` on Windows: the CRT's `close` links there but only knows file descriptors. */

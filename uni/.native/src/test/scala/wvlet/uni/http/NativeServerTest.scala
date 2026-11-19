@@ -14,6 +14,7 @@
 package wvlet.uni.http
 
 import wvlet.uni.http.ServiceStatus
+
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.test.UniTest
 
@@ -21,6 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.util.control.NonFatal
 import scala.scalanative.libc.string as cstring
+import scala.scalanative.meta.LinktimeInfo
 import scala.scalanative.posix.arpa.inet
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
 import scala.scalanative.posix.netinet.inOps.*
@@ -423,28 +425,9 @@ class NativeServerTest extends UniTest:
       requests: Int,
       failures: java.util.Queue[String]
   ): Unit =
-    val fd  = connectLoopback(port)
-    val buf = scala.collection.mutable.ArrayBuffer.empty[Byte]
-    // Read one response off the connection, leaving any later bytes in buf
-    def readResponse(): Option[RawResponse] =
-      var sep = -1
-      while sep < 0 do
-        sep = new String(buf.toArray, StandardCharsets.ISO_8859_1).indexOf("\r\n\r\n")
-        if sep < 0 then
-          val chunk = NativeSocket.recvChunk(fd)
-          if chunk.isEmpty then
-            return None
-          buf ++= chunk
-      val head = parse(new String(buf.take(sep).toArray, StandardCharsets.ISO_8859_1))
-      val end  = sep + 4 + head.headers("content-length").toInt
-      while buf.length < end do
-        val chunk = NativeSocket.recvChunk(fd)
-        if chunk.isEmpty then
-          return None
-        buf ++= chunk
-      val body = new String(buf.slice(sep + 4, end).toArray, StandardCharsets.UTF_8)
-      buf.remove(0, end)
-      Some(head.copy(body = body))
+    val fd                                  = connectLoopback(port)
+    val reader                              = ResponseReader(fd)
+    def readResponse(): Option[RawResponse] = reader.next()
 
     try
       var i = 0
@@ -485,6 +468,137 @@ class NativeServerTest extends UniTest:
         threads.exists(_.isAlive) shouldBe false
         failures.toArray.toSeq shouldBe Seq.empty
       }
+  }
+
+  /** Reads Content-Length responses one at a time off a keep-alive connection. */
+  private class ResponseReader(fd: Int):
+    private val buf = scala.collection.mutable.ArrayBuffer.empty[Byte]
+
+    /** The next response, leaving any later bytes buffered; None if the connection closed. */
+    def next(): Option[RawResponse] =
+      var sep = -1
+      while sep < 0 do
+        sep = new String(buf.toArray, StandardCharsets.ISO_8859_1).indexOf("\r\n\r\n")
+        if sep < 0 then
+          val chunk = NativeSocket.recvChunk(fd)
+          if chunk.isEmpty then
+            return None
+          buf ++= chunk
+      val head = parse(new String(buf.take(sep).toArray, StandardCharsets.ISO_8859_1))
+      val end  = sep + 4 + head.headers("content-length").toInt
+      while buf.length < end do
+        val chunk = NativeSocket.recvChunk(fd)
+        if chunk.isEmpty then
+          return None
+        buf ++= chunk
+      val body = new String(buf.slice(sep + 4, end).toArray, StandardCharsets.UTF_8)
+      buf.remove(0, end)
+      Some(head.copy(body = body))
+
+  end ResponseReader
+
+  private def sendGet(fd: Int, path: String): Unit = NativeSocket.sendAll(
+    fd,
+    s"GET ${path} HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1)
+  )
+
+  test("should serve more idle keep-alive connections than workers") {
+    if LinktimeInfo.isWindows then
+      skip("Windows has no idle poller yet: each connection keeps its worker")
+    NativeServerConfig()
+      .withHandler(req => Response.ok(req.path))
+      .withWorkerThreads(2)
+      .withPort(0)
+      .start { server =>
+        // Each connection stays open after its first response. With a worker per connection, the
+        // third one would wait for a free worker forever.
+        val fds = (0 until 8).map(_ => connectLoopback(server.localPort))
+        try
+          val readers = fds.map(ResponseReader(_))
+          fds
+            .zip(readers)
+            .zipWithIndex
+            .foreach { case ((fd, reader), i) =>
+              sendGet(fd, s"/first${i}")
+              reader.next().map(_.body) shouldBe Some(s"/first${i}")
+            }
+          // Every parked connection resumes for its next request
+          fds
+            .zip(readers)
+            .zipWithIndex
+            .reverse
+            .foreach { case ((fd, reader), i) =>
+              sendGet(fd, s"/second${i}")
+              reader.next().map(_.body) shouldBe Some(s"/second${i}")
+            }
+        finally
+          fds.foreach(NativeSocket.close)
+      }
+  }
+
+  test("should answer pipelined requests sent in one write") {
+    NativeServerConfig()
+      .withHandler(req => Response.ok(req.path))
+      .withPort(0)
+      .start { server =>
+        val fd = connectLoopback(server.localPort)
+        try
+          NativeSocket.sendAll(
+            fd,
+            (
+              "GET /a HTTP/1.1\r\nHost: localhost\r\n\r\n" +
+                "GET /b HTTP/1.1\r\nHost: localhost\r\n\r\n"
+            ).getBytes(StandardCharsets.ISO_8859_1)
+          )
+          val reader = ResponseReader(fd)
+          reader.next().map(_.body) shouldBe Some("/a")
+          reader.next().map(_.body) shouldBe Some("/b")
+        finally
+          NativeSocket.close(fd)
+      }
+  }
+
+  test("should keep serving after idle clients hang up") {
+    NativeServerConfig()
+      .withHandler(req => Response.ok(req.path))
+      .withWorkerThreads(1)
+      .withPort(0)
+      .start { server =>
+        // Each client parks after its response, then closes; the poller hands the hang-up back to
+        // the single worker, which closes the connection
+        (0 until 20).foreach { i =>
+          val fd = connectLoopback(server.localPort)
+          try
+            sendGet(fd, s"/c${i}")
+            ResponseReader(fd).next().map(_.body) shouldBe Some(s"/c${i}")
+          finally
+            NativeSocket.close(fd)
+        }
+        request(
+          server.localPort,
+          "GET /last HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+        ).body shouldBe "/last"
+      }
+  }
+
+  test("should close parked connections on stop") {
+    if LinktimeInfo.isWindows then
+      skip("Windows has no idle poller yet: each connection keeps its worker")
+    val server = NativeServerConfig().withHandler(req => Response.ok(req.path)).withPort(0).start()
+    val fd     = connectLoopback(server.localPort)
+    try
+      sendGet(fd, "/x")
+      val reader = ResponseReader(fd)
+      reader.next().map(_.body) shouldBe Some("/x")
+      // Let the connection park before stopping
+      Thread.sleep(50)
+      val start = System.currentTimeMillis()
+      server.stop()
+      reader.next() shouldBe None
+      (System.currentTimeMillis() - start < 3000) shouldBe true
+    finally
+      NativeSocket.close(fd)
+      server.stop()
   }
 
   // ---- WebSocket ----

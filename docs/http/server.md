@@ -598,7 +598,7 @@ All three backends start with these defaults:
 
 Requests without an `Origin` header (CLI tools, server-to-server clients) and same-origin pages are always accepted for WebSocket. A malformed path or query parameter (e.g. `?limit=abc` for an `Int`) returns 400 rather than 500.
 
-On Scala Native, each connection holds one of the `workerThreads` workers (16 by default) while it is open. The timeouts above bound how long a slow client holds one, but a few slow or idle keep-alive clients can still keep every worker busy; raise `Native.options.withWorkerThreads(n)` for a server that faces many clients, or put a reverse proxy in front. The built-in JVM server runs each connection on a virtual thread and has no such limit.
+On Scala Native, the `workerThreads` workers (16 by default) bound how many requests run at once. On Linux and macOS, a keep-alive connection waiting for its next request holds no worker: it waits in an epoll/kqueue poller, so the number of open connections is limited only by the process's file descriptor limit. A request still being received does hold its worker, and the timeouts above bound how long a slow client keeps one. So raise `Native.options.withWorkerThreads(n)` for handlers that block, or for many slow clients, or put a reverse proxy in front. On Windows, each connection holds a worker while it is open. The built-in JVM server runs each connection on a virtual thread and has no such limit.
 
 TLS is not built in: terminate HTTPS at a reverse proxy or load balancer.
 

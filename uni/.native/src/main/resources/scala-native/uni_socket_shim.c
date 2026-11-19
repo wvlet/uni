@@ -20,6 +20,7 @@
  *   readable-wait  POSIX: poll().             Windows: WSAPoll().
  *   close          POSIX: close().            Windows: closesocket().
  *   no SIGPIPE     macOS: SO_NOSIGPIPE.       Linux: MSG_NOSIGNAL.     Windows: nothing.
+ *   idle poller    Linux: epoll.              macOS/BSD: kqueue.       Windows, others: none (-1).
  *
  * Everything else uni calls — socket, bind, listen, accept, recv, send, setsockopt, shutdown — is
  * mapped onto winsock by Scala Native's own posixlib, and needs nothing from us.
@@ -179,3 +180,160 @@ int uni_socket_wait_readable(int fd, int timeout_millis) {
   }
   return 0;
 }
+
+/*
+ * The idle-connection poller: NativeHttpServer parks keep-alive connections here between requests,
+ * so an idle connection holds no worker thread (adr/2026-11-19-native-server-idle-poller.md).
+ *
+ *   uni_poller_create(wake)   a poller fd, plus a non-blocking wake pipe in wake[0] (read) and
+ *                             wake[1] (write), registered under token 0. -1 where unsupported.
+ *   uni_poller_add(p, fd, t)  watch fd for readability once (one-shot), reporting token t (> 0).
+ *   uni_poller_wait(p, ts, n, ms)  wait up to ms (-1: no limit) and store up to n ready tokens in
+ *                             ts. Returns the count, 0 on timeout or EINTR, -1 on error. Blocks.
+ *   uni_poller_wake(w)        write a byte to the wake pipe, so a wait returns token 0.
+ *   uni_poller_drain(r)       empty the wake pipe.
+ *
+ * Events carry a token, not the fd: a connection closed while parked frees its fd number, and a new
+ * connection may reuse it. Only ints and 64-bit tokens cross into Scala, so no struct layout does.
+ * Close the poller and pipe fds with uni_socket_close.
+ */
+#if defined(__linux__)
+#include <sys/epoll.h>
+#define UNI_POLLER_EPOLL 1
+#elif defined(__APPLE__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || \
+    defined(__DragonFly__)
+#include <sys/types.h>
+#include <sys/event.h>
+#include <sys/time.h>
+#define UNI_POLLER_KQUEUE 1
+#endif
+
+#define UNI_POLLER_MAX_EVENTS 256
+
+#if defined(UNI_POLLER_EPOLL) || defined(UNI_POLLER_KQUEUE)
+#include <fcntl.h>
+#include <stdint.h>
+
+static int uni_set_nonblocking_cloexec(int fd) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    return -1;
+  }
+  return fcntl(fd, F_SETFD, FD_CLOEXEC);
+}
+
+/* Register fd for readability under token. one_shot: disarm after the first event. */
+static int uni_poller_register(int p, int fd, long long token, int one_shot) {
+#if defined(UNI_POLLER_EPOLL)
+  struct epoll_event ev;
+  ev.events   = EPOLLIN | EPOLLRDHUP | (one_shot ? EPOLLONESHOT : 0);
+  ev.data.u64 = (uint64_t)token;
+  if (epoll_ctl(p, EPOLL_CTL_ADD, fd, &ev) == 0) {
+    return 0;
+  }
+  /* A one-shot fd stays registered (disarmed) after it fired once: re-arm it */
+  if (errno == EEXIST) {
+    return epoll_ctl(p, EPOLL_CTL_MOD, fd, &ev);
+  }
+  return -1;
+#else
+  struct kevent ev;
+  EV_SET(&ev, fd, EVFILT_READ, EV_ADD | EV_ENABLE | (one_shot ? EV_ONESHOT : 0), 0, 0,
+         (void *)(intptr_t)token);
+  return kevent(p, &ev, 1, NULL, 0, NULL) < 0 ? -1 : 0;
+#endif
+}
+
+int uni_poller_create(int *wake) {
+#if defined(UNI_POLLER_EPOLL)
+  int p = epoll_create1(EPOLL_CLOEXEC);
+#else
+  int p = kqueue();
+#endif
+  if (p < 0) {
+    return -1;
+  }
+  if (pipe(wake) != 0) {
+    close(p);
+    return -1;
+  }
+  if (uni_set_nonblocking_cloexec(wake[0]) < 0 || uni_set_nonblocking_cloexec(wake[1]) < 0 ||
+      uni_poller_register(p, wake[0], 0, 0) < 0) {
+    close(wake[0]);
+    close(wake[1]);
+    close(p);
+    return -1;
+  }
+  return p;
+}
+
+int uni_poller_add(int p, int fd, long long token) { return uni_poller_register(p, fd, token, 1); }
+
+int uni_poller_wait(int p, long long *tokens, int max, int timeout_millis) {
+  if (max > UNI_POLLER_MAX_EVENTS) {
+    max = UNI_POLLER_MAX_EVENTS;
+  }
+#if defined(UNI_POLLER_EPOLL)
+  struct epoll_event events[UNI_POLLER_MAX_EVENTS];
+  int n = epoll_wait(p, events, max, timeout_millis);
+#else
+  struct kevent events[UNI_POLLER_MAX_EVENTS];
+  struct timespec ts;
+  struct timespec *tsp = NULL;
+  if (timeout_millis >= 0) {
+    ts.tv_sec  = timeout_millis / 1000;
+    ts.tv_nsec = (long)(timeout_millis % 1000) * 1000000L;
+    tsp        = &ts;
+  }
+  int n = kevent(p, NULL, 0, events, max, tsp);
+#endif
+  if (n < 0) {
+    return errno == EINTR ? 0 : -1;
+  }
+  for (int i = 0; i < n; i++) {
+#if defined(UNI_POLLER_EPOLL)
+    tokens[i] = (long long)events[i].data.u64;
+#else
+    tokens[i] = (long long)(intptr_t)events[i].udata;
+#endif
+  }
+  return n;
+}
+
+void uni_poller_wake(int w) {
+  char b = 1;
+  /* A full pipe already holds a pending wake-up, so a failed write needs no retry */
+  ssize_t r = write(w, &b, 1);
+  (void)r;
+}
+
+void uni_poller_drain(int r) {
+  char buf[64];
+  while (read(r, buf, sizeof(buf)) > 0) {
+  }
+}
+
+#else
+
+/* Windows and other systems: no poller, so the server keeps a worker per connection */
+int uni_poller_create(int *wake) {
+  (void)wake;
+  return -1;
+}
+int uni_poller_add(int p, int fd, long long token) {
+  (void)p;
+  (void)fd;
+  (void)token;
+  return -1;
+}
+int uni_poller_wait(int p, long long *tokens, int max, int timeout_millis) {
+  (void)p;
+  (void)tokens;
+  (void)max;
+  (void)timeout_millis;
+  return -1;
+}
+void uni_poller_wake(int w) { (void)w; }
+void uni_poller_drain(int r) { (void)r; }
+
+#endif

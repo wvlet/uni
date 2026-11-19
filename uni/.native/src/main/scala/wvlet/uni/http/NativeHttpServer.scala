@@ -17,7 +17,10 @@ import java.util.concurrent.{ExecutorService, Executors, ThreadFactory}
 
 /**
   * Scala Native HTTP server backed by POSIX TCP sockets: the shared [[SocketHttpServer]] with a
-  * fixed pool of `workerThreads` workers, each serving one connection at a time.
+  * fixed pool of `workerThreads` workers, each serving one request at a time. Between requests, a
+  * keep-alive connection waits in an epoll/kqueue poller ([[NativeIdlePoller]]) and holds no
+  * worker, so open connections are limited only by the fd limit. On Windows, which has no poller
+  * yet, each connection keeps its worker while open.
   */
 class NativeHttpServer(config: NativeServerConfig)
     extends SocketHttpServer(
@@ -49,6 +52,9 @@ class NativeHttpServer(config: NativeServerConfig)
     config.workerThreads,
     NativeHttpServer.daemonThreadFactory(s"${config.name}-worker")
   )
+
+  override protected def newIdlePoller(idleTimeoutMillis: Int): Option[IdlePoller] =
+    NativeIdlePoller.create(idleTimeoutMillis, config.name)
 
   override protected def onStarted(): Unit = debug(s"Native server started at ${localAddress}")
 
