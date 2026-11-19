@@ -95,6 +95,12 @@ def inputs : List String := [
   "POST /at-limit HTTP/1.1\r\nContent-Length: 100\r\n\r\n" ++ String.ofList (List.replicate 100 'a'),
   "POST /over-limit HTTP/1.1\r\nContent-Length: 101\r\n\r\n",
   "POST /overflow HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
+  "POST /long-max HTTP/1.1\r\nContent-Length: 9223372036854775807\r\n\r\n",
+  "POST /long-max-plus-one HTTP/1.1\r\nContent-Length: 9223372036854775808\r\n\r\n",
+  -- Broken framing headers win over an unknown method: 400, not 501
+  "PLAY /overflow HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n",
+  "BREW /same-in-list HTTP/1.1\r\nContent-Length: 2, 2\r\n\r\nok",
+  "BREW /two-hosts HTTP/1.1\r\nHost: a\r\nHost: b\r\n\r\n",
   -- Chunked bodies
   chunkedPost "/chunked" "5\r\nhello\r\n0\r\n\r\n",
   chunkedPost "/chunked-many" "1\r\na\r\nA\r\n0123456789\r\n2\r\nbc\r\n0\r\n\r\n" ++ get "/next",
@@ -108,6 +114,8 @@ def inputs : List String := [
   chunkedPost "/chunk-over-limit" "65\r\n",
   chunkedPost "/chunks-over-limit" ("32\r\n" ++ String.ofList (List.replicate 50 'a') ++ "\r\n33\r\n"),
   chunkedPost "/chunk-overflow" "ffffffffffffffffffff\r\n",
+  chunkedPost "/chunk-int-max" "7fffffff\r\n",
+  chunkedPost "/chunk-int-max-plus-one" "80000000\r\n",
   chunkedPost "/no-size" "\r\nhello\r\n0\r\n\r\n",
   chunkedPost "/size-space" "5 \r\nhello\r\n0\r\n\r\n",
   chunkedPost "/size-plus" "+5\r\nhello\r\n0\r\n\r\n",

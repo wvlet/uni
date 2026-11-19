@@ -88,6 +88,12 @@ def corpus_inputs(path: Path) -> list[bytes]:
     return [decode(l) for l in lines if l.strip() and not l.startswith("#")]
 
 
+def unknown_method(payload: bytes) -> bool:
+    """Whether the first request's method is outside Uni's list, so Uni's 501 is expected."""
+    method = payload.split(b" ", 1)[0].decode("latin1")
+    return method not in UNI_QUIRKS["method-whitelist"]
+
+
 def show(b: bytes) -> str:
     return json.dumps(b.decode("latin1"))[1:-1]
 
@@ -180,7 +186,13 @@ def main() -> int:
                 if all(c in ("OK", "RESPONSE_DISCREPANCY") for c in categories.values()) and "RESPONSE_DISCREPANCY" in categories.values():
                     only_status = True
                     status_differences.append(
-                        {"server": name, "payload": show(payload), "results": {n: describe(results[n]) for n in [name, *REFERENCES]}}
+                        {
+                            "server": name,
+                            "payload": show(payload),
+                            # Uni's 501 for a method outside its list is the declared quirk
+                            "unknown_method": unknown_method(payload) and describe(results[name]).startswith("501"),
+                            "results": {n: describe(results[n]) for n in [name, *REFERENCES]},
+                        }
                     )
                 continue
             findings.append(
@@ -201,10 +213,16 @@ def main() -> int:
     print(f"## HTTP Garden: Uni vs. {', '.join(REFERENCES)}\n")
     print(f"- Payloads: {len(payloads)} ({len(seeds)} seeds, {args.mutations} mutations, seed {args.seed})")
     print(f"- Findings: {len(findings)} ({len(failing)} new)")
-    print(f"- Payloads where only the rejection status differs: {status_only} (not counted)")
+    expected = sum(1 for d in status_differences if d["unknown_method"])
+    print(
+        f"- Payloads where only the rejection status differs: {status_only} (not counted);"
+        f" {expected} of the server answers are 501 for a method outside Uni's list"
+    )
     # Group by the statuses each server answered, so a mismatch that repeats shows as one row
     groups: dict[tuple, int] = {}
     for d in status_differences:
+        if d["unknown_method"]:
+            continue
         key = (d["server"], *(d["results"][n] for n in [d["server"], *REFERENCES]))
         groups[key] = groups.get(key, 0) + 1
     if groups:

@@ -24,6 +24,7 @@ import io.netty.handler.codec.DecoderResultProvider
 import io.netty.handler.codec.http.{
   DefaultFullHttpResponse,
   HttpHeaderNames,
+  HttpRequest,
   HttpHeaderValues,
   HttpResponse,
   HttpResponseStatus,
@@ -50,7 +51,10 @@ import java.nio.charset.StandardCharsets
   * the codec.
   *
   * It drops the message and answers 400 (414 for a long request line, 431 for large headers), then
-  * closes the connection. Earlier pipelined requests are answered first: like
+  * closes the connection. A request whose version is not HTTP/1.0 or HTTP/1.1 is rejected the same
+  * way, with 505 (400 for a protocol other than HTTP), as the built-in socket server does: Netty's
+  * decoder accepts any `NAME/x.y`. Checking it here, before the aggregator, keeps the status from
+  * depending on the body. Earlier pipelined requests are answered first: like
   * [[ConnectionDrainHandler]], it counts requests read minus responses written, and holds the error
   * until that count reaches zero. Writing from here, the error passes only through the codec, never
   * the response compressor, which has not seen the dropped request.
@@ -72,6 +76,12 @@ class DecodeFailureHandler extends ChannelDuplexHandler with LogSupport:
           ReferenceCountUtil.release(msg)
           debug(s"Rejected a malformed request: ${cause.getMessage}")
           failure = DecodeFailureHandler.statusOf(cause)
+          if pendingRequests <= 0 then
+            writeFailure(ctx)
+        case DecodeFailureHandler.UnsupportedVersion(status) =>
+          ReferenceCountUtil.release(msg)
+          debug("Rejected a request for an unsupported HTTP version")
+          failure = status
           if pendingRequests <= 0 then
             writeFailure(ctx)
         case _ =>
@@ -111,6 +121,24 @@ class DecodeFailureHandler extends ChannelDuplexHandler with LogSupport:
 end DecodeFailureHandler
 
 object DecodeFailureHandler:
+  /**
+    * A request for a version the server doesn't speak, and its rejection, as in the built-in
+    * server.
+    */
+  private[netty] object UnsupportedVersion:
+    def unapply(msg: Any): Option[HttpStatus] =
+      msg match
+        case r: HttpRequest =>
+          val v = r.protocolVersion()
+          if v.protocolName() != "HTTP" then
+            Some(HttpStatus.BadRequest_400)
+          else if v.majorVersion() != 1 || v.minorVersion() > 1 then
+            Some(HttpStatus.HttpVersionNotSupported_505)
+          else
+            None
+        case _ =>
+          None
+
   private[netty] def statusOf(cause: Throwable): HttpStatus =
     cause match
       case _: TooLongHttpLineException =>
