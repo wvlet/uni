@@ -43,6 +43,7 @@ Lane: Standard — I chose the scope, and the change alters statuses that client
 - **An unknown method on a well-formed request:** the built-in servers say 501 and close. uni-netty says 501 and keeps the connection, because its aggregator has already read the whole body. Both are safe.
 - **`Transfer-Encoding: identity, chunked`:** the built-in servers say 501, as RFC 9112 allows for an unsupported coding. uni-netty's Netty ignores `identity`. The stricter answer is safe, so the known-differences entries stay.
 - **Whitespace after a chunk size:** every Uni server rejects it. The references accept it, and the known-differences entries stay.
+- **An unsupported version plus a malformed header:** the built-in servers say 505, because they check the version on the request line. uni-netty says 400, because Netty reports the header error before it hands over the request.
 - **A lowercase `http/1.1`:** the built-in servers say 400. Netty upper-cases the version before parsing it, so uni-netty can't tell the two apart.
 
 ## Alternatives and Why Not?

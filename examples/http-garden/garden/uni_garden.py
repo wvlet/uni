@@ -229,7 +229,7 @@ def main() -> int:
         print("\n| Server | Uni | " + " | ".join(REFERENCES) + " | Payloads |")
         print("|---|---|" + "---|" * len(REFERENCES) + "---|")
         for key, count in sorted(groups.items(), key=lambda kv: -kv[1]):
-            print("| " + " | ".join(c.replace("|", "\\|")[:60] for c in key) + f" | {count} |")
+            print("| " + " | ".join(c[:60].rstrip("\\").replace("|", "\\|") for c in key) + f" | {count} |")
         print()
     print("- Payloads are cut to 160 characters here; report.json in the artifact has them in full\n")
     if findings:
