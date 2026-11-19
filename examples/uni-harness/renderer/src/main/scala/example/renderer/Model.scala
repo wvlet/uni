@@ -6,7 +6,7 @@ import scala.scalajs.js
 
 /** How `ChatApi` calls travel: chosen once at startup in [[HarnessApp]]. */
 enum Transport(val label: String, val detail: String):
-  case ElectronIPC extends Transport("Electron IPC", "ipcRenderer.invoke → ipcMain")
+  case ElectronIPC extends Transport("Local IPC", "ipcRenderer.invoke → ipcMain")
   case HttpFetch   extends Transport("HTTP", "fetch → Http.server on Node")
 
 /** The sidebar views selected from the icon rail. */
