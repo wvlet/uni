@@ -324,18 +324,16 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
               execute = execute,
               annotations = js.Dynamic.literal(readOnlyHint = t.name != "act")
             )
-          def warn(err: Any): Unit = dom
-            .console
-            .warn(s"WebMCP registerTool(${t.name}) failed: ${err}")
+          val warn: js.Function1[js.Any, Unit] =
+            err => dom.console.warn(s"WebMCP registerTool(${t.name}) failed: ${err}")
           // Chrome reports a failed registration (e.g., a duplicate name) by rejecting the promise
-          // registerTool returns; older builds threw instead
+          // registerTool returns
           try
             val registered = mc.registerTool(tool, js.Dynamic.literal(signal = controller.signal))
-            val onRejected: js.Function1[js.Any, Unit] = err => warn(err)
-            js.Dynamic.global.Promise.resolve(registered).`catch`(onRejected)
+            js.Dynamic.global.Promise.resolve(registered).`catch`(warn)
           catch
-            case NonFatal(err) =>
-              warn(err.getMessage)
+            case e: js.JavaScriptException =>
+              warn(e.exception.asInstanceOf[js.Any])
         }
       Cancelable(() => controller.abort())
     end if
@@ -414,7 +412,6 @@ object UiAgent:
 
   end confirmWithDialog
 
-  /** Calls the MCP tool `name` of `server`, resolving with its MCP result object. */
   /**
     * The text of an MCP tool result, which WebMCP passes to the agent as-is. Returning the result
     * object instead would make the browser JSON-encode it, double-encoding a snapshot's JSON. A
@@ -432,6 +429,7 @@ object UiAgent:
     else
       js.JSON.stringify(result)
 
+  /** Calls the MCP tool `name` of `server`, resolving with the text of its result. */
   private def callTool(server: MCPServer, name: String, args: js.Any): js.Promise[js.Any] =
     val params = js.Dynamic.literal(name = name, arguments = Option(args).getOrElse(js.Object()))
     val line   = js

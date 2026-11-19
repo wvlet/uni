@@ -480,8 +480,7 @@ class UiAgentTest extends DomTestSupport:
       val agent = install()
       val off   = agent.installWebMcp()
       // Let the rejection handler run
-      awaitJs[Unit](js.Promise.resolve[Unit](()))
-        .flatMap(_ => awaitJs[Unit](js.Promise.resolve[Unit](())))
+      Rx.delay(10, java.util.concurrent.TimeUnit.MILLISECONDS)
         .map { _ =>
           console.warn = warn
           warnings.exists(_.contains("registerTool(act) failed")) shouldBe true
