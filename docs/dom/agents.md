@@ -109,7 +109,9 @@ agent.changes(since = 0)                              // what people changed, an
 - **Transports.** `agent.api` is the same API as JSON text (`wvlet.uni.agent.UiAgentApi`).
   `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools, and
   `agent.installWebMcp()` registers it with the browser's WebMCP (`document.modelContext`)
-  where the browser offers it. In Electron, `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))`
+  where the browser offers it: Chrome 150 and later behind `chrome://flags/#enable-webmcp-testing`
+  or the WebMCP origin trial. A WebMCP tool call returns the tool's text, the same JSON an MCP
+  client finds in the result's text content, and a tool error returns its message. In Electron, `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))`
   serves it to the main process, which can expose it as an MCP endpoint
   (see [Calling the renderer from the main process](../http/electron#calling-the-renderer-from-the-main-process)).
 

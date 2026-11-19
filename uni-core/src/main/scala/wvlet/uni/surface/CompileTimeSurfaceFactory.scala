@@ -1151,6 +1151,9 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
         Some(Expr(v).asExprOf[Any])
       case Literal(ClassOfConstant(tpe)) =>
         Some(Literal(ClassOfConstant(tpe)).asExprOf[Any])
+      // A long string split as "..." + "...", as scalafmt formats it
+      case Apply(Select(_, "+"), List(_)) =>
+        constantString(tree).map(v => Expr(v).asExprOf[Any])
       // Handle Typed wrapper (e.g., Typed(Repeated(...), ...))
       case Typed(expr, _) =>
         extractPrimitiveValue(expr)
@@ -1201,6 +1204,23 @@ private[surface] class CompileTimeSurfaceFactory[Q <: Quotes](using quotes: Q):
                 None
           case _ =>
             None
+      case _ =>
+        None
+
+  // The value of a string literal or a concatenation of string literals
+  private def constantString(tree: Tree): Option[String] =
+    tree match
+      case Literal(StringConstant(v)) =>
+        Some(v)
+      case Inlined(_, Nil, expr) =>
+        constantString(expr)
+      case Typed(expr, _) =>
+        constantString(expr)
+      case Apply(Select(lhs, "+"), List(rhs)) =>
+        for
+          l <- constantString(lhs)
+          r <- constantString(rhs)
+        yield l + r
       case _ =>
         None
 

@@ -324,13 +324,23 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
               execute = execute,
               annotations = js.Dynamic.literal(readOnlyHint = t.name != "act")
             )
+          def warn(err: Any): Unit = dom
+            .console
+            .warn(s"WebMCP registerTool(${t.name}) failed: ${err}")
+          // Chrome reports a failed registration (e.g., a duplicate name) by rejecting the promise
+          // registerTool returns; older builds threw instead
           try
-            mc.registerTool(tool, js.Dynamic.literal(signal = controller.signal))
+            val registered = mc.registerTool(tool, js.Dynamic.literal(signal = controller.signal))
+            val onRejected: js.Function1[js.Any, Unit] = err => warn(err)
+            js.Dynamic.global.Promise.resolve(registered).`catch`(onRejected)
           catch
             case NonFatal(err) =>
-              dom.console.warn(s"WebMCP registerTool(${t.name}) failed: ${err.getMessage}")
+              warn(err.getMessage)
         }
       Cancelable(() => controller.abort())
+    end if
+
+  end installWebMcp
 
   /** Stops recording changes. Components stay registered for other agents. */
   def uninstall(): Unit =
@@ -405,6 +415,23 @@ object UiAgent:
   end confirmWithDialog
 
   /** Calls the MCP tool `name` of `server`, resolving with its MCP result object. */
+  /**
+    * The text of an MCP tool result, which WebMCP passes to the agent as-is. Returning the result
+    * object instead would make the browser JSON-encode it, double-encoding a snapshot's JSON. A
+    * tool error (`isError`) resolves with its message too, since the browser replaces a rejection's
+    * message with a generic one.
+    */
+  private def toolText(result: js.Dynamic): String =
+    val content = result.selectDynamic("content")
+    if js.Array.isArray(content) then
+      content
+        .asInstanceOf[js.Array[js.Dynamic]]
+        .filter(c => js.typeOf(c.selectDynamic("text")) == "string")
+        .map(_.selectDynamic("text").toString)
+        .mkString("\n")
+    else
+      js.JSON.stringify(result)
+
   private def callTool(server: MCPServer, name: String, args: js.Any): js.Promise[js.Any] =
     val params = js.Dynamic.literal(name = name, arguments = Option(args).getOrElse(js.Object()))
     val line   = js
@@ -416,10 +443,11 @@ object UiAgent:
       RxRunner.run(server.handleMessage(line)) {
         case OnNext(v) =>
           val response = js.JSON.parse(v.asInstanceOf[Option[String]].getOrElse("{}"))
-          if js.isUndefined(response.selectDynamic("result")) then
+          val result   = response.selectDynamic("result")
+          if js.isUndefined(result) then
             reject(js.JavaScriptException(response.selectDynamic("error")))
           else
-            resolve(response.selectDynamic("result"))
+            resolve(toolText(result))
         case OnError(e) =>
           reject(e)
         case _ =>

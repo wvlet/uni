@@ -253,6 +253,9 @@ lazy val ui = project
       Def.uncached(
         PlaywrightJSEnv(
           PlaywrightConfig(browserName = "chromium", headless = true)
+            // Turns on WebMCP (document.modelContext) in Chromium 150+, so UiAgentTest checks
+            // installWebMcp against the real API; older Chromium ignores the unknown feature
+            .withLaunchArgs(List("--enable-features=WebMCP"))
             .withScreenshotDir(
               (target.value / "uni-playwright" / "screenshots").toPath.toAbsolutePath
             )
