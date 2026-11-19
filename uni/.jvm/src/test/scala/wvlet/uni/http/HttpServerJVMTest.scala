@@ -155,7 +155,7 @@ class HttpServerJVMTest extends UniTest:
     }
   }
 
-  test("answer HEAD with headers only, and 404 and 400 for unknown paths and methods") {
+  test("answer HEAD with headers only, 404 for unknown paths, and 501 for unknown methods") {
     withServer(echo) { server =>
       val (status, headers, body) = request(
         server,
@@ -165,7 +165,7 @@ class HttpServerJVMTest extends UniTest:
       headers.get("content-length") shouldBe Some("5")
       body shouldBe ""
       request(server, "GET /missing HTTP/1.1\r\nHost: localhost\r\n\r\n")._1 shouldBe 404
-      request(server, "BREW /hello HTTP/1.1\r\nHost: localhost\r\n\r\n")._1 shouldBe 400
+      request(server, "BREW /hello HTTP/1.1\r\nHost: localhost\r\n\r\n")._1 shouldBe 501
       request(server, "GET\r\nHost: localhost\r\n\r\n")._1 shouldBe 400
       request(
         server,

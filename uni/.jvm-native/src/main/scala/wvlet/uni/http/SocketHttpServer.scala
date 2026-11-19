@@ -27,8 +27,17 @@ import scala.util.control.NonFatal
 private[http] case class SocketServerLimits(
     // listen() backlog
     backlog: Int,
-    // Maximum size (bytes) of request headers + body
-    maxRequestSize: Int,
+    // Request line, header, and body size limits
+    request: HttpReaderLimits,
+    // Max time to receive a whole request once its first bytes arrive (0 disables), as Netty's
+    // RequestReadTimeoutHandler bounds slowloris clients
+    requestTimeoutMillis: Int,
+    // Close a connection whose response write makes no progress for this long (0 disables)
+    writeTimeoutMillis: Int,
+    // Decode gzip/deflate request bodies before any filter or handler sees them
+    requestDecompression: Boolean,
+    // Maximum decoded size of a compressed request body
+    maxDecompressedRequestSize: Int,
     // Max time to wait for a handler's Rx to produce a response before returning 503
     handlerTimeoutMillis: Long,
     // Max time a kept-alive connection may sit idle (awaiting the next request) before it is closed
@@ -40,6 +49,11 @@ private[http] case class SocketServerLimits(
     // Maximum number of concurrent long-lived connections (SSE, WebSocket); more get 503
     maxStreamingConnections: Int
 )
+
+private[http] object SocketServerLimits:
+  final val DefaultMaxContentLength           = 1024 * 1024
+  final val DefaultTimeoutMillis              = 30000
+  final val DefaultMaxDecompressedRequestSize = 64 * 1024 * 1024
 
 /**
   * An HTTP/1.1 server over blocking sockets, shared by Scala Native ([[NativeHttpServer]]) and the
@@ -83,6 +97,9 @@ abstract class SocketHttpServer private[http] (
   @volatile
   private var workerPool: ExecutorService = null
 
+  @volatile
+  private var writeWatchdog: Thread = null
+
   private val allowedHosts  = config.effectiveAllowedHosts
   private val streamLimiter = ConnectionLimiter(limits.maxStreamingConnections)
   private val connections   = ConcurrentHashMap.newKeySet[ConnectionState]()
@@ -103,6 +120,12 @@ abstract class SocketHttpServer private[http] (
     t.setName(s"${config.name}-acceptor")
     t.start()
     acceptThread = t
+    if limits.writeTimeoutMillis > 0 then
+      val w = Thread(() => watchWrites())
+      w.setDaemon(true)
+      w.setName(s"${config.name}-write-watchdog")
+      w.start()
+      writeWatchdog = w
     onStarted()
 
   end start
@@ -129,63 +152,99 @@ abstract class SocketHttpServer private[http] (
         else
           conn.close()
 
-  private def handleConnection(conn: SocketConnection): Unit =
+  /**
+    * Abort connections whose response write has made no progress for `writeTimeoutMillis`, so a
+    * client that stops reading can't pin a worker. The aborted write fails, and the worker closes
+    * the connection.
+    */
+  private def watchWrites(): Unit =
+    val timeoutNanos = limits.writeTimeoutMillis * 1000000L
+    val tick         = math.max(10L, math.min(1000L, limits.writeTimeoutMillis / 4L))
+    while !stopped.get() do
+      try
+        Thread.sleep(tick)
+      catch
+        case _: InterruptedException =>
+          ()
+      val now = System.nanoTime()
+      connections.forEach { state =>
+        if state.conn.writeStalled(now, timeoutNanos) then
+          debug(
+            s"Closing a connection whose response write stalled for ${limits.writeTimeoutMillis} ms"
+          )
+          try
+            state.conn.abort()
+          catch
+            case NonFatal(e) =>
+              debug(s"Error aborting a connection: ${e.getMessage}")
+      }
+
+  private def handleConnection(socket: SocketConnection): Unit =
+    val conn  = WriteTrackingConnection(socket)
     val state = ConnectionState(conn)
     connections.add(state)
     try
-      // Read with a timeout so an idle/slow/disconnected client can't pin a worker forever: an idle
-      // keep-alive connection waits up to idleTimeoutMillis for the next request; once a request has
-      // started arriving, subsequent reads wait up to readTimeoutMillis. A timeout (or hangup) maps
-      // to an empty chunk, which the reader treats as end-of-connection.
-      val reader = HttpConnectionReader(
+      // Read with timeouts so an idle/slow/disconnected client can't pin a worker forever: an idle
+      // keep-alive connection waits up to idleTimeoutMillis for the next request. Once a request has
+      // started arriving, each read waits up to readTimeoutMillis, and the whole request must arrive
+      // within requestTimeoutMillis. A timeout reads as 0 bytes, and the reader answers 408.
+      val requestTimeoutNanos = limits.requestTimeoutMillis * 1000000L
+      var requestDeadline     = 0L
+      val reader              = HttpConnectionReader(
         (buf, off, len, idle) =>
-          val timeout =
-            if idle then
-              limits.idleTimeoutMillis
-            else
-              limits.readTimeoutMillis
           // After stop() begins, don't wait for another request (see drainConnections)
           if !running.get() && state.idle then
             -1
+          else if idle then
+            conn.read(buf, off, len, limits.idleTimeoutMillis)
+          else if requestTimeoutNanos <= 0 then
+            conn.read(buf, off, len, limits.readTimeoutMillis)
           else
-            conn.read(buf, off, len, timeout)
+            val now = System.nanoTime()
+            if requestDeadline == 0L then
+              requestDeadline = now + requestTimeoutNanos
+            val left = (requestDeadline - now) / 1000000L
+            if left <= 0 then
+              0
+            else
+              conn.read(buf, off, len, math.min(limits.readTimeoutMillis.toLong, left).toInt)
         ,
-        limits.maxRequestSize
+        limits.request,
+        () => conn.write(HttpResponseWriter.Continue100)
       )
       var continue = true
       while continue do
         state.idle = true
+        requestDeadline = 0L
         val result = reader.readRequest()
         state.idle = false
         result match
           case ReadResult.Closed =>
             continue = false
-          case ReadResult.BadRequest(message) =>
+          case ReadResult.Error(status, message) =>
             conn.write(
               HttpResponseWriter.serialize(
-                Response.badRequest(message),
+                Response(status).withTextContent(message),
                 keepAlive = false,
                 includeBody = true
               )
             )
             continue = false
-          case ReadResult.Req(request) =>
-            HttpServerSecurity.checkHost(request, allowedHosts) match
-              case Some(rejection) =>
-                debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
+          case ReadResult.Req(received, keepAlive) =>
+            // As in Netty's pipeline, decode the body before the host check, filters, and handler
+            val decoded =
+              if limits.requestDecompression then
+                RequestDecompression.decode(received, limits.maxDecompressedRequestSize)
+              else
+                Right(received)
+            decoded match
+              case Left(rejection) =>
                 conn.write(
                   HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
                 )
                 continue = false
-              case None =>
-                webSocketRouteFor(request) match
-                  case Some(route) =>
-                    // WebSocket upgrade: the WS handler owns the connection until it closes.
-                    handleWebSocketUpgrade(conn, request, route)
-                    continue = false
-                  case None =>
-                    if !handleHttpRequest(conn, request) then
-                      continue = false
+              case Right(request) =>
+                continue = serveRequest(conn, request, keepAlive)
       end while
     catch
       case NonFatal(e) =>
@@ -199,13 +258,33 @@ abstract class SocketHttpServer private[http] (
 
   end handleConnection
 
+  /** Serve one parsed request. Returns whether the connection may serve another one. */
+  private def serveRequest(conn: SocketConnection, request: Request, keepAlive: Boolean): Boolean =
+    HttpServerSecurity.checkHost(request, allowedHosts) match
+      case Some(rejection) =>
+        debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
+        conn.write(HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true))
+        false
+      case None =>
+        webSocketRouteFor(request) match
+          case Some(route) =>
+            // WebSocket upgrade: the WS handler owns the connection until it closes.
+            handleWebSocketUpgrade(conn, request, route)
+            false
+          case None =>
+            handleHttpRequest(conn, request, keepAlive)
+
   /**
     * Handle one non-WebSocket request. Returns whether the connection may stay open (keep-alive).
     */
-  private def handleHttpRequest(conn: SocketConnection, request: Request): Boolean =
+  private def handleHttpRequest(
+      conn: SocketConnection,
+      request: Request,
+      requestKeepAlive: Boolean
+  ): Boolean =
     val response = runHandler(request)
     // Once stop() begins, answer with Connection: close so the client opens no new request here
-    val keepAlive = clientWantsKeepAlive(request) && running.get()
+    val keepAlive = requestKeepAlive && running.get()
     val isHead    = request.method == HttpMethod.HEAD
     val sent      =
       if response.isEventStream then
@@ -221,9 +300,17 @@ abstract class SocketHttpServer private[http] (
           case file: HttpContent.FileContent if !HttpResponseWriter.bodyForbidden(response) =>
             sendFile(conn, response, file, keepAlive, includeBody = !isHead)
           case _ =>
-            // A HEAD response carries headers (incl. Content-Length) but no body.
-            conn.write(HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead))
+            // A HEAD response carries headers (incl. Content-Length) but no body, and is never
+            // compressed, so its headers match what GET would send uncompressed (as in Netty)
+            val encoded =
+              if isHead then
+                response
+              else
+                ResponseCompression.encode(request, response)
+            conn.write(HttpResponseWriter.serialize(encoded, keepAlive, includeBody = !isHead))
     keepAlive && sent
+
+  end handleHttpRequest
 
   /**
     * Send a file body in bounded chunks, so the file is never held in memory. Returns false when
@@ -295,9 +382,6 @@ abstract class SocketHttpServer private[http] (
     else
       try Some(body)
       finally streamLimiter.release()
-
-  private def clientWantsKeepAlive(request: Request): Boolean =
-    !request.header(HttpHeader.Connection).exists(_.equalsIgnoreCase("close"))
 
   /**
     * Stream a Server-Sent Events response with chunked transfer encoding. Each `ServerSentEvent` is
@@ -544,7 +628,7 @@ abstract class SocketHttpServer private[http] (
 end SocketHttpServer
 
 /** An open connection, and whether its worker is waiting for the next request on it. */
-private class ConnectionState(val conn: SocketConnection):
+private class ConnectionState(val conn: WriteTrackingConnection):
   @volatile
   var idle: Boolean = true
 
@@ -554,3 +638,42 @@ private[http] object SocketHttpServer:
   private final val ShutdownTimeoutMillis       = 5000L
   private final val ForcedShutdownTimeoutMillis = 1000L
   private final val AcceptErrorBackoffMillis    = 10L
+
+/**
+  * A connection that records when its current write started, so the server's watchdog can abort a
+  * write that makes no progress. A write goes out in pieces, and each piece restarts the clock, so
+  * a slow but moving client is never cut off.
+  */
+private[http] class WriteTrackingConnection(underlying: SocketConnection) extends SocketConnection:
+  // System.nanoTime() when the current piece started, or 0 while no write is in progress
+  @volatile
+  private var pieceStarted = 0L
+
+  def writeStalled(nowNanos: Long, timeoutNanos: Long): Boolean =
+    val t = pieceStarted
+    t != 0L && nowNanos - t > timeoutNanos
+
+  override def read(buf: Array[Byte], off: Int, len: Int, timeoutMillis: Int): Int = underlying
+    .read(buf, off, len, timeoutMillis)
+
+  override def write(data: Array[Byte], off: Int, len: Int): Boolean =
+    var pos   = off
+    val until = off + len
+    var ok    = true
+    try
+      while ok && pos < until do
+        val n = math.min(WriteTrackingConnection.PieceSize, until - pos)
+        pieceStarted = math.max(System.nanoTime(), 1L)
+        ok = underlying.write(data, pos, n)
+        pos += n
+    finally pieceStarted = 0L
+    ok
+
+  override def interrupt(): Unit = underlying.interrupt()
+  override def abort(): Unit     = underlying.abort()
+  override def close(): Unit     = underlying.close()
+
+end WriteTrackingConnection
+
+private object WriteTrackingConnection:
+  private final val PieceSize = 64 * 1024

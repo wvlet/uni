@@ -24,7 +24,15 @@ class NativeHttpServer(config: NativeServerConfig)
       config,
       SocketServerLimits(
         backlog = config.backlog,
-        maxRequestSize = config.maxRequestSize,
+        request = HttpReaderLimits(
+          maxInitialLineLength = config.maxInitialLineLength,
+          maxHeaderSize = config.maxHeaderSize,
+          maxContentLength = config.maxRequestSize
+        ),
+        requestTimeoutMillis = config.requestReadTimeoutMillis,
+        writeTimeoutMillis = config.writeTimeoutMillis,
+        requestDecompression = config.requestDecompression,
+        maxDecompressedRequestSize = config.maxDecompressedRequestSize,
         handlerTimeoutMillis = config.handlerTimeoutMillis,
         idleTimeoutMillis = config.idleTimeoutMillis,
         readTimeoutMillis = config.readTimeoutMillis,

@@ -60,8 +60,23 @@ case class NativeServerConfig(
     filters: Seq[RxHttpFilter] = Seq.empty,
     // listen() backlog
     backlog: Int = 128,
-    // Maximum size (bytes) of request headers + body
+    // Maximum size (bytes) of a request body, as sent or after chunked decoding
     maxRequestSize: Int = 1024 * 1024,
+    // Maximum length of the request line (414 when exceeded), as in Netty
+    maxInitialLineLength: Int = 4096,
+    // Maximum size of the request headers after the request line (431 when exceeded), as in Netty
+    maxHeaderSize: Int = 8192,
+    // Close a connection that doesn't deliver a whole request within this time once it starts
+    // arriving (0 disables), as Netty's request read timeout does. Bounds slowloris clients.
+    requestReadTimeoutMillis: Int = 30000,
+    // Close a connection whose response write makes no progress for this long (0 disables), so a
+    // client that stops reading can't hold a worker
+    writeTimeoutMillis: Int = 30000,
+    // Decode request bodies sent with Content-Encoding gzip/deflate (and x- aliases) before any
+    // filter or handler sees them
+    requestDecompression: Boolean = true,
+    // Maximum decoded size of a compressed request body; uncompressed requests are not counted
+    maxDecompressedRequestSize: Int = 64 * 1024 * 1024,
     // Size of the worker thread pool that handles connections
     workerThreads: Int = 16,
     // Max time to wait for a handler's Rx to produce a response before returning 503
@@ -120,6 +135,39 @@ case class NativeServerConfig(
   def withMaxRequestSize(bytes: Int): NativeServerConfig =
     require(bytes > 0, "maxRequestSize must be positive")
     copy(maxRequestSize = bytes)
+
+  def withMaxInitialLineLength(length: Int): NativeServerConfig =
+    require(length > 0, "maxInitialLineLength must be positive")
+    copy(maxInitialLineLength = length)
+
+  def withMaxHeaderSize(bytes: Int): NativeServerConfig =
+    require(bytes > 0, "maxHeaderSize must be positive")
+    copy(maxHeaderSize = bytes)
+
+  def withRequestReadTimeoutMillis(millis: Int): NativeServerConfig =
+    require(millis >= 0, "requestReadTimeoutMillis must be >= 0")
+    copy(requestReadTimeoutMillis = millis)
+
+  def noRequestReadTimeout: NativeServerConfig = withRequestReadTimeoutMillis(0)
+
+  def withWriteTimeoutMillis(millis: Int): NativeServerConfig =
+    require(millis >= 0, "writeTimeoutMillis must be >= 0")
+    copy(writeTimeoutMillis = millis)
+
+  def noWriteTimeout: NativeServerConfig = withWriteTimeoutMillis(0)
+
+  /**
+    * Decode request bodies sent with `Content-Encoding: gzip` or `deflate` (enabled by default),
+    * bounded by [[withMaxDecompressedRequestSize]]. To authenticate requests before inflating them,
+    * use [[noRequestDecompression]] and decode the body in a filter.
+    */
+  def withRequestDecompression: NativeServerConfig = copy(requestDecompression = true)
+  def noRequestDecompression: NativeServerConfig   = copy(requestDecompression = false)
+
+  /** Maximum decoded size of a compressed request body (default: 64 MiB); larger ones get 413. */
+  def withMaxDecompressedRequestSize(bytes: Int): NativeServerConfig =
+    require(bytes > 0, "maxDecompressedRequestSize must be positive")
+    copy(maxDecompressedRequestSize = bytes)
 
   def withWorkerThreads(threads: Int): NativeServerConfig =
     require(threads > 0, "workerThreads must be positive")

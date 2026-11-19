@@ -24,8 +24,10 @@ import java.util.concurrent.{ExecutorService, Executors}
   * virtual thread, and the JDK's poller (epoll, kqueue, or IOCP) resumes it when bytes arrive. The
   * handler runs on the connection's own thread, with no hand-off to another pool.
   */
-private[http] class JvmHttpServer(config: HttpServerConfig)
-    extends SocketHttpServer(config, JvmHttpServer.limits(config)):
+private[http] class JvmHttpServer(config: HttpServerConfig, limits: SocketServerLimits)
+    extends SocketHttpServer(config, limits):
+
+  def this(config: HttpServerConfig) = this(config, JvmHttpServer.limits(config))
 
   override protected def listen(host: String, port: Int, backlog: Int): SocketListener =
     JvmSocketListener(host, port, backlog)
@@ -35,7 +37,7 @@ private[http] class JvmHttpServer(config: HttpServerConfig)
   )
 
   override protected def onStarted(): Unit = info(
-    s"Started the built-in HTTP server at http://${localAddress}. Add uni-netty for request decompression"
+    s"Started the built-in HTTP server at http://${localAddress}"
   )
 
 end JvmHttpServer
@@ -58,9 +60,15 @@ private[http] object JvmHttpServer:
     * virtual thread costs only memory, so streaming connections are capped like Netty's (256)
     * rather than by a worker pool.
     */
-  private def limits(config: HttpServerConfig): SocketServerLimits = SocketServerLimits(
+  private[http] def limits(config: HttpServerConfig): SocketServerLimits = SocketServerLimits(
     backlog = 1024,
-    maxRequestSize = config.maxContentLength.getOrElse(1024 * 1024),
+    request = HttpReaderLimits(maxContentLength =
+      config.maxContentLength.getOrElse(SocketServerLimits.DefaultMaxContentLength)
+    ),
+    requestTimeoutMillis = SocketServerLimits.DefaultTimeoutMillis,
+    writeTimeoutMillis = SocketServerLimits.DefaultTimeoutMillis,
+    requestDecompression = true,
+    maxDecompressedRequestSize = SocketServerLimits.DefaultMaxDecompressedRequestSize,
     handlerTimeoutMillis = 30000,
     idleTimeoutMillis = 30000,
     readTimeoutMillis = 30000,
@@ -117,6 +125,9 @@ private[http] class JvmSocketConnection(socket: Socket) extends SocketConnection
     catch
       case _: IOException =>
         ()
+
+  // A blocked write wakes only when the socket closes; java.net closes safely under another thread
+  override def abort(): Unit = close()
 
   override def close(): Unit =
     try

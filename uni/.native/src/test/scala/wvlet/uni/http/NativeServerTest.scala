@@ -209,7 +209,7 @@ class NativeServerTest extends UniTest:
       }
   }
 
-  test("should reject an unsupported HTTP method with 400") {
+  test("should reject an unsupported HTTP method with 501") {
     NativeServerConfig()
       .withHandler(_ => Response.ok("ok"))
       .withPort(0)
@@ -218,7 +218,7 @@ class NativeServerTest extends UniTest:
           server.localPort,
           "FROBNICATE /x HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
         )
-        response.status shouldBe 400
+        response.status shouldBe 501
       }
   }
 
@@ -409,7 +409,7 @@ class NativeServerTest extends UniTest:
       .start { server =>
         // Headers are never terminated, so the read times out mid-request.
         val response = request(server.localPort, "GET /x HTTP/1.1\r\nHost: localhost\r\n")
-        response.status shouldBe 400
+        response.status shouldBe 408
       }
   }
 

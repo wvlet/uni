@@ -2,8 +2,9 @@
 
 `Http.server` (`wvlet.uni.http.Http`, returns `HttpServerConfig`) runs the same
 server code on every platform. On the JVM it uses Netty when `uni-netty` is on
-the classpath, and otherwise a built-in server that needs JDK 24+ and does not
-decode compressed request bodies.
+the classpath, and otherwise a built-in server that needs JDK 24+. The built-in
+and Native servers apply Netty's request limits (request line 4 KB, headers 8 KB),
+decode chunked and gzip/deflate request bodies, and compress responses.
 It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
 `withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
 options (a `ServerOptions`) from the platform's source folder or `Design`:
