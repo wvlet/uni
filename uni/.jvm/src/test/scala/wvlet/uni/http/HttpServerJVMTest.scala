@@ -110,14 +110,15 @@ class HttpServerJVMTest extends UniTest:
       try
         s.getOutputStream
           .write(
-            s"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: ${n}\r\n\r\n"
-              .getBytes(StandardCharsets.ISO_8859_1) ++ body.getBytes(StandardCharsets.UTF_8)
+            s"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: ${n}\r\n\r\n".getBytes(
+              StandardCharsets.ISO_8859_1
+            ) ++ body.getBytes(StandardCharsets.UTF_8)
           )
         readResponse(s.getInputStream)._3 shouldBe body
       finally
         s.close()
-      request(server, "GET /header HTTP/1.1\r\nHost: localhost\r\nX-Test:  value \r\n\r\n")._3 shouldBe
-        "value"
+      request(server, "GET /header HTTP/1.1\r\nHost: localhost\r\nX-Test:  value \r\n\r\n")
+        ._3 shouldBe "value"
     }
   }
 
@@ -200,14 +201,15 @@ class HttpServerJVMTest extends UniTest:
   }
 
   test("echo WebSocket messages") {
-    val ws = Http
-      .server
-      .withWebSocketRoute("/ws") { _ =>
-        new WebSocketHandler:
-          override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
-            s"echo: ${message}"
-          )
-      }
+    val ws =
+      Http
+        .server
+        .withWebSocketRoute("/ws") { _ =>
+          new WebSocketHandler:
+            override def onTextMessage(ctx: WebSocketContext, message: String): Unit = ctx.send(
+              s"echo: ${message}"
+            )
+        }
     withServer(ws) { server =>
       val received = CompletableFuture[String]()
       val listener =

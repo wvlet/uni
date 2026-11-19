@@ -45,9 +45,16 @@ private[http] object HttpCompat extends HttpCompatApi:
       providers = ServiceLoader.load(providerClass, providerClass.getClassLoader).iterator()
     if providers.hasNext then
       providers.next().start(config)
-    else
+    else if Runtime.version().feature() >= JvmHttpServer.MinJdkVersion then
       // No backend on the classpath: serve with the built-in server
       JvmHttpServer.start(config)
+    else
+      throw IllegalStateException(
+        s"No HTTP server backend on the classpath. The built-in server needs JDK ${JvmHttpServer
+            .MinJdkVersion}+ (running ${Runtime
+            .version()
+            .feature()}): upgrade the JDK, or add uni-netty (\"org.wvlet.uni\" %% \"uni-netty\")"
+      )
 
   override def sslExceptionClassifier: PartialFunction[Throwable, Failed] =
     case e: SSLException =>

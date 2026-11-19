@@ -220,8 +220,8 @@ private[http] object NativeSocket:
       arr
 
   /**
-    * Receive up to `len` bytes (at most ChunkSize) into `buf` at `off`. Returns the number received,
-    * or 0 or less on EOF or error.
+    * Receive up to `len` bytes (at most ChunkSize) into `buf` at `off`. Returns the number
+    * received, or 0 or less on EOF or error.
     */
   def recvInto(fd: Int, buf: Array[Byte], off: Int, len: Int): Int =
     val max  = math.min(len, ChunkSize)

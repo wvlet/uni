@@ -1,7 +1,9 @@
 # HTTP server
 
 `Http.server` (`wvlet.uni.http.Http`, returns `HttpServerConfig`) runs the same
-server code on every platform; on the JVM it needs `uni-netty` on the classpath.
+server code on every platform. On the JVM it uses Netty when `uni-netty` is on
+the classpath, and otherwise a built-in server that needs JDK 24+ and does not
+decode compressed request bodies.
 It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
 `withWebSocketPingIntervalMillis`. For backend-only options, pass that backend's
 options (a `ServerOptions`) from the platform's source folder or `Design`:
@@ -12,6 +14,7 @@ and size limits are set only on `Http.server`. The backends:
 | Platform | Backend | Module | Options |
 |----------|---------|--------|---------|
 | JVM | Netty | `uni-netty` | `wvlet.uni.http.netty.Netty.options` |
+| JVM (JDK 24+), no `uni-netty` | built-in, virtual threads | `uni` | — |
 | Scala.js (Node.js) | Node `http` | `uni` | — |
 | Scala Native | POSIX sockets | `uni` | `wvlet.uni.http.Native.options` |
 

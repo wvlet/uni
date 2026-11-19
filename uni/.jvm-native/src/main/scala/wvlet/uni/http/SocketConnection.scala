@@ -14,9 +14,9 @@
 package wvlet.uni.http
 
 /**
-  * One accepted TCP connection, as [[SocketHttpServer]] and [[SocketWebSocket]] see it. Scala Native
-  * implements it over POSIX file descriptors and the JVM over `java.net.Socket`, so the HTTP and
-  * WebSocket code above it is shared.
+  * One accepted TCP connection, as [[SocketHttpServer]] and [[SocketWebSocket]] see it. Scala
+  * Native implements it over POSIX file descriptors and the JVM over `java.net.Socket`, so the HTTP
+  * and WebSocket code above it is shared.
   *
   * Reads come from one thread at a time. A write may run on another thread concurrently with a read
   * (an SSE event source, a WebSocket send); callers serialize writes among themselves.

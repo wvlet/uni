@@ -195,8 +195,8 @@ Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
-On the JVM, `Http.server` uses Netty from the `uni-netty` module — add it to your
-build (Scala.js and Scala Native servers are included in `uni` itself):
+On the JVM, `Http.server` uses Netty when the `uni-netty` module is on the
+classpath, and otherwise uni's built-in server (JDK 24+). To use Netty, add:
 
 ```scala
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"

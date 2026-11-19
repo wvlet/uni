@@ -21,8 +21,8 @@ import java.util.concurrent.{ExecutorService, Executors}
   * The JVM's built-in HTTP/1.1 server, which `Http.server` starts when no backend such as uni-netty
   * is on the classpath. It runs the HTTP and WebSocket code it shares with the Scala Native server
   * over `java.net` sockets, with one virtual thread per connection: a blocking read parks the
-  * virtual thread, and the JDK's poller (epoll, kqueue, or IOCP) resumes it when bytes arrive.
-  * The handler runs on the connection's own thread, with no hand-off to another pool.
+  * virtual thread, and the JDK's poller (epoll, kqueue, or IOCP) resumes it when bytes arrive. The
+  * handler runs on the connection's own thread, with no hand-off to another pool.
   */
 private[http] class JvmHttpServer(config: HttpServerConfig)
     extends SocketHttpServer(config, JvmHttpServer.limits(config)):
@@ -41,6 +41,12 @@ private[http] class JvmHttpServer(config: HttpServerConfig)
 end JvmHttpServer
 
 private[http] object JvmHttpServer:
+
+  /**
+    * Virtual threads stop pinning their carrier in `synchronized` from JDK 24 (JEP 491). Before
+    * that, a few connections blocked inside `synchronized` could stall every other connection.
+    */
+  final val MinJdkVersion = 24
 
   def start(config: HttpServerConfig): JvmHttpServer =
     val server = JvmHttpServer(config)

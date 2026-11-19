@@ -161,7 +161,8 @@ abstract class SocketHttpServer private[http] (
           case ReadResult.Closed =>
             continue = false
           case ReadResult.BadRequest(message) =>
-            conn.write(HttpResponseWriter.serialize(
+            conn.write(
+              HttpResponseWriter.serialize(
                 Response.badRequest(message),
                 keepAlive = false,
                 includeBody = true
@@ -172,7 +173,8 @@ abstract class SocketHttpServer private[http] (
             HttpServerSecurity.checkHost(request, allowedHosts) match
               case Some(rejection) =>
                 debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
-                conn.write(HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
+                conn.write(
+                  HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
                 )
                 continue = false
               case None =>
@@ -193,6 +195,7 @@ abstract class SocketHttpServer private[http] (
     finally
       connections.remove(state)
       conn.close()
+    end try
 
   end handleConnection
 
@@ -200,7 +203,7 @@ abstract class SocketHttpServer private[http] (
     * Handle one non-WebSocket request. Returns whether the connection may stay open (keep-alive).
     */
   private def handleHttpRequest(conn: SocketConnection, request: Request): Boolean =
-    val response  = runHandler(request)
+    val response = runHandler(request)
     // Once stop() begins, answer with Connection: close so the client opens no new request here
     val keepAlive = clientWantsKeepAlive(request) && running.get()
     val isHead    = request.method == HttpMethod.HEAD
@@ -208,9 +211,7 @@ abstract class SocketHttpServer private[http] (
       if response.isEventStream then
         if isHead then
           // HEAD: send the streaming response headers but no event body.
-          conn.write(
-            HttpResponseWriter.serializeSseHeaders(response, keepAlive)
-          )
+          conn.write(HttpResponseWriter.serializeSseHeaders(response, keepAlive))
         else
           withStreamingSlot(conn) {
             streamSse(conn, response, keepAlive)
@@ -221,8 +222,7 @@ abstract class SocketHttpServer private[http] (
             sendFile(conn, response, file, keepAlive, includeBody = !isHead)
           case _ =>
             // A HEAD response carries headers (incl. Content-Length) but no body.
-            conn.write(HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead)
-            )
+            conn.write(HttpResponseWriter.serialize(response, keepAlive, includeBody = !isHead))
     keepAlive && sent
 
   /**
@@ -247,13 +247,10 @@ abstract class SocketHttpServer private[http] (
           Left(e)
     opened match
       case Left(e) =>
-        conn.write(HttpResponseWriter.serialize(errorResponse(e), keepAlive, includeBody)
-        )
+        conn.write(HttpResponseWriter.serialize(errorResponse(e), keepAlive, includeBody))
       case Right(in) =>
         try
-          var ok = conn.write(
-            HttpResponseWriter.serializeHead(response, keepAlive, file.length)
-          )
+          var ok = conn.write(HttpResponseWriter.serializeHead(response, keepAlive, file.length))
           if includeBody then
             val buf       = new Array[Byte](SocketHttpServer.FileChunkSize)
             var remaining = file.length
@@ -287,7 +284,8 @@ abstract class SocketHttpServer private[http] (
         s"Too many concurrent streaming connections (limit ${streamLimiter
             .limit}); rejecting with 503"
       )
-      conn.write(HttpResponseWriter.serialize(
+      conn.write(
+        HttpResponseWriter.serialize(
           Response.serviceUnavailable,
           keepAlive = false,
           includeBody = true
@@ -312,8 +310,7 @@ abstract class SocketHttpServer private[http] (
     * subscription cancelled, rather than leaking the worker until the next event fails to write.
     */
   private def streamSse(conn: SocketConnection, response: Response, keepAlive: Boolean): Boolean =
-    if !conn.write(HttpResponseWriter.serializeSseHeaders(response, keepAlive))
-    then
+    if !conn.write(HttpResponseWriter.serializeSseHeaders(response, keepAlive)) then
       false
     else
       val done = CountDownLatch(1)
@@ -448,12 +445,15 @@ abstract class SocketHttpServer private[http] (
     * the 101 handshake and hand the connection to [[SocketWebSocket.serve]] (which blocks this
     * worker for the WebSocket's lifetime).
     */
-  private def handleWebSocketUpgrade(conn: SocketConnection, request: Request, route: WebSocketRoute): Unit =
+  private def handleWebSocketUpgrade(
+      conn: SocketConnection,
+      request: Request,
+      route: WebSocketRoute
+  ): Unit =
     WebSocketHandshake.validate(request, config.allowedOrigins) match
       case Left(rejection) =>
         // Disallowed origin (403), missing key (400), or unsupported version (426)
-        conn.write(HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true)
-        )
+        conn.write(HttpResponseWriter.serialize(rejection, keepAlive = false, includeBody = true))
       case Right(key) =>
         // Capture the request as threaded through the filter, so attributes a filter adds during
         // the handshake reach the WebSocketContext (matching the Netty backend).
@@ -473,9 +473,7 @@ abstract class SocketHttpServer private[http] (
                 warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
               errorResponse(e)
         if !verdict.isSuccessful then
-          conn.write(
-            HttpResponseWriter.serialize(verdict, keepAlive = false, includeBody = true)
-          )
+          conn.write(HttpResponseWriter.serialize(verdict, keepAlive = false, includeBody = true))
         else
           // Take a streaming slot only for a valid, accepted upgrade, so a rejected handshake gets
           // its own status (403/400/426) and never holds a slot
@@ -552,7 +550,7 @@ private class ConnectionState(val conn: SocketConnection):
 
 private[http] object SocketHttpServer:
   // Bytes read from a file per send of a streamed response
-  private val FileChunkSize                               = 64 * 1024
-  private final val ShutdownTimeoutMillis                 = 5000L
-  private final val ForcedShutdownTimeoutMillis           = 1000L
-  private final val AcceptErrorBackoffMillis              = 10L
+  private val FileChunkSize                     = 64 * 1024
+  private final val ShutdownTimeoutMillis       = 5000L
+  private final val ForcedShutdownTimeoutMillis = 1000L
+  private final val AcceptErrorBackoffMillis    = 10L

@@ -102,8 +102,12 @@ private[http] class HttpConnectionReader(
       i += 1
     limit
 
-  private def latin1(from: Int, until: Int): String =
-    String(buf, from, until - from, StandardCharsets.ISO_8859_1)
+  private def latin1(from: Int, until: Int): String = String(
+    buf,
+    from,
+    until - from,
+    StandardCharsets.ISO_8859_1
+  )
 
   /** A Latin-1 string of buf[from, until) without leading and trailing spaces and tabs. */
   private def trimmed(from: Int, until: Int): String =

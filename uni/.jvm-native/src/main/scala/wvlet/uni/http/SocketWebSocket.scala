@@ -22,8 +22,8 @@ import scala.util.control.NonFatal
 /**
   * WebSocket (RFC 6455) over a [[SocketConnection]], shared by Scala Native and the JVM's built-in
   * server: the per-connection read loop driving the shared [[WebSocketFrameDecoder]] and bridging
-  * events to a [[WebSocketHandler]]. Framing and the
-  * handshake accept key live in the cross-platform [[WebSocketFrame]].
+  * events to a [[WebSocketHandler]]. Framing and the handshake accept key live in the
+  * cross-platform [[WebSocketFrame]].
   */
 private[http] object SocketWebSocket extends LogSupport:
 
@@ -78,9 +78,8 @@ private[http] object SocketWebSocket extends LogSupport:
   /**
     * Read/dispatch loop shared by the servers and the Native client. Reads with a timeout so a
     * periodic heartbeat (when `pingIntervalMillis > 0`) can ping an idle peer and close it if a
-    * Ping goes unanswered; with the heartbeat off a read waits without a limit. `initial`
-    * is any bytes already read past the handshake (client side). Exceptions propagate to the
-    * caller.
+    * Ping goes unanswered; with the heartbeat off a read waits without a limit. `initial` is any
+    * bytes already read past the handshake (client side). Exceptions propagate to the caller.
     */
   private[http] def runReadLoop(
       conn: SocketConnection,
@@ -145,8 +144,8 @@ private[http] object SocketWebSocket extends LogSupport:
 end SocketWebSocket
 
 /**
-  * Server-side [[WebSocketContext]] over a [[SocketConnection]]. Writes are serialized so `send`/`close` are safe from any thread
-  * (the read loop also writes pong/close frames).
+  * Server-side [[WebSocketContext]] over a [[SocketConnection]]. Writes are serialized so
+  * `send`/`close` are safe from any thread (the read loop also writes pong/close frames).
   */
 private[http] class SocketWebSocketContext(conn: SocketConnection, override val request: Request)
     extends WebSocketContext:
