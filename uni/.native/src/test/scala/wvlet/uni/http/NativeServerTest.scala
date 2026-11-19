@@ -14,7 +14,7 @@
 package wvlet.uni.http
 
 import wvlet.uni.http.ServiceStatus
-import wvlet.uni.io.IOPath
+
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.test.UniTest
 
@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.{CountDownLatch, TimeUnit}
 import scala.util.control.NonFatal
 import scala.scalanative.libc.string as cstring
+import scala.scalanative.meta.LinktimeInfo
 import scala.scalanative.posix.arpa.inet
 import scala.scalanative.posix.netinet.in.{in_addr, sockaddr_in}
 import scala.scalanative.posix.netinet.inOps.*
@@ -502,7 +503,7 @@ class NativeServerTest extends UniTest:
   )
 
   test("should serve more idle keep-alive connections than workers") {
-    if IOPath.isWindows then
+    if LinktimeInfo.isWindows then
       skip("Windows has no idle poller yet: each connection keeps its worker")
     NativeServerConfig()
       .withHandler(req => Response.ok(req.path))
@@ -581,7 +582,7 @@ class NativeServerTest extends UniTest:
   }
 
   test("should close parked connections on stop") {
-    if IOPath.isWindows then
+    if LinktimeInfo.isWindows then
       skip("Windows has no idle poller yet: each connection keeps its worker")
     val server = NativeServerConfig().withHandler(req => Response.ok(req.path)).withPort(0).start()
     val fd     = connectLoopback(server.localPort)
