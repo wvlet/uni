@@ -21,7 +21,8 @@ import wvlet.uni.rx.Rx
   *
   * The server is built directly on POSIX TCP sockets (no external dependency): a daemon accept loop
   * dispatches each connection to a worker thread pool, where requests are parsed, run through the
-  * handler, and answered with HTTP/1.1.
+  * handler, and answered with HTTP/1.1. Between requests, a keep-alive connection waits in an
+  * epoll/kqueue poller and holds no worker (on Windows it keeps its worker).
   *
   * Build apps that use it with the Boehm GC (`GC.boehm`): Scala Native 0.5.12's default Immix GC
   * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
@@ -77,7 +78,7 @@ case class NativeServerConfig(
     requestDecompression: Boolean = true,
     // Maximum decoded size of a compressed request body; uncompressed requests are not counted
     maxDecompressedRequestSize: Int = 64 * 1024 * 1024,
-    // Size of the worker thread pool that handles connections
+    // Size of the worker thread pool, which bounds concurrent requests (idle connections hold none)
     workerThreads: Int = 16,
     // Max time to wait for a handler's Rx to produce a response before returning 503
     handlerTimeoutMillis: Long = 30000,

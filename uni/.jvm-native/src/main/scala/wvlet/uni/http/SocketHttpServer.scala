@@ -79,6 +79,12 @@ abstract class SocketHttpServer private[http] (
   /** Called once the server is listening. */
   protected def onStarted(): Unit = ()
 
+  /**
+    * A poller that watches connections between requests, so they don't hold a worker while idle.
+    * None (the JVM, whose virtual threads park cheaply) keeps each connection on one task.
+    */
+  protected def newIdlePoller(idleTimeoutMillis: Int): Option[IdlePoller] = None
+
   private val handler: RxHttpHandler = config.effectiveHandler
 
   private val started = AtomicBoolean(false)
@@ -100,6 +106,9 @@ abstract class SocketHttpServer private[http] (
   @volatile
   private var writeWatchdog: Thread = null
 
+  @volatile
+  private var idlePoller: IdlePoller = null
+
   private val allowedHosts  = config.effectiveAllowedHosts
   private val streamLimiter = ConnectionLimiter(limits.maxStreamingConnections)
   private val connections   = ConcurrentHashMap.newKeySet[ConnectionState]()
@@ -113,6 +122,7 @@ abstract class SocketHttpServer private[http] (
     boundPort = l.port
 
     workerPool = newWorkerPool()
+    idlePoller = newIdlePoller(limits.idleTimeoutMillis).orNull
 
     running.set(true)
     val t = Thread(() => acceptLoop())
@@ -179,43 +189,75 @@ abstract class SocketHttpServer private[http] (
             debug(s"Error aborting a connection: ${e.getMessage}")
       }
 
-  private def handleConnection(socket: SocketConnection): Unit =
-    val conn  = WriteTrackingConnection(socket)
-    val state = ConnectionState(conn)
+  private def handleConnection(socket: SocketConnection): Unit = ConnectionSession(socket).run()
+
+  /**
+    * One accepted connection and the state that outlives a single worker turn: the reader (with any
+    * buffered bytes) and the request deadline. A worker runs [[run]] until the connection closes,
+    * or, with an [[IdlePoller]], until the connection waits for its next request. Then the poller
+    * owns it and calls [[resume]] (a worker runs it again) or [[expire]] (it is closed). The
+    * connection is closed exactly once, by whichever side owns it.
+    */
+  private class ConnectionSession(socket: SocketConnection) extends IdleConnection:
+    private val conn  = WriteTrackingConnection(socket)
+    private val state = ConnectionState(conn)
     connections.add(state)
-    try
-      // Read with timeouts so an idle/slow/disconnected client can't pin a worker forever: an idle
-      // keep-alive connection waits up to idleTimeoutMillis for the next request. Once a request has
-      // started arriving, each read waits up to readTimeoutMillis, and the whole request must arrive
-      // within requestTimeoutMillis. A timeout reads as 0 bytes, and the reader answers 408.
-      val requestTimeoutNanos = limits.requestTimeoutMillis * 1000000L
-      var requestDeadline     = 0L
-      val reader              = HttpConnectionReader(
-        (buf, off, len, idle) =>
-          // After stop() begins, don't wait for another request (see drainConnections)
-          if !running.get() && state.idle then
-            -1
-          else if idle then
-            conn.read(buf, off, len, limits.idleTimeoutMillis)
-          else if requestTimeoutNanos <= 0 then
-            conn.read(buf, off, len, limits.readTimeoutMillis)
+
+    // Read with timeouts so an idle/slow/disconnected client can't pin a worker forever: an idle
+    // keep-alive connection waits up to idleTimeoutMillis for the next request. Once a request has
+    // started arriving, each read waits up to readTimeoutMillis, and the whole request must arrive
+    // within requestTimeoutMillis. A timeout reads as 0 bytes, and the reader answers 408.
+    private val requestTimeoutNanos = limits.requestTimeoutMillis * 1000000L
+    private var requestDeadline     = 0L
+    private val reader              = HttpConnectionReader(
+      (buf, off, len, idle) =>
+        // After stop() begins, don't wait for another request (see drainConnections)
+        if !running.get() && state.idle then
+          -1
+        else if idle then
+          conn.read(buf, off, len, limits.idleTimeoutMillis)
+        else if requestTimeoutNanos <= 0 then
+          conn.read(buf, off, len, limits.readTimeoutMillis)
+        else
+          val now = System.nanoTime()
+          if requestDeadline == 0L then
+            requestDeadline = now + requestTimeoutNanos
+          val left = (requestDeadline - now) / 1000000L
+          if left <= 0 then
+            0
           else
-            val now = System.nanoTime()
-            if requestDeadline == 0L then
-              requestDeadline = now + requestTimeoutNanos
-            val left = (requestDeadline - now) / 1000000L
-            if left <= 0 then
-              0
-            else
-              conn.read(buf, off, len, math.min(limits.readTimeoutMillis.toLong, left).toInt)
-        ,
-        limits.request,
-        () => conn.write(HttpResponseWriter.Continue100)
-      )
+            conn.read(buf, off, len, math.min(limits.readTimeoutMillis.toLong, left).toInt)
+      ,
+      limits.request,
+      () => conn.write(HttpResponseWriter.Continue100)
+    )
+
+    /** Serve requests on this worker until the connection closes or is handed to the poller. */
+    def run(): Unit =
+      var parked = false
+      try
+        parked = serve()
+      catch
+        case NonFatal(e) =>
+          // Disconnects and malformed requests surface as ReadResult values, so an exception here
+          // is a bug (or memory corruption) worth seeing
+          warn(s"Connection handling error: ${e.getMessage}", e)
+      finally
+        if !parked then
+          finish()
+
+    /** Returns true when the poller took the connection, false when it should close. */
+    private def serve(): Boolean =
       var continue = true
       while continue do
         state.idle = true
         requestDeadline = 0L
+        // Between requests, give the worker back: the poller resumes the connection once its next
+        // request arrives. Bytes already buffered (a pipelined request) are served right away.
+        val poller = idlePoller
+        if poller != null && running.get() && reader.drainLineBreaks() && poller.park(socket, this)
+        then
+          return true
         val result = reader.readRequest()
         state.idle = false
         result match
@@ -246,17 +288,26 @@ abstract class SocketHttpServer private[http] (
               case Right(request) =>
                 continue = serveRequest(conn, request, keepAlive)
       end while
-    catch
-      case NonFatal(e) =>
-        // Disconnects and malformed requests surface as ReadResult values, so an exception here
-        // is a bug (or memory corruption) worth seeing
-        warn(s"Connection handling error: ${e.getMessage}", e)
-    finally
+      false
+
+    end serve
+
+    override def resume(): Unit =
+      val pool = workerPool
+      try
+        pool.execute(() => run())
+      catch
+        case NonFatal(_) =>
+          // The pool is shutting down: close the connection instead of leaking it
+          finish()
+
+    override def expire(): Unit = finish()
+
+    private def finish(): Unit =
       connections.remove(state)
       conn.close()
-    end try
 
-  end handleConnection
+  end ConnectionSession
 
   /** Serve one parsed request. Returns whether the connection may serve another one. */
   private def serveRequest(conn: SocketConnection, request: Request, keepAlive: Boolean): Boolean =
@@ -611,7 +662,16 @@ abstract class SocketHttpServer private[http] (
         case NonFatal(e) =>
           debug(s"Error closing server socket: ${e.getMessage}")
     // As the Netty backend does (ADR 2026-10-27): close idle connections now and let busy ones
-    // close after their last response, then force-close whatever is left at the deadline.
+    // close after their last response, then force-close whatever is left at the deadline. The
+    // poller closes the idle connections it holds; a worker that would park one after this closes
+    // it itself, since the reader sees the server stopping.
+    Option(idlePoller).foreach { poller =>
+      try
+        poller.close()
+      catch
+        case NonFatal(e) =>
+          debug(s"Error closing the idle poller: ${e.getMessage}")
+    }
     drainConnections(onlyIdle = true)
     Option(workerPool).foreach { pool =>
       pool.shutdown()
@@ -621,6 +681,8 @@ abstract class SocketHttpServer private[http] (
         pool.awaitTermination(SocketHttpServer.ForcedShutdownTimeoutMillis, TimeUnit.MILLISECONDS)
     }
     debug(s"${config.name} stopped")
+
+  end stop
 
   /**
     * Wake the worker of each connection waiting for its next request (or every connection, when

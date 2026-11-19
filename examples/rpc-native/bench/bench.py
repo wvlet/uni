@@ -321,7 +321,7 @@ def sweep_report(args, tool, sweeps):
                 for s in sweeps for r in s["levels"] if r.get("error_kinds")],
               "- New connection: one request on a fresh connection, sent 1 s into each level while "
               "the load runs. A server that serves each keep-alive connection on its own worker "
-              "thread (NativeServer: 16 by default) queues it once all workers are taken, so it "
+              "thread (NativeServer on Windows: 16 by default) queues it once all workers are taken, so it "
               "gets no response until the load ends. The load tool's req/s and latency then cover "
               "only the connections that hold a worker.",
               "- RSS after: read after each level from the same process, so it accumulates."]

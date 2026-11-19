@@ -37,6 +37,9 @@ Put all three behind fixed-arity C functions in
 | `uni_socket_wait_readable(fd, ms)` | `poll` | `WSAPoll` |
 | `uni_socket_close(fd)` | `close` | `closesocket` |
 
+`2026-11-19-native-server-idle-poller.md` later added the `uni_poller_*` functions (epoll on Linux,
+kqueue on macOS/BSD, none on Windows).
+
 ## Non-obvious points a future reader would otherwise reverse-engineer
 
 ### The OS split has to be in C — Scala cannot express it

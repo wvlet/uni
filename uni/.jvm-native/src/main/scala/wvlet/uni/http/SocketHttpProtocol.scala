@@ -107,6 +107,21 @@ private[http] class HttpConnectionReader(
       n = fill()
     n
 
+  /**
+    * Between requests: drop CR and LF left before the next request line (which [[readRequest]]
+    * skips anyway), and return whether no bytes remain buffered, so the connection can wait for its
+    * next request elsewhere.
+    */
+  def drainLineBreaks(): Boolean =
+    while buffered > 0 && (buf(start) == '\r' || buf(start) == '\n') do
+      start += 1
+    if buffered == 0 then
+      start = 0
+      end = 0
+      true
+    else
+      false
+
   private def onlyWhitespaceBuffered: Boolean =
     var i = start
     while i < end && isHttpWhitespace(buf(i) & 0xff) do
