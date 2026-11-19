@@ -42,7 +42,8 @@ UNI_QUIRKS = {
     # The reader collects a chunked body, drops Transfer-Encoding, and sets Content-Length to the
     # decoded size; uni-netty's aggregator does the same, and also adds Content-Length: 0. Bodies
     # are still compared byte for byte.
-    "removed-headers": ["transfer-encoding"],
+    # Uni's request keeps Expect after answering it; hyper, Netty, and httpd drop it
+    "removed-headers": ["transfer-encoding", "expect"],
     "added-headers": ["content-length"],
 }
 
