@@ -492,11 +492,12 @@ theorem skipChunkExt_spec {s r : Bytes} (h : skipChunkExt s = .ok r) : r.length 
     subst h
     exact Nat.le_refl _
 
-/-- A chunked body never exceeds the limit, and decoding consumes at least one byte. -/
+/-- A chunk size over the limit never yields a body. -/
 theorem chunkTooLarge_not_ok {r body rest : Bytes} : chunkTooLarge r ≠ .ok body rest := by
   unfold chunkTooLarge
   split <;> simp
 
+/-- A chunked body never exceeds the limit, and decoding consumes at least one byte. -/
 theorem readChunks_spec {maxSize : Nat} :
     ∀ {fuel total : Nat} {acc s body rest : Bytes},
       readChunks maxSize fuel total acc s = .ok body rest → acc.length ≤ total → total ≤ maxSize →

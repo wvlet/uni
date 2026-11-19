@@ -95,7 +95,7 @@ private[netty] class StrictHttpServerCodec(
                 while j < out.size() do
                   ReferenceCountUtil.release(out.get(j))
                   j += 1
-                out.subList(oldSize, out.size()).clear()
+                out.subList(i, out.size()).clear()
                 throw IllegalStateException(s"maxPipelineDepth exceeded: ${maxPipelineDepth}")
               methods.add(r.method())
             case _ =>
