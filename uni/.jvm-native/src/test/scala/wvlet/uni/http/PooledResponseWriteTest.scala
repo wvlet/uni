@@ -52,9 +52,9 @@ class PooledResponseWriteTest extends UniTest:
   }
 
   /**
-    * Decode a gzip stream: inflate its raw deflate data and check the trailer against a CRC-32
-    * masked to 32 bits. Scala Native's CRC32 binds zlib's 32-bit `uLong` as 64 bits, so on Windows
-    * `getValue` can carry garbage high bits and `GZIPInputStream` reports a false "Crc mismatch".
+    * Decode a gzip stream: inflate its raw deflate data and check the trailer against the
+    * pure-Scala CRC-32. Scala Native's CRC32 is unreliable on Windows (see Crc32), so neither it
+    * nor `GZIPInputStream` checks the trailer here.
     */
   private def gunzip(b: Array[Byte]): Array[Byte] =
     b(0) shouldBe 0x1f.toByte
@@ -73,9 +73,7 @@ class PooledResponseWriteTest extends UniTest:
         ((b(at + 1) & 0xffL) << 8) |
         ((b(at + 2) & 0xffL) << 16) |
         ((b(at + 3) & 0xffL) << 24)
-    val crc = java.util.zip.CRC32()
-    crc.update(data, 0, data.length)
-    (crc.getValue & 0xffffffffL) shouldBe intLE(b.length - 8)
+    (wvlet.uni.util.Crc32.of(data) & 0xffffffffL) shouldBe intLE(b.length - 8)
     intLE(b.length - 4) shouldBe (data.length & 0xffffffffL)
     data
 

@@ -187,7 +187,6 @@ private[http] object ResponseCompression:
       else
         Deflater(Level)
 
-    val crc              = java.util.zip.CRC32()
     var out: Array[Byte] = new Array[Byte](4096)
     def dispose(): Unit  = deflater.end()
 
@@ -223,11 +222,9 @@ private[http] object ResponseCompression:
         pos += d.deflate(c.out, pos, c.out.length - pos)
       if c.framed then
         // Trailer: CRC-32 and the input size mod 2^32, little-endian
-        c.crc.reset()
-        c.crc.update(body, 0, body.length)
         if pos + 8 > c.out.length then
           c.out = java.util.Arrays.copyOf(c.out, pos + 8)
-        writeIntLE(c.out, pos, c.crc.getValue.toInt)
+        writeIntLE(c.out, pos, GzipCrc.of(body))
         writeIntLE(c.out, pos + 4, body.length)
         pos += 8
       val result = java.util.Arrays.copyOf(c.out, pos)
