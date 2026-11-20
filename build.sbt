@@ -261,22 +261,12 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(jvmNativeSharedSources)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
-  .nativeSettings(
-    nativeBuildSettings,
-    jvmNativeSharedSources,
-    minimizeJavadoc,
-    // HttpRangeTest runs a multi-threaded Http.server and Parquet decoding in the test binary.
-    // Scala Native 0.5.12's Immix can free live objects when several threads allocate at once
-    // (scala-native#5046, #5160), which crashed this binary with SIGSEGV on Linux x86_64 CI. Link
-    // tests with Boehm, as exampleRpcNative does (adr/2026-10-30-native-server-boehm-gc.md),
-    // except on Windows, whose CI runner has no libgc.
-    Test / nativeConfig ~= { c =>
-      if scala.util.Properties.isWin then
-        c
-      else
-        c.withGC(scala.scalanative.build.GC.boehm)
-    }
-  )
+  // The test binary stays on Immix. Boehm deadlocked it in about half the Linux CI runs: under
+  // Scala Native 0.5.12, PosixThread.park allocates while holding its mutex, Boehm runs the
+  // weak-reference finalizer inside that allocation, and the finalizer unparks the same thread,
+  // locking the mutex again (fixed upstream after 0.5.12). Immix can still crash under concurrent
+  // allocation (scala-native#5046, #5160), but rarely. Revisit both on Scala Native 0.5.13.
+  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(uni, test % Test)
 
 lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under target/npm")
