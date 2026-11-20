@@ -16,6 +16,7 @@ package wvlet.uni.rx
 import scala.collection.mutable.ArrayBuffer
 import scala.language.higherKinds
 import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /**
   * A reactive variable supporting update and propagation of the updated value to the chained
@@ -42,12 +43,22 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
           case _ =>
     foreachEvent(s)
 
+  /**
+    * The event that ended this variable, replayed to a subscriber that attaches afterwards, or
+    * null. Read under the lock, so a subclass sets it in the same locked step that propagates it.
+    */
+  protected def terminalEvent: RxEvent = null
+
   override def foreachEvent[U](effect: RxEvent => U): Cancelable =
-    // Register a subscriber for propagating future changes
+    // Register the subscriber and send it the current state in one locked step, as propagateEvent
+    // sends under the same lock: an update in between would otherwise reach it twice
     synchronized {
       subscribers += effect
+      effect(OnNext(currentValue))
+      val t = terminalEvent
+      if t != null then
+        effect(t)
     }
-    effect(OnNext(currentValue))
     Cancelable { () =>
       // #3109 Avoid concurrent modification of the subscriber list
       synchronized {
@@ -98,6 +109,28 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
 end RxVar
 
 object RxVar {}
+
+/**
+  * The variable behind `Rx.future` and `Rx.fromFuture`: None until the future completes, then its
+  * value and OnCompletion, or OnError. A subscriber that attaches after the future completed still
+  * receives that terminal event, so a future that fails before anyone subscribes is not lost.
+  */
+private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
+  // Guarded by this
+  private var terminal: RxEvent = null
+
+  override protected def terminalEvent: RxEvent = terminal
+
+  def complete(result: Try[A]): Unit = synchronized {
+    result match
+      case Success(x) =>
+        set(Some(x))
+        terminal = OnCompletion
+        stop()
+      case Failure(e) =>
+        terminal = OnError(e)
+        setException(e)
+  }
 
 trait RxVarOps[A]:
   def get: A

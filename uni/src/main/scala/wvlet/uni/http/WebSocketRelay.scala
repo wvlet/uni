@@ -388,16 +388,26 @@ private class WebSocketRelaySession(config: WebSocketRelay)
         ctx.close(WebSocketRelay.upstreamCloseCode(closeCode), closeReason)
 
     override def onTextMessage(ctx: WebSocketContext, message: String): Unit =
-      val c = client
-      c.send(message)
-      framesToClient.incrementAndGet()
-      bytesToClient.addAndGet(WebSocketRelay.utf8Length(message))
+      toClient(WebSocketRelay.utf8Length(message))(client.send(message))
 
     override def onBinaryMessage(ctx: WebSocketContext, message: Array[Byte]): Unit =
-      val c = client
-      c.send(message)
+      toClient(message.length)(client.send(message))
+
+    /**
+      * Count a frame before sending it: the client may close on seeing it, and the stats are
+      * reported on that close, possibly before this thread resumes. A send that throws is
+      * uncounted.
+      */
+    private def toClient(bytes: Long)(sendFrame: => Unit): Unit =
       framesToClient.incrementAndGet()
-      bytesToClient.addAndGet(message.length)
+      bytesToClient.addAndGet(bytes)
+      try
+        sendFrame
+      catch
+        case e: Throwable =>
+          framesToClient.decrementAndGet()
+          bytesToClient.addAndGet(-bytes)
+          throw e
 
     override def onClose(ctx: WebSocketContext, statusCode: Int, reason: String): Unit =
       val opened = synchronized {

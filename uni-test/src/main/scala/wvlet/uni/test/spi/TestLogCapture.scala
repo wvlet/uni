@@ -16,7 +16,7 @@ package wvlet.uni.test.spi
 import wvlet.uni.log.LogFormatter.SourceCodeLogFormatter
 import wvlet.uni.log.Logger
 
-import java.util.function.Supplier
+import java.util.function.{Predicate, Supplier}
 import java.util.logging as jl
 
 /**
@@ -131,7 +131,8 @@ private[test] object TestLogCapture:
     */
   private[spi] class RoutingHandler(original: Array[jl.Handler])
       extends jl.Handler,
-        Supplier[Array[jl.Handler]]:
+        Supplier[Array[jl.Handler]],
+        Predicate[jl.LogRecord]:
     @volatile
     private var removed = false
 
@@ -148,7 +149,44 @@ private[test] object TestLogCapture:
 
     override def publish(record: jl.LogRecord): Unit =
       if removed || !capture(record) then
+        // The wrapped handlers, other runners' routers among them, still see the record
         deliver(record)
+      else if fromPoolThread then
+        // A capture of this copy took a record from a thread running no suite, so it is not
+        // delivered. It may also belong to another runner's capture (a Netty worker's warning,
+        // captured by a uni-netty test while a uni suite captures).
+        offerWrapped(record)
+
+    /**
+      * Take `record` into the captures of this copy and of the routers it wraps, without printing
+      * it. Returns whether any capture took it. A JDK-typed method, so a router of another class
+      * loader can call it.
+      */
+    override def test(record: jl.LogRecord): Boolean =
+      if removed then
+        offerWrapped(record)
+      else
+        val own = capture(record)
+        // Records of this copy's suite threads, or of a capture opened on this thread, stay here
+        val inner = fromPoolThread && offerWrapped(record)
+        own || inner
+
+    /** The current thread runs no suite of this copy and opened none of its captures. */
+    private def fromPoolThread: Boolean =
+      val t = Thread.currentThread()
+      suiteThread.get() == null && !captures.exists(_.owner eq t)
+
+    private def offerWrapped(record: jl.LogRecord): Boolean =
+      original.foldLeft(false) { (taken, h) =>
+        h match
+          // A router of another class loader is not a RoutingHandler of this one
+          case p: Predicate[?]
+              if (p.getClass ne classOf[RoutingHandler]) &&
+                p.getClass.getName == classOf[RoutingHandler].getName =>
+            p.asInstanceOf[Predicate[jl.LogRecord]].test(record) || taken
+          case _ =>
+            taken
+      }
 
     /**
       * Send a record to the suite's sbt loggers, or to the original handlers

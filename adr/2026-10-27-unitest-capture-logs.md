@@ -26,3 +26,9 @@ Tests that make code fail on purpose (a handler that throws, an invalid request)
 - During an unscoped capture, a record that an unrelated parallel suite logs from a pool thread can land in the capture and not print. `captureLogs[A]` avoids it; assertions that a capture is empty can be flaky for the same reason.
 - Scala.js has one thread, so every record is the opener's. On Native, test bodies run on the global pool, so records count as unattributed and still reach the capture.
 - Scala.js names the logger of a nested class after its outer class, so `captureLogs[A]` for a nested `A` also captures its siblings there.
+
+## Amended 2026-11-20: records from pool threads reach every runner's captures
+
+- Runners of different projects in one sbt JVM each load their own copy of `TestLogCapture`, and their routers nest around the root logger. A record from a thread that runs no suite (a Netty worker) went to the open captures of the outermost router only. When that copy had a `captureLogs` open in another suite, the capture of the copy holding the test's own `captureLogs` never saw the record, which flaked `RouterHandlerErrorTest`.
+- A router now implements `java.util.function.Predicate[LogRecord]`, a JDK type any class loader can call, which offers a record to its captures without printing it. When a router's own capture takes a record from a thread that runs no suite of that copy and opened none of its captures, the router also offers it to the routers it wraps. A record no capture took is delivered as before, which hands it to the wrapped routers once.
+- Records of a suite thread stay with that suite's runner: another runner's copy can't tell its threads apart, so they are never offered to it.
