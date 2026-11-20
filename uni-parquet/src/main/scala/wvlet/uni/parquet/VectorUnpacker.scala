@@ -378,7 +378,7 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
 end VectorUnpacker
 
-private object VectorUnpacker:
+private[parquet] object VectorUnpacker:
   // What the cursor is on
   private final val End     = 0
   private final val Key     = 1
@@ -417,6 +417,51 @@ private object VectorUnpacker:
   private final val CList        = 19
   private final val CMap         = 20
   private final val CStruct      = 21
+
+  private final val DateCacheSize = 1024
+
+  /**
+    * The ISO-8601 form of an epoch day, as `LocalDate.toString` writes it. Years 1000 to 9999 are
+    * formatted here (civil-from-days), which is much faster than `LocalDate` on Scala Native; other
+    * years go through `LocalDate`.
+    */
+  private[parquet] def isoDate(day: Int): String =
+    val z   = day.toLong + 719468L
+    val era = Math.floorDiv(z, 146097L)
+    val doe = z - era * 146097L
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp  = (5 * doy + 2) / 153
+    val d   = (doy - (153 * mp + 2) / 5 + 1).toInt
+    val m   =
+      if mp < 10 then
+        (mp + 3).toInt
+      else
+        (mp - 9).toInt
+    val y =
+      (yoe + era * 400 + (
+        if m <= 2 then
+          1
+        else
+          0
+      )).toInt
+    if y < 1000 || y > 9999 then
+      LocalDate.ofEpochDay(day.toLong).toString
+    else
+      val c = new Array[Char](10)
+      c(0) = ('0' + y / 1000).toChar
+      c(1) = ('0' + y / 100 % 10).toChar
+      c(2) = ('0' + y / 10 % 10).toChar
+      c(3) = ('0' + y % 10).toChar
+      c(4) = '-'
+      c(5) = ('0' + m / 10).toChar
+      c(6) = ('0' + m % 10).toChar
+      c(7) = '-'
+      c(8) = ('0' + d / 10).toChar
+      c(9) = ('0' + d % 10).toChar
+      String(c)
+
+  end isoDate
 
   /** A vector with how to read it, worked out once per batch */
   private final class Col(val vec: ColumnVector, binaryAsString: Boolean):
@@ -625,7 +670,7 @@ private object VectorUnpacker:
           else
             utf8(i)
         case CDate =>
-          LocalDate.ofEpochDay(ints(i).toLong).toString
+          dateString(ints(i))
         case CTimeInt =>
           LogicalValues.localTime(ints(i).toLong * 1000000L).toString
         case CDecimalInt =>
@@ -641,6 +686,20 @@ private object VectorUnpacker:
         case _ =>
           // INT96 of another length, read as a string
           utf8(i)
+
+    // Recent date strings, by epoch day: a column usually holds few distinct dates
+    private lazy val dateDays    = Array.fill(DateCacheSize)(Int.MinValue)
+    private lazy val dateStrings = new Array[String](DateCacheSize)
+
+    private def dateString(day: Int): String =
+      val slot = day & (DateCacheSize - 1)
+      if dateDays(slot) == day then
+        dateStrings(slot)
+      else
+        val s = isoDate(day)
+        dateDays(slot) = day
+        dateStrings(slot) = s
+        s
 
     private def utf8(i: Int): String = String(bin.data, bin.offsets(i), bin.length(i), "UTF-8")
 

@@ -157,3 +157,11 @@ class RowMapTest extends UniTest:
   }
 
 end RowMapTest
+
+class IsoDateTest extends wvlet.uni.test.UniTest:
+  test("format epoch days as LocalDate does") {
+    val days = (-800000 to 3000000 by 997) ++ Seq(-719528, -719162, 0, 1, 59, 60, 365, 10957, 2932896)
+    days.foreach { d =>
+      VectorUnpacker.isoDate(d) shouldBe java.time.LocalDate.ofEpochDay(d.toLong).toString
+    }
+  }
