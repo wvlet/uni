@@ -3,6 +3,7 @@ title: "How Fast Is a Scala Native HTTP Server? Uni Next to the JVM, Node.js, Py
 date: 2026-11-19
 author: Taro L. Saito
 description: "Uni's Scala Native HTTP server went from 22.7k to 104k requests per second on a small RPC response, and from 1.6k to 74k on a 3.4 KB one, in one day of profiling. Here is what was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint."
+image: /blog/native-server-performance.png
 ---
 
 # How Fast Is a Scala Native HTTP Server?
@@ -15,6 +16,8 @@ serializes allocating threads on one lock, so every byte a request allocated
 slowed every other request. This post covers how we found that, what we
 changed, and how the result compares with the JVM, Node.js, Python, Ruby, and
 Rust serving the same endpoint on the same machine.
+
+![How fast is a Scala Native HTTP server? A hand-drawn highway runs left to right. On the left, cars labelled "req" queue at one small toll booth with a padlock, under a sign listing the bottleneck: Boehm GC's global lock, 462 KB allocated per response, and 15 marker threads per collection. A speedometer sign shows uni on Scala Native going from 22.7k to 104k req/s on a small response and from 1.6k to 74k req/s on a 3.4 KB one. In the middle, a road crew widens the road beside a chalkboard of fixes: leaner headers and JSON, one GC marker thread, a 16 MB starting heap, and pooled buffers and zlib. On the right, a unicorn races a crab, a coffee cup, green hexagons, a ruby, and a snake toward a finish banner reading "Allocation was the bottleneck, not Scala Native". Signs show the 3.4 KB results (Rust 89k, JVM 94k, Node ×16 79k, uni Native 74k, Ruby ×16 45k, Python ×16 30k), memory on a luggage scale (uni Native 27 MB, JVM 650 MB, Node ×16 3 GB), and what's next: Immix GC in Scala Native 0.5.13.](/blog/native-server-performance.webp)
 
 ## The starting point
 
