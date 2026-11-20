@@ -63,10 +63,21 @@ class PooledResponseWriteTest extends UniTest:
     inflater.setInput(b, 10, b.length - 18)
     val out = ByteArrayOutputStream()
     val buf = new Array[Byte](8192)
-    while !inflater.finished() do
+    // Stop when inflate makes no progress instead of spinning: a decoder that never finishes would
+    // otherwise hang the test binary (it did on Windows Native)
+    var stalled = false
+    var rounds  = 0
+    while !inflater.finished() && !stalled do
       val n = inflater.inflate(buf)
       out.write(buf, 0, n)
+      rounds += 1
+      // 1,000 rounds of 8 KB is far more than any body here decodes to
+      stalled = (n == 0 && (inflater.needsInput() || inflater.needsDictionary())) || rounds > 1000
+    val state =
+      s"finished=${inflater.finished()} needsInput=${inflater.needsInput()} " +
+        s"remaining=${inflater.getRemaining()} out=${out.size()}"
     inflater.end()
+    (s"inflate stalled: ${state}", stalled) shouldBe (s"inflate stalled: ${state}", false)
     val data                 = out.toByteArray
     def intLE(at: Int): Long =
       (b(at) & 0xffL) |
@@ -80,6 +91,8 @@ class PooledResponseWriteTest extends UniTest:
         intLE(b.length - 4) ==
         (data.length & 0xffffffffL)
     (data, trailerOk)
+
+  end gunzip
 
   private def inflate(b: Array[Byte]): Array[Byte] = InflaterInputStream(ByteArrayInputStream(b))
     .readAllBytes()
