@@ -150,7 +150,8 @@ See [Newest Releases](./installation#newest-releases).
 | `wvlet.airframe.http.RPCStatus` / `RPCException` | `wvlet.uni.http.ServiceStatus` / `ServiceException`: same status names and codes, shared by RPC, Electron IPC, and MCP |
 | `wvlet.airframe.canvas.Canvas` | `wvlet.uni.canvas.Canvas`: `release` is `close()`, values are little-endian on every platform, and off-heap canvases need Java 22+ on the JVM |
 | `wvlet.airframe.control.Retry` | `wvlet.uni.control.Retry` |
-| airframe-parquet `Parquet.newReader[A](path)` / `newReader[Map[String, Any]]` / `newReader[Json]` | `wvlet.uni.parquet.Parquet.readAs[A](path)` / `Parquet.readRows(path)` / `Parquet.readJson(path)`, which return a `Seq` (`ParquetFile.readAs` and `readRows` return an `Iterator`) instead of a reader whose `read()` returns null at the end. Reading is supported; writing is not |
+| airframe-parquet `Parquet.newReader[A](path)` / `newReader[Map[String, Any]]` / `newReader[Json]` | `wvlet.uni.parquet.Parquet.readAs[A](path)` / `Parquet.readRows(path)` / `Parquet.readJson(path)`, which return a `Seq` (`ParquetFile.readAs` and `readRows` return an `Iterator`) instead of a reader whose `read()` returns null at the end |
+| airframe-parquet `Parquet.newWriter[A](path)` / `newRecordWriter(path, schema)` | `Parquet.write(path, rows)` or `Parquet.newWriter[A](path)` for case classes with `derives Weaver` (schema from `ParquetSchema.of[A]`); `Parquet.newRecordWriter(path, ParquetSchema.builder(...)...build())` for maps and JSON |
 | airframe-parquet `Parquet.readStatistics(path)` | `Parquet.open(path).columnStatistics` (`numValues`, `numNulls`, sizes, `min`, `max`) |
 | `wvlet.airspec.AirSpec` | `wvlet.uni.test.UniTest` |
 | AirSpec `initDesign` / `initLocalDesign` | `addDesign` / `addTestDesign` |
