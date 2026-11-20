@@ -191,6 +191,13 @@ class CurlChannel extends HttpChannel:
             i += 1
           curl_easy_setopt_ptr(curl, CURLOPT_POSTFIELDS, bodyPtr)
           curl_easy_setopt_long(curl, CURLOPT_POSTFIELDSIZE, contentBytes.length.toLong)
+        else if request.method == HttpMethod.POST || request.method == HttpMethod.PUT ||
+          request.method == HttpMethod.PATCH
+        then
+          // An empty body must still be sent as `Content-Length: 0`. Without POSTFIELDS, curl
+          // reads a POST body from stdin and sends a PUT with no length, which S3 rejects (411).
+          curl_easy_setopt_ptr(curl, CURLOPT_POSTFIELDS, c"")
+          curl_easy_setopt_long(curl, CURLOPT_POSTFIELDSIZE, 0L)
 
         // Set timeouts
         if config.connectTimeoutMillis > 0 then

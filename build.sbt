@@ -728,6 +728,7 @@ lazy val docSnippets = project
                 base / "docs/core/unitest.md"               -> "snippets.core",
                 base / "docs/core/settings.md"              -> "snippets.core",
                 base / "docs/core/canvas.md"                -> "snippets.core",
+                base / "docs/core/object-storage.md"        -> "snippets.core",
                 base / "docs/text/parquet.md"               -> "snippets.text",
                 base / "docs/blog"                          -> "snippets.blog"
               ),

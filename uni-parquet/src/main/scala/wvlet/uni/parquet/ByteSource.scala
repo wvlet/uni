@@ -9,6 +9,9 @@ import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.io.IOPath
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.ObjectStore
+import wvlet.uni.storage.ObjectUri
+import wvlet.uni.storage.S3Config
 
 /**
   * Random access to the bytes of a Parquet file, read asynchronously. Browser files and HTTP on
@@ -66,6 +69,85 @@ object ByteSource:
   /** A file served over HTTP, read with Range requests through an asynchronous client */
   def ofUrlAsync(url: String, config: HttpClientConfig = Http.client): AsyncByteSource =
     AsyncHttpRangeSource(url, config.newAsyncClient)
+
+  /**
+    * An object in an object store, read with ranged GETs (JVM, Scala Native, and Node.js). The
+    * store stays open when the source closes.
+    */
+  def ofObject(store: ObjectStore, uri: ObjectUri): ByteSource = ObjectSource(store, uri, false)
+
+  def ofObjectAsync(store: ObjectStore, uri: ObjectUri): AsyncByteSource = AsyncObjectSource(
+    store,
+    uri,
+    false
+  )
+
+  /**
+    * An S3 object such as `s3://bucket/key.parquet`, or one in an S3-compatible store (Cloudflare
+    * R2, GCS, MinIO) configured by `config`
+    */
+  def ofS3(uri: String, config: S3Config = S3Config.default): ByteSource = ObjectSource(
+    ObjectStore.s3(config),
+    ObjectUri.parse(uri),
+    true
+  )
+
+  def ofS3Async(uri: String, config: S3Config = S3Config.default): AsyncByteSource =
+    AsyncObjectSource(ObjectStore.s3(config), ObjectUri.parse(uri), true)
+
+end ByteSource
+
+private[parquet] final class ObjectSource(store: ObjectStore, uri: ObjectUri, ownsStore: Boolean)
+    extends ByteSource:
+  def name: String = uri.toString
+
+  private lazy val objectSize: Long = store
+    .head(uri)
+    .map(_.size)
+    .getOrElse(throw ParquetException(s"${uri} does not exist"))
+
+  def size: Long = objectSize
+
+  def read(offset: Long, length: Int): Array[Byte] =
+    val b = store.getRange(uri, offset, length.toLong)
+    if b.length != length then
+      throw ParquetException.corrupt(
+        s"range [${offset}, ${offset + length}) is outside ${uri} (${objectSize} bytes)"
+      )
+    b
+
+  override def close(): Unit =
+    if ownsStore then
+      store.close()
+
+private[parquet] final class AsyncObjectSource(
+    store: ObjectStore,
+    uri: ObjectUri,
+    ownsStore: Boolean
+) extends AsyncByteSource:
+  def name: String = uri.toString
+
+  def readAsync(offset: Long, length: Int): Rx[Array[Byte]] = store
+    .getRangeAsync(uri, offset, length.toLong)
+    .map { b =>
+      if b.length != length then
+        throw ParquetException.corrupt(s"range [${offset}, ${offset + length}) is outside ${uri}")
+      b
+    }
+
+  def readTailAsync(length: Int): Rx[(Array[Byte], Long)] = store
+    .headAsync(uri)
+    .flatMap {
+      case Some(info) =>
+        val n = math.min(info.size, length.toLong).toInt
+        readAsync(info.size - n, n).map(b => (b, info.size))
+      case None =>
+        Rx.exception(ParquetException(s"${uri} does not exist"))
+    }
+
+  override def close(): Unit =
+    if ownsStore then
+      store.close()
 
 private[parquet] final class BytesSource(bytes: Array[Byte], val name: String) extends ByteSource:
   def size: Long                                   = bytes.length.toLong

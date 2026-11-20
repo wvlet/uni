@@ -139,7 +139,28 @@ jobs:
           java-version: '25'
           cache: sbt
       - uses: ./.github/actions/sbt-launcher
+      # An S3-compatible server for the wvlet.uni.storage and Parquet S3 integration tests.
+      # Versity S3 Gateway verifies SigV4 signatures and stores buckets as directories. MinIO
+      # no longer publishes community binaries or images, so it is not used here.
+      - name: Start S3 gateway
+        env:
+          VGW_VERSION: v1.11.0
+          VGW_SHA256: 1f075c9dc92fef232f5b3c7465711ddc5e1b062b2b6df4a3bd246a4be5b35b52
+        run: |
+          curl -sSfL -o /tmp/vgw.tar.gz "https://github.com/versity/versitygw/releases/download/${VGW_VERSION}/versitygw_${VGW_VERSION}_Linux_x86_64.tar.gz"
+          echo "${VGW_SHA256}  /tmp/vgw.tar.gz" | sha256sum -c -
+          mkdir -p /tmp/vgw && tar xzf /tmp/vgw.tar.gz -C /tmp/vgw --strip-components=1
+          mkdir -p /tmp/vgw-data/uni-test
+          ROOT_ACCESS_KEY=uni-test-key ROOT_SECRET_KEY=uni-test-secret \
+            nohup /tmp/vgw/versitygw --port 127.0.0.1:7070 posix /tmp/vgw-data > /tmp/vgw.log 2>&1 &
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:7070/ && exit 0; sleep 1; done
+          cat /tmp/vgw.log; exit 1
       - name: Scala 3.x test
+        env:
+          UNI_S3_TEST_ENDPOINT: http://127.0.0.1:7070
+          UNI_S3_TEST_ACCESS_KEY: uni-test-key
+          UNI_S3_TEST_SECRET_KEY: uni-test-secret
+          UNI_S3_TEST_BUCKET: uni-test
         run: JVM_OPTS="-Xms2g -Xmx4g" ./sbt "projectJVM/test"
       - name: Publish Test Report
         uses: mikepenz/action-junit-report@v6
