@@ -100,7 +100,7 @@ jobs:
           cache: sbt
       - uses: ./.github/actions/sbt-launcher
       - name: scalafmt
-        run: ./sbt scalafmtCheckAll
+        run: ./sbt "scalafmtCheckAll; scalafmtSbtCheck"
       # Test bodies use braces: `test("name") { ... }`. scalafmt cannot rewrite the colon form
       # `test("name"):` back to braces, so reject it here (plans/ keeps historical notes as-is).
       - name: Brace-style test blocks

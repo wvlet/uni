@@ -20,7 +20,7 @@ ThisBuild / versionScheme := Some("pvp")
 // For Sonatype
 ThisBuild / publishTo := {
   val centralSnapshots = "https://central.sonatype.com/repository/maven-snapshots/"
-  if (isSnapshot.value)
+  if isSnapshot.value then
     Some("central-snapshots" at centralSnapshots)
   else
     localStaging.value
@@ -38,49 +38,50 @@ val SCALA_NATIVE_TEST_INTERFACE_VERSION = "0.5.12"
 val SBT_TEST_INTERFACE_VERSION          = "1.0"
 
 // Common build settings
-val buildSettings = Seq[Setting[?]](
-  description        := "Scala 3 utility libraries for JVM, Scala.js, and Scala Native",
-  scalaVersion       := SCALA_3,
-  crossScalaVersions := List(SCALA_3),
-  crossPaths         := true,
-  publishMavenStyle  := true,
-  licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
-  homepage := Some(uri("https://wvlet.org/uni/")),
-  scmInfo  :=
-    Some(
-      ScmInfo(
-        browseUrl = uri("https://github.com/wvlet/uni"),
-        connection = "scm:git:git@github.com:wvlet/uni.git"
+val buildSettings =
+  Seq[Setting[?]](
+    description        := "Scala 3 utility libraries for JVM, Scala.js, and Scala Native",
+    scalaVersion       := SCALA_3,
+    crossScalaVersions := List(SCALA_3),
+    crossPaths         := true,
+    publishMavenStyle  := true,
+    licenses += ("Apache-2.0", uri("https://www.apache.org/licenses/LICENSE-2.0.html")),
+    homepage := Some(uri("https://wvlet.org/uni/")),
+    scmInfo  :=
+      Some(
+        ScmInfo(
+          browseUrl = uri("https://github.com/wvlet/uni"),
+          connection = "scm:git:git@github.com:wvlet/uni.git"
+        )
+      ),
+    developers :=
+      List(
+        Developer(
+          id = "leo",
+          name = "Taro L. Saito",
+          email = "leo@xerial.org",
+          url = uri("http://xerial.org/leo")
+        )
+      ),
+    scalacOptions ++= Seq("-deprecation", "-feature"),
+    Test / parallelExecution := false,
+    // Use UniTest for testing
+    libraryDependencies ++=
+      Seq(
+        // For PreDestroy, PostConstruct annotations
+        "javax.annotation" % "javax.annotation-api" % "1.3.2" % Test
+      ),
+    testFrameworks += new TestFramework("wvlet.uni.test.Framework"),
+    // Tests start many servers, and each logs a start line at INFO. Pass
+    // -l:wvlet.uni.http.JvmHttpServer=info to testOnly to see them again.
+    Test / testOptions +=
+      Tests.Argument(
+        TestFramework("wvlet.uni.test.Framework"),
+        "-l:wvlet.uni.http.JvmHttpServer=warn"
       )
-    ),
-  developers :=
-    List(
-      Developer(
-        id = "leo",
-        name = "Taro L. Saito",
-        email = "leo@xerial.org",
-        url = uri("http://xerial.org/leo")
-      )
-    ),
-  scalacOptions ++= Seq("-deprecation", "-feature"),
-  Test / parallelExecution := false,
-  // Use UniTest for testing
-  libraryDependencies ++=
-    Seq(
-      // For PreDestroy, PostConstruct annotations
-      "javax.annotation" % "javax.annotation-api" % "1.3.2" % Test
-    ),
-  testFrameworks += new TestFramework("wvlet.uni.test.Framework"),
-  // Tests start many servers, and each logs a start line at INFO. Pass
-  // -l:wvlet.uni.http.JvmHttpServer=info to testOnly to see them again.
-  Test / testOptions +=
-    Tests.Argument(
-      TestFramework("wvlet.uni.test.Framework"),
-      "-l:wvlet.uni.http.JvmHttpServer=warn"
-    )
-) ++
-  // Keep -javadoc.jar small for Maven Central's publishing limits (see docs/build/sbt-uni-javadoc.md)
-  minimizeScaladoc
+  ) ++
+    // Keep -javadoc.jar small for Maven Central's publishing limits (see docs/build/sbt-uni-javadoc.md)
+    minimizeScaladoc
 
 val jsBuildSettings = Seq[Setting[?]](
   // Use Node.js environment for tests (required for FileSystem tests).
@@ -154,7 +155,7 @@ lazy val root = project
   // sbt 2.x derives each project's output dir from its name, so the root must not reuse the
   // `uni` library project's name (they would collide on target/out/jvm/.../uni).
   .settings(buildSettings, name := "uni-root", publish / skip := true)
-  .aggregate((jvmProjects ++ jsProjects ++ nativeProjects) *)
+  .aggregate((jvmProjects ++ jsProjects ++ nativeProjects)*)
 
 lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
@@ -184,6 +185,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
   exampleHarnessRenderer,
   test.js
 )
+
 lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
@@ -200,11 +202,11 @@ lazy val projectJVM = project
     // Use a stable coverage directory name without containing scala version
     // coverageDataDir := target.value
   )
-  .aggregate(jvmProjects *)
+  .aggregate(jvmProjects*)
 
-lazy val projectJS = project.settings(noPublish).aggregate(jsProjects *)
+lazy val projectJS = project.settings(noPublish).aggregate(jsProjects*)
 
-lazy val projectNative = project.settings(noPublish).aggregate(nativeProjects *)
+lazy val projectNative = project.settings(noPublish).aggregate(nativeProjects*)
 
 // Core library with logging and reactive streams
 lazy val core = crossProject(JVMPlatform, JSPlatform, NativePlatform)
@@ -279,7 +281,7 @@ lazy val ui = project
           Def.uncached {
             val text = IO.read(css)
             require(!text.contains("\"\"\""), s"${css} must not contain triple quotes")
-            val q    = "\"\"\""
+            val q = "\"\"\""
             IO.write(
               out,
               "package wvlet.uni.ui\n\n" +
@@ -482,8 +484,8 @@ lazy val exampleHttpGarden = crossProject(JVMPlatform, NativePlatform)
   .settings(
     buildSettings,
     noPublish,
-    name        := "uni-example-http-garden",
-    description := "HTTP Garden echo origin for Uni's HTTP servers",
+    name                := "uni-example-http-garden",
+    description         := "HTTP Garden echo origin for Uni's HTTP servers",
     Compile / mainClass := Some("example.garden.GardenEcho")
   )
   .nativeSettings(
