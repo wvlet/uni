@@ -159,20 +159,25 @@ private[http] object ResponseCompression:
                 compress(poolFor(gzipPools, body), body)
               else
                 compress(poolFor(deflatePools, body), body)
-            var headers = response.headers.set(HttpHeader.ContentEncoding, encoding)
+            // One builder for the added headers: each set or add copies the map's arrays. The
+            // guard above ensures Content-Encoding is absent, so adding it equals setting it.
+            val b = response.headers.toBuilder
+            b.add(HttpHeader.ContentEncoding, encoding)
             // The new content has no type of its own, so carry the old content's type as a header
             if !response.headers.contains(HttpHeader.ContentType) then
-              response
-                .content
-                .contentType
-                .foreach(ct => headers = headers.set(HttpHeader.ContentType, ct.value))
+              response.content.contentType match
+                case Some(ct) =>
+                  b.add(HttpHeader.ContentType, ct.value)
+                case None =>
+                  ()
             if !varies(response.headers.getAll(HttpHeader.Vary)) then
-              headers = headers.add(HttpHeader.Vary, HttpHeader.AcceptEncoding)
-            response
-              .headers
-              .get(HttpHeader.ETag)
-              .filter(_.startsWith("\""))
-              .foreach(tag => headers = headers.set(HttpHeader.ETag, s"W/${tag}"))
+              b.add(HttpHeader.Vary, HttpHeader.AcceptEncoding)
+            var headers = b.result()
+            response.headers.get(HttpHeader.ETag) match
+              case Some(tag) if tag.startsWith("\"") =>
+                headers = headers.set(HttpHeader.ETag, s"W/${tag}")
+              case _ =>
+                ()
             response.copy(headers = headers, content = HttpContent.bytes(compressed))
       end if
     end if

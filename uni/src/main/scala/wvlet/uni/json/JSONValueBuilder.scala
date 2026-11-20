@@ -27,7 +27,14 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
   def add(v: JSONValue): Unit                              = {}
 
   // Comment buffering for JSONC support (protected so inner builders access their own instance)
-  protected val pendingLeadingComments    = scala.collection.mutable.ArrayBuffer[JSONComment]()
+  // Created on the first comment: every object and array gets a builder, and plain JSON has none
+  private var pending: scala.collection.mutable.ArrayBuffer[JSONComment] = null
+  protected final def pendingLeadingComments: scala.collection.mutable.ArrayBuffer[JSONComment] =
+    if pending == null then
+      pending = scala.collection.mutable.ArrayBuffer[JSONComment]()
+    pending
+
+  private def hasPendingComments: Boolean = pending != null && pending.nonEmpty
   protected var lastAddedValue: JSONValue = null
 
   override def addComment(comment: JSONComment, isTrailing: Boolean): Unit =
@@ -37,7 +44,7 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
       pendingLeadingComments += comment
 
   protected def attachPendingComments(v: JSONValue): Unit =
-    if pendingLeadingComments.nonEmpty then
+    if hasPendingComments then
       v.leadingComments = pendingLeadingComments.toSeq
       pendingLeadingComments.clear()
     lastAddedValue = v
@@ -47,7 +54,7 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
     * JSONComment. Attaches to last element as trailing, or to container as leading if empty.
     */
   protected def flushOrphanedComments(container: JSONValue): Unit =
-    if pendingLeadingComments.nonEmpty then
+    if hasPendingComments then
       val merged = JSONComment(pendingLeadingComments.map(_.text).mkString("\n"))
       if lastAddedValue != null then
         // Merge with existing trailing comment if present
