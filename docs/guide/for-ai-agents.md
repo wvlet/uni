@@ -78,6 +78,9 @@ testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 
 // Optional, JVM only: serve Http.server on Netty instead of the built-in server
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+
+// Optional, all platforms: read Apache Parquet files
+libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
 ```
 
 Uni requires Scala `__SCALA_VERSION__` or later. On sbt 2.x, use `%%` for all
@@ -101,6 +104,7 @@ See [Newest Releases](./installation#newest-releases).
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`. To edit in place and keep comments: `YAML.parseDocument(text).set(path, v).toYaml` (`YAML.parseDocuments` and `YAML.writeStream` for `---` streams), `Frontmatter.parse(md).update(json).toText`. See [YAML](../text/yaml) |
 | Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)` for the AST, `.frontmatterAs[P]` for a YAML header, and `.toMarkdown` to write an edited AST (including `frontmatter`) back losslessly. See [Markdown](../text/markdown) |
 | Cron schedules | `wvlet.uni.text.cron.{Cron, UtcOffset}` | `Cron.parse("30 9 * * MON-FRI")`, `.next(instant)` / `.nextN(instant, n)` (UTC, or a fixed `UtcOffset`; resolve named zones yourself), `.matches(instant)`, `.describe` ("At 09:30, Monday through Friday"). 5 or 6 fields, macros like `@daily`, Vixie day-of-month/day-of-week semantics. See [Cron](../text/cron) |
+| Parquet files (`uni-parquet` artifact) | `wvlet.uni.parquet.{Parquet, ParquetReadOptions, RowGroupFilter}` | `Parquet.readAs[A](path)` (columns matched to fields by name), `Parquet.open(path or bytes)` then `.readAs[A](ParquetReadOptions.default.withColumns(...))` or `.readRowGroup(i)` for unboxed `ColumnVector`s; `Parquet.openUrl(url)` reads over HTTP Range requests (`openUrlAsync` + `readAllAsync[A]()` in browsers); `.withRowGroupFilter(RowGroupFilter.col("ts") >= instant)` skips row groups by statistics. Pure Scala on every platform, with Snappy, Gzip, ZSTD, LZ4, and Brotli built in; read-only. See [Parquet](../text/parquet) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`, `.scan(init)(f)` (running value), `itemsRx.split(_.id)` (one stable `Rx` per key, completed when the key leaves), `.onCancel(f)` (cleanup when a subscriber cancels early) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [SettingStore](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |

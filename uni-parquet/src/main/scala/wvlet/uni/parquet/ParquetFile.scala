@@ -52,9 +52,17 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val data = plan.ranges.map(r => r -> src.read(r.offset, r.length))
     decode(plan, data)
 
-  /** Reads every row group in order */
+  /** Indices of the row groups to read: all of them, minus those the row group filter skips */
+  def selectRowGroups(options: ParquetReadOptions = ParquetReadOptions.default): IndexedSeq[Int] =
+    options.rowGroupFilter match
+      case None =>
+        0 until numRowGroups
+      case Some(f) =>
+        (0 until numRowGroups).filter(i => RowGroupFilter.mayMatch(f, schema, rowGroups(i)))
+
+  /** Reads the selected row groups in order */
   def readBatches(options: ParquetReadOptions = ParquetReadOptions.default): Iterator[ColumnBatch] =
-    (0 until numRowGroups).iterator.map(readRowGroup(_, options))
+    selectRowGroups(options).iterator.map(readRowGroup(_, options))
 
   /** Reads every row into `A` through Weaver. Columns are matched to fields by name. */
   def readAs[A](options: ParquetReadOptions = ParquetReadOptions.default)(using
@@ -84,13 +92,13 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
 
   /** Emits each row group's batch in order */
   def readBatchesAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[ColumnBatch] =
-    Rx.concatRx((0 until numRowGroups).map(readRowGroupAsync(_, options)))
+    Rx.concatRx(selectRowGroups(options).map(readRowGroupAsync(_, options)))
 
   /** Emits every row decoded into `A` */
   def readAsAsync[A](
       options: ParquetReadOptions = ParquetReadOptions.default
   )(using weaver: Weaver[A]): Rx[A] = Rx.concatRx(
-    (0 until numRowGroups).map(i =>
+    selectRowGroups(options).map(i =>
       readRowGroupAsync(i, options).flatMap(b =>
         Rx.fromSeq(ParquetFile.rows(b, weaver, options).toSeq)
       )
@@ -101,7 +109,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   def readAllAsync[A](
       options: ParquetReadOptions = ParquetReadOptions.default
   )(using weaver: Weaver[A]): Rx[Seq[A]] = ParquetFile
-    .sequence((0 until numRowGroups).map(readRowGroupAsync(_, options)))
+    .sequence(selectRowGroups(options).map(readRowGroupAsync(_, options)))
     .map(_.flatMap(b => ParquetFile.rows(b, weaver, options)))
 
   // ---- Planning and decoding ----

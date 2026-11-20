@@ -29,6 +29,7 @@ available unless a row says otherwise.
 | [YAML](./text/yaml) | YAML 1.2 parser with Weaver decoding and frontmatter |
 | [Markdown](./text/markdown) | CommonMark + GFM parser and safe HTML renderer |
 | [Cron](./text/cron) | Cron expressions with next-run times and English descriptions |
+| [Parquet](./text/parquet) | Pure-Scala Apache Parquet reader for files, bytes, and HTTP ranges (`uni-parquet` artifact) |
 
 ## Files & Memory
 

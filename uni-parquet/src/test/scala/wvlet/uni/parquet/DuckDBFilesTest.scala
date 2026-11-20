@@ -189,3 +189,90 @@ class DuckDBFilesTest extends UniTest:
   }
 
 end DuckDBFilesTest
+
+class RowGroupFilterTest extends UniTest:
+  FileSystemInit.init()
+  import RowGroupFilter.*
+
+  private val file = Parquet.open(TestFiles.bytes("duckdb/all_snappy_V1.parquet"))
+
+  private def groups(f: RowGroupFilter): Seq[Int] = file.selectRowGroups(
+    ParquetReadOptions.default.withRowGroupFilter(f)
+  )
+
+  // Row group 0 holds ids 0-2047; row group 1 holds 2048-2999
+  test("skip row groups by integer ranges") {
+    groups(col("id") >= 2500L) shouldBe Seq(1)
+    groups(col("id") < 100) shouldBe Seq(0)
+    groups(col("id") === 2047) shouldBe Seq(0)
+    groups(col("id") > 5000) shouldBe Seq.empty
+    groups(col("id") < 0 || col("id") > 2999) shouldBe Seq.empty
+    groups(col("id") >= 0 && col("id") <= 2999) shouldBe Seq(0, 1)
+  }
+
+  test("skip row groups by timestamps, dates, and strings") {
+    groups(col("ts") >= java.time.Instant.parse("2020-01-01T00:40:00Z")) shouldBe Seq(1)
+    groups(col("dt") <= java.time.LocalDate.of(2020, 1, 10)) shouldBe Seq(0)
+    // "name-5" sorts after every name in row group 1 ("name-2048" to "name-2999")
+    groups(col("name") === "name-5") shouldBe Seq(0)
+  }
+
+  test("skip row groups by null counts") {
+    groups(col("id").isNull) shouldBe Seq.empty
+    groups(col("name").isNull) shouldBe Seq(0, 1)
+  }
+
+  test("keep row groups when statistics cannot decide") {
+    groups(col("dec") > BigDecimal(1)) shouldBe Seq(0, 1)
+    groups(col("no_such_column") === 1) shouldBe Seq(0, 1)
+  }
+
+  test("read only the selected row groups") {
+    val ids =
+      file
+        .readBatches(ParquetReadOptions.default.withRowGroupFilter(col("id") >= 2500))
+        .map(_.numRows)
+        .toSeq
+    ids shouldBe Seq(952)
+  }
+
+end RowGroupFilterTest
+
+class CorruptFileTest extends UniTest:
+  FileSystemInit.init()
+
+  test("fail with ParquetException on corrupted files") {
+    val good     = TestFiles.bytes("duckdb/all_snappy_V2.parquet")
+    val rnd      = scala.util.Random(7)
+    var failures = 0
+    for i <- 0 until 150 do
+      val bad = good.clone()
+      for _ <- 0 until 4 do
+        val p = 4 + rnd.nextInt(bad.length - 12)
+        bad(p) = (bad(p) ^ (1 + rnd.nextInt(255))).toByte
+      try
+        val f = Parquet.open(bad)
+        f.readBatches().foreach(_ => ())
+      catch
+        case _: ParquetException =>
+          failures += 1
+    // Most corruptions are detected; the rest decode to wrong values but never crash
+    (failures > 0) shouldBe true
+  }
+
+  test("reject truncated files") {
+    val good = TestFiles.bytes("duckdb/all_snappy_V2.parquet")
+    for len <- Seq(0, 4, 11, 100, good.length / 2, good.length - 1) do
+      intercept[ParquetException] {
+        Parquet.open(java.util.Arrays.copyOf(good, len)).readBatches().foreach(_ => ())
+      }
+  }
+
+  test("reject files that are not Parquet") {
+    val e = intercept[ParquetException] {
+      Parquet.open("not a parquet file at all".getBytes("UTF-8"))
+    }
+    e.getMessage shouldContain "not a Parquet file"
+  }
+
+end CorruptFileTest

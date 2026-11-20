@@ -326,16 +326,5 @@ the JVM for the column path in phase 1, and tighter after phase 4.
 
 - 2026-11-20: Compression codecs live in `uni-parquet` (`private[parquet]`) for now.
 - 2026-11-20: HTTP range reading is part of phase 1.
-
-## Open questions
-
-1. Should `readAs` decode by field name or by position?
-   - By name: the unpacker presents each row as a map. A case class can declare a subset of the
-     columns in any order, missing optional fields become `None`, and files whose column order
-     differs still decode. The cost is matching field names for each row. Weaver could resolve
-     names once per batch and cache the mapping, which removes most of that cost.
-   - By position: the unpacker presents each row as an array in schema order. Faster, but it breaks
-     silently when column order or count differs between files.
-   - Leaning: by name, with the field-to-column mapping resolved once per schema. Add positional
-     decoding only if benchmarks show the name lookup matters. Decide once `ColumnBatchUnpacker`
-     exists and can be measured.
+- 2026-11-20: `readAs` decodes by field name. Weaver already matches names loosely
+  (`user_id` fills `userId`), and positional decoding breaks when files differ in column order.

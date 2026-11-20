@@ -103,17 +103,6 @@ private[parquet] case class PageHeader(
     dictionaryPage: Option[DictionaryPageHeader]
 )
 
-private[parquet] case class PageLocation(offset: Long, compressedPageSize: Int, firstRowIndex: Long)
-
-private[parquet] case class OffsetIndex(pageLocations: IndexedSeq[PageLocation])
-
-private[parquet] case class ColumnIndex(
-    nullPages: IndexedSeq[Boolean],
-    minValues: IndexedSeq[Array[Byte]],
-    maxValues: IndexedSeq[Array[Byte]],
-    nullCounts: Option[IndexedSeq[Long]]
-)
-
 /** Converts decoded Thrift structs into metadata classes */
 private[parquet] object MetadataDecoder:
 
@@ -301,51 +290,6 @@ private[parquet] object MetadataDecoder:
       .map { d =>
         DictionaryPageHeader(d.int(1, "num_values"), Encoding.of(d.intOpt(2).getOrElse(0)))
       }
-  )
-
-  def offsetIndex(s: TStruct): OffsetIndex = OffsetIndex(
-    s.structList(1)
-      .map { p =>
-        PageLocation(
-          p.long(1, "offset"),
-          p.int(2, "compressed_page_size"),
-          p.long(3, "first_row_index")
-        )
-      }
-  )
-
-  def columnIndex(s: TStruct): ColumnIndex = ColumnIndex(
-    nullPages = s
-      .list(1)
-      .map {
-        case b: Boolean =>
-          b
-        case _ =>
-          false
-      },
-    minValues = s
-      .list(2)
-      .collect { case b: Array[Byte] =>
-        b
-      },
-    maxValues = s
-      .list(3)
-      .collect { case b: Array[Byte] =>
-        b
-      },
-    nullCounts =
-      if s.has(5) then
-        Some(
-          s.list(5)
-            .collect {
-              case l: Long =>
-                l
-              case i: Int =>
-                i.toLong
-            }
-        )
-      else
-        None
   )
 
 end MetadataDecoder

@@ -166,7 +166,8 @@ const moduleGroups = [
       { text: 'MessagePack', link: '/core/msgpack' },
       { text: 'YAML', link: '/text/yaml' },
       { text: 'Markdown', link: '/text/markdown' },
-      { text: 'Cron', link: '/text/cron' }
+      { text: 'Cron', link: '/text/cron' },
+      { text: 'Parquet', link: '/text/parquet' }
     ]
   },
   {
