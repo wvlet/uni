@@ -261,7 +261,22 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   )
   .jvmSettings(jvmNativeSharedSources)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
-  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
+  .nativeSettings(
+    nativeBuildSettings,
+    jvmNativeSharedSources,
+    minimizeJavadoc,
+    // HttpRangeTest runs a multi-threaded Http.server and Parquet decoding in the test binary.
+    // Scala Native 0.5.12's Immix can free live objects when several threads allocate at once
+    // (scala-native#5046, #5160), which crashed this binary with SIGSEGV on Linux x86_64 CI. Link
+    // tests with Boehm, as exampleRpcNative does (adr/2026-10-30-native-server-boehm-gc.md),
+    // except on Windows, whose CI runner has no libgc.
+    Test / nativeConfig ~= { c =>
+      if scala.util.Properties.isWin then
+        c
+      else
+        c.withGC(scala.scalanative.build.GC.boehm)
+    }
+  )
   .dependsOn(uni, test % Test)
 
 lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under target/npm")
