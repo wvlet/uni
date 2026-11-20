@@ -2,17 +2,17 @@
 title: "Scala Without the JVM: Close to Rust's Speed, With 25x Less Memory Than the JVM"
 date: 2026-11-19
 author: Taro L. Saito
-description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's HTTP server built this way comes close to Rust and the JVM in throughput, using about 25x less memory than the JVM. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
+description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's HTTP server built this way comes close to Rust and the JVM in throughput while using about 25x less memory than the JVM. Benchmarks next to the JVM, Node.js, Python, Ruby, and Rust, and what it took to get there."
 image: /blog/native-server-performance.png
 ---
 
 # Scala Without the JVM: Close to Rust's Speed, With 25x Less Memory Than the JVM
 
-**Compiled with Scala Native, uni's HTTP server comes close to Rust and the JVM in throughput, while using about 25x less memory than the JVM.** Serving the same endpoint on the same machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with uni on the JVM on a small RPC response and reaches about 80% of it on a 3.4 KB one. It does this in 25–28 MB of memory, where the JVM build used 590–614 MB and 650 MB.
+**Compiled with Scala Native, uni's HTTP server comes close to Rust and the JVM in throughput while using about 25x less memory than the JVM.** On the same endpoint and machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with uni on the JVM on a small RPC response and reaches about 80% of the JVM's throughput on a 3.4 KB one, all in 25–28 MB of memory, where the JVM build used 590–614 MB and 650 MB.
 
-Below are the results next to Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine, then how we got there: a day earlier, the native server was about 5x slower than the JVM on the small response and about 50x slower on the larger one.
+Below are the results next to Node.js, Python, Ruby, and Rust, followed by how we got there. A day earlier, the native server was about 5x slower than the JVM on the small response and about 50x slower on the larger one.
 
-The bigger point: you can write Scala without being tied to the JVM. The same uni code runs on the JVM when you want its peak throughput, and as a small native binary when you want low memory and nothing to install, while you write ordinary garbage-collected Scala rather than managing memory ownership by hand.
+The bigger point is that Scala doesn't tie you to the JVM. The same uni code runs on the JVM when you want its peak throughput, or as a small native binary when you want low memory and nothing to install. Either way, you write ordinary garbage-collected Scala instead of managing memory ownership by hand.
 
 ![Scala Without the JVM: close to Rust's speed, with 25x less memory than the JVM. A hand-drawn highway runs left to right under an overhead sign with that title. On the left, cars labelled "req" queue at one small toll booth with a padlock, beside a sign listing the bottleneck: Boehm GC's global lock, 462 KB allocated per response, and 15 marker threads per collection. A speedometer sign shows uni on Scala Native going from 22.7k to 104k req/s on a small response and from 1.6k to 74k req/s on a 3.4 KB one. In the middle, a road crew widens the road beside a chalkboard of fixes: leaner headers and JSON, one GC marker thread, a 16 MB starting heap, and pooled buffers and zlib. On the right, a unicorn races a crab, a coffee cup, green hexagons, a ruby, and a snake toward a finish banner reading "Allocation was the bottleneck, not Scala Native". Signs show the 3.4 KB results (Rust 89k, JVM 94k, Node ×16 79k, uni Native 74k, Ruby ×16 45k, Python ×16 30k), memory on a luggage scale (uni Native 27 MB, JVM 650 MB, Node ×16 3 GB), and what's next: Immix GC in Scala Native 0.5.13.](/blog/native-server-performance.webp)
 
@@ -20,7 +20,7 @@ The bigger point: you can write Scala without being tied to the JVM. The same un
 
 [Scala Native](https://scala-native.org/) is an ahead-of-time compiler for Scala. Instead of JVM bytecode, it compiles your Scala code, the standard library, and its dependencies through LLVM into one native executable. That executable carries its own small runtime and garbage collector, so it runs without a JVM. You can choose between collectors at build time: Scala Native's own Immix and Commix, or Boehm, a conservative collector that is widely used from C.
 
-Uni is built to cross-compile: its modules compile for the JVM, Scala.js, and Scala Native from one code base. An application written with uni, such as an RPC service with its HTTP server, can target the JVM or a native binary without rewriting anything. The choice of runtime becomes a deployment decision instead of a language decision. That only pays off if the native build is fast, which is what this post measures.
+Uni cross-compiles: its modules build for the JVM, Scala.js, and Scala Native from one code base. An application written with uni, such as an RPC service with its HTTP server, can target the JVM or a native binary without rewriting anything. The choice of runtime becomes a deployment decision instead of a language decision. That only pays off if the native build is fast, which is what this post measures.
 
 ```mermaid
 flowchart LR
@@ -50,7 +50,7 @@ flowchart LR
 
 `Http.server` is the same call on every platform; uni picks the server for each one. This post measures the JVM and Scala Native builds. The Node.js rows in the comparison below are a plain Node.js server, not uni on Scala.js.
 
-Here is a complete server, simplified from the rpc-native example, which also wires the server with `Design` so its tests can start it. Nothing in it is platform-specific:
+Here is a complete server, simplified from the rpc-native example (which also wires it with `Design` so its tests can start it). Nothing in it is platform-specific:
 
 ```scala
 import wvlet.uni.http.Http
@@ -90,13 +90,13 @@ class TodoApiImpl extends TodoApi:
 
 `derives Weaver` gives `Todo` its JSON and MessagePack codecs. `RPCRouter.of[TodoApi]` turns each method of the trait into an endpoint, such as `POST /example.rpc.TodoApi/list`, and `RPCDispatcher` serves them on whichever server `Http.server` starts. A client calls the service through the same `TodoApi` trait, so calls are checked at compile time.
 
-This is also where Scala and Rust differ most. Rust gives you precise control over memory through ownership and borrowing, checked by the compiler, and that is a big part of why it uses the least CPU and memory in the results below. Scala Native keeps a garbage collector instead, so the code above is everyday Scala: case classes, traits, and shared collections, with no ownership or lifetimes to think about. Getting close to Rust's throughput while writing code like this is a good trade for many services.
+This is where Scala and Rust take different paths. Rust gives you precise control over memory through ownership and borrowing, checked by the compiler, and that is a big part of why it uses the least CPU and memory in the results below. Scala Native keeps a garbage collector instead, so the code above is everyday Scala: case classes, traits, and shared collections, with no ownership or lifetimes to think about. Getting close to Rust's throughput while writing code like this is a good trade for many services.
 
 ## Results
 
-For context, we wrote the same endpoint in Node.js, Python, Ruby, and Rust, each with a common production setup. Every server returns the same JSON, sorted by id and gzipped at 1 KB and above. The code is in [`examples/rpc-native/bench/other-servers`](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench/other-servers). Node.js, Python, and Ruby usually run one process per core in production, so we measured each both as a single process and as 16 processes, matching uni's 16 worker threads. Memory is the sum over all processes.
+We wrote the same endpoint in Node.js, Python, Ruby, and Rust, each in a common production setup; the code is in [`examples/rpc-native/bench/other-servers`](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench/other-servers). Every server returns the same JSON, sorted by id and gzipped at 1 KB and above. Node.js, Python, and Ruby usually run one process per core in production, so we measured each both as a single process and as 16 processes, matching uni's 16 worker threads. Memory is summed over all processes.
 
-Here is the 3.4 KB response with 16 connections. Rust runs axum with a tokio worker per core; Node.js, Ruby (Puma), and Python (FastAPI) run as 16 processes, marked ×16.
+**3.4 KB response (50 todos), 16 connections.** Rust runs axum with a tokio worker per core, and ×16 marks Node.js, Ruby (Puma), and Python (FastAPI) running as 16 processes.
 
 <div class="bench-chart">
 <figure class="bench-panel">
@@ -119,7 +119,30 @@ Here is the 3.4 KB response with 16 connections. Rust runs axum with a tokio wor
 </figure>
 </div>
 
-Rust's memory is the top of its 14–24 MB range. The full results, including single-process runs, 64 connections, and CPU per request:
+**Small response (1 todo, about 70 bytes), 16 connections.** Several servers reach the limit of the load generator here, which shares the machine, so their throughput sits closer together than their CPU use. The CPU per request column below tells them apart.
+
+<div class="bench-chart">
+<figure class="bench-panel">
+<figcaption>Throughput <span>thousand req/s, higher is better</span></figcaption>
+<div class="bench-uni" title="Uni Native: 104k"><span>Uni Native</span><i><b style="width:83.2%"></b></i><em>104k</em></div>
+<div title="Uni JVM: 99k"><span>Uni JVM</span><i><b style="width:79.2%"></b></i><em>99k</em></div>
+<div title="Rust: 125k"><span>Rust</span><i><b style="width:100.0%"></b></i><em>125k</em></div>
+<div title="Node ×16: 95k"><span>Node ×16</span><i><b style="width:76.0%"></b></i><em>95k</em></div>
+<div title="Ruby ×16: 88k"><span>Ruby ×16</span><i><b style="width:70.4%"></b></i><em>88k</em></div>
+<div title="Python ×16: 75k"><span>Python ×16</span><i><b style="width:60.0%"></b></i><em>75k</em></div>
+</figure>
+<figure class="bench-panel">
+<figcaption>Memory <span>MB, lower is better</span></figcaption>
+<div class="bench-uni" title="Uni Native: 25 MB"><span>Uni Native</span><i><b style="width:2.0%"></b></i><em>25 MB</em></div>
+<div title="Uni JVM: 590–614 MB"><span>Uni JVM</span><i><b style="width:49.1%"></b></i><em>590–614 MB</em></div>
+<div title="Rust: 6–9 MB"><span>Rust</span><i><b style="width:0.7%"></b></i><em>6–9 MB</em></div>
+<div title="Node ×16: 1,250 MB"><span>Node ×16</span><i><b style="width:100.0%"></b></i><em>1,250 MB</em></div>
+<div title="Ruby ×16: 440 MB"><span>Ruby ×16</span><i><b style="width:35.2%"></b></i><em>440 MB</em></div>
+<div title="Python ×16: 940 MB"><span>Python ×16</span><i><b style="width:75.2%"></b></i><em>940 MB</em></div>
+</figure>
+</div>
+
+Where the tables give a range of memory, the bar shows its top. The full results, including single-process runs, 64 connections, and CPU per request:
 
 **50 todos (3.4 KB of JSON, gzipped):**
 
@@ -147,16 +170,15 @@ Rust's memory is the top of its 14–24 MB range. The full results, including si
 | Ruby (Puma), 16 workers | 88k | 96k | 67–77 µs | 440 MB |
 | Python (FastAPI on uvicorn), 16 workers | 75k | 97k | 108 µs | 940 MB |
 
-On the small response, several servers hit the limit of the load generator, which shares the machine, so compare CPU per request there rather than requests per second.
 
 ## Reading the numbers
 
-- **Rust with axum is the reference point.** It serves the most requests with the least CPU and memory. Uni on Scala Native reaches about 80% of its throughput at about 1.7x its CPU per request on the 3.4 KB response.
+- **Rust with axum is the reference point.** It serves the most requests with the least CPU and memory. On the 3.4 KB response, uni on Scala Native reaches about 80% of its throughput at about 1.7x its CPU per request.
 - **The JVM is still the fastest way to run uni on larger responses**, thanks to its JIT and thread-local allocation. Scala Native gives up about 20% of that throughput for a memory footprint about 25x smaller and a single binary with no JVM to install.
 - **Node.js is remarkably efficient per request.** A single process used only 10–26 µs of CPU per request. Because it runs on one core, using the whole machine takes a cluster, and 16 processes used 3 GB here.
 - **Python and Ruby are productive, mature choices.** FastAPI and Puma make web services quick to build, and with one process per core they serve tens of thousands of requests per second, plenty for many services.
 
-In short, uni on Scala Native comes close to Rust on small responses, and close to the JVM on larger ones at a fraction of the JVM's memory. On the small response it also uses less CPU per request than the JVM.
+In short, uni on Scala Native comes close to Rust on small responses and close to the JVM on larger ones, at a fraction of the JVM's memory. On the small response it also uses less CPU per request than the JVM.
 
 ## How we got here
 
@@ -215,7 +237,7 @@ To reproduce uni's numbers, build the binary and JVM jars with [`examples/rpc-na
 .bench-panel { margin: 0; }
 .bench-panel figcaption { font-size: 14px; font-weight: 600; color: var(--vp-c-text-1); margin-bottom: 8px; }
 .bench-panel figcaption span { font-weight: 400; color: var(--vp-c-text-3); margin-left: 4px; font-size: 12px; }
-.bench-panel > div { display: grid; grid-template-columns: 6.5em 1fr 5.2em; white-space: nowrap; align-items: center; gap: 8px; font-size: 13px; line-height: 26px; color: var(--vp-c-text-2); }
+.bench-panel > div { display: grid; grid-template-columns: 6.5em 1fr 6.4em; white-space: nowrap; align-items: center; gap: 8px; font-size: 13px; line-height: 26px; color: var(--vp-c-text-2); }
 .bench-panel > div i { display: block; height: 10px; }
 .bench-panel > div b { display: block; height: 100%; min-width: 3px; border-radius: 0 4px 4px 0; background: var(--vp-c-text-3); }
 .bench-panel > div em { font-style: normal; text-align: right; font-variant-numeric: tabular-nums; }
