@@ -69,6 +69,8 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
+#include <signal.h>
+#include <time.h>
 
 #endif
 
@@ -185,3 +187,66 @@ int uni_curl_easy_getinfo_long(void *handle, int info, long *value) {
   uni_curl_shim_ensure_init();
   return uni_curl_getinfo_p(handle, info, value);
 }
+
+/*
+ * Keep SIGPIPE on the calling thread for the duration of a transfer.
+ *
+ * CurlChannel sets CURLOPT_NOSIGNAL, as libcurl requires in multithreaded programs. Without it,
+ * libcurl ignores SIGPIPE by swapping the *process-wide* disposition to SIG_IGN around every call
+ * and back afterwards, so concurrent transfers race and other threads see the swap. With it, curl
+ * relies on MSG_NOSIGNAL / SO_NOSIGPIPE for its own writes, but curl 7.x hands OpenSSL the raw fd
+ * (SSL_set_fd), and OpenSSL's writes then raise SIGPIPE on Linux when the peer has closed.
+ *
+ * Blocking SIGPIPE in this thread's mask instead turns such a write into an EPIPE error and leaves the
+ * signal pending on this thread alone; uni_curl_sigpipe_unblock discards it before unblocking. This
+ * references only libc and pthread, never libcurl (see adr/2026-07-06-curl-shim-weak-linking.md).
+ *
+ * uni_curl_sigpipe_block returns whether SIGPIPE was already blocked; pass that to
+ * uni_curl_sigpipe_unblock, which then leaves the mask and any pending SIGPIPE to the caller.
+ */
+#if defined(_WIN32)
+
+/* Windows has no SIGPIPE: a send to a closed peer fails with WSAECONNRESET. */
+int uni_curl_sigpipe_block(void) { return 1; }
+
+void uni_curl_sigpipe_unblock(int was_blocked) { (void)was_blocked; }
+
+#else
+
+int uni_curl_sigpipe_block(void) {
+  sigset_t pipe_set;
+  sigset_t old_set;
+  sigemptyset(&pipe_set);
+  sigaddset(&pipe_set, SIGPIPE);
+  if (pthread_sigmask(SIG_BLOCK, &pipe_set, &old_set) != 0) {
+    /* Nothing changed, so there is nothing to undo */
+    return 1;
+  }
+  return sigismember(&old_set, SIGPIPE) == 1;
+}
+
+void uni_curl_sigpipe_unblock(int was_blocked) {
+  if (was_blocked) {
+    return;
+  }
+  sigset_t pipe_set;
+  sigemptyset(&pipe_set);
+  sigaddset(&pipe_set, SIGPIPE);
+
+  /* Discard a SIGPIPE raised while blocked, without waiting when there is none */
+#if defined(__APPLE__)
+  /* macOS has no sigtimedwait. sigwait blocks until a SIGPIPE is pending, so check first. */
+  sigset_t pending;
+  if (sigpending(&pending) == 0 && sigismember(&pending, SIGPIPE) == 1) {
+    int sig;
+    sigwait(&pipe_set, &sig);
+  }
+#else
+  struct timespec no_wait = {0, 0};
+  while (sigtimedwait(&pipe_set, NULL, &no_wait) == SIGPIPE) {
+  }
+#endif
+  pthread_sigmask(SIG_UNBLOCK, &pipe_set, NULL);
+}
+
+#endif

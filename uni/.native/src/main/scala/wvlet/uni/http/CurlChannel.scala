@@ -137,7 +137,7 @@ class CurlChannel extends HttpChannel:
     */
   private def withTransfer[A](request: HttpRequest, config: HttpClientConfig)(
       body: (CURL, Ptr[ResponseBuffer], Ptr[ResponseBuffer]) => A
-  ): A =
+  ): A = withSigpipeBlocked {
     val curl = curl_easy_init()
     if curl == null then
       throw IOException("Failed to initialize curl handle")
@@ -148,6 +148,11 @@ class CurlChannel extends HttpChannel:
 
     try
       Zone.acquire { implicit z =>
+        // Keep curl from touching signals: a SIGALRM DNS timeout, or a process-wide SIGPIPE swap
+        // per call, is unsafe with other threads running. libcurl requires this in multithreaded
+        // programs; withSigpipeBlocked covers SIGPIPE instead.
+        curl_easy_setopt_long(curl, CURLOPT_NOSIGNAL, 1L)
+
         // Set URL
         checkCurlError(
           curl_easy_setopt_str(curl, CURLOPT_URL, toCString(request.fullUri)),
@@ -232,6 +237,7 @@ class CurlChannel extends HttpChannel:
       freeResponseBuffer(headerBuffer)
       curl_easy_cleanup(curl)
     end try
+  }
 
   end withTransfer
 
