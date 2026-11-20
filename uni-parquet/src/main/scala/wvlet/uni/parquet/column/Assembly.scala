@@ -48,9 +48,11 @@ private[parquet] object Assembly:
       a(m) = c
       a
 
-  /** Instance ranges of one node for one leaf */
-  private final class Ranges(val starts: Array[Int], val ends: Array[Int]):
-    def size: Int = starts.length
+  /**
+    * Instance ranges of one node for one leaf. The arrays are sized for the most instances the leaf
+    * can hold, so they are filled without growing; callers know the instance count.
+    */
+  private final class Ranges(val starts: Array[Int], val ends: Array[Int])
 
   private type Instances = Map[Int, Ranges]
 
@@ -75,33 +77,37 @@ private[parquet] object Assembly:
         throw ParquetException.corrupt(
           s"column ${leaf.data.field.pathString} has ${leaf.m} values, expected ${numRows} rows"
         )
-      val starts = Array.tabulate(numRows)(identity)
-      Ranges(starts, Array.tabulate(numRows)(_ + 1))
+      val starts = new Array[Int](numRows)
+      val ends   = new Array[Int](numRows)
+      var i      = 0
+      while i < numRows do
+        starts(i) = i
+        ends(i) = i + 1
+        i += 1
+      Ranges(starts, ends)
     else
-      val starts = Array.newBuilder[Int]
+      val starts = new Array[Int](numRows)
+      val ends   = new Array[Int](numRows)
+      var c      = 0
       var i      = 0
       while i < leaf.m do
         if leaf.r(i) == 0 then
-          starts += i
+          if c == numRows then
+            throw ParquetException.corrupt(
+              s"column ${leaf.data.field.pathString} has more than ${numRows} rows"
+            )
+          if c > 0 then
+            ends(c - 1) = i
+          starts(c) = i
+          c += 1
         i += 1
-      val s = starts.result()
-      if s.length != numRows || (leaf.m > 0 && leaf.r(0) != 0) then
+      if c > 0 then
+        ends(c - 1) = leaf.m
+      if c != numRows || (leaf.m > 0 && leaf.r(0) != 0) then
         throw ParquetException.corrupt(
-          s"column ${leaf.data.field.pathString} has ${s.length} rows, expected ${numRows}"
+          s"column ${leaf.data.field.pathString} has ${c} rows, expected ${numRows}"
         )
-      Ranges(s, endsOf(s, leaf.m))
-
-  private def endsOf(starts: Array[Int], last: Int): Array[Int] =
-    val ends = new Array[Int](starts.length)
-    var i    = 0
-    while i < starts.length do
-      ends(i) =
-        if i + 1 < starts.length then
-          starts(i + 1)
-        else
-          last
-      i += 1
-    ends
+      Ranges(starts, ends)
 
   private def leafIndices(f: ParquetField): Seq[Int] =
     f match
@@ -232,8 +238,9 @@ private[parquet] object Assembly:
         .map { idx =>
           val leaf   = leaves(idx)
           val ranges = inst(idx)
-          val starts = Array.newBuilder[Int]
-          val ends   = Array.newBuilder[Int]
+          // Each element starts at its own level entry, so a leaf holds at most m elements
+          val starts = new Array[Int](leaf.m)
+          val ends   = new Array[Int](leaf.m)
           val offs   = new Array[Int](n + 1)
           var c      = 0
           var k      = 0
@@ -246,8 +253,8 @@ private[parquet] object Assembly:
               var i         = s + 1
               while i < e do
                 if leaf.r(i) == rep then
-                  starts += elemStart
-                  ends += i
+                  starts(c) = elemStart
+                  ends(c) = i
                   c += 1
                   elemStart = i
                 else if leaf.r(i) < rep then
@@ -255,8 +262,8 @@ private[parquet] object Assembly:
                     s"column ${leaf.data.field.pathString} has an unexpected repetition level"
                   )
                 i += 1
-              starts += elemStart
-              ends += e
+              starts(c) = elemStart
+              ends(c) = e
               c += 1
             k += 1
           offs(n) = c
@@ -267,7 +274,7 @@ private[parquet] object Assembly:
             throw ParquetException.corrupt(
               s"columns below ${f.pathString} disagree on the number of list elements"
             )
-          idx -> Ranges(starts.result(), ends.result())
+          idx -> Ranges(starts, ends)
         }
         .toMap
     if offsets == null then
@@ -277,6 +284,42 @@ private[parquet] object Assembly:
   end splitRepeated
 
   private def buildLeaf(
+      p: ParquetField.Primitive,
+      leaf: Leaf,
+      ranges: Ranges,
+      n: Int
+  ): ColumnVector =
+    // Every entry holds a value (no nulls at this leaf) and instance k is entry k: true for flat
+    // required columns and for required leaves of lists. The decoded buffer is then the vector.
+    if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
+      directLeaf(p, leaf.data.values, n)
+    else
+      gatherLeaf(p, leaf, ranges, n)
+
+  private def isIdentity(ranges: Ranges, n: Int): Boolean =
+    var k = 0
+    while k < n && ranges.starts(k) == k do
+      k += 1
+    k == n
+
+  private def directLeaf(p: ParquetField.Primitive, values: ValueBuffer, n: Int): ColumnVector =
+    import java.util.Arrays.copyOf
+    values match
+      case b: BooleanBuffer =>
+        BooleanColumn(p, copyOf(b.values, n), null)
+      case b: IntBuffer =>
+        IntColumn(p, copyOf(b.values, n), null)
+      case b: LongBuffer =>
+        LongColumn(p, copyOf(b.values, n), null)
+      case b: FloatBuffer =>
+        FloatColumn(p, copyOf(b.values, n), null)
+      case b: DoubleBuffer =>
+        DoubleColumn(p, copyOf(b.values, n), null)
+      case b: BinaryBuffer =>
+        // The buffer's offsets start at 0; its data array is shared
+        BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null)
+
+  private def gatherLeaf(
       p: ParquetField.Primitive,
       leaf: Leaf,
       ranges: Ranges,
@@ -372,7 +415,7 @@ private[parquet] object Assembly:
           BinaryColumn(p, offsets, data, nulls)
     end match
 
-  end buildLeaf
+  end gatherLeaf
 
   private inline def gather(n: Int, pick: Array[Int])(
       inline f: Int => Boolean,

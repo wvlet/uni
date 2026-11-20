@@ -5,4 +5,9 @@ object UniBench:
   def main(args: Array[String]): Unit =
     wvlet.uni.io.FileSystemInit.init()
     val (dir, warmup, iterations, filter) = BenchRunner.parse(args.toSeq)
-    BenchRunner.run(BenchRunner.uniCases(dir), warmup, iterations, filter)
+    BenchRunner.run(
+      BenchRunner.uniCases(dir) ++ BenchRunner.uniWriteCases(dir),
+      warmup,
+      iterations,
+      filter
+    )

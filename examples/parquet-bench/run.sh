@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Read benchmark: uni-parquet vs. parquet-java on the JVM, and uni-parquet on Node.js and Scala
-# Native, over the same files.
+# Read and write benchmark: uni-parquet vs. parquet-java on the JVM, and uni-parquet on Node.js
+# and Scala Native, over the same files. The write cases read each file's rows into memory once and
+# write them again; select them with `--filter write`.
 #
 #   examples/parquet-bench/run.sh [rows] [-- bench options]
 #
@@ -43,7 +44,8 @@ for p in ${PLATFORMS}; do
       ;;
     js)
       echo "## Node.js $(node --version)"
-      node "$(find target/out/sjs1 -path '*uni-example-parquet-bench-opt/main.js' | head -1)" \
+      # The write cases hold a whole table of case classes in memory
+      node --max-old-space-size=8192 "$(find target/out/sjs1 -path '*uni-example-parquet-bench-opt/main.js' | head -1)" \
         "${DATA}" "$@"
       ;;
     native)

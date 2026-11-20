@@ -129,6 +129,15 @@ class CodecTest extends UniTest:
     java.util.Arrays.equals(out, "hello".getBytes("UTF-8") ++ text(300000, 1)) shouldBe true
   }
 
+  test("zstd bit reader reads past the start of a short stream as zeros") {
+    // 0xab, then the end marker: 8 bits of data, shorter than the 64-bit window
+    val br = BackwardBitReader(Array(0xab.toByte, 0x01.toByte), 0, 2)
+    br.peek(11) shouldBe 0xab << 3
+    br.read(4) shouldBe 0xa
+    br.read(6) shouldBe 0xb << 2
+    br.isOverflowed shouldBe true
+  }
+
   test("zstd rejects corrupt input without crashing") {
     val good = file("text.3.zst")
     val n    = text(300000, 1).length
