@@ -32,8 +32,8 @@ private[log] object LogEnv extends LogEnvBase:
     * tests of several projects in one JVM, each with its own class loader and copy of Uni, and a
     * project's runner may start while another project's suites route or capture logs. A router (see
     * uni-test's TestLogCapture) implements `Supplier`, a JDK type every class loader shares, and
-    * returns null from `get()` until it is removed. Other handlers of another copy are replaced as
-    * usual, so a finished runner's class loader is not kept in use.
+    * returns null from `get()` until it is removed. Other handlers of another copy, such as those a
+    * finished runner left, are replaced as usual.
     */
   override def keepsRootHandlers(handlers: Array[java.util.logging.Handler]): Boolean = handlers
     .exists { h =>

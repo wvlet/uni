@@ -9,7 +9,7 @@
 ## Decision
 
 - On the JVM, `Logger` initialization leaves the root handlers as they are when one of them is a live router of another copy of Uni: a class in a `wvlet.uni.` package, loaded by another class loader, implementing `java.util.function.Supplier` with `get()` returning null. That is the JDK-typed contract routers already follow across class loaders (`2026-10-27-unitest-log-capture.md`): `get()` returns the wrapped handlers only once the router is removed.
-- Any other root handlers, including a plain handler or a removed router of another copy, are replaced as before.
+- Any other root handlers, including a plain handler or a removed router that a finished copy left, are replaced as before, so `Logger` initialization never adopts a finished copy's handlers.
 - The check lives in `LogEnv` (`keepsRootHandlers`). Scala.js and Native load one copy and keep the old behaviour.
 
 ## Why not
@@ -20,5 +20,5 @@
 
 ## Consequences
 
-- While another copy's router is live, this copy's records print through the first copy's console handler, which may format differently if the copies are different Uni versions.
+- This copy's records print through the handlers the router wraps, typically the first copy's console handler, which may format differently if the copies are different Uni versions. When this copy's own router wraps the first one, that lasts until this copy's runner finishes, even after the first copy's runner is done. Router nesting already led there before this change (a copy that initialized `Logger` first, then installed its router last), so this adds one more ordering, not a new kind of state.
 - `Logger.init`, `setDefaultHandler`, and `clearAllHandlers` still reset the root handlers and turn routing off.
