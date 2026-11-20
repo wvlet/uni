@@ -11,7 +11,7 @@ import wvlet.uni.parquet.format.CompressionCodec
 object BenchData:
   private var cache = Map.empty[String, Seq[Any]]
 
-  private[parquetbench] def load[A](key: String, read: => Seq[A]): Seq[A] =
+  private def load[A](key: String, read: => Seq[A]): Seq[A] =
     cache.get(key) match
       case Some(rows) =>
         rows.asInstanceOf[Seq[A]]
@@ -21,6 +21,8 @@ object BenchData:
         val rows = read
         cache = Map(key -> rows)
         rows
+
+  def clear(): Unit = cache = Map.empty
 
   def lineItems(dir: String): Seq[LineItem] = load(
     "lineitem",
@@ -36,28 +38,38 @@ object BenchData:
 case class BenchBatches(schema: ParquetSchema, batches: Seq[ColumnBatch])
 
 object BenchBatches:
+  private var cache = Option.empty[(String, BenchBatches)]
+
   /**
     * The case classes written by uni and read back as batches, so the batch writer writes the same
-    * schema (camelCase names, dates as strings) and values as the case-class writer
+    * schema (camelCase names, dates as strings) and values as the case-class writer. One table is
+    * kept at a time, and its rows are dropped once the batches are built.
     */
-  def of(bytes: Array[Byte]): Seq[BenchBatches] =
-    val f = Parquet.open(bytes)
-    try Seq(BenchBatches(f.schema, f.readBatches().toIndexedSeq))
-    finally f.close()
+  private def load(key: String, bytes: => Array[Byte]): BenchBatches =
+    cache match
+      case Some((k, b)) if k == key =>
+        b
+      case _ =>
+        cache = None
+        val f = Parquet.open(bytes)
+        val b =
+          try BenchBatches(f.schema, f.readBatches().toIndexedSeq)
+          finally f.close()
+        BenchData.clear()
+        cache = Some(key -> b)
+        b
 
-object BenchTables:
-  def lineItemBatches(dir: String): BenchBatches =
-    BenchData
-      .load(
-        "lineitem-batches",
-        BenchBatches.of(Parquet.writeBytes[LineItem](BenchData.lineItems(dir)))
-      )
-      .head
+  def lineItems(dir: String): BenchBatches = load(
+    "lineitem",
+    Parquet.writeBytes[LineItem](BenchData.lineItems(dir))
+  )
 
-  def orderBatches(dir: String): BenchBatches =
-    BenchData
-      .load("orders-batches", BenchBatches.of(Parquet.writeBytes[Order](BenchData.orders(dir))))
-      .head
+  def orders(dir: String): BenchBatches = load(
+    "orders",
+    Parquet.writeBytes[Order](BenchData.orders(dir))
+  )
+
+end BenchBatches
 
 /** uni-parquet writers. Each returns (rows, file size). */
 object UniWriters:

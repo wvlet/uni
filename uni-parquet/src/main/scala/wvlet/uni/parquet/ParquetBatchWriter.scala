@@ -48,9 +48,11 @@ class ParquetBatchWriter private[parquet] (core: FileWriter, shredder: BatchShre
 
   def write(batch: ColumnBatch): Unit =
     val vectors = shredder.check(batch)
-    core.writeColumns(batch.numRows)((writers, from, to) =>
-      shredder.write(vectors, writers, from, to)
-    )
+    try
+      core.writeColumns(batch.numRows)((writers, from, to) =>
+        shredder.write(vectors, writers, from, to)
+      )
+    finally shredder.release()
 
   def writeAll(batches: IterableOnce[ColumnBatch]): Unit = batches.iterator.foreach(write)
 

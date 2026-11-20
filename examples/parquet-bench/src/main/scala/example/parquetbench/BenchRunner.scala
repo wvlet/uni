@@ -68,7 +68,7 @@ object BenchRunner:
           s"${dir}/lineitem.${c}.parquet",
           () =>
             UniWriters.batches(
-              BenchTables.lineItemBatches(dir),
+              BenchBatches.lineItems(dir),
               s"${out}/uni-batch.lineitem.${c}.parquet",
               c
             )
@@ -86,11 +86,7 @@ object BenchRunner:
           "write uni batch",
           s"${dir}/orders.${c}.parquet",
           () =>
-            UniWriters.batches(
-              BenchTables.orderBatches(dir),
-              s"${out}/uni-batch.orders.${c}.parquet",
-              c
-            )
+            UniWriters.batches(BenchBatches.orders(dir), s"${out}/uni-batch.orders.${c}.parquet", c)
         )
       }
 

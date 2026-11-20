@@ -77,6 +77,22 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
             i += 1
       c += 1
 
+  /** Drops the struct vectors cached by [[write]], so the writer does not keep a batch alive */
+  def release(): Unit = fields.foreach(releaseNode)
+
+  private def releaseNode(node: Node): Unit =
+    node match
+      case s: Struct =>
+        s.cachedFor = null
+        s.cached = null
+        s.children.foreach(releaseNode)
+      case l: ListOf =>
+        releaseNode(l.element)
+      case m: MapOf =>
+        releaseNode(m.key)
+        releaseNode(m.value)
+      case _: Leaf =>
+
   // Validation
 
   private def fail(f: ParquetField, message: String): Nothing =
@@ -201,17 +217,7 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
   end checkLeaf
 
   private def checkSize(f: ParquetField, v: ColumnVector, n: Int): Unit =
-    val size =
-      v match
-        // A malformed vector can fail to report its size
-        case l: ListColumn =>
-          l.offsets.length - 1
-        case m: MapColumn =>
-          m.offsets.length - 1
-        case b: BinaryColumn =>
-          b.offsets.length - 1
-        case other =>
-          other.size
+    val size = v.size
     if size != n then
       fail(f, s"the vector has ${size} values, but ${n} are expected")
     if v.nulls != null && v.nulls.length != n then
