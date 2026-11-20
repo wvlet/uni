@@ -14,6 +14,54 @@ MinIO. It writes case classes, maps, and JSON records to local files, byte array
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
 ```
 
+## Quick Start: Case Classes In and Out
+
+Define a case class that `derives Weaver`. That one line is all you need to write it to Parquet and
+read it back. You don't declare a schema, add annotations, or write any glue code:
+
+```scala
+import wvlet.uni.parquet.{Parquet, ParquetSchema}
+import wvlet.uni.weaver.Weaver
+
+case class Address(city: String, zip: Option[String]) derives Weaver
+case class Customer(id: Long, name: String, emails: Seq[String], address: Option[Address])
+    derives Weaver
+
+val customers = Seq(
+  Customer(1, "aina", Seq("aina@example.com"), Some(Address("Tokyo", Some("100-0001")))),
+  Customer(2, "leo", Seq.empty, None)
+)
+
+Parquet.write("customers.parquet", customers)                 // schema derived from Customer
+val loaded: Seq[Customer] = Parquet.readAs[Customer]("customers.parquet")
+// loaded == customers
+```
+
+The writer derives the schema from the case class. `Option` fields become OPTIONAL columns,
+`Seq` becomes a LIST, and a nested case class becomes a group. `ParquetSchema.of[Customer]` shows
+the derived schema:
+
+```text
+message schema {
+  required int64 id
+  required byte_array name (String)
+  required group emails (List) {
+    repeated group list {
+      required byte_array element (String)
+    }
+  }
+  optional group address {
+    required byte_array city (String)
+    optional byte_array zip (String)
+  }
+}
+```
+
+Other engines, such as DuckDB, Spark, and pandas, can read the file. To get the file as bytes
+instead of on disk, for example in a browser, use `Parquet.writeBytes(customers)` and read it with
+`Parquet.readAs[Customer](bytes)`. [Writing Case Classes](#writing-case-classes) covers streaming
+writes, type mappings, and options.
+
 ## Reading Rows into Case Classes
 
 ```scala
@@ -226,16 +274,18 @@ unchanged, so filter them again in your code. It checks top-level columns of int
 point, boolean, string, DATE (compare with `LocalDate`), and TIMESTAMP (compare with `Instant`)
 types; for other types, or when a column has no statistics, the row group is read.
 
-## Writing Files
+## Writing Case Classes
 
-`Parquet.write` writes a collection of case classes, with the schema derived from the type:
+`Parquet.write` writes a collection of case classes. The schema comes from the type, so any case
+class that `derives Weaver` can be written as it is, including one you already use for JSON or RPC:
 
 ```scala
 Parquet.write("events.parquet", Seq(Event(1, "aina", Instant.now(), Seq("a"))))
 ```
 
-To write rows one at a time, open a writer and close it when done. The file is readable only after
-`close()`, which writes the footer:
+To write rows one at a time, for example from an iterator too large to keep in memory, open a
+writer and close it when you are done. The file can be read only after `close()`, which writes
+the footer:
 
 ```scala
 import wvlet.uni.control.Control
@@ -267,7 +317,10 @@ writes to any `java.io.OutputStream`. Both work on every platform, including bro
 | `Map[K, V]` | MAP |
 | a nested case class | a group |
 
-Columns keep the field names as written (`userName`). DECIMAL(38, 18) holds any value with up to
+Columns keep the field names as written (`userName`). A file written from a case class reads back
+into the same case class with `readAs`. Recursive types, such as a case class with a
+`Seq` of itself, and nested `Option[Option[A]]` have no Parquet layout, so the writer rejects them
+with an error. DECIMAL(38, 18) holds any value with up to
 20 digits before the point and 18 after, and reads in Spark and DuckDB. Set a narrower type for all
 `BigDecimal` fields, or for one field by its path:
 

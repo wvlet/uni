@@ -141,6 +141,10 @@ them again. Only top-level integer, float, boolean, string, DATE (`LocalDate`), 
 
 ## Write case classes
 
+Any case class with `derives Weaver` writes as is: no schema, annotations, or codecs. The same
+`Event` round-trips: `Parquet.readAs[Event](path)` returns what `Parquet.write(path, events)` wrote.
+Recursive types and `Option[Option[A]]` are rejected.
+
 ```scala
 import wvlet.uni.control.Control
 import wvlet.uni.parquet.{ParquetSchema, ParquetWriteOptions}
