@@ -122,10 +122,11 @@ class RxRunner(
           run(fm.input) {
             case OnNext(x) =>
               var toContinue: RxResult = RxResult.Continue
+              // A new input value replaces the previous nested stream, even when f throws
+              c1.cancel
+              c1 = Cancelable.empty
               Try(fm.f.asInstanceOf[Function[Any, RxOps[?]]](x)) match
                 case Success(rxb) =>
-                  // This code is necessary to properly cancel the effect if this operator is evaluated before
-                  c1.cancel
                   val current = tracker.startNested()
                   c1 =
                     run(rxb) {
@@ -142,6 +143,7 @@ class RxRunner(
                     }
                   toContinue
                 case Failure(e) =>
+                  tracker.dropNested()
                   effect(OnError(e))
               end match
             case OnCompletion =>
@@ -241,6 +243,10 @@ class RxRunner(
                 case Success(rxb) =>
                   evalRx(rxb)
                 case Failure(e) =>
+                  // A new input value replaces the previous nested stream, even when f throws
+                  c1.cancel
+                  c1 = Cancelable.empty
+                  tracker.dropNested()
                   effect(OnError(e))
             case OnError(e) =>
               Try(tryFunc(Failure(e))) match
@@ -1054,13 +1060,18 @@ class RxRunner(
           ex
         }
         if errors.isEmpty then
-          if doEmit then
-            emit
-          else if isCompleted && completed.compareAndSet(false, true) then
+          val result =
+            if doEmit then
+              emit
+            else
+              RxResult.Continue
+          // Emitting can complete zip: its shortest source has completed and its last buffered
+          // value has just been paired
+          if result.toContinue && isCompleted && completed.compareAndSet(false, true) then
             trace(s"emit OnCompletion")
             effect(OnCompletion)
           else
-            RxResult.Continue
+            result
         else
           // Report the completion event only once
           if continuous || completed.compareAndSet(false, true) then
@@ -1113,7 +1124,14 @@ class RxRunner(
     override protected def update(index: Int, v: A): Unit =
       lastValueBuffer(index) = lastValueBuffer(index).enqueue(v)
 
-    override protected def isCompleted: Boolean = !continuous && lastEvent.forall(_.isDefined)
+    // Complete once a completed source has no buffered value left to pair. Counting any event,
+    // values included, completed zip over RxVars right after the first pair, since each RxVar
+    // delivers its current value on subscription.
+    override protected def isCompleted: Boolean =
+      !continuous &&
+        (0 until size).exists(i =>
+          lastEvent(i).contains(OnCompletion) && lastValueBuffer(i).isEmpty
+        )
 
   private def zip[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new ZipStream(input)
     .run(effect)
@@ -1157,6 +1175,15 @@ class RxRunner(
       generation += 1
       nestedActive = true
       generation
+    }
+
+    /**
+      * The current nested stream was cancelled without a replacement (the function building the
+      * next one threw), so the input's completion no longer waits for it
+      */
+    def dropNested(): Unit = synchronized {
+      generation += 1
+      nestedActive = false
     }
 
     /**
