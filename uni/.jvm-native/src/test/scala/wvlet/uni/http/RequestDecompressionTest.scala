@@ -58,6 +58,27 @@ class RequestDecompressionTest extends UniTest:
     decoded("gzip", gzip(a) ++ Array[Byte](0, 0, 0, 0)).toSeq shouldBe a.toSeq
   }
 
+  test("check the header CRC of a gzip member that has one") {
+    val a = body(5000)
+    val g = gzip(a)
+    // Set FHCRC and add the CRC-16 of the 10-byte header after it
+    val header = g.take(10)
+    header(3) = 2
+    val crc = java.util.zip.CRC32()
+    crc.update(header, 0, 10)
+    val c                                  = crc.getValue.toInt
+    def withHeaderCrc(v: Int): Array[Byte] =
+      header ++ Array(v.toByte, (v >> 8).toByte) ++ g.drop(10)
+    decoded("gzip", withHeaderCrc(c)).toSeq shouldBe a.toSeq
+    val request = Request
+      .post("/")
+      .addHeader(HttpHeader.ContentEncoding, "gzip")
+      .withBytesContent(withHeaderCrc(c ^ 1))
+    RequestDecompression.decode(request, 64 * 1024 * 1024) shouldMatch { case Left(r) =>
+      r.status shouldBe HttpStatus.BadRequest_400
+    }
+  }
+
   test("reject a gzip body with a corrupt trailer or cut short") {
     val wire    = gzip(body(20000))
     val corrupt = wire.clone()

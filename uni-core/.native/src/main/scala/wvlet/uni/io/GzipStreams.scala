@@ -45,6 +45,9 @@ private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends I
   private var memberSize = 0L
   private var eos        = false
   private var closed     = false
+  // While true, readByte adds each byte to `crc`, for the FHCRC header check
+  private var inHeader = false
+  private val one      = new Array[Byte](1)
 
   // Like GZIPInputStream, fail on construction when the input doesn't start with a gzip header
   try
@@ -55,7 +58,6 @@ private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends I
       throw e
 
   override def read(): Int =
-    val one = new Array[Byte](1)
     if read(one, 0, 1) < 0 then
       -1
     else
@@ -122,6 +124,8 @@ private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends I
       throw EOFException("Unexpected end of gzip input stream")
     val v = buf(pos) & 0xff
     pos += 1
+    if inHeader then
+      crc.update(v)
     v
 
   private def readIntLE(): Long =
@@ -143,6 +147,8 @@ private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends I
     )
 
   private def readHeader(): Unit =
+    crc.reset()
+    inHeader = true
     if readByte() != 0x1f || readByte() != 0x8b then
       throw ZipException("Not in GZIP format")
     if readByte() != 8 then
@@ -157,8 +163,11 @@ private class GzipMembersInputStream(in: InputStream, bufferSize: Int) extends I
       skipZeroTerminated()
     if (flags & FComment) != 0 then
       skipZeroTerminated()
+    inHeader = false
     if (flags & FHcrc) != 0 then
-      skipBytes(2)
+      val expected = readByte() | (readByte() << 8)
+      if expected != (crc.getValue & 0xffff) then
+        throw ZipException("Corrupt GZIP header")
     inflater.reset()
     crc.reset()
     memberSize = 0
