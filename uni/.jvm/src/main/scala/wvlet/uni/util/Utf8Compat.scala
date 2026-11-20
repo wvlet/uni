@@ -17,7 +17,8 @@ import java.nio.charset.StandardCharsets
 
 // The JDK's own conversions: HotSpot intrinsifies both
 private[util] object Utf8Compat:
-  inline def manualAscii: Boolean = false
+  inline def manualAscii: Boolean  = false
+  inline def manualDigits: Boolean = false
 
   def decode(bytes: Array[Byte], offset: Int, length: Int): String = String(
     bytes,

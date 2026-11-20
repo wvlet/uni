@@ -28,6 +28,12 @@ private[uni] object Utf8:
     */
   inline def manualAscii: Boolean = Utf8Compat.manualAscii
 
+  /**
+    * Whether writing a number's digits by hand beats `StringBuilder.append(Long)`. True only on
+    * Scala Native, where that append builds a String; Scala.js emulates Long division in software.
+    */
+  inline def manualDigits: Boolean = Utf8Compat.manualDigits
+
   def decode(bytes: Array[Byte]): String = Utf8Compat.decode(bytes, 0, bytes.length)
 
   def decode(bytes: Array[Byte], offset: Int, length: Int): String = Utf8Compat.decode(
@@ -37,5 +43,30 @@ private[uni] object Utf8:
   )
 
   def encode(s: String): Array[Byte] = Utf8Compat.encode(s)
+
+  // The ASCII paths the Native and Scala.js Utf8Compat share
+
+  private[util] def isAscii(bytes: Array[Byte], offset: Int, length: Int): Boolean =
+    val end = offset + length
+    var i   = offset
+    while i < end && bytes(i) >= 0 do
+      i += 1
+    i == end
+
+  /** `s` as UTF-8: byte for char when it is ASCII, through the charset otherwise */
+  private[util] def encodeAsciiFirst(s: String): Array[Byte] =
+    val n = s.length
+    var i = 0
+    while i < n && s.charAt(i) < 0x80 do
+      i += 1
+    if i < n then
+      s.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    else
+      val out = new Array[Byte](n)
+      var j   = 0
+      while j < n do
+        out(j) = s.charAt(j).toByte
+        j += 1
+      out
 
 end Utf8

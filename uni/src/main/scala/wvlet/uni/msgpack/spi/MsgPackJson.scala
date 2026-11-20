@@ -38,9 +38,9 @@ private[uni] object MsgPackJson:
     write(u, sb, Scratch())
     sb.result()
 
-  // One byte buffer per document, reused for every string's bytes
+  // One byte buffer per document, reused for every string's bytes; allocated on first use
   private final class Scratch:
-    var bytes = new Array[Byte](64)
+    var bytes: Array[Byte] = null
 
   private def write(u: Unpacker, sb: StringBuilder, scratch: Scratch): Unit =
     val format = u.getNextFormat
@@ -58,7 +58,7 @@ private[uni] object MsgPackJson:
       case ValueType.INTEGER =>
         if format == MessageFormat.UINT64 then
           sb.append(u.unpackBigInteger.toString)
-        else if Utf8.manualAscii then
+        else if Utf8.manualDigits then
           appendLong(sb, u.unpackLong)
         else
           sb.append(u.unpackLong)
@@ -123,8 +123,13 @@ private[uni] object MsgPackJson:
     */
   private def writeString(u: Unpacker, sb: StringBuilder, scratch: Scratch): Unit =
     val len = u.unpackRawStringHeader
-    if scratch.bytes.length < len then
-      scratch.bytes = new Array[Byte](math.max(len, scratch.bytes.length * 2))
+    if scratch.bytes == null || scratch.bytes.length < len then
+      val current =
+        if scratch.bytes == null then
+          32
+        else
+          scratch.bytes.length
+      scratch.bytes = new Array[Byte](math.max(len, current * 2))
     val bytes = scratch.bytes
     u.readPayload(bytes, 0, len)
     var i = 0

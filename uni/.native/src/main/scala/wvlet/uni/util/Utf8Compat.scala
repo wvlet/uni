@@ -17,10 +17,11 @@ import java.nio.charset.StandardCharsets
 
 // Scala Native's charset conversions allocate a coder and buffers per call: convert ASCII directly
 private[util] object Utf8Compat:
-  inline def manualAscii: Boolean = true
+  inline def manualAscii: Boolean  = true
+  inline def manualDigits: Boolean = true
 
   def decode(bytes: Array[Byte], offset: Int, length: Int): String =
-    if isAscii(bytes, offset, length) then
+    if Utf8.isAscii(bytes, offset, length) then
       latin1(bytes, offset, length)
     else
       String(bytes, offset, length, StandardCharsets.UTF_8)
@@ -34,26 +35,4 @@ private[util] object Utf8Compat:
     length
   )
 
-  private def isAscii(bytes: Array[Byte], offset: Int, length: Int): Boolean =
-    val end = offset + length
-    var i   = offset
-    while i < end && bytes(i) >= 0 do
-      i += 1
-    i == end
-
-  def encode(s: String): Array[Byte] =
-    val n = s.length
-    var i = 0
-    while i < n && s.charAt(i) < 0x80 do
-      i += 1
-    if i < n then
-      s.getBytes(StandardCharsets.UTF_8)
-    else
-      val out = new Array[Byte](n)
-      var j   = 0
-      while j < n do
-        out(j) = s.charAt(j).toByte
-        j += 1
-      out
-
-end Utf8Compat
+  def encode(s: String): Array[Byte] = Utf8.encodeAsciiFirst(s)
