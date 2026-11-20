@@ -293,27 +293,38 @@ private[http] object ResponseCompression:
             1.0
           else
             qValue(v.substring(from, until), semi - from)
-        if itemIs(v, from, nameEnd, "gzip") || itemIs(v, from, nameEnd, "x-gzip") then
+        if itemIs(v, from, nameEnd, GzipName) || itemIs(v, from, nameEnd, XGzip) then
           gzipQ = math.max(gzipQ, q)
-        else if itemIs(v, from, nameEnd, "deflate") || itemIs(v, from, nameEnd, "x-deflate") then
+        else if itemIs(v, from, nameEnd, DeflateName) || itemIs(v, from, nameEnd, XDeflate) then
           defQ = math.max(defQ, q)
-        else if itemIs(v, from, nameEnd, "*") then
+        else if itemIs(v, from, nameEnd, Star) then
           starQ = math.max(starQ, q)
       }
     end while
     if gzipQ > 0 || defQ > 0 then
       if gzipQ >= defQ then
-        Some("gzip")
+        SomeGzip
       else
-        Some("deflate")
+        SomeDeflate
     else if starQ > 0 && gzipQ < 0 then
-      Some("gzip")
+      SomeGzip
     else if starQ > 0 && defQ < 0 then
-      Some("deflate")
+      SomeDeflate
     else
       None
 
   end chooseEncoding
+
+  // Coding names as fields, not literals: Scala Native's optimizer copies a literal's chars on
+  // each call when it inlines a method that reads them
+  private val GzipName: String    = "gzip"
+  private val XGzip: String       = "x-gzip"
+  private val DeflateName: String = "deflate"
+  private val XDeflate: String    = "x-deflate"
+  private val Star: String        = "*"
+  private val QParam: String      = "q="
+  private val SomeGzip            = Some("gzip")
+  private val SomeDeflate         = Some("deflate")
 
   /** Whether `Vary` values already name Accept-Encoding, or `*` */
   private def varies(vary: Seq[String]): Boolean =
@@ -322,7 +333,7 @@ private[http] object ResponseCompression:
     while !found && it.hasNext do
       val v = it.next()
       eachItem(v) { (from, until) =>
-        if itemIs(v, from, until, HttpHeader.AcceptEncoding) || itemIs(v, from, until, "*") then
+        if itemIs(v, from, until, HttpHeader.AcceptEncoding) || itemIs(v, from, until, Star) then
           found = true
       }
     found
@@ -351,7 +362,7 @@ private[http] object ResponseCompression:
 
   /** Whether `v(from until until)` is `name`, ignoring ASCII case */
   private def itemIs(v: String, from: Int, until: Int, name: String): Boolean =
-    until - from == name.length && v.regionMatches(true, from, name, 0, name.length)
+    until - from == name.length && HttpMultiMap.regionMatchesIgnoreCase(v, from, name)
 
   /** The first `q=` parameter after `semi` in an Accept-Encoding item: 1.0 if none, 0 if invalid */
   private def qValue(item: String, semi: Int): Double =
@@ -366,7 +377,7 @@ private[http] object ResponseCompression:
         else
           next
       val param = item.substring(from, until).trim
-      if param.regionMatches(true, 0, "q=", 0, 2) then
+      if HttpMultiMap.regionMatchesIgnoreCase(param, 0, QParam) then
         // NaN and Infinity are not q-values (the old lower-cased parse rejected them too)
         q = param.substring(2).toDoubleOption.filter(_.isFinite).getOrElse(0.0)
         done = true

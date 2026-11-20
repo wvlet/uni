@@ -158,10 +158,31 @@ private[uni] final class JsonByteWriter:
 
   private def string(u: Unpacker): Unit =
     val len = u.unpackRawStringHeader
-    if scratch.length < len then
-      scratch = new Array[Byte](math.max(len, scratch.length * 2))
-    val bytes = scratch
-    u.readPayload(bytes, 0, len)
+    // Read the payload to where the quoted string goes: an ASCII string with nothing to escape,
+    // the usual case, is then written with one copy and no per-byte stores
+    ensure(len + 2)
+    val start = pos + 1
+    u.readPayload(out, start, len)
+    var plain = 0
+    while plain < len && {
+        val b = out(start + plain)
+        // Bytes >= 0x80 are negative, so this also stops at non-ASCII
+        b >= 0x20 && b != '"' && b != '\\'
+      }
+    do
+      plain += 1
+    if plain == len then
+      out(pos) = '"'
+      out(start + len) = '"'
+      pos = start + len + 1
+    else
+      if scratch.length < len then
+        scratch = new Array[Byte](math.max(len, scratch.length * 2))
+      System.arraycopy(out, start, scratch, 0, len)
+      escapedString(scratch, len)
+
+  /** The string in `bytes(0 until len)`, which needs escaping or is not ASCII */
+  private def escapedString(bytes: Array[Byte], len: Int): Unit =
     var i = 0
     while i < len && bytes(i) >= 0 do
       i += 1
@@ -204,7 +225,7 @@ private[uni] final class JsonByteWriter:
       pos += 1
     end if
 
-  end string
+  end escapedString
 
   private inline def escape(c: Char): Unit =
     out(pos) = '\\'

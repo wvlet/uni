@@ -75,6 +75,31 @@ class MsgPackJsonTest extends UniTest:
     ).foreach(s => check(_.packString(s)))
   }
 
+  test("mixed strings in one array, past the staging limit, and after clear") {
+    val strings = Seq(
+      "plain",
+      "a\"b",
+      "x" * 5000,
+      ("é" * 10) + ("x" * 5000),
+      "",
+      "café",
+      "y" * 4096,
+      "tail\\"
+    )
+    check { p =>
+      p.packArrayHeader(strings.size)
+      strings.foreach(p.packString)
+    }
+    // A packer reused after clear writes each string afresh
+    val p = MessagePack.newPacker()
+    Seq(1, 2).foreach { _ =>
+      p.clear
+      strings.foreach(p.packString)
+      val u = MessagePack.newUnpacker(p.toByteArray)
+      strings.foreach(s => u.unpackString shouldBe s)
+    }
+  }
+
   test("binary, timestamps, and extensions render as their Value does") {
     check { p =>
       p.packBinaryHeader(4)

@@ -904,10 +904,10 @@ private[http] object HttpResponseWriter:
   // The writer frames every response itself, so a handler's Transfer-Encoding is dropped: next to
   // the writer's Content-Length it would let a client or proxy read a different body length
   private def isManagedHeader(name: String): Boolean =
-    name.equalsIgnoreCase(HttpHeader.ContentType) ||
-      name.equalsIgnoreCase(HttpHeader.ContentLength) ||
-      name.equalsIgnoreCase(HttpHeader.Connection) ||
-      name.equalsIgnoreCase(HttpHeader.TransferEncoding)
+    HttpMultiMap.equalsIgnoreCase(name, HttpHeader.ContentType) ||
+      HttpMultiMap.equalsIgnoreCase(name, HttpHeader.ContentLength) ||
+      HttpMultiMap.equalsIgnoreCase(name, HttpHeader.Connection) ||
+      HttpMultiMap.equalsIgnoreCase(name, HttpHeader.TransferEncoding)
 
   /**
     * Serialize the status line + headers for a streaming (SSE) response: `text/event-stream` with

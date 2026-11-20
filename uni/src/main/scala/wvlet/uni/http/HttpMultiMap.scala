@@ -272,6 +272,34 @@ object HttpMultiMap:
       else
         lowerAscii(key)
 
+  /**
+    * `a.regionMatches(true, aFrom, b, 0, b.length)`, without Scala Native's Unicode case tables for
+    * ASCII chars: header names and codings are ASCII, and each table lookup is a search. Other
+    * chars fold as `String.equalsIgnoreCase` does.
+    */
+  private[http] def regionMatchesIgnoreCase(a: String, aFrom: Int, b: String): Boolean =
+    if aFrom < 0 || aFrom + b.length > a.length then
+      false
+    else
+      var i = 0
+      while i < b.length && sameIgnoringCase(a.charAt(aFrom + i), b.charAt(i)) do
+        i += 1
+      i == b.length
+
+  /** `a.equalsIgnoreCase(b)`, with the ASCII fast path of [[regionMatchesIgnoreCase]] */
+  private[http] def equalsIgnoreCase(a: String, b: String): Boolean =
+    a.length == b.length && regionMatchesIgnoreCase(a, 0, b)
+
+  private def sameIgnoringCase(x: Char, y: Char): Boolean =
+    if x == y then
+      true
+    else if (x | y) < 0x80 then
+      val lx = x | 0x20
+      lx == (y | 0x20) && lx >= 'a' && lx <= 'z'
+    else
+      Character.toLowerCase(Character.toUpperCase(x)) ==
+        Character.toLowerCase(Character.toUpperCase(y))
+
   private[http] def lowerAscii(key: String): String =
     val chars = key.toCharArray
     var i     = 0
