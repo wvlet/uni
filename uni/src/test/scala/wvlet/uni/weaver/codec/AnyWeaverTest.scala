@@ -192,4 +192,14 @@ class AnyWeaverTest extends UniTest:
     v2("emptyMap").asInstanceOf[Map[Any, Any]] shouldBe Map.empty
   }
 
+  test("unweave MessagePack timestamps as Instant") {
+    val ts     = java.time.Instant.parse("2026-01-31T12:34:56.123456789Z")
+    val packer = wvlet.uni.msgpack.spi.MessagePack.newPacker()
+    packer.packMapHeader(1)
+    packer.packString("ts")
+    packer.packTimestamp(ts)
+    val v = Weaver.unweave[Map[String, Any]](packer.toByteArray)
+    v("ts") shouldBe ts
+  }
+
 end AnyWeaverTest

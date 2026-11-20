@@ -1,5 +1,6 @@
 package wvlet.uni.parquet
 
+import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.parquet.column.Assembly
 import wvlet.uni.parquet.column.ColumnChunkReader
@@ -50,7 +51,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     val plan = planRowGroup(index, options)
     val src  = syncSource
     val data = plan.ranges.map(r => r -> src.read(r.offset, r.length))
-    decode(plan, data)
+    decode(plan, data, options)
 
   /** Indices of the row groups to read: all of them, minus those the row group filter skips */
   def selectRowGroups(options: ParquetReadOptions = ParquetReadOptions.default): IndexedSeq[Int] =
@@ -69,12 +70,24 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       weaver: Weaver[A]
   ): Iterator[A] = readBatches(options).flatMap(b => ParquetFile.rows(b, weaver, options))
 
-  /** Reads every row as a map from column name to value */
+  /**
+    * Reads every row as a map from column name to value, in schema column order. Values are those
+    * of [[ColumnVector.getValue]]: logical types applied (for example Instant, LocalDate,
+    * BigDecimal), lists as Seq, maps as Map, and groups as Map[String, Any].
+    */
   def readRows(
       options: ParquetReadOptions = ParquetReadOptions.default
-  ): Iterator[Map[String, Any]] = readBatches(options).flatMap(b =>
-    (0 until b.numRows).iterator.map(b.row)
-  )
+  ): Iterator[Map[String, Any]] = readBatches(options).flatMap(_.rows)
+
+  /** Reads every row as a JSON object. See [[ParquetJson]] for how values map to JSON. */
+  def readJson(options: ParquetReadOptions = ParquetReadOptions.default): Iterator[JSONObject] =
+    readRows(options).map(ParquetJson.fromRow)
+
+  /**
+    * Statistics of each leaf column, keyed by its dotted path, summed over every row group. They
+    * come from the footer, so no column data is read.
+    */
+  lazy val columnStatistics: Map[String, ColumnStatistics] = ColumnStatistics.of(schema, rowGroups)
 
   // ---- Asynchronous reading ----
 
@@ -87,7 +100,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       val reads: Seq[Rx[(FetchRange, Array[Byte])]] = plan
         .ranges
         .map(r => source.readAsync(r.offset, r.length).map(b => r -> b))
-      ParquetFile.sequence(reads).map(data => decode(plan, data))
+      ParquetFile.sequence(reads).map(data => decode(plan, data, options))
     }
 
   /** Emits each row group's batch in order */
@@ -104,6 +117,26 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       )
     )
   )
+
+  /** Emits every row as a map from column name to value, as [[readRows]] does */
+  def readRowsAsync(
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Rx[Map[String, Any]] = Rx.concatRx(
+    selectRowGroups(options).map(i =>
+      readRowGroupAsync(i, options).flatMap(b => Rx.fromSeq(b.rows.toSeq))
+    )
+  )
+
+  /** All rows as maps from column name to value, collected into one Seq */
+  def readAllRowsAsync(
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Rx[Seq[Map[String, Any]]] = ParquetFile
+    .sequence(selectRowGroups(options).map(readRowGroupAsync(_, options)))
+    .map(_.flatMap(_.rows))
+
+  /** Emits every row as a JSON object, as [[readJson]] does */
+  def readJsonAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[JSONObject] =
+    readRowsAsync(options).map(ParquetJson.fromRow)
 
   /** All rows decoded into `A`, collected into one Seq */
   def readAllAsync[A](
@@ -210,7 +243,11 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     }
     out.result()
 
-  private def decode(plan: Plan, data: Seq[(FetchRange, Array[Byte])]): ColumnBatch =
+  private def decode(
+      plan: Plan,
+      data: Seq[(FetchRange, Array[Byte])],
+      options: ParquetReadOptions
+  ): ColumnBatch =
     val numRows = plan.rowGroup.numRows
     if numRows < 0 || numRows > Int.MaxValue then
       throw ParquetException.corrupt(s"row group has ${numRows} rows")
@@ -233,7 +270,16 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
           c.field.columnIndex -> ColumnChunkReader.read(c.field, c.meta, bytes, off, c.length)
         }
         .toMap
-    ColumnBatch(numRows.toInt, Assembly.build(plan.fields, columns, numRows.toInt))
+    val vectors = Assembly.build(plan.fields, columns, numRows.toInt)
+    ColumnBatch(
+      numRows.toInt,
+      if options.binaryAsString then
+        vectors.map(ColumnVector.withBinaryAsString)
+      else
+        vectors
+    )
+
+  end decode
 
 end ParquetFile
 

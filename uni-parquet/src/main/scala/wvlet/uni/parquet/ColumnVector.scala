@@ -3,6 +3,8 @@ package wvlet.uni.parquet
 import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.parquet.format.PhysicalType
 
+import scala.collection.immutable.VectorMap
+
 /**
   * The values of one column for every row of a [[ColumnBatch]]. Primitive values are stored
   * unboxed. Values are the raw physical values; [[getValue]] applies the logical type (for example,
@@ -13,7 +15,7 @@ sealed trait ColumnVector:
   def size: Int
 
   /** Null flags by row, or null when no row is null */
-  protected def nulls: Array[Boolean]
+  protected[parquet] def nulls: Array[Boolean]
 
   def isNull(i: Int): Boolean = nulls != null && nulls(i)
   def hasNulls: Boolean       = nulls != null && nulls.exists(identity)
@@ -28,7 +30,7 @@ object ColumnVector:
   final class BooleanColumn(
       val field: ParquetField,
       val values: Array[Boolean],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int                   = values.length
     def getBoolean(i: Int): Boolean = values(i)
@@ -42,7 +44,7 @@ object ColumnVector:
   final class IntColumn(
       val field: ParquetField,
       val values: Array[Int],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int             = values.length
     def getInt(i: Int): Int   = values(i)
@@ -56,7 +58,7 @@ object ColumnVector:
   final class LongColumn(
       val field: ParquetField,
       val values: Array[Long],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int             = values.length
     def getLong(i: Int): Long = values(i)
@@ -69,7 +71,7 @@ object ColumnVector:
   final class FloatColumn(
       val field: ParquetField,
       val values: Array[Float],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int               = values.length
     def getFloat(i: Int): Float = values(i)
@@ -82,7 +84,7 @@ object ColumnVector:
   final class DoubleColumn(
       val field: ParquetField,
       val values: Array[Double],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int                 = values.length
     def getDouble(i: Int): Double = values(i)
@@ -95,12 +97,17 @@ object ColumnVector:
   /**
     * BYTE_ARRAY, FIXED_LEN_BYTE_ARRAY, and INT96 values. Row i is
     * `data[offsets(i), offsets(i + 1))`; null rows are empty.
+    *
+    * @param binaryAsString
+    *   return values without a logical type from [[getValue]] as UTF-8 strings, as
+    *   [[ParquetReadOptions.withBinaryAsString]] asks
     */
   final class BinaryColumn(
       val field: ParquetField,
       val offsets: Array[Int],
       val data: Array[Byte],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean],
+      val binaryAsString: Boolean = false
   ) extends ColumnVector:
     def size: Int                     = offsets.length - 1
     def length(i: Int): Int           = offsets(i + 1) - offsets(i)
@@ -114,14 +121,14 @@ object ColumnVector:
       if isNull(i) then
         null
       else
-        LogicalValues.fromBinary(data, offsets(i), length(i), field)
+        LogicalValues.fromBinary(data, offsets(i), length(i), field, binaryAsString)
 
   /** A list per row: row i holds child elements [offsets(i), offsets(i + 1)) */
   final class ListColumn(
       val field: ParquetField,
       val offsets: Array[Int],
       val elements: ColumnVector,
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int             = offsets.length - 1
     def getValue(i: Int): Any =
@@ -136,28 +143,50 @@ object ColumnVector:
       val offsets: Array[Int],
       val keys: ColumnVector,
       val values: ColumnVector,
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def size: Int             = offsets.length - 1
     def getValue(i: Int): Any =
       if isNull(i) then
         null
       else
-        (offsets(i) until offsets(i + 1)).map(j => keys.getValue(j) -> values.getValue(j)).toMap
+        VectorMap.from(
+          (offsets(i) until offsets(i + 1)).map(j => keys.getValue(j) -> values.getValue(j))
+        )
 
   /** A struct (group) per row */
   final class StructColumn(
       val field: ParquetField,
       val size: Int,
       val children: IndexedSeq[ColumnVector],
-      protected val nulls: Array[Boolean]
+      protected[parquet] val nulls: Array[Boolean]
   ) extends ColumnVector:
     def child(name: String): Option[ColumnVector] = children.find(_.name == name)
     def getValue(i: Int): Any                     =
       if isNull(i) then
         null
       else
-        children.map(c => c.name -> c.getValue(i)).toMap
+        VectorMap.from(children.map(c => c.name -> c.getValue(i)))
+
+  /** The vector with binary columns at any depth set to decode as strings */
+  private[parquet] def withBinaryAsString(v: ColumnVector): ColumnVector =
+    v match
+      case b: BinaryColumn =>
+        BinaryColumn(b.field, b.offsets, b.data, b.nulls, binaryAsString = true)
+      case l: ListColumn =>
+        ListColumn(l.field, l.offsets, withBinaryAsString(l.elements), l.nulls)
+      case m: MapColumn =>
+        MapColumn(
+          m.field,
+          m.offsets,
+          withBinaryAsString(m.keys),
+          withBinaryAsString(m.values),
+          m.nulls
+        )
+      case s: StructColumn =>
+        StructColumn(s.field, s.size, s.children.map(withBinaryAsString), s.nulls)
+      case other =>
+        other
 
 end ColumnVector
 
@@ -169,5 +198,11 @@ case class ColumnBatch(numRows: Int, columns: IndexedSeq[ColumnVector]):
 
   def columnNames: Seq[String] = columns.map(_.name)
 
-  /** Row i as a map from column name to value. Convenient for inspection; slower than vectors. */
-  def row(i: Int): Map[String, Any] = columns.map(c => c.name -> c.getValue(i)).toMap
+  /**
+    * Row i as a map from column name to [[ColumnVector.getValue]], in schema column order.
+    * Convenient for generic code; slower than reading the vectors.
+    */
+  def row(i: Int): Map[String, Any] = VectorMap.from(columns.map(c => c.name -> c.getValue(i)))
+
+  /** Every row as a map from column name to value */
+  def rows: Iterator[Map[String, Any]] = Iterator.range(0, numRows).map(row)

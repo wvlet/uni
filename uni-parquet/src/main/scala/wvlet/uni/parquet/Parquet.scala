@@ -3,6 +3,7 @@ package wvlet.uni.parquet
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
 import wvlet.uni.io.IOPath
+import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.rx.Rx
 import wvlet.uni.weaver.Weaver
 
@@ -41,9 +42,43 @@ object Parquet:
   /** Reads every row of a local file into `A` */
   def readAs[A](path: String, options: ParquetReadOptions = ParquetReadOptions.default)(using
       weaver: Weaver[A]
-  ): Seq[A] =
-    val f = open(path)
-    try f.readAs[A](options).toSeq
+  ): Seq[A] = withFile(open(path))(_.readAs[A](options))
+
+  /** Reads every row of a file held in memory into `A` */
+  def readAs[A](bytes: Array[Byte], options: ParquetReadOptions)(using weaver: Weaver[A]): Seq[A] =
+    withFile(open(bytes))(_.readAs[A](options))
+
+  def readAs[A](bytes: Array[Byte])(using weaver: Weaver[A]): Seq[A] = readAs[A](
+    bytes,
+    ParquetReadOptions.default
+  )
+
+  /**
+    * Reads every row of a local file as a map from column name to value, in schema column order.
+    * Values have their logical type applied, as [[ColumnVector.getValue]] returns them.
+    */
+  def readRows(
+      path: String,
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Seq[Map[String, Any]] = withFile(open(path))(_.readRows(options))
+
+  /** Reads every row of a file held in memory as a map from column name to value */
+  def readRows(bytes: Array[Byte], options: ParquetReadOptions): Seq[Map[String, Any]] =
+    withFile(open(bytes))(_.readRows(options))
+
+  def readRows(bytes: Array[Byte]): Seq[Map[String, Any]] = readRows(
+    bytes,
+    ParquetReadOptions.default
+  )
+
+  /** Reads every row of a local file as a JSON object */
+  def readJson(
+      path: String,
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Seq[JSONObject] = withFile(open(path))(_.readJson(options))
+
+  private def withFile[A](f: ParquetFile)(read: ParquetFile => Iterator[A]): Seq[A] =
+    try read(f).toSeq
     finally f.close()
 
 end Parquet

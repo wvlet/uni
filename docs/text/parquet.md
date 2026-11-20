@@ -1,5 +1,5 @@
 ---
-description: Read Apache Parquet files in pure Scala on the JVM, Scala.js, and Scala Native, from local files, byte arrays, or HTTP Range requests, into case classes or column vectors.
+description: Read Apache Parquet files in pure Scala on the JVM, Scala.js, and Scala Native, from local files, byte arrays, or HTTP Range requests, into case classes, Map[String, Any] rows, JSON, or column vectors.
 ---
 
 # Parquet
@@ -42,7 +42,43 @@ are skipped, and fields without a column take their default values.
 | BYTE_ARRAY without a logical type | `Array[Byte]`, or `String` with `withBinaryAsString(true)` |
 
 Older writers, such as Hive and Impala, store strings without the STRING annotation. To read
-them as strings, use `ParquetReadOptions.default.withBinaryAsString(true)`.
+them as strings, use `ParquetReadOptions.default.withBinaryAsString(true)`. The option applies to
+every way of reading: case classes, row maps, JSON, and `getValue` on column vectors.
+
+## Reading Rows as Maps
+
+When you don't know the schema ahead of time, or don't want to declare a case class, read each
+row as a `Map[String, Any]` from column name to value:
+
+```scala
+val eventRows: Seq[Map[String, Any]] = Parquet.readRows("events.parquet")
+eventRows.foreach { row =>
+  val ts = row("ts") // an Instant
+}
+```
+
+Keys follow the schema's column order. Values keep their Parquet types: `Int`, `Long`, `Float`,
+`Double`, `Boolean`, `String`, `Instant` for TIMESTAMP and INT96, `LocalDate` for DATE,
+`LocalTime` for TIME, `BigDecimal` for DECIMAL, `java.util.UUID` for UUID, and `Array[Byte]` for
+binary without a logical type. Lists become `Seq`, maps `Map`, and groups nested
+`Map[String, Any]`. A null value is `null`. `Parquet.readRows` also accepts an `Array[Byte]`, and
+`ParquetFile.readRows(options)` reads with column projection and row group filters.
+
+`readRows` is usually a better fit than `readAs[Map[String, Any]]`. `readAs` decodes rows through
+Weaver, which only knows that the target is a map, so integers come back as `Long`, FLOAT as
+`Double`, and DATE, TIME, DECIMAL, and UUID as strings.
+
+### Rows as JSON
+
+`readJson` returns each row as a `JSONObject`. Call `toJSON` on each one to write JSON lines:
+
+```scala
+Parquet.readJson("events.parquet").foreach(json => println(json.toJSON))
+// {"id":1,"userName":"leo","ts":"2026-01-31T12:34:56Z","tags":["a","b"]}
+```
+
+TIMESTAMP, DATE, TIME, and UUID values become ISO-8601 or canonical strings. DECIMAL becomes a
+string so that no digits are lost, binary becomes base64, and map keys become strings.
 
 ## Opening a File
 
@@ -57,6 +93,7 @@ try
   println(file.schema)  // message schema { optional int64 id ... }
   file.numRows          // Long
   file.rowGroups        // row counts, sizes, and column statistics
+  file.columnStatistics // per column: value and null counts, sizes, min, and max
   val opts = ParquetReadOptions.default.withColumns("id", "ts")
   file.readAs[Event](opts).foreach(println)
 finally
@@ -65,6 +102,12 @@ finally
 
 `withColumns` reads only the named top-level columns and fetches nothing for the others.
 `Parquet.open` also accepts an `Array[Byte]` or a `ByteSource`.
+
+`columnStatistics` summarizes each leaf column over all row groups, keyed by its dotted path (for
+example `tags.list.element`), using only the footer. `min` and `max` hold values of the same types
+as `readRows` (for example an `Instant`). They are `None` when a row group has no statistics, or
+when the column's type has no order that statistics can be trusted for, such as DECIMAL. Writers
+may truncate long strings, so for strings treat min and max as bounds.
 
 ## Reading Column Vectors
 
@@ -86,7 +129,8 @@ batch.column("id") match
 Vector types: `BooleanColumn`, `IntColumn`, `LongColumn`, `FloatColumn`, `DoubleColumn`,
 `BinaryColumn` (`getString`, `getBytes`), `ListColumn`, `MapColumn`, and `StructColumn`.
 `getValue(i)` returns any row as a Scala value with its logical type applied (for example an
-`Instant` or a `BigDecimal`), and `batch.row(i)` returns a whole row as a `Map[String, Any]`.
+`Instant` or a `BigDecimal`). `batch.row(i)` returns a whole row as a `Map[String, Any]`, the same
+map `readRows` returns, and `batch.rows` iterates over all of them.
 
 ## Reading over HTTP
 
@@ -109,7 +153,9 @@ val rows: Rx[Seq[Event]] = Parquet
   .flatMap(_.readAllAsync[Event]())
 ```
 
-`readRowGroupAsync`, `readBatchesAsync`, and `readAsAsync` work the same way. The server must answer
+`readRowGroupAsync`, `readBatchesAsync`, and `readAsAsync` work the same way. For row maps, use
+`readRowsAsync` (one event per row) or `readAllRowsAsync` (all rows in one `Seq`), and for JSON,
+`readJsonAsync`. The server must answer
 Range requests with `206 Partial Content` and allow them through CORS; a server that sends the whole
 file instead gets a clear error. Uni's own server does this with
 [StaticFiles](../http/server#static-files).

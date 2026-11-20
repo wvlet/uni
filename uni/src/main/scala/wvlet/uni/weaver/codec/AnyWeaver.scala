@@ -1,5 +1,6 @@
 package wvlet.uni.weaver.codec
 
+import wvlet.uni.msgpack.spi.Code
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
@@ -124,9 +125,13 @@ class AnyWeaverImpl(knownWeavers: Map[Class[?], Weaver[?]]) extends Weaver[Any]:
       case ValueType.MAP =>
         unpackMap(u, context)
       case ValueType.EXTENSION =>
-        val ext     = u.unpackExtTypeHeader
-        val payload = u.readPayload(ext.byteLength)
-        context.setObject(payload)
+        val ext = u.unpackExtTypeHeader
+        if ext.extType == Code.EXT_TIMESTAMP then
+          // The timestamp extension is how Instant values are packed
+          context.setObject(u.unpackTimestamp(ext))
+        else
+          val payload = u.readPayload(ext.byteLength)
+          context.setObject(payload)
   end unpack
 
   private def unpackArray(u: Unpacker, context: WeaverContext): Unit =

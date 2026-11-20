@@ -49,6 +49,16 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
   without NaN bounds, booleans, UTF-8 strings with the new min/max fields, DATE, TIMESTAMP), and
   keeps row groups otherwise.
 
+- **Row maps are a separate path from Weaver** (added with `plans/2026-11-20-parquet-read-rows.md`).
+  `readRows`, `batch.row(i)`, and `readJson` build on `ColumnVector.getValue`, so values keep their
+  Parquet types (`Instant`, `LocalDate`, `BigDecimal`, `UUID`) and keys keep schema order.
+  `readAs[Map[String, Any]]` keeps going through MessagePack: `Weaver[A]` carries no type to detect
+  the map case, so it returns Weaver's values (`Long`, ISO strings), and the docs point to
+  `readRows`. `withBinaryAsString` is applied when a row group is decoded, so vectors, row maps, and
+  case classes agree.
+- **Column statistics expose min and max only where `RowGroupFilter` trusts the order**, and
+  `None` otherwise, rather than raw bytes that users would have to decode and might misorder.
+
 ## Alternatives
 
 - **Wrap parquet-java on the JVM and write a reader only for JS and Native.** Rejected: two
