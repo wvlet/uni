@@ -60,6 +60,20 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   completion when the nth value's downstream failed, and review of the model found `recover`
   ignoring the downstream's `Stop`, so events reached the sink after `OnError`. Both are fixed
   (see `2026-10-19-rx-take-completion.md` and `2026-10-14-rx-completion-semantics.md`).
+- `UniSpec/RxLive.lean` drives live `RxVar`s with a script of `set`, `stop`, `fail`, and `cancel`
+  actions and mirrors each operator's state in `RxRunner`. `RxVar` delivers synchronously, so a
+  script gives one event order on every platform. It covers `flatMap`/`transformRx` switching
+  (`NestedStreamTracker`), `split`, `zip`/`join`, `take` after a downstream `Stop` (including the
+  `Stop`-before-nth case above), and cancellation. Its theorems: a replaced nested stream reaches
+  the sink with nothing, the operator completes only after the input and the current nested stream
+  have both ended, `split` emits a list only when its keys change and stops removed rows after it,
+  one `zip` buffer is always empty until it fails, `take(n)` with a sink that stops at every event
+  delivers exactly one, and nothing reaches the sink after `cancel`. The sink records every event,
+  including events after a terminal one, since `RxVar` ignores `Stop`. Its cases found that a
+  throwing `flatMap` function left the previous nested var subscribed, and that `zip` over vars
+  completed after its first pair in default mode (both fixed, see
+  `2026-10-14-rx-completion-semantics.md`). It leaves out continuous mode, `recoverWith`, and
+  `parFlatMap`.
 - Next candidates: `recoverWith`, continuous-mode `flatMap`/`merge`, `parFlatMap` ordering, and
   MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);

@@ -1,5 +1,5 @@
 name = "uni-spec"
-defaultTargets = ["UniSpec", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-rx-recover-cases", "gen-http-reader-cases"]
+defaultTargets = ["UniSpec", "gen-rx-cases", "gen-msgpack-cases", "gen-rx-nested-cases", "gen-rx-recover-cases", "gen-http-reader-cases", "gen-rx-live-cases"]
 
 [[lean_lib]]
 name = "UniSpec"
@@ -23,3 +23,7 @@ root = "GenRxRecoverCases"
 [[lean_exe]]
 name = "gen-http-reader-cases"
 root = "GenHttpReaderCases"
+
+[[lean_exe]]
+name = "gen-rx-live-cases"
+root = "GenRxLiveCases"
