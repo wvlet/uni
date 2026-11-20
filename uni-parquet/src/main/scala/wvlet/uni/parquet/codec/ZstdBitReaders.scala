@@ -18,15 +18,15 @@ private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: 
   private val length = end - start
 
   // A cached 64-bit window of the stream: bits [windowLo, windowLo + 64). Reads go backward, so a
-  // window is loaded to end at the requested bits and serves the next few reads below them.
-  private var windowLo: Long = Long.MaxValue
+  // window is loaded to end at the requested bits and serves the next few reads below them. Before
+  // the first load, no position falls inside it (and windowLo + 64 does not overflow).
+  private var windowLo: Long = Long.MaxValue - 64
   private var window: Long   = 0L
 
   /** Bits [pos, pos + n) of the stream, with bit 0 the lowest bit of the first byte; n <= 32 */
   private def bitsAt(pos: Long, n: Int): Long =
-    val off = pos - windowLo
-    if off >= 0 && off + n <= 64 then
-      (window >>> off.toInt) & ((1L << n) - 1)
+    if pos >= windowLo && pos + n <= windowLo + 64 then
+      (window >>> (pos - windowLo).toInt) & ((1L << n) - 1)
     else
       load(pos, n)
 

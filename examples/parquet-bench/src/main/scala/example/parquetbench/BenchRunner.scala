@@ -54,23 +54,21 @@ object BenchRunner:
     */
   def uniWriteCases(dir: String): Seq[BenchCase] =
     val out = writeDir(dir)
-    writeCodecs.flatMap { c =>
-      val lineitem = s"${dir}/lineitem.${c}.parquet"
-      val orders   = s"${dir}/orders.${c}.parquet"
-      Seq(
+    // Grouped by table, so each table is read into memory once
+    writeCodecs.map { c =>
+      BenchCase(
+        "write uni case class",
+        s"${dir}/lineitem.${c}.parquet",
+        () => UniWriters.lineItems(BenchData.lineItems(dir), s"${out}/uni.lineitem.${c}.parquet", c)
+      )
+    } ++
+      writeCodecs.map { c =>
         BenchCase(
           "write uni case class",
-          lineitem,
-          () =>
-            UniWriters.lineItems(BenchData.lineItems(dir), s"${out}/uni.lineitem.${c}.parquet", c)
-        ),
-        BenchCase(
-          "write uni case class",
-          orders,
+          s"${dir}/orders.${c}.parquet",
           () => UniWriters.orders(BenchData.orders(dir), s"${out}/uni.orders.${c}.parquet", c)
         )
-      )
-    }
+      }
 
   /** Uncompressed bytes of the column data, from the footer, so MB/s is comparable across codecs */
   private def uncompressedBytes(path: String): Long =
