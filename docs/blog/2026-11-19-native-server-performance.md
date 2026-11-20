@@ -1,14 +1,16 @@
 ---
-title: "Scala Without the JVM: A Native HTTP Server Next to Node.js, Python, Ruby, and Rust"
+title: "Scala Without the JVM: 104k Requests per Second in 25 MB of Memory"
 date: 2026-11-19
 author: Taro L. Saito
-description: "Scala Native compiles Scala code to a native binary that runs without a JVM. Uni's Scala Native HTTP server went from 22.7k to 104k requests per second on a small RPC response, and from 1.6k to 74k on a 3.4 KB one. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
+description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's Scala Native HTTP server answers 104k requests per second in 25 MB of memory, up from 22.7k, and 74k on a 3.4 KB response, up from 1.6k. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
 image: /blog/native-server-performance.png
 ---
 
-# Scala Without the JVM: How Fast Is a Native HTTP Server?
+# Scala Without the JVM: 104k Requests per Second in 25 MB of Memory
 
-**Uni's Scala Native HTTP server answers a small RPC call at 104k requests per second and a 3.4 KB JSON response at 74k, using 25–28 MB of memory. A day earlier it served 22.7k and 1.6k.** Scala Native itself wasn't the problem; allocation was. The Boehm garbage collector the server runs with serializes allocating threads on one lock, so every byte one request allocated slowed down the others. This post covers how we found that, what we changed, and how the result compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine.
+**Uni's Scala Native HTTP server answers a small RPC call at 104k requests per second and a 3.4 KB JSON response at 74k, using 25–28 MB of memory.** That puts it within reach of Rust and the JVM: about 80% or more of the throughput of Rust with axum, on par with uni on the JVM on the small response, and about 80% of it on the larger one. The JVM build used 590–614 MB and 650 MB of memory for the same two responses.
+
+A day earlier, the native server handled only 22.7k and 1.6k. Scala Native itself wasn't the problem; allocation was. The Boehm garbage collector the server runs with serializes allocating threads on one lock, so every byte one request allocated slowed down the others. This post covers how we found that, what we changed, and how the result compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine.
 
 The bigger point: you can write Scala without being tied to the JVM. The same uni code runs on the JVM when you want its peak throughput, and as a small native binary when you want low memory and nothing to install.
 
@@ -32,6 +34,50 @@ flowchart LR
 ```
 
 `Http.server` is the same call on every platform; uni picks the server for each one. This post measures the JVM and Scala Native builds. The Node.js rows in the comparison below are a plain Node.js server, not uni on Scala.js.
+
+Here is the whole server from the rpc-native example, condensed. There is no platform-specific code in it:
+
+```scala
+import wvlet.uni.design.Design
+import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
+import wvlet.uni.http.{Http, HttpServer}
+import wvlet.uni.weaver.Weaver
+
+import java.util.concurrent.atomic.AtomicLong
+import scala.collection.concurrent.TrieMap
+
+case class Todo(id: Long, title: String, done: Boolean = false) derives Weaver
+
+trait TodoApi:
+  def add(title: String): Todo
+  def complete(id: Long): Option[Todo]
+  def list(): Seq[Todo]
+
+class TodoApiImpl extends TodoApi:
+  private val todos  = TrieMap.empty[Long, Todo]
+  private val nextId = AtomicLong(0)
+
+  def add(title: String): Todo =
+    val todo = Todo(nextId.incrementAndGet(), title)
+    todos.put(todo.id, todo)
+    todo
+
+  def complete(id: Long): Option[Todo] = todos.updateWith(id)(_.map(_.copy(done = true)))
+  def list(): Seq[Todo]                = todos.values.toSeq.sortBy(_.id)
+
+@main def serveTodos(): Unit =
+  Design
+    .newSilentDesign
+    .bindImpl[TodoApi, TodoApiImpl]
+    .bindProvider[TodoApi, HttpServer] { api =>
+      val dispatcher = RPCDispatcher(RPCRouter.of[TodoApi](api))
+      Http.server.withPort(8080).withRxHandler(req => dispatcher.dispatch(req)).start()
+    }
+    .onShutdown(_.stop())
+    .build[HttpServer](_.awaitTermination())
+```
+
+`derives Weaver` gives `Todo` its JSON and MessagePack codecs. `RPCRouter.of[TodoApi]` turns each method of the trait into an endpoint, such as `POST /example.rpc.TodoApi/list`. `Design` wires the implementation into the server and stops the server on shutdown. A client calls the service through the same `TodoApi` trait, so calls are checked at compile time.
 
 ## The starting point
 
