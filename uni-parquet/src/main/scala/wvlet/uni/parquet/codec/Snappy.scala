@@ -36,6 +36,48 @@ private[parquet] object Snappy:
 
     val out = new Array[Byte](expectedSize)
     var op  = 0
+
+    // Fast loop while a tag and its extra bytes fit in the input, so they need no bounds check
+    while ip <= end - 5 do
+      val tag  = src(ip) & 0xff
+      val kind = tag & 3
+      if kind == 0 then
+        var len = (tag >>> 2) + 1
+        ip += 1
+        if len > 60 then
+          val n = len - 60
+          len = (Zstd.le32(src, ip) & ExtraMask(n)) + 1
+          ip += n
+        if len <= 0 || len > end - ip || len > expectedSize - op then
+          fail("literal runs past the end of the buffer")
+        WideCopy.literal(src, ip, out, op, len)
+        ip += len
+        op += len
+      else
+        var len    = 0
+        var offset = 0
+        if kind == 1 then
+          len = 4 + ((tag >>> 2) & 7)
+          offset = ((tag >>> 5) << 8) | (src(ip + 1) & 0xff)
+          ip += 2
+        else if kind == 2 then
+          len = (tag >>> 2) + 1
+          offset = (src(ip + 1) & 0xff) | ((src(ip + 2) & 0xff) << 8)
+          ip += 3
+        else
+          len = (tag >>> 2) + 1
+          offset = Zstd.le32(src, ip + 1)
+          ip += 5
+        if offset <= 0 || offset > op then
+          fail(s"copy offset ${offset} is out of range")
+        if len > expectedSize - op then
+          fail("copy runs past the end of the output")
+        WideCopy.matchCopy(out, op, offset, len)
+        op += len
+      end if
+    end while
+
+    // The last few tags, reading each byte with a bounds check
     while ip < end do
       val tag = byteAt(ip)
       ip += 1
@@ -53,7 +95,7 @@ private[parquet] object Snappy:
           len += 1
           if len <= 0 || len > end - ip || len > expectedSize - op then
             fail("literal runs past the end of the buffer")
-          System.arraycopy(src, ip, out, op, len)
+          WideCopy.literal(src, ip, out, op, len)
           ip += len
           op += len
         case kind =>
@@ -76,7 +118,7 @@ private[parquet] object Snappy:
             fail(s"copy offset ${offset} is out of range")
           if len > expectedSize - op then
             fail("copy runs past the end of the output")
-          Lz77.copyMatch(out, op, offset, len)
+          WideCopy.matchCopy(out, op, offset, len)
           op += len
       end match
     end while
@@ -85,6 +127,8 @@ private[parquet] object Snappy:
     out
 
   end decompress
+
+  private val ExtraMask: Array[Int] = Array(0, 0xff, 0xffff, 0xffffff, -1)
 
 end Snappy
 

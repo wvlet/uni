@@ -12,72 +12,76 @@ private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: 
   if last == 0 then
     Zstd.fail("bitstream has no end marker")
 
+  // As in zstd's BIT_DStream: `container` holds the 8 stream bytes at [ptr, ptr + 8) as a
+  // little-endian word, and reads take bits from its top down; `consumed` counts the bits already
+  // taken. `ptr` may go below `start`: the bytes there read as zeros, as the format requires.
+  // Not private: ZstdSequences keeps these in locals in its hot loop
+  private[codec] var ptr: Int        = 0
+  private[codec] var container: Long = 0L
+  private[codec] var consumed: Int   = 0
+
+  locally {
+    val length = end - start
+    if length >= 8 then
+      ptr = end - 8
+      container = le64(ptr)
+    else
+      // Place the short stream at the top of the word; the missing low bytes are zeros
+      var v = 0L
+      var i = 0
+      while i < length do
+        v |= (buf(start + i) & 0xffL) << (8 * i)
+        i += 1
+      ptr = end - 8
+      container = v << (8 * (8 - length))
+    // Skip the zero padding above the end marker, and the marker itself
+    consumed = 8 - Zstd.highBit(last)
+  }
+
   /** Bits not yet read; negative after reading past the start (the missing bits are zeros) */
-  var remaining: Long = (end - start).toLong * 8 - 8 + Zstd.highBit(last)
+  def remaining: Long = (ptr - start).toLong * 8 + 64 - consumed
 
-  private val length = end - start
-
-  // A cached 64-bit window of the stream: bits [windowLo, windowLo + 64). Reads go backward, so a
-  // window is loaded to end at the requested bits and serves the next few reads below them. Before
-  // the first load, no position falls inside it (and windowLo + 64 does not overflow).
-  private var windowLo: Long = Long.MaxValue - 64
-  private var window: Long   = 0L
-
-  /** Bits [pos, pos + n) of the stream, with bit 0 the lowest bit of the first byte; n <= 32 */
-  private def bitsAt(pos: Long, n: Int): Long =
-    if pos >= windowLo && pos + n <= windowLo + 64 then
-      (window >>> (pos - windowLo).toInt) & ((1L << n) - 1)
-    else
-      load(pos, n)
-
-  private def load(pos: Long, n: Int): Long =
-    if pos >= 0 && length >= 8 then
-      // The 8 bytes that end at the byte holding the read's last bit, kept inside the stream
-      val b = math.min(((pos + n + 7) >>> 3).toInt - 8, length - 8)
-      if b >= 0 && b.toLong * 8 <= pos then
-        window = le64(start + b)
-        windowLo = b.toLong * 8
-        (window >>> (pos - windowLo).toInt) & ((1L << n) - 1)
-      else
-        bitsAtSlow(pos, n)
-    else
-      bitsAtSlow(pos, n)
-
-  private inline def le64(i: Int): Long =
+  private[codec] inline def le64(i: Int): Long =
     val lo = Zstd.le32(buf, i) & 0xffffffffL
     val hi = Zstd.le32(buf, i + 4).toLong
     lo | (hi << 32)
 
-  /** Bits near the stream's ends, or below position 0 (which read as zeros) */
-  private def bitsAtSlow(pos: Long, n: Int): Long =
-    if n == 0 then
-      0L
-    else
-      var v   = 0L
-      var got = 0
-      var p   = pos
-      // Bits below position 0 read as zero
-      if p < 0 then
-        got = math.min(n.toLong, -p).toInt
-        p += got
-      while got < n do
-        val byteIdx = (p >>> 3).toInt
-        val inByte  = (p & 7).toInt
-        val take    = math.min(8 - inByte, n - got)
-        val b       = (buf(start + byteIdx) & 0xff) >>> inByte
-        v |= (b & ((1 << take) - 1)).toLong << got
-        got += take
-        p += take
-      v
+  /** Moves the window down until `n` more bits fit in it */
+  private[codec] def refill(n: Int): Unit =
+    while consumed + n > 64 do
+      val bytes = consumed >>> 3
+      if ptr - bytes >= start then
+        ptr -= bytes
+        consumed &= 7
+        container = le64(ptr)
+      else if ptr > start then
+        // Only part of a step is left before the start: load the first 8 bytes
+        consumed -= (ptr - start) * 8
+        ptr = start
+        container = le64(ptr)
+      else
+        // Below the start: shift in zero bytes
+        container =
+          if bytes >= 8 then
+            0L
+          else
+            container << (8 * bytes)
+        ptr -= bytes
+        consumed &= 7
+
+  /** The next `n` bits (n <= 32) without consuming them */
+  def peek(n: Int): Int =
+    if consumed + n > 64 then
+      refill(n)
+    // The extra 1-bit shift makes n = 0 return 0
+    ((container << consumed) >>> 1 >>> (63 - n)).toInt
 
   def read(n: Int): Int =
-    val v = bitsAt(remaining - n, n)
-    remaining -= n
-    v.toInt
+    val v = peek(n)
+    consumed += n
+    v
 
-  def peek(n: Int): Int = bitsAt(remaining - n, n).toInt
-
-  def skip(n: Int): Unit = remaining -= n
+  def skip(n: Int): Unit = consumed += n
 
   def isOverflowed: Boolean = remaining < 0
 
