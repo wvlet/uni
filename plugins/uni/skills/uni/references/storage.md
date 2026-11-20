@@ -14,7 +14,7 @@ Full reference: https://wvlet.org/uni/core/object-storage.md
 ```scala
 import wvlet.uni.storage.{ObjectStore, ObjectUri, S3Config, StorageException}
 
-val store = ObjectStore.s3() // AWS credential chain: env, ~/.aws profile, ECS, EC2 IMDSv2
+val store = ObjectStore.s3() // AWS credential chain: env, web identity, ~/.aws profile, ECS, EC2 IMDSv2
 
 store.put("s3://my-bucket/a.txt", "hi".getBytes("UTF-8"))
 val all: Array[Byte]   = store.get("s3://my-bucket/a.txt")
@@ -41,6 +41,17 @@ val gcs   = S3Config.gcs.withCredentials("<hmac-key-id>", "<hmac-secret>") // GC
 val minio = S3Config.minio("http://localhost:9000").withCredentials("admin", "secret")
 val anon  = S3Config().withRegion("us-west-2").noCredentials // public buckets
 ```
+
+The default chain follows the AWS Java SDK v2 order: environment keys, web identity
+(`AWS_WEB_IDENTITY_TOKEN_FILE` + `AWS_ROLE_ARN`, the EKS IRSA path), the profile, the
+ECS / EKS Pod Identity endpoint, then EC2 IMDSv2. A profile may use
+`role_arn` + `web_identity_token_file`, IAM Identity Center (`sso_session` or legacy
+`sso_start_url`; reads `aws sso login`'s cache and refreshes `sso_session` tokens),
+`role_arn` + `source_profile` / `credential_source` (STS AssumeRole, chainable),
+`credential_process` (not in browsers), or static keys, first match in that order.
+`mfa_serial` profiles are not supported. Only `AWS_ENDPOINT_URL_STS`, `_SSO`, and
+`_SSO_OIDC` redirect credential calls, never the generic `AWS_ENDPOINT_URL`. A
+`NoCredentials` error lists why each source failed, without secrets.
 
 Redirects are never followed (signed headers must not go to another host); a
 bucket in another region fails with code `WrongRegion` naming the region.

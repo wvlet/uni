@@ -27,6 +27,8 @@ private[storage] object StorageEnv:
 
   def isBrowser: Boolean = !isNode
 
+  def isWindows: Boolean = isNode && g.process.platform.asInstanceOf[String] == "win32"
+
   def get(name: String): Option[String] =
     if isNode then
       val value = g.process.env.selectDynamic(name)

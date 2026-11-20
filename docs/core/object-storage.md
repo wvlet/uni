@@ -36,15 +36,69 @@ every store.
 
 ## Credentials and Region
 
-`ObjectStore.s3()` finds credentials the way the AWS CLI does, and uses the first source that has
-them:
+`ObjectStore.s3()` finds credentials the way the AWS SDKs do, and uses the first source that has
+them. The order is the AWS Java SDK v2 default chain:
 
 1. `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN`
-2. The `AWS_PROFILE` (or `default`) profile in `~/.aws/credentials` or `~/.aws/config`
-3. The ECS or EKS Pod Identity container endpoint (`AWS_CONTAINER_CREDENTIALS_*`)
-4. The EC2 instance profile, through IMDSv2
+2. Web identity: `AWS_WEB_IDENTITY_TOKEN_FILE` and `AWS_ROLE_ARN` (optionally
+   `AWS_ROLE_SESSION_NAME`), exchanged through STS `AssumeRoleWithWebIdentity`. This is how EKS
+   IAM Roles for Service Accounts (IRSA) work
+3. The `AWS_PROFILE` (or `default`) profile in `~/.aws/credentials` or `~/.aws/config`
+4. The ECS or EKS Pod Identity container endpoint (`AWS_CONTAINER_CREDENTIALS_*`)
+5. The EC2 instance profile, through IMDSv2
 
-Temporary credentials are refreshed before they expire. The region comes from `AWS_REGION`,
+The AWS CLI (botocore) uses almost the same order, except that it tries a profile's `role_arn`
+before web identity from the environment.
+
+A profile can get its credentials in several ways. Uni uses the first of these that the profile
+sets, in the Java SDK v2 order:
+
+| Profile settings | Source |
+|------------------|--------|
+| `role_arn` + `web_identity_token_file` | STS `AssumeRoleWithWebIdentity` |
+| `sso_session` (or the legacy `sso_start_url` + `sso_region`), with `sso_account_id` and `sso_role_name` | IAM Identity Center: the token that `aws sso login` cached under `~/.aws/sso/cache` |
+| `role_arn` + `source_profile` or `credential_source` (`Environment`, `Ec2InstanceMetadata`, `EcsContainer`) | STS `AssumeRole`, signed with the source's credentials; source profiles can chain |
+| `credential_process` | The command's JSON output (JVM, Scala Native, and Node.js) |
+| `aws_access_key_id` + `aws_secret_access_key` | Static keys |
+
+```ini
+# ~/.aws/config
+[profile dev]
+sso_session = corp
+sso_account_id = 123456789012
+sso_role_name = ReadOnly
+
+[sso-session corp]
+sso_region = us-east-1
+sso_start_url = https://example.awsapps.com/start
+
+[profile deploy]
+role_arn = arn:aws:iam::123456789012:role/deploy
+source_profile = dev
+
+[profile vault]
+credential_process = /usr/local/bin/vault-aws-creds --role analytics
+```
+
+Some notes on these sources:
+
+- Role profiles honor `role_session_name`, `external_id`, and `duration_seconds`. Uni can't
+  prompt for an MFA code, so profiles with `mfa_serial` aren't supported; pass temporary
+  credentials for those.
+- When an `sso_session` token expires, Uni refreshes it with the cached refresh token and writes
+  the new token back to the cache file (owner-only), as the AWS CLI does. Legacy `sso_start_url`
+  profiles can't be refreshed; run `aws sso login` again.
+- `credential_process` runs through `sh -c` (`cmd.exe /C` on Windows) and must print the
+  `Version: 1` JSON that the AWS CLI expects. Credentials without an `Expiration` are kept until
+  the process ends.
+- STS is called at `sts.<region>.amazonaws.com`, and IAM Identity Center at its `sso_region`.
+  `AWS_ENDPOINT_URL_STS`, `AWS_ENDPOINT_URL_SSO`, and `AWS_ENDPOINT_URL_SSO_OIDC` override those
+  endpoints. The generic `AWS_ENDPOINT_URL` does not, because it often points at an
+  S3-compatible store that must not receive identity tokens.
+
+Temporary credentials are refreshed before they expire. When no source has credentials, the
+`NoCredentials` error lists why each configured source failed, such as "run `aws sso login
+--profile dev`", without tokens or secrets. The region comes from `AWS_REGION`,
 `AWS_DEFAULT_REGION`, or the profile's `region`, and defaults to `us-east-1`. Set either
 explicitly with `S3Config`:
 
@@ -63,8 +117,8 @@ val open = ObjectStore.s3(S3Config().withRegion("us-west-2").noCredentials)
 ```
 
 `AwsCredentials.toString` hides the secret and the session token, so credentials don't leak into
-logs. SSO, web identity (EKS IRSA), and `credential_process` profiles are not read yet; pass keys
-from those through `withCredentials(AwsCredentials(...))`.
+logs. `AwsCredentialsProvider.webIdentity` picks web identity from the environment explicitly, and
+`AwsCredentialsProvider.profile(name)` reads any of the profile kinds above.
 
 A bucket in another region fails with the `WrongRegion` error code and a message naming the
 bucket's region. The client never follows redirects, because a redirect would send the signed
