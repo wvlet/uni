@@ -104,7 +104,9 @@ def recoverWithCases : List String :=
     [Action.set 0 0, .set 0 2, .set 0 0, .set 1 11],
     [.set 0 0, .set 0 2, .fail 0, .set 2 21, .stop 2],
     [.set 0 0, .stop 1, .set 0 2, .stop 0],
-    [.set 0 0, .set 0 2, .set 1 11, .stop 1, .stop 0]]
+    [.set 0 0, .set 0 2, .set 1 11, .stop 1, .stop 0],
+    [.set 0 0, .set 0 4, .set 1 11, .stop 1],
+    [.set 0 0, .set 0 3, .set 1 11, .stop 1]]
   let ss := ((scripts alphabet 2).filter valid) ++ longer
   [Mode.default, .continuous].flatMap fun m =>
     ss.map fun as =>

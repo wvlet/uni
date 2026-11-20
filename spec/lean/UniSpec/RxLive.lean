@@ -283,12 +283,15 @@ inductive Mapped where
   | value (v : Int)
   /-- An error `f` recovers with this var -/
   | recover (i : Nat)
-  /-- An error `f` rejects, or one on which `f` throws: the sink gets `OnError` -/
-  | error
+  /-- An error `f` rejects: the sink gets `OnError` -/
+  | rejected
+  /-- An error on which `f` throws: the sink gets `OnError`, and the recovery stream, cancelled
+  before `f` runs, is gone -/
+  | throws
   deriving Repr, DecidableEq
 
 def mapped (x : Int) : Mapped :=
-  if x = 0 then .recover 1 else if x = 3 ∨ x = 4 then .error else .value x
+  if x = 0 then .recover 1 else if x = 3 then .rejected else if x = 4 then .throws else .value x
 
 structure RecoverWith where
   vars : Vars
@@ -309,7 +312,8 @@ def RecoverWith.onInput (s : RecoverWith) : VarEvent → RecoverWith × List Out
   | .next x =>
     match mapped x with
     | .recover i => s.recover i
-    | .error => (s, [.fail])
+    | .rejected => (s, [.fail])
+    | .throws => ({ s with recovery := none }, [.fail])
     | .value v =>
       -- In continuous mode a new input value replaces the recovery stream
       let s := if s.mode == .continuous then { s with recovery := none } else s

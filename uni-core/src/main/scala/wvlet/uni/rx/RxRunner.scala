@@ -649,7 +649,9 @@ class RxRunner(
       case RecoverWithOp(in, f) =>
         var toContinue: RxResult = RxResult.Continue
         var c1                   = Cancelable.empty
-        var c2                   = Cancelable.empty
+        // Assigned after subscribing, and read by a recovery that may run on another thread
+        @volatile
+        var c2 = Cancelable.empty
         // Outside continuous mode a recovered error ends the input, as in transformRx: the input is
         // cancelled, and the operator ends with the recovery stream. An error that does not end its
         // source (e.g., a throwing map over an RxVar) would otherwise let later input events reach
@@ -840,7 +842,7 @@ class RxRunner(
                 slot,
                 run(rxb) {
                   case ev @ OnNext(_) =>
-                    fanIn.next(ev)
+                    fanIn.next(slot, ev)
                   case OnCompletion =>
                     fanIn.end(slot, releasePermit)
                   case ev @ OnError(_) =>
@@ -1269,8 +1271,13 @@ class RxRunner(
   private class FanIn(effect: RxEvent => RxResult):
     class Slot:
       var cancelable: Cancelable = Cancelable.empty
-      // Set when the slot's stream is cancelled before its subscription is attached
+      // Set when the slot's stream is cancelled while the operator keeps running; later values
+      // from it are dropped, and a subscription attached afterwards is cancelled
+      @volatile
       var cancelled = false
+
+      // Set by the first end
+      var ended = false
 
     private val running = mutable.LinkedHashSet.empty[Slot]
     private var stopped = false
@@ -1309,6 +1316,12 @@ class RxRunner(
 
     def next(ev: OnNext): RxResult = deliver(ev)
 
+    def next(slot: Slot, ev: OnNext): RxResult =
+      if slot.cancelled then
+        result
+      else
+        deliver(ev)
+
     /**
       * Forward an error from a slot's stream. If the downstream recovers, the slot has ended. In
       * continuous mode the error is transient and the slot keeps running, unless `endInContinuous`
@@ -1325,7 +1338,7 @@ class RxRunner(
         if endInContinuous then
           // End the slot once: a cancelled RxVar subscription may still deliver the current event
           val c = synchronized {
-            if slot.cancelled || !running.contains(slot) then
+            if slot.cancelled || slot.ended then
               None
             else
               slot.cancelled = true
@@ -1349,20 +1362,30 @@ class RxRunner(
       * no slot is left
       */
     def end(slot: Slot, beforeEnd: () => Unit = () => ()): RxResult =
-      beforeEnd()
-      val last = synchronized {
-        running -= slot
-        running.isEmpty
+      // A slot ends once: a cancelled stream may still report its end, which must not release
+      // parFlatMap's permit again
+      val first = synchronized {
+        val first = !slot.ended
+        slot.ended = true
+        first
       }
-      if last then
-        synchronized {
-          if !stopped then
-            stopped = true
-            effect(OnCompletion)
-        }
-        RxResult.Stop
-      else
+      if !first then
         result
+      else
+        beforeEnd()
+        val last = synchronized {
+          running -= slot
+          running.isEmpty
+        }
+        if last then
+          synchronized {
+            if !stopped then
+              stopped = true
+              effect(OnCompletion)
+          }
+          RxResult.Stop
+        else
+          result
 
     def cancelable: Cancelable = Cancelable { () =>
       synchronized {
