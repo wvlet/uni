@@ -154,9 +154,12 @@ private[http] object DeflateEngine:
   final val MinWindowBits = 9
   final val MaxWindowBits = 15
 
-  /** The smallest window that holds `length` bytes, so matches can reach back to the start */
+  // zlib keeps this much lookahead, so a match reaches back at most window - MinLookahead bytes
+  private final val MinLookahead = 262
+
+  /** The smallest window whose match distance covers `length` bytes */
   def windowBitsFor(length: Int): Int =
-    val bits = 32 - Integer.numberOfLeadingZeros(math.max(length, 1) - 1)
+    val bits = 32 - Integer.numberOfLeadingZeros(math.max(length + MinLookahead, 1) - 1)
     math.min(MaxWindowBits, math.max(MinWindowBits, bits))
 
   /** A hash table about as large as the window: zlib's default 8 for a 32 KB window */
