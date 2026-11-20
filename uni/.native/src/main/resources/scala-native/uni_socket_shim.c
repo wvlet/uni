@@ -252,13 +252,6 @@ int uni_socket_connect_timeout(int fd, const void *addr, int addrlen, int timeou
 }
 #else
 #include <fcntl.h>
-#include <time.h>
-
-static long long uni_monotonic_millis(void) {
-  struct timespec ts;
-  clock_gettime(CLOCK_MONOTONIC, &ts);
-  return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
-}
 
 int uni_socket_connect_timeout(int fd, const void *addr, int addrlen, int timeout_millis) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -271,15 +264,15 @@ int uni_socket_connect_timeout(int fd, const void *addr, int addrlen, int timeou
     if (errno != EINPROGRESS && errno != EINTR) {
       result = -1;
     } else {
-      long long     deadline = uni_monotonic_millis() + timeout_millis;
+      /* As in uni_socket_wait_readable, a retry on EINTR restarts the timeout: clock_gettime isn't
+       * declared under the strict C99 mode this file is compiled with on Linux. */
       struct pollfd fds;
       int           rc;
       do {
-        long long left = deadline - uni_monotonic_millis();
-        fds.fd         = fd;
-        fds.events     = POLLOUT;
-        fds.revents    = 0;
-        rc             = poll(&fds, 1, left > 0 ? (int)left : 0);
+        fds.fd      = fd;
+        fds.events  = POLLOUT;
+        fds.revents = 0;
+        rc          = poll(&fds, 1, timeout_millis);
       } while (rc < 0 && errno == EINTR);
       if (rc == 0) {
         result = -2;
