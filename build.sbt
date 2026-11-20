@@ -160,6 +160,7 @@ lazy val root = project
 lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
   uni.jvm,
+  parquet.jvm,
   netty,
   bookExamples,
   docSnippets,
@@ -175,6 +176,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
 lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
+  parquet.js,
   ui,
   domTest,
   docSnippetsJS,
@@ -189,6 +191,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
 lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
+  parquet.native,
   exampleCli.native,
   exampleRepl.native,
   exampleRpcNative.native,
@@ -244,6 +247,21 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(core, test % Test)
+
+// uni-parquet - Pure-Scala Apache Parquet reader for JVM, Scala.js, and Scala Native
+lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("uni-parquet"))
+  .settings(
+    buildSettings,
+    name        := "uni-parquet",
+    description :=
+      "Pure-Scala Apache Parquet reader for JVM, Scala.js, and Scala Native: reads local files, byte arrays, and HTTP range requests into column batches or case classes, with built-in Snappy, Gzip, LZ4, ZSTD, and Brotli decompression"
+  )
+  .jvmSettings(jvmNativeSharedSources)
+  .jsSettings(jsBuildSettings, minimizeJavadoc)
+  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
+  .dependsOn(uni, test % Test)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
 lazy val ui = project
