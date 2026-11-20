@@ -119,10 +119,12 @@ case class MethodCodec(
   private def decodeFromMap(map: Map[String, JSONValue], methodOwner: Option[Any]): Seq[Any] =
     val numParams = method.args.size
     val results   = Array.ofDim[Any](numParams)
-    val found     = Array.fill(numParams)(false)
+    val found     = new Array[Boolean](numParams)
 
     // Match incoming keys using canonical names
-    for (key, value) <- map do
+    val entries = map.iterator
+    while entries.hasNext do
+      val (key, value) = entries.next()
       paramsByCanonicalName.get(CName.toCanonicalName(key)) match
         case Some((i, param, weaver)) =>
           try
@@ -137,24 +139,25 @@ case class MethodCodec(
         // Ignore unknown parameters
 
     // Fill missing with defaults or throw error
-    for
-      i <- 0 until numParams
-      if !found(i)
-    do
-      val param = method.args(i)
-      param.resolveDefaultValue(methodOwner) match
-        case Some(default) =>
-          results(i) = default
-        case None =>
-          // Check if it's an Option type - use None as default
-          if param.surface.isOption then
-            results(i) = None
-          else
-            throw ServiceStatus
-              .INVALID_ARGUMENT_U2
-              .newException(s"Missing required parameter: ${param.name}")
+    var i = 0
+    while i < numParams do
+      if !found(i) then
+        val param = method.args(i)
+        param.resolveDefaultValue(methodOwner) match
+          case Some(default) =>
+            results(i) = default
+          case None =>
+            // Check if it's an Option type - use None as default
+            if param.surface.isOption then
+              results(i) = None
+            else
+              throw ServiceStatus
+                .INVALID_ARGUMENT_U2
+                .newException(s"Missing required parameter: ${param.name}")
+      i += 1
 
-    results.toSeq
+    // results is local, so wrapping it is safe and saves a copy
+    scala.collection.immutable.ArraySeq.unsafeWrapArray(results)
 
   end decodeFromMap
 
