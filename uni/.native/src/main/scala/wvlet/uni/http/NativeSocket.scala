@@ -24,10 +24,10 @@ import scala.scalanative.unsafe.*
 import scala.scalanative.unsigned.*
 
 /**
-  * The three socket calls that differ on Windows, from `uni_socket_shim.c`: winsock startup, the
-  * readable-wait (`poll` vs `WSAPoll`), and closing a socket (`close` vs `closesocket`). Scala
-  * Native's posixlib builds `poll.c` only on unix/Apple, so referencing `scalanative.posix.poll`
-  * here would break every Windows Native build reaching this object. See
+  * The socket calls that differ on Windows, from `uni_socket_shim.c`: winsock startup, the
+  * readable-wait (`poll` vs `WSAPoll`), a timed connect, and closing a socket (`close` vs
+  * `closesocket`). Scala Native's posixlib builds `poll.c` only on unix/Apple, so referencing
+  * `scalanative.posix.poll` here would break every Windows Native build reaching this object. See
   * `adr/2026-07-08-native-socket-shim.md`.
   */
 @extern
@@ -43,6 +43,18 @@ private[http] object SocketShim:
   def uni_socket_wait_readable(fd: CInt, timeoutMillis: CInt): CInt = extern
 
   def uni_socket_close(fd: CInt): CInt = extern
+
+  /**
+    * Connect within `timeoutMillis` (> 0): 0 when connected, -1 on failure, -2 on timeout.
+    * `@blocking` for the same reason as `uni_socket_wait_readable`.
+    */
+  @blocking
+  def uni_socket_connect_timeout(
+      fd: CInt,
+      addr: Ptr[Byte],
+      addrLen: CInt,
+      timeoutMillis: CInt
+  ): CInt = extern
 
   /**
     * Non-blocking `recv` (`MSG_DONTWAIT`): the count, 0 at EOF, -1 on error, or -2 when nothing is
@@ -148,7 +160,11 @@ private[http] object NativeSocket:
   /**
     * Open a TCP connection to host:port (IPv4 dotted-quad or "localhost"). Returns the client fd.
     */
-  def connect(host: String, port: Int): Int =
+  /**
+    * A connected TCP socket to `host:port`. A positive `timeoutMillis` bounds the connect, failing
+    * with [[HttpErrorCode.ConnectionTimeout]] past it; 0 waits as long as the OS does.
+    */
+  def connect(host: String, port: Int, timeoutMillis: Int = 0): Int =
     if port < 0 || port > 65535 then
       throw HttpException.connectionFailed(s"Invalid port: ${port}")
     ensureStarted()
@@ -163,13 +179,28 @@ private[http] object NativeSocket:
     // Close the fd on any failure (e.g. setBindAddress rejecting an invalid host) — don't leak it.
     try
       setBindAddress(addr, host)
-      if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0 then
+      if timeoutMillis > 0 then
+        SocketShim.uni_socket_connect_timeout(
+          fd,
+          addr.asInstanceOf[Ptr[Byte]],
+          sizeof[sockaddr_in].toInt,
+          timeoutMillis
+        ) match
+          case 0  =>
+          case -2 =>
+            throw HttpException.connectionTimeout(s"Timed out connecting to ${host}:${port}")
+          case _ =>
+            throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
+      else if csocket.connect(fd, addr.asInstanceOf[Ptr[sockaddr]], sizeof[sockaddr_in].toUInt) < 0
+      then
         throw HttpException.connectionFailed(s"Failed to connect to ${host}:${port}")
       fd
     catch
       case e: Throwable =>
         SocketShim.uni_socket_close(fd)
         throw e
+
+  end connect
 
   private def setBindAddress(addr: Ptr[sockaddr_in], host: String): Unit =
     // INADDR_ANY (0) for wildcard; otherwise parse a dotted-quad. "localhost" maps to loopback.

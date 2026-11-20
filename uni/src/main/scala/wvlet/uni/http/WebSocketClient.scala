@@ -22,6 +22,24 @@ import wvlet.uni.rx.Rx
 trait WebSocketClient:
 
   /**
+    * The longest a [[connect]] may take, from the TCP connect through the upgrade response, in
+    * milliseconds (0 means no limit). Past it `connect` fails with an [[HttpException]] whose code
+    * is [[HttpErrorCode.ConnectionTimeout]], and the half-open connection is closed. The built-in
+    * clients default to [[WebSocketClient.DefaultConnectTimeoutMillis]]; a custom client that
+    * doesn't override [[withConnectTimeoutMillis]] reports 0.
+    */
+  def connectTimeoutMillis: Long = 0
+
+  /**
+    * A client bounding each connect by `millis` (see [[connectTimeoutMillis]]). A custom client
+    * that doesn't support a timeout returns itself unchanged.
+    */
+  def withConnectTimeoutMillis(millis: Long): WebSocketClient = this
+
+  /** A client whose connects have no time limit. */
+  def noConnectTimeout(): WebSocketClient = withConnectTimeoutMillis(0)
+
+  /**
     * Connect to the `ws://` or `wss://` URL of `request`, sending its headers (e.g.
     * `Authorization`) with the upgrade. The `handler` receives the connection's lifecycle callbacks
     * (`onOpen`/`onTextMessage`/`onBinaryMessage`/`onClose`/`onError`). The returned `Rx` emits the
@@ -65,13 +83,19 @@ trait WebSocketClient:
 
 end WebSocketClient
 
-private[http] object WebSocketClient:
+object WebSocketClient:
+
+  /**
+    * Default for [[WebSocketClient.connectTimeoutMillis]]: 30 s, as for
+    * [[HttpClientConfig.connectTimeoutMillis]].
+    */
+  final val DefaultConnectTimeoutMillis: Long = 30000
 
   /** Headers the WebSocket handshake sets itself, in lower case. */
   private val handshakeHeaders = Set("host", "upgrade", "connection")
 
   /** The request's headers, after rejecting those the handshake sets itself. */
-  def upgradeHeaders(request: Request): Seq[(String, String)] =
+  private[http] def upgradeHeaders(request: Request): Seq[(String, String)] =
     val headers = request.headers.entries
     headers.foreach { (name, _) =>
       val lower = name.toLowerCase

@@ -29,6 +29,22 @@ Http.webSocketClient
 The handler's `onOpen(ctx)` fires for the same event, so you can also do the
 initial send there instead of in `subscribe`.
 
+## Connect Timeout
+
+A connect that doesn't finish within 30 seconds fails with an `HttpException`
+whose `errorCode` is `HttpErrorCode.ConnectionTimeout`, and the half-open
+connection is closed. The limit covers the TCP connect and the upgrade response
+together, so a server that accepts the connection but never answers the upgrade
+can't hold the connect open. Set another limit, or none, on the client:
+
+```scala
+Http.webSocketClient.withConnectTimeoutMillis(10000).connect(url, handler)
+Http.webSocketClient.noConnectTimeout().connect(url, handler)
+```
+
+The browser and Node.js `WebSocket` have no timeout option, so on Scala.js a
+timer closes a `WebSocket` that is still connecting when the limit passes.
+
 ## Upgrade Headers
 
 To authenticate, pass a `Request` instead of a URL. Its headers go on the HTTP
@@ -113,6 +129,7 @@ Codes a Uni server sends on its own:
 |------|---------|
 | 4000 + HTTP status (4401, 4403, …) | The route filter rejected the upgrade, on a route with [readable rejections](./server#readable-rejections) |
 | 4502 | A [relay](#relaying-a-session) couldn't reach its upstream |
+| 4504 | A relay's upstream didn't complete its connect within the client's [connect timeout](#connect-timeout) |
 | 4900–4999 | A relay's upstream closed with a code the client can't be given, such as 1011 (4911) |
 | 1013 | A peer stopped reading, or a relay's pre-open queue overflowed |
 
@@ -140,6 +157,7 @@ val relay = WebSocketRelay(
 |-------|---------------------|
 | Client frames before the upstream opens | Queued in order, up to `maxPendingBytes` (1 MiB by default); past it the client is closed with 1013 |
 | Upstream connect or handshake fails | The client is closed with 4502, reason `upstream status 401` when the upstream answered with a status (JVM and Native), else `upstream connect failed` |
+| Upstream connect or handshake times out | The client is closed with 4504, reason `upstream connect timed out`, after the relay's `WebSocketClient` [connect timeout](#connect-timeout) (30 s by default) |
 | Client closes | The upstream is closed with the same code and reason; a dropped client (1006) closes it with 1001 |
 | Upstream closes with 1000, 1001, or 3000–4999 | The client is closed with the same code |
 | Upstream closes with another code | 1002–1099 map to 4902–4999 (1006 → 4906, 1011 → 4911), anything else to 4900 |

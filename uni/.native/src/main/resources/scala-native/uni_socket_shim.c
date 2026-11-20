@@ -18,6 +18,7 @@
  *
  *   startup        POSIX: nothing.            Windows: WSAStartup, or every socket() fails.
  *   readable-wait  POSIX: poll().             Windows: WSAPoll().
+ *   timed connect  POSIX: poll().             Windows: select().
  *   close          POSIX: close().            Windows: closesocket().
  *   no SIGPIPE     macOS: SO_NOSIGPIPE.       Linux: MSG_NOSIGNAL.     Windows: nothing.
  *   idle poller    Linux: epoll.              macOS/BSD: kqueue.       Windows, others: none (-1).
@@ -208,6 +209,95 @@ int uni_socket_wait_readable(int fd, int timeout_millis) {
   }
   return 0;
 }
+
+/*
+ * Connect `fd` to `addr`, giving up after `timeout_millis` (> 0). Returns 0 when connected, -1 when
+ * the connect failed, or -2 on timeout. The socket is switched to non-blocking for the connect and
+ * back to blocking afterwards; the caller closes it on failure.
+ *
+ * Windows waits with select() rather than WSAPoll(): before Windows 10 2004, WSAPoll never reports a
+ * refused connect, so a refusal would look like a timeout.
+ */
+#if defined(_WIN32)
+int uni_socket_connect_timeout(int fd, const void *addr, int addrlen, int timeout_millis) {
+  SOCKET s  = UNI_POLL_FD(fd);
+  u_long on = 1;
+  if (ioctlsocket(s, FIONBIO, &on) != 0) {
+    return -1;
+  }
+  int result = 0;
+  if (connect(s, (const struct sockaddr *)addr, addrlen) == SOCKET_ERROR) {
+    if (WSAGetLastError() != WSAEWOULDBLOCK) {
+      result = -1;
+    } else {
+      fd_set writable, failed;
+      FD_ZERO(&writable);
+      FD_ZERO(&failed);
+      FD_SET(s, &writable);
+      FD_SET(s, &failed);
+      struct timeval tv;
+      tv.tv_sec  = timeout_millis / 1000;
+      tv.tv_usec = (timeout_millis % 1000) * 1000;
+      int rc     = select(0, NULL, &writable, &failed, &tv);
+      if (rc == 0) {
+        result = -2;
+      } else if (rc < 0 || FD_ISSET(s, &failed)) {
+        result = -1;
+      }
+    }
+  }
+  u_long off = 0;
+  ioctlsocket(s, FIONBIO, &off);
+  return result;
+}
+#else
+#include <fcntl.h>
+#include <time.h>
+
+static long long uni_monotonic_millis(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (long long)ts.tv_sec * 1000LL + ts.tv_nsec / 1000000LL;
+}
+
+int uni_socket_connect_timeout(int fd, const void *addr, int addrlen, int timeout_millis) {
+  int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+    return -1;
+  }
+  int result = 0;
+  /* EINTR leaves the connect in progress, as EINPROGRESS does; both finish by turning writable. */
+  if (connect(fd, (const struct sockaddr *)addr, (socklen_t)addrlen) < 0) {
+    if (errno != EINPROGRESS && errno != EINTR) {
+      result = -1;
+    } else {
+      long long     deadline = uni_monotonic_millis() + timeout_millis;
+      struct pollfd fds;
+      int           rc;
+      do {
+        long long left = deadline - uni_monotonic_millis();
+        fds.fd         = fd;
+        fds.events     = POLLOUT;
+        fds.revents    = 0;
+        rc             = poll(&fds, 1, left > 0 ? (int)left : 0);
+      } while (rc < 0 && errno == EINTR);
+      if (rc == 0) {
+        result = -2;
+      } else if (rc < 0) {
+        result = -1;
+      } else {
+        int       err = 0;
+        socklen_t len = sizeof(err);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
+          result = -1;
+        }
+      }
+    }
+  }
+  fcntl(fd, F_SETFL, flags);
+  return result;
+}
+#endif
 
 /*
  * The idle-connection poller: NativeHttpServer parks keep-alive connections here between requests,
