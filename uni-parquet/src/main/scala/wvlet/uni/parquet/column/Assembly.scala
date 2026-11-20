@@ -289,6 +289,42 @@ private[parquet] object Assembly:
       ranges: Ranges,
       n: Int
   ): ColumnVector =
+    // Every entry holds a value (no nulls at this leaf) and instance k is entry k: true for flat
+    // required columns and for required leaves of lists. The decoded buffer is then the vector.
+    if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
+      directLeaf(p, leaf.data.values, n)
+    else
+      gatherLeaf(p, leaf, ranges, n)
+
+  private def isIdentity(ranges: Ranges, n: Int): Boolean =
+    var k = 0
+    while k < n && ranges.starts(k) == k do
+      k += 1
+    k == n
+
+  private def directLeaf(p: ParquetField.Primitive, values: ValueBuffer, n: Int): ColumnVector =
+    import java.util.Arrays.copyOf
+    values match
+      case b: BooleanBuffer =>
+        BooleanColumn(p, copyOf(b.values, n), null)
+      case b: IntBuffer =>
+        IntColumn(p, copyOf(b.values, n), null)
+      case b: LongBuffer =>
+        LongColumn(p, copyOf(b.values, n), null)
+      case b: FloatBuffer =>
+        FloatColumn(p, copyOf(b.values, n), null)
+      case b: DoubleBuffer =>
+        DoubleColumn(p, copyOf(b.values, n), null)
+      case b: BinaryBuffer =>
+        // The buffer's offsets start at 0; its data array is shared
+        BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null)
+
+  private def gatherLeaf(
+      p: ParquetField.Primitive,
+      leaf: Leaf,
+      ranges: Ranges,
+      n: Int
+  ): ColumnVector =
     val maxDef                = p.maxDefinitionLevel
     val vidx                  = leaf.valueIndex
     var nulls: Array[Boolean] = null
@@ -379,7 +415,7 @@ private[parquet] object Assembly:
           BinaryColumn(p, offsets, data, nulls)
     end match
 
-  end buildLeaf
+  end gatherLeaf
 
   private inline def gather(n: Int, pick: Array[Int])(
       inline f: Int => Boolean,
