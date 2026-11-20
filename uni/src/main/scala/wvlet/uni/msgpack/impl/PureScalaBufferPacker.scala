@@ -22,6 +22,7 @@ import wvlet.uni.msgpack.spi.BufferPacker
 import wvlet.uni.msgpack.spi.MsgPackJson
 import wvlet.uni.msgpack.spi.OffsetPacker
 import wvlet.uni.msgpack.spi.Packer
+import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.Value
 import wvlet.uni.msgpack.spi.WriteCursor
 
@@ -49,6 +50,11 @@ class PureScalaBufferPacker extends BufferPacker:
       PureScalaBufferUnpacker(ByteArrayBuffer.fromArray(buf.array, 0, len)),
       sb
     )
+
+  /** An unpacker over the bytes written so far, read in place */
+  private[uni] def writtenUnpacker: Unpacker = PureScalaBufferUnpacker(
+    ByteArrayBuffer.fromArray(buf.array, 0, cursor.lastWrittenBytes)
+  )
 
   /** The capacity the buffer has grown to */
   private[uni] def capacity: Int                    = buf.size

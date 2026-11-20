@@ -2,6 +2,7 @@ package wvlet.uni.weaver
 
 import wvlet.uni.json.JSON.JSONValue
 import wvlet.uni.msgpack.impl.PureScalaBufferPacker
+import wvlet.uni.msgpack.spi.JsonByteWriter
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.msgpack.spi.MsgPack
 import wvlet.uni.msgpack.spi.Packer
@@ -10,6 +11,7 @@ import wvlet.uni.msgpack.spi.ValueType
 import wvlet.uni.surface.*
 import wvlet.uni.util.ElapsedTime
 import wvlet.uni.util.ULID
+import wvlet.uni.util.Utf8
 import wvlet.uni.weaver.codec.AnyWeaver
 import wvlet.uni.weaver.codec.CaseClassWeaver
 import wvlet.uni.weaver.codec.EnumWeaver
@@ -93,9 +95,13 @@ trait Weaver[A]:
     * its copy in between where they cost most (Scala Native, Scala.js).
     */
   private[uni] def toJsonBytes(v: A, config: WeaverConfig = WeaverConfig()): Array[Byte] = Weaver
-    .withScratch { (packer, json) =>
-      pack(packer, v, config)
-      packer.writtenAsJsonBytes(json)
+    .withScratchSlot { slot =>
+      pack(slot.packer, v, config)
+      if Utf8.manualAscii then
+        // Straight to bytes, without a char builder (Scala Native, Scala.js)
+        slot.jsonBytes.toJsonBytes(slot.packer.writtenUnpacker)
+      else
+        slot.packer.writtenAsJsonBytes(slot.json)
     }
 
   def toMsgPack(v: A, config: WeaverConfig = WeaverConfig()): MsgPack =
@@ -127,11 +133,12 @@ end Weaver
 
 object Weaver:
 
-  private final class ScratchSlot:
+  private[weaver] final class ScratchSlot:
     var packer = PureScalaBufferPacker()
-    // The JSON text for toJsonBytes, before it becomes bytes
-    var json  = StringBuilder()
-    var inUse = false
+    // The JSON text for toJsonBytes, before it becomes bytes (JVM), or its bytes (Native, JS)
+    var json      = StringBuilder()
+    var jsonBytes = JsonByteWriter()
+    var inUse     = false
 
   // One packer per thread for toJson, whose MessagePack form is only an intermediate step. A fresh
   // packer would regrow its buffer for every value and copy it out once more; on Scala Native's
@@ -149,14 +156,17 @@ object Weaver:
   )
 
   private[weaver] def withScratch[T](f: (PureScalaBufferPacker, StringBuilder) => T): T =
+    withScratchSlot(slot => f(slot.packer, slot.json))
+
+  private[weaver] def withScratchSlot[T](f: ScratchSlot => T): T =
     val slot = scratch.get()
     if slot.inUse then
       // A weaver called toJson while packing: give it its own packer
-      f(PureScalaBufferPacker(), StringBuilder())
+      f(ScratchSlot())
     else
       slot.inUse = true
       try
-        f(slot.packer, slot.json)
+        f(slot)
       finally
         if slot.packer.capacity > MaxKeptScratchBytes then
           slot.packer = PureScalaBufferPacker()
@@ -164,6 +174,8 @@ object Weaver:
           slot.packer.clear
         if slot.json.underlying.capacity() > MaxKeptScratchBytes then
           slot.json = StringBuilder()
+        if slot.jsonBytes.capacity > MaxKeptScratchBytes then
+          slot.jsonBytes = JsonByteWriter()
         slot.inUse = false
 
   /**
