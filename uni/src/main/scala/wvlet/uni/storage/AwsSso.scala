@@ -202,11 +202,17 @@ private[storage] class AwsSso(
     * (without contents) and the refreshed token is still used.
     */
   private def writeCache(file: IOPath, cache: JSON.JSONObject): Unit =
-    // A random suffix, so two refreshes at once never share (or delete) a temp file
+    // A random suffix, so two refreshes at once never share (or delete) a temp file. Not UUID:
+    // Scala Native has no SecureRandom
     val tmp = file
       .parent
       .getOrElse(IOPath.parse("."))
-      .resolve(s".${file.fileName}.${java.util.UUID.randomUUID().toString}.tmp")
+      .resolve(
+        s".${file.fileName}.${now()}-${java
+            .lang
+            .Long
+            .toHexString(scala.util.Random.nextLong())}.tmp"
+      )
     var created = false
     try
       FileSystem.writeString(tmp, "", WriteMode.CreateNew)
