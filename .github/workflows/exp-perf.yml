@@ -1,0 +1,60 @@
+name: exp latency (temporary)
+on:
+  push:
+    branches: ['exp/**']
+permissions:
+  contents: read
+jobs:
+  lat:
+    name: latency (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            arch: x86_64
+            oha: oha-linux-amd64
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            oha: oha-linux-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: '25'
+          cache: sbt
+      - uses: ./.github/actions/sbt-launcher
+      - name: Install tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y libgc-dev
+          mkdir -p "${HOME}/.local/bin" && echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
+          curl -fsSL -o "${HOME}/.local/bin/oha" https://github.com/hatoo/oha/releases/download/v1.16.0/${{ matrix.oha }} && chmod +x "${HOME}/.local/bin/oha"
+      - name: Build
+        run: examples/rpc-native/bench/build.sh
+      - name: Latency
+        shell: bash
+        run: |
+          B=examples/rpc-native/bench/out/rpc-native
+          URL=http://127.0.0.1:18080/example.rpc.TodoApi/list
+          lat() {
+            label=$1; shift
+            env "$@" taskset -c 0-1 $B 18080 > gc-$label.log 2>&1 & pid=$!
+            for i in $(seq 1 500); do curl -s -o /dev/null -X POST -d '{"request":{"title":"x"}}' http://127.0.0.1:18080/example.rpc.TodoApi/add && break; sleep 0.02; done
+            for i in $(seq 2 50); do curl -s -o /dev/null -X POST -d "{\"request\":{\"title\":\"todo item number ${i}\"}}" http://127.0.0.1:18080/example.rpc.TodoApi/add; done
+            taskset -c 2-3 oha --no-tui -z 3s -c 16 -m POST -d '{"request":{}}' -T application/json $URL > /dev/null || true
+            taskset -c 2-3 oha --no-tui -z 10s -c 16 -m POST -d '{"request":{}}' -T application/json $URL > oha-$label.txt || true
+            kill $pid; wait $pid 2>/dev/null || true
+            echo "=== $label: $(grep -E 'Requests/sec' oha-$label.txt | tr -s ' \t' ' ') | $(grep -E '99.00%|99.90%|50.00%' oha-$label.txt | tr -s ' \t' ' ' | tr '\n' ' ')"
+          }
+          for round in 1 2; do
+            lat default GC_INITIAL_HEAP_SIZE=64m
+            lat nogc GC_DONT_GC=1
+            lat stats GC_INITIAL_HEAP_SIZE=64m GC_PRINT_STATS=1
+          done
+          echo "--- stats: collections and world-stopped marking (ms) in the last stats run"
+          grep -c "Complete collection" gc-stats.log || true
+          grep -oE "World-stopped marking took [0-9]+ ms [0-9]+ ns" gc-stats.log | awk '{ms=$4+$6/1e6; s+=ms; if(ms>m)m=ms; n++} END{print "n",n,"avg",s/n,"max",m}' || true
+          grep -oE "Complete collection took [0-9]+ ms [0-9]+ ns" gc-stats.log | awk '{ms=$4+$6/1e6; s+=ms; if(ms>m)m=ms; n++} END{print "complete n",n,"avg",s/n,"max",m}' || true
+          grep -m5 -E "stopped|Stopping|suspend" gc-stats.log || true
