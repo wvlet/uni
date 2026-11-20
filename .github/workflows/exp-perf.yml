@@ -49,10 +49,15 @@ jobs:
             echo "=== $label: $(grep -E 'Requests/sec' oha-$label.txt | tr -s ' \t' ' ') | $(grep -E '99.00%|99.90%|50.00%' oha-$label.txt | tr -s ' \t' ' ' | tr '\n' ' ')"
           }
           for round in 1 2; do
-            lat default GC_INITIAL_HEAP_SIZE=64m
-            lat nogc GC_DONT_GC=1
-            lat stats GC_INITIAL_HEAP_SIZE=64m GC_PRINT_STATS=1
+            lat h64 GC_INITIAL_HEAP_SIZE=64m
+            lat h16 GC_INITIAL_HEAP_SIZE=16m
+            lat h256 GC_INITIAL_HEAP_SIZE=256m
+            lat h64-markers2 GC_INITIAL_HEAP_SIZE=64m GC_MARKERS=2
+            lat h64-fsd1 GC_INITIAL_HEAP_SIZE=64m GC_FREE_SPACE_DIVISOR=1
+            lat h64-incr GC_INITIAL_HEAP_SIZE=64m GC_ENABLE_INCREMENTAL=1
+            lat h64-retry GC_INITIAL_HEAP_SIZE=64m GC_RETRY_SIGNALS=0
           done
+          lat stats GC_INITIAL_HEAP_SIZE=64m GC_PRINT_STATS=1
           echo "--- stats: collections and world-stopped marking (ms) in the last stats run"
           grep -c "Complete collection" gc-stats.log || true
           grep -oE "World-stopped marking took [0-9]+ ms [0-9]+ ns" gc-stats.log | awk '{ms=$4+$6/1e6; s+=ms; if(ms>m)m=ms; n++} END{print "n",n,"avg",s/n,"max",m}' || true
