@@ -207,8 +207,9 @@ collection. In the
 [rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) one marker
 serves 77k req/s at 16 connections against 32k with Boehm's default, at the same ~11 MB RSS. Set
 `GC_MARKERS` to choose another count, for example for an app with hundreds of MB of live data,
-where parallel marking pays off. `GC_INITIAL_HEAP_SIZE=64m` adds about 15% more for about 65 MB
-more RSS.
+where parallel marking pays off. A Native server also starts Boehm with a 16 MB heap: a server keeps little live data, so
+Boehm's heap would stay at 2–3 MB and collect constantly. Set `GC_INITIAL_HEAP_SIZE` to choose
+another size.
 :::
 
 The rest of this page uses `Http.server` on the JVM (Netty) and the annotation router, which is
