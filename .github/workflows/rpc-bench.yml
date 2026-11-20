@@ -2,8 +2,9 @@ name: RPC benchmark
 
 # Runs examples/rpc-native/bench on Linux x86_64 and arm64 and writes the tables to the job
 # summary. Shared runners make throughput noisy; startup, memory, and image size are the reliable
-# numbers. Also runs on pull requests that change the benchmark, so it never goes stale.
-# mode=sweep and mode=soak run only when dispatched; pull requests run the standard table.
+# numbers. Runs when dispatched, and weekly (standard table) so it never goes stale; it no longer
+# runs on pull requests, where every push used two runners for numbers nobody needed.
+# mode=sweep and mode=soak run only when dispatched.
 on:
   workflow_dispatch:
     inputs:
@@ -30,10 +31,9 @@ on:
       sample:
         description: 'mode=soak: RSS sampling interval'
         default: '15s'
-  pull_request:
-    paths:
-      - '.github/workflows/rpc-bench.yml'
-      - 'examples/rpc-native/bench/**'
+  schedule:
+    # Mondays 03:17 UTC
+    - cron: '17 3 * * 1'
 
 permissions:
   contents: read

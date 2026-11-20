@@ -203,6 +203,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.src == 'true' }}
     runs-on: ubuntu-latest
+    # A hung test binary otherwise holds the runner for the default 6 hours (one did on Windows)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
@@ -241,6 +243,8 @@ jobs:
     # push to main, and on the pull requests that can actually break it — those touching native code.
     if: ${{ github.event_name != 'pull_request' || needs.changes.outputs.native == 'true' }}
     runs-on: windows-latest
+    # A hung test binary otherwise holds the runner for the default 6 hours (one did on Windows)
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
