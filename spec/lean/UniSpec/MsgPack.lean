@@ -4,8 +4,8 @@
 Bytes are natural numbers, and the `*_lt_256` theorems show each one fits in a byte. Each encoder
 is an if-chain that mirrors its `OffsetPacker` method (`packLong`, `packRawStringHeader`,
 `packBinaryHeader`, `packArrayHeader`, `packMapHeader`, `packExtTypeHeader`, `packFloat`,
-`packDouble`, `packTimestampEpochSecond`). The theorems show that
-decoding inverts encoding and that the chosen format is the shortest the MessagePack spec allows.
+`packDouble`, `packTimestampEpochSecond`). The theorems show that decoding inverts encoding and
+that the chosen format is the shortest the MessagePack spec allows.
 `GenMsgPackCases.lean` evaluates the encoders to generate the cases `MsgPackSpecTest` replays.
 -/
 
@@ -488,7 +488,8 @@ def encodeTsNorm (s : Int) (n : Nat) : List Nat :=
 def encodeTimestamp (sec nanos : Int) : Option (List Nat) :=
   (normalizeTs sec nanos).map fun (s, n) => encodeTsNorm s n
 
-def toSigned64 (u : Nat) : Int := if u < 9223372036854775808 then u else (u : Int) - 18446744073709551616
+def toSigned64 (u : Nat) : Int :=
+  if u < 9223372036854775808 then u else (u : Int) - 18446744073709551616
 
 /-- `OffsetUnpacker.unpackTimestamp` before `Instant.ofEpochSecond`: the (seconds, nanos) the
 bytes carry. -/
@@ -531,7 +532,8 @@ theorem decodeTimestamp_encodeTsNorm (s : Int) (n : Nat) (rest : List Nat) (hs :
     (hn : n < 1000000000) :
     decodeTimestamp (encodeTsNorm s n ++ rest) = some ((s, n), rest) := by
   unfold LongInRange at hs
-  rcases encodeTsNorm_cases s n with ⟨h0, h1, h2, he⟩ | ⟨h0, h1, h2, he⟩ | ⟨h1, he⟩ <;> rw [he]
+  rcases encodeTsNorm_cases s n with ⟨h0, h1, h2, he⟩ | ⟨h0, h1, h2, he⟩ | ⟨h1, he⟩ <;>
+    rw [he]
   · have hn0 : n = 0 := by omega
     subst hn0
     have hr := readBE_be 4 s.toNat rest (by omega)
@@ -546,7 +548,8 @@ theorem decodeTimestamp_encodeTsNorm (s : Int) (n : Nat) (rest : List Nat) (hs :
     simp only [Option.map_some, Option.some.injEq, Prod.mk.injEq, and_true]
     constructor <;> omega
   · have key : [0xc7, 12, 255] ++ be 4 n ++ be 8 (s % 18446744073709551616).toNat ++ rest =
-        0xc7 :: (be 1 12 ++ 255 :: (be 4 n ++ (be 8 (s % 18446744073709551616).toNat ++ rest))) := by
+        0xc7 ::
+          (be 1 12 ++ 255 :: (be 4 n ++ (be 8 (s % 18446744073709551616).toNat ++ rest))) := by
       simp [be]
     rw [key, decodeTimestamp, decodeExt_wide 0xc7 1 12 255 _ (by simp) (by omega)]
     have h4 := readBE_be 4 n (be 8 (s % 18446744073709551616).toNat ++ rest) (by omega)
@@ -554,6 +557,30 @@ theorem decodeTimestamp_encodeTsNorm (s : Int) (n : Nat) (rest : List Nat) (hs :
     simp only [ne_eq, not_true_eq_false, ↓reduceIte, Nat.reduceEqDiff, h4, h8, Option.map_some]
     simp only [toSigned64, Option.some.injEq, Prod.mk.injEq, and_true]
     split <;> omega
+
+/-- Normalizing yields seconds in the range of `Long` and nanos within a second. -/
+theorem normalizeTs_spec (sec nanos s : Int) (n : Nat) (h : normalizeTs sec nanos = some (s, n)) :
+    LongInRange s ∧ n < 1000000000 ∧ s = sec + nanos / 1000000000 ∧
+      (n : Int) = nanos % 1000000000 := by
+  unfold normalizeTs at h
+  by_cases hr : LongInRange (sec + nanos / 1000000000)
+  · simp only [hr, ite_true, Option.some.injEq, Prod.mk.injEq] at h
+    obtain ⟨rfl, rfl⟩ := h
+    exact ⟨hr, by omega, rfl, by omega⟩
+  · simp [hr] at h
+
+/-- `packTimestampEpochSecond`, then `unpackTimestamp`, returns the normalized seconds and nanos. -/
+theorem decodeTimestamp_encodeTimestamp (sec nanos : Int) (bs rest : List Nat)
+    (h : encodeTimestamp sec nanos = some bs) :
+    ∃ s n, normalizeTs sec nanos = some (s, n) ∧
+      decodeTimestamp (bs ++ rest) = some ((s, n), rest) := by
+  unfold encodeTimestamp at h
+  rcases hn : normalizeTs sec nanos with _ | ⟨s, n⟩ <;> rw [hn] at h
+  · simp at h
+  · simp only [Option.map_some, Option.some.injEq] at h
+    subst h
+    obtain ⟨hs, hlt, _, _⟩ := normalizeTs_spec sec nanos s n hn
+    exact ⟨s, n, rfl, decodeTimestamp_encodeTsNorm s n rest hs hlt⟩
 
 /-- The format is the shortest that holds the value: timestamp 32 whenever the nanos are 0 and the
 seconds fit 32 unsigned bits, timestamp 64 whenever the seconds fit 34 unsigned bits. -/
@@ -567,9 +594,9 @@ theorem encodeTsNorm_shortest (s : Int) (n : Nat) :
 
 theorem encodeTsNorm_lt_256 (s : Int) (n : Nat) : ∀ b ∈ encodeTsNorm s n, b < 256 := by
   intro b hb
-  rcases encodeTsNorm_cases s n with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨_, he⟩ <;> rw [he] at hb <;>
+  rcases encodeTsNorm_cases s n with ⟨_, _, _, he⟩ | ⟨_, _, _, he⟩ | ⟨_, he⟩ <;>
+    rw [he] at hb <;>
     simp only [List.mem_append, List.mem_cons, List.not_mem_nil, or_false] at hb <;>
     (repeat' rcases hb with hb | hb) <;> first | omega | exact be_lt_256 _ _ _ ‹_›
-
 
 end UniSpec.MsgPack
