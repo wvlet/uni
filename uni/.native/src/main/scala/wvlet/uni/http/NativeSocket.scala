@@ -412,15 +412,65 @@ private[http] class NativeSocketListener(host: String, requestedPort: Int, backl
 
   override def port: Int = boundPort
 
-  override def accept(): SocketConnection =
-    val clientFd = NativeSocket.accept(serverFd)
-    if clientFd < 0 then
-      null
-    else
-      NativeSocket.enableKeepAlive(clientFd)
-      NativeSocket.enableNoDelay(clientFd)
-      NativeSocketConnection(clientFd)
+  // close() must not free serverFd's number while a thread may still call accept() on it. On
+  // Linux, closing the fd doesn't wake a blocked accept(), and a signal (such as the Boehm GC's
+  // stop-the-world signal) restarts the call, which looks the fd number up again. If the next
+  // server has reused the number by then, this listener's acceptor takes that server's connections
+  // and, seeing its own server stopped, closes them unanswered.
+  @volatile
+  private var closing = false
 
-  override def close(): Unit = NativeSocket.close(serverFd)
+  private val accepting = java.util.concurrent.atomic.AtomicInteger(0)
+  private var closed    = false
+
+  override def accept(): SocketConnection =
+    accepting.incrementAndGet()
+    try
+      if closing then
+        null
+      else
+        val clientFd = NativeSocket.accept(serverFd)
+        if clientFd < 0 then
+          null
+        else if closing then
+          // The wake-up connection from close(), or a client that arrived as the server stopped
+          NativeSocket.close(clientFd)
+          null
+        else
+          NativeSocket.enableKeepAlive(clientFd)
+          NativeSocket.enableNoDelay(clientFd)
+          NativeSocketConnection(clientFd)
+    finally accepting.decrementAndGet()
+
+  override def close(): Unit = synchronized {
+    if !closed then
+      closed = true
+      // Set before reading `accepting`: an acceptor that registers after this sees `closing` and
+      // returns without calling accept(), so once the count is 0 no thread can reach serverFd
+      closing = true
+      val deadline = System.nanoTime() + NativeSocketListener.WakeTimeoutNanos
+      while accepting.get() > 0 && System.nanoTime() - deadline < 0 do
+        wakeAcceptor()
+        Thread.sleep(1)
+      NativeSocket.close(serverFd)
+  }
+
+  /** Connect to this listener, so a thread blocked in accept() returns */
+  private def wakeAcceptor(): Unit =
+    val target =
+      host.trim match
+        case "" | "0.0.0.0" =>
+          "127.0.0.1"
+        case h =>
+          h
+    try
+      NativeSocket.close(NativeSocket.connect(target, boundPort, timeoutMillis = 100))
+    catch
+      case scala.util.control.NonFatal(_) =>
+        () // The backlog is full or the acceptor already left; the loop checks again
 
 end NativeSocketListener
+
+private[http] object NativeSocketListener:
+  // How long close() keeps waking a thread blocked in accept() before closing the fd anyway
+  private final val WakeTimeoutNanos = 1000L * 1000 * 1000
