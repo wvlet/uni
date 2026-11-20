@@ -24,7 +24,7 @@ private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: 
     val length = end - start
     if length >= 8 then
       ptr = end - 8
-      container = le64(ptr)
+      container = Word8.le64(buf, ptr)
     else
       // Place the short stream at the top of the word; the missing low bytes are zeros
       var v = 0L
@@ -41,11 +41,6 @@ private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: 
   /** Bits not yet read; negative after reading past the start (the missing bits are zeros) */
   def remaining: Long = (ptr - start).toLong * 8 + 64 - consumed
 
-  private[codec] inline def le64(i: Int): Long =
-    val lo = Zstd.le32(buf, i) & 0xffffffffL
-    val hi = Zstd.le32(buf, i + 4).toLong
-    lo | (hi << 32)
-
   /** Moves the window down until `n` more bits fit in it */
   private[codec] def refill(n: Int): Unit =
     while consumed + n > 64 do
@@ -53,12 +48,12 @@ private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: 
       if ptr - bytes >= start then
         ptr -= bytes
         consumed &= 7
-        container = le64(ptr)
+        container = Word8.le64(buf, ptr)
       else if ptr > start then
         // Only part of a step is left before the start: load the first 8 bytes
         consumed -= (ptr - start) * 8
         ptr = start
-        container = le64(ptr)
+        container = Word8.le64(buf, ptr)
       else
         // Below the start: shift in zero bytes
         container =

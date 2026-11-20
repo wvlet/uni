@@ -91,7 +91,7 @@ private[codec] object ZstdSequences:
         if ptr - bytes >= start then
           ptr -= bytes
           consumed &= 7
-          container = br.le64(ptr)
+          container = Word8.le64(src, ptr)
         else
           br.container = container
           br.consumed = consumed
