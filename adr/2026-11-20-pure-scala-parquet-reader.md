@@ -28,7 +28,10 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
   (for example `Content-Encoding: zstd`); moving them to a shared package is a separate decision.
   The decoders' logic stays shared; only their 8-byte loads and copies (`Word8`) are per platform:
   a VarHandle on the JVM (in Java, since Scala boxes `VarHandle.get` results), `memcpy` between
-  array pointers on Native, and byte assembly on Scala.js. They give the same bytes everywhere.
+  array pointers on Native for copies, and byte assembly on Scala.js. Native 8-byte loads read the
+  two aligned words that hold the bytes and shift them together, since Scala Native 0.5 emits a
+  `Ptr[Long]` load with LLVM's default 8-byte alignment, and a `stackalloc` slot for `memcpy`
+  grows the stack in loops. They give the same bytes everywhere.
 - **The Brotli static dictionary is embedded gzip-compressed and base64-encoded** in a generated
   source (`scripts/gen-brotli-dictionary.py`), and expanded with the Scala inflate on first use.
   Scala.js has no class-path resources, and the raw 122 KiB would be split across many string

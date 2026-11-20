@@ -10,6 +10,16 @@ import wvlet.uni.test.UniTest
 class WideCopyTest extends UniTest:
   private val rnd = scala.util.Random(7)
 
+  test("le64 reads 8 bytes at every offset, up to the end of the array") {
+    for size <- 8 to 40 do
+      val b = Array.fill[Byte](size)(rnd.nextInt().toByte)
+      for i <- 0 to size - 8 do
+        var want = 0L
+        for k <- 7 to 0 by -1 do
+          want = (want << 8) | (b(i + k) & 0xffL)
+        Word8.le64(b, i) shouldBe want
+  }
+
   /** A copy program: (isMatch, length, offset), filling exactly `size` bytes */
   private def program(size: Int): Seq[(Boolean, Int, Int)] =
     val ops = Seq.newBuilder[(Boolean, Int, Int)]
