@@ -1,0 +1,26 @@
+{
+  "name": "@wvlet/uni",
+  "version": "0.0.0-dev",
+  "description": "Uni for TypeScript and JavaScript: a pure-JS Apache Parquet reader and writer, built from the same Scala code as Uni on the JVM and Scala Native",
+  "license": "Apache-2.0",
+  "type": "module",
+  "homepage": "https://wvlet.org/uni/text/parquet#from-typescript",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wvlet/uni.git",
+    "directory": "uni-npm"
+  },
+  "bugs": "https://github.com/wvlet/uni/issues",
+  "keywords": ["parquet", "apache-parquet", "columnar", "scala", "scala-js"],
+  "exports": {
+    "./parquet": {
+      "types": "./parquet.d.ts",
+      "default": "./parquet.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "sideEffects": false,
+  "engines": {
+    "node": ">=20"
+  }
+}

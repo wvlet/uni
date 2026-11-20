@@ -177,6 +177,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
   parquet.js,
+  npm,
   ui,
   domTest,
   docSnippetsJS,
@@ -262,6 +263,49 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(uni, test % Test)
+
+lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under target/npm")
+
+// @wvlet/uni on npm: a JS-shaped facade over uni-parquet (and later modules), linked as one ES
+// module set so every subpath shares one Scala runtime. Not published to Maven. The package
+// itself is staged by `npm/npmPackage` and published by .github/workflows/release-npm.yml
+// (adr/2026-11-20-npm-package.md).
+lazy val npm = project
+  .in(file("uni-npm"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name        := "uni-npm",
+    description := "The @wvlet/uni npm package: Uni libraries for TypeScript and JavaScript",
+    scalaJSLinkerConfig ~= {
+      _.withModuleSplitStyle(org.scalajs.linker.interface.ModuleSplitStyle.FewestModules)
+    },
+    npmPackage :=
+      Def.uncached {
+        val _         = (Compile / fullLinkJS).value
+        val linkedDir = (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value
+        val npmSrc    = (Compile / sourceDirectory).value / "npm"
+        // A fixed path, so CI and the release workflow can find it
+        val out = baseDirectory.value / "target" / "npm"
+        IO.delete(out)
+        IO.createDirectory(out)
+        // Every module of the link run: the public entry points plus any shared internal module
+        // main.js holds uni-core's own top-level exports (e.g. WvletLogger); the package exports
+        // only its subpaths, so leave it out
+        (linkedDir * "*.js")
+          .get()
+          .filter(_.getName != "main.js")
+          .foreach(f => IO.copyFile(f, out / f.getName))
+        IO.copyDirectory(npmSrc, out)
+        IO.copyFile((ThisBuild / baseDirectory).value / "LICENSE", out / "LICENSE")
+        val template = IO.read(npmSrc / "package.json")
+        IO.write(out / "package.json", template.replace("0.0.0-dev", version.value))
+        out
+      }
+  )
+  .dependsOn(parquet.js)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
 lazy val ui = project
