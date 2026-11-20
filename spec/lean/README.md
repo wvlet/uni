@@ -13,6 +13,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | `UniSpec/RxLive.lean` | `flatMap`/`transformRx` switching, `split`, `zip`/`join`, `take` after `Stop`, and cancel over live `RxVar`s | `uni/src/test/scala/wvlet/uni/rx/RxLiveSpecCases.scala` | `RxLiveSpecTest` (JVM, JS, Native) |
 | `UniSpec/MsgPack.lean` | MessagePack integer and str/bin/array/map/ext header bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
 | `UniSpec/HttpReader.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
+| `UniSpec/DomRender.lean` | Where `DomRenderer` places `Rx` sections, keyed lists (`each`), and `RxElement`s, and which nodes it keeps | `uni-dom-test/src/test/scala/wvlet/uni/dom/DomRenderSpecCases.scala` | `DomRenderSpecTest` (Chromium) |
 
 You need Lean only to change a model. `./sbt test` runs the checked-in cases without it.
 
@@ -29,6 +30,7 @@ lake exe gen-rx-recover-cases # rewrite RxRecoverSpecCases.scala from the recove
 lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
 lake exe gen-http-reader-cases # rewrite HttpReaderSpecCases.scala from the request-framing model
 lake exe gen-rx-live-cases   # rewrite RxLiveSpecCases.scala from the live-RxVar model
+lake exe gen-dom-render-cases  # rewrite DomRenderSpecCases.scala; fails if the model's renderer disagrees with its spec
 ```
 
 Commit the regenerated Scala file with the model change. The `Lean spec` CI job fails when the
@@ -44,5 +46,6 @@ checked-in cases differ from the model's output.
   answers `Stop` to every event; the others model downstream `Stop` only as the sink stopping at
   its first terminal event (default mode). The nested-stream cases are synchronous
   only, and continuous mode covers `map`, `filter`, `take`, and `recover`. The
-  MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch. Add a
-  theorem only for behaviour a model can express.
+  MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch. The
+  DOM model leaves out attributes, bindings, events, portals, `onMount` timing, and re-entrant
+  updates (a render that sets a variable). Add a theorem only for behaviour a model can express.

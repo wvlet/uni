@@ -74,7 +74,26 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   completed after its first pair in default mode (both fixed, see
   `2026-10-14-rx-completion-semantics.md`). It leaves out continuous mode, `recoverWith`, and
   `parFlatMap`.
-- Next candidates: `recoverWith`, continuous-mode `flatMap`/`merge`, `parFlatMap` ordering, and
+- `UniSpec/DomRender.lean` models how `DomRenderer` places what an `Rx` renders. The parent is a flat
+  list of nodes with ids. The model runs the renderer's own steps: insert before an anchor, the
+  backward walk that clears a section, and the keyed walk behind a cursor. A spec (`denote`) gives
+  the text the current values should show. Theorems cover the primitives: inserting at an anchor,
+  the clear walk removing exactly a section's content when its markers are paired and throwing when
+  they are not, and one keyed item per key. Agreement with the spec, the main invariant, is checked
+  rather than proved: `gen-dom-render-cases` runs all 370 views (every shape to depth 2, plus
+  components nested in sections at depth 3, each with its own variables and again with shared
+  ones) through every update and fails on any disagreement. A
+  general proof would need an invariant relating the flat list to the tree of live sections, which
+  costs far more than it adds over exhaustive small cases. `DomRenderSpecTest` replays the cases in
+  Chromium, checking the text and which leaves stay the same DOM node. The model also keeps the
+  renderer as it was before the fix (`appendThenMove`), where 24 of the cases fail. Reading the code
+  against the model's invariant found three bugs from an `RxElement` appending to the end of the
+  parent and moving only its last node to the anchor, and `RxElement(rx)` never rendering. Review of
+  the model found a fifth: an `RxVar` notifies the subscribers it had before an update, so a section
+  nested in another on the same variable got the update after the outer one removed its markers,
+  and its clear walk threw. Sections and keyed lists now ignore updates once cancelled, as the model
+  assumed. All are fixed (see `2026-11-05-keyed-list-rendering.md`).
+- Next candidates: continuous-mode `flatMap`/`merge`, `recoverWith`, `parFlatMap` ordering, and
   MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);
   verifying the Scala code with Stainless (does not fit Uni's Scala 3 code); hand-written expected
