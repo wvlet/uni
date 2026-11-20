@@ -1,7 +1,6 @@
 package wvlet.uni.parquet
 
 import wvlet.uni.json.JSON.JSONObject
-import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.parquet.column.ChunkInput
 import wvlet.uni.parquet.column.ColumnChunkCursor
 import wvlet.uni.parquet.column.RowGroupBatches
@@ -396,17 +395,12 @@ object ParquetFile:
     if batch.numRows == 0 then
       Iterator.empty
     else
-      // Pack the whole batch once, then decode rows from one unpacker
-      val packer    = MessagePack.newPacker()
-      val rowPacker = RowPacker(options.binaryAsString)
-      var i         = 0
-      while i < batch.numRows do
-        rowPacker.packRow(packer, batch, i)
-        i += 1
-      val unpacker = MessagePack.newUnpacker(packer.toByteArray)
+      // Weaver reads the vectors directly, with no MessagePack in between
+      val unpacker = VectorUnpacker(batch, options.binaryAsString)
       Iterator
         .range(0, batch.numRows)
-        .map { _ =>
+        .map { i =>
+          unpacker.startRow(i)
           val ctx = WeaverContext()
           weaver.unpack(unpacker, ctx)
           if ctx.hasError then
