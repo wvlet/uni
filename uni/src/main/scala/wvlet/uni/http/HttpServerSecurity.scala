@@ -198,15 +198,17 @@ private[uni] object HttpServerSecurity:
       throw IllegalArgumentException(s"Invalid value for HTTP header ${name}: ${escape(value)}")
 
   /** Validate every header of the response. See [[validateHeader]]. */
-  def validateHeaders(headers: HttpMultiMap): Unit = headers
-    .entries
-    .foreach { case (name, value) =>
-      validateHeader(name, value)
-    }
+  def validateHeaders(headers: HttpMultiMap): Unit = headers.foreachEntry(validateHeader)
 
-  private def containsControlChar(s: String): Boolean = s.exists(c =>
-    c == '\r' || c == '\n' || c == '\u0000'
-  )
+  // A loop, not `exists`: a `Char => Boolean` function boxes each char (it runs per response)
+  private def containsControlChar(s: String): Boolean =
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c == '\r' || c == '\n' || c == '\u0000' then
+        return true
+      i += 1
+    false
 
   private def escape(s: String): String = s
     .replace("\r", "\\r")

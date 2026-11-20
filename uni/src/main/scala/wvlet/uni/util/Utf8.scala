@@ -30,25 +30,23 @@ private[uni] object Utf8:
     while i < end && bytes(i) >= 0 do
       i += 1
     if i == end then
-      val chars = new Array[Char](length)
-      var j     = 0
-      while j < length do
-        chars(j) = bytes(offset + j).toChar
-        j += 1
-      String(chars)
+      Utf8Compat.ascii(bytes, offset, length)
     else
       String(bytes, offset, length, StandardCharsets.UTF_8)
 
   def encode(s: String): Array[Byte] =
-    val n   = s.length
-    val out = new Array[Byte](n)
-    var i   = 0
-    while i < n do
-      val c = s.charAt(i)
-      if c >= 0x80 then
-        return s.getBytes(StandardCharsets.UTF_8)
-      out(i) = c.toByte
+    val n = s.length
+    var i = 0
+    while i < n && s.charAt(i) < 0x80 do
       i += 1
-    out
+    if i < n then
+      s.getBytes(StandardCharsets.UTF_8)
+    else
+      val out = new Array[Byte](n)
+      var j   = 0
+      while j < n do
+        out(j) = s.charAt(j).toByte
+        j += 1
+      out
 
 end Utf8
