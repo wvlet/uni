@@ -34,6 +34,7 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <stddef.h>
+#include <stdlib.h>
 
 typedef void (*uni_gc_set_markers_count_fn)(unsigned);
 
@@ -60,5 +61,32 @@ int uni_gc_marker_count(void) {
     return -1;
   }
   return get_parallel() + 1;
+#endif
+}
+
+/*
+ * Grow Boehm's heap to at least `target` bytes, for a server about to take load; returns the heap
+ * size afterwards, or -1 without Boehm. A server keeps little live data, so Boehm's heap stays a
+ * few MB and it collects every few hundred KB of allocation; a 16 MB heap made the rpc-native
+ * benchmark serve ~45% more on a 3.4 KB response (ADR 2026-10-30). Does nothing when
+ * GC_INITIAL_HEAP_SIZE is set: the app chose its heap.
+ */
+long long uni_gc_expand_heap_to(long long target) {
+#if defined(_WIN32)
+  (void)target;
+  return -1;
+#else
+  typedef size_t (*get_heap_size_fn)(void);
+  typedef int (*expand_hp_fn)(size_t);
+  get_heap_size_fn get_heap_size = (get_heap_size_fn)dlsym(RTLD_DEFAULT, "GC_get_heap_size");
+  expand_hp_fn expand_hp = (expand_hp_fn)dlsym(RTLD_DEFAULT, "GC_expand_hp");
+  if (get_heap_size == NULL || expand_hp == NULL) {
+    return -1;
+  }
+  size_t current = get_heap_size();
+  if (getenv("GC_INITIAL_HEAP_SIZE") == NULL && target > 0 && current < (size_t)target) {
+    expand_hp((size_t)target - current);
+  }
+  return (long long)get_heap_size();
 #endif
 }

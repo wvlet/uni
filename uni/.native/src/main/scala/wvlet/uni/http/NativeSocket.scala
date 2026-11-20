@@ -68,6 +68,12 @@ private[http] object SocketShim:
   def uni_poller_wait(poller: CInt, tokens: Ptr[CLongLong], max: CInt, timeoutMillis: CInt): CInt =
     extern
 
+  /**
+    * Grow Boehm's heap to at least `target` bytes unless GC_INITIAL_HEAP_SIZE is set (see
+    * uni_gc_shim.c)
+    */
+  def uni_gc_expand_heap_to(target: CLongLong): CLongLong = extern
+
   def uni_poller_wake(wakeWriteFd: CInt): Unit = extern
   def uni_poller_drain(wakeReadFd: CInt): Unit = extern
 

@@ -56,11 +56,18 @@ class NativeHttpServer(config: NativeServerConfig)
   override protected def newIdlePoller(idleTimeoutMillis: Int): Option[IdlePoller] =
     NativeIdlePoller.create(idleTimeoutMillis, config.name)
 
-  override protected def onStarted(): Unit = debug(s"Native server started at ${localAddress}")
+  override protected def onStarted(): Unit =
+    // A server's live data is small, so Boehm's heap would stay a few MB and collect constantly
+    // under load; start it at ServerHeapBytes (uni_gc_shim.c). No effect with other GCs.
+    SocketShim.uni_gc_expand_heap_to(NativeHttpServer.ServerHeapBytes)
+    debug(s"Native server started at ${localAddress}")
 
 end NativeHttpServer
 
 object NativeHttpServer:
+  // The Boehm heap a server starts with, unless GC_INITIAL_HEAP_SIZE is set
+  private[http] final val ServerHeapBytes = 16L << 20
+
   def apply(config: NativeServerConfig): NativeHttpServer = new NativeHttpServer(config)
 
   private def daemonThreadFactory(name: String): ThreadFactory =
