@@ -85,7 +85,11 @@ class CorsFilterServerTest extends UniTest:
   test("answer a failed handler with a 500 carrying CORS headers") {
     val log = HttpAccessLogWriter.inMemory()
     withServer(log) { base =>
-      val response = send(HttpRequest.newBuilder(URI.create(s"${base}/fail")).GET())
+      var response: HttpResponse[String] = null
+      val logs                           = captureLogs {
+        response = send(HttpRequest.newBuilder(URI.create(s"${base}/fail")).GET())
+      }
+      logs.warnings shouldContain "Error handling request: handler failed"
       response.statusCode() shouldBe 500
       response.body() shouldBe "Internal Server Error"
       response.headers().firstValue("Access-Control-Allow-Origin").orElse("") shouldBe App
@@ -104,14 +108,18 @@ class CorsFilterServerTest extends UniTest:
 
   test("leave the server's 500 for a disallowed origin without CORS headers") {
     withServer { base =>
-      val response = client.send(
-        HttpRequest
-          .newBuilder(URI.create(s"${base}/fail"))
-          .header("Origin", "https://evil.example.com")
-          .GET()
-          .build(),
-        HttpResponse.BodyHandlers.ofString()
-      )
+      var response: HttpResponse[String] = null
+      val logs                           = captureLogs {
+        response = client.send(
+          HttpRequest
+            .newBuilder(URI.create(s"${base}/fail"))
+            .header("Origin", "https://evil.example.com")
+            .GET()
+            .build(),
+          HttpResponse.BodyHandlers.ofString()
+        )
+      }
+      logs.warnings shouldContain "Error in Rx handler: handler failed"
       response.statusCode() shouldBe 500
       response.headers().firstValue("Access-Control-Allow-Origin").isPresent shouldBe false
     }

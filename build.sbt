@@ -70,7 +70,14 @@ val buildSettings = Seq[Setting[?]](
       // For PreDestroy, PostConstruct annotations
       "javax.annotation" % "javax.annotation-api" % "1.3.2" % Test
     ),
-  testFrameworks += new TestFramework("wvlet.uni.test.Framework")
+  testFrameworks += new TestFramework("wvlet.uni.test.Framework"),
+  // Tests start many servers, and each logs a start line at INFO. Pass
+  // -l:wvlet.uni.http.JvmHttpServer=info to testOnly to see them again.
+  Test / testOptions +=
+    Tests.Argument(
+      TestFramework("wvlet.uni.test.Framework"),
+      "-l:wvlet.uni.http.JvmHttpServer=warn"
+    )
 ) ++
   // Keep -javadoc.jar small for Maven Central's publishing limits (see docs/build/sbt-uni-javadoc.md)
   minimizeScaladoc

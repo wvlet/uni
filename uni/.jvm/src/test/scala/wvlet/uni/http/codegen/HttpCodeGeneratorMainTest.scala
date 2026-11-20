@@ -21,20 +21,23 @@ import java.nio.file.Files
 class HttpCodeGeneratorMainTest extends UniTest:
 
   test("write a client for each --client spec") {
-    val dir = Files.createTempDirectory("codegen")
-    HttpCodeGeneratorMain.run(
-      Array(
-        "--out",
-        dir.toString,
-        "--client",
-        "wvlet.uni.http.codegen.TestStreamService:async:example.client",
-        "--client",
-        "wvlet.uni.http.codegen.TestHealthService:sync",
-        "--manifest",
-        dir.resolve("manifest.txt").toString
-      ),
-      getClass.getClassLoader
-    )
+    val dir  = Files.createTempDirectory("codegen")
+    val logs = captureLogs {
+      HttpCodeGeneratorMain.run(
+        Array(
+          "--out",
+          dir.toString,
+          "--client",
+          "wvlet.uni.http.codegen.TestStreamService:async:example.client",
+          "--client",
+          "wvlet.uni.http.codegen.TestHealthService:sync",
+          "--manifest",
+          dir.resolve("manifest.txt").toString
+        ),
+        getClass.getClassLoader
+      )
+    }
+    logs.messages shouldContain "Generated: "
     val stream = Files.readString(
       dir.resolve("example/client/TestStreamServiceClient.scala"),
       StandardCharsets.UTF_8

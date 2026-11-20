@@ -122,7 +122,10 @@ class RxOnCancelTest extends UniTest:
   test("swallow an exception thrown by onCancel") {
     val c = Rx.variable(1).onCancel(throw IllegalStateException("expected cleanup failure")).run()
     // Logged as a warning, not rethrown
-    c.cancel
+    val logs = captureLogs {
+      c.cancel
+    }
+    logs.warnings shouldContain "onCancel failed: expected cleanup failure"
   }
 
 end RxOnCancelTest

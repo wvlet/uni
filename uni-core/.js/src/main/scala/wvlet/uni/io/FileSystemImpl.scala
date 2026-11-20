@@ -355,8 +355,9 @@ private[io] object FileSystemJS extends FileSystemBase:
     if isNodeEnv then
       try
         if isDirectory(path) then
+          // fs.rmdir with `recursive` is deprecated (DEP0147); fs.rm replaces it
           val options = js.Dynamic.literal(recursive = true, force = true)
-          NodeFSModule.rmdirSync(path.path, options.asInstanceOf[js.Object])
+          NodeFSModule.rmSync(path.path, options.asInstanceOf[js.Object])
         else
           NodeFSModule.unlinkSync(path.path)
         true

@@ -33,6 +33,7 @@ private[io] object NodeFSModule extends js.Object:
   def readdirSync(path: String, options: js.Object): js.Array[js.Dynamic]     = js.native
   def mkdirSync(path: String, options: js.Object): Unit                       = js.native
   def rmdirSync(path: String, options: js.Object): Unit                       = js.native
+  def rmSync(path: String, options: js.Object): Unit                          = js.native
   def unlinkSync(path: String): Unit                                          = js.native
   def statSync(path: String): NodeStats                                       = js.native
   def lstatSync(path: String): NodeStats                                      = js.native
