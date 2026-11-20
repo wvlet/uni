@@ -56,7 +56,8 @@ generated data) paid a conversion to rows and back. A prototype that fed the col
   validated, and errors name the column path and row.
 - A second public writer to document and test on three platforms.
 - `LongDictionary` keeps each key next to its index in one array, so a lookup touches one cache
-  line; it was the top cost of numeric columns in both writers.
+  line; it was the top cost of numeric columns in both writers. Binary min/max statistics are
+  updated only when the dictionary adds a value, since a repeated value cannot change them.
 
 ## Alternatives considered
 

@@ -77,21 +77,24 @@ private[parquet] final class FileWriter(
         writeSlice(writers, from, to)
         groupRows += to - from
         totalRows += to - from
-        val size = bufferedSize
-        bytesPerRow = math.max(1.0, size.toDouble / groupRows)
-        if size >= options.rowGroupSize then
+        buffered = bufferedSize
+        bytesPerRow = math.max(1.0, buffered.toDouble / groupRows)
+        if buffered >= options.rowGroupSize then
           flushRowGroup()
+          buffered = 0
         from = to
     }
 
-  // Estimated bytes per buffered row, from the current or the previous row group
+  // Bytes buffered after the last slice, and the estimated bytes per row from the current or the
+  // previous row group
+  private var buffered    = 0L
   private var bytesPerRow = 0.0
 
   private def sliceSize(remaining: Int): Int =
     if bytesPerRow == 0.0 then
       math.min(remaining, 16)
     else
-      val left = (options.rowGroupSize - bufferedSize).toDouble / bytesPerRow
+      val left = (options.rowGroupSize - buffered).toDouble / bytesPerRow
       math.max(1L, math.min(math.min(remaining.toLong, MaxSlice), left.toLong + 1)).toInt
 
   private def bufferedSize: Long =

@@ -89,6 +89,7 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
       case Repetition.REQUIRED =>
         checkValue(node, v, n, skip)
       case Repetition.OPTIONAL =>
+        // Sizes first: orNulls reads the null flags
         checkSize(f, v, n)
         checkValue(node, v, n, orNulls(skip, v))
       case Repetition.REPEATED =>
