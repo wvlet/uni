@@ -28,7 +28,10 @@ enum WebSocketRelaySide:
   /** The upstream server the relay connected to. */
   case Upstream
 
-  /** The relay itself: the upstream couldn't be reached, or the pre-open queue overflowed. */
+  /**
+    * The relay itself: the upstream couldn't be reached or timed out, or the pre-open queue
+    * overflowed.
+    */
   case Relay
 
 /**
@@ -84,7 +87,11 @@ case class WebSocketRelayStats(
   *   - The upstream is connected when the client opens. Client frames that arrive before it opens
   *     are queued, up to [[maxPendingBytes]]; past it the client is closed with 1013.
   *   - If the upstream connect or handshake fails, the client is closed with 4502, with the
-  *     upstream's HTTP status in the reason when there was one ("upstream status 401").
+  *     upstream's HTTP status in the reason when there was one ("upstream status 401"). If it
+  *     doesn't complete within the client's [[WebSocketClient.connectTimeoutMillis]] (30 s by
+  *     default; set it with
+  *     `withWebSocketClient(Http.webSocketClient.withConnectTimeoutMillis(ms))`), the client is
+  *     closed with 4504, "upstream connect timed out".
   *   - Either side closing closes the other. An upstream code is sent to the client unchanged when
   *     it is 1000, 1001, or 3000–4999. Other codes, which a browser-facing client can't be given as
   *     app codes, map into 4900–4999: 1002–1099 become 4902–4999 (1006, the upstream dropping,
@@ -134,6 +141,9 @@ object WebSocketRelay:
   /** The close code sent to the client when the upstream can't be reached. */
   final val UpstreamUnavailable = 4502
 
+  /** The close code sent to the client when the upstream connect or handshake times out. */
+  final val UpstreamTimedOut = 4504
+
   /** The close code a client is sent for an `upstreamCode` the upstream closed with. */
   def clientCloseCode(upstreamCode: Int): Int =
     if upstreamCode == 1000 || upstreamCode == 1001 ||
@@ -175,12 +185,15 @@ object WebSocketRelay:
       i += 1
     n
 
-  private[http] def connectFailureReason(e: Throwable): String =
+  /** The close code and reason the client is sent for an upstream connect failure `e`. */
+  private[http] def connectFailure(e: Throwable): (Int, String) =
     e match
+      case h: HttpException if h.errorCode == HttpErrorCode.ConnectionTimeout =>
+        (UpstreamTimedOut, "upstream connect timed out")
       case h: HttpException if h.statusCode.isDefined =>
-        s"upstream status ${h.statusCode.get}"
+        (UpstreamUnavailable, s"upstream status ${h.statusCode.get}")
       case _ =>
-        "upstream connect failed"
+        (UpstreamUnavailable, "upstream connect failed")
 
 end WebSocketRelay
 
@@ -310,9 +323,9 @@ private class WebSocketRelaySession(config: WebSocketRelay)
       case NonFatal(e) =>
         debug(s"WebSocket relay send to upstream failed: ${e.getMessage}", e)
 
-  /** The upstream connect or handshake failed (or the upstream closed before opening). */
+  /** The upstream connect or handshake failed or timed out. */
   private def upstreamFailed(e: Throwable): Unit =
-    val reason = WebSocketRelay.connectFailureReason(e)
+    val (code, reason) = WebSocketRelay.connectFailure(e)
     debug(s"WebSocket relay upstream connect failed: ${e.getMessage}", e)
     val first = synchronized {
       if upstreamOpen || upstreamDone then
@@ -324,8 +337,8 @@ private class WebSocketRelaySession(config: WebSocketRelay)
         true
     }
     if first then
-      recordClose(WebSocketRelaySide.Relay, WebSocketRelay.UpstreamUnavailable, reason)
-      client.close(WebSocketRelay.UpstreamUnavailable, reason)
+      recordClose(WebSocketRelaySide.Relay, code, reason)
+      client.close(code, reason)
 
   private def report(): Unit =
     if reported.compareAndSet(false, true) then
@@ -416,10 +429,9 @@ private class WebSocketRelaySession(config: WebSocketRelay)
           upstreamDone = true
         o
       }
-      if !opened then
-        // The JS client reports a failed connect as a close before open.
-        upstreamFailed(HttpException.connectionFailed(s"upstream closed with ${statusCode}"))
-      else
+      // A close before open (the JS client reports a failed connect this way) also fails the
+      // connect Rx, whose error tells a timeout from a refusal; upstreamFailed handles it there.
+      if opened then
         recordClose(WebSocketRelaySide.Upstream, statusCode, reason)
         client.close(WebSocketRelay.clientCloseCode(statusCode), reason)
 

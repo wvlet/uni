@@ -19,6 +19,7 @@ import wvlet.uni.test.UniTest
 import java.util.concurrent.TimeUnit
 import scala.collection.mutable
 import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.scalajs.js
 
 /**
   * Readable rejections and [[WebSocketRelay]] on the Node server, with the JS client (the global
@@ -56,10 +57,11 @@ class NodeWebSocketRelayTest extends UniTest:
 
   private def tryConnect(
       request: Request,
-      handler: WebSocketHandler
+      handler: WebSocketHandler,
+      client: WebSocketClient = Http.webSocketClient
   ): Future[Either[Throwable, WebSocketContext]] =
     val opened = Promise[Either[Throwable, WebSocketContext]]()
-    RxRunner.runOnce(Http.webSocketClient.connect(request, handler)) {
+    RxRunner.runOnce(client.connect(request, handler)) {
       case OnNext(ctx) =>
         opened.trySuccess(Right(ctx.asInstanceOf[WebSocketContext]))
       case OnError(e) =>
@@ -75,6 +77,28 @@ class NodeWebSocketRelayTest extends UniTest:
       case Left(e) =>
         throw e
     }
+
+  /** Run `body` with the port of a TCP listener that accepts and never answers the upgrade. */
+  private def withSilentListener(body: Int => Rx[Unit]): Rx[Unit] =
+    val sockets                                      = js.Array[js.Dynamic]()
+    val onConnection: js.Function1[js.Dynamic, Unit] =
+      (socket: js.Dynamic) =>
+        sockets.push(socket)
+        ()
+    val server = NodeModules
+      .builtin("net")
+      .applyDynamic("createServer")(onConnection)
+      .asInstanceOf[js.Dynamic]
+    val listening                    = Promise[Int]()
+    val onListen: js.Function0[Unit] =
+      () => listening.success(server.address().port.asInstanceOf[Int])
+    server.listen(0, "127.0.0.1", onListen)
+    Rx.future(listening.future)
+      .flatMap(body)
+      .tapOn { _ =>
+        sockets.foreach(_.destroy())
+        server.close()
+      }
 
   private def rejectWith(response: => Rx[Response]): RxHttpFilter =
     new RxHttpFilter:
@@ -265,6 +289,53 @@ class NodeWebSocketRelayTest extends UniTest:
         _  <- connect(at("/relay/unreachable"), unreachable)
         s2 <- unreachable.status.next()
       yield s2 shouldBe (4502, "upstream connect failed")
+    }
+  }
+
+  test("bound the client's connect by its connect timeout") {
+    val client = Http.webSocketClient
+    client.connectTimeoutMillis shouldBe WebSocketClient.DefaultConnectTimeoutMillis
+    client.withConnectTimeoutMillis(1234).noConnectTimeout().connectTimeoutMillis shouldBe 0
+    withSilentListener { port =>
+      val start = System.currentTimeMillis()
+      Rx.future(
+        tryConnect(
+          Request.get(s"ws://127.0.0.1:${port}/x"),
+          Recorder(),
+          client.withConnectTimeoutMillis(300)
+        ).map { result =>
+          val elapsedMillis = System.currentTimeMillis() - start
+          result shouldMatch { case Left(e: HttpException) =>
+            e.errorCode shouldBe HttpErrorCode.ConnectionTimeout
+          }
+          (elapsedMillis >= 250) shouldBe true
+          (elapsedMillis < 5000) shouldBe true
+        }
+      )
+    }
+  }
+
+  test("close the client with 4504 when the upstream never answers the upgrade") {
+    withSilentListener { silentPort =>
+      val u        = Upstreams()
+      val timedOut = u.relay(
+        "/upstream",
+        _.withUpstream(s"ws://127.0.0.1:${silentPort}/x")
+          .withWebSocketClient(Http.webSocketClient.withConnectTimeoutMillis(300))
+      )
+      withServer((u.routes :+ WebSocketRoute("/relay/timeout", timedOut.handlerFactory))*) {
+        server =>
+          u.port = server.localPort
+          val client = Recorder()
+          for
+            _ <- connect(Request.get(s"ws://127.0.0.1:${server.localPort}/relay/timeout"), client)
+            s <- client.status.next()
+            _ = s shouldBe (4504, "upstream connect timed out")
+            stats <- u.stats.next()
+          yield
+            stats.closedBy shouldBe WebSocketRelaySide.Relay
+            stats.statusCode shouldBe 4504
+      }
     }
   }
 

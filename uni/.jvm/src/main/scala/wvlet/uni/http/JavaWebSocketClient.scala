@@ -16,7 +16,8 @@ package wvlet.uni.http
 import wvlet.uni.rx.Rx
 
 import java.net.URI
-import java.net.http.{HttpClient, WebSocket}
+import java.net.http.{HttpClient, HttpTimeoutException, WebSocket}
+import java.time.Duration
 import java.nio.ByteBuffer
 import java.util.concurrent.{
   CompletableFuture,
@@ -33,10 +34,22 @@ import scala.concurrent.{ExecutionContext, Promise}
   * JVM WebSocket client backed by `java.net.http.WebSocket` (Java 11+), which performs the
   * handshake, masking, and framing. This adapter bridges the JDK listener/socket to the shared
   * [[WebSocketHandler]] / [[WebSocketContext]].
+  *
+  * @param connectTimeoutMillis
+  *   the longest a connect may take, through the upgrade response (0: no limit)
   */
-class JavaWebSocketClient extends WebSocketClient:
+class JavaWebSocketClient(
+    override val connectTimeoutMillis: Long = WebSocketClient.DefaultConnectTimeoutMillis
+) extends WebSocketClient:
+  require(connectTimeoutMillis >= 0, "connectTimeoutMillis must be >= 0")
 
   private given ExecutionContext = ExecutionContext.parasitic
+
+  override def withConnectTimeoutMillis(millis: Long): JavaWebSocketClient = JavaWebSocketClient(
+    millis
+  )
+
+  override def noConnectTimeout(): JavaWebSocketClient = withConnectTimeoutMillis(0)
 
   override def connect(
       request: Request,
@@ -51,6 +64,9 @@ class JavaWebSocketClient extends WebSocketClient:
     catch
       case e: IllegalArgumentException =>
         return Rx.exception(e)
+    // Bounds the TCP connect and the upgrade response; the JDK closes the connection when it fires.
+    if connectTimeoutMillis > 0 then
+      builder.connectTimeout(Duration.ofMillis(connectTimeoutMillis))
     builder
       .buildAsync(URI.create(request.fullUri), listener)
       .exceptionally { e =>
@@ -75,11 +91,10 @@ object JavaWebSocketClient:
       t
     }
 
-  def apply(): JavaWebSocketClient = new JavaWebSocketClient()
-
   /**
-    * A rejected upgrade as an [[HttpException]] carrying the response status, as on Native, so a
-    * caller such as [[WebSocketRelay]] can report it.
+    * A rejected upgrade as an [[HttpException]] carrying the response status, and a timed-out
+    * connect as a [[HttpErrorCode.ConnectionTimeout]], as on Native, so a caller such as
+    * [[WebSocketRelay]] can report them.
     */
   private def handshakeError(e: Throwable): Throwable =
     e match
@@ -95,6 +110,8 @@ object JavaWebSocketClient:
           Some(HttpStatus.ofCode(code)),
           cause = h
         )
+      case t: HttpTimeoutException =>
+        HttpException.connectionTimeout(s"WebSocket connect timed out: ${t.getMessage}", t)
       case other =>
         other
 

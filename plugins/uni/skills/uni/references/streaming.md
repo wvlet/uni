@@ -137,7 +137,10 @@ val realtime = WebSocketRoute(
 - Client frames sent before the upstream opens are queued up to
   `withMaxPendingBytes` (1 MiB); past it the client gets 1013.
 - An unreachable or rejecting upstream closes the client with 4502
-  (`upstream status 401` on JVM and Native).
+  (`upstream status 401` on JVM and Native). An upstream that doesn't finish its
+  connect within the client's connect timeout (30 s) closes it with 4504; pass
+  `withWebSocketClient(Http.webSocketClient.withConnectTimeoutMillis(10000))`
+  for a shorter one.
 - Closes are mirrored. Upstream codes other than 1000, 1001, and 3000–4999 reach
   the client as 4900 + (code − 1000), e.g. 1011 → 4911; `ctx.close` never remaps.
 - `WebSocketRelayStats` has `durationMillis`, frames and bytes each way,
@@ -160,6 +163,9 @@ Http.webSocketClient
 
 `connect(url, handler, pingIntervalMillis = 30000)` adds a ping heartbeat on JVM
 and Native (ignored on Scala.js). A handshake failure fails the `connect` stream.
+A connect that takes over 30 s fails with `HttpErrorCode.ConnectionTimeout`; set
+the limit with `Http.webSocketClient.withConnectTimeoutMillis(ms)` or remove it
+with `noConnectTimeout()`.
 
 To send upgrade headers such as `Authorization`, pass a `Request` instead of a URL
 (JVM, Native, and Node.js; a browser can't send them, so there it fails):

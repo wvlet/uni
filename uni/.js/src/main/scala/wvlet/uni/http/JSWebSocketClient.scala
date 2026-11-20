@@ -43,10 +43,21 @@ private class JsWebSocket(url: String, options: js.UndefOr[js.Object] = js.undef
 /**
   * JavaScript WebSocket client backed by the global `WebSocket`. Bridges its events to the shared
   * [[WebSocketHandler]] / [[WebSocketContext]].
+  *
+  * @param connectTimeoutMillis
+  *   the longest a connect may take, through the upgrade response (0: no limit). The runtime has no
+  *   such option, so a timer closes a `WebSocket` still connecting when it fires.
   */
-class JSWebSocketClient extends WebSocketClient:
+class JSWebSocketClient(
+    override val connectTimeoutMillis: Long = WebSocketClient.DefaultConnectTimeoutMillis
+) extends WebSocketClient:
+  require(connectTimeoutMillis >= 0, "connectTimeoutMillis must be >= 0")
 
   private given ExecutionContext = scala.scalajs.concurrent.JSExecutionContext.queue
+
+  override def withConnectTimeoutMillis(millis: Long): JSWebSocketClient = JSWebSocketClient(millis)
+
+  override def noConnectTimeout(): JSWebSocketClient = withConnectTimeoutMillis(0)
 
   // pingIntervalMillis is ignored: the browser/Node global WebSocket can't send protocol pings.
   override def connect(
@@ -78,7 +89,30 @@ class JSWebSocketClient extends WebSocketClient:
     val closeState = WebSocketCloseState()
     val ctx        = JSWebSocketContext(ws, request, closeState)
 
-    def notifyClose(): Unit = closeState.notifyClose(handler, ctx)
+    // Fails the connect when it fires first; cleared once the connection opens or closes. Failing
+    // the promise before closing makes the timeout, not the close it causes, the connect's error.
+    // setTimeout fires at once for delays over 2^31-1 ms, so a longer limit is capped there.
+    val timer: js.UndefOr[js.timers.SetTimeoutHandle] =
+      if connectTimeoutMillis > 0 then
+        js.timers
+          .setTimeout(math.min(connectTimeoutMillis, Int.MaxValue).toDouble) {
+            if opened.tryFailure(
+                HttpException.connectionTimeout(s"WebSocket connect timed out: ${uri}")
+              )
+            then
+              closeState.record(WebSocketClose.AbnormalClosure, "connect timed out")
+              ws.close()
+          }
+      else
+        js.undefined
+
+    def clearTimer(): Unit = timer.foreach(js.timers.clearTimeout)
+
+    def notifyClose(): Unit =
+      clearTimer()
+      // A close before open (e.g. a rejected upgrade) fails the connect too, so it always completes
+      opened.tryFailure(HttpException.connectionFailed(s"WebSocket connection failed: ${uri}"))
+      closeState.notifyClose(handler, ctx)
 
     def deliver(action: () => Unit): Unit =
       try
@@ -89,6 +123,7 @@ class JSWebSocketClient extends WebSocketClient:
 
     ws.onopen =
       (_: js.Any) =>
+        clearTimer()
         deliver(() => handler.onOpen(ctx))
         opened.trySuccess(ctx)
     ws.onmessage =
@@ -123,8 +158,8 @@ class JSWebSocketClient extends WebSocketClient:
         notifyClose()
     ws.onerror =
       (_: js.Any) =>
-        // Transport error maps to onClose (matching the other backends); surface pre-open failures.
-        opened.tryFailure(RuntimeException(s"WebSocket connection failed: ${uri}"))
+        // Transport error maps to onClose (matching the other backends), which fails a pre-open
+        // connect.
         notifyClose()
 
     Rx.future(opened.future)
@@ -132,9 +167,6 @@ class JSWebSocketClient extends WebSocketClient:
   end open
 
 end JSWebSocketClient
-
-object JSWebSocketClient:
-  def apply(): JSWebSocketClient = new JSWebSocketClient()
 
 /** [[WebSocketContext]] over the global `WebSocket`. `request` is the connect request. */
 private class JSWebSocketContext(

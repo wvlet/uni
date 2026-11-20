@@ -16,7 +16,7 @@ package wvlet.uni.http
 import wvlet.uni.rx.{OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
-import java.net.ServerSocket
+import java.net.{ServerSocket, Socket}
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import java.util.concurrent.{CountDownLatch, LinkedBlockingQueue, TimeUnit}
 import scala.concurrent.{ExecutionContext, Future}
@@ -35,11 +35,12 @@ abstract class WebSocketRelaySpec extends UniTest:
   /** The outcome of a connect: the open context, or the handshake error. */
   private def tryConnect(
       request: Request,
-      handler: WebSocketHandler
+      handler: WebSocketHandler,
+      client: WebSocketClient = Http.webSocketClient
   ): Either[Throwable, WebSocketContext] =
     val ref   = AtomicReference[Either[Throwable, WebSocketContext]]()
     val ready = CountDownLatch(1)
-    RxRunner.runOnce(Http.webSocketClient.connect(request, handler)) {
+    RxRunner.runOnce(client.connect(request, handler)) {
       case OnNext(ctx) =>
         ref.set(Right(ctx.asInstanceOf[WebSocketContext]))
         ready.countDown()
@@ -77,6 +78,36 @@ abstract class WebSocketRelaySpec extends UniTest:
   private def rejectWith(response: => Rx[Response]): RxHttpFilter =
     new RxHttpFilter:
       override def apply(request: Request, next: RxHttpHandler): Rx[Response] = response
+
+  /** A TCP listener that accepts connections and never answers the upgrade. */
+  private class SilentListener extends AutoCloseable:
+    private val server   = ServerSocket(0)
+    private val accepted = LinkedBlockingQueue[Socket]()
+    val port: Int        = server.getLocalPort
+    private val acceptor = Thread(() =>
+      try
+        while true do
+          accepted.put(server.accept())
+      catch
+        case _: Exception =>
+          ()
+    )
+
+    acceptor.setDaemon(true)
+    acceptor.start()
+
+    /** Whether a connection was accepted within the test timeout. */
+    def awaitAccepted(): Boolean =
+      val s = accepted.poll(Timeout, TimeUnit.SECONDS)
+      if s != null then
+        accepted.put(s)
+      s != null
+
+    override def close(): Unit =
+      server.close()
+      accepted.forEach(_.close())
+
+  end SilentListener
 
   private def statusOf(e: Throwable): Option[Int] =
     e match
@@ -342,6 +373,51 @@ abstract class WebSocketRelaySpec extends UniTest:
       client.nextStatus() shouldBe (4502, "upstream connect failed")
     finally
       unreachable.close()
+  }
+
+  test("bound the client's connect by its connect timeout") {
+    val client = Http.webSocketClient
+    client.connectTimeoutMillis shouldBe WebSocketClient.DefaultConnectTimeoutMillis
+    client.withConnectTimeoutMillis(1234).connectTimeoutMillis shouldBe 1234
+    client.withConnectTimeoutMillis(1234).noConnectTimeout().connectTimeoutMillis shouldBe 0
+
+    val silent = SilentListener()
+    try
+      val start  = System.nanoTime()
+      val result = tryConnect(
+        Request.get(s"ws://localhost:${silent.port}/x"),
+        Recorder(),
+        client.withConnectTimeoutMillis(300)
+      )
+      val elapsedMillis = (System.nanoTime() - start) / 1000000L
+      silent.awaitAccepted() shouldBe true
+      result shouldMatch { case Left(e: HttpException) =>
+        e.errorCode shouldBe HttpErrorCode.ConnectionTimeout
+      }
+      (elapsedMillis >= 250) shouldBe true
+      (elapsedMillis < 5000) shouldBe true
+    finally
+      silent.close()
+  }
+
+  test("close the client with 4504 when the upstream never answers the upgrade") {
+    val silent = SilentListener()
+    val f      = RelayFixture((_, r) =>
+      r.withUpstream(s"ws://localhost:${silent.port}/x")
+        .withWebSocketClient(Http.webSocketClient.withConnectTimeoutMillis(300))
+    )
+    try
+      val client = Recorder()
+      f.open("/relay", client)
+      client.nextStatus() shouldBe (4504, "upstream connect timed out")
+      silent.awaitAccepted() shouldBe true
+      val stats = f.nextStats()
+      stats.closedBy shouldBe WebSocketRelaySide.Relay
+      stats.statusCode shouldBe 4504
+      stats.reason shouldBe "upstream connect timed out"
+    finally
+      f.close()
+      silent.close()
   }
 
   test("close the client with 4502 when the upstream fails before the relay subscribes") {

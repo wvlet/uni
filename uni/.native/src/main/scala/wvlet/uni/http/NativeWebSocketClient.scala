@@ -30,10 +30,22 @@ import scala.util.control.NonFatal
   * §5.3).
   *
   * Limitations: `ws://` only (no TLS on the raw socket); the host must be a dotted-quad IP or
-  * `localhost` (no DNS); the TCP connect itself has no timeout (the handshake read is bounded and
-  * timed). `connect` returns at once and runs the connect and handshake on the connection's thread.
+  * `localhost` (no DNS). `connect` returns at once and runs the connect and handshake on the
+  * connection's thread.
+  *
+  * @param connectTimeoutMillis
+  *   the longest the TCP connect and the handshake may take together (0: no limit)
   */
-class NativeWebSocketClient extends WebSocketClient with LogSupport:
+class NativeWebSocketClient(
+    override val connectTimeoutMillis: Long = WebSocketClient.DefaultConnectTimeoutMillis
+) extends WebSocketClient
+    with LogSupport:
+  require(connectTimeoutMillis >= 0, "connectTimeoutMillis must be >= 0")
+
+  override def withConnectTimeoutMillis(millis: Long): NativeWebSocketClient =
+    NativeWebSocketClient(millis)
+
+  override def noConnectTimeout(): NativeWebSocketClient = withConnectTimeoutMillis(0)
 
   override def connect(
       request: Request,
@@ -63,8 +75,10 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
       opened: Promise[WebSocketContext]
   ): Unit =
     try
-      val target = NativeWebSocketClient.parse(request.fullUri)
-      val fd     = NativeSocket.connect(target.host, target.port)
+      // One deadline for the TCP connect and the handshake, so a slow-dripping peer can't extend it
+      val deadline = NativeWebSocketClient.Deadline(connectTimeoutMillis)
+      val target   = NativeWebSocketClient.parse(request.fullUri)
+      val fd       = NativeSocket.connect(target.host, target.port, deadline.connectMillis())
       try
         val key   = WebSocketFrame.newClientKey()
         val extra = headers.map((name, value) => s"${name}: ${value}\r\n").mkString
@@ -75,7 +89,7 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
         if !NativeSocket.sendAll(fd, head.getBytes(StandardCharsets.ISO_8859_1)) then
           throw HttpException.connectionFailed("Failed to send the WebSocket upgrade request")
 
-        val handshake = NativeWebSocketClient.readHandshake(fd)
+        val handshake = NativeWebSocketClient.readHandshake(fd, deadline)
         if handshake.status != 101 then
           if handshake.status > 0 then
             throw HttpException(
@@ -145,14 +159,36 @@ class NativeWebSocketClient extends WebSocketClient with LogSupport:
 end NativeWebSocketClient
 
 object NativeWebSocketClient:
-  private final val MaxFrameSize           = 1024 * 1024
-  private final val MaxHandshakeBytes      = 64 * 1024
-  private final val HandshakeTimeoutMillis = 30000
+  private final val MaxFrameSize      = 1024 * 1024
+  private final val MaxHandshakeBytes = 64 * 1024
 
   // A send the server stops reading fails after this long, as on the socket servers
   private final val WriteTimeoutNanos = 30000L * 1000000L
 
-  def apply(): NativeWebSocketClient = new NativeWebSocketClient()
+  /** The time left of a connect's `timeoutMillis` (0: no limit), started when created. */
+  private class Deadline(timeoutMillis: Long):
+    // Capped at Int.MaxValue millis (about 24 days), which also keeps the nanos from overflowing
+    private val end = System.nanoTime() + math.min(timeoutMillis, Int.MaxValue) * 1000000L
+
+    private def leftMillis(): Long = math.max(1L, (end - System.nanoTime() + 999999L) / 1000000L)
+
+    /** For [[NativeSocket.connect]]: the millis left, or 0 for no limit. */
+    def connectMillis(): Int =
+      if timeoutMillis <= 0 then
+        0
+      else
+        math.min(leftMillis(), Int.MaxValue).toInt
+
+    /** For [[NativeSocket.waitReadable]]: the millis left, -1 for no limit, 0 once expired. */
+    def waitMillis(): Int =
+      if timeoutMillis <= 0 then
+        -1
+      else if System.nanoTime() >= end then
+        0
+      else
+        math.min(leftMillis(), Int.MaxValue).toInt
+
+  end Deadline
 
   // Open client connections, checked by one daemon watchdog for writes that stopped making progress
   private val connections = ConcurrentHashMap.newKeySet[WriteTrackingConnection]()
@@ -227,15 +263,19 @@ object NativeWebSocketClient:
     * Read the HTTP upgrade response up to the header terminator; retain any frame bytes that
     * follow.
     */
-  private def readHandshake(fd: Int): Handshake =
+  private def readHandshake(fd: Int, deadline: Deadline): Handshake =
     val buf = mutable.ArrayBuffer.empty[Byte]
     var end = -1
     while end < 0 do
       if buf.length > MaxHandshakeBytes then
         throw HttpException.connectionFailed("WebSocket handshake response too large")
       // Bound the wait so a connected-but-silent server can't hang the caller indefinitely.
-      if NativeSocket.waitReadable(fd, HandshakeTimeoutMillis) != 1 then
-        throw HttpException.connectionFailed("Timed out during the WebSocket handshake")
+      NativeSocket.waitReadable(fd, deadline.waitMillis()) match
+        case 1 =>
+        case 0 =>
+          throw HttpException.connectionTimeout("Timed out during the WebSocket handshake")
+        case _ =>
+          throw HttpException.connectionFailed("Connection closed during the WebSocket handshake")
       val chunk = NativeSocket.recvChunk(fd)
       if chunk.isEmpty then
         throw HttpException.connectionFailed("Connection closed during the WebSocket handshake")
