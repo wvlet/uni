@@ -24,6 +24,12 @@ import java.util.zip.{Deflater, GZIPInputStream, Inflater, InflaterInputStream}
   */
 private[http] object RequestDecompression:
 
+  /**
+    * The most bytes one Inflater call reads or writes, through both the decoder's input buffer and
+    * `readCapped`'s chunk. Keep it under 64 KiB: Scala Native's javalib (0.5.12) declares zlib's
+    * `avail_in` and `avail_out` as 16-bit on Windows, where they are 32-bit, so a larger call is
+    * cut to its size mod 65536 there and decodes the wrong bytes.
+    */
   private final val BufferSize = 8192
 
   /**
