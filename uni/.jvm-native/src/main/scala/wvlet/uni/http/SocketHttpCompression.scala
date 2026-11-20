@@ -202,13 +202,14 @@ private[http] object ResponseCompression:
   // A buffer grown past this isn't kept
   private final val MaxKeptBytes = 1 << 16
 
+  // The most bytes passed to one zlib call (see compress)
+  private final val ZlibChunk = 8192
+
   private def compress(pool: ScratchPool[Compressor], body: Array[Byte]): Array[Byte] =
     val c = pool.borrow()
     try
       val d = c.deflater
       d.reset()
-      d.setInput(body)
-      d.finish()
       // The gzip header the JDK's GZIPOutputStream writes: magic, deflate, no flags, no mtime, no
       // extra flags, OS 255 (unknown)
       var pos =
@@ -222,15 +223,28 @@ private[http] object ResponseCompression:
         c.out(1) = 0x8b.toByte
         c.out(2) = Deflater.DEFLATED.toByte
         c.out(9) = 0xff.toByte
+      // Feed the body and drain the output at most ZlibChunk bytes per call: Scala Native's javalib
+      // (0.5.12) on Windows cuts any single zlib call over 65,535 bytes to `len mod 65536`, which
+      // compressed only a prefix of larger bodies
+      var fed = 0
       while !d.finished() do
-        if pos == c.out.length then
-          c.out = java.util.Arrays.copyOf(c.out, c.out.length * 2)
-        pos += d.deflate(c.out, pos, c.out.length - pos)
+        if d.needsInput() then
+          if fed < body.length then
+            val n = math.min(ZlibChunk, body.length - fed)
+            d.setInput(body, fed, n)
+            fed += n
+          else
+            d.finish()
+        if pos + ZlibChunk > c.out.length then
+          c.out = java.util.Arrays.copyOf(c.out, math.max(c.out.length * 2, pos + ZlibChunk))
+        pos += d.deflate(c.out, pos, ZlibChunk)
       if c.framed then
         // Trailer: CRC-32 and the input size mod 2^32, little-endian
         if pos + 8 > c.out.length then
           c.out = java.util.Arrays.copyOf(c.out, pos + 8)
-        writeIntLE(c.out, pos, GzipCrc.of(body))
+        val crc = java.util.zip.CRC32()
+        crc.update(body, 0, body.length)
+        writeIntLE(c.out, pos, crc.getValue.toInt)
         writeIntLE(c.out, pos + 4, body.length)
         pos += 8
       val result = java.util.Arrays.copyOf(c.out, pos)
