@@ -21,7 +21,7 @@ import scala.collection.mutable
   * all platforms (the result is base64-encoded with `java.util.Base64`, which is available on JVM,
   * Scala.js, and Native).
   */
-private[http] object Sha1:
+private[uni] object Sha1:
 
   def digest(message: Array[Byte]): Array[Byte] =
     var h0 = 0x67452301

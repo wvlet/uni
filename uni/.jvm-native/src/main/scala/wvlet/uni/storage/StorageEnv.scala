@@ -20,3 +20,5 @@ private[storage] object StorageEnv:
   def isBrowser: Boolean = false
 
   def isNode: Boolean = false
+
+  def isWindows: Boolean = System.getProperty("os.name", "").toLowerCase.startsWith("windows")

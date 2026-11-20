@@ -163,4 +163,8 @@ val result = IO.run(Seq("my-command", "--flag"), config)
 | Feature | JVM | Scala Native | Scala.js |
 |---------|-----|--------------|----------|
 | File operations | Supported | Supported | Node.js only (async recommended) |
-| Subprocess execution | Supported | Supported | Not supported |
+| Subprocess execution | Supported | Supported | `IO.run` / `IO.call` on Node.js; not in browsers |
+
+On Node.js, `IO.run` and `IO.call` use `child_process.spawnSync`. `IO.spawn` is JVM and Scala
+Native only, and `withRedirectErrorToOutput(true)` appends stderr after stdout instead of
+interleaving the two.
