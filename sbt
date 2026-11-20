@@ -311,10 +311,13 @@ download_url() {
 
   mkdir -p "${jar%/*}" && {
     if command -v curl >/dev/null 2>&1; then
-      # Retry, since Maven Central intermittently fails a request (often the .md5) in CI
-      curl --fail --silent --location --retry 5 --retry-all-errors --retry-delay 2 "$url" --output "$jar"
+      # Retry, since Maven Central intermittently fails a request (often the .md5) in CI. Back off
+      # exponentially (curl's default: 1 s, 2 s, 4 s, ...) for up to 3 minutes: fixed 2 s retries
+      # gave up during outages of ~10 s. Time out a stalled connection rather than waiting forever.
+      curl --fail --silent --location --retry 8 --retry-all-errors --retry-max-time 180 \
+        --connect-timeout 15 --max-time 120 "$url" --output "$jar"
     elif command -v wget >/dev/null 2>&1; then
-      wget -q --tries=6 --waitretry=2 -O "$jar" "$url"
+      wget -q --tries=8 --waitretry=16 --timeout=30 -O "$jar" "$url"
     fi
   } && [[ -r "$jar" ]]
 }

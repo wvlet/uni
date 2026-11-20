@@ -16,7 +16,7 @@ package wvlet.uni.http
 import wvlet.uni.test.UniTest
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream}
-import java.util.zip.{GZIPInputStream, GZIPOutputStream, InflaterInputStream}
+import java.util.zip.{GZIPOutputStream, InflaterInputStream}
 
 class PooledResponseWriteTest extends UniTest:
 
@@ -51,8 +51,33 @@ class PooledResponseWriteTest extends UniTest:
       c.out.toByteArray.toSeq shouldBe HttpResponseWriter.serialize(r, keepAlive, include).toSeq
   }
 
-  private def gunzip(b: Array[Byte]): Array[Byte] = GZIPInputStream(ByteArrayInputStream(b))
-    .readAllBytes()
+  /**
+    * Decode a gzip stream: inflate its raw deflate data and check the trailer against a CRC-32
+    * masked to 32 bits. Scala Native's CRC32 binds zlib's 32-bit `uLong` as 64 bits, so on Windows
+    * `getValue` can carry garbage high bits and `GZIPInputStream` reports a false "Crc mismatch".
+    */
+  private def gunzip(b: Array[Byte]): Array[Byte] =
+    b(0) shouldBe 0x1f.toByte
+    b(1) shouldBe 0x8b.toByte
+    val inflater = java.util.zip.Inflater(true)
+    inflater.setInput(b, 10, b.length - 18)
+    val out = ByteArrayOutputStream()
+    val buf = new Array[Byte](8192)
+    while !inflater.finished() do
+      val n = inflater.inflate(buf)
+      out.write(buf, 0, n)
+    inflater.end()
+    val data                 = out.toByteArray
+    def intLE(at: Int): Long =
+      (b(at) & 0xffL) |
+        ((b(at + 1) & 0xffL) << 8) |
+        ((b(at + 2) & 0xffL) << 16) |
+        ((b(at + 3) & 0xffL) << 24)
+    val crc = java.util.zip.CRC32()
+    crc.update(data, 0, data.length)
+    (crc.getValue & 0xffffffffL) shouldBe intLE(b.length - 8)
+    intLE(b.length - 4) shouldBe (data.length & 0xffffffffL)
+    data
 
   private def inflate(b: Array[Byte]): Array[Byte] = InflaterInputStream(ByteArrayInputStream(b))
     .readAllBytes()
