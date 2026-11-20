@@ -22,8 +22,11 @@ the generated scripts respect this.
 The sink records every event it receives. It answers as `RxRunner.run` does (`Stop` to a terminal
 event) or, for `take`, as `runOnce` does (`Stop` to every event). `RxVar` ignores `Stop`, so the
 model, like `RxRunner`, can deliver events after a terminal one where an operator does not guard
-against them. Continuous mode is left out. `GenRxLiveCases.lean` evaluates the model to generate
-the cases that `RxLiveSpecTest` replays.
+against them. `GenRxLiveCases.lean` evaluates the model, and `RxLiveFanIn.lean` (`merge`,
+`parFlatMap`), to generate the cases that `RxLiveSpecTest` replays.
+
+A pipeline runs in default mode (`RxRunner.run`) or continuous mode (`runContinuously`, used by DOM
+rendering), where operators treat errors and `Stop` as transient.
 -/
 
 namespace UniSpec.RxLive
@@ -81,6 +84,12 @@ def Vars.apply (vs : Vars) : Action → Option (Nat × VarEvent) × Vars
     else (some (i, .fail), { vs with ended := fun j => j == i || vs.ended j })
   | .cancel => (none, vs)
 
+/-- `RxRunner(continuous = false)` or `RxRunner(continuous = true)`. -/
+inductive Mode where
+  | default
+  | continuous
+  deriving Repr, DecidableEq
+
 /-- Var `i` starts with `i * 10`, except var 0, which starts with 1. -/
 def initVars : Vars := { val := fun i => if i = 0 then 1 else i * 10, ended := fun _ => false }
 
@@ -103,7 +112,9 @@ theorem runFrom_silent {σ : Type} (step : σ → Action → σ × List Out) (p 
 /-! ## flatMap and transformRx: switching nested streams
 
 Var 0 is the input. The function maps the input value 1 to var 1, 2 to var 2, and throws on any
-other value. `transformRx` maps an input error to var 2. -/
+other value. `transformRx` maps an input error to var 2. The two modes differ only there: in default
+mode the input error ends the input, while in continuous mode the input may emit again, so the
+operator never completes after it. -/
 
 /-- The nested var for an input value; `none` when the function throws. -/
 def target (x : Int) : Option Nat :=
@@ -116,6 +127,7 @@ inductive SwitchKind where
 
 structure Switch where
   vars : Vars
+  mode : Mode := .default
   /-- The subscription is not cancelled -/
   live : Bool := true
   /-- The var of the current nested stream. Every earlier one is cancelled. -/
@@ -148,10 +160,13 @@ def Switch.onInput (k : SwitchKind) (s : Switch) : VarEvent → Switch × List O
     match k with
     | .flatMap => (s, [.fail])
     | .transformRx =>
-      -- The error ends the input once the nested stream built from it ends
       let r := s.subscribe 2
-      let c := r.1.completeInput
-      (c.1, r.2 ++ c.2)
+      match s.mode with
+      -- The error ends the input once the nested stream built from it ends
+      | .default =>
+        let c := r.1.completeInput
+        (c.1, r.2 ++ c.2)
+      | .continuous => r
 
 /-- An event from var `i`, which reaches the sink only from the current nested stream. -/
 def Switch.onNested (s : Switch) (i : Nat) (e : VarEvent) : Switch × List Out :=
@@ -174,11 +189,11 @@ def Switch.step (k : SwitchKind) (s : Switch) (a : Action) : Switch × List Out 
     else ({ s with vars := vs }).onNested i e
 
 /-- Subscribe: the input var delivers its current value, 1, at once. -/
-def Switch.init (k : SwitchKind) : Switch × List Out :=
-  Switch.onInput k { vars := initVars } (.next 1)
+def Switch.init (k : SwitchKind) (m : Mode := .default) : Switch × List Out :=
+  Switch.onInput k { vars := initVars, mode := m } (.next 1)
 
-def runSwitch (k : SwitchKind) (as : List Action) : List Out :=
-  (Switch.init k).2 ++ runFrom (Switch.step k) (Switch.init k).1 as
+def runSwitch (k : SwitchKind) (as : List Action) (m : Mode := .default) : List Out :=
+  (Switch.init k m).2 ++ runFrom (Switch.step k) (Switch.init k m).1 as
 
 theorem Switch.step_cancelled (k : SwitchKind) (s : Switch) (a : Action) (h : s.live = false) :
     (s.step k a).1.live = false ∧ (s.step k a).2 = [] := by
@@ -226,8 +241,10 @@ theorem switch_done (k : SwitchKind) (s : Switch) (a : Action) (h : Out.done ∈
         | fail =>
           cases k
           · simp [Switch.onInput] at h
-          · simp only [Switch.onInput, Switch.subscribe, Switch.completeInput] at h
-            split at h <;> simp at h
+          · cases hm : s.mode
+            · simp only [Switch.onInput, Switch.subscribe, Switch.completeInput, hm] at h
+              split at h <;> simp at h
+            · simp [Switch.onInput, Switch.subscribe, hm] at h
       · simp only [hl, hi, Bool.not_true, Bool.false_eq_true, ite_false] at h ⊢
         simp only [Switch.onNested] at h ⊢
         by_cases hn : s.nested = some i
@@ -246,6 +263,126 @@ example : runSwitch .flatMap [.set 1 11, .set 0 2, .set 0 1] = [.next 10, .next 
     .next 11] := by decide
 /-- A throwing function cancels the previous nested stream too. -/
 example : runSwitch .flatMap [.set 0 0, .set 1 11, .stop 0] = [.next 10, .fail, .done] := by decide
+
+/-- Continuous mode: an input error does not end the input, so `transformRx` does not complete. -/
+example : runSwitch .transformRx [.fail 0, .stop 2] .continuous = [.next 10, .next 20] := by decide
+example : runSwitch .transformRx [.fail 0, .stop 2] = [.next 10, .next 20, .done] := by decide
+
+/-! ## recoverWith
+
+The input is `var0.map(g)`, where `g` throws on some values without ending the var: on 0 an error
+that `f` recovers with var 1, on 3 an error that `f` rejects, and on 4 an error on which `f`
+throws. `f` recovers the var's own failure with var 2.
+
+In default mode a recovered error ends the input: the input is cancelled, and the operator ends
+with the recovery stream. In continuous mode the input stays subscribed, and its next value cancels
+the recovery stream. A new recovery always cancels the previous one. -/
+
+/-- What `g` and `f` do with an input value. -/
+inductive Mapped where
+  | value (v : Int)
+  /-- An error `f` recovers with this var -/
+  | recover (i : Nat)
+  /-- An error `f` rejects: the sink gets `OnError` -/
+  | rejected
+  /-- An error on which `f` throws: the sink gets `OnError`, and the recovery stream, cancelled
+  before `f` runs, is gone -/
+  | throws
+  deriving Repr, DecidableEq
+
+def mapped (x : Int) : Mapped :=
+  if x = 0 then .recover 1 else if x = 3 then .rejected else if x = 4 then .throws else .value x
+
+structure RecoverWith where
+  vars : Vars
+  mode : Mode := .default
+  /-- Not cancelled -/
+  live : Bool := true
+  /-- The input subscription is not cancelled -/
+  input : Bool := true
+  /-- The var of the current recovery stream -/
+  recovery : Option Nat := none
+
+/-- Recover with var `i`: cancel the previous recovery stream, end the input in default mode, and
+subscribe to var `i`, which delivers its current value at once. -/
+def RecoverWith.recover (s : RecoverWith) (i : Nat) : RecoverWith × List Out :=
+  ({ s with recovery := some i, input := s.mode == .continuous }, [.next (s.vars.val i)])
+
+def RecoverWith.onInput (s : RecoverWith) : VarEvent → RecoverWith × List Out
+  | .next x =>
+    match mapped x with
+    | .recover i => s.recover i
+    | .rejected => (s, [.fail])
+    | .throws => ({ s with recovery := none }, [.fail])
+    | .value v =>
+      -- In continuous mode a new input value replaces the recovery stream
+      let s := if s.mode == .continuous then { s with recovery := none } else s
+      (s, [.next v])
+  | .done => (s, [.done])
+  | .fail => s.recover 2
+
+def RecoverWith.onVar (s : RecoverWith) (i : Nat) (e : VarEvent) : RecoverWith × List Out :=
+  if i = 0 then (if s.input then s.onInput e else (s, []))
+  else if s.recovery = some i then
+    (s, [match e with | .next v => .next v | .done => .done | .fail => .fail])
+  else (s, [])
+
+def RecoverWith.step (s : RecoverWith) (a : Action) : RecoverWith × List Out :=
+  match s.vars.apply a with
+  | (none, vs) =>
+    if a = .cancel then ({ s with vars := vs, live := false }, [])
+    else ({ s with vars := vs }, [])
+  | (some (i, e), vs) =>
+    if s.live then ({ s with vars := vs }).onVar i e else ({ s with vars := vs }, [])
+
+/-- Subscribe: the input var delivers its current value, 1, at once. -/
+def RecoverWith.init (m : Mode) : RecoverWith × List Out :=
+  RecoverWith.onInput { vars := initVars, mode := m } (.next 1)
+
+def runRecoverWith (m : Mode) (as : List Action) : List Out :=
+  (RecoverWith.init m).2 ++ runFrom RecoverWith.step (RecoverWith.init m).1 as
+
+theorem RecoverWith.step_cancelled (s : RecoverWith) (a : Action) (h : s.live = false) :
+    (s.step a).1.live = false ∧ (s.step a).2 = [] := by
+  unfold RecoverWith.step
+  split <;> (try split) <;> simp_all
+
+/-- After `cancel`, the sink records nothing more. -/
+theorem recoverWith_cancel (s : RecoverWith) (as : List Action) :
+    runFrom RecoverWith.step (s.step .cancel).1 as = [] :=
+  runFrom_silent _ (fun s => s.live = false) (fun s a h => RecoverWith.step_cancelled s a h) _ _
+    (by simp [RecoverWith.step, Vars.apply])
+
+/-- A recovered error in default mode ends the input. -/
+theorem recoverWith_recover_ends_input (s : RecoverWith) (i : Nat) (h : s.mode = .default) :
+    (s.recover i).1.input = false ∧ (s.recover i).1.recovery = some i := by
+  simp [RecoverWith.recover, h]
+
+/-- Once the input has ended, the sink gets exactly the recovery var's events: the input reaches
+the sink with nothing, and the recovery stream is never replaced. -/
+theorem recoverWith_after_input (s : RecoverWith) (a : Action) (h : s.input = false) :
+    (s.step a).1.input = false ∧ (s.step a).1.recovery = s.recovery ∧
+    ((s.vars.apply a).1.map (·.1) = some 0 → (s.step a).2 = []) := by
+  unfold RecoverWith.step
+  rcases hap : s.vars.apply a with ⟨_ | ⟨i, e⟩, vs⟩
+  · by_cases hc : a = .cancel <;> simp [hc, h]
+  · by_cases hl : s.live = true
+    · by_cases hi : i = 0
+      · simp [hl, hi, RecoverWith.onVar, h]
+      · simp only [hl, ite_true, RecoverWith.onVar, hi, ite_false]
+        split <;> simp [h, hi]
+    · simp [hl, h]
+
+/-- Default mode: input values after the recovered error are dropped, and the recovery var ends
+the operator. -/
+example : runRecoverWith .default [.set 0 0, .set 0 2, .set 1 11, .stop 1, .stop 0] =
+    [.next 1, .next 10, .next 11, .done] := by decide
+/-- Continuous mode: the next input value switches back from the recovery stream, so the
+recovery var's change is dropped until the next recovery subscribes to it again. -/
+example : runRecoverWith .continuous [.set 0 0, .set 0 2, .set 1 11, .set 0 0] =
+    [.next 1, .next 10, .next 2, .next 11] := by decide
+/-- An error `f` rejects reaches the sink, and the input stays subscribed. -/
+example : runRecoverWith .default [.set 0 3, .set 0 2] = [.next 1, .fail, .next 2] := by decide
 
 /-! ## split
 

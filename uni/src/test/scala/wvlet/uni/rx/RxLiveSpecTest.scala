@@ -97,7 +97,17 @@ class RxLiveSpecTest extends UniTest:
     )
   }
 
-  private val runner = RxRunner(continuous = false)
+  private val defaultRunner    = RxRunner(continuous = false)
+  private val continuousRunner = RxRunner(continuous = true)
+
+  // An operator ending in :continuous runs as runContinuously does
+  private def runnerFor(op: String): RxRunner =
+    if op.endsWith(":continuous") then
+      continuousRunner
+    else
+      defaultRunner
+
+  private def baseOp(op: String): String = op.stripSuffix(":continuous")
 
   private def runScript(script: String, vars: IndexedSeq[RxVar[Int]], cancel: () => Unit): Unit =
     actions(script).foreach { a =>
@@ -125,7 +135,7 @@ class RxLiveSpecTest extends UniTest:
   private def runSwitch(op: String, script: String): String =
     val vars = newVars(3)
     val rx   =
-      op match
+      baseOp(op) match
         case "flatMap" =>
           vars(0).flatMap(target(vars))
         case _ =>
@@ -136,7 +146,60 @@ class RxLiveSpecTest extends UniTest:
               vars(2)
           }
     val sink = Sink()
-    val c    = runner.run(rx)(sink(_))
+    val c    = runnerFor(op).run(rx)(sink(_))
+    runScript(script, vars, () => c.cancel)
+    sink.result
+
+  // The input throws without ending the var: on 0 an error recovered with var 1, on 3 an error the
+  // function rejects, and on 4 an error on which it throws. The var's own failure recovers with var 2.
+  private def runRecoverWith(op: String, script: String): String =
+    val vars = newVars(3)
+    val rx   = vars(0)
+      .map { x =>
+        x match
+          case 0 =>
+            throw IllegalArgumentException("recovered")
+          case 3 =>
+            throw ArithmeticException("rejected")
+          case 4 =>
+            throw UnsupportedOperationException("recovery throws")
+          case _ =>
+            x
+      }
+      .recoverWith {
+        case _: IllegalArgumentException =>
+          vars(1)
+        case _: IllegalStateException =>
+          vars(2)
+        case _: UnsupportedOperationException =>
+          throw IllegalStateException("recovery failed")
+      }
+    val sink = Sink()
+    val c    = runnerFor(op).run(rx)(sink(_))
+    runScript(script, vars, () => c.cancel)
+    sink.result
+
+  private def runMerge(op: String, script: String): String =
+    val vars = newVars(2)
+    val sink = Sink()
+    val c    = runnerFor(op).run(Rx.MergeOp(Seq(vars(0), vars(1))))(sink(_))
+    runScript(script, vars, () => c.cancel)
+    sink.result
+
+  // parFlatMap maps 1, 2, and 3 to vars 1, 2, and 3, and throws on any other value
+  private def runParFlatMap(op: String, script: String): String =
+    val n    = baseOp(op).stripPrefix("parFlatMap:").toInt
+    val vars = newVars(4)
+    val rx   =
+      vars(0).parFlatMap(n) { x =>
+        x match
+          case 1 | 2 | 3 =>
+            vars(x)
+          case _ =>
+            throw IllegalArgumentException(s"no nested stream for ${x}")
+      }
+    val sink = Sink()
+    val c    = runnerFor(op).run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -149,7 +212,7 @@ class RxLiveSpecTest extends UniTest:
         case _ =>
           vars(0).join(vars(1))
     val sink = Sink()
-    val c    = runner.run(rx)(sink(_))
+    val c    = defaultRunner.run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -157,7 +220,7 @@ class RxLiveSpecTest extends UniTest:
     val Array(_, n, mode) = op.split(':')
     val vars              = newVars(1)
     val sink              = Sink(stopEvery = mode == "once")
-    val c                 = runner.run(vars(0).take(n.toInt))(sink(_))
+    val c                 = defaultRunner.run(vars(0).take(n.toInt))(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -199,7 +262,7 @@ class RxLiveSpecTest extends UniTest:
         }
 
     val sink = SplitSink()
-    val c    = runner.run(src.split(_._1))(sink(_))
+    val c    = defaultRunner.run(src.split(_._1))(sink(_))
     actions(script).foreach {
       case "stop" =>
         src.stop()
@@ -217,9 +280,15 @@ class RxLiveSpecTest extends UniTest:
   end runSplit
 
   private def run(c: SpecCase): String =
-    c.op match
+    baseOp(c.op) match
       case "flatMap" | "transformRx" =>
         runSwitch(c.op, c.script)
+      case "recoverWith" =>
+        runRecoverWith(c.op, c.script)
+      case "merge" =>
+        runMerge(c.op, c.script)
+      case op if op.startsWith("parFlatMap:") =>
+        runParFlatMap(c.op, c.script)
       case "zip" | "join" =>
         runCombine(c.op, c.script)
       case "split" =>

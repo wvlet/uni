@@ -5,3 +5,4 @@ import UniSpec.RxRecover
 import UniSpec.HttpReader
 import UniSpec.RxLive
 import UniSpec.DomRender
+import UniSpec.RxLiveFanIn
