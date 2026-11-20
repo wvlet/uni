@@ -28,6 +28,27 @@ private[log] object LogEnv extends LogEnvBase:
     new ConsoleLogHandler(SourceCodeLogFormatter)
 
   /**
+    * Keep the root handlers when they hold a live log router of another copy of Uni. sbt runs the
+    * tests of several projects in one JVM, each with its own class loader and copy of Uni, and a
+    * project's runner may start while another project's suites route or capture logs. A router (see
+    * uni-test's TestLogCapture) implements `Supplier`, a JDK type every class loader shares, and
+    * returns null from `get()` until it is removed. Other handlers of another copy are replaced as
+    * usual, so a finished runner's class loader is not kept in use.
+    */
+  override def keepsRootHandlers(handlers: Array[java.util.logging.Handler]): Boolean = handlers
+    .exists { h =>
+      val cl = h.getClass
+      cl.getName.startsWith("wvlet.uni.") &&
+      (cl.getClassLoader ne getClass.getClassLoader) && (
+        h match
+          case s: java.util.function.Supplier[?] =>
+            s.get() == null
+          case _ =>
+            false
+      )
+    }
+
+  /**
     * @param cl
     * @return
     */

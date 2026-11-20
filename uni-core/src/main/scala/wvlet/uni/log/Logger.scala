@@ -190,7 +190,12 @@ object Logger:
   private var logLevelPatterns: List[(Regex, LogLevel)] = Nil
 
   val rootLogger =
-    val l = initLogger(name = "", handlers = Seq(LogEnv.defaultHandler))
+    val l =
+      if LogEnv.keepsRootHandlers(jl.Logger.getLogger("").getHandlers) then
+        // Another copy of Uni in this JVM routes the root logger's records (see LogEnv)
+        Logger("")
+      else
+        initLogger(name = "", handlers = Seq(LogEnv.defaultHandler))
     if LogEnv.isScalaJS then
       l.setLogLevel(LogLevel.INFO)
     l

@@ -45,7 +45,7 @@ class OutputCaptureClassLoaderTest extends UniTest:
     val saved  = root.getHandlers
     val loader = otherRunnerLoader()
     try
-      // The other runner starts first: initializing its Logger resets the root logger's handlers
+      // The other runner starts first
       val otherLogger = moduleOf(loader, "wvlet.uni.log.Logger")
       otherLogger.getClass.getMethod("rootLogger").invoke(otherLogger)
       val other = moduleOf(loader, "wvlet.uni.test.spi.TestLogCapture")
@@ -67,6 +67,47 @@ class OutputCaptureClassLoaderTest extends UniTest:
       root.getHandlers.foreach(root.removeHandler)
       saved.foreach(root.addHandler)
       loader.close()
+  }
+
+  test("keep capturing when another runner's copy initializes its Logger") {
+    val root   = jl.Logger.getLogger("")
+    val saved  = root.getHandlers
+    val loader = otherRunnerLoader()
+    try
+      val logs = captureLogs {
+        // Another project's runner starts while this runner's suite captures
+        val otherLogger = moduleOf(loader, "wvlet.uni.log.Logger")
+        otherLogger.getClass.getMethod("rootLogger").invoke(otherLogger)
+        CaptureNoisy().fail()
+      }
+      logs.warnings shouldContain "handler failed"
+    finally
+      root.getHandlers.foreach(root.removeHandler)
+      saved.foreach(root.addHandler)
+      loader.close()
+  }
+
+  test("replace a handler of another copy that is not a live router") {
+    val root     = jl.Logger.getLogger("")
+    val saved    = root.getHandlers
+    val finished = otherRunnerLoader()
+    val next     = otherRunnerLoader()
+    try
+      // A runner that has finished left its console handler on the root logger
+      val env     = moduleOf(finished, "wvlet.uni.log.LogEnv")
+      val handler = env.getClass.getMethod("defaultHandler").invoke(env).asInstanceOf[jl.Handler]
+      root.getHandlers.foreach(root.removeHandler)
+      root.addHandler(handler)
+      val nextLogger = moduleOf(next, "wvlet.uni.log.Logger")
+      nextLogger.getClass.getMethod("rootLogger").invoke(nextLogger)
+      // The next runner's Logger replaces it, so the finished runner's classes are not kept in use
+      root.getHandlers.exists(_ eq handler) shouldBe false
+      root.getHandlers.map(_.getClass.getClassLoader).toSeq shouldBe Seq(next)
+    finally
+      root.getHandlers.foreach(root.removeHandler)
+      saved.foreach(root.addHandler)
+      finished.close()
+      next.close()
   }
 
   test("keep a suite thread's record away from another runner's capture") {
