@@ -142,8 +142,37 @@
 
 /* Blog */
 .blog-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
   color: var(--vp-c-text-2);
   font-size: 0.9rem;
+}
+
+.blog-author {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--vp-c-text-1);
+  font-weight: 500;
+}
+
+.vp-doc a.blog-author,
+a.blog-author {
+  color: var(--vp-c-text-1);
+  text-decoration: none;
+}
+
+a.blog-author:hover span {
+  color: var(--vp-c-brand-1);
+}
+
+.blog-author img {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid var(--vp-c-divider);
 }
 
 .vp-doc .blog-entry h2 {
