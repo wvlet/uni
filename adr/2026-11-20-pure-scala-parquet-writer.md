@@ -64,6 +64,13 @@ bit-packing code, and the decoders, which the writer reuses.
   `wvlet.uni.io.Gzip` where a platform zlib exists. ZSTD and BROTLI compressors are much larger and
   are left out; SNAPPY stays the default, as in parquet-java and Spark. The compressors stay
   `private[parquet]` with the decoders.
+  - Amended by `plans/2026-11-20-parquet-zstd-writer.md`: a pure-Scala ZSTD compressor
+    (`ZstdCompressor`), since ZSTD is the common production choice in Spark, DuckDB, and Polars.
+    One frame per page with the content size (single segment up to the 2 MiB window); matches
+    from a 4-byte hash with one lazy step and a last-offset check; Huffman literals; FSE sequences
+    with a predefined, RLE, or in-block table per code, picked by estimated cost; blocks that do
+    not shrink stored raw. No dictionaries, checksums, repeat-mode tables, or levels: one setting
+    near zstd's fast levels keeps the code small. SNAPPY stays the default.
 - **One row group in memory.** Pages are compressed as they close and the row group is written
   when its encoded size reaches the limit, so memory is bounded by the row group size. On Scala.js,
   `FileSystem.writeStream` itself buffers the file until `close()`, which the docs state.
@@ -83,7 +90,7 @@ bit-packing code, and the decoders, which the writer reuses.
 
 ## Not supported
 
-Data page v2, the DELTA and BYTE_STREAM_SPLIT encodings, page indexes, bloom filters, ZSTD and
-BROTLI compression, INT96 columns, and encryption. The dev-time script
+Data page v2, the DELTA and BYTE_STREAM_SPLIT encodings, page indexes, bloom filters, BROTLI
+compression, INT96 columns, and encryption. The dev-time script
 `uni-parquet/scripts/check-writer-with-duckdb.sh` checks written files against DuckDB; committed
 tests only round-trip through the uni-parquet reader.

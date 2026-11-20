@@ -12,7 +12,8 @@ private[parquet] object Compressors:
   /** True when this platform can write the codec */
   def isSupported(codec: CompressionCodec): Boolean =
     codec match
-      case CompressionCodec.UNCOMPRESSED | CompressionCodec.SNAPPY | CompressionCodec.LZ4_RAW =>
+      case CompressionCodec.UNCOMPRESSED | CompressionCodec.SNAPPY | CompressionCodec.LZ4_RAW |
+          CompressionCodec.ZSTD =>
         true
       case CompressionCodec.GZIP =>
         !FileSystem.isBrowser
@@ -36,6 +37,8 @@ private[parquet] object Compressors:
         SnappyCompressor.compress(src, len)
       case CompressionCodec.LZ4_RAW =>
         Lz4Compressor.compress(src, len)
+      case CompressionCodec.ZSTD =>
+        ZstdCompressor.compress(src, len)
       case CompressionCodec.GZIP =>
         Gzip.compress(java.util.Arrays.copyOf(src, len))
       case other =>

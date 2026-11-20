@@ -157,6 +157,7 @@ class WriterTest extends UniTest:
       CompressionCodec.UNCOMPRESSED,
       CompressionCodec.SNAPPY,
       CompressionCodec.LZ4_RAW,
+      CompressionCodec.ZSTD,
       CompressionCodec.GZIP
     )
   do
@@ -530,7 +531,7 @@ class WriterTest extends UniTest:
     }
   }
 
-  test("reject GZIP in browsers only") {
+  test("reject GZIP in browsers, and BROTLI everywhere") {
     if FileSystem.isBrowser then
       intercept[ParquetException] {
         Parquet.writeBytes(
@@ -541,7 +542,7 @@ class WriterTest extends UniTest:
     intercept[ParquetException] {
       Parquet.writeBytes(
         Seq(Simple(1, None)),
-        ParquetWriteOptions.default.withCompression(CompressionCodec.ZSTD)
+        ParquetWriteOptions.default.withCompression(CompressionCodec.BROTLI)
       )
     }
   }

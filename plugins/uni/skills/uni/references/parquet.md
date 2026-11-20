@@ -231,7 +231,7 @@ def writeRecords(path: String): Unit =
 
 `ParquetWriteOptions.default` writes SNAPPY, data page v1, dictionary encoding (falls back to
 PLAIN past `dictionaryPageSize`, 1 MiB), 1 MiB pages, and 128 MiB row groups, with min/max/null
-statistics. Change them with `withCompression(CompressionCodec.LZ4_RAW)` (also `GZIP`, not in
+statistics. Change them with `withCompression(CompressionCodec.ZSTD)` (also `LZ4_RAW`, and `GZIP`, not in
 browsers), `noCompression()`, `noDictionary()`, `withPageSize`, and `withRowGroupSize`. One row
 group is buffered in memory; on Scala.js a file stream holds the whole file until `close()`.
 
@@ -252,5 +252,5 @@ INT64 is `bigint`, decimals are strings, timestamps are `Date` unless `timestamp
 ## Limits
 
 No modular encryption, LZO codec, or ALP encoding, and one row must hold under 2 GiB of values
-in each column. These fail with `ParquetException`. The writer does not compress with ZSTD or BROTLI and
+in each column. These fail with `ParquetException`. The writer does not compress with BROTLI and
 writes no data page v2, DELTA encodings, page indexes, or bloom filters.

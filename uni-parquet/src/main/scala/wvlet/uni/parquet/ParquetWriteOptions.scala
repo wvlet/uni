@@ -6,7 +6,7 @@ import wvlet.uni.parquet.format.CompressionCodec
   * Options for writing a Parquet file.
   *
   * @param compression
-  *   the page codec: SNAPPY (default), UNCOMPRESSED, LZ4_RAW, or GZIP (not in browsers)
+  *   the page codec: SNAPPY (default), UNCOMPRESSED, LZ4_RAW, ZSTD, or GZIP (not in browsers)
   * @param rowGroupSize
   *   a row group is written once its encoded data reaches this many bytes. The writer holds one row
   *   group in memory.
