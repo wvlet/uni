@@ -1,33 +1,34 @@
 # REST Server
 
-uni provides HTTP servers on all three Scala platforms — Netty on the JVM,
-the Node.js `http` module on Scala.js, and a native socket server on Scala
-Native — behind one shared configuration API. On the JVM you additionally get a
-type-safe, annotation-based router framework for building REST APIs.
+uni provides HTTP servers on all three Scala platforms, all in the `uni`
+module: a built-in socket server on the JVM (JDK 24+) and Scala Native, and the
+Node.js `http` module on Scala.js. They share one configuration API and a
+type-safe, annotation-based router for building REST APIs. On the JVM, the
+optional `uni-netty` module runs the same code on [Netty](https://netty.io/)
+instead.
 
 ::: tip Which API is cross-platform?
-**Functional handlers** (`withHandler` / `withRxHandler`) and **filters** work
-on every platform. The **annotation router** (`@Endpoint`, `Router.of[T]`,
-`RouterHandler`) and **WebSocket routes** are **JVM/Netty-only** today — see
+**Functional handlers** (`withHandler` / `withRxHandler`), **filters**, the
+**annotation router** (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
+[RPC](./rpc), Server-Sent Events, and [WebSocket routes](#websocket) work on
+every platform. Only backend tuning options differ — see
 [Cross-Platform Servers](#cross-platform-servers).
 :::
 
 ## Quick Start
 
 `Http.server` runs with `uni` alone on every platform (on the JVM it needs JDK
-24+). The annotation router below lives in the `uni-netty` module, so this
-example adds it (it pulls in `uni` transitively):
+24+):
 
-```scala
-// JVM only: Netty-based HTTP server
-libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+```scala sbt
+libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 
 // Define a controller
 class UserController:
@@ -98,8 +99,16 @@ server, which needs JDK 24+ and no other dependency. The built-in server runs
 the same HTTP/1.1 and WebSocket code as the Scala Native server, with one
 virtual thread per connection. Like Netty, it limits the request line and headers,
 decodes chunked and gzip/deflate request bodies, answers `Expect: 100-continue`,
-and compresses responses for `Accept-Encoding`. Add `uni-netty` for the annotation
-router or for Netty's tuning options; the built-in server takes no options of its own. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
+and compresses responses for `Accept-Encoding`. It takes no options of its own;
+add `uni-netty` when you want Netty's tuning options (native transport, handler
+executor threads, graceful shutdown, ...) or an older JDK:
+
+```scala sbt
+// Optional: serve Http.server on Netty (JVM only; pulls in uni transitively)
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
+```
+
+Handlers, routers, and filters do not change when you add or remove it. [`examples/rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native)
 serves a typed RPC API this way, with one `Main` for the JVM and Scala Native.
 
 ### Tuning one backend
@@ -170,12 +179,9 @@ Pick `Http.server` when the same server code should also build for Scala.js or
 Scala Native, and `Netty.server` when it never will. Switching later only
 changes where the Netty-only settings go: into `withBackend(Netty.options...)`.
 
-::: warning JVM-only features
-The annotation router (`@Endpoint`, `Router.of[T]`, `RouterHandler`),
-[server-side WebSocket](#websocket), and the Netty tuning knobs
-(`withMaxContentLength`, native transport, graceful shutdown) exist only on the
-JVM. For code that runs on every platform, route requests yourself inside a
-functional handler:
+::: tip Routing without annotations
+The annotation router works on every platform. For a few routes, you can also
+match on the path inside a functional handler:
 
 ```scala
 import wvlet.uni.http.Http
@@ -212,9 +218,9 @@ Boehm's heap would stay at 2–3 MB and collect constantly. Set `GC_INITIAL_HEAP
 another size.
 :::
 
-The rest of this page uses `Http.server` on the JVM (Netty) and the annotation router, which is
-the richest path. The request/response model, response conversion, and filters
-described below apply to functional handlers on every platform.
+The rest of this page uses `Http.server` with the annotation router. The router, the
+request/response model, response conversion, and filters described below work on every
+platform.
 
 ## Defining Endpoints
 
@@ -962,7 +968,7 @@ import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.RxHttpFilter
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 import wvlet.uni.rx.Rx
 
 case class User(id: String, name: String)

@@ -20,7 +20,7 @@ libraryDependencies ++= Seq(
 )
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 
-// JVM-only Netty HTTP/RPC server
+// Optional, JVM only: serve Http.server on Netty instead of the built-in server
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
 ```
 
@@ -47,9 +47,9 @@ Maven Central should depend on a Central version and not add that resolver.
 | Concurrent blocking code (JVM, Native) | `wvlet.uni.control.Fiber` | `Fiber { f() }.join()`, `Fiber.parMap(items, maxConcurrency = 16)(f)`, `Fiber.par(a, b)`, `Fiber.race(a, b)`, `Fiber.scope { s => s.fork(...) }`; virtual threads on JDK 24+; not on Scala.js (use `RxFiber`); see [references/rx.md](references/rx.md#fiber-plain-blocking-code) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`; on the JVM, Netty when `uni-netty` is on the classpath, otherwise a built-in server (JDK 24+); JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |
-| REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | [references/http-server.md](references/http-server.md) |
-| Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.netty.RPCHandler` | [references/rpc.md](references/rpc.md) |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()` with `uni` alone; on the JVM a built-in server (JDK 24+), or Netty when `uni-netty` is on the classpath; JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |
+| REST router (all platforms) | `wvlet.uni.http.router.{Router, RouterHandler}` | [references/http-server.md](references/http-server.md) |
+| Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.rpc.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
 | MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
 | Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `Canvas.newOffHeapCanvas(size)` (`Long` offsets, beyond 2 GB), `readInt`/`writeLong` (little-endian; `*BigEndian` variants), `close()` frees it now; JVM needs Java 22+; see [references/core.md](references/core.md#off-heap-memory-canvas) |
@@ -89,6 +89,9 @@ encodes. See https://wvlet.org/uni/guide/uni-vs-scala-toolkit.
   RPC, `Router`, or any `Http.server` handler: the response gets its HTTP
   status. `RPCStatus` is its deprecated old name.
 - **Hand-written JSON codecs.** Add `derives Weaver` to the case class.
+- **Adding `uni-netty` just to serve HTTP or RPC.** `Http.server`, `RouterHandler`
+  (`wvlet.uni.http.router`), and `RPCHandler` (`wvlet.uni.http.rpc`) are in `uni` on
+  every platform. Add `uni-netty` only for Netty's tuning options or a JDK before 24.
 - **A second object-wiring framework or logging backend next to Uni.** Uni
   already provides them. A JSON library the project already uses (such as uPickle)
   can stay for its own types; derive `Weaver` for types that Uni's server or RPC encodes.

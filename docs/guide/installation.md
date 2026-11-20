@@ -15,19 +15,22 @@ Add uni to your `build.sbt`:
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
-### HTTP Server on the JVM
+### HTTP Server
 
-To run an HTTP server on the JVM, add the Netty-based server module
-(it pulls in `uni` transitively):
+`uni` includes an HTTP server on every platform: a built-in server on the JVM
+(JDK 24+) and Scala Native, and Node.js `http` on Scala.js. The annotation
+router and RPC handlers are in `uni` too, so no extra module is needed.
+
+On the JVM, you can optionally serve the same code on Netty, for Netty's
+tuning options or for a JDK older than 24. Add the Netty module (it pulls in
+`uni` transitively):
 
 ```scala
-// Netty-based HTTP server (JVM only)
+// Optional: serve Http.server on Netty (JVM only)
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
 
-See the [REST Server guide](../http/server.md) for usage. On Scala.js and
-Scala Native, the HTTP server backends that `Http.server` uses are
-included in `uni` itself — no extra module is needed.
+See the [REST Server guide](../http/server.md) for usage.
 
 ### Testing Framework
 

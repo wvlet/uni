@@ -5,7 +5,7 @@ package wvlet.uni.book
 import wvlet.uni.http.{Http, HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 import wvlet.uni.rx.Rx
 
 object Ch09Http:

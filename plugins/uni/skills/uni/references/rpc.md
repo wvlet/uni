@@ -70,12 +70,12 @@ dispatcher uses `.withDetailedErrors(true)` (development only; auth errors and
 
 ## 3. Serve it
 
-JVM (`uni-netty`):
+Every platform, with `uni` alone (on the JVM, the built-in server needs JDK 24+;
+`uni-netty` on the classpath serves the same code on Netty):
 
 ```scala
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RPCHandler
-import wvlet.uni.http.rpc.RPCRouter
+import wvlet.uni.http.rpc.{RPCHandler, RPCRouter}
 
 @main def server(): Unit =
   val router = RPCRouter.of[UserService](UserServiceImpl())

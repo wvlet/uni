@@ -89,14 +89,14 @@ picks Node.js or the native socket server there.
 ## Routing without a switch statement
 
 A real API has many endpoints, and you don't want one giant `match` on
-`request.path`. On the JVM, annotate the methods of a controller and let
-the router dispatch:
+`request.path`. Annotate the methods of a controller and let the router
+dispatch:
 
 ```scala
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 
 class UserController:
   @Endpoint(HttpMethod.GET, "/users/:id")
@@ -121,11 +121,11 @@ JSON for you (via the [Weaver](./ch06-00-data) machinery from Chapter 6).
 The [server reference](/http/server) covers query parameters, filters,
 and combining controllers.
 
-::: tip JVM-only routing
-The annotation router (`@Endpoint`, `Router.of`, `RouterHandler`) is a
-JVM/Netty feature. On Scala.js / Native, route inside a functional
-`withRxHandler` by matching on `request.path`. The server *itself* runs
-on all three platforms; only the annotation-based routing is JVM-only.
+::: tip Every platform, no extra module
+The annotation router (`@Endpoint`, `Router.of`, `RouterHandler`) is part
+of `uni` and runs wherever `Http.server` does: the built-in server on the
+JVM (JDK 24+) and Scala Native, and Node.js on Scala.js. On the JVM, adding
+the optional `uni-netty` module serves the same handler on Netty.
 :::
 
 ## One client, three platforms

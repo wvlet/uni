@@ -1,15 +1,18 @@
 # HTTP & RPC
 
-uni provides a cross-platform HTTP client and server — running on the JVM
-(Netty), Scala.js (Fetch / Node.js), and Scala Native (libcurl) — with
-automatic retry, streaming support, and reactive integration.
+uni provides a cross-platform HTTP client and server, with automatic retry,
+streaming support, and reactive integration. The client runs on the JVM
+(`java.net.http`), Scala.js (Fetch / Node.js), and Scala Native (libcurl). The
+server is built into `uni` on the JVM (JDK 24+) and Scala Native, uses Node.js
+`http` on Scala.js, and can run on Netty on the JVM with the optional `uni-netty`
+module.
 
 ## Overview
 
 | Component | Description |
 |-----------|-------------|
 | [HTTP Client](./client) | Sync and async HTTP clients |
-| [REST Server](./server) | Cross-platform HTTP server (Netty / Node.js / Native) with routing |
+| [REST Server](./server) | Cross-platform HTTP server (built-in / Netty / Node.js) with routing |
 | [Router](./router) | Type-safe route definitions |
 | [RPC](./rpc) | Type-safe remote calls over HTTP, with client code generation |
 | [Server-Sent Events](./sse) | One-way server→client streaming |

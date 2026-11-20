@@ -101,7 +101,7 @@ how APIs map between them.
 
 | Module | Description |
 |--------|-------------|
-| [HTTP](/http/) | Cross-platform client **and** server (Netty / Node.js / Native) |
+| [HTTP](/http/) | Cross-platform client **and** server (built-in, Node.js, or Netty) |
 | [RPC](/http/rpc) | Type-safe remote calls, with client code generation |
 | [WebSocket](/http/websocket) | Cross-platform bidirectional WebSocket client |
 | [Server-Sent Events](/http/sse) | One-way server→client streaming |

@@ -1,8 +1,9 @@
 # HTTP server
 
 `Http.server` (`wvlet.uni.http.Http`, returns `HttpServerConfig`) runs the same
-server code on every platform. On the JVM it uses Netty when `uni-netty` is on
-the classpath, and otherwise a built-in server that needs JDK 24+. The built-in
+server code on every platform with `uni` alone. On the JVM it uses a built-in
+server that needs JDK 24+, or Netty when the optional `uni-netty` is on the
+classpath (for Netty's tuning options or an older JDK). The built-in
 and Native servers apply Netty's request limits (request line 4 KB, headers 8 KB),
 decode chunked and gzip/deflate request bodies, and compress responses.
 It also takes `withMaxContentLength`, `withWebSocketMaxFrameSize`, and
@@ -14,15 +15,17 @@ and size limits are set only on `Http.server`. The backends:
 
 | Platform | Backend | Module | Options |
 |----------|---------|--------|---------|
-| JVM | Netty | `uni-netty` | `wvlet.uni.http.netty.Netty.options` |
-| JVM (JDK 24+), no `uni-netty` | built-in, virtual threads | `uni` | — |
+| JVM (JDK 24+) | built-in, virtual threads | `uni` | — |
+| JVM, `uni-netty` on the classpath | Netty | `uni-netty` | `wvlet.uni.http.netty.Netty.options` |
 | Scala.js (Node.js) | Node `http` | `uni` | — |
 | Scala Native | POSIX sockets | `uni` | `wvlet.uni.http.Native.options` |
 
 `Http.server` takes `withPort`, `withHost` (default `127.0.0.1`), `withName`,
 `withHandler(Request => Response)`, `withRxHandler(Request => Rx[Response])`,
 `withFilter`, `withWebSocketRoute`, `start()`, and `start { server => ... }`.
-The annotation router (`@Endpoint`, `Router`, `RouterHandler`) is **JVM only**.
+The annotation router (`@Endpoint`, `Router`, `wvlet.uni.http.router.RouterHandler`)
+and `RPCHandler` work on every platform; import them from `wvlet.uni.http.router` and
+`wvlet.uni.http.rpc` (the `wvlet.uni.http.netty` names are deprecated aliases).
 For SSE and WebSocket, see [streaming.md](streaming.md).
 
 For a JVM-only project, `Netty.server` (`wvlet.uni.http.netty.Netty`, returns
@@ -49,13 +52,13 @@ For a typed API, prefer [RPC](rpc.md) over hand-written REST routes.
 
 Full reference: https://wvlet.org/uni/http/server.md
 
-## REST controller (JVM)
+## REST controller
 
 ```scala
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 import wvlet.uni.weaver.Weaver
 
 case class Item(id: String, name: String) derives Weaver

@@ -49,7 +49,7 @@ few transitive dependencies:
 - Structured logging with source locations (`LogSupport`)
 - JSON or MessagePack codecs derived from case classes (`derives Weaver`)
 - An HTTP client that works on the JVM, Node.js/browser, and native binaries
-- An HTTP/RPC server (Netty, JVM) or a stdio MCP server for AI tools
+- An HTTP/RPC server on the JVM, Scala.js, and Scala Native, or a stdio MCP server for AI tools
 - A test framework that runs on all three platforms (`UniTest`)
 
 Do not mix in Airframe artifacts for the same features. Uni replaces them.
@@ -76,7 +76,7 @@ libraryDependencies ++= Seq(
 )
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 
-// JVM-only Netty HTTP server
+// Optional, JVM only: serve Http.server on Netty instead of the built-in server
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
 
@@ -104,12 +104,12 @@ See [Newest Releases](./installation#newest-releases).
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`, `.scan(init)(f)` (running value), `itemsRx.split(_.id)` (one stable `Rx` per key, completed when the key leaves), `.onCancel(f)` (cleanup when a subscriber cancels early) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[AppSettings].withAppName("my-app").withVersion(n).load()`, then `update(...)`; saved to `~/.config/my-app/` (localStorage in a browser). See [SettingStore](../core/settings) |
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
-| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`: on the JVM, Netty when `uni-netty` is on the classpath and otherwise a built-in server (JDK 24+); Node.js on Scala.js; native sockets on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
+| HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()`, with `uni` alone: on the JVM a built-in server (JDK 24+), or Netty when `uni-netty` is on the classpath; Node.js on Scala.js; native sockets on Scala Native. Backend-only options: `.withBackend(Netty.options.withHandlerExecutorThreads(8))` (`Native.options` on Scala Native). See [REST Server](../http/server#cross-platform-servers) |
 | HTTP server (JVM only) | `wvlet.uni.http.netty.Netty` | `Netty.server.withPort(8080).withHandlerExecutorThreads(8).withRxHandler(handler).start()`: every Netty setting in one config, for projects that never target Scala.js or Native. `NettyServer` was removed; use `Netty.server` (JVM only) or `Http.server`. See [REST Server](../http/server#jvm-only-apps-netty-server) |
 | Static files (JVM, Node.js, Native) | `wvlet.uni.http.StaticFiles` | `Http.server.withFilter(StaticFiles("dist").withSpaFallback(true)).withRxHandler(api)`: serves `GET` for files under `dist` and passes other requests on. It refuses traversal, symlinks, and dotfiles by default. See [REST Server](../http/server#static-files) |
 | CORS (JVM, Node.js, Native) | `wvlet.uni.http.{CorsFilter, CorsPolicy}` | `Http.server.withFilter(CorsFilter(CorsPolicy().withAllowedOrigins("https://app.example.com"))).withRxHandler(api)`: answers preflights and adds `Access-Control-*` headers for allowed origins. No origin is allowed by default. See [REST Server](../http/server#cors) |
-| REST router (JVM, `uni-netty`) | `wvlet.uni.http.netty.RouterHandler` | `Http.server.withRxHandler(RouterHandler(Router.of[Controller]))`. See [REST Server](../http/server) |
-| Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCClient}` | Server: `RPCRouter.of[Api](impl)`; client: `RPCClient.of[Api].newSyncClient(http).call[A]("method", args*)` (or `newAsyncClient` for `Rx[A]`); `newAsyncClient(http).stream[A]("method", args*)` streams every value of an `Rx` result over SSE or Electron IPC; cancelling it stops the server stream; declare such methods as returning `RxStream[A]` (`wvlet.uni.rx.RxStream`, built with `RxStream(rx)`) so sbt-uni's generated `AsyncClient` streams them. See [RPC](../http/rpc) |
+| REST router (all platforms) | `wvlet.uni.http.router.{Router, RouterHandler}` | `Http.server.withRxHandler(RouterHandler(Router.of[Controller]))`. Moved from `wvlet.uni.http.netty`, where a deprecated alias remains. See [REST Server](../http/server) |
+| Typed RPC | `wvlet.uni.http.rpc.{RPCRouter, RPCHandler, RPCClient}` | Server: `Http.server.withRxHandler(RPCHandler(RPCRouter.of[Api](impl)))` on every platform (`RPCHandler` moved from `wvlet.uni.http.netty`); client: `RPCClient.of[Api].newSyncClient(http).call[A]("method", args*)` (or `newAsyncClient` for `Rx[A]`); `newAsyncClient(http).stream[A]("method", args*)` streams every value of an `Rx` result over SSE or Electron IPC; cancelling it stops the server stream; declare such methods as returning `RxStream[A]` (`wvlet.uni.rx.RxStream`, built with `RxStream(rx)`) so sbt-uni's generated `AsyncClient` streams them. See [RPC](../http/rpc) |
 | Server-sent events | `wvlet.uni.http.{Response, ServerSentEvent}` | Server: `Response.eventStream(rx)`; client: `Http.client.newAsyncClient.sendSSE(request)`. See [SSE](../http/sse) |
 | WebSocket | `wvlet.uni.http.{WebSocketHandler, WebSocketContext}` | Server: `.withWebSocketRoute(path) { req => handler }`; client: `Http.webSocketClient.connect(url, handler)`, or `connect(request, handler)` to send upgrade headers (not in browsers); `onClose(ctx, statusCode, reason)` reports the close status; `.withWebSocketRoute(WebSocketRoute(path, factory, filter).withCloseOnRejection())` answers a filter rejection as close 4000 + status (4401); `WebSocketRelay(upstreamRequest).withStatsReporter(f).newHandler()` relays a session to an upstream WebSocket. See [WebSocket](../http/websocket) |
 | OpenAPI | `wvlet.uni.http.openapi.{OpenAPI, OpenAPIConfig}` | `OpenAPI.of(Router.of[A], OpenAPIConfig()).toYAML`. See [OpenAPI](../http/openapi) |
@@ -175,6 +175,11 @@ for background.
   `UniTest`, and take them as test arguments. A self-type fixture
   (`trait F { this: UniTest => }`) compiles, but when two of them override a
   hook, only the last one runs.
+- **Adding `uni-netty` just to serve HTTP or RPC.** `Http.server`, `RouterHandler`,
+  and `RPCHandler` are in `uni` and run on every platform (the JVM's built-in
+  server needs JDK 24+). Add `uni-netty` only for Netty's tuning options or an
+  older JDK, and import the handlers from `wvlet.uni.http.router` and
+  `wvlet.uni.http.rpc`, not `wvlet.uni.http.netty`.
 - **Hand-writing JSON codecs.** Add `derives Weaver` to the case class.
 - **Mixing two libraries for one concern in the same module.** Uni works
   alongside community libraries. If a project already uses uPickle, MUnit, sttp,
@@ -191,7 +196,7 @@ Copy one as a template:
 |---------|-------|
 | [`cli-tool`](https://github.com/wvlet/uni/tree/main/examples/cli-tool) | `Launcher` sub-commands, `LogSupport`, `derives Weaver`, the HTTP client, and a Scala Native binary |
 | [`rest-server`](https://github.com/wvlet/uni/tree/main/examples/rest-server) | `Http.server` with `Router` and `RPCRouter`, a typed RPC client, `Design` wiring, and a UniTest suite |
-| [`rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native) | One RPC server built with `Http.server` and `Design`, the same code on the JVM (Netty) and as a Scala Native binary (no JVM), a typed client, a UniTest suite run on both, and a startup/memory/throughput benchmark |
+| [`rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native) | One RPC server built with `Http.server` and `Design`, the same code on the JVM and as a Scala Native binary (no JVM), a typed client, a UniTest suite run on both, and a startup/memory/throughput benchmark |
 | [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCP.server.withTools[...]` and how to add it to Claude Code |
 | [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |
 

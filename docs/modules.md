@@ -65,7 +65,7 @@ available unless a row says otherwise.
 |------|-------------|
 | [Overview](./http/) | The cross-platform HTTP stack at a glance |
 | [HTTP Client](./http/client) | Sync and async HTTP clients |
-| [REST Server](./http/server) | HTTP server on Netty, Node.js, or Scala Native |
+| [REST Server](./http/server) | HTTP server built in on the JVM and Scala Native, on Node.js, or on Netty |
 | [Router](./http/router) | Type-safe route definitions |
 | [RPC](./http/rpc) | Scala traits as remote services, with generated clients |
 | [OpenAPI](./http/openapi) | OpenAPI 3.0 documents from `@Endpoint` routes |

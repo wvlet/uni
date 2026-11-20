@@ -75,7 +75,7 @@ The default provider creates instances using reflection:
 
 ```scala
 import wvlet.uni.http.router.SimpleControllerProvider
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 
 val router = Router.of[UserController]
 val handler = RouterHandler(router)  // Uses SimpleControllerProvider
@@ -217,11 +217,11 @@ Filters shared by every route also run for requests that match no route. Other f
 
 ## RouterHandler
 
-The `RouterHandler` connects a router to the Netty server:
+`RouterHandler` (`wvlet.uni.http.router`) turns a router into a handler that `Http.server` serves on every platform:
 
 ```scala
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RouterHandler
+import wvlet.uni.http.router.RouterHandler
 
 val router = Router.of[MyController]
 val handler = RouterHandler(router)

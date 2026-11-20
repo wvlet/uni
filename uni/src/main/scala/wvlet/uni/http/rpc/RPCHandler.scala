@@ -11,21 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.http.netty
+package wvlet.uni.http.rpc
 
 import wvlet.uni.http.ServiceException
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.http.RxHttpHandler
-import wvlet.uni.http.rpc.RPCDispatcher
-import wvlet.uni.http.rpc.RPCRouter
 import wvlet.uni.rx.Rx
 
 /**
   * HTTP handler for RPC requests.
   *
-  * Adapts the transport-neutral [[wvlet.uni.http.rpc.RPCDispatcher]] to netty's [[RxHttpHandler]].
-  * The dispatcher resolves the route defined by [[wvlet.uni.http.rpc.RPCRouter]]:
+  * Adapts the transport-neutral [[wvlet.uni.http.rpc.RPCDispatcher]] to an [[RxHttpHandler]] that
+  * any `Http.server` backend can serve. The dispatcher resolves the route defined by
+  * [[wvlet.uni.http.rpc.RPCRouter]]:
   *   - Only POST method is allowed
   *   - Path format: /{serviceName}/{methodName}
   *   - Request body: {"request": {...params...}}

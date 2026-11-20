@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.http.router.RouterHandler
+
 import wvlet.uni.http.{HttpMethod, Request, Response, RxHttpFilter}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.rx.Rx

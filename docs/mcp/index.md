@@ -187,7 +187,7 @@ val mcp = MCP.server
   .withName("weather")
   .withTools[WeatherService](WeatherServiceImpl())
 
-// JVM (uni-netty)
+// JVM (built-in server, or Netty with uni-netty)
 Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 // Scala.js (Node.js)
 Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
@@ -195,8 +195,8 @@ Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
-On the JVM, `Http.server` uses Netty when the `uni-netty` module is on the
-classpath, and otherwise uni's built-in server (JDK 24+). To use Netty, add:
+On the JVM, `Http.server` uses uni's built-in server (JDK 24+), or Netty when
+the optional `uni-netty` module is on the classpath. To use Netty, add:
 
 ```scala
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"

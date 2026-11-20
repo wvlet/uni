@@ -5,7 +5,7 @@ package wvlet.uni.book
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.http.rpc.RPCRouter
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RPCHandler
+import wvlet.uni.http.rpc.RPCHandler
 
 object Ch10Rpc:
   case class User(id: Long, name: String, email: String) derives Weaver

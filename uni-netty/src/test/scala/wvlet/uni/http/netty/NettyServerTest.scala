@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.http.router.RouterHandler
+
 import wvlet.uni.http.{
   HttpHandler,
   HttpHeader,
