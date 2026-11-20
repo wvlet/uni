@@ -22,16 +22,20 @@ bundles each carry their own Scala runtime and cannot exchange Scala objects.
   consumer with `tsc`, so the declarations and the facade can't drift apart silently.
 - `npm/npmPackage` stages the package in `uni-npm/target/npm`. `main.js`, which holds uni-core's own
   top-level exports, is left out because the package exports only its subpaths.
-- The `npm` job in `release.yml` runs on `v*` tag pushes after the Maven upload, never on the
-  Maven Central copy dispatch. It checks that the package version equals the tag, skips a version
-  already on npm, and publishes through npm trusted publishing (OIDC, `id-token: write`) with
-  provenance. No npm token is stored.
-- If only the npm job fails, recover with "Re-run failed jobs": the Maven versions are already
-  uploaded and are never overwritten, so rerunning the whole workflow would stop at the Maven check.
+- npm publishing lives in its own workflow, `release-npm.yml`, not in `release.yml`. npm trusts
+  exactly one workflow file, so only this file can mint a publish token; the Maven jobs and their
+  R2 and GPG secrets never get `id-token: write`, and the npm job never sees those secrets. It runs
+  on `v*` tag pushes, in parallel with the Maven release, since the package does not depend on it.
+  It runs in an `npm` environment, where protection rules such as required reviewers can be added.
+- The job checks that the package version equals the tag, skips a version already on npm, and
+  publishes with provenance through npm trusted publishing (OIDC). No npm token is stored.
+- A failed npm publish is retried on its own: re-run the workflow, or dispatch it with `tag`. The
+  Maven release is unaffected either way.
 - npm only lets a trusted publisher be configured for a package that exists. The first version is
   therefore published by a maintainer, from the staged directory of the first release tag
   (`./sbt npm/npmPackage`, then `npm publish --access public` in `uni-npm/target/npm`), and
-  `wvlet/uni`'s `release.yml` is then added as the trusted publisher on npmjs.com.
+  `wvlet/uni`'s `release-npm.yml` (environment `npm`) is then added as the trusted publisher on
+  npmjs.com.
 
 ## Alternatives
 
@@ -41,6 +45,9 @@ bundles each carry their own Scala runtime and cannot exchange Scala objects.
   untyped API.
 - **Generated declarations.** There is no Scala.js generator; a small hand-written file checked by
   `tsc` in CI costs less.
+- **A job inside `release.yml`.** npm would then trust the whole file, giving the Maven jobs a way
+  to publish, and a failed npm step could only be retried through "Re-run failed jobs" of the
+  Maven release.
 - **An `NPM_TOKEN` secret.** Trusted publishing keeps no long-lived credential and adds provenance,
   at the cost of one manual first publish.
 

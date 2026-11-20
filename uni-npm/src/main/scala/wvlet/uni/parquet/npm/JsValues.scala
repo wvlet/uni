@@ -4,7 +4,6 @@ import wvlet.uni.parquet.ColumnVector
 import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.format.LogicalType
-import wvlet.uni.parquet.format.PhysicalType
 import wvlet.uni.parquet.format.TimeUnit
 
 import java.time.Instant

@@ -55,13 +55,13 @@ Decisions:
   - `tsc --noEmit` checks a small TS consumer against the declarations.
   - `typescript` is added to the root pnpm devDependencies, with the lockfile updated, since CI installs with `--frozen-lockfile`.
 - **Release:**
-  - A new `npm` job in `release.yml` runs only on `v*` tag pushes, never on the Central-copy dispatch (`needs: publish`, `if: github.event_name == 'push'`).
-  - It strips the tag's `v` for the npm version, then runs `npm publish --provenance --access public` through trusted publishing (`id-token: write`), with no token in secrets.
-  - If the npm step fails after the Maven upload, the recovery is "Re-run failed jobs", since the Maven versions are already in place and can't be overwritten. The ADR records this.
+  - A separate `release-npm.yml` workflow runs on `v*` tag pushes, in parallel with the Maven release. Only this file has `id-token: write`, so npm trusts nothing else, and the Maven secrets stay out of it.
+  - It strips the tag's `v` for the npm version, then runs `npm publish --provenance --access public` through trusted publishing in an `npm` environment, with no token in secrets.
+  - A failed npm publish is retried on its own, by re-running the workflow or dispatching it with `tag`.
 - **One-time setup by the maintainer:**
   - create the `@wvlet` npm org;
   - publish the first version by hand, with a documented command;
-  - add this repo's `release.yml` as the trusted publisher.
+  - add this repo's `release-npm.yml` (environment `npm`) as the trusted publisher.
 - **Docs:**
   - Add a "From TypeScript" section to `docs/text/parquet.md` and an npm entry to `for-ai-agents.md`.
   - Following AGENTS.md, also update `plugins/uni/skills/uni/` and bump the plugin version.

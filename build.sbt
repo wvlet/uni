@@ -268,7 +268,7 @@ lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under targ
 
 // @wvlet/uni on npm: a JS-shaped facade over uni-parquet (and later modules), linked as one ES
 // module set so every subpath shares one Scala runtime. Not published to Maven. The package
-// itself is staged by `npm/npmPackage` and published by the release workflow
+// itself is staged by `npm/npmPackage` and published by .github/workflows/release-npm.yml
 // (adr/2026-11-20-npm-package.md).
 lazy val npm = project
   .in(file("uni-npm"))

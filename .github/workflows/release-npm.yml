@@ -1,0 +1,73 @@
+name: Release npm
+
+# Publishes @wvlet/uni (uni-npm/) to npm for every v* tag, through npm trusted publishing (OIDC):
+# no npm token is stored, and npm records provenance for this workflow run. It is a separate
+# workflow from release.yml so that npm trusts only this file, the Maven jobs and their secrets
+# never get an id-token, and a failed npm publish can be re-run on its own. To publish a tag again
+# by hand, run this workflow with `tag`. See adr/2026-11-20-npm-package.md.
+
+on:
+  push:
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'The release tag to publish, e.g. v2026.2.2'
+        required: true
+
+concurrency:
+  group: release-npm-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish @wvlet/uni to npm
+    runs-on: ubuntu-latest
+    # Protection rules (e.g. required reviewers) can be added to this environment in the repository
+    # settings; npm's trusted publisher entry names it too.
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          # sbt-dynver derives the version from the tag
+          fetch-depth: 0
+      - run: git fetch --tags -f
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - uses: ./.github/actions/sbt-launcher
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          check-latest: true
+          registry-url: 'https://registry.npmjs.org'
+      - name: Build the package
+        run: JVM_OPTS=-Xmx4g ./sbt "npm/npmPackage"
+      - name: Test the package
+        run: uni-npm/npm-test/run.sh uni-npm/target/npm
+      - name: Publish
+        run: |
+          version=$(node -p "require('./uni-npm/target/npm/package.json').version")
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "The package version ${version} does not match the tag ${TAG}" >&2
+            exit 1
+          fi
+          if [ -n "$(npm view "@wvlet/uni@${version}" version 2>/dev/null)" ]; then
+            echo "@wvlet/uni@${version} is already on npm"
+            exit 0
+          fi
+          # Trusted publishing needs npm 11.5.1 or later
+          npm install -g npm@11.6.2
+          cd uni-npm/target/npm && npm publish --provenance --access public
