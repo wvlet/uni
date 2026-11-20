@@ -90,9 +90,12 @@ object NativeCurlSignalTest:
   private def sentinelPtr: Ptr[Byte] = CFuncPtr.toPtr(sentinel).asInstanceOf[Ptr[Byte]]
 
   private def withSentinelHandler[A](body: => A): A =
-    val previous = csignal.signal(psignal.SIGPIPE, sentinel)
+    // Save the whole `struct sigaction` (flags and mask too) to put it back as it was
+    val saved = stackalloc[Byte](512).asInstanceOf[Ptr[psignal.sigaction]]
+    psignal.sigaction(psignal.SIGPIPE, null, saved)
+    csignal.signal(psignal.SIGPIPE, sentinel)
     try body
-    finally csignal.signal(psignal.SIGPIPE, previous)
+    finally psignal.sigaction(psignal.SIGPIPE, saved, null)
 
   /** The current SIGPIPE handler, read from the first field of `struct sigaction` */
   private def sigpipeHandler(): Ptr[Byte] =

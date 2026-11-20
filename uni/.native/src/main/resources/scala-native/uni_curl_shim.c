@@ -69,6 +69,7 @@
 #define _GNU_SOURCE
 #include <dlfcn.h>
 #include <pthread.h>
+#include <errno.h>
 #include <signal.h>
 #include <time.h>
 
@@ -242,8 +243,9 @@ void uni_curl_sigpipe_unblock(int was_blocked) {
     sigwait(&pipe_set, &sig);
   }
 #else
+  /* Retry on EINTR (e.g. a GC suspend signal): unblocking with SIGPIPE still pending delivers it */
   struct timespec no_wait = {0, 0};
-  while (sigtimedwait(&pipe_set, NULL, &no_wait) == SIGPIPE) {
+  while (sigtimedwait(&pipe_set, NULL, &no_wait) == -1 && errno == EINTR) {
   }
 #endif
   pthread_sigmask(SIG_UNBLOCK, &pipe_set, NULL);
