@@ -174,7 +174,7 @@ abstract class ByteArrayBufferBase(
     )
 
     ensureCapacity(position, length)
-    if length <= 32 && sourceOffset >= 0 then
+    if length >= 0 && length <= 32 && sourceOffset >= 0 then
       // On Scala.js, System.arraycopy of bytes makes a typed-array view per call, which costs more
       // than a loop for a short run, such as a packed string
       val dst = offset + position
