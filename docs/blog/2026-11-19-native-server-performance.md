@@ -1,12 +1,12 @@
 ---
-title: "How Fast Is a Scala Native HTTP Server? Uni Next to the JVM, Node.js, Python, Ruby, and Rust"
+title: "Scala Without the JVM: A Native HTTP Server Next to Node.js, Python, Ruby, and Rust"
 date: 2026-11-19
 author: Taro L. Saito
-description: "Uni's Scala Native HTTP server went from 22.7k to 104k requests per second on a small RPC response, and from 1.6k to 74k on a 3.4 KB one, by cutting what each request allocated under Boehm GC. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint."
+description: "Scala Native compiles Scala code to a native binary that runs without a JVM. Uni's Scala Native HTTP server went from 22.7k to 104k requests per second on a small RPC response, and from 1.6k to 74k on a 3.4 KB one. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
 image: /blog/native-server-performance.png
 ---
 
-# How Fast Is a Scala Native HTTP Server?
+# Scala Without the JVM: How Fast Is a Native HTTP Server?
 
 **Uni's Scala Native HTTP server answers a small RPC call at 104k requests per second and a 3.4 KB JSON response at 74k, using 25–28 MB of memory. A day earlier it served 22.7k and 1.6k.** Scala Native itself wasn't the problem; allocation was. The Boehm garbage collector the server runs with serializes allocating threads on one lock, so every byte one request allocated slowed down the others. This post covers how we found that, what we changed, and how the result compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine.
 
