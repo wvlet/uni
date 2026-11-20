@@ -69,7 +69,8 @@ private[http] object JvmHttpServer:
     writeTimeoutMillis = SocketServerLimits.DefaultTimeoutMillis,
     requestDecompression = true,
     maxDecompressedRequestSize = SocketServerLimits.DefaultMaxDecompressedRequestSize,
-    handlerTimeoutMillis = 30000,
+    // No handler timeout, as on Netty: a parked virtual thread costs only memory
+    handlerTimeoutMillis = 0,
     idleTimeoutMillis = 30000,
     readTimeoutMillis = 30000,
     webSocketMaxFrameSize = config.webSocketMaxFrameSize.getOrElse(1024 * 1024),
