@@ -178,23 +178,21 @@ private[http] object ResponseCompression:
     * sets up a fresh zlib state (about 256 KB of native memory) and frees it again, which costs
     * more CPU than compressing a small body; `reset()` keeps the state.
     */
-  private final class Compressor(gzip: Boolean):
+  private final class Compressor(val framed: Boolean):
     // gzip matches GZIPOutputStream (raw deflate at the default level, framed below); deflate
     // matches DeflaterOutputStream with a zlib-wrapped Deflater at Level
     val deflater =
-      if gzip then
+      if framed then
         Deflater(Deflater.DEFAULT_COMPRESSION, true)
       else
         Deflater(Level)
 
     val crc              = java.util.zip.CRC32()
     var out: Array[Byte] = new Array[Byte](4096)
-    private val isGzip   = gzip
-    def framed: Boolean  = isGzip
     def dispose(): Unit  = deflater.end()
 
-  private val gzipPool    = ScratchPool(ScratchPool.DefaultMax, () => Compressor(gzip = true))
-  private val deflatePool = ScratchPool(ScratchPool.DefaultMax, () => Compressor(gzip = false))
+  private val gzipPool    = ScratchPool(ScratchPool.DefaultMax, () => Compressor(framed = true))
+  private val deflatePool = ScratchPool(ScratchPool.DefaultMax, () => Compressor(framed = false))
 
   // A buffer grown past this isn't kept
   private final val MaxKeptBytes = 1 << 16

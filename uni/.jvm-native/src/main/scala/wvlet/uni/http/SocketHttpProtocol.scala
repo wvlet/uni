@@ -743,13 +743,14 @@ private[http] object HttpResponseWriter:
     else
       var buf = sendBuffers.borrow()
       if buf.length < total then
-        buf = new Array[Byte](math.max(total, buf.length * 2))
+        buf = new Array[Byte](total)
       try
         emitHead(HeadBytes(buf), response, keepAlive, body.length.toLong, contentType)
         System.arraycopy(sent, 0, buf, headLength, sent.length)
         conn.write(buf, 0, total)
       finally
-        sendBuffers.release(buf)
+        if buf.length <= MaxPooledBytes then
+          sendBuffers.release(buf)
 
   end write
 
@@ -766,12 +767,6 @@ private[http] object HttpResponseWriter:
   def serializeHead(response: Response, keepAlive: Boolean, contentLength: Long): Array[Byte] =
     writeHead(response, keepAlive, contentLength, Array.emptyByteArray)
 
-  /**
-    * The head followed by `body`, in one array of exactly their size. The head is measured in one
-    * pass and written in a second, straight to ISO-8859-1 bytes: a `StringBuilder` would allocate
-    * char arrays above the size Boehm serves from per-thread free lists (about 400 bytes), and
-    * those allocations all take its global lock.
-    */
   // The Content-Type to write: an explicit header wins over the content's own type. Null when the
   // response has no body or no type.
   private def contentTypeOf(response: Response): String =
@@ -782,6 +777,12 @@ private[http] object HttpResponseWriter:
         .headers
         .getOrElse(HttpHeader.ContentType, response.content.contentType.map(_.value).orNull)
 
+  /**
+    * The head followed by `body`, in one array of exactly their size. The head is measured in one
+    * pass and written in a second, straight to ISO-8859-1 bytes: a `StringBuilder` would allocate
+    * char arrays above the size Boehm serves from per-thread free lists (about 400 bytes), and
+    * those allocations all take its global lock.
+    */
   private def writeHead(
       response: Response,
       keepAlive: Boolean,
