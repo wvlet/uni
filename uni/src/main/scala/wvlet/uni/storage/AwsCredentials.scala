@@ -75,8 +75,8 @@ object AwsCredentialsProvider:
     * `~/.aws/credentials`) or the config file (`AWS_CONFIG_FILE`, or `~/.aws/config`). The profile
     * defaults to `AWS_PROFILE`, then `default`.
     */
-  def profile(name: String = AwsProfiles.currentProfile): AwsCredentialsProvider = ProfileProvider(
-    name
+  def profile(name: String = AwsProfiles.currentProfile): AwsCredentialsProvider = Cached(
+    ProfileProvider(name)
   )
 
   /** The ECS / EKS Pod Identity container credentials endpoint */
@@ -126,21 +126,23 @@ object AwsCredentialsProvider:
     @volatile
     private var resolved: Option[AwsCredentialsProvider] = None
 
+    private def tryProvider(p: AwsCredentialsProvider): Option[AwsCredentials] =
+      try
+        p.credentials
+      catch
+        case e: Exception =>
+          debug(s"AWS credentials provider ${p.name} failed: ${e.getMessage}")
+          None
+
+    // A provider that answered before may fail later (an expired role whose refresh times out),
+    // so its failure falls back to scanning the whole chain again
     def credentials: Option[AwsCredentials] = resolved
-      .flatMap(_.credentials)
+      .flatMap(tryProvider)
       .orElse {
+        resolved = None
         val found = providers
           .iterator
-          .map { p =>
-            val c =
-              try
-                p.credentials
-              catch
-                case e: Exception =>
-                  debug(s"AWS credentials provider ${p.name} failed: ${e.getMessage}")
-                  None
-            p -> c
-          }
+          .map(p => p -> tryProvider(p))
           .collectFirst { case (p, Some(c)) =>
             resolved = Some(p)
             c
@@ -155,7 +157,10 @@ object AwsCredentialsProvider:
 
   end Chain
 
-  /** Caches temporary credentials until 5 minutes before they expire */
+  /**
+    * Caches credentials until 5 minutes before they expire (forever when they don't), so files and
+    * metadata endpoints aren't read on every request
+    */
   private final class Cached(underlying: AwsCredentialsProvider) extends AwsCredentialsProvider:
     def name: String = underlying.name
 
@@ -216,8 +221,11 @@ object AwsCredentialsProvider:
             .get("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE")
             .map(f => FileSystem.readString(IOPath.parse(f)).trim)
             .orElse(StorageEnv.get("AWS_CONTAINER_AUTHORIZATION_TOKEN"))
-          val req  = token.foldLeft(Request.get(u))((r, t) => r.withAuthorization(t))
-          val resp = metadataHttp.newSyncClient.send(req)
+          val req    = token.foldLeft(Request.get(u))((r, t) => r.withAuthorization(t))
+          val client = metadataHttp.newSyncClient
+          val resp   =
+            try client.send(req)
+            finally client.close()
           if !resp.isSuccessful then
             throw StorageException(
               StorageErrorCode.NoCredentials,

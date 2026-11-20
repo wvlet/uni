@@ -42,7 +42,13 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
   private val http = config.httpClient.noFollowRedirects
 
   // The Node.js sync channel caps a response at maxResponseBytes, so read in smaller ranges
-  private val maxChunk: Long = math.max(1024 * 1024, http.maxResponseBytes - 64 * 1024).toLong
+  private val maxChunk: Long =
+    val cap = http.maxResponseBytes.toLong
+    // Leave room for headers, and never ask for more than the cap allows
+    if cap > 128 * 1024 then
+      cap - 64 * 1024
+    else
+      math.max(1L, cap / 2)
 
   private var syncClientOpt: Option[HttpSyncClient]   = None
   private var asyncClientOpt: Option[HttpAsyncClient] = None
@@ -157,7 +163,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     if resp.isSuccessful then
       resp
     else
-      throw errorOf(call.uri, resp)
+      throw errorOf(call.uri, resp, region)
 
   // ---- Operations ----
 
@@ -174,7 +180,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     if resp.statusCode == 404 then
       None
     else if !resp.isSuccessful then
-      throw errorOf(uri, resp)
+      throw errorOf(uri, resp, region)
     else
       Some(
         ObjectInfo(
@@ -469,10 +475,14 @@ object S3ObjectStore:
     Some(404)
   )
 
-  private[storage] def errorOf(uri: ObjectUri, resp: Response): StorageException =
+  private[storage] def errorOf(
+      uri: ObjectUri,
+      resp: Response,
+      signingRegion: String = ""
+  ): StorageException =
     val status = resp.statusCode
     resp.header("x-amz-bucket-region") match
-      case Some(r) if status == 301 || status == 307 || status == 400 =>
+      case Some(r) if r != signingRegion && (status == 301 || status == 307 || status == 400) =>
         StorageException(
           StorageErrorCode.WrongRegion,
           s"Bucket ${uri.bucket} is in region ${r}; set it with S3Config.withRegion(\"${r}\")",

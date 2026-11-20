@@ -69,6 +69,12 @@ class S3ParsingTest extends UniTest:
     val w     = S3ObjectStore.errorOf(uri, moved)
     w.code shouldBe StorageErrorCode.WrongRegion
     w.getMessage shouldContain "eu-west-1"
+
+    // A 400 from the bucket's own region keeps the S3 error code
+    val bad = Response(HttpStatus.ofCode(400))
+      .addHeader("x-amz-bucket-region", "us-east-1")
+      .withBytesContent("<Error><Code>EntityTooSmall</Code></Error>".getBytes("UTF-8"))
+    S3ObjectStore.errorOf(uri, bad, "us-east-1").code shouldBe "EntityTooSmall"
   }
 
   test("XML reader handles CDATA, comments, and numeric entities") {
