@@ -57,7 +57,7 @@ Design note: `plans/2026-10-19-playwright-input-viewport-commands.md`.
 - **Protocol version stays 1.** Adding commands is backward compatible; an older JSEnv rejects
   them with "Unknown page command", which the client rewrites to "requires a newer
   uni-jsenv-playwright". A bump would break `screenshot` against older JSEnvs for no gain.
-- **The client returns `Rx`, not `Future`**, matching uni's other async APIs (`HttpClient`). `Rx`
+- **The client returns `Rx`, not `Future`**, matching Uni's other async APIs (`HttpClient`). `Rx`
   is lazy, so a command is sent when it runs, ordered step chains are plain `flatMap`s, and
   `withViewportSize(w, h)(body)` can restore the size after `body` succeeds or fails. This
   changed `screenshot`/`expectScreenshot` from `Future` (2026.1.26) to `Rx`.

@@ -7,10 +7,10 @@ PR #612 made `uni-dom-test` run in headless Chromium via the third-party
 
 1. **Unmaintained** (latest activity is a README edit).
 2. **Scala 2.12 only** — so it cannot be loaded in an sbt 2.x metabuild, which runs on **Scala 3**.
-   This blocks uni's eventual sbt 2.x migration for its Scala.js tests.
-3. **Heavy deps** — it pulls **cats-effect** and **scribe**, against uni's minimal-dependency rule.
+   This blocks Uni's eventual sbt 2.x migration for its Scala.js tests.
+3. **Heavy deps** — it pulls **cats-effect** and **scribe**, against Uni's minimal-dependency rule.
 
-We want Playwright support owned by uni.
+We want Playwright support owned by Uni.
 
 ## Decision
 
@@ -59,8 +59,8 @@ cleanup runs in `finally`.
 
 ## Consequences
 
-- uni's own `uni-dom-test` stays on the third-party env for now (root build is still sbt 1.x). Once
-  uni migrates to sbt 2.x, switch it to `sbt-uni-playwright` and drop the third-party dep entirely.
+- Uni's own `uni-dom-test` stays on the third-party env for now (root build is still sbt 1.x). Once
+  Uni migrates to sbt 2.x, switch it to `sbt-uni-playwright` and drop the third-party dep entirely.
 - A new release path is needed for the `sbt-uni-playwright` artifacts (mirror `release-sbt-plugin`).
 - Scaladoc on the `JSEnv` overrides carries our own doc comments so it does not inherit the parent
   trait's `[[...]]` links (which don't resolve outside scalajs-js-envs).

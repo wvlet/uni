@@ -8,7 +8,7 @@ PRs: #588 (the primitive, merge `2a44dfc1`) and the `progressStream` + this-ADR 
 by the Trino client (it polls a remote HTTP server) but not by the DuckDB client, which ships as a
 synchronous wrapper: `cancel` is a no-op and there is no progress. libduckdb exposes
 `duckdb_query_progress`, `duckdb_interrupt`, and a pending-result API, but driving them requires the
-query to run on a **different thread** than the one polling progress / issuing cancel — and uni had
+query to run on a **different thread** than the one polling progress / issuing cancel — and Uni had
 no cross-platform primitive for "run a unit of work on a background worker, cancellable and
 progress-pollable from another thread" (issue #552). Other uses: REPL ctrl-C, CLI progress bars,
 Snowflake/Trino cancel.
@@ -16,7 +16,7 @@ Snowflake/Trino cancel.
 ## Decision
 
 `wvlet.uni.control.BackgroundTask[A, P]` — the non-Rx twin of the existing `wvlet.uni.rx.RxFiber`.
-The body is a **plain side-effecting block** `TaskContext[P] => A` (no effect monad, per uni's
+The body is a **plain side-effecting block** `TaskContext[P] => A` (no effect monad, per Uni's
 direction); it cooperates with cancellation by polling `ctx.isCancelled` / `ctx.checkCancelled()` and
 publishes progress with `ctx.reportProgress(p)`. The caller gets `progress` (poll snapshot),
 `progressStream: Rx[P]` (push), `poll`, `await`, `cancel`, `isCancelled`, `isDone`.

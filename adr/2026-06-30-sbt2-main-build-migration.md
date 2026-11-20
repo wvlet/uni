@@ -1,4 +1,4 @@
-# 2026-06-30: Migrate the main uni build to sbt 2.x
+# 2026-06-30: Migrate the main Uni build to sbt 2.x
 
 ## Context
 

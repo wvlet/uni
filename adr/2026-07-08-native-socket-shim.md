@@ -2,7 +2,7 @@
 
 ## Context
 
-uni's Native HTTP server and WebSocket support (`NativeHttpServer`, `NativeWebSocket`,
+Uni's Native HTTP server and WebSocket support (`NativeHttpServer`, `NativeWebSocket`,
 `NativeSocket`) are built directly on Scala Native's posixlib sockets. On
 Windows that binary would not even link:
 
@@ -14,13 +14,13 @@ Windows that binary would not even link:
 Scala Native's `posixlib/poll.c` wraps its whole body in
 `#if defined(__unix__) || defined(__unix) || defined(unix) || (defined(__APPLE__) && defined(__MACH__))`,
 so `poll` and the `scalanative_poll*` constant accessors do not exist on Windows.
-That single gap made uni's entire native test binary unlinkable there — which is
-why uni had no Windows Scala Native CI at all, and therefore why v2026.1.17 could
+That single gap made Uni's entire native test binary unlinkable there — which is
+why Uni had no Windows Scala Native CI at all, and therefore why v2026.1.17 could
 ship a POSIX-only `#include <dlfcn.h>` in `uni_curl_shim.c` and break every
 downstream Windows build instead of failing here (see
 [`2026-07-06-curl-shim-weak-linking.md`](2026-07-06-curl-shim-weak-linking.md)).
 
-Three calls differ on Windows. Everything else uni uses — `socket`, `bind`,
+Three calls differ on Windows. Everything else Uni uses — `socket`, `bind`,
 `listen`, `accept`, `recv`, `send`, `setsockopt`, `shutdown` — posixlib already
 maps onto winsock, and the failed link proved it: `poll` was the *only* thing
 missing.
@@ -79,7 +79,7 @@ targets.
 
 Winsock rejects every `socket()` with `WSANOTINITIALISED` until `WSAStartup` has
 run in the process. Scala Native calls it from `WinSocketApiOps.init()`, reached
-only by javalib's `java.net` implementations — which uni's posixlib-based sockets
+only by javalib's `java.net` implementations — which Uni's posixlib-based sockets
 never touch. `NativeSocket.bindAndListen` and `.connect` therefore call
 `ensureStarted()` first. The C side is `InitOnceExecuteOnce`-guarded and
 idempotent, so callers need not track it. There is no matching `WSACleanup`: the
@@ -126,7 +126,7 @@ same on both platforms. `winsock2.h` also supplies `POLLERR`, `POLLHUP` and
 
 ## Consequences
 
-- uni's Scala Native test binary links and runs on Windows, so CI gained a real
+- Uni's Scala Native test binary links and runs on Windows, so CI gained a real
   `Scala Native (Windows)` job. That job — not a standalone `clang` compile — is
   now what would have caught v2026.1.17's `<dlfcn.h>` regression, and it exercises
   both shims at runtime. `NativeServerTest` passes 21/21 there, keep-alive and
@@ -135,7 +135,7 @@ same on both platforms. `winsock2.h` also supplies `POLLERR`, `POLLHUP` and
   `wvlet.uni.http.*`, because six non-socket tests failed on Windows — all
   predating the job, surfaced only once the binary could run there. They were then
   fixed so the job could widen:
-  - `IOSymlinkTest` (3): symlinks are unsupported on Scala Native + Windows (uni's
+  - `IOSymlinkTest` (3): symlinks are unsupported on Scala Native + Windows (Uni's
     own `createSymlink` / `readSymlink` throw there), so the tests `skip` when
     `IOPath.isWindows`.
   - `IOPathTest.resolve child path`: the expectation mixed a literal `/` prefix with
@@ -149,10 +149,10 @@ same on both platforms. `winsock2.h` also supplies `POLLERR`, `POLLHUP` and
   `scalanative.posix.unistd`. Re-adding either would re-break Windows; the CI job
   is what notices.
 - Error *messages* on Windows are still POSIX-shaped: winsock reports failures via
-  `WSAGetLastError()`, not `errno`, so a failed `bind` yields uni's generic
-  message rather than a specific cause. uni never read `errno` here, so nothing
+  `WSAGetLastError()`, not `errno`, so a failed `bind` yields Uni's generic
+  message rather than a specific cause. Uni never read `errno` here, so nothing
   regressed — but a future "why did bind fail" improvement needs a Windows branch.
 - `WSAPoll` before Windows 10 2004 does not report a failed connection attempt in
-  `revents`. uni only polls accepted/connected sockets for readability, so this
+  `revents`. Uni only polls accepted/connected sockets for readability, so this
   does not bite; do not extend the shim to poll for connect-completion without
   revisiting it.

@@ -5,7 +5,7 @@
 Uni cross-builds `uni-core`, `uni`, and `uni-test` for JVM / Scala.js / Scala Native using
 `crossProject(...)` from [portable-scala/sbt-crossproject][xp] (plus its `sbt-scalajs-crossproject`
 and `sbt-scala-native-crossproject` companions). Those plugins have **not** been ported to sbt 2.x,
-which blocks uni's eventual sbt 2.x migration.
+which blocks Uni's eventual sbt 2.x migration.
 
 Uni only ever uses the **`CrossType.Pure`** layout (shared sources in `<base>/src`, platform code in
 `<base>/.jvm`, `.js`, `.native`), and a small slice of the API. Re-implementing just that slice is
@@ -22,7 +22,7 @@ core: `Platform` (`JVMPlatform`/`JSPlatform`/`NativePlatform`), `CrossType` (`Pu
 `AutoPlugin` exposing them via `autoImport`.
 
 Feasibility verified before building: `sbt-scalajs` 1.22.0 and `sbt-scala-native` 0.5.12 are both
-published for sbt 2.x (`_sbt2_3`), and `nscplugin_3.8.4/0.5.12` exists (so Scala 3.8.4 — uni's
+published for sbt 2.x (`_sbt2_3`), and `nscplugin_3.8.4/0.5.12` exists (so Scala 3.8.4 — Uni's
 version — is supported on Native).
 
 ### Key design points (and the traps behind them)
@@ -45,7 +45,7 @@ version — is supported on Native).
   (platforms*): Builder` (used by the macro) and the private 3-arg primary constructor. Internal
   re-materialization (`mapProjectsByPlatform`, `build()`) **must** write `new CrossProject(id,
   crossType, projects)` — a bare `CrossProject(...)` resolves to `apply` and fails to typecheck.
-  (This is the one place uni's "omit `new`" style is deliberately broken.)
+  (This is the one place Uni's "omit `new`" style is deliberately broken.)
 
 - **Builder → CrossProject via `given Conversion`.** `crossType` lives only on `Builder` (it changes
   the directory layout, so it must be set before projects are built); every `CrossProject` method
@@ -61,7 +61,7 @@ version — is supported on Native).
   re-base each platform project afterward and the shared dirs still point at the right place.
 
 **Scope: sbt 2.x / Scala 3 only**, `CrossType.Pure` (Full kept since it's free; Dummy and
-partially-shared sources dropped — uni uses neither). The main uni build stays on sbt 1.x with
+partially-shared sources dropped — Uni uses neither). The main Uni build stays on sbt 1.x with
 upstream sbt-crossproject for now; this plugin unblocks the migration but does not perform it.
 
 ## Validation

@@ -56,7 +56,7 @@ On sbt 2.x, `%%` resolves the platform-specific artifact for all
 platforms, so `%%%` is not needed.
 
 ::: tip Scala Native and libcurl
-No system libraries are needed to build a Scala Native binary against uni. Only
+No system libraries are needed to build a Scala Native binary against Uni. Only
 reaching for the HTTP client pulls in libcurl, which must then be present as a
 shared library — see
 [Linking libcurl on Scala Native](../http/client.md#linking-libcurl-on-scala-native).
@@ -106,7 +106,7 @@ Central and remove the resolver.
 ::: tip Publishing a library that depends on Uni
 If your library is published to Maven Central, depend on a Uni version
 that is on Maven Central and don't add the wvlet resolver to its build.
-Your users then need no extra resolver for uni.
+Your users then need no extra resolver for Uni.
 :::
 
 ## Imports

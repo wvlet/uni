@@ -13,7 +13,7 @@ AI agents and people copy whole working templates, and Context7, DeepWiki, and t
 - `exampleMcpServer` forks `run` with `connectInput` and `outputStrategy := Some(StdoutOutput)`, so `./sbt --error exampleMcpServer/run` works directly as an MCP stdio command.
 - `exampleWebUi` links to `examples/web-ui/target/js`, so a static `index.html` can load `main.js` with no bundler.
 
-Rejected: standalone builds like `electron-app` (CI would have to `publishLocal` uni in every job to compile them) and a single `examples` project (examples could not be copied independently, and their `main`s and dependencies would mix).
+Rejected: standalone builds like `electron-app` (CI would have to `publishLocal` Uni in every job to compile them) and a single `examples` project (examples could not be copied independently, and their `main`s and dependencies would mix).
 
 ## Consequences
 

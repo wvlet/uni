@@ -17,7 +17,7 @@ already had Surface (compile-time method metadata), Weaver (JSON codecs), and th
    isolation (uni-netty ⇒ Netty). MCP adds zero dependencies, so it lives at `wvlet.uni.mcp` like
    `wvlet.uni.electron` does.
 
-2. **`tools/call` dispatches by synthesizing a uni `Request`** (`POST /{service}/{method}`, body
+2. **`tools/call` dispatches by synthesizing a Uni `Request`** (`POST /{service}/{method}`, body
    `{"request": arguments}`) and running it through the shared `RPCDispatcher` — the Electron IPC
    pattern. Param decoding (canonical names, defaults, `Option`, `Rx[A]` returns) and error
    encoding stay in one tested code path. The cost — one serialize + re-parse of the arguments per

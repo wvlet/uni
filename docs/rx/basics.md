@@ -1,6 +1,6 @@
 # Rx Basics
 
-Learn the fundamentals of reactive streams in uni.
+Learn the fundamentals of reactive streams in Uni.
 
 ## Creating Streams
 
