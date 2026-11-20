@@ -71,6 +71,14 @@ bit-packing code, and the decoders, which the writer reuses.
     with a predefined, RLE, or in-block table per code, picked by estimated cost; blocks that do
     not shrink stored raw. No dictionaries, checksums, repeat-mode tables, or levels: one setting
     near zstd's fast levels keeps the code small. SNAPPY stays the default.
+  - Amended by `plans/2026-11-20-parquet-zstd-levels.md`: ZSTD levels 1-22 through
+    `withCompressionLevel` (`compressionLevel` on npm), with 3 as the default. Levels 4-9 add
+    hash chains of growing depth and a second lazy step. Every level tries the three repeat
+    offsets and scores matches with repeat offsets as nearly free, which halved the default
+    level's output on column-shaped text. Levels 1-2 compress as 3, since entropy coding bounds
+    their speed, and 10-22 as 9, since deeper search without optimal parsing made files larger
+    and slower to write; both ranges are accepted because other writers pass them. A level on a
+    codec without levels fails when the writer is created, not silently.
 - **One row group in memory.** Pages are compressed as they close and the row group is written
   when its encoded size reaches the limit, so memory is bounded by the row group size. On Scala.js,
   `FileSystem.writeStream` itself buffers the file until `close()`, which the docs state.

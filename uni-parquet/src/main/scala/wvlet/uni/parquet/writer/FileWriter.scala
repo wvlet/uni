@@ -32,7 +32,7 @@ private[parquet] final class FileWriter(
   if schema.columns.isEmpty then
     throw IllegalArgumentException("A Parquet schema needs at least one column")
 
-  Compressors.check(options.compression)
+  Compressors.check(options.compression, options.compressionLevel)
 
   private val writers       = schema.columns.map(ColumnWriter(_, options))
   private lazy val shredder = Shredder(schema)

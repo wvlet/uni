@@ -7,6 +7,9 @@ import wvlet.uni.parquet.format.CompressionCodec
   *
   * @param compression
   *   the page codec: SNAPPY (default), UNCOMPRESSED, LZ4_RAW, ZSTD, or GZIP (not in browsers)
+  * @param compressionLevel
+  *   the codec's compression level, or None for its default. Only ZSTD takes one: 1 (fastest) to 22
+  *   (smallest), 3 by default
   * @param rowGroupSize
   *   a row group is written once its encoded data reaches this many bytes. The writer holds one row
   *   group in memory.
@@ -30,6 +33,7 @@ import wvlet.uni.parquet.format.CompressionCodec
   */
 case class ParquetWriteOptions(
     compression: CompressionCodec = CompressionCodec.SNAPPY,
+    compressionLevel: Option[Int] = None,
     rowGroupSize: Long = 128L * 1024 * 1024,
     pageSize: Int = 1024 * 1024,
     dictionaryEnabled: Boolean = true,
@@ -41,6 +45,20 @@ case class ParquetWriteOptions(
 ):
   def withCompression(codec: CompressionCodec): ParquetWriteOptions = copy(compression = codec)
   def noCompression(): ParquetWriteOptions = copy(compression = CompressionCodec.UNCOMPRESSED)
+
+  /** Sets the codec and its compression level, as in `withCompression(CompressionCodec.ZSTD, 9)` */
+  def withCompression(codec: CompressionCodec, level: Int): ParquetWriteOptions = copy(
+    compression = codec,
+    compressionLevel = Some(level)
+  )
+
+  /**
+    * Sets the compression level of the codec; only ZSTD takes one (1 to 22). Writing fails when the
+    * codec does not.
+    */
+  def withCompressionLevel(level: Int): ParquetWriteOptions = copy(compressionLevel = Some(level))
+
+  def noCompressionLevel(): ParquetWriteOptions = copy(compressionLevel = None)
 
   def withRowGroupSize(bytes: Long): ParquetWriteOptions =
     require(bytes > 0, s"rowGroupSize must be positive: ${bytes}")

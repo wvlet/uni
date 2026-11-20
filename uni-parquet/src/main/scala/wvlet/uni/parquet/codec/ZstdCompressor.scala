@@ -6,11 +6,13 @@ import wvlet.uni.parquet.io.ByteBuf
   * A Zstandard compressor (RFC 8878), the inverse of [[Zstd]]. Each call writes one frame with the
   * content size, which is how Parquet stores ZSTD pages.
   *
-  * Matches come from a hash of 4-byte sequences with one step of lazy matching and a check of the
-  * last offset, over a 2 MiB window. Each block gets Huffman-coded literals and FSE-coded
-  * sequences, with a predefined, RLE, or custom table for each sequence code, whichever is
-  * estimated smaller. A block that does not shrink is stored raw. The ratio is close to zstd's fast
-  * levels; there are no levels to choose.
+  * Matches come from a hash of 4-byte sequences and a check of the last offset, over a 2 MiB
+  * window. The level (1 to 22, as in zstd) sets how hard the match finder works. Levels 1-3 (3 is
+  * the default) take the best match at a position or the next one (lazy matching); levels 4-9
+  * follow hash chains of growing depth and look up to two positions ahead. Levels 10-22 are
+  * accepted, as other writers take them, and compress as level 9. Each block gets Huffman-coded
+  * literals and FSE-coded sequences, with a predefined, RLE, or custom table for each sequence
+  * code, whichever is estimated smaller. A block that does not shrink is stored raw.
   */
 private[parquet] object ZstdCompressor:
   import Zstd.highBit
@@ -22,14 +24,49 @@ private[parquet] object ZstdCompressor:
   // Literals sections shorter than this stay raw: a Huffman tree costs more than it saves
   private final val MinHuffmanLiterals = 64
 
-  def compress(src: Array[Byte], len: Int): Array[Byte] =
+  final val MinLevel     = 1
+  final val MaxLevel     = 22
+  final val DefaultLevel = 3
+
+  /**
+    * Match finder settings for a level: the largest hash table (log2), the hash chain depth (1 for
+    * no chain), and how many positions ahead to look for a better match
+    */
+  private[codec] final case class LevelParams(hashLog: Int, searchDepth: Int, lazyDepth: Int)
+
+  private[codec] def params(level: Int): LevelParams =
+    level match
+      case 1 | 2 | 3 =>
+        // Entropy coding, not match finding, bounds the speed here: taking the first match
+        // (no lazy step) or skipping faster wrote larger files no faster
+        LevelParams(16, 1, 1)
+      case 4 =>
+        LevelParams(17, 4, 1)
+      case 5 =>
+        LevelParams(17, 8, 1)
+      case 6 =>
+        LevelParams(17, 8, 2)
+      case 7 =>
+        LevelParams(18, 16, 2)
+      case 8 =>
+        LevelParams(18, 32, 2)
+      case _ =>
+        // 9 and above: deeper chains found matches far back that break the repeat offsets, and
+        // made files larger and 4-30x slower to write without optimal parsing
+        LevelParams(18, 64, 2)
+
+  def compress(src: Array[Byte], len: Int, level: Int = DefaultLevel): Array[Byte] =
+    require(
+      level >= MinLevel && level <= MaxLevel,
+      s"ZSTD level must be ${MinLevel} to ${MaxLevel}: ${level}"
+    )
     val out = ByteBuf(len / 2 + 32)
     writeFrameHeader(len, out)
     if len == 0 then
       // One empty raw block, marked last
       writeBlockHeader(last = true, blockType = 0, size = 0, out)
     else
-      val state = FrameState(src, len)
+      val state = FrameState(src, len, params(level))
       var pos   = 0
       while pos < len do
         val end = math.min(pos + Zstd.MaxBlockSize, len)
@@ -122,10 +159,40 @@ private[parquet] object ZstdCompressor:
       highBit(v) + 36
 
   /** The match finder and block encoder for one frame */
-  private final class FrameState(src: Array[Byte], len: Int):
-    private val hashLog = math.max(8, math.min(16, highBit(math.max(1, len)) + 1))
+  private final class FrameState(src: Array[Byte], len: Int, p: LevelParams):
+    private val hashLog = math.max(8, math.min(p.hashLog, highBit(math.max(1, len)) + 1))
     private val table   = new Array[Int](1 << hashLog)
     java.util.Arrays.fill(table, -1)
+
+    // With a chain, chain(i & chainMask) holds the previous position with the hash of position i,
+    // and every position is hashed once, in order. The chain covers the window (or the input, if
+    // smaller), and matches stay within it, so the entries read are never overwritten ones.
+    private val useChain = p.searchDepth > 1
+    private val chainLog =
+      if useChain then
+        math.min(WindowLog, highBit(math.max(1, len)) + 1)
+      else
+        0
+
+    private val chainMask =
+      (
+        1 << chainLog
+      ) - 1
+
+    private val chain =
+      if useChain then
+        new Array[Int](1 << chainLog)
+      else
+        null
+
+    private val maxDist =
+      if useChain then
+        math.min(WindowSize, chainMask)
+      else
+        WindowSize
+
+    // Without a chain, the next position to search; with one, the next position to hash
+    private var hashedUpTo = 0
 
     private val rep      = Array(1, 4, 8)
     private val savedRep = new Array[Int](3)
@@ -194,52 +261,58 @@ private[parquet] object ZstdCompressor:
       nbSeq = 0
       var anchor = start
       var ip     = start
-      val ilimit = end - MinMatch - 1 // leaves room to check the next position lazily
+      // Leaves room to search two positions ahead
+      val ilimit = end - MinMatch - 2
       while ip <= ilimit do
         val r0 = rep(0)
         if ip > anchor && ip - r0 >= 0 && load32(ip - r0) == load32(ip) then
           // The last offset again: the cheapest match to encode
           val m = MinMatch + matchLength(ip - r0 + MinMatch, ip + MinMatch, end)
-          insertHash(ip)
+          if !useChain then
+            insert(ip)
           addSequence(anchor, ip, r0, m)
           ip += m
           anchor = ip
-          insertHash(ip - 2)
+          afterMatch(ip)
         else
-          val v = load32(ip)
-          val h = hash(v)
-          var c = table(h)
-          table(h) = ip
-          if c >= 0 && ip - c <= WindowSize && load32(c) == v then
-            var p = ip
-            var m = MinMatch + matchLength(c + MinMatch, ip + MinMatch, end)
-            // Lazy matching: a longer match at the next position wins
-            val v1 = load32(ip + 1)
-            val h1 = hash(v1)
-            val c1 = table(h1)
-            table(h1) = ip + 1
-            if c1 >= 0 && ip + 1 - c1 <= WindowSize && load32(c1) == v1 then
-              val m1 = MinMatch + matchLength(c1 + MinMatch, ip + 1 + MinMatch, end)
-              if m1 > m then
-                p = ip + 1
-                c = c1
-                m = m1
-            // Extend the match backward over pending literals
-            while p > anchor && c > 0 && src(p - 1) == src(c - 1) do
-              p -= 1
-              c -= 1
-              m += 1
-            addSequence(anchor, p, p - c, m)
-            ip = p + m
-            anchor = ip
-            insertHash(ip - 2)
-          else
+          var best = search(ip, end)
+          if best == 0L then
             // Step faster through data that does not match
-            ip += 1 + (
+            val skip =
               (
                 ip - anchor
               ) >>> 6
-            )
+            ip += 1 + skip
+          else
+            // Lazy matching: a match starting a little later may be worth more
+            var pos  = ip
+            var look = p.lazyDepth > 0
+            while look && pos < ilimit do
+              val next = search(pos + 1, end)
+              if gain(next) > gain(best) + 4 then
+                pos += 1
+                best = next
+              else if p.lazyDepth >= 2 && pos + 1 < ilimit then
+                val next2 = search(pos + 2, end)
+                if gain(next2) > gain(best) + 7 then
+                  pos += 2
+                  best = next2
+                else
+                  look = false
+              else
+                look = false
+            end while
+            var m = matchLen(best)
+            var c = pos - matchOffset(best)
+            // Extend the match backward over pending literals
+            while pos > anchor && c > 0 && src(pos - 1) == src(c - 1) do
+              pos -= 1
+              c -= 1
+              m += 1
+            addSequence(anchor, pos, pos - c, m)
+            ip = pos + m
+            anchor = ip
+            afterMatch(ip)
           end if
         end if
       end while
@@ -247,9 +320,107 @@ private[parquet] object ZstdCompressor:
 
     end findSequences
 
-    private inline def insertHash(i: Int): Unit =
+    // A match packed as (length << 32) | offset; 0 for none
+    private inline def matchLen(m: Long): Int =
+      (
+        m >>> 32
+      ).toInt
+
+    private inline def matchOffset(m: Long): Int = m.toInt
+
+    /** zstd's lazy-matching score: 4 per matched byte, minus the bits of the offset */
+    private inline def gain(m: Long): Int =
+      if m == 0L then
+        Int.MinValue / 2
+      else
+        4 * matchLen(m) - offsetCost(matchOffset(m))
+
+    /** About the bits an offset takes: a repeat offset is a short code, others take their bits */
+    private def offsetCost(off: Int): Int =
+      if off == rep(0) || off == rep(1) || off == rep(2) then
+        1
+      else
+        highBit(off + 1)
+
+    /** The longest match at `ip` ending by `end`, after hashing `ip` and the positions before it */
+    private def search(ip: Int, end: Int): Long =
+      val v = load32(ip)
+      var c = -1
+      if useChain then
+        while hashedUpTo < ip do
+          insert(hashedUpTo)
+          hashedUpTo += 1
+        val h = hash(v)
+        c = table(h)
+        if hashedUpTo == ip then
+          chain(ip & chainMask) = c
+          table(h) = ip
+          hashedUpTo = ip + 1
+        else
+          // Hashed before (a lazy step looked here): start below it
+          c = chain(ip & chainMask)
+      else
+        val h = hash(v)
+        c = table(h)
+        table(h) = ip
+      var best  = 0
+      var off   = 0
+      var depth = p.searchDepth
+      // A candidate wins on its score, so a far match must be long enough to pay for its offset
+      inline def consider(cand: Int): Unit =
+        if load32(cand) == v then
+          val m = MinMatch + matchLength(cand + MinMatch, ip + MinMatch, end)
+          if m > best && (best == 0 || 4 * m - offsetCost(ip - cand) > 4 * best - offsetCost(off))
+          then
+            best = m
+            off = ip - cand
+      // The repeat offsets first: their matches are the cheapest to encode
+      var r = 0
+      while r < 3 do
+        val cand = ip - rep(r)
+        if cand >= 0 then
+          consider(cand)
+        r += 1
+      while c >= 0 && ip - c <= maxDist && depth > 0 && ip + best < end do
+        // Check the byte that would extend the best match first: most candidates fail there
+        if best == 0 || src(c + best) == src(ip + best) then
+          consider(c)
+        depth -= 1
+        if depth > 0 then
+          val n = chain(c & chainMask)
+          c =
+            if n < c then
+              n
+            else
+              -1
+        else
+          c = -1
+      end while
+      if best == 0 then
+        0L
+      else
+        (
+          best.toLong << 32
+        ) | off
+
+    end search
+
+    /** Adds position `i` to the hash table, and to the chain */
+    private def insert(i: Int): Unit =
       if i >= 0 && i + 4 <= len then
-        table(hash(load32(i))) = i
+        val h = hash(load32(i))
+        if useChain then
+          chain(i & chainMask) = table(h)
+        table(h) = i
+
+    /** Hashes positions of a match: all of them with a chain, otherwise one near its end */
+    private def afterMatch(ip: Int): Unit =
+      if useChain then
+        while hashedUpTo < ip - 1 do
+          insert(hashedUpTo)
+          hashedUpTo += 1
+      else
+        insert(ip - 2)
 
     private def copyLiterals(from: Int, n: Int): Unit =
       System.arraycopy(src, from, literals, litSize, n)

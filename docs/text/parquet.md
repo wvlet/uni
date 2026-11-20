@@ -468,9 +468,13 @@ val tuned = ParquetWriteOptions.default
 ```
 
 Compression is SNAPPY by default, with UNCOMPRESSED (`noCompression()`), LZ4_RAW, ZSTD, and GZIP.
-ZSTD gives the smallest files (30-60% smaller than SNAPPY on text and numbers) and writes at about
-half SNAPPY's speed; it has no compression levels. GZIP uses the platform's zlib, so browsers
-cannot write it. BROTLI files can be read but not written.
+ZSTD gives the smallest files (30-60% smaller than SNAPPY on text and numbers) and, at its default
+level 3, writes at about half SNAPPY's speed. `withCompression(CompressionCodec.ZSTD, 9)` (or
+`withCompressionLevel(9)`) sets the level, from 1 to 22 as in other ZSTD writers. Level 9 writes
+files 10-25% smaller than level 3, at about a tenth of the speed. Levels 1-3 compress alike, as do
+9-22: the compressor has no faster mode, and no optimal parser for the top levels. Other codecs
+take no level. GZIP uses the
+platform's zlib, so browsers cannot write it. BROTLI files can be read but not written.
 
 The writer holds one row group in memory, as compressed pages, and writes it when it reaches the
 row group size. On the JVM and Scala Native, each row group goes to the file as soon as it is
@@ -516,7 +520,8 @@ for await (const batch of file.batches()) {
 - `writeParquet` takes `{ name, type, optional? }` columns, where `type` is a name such as
   `"int64"` or `"timestamp-micros"`, or `{ decimal: { precision, scale } }`, `{ list: T }`,
   `{ map: { key, value } }`, or `{ struct: [...] }`. Columns are optional unless they say
-  `optional: false`.
+  `optional: false`. Its options are `compression` (`"snappy"`, `"none"`, `"lz4"`, `"zstd"`, or
+  `"gzip"`) and `compressionLevel` for ZSTD.
 - The package is about 360 KB minified and gzipped. In browsers, bundlers must leave out the
   Node.js built-ins it refers to (`os`, `path`, `zlib`): Vite does this by itself; with webpack, set
   `resolve.fallback: { os: false, path: false, zlib: false }`.

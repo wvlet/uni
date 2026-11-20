@@ -172,6 +172,30 @@ class WriterTest extends UniTest:
       roundTrip[Order](bytes) shouldBe orders
     }
 
+  test("write ZSTD at a compression level") {
+    for level <- Seq(1, 9, 19) do
+      val bytes = Parquet.writeBytes(
+        orders,
+        ParquetWriteOptions.default.withCompression(CompressionCodec.ZSTD, level)
+      )
+      roundTrip[Order](bytes) shouldBe orders
+  }
+
+  test("reject compression levels the codec does not take") {
+    intercept[ParquetException] {
+      Parquet.writeBytes(
+        Seq(Simple(1, None)),
+        ParquetWriteOptions.default.withCompressionLevel(3) // SNAPPY has no levels
+      )
+    }
+    intercept[IllegalArgumentException] {
+      Parquet.writeBytes(
+        Seq(Simple(1, None)),
+        ParquetWriteOptions.default.withCompression(CompressionCodec.ZSTD, 23)
+      )
+    }
+  }
+
   test("write without dictionary encoding") {
     val bytes = Parquet.writeBytes(orders, ParquetWriteOptions.default.noDictionary())
     val f     = Parquet.open(bytes)

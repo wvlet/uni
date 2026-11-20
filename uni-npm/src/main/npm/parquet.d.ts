@@ -120,8 +120,10 @@ export interface ColumnSpec {
 }
 
 export interface WriteOptions {
-  /** `"snappy"` (default), `"none"`, `"lz4"`, or `"gzip"` (Node.js only) */
-  compression?: "snappy" | "none" | "lz4" | "gzip";
+  /** `"snappy"` (default), `"none"`, `"lz4"`, `"zstd"`, or `"gzip"` (Node.js only) */
+  compression?: "snappy" | "none" | "lz4" | "zstd" | "gzip";
+  /** The ZSTD level, 1 (fastest) to 22 (smallest); 3 by default. Other codecs take no level. */
+  compressionLevel?: number;
 }
 
 /**

@@ -163,11 +163,22 @@ test("reads over HTTP with Range requests", async () => {
 });
 
 test("writes with each compression", async () => {
-  for (const compression of ["snappy", "none", "lz4", "gzip"]) {
+  for (const compression of ["snappy", "none", "lz4", "zstd", "gzip"]) {
     const b = writeParquet([{ id: 1n, name: "x" }], schema.slice(0, 2), { compression });
     const [r] = await (await openParquet(b)).readRows();
     assert.equal(r.name, "x", compression);
   }
+});
+
+test("writes ZSTD at a compression level", async () => {
+  for (const compressionLevel of [1, 9, 19]) {
+    const b = writeParquet([{ id: 1n, name: "x" }], schema.slice(0, 2), { compression: "zstd", compressionLevel });
+    const [r] = await (await openParquet(b)).readRows();
+    assert.equal(r.name, "x", String(compressionLevel));
+  }
+  assert.throws(() => writeParquet([], schema.slice(0, 2), { compression: "zstd", compressionLevel: 23 }), /1 to 22/);
+  assert.throws(() => writeParquet([], schema.slice(0, 2), { compression: "zstd", compressionLevel: 1.5 }), /integer/);
+  assert.throws(() => writeParquet([], schema.slice(0, 2), { compressionLevel: 3 }), /compression level/);
 });
 
 test("reports errors as JS Errors", async () => {

@@ -87,6 +87,40 @@ class CompressorTest extends UniTest:
       Zstd.decompress(c, 0, c.length, n).toSeq shouldBe data.toSeq
   }
 
+  test("zstd round trip at every level") {
+    for
+      level     <- ZstdCompressor.MinLevel to ZstdCompressor.MaxLevel
+      (_, data) <- inputs
+    do
+      val c = ZstdCompressor.compress(data, data.length, level)
+      Zstd.decompress(c, 0, c.length, data.length).toSeq shouldBe data.toSeq
+  }
+
+  test("higher zstd levels compress more") {
+    for name <- Seq("text", "multi-block text", "binary ints") do
+      val data             = inputs.find(_._1 == name).get._2
+      def size(level: Int) = ZstdCompressor.compress(data, data.length, level).length
+      val (l3, l6, l9)     = (size(3), size(6), size(9))
+      debug(s"${name}: level 3 ${l3}, 6 ${l6}, 9 ${l9}")
+      (l9 <= l3) shouldBe true
+      // Neighboring levels can swap by a few percent, as zstd's do; the trend holds on larger
+      // inputs
+      if name == "multi-block text" then
+        (l6 < l3) shouldBe true
+      // Levels 10-22 compress as 9, and 1-2 as 3
+      size(22) shouldBe l9
+      size(1) shouldBe l3
+  }
+
+  test("reject zstd levels out of range") {
+    intercept[IllegalArgumentException] {
+      ZstdCompressor.compress(Array[Byte](1, 2, 3), 3, 0)
+    }
+    intercept[IllegalArgumentException] {
+      ZstdCompressor.compress(Array[Byte](1, 2, 3), 3, 23)
+    }
+  }
+
   test("zstd frames span more than the window") {
     // Over 2 MiB: a frame with a window descriptor instead of a single segment
     val data = Array.tabulate(3 * 1024 * 1024 + 17)(i => ((i / 7) % 251 + (i >>> 20)).toByte)
