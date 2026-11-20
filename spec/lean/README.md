@@ -11,7 +11,7 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | `UniSpec/RxNested.lean` | `concat`, `merge`, `flatMap` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala` | `RxNestedSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxRecover.lean` | `recover` and continuous mode (`runContinuously`) | `uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala` | `RxRecoverSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxLive.lean`, `UniSpec/RxLiveFanIn.lean` | `flatMap`/`transformRx` switching, `recoverWith`, `split`, `zip`/`join`, `merge`, `parFlatMap` permits, `take` after `Stop`, and cancel over live `RxVar`s, in default and continuous mode | `uni/src/test/scala/wvlet/uni/rx/RxLiveSpecCases.scala` | `RxLiveSpecTest` (JVM, JS, Native) |
-| `UniSpec/MsgPack.lean` | MessagePack integer and str/bin/array/map/ext header bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
+| `UniSpec/MsgPack.lean` | MessagePack integer, str/bin/array/map/ext header, float, and timestamp bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
 | `UniSpec/HttpReader.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
 | `UniSpec/DomRender.lean` | Where `DomRenderer` places `Rx` sections, keyed lists (`each`), and `RxElement`s, and which nodes it keeps | `uni-dom-test/src/test/scala/wvlet/uni/dom/DomRenderSpecCases.scala` | `DomRenderSpecTest` (Chromium) |
 
@@ -48,6 +48,6 @@ checked-in cases differ from the model's output.
   nested-stream cases are synchronous only. Continuous mode covers `map`, `filter`, `take`, and
   `recover` (`RxRecover.lean`), and `flatMap`, `transformRx`, `recoverWith`, `merge`, and
   `parFlatMap` over live vars. The
-  MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch. The
+  MessagePack model leaves out payload bytes and `unpackValue` dispatch. The
   DOM model leaves out attributes, bindings, events, portals, `onMount` timing, and re-entrant
   updates (a render that sets a variable). Add a theorem only for behaviour a model can express.

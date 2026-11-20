@@ -23,10 +23,10 @@ import wvlet.uni.msgpack.impl.ByteArrayBuffer
 object Compat:
   def isScalaJS = true
 
-  // Javascript has no NaN in float/double values
-  // See https://github.com/scala-js/scala-js/issues/2327
-  def floatToIntBits(v: Float): Int     = java.lang.Float.floatToIntBits(v)
-  def doubleToLongBits(v: Double): Long = java.lang.Double.doubleToLongBits(v)
+  // Raw bits, as on the JVM, so a NaN keeps its payload. A Float is a JS number, though, so a
+  // signaling float NaN has already become quiet (see spec/lean/GenMsgPackCases.lean)
+  def floatToIntBits(v: Float): Int     = java.lang.Float.floatToRawIntBits(v)
+  def doubleToLongBits(v: Double): Long = java.lang.Double.doubleToRawLongBits(v)
 
   def newBufferPacker: BufferPacker               = new PureScalaBufferPacker
   def newUnpacker(msgpack: Array[Byte]): Unpacker = newUnpacker(msgpack, 0, msgpack.length)

@@ -22,6 +22,19 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   non-negative integers never use `int*`. `MsgPackSpecTest` checks the exact bytes `OffsetPacker`
   writes at every format boundary, which `RoundTripTest`'s round-trips cannot catch, and reads them
   back with `OffsetUnpacker`. Lengths stop at `Int.MaxValue` because the Scala API takes an `Int`.
+- The MessagePack model also covers floats and timestamps. A float is its IEEE 754 bits as a
+  number, so the model needs no float arithmetic: `float 32`/`float 64` plus the big-endian bits,
+  read back to the same bits. The cases also read each float at the other width (`unpackDouble` of a
+  `float 32`, `unpackFloat` of a `float 64`); their expected bits come from Lean's own `Float32` and
+  `Float`, an IEEE implementation independent of the three platforms, and a NaN only has to stay a
+  NaN. Timestamps model `packTimestampEpochSecond`: the `floorDiv`/`floorMod` normalization of any
+  `Int` nanos, the overflow `Math.addExact` throws on, and the choice among timestamp 32, 64, and
+  96. Theorems: decoding returns the normalized seconds and nanos, and the format is the shortest
+  that holds them. The cases also cover what `unpackTimestamp` rejects: seconds outside `Instant`'s
+  range pack fine but cannot be read back. Writing the cases found that JS and Native wrote floats
+  with `floatToIntBits`/`doubleToLongBits`, which replace every NaN with the canonical one, while
+  the JVM kept the raw bits; all three now write the raw bits. On JS a `Float` is a JS number, so a
+  signaling `float 32` NaN still comes back quiet there; the cases leave that one bit pattern out.
 - Lean and Scala meet through generated cases, not proofs about Scala code. A Lean executable writes
   `RxSpecCases.scala` (scalafmt-formatted, marked "Do not edit"). `RxSpecTest` feeds each input into
   `Rx.queue`, which accepts any event sequence and delivers queued events synchronously, and compares
@@ -37,7 +50,7 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   changing the model and regenerating; the proofs then show which stated rules still hold.
 - The model leaves out downstream `Stop`, continuous mode, cancellation, and concurrency, so it says
   nothing about the `Stop`-before-nth case in `2026-10-19-rx-take-completion.md`.
-- The MessagePack model leaves out floats, timestamps, payload bytes, and `unpackValue` dispatch.
+- The MessagePack model leaves out payload bytes and `unpackValue` dispatch.
 - Proof style: write encoders as if-chains and give each branch its own proof step. A `first | ... |
   ...` combinator that tries the wrong lemma can send Lean's defeq check into deep unfolding of `be
   k n` (maximum recursion), which `first` does not catch.
@@ -101,7 +114,6 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   nested in another on the same variable got the update after the outer one removed its markers,
   and its clear walk threw. Sections and keyed lists now ignore updates once cancelled, as the model
   assumed. All are fixed (see `2026-11-05-keyed-list-rendering.md`).
-- Next candidates: MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);
   verifying the Scala code with Stainless (does not fit Uni's Scala 3 code); hand-written expected
   outputs in property tests (they restate the implementation's own assumptions).
