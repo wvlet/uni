@@ -140,7 +140,7 @@ path.
     vector builder in this work.
   - Projection: `ParquetSchema.select(names)` and `ColumnBatch.select(names)`, so a copy can keep
     a subset of columns. Row filtering stays with the caller, who rebuilds the arrays; a nested
-    `filter` needs offset rewriting and is left for later (see the open question).
+    `filter` needs offset rewriting and is left for later (decided with the user: projection only).
 - Trade-offs:
   - For: 5–7x faster than the row path today in the prototype, and ahead of parquet-java's Group
     writer. Memory is proportional to the batch rather than to object graphs.
@@ -174,11 +174,6 @@ path.
 - Each PR re-runs the benchmark (more iterations, since JVM runs vary by ±30%) and updates the
   numbers in this note. Tests cover every platform, forced with `testOnly`, since sbt 2 caches test
   runs.
-
-## Open questions
-
-- Should the batch writer also get a row `filter` (with offset rewriting for nested columns), or
-  only column projection (`select`)? Recommended: projection only for now.
 
 ## Alternatives and Why Not?
 
