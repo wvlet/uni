@@ -83,7 +83,7 @@ case class NativeServerConfig(
     // Maximum decoded size of a compressed request body; uncompressed requests are not counted
     maxDecompressedRequestSize: Int = 64 * 1024 * 1024,
     // Size of the worker thread pool, which bounds concurrent requests (idle connections hold none)
-    workerThreads: Int = 16,
+    workerThreads: Int = sys.env.get("EXP_WORKERS").map(_.toInt).getOrElse(16),
     // Max time to wait for a handler's Rx to produce a response before returning 503
     handlerTimeoutMillis: Long = 30000,
     // Max time a kept-alive connection may sit idle (awaiting the next request) before it is closed
