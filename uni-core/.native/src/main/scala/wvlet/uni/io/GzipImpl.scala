@@ -25,13 +25,22 @@ import java.util.zip.GZIPOutputStream
   * (-lz).
   */
 trait GzipCompat extends GzipApi:
+  /**
+    * The most bytes passed to one zlib call. Keep it under 64 KiB: Scala Native's javalib (0.5.12)
+    * declares zlib's `avail_in` and `avail_out` as 16-bit on Windows, where they are 32-bit, so a
+    * larger `GZIPOutputStream.write` there never returns.
+    */
   private val BufferSize = 8192
 
   override def compress(data: Array[Byte]): Array[Byte] =
     val baos = ByteArrayOutputStream()
     val gzip = GZIPOutputStream(baos)
     try
-      gzip.write(data)
+      var pos = 0
+      while pos < data.length do
+        val n = math.min(BufferSize, data.length - pos)
+        gzip.write(data, pos, n)
+        pos += n
       gzip.finish()
       baos.toByteArray
     finally
