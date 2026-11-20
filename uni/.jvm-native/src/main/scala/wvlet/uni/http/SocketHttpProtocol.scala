@@ -804,9 +804,9 @@ private[http] object HttpResponseWriter:
       contentLength: Long,
       contentType: String
   ): Unit =
-    w.ascii("HTTP/1.1 ")
+    w.bytes(StatusLinePrefix)
       .number(response.status.code)
-      .ascii(" ")
+      .bytes(Space)
       .latin1(response.status.reason)
       .crlf()
     // Copy response headers, but skip the ones we set explicitly below to avoid duplicates.
@@ -814,24 +814,34 @@ private[http] object HttpResponseWriter:
       .headers
       .foreachEntry { (name, value) =>
         if !isManagedHeader(name) then
-          w.latin1(name).ascii(": ").latin1(value).crlf()
+          w.latin1(name).bytes(ColonSpace).latin1(value).crlf()
       }
     if !bodyForbidden(response) then
       // Prefer an explicitly-set Content-Type header over the content's default type.
       if contentType != null then
-        w.ascii(HttpHeader.ContentType).ascii(": ").latin1(contentType).crlf()
-      w.ascii(HttpHeader.ContentLength).ascii(": ").number(contentLength).crlf()
-    w.ascii(HttpHeader.Connection)
-      .ascii(
+        w.bytes(ContentTypePrefix).latin1(contentType).crlf()
+      w.bytes(ContentLengthPrefix).number(contentLength).crlf()
+    w.bytes(
         if keepAlive then
-          ": keep-alive"
+          ConnectionKeepAlive
         else
-          ": close"
+          ConnectionClose
       )
       .crlf()
     w.crlf()
 
   end emitHead
+
+  // The fixed parts of a head, as bytes. Passing string literals to HeadBytes instead made Scala
+  // Native allocate a copy of each literal's chars on every call
+  private def latin1Bytes(s: String): Array[Byte] = s.getBytes(StandardCharsets.ISO_8859_1)
+  private val StatusLinePrefix                    = latin1Bytes("HTTP/1.1 ")
+  private val Space                               = latin1Bytes(" ")
+  private val ColonSpace                          = latin1Bytes(": ")
+  private val ContentTypePrefix                   = latin1Bytes(s"${HttpHeader.ContentType}: ")
+  private val ContentLengthPrefix                 = latin1Bytes(s"${HttpHeader.ContentLength}: ")
+  private val ConnectionKeepAlive = latin1Bytes(s"${HttpHeader.Connection}: keep-alive")
+  private val ConnectionClose     = latin1Bytes(s"${HttpHeader.Connection}: close")
 
   /**
     * Writes a response head as ISO-8859-1 bytes into `out`, or only counts them when `out` is null.
@@ -857,7 +867,11 @@ private[http] object HttpResponseWriter:
           i += 1
       this
 
-    inline def ascii(s: String): HeadBytes = latin1(s)
+    def bytes(b: Array[Byte]): HeadBytes =
+      if out != null then
+        System.arraycopy(b, 0, out, pos, b.length)
+      pos += b.length
+      this
 
     def number(v: Long): HeadBytes =
       if v < 0 then
