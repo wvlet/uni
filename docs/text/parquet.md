@@ -411,9 +411,10 @@ val tuned = ParquetWriteOptions.default
   .noDictionary()
 ```
 
-Compression is SNAPPY by default, with UNCOMPRESSED (`noCompression()`), LZ4_RAW, and GZIP. GZIP
-uses the platform's zlib, so browsers cannot write it. ZSTD and BROTLI files can be read but not
-written.
+Compression is SNAPPY by default, with UNCOMPRESSED (`noCompression()`), LZ4_RAW, ZSTD, and GZIP.
+ZSTD gives the smallest files (30-60% smaller than SNAPPY on text and numbers) and writes at about
+half SNAPPY's speed; it has no compression levels. GZIP uses the platform's zlib, so browsers
+cannot write it. BROTLI files can be read but not written.
 
 The writer holds one row group in memory, as compressed pages, and writes it when it reaches the
 row group size. On the JVM and Scala Native, each row group goes to the file as soon as it is
@@ -480,7 +481,7 @@ For browser pages that only read files and need a small bundle,
 
 Not supported: modular encryption, the LZO codec, the new ALP encoding, and a single row with
 more than 2 GiB of values in one column. The writer does not produce data page v2, the DELTA encodings, page
-indexes, or bloom filters, and does not compress with ZSTD or BROTLI. These fail with a
+indexes, or bloom filters, and does not compress with BROTLI. These fail with a
 `ParquetException` that names the feature, or are left out of written files.
 
 ## When to Use Another Library

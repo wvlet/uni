@@ -75,7 +75,7 @@ check() {
 }
 
 ZEROS="true$(printf ',0%.0s' {1..20})"
-for f in orders orders-uncompressed orders-lz4_raw orders-gzip orders-plain; do
+for f in orders orders-uncompressed orders-lz4_raw orders-zstd orders-gzip orders-plain; do
   check "${f}" "$(orders_check "${DIR}/${f}.parquet")" "${ZEROS}"
 done
 

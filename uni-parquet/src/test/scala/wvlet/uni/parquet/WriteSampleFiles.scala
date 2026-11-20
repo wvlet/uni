@@ -21,7 +21,12 @@ object WriteSampleFiles:
     def out(name: String) = (dir / name).toString
 
     Parquet.write(out("orders.parquet"), orders)
-    for codec <- Seq(CompressionCodec.UNCOMPRESSED, CompressionCodec.LZ4_RAW, CompressionCodec.GZIP)
+    for codec <- Seq(
+        CompressionCodec.UNCOMPRESSED,
+        CompressionCodec.LZ4_RAW,
+        CompressionCodec.ZSTD,
+        CompressionCodec.GZIP
+      )
     do
       Parquet.write(
         out(s"orders-${codec.toString.toLowerCase}.parquet"),
