@@ -35,12 +35,11 @@ flowchart LR
 
 `Http.server` is the same call on every platform; uni picks the server for each one. This post measures the JVM and Scala Native builds. The Node.js rows in the comparison below are a plain Node.js server, not uni on Scala.js.
 
-Here is the whole server from the rpc-native example, condensed. There is no platform-specific code in it:
+Here is a complete server, simplified from the rpc-native example, which also wires the server with `Design` so its tests can start it. Nothing in it is platform-specific:
 
 ```scala
-import wvlet.uni.design.Design
+import wvlet.uni.http.Http
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
-import wvlet.uni.http.{Http, HttpServer}
 import wvlet.uni.weaver.Weaver
 
 import java.util.concurrent.atomic.AtomicLong
@@ -66,18 +65,11 @@ class TodoApiImpl extends TodoApi:
   def list(): Seq[Todo]                = todos.values.toSeq.sortBy(_.id)
 
 @main def serveTodos(): Unit =
-  Design
-    .newSilentDesign
-    .bindImpl[TodoApi, TodoApiImpl]
-    .bindProvider[TodoApi, HttpServer] { api =>
-      val dispatcher = RPCDispatcher(RPCRouter.of[TodoApi](api))
-      Http.server.withPort(8080).withRxHandler(req => dispatcher.dispatch(req)).start()
-    }
-    .onShutdown(_.stop())
-    .build[HttpServer](_.awaitTermination())
+  val router = RPCRouter.of[TodoApi](TodoApiImpl())
+  Http.server.withPort(8080).withRxHandler(RPCDispatcher(router).dispatch).start().awaitTermination()
 ```
 
-`derives Weaver` gives `Todo` its JSON and MessagePack codecs. `RPCRouter.of[TodoApi]` turns each method of the trait into an endpoint, such as `POST /example.rpc.TodoApi/list`. `Design` wires the implementation into the server and stops the server on shutdown. A client calls the service through the same `TodoApi` trait, so calls are checked at compile time.
+`derives Weaver` gives `Todo` its JSON and MessagePack codecs. `RPCRouter.of[TodoApi]` turns each method of the trait into an endpoint, such as `POST /example.rpc.TodoApi/list`, and `RPCDispatcher` serves them on whichever server `Http.server` starts. A client calls the service through the same `TodoApi` trait, so calls are checked at compile time.
 
 ## The starting point
 
