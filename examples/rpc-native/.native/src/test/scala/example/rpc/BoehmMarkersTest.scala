@@ -16,9 +16,9 @@ class BoehmMarkersTest extends UniTest:
     t.join()
     val count = GcShim.uni_gc_marker_count()
     if count < 0 then
-      skip("Not built with the Boehm GC")
-    else if sys.env.contains("GC_MARKERS") || sys.env.contains("GC_NPROCS") then
-      skip("GC_MARKERS or GC_NPROCS is set")
+      skip("Not built with a Boehm GC that has GC_set_markers_count (bdwgc 8.2+)")
+    else if sys.env.contains("GC_MARKERS") then
+      skip("GC_MARKERS is set")
     else
       count shouldBe 1
   }

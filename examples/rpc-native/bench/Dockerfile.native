@@ -5,7 +5,7 @@ FROM gcr.io/distroless/cc-debian13:nonroot
 COPY out/libgc.so.1 /usr/lib/libgc.so.1
 COPY out/libz.so.1 /usr/lib/libz.so.1
 COPY out/rpc-native /rpc-native
-# Boehm settings for a multi-threaded server: one marker thread and a 64 MB starting heap
+# A 64 MB starting heap for Boehm (uni already runs it with one marker thread)
 # (see the example README, "Garbage collector")
 ENV GC_INITIAL_HEAP_SIZE=64m
 EXPOSE 8080

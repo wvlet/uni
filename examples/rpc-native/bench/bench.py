@@ -415,7 +415,8 @@ def environment(args):
             f"- CPU: {cpu_name()}",
             f"- JDK: {first_line([args.java, '-version'])}",
             f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}; "
-            + ", ".join(f"`{k}={os.environ[k]}`" for k in BOEHM_ENV),
+            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*BOEHM_ENV, "GC_MARKERS"]
+                        if k in os.environ),
             f"- JVM small heap options: `{args.jvm_small_opts}`",
             f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]
 

@@ -15,7 +15,7 @@ Lane: Standard. It changes runtime behaviour for every uni Native app built with
 
 - A C constructor in a new `uni_gc_shim.c` calls `GC_set_markers_count(1)` before Scala Native's `GC_init`.
 - It looks the function up with `dlsym`, so builds with Immix, Commix, or no GC link unchanged (the curl-shim pattern, ADR 2026-07-06). It does nothing on Windows.
-- `GC_MARKERS`/`GC_NPROCS` still win, since Boehm reads them at `GC_init`.
+- `GC_MARKERS` still wins, since Boehm reads it at `GC_init` (`GC_NPROCS` doesn't). Needs bdwgc 8.2+; older libgc keeps Boehm's default.
 - Docs, the `NativeServer` scaladoc, the example README, the bench, and the ADR now say uni sets one marker. `GC_INITIAL_HEAP_SIZE=64m` stays an option: about 15% more throughput for about 65 MB more RSS.
 - Test: the rpc-native example's Native test (a Boehm build) checks that one marker runs when `GC_MARKERS` is unset.
 
