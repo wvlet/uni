@@ -80,6 +80,9 @@ private[http] class HttpConnectionReader(
 
   private def buffered: Int = end - start
 
+  /** The read buffer's current size, for tests. */
+  private[http] def bufferCapacity: Int = buf.length
+
   // The byte at a position relative to start
   private inline def at(rel: Int): Int = buf(start + rel) & 0xff
 

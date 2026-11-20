@@ -38,7 +38,7 @@ private[http] case class SocketServerLimits(
     requestDecompression: Boolean,
     // Maximum decoded size of a compressed request body
     maxDecompressedRequestSize: Int,
-    // Max time to wait for a handler's Rx to produce a response before returning 503
+    // Max time to wait for a handler's Rx to produce a response before returning 503 (0 disables)
     handlerTimeoutMillis: Long,
     // Max time a kept-alive connection may sit idle (awaiting the next request) before it is closed
     idleTimeoutMillis: Int,
@@ -113,6 +113,28 @@ abstract class SocketHttpServer private[http] (
   private val streamLimiter = ConnectionLimiter(limits.maxStreamingConnections)
   private val connections   = ConcurrentHashMap.newKeySet[ConnectionState]()
 
+  // Marks this server's connection threads, so stop() called from a handler doesn't wait on itself
+  private val onConnectionThread = ThreadLocal.withInitial[java.lang.Boolean](() => false)
+
+  private val acceptWarnings   = RateLimitedWarning((msg, e) => warn(msg, e))
+  private val watchdogWarnings = RateLimitedWarning((msg, e) => warn(msg, e))
+
+  /** The number of open connections, for leak checks in tests. */
+  private[http] def openConnections: Int = connections.size()
+
+  /** The read buffer size of each open connection, for tests. */
+  private[http] def readBufferSizes: Seq[Int] =
+    val sizes = Seq.newBuilder[Int]
+    connections.forEach { state =>
+      val r = state.reader
+      if r != null then
+        sizes += r.bufferCapacity
+    }
+    sizes.result()
+
+  /** The number of streaming slots in use, for leak checks in tests. */
+  private[http] def activeStreams: Int = streamLimiter.activeCount
+
   def start(): Unit =
     if !started.compareAndSet(false, true) then
       throw IllegalStateException("Server is already started")
@@ -140,27 +162,57 @@ abstract class SocketHttpServer private[http] (
 
   end start
 
+  /**
+    * Accept connections until stop(). The loop outlives any error, as Netty's event loop does: if
+    * this thread died, the server would stop accepting while still reporting itself running, and
+    * [[awaitTermination]] would return.
+    */
   private def acceptLoop(): Unit =
+    // Consecutive failures back off from 10 ms up to 1 s, so a persistent error (EMFILE, too many
+    // open files) neither spins the CPU nor floods the log
+    var backoffMillis = 0L
     while running.get() do
-      val conn = listener.accept()
-      if conn == null then
-        // A failed accept while still running is logged; while stopping it means the listening
-        // socket was closed, so exit the loop. Sleep briefly to avoid a 100% CPU spin on a
-        // persistent error (e.g. EMFILE — too many open files).
-        if running.get() then
-          debug("accept() failed; retrying")
-          Thread.sleep(SocketHttpServer.AcceptErrorBackoffMillis)
-      else
-        val pool = workerPool
-        if pool != null && running.get() then
-          // execute can be rejected if stop() raced in between; close the fd rather than leak it.
-          try
-            pool.execute(() => handleConnection(conn))
-          catch
-            case NonFatal(_) =>
-              conn.close()
+      try
+        val conn = listener.accept()
+        if conn == null then
+          // While stopping, a failed accept means the listening socket was closed
+          if running.get() then
+            backoffMillis = SocketHttpServer.nextBackoff(backoffMillis)
+            acceptWarnings.warn(
+              s"Failed to accept a connection (e.g. too many open files); retrying in ${backoffMillis} ms"
+            )
+            Thread.sleep(backoffMillis)
         else
+          backoffMillis = 0L
+          dispatch(conn)
+      catch
+        case e: Throwable =>
+          if running.get() then
+            backoffMillis = SocketHttpServer.nextBackoff(backoffMillis)
+            acceptWarnings.warn(s"Error in the accept loop: ${e}", e)
+            try
+              Thread.sleep(backoffMillis)
+            catch
+              case _: InterruptedException =>
+                ()
+    end while
+
+  end acceptLoop
+
+  private def dispatch(conn: SocketConnection): Unit =
+    val pool = workerPool
+    if pool != null && running.get() then
+      // execute fails if stop() raced in between, or when no thread can be started (out of
+      // memory); close the connection rather than leak it, and let the accept loop log the error
+      try
+        pool.execute(() => handleConnection(conn))
+      catch
+        case e: Throwable =>
           conn.close()
+          if running.get() then
+            throw e
+    else
+      conn.close()
 
   /**
     * Abort connections whose response write has made no progress for `writeTimeoutMillis`, so a
@@ -171,23 +223,26 @@ abstract class SocketHttpServer private[http] (
     val timeoutNanos = limits.writeTimeoutMillis * 1000000L
     val tick         = math.max(10L, math.min(1000L, limits.writeTimeoutMillis / 4L))
     while !stopped.get() do
+      // Survive any error, so write timeouts never silently stop for every connection
       try
         Thread.sleep(tick)
+        val now = System.nanoTime()
+        connections.forEach { state =>
+          try
+            if state.conn.abortIfStalled(now, timeoutNanos) then
+              debug(
+                s"Closed a connection whose response write stalled for ${limits
+                    .writeTimeoutMillis} ms"
+              )
+          catch
+            case NonFatal(e) =>
+              debug(s"Error aborting a connection: ${e.getMessage}")
+        }
       catch
         case _: InterruptedException =>
           ()
-      val now = System.nanoTime()
-      connections.forEach { state =>
-        try
-          if state.conn.abortIfStalled(now, timeoutNanos) then
-            debug(
-              s"Closed a connection whose response write stalled for ${limits
-                  .writeTimeoutMillis} ms"
-            )
-        catch
-          case NonFatal(e) =>
-            debug(s"Error aborting a connection: ${e.getMessage}")
-      }
+        case e: Throwable =>
+          watchdogWarnings.warn(s"Error in the write watchdog: ${e}", e)
 
   private def handleConnection(socket: SocketConnection): Unit = ConnectionSession(socket).run()
 
@@ -232,6 +287,8 @@ abstract class SocketHttpServer private[http] (
       () => conn.write(HttpResponseWriter.Continue100)
     )
 
+    state.reader = reader
+
     // Read what is already waiting, without waiting, before parking (see IdlePoller.park)
     private val readNow: HttpConnectionReader.ReadNow =
       (buf, off, len) => conn.read(buf, off, len, 0)
@@ -239,6 +296,7 @@ abstract class SocketHttpServer private[http] (
     /** Serve requests on this worker until the connection closes or is handed to the poller. */
     def run(): Unit =
       var parked = false
+      onConnectionThread.set(true)
       try
         parked = serve()
       catch
@@ -247,6 +305,7 @@ abstract class SocketHttpServer private[http] (
           // is a bug (or memory corruption) worth seeing
           warn(s"Connection handling error: ${e.getMessage}", e)
       finally
+        onConnectionThread.remove()
         if !parked then
           finish()
 
@@ -259,8 +318,11 @@ abstract class SocketHttpServer private[http] (
         // Between requests, give the worker back: the poller resumes the connection once its next
         // request arrives. Bytes already buffered (a pipelined request) or already waiting on the
         // socket are served right away, and a peer that has closed ends the connection.
-        val poller = idlePoller
-        if poller != null && running.get() && reader.drainLineBreaks() then
+        // drainLineBreaks also shrinks a buffer grown for a large request, so a kept-alive
+        // connection holds only a small one between requests
+        val drained = reader.drainLineBreaks()
+        val poller  = idlePoller
+        if poller != null && running.get() && drained then
           val n = reader.readWaiting(readNow)
           if n < 0 then
             return false
@@ -294,7 +356,7 @@ abstract class SocketHttpServer private[http] (
                 )
                 continue = false
               case Right(request) =>
-                continue = serveRequest(conn, request, keepAlive)
+                continue = serveRequest(state, request, keepAlive)
       end while
       false
 
@@ -318,7 +380,8 @@ abstract class SocketHttpServer private[http] (
   end ConnectionSession
 
   /** Serve one parsed request. Returns whether the connection may serve another one. */
-  private def serveRequest(conn: SocketConnection, request: Request, keepAlive: Boolean): Boolean =
+  private def serveRequest(state: ConnectionState, request: Request, keepAlive: Boolean): Boolean =
+    val conn = state.conn
     HttpServerSecurity.checkHost(request, allowedHosts) match
       case Some(rejection) =>
         debug(s"Rejected request for host ${request.header(HttpHeader.Host)}")
@@ -328,19 +391,20 @@ abstract class SocketHttpServer private[http] (
         webSocketRouteFor(request) match
           case Some(route) =>
             // WebSocket upgrade: the WS handler owns the connection until it closes.
-            handleWebSocketUpgrade(conn, request, route)
+            handleWebSocketUpgrade(state, request, route)
             false
           case None =>
-            handleHttpRequest(conn, request, keepAlive)
+            handleHttpRequest(state, request, keepAlive)
 
   /**
     * Handle one non-WebSocket request. Returns whether the connection may stay open (keep-alive).
     */
   private def handleHttpRequest(
-      conn: SocketConnection,
+      state: ConnectionState,
       request: Request,
       requestKeepAlive: Boolean
   ): Boolean =
+    val conn     = state.conn
     val response = runHandler(request)
     // Once stop() begins, answer with Connection: close so the client opens no new request here
     val keepAlive = requestKeepAlive && running.get()
@@ -351,8 +415,8 @@ abstract class SocketHttpServer private[http] (
           // HEAD: send the streaming response headers but no event body.
           conn.write(HttpResponseWriter.serializeSseHeaders(response, keepAlive))
         else
-          withStreamingSlot(conn) {
-            streamSse(conn, response, keepAlive)
+          withStreamingSlot(state) {
+            streamSse(state, response, keepAlive)
           }.getOrElse(false)
       else
         response.content match
@@ -424,7 +488,8 @@ abstract class SocketHttpServer private[http] (
     * Each one parks a worker until it closes, so without a cap a few idle clients would occupy
     * every worker and starve ordinary requests. Over the limit, answer 503 and return `None`.
     */
-  private def withStreamingSlot[A](conn: SocketConnection)(body: => A): Option[A] =
+  private def withStreamingSlot[A](state: ConnectionState)(body: => A): Option[A] =
+    val conn = state.conn
     if !streamLimiter.tryAcquire() then
       warn(
         s"Too many concurrent streaming connections (limit ${streamLimiter
@@ -439,8 +504,17 @@ abstract class SocketHttpServer private[http] (
       )
       None
     else
-      try Some(body)
-      finally streamLimiter.release()
+      // stop() closes a streaming connection at once rather than waiting for it to end, as Netty
+      // closes WebSockets; an SSE stream may never end, and EventSource clients reconnect
+      state.streaming = true
+      if !running.get() then
+        // stop() began before the flag was set, so it may have missed this connection
+        state.conn.interrupt()
+      try
+        Some(body)
+      finally
+        state.streaming = false
+        streamLimiter.release()
 
   /**
     * Stream a Server-Sent Events response with chunked transfer encoding. Each `ServerSentEvent` is
@@ -452,12 +526,21 @@ abstract class SocketHttpServer private[http] (
     * idleTimeoutMillis) so a client that disconnects while the stream is *idle* is detected and the
     * subscription cancelled, rather than leaking the worker until the next event fails to write.
     */
-  private def streamSse(conn: SocketConnection, response: Response, keepAlive: Boolean): Boolean =
+  private def streamSse(state: ConnectionState, response: Response, keepAlive: Boolean): Boolean =
+    val conn = state.conn
     if !conn.write(HttpResponseWriter.serializeSseHeaders(response, keepAlive)) then
       false
     else
       val done = CountDownLatch(1)
       val ok   = AtomicBoolean(true)
+      // stop() ends the stream at once, rather than at the next disconnect probe
+      val drained = AtomicBoolean(false)
+      state.onDrain =
+        () =>
+          drained.set(true)
+          done.countDown()
+      if !running.get() then
+        state.onDrain.run()
       // Delegate Cancelable: RxRunner.run can emit synchronously (Rx.fromSeq) before the real
       // subscription handle is assigned, and an async source may emit on another thread — so the
       // cancel flag and handle are atomics for correct cross-thread visibility.
@@ -497,10 +580,20 @@ abstract class SocketHttpServer private[http] (
       // disconnect is detected promptly (a disconnected peer reads as readable-then-EOF or a hangup).
       var alive = true
       val probe = new Array[Byte](64)
-      while alive && !done.await(limits.idleTimeoutMillis.toLong, TimeUnit.MILLISECONDS) do
-        // SSE clients shouldn't send, so any bytes are discarded; -1 is a disconnect.
-        if conn.read(probe, 0, probe.length, 0) < 0 then
+      try
+        while alive && !done.await(limits.idleTimeoutMillis.toLong, TimeUnit.MILLISECONDS) do
+          // SSE clients shouldn't send, so any bytes are discarded; -1 is a disconnect.
+          if conn.read(probe, 0, probe.length, 0) < 0 then
+            alive = false
+      catch
+        case _: InterruptedException =>
+          // stop() past its deadline: end the stream, and keep the flag for the worker
           alive = false
+          Thread.currentThread().interrupt()
+      finally
+        state.onDrain = null
+      if drained.get() then
+        alive = false
       if !alive then
         // Set cancelled under the lock so any in-flight emitter write finishes first and no new write
         // starts; the connection can then be closed safely after this returns.
@@ -510,6 +603,9 @@ abstract class SocketHttpServer private[http] (
         subscription.cancel
       // Terminate the chunked body if the client is still there.
       ok.get() && alive && conn.write(HttpResponseWriter.finalChunk)
+    end if
+
+  end streamSse
 
   /**
     * Run the handler and block for its single response. The handler may be asynchronous (Rx), so
@@ -571,23 +667,41 @@ abstract class SocketHttpServer private[http] (
   private def awaitRxAsync(rx: Rx[Response], onEmpty: Response): Response =
     val latch  = CountDownLatch(1)
     val result = AtomicReference[Response]()
-    RxRunner.runOnce(rx) {
-      case OnNext(response) =>
-        result.set(response.asInstanceOf[Response])
-        latch.countDown()
-      case OnError(e) =>
-        result.set(handlerError(e))
-        latch.countDown()
-      case OnCompletion =>
-        // Completed without emitting a response.
-        result.compareAndSet(null, onEmpty)
-        latch.countDown()
-    }
-    if latch.await(limits.handlerTimeoutMillis, TimeUnit.MILLISECONDS) then
+    val run    =
+      RxRunner.runOnce(rx) {
+        case OnNext(response) =>
+          result.set(response.asInstanceOf[Response])
+          latch.countDown()
+        case OnError(e) =>
+          result.set(handlerError(e))
+          latch.countDown()
+        case OnCompletion =>
+          // Completed without emitting a response.
+          result.compareAndSet(null, onEmpty)
+          latch.countDown()
+      }
+    val completed =
+      try
+        if limits.handlerTimeoutMillis <= 0 then
+          latch.await()
+          true
+        else
+          latch.await(limits.handlerTimeoutMillis, TimeUnit.MILLISECONDS)
+      catch
+        case e: InterruptedException =>
+          // stop() past its deadline: stop the handler's work too
+          run.cancel
+          throw e
+    if completed then
       result.get()
     else
+      // Cancel the handler's work, so a timed-out request doesn't keep running with no one to
+      // answer
+      run.cancel
       warn(s"Handler timed out after ${limits.handlerTimeoutMillis} ms")
       Response.serviceUnavailable
+
+  end awaitRxAsync
 
   private def webSocketRouteFor(request: Request): Option[WebSocketRoute] =
     if config.webSocketRoutes.isEmpty || !isWebSocketUpgrade(request) then
@@ -605,10 +719,11 @@ abstract class SocketHttpServer private[http] (
     * worker for the WebSocket's lifetime).
     */
   private def handleWebSocketUpgrade(
-      conn: SocketConnection,
+      state: ConnectionState,
       request: Request,
       route: WebSocketRoute
   ): Unit =
+    val conn = state.conn
     WebSocketHandshake.validate(request, config.allowedOrigins) match
       case Left(rejection) =>
         // Disallowed origin (403), missing key (400), or unsupported version (426)
@@ -649,7 +764,7 @@ abstract class SocketHttpServer private[http] (
           // Take a streaming slot only for a completed handshake, so an HTTP rejection gets its own
           // status (403/400/426) and never holds a slot. A readable rejection holds one for its
           // close handshake; with every slot taken it gets 503 instead of 44xx.
-          withStreamingSlot(conn) {
+          withStreamingSlot(state) {
             val handshake =
               s"HTTP/1.1 101 Switching Protocols\r\n" + s"${HttpHeader.Upgrade}: websocket\r\n" +
                 s"${HttpHeader.Connection}: Upgrade\r\n" +
@@ -664,6 +779,9 @@ abstract class SocketHttpServer private[http] (
                 limits.webSocketPingIntervalMillis
               )
           }
+    end match
+
+  end handleWebSocketUpgrade
 
   override def whenReady: Rx[HttpServer] = Rx.single(this)
 
@@ -677,6 +795,20 @@ abstract class SocketHttpServer private[http] (
     if !stopped.compareAndSet(false, true) then
       return
     running.set(false)
+    if onConnectionThread.get() then
+      // Called from a handler (e.g. a /shutdown endpoint): waiting here would wait for this very
+      // request to finish, so shut down on another thread and return, as the Netty backend does.
+      // Not a daemon: connection threads are virtual (daemons), and awaitTermination returns once
+      // the listener closes, so this thread keeps the JVM alive until the drain finishes
+      val t = Thread(() => shutdown())
+      t.setName(s"${config.name}-shutdown")
+      t.start()
+    else
+      shutdown()
+
+  end stop
+
+  private def shutdown(): Unit =
     // Closing the listening socket unblocks accept() so the accept thread can exit. Guard it so a
     // close failure can't abort the rest of shutdown.
     if listener != null then
@@ -706,17 +838,20 @@ abstract class SocketHttpServer private[http] (
     }
     debug(s"${config.name} stopped")
 
-  end stop
+  end shutdown
 
   /**
-    * Wake the worker of each connection waiting for its next request (or every connection, when
-    * `onlyIdle` is false), so it sees the server stopping and closes. The worker closes the
-    * connection itself, so a connection is never closed under a thread still using it.
+    * Wake the worker of each connection waiting for its next request or streaming (or every
+    * connection, when `onlyIdle` is false), so it sees the server stopping and closes. The worker
+    * closes the connection itself, so a connection is never closed under a thread still using it.
     */
   private def drainConnections(onlyIdle: Boolean): Unit = connections.forEach { state =>
-    if !onlyIdle || state.idle then
+    if !onlyIdle || state.idle || state.streaming then
       try
         state.conn.interrupt()
+        val wake = state.onDrain
+        if wake != null then
+          wake.run()
       catch
         case NonFatal(e) =>
           debug(s"Error interrupting a connection: ${e.getMessage}")
@@ -726,17 +861,73 @@ abstract class SocketHttpServer private[http] (
 
 end SocketHttpServer
 
-/** An open connection, and whether its worker is waiting for the next request on it. */
+/** An open connection, and whether its worker is waiting for the next request or streaming. */
 private class ConnectionState(val conn: WriteTrackingConnection):
   @volatile
   var idle: Boolean = true
 
+  // Serving an SSE stream or a WebSocket, which stop() closes without waiting
+  @volatile
+  var streaming: Boolean = false
+
+  // The connection's request reader, set once the session starts; read by tests only
+  @volatile
+  var reader: HttpConnectionReader = null
+
+  // Ends a stream that waits on something other than the socket (an SSE source), on stop()
+  @volatile
+  var onDrain: Runnable = null
+
 private[http] object SocketHttpServer:
   // Bytes read from a file per send of a streamed response
-  private val FileChunkSize                     = 64 * 1024
-  private final val ShutdownTimeoutMillis       = 5000L
+  private val FileChunkSize = 64 * 1024
+  // How long stop() waits for in-flight requests, as Netty's default shutdown timeout
+  private final val ShutdownTimeoutMillis       = 30000L
   private final val ForcedShutdownTimeoutMillis = 1000L
-  private final val AcceptErrorBackoffMillis    = 10L
+  private final val MinAcceptBackoffMillis      = 10L
+  private final val MaxAcceptBackoffMillis      = 1000L
+
+  /** The next wait after a failed accept: doubling from 10 ms, up to 1 s. */
+  private[http] def nextBackoff(lastMillis: Long): Long =
+    if lastMillis <= 0 then
+      MinAcceptBackoffMillis
+    else
+      math.min(lastMillis * 2, MaxAcceptBackoffMillis)
+
+/**
+  * Logs a recurring warning at most once per interval, with the number of repeats it held back, so
+  * a persistent failure (such as running out of file descriptors) is visible without flooding the
+  * log.
+  */
+private[http] class RateLimitedWarning(
+    log: (String, Throwable) => Unit,
+    intervalMillis: Long = 5000L
+):
+  private var lastNanos  = 0L
+  private var suppressed = 0
+
+  def warn(message: String, cause: Throwable = null): Unit =
+    val now  = System.nanoTime()
+    val emit = synchronized {
+      if lastNanos != 0L && now - lastNanos < intervalMillis * 1000000L then
+        suppressed += 1
+        None
+      else
+        val held = suppressed
+        lastNanos = now
+        suppressed = 0
+        Some(held)
+    }
+    emit.foreach { held =>
+      val repeats =
+        if held > 0 then
+          s" (${held} more since the last warning)"
+        else
+          ""
+      log(s"${message}${repeats}", cause)
+    }
+
+end RateLimitedWarning
 
 /**
   * A connection that records when its current write started, so the server's watchdog can abort a

@@ -99,9 +99,12 @@ server, which needs JDK 24+ and no other dependency. The built-in server runs
 the same HTTP/1.1 and WebSocket code as the Scala Native server, with one
 virtual thread per connection. Like Netty, it limits the request line and headers,
 decodes chunked and gzip/deflate request bodies, answers `Expect: 100-continue`,
-and compresses responses for `Accept-Encoding`. It takes no options of its own;
-add `uni-netty` when you want Netty's tuning options (native transport, handler
-executor threads, graceful shutdown, ...) or an older JDK:
+and compresses responses for `Accept-Encoding`. As on Netty, a handler has no
+time limit, and `stop()` waits up to 30 s for in-flight requests to finish
+(closing idle connections, SSE streams, and WebSockets at once). It takes no
+options of its own; add `uni-netty` when you want Netty's tuning options (native
+transport, handler executor threads, a configurable shutdown timeout, ...) or an
+older JDK:
 
 ```scala sbt
 // Optional: serve Http.server on Netty (JVM only; pulls in uni transitively)
