@@ -20,10 +20,12 @@ private[parquet] final class TStruct(fields: Map[Int, Any]):
     throw ParquetException.corrupt(s"missing required Thrift field ${id} (${name})")
   )
 
-  def int(id: Int, name: String): Int   = TStruct.toInt(required(id, name), name)
-  def intOpt(id: Int): Option[Int]      = fields.get(id).map(TStruct.toInt(_, s"field ${id}"))
-  def long(id: Int, name: String): Long = TStruct.toLong(required(id, name), name)
-  def longOpt(id: Int): Option[Long]    = fields.get(id).flatMap(TStruct.asLong)
+  def int(id: Int, name: String): Int = TStruct.toInt(required(id, name), name)
+  // Optional fields are read leniently: a value of an unexpected type, from a writer that used the
+  // field id differently, counts as absent
+  def intOpt(id: Int): Option[Int]             = fields.get(id).flatMap(TStruct.asInt)
+  def long(id: Int, name: String): Long        = TStruct.toLong(required(id, name), name)
+  def longOpt(id: Int): Option[Long]           = fields.get(id).flatMap(TStruct.asLong)
   def bool(id: Int, default: Boolean): Boolean =
     fields.get(id) match
       case Some(b: Boolean) =>

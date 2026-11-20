@@ -16,7 +16,7 @@ private[parquet] sealed abstract class ValueBuffer:
 private[parquet] object ValueBuffer:
   private[column] def grow(current: Int, needed: Int): Int =
     if needed < 0 then
-      throw ParquetException.corrupt("value buffer size overflows")
+      throw ParquetException.unsupported("column chunks with more than 2 GiB of values")
     var n = math.max(current, 16)
     while n < needed do
       n =

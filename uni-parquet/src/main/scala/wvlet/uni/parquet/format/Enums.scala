@@ -58,7 +58,15 @@ enum Encoding(val id: Int):
 object Encoding:
   def of(id: Int): Encoding = values
     .find(_.id == id)
-    .getOrElse(throw ParquetException.unsupported(s"encoding ${id}"))
+    .getOrElse {
+      val name =
+        id match
+          case 10 =>
+            "ALP"
+          case _ =>
+            s"id ${id}"
+      throw ParquetException.unsupported(s"the ${name} encoding")
+    }
 
 enum PageType(val id: Int):
   case DATA_PAGE       extends PageType(0)

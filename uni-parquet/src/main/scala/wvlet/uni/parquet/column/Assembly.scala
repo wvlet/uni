@@ -147,40 +147,15 @@ private[parquet] object Assembly:
     if f.isRepeated then
       // An unannotated repeated field is a list of required elements
       val (offsets, elemInst, count) = splitRepeated(f, leaves, inst, n)
-      ListColumn(f, offsets, buildElement(f, leaves, elemInst, count), null)
+      ListColumn(f, offsets, buildValue(f, leaves, elemInst, count), null)
     else
-      f match
-        case p: ParquetField.Primitive =>
-          buildLeaf(p, leaves(p.columnIndex), inst(p.columnIndex), n)
-        case g: ParquetField.Group if isList(g) =>
-          val r                          = g.children(0)
-          val (offsets, elemInst, count) = splitRepeated(r, leaves, inst, n)
-          val elements                   =
-            if isThreeLevelList(g, r) then
-              buildField(r.asInstanceOf[ParquetField.Group].children(0), leaves, elemInst, count)
-            else
-              buildElement(r, leaves, elemInst, count)
-          ListColumn(g, offsets, elements, nullsOf(g, leaves, inst, n))
-        case g: ParquetField.Group if isMap(g) =>
-          val kv                         = g.children(0).asInstanceOf[ParquetField.Group]
-          val (offsets, elemInst, count) = splitRepeated(kv, leaves, inst, n)
-          MapColumn(
-            g,
-            offsets,
-            buildField(kv.children(0), leaves, elemInst, count),
-            buildField(kv.children(1), leaves, elemInst, count),
-            nullsOf(g, leaves, inst, n)
-          )
-        case g: ParquetField.Group =>
-          StructColumn(
-            g,
-            n,
-            g.children.map(buildField(_, leaves, inst, n)),
-            nullsOf(g, leaves, inst, n)
-          )
+      buildValue(f, leaves, inst, n)
 
-  /** A repeated node viewed as one element of its list */
-  private def buildElement(
+  /**
+    * Builds a field ignoring its own repetition: a top-level or struct field, or one element of a
+    * repeated field. Elements are always present, so their null flags come out empty.
+    */
+  private def buildValue(
       f: ParquetField,
       leaves: Map[Int, Leaf],
       inst: Instances,
@@ -189,8 +164,32 @@ private[parquet] object Assembly:
     f match
       case p: ParquetField.Primitive =>
         buildLeaf(p, leaves(p.columnIndex), inst(p.columnIndex), n)
+      case g: ParquetField.Group if isList(g) =>
+        val r                          = g.children(0)
+        val (offsets, elemInst, count) = splitRepeated(r, leaves, inst, n)
+        val elements                   =
+          if isThreeLevelList(g, r) then
+            buildField(r.asInstanceOf[ParquetField.Group].children(0), leaves, elemInst, count)
+          else
+            buildValue(r, leaves, elemInst, count)
+        ListColumn(g, offsets, elements, nullsOf(g, leaves, inst, n))
+      case g: ParquetField.Group if isMap(g) =>
+        val kv                         = g.children(0).asInstanceOf[ParquetField.Group]
+        val (offsets, elemInst, count) = splitRepeated(kv, leaves, inst, n)
+        MapColumn(
+          g,
+          offsets,
+          buildField(kv.children(0), leaves, elemInst, count),
+          buildField(kv.children(1), leaves, elemInst, count),
+          nullsOf(g, leaves, inst, n)
+        )
       case g: ParquetField.Group =>
-        StructColumn(g, n, g.children.map(buildField(_, leaves, inst, n)), null)
+        StructColumn(
+          g,
+          n,
+          g.children.map(buildField(_, leaves, inst, n)),
+          nullsOf(g, leaves, inst, n)
+        )
 
   private def isList(g: ParquetField.Group): Boolean =
     g.logicalType.contains(LogicalType.List) && g.children.size == 1 && g.children(0).isRepeated
