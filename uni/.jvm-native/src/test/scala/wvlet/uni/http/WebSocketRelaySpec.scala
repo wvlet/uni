@@ -122,18 +122,19 @@ abstract class WebSocketRelaySpec extends UniTest:
         ).withCloseOnRejection()
       )
     )
-    try
-      val empty = Recorder()
-      connect(Request.get(s"ws://localhost:${server.localPort}/empty"), empty)
-      empty.nextStatus()._1 shouldBe 4403
-      val failed = Recorder()
-      // The server logs the filter error, possibly after the close frame reaches the client
-      captureLogs {
+    // The server logs the filter error, possibly after the close frame reaches the client, so the
+    // capture also covers the server's shutdown
+    captureLogs {
+      try
+        val empty = Recorder()
+        connect(Request.get(s"ws://localhost:${server.localPort}/empty"), empty)
+        empty.nextStatus()._1 shouldBe 4403
+        val failed = Recorder()
         connect(Request.get(s"ws://localhost:${server.localPort}/error"), failed)
         failed.nextStatus()._1 shouldBe 4500
-      }
-    finally
-      server.stop()
+      finally
+        server.stop()
+    }
   }
 
   test("keep plain HTTP rejections by default, and origin rejections as HTTP 403") {
