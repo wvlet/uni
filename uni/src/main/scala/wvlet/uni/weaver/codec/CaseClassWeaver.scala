@@ -132,7 +132,7 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
       var hasError = false
       while i < mapSize && !hasError do
         val fieldName = u.unpackString
-        val found = lookup(i, fieldName)
+        val found     = lookup(i, fieldName)
         found match
           case Some((idx, param)) =>
             val fieldContext = WeaverContext(context.config)
