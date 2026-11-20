@@ -57,6 +57,13 @@ class PureScalaBufferPacker extends BufferPacker:
     ByteArrayBuffer.fromArray(buf.array, 0, cursor.lastWrittenBytes)
   )
 
+  /**
+    * The buffer holding the bytes written so far, from 0 to [[writtenSize]], for reading them in
+    * place. Valid until the next write or [[clear]].
+    */
+  private[uni] def writtenArray: Array[Byte] = buf.array
+  private[uni] def writtenSize: Int          = cursor.lastWrittenBytes
+
   /** The capacity the buffer has grown to */
   private[uni] def capacity: Int                    = buf.size
   override private[msgpack] def totalByteSize: Long = cursor.position + cursor.lastWrittenBytes

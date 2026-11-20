@@ -16,10 +16,11 @@ private[parquet] final class MsgReader:
   private var end: Int         = 0
   var pos: Int                 = 0
 
-  def reset(bytes: Array[Byte]): Unit =
+  /** Reads `bytes[0, len)` */
+  def reset(bytes: Array[Byte], len: Int): Unit =
     buf = bytes
     pos = 0
-    end = bytes.length
+    end = len
 
   def bytes: Array[Byte] = buf
 

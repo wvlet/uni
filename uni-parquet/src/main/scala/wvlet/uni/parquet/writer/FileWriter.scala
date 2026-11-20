@@ -48,9 +48,12 @@ private[parquet] final class FileWriter(
   def numRows: Long = totalRows
 
   /** Writes a row given as MessagePack bytes; see [[Shredder]] */
-  def write(row: Array[Byte]): Unit =
+  def write(row: Array[Byte]): Unit = write(row, row.length)
+
+  /** Writes a row given as the MessagePack bytes `row[0, len)` */
+  def write(row: Array[Byte], len: Int): Unit =
     ensureOpen()
-    shredder.shred(row)
+    shredder.shred(row, len)
     io {
       shredder.commit(writers)
       groupRows += 1

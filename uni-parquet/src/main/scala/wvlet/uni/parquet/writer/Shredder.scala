@@ -56,12 +56,12 @@ private[parquet] final class Shredder(schema: ParquetSchema):
             StructNode(g, g.children.map(build).toArray)
 
   /** Shreds a row into the staging area; throws ParquetException when a value does not fit */
-  def shred(row: Array[Byte]): Unit =
+  def shred(row: Array[Byte], len: Int): Unit =
     var i = 0
     while i < stages.length do
       stages(i).reset()
       i += 1
-    in.reset(row)
+    in.reset(row, len)
     if in.isMap then
       writeStruct(root, 0, 0)
     else if in.isArray then
@@ -76,9 +76,10 @@ private[parquet] final class Shredder(schema: ParquetSchema):
 
   /** Copies the staged row into the column writers */
   def commit(writers: IndexedSeq[ColumnWriter]): Unit =
-    var i = 0
+    val row = in.bytes
+    var i   = 0
     while i < stages.length do
-      stages(i).commit(writers(i))
+      stages(i).commit(writers(i), row)
       i += 1
 
   private def fail(f: ParquetField, message: String): Nothing =
@@ -264,7 +265,7 @@ private[parquet] final class Shredder(schema: ParquetSchema):
         st.addDouble(r, d, number())
       case Kind.Bytes if in.isString || in.isBinary =>
         val len = in.readRawHeader()
-        st.addBytes(r, d, in.bytes, in.pos, len)
+        st.addRowBytes(r, d, in.pos, len)
         in.pos += len
       case Kind.Timestamp if in.isTimestamp =>
         in.readTimestamp(ts)
@@ -428,7 +429,10 @@ private object Shredder:
 
   final class InvalidNode(g: ParquetField.Group, val message: String) extends Node(g)
 
-  /** One row's values of one leaf column, unboxed */
+  /**
+    * One row's values of one leaf column, unboxed. A string or binary value read as is stays in the
+    * row's bytes, which live until the row is committed; the stage keeps only its offset.
+    */
   final class Stage(p: ParquetField.Primitive):
     private val maxDef   = p.maxDefinitionLevel
     private val physical = p.physicalType
@@ -438,8 +442,10 @@ private object Shredder:
     private val ints    = IntBuf(4)
     private val longs   = LongBuf(4)
     private val doubles = DoubleBuf(4)
-    private val bytes   = ByteBuf(16)
+    // Offsets in the row's bytes, or -1 - the offset in `bytes` for a converted value
+    private val offsets = IntBuf(4)
     private val lengths = IntBuf(4)
+    private val bytes   = ByteBuf(16)
 
     def reset(): Unit =
       reps.reset()
@@ -447,8 +453,9 @@ private object Shredder:
       ints.reset()
       longs.reset()
       doubles.reset()
-      bytes.reset()
+      offsets.reset()
       lengths.reset()
+      bytes.reset()
 
     private inline def levels(r: Int, d: Int): Unit =
       reps.add(r)
@@ -468,10 +475,17 @@ private object Shredder:
       levels(r, d)
       doubles.add(v)
 
-    def addBytes(r: Int, d: Int, src: Array[Byte], off: Int, len: Int): Unit =
+    /** A value at `[off, off + len)` of the row's bytes */
+    def addRowBytes(r: Int, d: Int, off: Int, len: Int): Unit =
       levels(r, d)
-      bytes.write(src, off, len)
+      offsets.add(off)
       lengths.add(len)
+
+    private def addOwnBytes(r: Int, d: Int, b: Array[Byte]): Unit =
+      levels(r, d)
+      offsets.add(-1 - bytes.size)
+      lengths.add(b.length)
+      bytes.write(b, 0, b.length)
 
     /**
       * A physical value from [[ValueConverter]], dispatched by the physical type rather than its
@@ -497,37 +511,67 @@ private object Shredder:
         case PhysicalType.DOUBLE =>
           addDouble(r, d, v.asInstanceOf[Double])
         case _ =>
-          val b = v.asInstanceOf[Array[Byte]]
-          addBytes(r, d, b, 0, b.length)
+          addOwnBytes(r, d, v.asInstanceOf[Array[Byte]])
 
-    def commit(w: ColumnWriter): Unit =
-      var vi  = 0
-      var off = 0
-      var j   = 0
+    /** Adds the staged values to `w`, with `row` the bytes the row was read from */
+    def commit(w: ColumnWriter, row: Array[Byte]): Unit =
+      // One dispatch per column rather than per value
+      physical match
+        case PhysicalType.BOOLEAN =>
+          commitInts(w, (r, v) => w.addBoolean(r, v != 0))
+        case PhysicalType.INT32 =>
+          commitInts(w, w.addInt)
+        case PhysicalType.FLOAT =>
+          commitInts(w, (r, v) => w.addFloat(r, java.lang.Float.intBitsToFloat(v)))
+        case PhysicalType.INT64 =>
+          var vi = 0
+          var j  = 0
+          while j < reps.size do
+            if defs(j) < maxDef then
+              w.addNull(reps(j), defs(j))
+            else
+              w.addLong(reps(j), longs(vi))
+              vi += 1
+            j += 1
+        case PhysicalType.DOUBLE =>
+          var vi = 0
+          var j  = 0
+          while j < reps.size do
+            if defs(j) < maxDef then
+              w.addNull(reps(j), defs(j))
+            else
+              w.addDouble(reps(j), doubles(vi))
+              vi += 1
+            j += 1
+        case _ =>
+          var vi = 0
+          var j  = 0
+          while j < reps.size do
+            if defs(j) < maxDef then
+              w.addNull(reps(j), defs(j))
+            else
+              val off = offsets(vi)
+              if off >= 0 then
+                w.addBytes(reps(j), row, off, lengths(vi))
+              else
+                w.addBytes(reps(j), bytes.array, -1 - off, lengths(vi))
+              vi += 1
+            j += 1
+      end match
+      w.endRow()
+
+    end commit
+
+    private inline def commitInts(w: ColumnWriter, inline add: (Int, Int) => Unit): Unit =
+      var vi = 0
+      var j  = 0
       while j < reps.size do
-        val r = reps(j)
-        val d = defs(j)
-        if d < maxDef then
-          w.addNull(r, d)
+        if defs(j) < maxDef then
+          w.addNull(reps(j), defs(j))
         else
-          physical match
-            case PhysicalType.BOOLEAN =>
-              w.addBoolean(r, ints(vi) != 0)
-            case PhysicalType.INT32 =>
-              w.addInt(r, ints(vi))
-            case PhysicalType.INT64 =>
-              w.addLong(r, longs(vi))
-            case PhysicalType.FLOAT =>
-              w.addFloat(r, java.lang.Float.intBitsToFloat(ints(vi)))
-            case PhysicalType.DOUBLE =>
-              w.addDouble(r, doubles(vi))
-            case _ =>
-              val len = lengths(vi)
-              w.addBytes(r, bytes.array, off, len)
-              off += len
+          add(reps(j), ints(vi))
           vi += 1
         j += 1
-      w.endRow()
 
   end Stage
 

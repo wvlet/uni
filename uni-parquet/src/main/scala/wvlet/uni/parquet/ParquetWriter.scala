@@ -1,5 +1,6 @@
 package wvlet.uni.parquet
 
+import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.msgpack.spi.BufferPacker
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.msgpack.spi.Packer
@@ -25,14 +26,15 @@ class ParquetWriter[A] private[parquet] (core: FileWriter, weaver: Weaver[A]) ex
   /** The number of rows written so far */
   def numRows: Long = core.numRows
 
-  // One packer for every row, so its buffer is not regrown per row
-  private val packer = MessagePack.newPacker()
+  // One packer for every row, so its buffer is not regrown per row. The shredder reads each row
+  // in the packer's buffer, without copying it out.
+  private val packer = PureScalaBufferPacker()
   private val config = WeaverConfig()
 
   def write(row: A): Unit =
     packer.clear
     weaver.pack(packer, row, config)
-    core.write(packer.toByteArray)
+    core.write(packer.writtenArray, packer.writtenSize)
 
   def writeAll(rows: IterableOnce[A]): Unit = rows.iterator.foreach(write)
 

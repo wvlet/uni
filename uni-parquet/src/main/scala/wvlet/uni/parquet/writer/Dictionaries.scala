@@ -18,9 +18,17 @@ private[writer] final class LongDictionary:
 
   def size: Int = count
 
+  // Folds the key to 32 bits, then mixes with MurmurHash3's finalizer, so keys that differ only
+  // in their high bits (the bits of a round DOUBLE) spread too. 32-bit multiplies: Scala.js
+  // emulates a 64-bit one.
   private def slotOf(k: Long, mask: Int): Int =
-    val h = k * 0x9e3779b97f4a7c15L
-    (h ^ (h >>> 32)).toInt & mask
+    var h = k.toInt ^ ((k >>> 32).toInt * 0x9e3779b9)
+    h ^= h >>> 16
+    h *= 0x85ebca6b
+    h ^= h >>> 13
+    h *= 0xc2b2ae35
+    h ^= h >>> 16
+    h & mask
 
   /** The index of `k`, added at the end if it is new */
   def indexOf(k: Long): Int =

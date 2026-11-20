@@ -411,6 +411,21 @@ class WriterTest extends UniTest:
     r(3)("attrs") shouldBe Map("k" -> 7)
   }
 
+  test("write strings read in place and converted ones in the same list") {
+    // Strings stay in the row's bytes; numbers and booleans are converted to their own bytes
+    val long  = "a string longer than the short-copy loop handles"
+    val bytes = writeRecords(
+      Seq(
+        Map("id" -> 1, "tags" -> Seq("a", 12, long, true, "", 3.5)),
+        Map("id" -> 2, "name" -> long, "tags" -> Seq(7, "b"))
+      )
+    )
+    val r = rows(bytes)
+    r(0)("tags") shouldBe Seq("a", "12", long, "true", "", "3.5")
+    r(1)("name") shouldBe long
+    r(1)("tags") shouldBe Seq("7", "b")
+  }
+
   test("match record keys loosely") {
     val schema = ParquetSchema.builder().required("userName", ParquetType.STRING).build()
     val out    = java.io.ByteArrayOutputStream()
