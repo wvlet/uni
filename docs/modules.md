@@ -37,7 +37,7 @@ available unless a row says otherwise.
 |------|-------------|
 | [IO](./core/io) | One entry point for file operations and subprocesses |
 | [FileSystem](./core/filesystem) | Cross-platform file I/O with `IOPath` |
-| [Object Storage](./core/object-storage) | Read and write S3, R2, GCS, and MinIO objects without the AWS SDK |
+| [Object Storage](./core/object-storage) | Read and write S3, R2, MinIO, and Google Cloud Storage objects without the AWS or Google SDKs |
 | [Canvas (Off-Heap Memory)](./core/canvas) | Memory buffers larger than 2 GB, addressed by `Long` offsets |
 
 ## Reactive Streams (Rx)

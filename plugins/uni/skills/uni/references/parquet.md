@@ -113,6 +113,12 @@ def r2Events(uri: String, accountId: String, keyId: String, secret: String): Seq
   try f.readAs[Event]().toSeq
   finally f.close()
 
+// gs://bucket/key with Google Application Default Credentials
+def gcsEvents(uri: String): Seq[Event] =
+  val f = Parquet.openGcs(uri)
+  try f.readAs[Event]().toSeq
+  finally f.close()
+
 // Write: a multipart upload that completes on close; abort() discards it
 def writeS3(uri: String, events: Seq[Event]): Unit =
   val store = ObjectStore.s3()
@@ -123,7 +129,7 @@ def writeS3(uri: String, events: Seq[Event]): Unit =
   finally store.close()
 ```
 
-`Parquet.openS3Async(uri, config)` reads in browsers. See
+`Parquet.openS3Async(uri, config)` and `Parquet.openGcsAsync(uri, config)` read in browsers. See
 [storage.md](storage.md) for credentials and other stores.
 
 ## Skip row groups with statistics

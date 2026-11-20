@@ -13,18 +13,13 @@
  */
 package wvlet.uni.storage
 
-import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.http.HttpContent
-import wvlet.uni.http.HttpException
-import wvlet.uni.http.HttpMaxRetryException
 import wvlet.uni.http.HttpMethod
-import wvlet.uni.http.HttpSyncClient
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
-
-import java.io.ByteArrayOutputStream
+import wvlet.uni.storage.StorageSupport.*
 
 /**
   * An [[ObjectStore]] for AWS S3 and S3-compatible services (Cloudflare R2, GCS with HMAC keys,
@@ -42,39 +37,10 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
   private val http = config.httpClient.noFollowRedirects
 
   // The Node.js sync channel caps a response at maxResponseBytes, so read in smaller ranges
-  private val maxChunk: Long =
-    val cap = http.maxResponseBytes.toLong
-    // Leave room for headers, and never ask for more than the cap allows
-    if cap > 128 * 1024 then
-      cap - 64 * 1024
-    else
-      math.max(1L, cap / 2)
+  private val maxChunk: Long = maxRangeChunk(http)
+  private val clients        = Clients(http)
 
-  private var syncClientOpt: Option[HttpSyncClient]   = None
-  private var asyncClientOpt: Option[HttpAsyncClient] = None
-
-  private def syncClient: HttpSyncClient = synchronized {
-    syncClientOpt.getOrElse {
-      val c = http.newSyncClient
-      syncClientOpt = Some(c)
-      c
-    }
-  }
-
-  private def asyncClient: HttpAsyncClient = synchronized {
-    asyncClientOpt.getOrElse {
-      val c = http.newAsyncClient
-      asyncClientOpt = Some(c)
-      c
-    }
-  }
-
-  override def close(): Unit = synchronized {
-    syncClientOpt.foreach(_.close())
-    asyncClientOpt.foreach(_.close())
-    syncClientOpt = None
-    asyncClientOpt = None
-  }
+  override def close(): Unit = clients.close()
 
   // ---- Addressing and signing ----
 
@@ -142,21 +108,14 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
 
   // ---- Sending ----
 
-  private val unwrapHttpError: PartialFunction[Throwable, Response] = {
-    case e: HttpMaxRetryException =>
-      e.response
-    case e: HttpException if e.response.isDefined =>
-      e.response.get
-  }
-
   private def send(call: Call): Response =
     val req = buildRequest(call)
-    try syncClient.send(req)
+    try clients.sync.send(req)
     catch unwrapHttpError
 
   private def sendAsync(call: Call): Rx[Response] = Rx
     .single(())
-    .flatMap(_ => asyncClient.send(buildRequest(call)))
+    .flatMap(_ => clients.async.send(buildRequest(call)))
     .recover(unwrapHttpError)
 
   private def checked(call: Call, resp: Response): Response =
@@ -209,61 +168,22 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     sendAsync(call).map(r => bodyOf(checked(call, r)))
 
   override def getRange(uri: ObjectUri, offset: Long, length: Long): Array[Byte] =
-    checkRange(offset, length)
-    val out  = ByteArrayOutputStream()
-    var pos  = offset
-    var left = length
-    var eof  = false
-    while left > 0 && !eof do
-      val n     = math.min(left, maxChunk)
-      val call  = rangeCall(uri, pos, n)
-      val bytes = rangeBody(call, send(call), pos, n)
-      out.write(bytes)
-      pos += bytes.length
-      left -= bytes.length
-      eof = bytes.length < n
-    out.toByteArray
+    readRanges(offset, length, maxChunk) { (pos, n) =>
+      val call = rangeCall(uri, pos, n)
+      rangeBody(send(call), pos, n, checked(call, _))
+    }
 
   override def getRangeAsync(uri: ObjectUri, offset: Long, length: Long): Rx[Array[Byte]] =
-    checkRange(offset, length)
-    def loop(pos: Long, left: Long, acc: List[Array[Byte]]): Rx[List[Array[Byte]]] =
-      if left <= 0 then
-        Rx.single(acc)
-      else
-        val n    = math.min(left, maxChunk)
-        val call = rangeCall(uri, pos, n)
-        sendAsync(call).flatMap { resp =>
-          val bytes = rangeBody(call, resp, pos, n)
-          if bytes.length < n then
-            Rx.single(bytes :: acc)
-          else
-            loop(pos + bytes.length, left - bytes.length, bytes :: acc)
-        }
-    loop(offset, length, Nil).map(parts => concat(parts.reverse))
-
-  private def checkRange(offset: Long, length: Long): Unit =
-    if offset < 0 || length < 0 then
-      throw IllegalArgumentException(s"Invalid range: offset=${offset}, length=${length}")
+    readRangesAsync(offset, length, maxChunk) { (pos, n) =>
+      val call = rangeCall(uri, pos, n)
+      sendAsync(call).map(rangeBody(_, pos, n, checked(call, _)))
+    }
 
   private def rangeCall(uri: ObjectUri, offset: Long, length: Long): Call = Call(
     HttpMethod.GET,
     uri,
-    headers = Seq("range" -> s"bytes=${offset}-${offset + length - 1}")
+    headers = Seq(rangeHeader(offset, length))
   )
-
-  private def rangeBody(call: Call, resp: Response, offset: Long, length: Long): Array[Byte] =
-    if resp.statusCode == 416 then
-      // The range starts at or past the end of the object
-      Array.emptyByteArray
-    else
-      val b = bodyOf(checked(call, resp))
-      if resp.statusCode == 206 then
-        b
-      else
-        // A 200 carries the whole object
-        val from = math.min(offset, b.length.toLong).toInt
-        val to   = math.min(offset + length, b.length.toLong).toInt
-        java.util.Arrays.copyOfRange(b, from, to)
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit =
     val call = Call(HttpMethod.PUT, uri, body = content, contentType = Some(contentType))
@@ -328,11 +248,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     * A URL that lets anyone holding it send `method` to the object until it expires (at most 7
     * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it).
     */
-  def presign(
-      uri: ObjectUri,
-      method: HttpMethod = HttpMethod.GET,
-      expiresSeconds: Long = 3600
-  ): String =
+  override def presign(uri: ObjectUri, method: HttpMethod, expiresSeconds: Long): String =
     val c = credentials.getOrElse(
       throw StorageException(
         StorageErrorCode.NoCredentials,
@@ -342,8 +258,6 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     val (host, path) = location(uri)
     val q = SigV4.presignQuery(SigV4Request(method.name, host, path), c, region, expiresSeconds)
     s"${endpointScheme}://${host}${path}?${q}"
-
-  def presign(uri: String): String = presign(ObjectUri.parse(uri))
 
   // ---- Multipart upload (used by S3OutputStream) ----
 
@@ -453,21 +367,6 @@ object S3ObjectStore:
       else
         None
     ListPage(objects ++ dirs, next)
-
-  private def utf8(b: Array[Byte]): String = String(b, "UTF-8")
-
-  private def bodyOf(resp: Response): Array[Byte] = resp
-    .contentAsBytes
-    .getOrElse(Array.emptyByteArray)
-
-  private def concat(parts: Seq[Array[Byte]]): Array[Byte] =
-    val out = new Array[Byte](parts.map(_.length).sum)
-    var pos = 0
-    parts.foreach { p =>
-      System.arraycopy(p, 0, out, pos, p.length)
-      pos += p.length
-    }
-    out
 
   private def noSuchKey(uri: ObjectUri): StorageException = StorageException(
     StorageErrorCode.NoSuchKey,

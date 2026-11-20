@@ -1,16 +1,16 @@
 ---
-description: Read and write objects in AWS S3 and S3-compatible stores (Cloudflare R2, Google Cloud Storage, MinIO) from Scala on the JVM, Scala.js, and Scala Native, with no AWS SDK. Covers credentials, ranged reads, listing, multipart uploads, presigned URLs, and Parquet files in S3.
+description: Read and write objects in AWS S3, S3-compatible stores (Cloudflare R2, MinIO), and Google Cloud Storage from Scala on the JVM, Scala.js, and Scala Native, with no AWS or Google SDK. Covers credentials (including Google Application Default Credentials), ranged reads, listing, multipart and resumable uploads, presigned and signed URLs, and Parquet files in S3 and GCS.
 ---
 
 # Object Storage
 
-`wvlet.uni.storage` reads and writes objects in [AWS S3](https://aws.amazon.com/s3/) and in
-services that speak the S3 API: [Cloudflare R2](https://developers.cloudflare.com/r2/),
-[Google Cloud Storage](https://cloud.google.com/storage/docs/interoperability) with HMAC keys, and
+`wvlet.uni.storage` reads and writes objects in [AWS S3](https://aws.amazon.com/s3/), in
+services that speak the S3 API ([Cloudflare R2](https://developers.cloudflare.com/r2/) and
 self-hosted servers such as [MinIO](https://min.io/) or the
-[Versity S3 Gateway](https://github.com/versity/versitygw). It is part of the `uni` artifact and
-signs requests with AWS Signature Version 4 in pure Scala, so the same code runs on the JVM, Scala
-Native, and Scala.js, with no AWS SDK.
+[Versity S3 Gateway](https://github.com/versity/versitygw)), and in
+[Google Cloud Storage](#google-cloud-storage) with Google credentials. It is part of the `uni`
+artifact and signs requests in pure Scala (AWS Signature Version 4, Google OAuth 2.0 and RSA), so
+the same code runs on the JVM, Scala Native, and Scala.js, with no AWS or Google SDK.
 
 ```scala
 import wvlet.uni.storage.ObjectStore
@@ -26,7 +26,8 @@ store.delete("s3://my-bucket/hello.txt")
 store.close()
 ```
 
-Every method takes an `s3://bucket/key` string or an `ObjectUri`. `head` returns `None` for a
+Every method takes an `s3://bucket/key` (or `gs://bucket/key`) string or an `ObjectUri`. S3 and
+GCS stores share the `ObjectStore` interface, so code written against it works with either. `head` returns `None` for a
 missing object; the other methods raise `StorageException`, whose `code` is the store's error
 code (`NoSuchKey`, `AccessDenied`, `SlowDown`, …) and `statusCode` the HTTP status.
 
@@ -75,8 +76,8 @@ headers to another host.
 // Cloudflare R2: keys from an R2 API token
 val r2 = ObjectStore.s3(S3Config.r2("<account-id>").withCredentials("<key-id>", "<secret>"))
 
-// Google Cloud Storage: HMAC keys for a service account
-val gcs = ObjectStore.s3(S3Config.gcs.withCredentials("<hmac-key-id>", "<hmac-secret>"))
+// Google Cloud Storage through its S3 interoperability API, with HMAC keys
+val gcsHmac = ObjectStore.s3(S3Config.gcs.withCredentials("<hmac-key-id>", "<hmac-secret>"))
 
 // MinIO or another self-hosted server
 val local = ObjectStore.s3(S3Config.minio("http://localhost:9000").withCredentials("admin", "secret"))
@@ -84,6 +85,68 @@ val local = ObjectStore.s3(S3Config.minio("http://localhost:9000").withCredentia
 
 For any other service, set `withEndpoint(url)`, `withRegion(region)`, and `withPathStyle(true)`
 if it does not support `bucket.endpoint` host names.
+
+## Google Cloud Storage
+
+`ObjectStore.gcs()` talks to Google Cloud Storage through its JSON API with OAuth 2.0 access
+tokens, so it works with the credentials a Google Cloud project already has: no HMAC keys needed.
+
+```scala
+import wvlet.uni.storage.GcsConfig
+import wvlet.uni.storage.GoogleCredentialsProvider
+
+val gcs = ObjectStore.gcs()
+
+gcs.put("gs://my-bucket/hello.txt", "Hello".getBytes("UTF-8"))
+val hello: Array[Byte] = gcs.get("gs://my-bucket/hello.txt")
+gcs.list("gs://my-bucket/logs/").foreach(o => println(o.uri))
+```
+
+It finds credentials in [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials)
+order and uses the first source that exists:
+
+1. The JSON file named by `GOOGLE_APPLICATION_CREDENTIALS`, usually a service-account key
+2. The file `gcloud auth application-default login` writes
+   (`~/.config/gcloud/application_default_credentials.json`, `%APPDATA%\gcloud\...` on Windows, or
+   under `CLOUDSDK_CONFIG`)
+3. The metadata server on Compute Engine, GKE, Cloud Run, and Cloud Functions (`GCE_METADATA_HOST`
+   overrides its address)
+
+Access tokens are cached and refreshed 5 minutes before they expire. A service account signs its
+token request (a JWT) with RSA in pure Scala, so service-account keys work on Scala Native too.
+A source that exists but can't be used, such as a malformed key or a credentials type Uni doesn't
+read (`external_account` for workload identity federation, `impersonated_service_account`), fails
+with the `InvalidCredentials` code instead of silently trying the next source. Tokens, refresh
+tokens, client secrets, and private keys never appear in `toString` output or error messages.
+
+Pick credentials explicitly with `GcsConfig`:
+
+```scala
+val sa = ObjectStore.gcs(
+  GcsConfig().withCredentials(
+    GoogleCredentialsProvider.fromFile(
+      "/secrets/key.json",
+      scopes = Seq(GoogleCredentialsProvider.StorageReadOnly)
+    )
+  )
+)
+
+// A short-lived access token handed out by your server, for example in a browser
+val withToken = ObjectStore.gcs(GcsConfig().withAccessToken("<access-token>"))
+
+// A public bucket
+val public = ObjectStore.gcs(GcsConfig().noCredentials)
+```
+
+The default scope is `devstorage.read_write`. Large uploads through `newOutputStream` use
+[resumable uploads](https://cloud.google.com/storage/docs/resumable-uploads) in 8 MiB chunks
+(`withChunkSizeBytes`, a multiple of 256 KiB); `abort()` cancels the session. Errors use the same
+codes as S3 (`NoSuchKey`, `NoSuchBucket`, `AccessDenied`), or Google's `reason` such as
+`rateLimitExceeded`.
+
+For local tests, point `STORAGE_EMULATOR_HOST` at an emulator such as
+[fake-gcs-server](https://github.com/fsouza/fake-gcs-server); `ObjectStore.gcs()` then sends
+anonymous requests to it, as Google's own client libraries do.
 
 ## Ranges and Listings
 
@@ -137,6 +200,16 @@ val upload: String = store.presign(
 )
 ```
 
+On GCS, `presign` makes a [V4 signed URL](https://cloud.google.com/storage/docs/access-control/signed-urls).
+A service-account key signs it locally. On Google Cloud with the metadata server's account, it is
+signed through the IAM Credentials `signBlob` API, which needs the Service Account Token Creator
+role on that account and a token with the `cloud-platform` scope. User credentials from `gcloud`
+can't sign URLs.
+
+```scala
+val shared: String = gcs.presign("gs://my-bucket/report.pdf")
+```
+
 ## Async API and Browsers
 
 Each method has an `...Async` variant that returns an [Rx](../rx/) stream and works on every
@@ -151,14 +224,15 @@ val text: Rx[String] = store
 ```
 
 Browsers have no environment variables, profile files, or instance metadata, so pass credentials
-explicitly, ideally short-lived ones from AWS STS, or hand the page presigned URLs from your server.
-Never ship long-lived access keys in a web page. The bucket also needs a CORS rule that allows the
+explicitly, ideally short-lived ones from AWS STS or a Google access token from your server, or
+hand the page presigned URLs. Never ship long-lived access keys or service-account keys in a web
+page. The bucket also needs a CORS rule that allows the
 page's origin.
 
-## Parquet Files in S3
+## Parquet Files in S3 and GCS
 
-[uni-parquet](../text/parquet) reads Parquet files straight from S3 with ranged reads, fetching
-only the footer and the column chunks it needs:
+[uni-parquet](../text/parquet) reads Parquet files straight from S3 or GCS with ranged reads,
+fetching only the footer and the column chunks it needs:
 
 ```scala
 import wvlet.uni.parquet.Parquet
@@ -174,8 +248,8 @@ writer.writeAll(events)
 writer.close()
 ```
 
-`Parquet.openS3(uri, config)` takes an `S3Config` for R2, GCS, or MinIO, and `openS3Async` reads in
-browsers. A writer that fails, or whose `abort()` you call, aborts the upload, so no partial file
+`Parquet.openS3(uri, config)` takes an `S3Config` for R2 or MinIO, `Parquet.openGcs("gs://...")`
+reads from Google Cloud Storage, and `openS3Async` / `openGcsAsync` read in browsers. A writer that fails, or whose `abort()` you call, aborts the upload, so no partial file
 appears.
 
 ## When to Use Another Library
@@ -183,5 +257,7 @@ appears.
 The [AWS SDK for Java](https://aws.amazon.com/sdk-for-java/) covers every S3 feature (server-side
 encryption settings, object lock, transfer acceleration, and parallel transfers) and every
 credential source, and is a good choice for JVM applications that use S3 heavily or other AWS
-services too. Choose `wvlet.uni.storage` for the common object operations on Scala.js or Scala
-Native, in browsers, or with no dependencies beyond Uni.
+services too. The [Google Cloud Storage client library for Java](https://cloud.google.com/java/docs/reference/google-cloud-storage/latest/overview)
+does the same for GCS, with every credential type (including workload identity federation) and
+features such as parallel composite uploads. Choose `wvlet.uni.storage` for the common object
+operations on Scala.js or Scala Native, in browsers, or with no dependencies beyond Uni.

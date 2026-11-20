@@ -13,12 +13,14 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.http.HttpMethod
 import wvlet.uni.rx.Rx
 
 /**
-  * An object location such as `s3://bucket/path/to/key`. The scheme only names the location; the
-  * store's endpoint decides which service answers, so `s3://` also addresses R2, GCS, or MinIO
-  * buckets through an [[S3ObjectStore]] configured for them.
+  * An object location such as `s3://bucket/path/to/key` or `gs://bucket/path/to/key`. The scheme
+  * only names the location; the store decides which service answers, so `s3://` also addresses R2
+  * or MinIO buckets through an [[S3ObjectStore]] configured for them, and `gs://` goes to Google
+  * Cloud Storage through a [[GcsObjectStore]].
   */
 case class ObjectUri(bucket: String, key: String, scheme: String = "s3"):
   /** A key under this one, joined with `/` */
@@ -98,6 +100,17 @@ trait ObjectStore extends AutoCloseable:
     */
   def newOutputStream(uri: ObjectUri, contentType: String = ObjectStore.Binary): ObjectOutputStream
 
+  /**
+    * A URL that lets anyone holding it send `method` to the object until it expires (at most 7
+    * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it). Fails
+    * with [[StorageErrorCode.NoCredentials]] when the store's credentials can't sign.
+    */
+  def presign(
+      uri: ObjectUri,
+      method: HttpMethod = HttpMethod.GET,
+      expiresSeconds: Long = 3600
+  ): String
+
   def headAsync(uri: ObjectUri): Rx[Option[ObjectInfo]]
   def getAsync(uri: ObjectUri): Rx[Array[Byte]]
   def getRangeAsync(uri: ObjectUri, offset: Long, length: Long): Rx[Array[Byte]]
@@ -110,7 +123,7 @@ trait ObjectStore extends AutoCloseable:
   def listAsync(uri: ObjectUri, recursive: Boolean = true): Rx[Seq[ObjectInfo]]
   def deleteAsync(uri: ObjectUri): Rx[Unit]
 
-  // String overloads for `s3://bucket/key`
+  // String overloads for `s3://bucket/key` or `gs://bucket/key`
   def head(uri: String): Option[ObjectInfo]                          = head(ObjectUri.parse(uri))
   def get(uri: String): Array[Byte]                                  = get(ObjectUri.parse(uri))
   def getRange(uri: String, offset: Long, length: Long): Array[Byte] = getRange(
@@ -124,6 +137,7 @@ trait ObjectStore extends AutoCloseable:
   def delete(uri: String): Unit                    = delete(ObjectUri.parse(uri))
 
   def newOutputStream(uri: String): ObjectOutputStream = newOutputStream(ObjectUri.parse(uri))
+  def presign(uri: String): String                     = presign(ObjectUri.parse(uri))
 
   override def close(): Unit = ()
 
@@ -135,6 +149,12 @@ object ObjectStore:
   /** An S3 (or S3-compatible) store. See [[S3Config]] for R2, GCS, and MinIO presets. */
   def s3(config: S3Config = S3Config.default): S3ObjectStore = S3ObjectStore(config)
 
+  /**
+    * Google Cloud Storage through its JSON API, with OAuth credentials found in Application Default
+    * Credentials order. See [[GcsConfig]].
+    */
+  def gcs(config: GcsConfig = GcsConfig.default): GcsObjectStore = GcsObjectStore(config)
+
 /**
   * An upload stream. `close()` publishes the object; `abort()` discards everything written so far,
   * and no object appears.
@@ -142,14 +162,20 @@ object ObjectStore:
 abstract class ObjectOutputStream extends java.io.OutputStream:
   def abort(): Unit
 
-/** Error codes. S3 codes such as `NoSuchKey` or `AccessDenied` pass through as sent. */
+/**
+  * Error codes. S3 codes such as `NoSuchKey` or `AccessDenied` pass through as sent; GCS errors map
+  * to the same codes, or pass Google's `reason` (such as `rateLimitExceeded`) through.
+  */
 object StorageErrorCode:
-  val NoSuchKey: String       = "NoSuchKey"
-  val NoSuchBucket: String    = "NoSuchBucket"
-  val AccessDenied: String    = "AccessDenied"
-  val WrongRegion: String     = "WrongRegion"
-  val NoCredentials: String   = "NoCredentials"
-  val InvalidResponse: String = "InvalidResponse"
+  val NoSuchKey: String     = "NoSuchKey"
+  val NoSuchBucket: String  = "NoSuchBucket"
+  val AccessDenied: String  = "AccessDenied"
+  val WrongRegion: String   = "WrongRegion"
+  val NoCredentials: String = "NoCredentials"
+
+  /** Credentials were found but can't be used (a malformed key, an unsupported file type) */
+  val InvalidCredentials: String = "InvalidCredentials"
+  val InvalidResponse: String    = "InvalidResponse"
 
 /**
   * An object store refused or failed a request

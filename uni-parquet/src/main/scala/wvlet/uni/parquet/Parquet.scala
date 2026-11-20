@@ -8,6 +8,7 @@ import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.GcsConfig
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
@@ -48,6 +49,17 @@ object Parquet:
 
   def openS3Async(uri: String, config: S3Config = S3Config.default): Rx[ParquetFile] = ParquetFile
     .openAsync(ByteSource.ofS3Async(uri, config))
+
+  /**
+    * Opens a Google Cloud Storage object such as `gs://bucket/data.parquet` (JVM, Scala Native, and
+    * Node.js), with Application Default Credentials unless `config` sets others
+    */
+  def openGcs(uri: String, config: GcsConfig = GcsConfig.default): ParquetFile = ParquetFile.open(
+    ByteSource.ofGcs(uri, config)
+  )
+
+  def openGcsAsync(uri: String, config: GcsConfig = GcsConfig.default): Rx[ParquetFile] =
+    ParquetFile.openAsync(ByteSource.ofGcsAsync(uri, config))
 
   /** Opens a file asynchronously, for example over HTTP in a browser */
   def openAsync(source: AsyncByteSource): Rx[ParquetFile] = ParquetFile.openAsync(source)

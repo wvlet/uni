@@ -1,8 +1,9 @@
-# Object storage (S3, R2, GCS, MinIO)
+# Object storage (S3, R2, MinIO, Google Cloud Storage)
 
 `wvlet.uni.storage` (in the `uni` artifact) reads and writes objects in AWS S3 and
-S3-compatible stores with AWS Signature V4 in pure Scala: JVM, Scala.js, and Scala
-Native, no AWS SDK. Sync methods run on the JVM, Native, and Node.js; `...Async`
+S3-compatible stores (AWS Signature V4) and in Google Cloud Storage (OAuth 2.0), in
+pure Scala: JVM, Scala.js, and Scala Native, no AWS or Google SDK. Both stores
+implement `ObjectStore`, so code written against it works with either. Sync methods run on the JVM, Native, and Node.js; `...Async`
 methods (returning `Rx`) run everywhere, including browsers.
 
 Full reference: https://wvlet.org/uni/core/object-storage.md
@@ -62,3 +63,37 @@ val url: String = store.presign(ObjectUri.parse("s3://my-bucket/a.txt"), HttpMet
 
 In browsers, pass explicit (ideally temporary STS) credentials or use presigned
 URLs; never ship long-lived keys. The bucket needs CORS.
+
+## Google Cloud Storage
+
+```scala
+import wvlet.uni.storage.{GcsConfig, GoogleCredentialsProvider}
+
+// Application Default Credentials: GOOGLE_APPLICATION_CREDENTIALS (service-account
+// key), then the `gcloud auth application-default login` file, then the GCE/GKE
+// metadata server. Tokens are cached and refreshed before they expire.
+val gs = ObjectStore.gcs()
+gs.put("gs://my-bucket/a.txt", "hi".getBytes("UTF-8"))
+val text = String(gs.get("gs://my-bucket/a.txt"), "UTF-8")
+
+val readOnly = ObjectStore.gcs(
+  GcsConfig().withCredentials(
+    GoogleCredentialsProvider.fromFile(
+      "/secrets/key.json",
+      scopes = Seq(GoogleCredentialsProvider.StorageReadOnly)
+    )
+  )
+)
+val withToken = ObjectStore.gcs(GcsConfig().withAccessToken("<access-token>")) // browsers
+val public    = ObjectStore.gcs(GcsConfig().noCredentials)
+
+// V4 signed URL: needs a service-account key, or the metadata server's account
+// (signed through IAM signBlob); gcloud user credentials can't sign
+val signed: String = gs.presign("gs://my-bucket/a.txt")
+```
+
+`newOutputStream` uses resumable uploads (8 MiB chunks, `withChunkSizeBytes` in
+multiples of 256 KiB). An unusable credentials file (malformed, or a type such as
+`external_account`) fails with code `InvalidCredentials` rather than falling
+through. `STORAGE_EMULATOR_HOST` points `ObjectStore.gcs()` at an emulator such as
+fake-gcs-server with anonymous requests. `S3Config.gcs` remains for HMAC keys.
