@@ -4,8 +4,18 @@ import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.parquet.Parquet
 
-/** A reader to time: it reads one file and returns (rows, checksum) */
-case class BenchCase(reader: String, path: String, read: String => (Long, Long))
+/**
+  * A case to time: `run` reads `path` (or writes the data of `path` to another file) and returns
+  * (rows, checksum). MB/s is computed from the uncompressed column size of `path`.
+  */
+case class BenchCase(reader: String, path: String, run: () => (Long, Long))
+
+object BenchCase:
+  def read(reader: String, path: String, read: String => (Long, Long)): BenchCase = BenchCase(
+    reader,
+    path,
+    () => read(path)
+  )
 
 /** Times readers over the generated files and prints a Markdown table */
 object BenchRunner:
@@ -21,16 +31,46 @@ object BenchRunner:
   def uniCases(dir: String): Seq[BenchCase] =
     flatFiles.flatMap(f =>
       Seq(
-        BenchCase("uni columns", s"${dir}/${f}", UniReaders.columns),
-        BenchCase("uni case class", s"${dir}/${f}", UniReaders.lineItems)
+        BenchCase.read("uni columns", s"${dir}/${f}", UniReaders.columns),
+        BenchCase.read("uni case class", s"${dir}/${f}", UniReaders.lineItems)
       )
     ) ++
       nestedFiles.flatMap(f =>
         Seq(
-          BenchCase("uni columns", s"${dir}/${f}", UniReaders.columns),
-          BenchCase("uni case class", s"${dir}/${f}", UniReaders.orders)
+          BenchCase.read("uni columns", s"${dir}/${f}", UniReaders.columns),
+          BenchCase.read("uni case class", s"${dir}/${f}", UniReaders.orders)
         )
       )
+
+  /** The codecs both writers support (uni-parquet does not write ZSTD) */
+  val writeCodecs: Seq[String] = Seq("uncompressed", "snappy")
+
+  /** The directory the write cases write to */
+  def writeDir(dir: String): String = s"${dir}/../write"
+
+  /**
+    * The uni-parquet write cases: the rows of each file, read once into memory, written again with
+    * the file's codec. Reader names start with "write" so `--filter write` selects them.
+    */
+  def uniWriteCases(dir: String): Seq[BenchCase] =
+    val out = writeDir(dir)
+    writeCodecs.flatMap { c =>
+      val lineitem = s"${dir}/lineitem.${c}.parquet"
+      val orders   = s"${dir}/orders.${c}.parquet"
+      Seq(
+        BenchCase(
+          "write uni case class",
+          lineitem,
+          () =>
+            UniWriters.lineItems(BenchData.lineItems(dir), s"${out}/uni.lineitem.${c}.parquet", c)
+        ),
+        BenchCase(
+          "write uni case class",
+          orders,
+          () => UniWriters.orders(BenchData.orders(dir), s"${out}/uni.orders.${c}.parquet", c)
+        )
+      )
+    }
 
   /** Uncompressed bytes of the column data, from the footer, so MB/s is comparable across codecs */
   private def uncompressedBytes(path: String): Long =
@@ -51,10 +91,10 @@ object BenchRunner:
         throw IllegalArgumentException(s"${c.path} not found. Generate the files first.")
       val bytes = uncompressedBytes(c.path)
       var rows  = 0L
-      (0 until warmup).foreach(_ => rows = c.read(c.path)._1)
+      (0 until warmup).foreach(_ => rows = c.run()._1)
       val times = (0 until iterations).map { _ =>
         val start = System.nanoTime()
-        rows = c.read(c.path)._1
+        rows = c.run()._1
         System.nanoTime() - start
       }
       val median = times.sorted.apply(times.size / 2) / 1e9

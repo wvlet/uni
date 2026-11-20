@@ -44,5 +44,5 @@ case class Order(
     oOrderpriority: String,
     oComment: String,
     lines: Seq[OrderLine],
-    attrs: Option[Map[String, String]]
+    attrs: Option[Map[String, Option[String]]]
 ) derives Weaver

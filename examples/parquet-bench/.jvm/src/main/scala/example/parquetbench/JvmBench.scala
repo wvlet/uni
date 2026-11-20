@@ -10,16 +10,16 @@ object JvmBench:
         .flatFiles
         .flatMap(f =>
           Seq(
-            BenchCase("parquet-java columns", s"${dir}/${f}", ParquetJavaReaders.columns),
-            BenchCase("parquet-java groups", s"${dir}/${f}", ParquetJavaReaders.rows)
+            BenchCase.read("parquet-java columns", s"${dir}/${f}", ParquetJavaReaders.columns),
+            BenchCase.read("parquet-java groups", s"${dir}/${f}", ParquetJavaReaders.rows)
           )
         ) ++
         BenchRunner
           .nestedFiles
           .flatMap(f =>
             Seq(
-              BenchCase("parquet-java columns", s"${dir}/${f}", ParquetJavaReaders.columns),
-              BenchCase("parquet-java groups", s"${dir}/${f}", ParquetJavaReaders.rows)
+              BenchCase.read("parquet-java columns", s"${dir}/${f}", ParquetJavaReaders.columns),
+              BenchCase.read("parquet-java groups", s"${dir}/${f}", ParquetJavaReaders.rows)
             )
           )
     // Interleave so each file's readers run next to each other
@@ -30,6 +30,40 @@ object JvmBench:
       .flatMap { case (u, j) =>
         u ++ j
       }
-    BenchRunner.run(cases, warmup, iterations, filter)
+    // Each uni write case next to the parquet-java one for the same data and codec
+    val out    = BenchRunner.writeDir(dir)
+    val writes = BenchRunner
+      .uniWriteCases(dir)
+      .flatMap { u =>
+        val name  = u.path.split('/').last
+        val codec = name.split('.')(1)
+        val java  =
+          if name.startsWith("lineitem") then
+            BenchCase(
+              "write parquet-java groups",
+              u.path,
+              () =>
+                ParquetJavaWriters.lineItems(
+                  BenchData.lineItems(dir),
+                  s"${out}/java.lineitem.${codec}.parquet",
+                  codec
+                )
+            )
+          else
+            BenchCase(
+              "write parquet-java groups",
+              u.path,
+              () =>
+                ParquetJavaWriters.orders(
+                  BenchData.orders(dir),
+                  s"${out}/java.orders.${codec}.parquet",
+                  codec
+                )
+            )
+        Seq(u, java)
+      }
+    BenchRunner.run(cases ++ writes, warmup, iterations, filter)
+
+  end main
 
 end JvmBench
