@@ -433,7 +433,10 @@ class NativeServerTest extends UniTest:
   }
 
   test("should keep workers free for ordinary requests by default") {
-    NativeServerConfig().effectiveMaxStreamingConnections shouldBe 12
+    // The default worker count follows the cores, so check the reserve on fixed counts too
+    val w = NativeServer.DefaultWorkerThreads
+    NativeServerConfig().effectiveMaxStreamingConnections shouldBe w - math.min(4, w / 2)
+    NativeServerConfig().withWorkerThreads(16).effectiveMaxStreamingConnections shouldBe 12
     NativeServerConfig().withWorkerThreads(4).effectiveMaxStreamingConnections shouldBe 2
     NativeServerConfig().withWorkerThreads(1).effectiveMaxStreamingConnections shouldBe 1
   }
