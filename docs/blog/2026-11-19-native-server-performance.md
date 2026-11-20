@@ -20,6 +20,19 @@ The bigger point: you can write Scala without being tied to the JVM. The same un
 
 Uni is built to cross-compile: its modules compile for the JVM, Scala.js, and Scala Native from one code base. An application written with uni, such as an RPC service with its HTTP server, can target the JVM or a native binary without rewriting anything. The choice of runtime becomes a deployment decision instead of a language decision. That only pays off if the native build is fast, which is what this post measures.
 
+```mermaid
+flowchart LR
+  src["Your Scala code<br/>RPC service, Http.server, uni APIs"]
+  src -->|Scala compiler| jvm["JVM bytecode"]
+  src -->|Scala.js| js["JavaScript"]
+  src -->|Scala Native + LLVM| bin["Native executable"]
+  jvm --> r1["JVM<br/>uni's built-in server"]
+  js --> r2["Node.js<br/>on Node's http module"]
+  bin --> r3["No runtime to install<br/>uni's native server"]
+```
+
+`Http.server` is the same call on every platform; uni picks the server for each one. This post measures the JVM and Scala Native builds. The Node.js rows in the comparison below are a plain Node.js server, not uni on Scala.js.
+
 ## The starting point
 
 The [rpc-native example](https://github.com/wvlet/uni/tree/main/examples/rpc-native) builds one typed RPC service, `TodoApi`, for both the JVM and Scala Native. On an Apple M5 Pro with 16 concurrent connections, the two builds served:
