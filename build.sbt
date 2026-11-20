@@ -494,6 +494,55 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
 
 lazy val stageBenchJars = taskKey[File]("Copy the runtime classpath jars for the benchmark")
 
+// Read benchmark for uni-parquet: compares it with parquet-java on the JVM and measures Scala.js
+// (Node.js) and Scala Native over the same files. Run it with examples/parquet-bench/run.sh.
+// Kept out of the projectJVM/JS/Native aggregates: parquet-java pulls in Hadoop's client jars,
+// which neither uni-parquet nor CI needs.
+lazy val exampleParquetBench = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("examples/parquet-bench"))
+  .settings(
+    buildSettings,
+    noPublish,
+    name        := "uni-example-parquet-bench",
+    description := "Read benchmark: uni-parquet vs. parquet-java on the same files"
+  )
+  .jvmSettings(
+    libraryDependencies ++=
+      Seq(
+        "org.apache.parquet" % "parquet-hadoop"        % "1.16.0",
+        "org.apache.hadoop"  % "hadoop-client-api"     % "3.4.1",
+        "org.apache.hadoop"  % "hadoop-client-runtime" % "3.4.1",
+        "org.slf4j"          % "slf4j-nop"             % "2.0.16"
+      ),
+    run / fork := true,
+    run / javaOptions ++= Seq("-Xmx4g", "--enable-native-access=ALL-UNNAMED"),
+    stageBenchJars :=
+      Def.uncached {
+        val converter = fileConverter.value
+        val dir       = baseDirectory.value.getParentFile / "out" / "lib"
+        IO.delete(dir)
+        (Runtime / fullClasspath)
+          .value
+          .map(a => converter.toPath(a.data).toFile)
+          .foreach(jar => IO.copyFile(jar, dir / jar.getName))
+        dir
+      }
+  )
+  .jsSettings(
+    jsBuildSettings,
+    scalaJSUseMainModuleInitializer := true,
+    Compile / mainClass             := Some("example.parquetbench.UniBench")
+  )
+  .nativeSettings(
+    nativeBuildSettings,
+    Compile / mainClass := Some("example.parquetbench.UniBench"),
+    nativeConfig ~= {
+      _.withMode(scala.scalanative.build.Mode.releaseFull)
+    }
+  )
+  .dependsOn(parquet)
+
 // HTTP Garden origin: echoes how Uni parsed each request, for differential parser testing.
 // Built and run only by .github/workflows/http-garden.yml; see examples/http-garden/README.md
 lazy val exampleHttpGarden = crossProject(JVMPlatform, NativePlatform)

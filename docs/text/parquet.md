@@ -112,8 +112,9 @@ may truncate long strings, so for strings treat min and max as bounds.
 
 ## Reading Column Vectors
 
-`readRowGroup` and `readBatches` return a `ColumnBatch` per row group. Each column is a
-`ColumnVector` that stores primitive values unboxed, which is faster than decoding rows.
+`readRowGroup(i)` returns row group `i` as one `ColumnBatch`, and `readBatches` returns the
+batches of every row group in order. Each column is a `ColumnVector` that stores primitive values
+unboxed, which is faster than decoding rows.
 
 ```scala
 import wvlet.uni.parquet.ColumnVector.*
@@ -132,6 +133,24 @@ Vector types: `BooleanColumn`, `IntColumn`, `LongColumn`, `FloatColumn`, `Double
 `getValue(i)` returns any row as a Scala value with its logical type applied (for example an
 `Instant` or a `BigDecimal`). `batch.row(i)` returns a whole row as a `Map[String, Any]`, the same
 map `readRows` returns, and `batch.rows` iterates over all of them.
+
+### Batches and Large Row Groups
+
+By default, `readBatches` returns one batch per row group. To get batches of at most a given number
+of rows, for example to bound memory, set a batch size:
+
+```scala
+val batches = file.readBatches(ParquetReadOptions.default.withBatchSize(10000))
+```
+
+Each column of a batch is held in arrays, which are limited to 2 GiB. So when a column of a row
+group holds more than 1 GiB of values, `readBatches` (and `readAs`, `readRows`, and `readJson`,
+which read through it) also splits the row group, ending a batch at the first row after that
+point. Files with such column chunks read without settings. `readRowGroup` always returns the whole
+row group, up to 2 GiB of values per column; for a larger row group it fails and points to
+`readBatches`. Column chunks of more than 256 MiB are read in windows of that size rather than in
+one range. The asynchronous methods decode all batches of a row group before emitting the first,
+so they hold a whole row group in memory.
 
 ## Reading over HTTP
 
@@ -310,8 +329,8 @@ complete. On Scala.js, a file output stream keeps the whole file in memory and w
 - **Types**: all physical types and the logical types listed above, nested lists, maps, and
   structs, and the legacy list and map layouts that older writers produce.
 
-Not supported: modular encryption, the LZO codec, the new ALP encoding, and column chunks with
-more than 2 GiB of values. The writer does not produce data page v2, the DELTA encodings, page
+Not supported: modular encryption, the LZO codec, the new ALP encoding, and a single row with
+more than 2 GiB of values in one column. The writer does not produce data page v2, the DELTA encodings, page
 indexes, or bloom filters, and does not compress with ZSTD or BROTLI. These fail with a
 `ParquetException` that names the feature, or are left out of written files.
 
