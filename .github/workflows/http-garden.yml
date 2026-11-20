@@ -36,6 +36,7 @@ jobs:
           distribution: 'temurin'
           java-version: '25'
           cache: sbt
+      - uses: ./.github/actions/sbt-launcher
       - uses: actions/setup-python@v6
         with:
           # HTTP Garden's tools need Python 3.13+

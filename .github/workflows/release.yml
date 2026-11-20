@@ -41,6 +41,7 @@ jobs:
           distribution: 'zulu'
           java-version: '23'
           cache: sbt
+      - uses: ./.github/actions/sbt-launcher
       - uses: actions/setup-node@v7
         with:
           node-version: '24'

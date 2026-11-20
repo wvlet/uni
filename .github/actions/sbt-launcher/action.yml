@@ -1,0 +1,13 @@
+name: Cache the sbt launcher
+description: >-
+  Restore ~/.sbt/launchers, so ./sbt doesn't download the launcher and its .md5 from Maven Central
+  in every job. Maven Central sometimes stalls on those requests for minutes, which failed CI jobs
+  even with ./sbt's retries. setup-java's sbt cache doesn't keep this directory.
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: ~/.sbt/launchers
+        # The launcher version follows sbt.version in project/build.properties
+        key: sbt-launcher-${{ runner.os }}-${{ hashFiles('project/build.properties') }}
