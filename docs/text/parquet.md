@@ -7,8 +7,8 @@ description: Read and write Apache Parquet files in pure Scala on the JVM, Scala
 `uni-parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
 in Scala with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and
 browsers), and Scala Native, and it brings in no Hadoop or native libraries. It reads local files,
-byte arrays, files on any HTTP server that supports Range requests, and objects in S3, R2, GCS, or
-MinIO. It writes case classes, maps, and JSON records to local files, byte arrays, or object storage.
+byte arrays, files on any HTTP server that supports Range requests, and objects in S3, R2, GCS,
+MinIO, or Azure Blob Storage. It writes case classes, maps, and JSON records to local files, byte arrays, or object storage.
 
 ```scala sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
@@ -228,7 +228,7 @@ Range requests with `206 Partial Content` and allow them through CORS; a server 
 file instead gets a clear error. Uni's own server does this with
 [StaticFiles](../http/server#static-files).
 
-## Reading and Writing in S3 and GCS
+## Reading and Writing in S3, GCS, and Azure Blob
 
 `Parquet.openS3` reads from AWS S3 and S3-compatible stores (Cloudflare R2, MinIO) the same way,
 and `Parquet.openGcs` from Google Cloud Storage with Google credentials, with ranged reads through
@@ -258,6 +258,24 @@ writer.close()
 
 `openS3Async` and `openGcsAsync` read in browsers, given explicit credentials or a bucket that allows anonymous
 reads, and a CORS rule for the page.
+
+Azure Blob Storage works the same way with `az://container/key` URIs. The storage account and
+credentials come from an `AzureConfig`, by default from `AZURE_STORAGE_CONNECTION_STRING` or
+`AZURE_STORAGE_ACCOUNT`:
+
+```scala
+import wvlet.uni.storage.AzureConfig
+
+val fromAzure = Parquet.openAzure(
+  "az://my-container/events.parquet",
+  AzureConfig().withSharedKey("myaccount", "<account-key>")
+)
+
+val azureStore = ObjectStore.azure()
+val toAzure    = Parquet.newWriter[Event](azureStore.newOutputStream("az://my-container/out.parquet"))
+```
+
+`ByteSource.ofObject(store, uri)` opens a file in any store you already hold.
 
 ## Skipping Row Groups
 

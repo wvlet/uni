@@ -171,8 +171,20 @@ jobs:
             -backend memory -data /tmp/fgcs-data > /tmp/fgcs.log 2>&1 &
           for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:4443/storage/v1/b && exit 0; sleep 1; done
           cat /tmp/fgcs.log; exit 1
+      # Azurite, Microsoft's Azure Storage emulator, for the Azure Blob integration tests. It
+      # verifies Shared Key and SAS signatures. The official image is pinned by digest.
+      - name: Start Azurite
+        env:
+          AZURITE_IMAGE: mcr.microsoft.com/azure-storage/azurite:3.38.0@sha256:c26024d62bf4a5b88a40968afd217234c00e1fc9a4790dc6105d1ca7979f6eec
+        run: |
+          docker run -d --name azurite -p 127.0.0.1:10000:10000 "${AZURITE_IMAGE}" \
+            azurite-blob --location /data --blobHost 0.0.0.0 --blobPort 10000
+          for i in $(seq 1 30); do curl -s -o /dev/null http://127.0.0.1:10000/ && exit 0; sleep 1; done
+          docker logs azurite; exit 1
       - name: Scala 3.x test
         env:
+          UNI_AZURE_TEST_CONNECTION_STRING: UseDevelopmentStorage=true
+          UNI_AZURE_TEST_CONTAINER: uni-test
           UNI_S3_TEST_ENDPOINT: http://127.0.0.1:7070
           UNI_S3_TEST_ACCESS_KEY: uni-test-key
           UNI_S3_TEST_SECRET_KEY: uni-test-secret

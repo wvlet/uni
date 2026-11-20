@@ -8,6 +8,7 @@ import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.AzureConfig
 import wvlet.uni.storage.GcsConfig
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
@@ -60,6 +61,17 @@ object Parquet:
 
   def openGcsAsync(uri: String, config: GcsConfig = GcsConfig.default): Rx[ParquetFile] =
     ParquetFile.openAsync(ByteSource.ofGcsAsync(uri, config))
+
+  /**
+    * Opens an Azure Blob such as `az://container/data.parquet` (JVM, Scala Native, and Node.js).
+    * The storage account and credentials come from `config`; by default from
+    * `AZURE_STORAGE_CONNECTION_STRING`, or `AZURE_STORAGE_ACCOUNT` and the Azure credential chain.
+    */
+  def openAzure(uri: String, config: AzureConfig = AzureConfig.default): ParquetFile = ParquetFile
+    .open(ByteSource.ofAzure(uri, config))
+
+  def openAzureAsync(uri: String, config: AzureConfig = AzureConfig.default): Rx[ParquetFile] =
+    ParquetFile.openAsync(ByteSource.ofAzureAsync(uri, config))
 
   /** Opens a file asynchronously, for example over HTTP in a browser */
   def openAsync(source: AsyncByteSource): Rx[ParquetFile] = ParquetFile.openAsync(source)
