@@ -1,7 +1,7 @@
-# Reading Parquet files
+# Reading and writing Parquet files
 
-`uni-parquet` (`"org.wvlet.uni" %% "uni-parquet"`) reads Apache Parquet in pure Scala on the JVM,
-Scala.js, and Scala Native. It is read-only. Do not add parquet-java or Hadoop for reading.
+`uni-parquet` (`"org.wvlet.uni" %% "uni-parquet"`) reads and writes Apache Parquet in pure Scala
+on the JVM, Scala.js, and Scala Native. It needs no parquet-java or Hadoop.
 
 ## Rows into case classes
 
@@ -106,7 +106,75 @@ This skips whole row groups only; rows of the groups that are read are not filte
 them again. Only top-level integer, float, boolean, string, DATE (`LocalDate`), and TIMESTAMP
 (`Instant`) columns are checked.
 
+## Write case classes
+
+```scala
+import wvlet.uni.control.Control
+import wvlet.uni.parquet.{ParquetSchema, ParquetWriteOptions}
+
+def writeAll(path: String, events: Seq[Event]): Unit = Parquet.write(path, events)
+
+def writeOneByOne(path: String, events: Iterator[Event]): Unit =
+  Control.withResource(Parquet.newWriter[Event](path)) { w =>
+    events.foreach(w.write) // the file is readable only after close()
+  }
+
+def inMemory(events: Seq[Event]): Array[Byte] = Parquet.writeBytes(events) // every platform
+
+val derived: ParquetSchema = ParquetSchema.of[Event]
+```
+
+- The schema comes from the type: `Option[A]` is OPTIONAL (other fields REQUIRED), `Seq`/`List`/
+  `Set`/`Array[A]` a 3-level LIST, `Map[K, V]` a MAP, a nested case class a group, `String` and
+  enums STRING, `Array[Byte]` BYTE_ARRAY, `Instant` TIMESTAMP(MICROS, UTC; nanoseconds dropped),
+  `UUID` UUID, `Short`/`Byte` INT32 with INT(16)/INT(8).
+- `BigDecimal` is DECIMAL(38, 18) by default. Change it with
+  `ParquetWriteOptions.default.withDecimal(18, 4)`, or per field with
+  `.withDecimal("price", 10, 2)`. A value that does not fit is an error, never rounded.
+- Pass options as the second argument: `Parquet.write(path, rows, opts)`,
+  `Parquet.newWriter[Event](path, opts)`. `Parquet.newWriter[A](out)` writes to an `OutputStream`.
+
+## Write records with an explicit schema
+
+```scala
+import wvlet.uni.parquet.ParquetType
+
+val schema = ParquetSchema
+  .builder("event")
+  .required("id", ParquetType.INT64)
+  .optional("name", ParquetType.STRING)
+  .optional("tags", ParquetType.list(ParquetType.STRING))
+  .optional("ts", ParquetType.TIMESTAMP_MILLIS)
+  .build()
+
+def writeRecords(path: String): Unit =
+  Control.withResource(Parquet.newRecordWriter(path, schema)) { w =>
+    w.write(Map("id" -> 1, "name" -> "aina", "tags" -> Seq("a")))
+    w.write("""{"id": 2, "ts": "2026-01-01T00:00:00Z"}""") // JSON object
+    w.write(Seq(3, "kai", Seq.empty, null))                 // values in schema order
+    w.write("""[4, null, ["x"], 1767225600000]""")          // JSON array
+  }
+```
+
+- Missing columns are null; keys without a column are ignored; keys match loosely (`user_name`).
+- TIMESTAMP takes `Instant`, ISO-8601 strings, or epoch millis; DECIMAL takes numbers or strings;
+  DATE takes `LocalDate` or `yyyy-mm-dd`.
+- More types: `INT8`, `INT16`, `INT32`, `FLOAT`, `DOUBLE`, `BOOLEAN`, `BINARY`, `ENUM`, `JSON`,
+  `DATE`, `TIMESTAMP_MICROS`, `UUID`, `decimal(p, s)`, `fixed(n)`, `map(k, v)`,
+  `struct(ParquetColumn.required(...), ...)`.
+- A row that does not fit throws `ParquetException` naming the column; the row is skipped and the
+  writer stays usable.
+
+## Writer options
+
+`ParquetWriteOptions.default` writes SNAPPY, data page v1, dictionary encoding (falls back to
+PLAIN past `dictionaryPageSize`, 1 MiB), 1 MiB pages, and 128 MiB row groups, with min/max/null
+statistics. Change them with `withCompression(CompressionCodec.LZ4_RAW)` (also `GZIP`, not in
+browsers), `noCompression()`, `noDictionary()`, `withPageSize`, and `withRowGroupSize`. One row
+group is buffered in memory; on Scala.js a file stream holds the whole file until `close()`.
+
 ## Limits
 
-Read-only. No modular encryption, LZO codec, or ALP encoding; a column chunk must hold under
-2 GiB of values. These fail with `ParquetException`.
+No modular encryption, LZO codec, or ALP encoding; a column chunk must hold under 2 GiB of
+values. These fail with `ParquetException`. The writer does not compress with ZSTD or BROTLI and
+writes no data page v2, DELTA encodings, page indexes, or bloom filters.

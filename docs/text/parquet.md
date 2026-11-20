@@ -1,13 +1,14 @@
 ---
-description: Read Apache Parquet files in pure Scala on the JVM, Scala.js, and Scala Native, from local files, byte arrays, or HTTP Range requests, into case classes, Map[String, Any] rows, JSON, or column vectors.
+description: Read and write Apache Parquet files in pure Scala on the JVM, Scala.js, and Scala Native. Read from local files, byte arrays, or HTTP Range requests into case classes, Map[String, Any] rows, JSON, or column vectors, and write from case classes, maps, or JSON.
 ---
 
 # Parquet
 
-`uni-parquet` reads [Apache Parquet](https://parquet.apache.org/) files. It is written in Scala
-with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and browsers),
-and Scala Native, and it brings in no Hadoop or native libraries. It reads local files, byte
-arrays, and files on any HTTP server that supports Range requests, such as object storage.
+`uni-parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
+in Scala with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and
+browsers), and Scala Native, and it brings in no Hadoop or native libraries. It reads local files,
+byte arrays, and files on any HTTP server that supports Range requests, such as object storage. It
+writes case classes, maps, and JSON records to local files or byte arrays.
 
 ```scala sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
@@ -178,6 +179,126 @@ unchanged, so filter them again in your code. It checks top-level columns of int
 point, boolean, string, DATE (compare with `LocalDate`), and TIMESTAMP (compare with `Instant`)
 types; for other types, or when a column has no statistics, the row group is read.
 
+## Writing Files
+
+`Parquet.write` writes a collection of case classes, with the schema derived from the type:
+
+```scala
+Parquet.write("events.parquet", Seq(Event(1, "aina", Instant.now(), Seq("a"))))
+```
+
+To write rows one at a time, open a writer and close it when done. The file is readable only after
+`close()`, which writes the footer:
+
+```scala
+import wvlet.uni.control.Control
+
+Control.withResource(Parquet.newWriter[Event]("events.parquet")) { w =>
+  w.write(Event(1, "aina", Instant.now(), Seq("a")))
+  w.write(Event(2, "leo", Instant.now(), Seq.empty))
+}
+```
+
+`Parquet.writeBytes(rows)` returns the file as an `Array[Byte]`, and `Parquet.newWriter[A](out)`
+writes to any `java.io.OutputStream`. Both work on every platform, including browsers.
+
+### Schemas from Case Classes
+
+`ParquetSchema.of[A]` shows the schema a writer derives:
+
+| Scala field | Parquet column |
+|---|---|
+| `Int`, `Long`, `Short`, `Byte` | INT32, INT64, INT32 with INT(16), INT32 with INT(8) |
+| `Float`, `Double`, `Boolean` | FLOAT, DOUBLE, BOOLEAN |
+| `String`, `Char`, enums | STRING |
+| `Array[Byte]` | BYTE_ARRAY |
+| `Instant` | TIMESTAMP(MICROS, UTC); nanoseconds are dropped |
+| `UUID` | UUID (FIXED_LEN_BYTE_ARRAY(16)) |
+| `BigDecimal` | DECIMAL(38, 18) by default |
+| `Option[A]` | an OPTIONAL column; other fields are REQUIRED |
+| `Seq[A]`, `List[A]`, `Set[A]`, `Array[A]` | LIST (the standard 3-level layout) |
+| `Map[K, V]` | MAP |
+| a nested case class | a group |
+
+Columns keep the field names as written (`userName`). DECIMAL(38, 18) holds any value with up to
+20 digits before the point and 18 after, and reads in Spark and DuckDB. Set a narrower type for all
+`BigDecimal` fields, or for one field by its path:
+
+```scala
+import wvlet.uni.parquet.ParquetWriteOptions
+
+val opts = ParquetWriteOptions.default
+  .withDecimal(18, 4)               // every BigDecimal field
+  .withDecimal("price", 10, 2)      // one field (use "order.price" inside a nested case class)
+```
+
+A value that does not fit, such as `1.234` in a column with scale 2, is an error and is never
+rounded.
+
+### Records with an Explicit Schema
+
+When rows are not case classes, build a schema and use a record writer. `write` accepts a
+`Map[String, Any]`, a JSON object string, a `Seq` of values in schema order, or a JSON array
+string:
+
+```scala
+import wvlet.uni.parquet.{ParquetSchema, ParquetType}
+
+val schema = ParquetSchema
+  .builder("event")
+  .required("id", ParquetType.INT64)
+  .optional("name", ParquetType.STRING)
+  .optional("tags", ParquetType.list(ParquetType.STRING))
+  .optional("price", ParquetType.decimal(10, 2))
+  .build()
+
+Control.withResource(Parquet.newRecordWriter("records.parquet", schema)) { w =>
+  w.write(Map("id" -> 1, "name" -> "aina", "tags" -> Seq("a", "b")))
+  w.write("""{"id": 2, "name": "leo", "price": "12.50"}""")
+  w.write(Seq(3, "kai", Seq.empty, BigDecimal("1.5")))
+  w.write("""[4, null, ["x"], null]""")
+}
+```
+
+Missing columns are null, and keys without a column are ignored. Keys match column names loosely,
+as when reading (`user_name` fills `userName`). Each column accepts the usual forms of its type: a
+TIMESTAMP takes an `Instant`, an ISO-8601 string, or epoch milliseconds; a DECIMAL takes a number
+or a string (use strings in JSON for exact values); a DATE takes a `LocalDate` or `yyyy-mm-dd`.
+Other column types are `ParquetType.INT8`, `INT16`, `INT32`, `FLOAT`, `DOUBLE`, `BOOLEAN`,
+`BINARY`, `ENUM`, `JSON`, `DATE`, `TIMESTAMP_MILLIS`, `TIMESTAMP_MICROS`, `TIMESTAMP_NANOS`,
+`UUID`, `fixed(n)`, `map(key, value)`, and `struct(columns*)`.
+
+A row that does not fit the schema, such as a missing required value or a string in an INT64
+column, throws `ParquetException` naming the column. The row is not written, and the writer
+stays usable. If the output fails (for example, the disk is full), the writer closes without a
+footer, and the partial file does not read as Parquet.
+
+### File Layout and Options
+
+The writer produces files that other engines read: data page v1, PLAIN and RLE encodings, and
+dictionary encoding for every column except booleans. A column whose dictionary grows past
+`dictionaryPageSize` (1 MiB) switches to PLAIN for the rest of its row group. Each column chunk
+stores min, max, and null counts, so `RowGroupFilter`, DuckDB, and Spark can skip row groups.
+
+```scala
+import wvlet.uni.parquet.format.CompressionCodec
+
+val tuned = ParquetWriteOptions.default
+  .withCompression(CompressionCodec.LZ4_RAW)
+  .withRowGroupSize(64L * 1024 * 1024) // default 128 MiB
+  .withPageSize(512 * 1024)            // default 1 MiB
+  .noDictionary()
+```
+
+Compression is SNAPPY by default, with UNCOMPRESSED (`noCompression()`), LZ4_RAW, and GZIP. GZIP
+uses the platform's zlib, so browsers cannot write it. ZSTD and BROTLI files can be read but not
+written.
+
+The writer holds one row group in memory, as compressed pages, and writes it when it reaches the
+row group size. On the JVM and Scala Native, each row group goes to the file as soon as it is
+complete. On Scala.js, a file output stream keeps the whole file in memory and writes it on
+`close()`, so peak memory is the file size.
+
 ## What Is Supported
 
 - **Encodings**: PLAIN, RLE and bit-packing, dictionary (PLAIN_DICTIONARY, RLE_DICTIONARY),
@@ -189,13 +310,16 @@ types; for other types, or when a column has no statistics, the row group is rea
 - **Types**: all physical types and the logical types listed above, nested lists, maps, and
   structs, and the legacy list and map layouts that older writers produce.
 
-Not supported: writing Parquet, modular encryption, the LZO codec, the new ALP encoding, and column
-chunks with more than 2 GiB of values. They fail with a `ParquetException` that names the feature.
+Not supported: modular encryption, the LZO codec, the new ALP encoding, and column chunks with
+more than 2 GiB of values. The writer does not produce data page v2, the DELTA encodings, page
+indexes, or bloom filters, and does not compress with ZSTD or BROTLI. These fail with a
+`ParquetException` that names the feature, or are left out of written files.
 
 ## When to Use Another Library
 
 On the JVM, [parquet-java](https://github.com/apache/parquet-java) and
-[Apache Arrow](https://arrow.apache.org/) read and write Parquet with vectorized readers tuned
-over many years, and [DuckDB](https://duckdb.org/) queries Parquet with SQL. They are good choices
-for heavy analytics and for writing files. Choose `uni-parquet` when you need to read Parquet on
-Scala.js or Scala Native, from a browser over HTTP, or with no dependencies beyond Uni.
+[Apache Arrow](https://arrow.apache.org/) read and write Parquet with vectorized readers and
+writers tuned over many years, and [DuckDB](https://duckdb.org/) queries Parquet with SQL. They are
+good choices for heavy analytics, very large files, and features such as page indexes and bloom
+filters. Choose `uni-parquet` when you need Parquet on Scala.js or Scala Native, from a browser
+over HTTP, or with no dependencies beyond Uni.

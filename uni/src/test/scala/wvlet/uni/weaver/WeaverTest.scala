@@ -8,6 +8,17 @@ import scala.jdk.CollectionConverters.*
 
 class WeaverTest extends UniTest:
 
+  test("Array[Byte] reads MessagePack binary and arrays of numbers") {
+    val w      = summon[Weaver[Array[Byte]]]
+    val packer = wvlet.uni.msgpack.spi.MessagePack.newPacker()
+    packer.packBinaryHeader(3)
+    packer.writePayload(Array[Byte](1, -2, 3))
+    w.unweave(packer.toByteArray).toSeq shouldBe Seq[Byte](1, -2, 3)
+    // Packing is unchanged: an array of numbers, which also reads back
+    w.toJson(Array[Byte](1, -2)) shouldBe "[1,-2]"
+    w.unweave(w.toMsgPack(Array[Byte](4, 5))).toSeq shouldBe Seq[Byte](4, 5)
+  }
+
   test("weave int") {
     val v       = 1
     val msgpack = Weaver.weave(1)

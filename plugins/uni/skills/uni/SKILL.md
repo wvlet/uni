@@ -23,7 +23,7 @@ testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 // Optional, JVM only: serve Http.server on Netty instead of the built-in server
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
 
-// Optional, all platforms: read Apache Parquet files
+// Optional, all platforms: read and write Apache Parquet files
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "<version>"
 ```
 
@@ -46,7 +46,7 @@ Maven Central should depend on a Central version and not add that resolver.
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`, `YAML.parseDocument(text).set(path, v).toYaml` (keeps comments), `YAML.parseDocuments`/`YAML.writeStream` for `---` streams; see [references/core.md](references/core.md#yaml-and-frontmatter) |
 | Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`, `.frontmatterAs[P]`, `.toMarkdown` (lossless); see [references/core.md](references/core.md#markdown) |
 | Cron schedules | `wvlet.uni.text.cron.{Cron, UtcOffset}` | `Cron.parse(expr).next(instant)`, `.nextN(instant, n)`, `.describe`; UTC or a fixed `UtcOffset` only; see [references/core.md](references/core.md#cron-schedules) |
-| Parquet files (`uni-parquet` artifact) | `wvlet.uni.parquet.{Parquet, ParquetReadOptions, RowGroupFilter}` | `Parquet.readAs[A](path)`, `Parquet.readRows(path)` for `Map[String, Any]` rows, `Parquet.readJson(path)`, `Parquet.open(path).readRowGroup(i)` for column vectors, `Parquet.openUrl(url)` over HTTP Range requests; read-only, pure Scala on every platform; see [references/parquet.md](references/parquet.md) |
+| Parquet files (`uni-parquet` artifact) | `wvlet.uni.parquet.{Parquet, ParquetReadOptions, RowGroupFilter, ParquetWriteOptions, ParquetSchema, ParquetType}` | `Parquet.readAs[A](path)`, `Parquet.readRows(path)` for `Map[String, Any]` rows, `Parquet.readJson(path)`, `Parquet.open(path).readRowGroup(i)` for column vectors, `Parquet.openUrl(url)` over HTTP Range requests; `Parquet.write(path, rows)`, `Parquet.newWriter[A](path)`, `Parquet.newRecordWriter(path, schema)` for writing; pure Scala on every platform; see [references/parquet.md](references/parquet.md) |
 | Reactive streams | `wvlet.uni.rx.Rx` | `Rx.variable(v)`, `Rx.single(v)`, `.map`, `.flatMap`, `.scan(init)(f)`, `items.split(_.id)` (one `Rx` per key); see [references/rx.md](references/rx.md) |
 | Concurrent blocking code (JVM, Native) | `wvlet.uni.control.Fiber` | `Fiber { f() }.join()`, `Fiber.parMap(items, maxConcurrency = 16)(f)`, `Fiber.par(a, b)`, `Fiber.race(a, b)`, `Fiber.scope { s => s.fork(...) }`; virtual threads on JDK 24+; not on Scala.js (use `RxFiber`); see [references/rx.md](references/rx.md#fiber-plain-blocking-code) |
 | Persisted settings | `wvlet.uni.config.SettingStore` | `SettingStore.of[A].withAppName(app).withXXX(...).load(fileName)`; see [references/core.md](references/core.md#persisted-settings-settingstore) |
@@ -119,7 +119,7 @@ Read the reference for the task before writing code:
 | Object wiring, logging, JSON, YAML, Markdown, cron, persisted settings, off-heap memory, retry, MCP server | [references/core.md](references/core.md) |
 | Typed RPC service, server, generated client, and streaming results | [references/rpc.md](references/rpc.md) |
 | HTTP client | [references/http-client.md](references/http-client.md) |
-| Reading Parquet files (local, bytes, HTTP) into case classes, `Map[String, Any]` rows, JSON, or column vectors | [references/parquet.md](references/parquet.md) |
+| Reading Parquet files (local, bytes, HTTP) into case classes, `Map[String, Any]` rows, JSON, or column vectors, and writing them from case classes, maps, or JSON | [references/parquet.md](references/parquet.md) |
 | HTTP server, REST controllers, filters, CORS | [references/http-server.md](references/http-server.md) |
 | Unit, HTTP, RPC, property, and uni-dom UI tests; test tags | [references/testing.md](references/testing.md) |
 | Rx operators, RxRef/RxDeferred/RxSemaphore, fibers (`RxFiber` and direct-style `Fiber`), parallelism | [references/rx.md](references/rx.md) |

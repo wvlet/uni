@@ -244,6 +244,7 @@ object Weaver:
     mapWeaver,
     listMapWeaver,
     arrayWeaver,
+    byteArrayWeaver,
     eitherWeaver,
     emptyTupleWeaver,
     tupleWeaver,

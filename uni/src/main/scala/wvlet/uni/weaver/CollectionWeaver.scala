@@ -132,12 +132,18 @@ class ArrayWeaver(elem: Weaver[?], elemClass: Class[?]) extends Weaver[Array[?]]
             }
             context.setObject(arr)
           case None => // Error already set
+      case ValueType.BINARY if elemClass == classOf[Byte] =>
+        // MessagePack binary, as Parquet and other binary sources produce for Array[Byte]
+        val len = u.unpackBinaryHeader
+        context.setObject(u.readPayload(len))
       case ValueType.NIL =>
         u.unpackNil
         context.setNull
       case other =>
         u.skipValue
         context.setError(IllegalArgumentException(s"Cannot convert ${other} to Array"))
+
+end ArrayWeaver
 
 class JavaListWeaver(elem: Weaver[?]) extends Weaver[java.util.List[?]]:
   override def innerWeavers: Seq[Weaver[?]] = Seq(elem)

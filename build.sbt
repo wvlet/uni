@@ -248,7 +248,7 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
   .dependsOn(core, test % Test)
 
-// uni-parquet - Pure-Scala Apache Parquet reader for JVM, Scala.js, and Scala Native
+// uni-parquet - Pure-Scala Apache Parquet reader and writer for JVM, Scala.js, and Scala Native
 lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("uni-parquet"))
@@ -256,7 +256,7 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni-parquet",
     description :=
-      "Pure-Scala Apache Parquet reader for JVM, Scala.js, and Scala Native: reads local files, byte arrays, and HTTP range requests into column batches or case classes, with built-in Snappy, Gzip, LZ4, ZSTD, and Brotli decompression"
+      "Pure-Scala Apache Parquet reader and writer for JVM, Scala.js, and Scala Native: reads local files, byte arrays, and HTTP range requests into column batches or case classes, writes case classes, maps, and JSON records, with built-in Snappy, Gzip, LZ4, ZSTD, and Brotli codecs"
   )
   .jvmSettings(jvmNativeSharedSources)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
