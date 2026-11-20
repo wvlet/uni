@@ -22,10 +22,7 @@ private[parquet] object Zstd:
       if end - ip < 4 then
         fail("frame header is truncated")
       val magic = le32(src, ip)
-      if (
-          magic & 0xfffffff0
-        ) == 0x184d2a50
-      then
+      if (magic & 0xfffffff0) == 0x184d2a50 then
         // Skippable frame
         if end - ip < 8 then
           fail("skippable frame is truncated")
@@ -44,24 +41,8 @@ private[parquet] object Zstd:
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
     out
 
-  end decompress
-
   private[codec] inline def le32(b: Array[Byte], i: Int): Int =
-    (
-      b(i) & 0xff
-    ) | (
-      (
-        b(i + 1) & 0xff
-      ) << 8
-    ) | (
-      (
-        b(i + 2) & 0xff
-      ) << 16
-    ) | (
-      (
-        b(i + 3) & 0xff
-      ) << 24
-    )
+    (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
 
   private[codec] inline def highBit(v: Int): Int = 31 - Integer.numberOfLeadingZeros(v)
 
@@ -104,198 +85,6 @@ private[parquet] object Zstd:
 
 end Zstd
 
-/**
-  * Reads a bitstream backward, from its last bit toward its first, as ZSTD's FSE and Huffman
-  * streams require. The last byte holds a 1 marking where the data starts.
-  */
-private[codec] final class BackwardBitReader(buf: Array[Byte], start: Int, end: Int):
-  if end <= start then
-    Zstd.fail("bitstream is empty")
-
-  private val last = buf(end - 1) & 0xff
-  if last == 0 then
-    Zstd.fail("bitstream has no end marker")
-
-  /** Bits not yet read; negative after reading past the start (the missing bits are zeros) */
-  var remaining: Long =
-    (
-      end - start
-    ).toLong * 8 - 8 + Zstd.highBit(last)
-
-  private val length = end - start
-
-  // A cached 64-bit window of the stream: bits [windowLo, windowLo + 64). Reads go backward, so a
-  // window is loaded to end at the requested bits and serves the next few reads below them.
-  private var windowLo: Long = Long.MaxValue
-  private var window: Long   = 0L
-
-  /** Bits [pos, pos + n) of the stream, with bit 0 the lowest bit of the first byte; n <= 32 */
-  private def bitsAt(pos: Long, n: Int): Long =
-    val off = pos - windowLo
-    if off >= 0 && off + n <= 64 then
-      (
-        window >>> off.toInt
-      ) & (
-        (
-          1L << n
-        ) - 1
-      )
-    else
-      load(pos, n)
-
-  private def load(pos: Long, n: Int): Long =
-    if pos >= 0 && length >= 8 then
-      // The 8 bytes that end at the byte holding the read's last bit, kept inside the stream
-      val b = math.min(
-        (
-          (
-            pos + n + 7
-          ) >>> 3
-        ).toInt - 8,
-        length - 8
-      )
-      if b >= 0 && b.toLong * 8 <= pos then
-        window = le64(start + b)
-        windowLo = b.toLong * 8
-        (
-          window >>> (
-            pos - windowLo
-          ).toInt
-        ) & (
-          (
-            1L << n
-          ) - 1
-        )
-      else
-        bitsAtSlow(pos, n)
-    else
-      bitsAtSlow(pos, n)
-
-  private inline def le64(i: Int): Long =
-    (
-      buf(i) & 0xffL
-    ) | (
-      (
-        buf(i + 1) & 0xffL
-      ) << 8
-    ) | (
-      (
-        buf(i + 2) & 0xffL
-      ) << 16
-    ) |
-      (
-        (
-          buf(i + 3) & 0xffL
-        ) << 24
-      ) | (
-        (
-          buf(i + 4) & 0xffL
-        ) << 32
-      ) | (
-        (
-          buf(i + 5) & 0xffL
-        ) << 40
-      ) |
-      (
-        (
-          buf(i + 6) & 0xffL
-        ) << 48
-      ) | (
-        (
-          buf(i + 7) & 0xffL
-        ) << 56
-      )
-
-  /** Bits near the stream's ends, or below position 0 (which read as zeros) */
-  private def bitsAtSlow(pos: Long, n: Int): Long =
-    if n == 0 then
-      0L
-    else
-      var v   = 0L
-      var got = 0
-      var p   = pos
-      // Bits below position 0 read as zero
-      if p < 0 then
-        got = math.min(n.toLong, -p).toInt
-        p += got
-      while got < n do
-        val byteIdx =
-          (
-            p >>> 3
-          ).toInt
-        val inByte =
-          (
-            p & 7
-          ).toInt
-        val take = math.min(8 - inByte, n - got)
-        val b    =
-          (
-            buf(start + byteIdx) & 0xff
-          ) >>> inByte
-        v |= (
-          b & (
-            (
-              1 << take
-            ) - 1
-          )
-        ).toLong << got
-        got += take
-        p += take
-      v
-
-  def read(n: Int): Int =
-    val v = bitsAt(remaining - n, n)
-    remaining -= n
-    v.toInt
-
-  def peek(n: Int): Int = bitsAt(remaining - n, n).toInt
-
-  def skip(n: Int): Unit = remaining -= n
-
-  def isOverflowed: Boolean = remaining < 0
-
-end BackwardBitReader
-
-/** A forward bit reader for FSE table descriptions */
-private[codec] final class ForwardBitReader(buf: Array[Byte], start: Int, end: Int):
-  var bitPos: Long = 0L
-
-  def peek(n: Int): Int =
-    var v = 0
-    var i = 0
-    while i < n do
-      val p       = bitPos + i
-      val byteIdx =
-        start + (
-          p >>> 3
-        ).toInt
-      if byteIdx < end then
-        v |= (
-          (
-            buf(byteIdx) >>> (
-              p & 7
-            ).toInt
-          ) & 1
-        ) << i
-      i += 1
-    v
-
-  def skip(n: Int): Unit = bitPos += n
-
-  def read(n: Int): Int =
-    val v = peek(n)
-    skip(n)
-    v
-
-  def bytesUsed: Int =
-    (
-      (
-        bitPos + 7
-      ) >>> 3
-    ).toInt
-
-end ForwardBitReader
-
 /** An FSE decoding table */
 private[codec] final class FseTable(
     val accuracyLog: Int,
@@ -322,10 +111,7 @@ private[codec] object FseTable:
       else
         next(s) = norm(s)
       s += 1
-    val step =
-      (
-        size >>> 1
-      ) + (size >>> 3) + 3
+    val step = (size >>> 1) + (size >>> 3) + 3
     val mask = size - 1
     var pos  = 0
     s = 0
@@ -333,15 +119,9 @@ private[codec] object FseTable:
       var i = 0
       while i < norm(s) do
         symbols(pos) = s
-        pos =
-          (
-            pos + step
-          ) & mask
+        pos = (pos + step) & mask
         while pos > highThreshold do
-          pos =
-            (
-              pos + step
-            ) & mask
+          pos = (pos + step) & mask
         i += 1
       s += 1
     if pos != 0 then
@@ -353,10 +133,7 @@ private[codec] object FseTable:
       next(sym) += 1
       val bits = accuracyLog - Zstd.highBit(ns)
       nbBits(u) = bits
-      newState(u) =
-        (
-          ns << bits
-        ) - size
+      newState(u) = (ns << bits) - size
       u += 1
     FseTable(accuracyLog, symbols, nbBits, newState)
 
@@ -374,10 +151,7 @@ private[codec] object FseTable:
     if accuracyLog > maxLog then
       Zstd.fail(s"FSE accuracy log ${accuracyLog} exceeds ${maxLog}")
     val norm      = new Array[Int](maxSymbol + 1)
-    var remaining =
-      (
-        1 << accuracyLog
-      ) + 1
+    var remaining = (1 << accuracyLog) + 1
     var threshold = 1 << accuracyLog
     var nbBits    = accuracyLog + 1
     var symbol    = 0
@@ -396,16 +170,10 @@ private[codec] object FseTable:
           norm(symbol) = 0
           symbol += 1
       if symbol <= maxSymbol then
-        val max =
-          (
-            2 * threshold - 1
-          ) - remaining
+        val max   = (2 * threshold - 1) - remaining
         val bs    = r.peek(nbBits)
         var count =
-          if (
-              bs & (threshold - 1)
-            ) < max
-          then
+          if (bs & (threshold - 1)) < max then
             r.skip(nbBits - 1)
             bs & (threshold - 1)
           else
@@ -454,10 +222,7 @@ private[codec] object HuffmanTable:
     if header >= 128 then
       // Weights stored directly, 4 bits each
       count = header - 127
-      val bytes =
-        (
-          count + 1
-        ) / 2
+      val bytes = (count + 1) / 2
       if bytes > end - start - 1 then
         Zstd.fail("Huffman weights are truncated")
       var i = 0
@@ -523,14 +288,8 @@ private[codec] object HuffmanTable:
     val maxBits = Zstd.highBit(sum.toInt) + 1
     if maxBits > 11 then
       Zstd.fail(s"Huffman code length ${maxBits} is too large")
-    val left =
-      (
-        1L << maxBits
-      ) - sum
-    if left <= 0 || (
-        left & (left - 1)
-      ) != 0
-    then
+    val left = (1L << maxBits) - sum
+    if left <= 0 || (left & (left - 1)) != 0 then
       Zstd.fail("Huffman weights do not form a complete tree")
     weights(count) = Zstd.highBit(left.toInt) + 1
     val numSymbols = count + 1
@@ -557,17 +316,7 @@ private[codec] object HuffmanTable:
         val len = 1 << (wt - 1)
         val st  = rankStart(wt)
         java.util.Arrays.fill(symbols, st, st + len, i.toByte)
-        java
-          .util
-          .Arrays
-          .fill(
-            bits,
-            st,
-            st + len,
-            (
-              maxBits + 1 - wt
-            ).toByte
-          )
+        java.util.Arrays.fill(bits, st, st + len, (maxBits + 1 - wt).toByte)
         rankStart(wt) += len
       i += 1
     HuffmanTable(maxBits, symbols, bits)
@@ -626,19 +375,10 @@ private[codec] final class FrameDecoder(
     val descriptor = byteAt(inputPos)
     inputPos += 1
     val fcsFlag       = descriptor >>> 6
-    val singleSegment =
-      (
-        descriptor & 0x20
-      ) != 0
-    val hasChecksum =
-      (
-        descriptor & 0x04
-      ) != 0
-    val dictIdFlag = descriptor & 0x03
-    if (
-        descriptor & 0x08
-      ) != 0
-    then
+    val singleSegment = (descriptor & 0x20) != 0
+    val hasChecksum   = (descriptor & 0x04) != 0
+    val dictIdFlag    = descriptor & 0x03
+    if (descriptor & 0x08) != 0 then
       fail("reserved frame header bit is set")
     if !singleSegment then
       val wd = byteAt(inputPos)
@@ -647,10 +387,7 @@ private[codec] final class FrameDecoder(
       val mantissa  = wd & 7
       val windowLog = 10 + exponent
       val base      = 1L << windowLog
-      val window    =
-        base + (
-          base / 8
-        ) * mantissa
+      val window    = base + (base / 8) * mantissa
       maxBlock = math.min(MaxBlockSize.toLong, window).toInt
     val dictIdSize =
       dictIdFlag match
@@ -704,14 +441,8 @@ private[codec] final class FrameDecoder(
     while !last do
       val h = byteAt(inputPos) | (byteAt(inputPos + 1) << 8) | (byteAt(inputPos + 2) << 16)
       inputPos += 3
-      last =
-        (
-          h & 1
-        ) != 0
-      val blockType =
-        (
-          h >>> 1
-        ) & 3
+      last = (h & 1) != 0
+      val blockType = (h >>> 1) & 3
       val blockSize = h >>> 3
       blockType match
         case 0 =>
@@ -751,10 +482,7 @@ private[codec] final class FrameDecoder(
     var ip         = blockStart
     val b0         = byteAt(ip)
     val litType    = b0 & 3
-    val sizeFormat =
-      (
-        b0 >>> 2
-      ) & 3
+    val sizeFormat = (b0 >>> 2) & 3
     var regenSize  = 0
     var compSize   = 0
     var numStreams = 1
@@ -764,16 +492,10 @@ private[codec] final class FrameDecoder(
           regenSize = b0 >>> 3
           ip += 1
         case 1 =>
-          regenSize =
-            (
-              b0 >>> 4
-            ) | (byteAt(ip + 1) << 4)
+          regenSize = (b0 >>> 4) | (byteAt(ip + 1) << 4)
           ip += 2
         case _ =>
-          regenSize =
-            (
-              b0 >>> 4
-            ) | (byteAt(ip + 1) << 4) | (byteAt(ip + 2) << 12)
+          regenSize = (b0 >>> 4) | (byteAt(ip + 1) << 4) | (byteAt(ip + 2) << 12)
           ip += 3
     else
       sizeFormat match
@@ -784,38 +506,20 @@ private[codec] final class FrameDecoder(
             else
               4
           val h = b0 | (byteAt(ip + 1) << 8) | (byteAt(ip + 2) << 16)
-          regenSize =
-            (
-              h >>> 4
-            ) & 0x3ff
-          compSize =
-            (
-              h >>> 14
-            ) & 0x3ff
+          regenSize = (h >>> 4) & 0x3ff
+          compSize = (h >>> 14) & 0x3ff
           ip += 3
         case 2 =>
           numStreams = 4
           val h = b0 | (byteAt(ip + 1) << 8) | (byteAt(ip + 2) << 16) | (byteAt(ip + 3) << 24)
-          regenSize =
-            (
-              h >>> 4
-            ) & 0x3fff
-          compSize =
-            (
-              h >>> 18
-            ) & 0x3fff
+          regenSize = (h >>> 4) & 0x3fff
+          compSize = (h >>> 18) & 0x3fff
           ip += 4
         case _ =>
           numStreams = 4
           val h = b0 | (byteAt(ip + 1) << 8) | (byteAt(ip + 2) << 16) | (byteAt(ip + 3) << 24)
-          regenSize =
-            (
-              h >>> 4
-            ) & 0x3ffff
-          compSize =
-            (
-              h >>> 22
-            ) | (byteAt(ip + 4) << 10)
+          regenSize = (h >>> 4) & 0x3ffff
+          compSize = (h >>> 22) | (byteAt(ip + 4) << 10)
           ip += 5
     end if
     if regenSize > maxBlock then
@@ -846,38 +550,14 @@ private[codec] final class FrameDecoder(
         else
           if litEnd - p < 6 then
             fail("literal jump table is truncated")
-          val s1 =
-            (
-              src(p) & 0xff
-            ) | (
-              (
-                src(p + 1) & 0xff
-              ) << 8
-            )
-          val s2 =
-            (
-              src(p + 2) & 0xff
-            ) | (
-              (
-                src(p + 3) & 0xff
-              ) << 8
-            )
-          val s3 =
-            (
-              src(p + 4) & 0xff
-            ) | (
-              (
-                src(p + 5) & 0xff
-              ) << 8
-            )
+          val s1   = (src(p) & 0xff) | ((src(p + 1) & 0xff) << 8)
+          val s2   = (src(p + 2) & 0xff) | ((src(p + 3) & 0xff) << 8)
+          val s3   = (src(p + 4) & 0xff) | ((src(p + 5) & 0xff) << 8)
           val base = p + 6
           val s4   = litEnd - base - s1 - s2 - s3
           if s4 <= 0 then
             fail("literal streams do not fit")
-          val seg =
-            (
-              regenSize + 3
-            ) / 4
+          val seg = (regenSize + 3) / 4
           if seg * 3 > regenSize then
             fail("too few literals for four streams")
           var at = base
@@ -909,12 +589,7 @@ private[codec] final class FrameDecoder(
       nbSeq = n0
       ip += 1
     else if n0 < 255 then
-      nbSeq =
-        (
-          (
-            n0 - 128
-          ) << 8
-        ) + byteAt(ip + 1)
+      nbSeq = ((n0 - 128) << 8) + byteAt(ip + 1)
       ip += 2
     else
       nbSeq = byteAt(ip + 1) + (byteAt(ip + 2) << 8) + 0x7f00
@@ -924,15 +599,10 @@ private[codec] final class FrameDecoder(
     if nbSeq > 0 then
       val modes = byteAt(ip)
       ip += 1
-      if (
-          modes & 3
-        ) != 0
-      then
+      if (modes & 3) != 0 then
         fail("reserved sequence mode bits are set")
       ip = readTable(
-        (
-          modes >>> 6
-        ) & 3,
+        (modes >>> 6) & 3,
         ip,
         blockEnd,
         35,
@@ -943,9 +613,7 @@ private[codec] final class FrameDecoder(
         llTable
       )
       ip = readTable(
-        (
-          modes >>> 4
-        ) & 3,
+        (modes >>> 4) & 3,
         ip,
         blockEnd,
         31,
@@ -956,9 +624,7 @@ private[codec] final class FrameDecoder(
         ofTable
       )
       ip = readTable(
-        (
-          modes >>> 2
-        ) & 3,
+        (modes >>> 2) & 3,
         ip,
         blockEnd,
         52,
@@ -981,9 +647,7 @@ private[codec] final class FrameDecoder(
         if ofCode > 31 then
           fail(s"offset code ${ofCode} is too large")
         var offsetValue =
-          (
-            1L << ofCode
-          ) + (
+          (1L << ofCode) + (
             if ofCode > 0 then
               readLong(br, ofCode)
             else
@@ -1060,9 +724,7 @@ private[codec] final class FrameDecoder(
     else
       val hi = br.read(n - 24).toLong & 0xffffffffL
       val lo = br.read(24).toLong & 0xffffffL
-      (
-        hi << 24
-      ) | lo
+      (hi << 24) | lo
 
   private def readTable(
       mode: Int,
