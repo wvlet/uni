@@ -26,6 +26,9 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
   platform's zlib through `wvlet.uni.io.Gzip` where one exists (JVM, Native, Node.js) and the
   Scala inflate in browsers. The codecs are `private[parquet]` until another module needs them
   (for example `Content-Encoding: zstd`); moving them to a shared package is a separate decision.
+  The decoders' logic stays shared; only their 8-byte loads and copies (`Word8`) are per platform:
+  a VarHandle on the JVM (in Java, since Scala boxes `VarHandle.get` results), `memcpy` between
+  array pointers on Native, and byte assembly on Scala.js. They give the same bytes everywhere.
 - **The Brotli static dictionary is embedded gzip-compressed and base64-encoded** in a generated
   source (`scripts/gen-brotli-dictionary.py`), and expanded with the Scala inflate on first use.
   Scala.js has no class-path resources, and the raw 122 KiB would be split across many string

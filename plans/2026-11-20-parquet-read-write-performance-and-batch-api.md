@@ -214,8 +214,9 @@ path.
 
 ## Follow-ups
 
-- After PR 1 (#1023) merges, in a new session: try platform-specific wide copies for ZSTD and
-  Snappy matches and literals (VarHandle 8-byte loads and stores on the JVM, pointers on Native,
-  today's code on JS). The goal is orders snappy and zstd at ≤1.0x. Isolated A/B baselines on
-  `orders.uncompressed` in 1 MiB chunks: uni ZSTD 127 ms vs zstd-jni 47 ms; uni Snappy 61 ms.
-  Byte-loop and unrolled copies were slower than `System.arraycopy`.
+- Wide copies for ZSTD and Snappy (plans/2026-11-20-parquet-wide-copy.md): 16-byte wild copies
+  (VarHandle on the JVM, pointers on Native), packed ZSTD sequence tables, and bit state in locals.
+  Isolated A/B on `orders.uncompressed` in 1 MiB chunks: ZSTD 140 → 83 ms (zstd-jni 47), Snappy
+  60 → 43 ms (snappy-java 23). Still open: ZSTD at ~1.2x of parquet-java on `orders`; the rest is
+  the per-sequence dependency chain (table lookup → bit read → next state). Tried without gain:
+  a table-driven Snappy tag decoder, VarHandle int loads in Snappy, and rep offsets in locals.

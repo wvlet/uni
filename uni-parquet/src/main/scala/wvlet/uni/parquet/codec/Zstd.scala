@@ -91,7 +91,9 @@ private[codec] final class FseTable(
     val symbols: Array[Int],
     val nbBits: Array[Int],
     val newState: Array[Int]
-)
+):
+  /** The entries [[SeqTables]] packed from this table, kept for repeat-mode blocks */
+  private[codec] var seqEntries: Array[Long] = null
 
 private[codec] object FseTable:
   /** Builds a decoding table from normalized probabilities (-1 means "less than 1") */
@@ -332,16 +334,7 @@ private[codec] object HuffmanTable:
       out: Array[Byte],
       outPos: Int,
       n: Int
-  ): Unit =
-    val br = BackwardBitReader(buf, start, end)
-    var i  = 0
-    while i < n do
-      val idx = br.peek(t.maxBits)
-      out(outPos + i) = t.symbols(idx)
-      br.skip(t.bits(idx))
-      i += 1
-    if br.remaining != 0 then
-      Zstd.fail("Huffman stream has the wrong length")
+  ): Unit = ZstdHuffman.decode(t, buf, start, end, out, outPos, n)
 
 end HuffmanTable
 
@@ -363,7 +356,7 @@ private[codec] final class FrameDecoder(
   private var ofTable: FseTable     = null
   private var mlTable: FseTable     = null
   private val rep                   = Array(1, 4, 8)
-  private val literals              = new Array[Byte](MaxBlockSize)
+  private val literals              = new Array[Byte](MaxBlockSize + 16) // slack for wide copies
   private var maxBlock              = MaxBlockSize
 
   private def byteAt(i: Int): Int =
@@ -635,78 +628,23 @@ private[codec] final class FrameDecoder(
         mlTable
       )
 
-      val br      = BackwardBitReader(src, ip, blockEnd)
-      var llState = br.read(llTable.accuracyLog)
-      var ofState = br.read(ofTable.accuracyLog)
-      var mlState = br.read(mlTable.accuracyLog)
-      var s       = 0
-      while s < nbSeq do
-        val ofCode = ofTable.symbols(ofState)
-        val llCode = llTable.symbols(llState)
-        val mlCode = mlTable.symbols(mlState)
-        if ofCode > 31 then
-          fail(s"offset code ${ofCode} is too large")
-        var offsetValue =
-          (1L << ofCode) + (
-            if ofCode > 0 then
-              readLong(br, ofCode)
-            else
-              0L
-          )
-        val ml = MLBase(mlCode) + br.read(MLBits(mlCode))
-        val ll = LLBase(llCode) + br.read(LLBits(llCode))
-        if s + 1 < nbSeq then
-          llState = llTable.newState(llState) + br.read(llTable.nbBits(llState))
-          mlState = mlTable.newState(mlState) + br.read(mlTable.nbBits(mlState))
-          ofState = ofTable.newState(ofState) + br.read(ofTable.nbBits(ofState))
-
-        // Resolve repeat offsets
-        val offset: Int =
-          if offsetValue > 3 then
-            val o = offsetValue - 3
-            if o > Int.MaxValue then
-              fail("offset is too large")
-            rep(2) = rep(1)
-            rep(1) = rep(0)
-            rep(0) = o.toInt
-            o.toInt
-          else
-            var idx = offsetValue.toInt
-            if ll == 0 then
-              idx += 1
-            if idx == 1 then
-              rep(0)
-            else
-              val o =
-                idx match
-                  case 2 =>
-                    rep(1)
-                  case 3 =>
-                    rep(2)
-                  case _ =>
-                    rep(0) - 1
-              if idx != 2 then
-                rep(2) = rep(1)
-              rep(1) = rep(0)
-              rep(0) = o
-              o
-
-        // Copy literals, then the match
-        if ll > regenSize - litPos || ll > out.length - outputPos then
-          fail("literal length is out of range")
-        System.arraycopy(literals, litPos, out, outputPos, ll)
-        litPos += ll
-        outputPos += ll
-        if offset <= 0 || offset > outputPos - frameStart then
-          fail(s"match offset ${offset} is out of range")
-        if ml > out.length - outputPos then
-          fail("match exceeds the expected output")
-        Lz77.copyMatch(out, outputPos, offset, ml)
-        outputPos += ml
-        s += 1
-      end while
-      if br.remaining != 0 then
-        fail("sequence bitstream has the wrong length")
+      val r = ZstdSequences.decode(
+        src,
+        ip,
+        blockEnd,
+        nbSeq,
+        llTable,
+        mlTable,
+        ofTable,
+        literals,
+        regenSize,
+        out,
+        outputPos,
+        frameStart,
+        rep
+      )
+      outputPos = r.toInt
+      litPos = (r >>> 32).toInt
     end if
 
     // Remaining literals
@@ -717,14 +655,6 @@ private[codec] final class FrameDecoder(
     outputPos += rest
 
   end decodeBlock
-
-  private def readLong(br: BackwardBitReader, n: Int): Long =
-    if n <= 24 then
-      br.read(n).toLong & 0xffffffffL
-    else
-      val hi = br.read(n - 24).toLong & 0xffffffffL
-      val lo = br.read(24).toLong & 0xffffffL
-      (hi << 24) | lo
 
   private def readTable(
       mode: Int,
