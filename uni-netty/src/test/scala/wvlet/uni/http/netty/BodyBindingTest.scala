@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.http.router.RouterHandler
+
 import wvlet.uni.http.{HttpMethod, Request}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.msgpack.spi.{Packer, Unpacker, ValueType}

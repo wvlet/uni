@@ -103,6 +103,25 @@ Parameters are sent as JSON in the request body:
 
 Parameter names are matched flexibly — `userId`, `user_id`, and `user-id` all match the same parameter. Missing optional parameters (`Option[T]`) default to `None`, and parameters with default values use those defaults.
 
+## Serving RPC
+
+`RPCHandler` (`wvlet.uni.http.rpc`) turns a router into a handler for [`Http.server`](./server), which needs only the `uni` module on the JVM (JDK 24+), Scala.js, and Scala Native:
+
+```scala
+import wvlet.uni.http.Http
+import wvlet.uni.http.rpc.RPCHandler
+
+Http
+  .server
+  .withPort(8080)
+  .withRxHandler(RPCHandler(router))
+  .start { server =>
+    println(s"RPC server on ${server.localAddress}")
+  }
+```
+
+With `uni-netty` on the classpath, the same code serves on Netty. `RPCHandler` wraps `RPCDispatcher`, the transport-neutral part that also serves [Electron IPC](./electron).
+
 ## Generating a Client
 
 Instead of hand-writing request URLs and JSON, generate a **type-safe client**
@@ -361,7 +380,7 @@ val appEx = ServiceStatus.USER_ERROR_U0
 
 Error responses carry no stack trace by default, on every platform and transport. Stack frames reveal internal class names, file names, and line numbers, so a client sees only the status, message, and `appErrorCode`. The server still logs unexpected exceptions with their stack traces.
 
-For development, create the dispatcher with `withDetailedErrors(true)` (`RPCHandler(...).withDetailedErrors(true)` on Netty) to add the server-side stack trace as a `stackTrace` array of frames (`className`, `methodName`, `fileName`, `lineNumber`), the same shape as Airframe RPC:
+For development, create the handler or dispatcher with `withDetailedErrors(true)` (`RPCHandler(router).withDetailedErrors(true)`) to add the server-side stack trace as a `stackTrace` array of frames (`className`, `methodName`, `fileName`, `lineNumber`), the same shape as Airframe RPC:
 
 ```scala
 val dispatcher = RPCDispatcher(router).withDetailedErrors(true) // development only

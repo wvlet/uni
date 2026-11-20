@@ -42,7 +42,7 @@ run:
 ```scala
 import wvlet.uni.http.rpc.RPCRouter
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RPCHandler
+import wvlet.uni.http.rpc.RPCHandler
 
 val router = RPCRouter.of[UserService](UserServiceImpl())
 

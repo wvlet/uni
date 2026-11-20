@@ -2,9 +2,9 @@
 
 | API | JVM | Scala.js | Native |
 |-----|-----|----------|--------|
-| SSE server (`Response.eventStream`) | `Http.server` (Netty) | `Http.server` (Node) | `Http.server` |
+| SSE server (`Response.eventStream`) | `Http.server` (built-in or Netty) | `Http.server` (Node) | `Http.server` |
 | SSE client (`sendSSE`) | streams | streams (Fetch) | buffered until the response ends |
-| WebSocket server (`withWebSocketRoute`) | `Http.server` (Netty) | `Http.server` (Node) | `Http.server` |
+| WebSocket server (`withWebSocketRoute`) | `Http.server` (built-in or Netty) | `Http.server` (Node) | `Http.server` |
 | WebSocket client (`Http.webSocketClient`) | yes | browser, Node.js >= 22 | `ws://` only, IP or `localhost` |
 
 Full reference: https://wvlet.org/uni/http/sse.md, https://wvlet.org/uni/http/websocket.md,

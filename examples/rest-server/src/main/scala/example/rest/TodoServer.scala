@@ -3,7 +3,8 @@ package example.rest
 import wvlet.uni.design.Design
 import wvlet.uni.http.{HttpMethod, HttpServer, HttpSyncClient, Request, Response}
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.{RPCHandler, RouterHandler}
+import wvlet.uni.http.router.RouterHandler
+import wvlet.uni.http.rpc.RPCHandler
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.http.rpc.{RPCClient, RPCRouter}
 import wvlet.uni.log.LogSupport

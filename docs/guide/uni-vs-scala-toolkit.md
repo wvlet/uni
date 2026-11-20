@@ -27,7 +27,7 @@ Maven Central. Uni facts are from the current source.
 | Logging | Not included | [`LogSupport`](../core/logging): `info`/`debug`/`warn` with source locations |
 | JSON / MessagePack | [uPickle](https://com-lihaoyi.github.io/upickle/): `derives ReadWriter`, JSON and MessagePack | [Weaver](../core/weaver): `derives Weaver`, JSON and MessagePack |
 | HTTP client | [sttp client4](https://sttp.softwaremill.com/): JVM, Scala.js, Native | [`Http.client`](../http/client): sync and async, retries on by default; JVM, Scala.js (sync on Node.js only), Native (libcurl) |
-| HTTP server | Not in the artifact; the Toolkit tutorials add [Cask](https://docs.scala-lang.org/toolkit/web-server-intro.html) separately, JVM only | [REST Server](../http/server): a built-in server on the JVM (JDK 24+) and Scala Native, Netty on the JVM with `uni-netty`, and Node.js on Scala.js. Request handlers work on all three; the annotation router (`@Endpoint`) is JVM-only |
+| HTTP server | Not in the artifact; the Toolkit tutorials add [Cask](https://docs.scala-lang.org/toolkit/web-server-intro.html) separately, JVM only | [REST Server](../http/server): a built-in server on the JVM (JDK 24+) and Scala Native, Netty on the JVM with `uni-netty`, and Node.js on Scala.js. Request handlers, the annotation router (`@Endpoint`), and RPC work on all three |
 | RPC | Not included | [Typed RPC](../http/rpc) from a Scala trait (`RPCRouter`, `RPCClient`) |
 | MCP servers | Not included | [`uni.mcp`](../mcp/): a stdio MCP server on all three platforms |
 | Reactive streams | Not included | [Rx](../rx/): `Rx.variable`, `Rx.single`, `map`/`flatMap` |
@@ -60,8 +60,8 @@ Maven Central. Uni facts are from the current source.
   into an MCP server. Compiled with Scala Native, it becomes a single binary
   that starts instantly.
 - **The same code must run everywhere.** The HTTP client, file I/O, MCP, and
-  tests work on the JVM, Scala.js, and Scala Native, and so do HTTP servers
-  built from request handlers (the annotation router is JVM-only). In the
+  tests work on the JVM, Scala.js, and Scala Native, and so do HTTP and RPC
+  servers, including the annotation router. In the
   Toolkit, os-lib is missing on Scala.js and Cask runs on the JVM only.
 - **You want few transitive dependencies.** On the JVM, `uni` depends only on
   `uni-core` and the Scala library.

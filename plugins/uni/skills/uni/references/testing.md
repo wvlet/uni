@@ -114,9 +114,7 @@ client. The block form stops the server afterwards.
 
 ```scala test
 import wvlet.uni.http.Http
-import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RPCHandler
-import wvlet.uni.http.rpc.RPCRouter
+import wvlet.uni.http.rpc.{RPCHandler, RPCRouter}
 
 test("RPC round trip") {
   Http

@@ -47,7 +47,7 @@ features:
     details: Sync and async clients with automatic retry, streaming, Server-Sent Events, and WebSocket.
     link: /http/client
   - title: HTTP Server & RPC
-    details: Serve REST endpoints, and define RPC services as Scala traits with type-safe clients.
+    details: A built-in server on every platform. Serve REST endpoints, and define RPC services as Scala traits with type-safe clients.
     link: /http/server
   - title: MCP Servers
     details: Turn a Scala trait into an MCP server whose methods AI agents can call as tools.
@@ -84,7 +84,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 libraryDependencies += "org.wvlet.uni" %% "uni-test" % "__UNI_VERSION__" % Test
 testFrameworks += new TestFramework("wvlet.uni.test.Framework")
 
-// Netty HTTP server (JVM only)
+// Optional: serve Http.server on Netty (JVM only)
 libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
 
@@ -151,7 +151,7 @@ CLI and server, is built on `uni`, `uni-test`, and `uni-netty`.
 
 | Module | Contents | Platforms |
 |--------|----------|-----------|
-| `uni` | Design, logging, JSON/MessagePack, Rx, HTTP client, Node.js/Native HTTP servers, RPC, MCP, [CLI utilities](/cli/), [Web UI](/dom/) (Scala.js) | JVM, Scala.js, Scala Native |
-| `uni-netty` | Netty HTTP server, annotation router, HTTP RPC server | JVM |
+| `uni` | Design, logging, JSON/MessagePack, Rx, HTTP client, HTTP servers (built-in on the JVM and Native, Node.js on Scala.js), annotation router, RPC, MCP, [CLI utilities](/cli/), [Web UI](/dom/) (Scala.js) | JVM, Scala.js, Scala Native |
+| `uni-netty` | Optional Netty backend for `Http.server`, with Netty tuning options | JVM |
 | `uni-ui` | [UI components](/dom/ui) for uni-dom: controls, overlays, virtualized collections, a dock, and `UiAgent` for AI agents | Scala.js |
 | `uni-test` | UniTest framework | JVM, Scala.js, Scala Native |

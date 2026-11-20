@@ -11,10 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.http.netty
+package wvlet.uni.http.router
 
 import wvlet.uni.http.{HttpAccessLogFilter, Request, Response, RxHttpFilter, RxHttpHandler}
-import wvlet.uni.http.router.*
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.{OptionSurface, Surface}
@@ -56,7 +55,7 @@ class RouterHandler(
     with LogSupport:
 
   @deprecated(
-    "Controller exceptions now propagate to the server, which renders 500 responses. Use NettyServerConfig.withDetailedErrors instead",
+    "Controller exceptions now propagate to the server, which renders 500 responses. Use withDetailedErrors on the server config (Http.server or Netty.server) instead",
     "2026.1.29"
   )
   def withDetailedErrors(enabled: Boolean): RouterHandler =

@@ -32,7 +32,7 @@ import wvlet.uni.rx.Rx
   * /{serviceName}/{methodName}`), decodes the JSON envelope, invokes the method (awaiting `Rx[T]`
   * results), and produces a [[Response]]. The wire format is identical to what the [[RPCClient]]
   * expects, so any transport that can deliver a `Request` and return a `Response` works: HTTP
-  * (netty's `RPCHandler`), Electron IPC (`wvlet.uni.electron.ElectronRPCServer`), etc.
+  * ([[RPCHandler]]), Electron IPC (`wvlet.uni.electron.ElectronRPCServer`), etc.
   *
   * A request that accepts `text/event-stream` (sent by [[RPCAsyncClient.stream]]) gets every value
   * of the method's `Rx` as a Server-Sent Event, instead of only the first one. Each event's data is

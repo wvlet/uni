@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.http.rpc.RPCHandler
+
 import wvlet.uni.http.{
   HttpMultiMap,
   HttpStatus,

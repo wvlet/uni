@@ -69,14 +69,14 @@ later swaps just the seed; everything else stays real.
 ## Serving it over RPC
 
 Turn the implementation into routes with `RPCRouter.of`, wrap it in an
-`RPCHandler`, and serve it on Netty ([Chapter 9](./ch09-00-http),
+`RPCHandler`, and serve it with `Http.server` ([Chapter 9](./ch09-00-http),
 [Chapter 10](./ch10-00-rpc)). The server runs inside the Design session,
 so it is built and torn down with everything else:
 
 ```scala
 import wvlet.uni.http.rpc.RPCRouter
 import wvlet.uni.http.Http
-import wvlet.uni.http.netty.RPCHandler
+import wvlet.uni.http.rpc.RPCHandler
 
 appDesign.build[BookmarkServiceImpl] { service =>
   val router = RPCRouter.of[BookmarkService](service)
@@ -158,7 +158,7 @@ In one chapter you assembled the whole core stack into a working service:
 
 - **Data + contract** as `derives Weaver` case classes and a trait.
 - **Design** for the dependency graph, shared by production and tests.
-- **RPC + Netty** to serve the trait, with a generated typed client.
+- **RPC + `Http.server`** to serve the trait, with a generated typed client.
 - **Retry** around the one call that touches the network.
 - **UniTest + Design override** to test the real logic without a network.
 

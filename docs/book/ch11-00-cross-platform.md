@@ -53,7 +53,7 @@ them — and most application logic never does.
     + .jvm/          + .js/           + .native/   ← platform-only code
       ▼                ▼                ▼
      JVM            Scala.js        Scala Native
-  (Netty, JDK)   (browser, Node)   (native binary)
+     (JDK)      (browser, Node)   (native binary)
 ```
 
 ## Why most code doesn't care

@@ -47,8 +47,8 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 
 | Module | Description |
 |--------|-------------|
-| `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client, control flow |
-| `uni-netty` | Netty-based HTTP server (JVM only) |
+| `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client and server, RPC, control flow |
+| `uni-netty` | Optional Netty backend for the HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
 
 `uni` and `uni-test` are cross-platform: JVM, Scala.js, and Scala Native.
@@ -65,11 +65,8 @@ extra setup; for a newer release, add the wvlet resolver:
 // Only for a version newer than the Maven Central badge
 resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 
-// Core utilities (Design, logging, JSON, MessagePack, Rx, HTTP client, etc.)
+// Core utilities (Design, logging, JSON, MessagePack, Rx, HTTP client and server, RPC, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "<version>"
-
-// Netty-based HTTP server (JVM only; pulls in uni transitively)
-libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
 
 // Testing framework
 libraryDependencies += "org.wvlet.uni" %% "uni-test" % "<version>" % Test
@@ -108,9 +105,10 @@ class MyService extends LogSupport:
 See the [reference docs](https://wvlet.org/uni/) for Design, Rx,
 JSON/MessagePack, HTTP, and more.
 
-### Using `uni-netty` (HTTP server on the JVM)
+### Running an HTTP server
 
-`uni-netty` provides a Netty-based HTTP server:
+`Http.server` is part of `uni` and runs the same code on every platform: a
+built-in server on the JVM (JDK 24+) and Scala Native, and Node.js on Scala.js:
 
 ```scala
 import wvlet.uni.http.{Request, Response}
@@ -128,9 +126,16 @@ Http
   }
 ```
 
+The annotation-based router (`RouterHandler`) and typed RPC (`RPCHandler`)
+are in `uni` too. On the JVM, add the optional `uni-netty` module to serve the
+same code on Netty, for Netty's tuning options or a JDK older than 24:
+
+```scala
+libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "<version>"
+```
+
 See the [REST Server guide](https://wvlet.org/uni/http/server) for the
-annotation-based router, filters, and the Scala.js / Scala Native
-server backends (which need only `uni`).
+router, filters, RPC, and per-backend options.
 
 ### Using `uni-test`
 
