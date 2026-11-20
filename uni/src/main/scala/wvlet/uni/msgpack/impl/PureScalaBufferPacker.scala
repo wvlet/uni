@@ -33,7 +33,8 @@ class PureScalaBufferPacker extends BufferPacker:
   private var cursor = WriteCursor(buf, 0)
 
   override def toByteArray: Array[Byte] = buf.toByteArray(0, cursor.lastWrittenBytes)
-  override def clear: Unit              = cursor = WriteCursor(buf, 0)
+  // Reset in place: the cursor keeps its scratch arrays (see WriteCursor.stageAscii)
+  override def clear: Unit = cursor.reset()
 
   /** The bytes written so far as JSON, read in place without copying them out */
   private[uni] def writtenAsJson: String =

@@ -190,18 +190,23 @@ object OffsetPacker:
   def packDouble(cursor: WriteCursor, v: Double): Unit = packFLOAT64(cursor, v)
 
   def packString(cursor: WriteCursor, s: String): Unit =
-    val n = s.length
-    var i = 0
-    while Utf8.manualAscii && i < n && s.charAt(i) < 0x80 do
-      i += 1
-    if Utf8.manualAscii && i == n then
-      // ASCII: one byte per char, written straight to the buffer without a byte array between
-      packRawStringHeader(cursor, n)
+    if Utf8.manualAscii && cursor.stageAscii(s) then
+      // ASCII: one byte per char, copied from the cursor's scratch without a new byte array
+      packRawStringHeader(cursor, s.length)
+      cursor.writeStaged(s.length)
+    else if Utf8.manualAscii && s.length > WriteCursor.MaxStagedChars && isAscii(s) then
+      packRawStringHeader(cursor, s.length)
       cursor.writeAscii(s)
     else
       val bytes = Utf8.encode(s)
       packRawStringHeader(cursor, bytes.length)
       writePayload(cursor, bytes)
+
+  private def isAscii(s: String): Boolean =
+    var i = 0
+    while i < s.length && s.charAt(i) < 0x80 do
+      i += 1
+    i == s.length
 
   def packTimestamp(cursor: WriteCursor, v: Instant): Unit = packTimestampEpochSecond(
     cursor,

@@ -20,6 +20,11 @@ case class WriteCursor(var buf: WriteBuffer, var position: Int):
 
   def setOffset(offset: Int): Unit = this.offset = offset
 
+  /** Start over at the beginning of the buffer */
+  def reset(): Unit =
+    position = 0
+    offset = 0
+
   def lastWrittenBytes: Int = offset
 
   def ensureCapacity(size: Int): Unit = buf.ensureCapacity(position + offset, size)
@@ -59,7 +64,39 @@ case class WriteCursor(var buf: WriteBuffer, var position: Int):
       i += 1
     offset += n
 
+  // Scratch for stageAscii. On Scala Native, String.charAt is a call per char, while getChars is
+  // one copy and array reads are inlined.
+  private var chars: Array[Char]  = null
+  private var staged: Array[Byte] = null
+
+  /**
+    * Whether `s` is all ASCII. If so, its bytes are staged for [[writeStaged]]. Strings longer than
+    * [[WriteCursor.MaxStagedChars]] are never staged.
+    */
+  def stageAscii(s: String): Boolean =
+    val n = s.length
+    if n > WriteCursor.MaxStagedChars then
+      false
+    else
+      if chars == null || chars.length < n then
+        val size = math.max(64, Integer.highestOneBit(math.max(n, 1)) << 1)
+        chars = new Array[Char](size)
+        staged = new Array[Byte](size)
+      s.getChars(0, n, chars, 0)
+      var i = 0
+      while i < n && chars(i) < 0x80 do
+        staged(i) = chars(i).toByte
+        i += 1
+      i == n
+
+  /** Write the first `n` bytes [[stageAscii]] staged */
+  def writeStaged(n: Int): Unit = offset += buf.writeBytes(position + offset, staged, 0, n)
+
   def writeBytes(src: Array[Byte], srcOffset: Int, length: Int): Unit =
     offset += buf.writeBytes(position + offset, src, srcOffset, length)
 
 end WriteCursor
+
+object WriteCursor:
+  /** Longer strings take the per-char path, so a cursor keeps no large scratch arrays */
+  private[spi] final val MaxStagedChars = 4096
