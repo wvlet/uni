@@ -28,9 +28,9 @@ import wvlet.uni.rx.Rx
   * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
   * makes the server fail requests or abort under concurrent load. uni runs Boehm with one marker
   * thread, since a server's small heap makes Boehm collect often and one marker per core would
-  * stall every worker each time (set `GC_MARKERS` to override). The server also starts
-  * Boehm with a 16 MB heap, so it doesn't collect constantly (set `GC_INITIAL_HEAP_SIZE` to choose
-  * another size).
+  * stall every worker each time (set `GC_MARKERS` to override). The server also starts Boehm with a
+  * 16 MB heap, so it doesn't collect constantly (set `GC_INITIAL_HEAP_SIZE` to choose another
+  * size).
   */
 @deprecated(
   "Use Http.server; set Native-only options with withBackend(Native.options...)",
