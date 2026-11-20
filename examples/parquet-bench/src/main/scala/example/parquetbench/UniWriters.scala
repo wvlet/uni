@@ -1,7 +1,9 @@
 package example.parquetbench
 
 import wvlet.uni.io.FileSystem
+import wvlet.uni.parquet.ColumnBatch
 import wvlet.uni.parquet.Parquet
+import wvlet.uni.parquet.ParquetSchema
 import wvlet.uni.parquet.ParquetWriteOptions
 import wvlet.uni.parquet.format.CompressionCodec
 
@@ -20,6 +22,8 @@ object BenchData:
         cache = Map(key -> rows)
         rows
 
+  def clear(): Unit = cache = Map.empty
+
   def lineItems(dir: String): Seq[LineItem] = load(
     "lineitem",
     Parquet.readAs[LineItem](s"${dir}/lineitem.uncompressed.parquet").toIndexedSeq
@@ -29,6 +33,43 @@ object BenchData:
     "orders",
     Parquet.readAs[Order](s"${dir}/orders.uncompressed.parquet").toIndexedSeq
   )
+
+/** A table as column batches, for the batch writer */
+case class BenchBatches(schema: ParquetSchema, batches: Seq[ColumnBatch])
+
+object BenchBatches:
+  private var cache = Option.empty[(String, BenchBatches)]
+
+  /**
+    * The case classes written by uni and read back as batches, so the batch writer writes the same
+    * schema (camelCase names, dates as strings) and values as the case-class writer. One table is
+    * kept at a time, and its rows are dropped once the batches are built.
+    */
+  private def load(key: String, bytes: => Array[Byte]): BenchBatches =
+    cache match
+      case Some((k, b)) if k == key =>
+        b
+      case _ =>
+        cache = None
+        val f = Parquet.open(bytes)
+        val b =
+          try BenchBatches(f.schema, f.readBatches().toIndexedSeq)
+          finally f.close()
+        BenchData.clear()
+        cache = Some(key -> b)
+        b
+
+  def lineItems(dir: String): BenchBatches = load(
+    "lineitem",
+    Parquet.writeBytes[LineItem](BenchData.lineItems(dir))
+  )
+
+  def orders(dir: String): BenchBatches = load(
+    "orders",
+    Parquet.writeBytes[Order](BenchData.orders(dir))
+  )
+
+end BenchBatches
 
 /** uni-parquet writers. Each returns (rows, file size). */
 object UniWriters:
@@ -56,6 +97,13 @@ object UniWriters:
     prepare(path)
     val w = Parquet.newWriter[Order](path, options(codec))
     try w.writeAll(rows)
+    finally w.close()
+    (w.numRows, FileSystem.info(path).size)
+
+  def batches(data: BenchBatches, path: String, codec: String): (Long, Long) =
+    prepare(path)
+    val w = Parquet.newBatchWriter(path, data.schema, options(codec))
+    try w.writeAll(data.batches)
     finally w.close()
     (w.numRows, FileSystem.info(path).size)
 

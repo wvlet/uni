@@ -9,8 +9,10 @@ import wvlet.uni.parquet.io.IntBuf
   * boxed.
   */
 private[writer] final class LongDictionary:
-  private var keys  = new Array[Long](64)
-  private var slots = new Array[Int](64) // index + 1, or 0 when empty
+  // Slot s holds its key at 2s and its index + 1 at 2s + 1 (0 when empty), so a probe reads one
+  // cache line rather than one in each of two arrays
+  private var table = new Array[Long](2 * 64)
+  private var mask  = 63
   private var count = 0
 
   /** True when the last [[indexOf]] added the key */
@@ -21,7 +23,7 @@ private[writer] final class LongDictionary:
   // Folds the key to 32 bits, then mixes with MurmurHash3's finalizer, so keys that differ only
   // in their high bits (the bits of a round DOUBLE) spread too. 32-bit multiplies: Scala.js
   // emulates a 64-bit one.
-  private def slotOf(k: Long, mask: Int): Int =
+  private inline def slotOf(k: Long, mask: Int): Int =
     var h = k.toInt ^ ((k >>> 32).toInt * 0x9e3779b9)
     h ^= h >>> 16
     h *= 0x85ebca6b
@@ -32,44 +34,42 @@ private[writer] final class LongDictionary:
 
   /** The index of `k`, added at the end if it is new */
   def indexOf(k: Long): Int =
-    val mask = slots.length - 1
-    var s    = slotOf(k, mask)
-    while slots(s) != 0 && keys(s) != k do
+    val t = table
+    var s = slotOf(k, mask)
+    while t(2 * s + 1) != 0 && t(2 * s) != k do
       s = (s + 1) & mask
-    if slots(s) != 0 then
+    if t(2 * s + 1) != 0 then
       added = false
-      slots(s) - 1
+      t(2 * s + 1).toInt - 1
     else
       added = true
-      keys(s) = k
+      t(2 * s) = k
       count += 1
-      slots(s) = count
-      if count * 2 > slots.length then
+      t(2 * s + 1) = count
+      if count * 2 > mask + 1 then
         grow()
       count - 1
 
   private def grow(): Unit =
-    val oldKeys  = keys
-    val oldSlots = slots
-    keys = new Array[Long](oldKeys.length * 2)
-    slots = new Array[Int](oldSlots.length * 2)
-    val mask = slots.length - 1
-    var i    = 0
-    while i < oldSlots.length do
-      if oldSlots(i) != 0 then
-        var s = slotOf(oldKeys(i), mask)
-        while slots(s) != 0 do
+    val old = table
+    table = new Array[Long](old.length * 2)
+    mask = mask * 2 + 1
+    var i = 0
+    while i < old.length do
+      if old(i + 1) != 0 then
+        var s = slotOf(old(i), mask)
+        while table(2 * s + 1) != 0 do
           s = (s + 1) & mask
-        keys(s) = oldKeys(i)
-        slots(s) = oldSlots(i)
-      i += 1
+        table(2 * s) = old(i)
+        table(2 * s + 1) = old(i + 1)
+      i += 2
 
   def clear(): Unit =
-    if slots.length > 64 then
-      keys = new Array[Long](64)
-      slots = new Array[Int](64)
+    if mask > 63 then
+      table = new Array[Long](2 * 64)
+      mask = 63
     else
-      java.util.Arrays.fill(slots, 0)
+      java.util.Arrays.fill(table, 0L)
     count = 0
 
 end LongDictionary

@@ -215,6 +215,9 @@ case class ColumnBatch(numRows: Int, columns: IndexedSeq[ColumnVector]):
 
   def columnNames: Seq[String] = columns.map(_.name)
 
+  /** The batch with only the given columns, in the given order */
+  def select(names: String*): ColumnBatch = ColumnBatch(numRows, names.map(column).toIndexedSeq)
+
   /**
     * Row i as a map from column name to [[ColumnVector.getValue]], in schema column order.
     * Convenient for generic code; slower than reading the vectors.

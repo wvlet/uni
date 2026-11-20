@@ -30,37 +30,41 @@ object JvmBench:
       .flatMap { case (u, j) =>
         u ++ j
       }
-    // Each uni write case next to the parquet-java one for the same data and codec
+    // Each uni case-class write next to the parquet-java one for the same data and codec. The
+    // batch cases come after them, so each table is held in memory once.
     val out    = BenchRunner.writeDir(dir)
     val writes = BenchRunner
       .uniWriteCases(dir)
       .flatMap { u =>
-        val name  = u.path.split('/').last
-        val codec = name.split('.')(1)
-        val java  =
-          if name.startsWith("lineitem") then
-            BenchCase(
-              "write parquet-java groups",
-              u.path,
-              () =>
-                ParquetJavaWriters.lineItems(
-                  BenchData.lineItems(dir),
-                  s"${out}/java.lineitem.${codec}.parquet",
-                  codec
-                )
-            )
-          else
-            BenchCase(
-              "write parquet-java groups",
-              u.path,
-              () =>
-                ParquetJavaWriters.orders(
-                  BenchData.orders(dir),
-                  s"${out}/java.orders.${codec}.parquet",
-                  codec
-                )
-            )
-        Seq(u, java)
+        val name = u.path.split('/').last
+        if u.reader != "write uni case class" then
+          Seq(u)
+        else
+          val codec = name.split('.')(1)
+          val java  =
+            if name.startsWith("lineitem") then
+              BenchCase(
+                "write parquet-java groups",
+                u.path,
+                () =>
+                  ParquetJavaWriters.lineItems(
+                    BenchData.lineItems(dir),
+                    s"${out}/java.lineitem.${codec}.parquet",
+                    codec
+                  )
+              )
+            else
+              BenchCase(
+                "write parquet-java groups",
+                u.path,
+                () =>
+                  ParquetJavaWriters.orders(
+                    BenchData.orders(dir),
+                    s"${out}/java.orders.${codec}.parquet",
+                    codec
+                  )
+              )
+          Seq(u, java)
       }
     BenchRunner.run(cases ++ writes, warmup, iterations, filter)
 

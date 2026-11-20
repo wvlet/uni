@@ -227,6 +227,33 @@ def writeRecords(path: String): Unit =
 - A row that does not fit throws `ParquetException` naming the column; the row is skipped and the
   writer stays usable.
 
+## Write column batches
+
+`Parquet.newBatchWriter(path or OutputStream, schema, options)` writes `ColumnBatch`es column by
+column, with no rows in between. A batch from `readBatches` writes back unchanged, so copying or
+projecting a file is:
+
+```scala
+def copyColumns(from: String, to: String): Unit =
+  val in = Parquet.open(from)
+  try
+    Control.withResource(Parquet.newBatchWriter(to, in.schema.select("id", "name"))) { w =>
+      in.readBatches().foreach(b => w.write(b.select("id", "name")))
+    }
+  finally in.close()
+```
+
+- Build vectors with their constructors and `schema.field(name).get`, for example
+  `ColumnVector.LongColumn(field, Array(1L, 2L), null)`; the last argument flags null rows.
+- Values are physical: TIMESTAMP is a `Long` in its unit (`LongColumn`), DATE is days
+  (`IntColumn`), DECIMAL is unscaled, strings are UTF-8 in a `BinaryColumn` (`offsets`, `data`).
+  LIST, MAP, and groups take `ListColumn`, `MapColumn`, and `StructColumn`.
+- Columns match top-level fields by name. A missing or extra column, a wrong vector type or size,
+  bad offsets, or a null in a required column throws `ParquetException` before anything is
+  written; the writer stays usable. Row groups still close at `rowGroupSize`.
+- Projection only: `ParquetSchema.select(names*)` and `ColumnBatch.select(names*)`. To filter
+  rows, build new arrays.
+
 ## Writer options
 
 `ParquetWriteOptions.default` writes SNAPPY, data page v1, dictionary encoding (falls back to
