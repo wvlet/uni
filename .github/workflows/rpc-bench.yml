@@ -67,6 +67,7 @@ jobs:
           distribution: 'temurin'
           java-version: '25'
           cache: sbt
+      - uses: ./.github/actions/sbt-launcher
       - name: Install oha
         run: |
           mkdir -p "${HOME}/.local/bin" && echo "${HOME}/.local/bin" >> "${GITHUB_PATH}"
