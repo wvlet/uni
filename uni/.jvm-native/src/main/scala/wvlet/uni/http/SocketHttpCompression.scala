@@ -157,16 +157,14 @@ private[http] object ResponseCompression:
                 compress(gzipPool, body)
               else
                 compress(deflatePool, body)
-            val contentType = response
-              .headers
-              .get(HttpHeader.ContentType)
-              .orElse(response.content.contentType.map(_.value))
             var headers = response.headers.set(HttpHeader.ContentEncoding, encoding)
-            contentType.foreach(ct => headers = headers.set(HttpHeader.ContentType, ct))
-            if !HttpConnectionReader
-                .tokens(response.headers.getAll(HttpHeader.Vary))
-                .exists(v => v == "accept-encoding" || v == "*")
-            then
+            // The new content has no type of its own, so carry the old content's type as a header
+            if !response.headers.contains(HttpHeader.ContentType) then
+              response
+                .content
+                .contentType
+                .foreach(ct => headers = headers.set(HttpHeader.ContentType, ct.value))
+            if !varies(response.headers.getAll(HttpHeader.Vary)) then
               headers = headers.add(HttpHeader.Vary, HttpHeader.AcceptEncoding)
             response
               .headers
@@ -273,27 +271,34 @@ private[http] object ResponseCompression:
     var gzipQ = -1.0
     var defQ  = -1.0
     var starQ = -1.0
-    HttpConnectionReader
-      .tokens(acceptEncoding)
-      .foreach { item =>
-        // indexOf, not split(';'): on Scala Native that compiles a regex for every item
-        val semi = item.indexOf(';')
-        val name =
-          if semi < 0 then
-            item.trim
+    // Items are matched in place: splitting and lower-casing each one allocated about 30 objects
+    // per compressed response
+    val it = acceptEncoding.iterator
+    while it.hasNext do
+      val v = it.next()
+      eachItem(v) { (from, until) =>
+        val semi    = v.indexOf(';', from)
+        val nameEnd = trimEnd(
+          v,
+          from,
+          if semi < 0 || semi >= until then
+            until
           else
-            item.substring(0, semi).trim
-        val q = qValue(item, semi)
-        name match
-          case "gzip" | "x-gzip" =>
-            gzipQ = math.max(gzipQ, q)
-          case "deflate" | "x-deflate" =>
-            defQ = math.max(defQ, q)
-          case "*" =>
-            starQ = math.max(starQ, q)
-          case _ =>
-            ()
+            semi
+        )
+        val q =
+          if semi < 0 || semi >= until then
+            1.0
+          else
+            qValue(v.substring(from, until), semi - from)
+        if itemIs(v, from, nameEnd, "gzip") || itemIs(v, from, nameEnd, "x-gzip") then
+          gzipQ = math.max(gzipQ, q)
+        else if itemIs(v, from, nameEnd, "deflate") || itemIs(v, from, nameEnd, "x-deflate") then
+          defQ = math.max(defQ, q)
+        else if itemIs(v, from, nameEnd, "*") then
+          starQ = math.max(starQ, q)
       }
+    end while
     if gzipQ > 0 || defQ > 0 then
       if gzipQ >= defQ then
         Some("gzip")
@@ -308,6 +313,44 @@ private[http] object ResponseCompression:
 
   end chooseEncoding
 
+  /** Whether `Vary` values already name Accept-Encoding, or `*` */
+  private def varies(vary: Seq[String]): Boolean =
+    var found = false
+    val it    = vary.iterator
+    while !found && it.hasNext do
+      val v = it.next()
+      eachItem(v) { (from, until) =>
+        if itemIs(v, from, until, HttpHeader.AcceptEncoding) || itemIs(v, from, until, "*") then
+          found = true
+      }
+    found
+
+  /** Calls `f` with the bounds of each comma-separated item of `v`, trimmed of whitespace */
+  private inline def eachItem(v: String)(inline f: (Int, Int) => Unit): Unit =
+    var start = 0
+    while start <= v.length do
+      val comma = v.indexOf(',', start)
+      val end   =
+        if comma < 0 then
+          v.length
+        else
+          comma
+      var from = start
+      while from < end && v.charAt(from) <= ' ' do
+        from += 1
+      f(from, trimEnd(v, from, end))
+      start = end + 1
+
+  private def trimEnd(v: String, from: Int, until: Int): Int =
+    var end = until
+    while end > from && v.charAt(end - 1) <= ' ' do
+      end -= 1
+    end
+
+  /** Whether `v(from until until)` is `name`, ignoring ASCII case */
+  private def itemIs(v: String, from: Int, until: Int, name: String): Boolean =
+    until - from == name.length && v.regionMatches(true, from, name, 0, name.length)
+
   /** The first `q=` parameter after `semi` in an Accept-Encoding item: 1.0 if none, 0 if invalid */
   private def qValue(item: String, semi: Int): Double =
     var from = semi + 1
@@ -321,7 +364,7 @@ private[http] object ResponseCompression:
         else
           next
       val param = item.substring(from, until).trim
-      if param.startsWith("q=") then
+      if param.regionMatches(true, 0, "q=", 0, 2) then
         q = param.substring(2).toDoubleOption.getOrElse(0.0)
         done = true
       else if next < 0 then
