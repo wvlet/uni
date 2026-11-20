@@ -91,10 +91,11 @@ class JSWebSocketClient(
 
     // Fails the connect when it fires first; cleared once the connection opens or closes. Failing
     // the promise before closing makes the timeout, not the close it causes, the connect's error.
+    // setTimeout fires at once for delays over 2^31-1 ms, so a longer limit is capped there.
     val timer: js.UndefOr[js.timers.SetTimeoutHandle] =
       if connectTimeoutMillis > 0 then
         js.timers
-          .setTimeout(connectTimeoutMillis.toDouble) {
+          .setTimeout(math.min(connectTimeoutMillis, Int.MaxValue).toDouble) {
             if opened.tryFailure(
                 HttpException.connectionTimeout(s"WebSocket connect timed out: ${uri}")
               )
@@ -157,8 +158,8 @@ class JSWebSocketClient(
         notifyClose()
     ws.onerror =
       (_: js.Any) =>
-        // Transport error maps to onClose (matching the other backends); surface pre-open failures.
-        opened.tryFailure(HttpException.connectionFailed(s"WebSocket connection failed: ${uri}"))
+        // Transport error maps to onClose (matching the other backends), which fails a pre-open
+        // connect.
         notifyClose()
 
     Rx.future(opened.future)

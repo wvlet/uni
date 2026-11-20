@@ -167,7 +167,8 @@ object NativeWebSocketClient:
 
   /** The time left of a connect's `timeoutMillis` (0: no limit), started when created. */
   private class Deadline(timeoutMillis: Long):
-    private val end = System.nanoTime() + timeoutMillis * 1000000L
+    // Capped at Int.MaxValue millis (about 24 days), which also keeps the nanos from overflowing
+    private val end = System.nanoTime() + math.min(timeoutMillis, Int.MaxValue) * 1000000L
 
     private def leftMillis(): Long = math.max(1L, (end - System.nanoTime() + 999999L) / 1000000L)
 

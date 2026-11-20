@@ -158,11 +158,9 @@ private[http] object NativeSocket:
   end bindAndListen
 
   /**
-    * Open a TCP connection to host:port (IPv4 dotted-quad or "localhost"). Returns the client fd.
-    */
-  /**
-    * A connected TCP socket to `host:port`. A positive `timeoutMillis` bounds the connect, failing
-    * with [[HttpErrorCode.ConnectionTimeout]] past it; 0 waits as long as the OS does.
+    * A connected TCP socket fd to `host:port` (IPv4 dotted-quad or "localhost"). A positive
+    * `timeoutMillis` bounds the connect, failing with [[HttpErrorCode.ConnectionTimeout]] past it;
+    * 0 waits as long as the OS does.
     */
   def connect(host: String, port: Int, timeoutMillis: Int = 0): Int =
     if port < 0 || port > 65535 then
