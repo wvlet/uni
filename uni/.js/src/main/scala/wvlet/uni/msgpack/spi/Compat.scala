@@ -25,8 +25,8 @@ object Compat:
 
   // Javascript has no NaN in float/double values
   // See https://github.com/scala-js/scala-js/issues/2327
-  def floatToIntBits(v: Float): Int     = java.lang.Float.floatToIntBits(v)
-  def doubleToLongBits(v: Double): Long = java.lang.Double.doubleToLongBits(v)
+  def floatToIntBits(v: Float): Int     = java.lang.Float.floatToRawIntBits(v)
+  def doubleToLongBits(v: Double): Long = java.lang.Double.doubleToRawLongBits(v)
 
   def newBufferPacker: BufferPacker               = new PureScalaBufferPacker
   def newUnpacker(msgpack: Array[Byte]): Unpacker = newUnpacker(msgpack, 0, msgpack.length)
