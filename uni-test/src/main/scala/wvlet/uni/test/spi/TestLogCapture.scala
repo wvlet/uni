@@ -148,13 +148,14 @@ private[test] object TestLogCapture:
         null
 
     override def publish(record: jl.LogRecord): Unit =
-      // Offer the record to the wrapped routers too: a capture of this copy takes a record from a
-      // thread running no suite, which may belong to another runner's capture (a Netty worker's
-      // warning, captured by a uni-netty test while a uni suite captures)
-      val inner = offerWrapped(record)
-      val own   = !removed && capture(record)
-      if !own && !inner then
+      if removed || !capture(record) then
+        // The wrapped handlers, other runners' routers among them, still see the record
         deliver(record)
+      else if fromPoolThread then
+        // A capture of this copy took a record from a thread running no suite, so it is not
+        // delivered. It may also belong to another runner's capture (a Netty worker's warning,
+        // captured by a uni-netty test while a uni suite captures).
+        offerWrapped(record)
 
     /**
       * Take `record` into the captures of this copy and of the routers it wraps, without printing
@@ -162,9 +163,18 @@ private[test] object TestLogCapture:
       * loader can call it.
       */
     override def test(record: jl.LogRecord): Boolean =
-      val inner = offerWrapped(record)
-      val own   = !removed && capture(record)
-      own || inner
+      if removed then
+        offerWrapped(record)
+      else
+        val own = capture(record)
+        // Records of this copy's suite threads, or of a capture opened on this thread, stay here
+        val inner = fromPoolThread && offerWrapped(record)
+        own || inner
+
+    /** The current thread runs no suite of this copy and opened none of its captures. */
+    private def fromPoolThread: Boolean =
+      val t = Thread.currentThread()
+      suiteThread.get() == null && !captures.exists(_.owner eq t)
 
     private def offerWrapped(record: jl.LogRecord): Boolean =
       original.foldLeft(false) { (taken, h) =>

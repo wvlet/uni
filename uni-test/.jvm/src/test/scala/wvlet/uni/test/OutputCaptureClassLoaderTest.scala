@@ -69,4 +69,44 @@ class OutputCaptureClassLoaderTest extends UniTest:
       loader.close()
   }
 
+  test("keep a suite thread's record away from another runner's capture") {
+    val root   = jl.Logger.getLogger("")
+    val saved  = root.getHandlers
+    val loader = otherRunnerLoader()
+    try
+      val otherLogger = moduleOf(loader, "wvlet.uni.log.Logger")
+      otherLogger.getClass.getMethod("rootLogger").invoke(otherLogger)
+      val other       = moduleOf(loader, "wvlet.uni.test.spi.TestLogCapture")
+      val none        = moduleOf(loader, "scala.None")
+      val openCapture = other.getClass.getMethod("openCapture", loader.loadClass("scala.Option"))
+      // The other runner's capture opens first, so this copy's router wraps it
+      val otherCapture         = openCapture.invoke(other, none)
+      var otherRecords: AnyRef = null
+      try captureLogs {
+          // A suite of this runner logs on its own thread, with its sbt loggers set
+          val t = Thread(() =>
+            spi
+              .TestLogCapture
+              .withLoggers(Array.empty[sbt.testing.Logger]) {
+                spi.TestLogCapture.withSuiteThread(CaptureNoisy().fail())
+              }
+          )
+          t.start()
+          t.join()
+        }
+      finally
+        otherRecords = otherCapture
+          .getClass
+          .getMethod("close", classOf[Boolean])
+          .invoke(otherCapture, false)
+      // Only this runner's suite owns the record
+      otherRecords.getClass.getMethod("isEmpty").invoke(otherRecords) shouldBe
+        java.lang.Boolean.TRUE
+    finally
+      root.getHandlers.foreach(root.removeHandler)
+      saved.foreach(root.addHandler)
+      loader.close()
+    end try
+  }
+
 end OutputCaptureClassLoaderTest
