@@ -43,6 +43,9 @@ If any of the above is unverified, drop the claim.
   `author`, and `description` frontmatter, plus an optional `image` (a path
   under `docs/public/`, used as og:image and twitter:image). Keep frontmatter
   values on one line; `config.mts` reads them with a flat `key: value` parser.
+- **Author avatars**: the post header and the blog index show the author's GitHub
+  avatar when `author` matches an entry in `docs/.vitepress/theme/authors.ts`; add
+  new authors there. Unlisted authors are shown by name only.
 - **The URL drops the date**: a rewrite in `config.mts` serves the post at
   `/blog/slug`. Link to it that way, and never rename a published slug.
 - **Generated for you**: the blog index (`blog/posts.data.ts`), the `/blog/`
