@@ -83,6 +83,56 @@ jobs:
           python3 .github/scripts/maven_repo.py metadata target/sona-staging "${dest}" target/repo-metadata
           aws s3 cp target/repo-metadata/ "${dest}/" --recursive --cache-control "no-cache"
 
+  # @wvlet/uni on npm, published through npm trusted publishing (OIDC): no token is stored, and npm
+  # records provenance for this workflow run. It runs after the Maven upload; if only this job fails,
+  # use "Re-run failed jobs", since the Maven versions above are never overwritten.
+  # See adr/2026-11-20-npm-package.md.
+  npm:
+    name: Publish @wvlet/uni to npm
+    needs: publish
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # sbt-dynver derives the version from the tag
+          fetch-depth: 0
+      - run: git fetch --tags -f
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - uses: ./.github/actions/sbt-launcher
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          check-latest: true
+          registry-url: 'https://registry.npmjs.org'
+      - name: Build the package
+        run: JVM_OPTS=-Xmx4g ./sbt "npm/npmPackage"
+      - name: Test the package
+        run: uni-npm/npm-test/run.sh uni-npm/target/npm
+      - name: Publish
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version=$(node -p "require('./uni-npm/target/npm/package.json').version")
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "The package version ${version} does not match the tag ${TAG}" >&2
+            exit 1
+          fi
+          if [ -n "$(npm view "@wvlet/uni@${version}" version 2>/dev/null)" ]; then
+            echo "@wvlet/uni@${version} is already on npm"
+            exit 0
+          fi
+          # Trusted publishing needs npm 11.5.1 or later
+          npm install -g npm@11.6.2
+          cd uni-npm/target/npm && npm publish --provenance --access public
+
   central:
     name: Copy to Maven Central
     if: github.event_name == 'workflow_dispatch' && inputs.central_version != ''

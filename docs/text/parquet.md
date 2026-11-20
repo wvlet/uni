@@ -318,6 +318,53 @@ row group size. On the JVM and Scala Native, each row group goes to the file as 
 complete. On Scala.js, a file output stream keeps the whole file in memory and writes it on
 `close()`, so peak memory is the file size.
 
+## From TypeScript
+
+The same reader and writer are published to npm as `@wvlet/uni`, compiled with Scala.js, so
+TypeScript and JavaScript code can use them without a Scala toolchain. The package carries its own
+type declarations and needs no WebAssembly or native add-on.
+
+```sh
+npm install @wvlet/uni
+```
+
+```ts
+import { openParquet, writeParquet } from "@wvlet/uni/parquet";
+
+const bytes: Uint8Array = writeParquet(
+  [{ id: 1n, name: "apple", at: new Date() }],
+  [
+    { name: "id", type: "int64", optional: false },
+    { name: "name", type: "string" },
+    { name: "at", type: "timestamp-micros" },
+  ],
+  { compression: "snappy" },
+);
+
+// A Uint8Array or ArrayBuffer, a Blob or File, a local path (Node.js), or an http(s) URL
+const file = await openParquet(bytes);
+const rows = await file.readRows({ columns: ["id", "name"] });
+for await (const batch of file.batches()) {
+  const ids = batch.column("id").values; // BigInt64Array
+}
+```
+
+- INT64 is `bigint`, other numbers are `number`, decimals are strings, DATE is a `Date` at UTC
+  midnight, and TIME and UUID are strings. Timestamps are `Date` (milliseconds) by default; pass
+  `{ timestamps: "bigint" }` to read epoch values in the column's own unit without loss.
+- In batches, plain INT32, INT64, FLOAT, and DOUBLE columns come as typed arrays with a `nulls`
+  mask; other columns come as arrays of values.
+- `writeParquet` takes `{ name, type, optional? }` columns, where `type` is a name such as
+  `"int64"` or `"timestamp-micros"`, or `{ decimal: { precision, scale } }`, `{ list: T }`,
+  `{ map: { key, value } }`, or `{ struct: [...] }`. Columns are optional unless they say
+  `optional: false`.
+- The package is about 360 KB minified and gzipped. In browsers, bundlers must leave out the
+  Node.js built-ins it refers to (`os`, `path`, `zlib`): Vite does this by itself; with webpack, set
+  `resolve.fallback: { os: false, path: false, zlib: false }`.
+
+For browser pages that only read files and need a small bundle,
+[hyparquet](https://github.com/hyparam/hyparquet) is a good choice.
+
 ## What Is Supported
 
 - **Encodings**: PLAIN, RLE and bit-packing, dictionary (PLAIN_DICTIONARY, RLE_DICTIONARY),

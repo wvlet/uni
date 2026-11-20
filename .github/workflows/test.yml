@@ -60,6 +60,8 @@ jobs:
               - 'plugins/uni/skills/**'
               # docSnippetsJS compiles the UI pages' snippets (projectJS/test)
               - 'docs/dom/**'
+              # The npm package: its type declarations, README, and smoke test
+              - 'uni-npm/**'
   lean_spec:
     name: Lean spec
     needs: changes
@@ -175,6 +177,12 @@ jobs:
         run: pnpm dlx playwright@1.49.0 install --with-deps chromium
       - name: Scala.js test
         run: NODE_OPTIONS=--max-old-space-size=4096 JVM_OPTS=-Xmx4g ./sbt "projectJS/test"
+      # Builds @wvlet/uni as the release workflow publishes it, then tests the packed tarball from
+      # Node and type-checks a TS consumer against its declarations
+      - name: npm package check
+        run: |
+          JVM_OPTS=-Xmx4g ./sbt "npm/npmPackage"
+          uni-npm/npm-test/run.sh uni-npm/target/npm
       # On failure, keep Playwright screenshots (actual/diff images, failure traces) and any golden
       # images written for a missing golden, so they can be inspected or committed.
       # The artifact also holds the committed goldens; list the newly written ones.

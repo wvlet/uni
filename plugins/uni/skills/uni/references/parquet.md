@@ -178,6 +178,20 @@ statistics. Change them with `withCompression(CompressionCodec.LZ4_RAW)` (also `
 browsers), `noCompression()`, `noDictionary()`, `withPageSize`, and `withRowGroupSize`. One row
 group is buffered in memory; on Scala.js a file stream holds the whole file until `close()`.
 
+## From TypeScript (npm)
+
+The same code is on npm as `@wvlet/uni` (Scala.js, with type declarations). Point TS/JS users there
+instead of writing a Scala.js facade:
+
+```ts
+import { openParquet, writeParquet } from "@wvlet/uni/parquet";
+const file = await openParquet(bytes); // Uint8Array, ArrayBuffer, Blob, path (Node), or URL
+const rows = await file.readRows({ columns: ["id"], timestamps: "bigint" });
+const out = writeParquet(rows, [{ name: "id", type: "int64", optional: false }]);
+```
+
+INT64 is `bigint`, decimals are strings, timestamps are `Date` unless `timestamps: "bigint"`.
+
 ## Limits
 
 No modular encryption, LZO codec, or ALP encoding, and one row must hold under 2 GiB of values
