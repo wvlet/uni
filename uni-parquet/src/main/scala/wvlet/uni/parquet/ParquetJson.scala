@@ -48,7 +48,7 @@ object ParquetJson:
         JSONObject(
           m.toSeq
             .map { (k, v) =>
-              String.valueOf(k) -> toJSON(v)
+              key(k) -> toJSON(v)
             }
         )
       case s: Seq[?] =>
@@ -56,6 +56,14 @@ object ParquetJson:
       case other =>
         // Instant, LocalDate, LocalTime, UUID
         JSONString(other.toString)
+
+  /** A map key as a string, rendered the way the same value would be as a JSON value */
+  private def key(k: Any): String =
+    toJSON(k) match
+      case JSONString(s) =>
+        s
+      case other =>
+        other.toJSON
 
   private def number(d: Double): JSONValue =
     if d.isNaN || d.isInfinite then

@@ -77,6 +77,12 @@ object Parquet:
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Seq[JSONObject] = withFile(open(path))(_.readJson(options))
 
+  /** Reads every row of a file held in memory as a JSON object */
+  def readJson(bytes: Array[Byte], options: ParquetReadOptions): Seq[JSONObject] =
+    withFile(open(bytes))(_.readJson(options))
+
+  def readJson(bytes: Array[Byte]): Seq[JSONObject] = readJson(bytes, ParquetReadOptions.default)
+
   private def withFile[A](f: ParquetFile)(read: ParquetFile => Iterator[A]): Seq[A] =
     try read(f).toSeq
     finally f.close()

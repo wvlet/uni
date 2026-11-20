@@ -124,9 +124,11 @@ class RowMapTest extends UniTest:
   }
 
   test("read binary values as base64 in JSON") {
-    val f = Parquet.open(TestFiles.bytes("apache/alltypes_plain.parquet"))
-    try f.readJson().next().get("string_col") shouldBe Some(JSONString("MA=="))
-    finally f.close()
+    val json = Parquet.readJson(TestFiles.bytes("apache/alltypes_plain.parquet"))
+    json.head.get("string_col") shouldBe Some(JSONString("MA=="))
+    // Map keys render as their JSON values would
+    ParquetJson.toJSON(Map(Array[Byte](1, 2) -> 1, BigDecimal("1E+3") -> 2)).toJSON shouldBe
+      """{"AQI=":1,"1000":2}"""
   }
 
   test("summarize column statistics from the footer") {
