@@ -56,10 +56,29 @@ private[parquet] final class ColumnWriter(
   private val plainValues = ByteBuf()
   private val boolValues  = IntBuf()
 
-  // Dictionary state for the current row group
-  private var useDict    = canUseDict
-  private val dictionary = mutable.HashMap.empty[Any, Int]
-  private val dictBytes  = ByteBuf()
+  // Dictionary state for the current row group. `dictBytes` is the PLAIN-encoded dictionary page.
+  private var useDict   = canUseDict
+  private val dictBytes = ByteBuf()
+  private val longDict  =
+    physical match
+      case PhysicalType.BYTE_ARRAY | PhysicalType.FIXED_LEN_BYTE_ARRAY =>
+        null
+      case _ =>
+        LongDictionary()
+  private val bytesDict =
+    physical match
+      case PhysicalType.BYTE_ARRAY =>
+        BytesDictionary(dictBytes, lengthPrefix = true)
+      case PhysicalType.FIXED_LEN_BYTE_ARRAY =>
+        BytesDictionary(dictBytes, lengthPrefix = false)
+      case _ =>
+        null
+
+  private def dictionarySize: Int =
+    if longDict != null then
+      longDict.size
+    else
+      bytesDict.size
 
   // Closed pages of the current row group, each a page header followed by the compressed body
   private val pages            = mutable.ArrayBuffer.empty[Array[Byte]]
@@ -70,40 +89,89 @@ private[parquet] final class ColumnWriter(
   private var usedPlainPage    = false
   private var usedDictPage     = false
 
-  /** Adds one value with its levels; `value` is null when `defLevel < maxDefinitionLevel` */
-  def add(repLevel: Int, defLevel: Int, value: Any): Unit =
+  private inline def levels(repLevel: Int, defLevel: Int): Unit =
     if maxRep > 0 then
       repLevels.add(repLevel)
     if maxDef > 0 then
       defLevels.add(defLevel)
     pageValues += 1
-    if defLevel == maxDef then
-      stats.add(value)
-      if useDict then
-        val key = dictKey(value)
-        val idx =
-          dictionary.get(key) match
-            case Some(i) =>
-              i
-            case None =>
-              val i = dictionary.size
-              dictionary.put(key, i)
-              PlainEncoder.write(physical, value, dictBytes)
-              i
-        dictIndices.add(idx)
-      else if physical == PhysicalType.BOOLEAN then
-        boolValues.add(
-          if value.asInstanceOf[Boolean] then
-            1
-          else
-            0
-        )
-      else
-        PlainEncoder.write(physical, value, plainValues)
-    else
-      stats.addNull()
 
-  end add
+  // The typed appends below take a non-null value, at the column's maximum definition level. The
+  // caller calls the one of the column's physical type.
+
+  /** Adds a null (or an empty list) at a definition level below the maximum */
+  def addNull(repLevel: Int, defLevel: Int): Unit =
+    levels(repLevel, defLevel)
+    stats.addNull()
+
+  def addInt(repLevel: Int, v: Int): Unit =
+    levels(repLevel, maxDef)
+    stats.addInt(v)
+    if useDict then
+      val idx = longDict.indexOf(v.toLong)
+      if longDict.added then
+        dictBytes.writeIntLE(v)
+      dictIndices.add(idx)
+    else
+      plainValues.writeIntLE(v)
+
+  def addLong(repLevel: Int, v: Long): Unit =
+    levels(repLevel, maxDef)
+    stats.addLong(v)
+    if useDict then
+      val idx = longDict.indexOf(v)
+      if longDict.added then
+        dictBytes.writeLongLE(v)
+      dictIndices.add(idx)
+    else
+      plainValues.writeLongLE(v)
+
+  // Floating-point values are keyed by their bits, so NaN and -0.0 get their own entries
+  def addFloat(repLevel: Int, v: Float): Unit =
+    levels(repLevel, maxDef)
+    stats.addDouble(v.toDouble)
+    val bits = java.lang.Float.floatToRawIntBits(v)
+    if useDict then
+      val idx = longDict.indexOf(bits.toLong)
+      if longDict.added then
+        dictBytes.writeIntLE(bits)
+      dictIndices.add(idx)
+    else
+      plainValues.writeIntLE(bits)
+
+  def addDouble(repLevel: Int, v: Double): Unit =
+    levels(repLevel, maxDef)
+    stats.addDouble(v)
+    val bits = java.lang.Double.doubleToRawLongBits(v)
+    if useDict then
+      val idx = longDict.indexOf(bits)
+      if longDict.added then
+        dictBytes.writeLongLE(bits)
+      dictIndices.add(idx)
+    else
+      plainValues.writeLongLE(bits)
+
+  /** Booleans are never dictionary-encoded */
+  def addBoolean(repLevel: Int, v: Boolean): Unit =
+    levels(repLevel, maxDef)
+    stats.addBoolean(v)
+    boolValues.add(
+      if v then
+        1
+      else
+        0
+    )
+
+  /** BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY values: `src[off, off + len)` */
+  def addBytes(repLevel: Int, src: Array[Byte], off: Int, len: Int): Unit =
+    levels(repLevel, maxDef)
+    stats.addBytes(src, off, len)
+    if useDict then
+      dictIndices.add(bytesDict.indexOf(src, off, len))
+    else
+      if physical == PhysicalType.BYTE_ARRAY then
+        plainValues.writeIntLE(len)
+      plainValues.write(src, off, len)
 
   /** Called after each row: closes the page when it is full */
   def endRow(): Unit =
@@ -133,9 +201,9 @@ private[parquet] final class ColumnWriter(
       if maxDef > 0 then
         writeLevels(defLevels, maxDef, body)
       val encoding =
-        if useDict && dictionary.nonEmpty then
+        if useDict && dictionarySize > 0 then
           usedDictPage = true
-          val bw = math.max(1, BitPacking.bitWidthOf(dictionary.size - 1))
+          val bw = math.max(1, BitPacking.bitWidthOf(dictionarySize - 1))
           body.writeByte(bw)
           RleEncoder.encode(dictIndices, bw, body)
           Encoding.RLE_DICTIONARY
@@ -197,7 +265,7 @@ private[parquet] final class ColumnWriter(
             crc = None,
             dataPage = None,
             dataPageV2 = None,
-            dictionaryPage = Some(DictionaryPageHeader(dictionary.size, Encoding.PLAIN))
+            dictionaryPage = Some(DictionaryPageHeader(dictionarySize, Encoding.PLAIN))
           )
         )
         out.write(header)
@@ -248,65 +316,17 @@ private[parquet] final class ColumnWriter(
     usedPlainPage = false
     usedDictPage = false
     useDict = canUseDict
-    dictionary.clear()
+    if longDict != null then
+      longDict.clear()
+    else
+      bytesDict.clear()
     dictBytes.reset()
     stats.reset()
 
-  // By physical type, not runtime class: on Scala.js every number matches `Float`. Floating-point
-  // values are compared by their bits, so NaN and -0.0 get their own entries.
-  private def dictKey(v: Any): Any =
-    physical match
-      case PhysicalType.BYTE_ARRAY | PhysicalType.FIXED_LEN_BYTE_ARRAY =>
-        BytesKey(v.asInstanceOf[Array[Byte]])
-      case PhysicalType.FLOAT =>
-        java.lang.Float.floatToRawIntBits(v.asInstanceOf[Float])
-      case PhysicalType.DOUBLE =>
-        java.lang.Double.doubleToRawLongBits(v.asInstanceOf[Double])
-      case _ =>
-        v
-
 end ColumnWriter
 
-/** A byte array as a hash key */
-private final class BytesKey(val bytes: Array[Byte]):
-  override val hashCode: Int           = java.util.Arrays.hashCode(bytes)
-  override def equals(o: Any): Boolean =
-    o match
-      case k: BytesKey =>
-        java.util.Arrays.equals(bytes, k.bytes)
-      case _ =>
-        false
-
-/** PLAIN encoding of physical values */
+/** PLAIN encoding of booleans */
 private[parquet] object PlainEncoder:
-  def write(tpe: PhysicalType, v: Any, out: ByteBuf): Unit =
-    tpe match
-      case PhysicalType.INT32 =>
-        out.writeIntLE(v.asInstanceOf[Int])
-      case PhysicalType.INT64 =>
-        out.writeLongLE(v.asInstanceOf[Long])
-      case PhysicalType.FLOAT =>
-        out.writeIntLE(java.lang.Float.floatToRawIntBits(v.asInstanceOf[Float]))
-      case PhysicalType.DOUBLE =>
-        out.writeLongLE(java.lang.Double.doubleToRawLongBits(v.asInstanceOf[Double]))
-      case PhysicalType.BYTE_ARRAY =>
-        val b = v.asInstanceOf[Array[Byte]]
-        out.writeIntLE(b.length)
-        out.write(b)
-      case PhysicalType.FIXED_LEN_BYTE_ARRAY =>
-        out.write(v.asInstanceOf[Array[Byte]])
-      case PhysicalType.BOOLEAN =>
-        // Only dictionary pages write booleans one at a time, and booleans are never
-        // dictionary-encoded
-        out.writeByte(
-          if v.asInstanceOf[Boolean] then
-            1
-          else
-            0
-        )
-      case PhysicalType.INT96 =>
-        throw wvlet.uni.parquet.ParquetException.unsupported("writing INT96 columns")
-
   /** Booleans are bit-packed, least-significant bit first */
   def writeBooleans(values: IntBuf, out: ByteBuf): Unit =
     var acc  = 0
