@@ -15,6 +15,7 @@ package wvlet.uni.http
 
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONValue
+import wvlet.uni.util.Utf8
 
 /**
   * Represents the body content of an HTTP message
@@ -50,7 +51,7 @@ object HttpContent:
       override val contentType: Option[ContentType] = Some(ContentType.TextPlain)
   ) extends HttpContent:
     def isEmpty: Boolean                     = text.isEmpty
-    private lazy val bytesCache: Array[Byte] = text.getBytes("UTF-8")
+    private lazy val bytesCache: Array[Byte] = Utf8.encode(text)
     val length: Long                         = bytesCache.length.toLong
     def asString: Option[String]             = Some(text)
     def asBytes: Option[Array[Byte]]         = Some(bytesCache)
@@ -64,9 +65,9 @@ object HttpContent:
   ) extends HttpContent:
     def isEmpty: Boolean             = bytes.isEmpty
     def length: Long                 = bytes.length.toLong
-    def asString: Option[String]     = Some(String(bytes, "UTF-8"))
+    def asString: Option[String]     = Some(Utf8.decode(bytes))
     def asBytes: Option[Array[Byte]] = Some(bytes)
-    def toContentString: String      = String(bytes, "UTF-8")
+    def toContentString: String      = Utf8.decode(bytes)
     def toContentBytes: Array[Byte]  = bytes
     def contentHash: Int             = java.util.Arrays.hashCode(bytes)
 
@@ -76,7 +77,7 @@ object HttpContent:
   ) extends HttpContent:
     def isEmpty: Boolean                     = false
     private lazy val jsonString: String      = json.toJSON
-    private lazy val bytesCache: Array[Byte] = jsonString.getBytes("UTF-8")
+    private lazy val bytesCache: Array[Byte] = Utf8.encode(jsonString)
     val length: Long                         = bytesCache.length.toLong
     def asString: Option[String]             = Some(jsonString)
     def asBytes: Option[Array[Byte]]         = Some(bytesCache)

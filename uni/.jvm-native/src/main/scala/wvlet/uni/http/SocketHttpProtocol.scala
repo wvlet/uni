@@ -66,7 +66,7 @@ private[http] case class HttpReaderLimits(
   *   Returns false when the connection is gone.
   */
 private[http] class HttpConnectionReader(
-    read: (Array[Byte], Int, Int, Boolean) => Int,
+    read: HttpConnectionReader.Read,
     limits: HttpReaderLimits,
     sendContinue: () => Boolean = () => true
 ):
@@ -95,7 +95,7 @@ private[http] class HttpConnectionReader(
         start = 0
       if end == buf.length then
         buf = java.util.Arrays.copyOf(buf, buf.length * 2)
-    val n = read(buf, end, buf.length - end, buffered == 0)
+    val n = read.read(buf, end, buf.length - end, buffered == 0)
     if n > 0 then
       end += n
     n
@@ -131,8 +131,8 @@ private[http] class HttpConnectionReader(
     * A connection with nothing waiting can then wait for its next request elsewhere, without a
     * separate readiness check.
     */
-  def readWaiting(readNow: (Array[Byte], Int, Int) => Int): Int =
-    val n = readNow(buf, end, buf.length - end)
+  def readWaiting(readNow: HttpConnectionReader.ReadNow): Int =
+    val n = readNow.read(buf, end, buf.length - end)
     if n > 0 then
       end += n
     n
@@ -147,6 +147,41 @@ private[http] class HttpConnectionReader(
   // string directly; Scala Native decodes the Charset form through a CharsetDecoder and CharBuffer.
   @annotation.nowarn("cat=deprecation")
   private def latin1(from: Int, until: Int): String = String(buf, 0, start + from, until - from)
+
+  /** Whether the bytes at [from, until) are exactly `s` (ASCII) */
+  private def bytesEqual(from: Int, until: Int, s: String): Boolean =
+    if until - from != s.length then
+      false
+    else
+      var i = 0
+      while i < s.length && at(from + i) == s.charAt(i) do
+        i += 1
+      i == s.length
+
+  /**
+    * A header name: the shared string for a common spelling (`Host`, `content-type`, ...), so the
+    * usual headers allocate no name, or a new string otherwise. Only an exact match is reused, so
+    * the original spelling is kept.
+    */
+  private def headerName(from: Int, until: Int): String =
+    val len = until - from
+    if len < KnownNames.length then
+      val candidates = KnownNames(len)
+      var i          = 0
+      while i < candidates.length do
+        if bytesEqual(from, until, candidates(i)) then
+          return candidates(i)
+        i += 1
+    latin1(from, until)
+
+  /** The method named by bytes [0, end), case-sensitively (RFC 9110 §9.1), or null */
+  private def methodAt(end: Int): HttpMethod =
+    var i = 0
+    while i < Methods.length do
+      if bytesEqual(0, end, Methods(i).name) then
+        return Methods(i)
+      i += 1
+    null
 
   private def bad(message: String): ReadResult = ReadResult.Error(
     HttpStatus.BadRequest_400,
@@ -240,7 +275,7 @@ private[http] class HttpConnectionReader(
             scanError = bad(err)
             return -1
           if headers != null then
-            headers.add(latin1(lineStart, nameEnd), latin1(valueStart, valueEnd))
+            headers.add(headerName(lineStart, nameEnd), latin1(valueStart, valueEnd))
           lineStart = i + 1
           cr = false
         else if cr then
@@ -318,7 +353,8 @@ private[http] class HttpConnectionReader(
         return bad("Malformed request line")
       k += 1
     val http10 =
-      if lineEnd - versionStart == 8 && latin1(versionStart, versionStart + 5) == "HTTP/" &&
+      if lineEnd - versionStart == 8 && at(versionStart) == 'H' && at(versionStart + 1) == 'T' &&
+        at(versionStart + 2) == 'T' && at(versionStart + 3) == 'P' && at(versionStart + 4) == '/' &&
         isDigit(at(versionStart + 5)) && at(versionStart + 6) == '.' &&
         isDigit(at(versionStart + 7))
       then
@@ -345,8 +381,7 @@ private[http] class HttpConnectionReader(
       if isControl(at(k)) then
         return bad("Invalid request target")
       k += 1
-    val methodName = latin1(0, sp)
-    val target     = latin1(targetStart, targetEnd)
+    val target = latin1(targetStart, targetEnd)
 
     // Headers, up to the empty line
     val headerBuilder = HttpMultiMap.newBuilder
@@ -400,15 +435,12 @@ private[http] class HttpConnectionReader(
 
     // Method names are case-sensitive (RFC 9110 §9.1); uni-netty answers an unknown one with 501.
     // Checked after the framing headers, so a request with broken ones gets 400, as in uni-netty.
-    val method =
-      HttpMethod.of(methodName).filter(_.name == methodName) match
-        case Some(m) =>
-          m
-        case None =>
-          return ReadResult.Error(
-            HttpStatus.NotImplemented_501,
-            s"Unsupported HTTP method: ${methodName}"
-          )
+    val method = methodAt(sp)
+    if method == null then
+      return ReadResult.Error(
+        HttpStatus.NotImplemented_501,
+        s"Unsupported HTTP method: ${latin1(0, sp)}"
+      )
 
     // Expect (RFC 9110 §10.1.1); HTTP/1.0 doesn't define it, so it is ignored there, as in Netty
     var expectContinue = false
@@ -565,6 +597,50 @@ private[http] class HttpConnectionReader(
 end HttpConnectionReader
 
 private[http] object HttpConnectionReader:
+
+  /**
+    * Reads socket bytes into `(buf, off, len)`: the number read, 0 on timeout, or less than 0 at
+    * EOF. `idle` is true while waiting for the first bytes of a new request. A trait rather than a
+    * function, so no call boxes its `Int` arguments or result.
+    */
+  trait Read:
+    def read(buf: Array[Byte], off: Int, len: Int, idle: Boolean): Int
+
+  /** Reads the bytes already waiting without waiting: > 0 bytes, 0 when none, < 0 at EOF. */
+  trait ReadNow:
+    def read(buf: Array[Byte], off: Int, len: Int): Int
+
+  private val Methods: Array[HttpMethod] = HttpMethod.values
+
+  // Common header names in their canonical and lower-case spellings, by length
+  private val KnownNames: Array[Array[String]] =
+    val names =
+      Seq(
+        HttpHeader.Host,
+        HttpHeader.UserAgent,
+        HttpHeader.Accept,
+        HttpHeader.AcceptEncoding,
+        HttpHeader.AcceptLanguage,
+        HttpHeader.Connection,
+        HttpHeader.ContentType,
+        HttpHeader.ContentLength,
+        HttpHeader.ContentEncoding,
+        HttpHeader.TransferEncoding,
+        HttpHeader.Authorization,
+        HttpHeader.CacheControl,
+        HttpHeader.Cookie,
+        HttpHeader.Origin,
+        HttpHeader.Referer,
+        HttpHeader.Upgrade,
+        HttpHeader.Expect,
+        HttpHeader.Pragma,
+        HttpHeader.IfNoneMatch,
+        HttpHeader.IfModifiedSince,
+        HttpHeader.XForwardedFor
+      ).flatMap(n => Seq(n, HttpMultiMap.lowerAscii(n))).distinct
+    val maxLen = names.map(_.length).max
+    Array.tabulate(maxLen + 1)(len => names.filter(_.length == len).toArray)
+
   private final val InitialBufferSize = 8192
 
   private val HeaderTooLarge = ReadResult.Error(
@@ -630,11 +706,12 @@ private[http] object HttpResponseWriter:
     */
   def serialize(response: Response, keepAlive: Boolean, includeBody: Boolean): Array[Byte] =
     val body = response.content.toContentBytes
-    val head = serializeHead(response, keepAlive, body.length.toLong)
-    if includeBody && !bodyForbidden(response) && body.nonEmpty then
-      head ++ body
-    else
-      head
+    val sent =
+      if includeBody && !bodyForbidden(response) && body.nonEmpty then
+        body
+      else
+        Array.emptyByteArray
+    writeHead(response, keepAlive, body.length.toLong, sent)
 
   // 1xx, 204, and 304 responses must not carry a message body or Content-Length.
   def bodyForbidden(response: Response): Boolean =
@@ -643,62 +720,123 @@ private[http] object HttpResponseWriter:
 
   /** The status line and headers of a response whose body has `contentLength` bytes. */
   def serializeHead(response: Response, keepAlive: Boolean, contentLength: Long): Array[Byte] =
-    val code = response.status.code
-    val sb   = StringBuilder(256)
-    sb.append("HTTP/1.1 ").append(code).append(" ").append(response.status.reason).append("\r\n")
+    writeHead(response, keepAlive, contentLength, Array.emptyByteArray)
 
+  /**
+    * The head followed by `body`, in one array of exactly their size. The head is measured in one
+    * pass and written in a second, straight to ISO-8859-1 bytes: a `StringBuilder` would allocate
+    * char arrays above the size Boehm serves from per-thread free lists (about 400 bytes), and
+    * those allocations all take its global lock.
+    */
+  private def writeHead(
+      response: Response,
+      keepAlive: Boolean,
+      contentLength: Long,
+      body: Array[Byte]
+  ): Array[Byte] =
+    val contentType =
+      if bodyForbidden(response) then
+        null
+      else
+        response
+          .headers
+          .getOrElse(HttpHeader.ContentType, response.content.contentType.map(_.value).orNull)
+    val measure = HeadBytes(null)
+    emitHead(measure, response, keepAlive, contentLength, contentType)
+    val out = new Array[Byte](measure.pos + body.length)
+    emitHead(HeadBytes(out), response, keepAlive, contentLength, contentType)
+    System.arraycopy(body, 0, out, measure.pos, body.length)
+    out
+
+  private def emitHead(
+      w: HeadBytes,
+      response: Response,
+      keepAlive: Boolean,
+      contentLength: Long,
+      contentType: String
+  ): Unit =
+    w.ascii("HTTP/1.1 ")
+      .number(response.status.code)
+      .ascii(" ")
+      .latin1(response.status.reason)
+      .crlf()
     // Copy response headers, but skip the ones we set explicitly below to avoid duplicates.
     response
       .headers
-      .entries
-      .foreach { case (name, value) =>
+      .foreachEntry { (name, value) =>
         if !isManagedHeader(name) then
-          sb.append(name).append(": ").append(value).append("\r\n")
+          w.latin1(name).ascii(": ").latin1(value).crlf()
       }
-
     if !bodyForbidden(response) then
       // Prefer an explicitly-set Content-Type header over the content's default type.
-      val contentType = response
-        .headers
-        .get(HttpHeader.ContentType)
-        .orElse(response.content.contentType.map(_.value))
-      contentType.foreach { ct =>
-        sb.append(HttpHeader.ContentType).append(": ").append(ct).append("\r\n")
-      }
-      sb.append(HttpHeader.ContentLength).append(": ").append(contentLength).append("\r\n")
-
-    sb.append(HttpHeader.Connection)
-      .append(": ")
-      .append(
+      if contentType != null then
+        w.ascii(HttpHeader.ContentType).ascii(": ").latin1(contentType).crlf()
+      w.ascii(HttpHeader.ContentLength).ascii(": ").number(contentLength).crlf()
+    w.ascii(HttpHeader.Connection)
+      .ascii(
         if keepAlive then
-          "keep-alive"
+          ": keep-alive"
         else
-          "close"
+          ": close"
       )
-      .append("\r\n")
-    sb.append("\r\n")
+      .crlf()
+    w.crlf()
 
-    latin1Bytes(sb)
-
-  end serializeHead
+  end emitHead
 
   /**
-    * `sb` as ISO-8859-1 bytes, with `?` for each char above 0xff (header values are validated, so
-    * none are expected). Scala Native's `getBytes(Charset)` goes through a CharsetEncoder and
-    * ByteBuffer per call.
+    * Writes a response head as ISO-8859-1 bytes into `out`, or only counts them when `out` is null.
+    * A char above 0xff becomes `?`, as the Charset encoder does (header values are validated, so
+    * none are expected).
     */
-  private def latin1Bytes(sb: StringBuilder): Array[Byte] =
-    val out = new Array[Byte](sb.length)
-    var i   = 0
-    while i < out.length do
-      val c = sb.charAt(i)
-      out(i) =
-        if c <= 0xff then
-          c.toByte
-        else
-          '?'.toByte
-      i += 1
-    out
+  private final class HeadBytes(out: Array[Byte]):
+    var pos = 0
+
+    def latin1(s: String): HeadBytes =
+      if out == null then
+        pos += s.length
+      else
+        var i = 0
+        while i < s.length do
+          val c = s.charAt(i)
+          out(pos) =
+            if c <= 0xff then
+              c.toByte
+            else
+              '?'.toByte
+          pos += 1
+          i += 1
+      this
+
+    inline def ascii(s: String): HeadBytes = latin1(s)
+
+    def number(v: Long): HeadBytes =
+      if v < 0 then
+        latin1(v.toString)
+      else
+        var digits = 1
+        var p      = 10L
+        while digits < 19 && v >= p do
+          digits += 1
+          p *= 10
+        if out != null then
+          var x = v
+          var i = pos + digits - 1
+          while i >= pos do
+            out(i) = ('0' + (x % 10).toInt).toByte
+            x /= 10
+            i -= 1
+        pos += digits
+        this
+
+    def crlf(): HeadBytes =
+      if out != null then
+        out(pos) = '\r'
+        out(pos + 1) = '\n'
+      pos += 2
+      this
+
+  end HeadBytes
 
   // The writer frames every response itself, so a handler's Transfer-Encoding is dropped: next to
   // the writer's Content-Length it would let a client or proxy read a different body length

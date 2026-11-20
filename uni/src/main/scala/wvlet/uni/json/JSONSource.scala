@@ -14,13 +14,13 @@
 package wvlet.uni.json
 
 import java.nio.ByteBuffer
-import java.nio.charset.StandardCharsets
+import wvlet.uni.util.Utf8
 
 /**
   */
 object JSONSource:
-  def fromString(s: String): JSONSource     = fromBytes(s.getBytes(StandardCharsets.UTF_8))
-  def fromBytes(b: Array[Byte]): JSONSource = fromBytes(b, 0, b.length)
+  def fromString(s: String): JSONSource                 = fromBytes(Utf8.encode(s))
+  def fromBytes(b: Array[Byte]): JSONSource             = fromBytes(b, 0, b.length)
   def fromBytes(b: Array[Byte], offset: Int, size: Int) = new JSONSource(b, offset, size)
   def fromByteBuffer(b: ByteBuffer)                     =
     val a       = new Array[Byte](b.remaining())
@@ -35,8 +35,7 @@ final class JSONSource(private val b: Array[Byte], private val offset: Int, priv
   assert(offset + size <= b.length, s"The offset + size must be <= ${b.length}: ${offset}+${size}")
   def length: Int                             = size
   def apply(index: Int): Byte                 = b(index + offset)
-  def substring(start: Int, end: Int): String =
-    new String(b, offset + start, end - start, StandardCharsets.UTF_8)
+  def substring(start: Int, end: Int): String = Utf8.decode(b, offset + start, end - start)
 
 //class ByteArrayJSONSource(b: Array[Byte], offset: Int, val size: Int) extends JSONSource {
 //  assert(offset >= 0, s"The offset must be >= 0: ${offset}")

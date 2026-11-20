@@ -233,7 +233,7 @@ abstract class SocketHttpServer private[http] (
     )
 
     // Read what is already waiting, without waiting, before parking (see IdlePoller.park)
-    private val readNow: (Array[Byte], Int, Int) => Int =
+    private val readNow: HttpConnectionReader.ReadNow =
       (buf, off, len) => conn.read(buf, off, len, 0)
 
     /** Serve requests on this worker until the connection closes or is handed to the poller. */
@@ -549,6 +549,26 @@ abstract class SocketHttpServer private[http] (
     * filter gate), bounded by the handler timeout so a never-completing Rx can't wedge the worker.
     */
   private def awaitRx(rx: Rx[Response], onEmpty: Response = Response.notFound): Response =
+    rx match
+      case Rx.SingleOp(v) =>
+        // A synchronous handler (Rx.single): evaluate it here, as the runner would, without its
+        // latch and event objects
+        try
+          v.eval
+        catch
+          case NonFatal(e) =>
+            handlerError(e)
+      case _ =>
+        awaitRxAsync(rx, onEmpty)
+
+  private def handlerError(e: Throwable): Response =
+    if HttpServerSecurity.isClientError(e) then
+      debug(s"Error in handler: ${e.getMessage}", e)
+    else
+      warn(s"Error in handler: ${e.getMessage}", e)
+    errorResponse(e)
+
+  private def awaitRxAsync(rx: Rx[Response], onEmpty: Response): Response =
     val latch  = CountDownLatch(1)
     val result = AtomicReference[Response]()
     RxRunner.runOnce(rx) {
@@ -556,11 +576,7 @@ abstract class SocketHttpServer private[http] (
         result.set(response.asInstanceOf[Response])
         latch.countDown()
       case OnError(e) =>
-        if HttpServerSecurity.isClientError(e) then
-          debug(s"Error in handler: ${e.getMessage}", e)
-        else
-          warn(s"Error in handler: ${e.getMessage}", e)
-        result.set(errorResponse(e))
+        result.set(handlerError(e))
         latch.countDown()
       case OnCompletion =>
         // Completed without emitting a response.
