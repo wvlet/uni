@@ -13,9 +13,11 @@
  */
 package wvlet.uni.http
 
-// The JDK's CRC32, which uses the CPU's CRC instructions
-private[http] object GzipCrc:
-  def of(bytes: Array[Byte]): Int =
-    val crc = java.util.zip.CRC32()
-    crc.update(bytes, 0, bytes.length)
-    crc.getValue.toInt
+import scala.scalanative.meta.LinktimeInfo
+
+private[http] object CompressionCompat:
+  /**
+    * Whether to compress with pooled Deflaters (see ResponseCompression). Not on Windows: there the
+    * pooled path's gzip output didn't decode back to the body in CI, while GZIPOutputStream's did.
+    */
+  inline def pooledDeflaters: Boolean = !LinktimeInfo.isWindows

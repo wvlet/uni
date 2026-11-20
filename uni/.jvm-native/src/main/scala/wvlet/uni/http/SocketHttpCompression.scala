@@ -147,7 +147,9 @@ private[http] object ResponseCompression:
             response
           case Some(encoding) =>
             val compressed =
-              if encoding == "gzip" then
+              if !CompressionCompat.pooledDeflaters then
+                compressWithStream(encoding == "gzip", body)
+              else if encoding == "gzip" then
                 compress(gzipPool, body)
               else
                 compress(deflatePool, body)
@@ -224,7 +226,9 @@ private[http] object ResponseCompression:
         // Trailer: CRC-32 and the input size mod 2^32, little-endian
         if pos + 8 > c.out.length then
           c.out = java.util.Arrays.copyOf(c.out, pos + 8)
-        writeIntLE(c.out, pos, GzipCrc.of(body))
+        val crc = java.util.zip.CRC32()
+        crc.update(body, 0, body.length)
+        writeIntLE(c.out, pos, crc.getValue.toInt)
         writeIntLE(c.out, pos + 4, body.length)
         pos += 8
       val result = java.util.Arrays.copyOf(c.out, pos)
@@ -237,6 +241,23 @@ private[http] object ResponseCompression:
     end try
 
   end compress
+
+  /** The JDK stream encoders, a new Deflater per body: where pooled Deflaters aren't used */
+  private def compressWithStream(gzip: Boolean, body: Array[Byte]): Array[Byte] =
+    val out = ByteArrayOutputStream(body.length / 2)
+    if gzip then
+      val enc = java.util.zip.GZIPOutputStream(out)
+      enc.write(body)
+      enc.close()
+    else
+      val deflater = Deflater(Level)
+      try
+        val enc = java.util.zip.DeflaterOutputStream(out, deflater)
+        enc.write(body)
+        enc.close()
+      finally
+        deflater.end()
+    out.toByteArray
 
   private def writeIntLE(a: Array[Byte], at: Int, v: Int): Unit =
     a(at) = v.toByte

@@ -13,15 +13,6 @@
  */
 package wvlet.uni.http
 
-import scala.scalanative.meta.LinktimeInfo
-
-// zlib's CRC-32 through javalib's CRC32, except on Windows, where that binding gave checksums gzip
-// readers reject; there, the pure-Scala one
-private[http] object GzipCrc:
-  def of(bytes: Array[Byte]): Int =
-    if LinktimeInfo.isWindows then
-      wvlet.uni.util.Crc32.of(bytes)
-    else
-      val crc = java.util.zip.CRC32()
-      crc.update(bytes, 0, bytes.length)
-      crc.getValue.toInt
+private[http] object CompressionCompat:
+  /** Whether to compress with pooled Deflaters (see ResponseCompression) */
+  inline def pooledDeflaters: Boolean = true

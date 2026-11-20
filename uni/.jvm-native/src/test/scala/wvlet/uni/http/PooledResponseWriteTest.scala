@@ -56,7 +56,7 @@ class PooledResponseWriteTest extends UniTest:
     * pure-Scala CRC-32. Scala Native's CRC32 is unreliable on Windows (see Crc32), so neither it
     * nor `GZIPInputStream` checks the trailer here.
     */
-  private def gunzip(b: Array[Byte]): Array[Byte] =
+  private def gunzip(b: Array[Byte]): (Array[Byte], Boolean) =
     b(0) shouldBe 0x1f.toByte
     b(1) shouldBe 0x8b.toByte
     val inflater = java.util.zip.Inflater(true)
@@ -73,12 +73,26 @@ class PooledResponseWriteTest extends UniTest:
         ((b(at + 1) & 0xffL) << 8) |
         ((b(at + 2) & 0xffL) << 16) |
         ((b(at + 3) & 0xffL) << 24)
-    (wvlet.uni.util.Crc32.of(data) & 0xffffffffL) shouldBe intLE(b.length - 8)
-    intLE(b.length - 4) shouldBe (data.length & 0xffffffffL)
-    data
+    val crc = java.util.zip.CRC32()
+    crc.update(data, 0, data.length)
+    val trailerOk =
+      (crc.getValue & 0xffffffffL) == intLE(b.length - 8) &&
+        intLE(b.length - 4) ==
+        (data.length & 0xffffffffL)
+    (data, trailerOk)
 
   private def inflate(b: Array[Byte]): Array[Byte] = InflaterInputStream(ByteArrayInputStream(b))
     .readAllBytes()
+
+  private def gzipStream(b: Array[Byte]): Array[Byte] =
+    val out = ByteArrayOutputStream()
+    val enc = GZIPOutputStream(out)
+    enc.write(b)
+    enc.close()
+    out.toByteArray
+
+  // Byte 9 names the OS, which differs by platform (255 on the JVM, 0 in Scala Native's javalib)
+  private def withoutOs(a: Array[Byte]): Seq[Byte] = a.toSeq.patch(9, Nil, 1)
 
   private def compressed(acceptEncoding: String, b: Array[Byte]): Response =
     val request = Request.get("/").addHeader(HttpHeader.AcceptEncoding, acceptEncoding)
@@ -86,11 +100,20 @@ class PooledResponseWriteTest extends UniTest:
 
   test("pooled gzip and deflate round-trip, across reuse and buffer growth") {
     // 300 KB grows the pooled output buffer past what it keeps; later calls must start clean
+    // Each check names the body size and the step, so a failure says which one broke
     Seq(2000, 300000, 1500, 70000, 1024).foreach { n =>
       val b = body(n)
       val g = compressed("gzip", b)
       g.header(HttpHeader.ContentEncoding) shouldBe Some("gzip")
-      gunzip(g.content.toContentBytes).toSeq shouldBe b.toSeq
+      val gz = g.content.toContentBytes
+      (
+        n,
+        "same bytes as GZIPOutputStream",
+        withoutOs(gz).sameElements(withoutOs(gzipStream(b)))
+      ) shouldBe (n, "same bytes as GZIPOutputStream", true)
+      val (data, trailerOk) = gunzip(gz)
+      (n, "decodes to the body", data.sameElements(b)) shouldBe (n, "decodes to the body", true)
+      (n, "trailer matches", trailerOk) shouldBe (n, "trailer matches", true)
       val d = compressed("deflate", b)
       d.header(HttpHeader.ContentEncoding) shouldBe Some("deflate")
       inflate(d.content.toContentBytes).toSeq shouldBe b.toSeq
@@ -98,14 +121,8 @@ class PooledResponseWriteTest extends UniTest:
   }
 
   test("pooled gzip gives GZIPOutputStream's bytes, apart from the OS byte") {
-    val b   = body(10000)
-    val out = ByteArrayOutputStream()
-    val enc = GZIPOutputStream(out)
-    enc.write(b)
-    enc.close()
-    // Byte 9 names the OS, which differs by platform (255 on the JVM, 0 in Scala Native's javalib)
-    def withoutOs(a: Array[Byte]) = a.toSeq.patch(9, Nil, 1)
-    withoutOs(compressed("gzip", b).content.toContentBytes) shouldBe withoutOs(out.toByteArray)
+    val b = body(10000)
+    withoutOs(compressed("gzip", b).content.toContentBytes) shouldBe withoutOs(gzipStream(b))
   }
 
 end PooledResponseWriteTest
