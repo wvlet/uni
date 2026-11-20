@@ -109,10 +109,12 @@ private[npm] object JsWriter:
         CompressionCodec.UNCOMPRESSED
       case "lz4" =>
         CompressionCodec.LZ4_RAW
+      case "zstd" =>
+        CompressionCodec.ZSTD
       case "gzip" =>
         CompressionCodec.GZIP
       case other =>
-        fail(s"Unknown compression \"${other}\". Use snappy, none, lz4, or gzip")
+        fail(s"Unknown compression \"${other}\". Use snappy, none, lz4, zstd, or gzip")
 
   private def isBigInt(v: js.Any): Boolean = js.typeOf(v) == "bigint"
   private def bigIntOf(v: js.Any): BigInt  = BigInt(v.toString)
@@ -220,16 +222,22 @@ private[npm] object JsWriter:
 
   /** Writes rows to a Parquet file in memory */
   def write(rows: js.Array[js.Any], schema: js.Array[js.Dynamic], options: js.Dynamic): Uint8Array =
-    val cols  = columns(schema)
-    val ps    = ParquetSchema.fromColumns("schema", cols.map(_.column))
-    val codec =
-      if js.isUndefined(options) || options == null then
-        js.undefined
-      else
+    val cols       = columns(schema)
+    val ps         = ParquetSchema.fromColumns("schema", cols.map(_.column))
+    val hasOptions = !js.isUndefined(options) && options != null
+    val codec      =
+      if hasOptions then
         options.compression.asInstanceOf[js.UndefOr[String]]
-    val opts = ParquetWriteOptions.default.withCompression(compression(codec))
-    val out  = java.io.ByteArrayOutputStream()
-    val w    = Parquet.newRecordWriter(out, ps, opts)
+      else
+        js.undefined
+    var opts = ParquetWriteOptions.default.withCompression(compression(codec))
+    if hasOptions && !js.isUndefined(options.compressionLevel) then
+      val level = options.compressionLevel
+      if js.typeOf(level) != "number" || !level.asInstanceOf[Double].isWhole then
+        fail(s"compressionLevel must be an integer: ${js.JSON.stringify(level)}")
+      opts = opts.withCompressionLevel(level.asInstanceOf[Double].toInt)
+    val out = java.io.ByteArrayOutputStream()
+    val w   = Parquet.newRecordWriter(out, ps, opts)
     try rows.foreach(r => w.write(row(r, cols)))
     finally w.close()
     JsValues.bytes(out.toByteArray)

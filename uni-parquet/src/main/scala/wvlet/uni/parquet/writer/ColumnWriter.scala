@@ -45,6 +45,7 @@ private[parquet] final class ColumnWriter(
     options: ParquetWriteOptions
 ):
   private val codec       = options.compression
+  private val level       = options.compressionLevel
   private val maxRep      = field.maxRepetitionLevel
   private val maxDef      = field.maxDefinitionLevel
   private val physical    = field.physicalType
@@ -218,7 +219,7 @@ private[parquet] final class ColumnWriter(
           else
             body.write(plainValues)
           Encoding.PLAIN
-      val compressed = Compressors.compress(codec, body.array, body.size)
+      val compressed = Compressors.compress(codec, body.array, body.size, level)
       val header     = MetadataEncoder.pageHeader(
         PageHeader(
           pageType = PageType.DATA_PAGE,
@@ -260,7 +261,7 @@ private[parquet] final class ColumnWriter(
     // The dictionary page goes first, and its size counts toward the chunk's sizes
     val dictOffset =
       if usedDictPage then
-        val compressed = Compressors.compress(codec, dictBytes.array, dictBytes.size)
+        val compressed = Compressors.compress(codec, dictBytes.array, dictBytes.size, level)
         val header     = MetadataEncoder.pageHeader(
           PageHeader(
             pageType = PageType.DICTIONARY_PAGE,

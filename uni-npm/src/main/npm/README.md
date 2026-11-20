@@ -30,8 +30,8 @@ for await (const batch of file.batches()) {
 }
 ```
 
-- Reads SNAPPY, GZIP, LZ4, ZSTD, and BROTLI files. Writes SNAPPY (default), LZ4, uncompressed,
-  and GZIP (Node.js only).
+- Reads SNAPPY, GZIP, LZ4, ZSTD, and BROTLI files. Writes SNAPPY (default), LZ4, ZSTD (with
+  `compressionLevel` 1-22), uncompressed, and GZIP (Node.js only).
 - INT64 values are `bigint`, decimals are strings, timestamps are `Date` by default; pass
   `{ timestamps: "bigint" }` to read them without losing precision. See `parquet.d.ts` for the full
   mapping.
