@@ -28,8 +28,8 @@ class JSONValueBuilder extends JSONContext[JSONValue] with LogSupport:
 
   // Comment buffering for JSONC support (protected so inner builders access their own instance)
   // Created on the first comment: every object and array gets a builder, and plain JSON has none
-  private var pending: scala.collection.mutable.ArrayBuffer[JSONComment]                  = null
-  protected def pendingLeadingComments: scala.collection.mutable.ArrayBuffer[JSONComment] =
+  private var pending: scala.collection.mutable.ArrayBuffer[JSONComment] = null
+  protected final def pendingLeadingComments: scala.collection.mutable.ArrayBuffer[JSONComment] =
     if pending == null then
       pending = scala.collection.mutable.ArrayBuffer[JSONComment]()
     pending

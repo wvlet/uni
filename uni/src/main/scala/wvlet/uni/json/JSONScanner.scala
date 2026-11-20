@@ -180,7 +180,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
   private var sbBuf: StringBuilder = null
   private def sb: StringBuilder    =
     if sbBuf == null then
-      sbBuf = new StringBuilder()
+      sbBuf = StringBuilder()
     sbBuf
 
   // Buffer for comments collected during whitespace skipping
