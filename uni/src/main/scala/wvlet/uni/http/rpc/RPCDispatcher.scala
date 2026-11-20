@@ -19,6 +19,8 @@ import wvlet.uni.http.HttpAccessLogFilter
 import wvlet.uni.http.HttpContent
 import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
+import wvlet.uni.http.HttpMultiMap
+import wvlet.uni.http.HttpStatus
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.http.ServerSentEvent
@@ -106,10 +108,11 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       val result = route.codec.method.call(instance, args*)
 
       // Handle result - may be Rx for async methods
+      val eventStream = RPCDispatcher.acceptsEventStream(request)
       result match
-        case rx: Rx[?] if RPCDispatcher.acceptsEventStream(request) =>
+        case rx: Rx[?] if eventStream =>
           Rx.single(streamResponse(rx, route))
-        case value if RPCDispatcher.acceptsEventStream(request) =>
+        case value if eventStream =>
           Rx.single(streamResponse(Rx.single(value), route))
         case rx: Rx[?] =>
           rx.map(v => successResponse(v, route))
@@ -136,10 +139,11 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
   private def successResponse(value: Any, route: RPCRoute): Response =
     // JSON bytes straight from the codec: no String to build and then encode again
     val json = route.codec.encodeResultBytes(value)
-    Response
-      .ok
-      .addHeader(HttpHeader.XRPCStatus, ServiceStatus.SUCCESS_S0.code.toString)
-      .withContent(HttpContent.ByteContent(json, Some(ContentType.ApplicationJson)))
+    Response(
+      HttpStatus.Ok_200,
+      RPCDispatcher.SuccessHeaders,
+      HttpContent.ByteContent(json, RPCDispatcher.JsonContentType)
+    )
 
   private def streamResponse(rx: Rx[?], route: RPCRoute): Response =
     val events: Rx[ServerSentEvent] = rx
@@ -181,6 +185,14 @@ object RPCDispatcher:
     * Create a dispatcher serving the given routers.
     */
   def apply(routers: RPCRouter*): RPCDispatcher = new RPCDispatcher(routers.toSeq)
+
+  // Every success response carries the same header and content type; maps are immutable, so they
+  // are built once
+  private val SuccessHeaders: HttpMultiMap = HttpMultiMap
+    .empty
+    .add(HttpHeader.XRPCStatus, ServiceStatus.SUCCESS_S0.code.toString)
+
+  private val JsonContentType: Option[ContentType] = Some(ContentType.ApplicationJson)
 
   /** The SSE event type of a failure in a streaming RPC response. */
   val ErrorEvent: String = "rpc-error"

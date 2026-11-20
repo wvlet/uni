@@ -24,7 +24,7 @@ case class Response(
     status: HttpStatus,
     headers: HttpMultiMap = HttpMultiMap.empty,
     content: HttpContent = HttpContent.Empty,
-    events: Rx[ServerSentEvent] = Rx.empty
+    events: Rx[ServerSentEvent] = Response.NoEvents
 ):
 
   def isSuccessful: Boolean    = status.isSuccessful
@@ -101,13 +101,16 @@ case class Response(
   /**
     * Whether this response is an SSE event stream with streaming events
     */
-  def isEventStream: Boolean = contentType.exists(_.isEventStream) && content == HttpContent.Empty
+  def isEventStream: Boolean = content == HttpContent.Empty && contentType.exists(_.isEventStream)
 
   def withEvents(events: Rx[ServerSentEvent]): Response = copy(events = events)
 
 end Response
 
 object Response:
+  // Shared by every response without events: Rx.empty builds a new Rx on each call
+  private val NoEvents: Rx[ServerSentEvent] = Rx.empty
+
   def apply(status: HttpStatus): Response = Response(status, HttpMultiMap.empty, HttpContent.Empty)
 
   // 2xx Success responses
