@@ -114,7 +114,7 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     )
 
   /** The batches of one row group, as [[readBatches]] splits them */
-  private def rowGroupBatchesAsync(
+  private[parquet] def rowGroupBatchesAsync(
       index: Int,
       options: ParquetReadOptions
   ): Rx[Iterator[ColumnBatch]] = Rx

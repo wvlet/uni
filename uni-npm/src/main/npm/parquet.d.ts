@@ -61,7 +61,7 @@ export interface ColumnData {
   nulls: Uint8Array | null;
 }
 
-/** The columns of one row group */
+/** The columns of a range of rows: a whole row group, or part of one too large for a single batch */
 export interface ColumnBatch {
   numRows: number;
   columnNames: string[];
@@ -78,7 +78,10 @@ export interface ParquetFile {
   readonly createdBy: string | null;
   /** Every row as a plain object. For large files, prefer `batches` */
   readRows(options?: ReadOptions): Promise<ParquetRow[]>;
-  /** The selected row groups, one batch each, read as you iterate */
+  /**
+   * The selected row groups as batches, read as you iterate: one batch per row group, or several
+   * when a column of a row group holds more than 2 GiB of values
+   */
   batches(options?: ReadOptions): AsyncIterable<ColumnBatch>;
   /** Releases the file handle (local files) */
   close(): void;

@@ -17,7 +17,14 @@ private[npm] object JsValues:
   /** Read options that change how values are mapped */
   case class Mapping(timestampsAsBigInt: Boolean)
 
-  def bigint(v: Long): js.BigInt = js.BigInt(v.toString)
+  private final val MaxSafeInteger = 9007199254740991L
+
+  // Most values are within 2^53, where a bigint can come from the number without a string
+  def bigint(v: Long): js.BigInt =
+    if v >= -MaxSafeInteger && v <= MaxSafeInteger then
+      js.BigInt(v.toDouble)
+    else
+      js.BigInt(v.toString)
 
   def bytes(a: Array[Byte]): Uint8Array =
     val i = byteArray2Int8Array(a)

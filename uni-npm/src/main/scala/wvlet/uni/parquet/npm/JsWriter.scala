@@ -69,10 +69,13 @@ private[npm] object JsWriter:
     else if t != null && js.typeOf(t) == "object" then
       val o = t.asInstanceOf[js.Dynamic]
       if has(o, "decimal") then
-        val d = o.decimal
-        Decimal(
-          ParquetType.decimal(d.precision.asInstanceOf[Int], d.scale.asInstanceOf[Double].toInt)
-        )
+        val d                     = o.decimal
+        def int(key: String): Int =
+          val v = d.selectDynamic(key)
+          if js.typeOf(v) != "number" || !v.asInstanceOf[Double].isWhole then
+            fail(s"${at} needs an integer decimal ${key}")
+          v.asInstanceOf[Double].toInt
+        Decimal(ParquetType.decimal(int("precision"), int("scale")))
       else if has(o, "list") then
         ListOf(spec(o.list.asInstanceOf[js.Any], s"${at}[]"))
       else if has(o, "map") then
@@ -116,6 +119,13 @@ private[npm] object JsWriter:
 
   private def isDate(v: js.Any): Boolean = v.isInstanceOf[js.Date]
 
+  /** The time of a Date; an Invalid Date would otherwise be written as the epoch */
+  private def epochMillis(v: js.Any): Double =
+    val t = v.asInstanceOf[js.Date].getTime()
+    if t.isNaN then
+      fail("Invalid Date")
+    t
+
   private def instantOf(raw: BigInt, name: String): Instant =
     val (perSecond, nanosPer) =
       name match
@@ -154,11 +164,13 @@ private[npm] object JsWriter:
               .toSeq
               .map((a, b) => convert(a, k) -> convert(b, x))
               .toMap
-          else
+          else if js.typeOf(v) == "object" && !v.isInstanceOf[js.Array[?]] then
             v.asInstanceOf[js.Dictionary[js.Any]]
               .toSeq
               .map((a, b) => convert(a, k) -> convert(b, x))
               .toMap
+          else
+            fail(s"Expected an object or a Map, got ${js.typeOf(v)}")
         case Struct(cols) =>
           row(v, cols)
 
@@ -193,12 +205,12 @@ private[npm] object JsWriter:
             v
       case "date" =>
         if isDate(v) then
-          Math.floor(v.asInstanceOf[js.Date].getTime() / 86400000.0).toLong
+          Math.floor(epochMillis(v) / 86400000.0).toLong
         else
           v
       case n if n.startsWith("timestamp-") =>
         if isDate(v) then
-          Instant.ofEpochMilli(v.asInstanceOf[js.Date].getTime().toLong)
+          Instant.ofEpochMilli(epochMillis(v).toLong)
         else if isBigInt(v) then
           instantOf(bigIntOf(v), n)
         else

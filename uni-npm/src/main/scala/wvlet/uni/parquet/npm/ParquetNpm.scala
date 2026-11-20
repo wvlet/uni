@@ -216,32 +216,34 @@ class JsParquetFile private[npm] (file: ParquetFile) extends js.Object:
     val ts = !js.isUndefined(o.timestamps) && o.timestamps.asInstanceOf[String] == "bigint"
     (ParquetReadOptions(columns = cols), JsValues.Mapping(timestampsAsBigInt = ts))
 
-  private def rowGroup(i: Int, options: ParquetReadOptions): Future[ColumnBatch] = ParquetNpm.first(
-    file.readRowGroupAsync(i, options)
-  )
+  /**
+    * The batches of one row group. A row group too large for one batch (over 2 GiB in a column)
+    * comes as several, as `ParquetFile.readBatches` splits it.
+    */
+  private def rowGroupBatches(i: Int, options: ParquetReadOptions): Rx[Iterator[ColumnBatch]] = file
+    .rowGroupBatchesAsync(i, options)
 
-  private def sequential[A](groups: Seq[Int], options: ParquetReadOptions)(
-      f: ColumnBatch => A
-  ): Future[Seq[A]] =
-    groups.foldLeft(Future.successful(Vector.empty[A])) { (acc, i) =>
-      acc.flatMap(done => rowGroup(i, options).map(b => done :+ f(b)))
-    }
-
-  private def rows(b: ColumnBatch, m: JsValues.Mapping): Seq[js.Dictionary[js.Any]] =
-    (0 until b.numRows).map { i =>
+  private def rows(b: ColumnBatch, m: JsValues.Mapping): Iterator[js.Dictionary[js.Any]] = Iterator
+    .range(0, b.numRows)
+    .map { i =>
       val d = js.Dictionary.empty[js.Any]
       b.columns.foreach(c => d(c.name) = JsValues.value(c, i, m))
       d
     }
 
   private def batch(b: ColumnBatch, m: JsValues.Mapping): js.Object =
-    val cols = b.columns.map(c => c.name -> JsValues.column(c, m)).toMap
+    // Converted when first asked for, so reading a few columns of a wide file stays cheap
+    val converted = scala.collection.mutable.Map.empty[String, js.Object]
     js.Dynamic
       .literal(
         numRows = b.numRows,
         columnNames = b.columnNames.toJSArray,
         column = { (name: String) =>
-          cols.getOrElse(name, throw js.JavaScriptException(js.Error(s"No column named ${name}")))
+          b.columns.find(_.name == name) match
+            case Some(c) =>
+              converted.getOrElseUpdate(name, JsValues.column(c, m))
+            case None =>
+              throw js.JavaScriptException(js.Error(s"No column named ${name}"))
         }: js.Function1[String, js.Object]
       )
 
@@ -251,32 +253,43 @@ class JsParquetFile private[npm] (file: ParquetFile) extends js.Object:
         .unit
         .flatMap { _ =>
           val (opts, m) = parse(options)
-          sequential(file.selectRowGroups(opts), opts)(rows(_, m))
+          ParquetNpm.first(
+            ParquetFile
+              .sequence(file.selectRowGroups(opts).map(rowGroupBatches(_, opts)))
+              .map { groups =>
+                val out = js.Array[js.Any]()
+                groups.foreach(_.foreach(b => rows(b, m).foreach(r => out.push(r))))
+                out
+              }
+          )
         }
-        .map(_.flatten.toJSArray.asInstanceOf[js.Array[js.Any]])
     )
 
-  /** An AsyncIterable of column batches, one per row group */
+  /** An AsyncIterable of column batches: one per row group, or several for a large row group */
   def batches(options: js.UndefOr[js.Dynamic] = js.undefined): js.Object =
     val (opts, m)                        = ParquetNpm.guard(parse(options))
     val groups                           = ParquetNpm.guard(file.selectRowGroups(opts))
     val iterable                         = js.Object()
     val factory: js.Function0[js.Object] =
       () =>
-        var next = 0
+        var nextGroup                      = 0
+        var current: Iterator[ColumnBatch] = Iterator.empty
+        def step(): Future[js.Object]      =
+          if current.hasNext then
+            Future(js.Dynamic.literal(done = false, value = batch(current.next(), m)))
+          else if nextGroup < groups.size then
+            val i = groups(nextGroup)
+            nextGroup += 1
+            ParquetNpm
+              .first(rowGroupBatches(i, opts))
+              .flatMap { it =>
+                current = it
+                step()
+              }
+          else
+            Future.successful(js.Dynamic.literal(done = true, value = js.undefined))
         js.Dynamic
-          .literal(
-            next = { () =>
-              if next >= groups.size then
-                js.Promise.resolve[js.Object](js.Dynamic.literal(done = true, value = js.undefined))
-              else
-                val i = groups(next)
-                next += 1
-                ParquetNpm.toPromise(
-                  rowGroup(i, opts).map(b => js.Dynamic.literal(done = false, value = batch(b, m)))
-                )
-            }: js.Function0[js.Promise[js.Object]]
-          )
+          .literal(next = (() => ParquetNpm.toPromise(step())): js.Function0[js.Promise[js.Object]])
     js.Dynamic.global.Reflect.set(iterable, js.Dynamic.global.Symbol.asyncIterator, factory)
     iterable
 

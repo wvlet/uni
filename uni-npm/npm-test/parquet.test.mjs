@@ -176,4 +176,14 @@ test("reports errors as JS Errors", async () => {
   assert.throws(() => writeParquet([], [{ name: "a", type: "int128" }]), /Unknown type "int128"/);
   assert.throws(() => writeParquet([{ a: "x" }], [{ name: "a", type: "int64" }]), Error);
   assert.throws(() => writeParquet([{}], [{ name: "a", type: "int64", optional: false }]), Error);
+  assert.throws(() => writeParquet([{ a: new Date("oops") }], [{ name: "a", type: "date" }]), /Invalid Date/);
+  assert.throws(
+    () => writeParquet([{ a: new Date("oops") }], [{ name: "a", type: "timestamp-millis" }]),
+    /Invalid Date/,
+  );
+  assert.throws(
+    () => writeParquet([{ a: "ab" }], [{ name: "a", type: { map: { key: "string", value: "string" } } }]),
+    /Expected an object or a Map/,
+  );
+  assert.throws(() => writeParquet([], [{ name: "a", type: { decimal: { scale: 2 } } }]), /integer decimal precision/);
 });
