@@ -318,6 +318,24 @@ private[parquet] object Assembly:
       case b: BinaryBuffer =>
         // The buffer's offsets start at 0; its data array is shared
         BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null)
+          .withDictionary(b.dict, dictIndices(b, n, i => i))
+
+  /** The dictionary entry of each row, given the value index of row i (-1 for none) */
+  private inline def dictIndices(b: BinaryBuffer, n: Int, inline valueOf: Int => Int): Array[Int] =
+    if b.dict == null then
+      null
+    else
+      val out = new Array[Int](n)
+      var i   = 0
+      while i < n do
+        val v = valueOf(i)
+        out(i) =
+          if v >= 0 then
+            b.dictIndex(v)
+          else
+            -1
+        i += 1
+      out
 
   private def gatherLeaf(
       p: ParquetField.Primitive,
@@ -403,8 +421,9 @@ private[parquet] object Assembly:
           i += 1
         offsets(n) = total
         val startValue = (0 until n).find(pick(_) >= 0).map(pick).getOrElse(0)
+        val indices = dictIndices(b, n, i => pick(i))
         if dense && startValue == 0 then
-          BinaryColumn(p, offsets, b.data, nulls)
+          BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices)
         else
           val data = new Array[Byte](total)
           i = 0
@@ -412,7 +431,7 @@ private[parquet] object Assembly:
             if pick(i) >= 0 then
               System.arraycopy(b.data, b.offsets(pick(i)), data, offsets(i), b.length(pick(i)))
             i += 1
-          BinaryColumn(p, offsets, data, nulls)
+          BinaryColumn(p, offsets, data, nulls).withDictionary(b.dict, indices)
     end match
 
   end gatherLeaf

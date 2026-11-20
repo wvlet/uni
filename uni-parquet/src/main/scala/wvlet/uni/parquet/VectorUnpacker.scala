@@ -22,40 +22,42 @@ import java.time.LocalDate
   * Instants, DATE and TIME are ISO-8601 strings, DECIMAL, UUID, and unsigned 64-bit integers past
   * Long.MaxValue are strings, and lists, maps, and structs are arrays and maps.
   *
-  * Column names are the schema's own Strings, so no key is built per row. Call [[startRow]] before
-  * Weaver reads each row.
+  * How each vector is read is worked out once per batch, and column names are the schema's own
+  * Strings, so nothing is looked up or built per row for them. Strings of dictionary-encoded columns
+  * are built once per dictionary entry. Call [[startRow]] before Weaver reads each row.
   */
 private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: Boolean)
     extends Unpacker:
   import VectorUnpacker.*
 
-  private val columns: Array[ColumnVector] = batch.columns.toArray
+  private val root: Array[Col]       = batch.columns.map(Col(_, binaryAsString)).toArray
+  private val rootNames: Array[String] = batch.columns.map(_.name).toArray
 
   // The value at the cursor
-  private var kind: Int          = End
-  private var key: String        = null
-  private var vec: ColumnVector  = null
-  private var idx: Int           = 0
-  private var tpe: ValueType     = null
+  private var kind: Int            = End
+  private var key: String          = null
+  private var col: Col             = null
+  private var idx: Int             = 0
+  private var tpe: ValueType       = null
   private var payload: Array[Byte] = null
-  private var payloadOff: Int    = 0
-  private var payloadLen: Int    = 0
-  private var instant: Instant   = null
-  private var row: Int           = 0
+  private var payloadOff: Int      = 0
+  private var payloadLen: Int      = 0
+  private var instant: Instant     = null
+  private var row: Int             = 0
 
   // Open containers: maps and arrays whose entries are being read
   private var frames = new Array[Frame](4)
   private var depth  = 0
 
   private final class Frame:
-    var kind: Int                      = 0
-    var children: Array[ColumnVector]  = null
-    var structChildren: IndexedSeq[ColumnVector] = null
-    var a: ColumnVector                = null
-    var b: ColumnVector                = null
-    var row: Int                       = 0
-    var k: Int                         = 0
-    var end: Int                       = 0
+    var kind: Int             = 0
+    var cols: Array[Col]      = null
+    var names: Array[String]  = null
+    var a: Col                = null
+    var b: Col                = null
+    var row: Int              = 0
+    var k: Int                = 0
+    var end: Int              = 0
 
     /** Moves the cursor to the next entry; false when there is none */
     def next(): Boolean =
@@ -64,15 +66,10 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
       else
         kind match
           case FStruct =>
-            val c =
-              if children != null then
-                children(k >> 1)
-              else
-                structChildren(k >> 1)
             if (k & 1) == 0 then
-              setKey(c.name)
+              setKey(names(k >> 1))
             else
-              setCell(c, row)
+              setCell(cols(k >> 1), row)
           case FList =>
             setCell(a, k)
           case _ =>
@@ -86,15 +83,14 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   end Frame
 
-  private def push(): Frame =
+  private def push(kind: Int): Frame =
     if depth == frames.length then
       frames = java.util.Arrays.copyOf(frames, depth * 2)
     if frames(depth) == null then
       frames(depth) = Frame()
     val f = frames(depth)
     depth += 1
-    f.children = null
-    f.structChildren = null
+    f.kind = kind
     f.k = 0
     f
 
@@ -115,83 +111,17 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
     key = k
     tpe = ValueType.STRING
 
-  private def setCell(c: ColumnVector, i: Int): Unit =
+  private def setCell(c: Col, i: Int): Unit =
     kind = Cell
-    vec = c
+    col = c
     idx = i
-    tpe = typeOf(c, i)
-
-  private def typeOf(c: ColumnVector, i: Int): ValueType =
-    if c.isNull(i) then
-      ValueType.NIL
-    else
-      c match
-        case _: BooleanColumn =>
-          ValueType.BOOLEAN
-        case v: IntColumn =>
-          v.field.logicalType match
-            case Some(LogicalType.Date | LogicalType.Time(_, _) | LogicalType.Decimal(_, _)) =>
-              ValueType.STRING
-            case _ =>
-              ValueType.INTEGER
-        case v: LongColumn =>
-          v.field.logicalType match
-            case Some(LogicalType.Timestamp(_, _)) =>
-              ValueType.EXTENSION
-            case Some(LogicalType.Time(_, _) | LogicalType.Decimal(_, _)) =>
-              ValueType.STRING
-            case Some(LogicalType.Integer(64, false)) if v.values(i) < 0 =>
-              ValueType.STRING
-            case _ =>
-              ValueType.INTEGER
-        case _: FloatColumn | _: DoubleColumn =>
-          ValueType.FLOAT
-        case b: BinaryColumn =>
-          binaryType(b, i)
-        case _: ListColumn =>
-          ValueType.ARRAY
-        case _: MapColumn | _: StructColumn =>
-          ValueType.MAP
-
-  private def binaryType(c: BinaryColumn, i: Int): ValueType =
-    c.field.logicalType match
-      case Some(LogicalType.String | LogicalType.Enum | LogicalType.Json) =>
-        ValueType.STRING
-      case Some(LogicalType.Decimal(_, _)) | Some(LogicalType.Uuid) | Some(LogicalType.Float16) =>
-        LogicalValues.fromBinary(c.data, c.offsets(i), c.length(i), c.field) match
-          case _: Float =>
-            ValueType.FLOAT
-          case _: Array[Byte] =>
-            ValueType.BINARY
-          case _ =>
-            ValueType.STRING
-      case _ if isInt96(c) && c.length(i) == 12 =>
-        ValueType.EXTENSION
-      case _ if binaryAsString =>
-        ValueType.STRING
-      case _ =>
-        ValueType.BINARY
-
-  private def isInt96(c: BinaryColumn): Boolean =
-    c.field match
-      case f: ParquetField.Primitive =>
-        f.physicalType == PhysicalType.INT96
-      case _ =>
-        false
-
-  /** True when the string at the cursor is the UTF-8 bytes of a binary column */
-  private def isStoredString: Boolean =
-    vec match
-      case b: BinaryColumn =>
-        b.field.logicalType match
-          case Some(LogicalType.String | LogicalType.Enum | LogicalType.Json) =>
-            true
-          case Some(_) =>
-            false
-          case None =>
-            binaryAsString && !(isInt96(b) && b.length(idx) == 12)
-      case _ =>
-        false
+    tpe =
+      if c.nulls != null && c.nulls(i) then
+        ValueType.NIL
+      else if c.tpe != null then
+        c.tpe
+      else
+        c.dynamicType(i)
 
   private def mismatch(expected: String): Nothing =
     throw IllegalStateException(s"Expected ${expected}, but the next value is ${tpe}")
@@ -256,7 +186,7 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackBoolean: Boolean =
     expect(ValueType.BOOLEAN)
-    val v = vec.asInstanceOf[BooleanColumn].values(idx)
+    val v = col.vec.asInstanceOf[BooleanColumn].values(idx)
     advance()
     v
 
@@ -266,23 +196,19 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackLong: Long =
     expect(ValueType.INTEGER)
+    val c = col
     val v =
-      vec match
-        case c: IntColumn =>
-          val x = c.values(idx)
-          c.field.logicalType match
-            case Some(LogicalType.Integer(32, false)) =>
-              x.toLong & 0xffffffffL
-            case Some(LogicalType.Integer(16, false)) =>
-              (x & 0xffff).toLong
-            case Some(LogicalType.Integer(8, false)) =>
-              (x & 0xff).toLong
-            case _ =>
-              x.toLong
-        case c: LongColumn =>
-          c.values(idx)
+      c.code match
+        case CInt =>
+          c.ints(idx).toLong
+        case CUInt32 =>
+          c.ints(idx).toLong & 0xffffffffL
+        case CUInt16 =>
+          (c.ints(idx) & 0xffff).toLong
+        case CUInt8 =>
+          (c.ints(idx) & 0xff).toLong
         case _ =>
-          mismatch("an integer")
+          c.longs(idx)
     advance()
     v
 
@@ -292,20 +218,16 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackDouble: Double =
     expect(ValueType.FLOAT)
+    val c = col
     val v =
-      vec match
-        case c: FloatColumn =>
-          c.values(idx).toDouble
-        case c: DoubleColumn =>
-          c.values(idx)
-        case c: BinaryColumn =>
-          // FLOAT16
-          LogicalValues
-            .fromBinary(c.data, c.offsets(idx), c.length(idx), c.field)
-            .asInstanceOf[Float]
-            .toDouble
+      c.code match
+        case CDouble =>
+          c.vec.asInstanceOf[DoubleColumn].values(idx)
+        case CFloat =>
+          c.vec.asInstanceOf[FloatColumn].values(idx).toDouble
         case _ =>
-          mismatch("a float")
+          // FLOAT16
+          c.logicalBinary(idx).asInstanceOf[Float].toDouble
     advance()
     v
 
@@ -316,48 +238,9 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
       k
     else
       expect(ValueType.STRING)
-      val s = stringAt()
+      val s = col.string(idx)
       advance()
       s
-
-  private def stringAt(): String =
-    vec match
-      case b: BinaryColumn if isStoredString =>
-        String(b.data, b.offsets(idx), b.length(idx), "UTF-8")
-      case b: BinaryColumn =>
-        LogicalValues.fromBinary(b.data, b.offsets(idx), b.length(idx), b.field).toString
-      case c: IntColumn =>
-        val v = c.values(idx)
-        c.field.logicalType match
-          case Some(LogicalType.Date) =>
-            LocalDate.ofEpochDay(v.toLong).toString
-          case Some(LogicalType.Time(_, _)) =>
-            LogicalValues.localTime(v.toLong * 1000000L).toString
-          case Some(LogicalType.Decimal(scale, _)) =>
-            BigDecimal(BigInt(v), scale).toString
-          case _ =>
-            v.toString
-      case c: LongColumn =>
-        val v = c.values(idx)
-        c.field.logicalType match
-          case Some(LogicalType.Time(_, unit)) =>
-            LogicalValues.localTime(nanos(v, unit)).toString
-          case Some(LogicalType.Decimal(scale, _)) =>
-            BigDecimal(BigInt(v), scale).toString
-          case _ =>
-            // UINT64 past Long.MaxValue
-            (BigInt(v) + (BigInt(1) << 64)).toString
-      case _ =>
-        mismatch("a string")
-
-  private def nanos(v: Long, unit: TimeUnit): Long =
-    unit match
-      case TimeUnit.MILLIS =>
-        v * 1000000L
-      case TimeUnit.MICROS =>
-        v * 1000L
-      case TimeUnit.NANOS =>
-        v
 
   override def unpackTimestamp: Instant =
     if kind == Ext then
@@ -366,33 +249,19 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
       t
     else
       expect(ValueType.EXTENSION)
-      val t = instantAt()
+      val t = col.instant(idx)
       advance()
       t
 
   override def unpackTimestamp(extTypeHeader: ExtTypeHeader): Instant = unpackTimestamp
 
-  private def instantAt(): Instant =
-    vec match
-      case c: LongColumn =>
-        c.field.logicalType match
-          case Some(LogicalType.Timestamp(_, unit)) =>
-            LogicalValues.timestamp(c.values(idx), unit)
-          case _ =>
-            mismatch("a timestamp")
-      case b: BinaryColumn =>
-        LogicalValues.int96ToInstant(b.data, b.offsets(idx))
-      case _ =>
-        mismatch("a timestamp")
-
   override def unpackArrayHeader: Int =
     expect(ValueType.ARRAY)
-    val l    = vec.asInstanceOf[ListColumn]
+    val l    = col.vec.asInstanceOf[ListColumn]
     val from = l.offsets(idx)
     val to   = l.offsets(idx + 1)
-    val f    = push()
-    f.kind = FList
-    f.a = l.elements
+    val f    = push(FList)
+    f.a = col.elements
     f.k = from
     f.end = to
     advance()
@@ -400,41 +269,39 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackMapHeader: Int =
     if kind == Row then
-      val f = push()
-      f.kind = FStruct
-      f.children = columns
+      val f = push(FStruct)
+      f.cols = root
+      f.names = rootNames
       f.row = row
-      f.end = 2 * columns.length
+      f.end = 2 * root.length
       advance()
-      columns.length
+      root.length
     else
       expect(ValueType.MAP)
-      vec match
-        case s: StructColumn =>
-          val f = push()
-          f.kind = FStruct
-          f.structChildren = s.children
-          f.row = idx
-          f.end = 2 * s.children.size
-          advance()
-          s.children.size
-        case m: MapColumn =>
-          val from = m.offsets(idx)
-          val n    = m.offsets(idx + 1) - from
-          val f    = push()
-          f.kind = FMap
-          f.a = m.keys
-          f.b = m.values
-          f.row = from
-          f.end = 2 * n
-          advance()
-          n
-        case _ =>
-          mismatch("a map")
+      val c = col
+      if c.code == CStruct then
+        val f = push(FStruct)
+        f.cols = c.children
+        f.names = c.names
+        f.row = idx
+        f.end = 2 * c.children.length
+        advance()
+        c.children.length
+      else
+        val m    = c.vec.asInstanceOf[MapColumn]
+        val from = m.offsets(idx)
+        val n    = m.offsets(idx + 1) - from
+        val f    = push(FMap)
+        f.a = c.keys
+        f.b = c.values
+        f.row = from
+        f.end = 2 * n
+        advance()
+        n
 
   override def unpackExtTypeHeader: ExtTypeHeader =
     expect(ValueType.EXTENSION)
-    instant = instantAt()
+    instant = col.instant(idx)
     kind = Ext
     ExtTypeHeader(TimestampExtType, 12)
 
@@ -446,15 +313,15 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
       setPayload(key.getBytes("UTF-8"))
     else
       expect(ValueType.STRING)
-      vec match
-        case b: BinaryColumn if isStoredString =>
-          startPayload(b.data, b.offsets(idx), b.length(idx))
-        case _ =>
-          setPayload(stringAt().getBytes("UTF-8"))
+      if col.code == CStr then
+        val b = col.vec.asInstanceOf[BinaryColumn]
+        startPayload(b.data, b.offsets(idx), b.length(idx))
+      else
+        setPayload(col.string(idx).getBytes("UTF-8"))
 
   override def unpackBinaryHeader: Int =
     expect(ValueType.BINARY)
-    val b = vec.asInstanceOf[BinaryColumn]
+    val b = col.vec.asInstanceOf[BinaryColumn]
     startPayload(b.data, b.offsets(idx), b.length(idx))
 
   private def setPayload(bytes: Array[Byte]): Int = startPayload(bytes, 0, bytes.length)
@@ -473,11 +340,9 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
   override def readPayload(dst: Array[Byte]): Unit = readPayload(dst, 0, dst.length)
 
   override def readPayload(dst: Array[Byte], offset: Int, length: Int): Unit =
-    if length == 0 then
-      ()
-    else if kind != Payload || length > payloadLen then
-      throw IllegalStateException("No payload to read")
-    else
+    if length > 0 then
+      if kind != Payload || length > payloadLen then
+        throw IllegalStateException("No payload to read")
       System.arraycopy(payload, payloadOff, dst, offset, length)
       payloadOff += length
       payloadLen -= length
@@ -501,7 +366,7 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
           MessagePack.newUnpacker(p.toByteArray).unpackValue
         case Cell =>
           val p = MessagePack.newPacker()
-          RowPacker(binaryAsString).pack(p, vec, idx)
+          RowPacker(binaryAsString).pack(p, col.vec, idx)
           MessagePack.newUnpacker(p.toByteArray).unpackValue
         case _ =>
           throw IllegalStateException("No value to read")
@@ -527,3 +392,263 @@ private object VectorUnpacker:
   private final val FMap    = 2
 
   private final val TimestampExtType: Byte = -1
+
+  // How a vector's values are read, in the order RowPacker checks them
+  private final val CBool       = 0
+  private final val CInt        = 1
+  private final val CUInt32     = 2
+  private final val CUInt16     = 3
+  private final val CUInt8      = 4
+  private final val CDate       = 5
+  private final val CTimeInt    = 6
+  private final val CDecimalInt = 7
+  private final val CLong       = 8
+  private final val CULong      = 9
+  private final val CTimestamp  = 10
+  private final val CTimeLong   = 11
+  private final val CDecimalLong = 12
+  private final val CFloat      = 13
+  private final val CDouble     = 14
+  private final val CStr        = 15 // UTF-8 bytes of a binary column
+  private final val CBinLogical = 16 // DECIMAL, UUID, or FLOAT16 in bytes
+  private final val CInt96      = 17
+  private final val CBin        = 18
+  private final val CList       = 19
+  private final val CMap        = 20
+  private final val CStruct     = 21
+
+  /** A vector with how to read it, worked out once per batch */
+  private final class Col(val vec: ColumnVector, binaryAsString: Boolean):
+    val nulls: Array[Boolean] = vec.nulls
+    private val lt            = vec.field.logicalType
+    private var scale         = 0
+    private var unit          = TimeUnit.MICROS
+
+    val code: Int =
+      vec match
+        case _: BooleanColumn =>
+          CBool
+        case _: IntColumn =>
+          lt match
+            case Some(LogicalType.Date) =>
+              CDate
+            case Some(LogicalType.Time(_, _)) =>
+              CTimeInt
+            case Some(LogicalType.Decimal(s, _)) =>
+              scale = s
+              CDecimalInt
+            case Some(LogicalType.Integer(32, false)) =>
+              CUInt32
+            case Some(LogicalType.Integer(16, false)) =>
+              CUInt16
+            case Some(LogicalType.Integer(8, false)) =>
+              CUInt8
+            case _ =>
+              CInt
+        case _: LongColumn =>
+          lt match
+            case Some(LogicalType.Timestamp(_, u)) =>
+              unit = u
+              CTimestamp
+            case Some(LogicalType.Time(_, u)) =>
+              unit = u
+              CTimeLong
+            case Some(LogicalType.Decimal(s, _)) =>
+              scale = s
+              CDecimalLong
+            case Some(LogicalType.Integer(64, false)) =>
+              CULong
+            case _ =>
+              CLong
+        case _: FloatColumn =>
+          CFloat
+        case _: DoubleColumn =>
+          CDouble
+        case b: BinaryColumn =>
+          val int96 =
+            b.field match
+              case f: ParquetField.Primitive =>
+                f.physicalType == PhysicalType.INT96
+              case _ =>
+                false
+          lt match
+            case Some(LogicalType.String | LogicalType.Enum | LogicalType.Json) =>
+              CStr
+            case Some(LogicalType.Decimal(_, _) | LogicalType.Uuid | LogicalType.Float16) =>
+              CBinLogical
+            case _ if int96 =>
+              CInt96
+            case _ if binaryAsString =>
+              CStr
+            case _ =>
+              CBin
+        case _: ListColumn =>
+          CList
+        case _: MapColumn =>
+          CMap
+        case _: StructColumn =>
+          CStruct
+
+    /** The type of every non-null value, or null when it depends on the value */
+    val tpe: ValueType =
+      code match
+        case CBool =>
+          ValueType.BOOLEAN
+        case CInt | CUInt32 | CUInt16 | CUInt8 | CLong =>
+          ValueType.INTEGER
+        case CDate | CTimeInt | CDecimalInt | CTimeLong | CDecimalLong | CStr =>
+          ValueType.STRING
+        case CTimestamp =>
+          ValueType.EXTENSION
+        case CFloat | CDouble =>
+          ValueType.FLOAT
+        case CBin =>
+          ValueType.BINARY
+        case CList =>
+          ValueType.ARRAY
+        case CMap | CStruct =>
+          ValueType.MAP
+        case _ =>
+          null
+
+    val ints: Array[Int] =
+      vec match
+        case v: IntColumn =>
+          v.values
+        case _ =>
+          null
+
+    val longs: Array[Long] =
+      vec match
+        case v: LongColumn =>
+          v.values
+        case _ =>
+          null
+
+    private val bin: BinaryColumn =
+      vec match
+        case b: BinaryColumn =>
+          b
+        case _ =>
+          null
+
+    // Strings of a dictionary-encoded column, built once per dictionary entry
+    private val dictIndices: Array[Int] =
+      if bin != null && code == CStr then
+        bin.dictIndices
+      else
+        null
+    private val dictStrings: Array[String] =
+      if dictIndices != null then
+        bin.dictionary.strings
+      else
+        null
+
+    val elements: Col =
+      vec match
+        case l: ListColumn =>
+          Col(l.elements, binaryAsString)
+        case _ =>
+          null
+    val keys: Col =
+      vec match
+        case m: MapColumn =>
+          Col(m.keys, binaryAsString)
+        case _ =>
+          null
+    val values: Col =
+      vec match
+        case m: MapColumn =>
+          Col(m.values, binaryAsString)
+        case _ =>
+          null
+    val children: Array[Col] =
+      vec match
+        case s: StructColumn =>
+          s.children.map(Col(_, binaryAsString)).toArray
+        case _ =>
+          null
+    val names: Array[String] =
+      vec match
+        case s: StructColumn =>
+          s.children.map(_.name).toArray
+        case _ =>
+          null
+
+    def dynamicType(i: Int): ValueType =
+      code match
+        case CULong =>
+          if longs(i) < 0 then
+            ValueType.STRING
+          else
+            ValueType.INTEGER
+        case CBinLogical =>
+          logicalBinary(i) match
+            case _: Float =>
+              ValueType.FLOAT
+            case _: Array[Byte] =>
+              ValueType.BINARY
+            case _ =>
+              ValueType.STRING
+        case _ =>
+          // INT96
+          if bin.length(i) == 12 then
+            ValueType.EXTENSION
+          else if binaryAsString then
+            ValueType.STRING
+          else
+            ValueType.BINARY
+
+    def logicalBinary(i: Int): Any =
+      LogicalValues.fromBinary(bin.data, bin.offsets(i), bin.length(i), bin.field)
+
+    def string(i: Int): String =
+      code match
+        case CStr =>
+          if dictIndices != null && dictIndices(i) >= 0 then
+            val k = dictIndices(i)
+            var s = dictStrings(k)
+            if s == null then
+              s = utf8(i)
+              dictStrings(k) = s
+            s
+          else
+            utf8(i)
+        case CDate =>
+          LocalDate.ofEpochDay(ints(i).toLong).toString
+        case CTimeInt =>
+          LogicalValues.localTime(ints(i).toLong * 1000000L).toString
+        case CDecimalInt =>
+          BigDecimal(BigInt(ints(i)), scale).toString
+        case CTimeLong =>
+          LogicalValues.localTime(nanos(longs(i))).toString
+        case CDecimalLong =>
+          BigDecimal(BigInt(longs(i)), scale).toString
+        case CULong =>
+          (BigInt(longs(i)) + (BigInt(1) << 64)).toString
+        case CBinLogical =>
+          logicalBinary(i).toString
+        case _ =>
+          // INT96 of another length, read as a string
+          utf8(i)
+
+    private def utf8(i: Int): String = String(bin.data, bin.offsets(i), bin.length(i), "UTF-8")
+
+    private def nanos(v: Long): Long =
+      unit match
+        case TimeUnit.MILLIS =>
+          v * 1000000L
+        case TimeUnit.MICROS =>
+          v * 1000L
+        case TimeUnit.NANOS =>
+          v
+
+    def instant(i: Int): Instant =
+      if code == CTimestamp then
+        LogicalValues.timestamp(longs(i), unit)
+      else
+        LogicalValues.int96ToInstant(bin.data, bin.offsets(i))
+
+  end Col
+
+end VectorUnpacker
