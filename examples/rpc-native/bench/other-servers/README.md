@@ -1,10 +1,6 @@
 # The rpc-native endpoint in other languages
 
-Minimal servers in Node.js, Python, Ruby, and Rust that answer the same request as the
-[rpc-native example](../../): `POST /example.rpc.TodoApi/list` returns a JSON array of todos,
-sorted by id, gzipped when the body is 1 KB or larger and the client sends
-`Accept-Encoding: gzip`. They give a point of comparison for the numbers in
-`docs/blog/2026-11-19-native-server-performance.md`, using each language's common production setup:
+Minimal servers in Node.js, Python, Ruby, and Rust that answer the same request as the [rpc-native example](../../): `POST /example.rpc.TodoApi/list` returns a JSON array of todos, sorted by id, gzipped when the body is 1 KB or larger and the client sends `Accept-Encoding: gzip`. They give a point of comparison for the numbers in `docs/blog/2026-11-19-native-server-performance.md`, using each language's common production setup:
 
 | Server | Stack | Processes |
 |---|---|---|
@@ -13,8 +9,7 @@ sorted by id, gzipped when the body is 1 KB or larger and the client sends
 | `config.ru` | Rack on Puma, Ruby with YJIT | `-w` workers, or one process with 16 threads |
 | `rust/` | axum on tokio (a worker thread per core), serde_json, tower-http gzip | one |
 
-Each server starts with `ITEMS` todos (default 1): item 1 is titled `x`, and items 2.. are titled
-`todo item number N with some text`, matching what the example holds after the bench adds them.
+Each server starts with `ITEMS` todos (default 1): item 1 is titled `x`, and items 2.. are titled `todo item number N with some text`, matching what the example holds after the bench adds them.
 
 ```bash
 # Dependencies: Node.js; pip install fastapi "uvicorn[standard]"; gem install puma; a Rust toolchain
