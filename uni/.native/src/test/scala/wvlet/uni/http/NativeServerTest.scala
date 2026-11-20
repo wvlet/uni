@@ -225,8 +225,8 @@ class NativeServerTest extends UniTest:
       .withPort(0)
       .start { server =>
         for
-          n               <- Sizes
-          (encoding, enc) <- Encoders
+          n                      <- Sizes
+          (label, encoding, enc) <- Encoders
         do
           val b    = body(n)
           val wire = enc(b)
@@ -237,11 +237,10 @@ class NativeServerTest extends UniTest:
               s"Content-Length: ${wire.length}\r\nConnection: close\r\n\r\n" +
               String(wire, StandardCharsets.ISO_8859_1)
           )
-          (encoding, n, response.status) shouldBe (encoding, n, 200)
-          (encoding, n, response.headers.get("x-content-encoding")) shouldBe
-            (encoding, n, Some("none"))
-          (encoding, n, response.body == String(b, StandardCharsets.ISO_8859_1)) shouldBe
-            (encoding, n, true)
+          (label, n, response.status) shouldBe (label, n, 200)
+          (label, n, response.headers.get("x-content-encoding")) shouldBe (label, n, Some("none"))
+          (label, n, response.body == String(b, StandardCharsets.ISO_8859_1)) shouldBe
+            (label, n, true)
       }
   }
 

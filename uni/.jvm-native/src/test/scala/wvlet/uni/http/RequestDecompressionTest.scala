@@ -41,12 +41,12 @@ class RequestDecompressionTest extends UniTest:
 
   test("decode gzip and deflate bodies of several sizes") {
     for
-      n               <- Sizes
-      (encoding, enc) <- Encoders
+      n                      <- Sizes
+      (label, encoding, enc) <- Encoders
     do
       val b = body(n)
       // Name the case in the comparison, so a failure says which one broke
-      (encoding, n, decoded(encoding, enc(b)).toSeq == b.toSeq) shouldBe (encoding, n, true)
+      (label, n, decoded(encoding, enc(b)).toSeq == b.toSeq) shouldBe (label, n, true)
   }
 
   test("decode a gzip body with several members, where the platform supports it") {
@@ -83,11 +83,13 @@ object RequestDecompressionTest:
     val r = scala.util.Random(n)
     Array.fill(n)(r.nextInt().toByte)
 
-  val Encoders: Seq[(String, Array[Byte] => Array[Byte])] = Seq(
-    "gzip"    -> gzip,
-    "x-gzip"  -> gzip,
-    "deflate" -> (b => deflate(b, raw = false)),
-    "deflate" -> (b => deflate(b, raw = true))
+  /** (label for failures, Content-Encoding, encoder) */
+  val Encoders: Seq[(String, String, Array[Byte] => Array[Byte])] = Seq(
+    ("gzip", "gzip", gzip),
+    ("x-gzip", "x-gzip", gzip),
+    ("zlib deflate", "deflate", b => deflate(b, raw = false)),
+    ("raw deflate", "deflate", b => deflate(b, raw = true)),
+    ("x-deflate", "x-deflate", b => deflate(b, raw = false))
   )
 
   def gzip(b: Array[Byte]): Array[Byte] = encode(GZIPOutputStream(_), b)
