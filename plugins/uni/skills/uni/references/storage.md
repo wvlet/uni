@@ -1,0 +1,64 @@
+# Object storage (S3, R2, GCS, MinIO)
+
+`wvlet.uni.storage` (in the `uni` artifact) reads and writes objects in AWS S3 and
+S3-compatible stores with AWS Signature V4 in pure Scala: JVM, Scala.js, and Scala
+Native, no AWS SDK. Sync methods run on the JVM, Native, and Node.js; `...Async`
+methods (returning `Rx`) run everywhere, including browsers.
+
+Full reference: https://wvlet.org/uni/core/object-storage.md
+
+## Basic operations
+
+```scala
+import wvlet.uni.storage.{ObjectStore, ObjectUri, S3Config, StorageException}
+
+val store = ObjectStore.s3() // AWS credential chain: env, ~/.aws profile, ECS, EC2 IMDSv2
+
+store.put("s3://my-bucket/a.txt", "hi".getBytes("UTF-8"))
+val all: Array[Byte]   = store.get("s3://my-bucket/a.txt")
+val part: Array[Byte]  = store.getRange("s3://my-bucket/a.txt", 0, 1)
+val size: Option[Long] = store.head("s3://my-bucket/a.txt").map(_.size) // None if missing
+val keys               = store.list("s3://my-bucket/logs/").map(_.uri.key)
+val oneLevel           = store.list(ObjectUri.parse("s3://my-bucket/logs/"), recursive = false)
+store.delete("s3://my-bucket/a.txt")
+
+try store.get("s3://my-bucket/missing")
+catch case e: StorageException if e.isNotFound => Array.emptyByteArray
+
+store.close()
+```
+
+## Configuration
+
+```scala
+import wvlet.uni.storage.AwsCredentialsProvider
+
+val aws   = S3Config().withRegion("ap-northeast-1").withCredentials(AwsCredentialsProvider.profile("dev"))
+val r2    = S3Config.r2("<account-id>").withCredentials("<key-id>", "<secret>")
+val gcs   = S3Config.gcs.withCredentials("<hmac-key-id>", "<hmac-secret>") // GCS HMAC keys
+val minio = S3Config.minio("http://localhost:9000").withCredentials("admin", "secret")
+val anon  = S3Config().withRegion("us-west-2").noCredentials // public buckets
+```
+
+Redirects are never followed (signed headers must not go to another host); a
+bucket in another region fails with code `WrongRegion` naming the region.
+
+## Uploads and presigned URLs
+
+```scala
+import wvlet.uni.http.HttpMethod
+
+val out = store.newOutputStream("s3://my-bucket/big.bin") // 8 MiB multipart parts
+try
+  out.write(Array.fill[Byte](1024)(1))
+  out.close() // completes the upload
+catch
+  case e: Exception =>
+    out.abort() // discards the partial upload
+    throw e
+
+val url: String = store.presign(ObjectUri.parse("s3://my-bucket/a.txt"), HttpMethod.GET, expiresSeconds = 600)
+```
+
+In browsers, pass explicit (ideally temporary STS) credentials or use presigned
+URLs; never ship long-lived keys. The bucket needs CORS.

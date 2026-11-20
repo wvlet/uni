@@ -7,8 +7,8 @@ description: Read and write Apache Parquet files in pure Scala on the JVM, Scala
 `uni-parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
 in Scala with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and
 browsers), and Scala Native, and it brings in no Hadoop or native libraries. It reads local files,
-byte arrays, and files on any HTTP server that supports Range requests, such as object storage. It
-writes case classes, maps, and JSON records to local files or byte arrays.
+byte arrays, files on any HTTP server that supports Range requests, and objects in S3, R2, GCS, or
+MinIO. It writes case classes, maps, and JSON records to local files, byte arrays, or object storage.
 
 ```scala sbt
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
@@ -179,6 +179,34 @@ val rows: Rx[Seq[Event]] = Parquet
 Range requests with `206 Partial Content` and allow them through CORS; a server that sends the whole
 file instead gets a clear error. Uni's own server does this with
 [StaticFiles](../http/server#static-files).
+
+## Reading and Writing in S3
+
+`Parquet.openS3` reads from AWS S3 and S3-compatible stores (Cloudflare R2, Google Cloud Storage,
+MinIO) the same way, with ranged reads signed by [Object Storage](../core/object-storage):
+
+```scala
+import wvlet.uni.storage.{ObjectStore, S3Config}
+
+val fromS3 = Parquet.openS3("s3://my-bucket/events.parquet")
+val fromR2 = Parquet.openS3(
+  "s3://my-bucket/events.parquet",
+  S3Config.r2("<account-id>").withCredentials("<key-id>", "<secret>")
+)
+```
+
+To write, pass an object store upload stream to `newWriter`. The file appears when the writer
+closes; if the writer fails, or you call `abort()`, the upload is discarded:
+
+```scala
+val store  = ObjectStore.s3()
+val writer = Parquet.newWriter[Event](store.newOutputStream("s3://my-bucket/out.parquet"))
+writer.write(Event(1, "aina", Instant.now(), Seq("a")))
+writer.close()
+```
+
+`openS3Async` reads in browsers, given explicit credentials or a bucket that allows anonymous
+reads, and a CORS rule for the page.
 
 ## Skipping Row Groups
 

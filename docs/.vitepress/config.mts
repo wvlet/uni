@@ -176,6 +176,7 @@ const moduleGroups = [
     items: [
       { text: 'IO', link: '/core/io' },
       { text: 'FileSystem', link: '/core/filesystem' },
+      { text: 'Object Storage', link: '/core/object-storage' },
       { text: 'Canvas (Off-Heap Memory)', link: '/core/canvas' }
     ]
   },

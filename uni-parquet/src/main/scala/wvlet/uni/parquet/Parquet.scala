@@ -8,6 +8,7 @@ import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
 /**
@@ -36,6 +37,17 @@ object Parquet:
   def openUrl(url: String, config: HttpClientConfig = Http.client): ParquetFile = ParquetFile.open(
     ByteSource.ofUrl(url, config)
   )
+
+  /**
+    * Opens an S3 object such as `s3://bucket/data.parquet` (JVM, Scala Native, and Node.js). Pass
+    * [[S3Config.r2]], [[S3Config.gcs]], or [[S3Config.minio]] for S3-compatible stores.
+    */
+  def openS3(uri: String, config: S3Config = S3Config.default): ParquetFile = ParquetFile.open(
+    ByteSource.ofS3(uri, config)
+  )
+
+  def openS3Async(uri: String, config: S3Config = S3Config.default): Rx[ParquetFile] = ParquetFile
+    .openAsync(ByteSource.ofS3Async(uri, config))
 
   /** Opens a file asynchronously, for example over HTTP in a browser */
   def openAsync(source: AsyncByteSource): Rx[ParquetFile] = ParquetFile.openAsync(source)

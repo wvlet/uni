@@ -26,6 +26,14 @@ private[parquet] final class CountingOutput(out: java.io.OutputStream):
   def flush(): Unit = out.flush()
   def close(): Unit = out.close()
 
+  /** Discards the output after a failure: an object upload is aborted, other streams closed */
+  def abort(): Unit =
+    out match
+      case o: wvlet.uni.storage.ObjectOutputStream =>
+        o.abort()
+      case _ =>
+        out.close()
+
 /**
   * Buffers the pages of one leaf column for the current row group. Values arrive with their
   * repetition and definition levels; a page is closed at a row boundary once it reaches the page

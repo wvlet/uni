@@ -98,6 +98,34 @@ def remoteEventsAsync(url: String): Rx[Seq[Event]] = Parquet
 
 The server must answer Range requests with 206 (and allow them through CORS in browsers).
 
+## In S3, R2, GCS, or MinIO
+
+```scala
+import wvlet.uni.storage.{ObjectStore, S3Config}
+
+def s3Events(uri: String): Seq[Event] =
+  val f = Parquet.openS3(uri) // s3://bucket/key; default AWS credential chain and region
+  try f.readAs[Event]().toSeq
+  finally f.close()
+
+def r2Events(uri: String, accountId: String, keyId: String, secret: String): Seq[Event] =
+  val f = Parquet.openS3(uri, S3Config.r2(accountId).withCredentials(keyId, secret))
+  try f.readAs[Event]().toSeq
+  finally f.close()
+
+// Write: a multipart upload that completes on close; abort() discards it
+def writeS3(uri: String, events: Seq[Event]): Unit =
+  val store = ObjectStore.s3()
+  try
+    val w = Parquet.newWriter[Event](store.newOutputStream(uri))
+    w.writeAll(events)
+    w.close()
+  finally store.close()
+```
+
+`Parquet.openS3Async(uri, config)` reads in browsers. See
+[storage.md](storage.md) for credentials and other stores.
+
 ## Skip row groups with statistics
 
 ```scala

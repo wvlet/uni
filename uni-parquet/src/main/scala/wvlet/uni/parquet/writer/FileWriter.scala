@@ -79,7 +79,7 @@ private[parquet] final class FileWriter(
         failure = Some(e)
         closed = true
         try
-          output.close()
+          output.abort()
         catch
           case NonFatal(_) =>
         throw e
@@ -94,6 +94,12 @@ private[parquet] final class FileWriter(
         ordinal = Some(rowGroups.size)
       )
     groupRows = 0
+
+  /** Discards the file: an object store upload is aborted, so no partial file appears */
+  def abort(): Unit =
+    if !closed then
+      closed = true
+      output.abort()
 
   /** Writes the remaining rows and the footer, then closes the output */
   override def close(): Unit =

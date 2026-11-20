@@ -27,6 +27,12 @@ class ParquetWriter[A] private[parquet] (core: FileWriter, weaver: Weaver[A]) ex
 
   def writeAll(rows: IterableOnce[A]): Unit = rows.iterator.foreach(write)
 
+  /**
+    * Stops writing without finishing the file. Writing to an object store upload stream, this
+    * discards the upload, so no partial object appears.
+    */
+  def abort(): Unit = core.abort()
+
   override def close(): Unit = core.close()
 
 object ParquetWriter:
@@ -59,6 +65,9 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
   def write(record: Any): Unit = core.write(RecordValues.of(record))
 
   def writeAll(records: IterableOnce[Any]): Unit = records.iterator.foreach(write)
+
+  /** Stops writing without finishing the file; see [[ParquetWriter.abort]] */
+  def abort(): Unit = core.abort()
 
   override def close(): Unit = core.close()
 
