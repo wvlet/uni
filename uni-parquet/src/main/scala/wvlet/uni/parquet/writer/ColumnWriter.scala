@@ -3,6 +3,7 @@ package wvlet.uni.parquet.writer
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.ParquetWriteOptions
 import wvlet.uni.parquet.codec.Compressors
+import wvlet.uni.parquet.column.BinaryBuffer
 import wvlet.uni.parquet.encoding.BitPacking
 import wvlet.uni.parquet.encoding.RleEncoder
 import wvlet.uni.parquet.format.*
@@ -75,6 +76,11 @@ private[parquet] final class ColumnWriter(
         BytesDictionary(dictBytes, lengthPrefix = false)
       case _ =>
         null
+
+  // The writer's dictionary index of each entry of `remapFor`, a reader's dictionary, or -1 until a
+  // row uses the entry. Valid for the current row group only, while `useDict` holds.
+  private var remapFor: BinaryBuffer = null
+  private var remap: Array[Int]      = null
 
   private def dictionarySize: Int =
     if longDict != null then
@@ -177,6 +183,45 @@ private[parquet] final class ColumnWriter(
       if physical == PhysicalType.BYTE_ARRAY then
         plainValues.writeIntLE(len)
       plainValues.write(src, off, len)
+
+  /**
+    * A BYTE_ARRAY or FIXED_LEN_BYTE_ARRAY value that is entry `entry` of `dict`, the dictionary a
+    * reader decoded it from. Each entry is looked up in the writer's dictionary once per row group;
+    * later rows with the same entry skip the hash and the probe. Their bytes are still compared
+    * with the writer's entry, since a caller may have edited a read vector's data before writing
+    * it.
+    */
+  def addDictBytes(
+      repLevel: Int,
+      src: Array[Byte],
+      off: Int,
+      len: Int,
+      dict: BinaryBuffer,
+      entry: Int
+  ): Unit =
+    if !useDict then
+      addBytes(repLevel, src, off, len)
+    else
+      levels(repLevel, maxDef)
+      if remapFor ne dict then
+        useRemap(dict)
+      val known = remap(entry)
+      if known >= 0 && bytesDict.same(known, src, off, len) then
+        dictIndices.add(known)
+      else
+        val idx = bytesDict.indexOf(src, off, len)
+        // A value already in the dictionary cannot change min or max
+        if bytesDict.added then
+          stats.addBytes(src, off, len)
+        if known < 0 then
+          remap(entry) = idx
+        dictIndices.add(idx)
+
+  private def useRemap(dict: BinaryBuffer): Unit =
+    if remap == null || remap.length < dict.size then
+      remap = new Array[Int](dict.size)
+    java.util.Arrays.fill(remap, 0, dict.size, -1)
+    remapFor = dict
 
   /** Called after each row: closes the page when it is full */
   def endRow(): Unit =
@@ -321,6 +366,8 @@ private[parquet] final class ColumnWriter(
     usedPlainPage = false
     usedDictPage = false
     useDict = canUseDict
+    // The writer's dictionary is cleared below, so the indices of the reader's entries are stale
+    remapFor = null
     if longDict != null then
       longDict.clear()
     else
