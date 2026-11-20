@@ -201,12 +201,14 @@ default collector, Immix, can free or overwrite live objects when several thread
 [#5160](https://github.com/scala-native/scala-native/issues/5160)). The server runs handlers on
 worker threads, so under concurrent load it then fails requests or aborts.
 
-Start the server with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m` in its environment. With Boehm's
-defaults, the heap stays a few megabytes, so it collects every few dozen requests, and 15 marker
-threads (on 18 cores) stop every worker each time. In the
-[rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) these
-two settings served 2x to 5x the requests per second at 16 to 256 connections, for about 65 MB more
-RSS. Neither helps alone.
+uni runs Boehm with one marker thread. Boehm's default is one per core, and a server's small heap
+makes it collect often, so 15 marker threads (on 18 cores) would stop every worker for each
+collection. In the
+[rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) one marker
+serves 77k req/s at 16 connections against 32k with Boehm's default, at the same ~11 MB RSS. Set
+`GC_MARKERS` to choose another count, for example for an app with hundreds of MB of live data,
+where parallel marking pays off. `GC_INITIAL_HEAP_SIZE=64m` adds about 15% more for about 65 MB
+more RSS.
 :::
 
 The rest of this page uses `Http.server` on the JVM (Netty) and the annotation router, which is

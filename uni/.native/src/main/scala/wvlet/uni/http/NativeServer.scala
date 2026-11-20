@@ -26,10 +26,10 @@ import wvlet.uni.rx.Rx
   *
   * Build apps that use it with the Boehm GC (`GC.boehm`): Scala Native 0.5.12's default Immix GC
   * can corrupt live objects when several workers allocate at once (scala-native#5046, #5160), which
-  * makes the server fail requests or abort under concurrent load. Run it with
-  * `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m` in the environment: with Boehm's defaults, frequent
-  * collections and parallel markers stall every worker on Boehm's allocation lock, and these two
-  * settings raised throughput 2x to 5x in the rpc-native benchmark.
+  * makes the server fail requests or abort under concurrent load. uni runs Boehm with one marker
+  * thread, since a server's small heap makes Boehm collect often and one marker per core would
+  * stall every worker each time (set `GC_MARKERS` to override). `GC_INITIAL_HEAP_SIZE=64m` in the
+  * environment adds about 15% more throughput for about 65 MB more RSS.
   */
 @deprecated(
   "Use Http.server; set Native-only options with withBackend(Native.options...)",

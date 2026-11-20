@@ -31,7 +31,7 @@ ADD_BODY = b'{"request":{"title":"hello"}}'
 LIST_BODY = b'{"request":{}}'
 # Boehm settings the example README recommends for a multi-threaded server. Set before any server
 # starts, unless the caller's environment already sets them; the JVM ignores them.
-BOEHM_ENV = {"GC_MARKERS": "1", "GC_INITIAL_HEAP_SIZE": "64m"}
+BOEHM_ENV = {"GC_INITIAL_HEAP_SIZE": "64m"}
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
 
