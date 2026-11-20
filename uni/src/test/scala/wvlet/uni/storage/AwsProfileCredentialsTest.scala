@@ -187,7 +187,7 @@ class AwsProfileCredentialsTest extends UniTest:
   test("SSO cache files are named by the SHA-1 of the session name") {
     AwsSso.cacheFileName("my-sso") shouldBe "0ad374308c5a4e22f723adf10145eafad7c4031c.json"
     AwsSso.parseExpiry("2026-11-20T18:00:00UTC") shouldBe AwsTime.parseIso("2026-11-20T18:00:00Z")
-    AwsTime.iso(AwsTime.parseIso("2026-11-20T18:00:00Z").get) shouldBe "2026-11-20T18:00:00Z"
+    AwsTime.isoSeconds(AwsTime.parseIso("2026-11-20T18:00:00Z").get) shouldBe "2026-11-20T18:00:00Z"
   }
 
   test("SSO role credentials carry their epoch-millis expiration") {

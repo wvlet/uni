@@ -61,7 +61,7 @@ class AwsCredentialEndpointsTest extends UniTest:
          |<${action}Result><Credentials>
          |<AccessKeyId>${id}</AccessKeyId><SecretAccessKey>${id}-secret</SecretAccessKey>
          |<SessionToken>${id}-token</SessionToken>
-         |<Expiration>${AwsTime.iso(expirationMillis)}</Expiration>
+         |<Expiration>${AwsTime.isoSeconds(expirationMillis)}</Expiration>
          |</Credentials></${action}Result></${action}Response>""".stripMargin)
 
   private def stsError(code: String, message: String): Response = Response(HttpStatus.Forbidden_403)
@@ -322,7 +322,7 @@ class AwsCredentialEndpointsTest extends UniTest:
     val extra =
       if refresh then
         s""", "refreshToken": "refresh-1", "clientId": "client-1", "clientSecret": "client-secret",
-           | "registrationExpiresAt": "${AwsTime.iso(
+           | "registrationExpiresAt": "${AwsTime.isoSeconds(
             System.currentTimeMillis() + 86400 * 1000L
           )}"""".stripMargin
       else
@@ -330,7 +330,7 @@ class AwsCredentialEndpointsTest extends UniTest:
     FileSystem.writeString(
       file,
       s"""{"startUrl": "https://example.awsapps.com/start", "region": "us-east-1",
-         | "accessToken": "${ssoToken}", "expiresAt": "${AwsTime.iso(expiresAt)}"${extra}}"""
+         | "accessToken": "${ssoToken}", "expiresAt": "${AwsTime.isoSeconds(expiresAt)}"${extra}}"""
         .stripMargin
     )
     file

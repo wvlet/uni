@@ -186,7 +186,7 @@ private[storage] class AwsSso(
               val updates =
                 Seq(
                   "accessToken" -> JSON.JSONString(access),
-                  "expiresAt"   -> JSON.JSONString(AwsTime.iso(current + secs * 1000L))
+                  "expiresAt"   -> JSON.JSONString(AwsTime.isoSeconds(current + secs * 1000L))
                 ) ++ str(o, "refreshToken").map("refreshToken" -> JSON.JSONString(_))
               writeCache(file, merge(cache, updates))
               access
