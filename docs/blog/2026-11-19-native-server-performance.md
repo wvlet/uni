@@ -24,13 +24,28 @@ Uni is built to cross-compile: its modules compile for the JVM, Scala.js, and Sc
 
 ```mermaid
 flowchart LR
-  src["Your Scala code<br/>RPC service, Http.server, uni APIs"]
-  src -->|Scala compiler| jvm["JVM bytecode"]
-  src -->|Scala.js| js["JavaScript"]
-  src -->|Scala Native + LLVM| bin["Native executable"]
-  jvm --> r1["JVM<br/>uni's built-in server"]
-  js --> r2["Node.js<br/>on Node's http module"]
-  bin --> r3["No runtime to install<br/>uni's native server"]
+  src("Your Scala code<br/>with uni")
+  src -->|Scala compiler| jvm("JVM bytecode")
+  src -->|Scala.js| js("JavaScript")
+  src -->|Scala Native + LLVM| bin("Native executable")
+  jvm --> r1("JVM<br/>uni's built-in server")
+  js --> r2("Node.js<br/>on Node's http module")
+  bin --> r3("No runtime to install<br/>uni's native server")
+  classDef scala fill:#fde2e1,stroke:#dc322f,stroke-width:2px,color:#1f2937
+  classDef jvm1 fill:#fff4e6,stroke:#f08c00,color:#1f2937
+  classDef jvm2 fill:#ffd8a8,stroke:#e8590c,color:#1f2937
+  classDef js1 fill:#fff9db,stroke:#f59f00,color:#1f2937
+  classDef js2 fill:#ffec99,stroke:#f08c00,color:#1f2937
+  classDef nat1 fill:#e7f5ff,stroke:#339af0,stroke-width:2px,color:#1f2937
+  classDef nat2 fill:#a5d8ff,stroke:#1c7ed6,stroke-width:3px,color:#1f2937
+  class src scala
+  class jvm jvm1
+  class r1 jvm2
+  class js js1
+  class r2 js2
+  class bin nat1
+  class r3 nat2
+  linkStyle 2,5 stroke:#1c7ed6,stroke-width:2.5px
 ```
 
 `Http.server` is the same call on every platform; uni picks the server for each one. This post measures the JVM and Scala Native builds. The Node.js rows in the comparison below are a plain Node.js server, not uni on Scala.js.
@@ -66,7 +81,11 @@ class TodoApiImpl extends TodoApi:
 
 @main def serveTodos(): Unit =
   val router = RPCRouter.of[TodoApi](TodoApiImpl())
-  Http.server.withPort(8080).withRxHandler(RPCDispatcher(router).dispatch).start().awaitTermination()
+  Http.server
+    .withPort(8080)
+    .withRxHandler(RPCDispatcher(router).dispatch)
+    .start()
+    .awaitTermination()
 ```
 
 `derives Weaver` gives `Todo` its JSON and MessagePack codecs. `RPCRouter.of[TodoApi]` turns each method of the trait into an endpoint, such as `POST /example.rpc.TodoApi/list`, and `RPCDispatcher` serves them on whichever server `Http.server` starts. A client calls the service through the same `TodoApi` trait, so calls are checked at compile time.
