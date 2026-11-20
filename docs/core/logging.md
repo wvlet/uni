@@ -1,6 +1,6 @@
 # Logging
 
-uni provides a comprehensive logging framework with structured logging support.
+Uni provides a comprehensive logging framework with structured logging support.
 
 ## LogSupport Trait
 

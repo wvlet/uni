@@ -1,6 +1,6 @@
 # REST Server
 
-uni provides HTTP servers on all three Scala platforms, all in the `uni`
+Uni provides HTTP servers on all three Scala platforms, all in the `uni`
 module: a built-in socket server on the JVM (JDK 24+) and Scala Native, and the
 Node.js `http` module on Scala.js. They share one configuration API and a
 type-safe, annotation-based router for building REST APIs. On the JVM, the
@@ -94,7 +94,7 @@ Http
 ```
 
 On the JVM, `uni-netty` registers Netty as the backend through
-`java.util.ServiceLoader`. Without it, `Http.server` starts uni's built-in
+`java.util.ServiceLoader`. Without it, `Http.server` starts Uni's built-in
 server, which needs JDK 24+ and no other dependency. The built-in server runs
 the same HTTP/1.1 and WebSocket code as the Scala Native server, with one
 virtual thread per connection. Like Netty, it limits the request line and headers,
@@ -207,7 +207,7 @@ default collector, Immix, can free or overwrite live objects when several thread
 [#5160](https://github.com/scala-native/scala-native/issues/5160)). The server runs handlers on
 worker threads, so under concurrent load it then fails requests or aborts.
 
-uni runs Boehm with one marker thread. Boehm's default is one per core, and a server's small heap
+Uni runs Boehm with one marker thread. Boehm's default is one per core, and a server's small heap
 makes it collect often, so 15 marker threads (on 18 cores) would stop every worker for each
 collection. In the
 [rpc-native benchmark](https://github.com/wvlet/uni/tree/main/examples/rpc-native/bench) one marker
@@ -248,7 +248,7 @@ class ApiController:
     Response.noContent
 ```
 
-Only `wvlet.uni.http.router.Endpoint` defines a route. An annotation from another framework with the same simple name (e.g., one kept on an API trait for documentation generation) is ignored, and a uni `@Endpoint` whose method or path cannot be read fails when the router is built.
+Only `wvlet.uni.http.router.Endpoint` defines a route. An annotation from another framework with the same simple name (e.g., one kept on an API trait for documentation generation) is ignored, and a Uni `@Endpoint` whose method or path cannot be read fails when the router is built.
 
 ### Path Parameters
 

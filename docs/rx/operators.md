@@ -1,6 +1,6 @@
 # Stream Operators
 
-uni provides a rich set of operators for transforming and combining reactive streams.
+Uni provides a rich set of operators for transforming and combining reactive streams.
 
 ## Transformation
 

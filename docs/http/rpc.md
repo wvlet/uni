@@ -77,7 +77,7 @@ and a client built with `RPCClient.of[UserService]` gets `404 Not Found` for eve
 
 Every public method of `T` becomes an endpoint, including methods inherited from your own base
 traits (`trait UserService extends CrudApi[User]` serves the `CrudApi` methods too). Methods
-inherited from library traits (`scala.*`, `java.*`, uni's logging mixins such as `LogSupport`) are
+inherited from library traits (`scala.*`, `java.*`, Uni's logging mixins such as `LogSupport`) are
 never exposed. Annotate a method with `@rpcIgnore` to keep it out of the RPC endpoints:
 
 ```scala
@@ -155,8 +155,8 @@ lazy val app = project
 ```
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
-regenerated and compiled automatically on the next `compile`. Generation runs uni's
-`HttpCodeGeneratorMain` in a forked JVM, from the uni version the app depends on (also for Scala.js
+regenerated and compiled automatically on the next `compile`. Generation runs Uni's
+`HttpCodeGeneratorMain` in a forked JVM, from the Uni version the app depends on (also for Scala.js
 apps), and it skips files whose content is unchanged.
 
 ### Target spec format

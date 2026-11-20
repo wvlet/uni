@@ -82,7 +82,7 @@ cats-effect 3 provides a sophisticated concurrency runtime with:
 
 ## Design Goals
 
-1. **No cats-effect dependency**: Keep uni minimal; implement similar semantics natively
+1. **No cats-effect dependency**: Keep Uni minimal; implement similar semantics natively
 2. **Cross-platform**: Parallelism gracefully degrades to sequential on Scala.js
 3. **Opt-in complexity**: Simple pipelines remain simple; concurrency is explicit
 4. **Backward compatible**: Existing `Rx` code continues to work unchanged

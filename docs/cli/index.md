@@ -1,6 +1,6 @@
 # CLI Utilities
 
-uni provides utilities for building command-line applications with styled output, progress indicators, and command launching.
+Uni provides utilities for building command-line applications with styled output, progress indicators, and command launching.
 
 ## Overview
 

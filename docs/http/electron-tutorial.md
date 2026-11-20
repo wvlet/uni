@@ -164,7 +164,7 @@ contextBridge.exposeInMainWorld('uniRPC', {
 
 Call `ElectronRenderer.install()` once at startup; afterward every async client (including generated
 RPC stubs) rides over IPC. Here we build the client directly from the shared trait and render the
-UI with uni's reactive DOM toolkit (`wvlet.uni.dom`):
+UI with Uni's reactive DOM toolkit (`wvlet.uni.dom`):
 
 ```scala
 // renderer/src/main/scala/example/renderer/RendererApp.scala

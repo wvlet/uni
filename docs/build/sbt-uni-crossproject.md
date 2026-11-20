@@ -5,7 +5,7 @@ Scala Native**. It is a small, uni-owned re-implementation of
 [portable-scala/sbt-crossproject](https://github.com/portable-scala/sbt-crossproject),
 which has not been ported to sbt 2.x.
 
-It provides just the surface uni uses: `crossProject(...)` with the
+It provides just the surface Uni uses: `crossProject(...)` with the
 **`CrossType.Pure`** layout — shared sources in `<base>/src`, platform-specific
 code in `<base>/.jvm`, `.js`, and `.native`.
 
@@ -90,7 +90,7 @@ is enabled (the default). The same structure applies under `src/test` for tests.
 
 ## Supported API
 
-The cross-project value supports the methods uni's own build relies on:
+The cross-project value supports the methods Uni's own build relies on:
 
 | Method                                            | Description                                                    |
 | ------------------------------------------------- | ------------------------------------------------------------- |
@@ -106,6 +106,6 @@ The cross-project value supports the methods uni's own build relies on:
 
 ::: tip Scope
 Only the `CrossType.Pure` (and `CrossType.Full`) layouts are supported. Upstream
-features uni does not use — partially-shared sources, the `Dummy` layout, and
+features Uni does not use — partially-shared sources, the `Dummy` layout, and
 `withoutSuffixFor` — are intentionally omitted.
 :::

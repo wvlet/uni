@@ -84,7 +84,7 @@ Zero.zeroOf(Surface.of[Map[String, Int]]) // Map.empty
 
 ### Object Wiring
 
-Surface powers uni's Design system:
+Surface powers Uni's Design system:
 
 ```scala
 import wvlet.uni.design.Design

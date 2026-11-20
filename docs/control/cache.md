@@ -1,6 +1,6 @@
 # Caching
 
-uni provides caching through Rx operators and dedicated cache utilities.
+Uni provides caching through Rx operators and dedicated cache utilities.
 
 ## Rx Cache
 

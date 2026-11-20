@@ -1,6 +1,6 @@
 # Control Flow
 
-uni provides utilities for handling failures gracefully and managing resources properly.
+Uni provides utilities for handling failures gracefully and managing resources properly.
 
 ## Overview
 

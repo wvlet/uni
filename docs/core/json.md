@@ -1,6 +1,6 @@
 # JSON
 
-uni includes a pure Scala JSON parser with a convenient DSL for querying and manipulating JSON data.
+Uni includes a pure Scala JSON parser with a convenient DSL for querying and manipulating JSON data.
 
 ## Parsing JSON
 
@@ -142,7 +142,7 @@ result match
 
 ## JSONC Support
 
-uni's JSON parser supports [JSONC](https://jsonc.org/) (JSON with Comments) out of the box. Line comments (`//`), block comments (`/* */`), and trailing commas are all accepted by `JSON.parse`:
+Uni's JSON parser supports [JSONC](https://jsonc.org/) (JSON with Comments) out of the box. Line comments (`//`), block comments (`/* */`), and trailing commas are all accepted by `JSON.parse`:
 
 ```scala
 val config = JSON.parse("""

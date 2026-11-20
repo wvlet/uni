@@ -2,7 +2,7 @@
 
 `sbt-uni-javadoc` shrinks the `-javadoc.jar` your build publishes, so a release
 stays within [Maven Central's publishing limits](https://central.sonatype.org/publish/maven-central-publishing-limits/).
-It works for any sbt 2.x project, with or without the uni library.
+It works for any sbt 2.x project, with or without the Uni library.
 
 ## When to use it
 
@@ -18,7 +18,7 @@ dropped. Reach for this plugin when:
   artifact's API, or
 - you publish sbt plugins, whose users read guides rather than Scaladoc.
 
-Uni uses it for its own releases. About 58% of a uni release was `-javadoc.jar`
+Uni uses it for its own releases. About 58% of a Uni release was `-javadoc.jar`
 before.
 
 ::: warning sbt 2.x only
