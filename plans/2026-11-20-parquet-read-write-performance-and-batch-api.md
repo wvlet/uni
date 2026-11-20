@@ -218,6 +218,35 @@ path.
 
 - The "before" columns come from the same machine an hour earlier (JVM uni then 1,123 / 1,294 /
   843 / 1,232 ms). JVM uni stays at 0.88–1.08x parquet-java's Group writer.
+## PR 3 results (`ParquetBatchWriter`)
+
+- Design note: [2026-11-20-parquet-batch-writer.md](2026-11-20-parquet-batch-writer.md). The
+  batches are the case-class files written by uni and read back with `readBatches`, so both uni
+  writers write the same schema and values.
+- JVM, median of 9 after 3 warm-ups, all writers in the same run (load average 4–6):
+
+| file | uni batch | uni case class | parquet-java groups | batch / parquet-java |
+|---|---|---|---|---|
+| lineitem uncompressed | 227 ms | 1,027 ms | 1,014 ms | 0.22x |
+| lineitem snappy | 400 ms | 1,369 ms | 1,120 ms | 0.36x |
+| orders uncompressed | 318 ms | 711 ms | 815 ms | 0.39x |
+| orders snappy | 499 ms | 911 ms | 856 ms | 0.58x |
+
+- Target ≤0.5x: met on three of four. On `orders` snappy, compression adds about 180 ms over
+  uncompressed (pure-Scala Snappy against parquet-java's native snappy-java); the rest is 0.37x.
+  The Snappy compressor is a follow-up in `codec/`.
+- Scala Native and Node.js, batch writer (median of 3 after 1 warm-up), ratio to JVM uni batch:
+
+| file | Native | Node.js |
+|---|---|---|
+| lineitem uncompressed | 272 ms · 1.2x | 595 ms · 2.6x |
+| lineitem snappy | 433 ms · 1.1x | 924 ms · 2.3x |
+| orders uncompressed | 326 ms · 1.0x | 675 ms · 2.1x |
+| orders snappy | 522 ms · 1.0x | 1,182 ms · 2.4x |
+
+- Two column-writer changes from the profile help both writers: `LongDictionary` keeps keys and
+  indexes in one array (one cache line per probe), and binary min/max statistics are updated only
+  when the dictionary adds a value.
 
 ## Alternatives and Why Not?
 

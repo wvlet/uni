@@ -37,22 +37,27 @@ case class BenchBatches(schema: ParquetSchema, batches: Seq[ColumnBatch])
 
 object BenchBatches:
   /**
-    * The case classes written by uni and read back as batches, so the batch writer writes the
-    * same schema (camelCase names, dates as strings) and values as the case-class writer
+    * The case classes written by uni and read back as batches, so the batch writer writes the same
+    * schema (camelCase names, dates as strings) and values as the case-class writer
     */
-  def of[A](rows: Seq[A])(using weaver: wvlet.uni.weaver.Weaver[A]): Seq[BenchBatches] =
-    val f = Parquet.open(Parquet.writeBytes(rows))
+  def of(bytes: Array[Byte]): Seq[BenchBatches] =
+    val f = Parquet.open(bytes)
     try Seq(BenchBatches(f.schema, f.readBatches().toIndexedSeq))
     finally f.close()
 
 object BenchTables:
-  def lineItemBatches(dir: String): BenchBatches = BenchData
-    .load("lineitem-batches", BenchBatches.of(BenchData.lineItems(dir)))
-    .head
+  def lineItemBatches(dir: String): BenchBatches =
+    BenchData
+      .load(
+        "lineitem-batches",
+        BenchBatches.of(Parquet.writeBytes[LineItem](BenchData.lineItems(dir)))
+      )
+      .head
 
-  def orderBatches(dir: String): BenchBatches = BenchData
-    .load("orders-batches", BenchBatches.of(BenchData.orders(dir)))
-    .head
+  def orderBatches(dir: String): BenchBatches =
+    BenchData
+      .load("orders-batches", BenchBatches.of(Parquet.writeBytes[Order](BenchData.orders(dir))))
+      .head
 
 /** uni-parquet writers. Each returns (rows, file size). */
 object UniWriters:

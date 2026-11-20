@@ -36,7 +36,7 @@ object JvmBench:
     val writes = BenchRunner
       .uniWriteCases(dir)
       .flatMap { u =>
-        val name  = u.path.split('/').last
+        val name = u.path.split('/').last
         if u.reader != "write uni case class" then
           Seq(u)
         else

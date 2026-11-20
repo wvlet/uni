@@ -394,6 +394,62 @@ column, throws `ParquetException` naming the column. The row is not written, and
 stays usable. If the output fails (for example, the disk is full), the writer closes without a
 footer, and the partial file does not read as Parquet.
 
+### Column Batches
+
+Code that already holds columns can write them without building rows. `Parquet.newBatchWriter`
+takes `ColumnBatch`es, the same batches `readBatches` returns, so a batch read from one file can be
+written to another unchanged. This copies two columns of a file:
+
+```scala
+val source  = Parquet.open("events.parquet")
+val idsOnly = source.schema.select("id", "ts")
+Control.withResource(Parquet.newBatchWriter("ids.parquet", idsOnly)) { w =>
+  source.readBatches(ParquetReadOptions.default.withColumns("id", "ts")).foreach(w.write)
+}
+source.close()
+```
+
+`ColumnBatch.select(names*)` picks columns from a batch that holds more. To build vectors by hand,
+use their constructors with the schema's fields. Values are physical, as when reading: a
+TIMESTAMP is a `Long` in its unit, a DATE is days in an `IntColumn`, a DECIMAL is its unscaled
+value, and strings are UTF-8 bytes in a `BinaryColumn`, where row `i` is
+`data[offsets(i), offsets(i + 1))`. The last argument marks null rows (or `null` when no row is
+null):
+
+```scala
+import wvlet.uni.parquet.{ColumnBatch, ColumnVector}
+
+val metrics = ParquetSchema
+  .builder("metric")
+  .required("ts", ParquetType.TIMESTAMP_MILLIS)
+  .optional("host", ParquetType.STRING)
+  .required("value", ParquetType.DOUBLE)
+  .build()
+
+val metricBatch = ColumnBatch(
+  3,
+  IndexedSeq(
+    ColumnVector.LongColumn(metrics.field("ts").get, Array(1000L, 2000L, 3000L), null),
+    ColumnVector.BinaryColumn(
+      metrics.field("host").get,
+      Array(0, 1, 2, 2), // "a", "b", and a null row
+      "ab".getBytes("UTF-8"),
+      Array(false, false, true)
+    ),
+    ColumnVector.DoubleColumn(metrics.field("value").get, Array(0.5, 1.5, 2.5), null)
+  )
+)
+Control.withResource(Parquet.newBatchWriter("metrics.parquet", metrics))(_.write(metricBatch))
+```
+
+Lists, maps, and structs take `ListColumn`, `MapColumn`, and `StructColumn`: row `i` of a list or
+map holds children `[offsets(i), offsets(i + 1))`. Columns are matched to the schema by name, in
+any order. Every batch is checked before any of it is written: a missing or extra column, a vector
+of the wrong type or size, malformed offsets, or a null in a required column throws
+`ParquetException`, and the writer stays usable. Row groups close at the row group size, inside a
+batch if needed, so batch sizes do not show in the file. On the JVM, writing batches is about 2 to
+4 times faster than writing case classes.
+
 ### File Layout and Options
 
 The writer produces files that other engines read: data page v1, PLAIN and RLE encodings, and

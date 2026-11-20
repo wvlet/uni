@@ -86,9 +86,15 @@ object BenchRunner:
           "write uni batch",
           s"${dir}/orders.${c}.parquet",
           () =>
-            UniWriters.batches(BenchTables.orderBatches(dir), s"${out}/uni-batch.orders.${c}.parquet", c)
+            UniWriters.batches(
+              BenchTables.orderBatches(dir),
+              s"${out}/uni-batch.orders.${c}.parquet",
+              c
+            )
         )
       }
+
+  end uniWriteCases
 
   /** Uncompressed bytes of the column data, from the footer, so MB/s is comparable across codecs */
   private def uncompressedBytes(path: String): Long =

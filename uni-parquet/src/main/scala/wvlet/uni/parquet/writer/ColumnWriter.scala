@@ -166,10 +166,13 @@ private[parquet] final class ColumnWriter(
   /** BYTE_ARRAY and FIXED_LEN_BYTE_ARRAY values: `src[off, off + len)` */
   def addBytes(repLevel: Int, src: Array[Byte], off: Int, len: Int): Unit =
     levels(repLevel, maxDef)
-    stats.addBytes(src, off, len)
     if useDict then
       dictIndices.add(bytesDict.indexOf(src, off, len))
+      // A value already in the dictionary cannot change min or max
+      if bytesDict.added then
+        stats.addBytes(src, off, len)
     else
+      stats.addBytes(src, off, len)
       if physical == PhysicalType.BYTE_ARRAY then
         plainValues.writeIntLE(len)
       plainValues.write(src, off, len)
