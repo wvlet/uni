@@ -288,8 +288,9 @@ private[codec] object HuffmanTable:
   def read(buf: Array[Byte], start: Int, end: Int): (HuffmanTable, Int) =
     if start >= end then
       Zstd.fail("Huffman tree description is missing")
-    val header  = buf(start) & 0xff
-    val weights = new Array[Int](256)
+    val header = buf(start) & 0xff
+    // Up to 255 decoded weights plus the implied last one
+    val weights = new Array[Int](260)
     var count   = 0
     var used    = 0
     if header >= 128 then
@@ -321,7 +322,7 @@ private[codec] object HuffmanTable:
       var state2 = br.read(table.accuracyLog)
       var done   = false
       while !done do
-        if count > 253 then
+        if count > 252 then
           Zstd.fail("too many Huffman weights")
         weights(count) = table.symbols(state1)
         count += 1
@@ -436,7 +437,7 @@ private[codec] final class FrameDecoder(
   private var ofTable: FseTable     = null
   private var mlTable: FseTable     = null
   private val rep                   = Array(1, 4, 8)
-  private var literals              = new Array[Byte](MaxBlockSize)
+  private val literals              = new Array[Byte](MaxBlockSize)
   private var maxBlock              = MaxBlockSize
 
   private def byteAt(i: Int): Int =
@@ -597,8 +598,6 @@ private[codec] final class FrameDecoder(
     end if
     if regenSize > maxBlock then
       fail(s"literals size ${regenSize} exceeds the block size")
-    if literals.length < regenSize then
-      literals = new Array[Byte](regenSize)
 
     litType match
       case 0 =>

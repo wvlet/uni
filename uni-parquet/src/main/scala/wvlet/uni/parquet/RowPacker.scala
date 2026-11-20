@@ -7,7 +7,6 @@ import wvlet.uni.parquet.format.PhysicalType
 import wvlet.uni.parquet.format.TimeUnit
 
 import java.time.LocalDate
-import java.time.LocalTime
 
 /**
   * Writes rows of a column batch as MessagePack maps (column name to value), so Weaver can decode
@@ -76,7 +75,7 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
       case Some(LogicalType.Date) =>
         p.packString(LocalDate.ofEpochDay(v.toLong).toString)
       case Some(LogicalType.Time(_, _)) =>
-        p.packString(LocalTime.ofNanoOfDay(v.toLong * 1000000L).toString)
+        p.packString(LogicalValues.localTime(v.toLong * 1000000L).toString)
       case Some(LogicalType.Decimal(scale, _)) =>
         p.packString(BigDecimal(BigInt(v), scale).toString)
       case Some(LogicalType.Integer(32, false)) =>
@@ -101,7 +100,7 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
               v * 1000L
             case TimeUnit.NANOS =>
               v
-        p.packString(LocalTime.ofNanoOfDay(nanos).toString)
+        p.packString(LogicalValues.localTime(nanos).toString)
       case Some(LogicalType.Decimal(scale, _)) =>
         p.packString(BigDecimal(BigInt(v), scale).toString)
       case Some(LogicalType.Integer(64, false)) if v < 0 =>
@@ -126,6 +125,10 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
         LogicalValues.fromBinary(c.data, off, len, c.field) match
           case f: Float =>
             p.packFloat(f)
+          case _: Array[Byte] =>
+            // A UUID or FLOAT16 of the wrong length: pass the bytes through
+            p.packBinaryHeader(len)
+            p.writePayload(c.data, off, len)
           case other =>
             p.packString(other.toString)
       case _ if physical == PhysicalType.INT96 && len == 12 =>
@@ -136,5 +139,7 @@ private[parquet] final class RowPacker(binaryAsString: Boolean):
       case _ =>
         p.packBinaryHeader(len)
         p.writePayload(c.data, off, len)
+
+  end packBinary
 
 end RowPacker

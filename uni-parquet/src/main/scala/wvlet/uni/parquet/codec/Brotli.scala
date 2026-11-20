@@ -653,7 +653,8 @@ private[codec] final class BrotliDecoder(src: Array[Byte], start: Int, end: Int,
     var from   = offset
     var n      = len
     if tpe >= 1 && tpe <= 9 then
-      n -= tpe
+      // Omitting more characters than the word has leaves it empty
+      n = math.max(0, n - tpe)
     else if tpe >= 12 && tpe <= 20 then
       val skip = math.min(tpe - 11, n)
       from += skip
@@ -673,6 +674,8 @@ private[codec] final class BrotliDecoder(src: Array[Byte], start: Int, end: Int,
       uppercase(wordStart, n, all = true)
     System.arraycopy(suffix, 0, out, p, suffix.length)
     total
+
+  end transformWord
 
   /** The RFC's ASCII and UTF-8 aware uppercasing of the first or every character */
   private def uppercase(start: Int, n: Int, all: Boolean): Unit =

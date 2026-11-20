@@ -132,8 +132,14 @@ object RowGroupFilter:
     def apply(decodeF: Array[Byte] => Option[Long], keyF: PartialFunction[Any, Long]): Ordering =
       new Ordering:
         def decode(b: Array[Byte]): Option[Any] = decodeF(b)
-        def key(v: Any): Option[Any]            = keyF.lift(v)
-        def cmp(a: Any, b: Any): Int            = java
+        def key(v: Any): Option[Any]            =
+          // A value outside the column's range (e.g. Instant.MAX in nanoseconds) decides nothing
+          try
+            keyF.lift(v)
+          catch
+            case _: ArithmeticException =>
+              None
+        def cmp(a: Any, b: Any): Int = java
           .lang
           .Long
           .compare(a.asInstanceOf[Long], b.asInstanceOf[Long])
@@ -203,14 +209,15 @@ object RowGroupFilter:
                   Some(java.lang.Double.longBitsToDouble(ByteReader.longLE(b, 0)))
                 else
                   None
-              // NaN statistics say nothing about the order
-              d.filterNot(_.isNaN)
+              // NaN statistics say nothing about the order; + 0.0 turns -0.0 into 0.0, since the
+              // two compare equal in data
+              d.filterNot(_.isNaN).map(_ + 0.0)
             def key(v: Any): Option[Any] =
               v match
                 case d: Double =>
-                  Some(d).filterNot(_.isNaN)
+                  Some(d + 0.0).filterNot(_.isNaN)
                 case f: Float =>
-                  Some(f.toDouble).filterNot(_.isNaN)
+                  Some(f.toDouble + 0.0).filterNot(_.isNaN)
                 case x if integral.isDefinedAt(x) =>
                   Some(integral(x).toDouble)
                 case _ =>

@@ -325,5 +325,9 @@ object ParquetFile:
       else
         source.readAsync(start, len).map(b => ParquetFile(source, parseFooter(b, 0, len)))
     }
+    .tapOn { case scala.util.Failure(_) =>
+      // No ParquetFile owns the source yet, so close it here, as open does
+      source.close()
+    }
 
 end ParquetFile

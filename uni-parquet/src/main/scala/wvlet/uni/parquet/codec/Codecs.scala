@@ -34,7 +34,11 @@ private[parquet] object Codecs:
           if FileSystem.isBrowser then
             Inflate.gunzip(in, uncompressedSize)
           else
-            Gzip.decompress(in)
+            try
+              Gzip.decompress(in)
+            catch
+              case e: java.io.IOException =>
+                throw ParquetException(s"Corrupt Parquet data: gzip: ${e.getMessage}", e)
         if out.length != uncompressedSize then
           throw ParquetException.corrupt(
             s"gzip page decoded to ${out.length} bytes, but its header says ${uncompressedSize}"

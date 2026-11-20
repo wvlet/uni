@@ -218,12 +218,6 @@ private[parquet] object Inflate:
         Lz77.copyMatch(s.out, s.outPos, d, len)
         s.outPos += len
 
-  /** Decodes raw DEFLATE data */
-  def inflate(src: Array[Byte], offset: Int, length: Int, expectedSize: Int): Array[Byte] =
-    val s = State(src, offset, offset + length, expectedSize)
-    inflateBlocks(s)
-    java.util.Arrays.copyOf(s.out, s.outPos)
-
   /** Decodes gzip data, including several members back to back */
   def gunzip(src: Array[Byte], expectedSize: Int): Array[Byte] =
     val end    = src.length

@@ -19,7 +19,7 @@ private[parquet] object LogicalValues:
       case Some(LogicalType.Date) =>
         LocalDate.ofEpochDay(v.toLong)
       case Some(LogicalType.Time(_, TimeUnit.MILLIS)) =>
-        LocalTime.ofNanoOfDay(v.toLong * 1000000L)
+        localTime(v.toLong * 1000000L)
       case Some(LogicalType.Decimal(scale, _)) =>
         BigDecimal(BigInt(v), scale)
       case Some(LogicalType.Integer(32, false)) =>
@@ -36,11 +36,11 @@ private[parquet] object LogicalValues:
       case Some(LogicalType.Timestamp(_, unit)) =>
         timestamp(v, unit)
       case Some(LogicalType.Time(_, TimeUnit.MICROS)) =>
-        LocalTime.ofNanoOfDay(v * 1000L)
+        localTime(v * 1000L)
       case Some(LogicalType.Time(_, TimeUnit.NANOS)) =>
-        LocalTime.ofNanoOfDay(v)
+        localTime(v)
       case Some(LogicalType.Time(_, TimeUnit.MILLIS)) =>
-        LocalTime.ofNanoOfDay(v * 1000000L)
+        localTime(v * 1000000L)
       case Some(LogicalType.Decimal(scale, _)) =>
         BigDecimal(BigInt(v), scale)
       case Some(LogicalType.Integer(64, false)) =>
@@ -50,6 +50,12 @@ private[parquet] object LogicalValues:
           BigInt(v) + (BigInt(1) << 64)
       case _ =>
         v
+
+  /** A TIME value as LocalTime; values outside one day are corrupt */
+  def localTime(nanos: Long): LocalTime =
+    if nanos < 0 || nanos >= NanosPerDay then
+      throw ParquetException.corrupt(s"TIME value ${nanos} ns is outside one day")
+    LocalTime.ofNanoOfDay(nanos)
 
   def timestamp(v: Long, unit: TimeUnit): Instant =
     unit match

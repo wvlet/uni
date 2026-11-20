@@ -24,6 +24,9 @@ private[parquet] object DeltaDecoder:
       throw ParquetException.corrupt(
         s"invalid DELTA_BINARY_PACKED header: block size ${blockSize}, ${miniBlocksPerBlock} miniblocks"
       )
+    // Writers use blocks of 128 values; a bound keeps a corrupt header from forcing a huge allocation
+    if blockSize > (1 << 20) || miniBlocksPerBlock > 1024 then
+      throw ParquetException.corrupt(s"DELTA_BINARY_PACKED block size  is too large")
     val perMiniBlock = blockSize / miniBlocksPerBlock
     if perMiniBlock % 32 != 0 then
       throw ParquetException.corrupt(s"miniblock size ${perMiniBlock} is not a multiple of 32")
@@ -120,9 +123,10 @@ private[parquet] object DeltaDecoder:
     val (suffixLens, dataStart) = readBinaryPacked(buf, suffixStart, end, n)
     if prefixes.length < n || suffixLens.length < n then
       throw ParquetException.corrupt("DELTA_BYTE_ARRAY has fewer values than the page")
-    var pos     = dataStart
-    var prev    = new Array[Byte](0)
-    var prevLen = 0
+    var pos = dataStart
+    // Each value starts with a prefix of the previous one, copied within the output buffer
+    var prevStart = 0
+    var prevLen   = 0
     out.ensureValues(n)
     var i = 0
     while i < n do
@@ -131,12 +135,14 @@ private[parquet] object DeltaDecoder:
       if p < 0 || p > prevLen || s < 0 || s > end - pos then
         throw ParquetException.corrupt("DELTA_BYTE_ARRAY prefix or suffix is out of range")
       val len = (p + s).toInt
-      val v   = new Array[Byte](len)
-      System.arraycopy(prev, 0, v, 0, p.toInt)
-      System.arraycopy(buf, pos, v, p.toInt, s.toInt)
+      out.ensureData(len)
+      val start = out.dataSize
+      System.arraycopy(out.data, prevStart, out.data, start, p.toInt)
+      System.arraycopy(buf, pos, out.data, start + p.toInt, s.toInt)
       pos += s.toInt
-      out.add(v, 0, len)
-      prev = v
+      out.offsets(out.size + 1) = start + len
+      out.size += 1
+      prevStart = start
       prevLen = len
       i += 1
 

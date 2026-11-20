@@ -168,17 +168,26 @@ private[parquet] final class RleBitPackedDecoder(
       rleValue = v
     else
       val groups = header >>> 1
-      if groups <= 0 || groups > (1 << 24) then
+      // A run's last group may be cut short at the end of the data (missing bits read as zero), but
+      // never by more than one group
+      val bytes = groups.toLong * bitWidth
+      if groups <= 0 || bytes > (end - pos).toLong + bitWidth || groups > (1 << 27) then
         throw ParquetException.corrupt(s"bit-packed run has ${groups} groups")
       val count = groups * 8
-      // A run's bytes may be cut short at the end of the data; missing bits read as zero
-      val bytes = groups.toLong * bitWidth
+      if bitWidth == 0 then
+        // Zero-width values are all 0: no need to unpack them
+        rleRemaining = count
+        rleValue = 0
+        return
       if packed.length < count then
         packed = new Array[Int](count)
       BitPacking.unpackInts(buf, pos, end, bitWidth, packed, 0, count)
       pos = math.min(end.toLong, pos + bytes).toInt
       packedPos = 0
       packedRemaining = count
+    end if
+
+  end nextRun
 
   /** Reads `n` values into `dst`. Throws when the data ends first. */
   def read(dst: Array[Int], offset: Int, n: Int): Unit =
