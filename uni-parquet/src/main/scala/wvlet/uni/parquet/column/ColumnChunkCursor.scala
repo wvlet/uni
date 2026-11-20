@@ -51,8 +51,10 @@ private[parquet] final class ColumnChunkCursor(
 
   private var dictionary: Option[ValueBuffer] = None
 
-  // Levels of committed pages are [0, committed); those of the held page are [committed, levelEnd).
-  // They grow page by page, so a corrupt value count in the metadata cannot force a huge allocation.
+  // Level entries [0, base) are handed out, [base, committed) are committed (values decoded), and
+  // [committed, levelEnd) belong to the held page; values [0, valueBase) are handed out. Handed-out
+  // entries are dropped when the next page loads, not on every take, so small batches stay linear.
+  // The arrays grow page by page, so a corrupt value count cannot force a huge allocation.
   private var defLevels: Array[Int] = newLevels(1024)
   private var repLevels: Array[Int] =
     if maxRep > 0 then
@@ -60,9 +62,11 @@ private[parquet] final class ColumnChunkCursor(
     else
       null
 
+  private var base      = 0
+  private var valueBase = 0
   private var committed = 0
   private var levelEnd  = 0
-  // Entries with repetition level 0 in [0, committed): the rows that start there
+  // Entries with repetition level 0 in [base, committed): the rows that start there
   private var rowStarts      = 0
   private var values         = ValueDecoder.newBuffer(field.physicalType, initialLevels(1024))
   private var held: HeldPage = null
@@ -76,25 +80,31 @@ private[parquet] final class ColumnChunkCursor(
       val start: Int,
       val end: Int
   ):
-    /** An upper bound of the bytes its values add */
-    val valueBytes: Long =
+    /** An upper bound of the bytes its values add to a binary column's data array, else 0 */
+    val dataBytes: Long =
       values match
         case _: BinaryBuffer =>
           encoding match
             case Encoding.RLE_DICTIONARY | Encoding.PLAIN_DICTIONARY =>
               dictionary match
                 case Some(d: BinaryBuffer) =>
-                  nonNull.toLong * (d.maxLength + 4)
+                  nonNull.toLong * d.maxLength
                 case _ =>
                   0L
             case _ =>
-              (end - start).toLong + 4L * nonNull
-        case _: LongBuffer | _: DoubleBuffer =>
-          8L * nonNull
-        case _: BooleanBuffer =>
-          nonNull.toLong
+              (end - start).toLong
         case _ =>
-          4L * nonNull
+          0L
+
+  /** Whether decoding the held page would push an array past the hard limit (elements or bytes) */
+  private def overflows(h: HeldPage): Boolean =
+    values.size.toLong + h.nonNull > hardLimit || (
+      values match
+        case b: BinaryBuffer =>
+          b.dataSize.toLong + h.dataBytes > hardLimit
+        case _ =>
+          false
+    )
 
   private def initialLevels(n: Int): Int = math.min(total, n.toLong).toInt
 
@@ -121,10 +131,10 @@ private[parquet] final class ColumnChunkCursor(
 
   private def exhausted: Boolean = levelsRead >= total || pos >= input.length
 
-  /** Complete rows in [0, committed). A row is complete once the next row has started. */
+  /** Complete rows in [base, committed). A row is complete once the next row has started. */
   private def completeRows: Int =
     if maxRep == 0 then
-      committed
+      committed - base
     else if rowStarts == 0 then
       0
     else if held == null || repLevels(committed) == 0 then
@@ -151,9 +161,7 @@ private[parquet] final class ColumnChunkCursor(
             s"column ${field.pathString} ends after ${levelsRead} of ${total} values"
           )
         result = complete
-      else if complete > 0 &&
-        (pendingBytes >= softLimit || pendingBytes + held.valueBytes > hardLimit)
-      then
+      else if complete > 0 && (pendingBytes >= softLimit || overflows(held)) then
         result = complete
       else
         commit()
@@ -164,11 +172,11 @@ private[parquet] final class ColumnChunkCursor(
     // The entry where row `rows` starts
     val e =
       if maxRep == 0 then
-        rows
+        base + rows
       else if rows == rowStarts then
         committed
       else
-        var i      = 0
+        var i      = base
         var starts = 0
         while starts <= rows do
           if repLevels(i) == 0 then
@@ -177,51 +185,69 @@ private[parquet] final class ColumnChunkCursor(
         i - 1
     val v =
       if maxDef == 0 then
-        e
+        e - base
       else
         var c = 0
-        var i = 0
+        var i = base
         while i < e do
           if defLevels(i) == maxDef then
             c += 1
           i += 1
         c
-    val tail = levelEnd - e
-    val out  =
-      if v == values.size then
+    val out =
+      if base == 0 && v == values.size then
         // Everything committed goes out: hand over the arrays, and start new ones for the rest
+        val tail = levelEnd - e
         val data = ColumnData(field, values, defLevels, repLevels, e)
         values = ValueDecoder.newBuffer(field.physicalType, initialLevels(1024))
         defLevels = moveLevels(defLevels, e, tail)
         repLevels = moveLevels(repLevels, e, tail)
+        committed -= e
+        levelEnd = tail
+        valueBase = 0
         data
       else
-        val data = ColumnData(field, values.take(v), prefix(defLevels, e), prefix(repLevels, e), e)
-        values.dropFirst(v)
-        shiftLevels(defLevels, e, tail)
-        shiftLevels(repLevels, e, tail)
+        val data = ColumnData(
+          field,
+          values.slice(valueBase, valueBase + v),
+          slice(defLevels, base, e),
+          slice(repLevels, base, e),
+          e - base
+        )
+        base = e
+        valueBase += v
         data
-    committed -= e
-    levelEnd = tail
     rowStarts -= rows
     out
 
   end take
 
+  /** Drops the handed-out entries and values */
+  private def compact(): Unit =
+    if base > 0 || valueBase > 0 then
+      val n = levelEnd - base
+      shiftLevels(defLevels, base, n)
+      shiftLevels(repLevels, base, n)
+      values.dropFirst(valueBase)
+      committed -= base
+      levelEnd = n
+      base = 0
+      valueBase = 0
+
   /** Fails when the chunk has values beyond the row group's rows */
   def checkDone(): Unit =
     if held == null then
       loadNextPage()
-    if levelEnd > 0 then
+    if levelEnd > base then
       throw ParquetException.corrupt(
         s"column ${field.pathString} has more values than the row group has rows"
       )
 
-  private def prefix(levels: Array[Int], n: Int): Array[Int] =
+  private def slice(levels: Array[Int], from: Int, until: Int): Array[Int] =
     if levels == null then
       null
     else
-      java.util.Arrays.copyOf(levels, n)
+      java.util.Arrays.copyOfRange(levels, from, until)
 
   private def moveLevels(levels: Array[Int], from: Int, n: Int): Array[Int] =
     if levels == null then
@@ -277,8 +303,9 @@ private[parquet] final class ColumnChunkCursor(
 
   /** Reads a page header, reading more bytes when the header is longer than the first guess */
   private def readHeader(): PageHeader =
-    val left               = input.length - pos
-    var n                  = math.min(left, 64L * 1024).toInt
+    // Headers hold statistics, which can be long, but not this long
+    val limit              = math.min(input.length - pos, 64L * 1024 * 1024).toInt
+    var n                  = math.min(limit, 64 * 1024)
     var header: PageHeader = null
     while header == null do
       val (buf, off) = input.bytes(pos, n)
@@ -287,12 +314,13 @@ private[parquet] final class ColumnChunkCursor(
         header = MetadataDecoder.pageHeader(CompactProtocol.readStruct(r))
         pos += r.pos - off
       catch
-        case e: ParquetException if n < left =>
-          n = math.min(left, n.toLong * 4).toInt
+        case e: ParquetException if n < limit =>
+          n = math.min(limit.toLong, n.toLong * 4).toInt
     header
 
   /** Reads pages until one with values is held, or the chunk ends */
   private def loadNextPage(): Unit =
+    compact()
     while held == null && !exhausted do
       val header = readHeader()
       val size   = header.compressedSize
@@ -386,11 +414,11 @@ private[parquet] final class ColumnChunkCursor(
       val nonNull = countNonNull(defLevels, levelEnd, n, maxDef)
       levelEnd += n
       held = HeldPage(n, nonNull, encoding, buf, start, end)
-      if maxRep > 0 && committed == 0 && rowStarts == 0 && repLevels(0) != 0 then
+      // With no committed entries left, the page must start a row: batches end at row starts
+      if maxRep > 0 && committed == base && repLevels(committed) != 0 then
+        val level = repLevels(committed)
         throw ParquetException.corrupt(
-          s"column ${field.pathString} starts in the middle of a row (repetition level ${repLevels(
-              0
-            )})"
+          s"column ${field.pathString} starts in the middle of a row (repetition level ${level})"
         )
 
   private def checkPageValues(n: Int): Unit =

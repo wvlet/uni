@@ -9,8 +9,8 @@ private[parquet] sealed abstract class ValueBuffer:
   /** Bytes the values take, for deciding where a batch ends */
   def byteSize: Long
 
-  /** A new buffer with values [0, n) */
-  def take(n: Int): ValueBuffer
+  /** A new buffer with values [from, until) */
+  def slice(from: Int, until: Int): ValueBuffer
 
   /** Removes values [0, n), keeping the rest at the front */
   def dropFirst(n: Int): Unit
@@ -50,10 +50,10 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
 
   def byteSize: Long = size.toLong * 1
 
-  def take(n: Int): BooleanBuffer =
-    val b = BooleanBuffer(n)
-    System.arraycopy(values, 0, b.values, 0, n)
-    b.size = n
+  def slice(from: Int, until: Int): BooleanBuffer =
+    val b = BooleanBuffer(until - from)
+    System.arraycopy(values, from, b.values, 0, until - from)
+    b.size = until - from
     b
 
   def dropFirst(n: Int): Unit =
@@ -88,10 +88,10 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
 
   def byteSize: Long = size.toLong * 4
 
-  def take(n: Int): IntBuffer =
-    val b = IntBuffer(n)
-    System.arraycopy(values, 0, b.values, 0, n)
-    b.size = n
+  def slice(from: Int, until: Int): IntBuffer =
+    val b = IntBuffer(until - from)
+    System.arraycopy(values, from, b.values, 0, until - from)
+    b.size = until - from
     b
 
   def dropFirst(n: Int): Unit =
@@ -126,10 +126,10 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
 
   def byteSize: Long = size.toLong * 8
 
-  def take(n: Int): LongBuffer =
-    val b = LongBuffer(n)
-    System.arraycopy(values, 0, b.values, 0, n)
-    b.size = n
+  def slice(from: Int, until: Int): LongBuffer =
+    val b = LongBuffer(until - from)
+    System.arraycopy(values, from, b.values, 0, until - from)
+    b.size = until - from
     b
 
   def dropFirst(n: Int): Unit =
@@ -164,10 +164,10 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
 
   def byteSize: Long = size.toLong * 4
 
-  def take(n: Int): FloatBuffer =
-    val b = FloatBuffer(n)
-    System.arraycopy(values, 0, b.values, 0, n)
-    b.size = n
+  def slice(from: Int, until: Int): FloatBuffer =
+    val b = FloatBuffer(until - from)
+    System.arraycopy(values, from, b.values, 0, until - from)
+    b.size = until - from
     b
 
   def dropFirst(n: Int): Unit =
@@ -202,10 +202,10 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
 
   def byteSize: Long = size.toLong * 8
 
-  def take(n: Int): DoubleBuffer =
-    val b = DoubleBuffer(n)
-    System.arraycopy(values, 0, b.values, 0, n)
-    b.size = n
+  def slice(from: Int, until: Int): DoubleBuffer =
+    val b = DoubleBuffer(until - from)
+    System.arraycopy(values, from, b.values, 0, until - from)
+    b.size = until - from
     b
 
   def dropFirst(n: Int): Unit =
@@ -274,10 +274,16 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       i += 1
     m
 
-  def take(n: Int): BinaryBuffer =
-    val b = BinaryBuffer(1)
-    b.offsets = java.util.Arrays.copyOf(offsets, n + 1)
-    b.data = java.util.Arrays.copyOf(data, math.max(offsets(n), 1))
+  def slice(from: Int, until: Int): BinaryBuffer =
+    val n     = until - from
+    val start = offsets(from)
+    val b     = BinaryBuffer(1)
+    b.offsets = new Array[Int](n + 1)
+    var i = 0
+    while i <= n do
+      b.offsets(i) = offsets(from + i) - start
+      i += 1
+    b.data = java.util.Arrays.copyOfRange(data, start, math.max(offsets(until), start + 1))
     b.size = n
     b
 

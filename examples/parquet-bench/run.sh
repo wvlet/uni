@@ -13,9 +13,14 @@ BENCH="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "${BENCH}/../.." && pwd)"
 OUT="${BENCH}/out"
 DATA="${OUT}/data"
-ROWS="${1:-1000000}"
-shift || true
-[[ "${1:-}" == "--" ]] && shift
+ROWS=1000000
+if [[ $# -gt 0 && "$1" != "--" ]]; then
+  ROWS="$1"
+  shift
+fi
+if [[ "${1:-}" == "--" ]]; then
+  shift
+fi
 PLATFORMS="${PLATFORMS:-jvm js native}"
 cd "${ROOT}"
 
