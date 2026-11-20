@@ -96,6 +96,14 @@ class SocketServerStabilityTest extends UniTest:
     finally
       s.close()
 
+  /** Read through the next line break, failing if the server closes the connection first. */
+  private def awaitLine(in: InputStream): Unit =
+    var b = in.read()
+    while b != '\n' do
+      if b < 0 then
+        fail("Connection closed before the stream started")
+      b = in.read()
+
   /** Wait up to 10 s for `cond`, polling. */
   private def eventually(cond: => Boolean): Boolean =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -193,11 +201,8 @@ class SocketServerStabilityTest extends UniTest:
       val s = connect(server)
       try
         send(s, "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-        val in = s.getInputStream
-        // Wait for the first event
-        while in.read() != '\n' do
-          (
-        )
+        // Wait for the stream to start
+        awaitLine(s.getInputStream)
         server.activeStreams shouldBe 1
         val start = System.nanoTime()
         server.stop()
@@ -226,10 +231,7 @@ class SocketServerStabilityTest extends UniTest:
         try
           if i % 5 == 0 then
             send(s, "GET /events HTTP/1.1\r\nHost: localhost\r\n\r\n")
-            val in = s.getInputStream
-            while in.read() != '\n' do
-              (
-            )
+            awaitLine(s.getInputStream)
           else
             send(s, "GET / HTTP/1.1\r\nHost: localhost\r\n\r\n")
             readResponse(s.getInputStream) shouldBe (200, "hello")

@@ -17,7 +17,7 @@ The built-in JVM server and the Scala Native server share `SocketHttpServer` (`2
 - **A handler timeout cancels the handler's `Rx`**, so the work stops. So does `stop()` interrupting a worker that waits on one.
 - **The built-in JVM server has no handler timeout**, as on Netty. A waiting handler parks a virtual thread, which costs only memory. Native keeps its 30 s `handlerTimeoutMillis`, because a waiting handler holds one of its few workers.
 - **`stop()` waits up to 30 s** for in-flight requests, Netty's default. Idle connections, SSE streams, and WebSockets close at once: a stream may never end, Netty also closes WebSockets at once, and `EventSource` clients reconnect. An SSE stream waits on its event source, not on the socket, so `stop()` also wakes that wait.
-- **`stop()` from a handler** shuts down on a new thread and returns, as uni-netty does (`2026-10-27-netty-close-connections-on-stop.md`).
+- **`stop()` from a handler** shuts down on a new thread and returns, as uni-netty does (`2026-10-27-netty-close-connections-on-stop.md`). That thread is not a daemon. Connection threads are virtual threads, which are daemons, and `awaitTermination()` returns once the listener closes, so without it the JVM could exit mid-drain.
 - `SocketServerStabilityTest` checks each of these, plus that open connections and streaming slots return to zero after many clients come and go.
 
 ## Why not

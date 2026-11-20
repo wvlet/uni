@@ -797,9 +797,10 @@ abstract class SocketHttpServer private[http] (
     running.set(false)
     if onConnectionThread.get() then
       // Called from a handler (e.g. a /shutdown endpoint): waiting here would wait for this very
-      // request to finish, so shut down on another thread and return, as the Netty backend does
+      // request to finish, so shut down on another thread and return, as the Netty backend does.
+      // Not a daemon: connection threads are virtual (daemons), and awaitTermination returns once
+      // the listener closes, so this thread keeps the JVM alive until the drain finishes
       val t = Thread(() => shutdown())
-      t.setDaemon(true)
       t.setName(s"${config.name}-shutdown")
       t.start()
     else
