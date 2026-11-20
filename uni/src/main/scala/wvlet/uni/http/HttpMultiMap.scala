@@ -150,6 +150,9 @@ class HttpMultiMap private (
     v(n) = vs
     new HttpMultiMap(lk, ok, v, n + 1)
 
+  /** A builder that starts from this map's entries, for adding several without a copy each */
+  private[http] def toBuilder: HttpMultiMap.Builder = HttpMultiMap.Builder(this)
+
   /**
     * Add a key-value pair (alias for add)
     */

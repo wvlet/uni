@@ -176,10 +176,20 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
   private var lineStartPos: Int  = 0
   private var line: Int          = 0
   private var lastValueLine: Int = -1
-  private val sb                 = new StringBuilder()
+  // Created on first use: most strings have no escapes, so a parse often never needs it
+  private var sbBuf: StringBuilder = null
+  private def sb: StringBuilder    =
+    if sbBuf == null then
+      sbBuf = new StringBuilder()
+    sbBuf
 
   // Buffer for comments collected during whitespace skipping
-  private val commentBuffer = scala.collection.mutable.ArrayBuffer[(JSONComment, Boolean)]()
+  // Created on the first comment (JSONC); plain JSON never needs it
+  private var commentBuf: scala.collection.mutable.ArrayBuffer[(JSONComment, Boolean)]    = null
+  private def commentBuffer: scala.collection.mutable.ArrayBuffer[(JSONComment, Boolean)] =
+    if commentBuf == null then
+      commentBuf = scala.collection.mutable.ArrayBuffer[(JSONComment, Boolean)]()
+    commentBuf
 
   import JSONScanner.*
   import JSONToken.*
@@ -240,7 +250,7 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
     commentBuffer += ((JSONComment(text), isTrailing))
 
   private def flushComments(ctx: JSONContext[J]): Unit =
-    if commentBuffer.nonEmpty then
+    if commentBuf != null && commentBuf.nonEmpty then
       for (comment, isTrailing) <- commentBuffer do
         ctx.addComment(comment, isTrailing)
       commentBuffer.clear()
@@ -259,7 +269,8 @@ class JSONScanner[J](private val s: JSONSource, private val handler: JSONHandler
       case ctx: JSONContext[J @unchecked] =>
         flushComments(ctx)
       case _ =>
-        commentBuffer.clear()
+        if commentBuf != null then
+          commentBuf.clear()
 
   def scan: Unit =
     try
