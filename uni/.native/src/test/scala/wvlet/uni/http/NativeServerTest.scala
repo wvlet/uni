@@ -213,6 +213,38 @@ class NativeServerTest extends UniTest:
       }
   }
 
+  test("should decode gzip and deflate request bodies of several sizes") {
+    import RequestDecompressionTest.*
+    NativeServerConfig()
+      .withHandler { req =>
+        Response
+          .ok
+          .withBytesContent(req.content.toContentBytes)
+          .addHeader("X-Content-Encoding", req.header(HttpHeader.ContentEncoding).getOrElse("none"))
+      }
+      .withPort(0)
+      .start { server =>
+        for
+          n               <- Sizes
+          (encoding, enc) <- Encoders
+        do
+          val b    = body(n)
+          val wire = enc(b)
+          // ISO-8859-1 maps each byte to one char, so the binary body survives the String request
+          val response = request(
+            server.localPort,
+            s"POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Encoding: ${encoding}\r\n" +
+              s"Content-Length: ${wire.length}\r\nConnection: close\r\n\r\n" +
+              String(wire, StandardCharsets.ISO_8859_1)
+          )
+          (encoding, n, response.status) shouldBe (encoding, n, 200)
+          (encoding, n, response.headers.get("x-content-encoding")) shouldBe
+            (encoding, n, Some("none"))
+          (encoding, n, response.body == String(b, StandardCharsets.ISO_8859_1)) shouldBe
+            (encoding, n, true)
+      }
+  }
+
   test("should round-trip request and response headers") {
     NativeServerConfig()
       .withHandler { req =>
