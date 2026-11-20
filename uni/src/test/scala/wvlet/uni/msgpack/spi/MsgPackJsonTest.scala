@@ -27,6 +27,12 @@ class MsgPackJsonTest extends UniTest:
     val bytes    = p.toByteArray
     val expected = MessagePack.newUnpacker(bytes).unpackValue.toJson
     MsgPackJson.toJson(MessagePack.newUnpacker(bytes)) shouldBe expected
+    // The byte writer gives the same JSON as UTF-8, also when reused
+    val writer = JsonByteWriter()
+    Seq(1, 2).foreach { _ =>
+      writer.toJsonBytes(MessagePack.newUnpacker(bytes)).toSeq shouldBe
+        expected.getBytes("UTF-8").toSeq
+    }
     expected
 
   test("scalars render as their Value does") {
