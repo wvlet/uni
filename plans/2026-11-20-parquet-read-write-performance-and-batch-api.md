@@ -198,6 +198,27 @@ path.
   case-class reads. DATE strings are now formatted directly, and `CaseClassWeaver` matches keys
   by position and caches loose matches by key identity, which helps every Weaver user.
 
+## Follow-up: Node.js case-class writes
+
+- Design note: [2026-11-20-parquet-js-row-writes.md](2026-11-20-parquet-js-row-writes.md).
+- A `node --cpu-prof` profile put about 20% of the write time in short byte-array copies
+  (`System.arraycopy` is a typed-array `subarray` plus `set` on Scala.js) and per-row allocation.
+  The writer now reads the packed row in the packer's buffer, the shredder stages strings as offsets
+  into the row, short copies take a loop, a staged row is committed with one dispatch per column,
+  and the numeric dictionary hashes with 32-bit multiplies.
+- Write medians (ms) of 5 after 2 warm-ups, all platforms in one run. Other sessions' builds kept
+  the load average at 5–15, so take the ratios rather than the absolute times:
+
+| file | JVM uni | parquet-java | Node.js before | Node.js after | ratio to JVM | Native before | Native after | ratio to JVM |
+|---|---|---|---|---|---|---|---|---|
+| lineitem uncompressed | 1,105 | 1,185 | 4,564 | 3,074 | 2.78x | 2,531 | 1,490 | 1.35x |
+| lineitem snappy | 1,260 | 1,244 | 4,659 | 3,420 | 2.71x | 1,905 | 1,808 | 1.43x |
+| orders uncompressed | 754 | 853 | 3,421 | 2,094 | 2.78x | 1,509 | 1,241 | 1.65x |
+| orders snappy | 943 | 870 | 4,610 | 2,252 | 2.39x | 1,809 | 1,305 | 1.38x |
+
+- The "before" columns come from the same machine an hour earlier (JVM uni then 1,123 / 1,294 /
+  843 / 1,232 ms). JVM uni stays at 0.88–1.08x parquet-java's Group writer.
+
 ## Alternatives and Why Not?
 
 - **Write case classes through the batch writer** (collect rows into vectors, then write columns).

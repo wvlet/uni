@@ -174,7 +174,16 @@ abstract class ByteArrayBufferBase(
     )
 
     ensureCapacity(position, length)
-    System.arraycopy(source, sourceOffset, a, offset + position, length)
+    if length <= 32 && sourceOffset >= 0 then
+      // On Scala.js, System.arraycopy of bytes makes a typed-array view per call, which costs more
+      // than a loop for a short run, such as a packed string
+      val dst = offset + position
+      var i   = 0
+      while i < length do
+        a(dst + i) = source(sourceOffset + i)
+        i += 1
+    else
+      System.arraycopy(source, sourceOffset, a, offset + position, length)
     length
 
   override def writeBytes(position: Int, src: ReadBuffer, srcPosition: Int, length: Int): Int =

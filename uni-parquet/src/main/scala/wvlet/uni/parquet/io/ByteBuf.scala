@@ -37,7 +37,15 @@ private[parquet] final class ByteBuf(initialCapacity: Int = 256):
 
   def write(src: Array[Byte], off: Int, n: Int): Unit =
     ensure(n)
-    System.arraycopy(src, off, buf, len, n)
+    if n <= ByteBuf.ShortCopy && off >= 0 && off + n <= src.length then
+      // On Scala.js, System.arraycopy of bytes makes a typed-array view per call, which costs more
+      // than a loop for a short run (a string value, mostly)
+      var i = 0
+      while i < n do
+        buf(len + i) = src(off + i)
+        i += 1
+    else
+      System.arraycopy(src, off, buf, len, n)
     len += n
 
   def write(other: ByteBuf): Unit = write(other.buf, 0, other.len)
@@ -82,6 +90,10 @@ private[parquet] final class ByteBuf(initialCapacity: Int = 256):
 end ByteBuf
 
 /** A growable array of ints */
+private[parquet] object ByteBuf:
+  /** Copies up to this many bytes take a loop rather than System.arraycopy */
+  final val ShortCopy = 32
+
 private[parquet] final class IntBuf(initialCapacity: Int = 64):
   private var buf: Array[Int] = new Array[Int](math.max(8, initialCapacity))
   private var len: Int        = 0
