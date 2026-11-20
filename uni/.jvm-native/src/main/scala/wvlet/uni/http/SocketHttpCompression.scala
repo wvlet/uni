@@ -156,9 +156,9 @@ private[http] object ResponseCompression:
           case Some(encoding) =>
             val compressed =
               if encoding == "gzip" then
-                compress(gzipPool, body)
+                compress(poolFor(gzipPools, body), body)
               else
-                compress(deflatePool, body)
+                compress(poolFor(deflatePools, body), body)
             var headers = response.headers.set(HttpHeader.ContentEncoding, encoding)
             // The new content has no type of its own, so carry the old content's type as a header
             if !response.headers.contains(HttpHeader.ContentType) then
@@ -180,24 +180,37 @@ private[http] object ResponseCompression:
   end encode
 
   /**
-    * A reusable compressor: a `Deflater` and an output buffer. Creating a `Deflater` per response
-    * sets up a fresh zlib state (about 256 KB of native memory) and frees it again, which costs
-    * more CPU than compressing a small body; `reset()` keeps the state.
+    * A reusable compressor: a deflate stream and an output buffer. Creating a stream per response
+    * sets up a fresh zlib state and frees it again, which costs more CPU than compressing a small
+    * body; `reset()` keeps the state.
     */
-  private final class Compressor(val framed: Boolean):
+  private final class Compressor(val framed: Boolean, windowBits: Int):
     // gzip matches GZIPOutputStream (raw deflate at the default level, framed below); deflate
     // matches DeflaterOutputStream with a zlib-wrapped Deflater at Level
-    val deflater =
+    val engine =
       if framed then
-        Deflater(Deflater.DEFAULT_COMPRESSION, true)
+        DeflateEngine(raw = true, Deflater.DEFAULT_COMPRESSION, windowBits)
       else
-        Deflater(Level)
+        DeflateEngine(raw = false, Level, windowBits)
 
     var out: Array[Byte] = new Array[Byte](4096)
-    def dispose(): Unit  = deflater.end()
+    def dispose(): Unit  = engine.end()
 
-  private val gzipPool    = ScratchPool(ScratchPool.DefaultMax, () => Compressor(framed = true))
-  private val deflatePool = ScratchPool(ScratchPool.DefaultMax, () => Compressor(framed = false))
+  // One pool per window size, so a small body uses a small zlib state (see DeflateEngine)
+  private def pools(framed: Boolean): Array[ScratchPool[Compressor]] =
+    Array.tabulate(DeflateEngine.MaxWindowBits - DeflateEngine.MinWindowBits + 1)(i =>
+      ScratchPool(ScratchPool.DefaultMax, () => Compressor(framed, DeflateEngine.MinWindowBits + i))
+    )
+
+  private val gzipPools    = pools(framed = true)
+  private val deflatePools = pools(framed = false)
+
+  private def poolFor(
+      pools: Array[ScratchPool[Compressor]],
+      body: Array[Byte]
+  ): ScratchPool[Compressor] = pools(
+    DeflateEngine.windowBitsFor(body.length) - DeflateEngine.MinWindowBits
+  )
 
   // A buffer grown past this isn't kept
   private final val MaxKeptBytes = 1 << 16
@@ -208,7 +221,7 @@ private[http] object ResponseCompression:
   private def compress(pool: ScratchPool[Compressor], body: Array[Byte]): Array[Byte] =
     val c = pool.borrow()
     try
-      val d = c.deflater
+      val d = c.engine
       d.reset()
       // The gzip header the JDK's GZIPOutputStream writes: magic, deflate, no flags, no mtime, no
       // extra flags, OS 255 (unknown)
@@ -227,8 +240,8 @@ private[http] object ResponseCompression:
       // (0.5.12) on Windows cuts any single zlib call over 65,535 bytes to `len mod 65536`, which
       // compressed only a prefix of larger bodies
       var fed = 0
-      while !d.finished() do
-        if d.needsInput() then
+      while !d.finished do
+        if d.needsInput then
           if fed < body.length then
             val n = math.min(ZlibChunk, body.length - fed)
             d.setInput(body, fed, n)

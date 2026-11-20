@@ -122,16 +122,19 @@ class PooledResponseWriteTest extends UniTest:
   test("pooled gzip and deflate round-trip, across reuse and buffer growth") {
     // 300 KB grows the pooled output buffer past what it keeps; later calls must start clean
     // Each check names the body size and the step, so a failure says which one broke
-    Seq(2000, 300000, 1500, 70000, 1024).foreach { n =>
+    // Sizes on both sides of each window size Scala Native picks (512 B to 32 KB)
+    Seq(2000, 300000, 1500, 70000, 1024, 4096, 4097, 9000, 16385, 32768, 33000).foreach { n =>
       val b = body(n)
       val g = compressed("gzip", b)
       g.header(HttpHeader.ContentEncoding) shouldBe Some("gzip")
       val gz = g.content.toContentBytes
-      (
-        n,
-        "same bytes as GZIPOutputStream",
-        withoutOs(gz).sameElements(withoutOs(gzipStream(b)))
-      ) shouldBe (n, "same bytes as GZIPOutputStream", true)
+      // Scala Native sizes zlib's window to the body, so only the JVM matches GZIPOutputStream
+      if isScalaJVM then
+        (
+          n,
+          "same bytes as GZIPOutputStream",
+          withoutOs(gz).sameElements(withoutOs(gzipStream(b)))
+        ) shouldBe (n, "same bytes as GZIPOutputStream", true)
       val (data, trailerOk) = gunzip(gz)
       (n, "decodes to the body", data.sameElements(b)) shouldBe (n, "decodes to the body", true)
       (n, "trailer matches", trailerOk) shouldBe (n, "trailer matches", true)
@@ -141,9 +144,30 @@ class PooledResponseWriteTest extends UniTest:
     }
   }
 
-  test("pooled gzip gives GZIPOutputStream's bytes, apart from the OS byte") {
-    val b = body(10000)
-    withoutOs(compressed("gzip", b).content.toContentBytes) shouldBe withoutOs(gzipStream(b))
+  test("pooled gzip gives GZIPOutputStream's bytes on the JVM, apart from the OS byte") {
+    if isScalaJVM then
+      val b = body(10000)
+      withoutOs(compressed("gzip", b).content.toContentBytes) shouldBe withoutOs(gzipStream(b))
+  }
+
+  test("Scala Native drives zlib directly at every window size") {
+    if isScalaNative then
+      (DeflateEngine.MinWindowBits to DeflateEngine.MaxWindowBits).foreach { bits =>
+        Seq(true, false).foreach { raw =>
+          val e = DeflateEngine(raw, 6, bits)
+          try (bits, raw, e.direct) shouldBe (bits, raw, true)
+          finally e.end()
+        }
+      }
+  }
+
+  test("a small window still compresses a repetitive body") {
+    val b  = ("{\"id\":1,\"title\":\"todo item\",\"completed\":false}," * 80).getBytes("UTF-8")
+    val gz = compressed("gzip", b).content.toContentBytes
+    val (data, trailerOk) = gunzip(gz)
+    data.sameElements(b) shouldBe true
+    trailerOk shouldBe true
+    (gz.length < b.length / 10) shouldBe true
   }
 
 end PooledResponseWriteTest
