@@ -22,6 +22,9 @@ on:
       connections:
         description: 'Concurrent connections (standard and soak; warm-up for sweep)'
         default: '16'
+      items:
+        description: 'Todos each list call returns (larger means a bigger JSON response)'
+        default: '1'
       sweep:
         description: 'mode=sweep: connection counts, run in turn for `duration` each'
         default: '1,16,64,256'
@@ -56,6 +59,7 @@ jobs:
       RUNS: ${{ inputs.runs || '7' }}
       DURATION: ${{ inputs.duration || '10s' }}
       CONNECTIONS: ${{ inputs.connections || '16' }}
+      ITEMS: ${{ inputs.items || '1' }}
       MODE: ${{ inputs.mode || 'standard' }}
       SWEEP: ${{ inputs.sweep || '1,16,64,256' }}
       SOAK: ${{ inputs.soak || '10m' }}
@@ -98,7 +102,7 @@ jobs:
             *) mode_args=(--native-image rpc-native:native --jvm-image rpc-native:jvm) ;;
           esac
           python3 examples/rpc-native/bench/bench.py \
-            --runs "${RUNS}" --duration "${DURATION}" -c "${CONNECTIONS}" \
+            --runs "${RUNS}" --duration "${DURATION}" -c "${CONNECTIONS}" --items "${ITEMS}" \
             --server-cpus "0-$((half - 1))" --client-cpus "${half}-$((n - 1))" \
             "${mode_args[@]}" \
             --json results-${{ matrix.arch }}.json | tee -a "${GITHUB_STEP_SUMMARY}"
