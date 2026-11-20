@@ -123,7 +123,7 @@ object RowGroupFilter:
           true
 
   /** How to decode statistics of a column and convert filter values to the same domain */
-  private trait Ordering:
+  private[parquet] trait Ordering:
     def decode(b: Array[Byte]): Option[Any]
     def key(v: Any): Option[Any]
     def cmp(a: Any, b: Any): Int
@@ -167,7 +167,7 @@ object RowGroupFilter:
     else
       None
 
-  private def ordering(p: ParquetField.Primitive, s: Statistics): Option[Ordering] =
+  private[parquet] def ordering(p: ParquetField.Primitive, s: Statistics): Option[Ordering] =
     (p.physicalType, p.logicalType) match
       case (PhysicalType.INT32, None | Some(LogicalType.Integer(_, true))) =>
         Some(LongOrdering(int32, integral))

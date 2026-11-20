@@ -6,8 +6,9 @@ package wvlet.uni.parquet
   * @param columns
   *   top-level fields to read, or None for all of them
   * @param binaryAsString
-  *   decode BYTE_ARRAY columns without a logical type as UTF-8 strings when reading rows. Older
-  *   writers (for example Hive and Impala) store strings without the STRING annotation.
+  *   decode BYTE_ARRAY columns without a logical type as UTF-8 strings, in case classes, row maps,
+  *   JSON, and [[ColumnVector.getValue]]. Older writers (for example Hive and Impala) store strings
+  *   without the STRING annotation.
   * @param rowGroupFilter
   *   skip row groups whose statistics show that no row matches. Rows of the row groups that are
   *   read are not filtered.

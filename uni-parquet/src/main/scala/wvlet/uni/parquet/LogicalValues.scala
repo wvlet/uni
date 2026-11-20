@@ -83,7 +83,13 @@ private[parquet] object LogicalValues:
     else
       BigInt(java.util.Arrays.copyOfRange(b, off, off + len))
 
-  def fromBinary(data: Array[Byte], off: Int, len: Int, field: ParquetField): Any =
+  def fromBinary(
+      data: Array[Byte],
+      off: Int,
+      len: Int,
+      field: ParquetField,
+      binaryAsString: Boolean = false
+  ): Any =
     val physical =
       field match
         case p: ParquetField.Primitive =>
@@ -101,6 +107,8 @@ private[parquet] object LogicalValues:
         halfToFloat(((data(off + 1) & 0xff) << 8) | (data(off) & 0xff))
       case _ if physical == PhysicalType.INT96 && len == 12 =>
         int96ToInstant(data, off)
+      case _ if binaryAsString =>
+        String(data, off, len, "UTF-8")
       case _ =>
         java.util.Arrays.copyOfRange(data, off, off + len)
 

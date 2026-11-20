@@ -23,6 +23,31 @@ def readAll(path: String): Seq[Event] = Parquet.readAs[Event](path)
 - Strings from Hive or Impala lack the STRING annotation: pass
   `ParquetReadOptions.default.withBinaryAsString(true)`.
 
+## Rows as `Map[String, Any]`, JSON, and column statistics
+
+```scala
+def explore(path: String): Unit =
+  // Column name -> value, in schema column order
+  val rows: Seq[Map[String, Any]] = Parquet.readRows(path) // or Parquet.readRows(bytes)
+  rows.headOption.foreach(r => println(r("ts")))           // an Instant, not a string
+  // One JSON object per row; .toJSON gives JSON lines
+  Parquet.readJson(path).foreach(json => println(json.toJSON))
+  val file = Parquet.open(path)
+  try
+    // Per leaf column, from the footer: numValues, numNulls, sizes, min, max
+    file.columnStatistics.foreach((col, s) => println(s"${col}: ${s.min} .. ${s.max}"))
+  finally
+    file.close()
+```
+
+- `readRows` values have the logical type applied: `Instant`, `LocalDate`, `LocalTime`,
+  `BigDecimal`, `java.util.UUID`; lists are `Seq`, maps `Map`, groups `Map[String, Any]`, nulls
+  `null`. Unannotated binary is `Array[Byte]` unless `withBinaryAsString(true)`.
+- Prefer `readRows` over `readAs[Map[String, Any]]`: the latter goes through Weaver, so integers
+  become `Long` and DATE, DECIMAL, and UUID become strings.
+- `ParquetFile` also has `readRows(options)`, `readJson(options)`, and, for browsers,
+  `readRowsAsync`, `readAllRowsAsync`, and `readJsonAsync`.
+
 ## Open a file, project columns, read vectors
 
 ```scala
@@ -48,7 +73,8 @@ def sumIds(path: String): Long =
 ```
 
 `file.schema`, `file.numRows`, and `file.rowGroups` (with statistics) come from the footer.
-`batch.row(i)` gives a `Map[String, Any]`; `vector.getValue(i)` applies the logical type.
+`batch.row(i)` gives the same `Map[String, Any]` as `readRows`; `vector.getValue(i)` applies the
+logical type.
 
 ## Over HTTP, and in browsers
 
