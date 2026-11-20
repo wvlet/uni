@@ -108,6 +108,27 @@ class CodecTest extends UniTest:
         check(s"${name}.${tag}.zst", input)((c, n) => Zstd.decompress(c, 0, c.length, n))
       }
 
+  for (name, gen) <- inputs do
+    lazy val input = gen()
+    for tag <- Seq("gz", "1.gz") do
+      test(s"inflate ${name}.${tag}") {
+        check(s"${name}.${tag}", input)((c, n) => Inflate.gunzip(c, n))
+      }
+
+  for (name, gen) <- inputs do
+    lazy val input = gen()
+    for tag <- Seq("q1", "q5", "q11", "w24") do
+      test(s"brotli ${name}.${tag}") {
+        check(s"${name}.${tag}.br", input)((c, n) => Brotli.decompress(c, 0, c.length, n))
+      }
+
+  test("inflate reads several gzip members") {
+    val a   = file("small.gz")
+    val b   = file("text.gz")
+    val out = Inflate.gunzip(a ++ b, 0)
+    java.util.Arrays.equals(out, "hello".getBytes("UTF-8") ++ text(300000, 1)) shouldBe true
+  }
+
   test("zstd rejects corrupt input without crashing") {
     val good = file("text.3.zst")
     val n    = text(300000, 1).length
