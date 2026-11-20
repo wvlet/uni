@@ -59,15 +59,22 @@ class PooledResponseWriteTest extends UniTest:
   private def gunzip(b: Array[Byte]): (Array[Byte], Boolean) =
     b(0) shouldBe 0x1f.toByte
     b(1) shouldBe 0x8b.toByte
+    // Input and output stay at most 8 KiB per zlib call: Scala Native's javalib on Windows cuts any
+    // single call over 65,535 bytes (see ResponseCompression.ZlibChunk)
     val inflater = java.util.zip.Inflater(true)
-    inflater.setInput(b, 10, b.length - 18)
-    val out = ByteArrayOutputStream()
-    val buf = new Array[Byte](8192)
+    val end      = b.length - 8
+    var fed      = 10
+    val out      = ByteArrayOutputStream()
+    val buf      = new Array[Byte](8192)
     // Stop when inflate makes no progress instead of spinning: a decoder that never finishes would
     // otherwise hang the test binary (it did on Windows Native)
     var stalled = false
     var rounds  = 0
     while !inflater.finished() && !stalled do
+      if inflater.needsInput() && fed < end then
+        val n = math.min(8192, end - fed)
+        inflater.setInput(b, fed, n)
+        fed += n
       val n = inflater.inflate(buf)
       out.write(buf, 0, n)
       rounds += 1
@@ -100,7 +107,8 @@ class PooledResponseWriteTest extends UniTest:
   private def gzipStream(b: Array[Byte]): Array[Byte] =
     val out = ByteArrayOutputStream()
     val enc = GZIPOutputStream(out)
-    enc.write(b)
+    // 8 KiB per write: a larger single write never returns on Windows Native (javalib's 64 KiB cut)
+    b.grouped(8192).foreach(chunk => enc.write(chunk))
     enc.close()
     out.toByteArray
 
