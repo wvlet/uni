@@ -228,10 +228,11 @@ Range requests with `206 Partial Content` and allow them through CORS; a server 
 file instead gets a clear error. Uni's own server does this with
 [StaticFiles](../http/server#static-files).
 
-## Reading and Writing in S3
+## Reading and Writing in S3 and GCS
 
-`Parquet.openS3` reads from AWS S3 and S3-compatible stores (Cloudflare R2, Google Cloud Storage,
-MinIO) the same way, with ranged reads signed by [Object Storage](../core/object-storage):
+`Parquet.openS3` reads from AWS S3 and S3-compatible stores (Cloudflare R2, MinIO) the same way,
+and `Parquet.openGcs` from Google Cloud Storage with Google credentials, with ranged reads through
+[Object Storage](../core/object-storage):
 
 ```scala
 import wvlet.uni.storage.{ObjectStore, S3Config}
@@ -241,6 +242,8 @@ val fromR2 = Parquet.openS3(
   "s3://my-bucket/events.parquet",
   S3Config.r2("<account-id>").withCredentials("<key-id>", "<secret>")
 )
+// Application Default Credentials: a service-account key, gcloud login, or the metadata server
+val fromGcs = Parquet.openGcs("gs://my-bucket/events.parquet")
 ```
 
 To write, pass an object store upload stream to `newWriter`. The file appears when the writer
@@ -253,7 +256,7 @@ writer.write(Event(1, "aina", Instant.now(), Seq("a")))
 writer.close()
 ```
 
-`openS3Async` reads in browsers, given explicit credentials or a bucket that allows anonymous
+`openS3Async` and `openGcsAsync` read in browsers, given explicit credentials or a bucket that allows anonymous
 reads, and a CORS rule for the page.
 
 ## Skipping Row Groups

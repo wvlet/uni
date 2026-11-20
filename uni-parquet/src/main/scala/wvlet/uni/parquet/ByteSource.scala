@@ -9,6 +9,7 @@ import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.io.IOPath
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.GcsConfig
 import wvlet.uni.storage.ObjectStore
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
@@ -94,6 +95,18 @@ object ByteSource:
 
   def ofS3Async(uri: String, config: S3Config = S3Config.default): AsyncByteSource =
     AsyncObjectSource(ObjectStore.s3(config), ObjectUri.parse(uri), true)
+
+  /**
+    * A Google Cloud Storage object such as `gs://bucket/key.parquet`, read with OAuth credentials
+    */
+  def ofGcs(uri: String, config: GcsConfig = GcsConfig.default): ByteSource = ObjectSource(
+    ObjectStore.gcs(config),
+    ObjectUri.parse(uri),
+    true
+  )
+
+  def ofGcsAsync(uri: String, config: GcsConfig = GcsConfig.default): AsyncByteSource =
+    AsyncObjectSource(ObjectStore.gcs(config), ObjectUri.parse(uri), true)
 
 end ByteSource
 

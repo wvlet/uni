@@ -79,7 +79,7 @@ how APIs map between them.
 | [Logging](/core/logging) | Logging with source-location tracking |
 | [Surface](/core/surface) | Compile-time type introspection |
 | [FileSystem](/core/filesystem) | Cross-platform file I/O with `IOPath` |
-| [Object Storage](/core/object-storage) | Read and write S3, R2, GCS, and MinIO objects without the AWS SDK |
+| [Object Storage](/core/object-storage) | Read and write S3, R2, MinIO, and Google Cloud Storage objects without the AWS or Google SDKs |
 
 #### Data & Serialization
 
