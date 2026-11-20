@@ -46,4 +46,4 @@ addSbtPlugin("com.eed3si9n" % "sbt-salad-days" % "0.2.0")
 // its first release, replace this and sbt-salad-days above (a dependency of sbt-uni-javadoc) with
 // addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % UNI_PLUGIN_VERSION).
 Compile / unmanagedSourceDirectories +=
-  baseDirectory.value.getParentFile / "sbt-uni-javadoc" / "src" / "main" / "scala"
+  baseDirectory.value.getParentFile / "sbt-plugins" / "sbt-uni-javadoc" / "src" / "main" / "scala"

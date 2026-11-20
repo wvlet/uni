@@ -7,4 +7,4 @@ libraryDependencies += "org.scala-sbt" %% "scripted-plugin" % sbtVersion.value
 // Compile sbt-uni-javadoc (minimizePluginJavadoc) from source, as it is not published yet. After its
 // first release, replace this with addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % ...).
 Compile / unmanagedSourceDirectories +=
-  baseDirectory.value.getParentFile.getParentFile / "sbt-uni-javadoc" / "src" / "main" / "scala"
+  baseDirectory.value.getParentFile / "sbt-uni-javadoc" / "src" / "main" / "scala"

@@ -109,15 +109,12 @@ jobs:
             echo "::error::Write tests as test(\"...\") { ... } instead of test(\"...\"):"
             exit 1
           fi
-      # The sbt plugin sub-builds have their own .scalafmt.conf, which the root scalafmtCheckAll
-      # never sees. Their scripted-test jobs also check formatting, but those are not required
-      # status checks, so a scalafmt bump could auto-merge with unformatted plugin code and leave
-      # main red (#654, #655). Check them here, inside the required Code format check.
-      - name: scalafmt (sbt plugin sub-builds)
-        run: |
-          for dir in sbt-uni sbt-uni-playwright sbt-uni-crossproject sbt-uni-javadoc; do
-            (cd "$dir" && ../sbt scalafmtCheckAll)
-          done
+      # The sbt plugins are a separate build in sbt-plugins/, which the root scalafmtCheckAll never
+      # sees. Their scripted-test jobs are not required status checks, so a scalafmt bump could
+      # auto-merge with unformatted plugin code and leave main red (#654, #655). Check them here,
+      # inside the required Code format check.
+      - name: scalafmt (sbt-plugins build)
+        run: (cd sbt-plugins && ../sbt "scalafmtCheckAll; scalafmtSbtCheck")
       # The electron-app example is a standalone sbt build too, with its own .scalafmt.conf
       # symlink; the root scalafmtCheckAll never sees it. Check it here so the required Code
       # format check covers the example as well.
@@ -368,10 +365,10 @@ jobs:
           echo "UNI_VERSION=${UNI_VERSION}"
           echo "UNI_VERSION=${UNI_VERSION}" >> "$GITHUB_OUTPUT"
       - name: Build and test sbt plugin
-        working-directory: sbt-uni
+        working-directory: sbt-plugins
         run: |
           echo "Using UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }}"
-          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "scalafmtCheckAll; publishLocal; scripted"
+          UNI_VERSION=${{ steps.publish.outputs.UNI_VERSION }} sbt "sbtUni/publishLocal; sbtUni/scripted"
   test_sbt_uni_playwright:
     name: sbt-uni-playwright scripted test
     needs: changes
@@ -398,8 +395,8 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm dlx playwright@1.49.0 install --with-deps chromium
       - name: Build and scripted-test the plugin (runs Scala.js tests in headless Chromium)
-        working-directory: sbt-uni-playwright
-        run: sbt "scalafmtCheckAll; publishLocal; scripted"
+        working-directory: sbt-plugins
+        run: sbt "jsenv/publishLocal; sbtUniPlaywright/publishLocal; sbtUniPlaywright/scripted"
   test_sbt_uni_crossproject:
     name: sbt-uni-crossproject scripted test
     needs: changes
@@ -418,8 +415,8 @@ jobs:
       # The scripted test cross-compiles for JVM, Scala.js, and Scala Native. It only compiles the
       # Native sources to NIR (no nativeLink/run), so no clang/LLVM toolchain or Node.js is needed.
       - name: Build and scripted-test the plugin
-        working-directory: sbt-uni-crossproject
-        run: sbt "scalafmtCheckAll; publishLocal; scripted"
+        working-directory: sbt-plugins
+        run: sbt "sbtUniCrossProject/publishLocal; sbtUniCrossProject/scripted"
   test_sbt_uni_javadoc:
     name: sbt-uni-javadoc scripted test
     needs: changes
@@ -437,5 +434,5 @@ jobs:
         uses: sbt/setup-sbt@v1
       # The scripted tests run Scaladoc for Scala 3 and Scala 2.13 projects and check the jars
       - name: Build and scripted-test the plugin
-        working-directory: sbt-uni-javadoc
-        run: sbt "scalafmtCheckAll; publishLocal; scripted"
+        working-directory: sbt-plugins
+        run: sbt "sbtUniJavadoc/publishLocal; sbtUniJavadoc/scripted"

@@ -25,8 +25,8 @@ jobs:
     name: Publish to repo.wvlet.org
     if: github.event_name == 'push' || inputs.central_version == ''
     runs-on: ubuntu-latest
-    # Every build below stages its signed artifacts into the root's target/sona-staging (the plugin
-    # builds point their stagingDirectory there), and the whole tree is uploaded at the end. A version
+    # Every build below stages its signed artifacts into the root's target/sona-staging (the sbt-plugins
+    # build points its stagingDirectory there), and the whole tree is uploaded at the end. A version
     # already in the bucket is never overwritten, and artifacts go up before maven-metadata.xml.
     #
     # Credentials are scoped to the steps that need them, never exposed to third-party actions.
@@ -54,7 +54,7 @@ jobs:
         env:
           PGP_SECRET: ${{ secrets.PGP_SECRET }}
         run: echo $PGP_SECRET | base64 --decode | gpg --import --batch --yes
-      # The five builds live in separate directories with their own sbt servers and write to disjoint
+      # The two builds live in separate directories with their own sbt servers and write to disjoint
       # paths under the shared staging dir, so they can stage concurrently. `parallel` waits for all
       # of them (and fails if any failed) before the upload runs.
       - parallel:
@@ -62,26 +62,13 @@ jobs:
           env: &sbt-env
             PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           run: ./sbt "projectJVM/publishSigned; projectJS/publishSigned; projectNative/publishSigned"
-        # The plugin builds do not depend on the uni version being released, so no local publish of uni
-        # is needed first.
-        - name: Stage sbt-uni
+        # The plugin build does not depend on the uni version being released, so no local publish of
+        # uni is needed first. Its root aggregate skips publishing, so this stages the five plugin
+        # artifacts only.
+        - name: Stage sbt plugins
           env: *sbt-env
-          working-directory: sbt-uni
+          working-directory: sbt-plugins
           run: sbt publishSigned
-        - name: Stage sbt-uni-crossproject
-          env: *sbt-env
-          working-directory: sbt-uni-crossproject
-          run: sbt publishSigned
-        - name: Stage sbt-uni-javadoc
-          env: *sbt-env
-          working-directory: sbt-uni-javadoc
-          run: sbt publishSigned
-        # Scope publishSigned to the two published modules (a bare publishSigned would also stage the
-        # empty aggregate root).
-        - name: Stage sbt-uni-playwright
-          env: *sbt-env
-          working-directory: sbt-uni-playwright
-          run: sbt "jsenv/publishSigned; plugin/publishSigned"
       - name: Upload to repo.wvlet.org
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
