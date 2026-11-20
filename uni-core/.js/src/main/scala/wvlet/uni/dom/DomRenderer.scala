@@ -133,6 +133,10 @@ object DomRenderer extends LogSupport:
           (n, Cancelable.merge(Cancelable(() => r.beforeUnmount), c))
         case d: dom.Node =>
           (d, Cancelable.empty)
+        case rx: RxOps[?] =>
+          // An Rx has no node of its own (e.g. RxElement(rx)), so render its section into a span
+          val container = dom.document.createElement("span")
+          (container, renderTo(container, Embedded(rx)))
         case other =>
           throw IllegalArgumentException(s"Unsupported top level element: ${other}. Use renderTo")
 
@@ -226,8 +230,11 @@ object DomRenderer extends LogSupport:
       items = next.result()
     end update
 
+    // As for an Rx section: an update can reach the list after an enclosing section cancelled it
+    var cancelled    = false
     val subscription =
       RxRunner.runContinuously(source) {
+        case _ if cancelled =>
         case OnNext(values) =>
           update(values.asInstanceOf[Seq[Any]])
         case OnError(e) =>
@@ -235,6 +242,7 @@ object DomRenderer extends LogSupport:
         case _ =>
       }
     Cancelable { () =>
+      cancelled = true
       try items.values.foreach(_.dispose())
       finally subscription.cancel
     }
@@ -326,9 +334,14 @@ object DomRenderer extends LogSupport:
         case rx: RxOps[?] =>
           val (start, end) = node.createMountSection(anchor)
           var c1           = Cancelable.empty
-          val c2           =
+          // An RxVar notifies the subscribers it had before the update, so an enclosing section or
+          // keyed item that re-renders on the same update can cancel this one and remove its
+          // markers before the update reaches it
+          var cancelled = false
+          val c2        =
             RxRunner.runContinuously(rx) {
-              case OnNext(value) =>
+              case _ if cancelled =>
+              case OnNext(value)  =>
                 node.clearMountSection(start, end)
                 c1.cancel
                 val ctx = RenderingContext()
@@ -344,6 +357,7 @@ object DomRenderer extends LogSupport:
             }
           // c1 is replaced on each update, so read it at cancel time
           Cancelable { () =>
+            cancelled = true
             try c1.cancel
             finally c2.cancel
           }
@@ -410,13 +424,20 @@ object DomRenderer extends LogSupport:
           Cancelable.empty
         case e: Embedded =>
           traverse(e.v, anchor, localContext)
+        case l: LazyRxElement[?] =>
+          // RxElement(rx) renders a LazyRxElement, whose render returns itself
+          traverse(l.value, anchor, localContext)
         case rx: RxElement =>
           rx.beforeRender
           Try(rx.render) match
             case Success(r) =>
-              val before = node.lastChild
-              val c1     = renderToInternal(localContext, node, r)
-              val elem   = node.lastChild
+              // Render at the anchor, so every node the element renders (a group, a section, a
+              // keyed list) stays inside the enclosing section. The last of them is the node just
+              // before the anchor, or the parent's last node without one.
+              def lastRendered: dom.Node = anchor.fold(node.lastChild)(_.previousSibling)
+              val before                 = lastRendered
+              val c1                     = traverse(r, anchor, localContext)
+              val elem                   = lastRendered
               if elem == null || (elem eq before) then
                 // Rendered no node in place (e.g. only a Portal): nothing to modify or mount
                 Cancelable.merge(Cancelable(() => rx.beforeUnmount), c1)
@@ -883,8 +904,8 @@ object DomRenderer extends LogSupport:
   end handleResizeBindingDebounced
 
   /**
-    * Apply an RxElement's modifiers to the node it rendered (`elem`), schedule its `onMount`, and
-    * move the node to `anchor`.
+    * Apply an RxElement's modifiers to the last node it rendered (`elem`, already at `anchor`), and
+    * schedule its `onMount`.
     */
   private def renderMounted(
       rx: RxElement,
@@ -935,6 +956,8 @@ object DomRenderer extends LogSupport:
           childList = node.nodeType != dom.Node.ATTRIBUTE_NODE
       )
     end if
+    // elem is already in place, but re-inserting it is what reports it to the observer above as an
+    // added node, so onMount fires. Keep this call.
     node.mountHere(elem, anchor)
     Cancelable.merge(Cancelable(() => rx.beforeUnmount), Cancelable.merge(c1, c2))
 

@@ -40,6 +40,7 @@ jobs:
               - 'uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala'
               - 'uni/src/test/scala/wvlet/uni/rx/RxLiveSpecCases.scala'
               - 'uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala'
+              - 'uni-dom-test/src/test/scala/wvlet/uni/dom/DomRenderSpecCases.scala'
             src:
               - '.github/workflows/test.yml'
               - '.github/scripts/**'
@@ -84,7 +85,8 @@ jobs:
           lake exe gen-rx-recover-cases
           lake exe gen-http-reader-cases
           lake exe gen-rx-live-cases
-          if ! git diff --exit-code -- ../../uni/src/test/scala ../../uni/.jvm-native/src/test/scala; then
+          lake exe gen-dom-render-cases
+          if ! git diff --exit-code -- ../../uni/src/test/scala ../../uni/.jvm-native/src/test/scala ../../uni-dom-test/src/test/scala; then
             echo "::error::Run the gen-* executables in spec/lean (see spec/lean/README.md) and commit the generated cases"
             exit 1
           fi

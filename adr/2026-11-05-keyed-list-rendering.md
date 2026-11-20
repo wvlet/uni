@@ -42,6 +42,10 @@ binds the parts that change to `current` (typed `Rx[A]`, so it can't write it).
 - When a key leaves the list, the item's subscriptions are cancelled and its `RxVar` is stopped
   (`OnCompletion`), so subscribers outside the row end too. A key that returns renders from scratch.
 
+## Update (2026-11-20): components render at their anchor
+
+"Nested sections stay in place" held for an `Rx` directly inside another, but not for an `RxElement`. The `RxElement` rendered at the end of the parent, and then only the parent's last node moved to the anchor. A component that rendered a group left its other nodes behind, outside the section, and they piled up on every update. A component that rendered an `Rx` or a keyed list moved only one marker, so the next outer update cleared past the section and threw. An `RxElement` now renders at its anchor. Its modifiers and `onMount` still go to the last node it rendered. A section or keyed list placed directly in another section, or in a keyed item, on the same variable crashed too. An `RxVar` notifies the subscribers it had before an update, so the inner one got the update after the outer one had removed its markers. Sections and keyed lists now ignore updates once cancelled. `spec/lean/UniSpec/DomRender.lean` states the rule, and `DomRenderSpecTest` replays the model's cases (see `2026-11-18-lean-specs.md`).
+
 ## Alternatives
 
 - Diffing the old and new rendered trees (a virtual DOM): a much larger change to the renderer, and
