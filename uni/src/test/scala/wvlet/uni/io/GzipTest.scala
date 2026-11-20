@@ -48,6 +48,16 @@ class GzipTest extends UniTest:
     (compressed.length < original.length) shouldBe true
   }
 
+  test("compress and decompress data past 64 KiB") {
+    // Pseudo-random, so the compressed form is past 64 KiB too. On Windows Native, zlib calls over
+    // 64 KiB are truncated (see GzipCompat on Native)
+    Seq(70000, 300000).foreach { n =>
+      val r        = scala.util.Random(n)
+      val original = Array.fill(n)(r.nextInt().toByte)
+      (n, Gzip.decompress(Gzip.compress(original)).toSeq == original.toSeq) shouldBe (n, true)
+    }
+  }
+
   test("compressFile and decompressFile") {
     val originalPath   = tempDir / "original.txt"
     val compressedPath = tempDir / "original.txt.gz"
