@@ -122,8 +122,10 @@ Boehm served every request.
 Boehm costs throughput: on the M5 Pro it served ~14k req/s against ~90k with Immix, at a p99 of
 ~3 ms and ~11 MB RSS after load. The table above was measured with Immix.
 
-Most of that cost comes from Boehm's defaults, so the container image and `bench.py` start the
-server with `GC_MARKERS=1 GC_INITIAL_HEAP_SIZE=64m`. A profile at 16 connections found workers
+Most of that cost came from Boehm's defaults. uni now runs Boehm with one marker thread (set
+`GC_MARKERS` to override), and the container image and `bench.py` also start the server with
+`GC_INITIAL_HEAP_SIZE=64m`. The numbers below were measured before the one-marker default, with
+both settings in the environment. A profile at 16 connections found workers
 waiting on Boehm's global allocation lock about 50 times longer than they spent on requests. The
 heap stayed ~2.5 MB, so Boehm ran a stop-the-world collection about every 27 requests, and its 15
 parallel marker threads made each one slower. With both settings, collections ran ~35 times less

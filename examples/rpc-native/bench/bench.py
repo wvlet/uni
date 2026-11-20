@@ -31,7 +31,7 @@ ADD_BODY = b'{"request":{"title":"hello"}}'
 LIST_BODY = b'{"request":{}}'
 # Boehm settings the example README recommends for a multi-threaded server. Set before any server
 # starts, unless the caller's environment already sets them; the JVM ignores them.
-BOEHM_ENV = {"GC_MARKERS": "1", "GC_INITIAL_HEAP_SIZE": "64m"}
+BOEHM_ENV = {"GC_INITIAL_HEAP_SIZE": "64m"}
 OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "out")
 
 
@@ -415,7 +415,8 @@ def environment(args):
             f"- CPU: {cpu_name()}",
             f"- JDK: {first_line([args.java, '-version'])}",
             f"- Scala Native: {read_out('native-mode.txt')}; links {linked_libs(args.native)}; "
-            + ", ".join(f"`{k}={os.environ[k]}`" for k in BOEHM_ENV),
+            + ", ".join(f"`{k}={os.environ[k]}`" for k in [*BOEHM_ENV, "GC_MARKERS"]
+                        if k in os.environ),
             f"- JVM small heap options: `{args.jvm_small_opts}`",
             f"- CPU sets: server {args.server_cpus or 'any'}, load tool {args.client_cpus or 'any'}"]
 
