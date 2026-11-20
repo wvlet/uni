@@ -19,6 +19,7 @@ import wvlet.uni.test.UniTest
 import java.net.ServerSocket
 import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
 import java.util.concurrent.{CountDownLatch, LinkedBlockingQueue, TimeUnit}
+import scala.concurrent.{ExecutionContext, Future}
 
 /**
   * Readable rejections and [[WebSocketRelay]] on one server backend, driven by the platform's
@@ -341,6 +342,29 @@ abstract class WebSocketRelaySpec extends UniTest:
       client.nextStatus() shouldBe (4502, "upstream connect failed")
     finally
       unreachable.close()
+  }
+
+  test("close the client with 4502 when the upstream fails before the relay subscribes") {
+    // A refused connect can fail the client's future on another thread before connect returns
+    val refused =
+      new WebSocketClient:
+        override def connect(
+            request: Request,
+            handler: WebSocketHandler,
+            pingIntervalMillis: Int
+        ): Rx[WebSocketContext] =
+          Rx.future(Future.failed(java.net.ConnectException("Connection refused")))(using
+            ExecutionContext.parasitic
+          )
+
+    val f = RelayFixture((_, r) => r.withWebSocketClient(refused))
+    try
+      val client = Recorder()
+      f.open("/relay", client)
+      client.nextStatus() shouldBe (4502, "upstream connect failed")
+      f.nextStats().closedBy shouldBe WebSocketRelaySide.Relay
+    finally
+      f.close()
   }
 
 end WebSocketRelaySpec

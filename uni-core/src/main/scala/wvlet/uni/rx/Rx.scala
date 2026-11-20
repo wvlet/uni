@@ -923,17 +923,8 @@ object Rx extends LogSupport:
   def delay(interval: Long, unit: TimeUnit): Rx[Long] = timer(interval, unit)
 
   private def futureToRx[A](f: Future[A])(using ec: ExecutionContext): RxVar[Option[A]] =
-    val v = Rx.variable[Option[A]](None)
-    f.foreach { x =>
-      v := Some(x)
-      // Send OnCompletion event to the variable as the value will have no more update
-      v.stop()
-    }
-    f.onComplete {
-      case Success(_) =>
-      case Failure(e) =>
-        v.setException(e)
-    }
+    val v = FutureVar[A]()
+    f.onComplete(v.complete)
     v
 
   /**

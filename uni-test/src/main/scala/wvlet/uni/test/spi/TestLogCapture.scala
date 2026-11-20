@@ -16,7 +16,7 @@ package wvlet.uni.test.spi
 import wvlet.uni.log.LogFormatter.SourceCodeLogFormatter
 import wvlet.uni.log.Logger
 
-import java.util.function.Supplier
+import java.util.function.{Predicate, Supplier}
 import java.util.logging as jl
 
 /**
@@ -131,7 +131,8 @@ private[test] object TestLogCapture:
     */
   private[spi] class RoutingHandler(original: Array[jl.Handler])
       extends jl.Handler,
-        Supplier[Array[jl.Handler]]:
+        Supplier[Array[jl.Handler]],
+        Predicate[jl.LogRecord]:
     @volatile
     private var removed = false
 
@@ -147,8 +148,35 @@ private[test] object TestLogCapture:
         null
 
     override def publish(record: jl.LogRecord): Unit =
-      if removed || !capture(record) then
+      // Offer the record to the wrapped routers too: a capture of this copy takes a record from a
+      // thread running no suite, which may belong to another runner's capture (a Netty worker's
+      // warning, captured by a uni-netty test while a uni suite captures)
+      val inner = offerWrapped(record)
+      val own   = !removed && capture(record)
+      if !own && !inner then
         deliver(record)
+
+    /**
+      * Take `record` into the captures of this copy and of the routers it wraps, without printing
+      * it. Returns whether any capture took it. A JDK-typed method, so a router of another class
+      * loader can call it.
+      */
+    override def test(record: jl.LogRecord): Boolean =
+      val inner = offerWrapped(record)
+      val own   = !removed && capture(record)
+      own || inner
+
+    private def offerWrapped(record: jl.LogRecord): Boolean =
+      original.foldLeft(false) { (taken, h) =>
+        h match
+          // A router of another class loader is not a RoutingHandler of this one
+          case p: Predicate[?]
+              if (p.getClass ne classOf[RoutingHandler]) &&
+                p.getClass.getName == classOf[RoutingHandler].getName =>
+            p.asInstanceOf[Predicate[jl.LogRecord]].test(record) || taken
+          case _ =>
+            taken
+      }
 
     /**
       * Send a record to the suite's sbt loggers, or to the original handlers
