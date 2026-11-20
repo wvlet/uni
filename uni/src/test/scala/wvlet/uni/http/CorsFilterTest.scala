@@ -191,11 +191,15 @@ class CorsFilterTest extends UniTest:
   private val failing = RxHttpHandler(_ => Rx.exception(IllegalStateException("boom")))
 
   test("answer a handler failure from an allowed origin with a 500 carrying CORS headers") {
-    val result = runTry(
-      CorsFilter(policy.withAllowCredentials(true).withExposedHeaders("X-Request-Id")),
-      Request.get("/api").addHeader(HttpHeader.Origin, App),
-      failing
-    )
+    var result = Option.empty[Try[Response]]
+    val logs   = captureLogs {
+      result = runTry(
+        CorsFilter(policy.withAllowCredentials(true).withExposedHeaders("X-Request-Id")),
+        Request.get("/api").addHeader(HttpHeader.Origin, App),
+        failing
+      )
+    }
+    logs.warnings shouldContain "Error handling request: boom"
     result shouldMatch { case Some(Success(_)) =>
     }
     val response = result.get.get
@@ -210,11 +214,15 @@ class CorsFilterTest extends UniTest:
 
   test("answer a synchronous handler throw from an allowed origin with a 500") {
     val throwing = RxHttpHandler(_ => throw IllegalStateException("boom"))
-    val result   = runTry(
-      CorsFilter(policy),
-      Request.get("/api").addHeader(HttpHeader.Origin, App),
-      throwing
-    )
+    var result   = Option.empty[Try[Response]]
+    val logs     = captureLogs {
+      result = runTry(
+        CorsFilter(policy),
+        Request.get("/api").addHeader(HttpHeader.Origin, App),
+        throwing
+      )
+    }
+    logs.warnings shouldContain "Error handling request: boom"
     result.flatMap(_.toOption).map(_.status) shouldBe Some(HttpStatus.InternalServerError_500)
   }
 

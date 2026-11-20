@@ -29,7 +29,7 @@ class NodeSyncHttpChannelTest extends UniTest:
       val client = Http.client.withBaseUri(s"http://localhost:${port}").newSyncClient
       try
         val resp = client.send(Request(method = HttpMethod.GET, uri = "/get"))
-        info(s"status=${resp.status} bytes=${resp.content.toContentString.length}")
+        debug(s"status=${resp.status} bytes=${resp.content.toContentString.length}")
         resp.status.code shouldBe 200
         resp.content.toContentString shouldContain "\"method\":\"GET\""
         resp.content.toContentString shouldContain "\"url\":\"/get\""
@@ -74,7 +74,7 @@ class NodeSyncHttpChannelTest extends UniTest:
           case _: Throwable =>
             thrown = true
         val elapsed = System.currentTimeMillis() - start
-        info(s"stalled request aborted after ${elapsed}ms")
+        debug(s"stalled request aborted after ${elapsed}ms")
         thrown shouldBe true
         // The worker's own fetch abort fires near 500ms; well before the parent's
         // safety-net wait (readTimeout + grace). A broken timeout would blow past this.

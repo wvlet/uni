@@ -139,7 +139,11 @@ class HttpAccessLogRPCArgsTest extends UniTest:
   }
 
   test("log the arguments when the method throws") {
-    val e = call("fail", """{"model":"m1"}""")
+    var e: Map[String, Any] = Map.empty
+    val logs                = captureLogs {
+      e = call("fail", """{"model":"m1"}""")
+    }
+    logs.warnings shouldContain "Unexpected error in RPC handler: boom"
     e("rpc_method") shouldBe "fail"
     rpcArgs(e) shouldBe Map("model" -> "m1")
   }

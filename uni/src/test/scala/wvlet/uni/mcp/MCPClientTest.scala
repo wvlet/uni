@@ -197,13 +197,26 @@ class MCPClientTest extends UniTest:
   }
 
   test("tool execution failures are isError results, not exceptions") {
-    withMCPClient { client =>
-      for result <- client.callTool("explode", JSONObject(Seq("message" -> JSONString("boom"))))
-      yield
-        result.isError shouldBe true
-        result.content shouldMatch { case Seq(MCPContent.Text(text)) =>
-          text shouldContain "boom"
-        }
+    // The in-memory channel completes the Rx synchronously, so the server's warning about the
+    // failed tool can be captured while it runs
+    var result: Option[MCPToolResult] = None
+    val logs                          = captureLogs {
+      RxRunner.runOnce(
+        withMCPClient(_.callTool("explode", JSONObject(Seq("message" -> JSONString("boom")))))
+      ) {
+        case OnNext(r: MCPToolResult) =>
+          result = Some(r)
+        case OnError(e) =>
+          throw e
+        case _ =>
+      }
+    }
+    logs.warnings shouldContain "Unexpected error in RPC handler: boom"
+    result shouldMatch { case Some(r) =>
+      r.isError shouldBe true
+      r.content shouldMatch { case Seq(MCPContent.Text(text)) =>
+        text shouldContain "boom"
+      }
     }
   }
 

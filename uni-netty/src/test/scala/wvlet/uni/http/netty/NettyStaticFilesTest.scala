@@ -96,13 +96,16 @@ class NettyStaticFilesTest extends UniTest:
   }
 
   test("answer 500 when a FileContent can't be opened") {
-    NettyServerConfig()
-      .withPort(0)
-      .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
-      .withHandler(_ => Response.ok(HttpContent.FileContent(site / "missing.bin", 0, 10)))
-      .start { server =>
-        get(server.localPort, "/").statusCode() shouldBe 500
-      }
+    val logs = captureLogs {
+      NettyServerConfig()
+        .withPort(0)
+        .withGracefulShutdown(quietPeriodSeconds = 0, timeoutSeconds = 5)
+        .withHandler(_ => Response.ok(HttpContent.FileContent(site / "missing.bin", 0, 10)))
+        .start { server =>
+          get(server.localPort, "/").statusCode() shouldBe 500
+        }
+    }
+    logs.warnings shouldContain "missing.bin"
   }
 
 end NettyStaticFilesTest

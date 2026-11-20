@@ -140,11 +140,17 @@ class RPCErrorStackTraceTest extends UniTest:
   }
 
   test("hide the stack trace of unexpected exceptions unless detailedErrors is enabled") {
-    val body = call(RPCDispatcher(router), "fail")
+    var body     = ""
+    var detailed = ""
+    val logs     = captureLogs {
+      body = call(RPCDispatcher(router), "fail")
+      detailed = call(RPCDispatcher(router).withDetailedErrors(true), "fail")
+    }
+    // The server log keeps the detail that the default response hides
+    logs.warnings shouldContain "Unexpected error in RPC handler: secret internal detail"
     body shouldNotContain "stackTrace"
     body shouldNotContain "secret internal detail"
 
-    val detailed = call(RPCDispatcher(router).withDetailedErrors(true), "fail")
     detailed shouldContain "stackTrace"
     detailed shouldContain "secret internal detail"
     // The frames are the handler's, not the dispatcher's wrapper

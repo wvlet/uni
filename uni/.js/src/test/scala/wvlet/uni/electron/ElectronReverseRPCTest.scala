@@ -164,8 +164,11 @@ class ElectronReverseRPCTest extends UniTest:
       val event = ElectronTestbed.ipcEvent("file:///app/index.html", isTopLevel)
       event.updateDynamic("sender")(sender)
       replyListeners.foreach(_(event, sentId, ok))
-    reply(js.Dynamic.literal(), isTopLevel = true)
-    reply(target, isTopLevel = false)
+    val logs = captureLogs {
+      reply(js.Dynamic.literal(), isTopLevel = true)
+      reply(target, isTopLevel = false)
+    }
+    logs.warnings shouldContain "Ignored a reverse RPC reply from file:///app/index.html"
     result.map { s =>
       // Neither reply counted, so the call timed out
       s shouldContain ServiceStatus.DEADLINE_EXCEEDED_I4.name

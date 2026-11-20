@@ -127,8 +127,11 @@ abstract class WebSocketRelaySpec extends UniTest:
       connect(Request.get(s"ws://localhost:${server.localPort}/empty"), empty)
       empty.nextStatus()._1 shouldBe 4403
       val failed = Recorder()
-      connect(Request.get(s"ws://localhost:${server.localPort}/error"), failed)
-      failed.nextStatus()._1 shouldBe 4500
+      // The server logs the filter error, possibly after the close frame reaches the client
+      captureLogs {
+        connect(Request.get(s"ws://localhost:${server.localPort}/error"), failed)
+        failed.nextStatus()._1 shouldBe 4500
+      }
     finally
       server.stop()
   }
