@@ -365,7 +365,8 @@ private[http] object ResponseCompression:
           next
       val param = item.substring(from, until).trim
       if param.regionMatches(true, 0, "q=", 0, 2) then
-        q = param.substring(2).toDoubleOption.getOrElse(0.0)
+        // NaN and Infinity are not q-values (the old lower-cased parse rejected them too)
+        q = param.substring(2).toDoubleOption.filter(_.isFinite).getOrElse(0.0)
         done = true
       else if next < 0 then
         done = true

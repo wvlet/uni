@@ -43,6 +43,8 @@ class ChooseEncodingTest extends UniTest:
   test("q=0, invalid q-values, and unknown codings disable an encoding") {
     choose("gzip;q=0") shouldBe None
     choose("gzip;q=abc") shouldBe None
+    choose("gzip;q=NaN, gzip") shouldBe Some("gzip")
+    choose("gzip;q=Infinity, deflate") shouldBe Some("deflate")
     choose("br") shouldBe None
     choose("identity") shouldBe None
     choose("gzip;q=0, deflate;q=0") shouldBe None
