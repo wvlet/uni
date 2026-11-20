@@ -239,13 +239,13 @@ class RxRunner(
         val c2: Cancelable =
           run(in) {
             case OnNext(x) =>
+              // A new input value replaces the previous nested stream, even when f throws
+              c1.cancel
+              c1 = Cancelable.empty
               Try(tryFunc(Success(x))) match
                 case Success(rxb) =>
                   evalRx(rxb)
                 case Failure(e) =>
-                  // A new input value replaces the previous nested stream, even when f throws
-                  c1.cancel
-                  c1 = Cancelable.empty
                   tracker.dropNested()
                   effect(OnError(e))
             case OnError(e) =>
@@ -1087,14 +1087,19 @@ class RxRunner(
       for i <- 0 until size do
         c(i) =
           runner.run(input.parents(i)) { e =>
-            lastEvent(i) = Some(e)
-            trace(s"c(${i}) ${e}")
-            e match
-              case OnNext(v) =>
-                update(i, v.asInstanceOf[A])
-                processEvents(true)
-              case _ =>
-                processEvents(false)
+            if completed.get() then
+              // Nothing can follow the terminal event: stop buffering values that a live source
+              // (e.g., an RxVar) keeps sending after zip completed
+              RxResult.Stop
+            else
+              lastEvent(i) = Some(e)
+              trace(s"c(${i}) ${e}")
+              e match
+                case OnNext(v) =>
+                  update(i, v.asInstanceOf[A])
+                  processEvents(true)
+                case _ =>
+                  processEvents(false)
           }
 
       processEvents(false)
@@ -1124,9 +1129,8 @@ class RxRunner(
     override protected def update(index: Int, v: A): Unit =
       lastValueBuffer(index) = lastValueBuffer(index).enqueue(v)
 
-    // Complete once a completed source has no buffered value left to pair. Counting any event,
-    // values included, completed zip over RxVars right after the first pair, since each RxVar
-    // delivers its current value on subscription.
+    // Complete once a completed source has no buffered value left to pair (the shortest source
+    // ends zip). Values must not count: an RxVar delivers its current value on subscription.
     override protected def isCompleted: Boolean =
       !continuous &&
         (0 until size).exists(i =>
