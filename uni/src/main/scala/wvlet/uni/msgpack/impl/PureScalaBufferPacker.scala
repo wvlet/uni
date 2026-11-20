@@ -42,6 +42,14 @@ class PureScalaBufferPacker extends BufferPacker:
       len + len / 4 + 16
     )
 
+  /** The bytes written so far as UTF-8 JSON, rendered through `sb` (see MsgPackJson.toJsonBytes) */
+  private[uni] def writtenAsJsonBytes(sb: StringBuilder): Array[Byte] =
+    val len = cursor.lastWrittenBytes
+    MsgPackJson.toJsonBytes(
+      PureScalaBufferUnpacker(ByteArrayBuffer.fromArray(buf.array, 0, len)),
+      sb
+    )
+
   /** The capacity the buffer has grown to */
   private[uni] def capacity: Int                    = buf.size
   override private[msgpack] def totalByteSize: Long = cursor.position + cursor.lastWrittenBytes

@@ -109,6 +109,13 @@ case class MethodCodec(
     else
       returnWeaver.asInstanceOf[Weaver[Any]].toJson(value)
 
+  /** [[encodeResult]] as UTF-8 bytes, without the String in between */
+  private[http] def encodeResultBytes(value: Any): Array[Byte] =
+    if value == null || value == () then
+      MethodCodec.NullJson.clone()
+    else
+      returnWeaver.asInstanceOf[Weaver[Any]].toJsonBytes(value)
+
   private def decodeFromMap(map: Map[String, JSONValue], methodOwner: Option[Any]): Seq[Any] =
     val numParams = method.args.size
     val results   = Array.ofDim[Any](numParams)
@@ -152,3 +159,6 @@ case class MethodCodec(
   end decodeFromMap
 
 end MethodCodec
+
+object MethodCodec:
+  private[http] val NullJson: Array[Byte] = Array('n'.toByte, 'u'.toByte, 'l'.toByte, 'l'.toByte)

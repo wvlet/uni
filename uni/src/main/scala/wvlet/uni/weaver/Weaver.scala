@@ -88,6 +88,16 @@ trait Weaver[A]:
       packer.writtenAsJson
   }
 
+  /**
+    * The value as UTF-8 JSON bytes: what `toJson(v).getBytes(UTF_8)` gives, without the String and
+    * its copy in between where they cost most (Scala Native, Scala.js).
+    */
+  private[uni] def toJsonBytes(v: A, config: WeaverConfig = WeaverConfig()): Array[Byte] = Weaver
+    .withScratch { (packer, json) =>
+      pack(packer, v, config)
+      packer.writtenAsJsonBytes(json)
+    }
+
   def toMsgPack(v: A, config: WeaverConfig = WeaverConfig()): MsgPack =
     val packer = MessagePack.newPacker()
     pack(packer, v, config)
@@ -119,7 +129,9 @@ object Weaver:
 
   private final class ScratchSlot:
     var packer = PureScalaBufferPacker()
-    var inUse  = false
+    // The JSON text for toJsonBytes, before it becomes bytes
+    var json  = StringBuilder()
+    var inUse = false
 
   // One packer per thread for toJson, whose MessagePack form is only an intermediate step. A fresh
   // packer would regrow its buffer for every value and copy it out once more; on Scala Native's
@@ -132,20 +144,26 @@ object Weaver:
   // Drop a buffer grown past this, so an idle thread doesn't hold it
   private final val MaxKeptScratchBytes = 1 << 20
 
-  private[weaver] def withScratchPacker[T](f: PureScalaBufferPacker => T): T =
+  private[weaver] def withScratchPacker[T](f: PureScalaBufferPacker => T): T = withScratch(
+    (packer, _) => f(packer)
+  )
+
+  private[weaver] def withScratch[T](f: (PureScalaBufferPacker, StringBuilder) => T): T =
     val slot = scratch.get()
     if slot.inUse then
       // A weaver called toJson while packing: give it its own packer
-      f(PureScalaBufferPacker())
+      f(PureScalaBufferPacker(), StringBuilder())
     else
       slot.inUse = true
       try
-        f(slot.packer)
+        f(slot.packer, slot.json)
       finally
         if slot.packer.capacity > MaxKeptScratchBytes then
           slot.packer = PureScalaBufferPacker()
         else
           slot.packer.clear
+        if slot.json.underlying.capacity() > MaxKeptScratchBytes then
+          slot.json = StringBuilder()
         slot.inUse = false
 
   /**

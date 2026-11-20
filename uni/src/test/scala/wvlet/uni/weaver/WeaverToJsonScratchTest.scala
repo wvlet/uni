@@ -48,4 +48,17 @@ class WeaverToJsonScratchTest extends UniTest:
     w.toJson(Seq(Item(3, "small"))) shouldBe """[{"id":3,"name":"small"}]"""
   }
 
+  test("toJsonBytes gives toJson's UTF-8 bytes, reusing its builder across calls") {
+    val w = Weaver.fromSurface(Surface.of[Seq[Item]]).asInstanceOf[Weaver[Seq[Item]]]
+    Seq(
+      Seq.empty[Item],
+      Seq(Item(1, "plain")),
+      Seq(Item(2, "café 日本語 🎉"), Item(3, "quote \" and \\ and \n")),
+      (1 to 100).map(i => Item(i, s"item ${i}")),
+      Seq(Item(4, "short"))
+    ).foreach { items =>
+      w.toJsonBytes(items).toSeq shouldBe w.toJson(items).getBytes("UTF-8").toSeq
+    }
+  }
+
 end WeaverToJsonScratchTest

@@ -38,6 +38,28 @@ private[uni] object MsgPackJson:
     write(u, sb, Scratch())
     sb.result()
 
+  /**
+    * The next value as UTF-8 JSON bytes, rendered into `sb` (cleared first; callers reuse one).
+    * ASCII JSON, the usual case, turns into bytes straight from the builder where hand-written
+    * loops pay off ([[Utf8.manualAscii]]); otherwise, and on the JVM, through `getBytes`.
+    */
+  def toJsonBytes(u: Unpacker, sb: StringBuilder): Array[Byte] =
+    sb.clear()
+    write(u, sb, Scratch())
+    val n = sb.length
+    var i = 0
+    while Utf8.manualAscii && i < n && sb.charAt(i) < 0x80 do
+      i += 1
+    if Utf8.manualAscii && i == n then
+      val out = new Array[Byte](n)
+      var j   = 0
+      while j < n do
+        out(j) = sb.charAt(j).toByte
+        j += 1
+      out
+    else
+      sb.toString.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+
   // One byte buffer per document, reused for every string's bytes; allocated on first use
   private final class Scratch:
     var bytes: Array[Byte] = null

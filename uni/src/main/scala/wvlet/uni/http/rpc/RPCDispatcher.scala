@@ -16,6 +16,7 @@ package wvlet.uni.http.rpc
 import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.ContentType
 import wvlet.uni.http.HttpAccessLogFilter
+import wvlet.uni.http.HttpContent
 import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -133,11 +134,12 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
   end handle
 
   private def successResponse(value: Any, route: RPCRoute): Response =
-    val json = route.codec.encodeResult(value)
+    // JSON bytes straight from the codec: no String to build and then encode again
+    val json = route.codec.encodeResultBytes(value)
     Response
       .ok
       .addHeader(HttpHeader.XRPCStatus, ServiceStatus.SUCCESS_S0.code.toString)
-      .withJsonContent(json)
+      .withContent(HttpContent.ByteContent(json, Some(ContentType.ApplicationJson)))
 
   private def streamResponse(rx: Rx[?], route: RPCRoute): Response =
     val events: Rx[ServerSentEvent] = rx
