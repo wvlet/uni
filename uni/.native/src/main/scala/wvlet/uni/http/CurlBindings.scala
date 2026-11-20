@@ -84,6 +84,7 @@ object CurlBindings:
   final val CURLOPT_WRITEFUNCTION: CInt     = 20011
   final val CURLOPT_HEADERFUNCTION: CInt    = 20079
   final val CURLOPT_ACCEPT_ENCODING: CInt   = 10102
+  final val CURLOPT_NOSIGNAL: CInt          = 99
   // libcurl 7.54.0+
   final val CURLOPT_SUPPRESS_CONNECT_HEADERS: CInt = 265
 
@@ -164,6 +165,10 @@ object CurlBindings:
     def uni_curl_easy_setopt_long(curl: CURL, option: CInt, value: Long): CInt     = extern
     def uni_curl_easy_getinfo_long(curl: CURL, info: CInt, value: Ptr[Long]): CInt = extern
 
+    // Thread-local SIGPIPE guard, also in uni_curl_shim.c (see withSigpipeBlocked)
+    def uni_curl_sigpipe_block(): CInt                   = extern
+    def uni_curl_sigpipe_unblock(wasBlocked: CInt): Unit = extern
+
     @name("curl_easy_strerror")
     def easyStrerror(code: CInt): CString = extern
 
@@ -235,6 +240,21 @@ object CurlBindings:
 
   def curl_easy_getinfo_long(curl: CURL, info: CInt, result: Ptr[Long]): CInt = Extern
     .uni_curl_easy_getinfo_long(curl, info, result)
+
+  /**
+    * Run `body` with SIGPIPE blocked on this thread, discarding any SIGPIPE it raises.
+    *
+    * Every transfer sets `CURLOPT_NOSIGNAL`, which libcurl requires in multithreaded programs.
+    * Without it, curl ignores SIGPIPE by swapping the process-wide disposition around each call,
+    * which races between threads. With it, curl leaves SIGPIPE alone, yet curl 7.x with OpenSSL
+    * still writes TLS records with a plain `send`, which raises SIGPIPE on Linux when the peer has
+    * closed. Blocking the signal on this thread only turns that write into an EPIPE error, without
+    * touching the rest of the process. A no-op on Windows, which has no SIGPIPE.
+    */
+  def withSigpipeBlocked[A](body: => A): A =
+    val wasBlocked = Extern.uni_curl_sigpipe_block()
+    try body
+    finally Extern.uni_curl_sigpipe_unblock(wasBlocked)
 
   def curl_easy_strerror(code: CInt): CString = Extern.easyStrerror(code)
   def curl_slist_append(list: Ptr[CurlSlist], str: CString): Ptr[CurlSlist] = Extern.slistAppend(
