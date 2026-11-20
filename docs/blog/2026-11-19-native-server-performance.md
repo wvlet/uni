@@ -1,16 +1,16 @@
 ---
-title: "Scala Without the JVM: 104k Requests per Second in 25 MB of Memory"
+title: "Scala Without the JVM: Close to Rust's Speed, at a Fraction of the JVM's Memory"
 date: 2026-11-19
 author: Taro L. Saito
-description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's Scala Native HTTP server answers 104k requests per second in 25 MB of memory, up from 22.7k, and 74k on a 3.4 KB response, up from 1.6k. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
+description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's HTTP server built this way comes close to Rust and the JVM in throughput, using about 25x less memory than the JVM. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
 image: /blog/native-server-performance.png
 ---
 
-# Scala Without the JVM: 104k Requests per Second in 25 MB of Memory
+# Scala Without the JVM: Close to Rust's Speed, at a Fraction of the JVM's Memory
 
-**Uni's Scala Native HTTP server answers a small RPC call at 104k requests per second and a 3.4 KB JSON response at 74k, using 25–28 MB of memory.** That puts it within reach of Rust and the JVM: about 80% or more of the throughput of Rust with axum, on par with uni on the JVM on the small response, and about 80% of it on the larger one. The JVM build used 590–614 MB and 650 MB of memory for the same two responses.
+**Compiled with Scala Native, uni's HTTP server comes close to Rust and the JVM in throughput, while using about 25x less memory than the JVM.** Serving the same endpoint on the same machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with uni on the JVM on a small RPC response and reaches about 80% of it on a 3.4 KB one. It does this in 25–28 MB of memory, where the JVM build used 590–614 MB and 650 MB.
 
-A day earlier, the native server handled only 22.7k and 1.6k. Scala Native itself wasn't the problem; allocation was. The Boehm garbage collector the server runs with serializes allocating threads on one lock, so every byte one request allocated slowed down the others. This post covers how we found that, what we changed, and how the result compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine.
+A day earlier, the native server was about 5x slower than the JVM on the small response and about 50x slower on the larger one. Scala Native itself wasn't the problem; allocation was. The Boehm garbage collector the server runs with serializes allocating threads on one lock, so every byte one request allocated slowed down the others. This post covers how we found that, what we changed, and how the result compares with the JVM, Node.js, Python, Ruby, and Rust serving the same endpoint on the same machine.
 
 The bigger point: you can write Scala without being tied to the JVM. The same uni code runs on the JVM when you want its peak throughput, and as a small native binary when you want low memory and nothing to install.
 
