@@ -1,83 +1,340 @@
 package wvlet.uni.parquet.writer
 
-import wvlet.uni.msgpack.spi.Value
-import wvlet.uni.msgpack.spi.Value.*
 import wvlet.uni.parquet.ParquetException
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.ParquetSchema
-import wvlet.uni.parquet.format.LogicalType
-import wvlet.uni.parquet.format.Repetition
+import wvlet.uni.parquet.format.*
+import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.parquet.io.DoubleBuf
 import wvlet.uni.parquet.io.IntBuf
-
-import scala.collection.mutable
+import wvlet.uni.parquet.io.LongBuf
 
 /**
   * Splits a row into leaf column values with repetition and definition levels (Dremel striping),
-  * the inverse of the reader's assembly. A row is a MessagePack map of column names to values, or
-  * an array of values in schema order.
+  * the inverse of the reader's assembly. A row is MessagePack bytes: a map of column names to
+  * values, or an array of values in schema order. The bytes are read as a stream, with no value
+  * tree in between.
+  *
+  * Struct fields are matched by position first, so a case class packed by Weaver (whose fields come
+  * in schema order) needs no name lookup. From the first key that does not match its position on,
+  * the rest of the map is looked up by name: the exact name first, then a match that ignores case,
+  * `_`, and `-`, so `user_name` fills a `userName` column as it does when reading. When a key
+  * appears twice, the first one counts.
   *
   * A row is shredded into a staging area first and copied to the column writers only when every
-  * value fits, so a rejected row leaves no partial values behind.
+  * value fits, so a rejected row leaves no partial values behind. Staged values stay unboxed.
   */
 private[parquet] final class Shredder(schema: ParquetSchema):
-  private val leaves     = schema.columns
-  private val converters = leaves.map(ValueConverter.forField).toArray
-  private val stagedRep  = Array.fill(leaves.size)(IntBuf(4))
-  private val stagedDef  = Array.fill(leaves.size)(IntBuf(4))
-  private val stagedVal  = Array.fill(leaves.size)(mutable.ArrayBuffer.empty[Any])
+  import Shredder.*
+
+  private val leaves = schema.columns
+  private val stages = leaves.map(Stage(_)).toArray
+  private val root   = StructNode(null, schema.fields.map(build).toArray)
+  private val in     = MsgReader()
+  // Seconds and nanoseconds of the last timestamp read
+  private val ts = new Array[Long](2)
+
+  private def build(f: ParquetField): Node =
+    f match
+      case p: ParquetField.Primitive =>
+        LeafNode(p, ValueConverter.forField(p))
+      case g: ParquetField.Group =>
+        g.logicalType match
+          case Some(LogicalType.List) if isWrapper(g) =>
+            g.children.head match
+              case c: ParquetField.Group if isThreeLevelList(g, c) =>
+                ListNode(g, build(c), Some(build(c.children.head)))
+              case c =>
+                ListNode(g, build(c), None)
+          case Some(LogicalType.Map | LogicalType.MapKeyValue) if isWrapper(g) =>
+            g.children.head match
+              case kv: ParquetField.Group if kv.children.nonEmpty =>
+                MapNode(g, LeafRange(kv), kv.children.map(build).toArray)
+              case _ =>
+                InvalidNode(g, "the map has no key_value group")
+          case _ =>
+            StructNode(g, g.children.map(build).toArray)
 
   /** Shreds a row into the staging area; throws ParquetException when a value does not fit */
-  def shred(row: Value): Unit =
+  def shred(row: Array[Byte]): Unit =
     var i = 0
-    while i < leaves.size do
-      stagedRep(i).reset()
-      stagedDef(i).reset()
-      stagedVal(i).clear()
+    while i < stages.length do
+      stages(i).reset()
       i += 1
-    row match
-      case MapValue(entries) =>
-        val m = StructView(entries)
-        schema.fields.foreach(f => writeField(f, m.get(f.name), 0, 0))
-      case ArrayValue(values) =>
-        if values.size != schema.fields.size then
-          throw ParquetException(
-            s"A row of ${values.size} values does not match the ${schema
-                .fields
-                .size} columns of the schema"
-          )
-        schema.fields.zip(values).foreach((f, v) => writeField(f, v, 0, 0))
-      case other =>
-        throw ParquetException(s"A row must be a map or an array, but got ${other.valueType}")
+    in.reset(row)
+    if in.isMap then
+      writeStruct(root, 0, 0)
+    else if in.isArray then
+      val n = in.readArrayHeader()
+      if n != root.children.length then
+        throw ParquetException(
+          s"A row of ${n} values does not match the ${root.children.length} columns of the schema"
+        )
+      root.children.foreach(writeField(_, 0, 0))
+    else
+      throw ParquetException(s"A row must be a map or an array, but got ${in.valueType}")
 
   /** Copies the staged row into the column writers */
   def commit(writers: IndexedSeq[ColumnWriter]): Unit =
     var i = 0
-    while i < leaves.size do
-      val w    = writers(i)
-      val reps = stagedRep(i)
-      val defs = stagedDef(i)
-      val vals = stagedVal(i)
-      var j    = 0
-      while j < vals.size do
-        w.add(reps(j), defs(j), vals(j))
-        j += 1
-      w.endRow()
+    while i < stages.length do
+      stages(i).commit(writers(i))
       i += 1
 
-  private def isNull(v: Value): Boolean = v == null || v == NilValue
-
-  private def stage(col: Int, r: Int, d: Int, v: Any): Unit =
-    stagedRep(col).add(r)
-    stagedDef(col).add(d)
-    stagedVal(col) += v
+  private def fail(f: ParquetField, message: String): Nothing =
+    throw ParquetException(s"Cannot write column ${f.pathString}: ${message}")
 
   // The leaves under a field are the contiguous column indexes from its first leaf to its last
-  private def nulls(f: ParquetField, r: Int, d: Int): Unit =
-    var col  = edgeLeaf(f, first = true)
-    val last = edgeLeaf(f, first = false)
-    while col <= last do
-      stage(col, r, d, null)
+  private def nulls(n: Node, r: Int, d: Int): Unit = nulls(n.range, r, d)
+
+  private def nulls(range: LeafRange, r: Int, d: Int): Unit =
+    var col = range.first
+    while col <= range.last do
+      stages(col).addNull(r, d)
       col += 1
+
+  /** A field whose key is missing from its map */
+  private def writeMissing(n: Node, r: Int, d: Int): Unit =
+    if n.field.repetition == Repetition.REQUIRED then
+      fail(n.field, "a required value is missing")
+    nulls(n, r, d)
+
+  private def writeField(n: Node, r: Int, d: Int): Unit =
+    n.field.repetition match
+      case Repetition.REQUIRED =>
+        if in.isNil then
+          fail(n.field, "a required value is missing")
+        writeValue(n, r, d)
+      case Repetition.OPTIONAL =>
+        if in.isNil then
+          in.skipNil()
+          nulls(n, r, d)
+        else
+          writeValue(n, r, d + 1)
+      case Repetition.REPEATED =>
+        if in.isNil then
+          in.skipNil()
+          nulls(n, r, d)
+        else
+          val count = arrayHeader(n.field)
+          if count == 0 then
+            nulls(n, r, d)
+          else
+            var i = 0
+            while i < count do
+              writeValue(n, repAt(i, r, n.field), d + 1)
+              i += 1
+
+  private inline def repAt(i: Int, r: Int, f: ParquetField): Int =
+    if i == 0 then
+      r
+    else
+      f.maxRepetitionLevel
+
+  private def arrayHeader(f: ParquetField): Int =
+    if !in.isArray then
+      fail(f, s"expected an array, but got ${in.valueType}")
+    in.readArrayHeader()
+
+  private def writeValue(n: Node, r: Int, d: Int): Unit =
+    n match
+      case leaf: LeafNode =>
+        writeLeaf(leaf, r, d)
+      case s: StructNode =>
+        if !in.isMap then
+          fail(s.field, s"expected a struct, but got ${in.valueType}")
+        writeStruct(s, r, d)
+      case l: ListNode =>
+        val count = arrayHeader(l.field)
+        if count == 0 then
+          nulls(l.repeated, r, d)
+        else
+          var i = 0
+          while i < count do
+            val rep = repAt(i, r, l.repeated.field)
+            l.element match
+              case Some(e) =>
+                writeField(e, rep, d + 1)
+              case None =>
+                writeValue(l.repeated, rep, d + 1)
+            i += 1
+      case m: MapNode =>
+        if !in.isMap then
+          fail(m.field, s"expected a map, but got ${in.valueType}")
+        val count = in.readMapHeader()
+        if count == 0 then
+          nulls(m.entries, r, d)
+        else
+          var i = 0
+          while i < count do
+            val rep = repAt(i, r, m.group.children.head)
+            writeField(m.children(0), rep, d + 1)
+            if m.children.length > 1 then
+              writeField(m.children(1), rep, d + 1)
+            else
+              in.skip()
+            var j = 2
+            while j < m.children.length do
+              writeMissing(m.children(j), rep, d + 1)
+              j += 1
+            i += 1
+      case x: InvalidNode =>
+        fail(x.field, x.message)
+
+  private def writeStruct(s: StructNode, r: Int, d: Int): Unit =
+    val count    = in.readMapHeader()
+    val children = s.children
+    val seen     = s.seen
+    java.util.Arrays.fill(seen, false)
+    // Keys in schema order need no lookup
+    var i          = 0
+    var positional = true
+    while positional && i < count && i < children.length do
+      val keyPos = in.pos
+      if in.keyEquals(s.names(i)) then
+        writeField(children(i), r, d)
+        seen(i) = true
+        i += 1
+      else
+        in.pos = keyPos
+        positional = false
+    if i < count then
+      writeByName(s, count - i, r, d)
+    var j = 0
+    while j < children.length do
+      if !seen(j) then
+        writeMissing(children(j), r, d)
+      j += 1
+
+  /** Writes the remaining `count` entries of a map by looking each child up by name */
+  private def writeByName(s: StructNode, count: Int, r: Int, d: Int): Unit =
+    val keys      = new Array[String](count)
+    val positions = new Array[Int](count)
+    var i         = 0
+    while i < count do
+      keys(i) = in.readKey()
+      positions(i) = in.pos
+      in.skip()
+      i += 1
+    val end = in.pos
+    // Loose forms of the keys, computed once per map when a child needs them
+    var looseKeys: Array[String] = null
+    var j                        = 0
+    while j < s.children.length do
+      if !s.seen(j) then
+        val name = s.children(j).field.name
+        var at   = keys.indexOf(name)
+        if at < 0 then
+          if looseKeys == null then
+            looseKeys = keys.map(k =>
+              if k == null then
+                null
+              else
+                canonical(k)
+            )
+          at = looseKeys.indexOf(s.canonical(j))
+        if at >= 0 then
+          in.pos = positions(at)
+          writeField(s.children(j), r, d)
+          s.seen(j) = true
+      j += 1
+    in.pos = end
+
+  end writeByName
+
+  private def writeLeaf(n: LeafNode, r: Int, d: Int): Unit =
+    val st = stages(n.col)
+    n.kind match
+      case Kind.Bool if in.isBoolean =>
+        st.addInt(
+          r,
+          d,
+          if in.readBoolean() then
+            1
+          else
+            0
+        )
+      case Kind.Int32 if in.isLong =>
+        st.addInt(r, d, inRange(n, in.readLong()).toInt)
+      case Kind.Int64 if in.isLong =>
+        st.addLong(r, d, inRange(n, in.readLong()))
+      case Kind.Float if in.isFloat || in.isLong =>
+        st.addInt(r, d, java.lang.Float.floatToRawIntBits(number().toFloat))
+      case Kind.Double if in.isFloat || in.isLong =>
+        st.addDouble(r, d, number())
+      case Kind.Bytes if in.isString || in.isBinary =>
+        val len = in.readRawHeader()
+        st.addBytes(r, d, in.bytes, in.pos, len)
+        in.pos += len
+      case Kind.Timestamp if in.isTimestamp =>
+        in.readTimestamp(ts)
+        st.addLong(r, d, timestamp(n, ts(0), ts(1)))
+      case Kind.Timestamp if in.isLong =>
+        // Epoch milliseconds, as Weaver reads integers into Instant
+        val millis = in.readLong()
+        st.addLong(
+          r,
+          d,
+          timestamp(n, Math.floorDiv(millis, 1000L), Math.floorMod(millis, 1000L) * 1000000L)
+        )
+      case _ =>
+        val v        = in.readValue()
+        val physical =
+          try
+            n.convert(v)
+          catch
+            case e: ValueConverter.Mismatch =>
+              fail(n.field, e.getMessage)
+        st.addConverted(r, d, physical)
+    end match
+
+  end writeLeaf
+
+  private def number(): Double =
+    if in.isFloat then
+      in.readDouble()
+    else
+      in.readLong().toDouble
+
+  private def inRange(n: LeafNode, v: Long): Long =
+    if v < n.min || v > n.max then
+      fail(n.field, s"${v} is outside the column's range ${n.min} to ${n.max}")
+    v
+
+  private def timestamp(n: LeafNode, seconds: Long, nanos: Long): Long =
+    try
+      n.unit match
+        case TimeUnit.MILLIS =>
+          Math.addExact(Math.multiplyExact(seconds, 1000L), nanos / 1000000L)
+        case TimeUnit.MICROS =>
+          Math.addExact(Math.multiplyExact(seconds, 1000000L), nanos / 1000L)
+        case TimeUnit.NANOS =>
+          Math.addExact(Math.multiplyExact(seconds, 1000000000L), nanos)
+    catch
+      case _: ArithmeticException =>
+        val t = java.time.Instant.ofEpochSecond(seconds, nanos)
+        fail(n.field, s"${t} is outside the range of TIMESTAMP(${n.unit})")
+
+end Shredder
+
+private object Shredder:
+
+  /** A LIST or MAP group with a single repeated child */
+  def isWrapper(g: ParquetField.Group): Boolean = g.children.size == 1 && g.children.head.isRepeated
+
+  /**
+    * True when the repeated group of a LIST wraps the element (`list.element`); false for the
+    * legacy 2-level layouts, where the repeated group is the element itself
+    */
+  def isThreeLevelList(list: ParquetField.Group, rep: ParquetField.Group): Boolean =
+    rep.children.size == 1 && rep.name != "array" && rep.name != s"${list.name}_tuple"
+
+  def canonical(name: String): String = name.toLowerCase.filterNot(c => c == '_' || c == '-')
+
+  /** The leaf columns under a field: first to last, inclusive */
+  final class LeafRange(f: ParquetField):
+    val first: Int = edgeLeaf(f, first = true)
+    val last: Int  = edgeLeaf(f, first = false)
 
   private def edgeLeaf(f: ParquetField, first: Boolean): Int =
     f match
@@ -93,123 +350,185 @@ private[parquet] final class Shredder(schema: ParquetSchema):
           first
         )
 
-  private def fail(f: ParquetField, message: String): Nothing =
-    throw ParquetException(s"Cannot write column ${f.pathString}: ${message}")
+  sealed abstract class Node(val field: ParquetField):
+    lazy val range: LeafRange = LeafRange(field)
 
-  private def writeField(f: ParquetField, v: Value, r: Int, d: Int): Unit =
-    f.repetition match
-      case Repetition.REQUIRED =>
-        if isNull(v) then
-          fail(f, "a required value is missing")
-        writeValue(f, v, r, d)
-      case Repetition.OPTIONAL =>
-        if isNull(v) then
-          nulls(f, r, d)
-        else
-          writeValue(f, v, r, d + 1)
-      case Repetition.REPEATED =>
-        if isNull(v) then
-          nulls(f, r, d)
-        else
-          val elems = asArray(f, v)
-          if elems.isEmpty then
-            nulls(f, r, d)
+  /** The kinds of leaf with a fast path for the forms Weaver and JSON produce most */
+  enum Kind:
+    case Bool,
+      Int32,
+      Int64,
+      Float,
+      Double,
+      Bytes,
+      Timestamp,
+      Other
+
+  final class LeafNode(p: ParquetField.Primitive, val convert: wvlet.uni.msgpack.spi.Value => Any)
+      extends Node(p):
+    val col: Int   = p.columnIndex
+    var min        = Long.MinValue
+    var max        = Long.MaxValue
+    var unit       = TimeUnit.MICROS
+    val kind: Kind =
+      (p.physicalType, p.logicalType) match
+        case (PhysicalType.BOOLEAN, _) =>
+          Kind.Bool
+        case (PhysicalType.INT32, None) =>
+          min = Int.MinValue
+          max = Int.MaxValue
+          Kind.Int32
+        case (PhysicalType.INT32, Some(LogicalType.Integer(bits, signed))) =>
+          if signed then
+            min = -(1L << (bits - 1))
+            max = (1L << (bits - 1)) - 1
           else
-            var i = 0
-            while i < elems.size do
-              val rep =
-                if i == 0 then
-                  r
-                else
-                  f.maxRepetitionLevel
-              writeValue(f, elems(i), rep, d + 1)
-              i += 1
+            min = 0L
+            max = (1L << bits) - 1
+          Kind.Int32
+        case (PhysicalType.INT64, None | Some(LogicalType.Integer(_, true))) =>
+          Kind.Int64
+        case (PhysicalType.INT64, Some(LogicalType.Integer(64, false))) =>
+          min = 0L
+          Kind.Int64
+        case (PhysicalType.INT64, Some(LogicalType.Timestamp(_, u))) =>
+          unit = u
+          Kind.Timestamp
+        case (PhysicalType.FLOAT, None) =>
+          Kind.Float
+        case (PhysicalType.DOUBLE, None) =>
+          Kind.Double
+        case (PhysicalType.BYTE_ARRAY, None | Some(LogicalType.String | LogicalType.Enum)) =>
+          Kind.Bytes
+        case _ =>
+          Kind.Other
 
-  private def writeValue(f: ParquetField, v: Value, r: Int, d: Int): Unit =
-    f match
-      case p: ParquetField.Primitive =>
-        val physical =
-          try
-            converters(p.columnIndex)(v)
-          catch
-            case e: ValueConverter.Mismatch =>
-              fail(f, e.getMessage)
-        stage(p.columnIndex, r, d, physical)
-      case g: ParquetField.Group =>
-        g.logicalType match
-          case Some(LogicalType.List) if isWrapper(g) =>
-            val c     = g.children.head
-            val elems = asArray(g, v)
-            val inner =
-              c match
-                case cg: ParquetField.Group if isThreeLevelList(g, cg) =>
-                  val name = StringValue(cg.children.head.name)
-                  ArrayValue(elems.map(e => MapValue(Map(name -> e))))
-                case _ =>
-                  ArrayValue(elems)
-            writeField(c, inner, r, d)
-          case Some(LogicalType.Map | LogicalType.MapKeyValue) if isWrapper(g) =>
-            g.children.head match
-              case kv: ParquetField.Group if kv.children.nonEmpty =>
-                val keyName   = StringValue(kv.children(0).name)
-                val valueName = kv.children.lift(1).map(c => StringValue(c.name))
-                val entries   =
-                  v match
-                    case MapValue(m) =>
-                      m.toIndexedSeq
-                    case _ =>
-                      fail(g, s"expected a map, but got ${v.valueType}")
-                val inner = entries.map { (k, x) =>
-                  MapValue(
-                    valueName match
-                      case Some(n) =>
-                        Map(keyName -> k, n -> x)
-                      case None =>
-                        Map(keyName -> k)
-                  )
-                }
-                writeField(kv, ArrayValue(inner), r, d)
-              case _ =>
-                fail(g, "the map has no key_value group")
-          case _ =>
-            v match
-              case MapValue(entries) =>
-                val m = StructView(entries)
-                g.children.foreach(c => writeField(c, m.get(c.name), r, d))
-              case _ =>
-                fail(g, s"expected a struct, but got ${v.valueType}")
+  end LeafNode
 
-  /** A LIST or MAP group with a single repeated child */
-  private def isWrapper(g: ParquetField.Group): Boolean =
-    g.children.size == 1 && g.children.head.isRepeated
+  final class StructNode(g: ParquetField.Group, val children: Array[Node]) extends Node(g):
+    val names: Array[Array[Byte]] = children.map(_.field.name.getBytes("UTF-8"))
+    val canonical: Array[String]  = children.map(c => Shredder.canonical(c.field.name))
+    // Which children the current map has filled. A field never contains itself, so one array per
+    // node is enough.
+    val seen: Array[Boolean] = new Array[Boolean](children.length)
 
   /**
-    * True when the repeated group of a LIST wraps the element (`list.element`); false for the
-    * legacy 2-level layouts, where the repeated group is the element itself
+    * A LIST group. `repeated` is its repeated child; `element` is the element under it in the
+    * 3-level layout, or None when the repeated field is the element itself.
     */
-  private def isThreeLevelList(list: ParquetField.Group, rep: ParquetField.Group): Boolean =
-    rep.children.size == 1 && rep.name != "array" && rep.name != s"${list.name}_tuple"
+  final class ListNode(g: ParquetField.Group, val repeated: Node, val element: Option[Node])
+      extends Node(g)
 
-  private def asArray(f: ParquetField, v: Value): IndexedSeq[Value] =
-    v match
-      case ArrayValue(elems) =>
-        elems
-      case _ =>
-        fail(f, s"expected an array, but got ${v.valueType}")
+  /** A MAP group; `children` are the key, value, and any other fields of its key_value group */
+  final class MapNode(
+      val group: ParquetField.Group,
+      val entries: LeafRange,
+      val children: Array[Node]
+  ) extends Node(group)
+
+  final class InvalidNode(g: ParquetField.Group, val message: String) extends Node(g)
+
+  /** One row's values of one leaf column, unboxed */
+  final class Stage(p: ParquetField.Primitive):
+    private val maxDef   = p.maxDefinitionLevel
+    private val physical = p.physicalType
+    private val reps     = IntBuf(4)
+    private val defs     = IntBuf(4)
+    // INT32, BOOLEAN (0 or 1), and FLOAT (raw bits)
+    private val ints    = IntBuf(4)
+    private val longs   = LongBuf(4)
+    private val doubles = DoubleBuf(4)
+    private val bytes   = ByteBuf(16)
+    private val lengths = IntBuf(4)
+
+    def reset(): Unit =
+      reps.reset()
+      defs.reset()
+      ints.reset()
+      longs.reset()
+      doubles.reset()
+      bytes.reset()
+      lengths.reset()
+
+    private inline def levels(r: Int, d: Int): Unit =
+      reps.add(r)
+      defs.add(d)
+
+    def addNull(r: Int, d: Int): Unit = levels(r, d)
+
+    def addInt(r: Int, d: Int, v: Int): Unit =
+      levels(r, d)
+      ints.add(v)
+
+    def addLong(r: Int, d: Int, v: Long): Unit =
+      levels(r, d)
+      longs.add(v)
+
+    def addDouble(r: Int, d: Int, v: Double): Unit =
+      levels(r, d)
+      doubles.add(v)
+
+    def addBytes(r: Int, d: Int, src: Array[Byte], off: Int, len: Int): Unit =
+      levels(r, d)
+      bytes.write(src, off, len)
+      lengths.add(len)
+
+    /**
+      * A physical value from [[ValueConverter]], dispatched by the physical type rather than its
+      * runtime class: on Scala.js every number matches `Float`
+      */
+    def addConverted(r: Int, d: Int, v: Any): Unit =
+      physical match
+        case PhysicalType.BOOLEAN =>
+          addInt(
+            r,
+            d,
+            if v.asInstanceOf[Boolean] then
+              1
+            else
+              0
+          )
+        case PhysicalType.INT32 =>
+          addInt(r, d, v.asInstanceOf[Int])
+        case PhysicalType.INT64 =>
+          addLong(r, d, v.asInstanceOf[Long])
+        case PhysicalType.FLOAT =>
+          addInt(r, d, java.lang.Float.floatToRawIntBits(v.asInstanceOf[Float]))
+        case PhysicalType.DOUBLE =>
+          addDouble(r, d, v.asInstanceOf[Double])
+        case _ =>
+          val b = v.asInstanceOf[Array[Byte]]
+          addBytes(r, d, b, 0, b.length)
+
+    def commit(w: ColumnWriter): Unit =
+      var vi  = 0
+      var off = 0
+      var j   = 0
+      while j < reps.size do
+        val r = reps(j)
+        val d = defs(j)
+        if d < maxDef then
+          w.addNull(r, d)
+        else
+          physical match
+            case PhysicalType.BOOLEAN =>
+              w.addBoolean(r, ints(vi) != 0)
+            case PhysicalType.INT32 =>
+              w.addInt(r, ints(vi))
+            case PhysicalType.INT64 =>
+              w.addLong(r, longs(vi))
+            case PhysicalType.FLOAT =>
+              w.addFloat(r, java.lang.Float.intBitsToFloat(ints(vi)))
+            case PhysicalType.DOUBLE =>
+              w.addDouble(r, doubles(vi))
+            case _ =>
+              val len = lengths(vi)
+              w.addBytes(r, bytes.array, off, len)
+              off += len
+          vi += 1
+        j += 1
+      w.endRow()
+
+  end Stage
 
 end Shredder
-
-/**
-  * Field lookup in a MessagePack map: the exact name first, then a match that ignores case, `_`,
-  * and `-`, so `user_name` fills a `userName` column as it does when reading
-  */
-private final class StructView(entries: Map[Value, Value]):
-  private lazy val canonical: Map[String, Value] = entries.collect { case (StringValue(k), v) =>
-    StructView.canonical(k) -> v
-  }
-
-  def get(name: String): Value =
-    entries.get(StringValue(name)).orElse(canonical.get(StructView.canonical(name))).orNull
-
-private object StructView:
-  def canonical(name: String): String = name.toLowerCase.filterNot(c => c == '_' || c == '-')

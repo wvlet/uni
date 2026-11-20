@@ -109,8 +109,20 @@ object ColumnVector:
       protected[parquet] val nulls: Array[Boolean],
       val binaryAsString: Boolean = false
   ) extends ColumnVector:
-    def size: Int                     = offsets.length - 1
-    def length(i: Int): Int           = offsets(i + 1) - offsets(i)
+    def size: Int           = offsets.length - 1
+    def length(i: Int): Int = offsets(i + 1) - offsets(i)
+
+    // Set by the reader when values come from a dictionary page: row i is entry dictIndices(i) of
+    // `dictionary`, or -1 for a null or PLAIN value
+    private[parquet] var dictionary: column.BinaryBuffer = null
+    private[parquet] var dictIndices: Array[Int]         = null
+
+    private[parquet] def withDictionary(d: column.BinaryBuffer, indices: Array[Int]): BinaryColumn =
+      if d != null then
+        dictionary = d
+        dictIndices = indices
+      this
+
     def getBytes(i: Int): Array[Byte] = java
       .util
       .Arrays
@@ -122,6 +134,8 @@ object ColumnVector:
         null
       else
         LogicalValues.fromBinary(data, offsets(i), length(i), field, binaryAsString)
+
+  end BinaryColumn
 
   /** A list per row: row i holds child elements [offsets(i), offsets(i + 1)) */
   final class ListColumn(
@@ -172,7 +186,10 @@ object ColumnVector:
   private[parquet] def withBinaryAsString(v: ColumnVector): ColumnVector =
     v match
       case b: BinaryColumn =>
-        BinaryColumn(b.field, b.offsets, b.data, b.nulls, binaryAsString = true)
+        BinaryColumn(b.field, b.offsets, b.data, b.nulls, binaryAsString = true).withDictionary(
+          b.dictionary,
+          b.dictIndices
+        )
       case l: ListColumn =>
         ListColumn(l.field, l.offsets, withBinaryAsString(l.elements), l.nulls)
       case m: MapColumn =>

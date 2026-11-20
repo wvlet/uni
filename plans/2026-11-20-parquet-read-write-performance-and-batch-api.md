@@ -175,6 +175,29 @@ path.
   numbers in this note. Tests cover every platform, forced with `testOnly`, since sbt 2 caches test
   runs.
 
+## PR 2 results (row paths without MessagePack)
+
+- Design note: [2026-11-20-parquet-row-paths-without-msgpack.md](2026-11-20-parquet-row-paths-without-msgpack.md).
+- JVM, median of 7 after 3 warm-ups, uni and parquet-java in the same run:
+
+| file | read uni case class | parquet-java groups | ratio | write uni case class | parquet-java groups | ratio |
+|---|---|---|---|---|---|---|
+| lineitem uncompressed | 618 ms | 497 ms | 1.24x | 1,062 ms | 1,051 ms | 1.01x |
+| lineitem snappy | 641 ms | 520 ms | 1.23x | 1,256 ms | 1,011 ms | 1.24x |
+| lineitem zstd | 659 ms | 530 ms | 1.24x | | | |
+| orders uncompressed | 539 ms | 506 ms | 1.07x | 723 ms | 777 ms | 0.93x |
+| orders snappy | 611 ms | 511 ms | 1.20x | 961 ms | 776 ms | 1.24x |
+| orders zstd | 693 ms | 533 ms | 1.30x | | | |
+
+- Before PR 2, in the same setup: reads 1.9–2.7x, writes 1.9–2.1x.
+- Scala Native and Node.js (median of 3 after 1 warm-up) were measured while another benchmark
+  and system scanners loaded the machine, so the ratios to JVM uni are approximate: Native reads
+  about 2.2x (lineitem had been 7.2–7.7x), Native writes 1.5–2.9x, Node.js reads 2.8–3.7x, and
+  Node.js writes 4.5–5x (still over the 4x target).
+- On Native, `LocalDate` formatting and Weaver's canonical-name lookup per key dominated
+  case-class reads. DATE strings are now formatted directly, and `CaseClassWeaver` matches keys
+  by position and caches loose matches by key identity, which helps every Weaver user.
+
 ## Alternatives and Why Not?
 
 - **Write case classes through the batch writer** (collect rows into vectors, then write columns).

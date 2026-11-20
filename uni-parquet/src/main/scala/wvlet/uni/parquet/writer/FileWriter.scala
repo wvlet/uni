@@ -1,6 +1,5 @@
 package wvlet.uni.parquet.writer
 
-import wvlet.uni.msgpack.spi.Value
 import wvlet.uni.parquet.ParquetException
 import wvlet.uni.parquet.ParquetSchema
 import wvlet.uni.parquet.ParquetWriteOptions
@@ -48,7 +47,8 @@ private[parquet] final class FileWriter(
 
   def numRows: Long = totalRows
 
-  def write(row: Value): Unit =
+  /** Writes a row given as MessagePack bytes; see [[Shredder]] */
+  def write(row: Array[Byte]): Unit =
     ensureOpen()
     shredder.shred(row)
     io {

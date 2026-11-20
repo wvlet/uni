@@ -239,6 +239,25 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
   var data: Array[Byte]   = new Array[Byte](math.max(initial, 1) * 8)
   var size: Int           = 0
 
+  // The dictionary entry of each of the values [0, dictCount), which came from `dict`. A chunk's
+  // dictionary-encoded pages come before any PLAIN ones, so the entries are a prefix; when they are
+  // not, `noDict` turns the indices off for this buffer. Case classes use them to build each
+  // distinct String once.
+  var dict: BinaryBuffer  = null
+  var dictIdx: Array[Int] = null
+  var dictCount: Int      = 0
+  private var noDict      = false
+
+  /** The dictionary entry of value v, or -1 */
+  def dictIndex(v: Int): Int =
+    if dict != null && v < dictCount then
+      dictIdx(v)
+    else
+      -1
+
+  /** Strings of a dictionary's entries, filled in as case classes read them */
+  lazy val strings: Array[String] = new Array[String](size)
+
   inline def dataSize: Int = offsets(size)
 
   def ensureValues(extra: Int): Unit =
@@ -285,6 +304,10 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       i += 1
     b.data = java.util.Arrays.copyOfRange(data, start, math.max(offsets(until), start + 1))
     b.size = n
+    if dict != null && from < dictCount then
+      b.dict = dict
+      b.dictCount = math.min(until, dictCount) - from
+      b.dictIdx = java.util.Arrays.copyOfRange(dictIdx, from, from + b.dictCount)
     b
 
   def dropFirst(n: Int): Unit =
@@ -295,17 +318,53 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       offsets(i) = offsets(i + n) - base
       i += 1
     size -= n
+    if dict != null then
+      if n < dictCount then
+        System.arraycopy(dictIdx, n, dictIdx, 0, dictCount - n)
+        dictCount -= n
+      else
+        dictCount = 0
 
   def bytes(i: Int): Array[Byte] = java.util.Arrays.copyOfRange(data, offsets(i), offsets(i + 1))
 
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit =
     val d = dict.asInstanceOf[BinaryBuffer]
     ensureValues(n)
+    recordIndices(d, indices, n)
     var i = 0
     while i < n do
       val k = indices(i)
       checkIndex(k, d.size)
       add(d.data, d.offsets(k), d.length(k))
       i += 1
+
+  private def recordIndices(d: BinaryBuffer, indices: Array[Int], n: Int): Unit =
+    if !noDict then
+      if dictCount != size || (dict != null && (dict ne d)) then
+        noDict = true
+        dict = null
+      else
+        dict = d
+        if dictIdx == null || dictIdx.length < size + n then
+          dictIdx = java
+            .util
+            .Arrays
+            .copyOf(
+              if dictIdx == null then
+                new Array[Int](0)
+              else
+                dictIdx
+              ,
+              ValueBuffer.grow(
+                if dictIdx == null then
+                  0
+                else
+                  dictIdx.length
+                ,
+                size + n
+              )
+            )
+        System.arraycopy(indices, 0, dictIdx, size, n)
+        dictCount += n
 
 end BinaryBuffer

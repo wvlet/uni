@@ -43,6 +43,31 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
   // Indexed: params may be a List, and pack reads it by position
   private val params: IndexedSeq[Parameter] = surface.params.toIndexedSeq
 
+  // The lookup result of each field, for keys that come in field order
+  private val positional: IndexedSeq[Option[(Int, Parameter)]] = params
+    .zipWithIndex
+    .map((p, i) => Some((i, p)))
+
+  // The last key seen at each position and its lookup result. Readers that hand out the same key
+  // Strings for every record (a Parquet batch, for one) find them here by reference. A race only
+  // costs a lookup, since each entry is replaced whole.
+  private val keyCache = new Array[CachedKey](params.size)
+
+  private def lookup(i: Int, fieldName: String): Option[(Int, Parameter)] =
+    if i < params.size then
+      val c = keyCache(i)
+      if c != null && (c.name eq fieldName) then
+        c.found
+      else if fieldName == params(i).name then
+        // Keys in field order, as pack writes them, need no canonical-name lookup
+        positional(i)
+      else
+        val found = paramsByCanonicalName.get(CName.toCanonicalName(fieldName))
+        keyCache(i) = CachedKey(fieldName, found)
+        found
+    else
+      paramsByCanonicalName.get(CName.toCanonicalName(fieldName))
+
   // Each field name as UTF-8, encoded once rather than on every pack
   private val nameBytes: Array[Array[Byte]] = params.map(p => Utf8.encode(p.name)).toArray
 
@@ -99,14 +124,16 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
   private def unpackFromMap(u: Unpacker, context: WeaverContext): Unit =
     try
       val mapSize     = u.unpackMapHeader
-      val fieldValues = Array.ofDim[Any](surface.params.size)
-      val fieldSet    = Array.fill(surface.params.size)(false)
+      val n           = params.size
+      val fieldValues = new Array[Any](n)
+      val fieldSet    = new Array[Boolean](n)
 
       var i        = 0
       var hasError = false
       while i < mapSize && !hasError do
         val fieldName = u.unpackString
-        paramsByCanonicalName.get(CName.toCanonicalName(fieldName)) match
+        val found     = lookup(i, fieldName)
+        found match
           case Some((idx, param)) =>
             val fieldContext = WeaverContext(context.config)
             fieldWeavers(idx).unpack(u, fieldContext)
@@ -198,3 +225,5 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
   end buildInstance
 
 end CaseClassWeaver
+
+private final class CachedKey(val name: String, val found: Option[(Int, Parameter)])

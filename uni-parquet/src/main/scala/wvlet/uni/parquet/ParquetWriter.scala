@@ -1,11 +1,13 @@
 package wvlet.uni.parquet
 
+import wvlet.uni.msgpack.spi.BufferPacker
 import wvlet.uni.msgpack.spi.MessagePack
+import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Value
-import wvlet.uni.msgpack.spi.Value.*
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.surface.Surface
 import wvlet.uni.weaver.Weaver
+import wvlet.uni.weaver.WeaverConfig
 
 import java.time.Instant
 import java.time.LocalDate
@@ -23,7 +25,14 @@ class ParquetWriter[A] private[parquet] (core: FileWriter, weaver: Weaver[A]) ex
   /** The number of rows written so far */
   def numRows: Long = core.numRows
 
-  def write(row: A): Unit = core.write(RecordValues.fromMsgPack(weaver.toMsgPack(row)))
+  // One packer for every row, so its buffer is not regrown per row
+  private val packer = MessagePack.newPacker()
+  private val config = WeaverConfig()
+
+  def write(row: A): Unit =
+    packer.clear
+    weaver.pack(packer, row, config)
+    core.write(packer.toByteArray)
 
   def writeAll(rows: IterableOnce[A]): Unit = rows.iterator.foreach(write)
 
@@ -62,7 +71,9 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
   def schema: ParquetSchema = core.schema
   def numRows: Long         = core.numRows
 
-  def write(record: Any): Unit = core.write(RecordValues.of(record))
+  private val packer = MessagePack.newPacker()
+
+  def write(record: Any): Unit = core.write(RecordBytes.of(record, packer))
 
   def writeAll(records: IterableOnce[Any]): Unit = records.iterator.foreach(write)
 
@@ -71,82 +82,89 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
 
   override def close(): Unit = core.close()
 
-/** Converts records into MessagePack values for the shredder */
-private[parquet] object RecordValues:
+/** Converts records into MessagePack bytes for the shredder */
+private[parquet] object RecordBytes:
 
-  def fromMsgPack(msgpack: Array[Byte]): Value = MessagePack.newUnpacker(msgpack).unpackValue
-
-  def of(record: Any): Value =
+  def of(record: Any, packer: BufferPacker): Array[Byte] =
     record match
       case json: String =>
         try
-          fromMsgPack(MessagePack.fromJSON(json))
+          MessagePack.fromJSON(json)
         catch
           case e: ParquetException =>
             throw e
           case e: Exception =>
             throw ParquetException(s"A record string is not valid JSON: ${e.getMessage}", e)
       case other =>
-        toValue(other)
+        packer.clear
+        pack(packer, other)
+        packer.toByteArray
 
-  def toValue(v: Any): Value =
+  def pack(p: Packer, v: Any): Unit =
     v match
       case null | None =>
-        NilValue
+        p.packNil
       case Some(x) =>
-        toValue(x)
+        pack(p, x)
       case v: Value =>
-        v
+        p.packValue(v)
       case b: Boolean =>
-        BooleanValue(b)
+        p.packBoolean(b)
       case i: Int =>
-        LongValue(i)
+        p.packLong(i)
       case l: Long =>
-        LongValue(l)
+        p.packLong(l)
       case s: Short =>
-        LongValue(s)
+        p.packLong(s)
       case b: Byte =>
-        LongValue(b)
+        p.packLong(b)
       case f: Float =>
-        DoubleValue(f)
+        p.packDouble(f)
       case d: Double =>
-        DoubleValue(d)
+        p.packDouble(d)
       case s: String =>
-        StringValue(s)
+        p.packString(s)
       case c: Char =>
-        StringValue(c.toString)
+        p.packString(c.toString)
       case b: BigInt =>
-        BigIntegerValue(b.bigInteger)
+        p.packBigInteger(b.bigInteger)
       case b: java.math.BigInteger =>
-        BigIntegerValue(b)
+        p.packBigInteger(b)
       case d: BigDecimal =>
-        StringValue(d.toString)
+        p.packString(d.toString)
       case d: java.math.BigDecimal =>
-        StringValue(d.toString)
+        p.packString(d.toString)
       case t: Instant =>
-        TimestampValue(t)
+        p.packTimestamp(t)
       case d: LocalDate =>
-        StringValue(d.toString)
+        p.packString(d.toString)
       case u: java.util.UUID =>
-        StringValue(u.toString)
+        p.packString(u.toString)
       case b: Array[Byte] =>
-        BinaryValue(b)
+        p.packBinaryHeader(b.length)
+        p.writePayload(b)
       case m: Map[?, ?] =>
-        MapValue(m.map((k, x) => toValue(k) -> toValue(x)))
+        p.packMapHeader(m.size)
+        m.foreach { (k, x) =>
+          pack(p, k)
+          pack(p, x)
+        }
       case a: Array[?] =>
-        ArrayValue(a.toIndexedSeq.map(toValue))
+        p.packArrayHeader(a.length)
+        a.foreach(pack(p, _))
       case s: Iterable[?] =>
-        ArrayValue(s.toIndexedSeq.map(toValue))
+        p.packArrayHeader(s.size)
+        s.foreach(pack(p, _))
       case e: scala.reflect.Enum =>
-        StringValue(e.toString)
-      case p: Product =>
-        MapValue(
-          p.productElementNames
-            .zip(p.productIterator)
-            .map((k, x) => StringValue(k) -> toValue(x))
-            .toMap
-        )
+        p.packString(e.toString)
+      case x: Product =>
+        p.packMapHeader(x.productArity)
+        var i = 0
+        while i < x.productArity do
+          p.packString(x.productElementName(i))
+          pack(p, x.productElement(i))
+          i += 1
       case other =>
         throw ParquetException(s"Cannot write a value of ${other.getClass.getName} to Parquet")
 
-end RecordValues
+end RecordBytes
