@@ -173,6 +173,53 @@ class HttpMultiMapTest extends UniTest:
     b.result().entries shouldBe Seq("B" -> "1", "A" -> "2", "C" -> "3")
   }
 
+  test("entries and keys keep insertion order past a few keys") {
+    val names = Seq("Zeta", "Alpha", "Mu", "Beta", "Omega", "Gamma", "Kappa")
+    val map   = HttpMultiMap.fromSeq(names.map(n => n -> n.toLowerCase))
+    map.keys.toSeq shouldBe names
+    map.entries.map(_._1) shouldBe names
+    map.add("Delta", "d").keys.toSeq shouldBe names :+ "Delta"
+    map.remove("mu").keys.toSeq shouldBe names.filterNot(_ == "Mu")
+    map.set("ALPHA", "x").entries.map(_._2) shouldBe names.map(_.toLowerCase).updated(1, "x")
+  }
+
+  test("maps with many keys look up, add, set, and remove through their index") {
+    val n     = HttpMultiMap.IndexThreshold * 4
+    val pairs = (0 until n).map(i => s"X-Key-${i}" -> s"v${i}")
+    val b     = HttpMultiMap.newBuilder
+    pairs.foreach((k, v) => b.add(k, v))
+    b.add("x-key-3", "again")
+    val built = b.result()
+    built.size shouldBe n
+    built.getAll("X-KEY-3") shouldBe Seq("v3", "again")
+    built.get(s"x-key-${n - 1}") shouldBe Some(s"v${n - 1}")
+    built.contains("x-key-missing") shouldBe false
+    built.keys.toSeq shouldBe pairs.map(_._1)
+    val added = pairs.foldLeft(HttpMultiMap.empty)((m, kv) => m.add(kv._1, kv._2))
+    added.get("x-key-40") shouldBe Some("v40")
+    added.remove("X-Key-40").contains("x-key-40") shouldBe false
+    added.remove("X-Key-40").get("x-key-41") shouldBe Some("v41")
+    added.set("x-key-0", "zero").getAll("X-Key-0") shouldBe Seq("zero")
+  }
+
+  test("adding to a builder after result leaves the built map unchanged") {
+    val b = HttpMultiMap.newBuilder
+    b.add("A", "1")
+    val first = b.result()
+    b.add("A", "2").add("B", "3")
+    val second = b.result()
+    first.entries shouldBe Seq("A" -> "1")
+    second.entries shouldBe Seq("A" -> "1", "A" -> "2", "B" -> "3")
+  }
+
+  test("++ adds the other map's entries in order") {
+    val a = HttpMultiMap("A" -> "1", "B" -> "2")
+    val b = HttpMultiMap("b" -> "3", "C" -> "4")
+    (a ++ b).entries shouldBe Seq("A" -> "1", "B" -> "2", "B" -> "3", "C" -> "4")
+    (HttpMultiMap.empty ++ b).entries shouldBe b.entries
+    (a ++ HttpMultiMap.empty).entries shouldBe a.entries
+  }
+
   test("lookups lower-case ASCII and non-ASCII names") {
     HttpMultiMap.lower("content-type") shouldBe "content-type"
     HttpMultiMap.lower(HttpHeader.ContentType) shouldBe "content-type"
