@@ -1,5 +1,7 @@
 package wvlet.uni.weaver.codec
 
+import wvlet.uni.util.Utf8
+
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Unpacker
 import wvlet.uni.msgpack.spi.ValueType
@@ -36,17 +38,34 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
       .toMap
 
   private val isOptionParam: Array[Boolean] = surface.params.map(_.surface.isOption).toArray
+  private val hasOptionParam: Boolean       = isOptionParam.contains(true)
+
+  // Indexed: params may be a List, and pack reads it by position
+  private val params: IndexedSeq[Parameter] = surface.params.toIndexedSeq
+
+  // Each field name as UTF-8, encoded once rather than on every pack
+  private val nameBytes: Array[Array[Byte]] = params.map(p => Utf8.encode(p.name)).toArray
 
   override def pack(p: Packer, v: A, config: WeaverConfig): Unit =
     if v == null then
       p.packNil
+    else if !config.omitNoneFields || !hasOptionParam then
+      // Every field is written, so the header is known up front and no values array is needed
+      val n = params.size
+      p.packMapHeader(n)
+      var i = 0
+      while i < n do
+        p.packRawStringHeader(nameBytes(i).length)
+        p.writePayload(nameBytes(i))
+        fieldWeavers(i).asInstanceOf[Weaver[Any]].pack(p, params(i).get(v), config)
+        i += 1
     else
-      val n      = surface.params.size
+      val n      = params.size
       val values = Array.ofDim[Any](n)
       var size   = 0
       var i      = 0
       while i < n do
-        values(i) = surface.params(i).get(v)
+        values(i) = params(i).get(v)
         if !isOmitted(i, values(i), config) then
           size += 1
         i += 1
@@ -56,7 +75,8 @@ class CaseClassWeaver[A](surface: Surface, fieldWeavers0: => IndexedSeq[Weaver[?
       i = 0
       while i < n do
         if !isOmitted(i, values(i), config) then
-          p.packString(surface.params(i).name)
+          p.packRawStringHeader(nameBytes(i).length)
+          p.writePayload(nameBytes(i))
           fieldWeavers(i).asInstanceOf[Weaver[Any]].pack(p, values(i), config)
         i += 1
 

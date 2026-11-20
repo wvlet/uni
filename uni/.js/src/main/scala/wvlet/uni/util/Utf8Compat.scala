@@ -13,12 +13,41 @@
  */
 package wvlet.uni.util
 
+import java.nio.charset.StandardCharsets
+
+// Scala.js implements the charsets in Scala, with a coder per call: convert ASCII directly
 private[util] object Utf8Compat:
-  /** A string from ASCII bytes. Scala.js has no hibyte `String` constructor, so copy the chars. */
-  def ascii(bytes: Array[Byte], offset: Int, length: Int): String =
-    val chars = new Array[Char](length)
-    var i     = 0
-    while i < length do
-      chars(i) = bytes(offset + i).toChar
+  inline def manualAscii: Boolean = true
+
+  def decode(bytes: Array[Byte], offset: Int, length: Int): String =
+    val end = offset + length
+    var i   = offset
+    while i < end && bytes(i) >= 0 do
       i += 1
-    String(chars)
+    if i < end then
+      String(bytes, offset, length, StandardCharsets.UTF_8)
+    else
+      // No hibyte String constructor on Scala.js: copy the chars
+      val chars = new Array[Char](length)
+      var j     = 0
+      while j < length do
+        chars(j) = bytes(offset + j).toChar
+        j += 1
+      String(chars)
+
+  def encode(s: String): Array[Byte] =
+    val n = s.length
+    var i = 0
+    while i < n && s.charAt(i) < 0x80 do
+      i += 1
+    if i < n then
+      s.getBytes(StandardCharsets.UTF_8)
+    else
+      val out = new Array[Byte](n)
+      var j   = 0
+      while j < n do
+        out(j) = s.charAt(j).toByte
+        j += 1
+      out
+
+end Utf8Compat

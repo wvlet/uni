@@ -200,16 +200,14 @@ private[http] object ResponseCompression:
     HttpConnectionReader
       .tokens(acceptEncoding)
       .foreach { item =>
-        val parts = item.split(';')
-        val name  = parts(0).trim
-        val q     = parts
-          .drop(1)
-          .map(_.trim)
-          .collectFirst {
-            case p if p.startsWith("q=") =>
-              p.drop(2).toDoubleOption.getOrElse(0.0)
-          }
-          .getOrElse(1.0)
+        // indexOf, not split(';'): on Scala Native that compiles a regex for every item
+        val semi = item.indexOf(';')
+        val name =
+          if semi < 0 then
+            item.trim
+          else
+            item.substring(0, semi).trim
+        val q = qValue(item, semi)
         name match
           case "gzip" | "x-gzip" =>
             gzipQ = math.max(gzipQ, q)
@@ -233,5 +231,27 @@ private[http] object ResponseCompression:
       None
 
   end chooseEncoding
+
+  /** The first `q=` parameter after `semi` in an Accept-Encoding item: 1.0 if none, 0 if invalid */
+  private def qValue(item: String, semi: Int): Double =
+    var from = semi + 1
+    var q    = 1.0
+    var done = semi < 0
+    while !done do
+      val next  = item.indexOf(';', from)
+      val until =
+        if next < 0 then
+          item.length
+        else
+          next
+      val param = item.substring(from, until).trim
+      if param.startsWith("q=") then
+        q = param.substring(2).toDoubleOption.getOrElse(0.0)
+        done = true
+      else if next < 0 then
+        done = true
+      else
+        from = next + 1
+    q
 
 end ResponseCompression

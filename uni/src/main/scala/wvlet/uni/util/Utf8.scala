@@ -13,40 +13,29 @@
  */
 package wvlet.uni.util
 
-import java.nio.charset.StandardCharsets
-
 /**
-  * UTF-8 conversion with a fast path for ASCII text, the usual case for JSON and HTTP bodies. Scala
-  * Native's `String(bytes, charset)` and `getBytes(charset)` allocate a coder and buffers per call;
-  * an ASCII string converts byte for char without them. Other text uses the charset.
+  * UTF-8 conversion for request and response bodies, JSON, and MessagePack strings, the fastest way
+  * on each platform. The JVM keeps `String(bytes, UTF_8)` and `getBytes(UTF_8)`, which HotSpot
+  * intrinsifies (compact strings and a vectorized ASCII scan). Scala Native's versions allocate a
+  * coder and buffers per call, so there ASCII text converts byte for char without them, and other
+  * text uses the charset.
   */
 private[uni] object Utf8:
 
-  def decode(bytes: Array[Byte]): String = decode(bytes, 0, bytes.length)
+  /**
+    * Whether hand-written ASCII loops beat the standard library on this platform. False on the JVM,
+    * where they would replace intrinsics; callers with an ASCII fast path of their own check it.
+    */
+  inline def manualAscii: Boolean = Utf8Compat.manualAscii
 
-  def decode(bytes: Array[Byte], offset: Int, length: Int): String =
-    val end = offset + length
-    var i   = offset
-    while i < end && bytes(i) >= 0 do
-      i += 1
-    if i == end then
-      Utf8Compat.ascii(bytes, offset, length)
-    else
-      String(bytes, offset, length, StandardCharsets.UTF_8)
+  def decode(bytes: Array[Byte]): String = Utf8Compat.decode(bytes, 0, bytes.length)
 
-  def encode(s: String): Array[Byte] =
-    val n = s.length
-    var i = 0
-    while i < n && s.charAt(i) < 0x80 do
-      i += 1
-    if i < n then
-      s.getBytes(StandardCharsets.UTF_8)
-    else
-      val out = new Array[Byte](n)
-      var j   = 0
-      while j < n do
-        out(j) = s.charAt(j).toByte
-        j += 1
-      out
+  def decode(bytes: Array[Byte], offset: Int, length: Int): String = Utf8Compat.decode(
+    bytes,
+    offset,
+    length
+  )
+
+  def encode(s: String): Array[Byte] = Utf8Compat.encode(s)
 
 end Utf8

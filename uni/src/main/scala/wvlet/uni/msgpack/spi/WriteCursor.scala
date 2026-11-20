@@ -48,6 +48,17 @@ case class WriteCursor(var buf: WriteBuffer, var position: Int):
   def writeLong(a: Long): Unit = offset += buf.writeLong(position + offset, a)
 
   def writeBytes(a: Array[Byte]): Unit = offset += buf.writeBytes(position + offset, a)
+
+  /** Write an ASCII-only string, one byte per char */
+  def writeAscii(s: String): Unit =
+    val n = s.length
+    buf.ensureCapacity(position + offset, n)
+    var i = 0
+    while i < n do
+      buf.writeByte(position + offset + i, s.charAt(i).toByte)
+      i += 1
+    offset += n
+
   def writeBytes(src: Array[Byte], srcOffset: Int, length: Int): Unit =
     offset += buf.writeBytes(position + offset, src, srcOffset, length)
 

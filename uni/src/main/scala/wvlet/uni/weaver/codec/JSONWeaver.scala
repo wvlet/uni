@@ -62,9 +62,15 @@ object JSONWeaver extends Weaver[String]:
       case null =>
         throw new IllegalArgumentException(s"Unexpected json input: null")
 
-  override def unpack(u: Unpacker, context: WeaverContext): Unit =
-    val json = u.unpackValue.toJson
-    context.setString(json)
+  override def unpack(u: Unpacker, context: WeaverContext): Unit = context.setString(
+    MsgPackJson.toJson(u)
+  )
+
+  // The whole input is one value, so size the JSON builder from it (see MsgPackJson.toJson)
+  override def unweave(msgpack: MsgPack, config: WeaverConfig): String = MsgPackJson.toJson(
+    MessagePack.newUnpacker(msgpack),
+    msgpack.length + msgpack.length / 4 + 16
+  )
 
 end JSONWeaver
 

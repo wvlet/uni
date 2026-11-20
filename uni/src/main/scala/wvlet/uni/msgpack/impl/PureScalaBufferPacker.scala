@@ -19,6 +19,7 @@ import wvlet.uni.msgpack.impl.ByteArrayBuffer
 import wvlet.uni.msgpack.impl.ByteArrayBufferBase
 import wvlet.uni.msgpack.impl.InfiniteByteArrayBuffer
 import wvlet.uni.msgpack.spi.BufferPacker
+import wvlet.uni.msgpack.spi.MsgPackJson
 import wvlet.uni.msgpack.spi.OffsetPacker
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Value
@@ -30,8 +31,19 @@ class PureScalaBufferPacker extends BufferPacker:
   private val buf    = new InfiniteByteArrayBuffer
   private var cursor = WriteCursor(buf, 0)
 
-  override def toByteArray: Array[Byte]             = buf.toByteArray(0, cursor.lastWrittenBytes)
-  override def clear: Unit                          = cursor = WriteCursor(buf, 0)
+  override def toByteArray: Array[Byte] = buf.toByteArray(0, cursor.lastWrittenBytes)
+  override def clear: Unit              = cursor = WriteCursor(buf, 0)
+
+  /** The bytes written so far as JSON, read in place without copying them out */
+  private[uni] def writtenAsJson: String =
+    val len = cursor.lastWrittenBytes
+    MsgPackJson.toJson(
+      PureScalaBufferUnpacker(ByteArrayBuffer.fromArray(buf.array, 0, len)),
+      len + len / 4 + 16
+    )
+
+  /** The capacity the buffer has grown to */
+  private[uni] def capacity: Int                    = buf.size
   override private[msgpack] def totalByteSize: Long = cursor.position + cursor.lastWrittenBytes
   override def packNil: this.type                   =
     OffsetPacker.packNil(cursor)

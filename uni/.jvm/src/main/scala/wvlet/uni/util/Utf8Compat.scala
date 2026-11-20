@@ -13,10 +13,17 @@
  */
 package wvlet.uni.util
 
+import java.nio.charset.StandardCharsets
+
+// The JDK's own conversions: HotSpot intrinsifies both
 private[util] object Utf8Compat:
-  /**
-    * A string from ASCII bytes. The hibyte constructor fills it straight from the bytes (each byte
-    * is one char): no coder on Scala Native, and one copy on the JVM.
-    */
-  @annotation.nowarn("cat=deprecation")
-  def ascii(bytes: Array[Byte], offset: Int, length: Int): String = String(bytes, 0, offset, length)
+  inline def manualAscii: Boolean = false
+
+  def decode(bytes: Array[Byte], offset: Int, length: Int): String = String(
+    bytes,
+    offset,
+    length,
+    StandardCharsets.UTF_8
+  )
+
+  def encode(s: String): Array[Byte] = s.getBytes(StandardCharsets.UTF_8)
