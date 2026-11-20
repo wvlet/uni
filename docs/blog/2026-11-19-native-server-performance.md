@@ -1,12 +1,12 @@
 ---
-title: "Scala Without the JVM: Close to Rust's Speed, at a Fraction of the JVM's Memory"
+title: "Scala Without the JVM: Close to Rust's Speed, With 25x Less Memory Than the JVM"
 date: 2026-11-19
 author: Taro L. Saito
 description: "Scala Native compiles Scala to a native binary that runs without a JVM. Uni's HTTP server built this way comes close to Rust and the JVM in throughput, using about 25x less memory than the JVM. What was slow, what fixed it, and how it compares with the JVM, Node.js, Python, Ruby, and Rust."
 image: /blog/native-server-performance.png
 ---
 
-# Scala Without the JVM: Close to Rust's Speed, at a Fraction of the JVM's Memory
+# Scala Without the JVM: Close to Rust's Speed, With 25x Less Memory Than the JVM
 
 **Compiled with Scala Native, uni's HTTP server comes close to Rust and the JVM in throughput, while using about 25x less memory than the JVM.** Serving the same endpoint on the same machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with uni on the JVM on a small RPC response and reaches about 80% of it on a 3.4 KB one. It does this in 25–28 MB of memory, where the JVM build used 590–614 MB and 650 MB.
 
@@ -14,7 +14,7 @@ A day earlier, the native server was about 5x slower than the JVM on the small r
 
 The bigger point: you can write Scala without being tied to the JVM. The same uni code runs on the JVM when you want its peak throughput, and as a small native binary when you want low memory and nothing to install.
 
-![Scala Without the JVM: close to Rust's speed, at a fraction of the JVM's memory. A hand-drawn highway runs left to right under an overhead sign with that title. On the left, cars labelled "req" queue at one small toll booth with a padlock, beside a sign listing the bottleneck: Boehm GC's global lock, 462 KB allocated per response, and 15 marker threads per collection. A speedometer sign shows uni on Scala Native going from 22.7k to 104k req/s on a small response and from 1.6k to 74k req/s on a 3.4 KB one. In the middle, a road crew widens the road beside a chalkboard of fixes: leaner headers and JSON, one GC marker thread, a 16 MB starting heap, and pooled buffers and zlib. On the right, a unicorn races a crab, a coffee cup, green hexagons, a ruby, and a snake toward a finish banner reading "Allocation was the bottleneck, not Scala Native". Signs show the 3.4 KB results (Rust 89k, JVM 94k, Node ×16 79k, uni Native 74k, Ruby ×16 45k, Python ×16 30k), memory on a luggage scale (uni Native 27 MB, JVM 650 MB, Node ×16 3 GB), and what's next: Immix GC in Scala Native 0.5.13.](/blog/native-server-performance.webp)
+![Scala Without the JVM: close to Rust's speed, with 25x less memory than the JVM. A hand-drawn highway runs left to right under an overhead sign with that title. On the left, cars labelled "req" queue at one small toll booth with a padlock, beside a sign listing the bottleneck: Boehm GC's global lock, 462 KB allocated per response, and 15 marker threads per collection. A speedometer sign shows uni on Scala Native going from 22.7k to 104k req/s on a small response and from 1.6k to 74k req/s on a 3.4 KB one. In the middle, a road crew widens the road beside a chalkboard of fixes: leaner headers and JSON, one GC marker thread, a 16 MB starting heap, and pooled buffers and zlib. On the right, a unicorn races a crab, a coffee cup, green hexagons, a ruby, and a snake toward a finish banner reading "Allocation was the bottleneck, not Scala Native". Signs show the 3.4 KB results (Rust 89k, JVM 94k, Node ×16 79k, uni Native 74k, Ruby ×16 45k, Python ×16 30k), memory on a luggage scale (uni Native 27 MB, JVM 650 MB, Node ×16 3 GB), and what's next: Immix GC in Scala Native 0.5.13.](/blog/native-server-performance.webp)
 
 ## Scala, without the JVM
 
