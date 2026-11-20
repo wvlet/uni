@@ -366,7 +366,7 @@ abstract class SocketHttpServer private[http] (
                 response
               else
                 ResponseCompression.encode(request, response)
-            conn.write(HttpResponseWriter.serialize(encoded, keepAlive, includeBody = !isHead))
+            HttpResponseWriter.write(conn, encoded, keepAlive, includeBody = !isHead)
     keepAlive && sent
 
   end handleHttpRequest

@@ -14,14 +14,7 @@
 package wvlet.uni.http
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, IOException, InputStream}
-import java.util.zip.{
-  Deflater,
-  DeflaterOutputStream,
-  GZIPInputStream,
-  GZIPOutputStream,
-  Inflater,
-  InflaterInputStream
-}
+import java.util.zip.{Deflater, GZIPInputStream, Inflater, InflaterInputStream}
 
 /**
   * Request body decoding for the socket server, as uni-netty's `NettyRequestDecompression` does: a
@@ -153,19 +146,11 @@ private[http] object ResponseCompression:
           case None =>
             response
           case Some(encoding) =>
-            val out = ByteArrayOutputStream(body.length / 2)
-            if encoding == "gzip" then
-              val enc = GZIPOutputStream(out)
-              enc.write(body)
-              enc.close()
-            else
-              val deflater = Deflater(Level)
-              try
-                val enc = DeflaterOutputStream(out, deflater)
-                enc.write(body)
-                enc.close()
-              finally
-                deflater.end()
+            val compressed =
+              if encoding == "gzip" then
+                compress(gzipPool, body)
+              else
+                compress(deflatePool, body)
             val contentType = response
               .headers
               .get(HttpHeader.ContentType)
@@ -182,11 +167,87 @@ private[http] object ResponseCompression:
               .get(HttpHeader.ETag)
               .filter(_.startsWith("\""))
               .foreach(tag => headers = headers.set(HttpHeader.ETag, s"W/${tag}"))
-            response.copy(headers = headers, content = HttpContent.bytes(out.toByteArray))
+            response.copy(headers = headers, content = HttpContent.bytes(compressed))
       end if
     end if
 
   end encode
+
+  /**
+    * A reusable compressor: a `Deflater` and an output buffer. Creating a `Deflater` per response
+    * sets up a fresh zlib state (about 256 KB of native memory) and frees it again, which costs
+    * more CPU than compressing a small body; `reset()` keeps the state.
+    */
+  private final class Compressor(gzip: Boolean):
+    // gzip matches GZIPOutputStream (raw deflate at the default level, framed below); deflate
+    // matches DeflaterOutputStream with a zlib-wrapped Deflater at Level
+    val deflater =
+      if gzip then
+        Deflater(Deflater.DEFAULT_COMPRESSION, true)
+      else
+        Deflater(Level)
+
+    val crc              = java.util.zip.CRC32()
+    var out: Array[Byte] = new Array[Byte](4096)
+    private val isGzip   = gzip
+    def framed: Boolean  = isGzip
+    def dispose(): Unit  = deflater.end()
+
+  private val gzipPool    = ScratchPool(ScratchPool.DefaultMax, () => Compressor(gzip = true))
+  private val deflatePool = ScratchPool(ScratchPool.DefaultMax, () => Compressor(gzip = false))
+
+  // A buffer grown past this isn't kept
+  private final val MaxKeptBytes = 1 << 16
+
+  private def compress(pool: ScratchPool[Compressor], body: Array[Byte]): Array[Byte] =
+    val c = pool.borrow()
+    try
+      val d = c.deflater
+      d.reset()
+      d.setInput(body)
+      d.finish()
+      // The gzip header the JDK's GZIPOutputStream writes: magic, deflate, no flags, no mtime, no
+      // extra flags, OS 255 (unknown)
+      var pos =
+        if c.framed then
+          10
+        else
+          0
+      if c.framed then
+        java.util.Arrays.fill(c.out, 0, 10, 0.toByte)
+        c.out(0) = 0x1f.toByte
+        c.out(1) = 0x8b.toByte
+        c.out(2) = Deflater.DEFLATED.toByte
+        c.out(9) = 0xff.toByte
+      while !d.finished() do
+        if pos == c.out.length then
+          c.out = java.util.Arrays.copyOf(c.out, c.out.length * 2)
+        pos += d.deflate(c.out, pos, c.out.length - pos)
+      if c.framed then
+        // Trailer: CRC-32 and the input size mod 2^32, little-endian
+        c.crc.reset()
+        c.crc.update(body, 0, body.length)
+        if pos + 8 > c.out.length then
+          c.out = java.util.Arrays.copyOf(c.out, pos + 8)
+        writeIntLE(c.out, pos, c.crc.getValue.toInt)
+        writeIntLE(c.out, pos + 4, body.length)
+        pos += 8
+      val result = java.util.Arrays.copyOf(c.out, pos)
+      if c.out.length > MaxKeptBytes then
+        c.out = new Array[Byte](4096)
+      result
+    finally
+      if !pool.release(c) then
+        c.dispose()
+    end try
+
+  end compress
+
+  private def writeIntLE(a: Array[Byte], at: Int, v: Int): Unit =
+    a(at) = v.toByte
+    a(at + 1) = (v >>> 8).toByte
+    a(at + 2) = (v >>> 16).toByte
+    a(at + 3) = (v >>> 24).toByte
 
   /**
     * gzip or deflate by their q-values, as Netty's `HttpContentCompressor.determineEncoding` picks

@@ -713,6 +713,50 @@ private[http] object HttpResponseWriter:
         Array.emptyByteArray
     writeHead(response, keepAlive, body.length.toLong, sent)
 
+  /**
+    * Write the response to `conn`: [[serialize]]'s bytes, assembled in a pooled buffer instead of a
+    * new array per response, so a response allocates no buffer for its head and body. Bodies too
+    * large to keep a buffer for are written after their head instead. Returns false when the
+    * connection is gone.
+    */
+  def write(
+      conn: SocketConnection,
+      response: Response,
+      keepAlive: Boolean,
+      includeBody: Boolean
+  ): Boolean =
+    val body = response.content.toContentBytes
+    val sent =
+      if includeBody && !bodyForbidden(response) && body.nonEmpty then
+        body
+      else
+        Array.emptyByteArray
+    val contentType = contentTypeOf(response)
+    val measure     = HeadBytes(null)
+    emitHead(measure, response, keepAlive, body.length.toLong, contentType)
+    val headLength = measure.pos
+    val total      = headLength + sent.length
+    if total > MaxPooledBytes then
+      val head = new Array[Byte](headLength)
+      emitHead(HeadBytes(head), response, keepAlive, body.length.toLong, contentType)
+      conn.write(head) && (sent.isEmpty || conn.write(sent))
+    else
+      var buf = sendBuffers.borrow()
+      if buf.length < total then
+        buf = new Array[Byte](math.max(total, buf.length * 2))
+      try
+        emitHead(HeadBytes(buf), response, keepAlive, body.length.toLong, contentType)
+        System.arraycopy(sent, 0, buf, headLength, sent.length)
+        conn.write(buf, 0, total)
+      finally
+        sendBuffers.release(buf)
+
+  end write
+
+  // Send buffers up to this size are pooled; larger responses write their body from its own array
+  private final val MaxPooledBytes = 1 << 16
+  private val sendBuffers = ScratchPool(ScratchPool.DefaultMax, () => new Array[Byte](4096))
+
   // 1xx, 204, and 304 responses must not carry a message body or Content-Length.
   def bodyForbidden(response: Response): Boolean =
     val code = response.status.code
@@ -728,20 +772,24 @@ private[http] object HttpResponseWriter:
     * char arrays above the size Boehm serves from per-thread free lists (about 400 bytes), and
     * those allocations all take its global lock.
     */
+  // The Content-Type to write: an explicit header wins over the content's own type. Null when the
+  // response has no body or no type.
+  private def contentTypeOf(response: Response): String =
+    if bodyForbidden(response) then
+      null
+    else
+      response
+        .headers
+        .getOrElse(HttpHeader.ContentType, response.content.contentType.map(_.value).orNull)
+
   private def writeHead(
       response: Response,
       keepAlive: Boolean,
       contentLength: Long,
       body: Array[Byte]
   ): Array[Byte] =
-    val contentType =
-      if bodyForbidden(response) then
-        null
-      else
-        response
-          .headers
-          .getOrElse(HttpHeader.ContentType, response.content.contentType.map(_.value).orNull)
-    val measure = HeadBytes(null)
+    val contentType = contentTypeOf(response)
+    val measure     = HeadBytes(null)
     emitHead(measure, response, keepAlive, contentLength, contentType)
     val out = new Array[Byte](measure.pos + body.length)
     emitHead(HeadBytes(out), response, keepAlive, contentLength, contentType)
