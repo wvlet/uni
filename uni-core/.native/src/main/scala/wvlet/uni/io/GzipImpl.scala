@@ -17,7 +17,6 @@ import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
 /**
@@ -48,7 +47,7 @@ trait GzipCompat extends GzipApi:
 
   override def decompress(data: Array[Byte]): Array[Byte] =
     val bais = ByteArrayInputStream(data)
-    val gzip = GZIPInputStream(bais)
+    val gzip = GzipStreams.decoder(bais, BufferSize)
     try
       val baos   = ByteArrayOutputStream()
       val buffer = Array.ofDim[Byte](BufferSize)
@@ -77,7 +76,7 @@ trait GzipCompat extends GzipApi:
 
   override def decompressFile(source: IOPath, target: IOPath): Unit =
     val fis  = FileInputStream(source.toString)
-    val gzip = GZIPInputStream(fis)
+    val gzip = GzipStreams.decoder(fis, BufferSize)
     val fos  = FileOutputStream(target.toString)
     try
       val buffer = Array.ofDim[Byte](BufferSize)

@@ -13,7 +13,6 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.log.Platform
 import wvlet.uni.test.UniTest
 
 import java.io.{ByteArrayOutputStream, OutputStream}
@@ -49,15 +48,29 @@ class RequestDecompressionTest extends UniTest:
       (label, n, decoded(encoding, enc(b)).toSeq == b.toSeq) shouldBe (label, n, true)
   }
 
-  test("decode a gzip body with several members, where the platform supports it") {
-    val (a, b) = (body(3000), body(90000))
-    val wire   = gzip(a) ++ gzip(b)
-    val out    = decoded("gzip", wire)
-    if Platform.isScalaNative then
-      // javalib's GZIPInputStream stops after the first member
-      out.toSeq shouldBe a.toSeq
-    else
-      out.toSeq shouldBe (a ++ b).toSeq
+  test("decode every member of a multi-member gzip body") {
+    val (a, b, c) = (body(3000), body(90000), body(0))
+    decoded("gzip", gzip(a) ++ gzip(b) ++ gzip(c)).toSeq shouldBe (a ++ b ++ c).toSeq
+  }
+
+  test("ignore bytes after the last member that don't start a member") {
+    val a = body(5000)
+    decoded("gzip", gzip(a) ++ Array[Byte](0, 0, 0, 0)).toSeq shouldBe a.toSeq
+  }
+
+  test("reject a gzip body with a corrupt trailer or cut short") {
+    val wire    = gzip(body(20000))
+    val corrupt = wire.clone()
+    corrupt(corrupt.length - 8) = (corrupt(corrupt.length - 8) ^ 1).toByte
+    Seq(corrupt, wire.take(wire.length - 4), wire.take(wire.length / 2)).foreach { w =>
+      val request = Request
+        .post("/")
+        .addHeader(HttpHeader.ContentEncoding, "gzip")
+        .withBytesContent(w)
+      RequestDecompression.decode(request, 64 * 1024 * 1024) shouldMatch { case Left(r) =>
+        r.status shouldBe HttpStatus.BadRequest_400
+      }
+    }
   }
 
   test("reject a body that decodes past the limit") {
@@ -87,6 +100,8 @@ object RequestDecompressionTest:
   val Encoders: Seq[(String, String, Array[Byte] => Array[Byte])] = Seq(
     ("gzip", "gzip", gzip),
     ("x-gzip", "x-gzip", gzip),
+    // Two members, as `cat a.gz b.gz` makes
+    ("multi-member gzip", "gzip", b => gzip(b.take(b.length / 2)) ++ gzip(b.drop(b.length / 2))),
     ("zlib deflate", "deflate", b => deflate(b, raw = false)),
     ("raw deflate", "deflate", b => deflate(b, raw = true)),
     ("x-deflate", "x-deflate", b => deflate(b, raw = false))

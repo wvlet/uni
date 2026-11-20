@@ -13,8 +13,10 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.io.GzipStreams
+
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, IOException, InputStream}
-import java.util.zip.{Deflater, GZIPInputStream, Inflater, InflaterInputStream}
+import java.util.zip.{Deflater, Inflater, InflaterInputStream}
 
 /**
   * Request body decoding for the socket server, as uni-netty's `NettyRequestDecompression` does: a
@@ -93,7 +95,7 @@ private[http] object RequestDecompression:
   private def open(body: Array[Byte], inflater: Inflater): InputStream =
     val in = ByteArrayInputStream(body)
     if inflater == null then
-      GZIPInputStream(in, BufferSize)
+      GzipStreams.decoder(in, BufferSize)
     else
       InflaterInputStream(in, inflater, BufferSize)
 

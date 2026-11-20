@@ -58,6 +58,12 @@ class GzipTest extends UniTest:
     }
   }
 
+  test("decompress every member of a multi-member stream") {
+    val a = "first member ".getBytes("UTF-8")
+    val b = ("second member " * 1000).getBytes("UTF-8")
+    Gzip.decompress(Gzip.compress(a) ++ Gzip.compress(b)) shouldBe (a ++ b)
+  }
+
   test("compressFile and decompressFile") {
     val originalPath   = tempDir / "original.txt"
     val compressedPath = tempDir / "original.txt.gz"
