@@ -427,8 +427,9 @@ object GcsObjectStore:
     val code =
       status match
         case 404 =>
-          // A missing bucket and a missing object both have reason notFound
-          if message.exists(_.toLowerCase.contains("bucket")) then
+          // A missing bucket and a missing object both have reason notFound; only the message
+          // differs ("The specified bucket does not exist." vs "No such object: b/k")
+          if message.exists(_.toLowerCase.startsWith("the specified bucket does not exist")) then
             StorageErrorCode.NoSuchBucket
           else
             StorageErrorCode.NoSuchKey

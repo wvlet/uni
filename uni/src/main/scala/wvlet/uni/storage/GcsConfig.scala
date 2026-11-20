@@ -23,8 +23,8 @@ import wvlet.uni.http.HttpClientConfig
   *   the service URL. When unset: `STORAGE_EMULATOR_HOST` (an emulator such as fake-gcs-server),
   *   then `https://storage.googleapis.com`
   * @param credentials
-  *   when unset: Application Default Credentials, or anonymous requests to an emulator named by
-  *   `STORAGE_EMULATOR_HOST`
+  *   when unset: Application Default Credentials, or anonymous requests to a plain-HTTP endpoint
+  *   such as an emulator
   * @param chunkSizeBytes
   *   the resumable upload chunk size for [[ObjectStore.newOutputStream]] (a multiple of 256 KiB)
   */
@@ -76,9 +76,12 @@ case class GcsConfig(
   /** The service URL requests go to */
   def resolvedEndpoint: String = endpoint.orElse(emulatorHost).getOrElse(GcsConfig.DefaultEndpoint)
 
-  /** The credentials used for requests */
+  /**
+    * The credentials used for requests. A plain-HTTP endpoint (an emulator) gets anonymous requests
+    * unless credentials are set, so a real token is never sent in clear text.
+    */
   def resolvedCredentials: GoogleCredentialsProvider = credentials.getOrElse {
-    if endpoint.isEmpty && emulatorHost.isDefined then
+    if resolvedEndpoint.toLowerCase.startsWith("http://") then
       GoogleCredentialsProvider.anonymous
     else
       GoogleCredentialsProvider.default

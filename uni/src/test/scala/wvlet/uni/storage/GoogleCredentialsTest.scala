@@ -185,6 +185,9 @@ class GoogleCredentialsTest extends UniTest:
       )
     )
     err(404, "No such object: b/k", "notFound").code shouldBe StorageErrorCode.NoSuchKey
+    // An object whose name mentions "bucket" is still a missing key
+    err(404, "No such object: my-bucket/bucket-list.csv", "notFound").code shouldBe
+      StorageErrorCode.NoSuchKey
     err(404, "The specified bucket does not exist.", "notFound").code shouldBe
       StorageErrorCode.NoSuchBucket
     err(403, "denied", "forbidden").code shouldBe StorageErrorCode.AccessDenied
@@ -217,6 +220,15 @@ class GoogleCredentialsTest extends UniTest:
       Response(HttpStatus.ofCode(308)).setHeader("Range", "bytes=0-262143")
     ) shouldBe 262144L
     GcsObjectStore.committedBytes(Response(HttpStatus.ofCode(308))) shouldBe 0L
+  }
+
+  test("a plain-HTTP endpoint gets anonymous requests unless credentials are set") {
+    GcsConfig().withEndpoint("http://localhost:4443").resolvedCredentials.name shouldBe "anonymous"
+    GcsConfig()
+      .withEndpoint("http://localhost:4443")
+      .withAccessToken("t")
+      .resolvedCredentials
+      .name shouldBe "static"
   }
 
   test("chunk sizes are multiples of 256 KiB") {

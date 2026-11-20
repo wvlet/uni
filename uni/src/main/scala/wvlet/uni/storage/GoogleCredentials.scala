@@ -672,7 +672,17 @@ private[storage] object GoogleOAuth:
       try
         try client.send(Request.post(url).withBearerToken(token.token).withJsonContent(body))
         catch StorageSupport.unwrapHttpError
-      finally client.close()
+      catch
+        case e: StorageException =>
+          throw e
+        case e: Exception =>
+          // The exception may carry the request and its bearer token; report only its kind
+          throw StorageException(
+            StorageErrorCode.NoCredentials,
+            s"IAM signBlob for ${email} failed: ${e.getClass.getSimpleName}"
+          )
+      finally
+        client.close()
     if !resp.isSuccessful then
       throw StorageException(
         if resp.statusCode == 403 then
@@ -685,13 +695,17 @@ private[storage] object GoogleOAuth:
         Some(resp.statusCode)
       )
     val signed =
-      JSON.parse(resp.contentAsString.getOrElse("")) match
-        case o: JSON.JSONObject =>
-          o.get("signedBlob")
-            .collect { case JSON.JSONString(s) =>
-              s
-            }
-        case _ =>
+      try
+        JSON.parse(resp.contentAsString.getOrElse("")) match
+          case o: JSON.JSONObject =>
+            o.get("signedBlob")
+              .collect { case JSON.JSONString(s) =>
+                s
+              }
+          case _ =>
+            None
+      catch
+        case _: Exception =>
           None
     Base64
       .getDecoder
