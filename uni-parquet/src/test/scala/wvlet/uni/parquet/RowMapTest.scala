@@ -160,8 +160,23 @@ end RowMapTest
 
 class IsoDateTest extends wvlet.uni.test.UniTest:
   test("format epoch days as LocalDate does") {
-    val days = (-800000 to 3000000 by 997) ++ Seq(-719528, -719162, 0, 1, 59, 60, 365, 10957, 2932896)
+    val days =
+      (-800000 to 3000000 by 997) ++ Seq(-719528, -719162, 0, 1, 59, 60, 365, 10957, 2932896)
     days.foreach { d =>
       VectorUnpacker.isoDate(d) shouldBe java.time.LocalDate.ofEpochDay(d.toLong).toString
     }
+  }
+
+case class NarrowInt(v: Int) derives wvlet.uni.weaver.Weaver
+
+class ReadOverflowTest extends wvlet.uni.test.UniTest:
+  test("reject a value that does not fit an Int field") {
+    val schema = ParquetSchema.builder().required("v", ParquetType.INT64).build()
+    val out    = java.io.ByteArrayOutputStream()
+    val w      = Parquet.newRecordWriter(out, schema)
+    w.write(Map("v" -> (1L << 40)))
+    w.close()
+    val f = Parquet.open(out.toByteArray)
+    try intercept[Exception](f.readAs[NarrowInt]().toSeq)
+    finally f.close()
   }

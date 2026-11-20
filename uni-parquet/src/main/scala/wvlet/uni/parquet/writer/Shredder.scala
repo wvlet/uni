@@ -217,20 +217,30 @@ private[parquet] final class Shredder(schema: ParquetSchema):
       in.skip()
       i += 1
     val end = in.pos
-    var j   = 0
+    // Loose forms of the keys, computed once per map when a child needs them
+    var looseKeys: Array[String] = null
+    var j                        = 0
     while j < s.children.length do
       if !s.seen(j) then
         val name = s.children(j).field.name
         var at   = keys.indexOf(name)
         if at < 0 then
-          val c = s.canonical(j)
-          at = keys.indexWhere(k => k != null && canonical(k) == c)
+          if looseKeys == null then
+            looseKeys = keys.map(k =>
+              if k == null then
+                null
+              else
+                canonical(k)
+            )
+          at = looseKeys.indexOf(s.canonical(j))
         if at >= 0 then
           in.pos = positions(at)
           writeField(s.children(j), r, d)
           s.seen(j) = true
       j += 1
     in.pos = end
+
+  end writeByName
 
   private def writeLeaf(n: LeafNode, r: Int, d: Int): Unit =
     val st = stages(n.col)

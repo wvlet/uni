@@ -190,9 +190,15 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
     advance()
     v
 
-  override def unpackByte: Byte   = unpackLong.toByte
-  override def unpackShort: Short = unpackLong.toShort
-  override def unpackInt: Int     = unpackLong.toInt
+  // Out-of-range values throw, as a MessagePack unpacker's do, rather than wrap around
+  override def unpackByte: Byte   = narrow(unpackLong, Byte.MinValue, Byte.MaxValue).toByte
+  override def unpackShort: Short = narrow(unpackLong, Short.MinValue, Short.MaxValue).toShort
+  override def unpackInt: Int     = narrow(unpackLong, Int.MinValue, Int.MaxValue).toInt
+
+  private def narrow(v: Long, min: Long, max: Long): Long =
+    if v < min || v > max then
+      throw IllegalArgumentException(s"${v} is outside the range ${min} to ${max}")
+    v
 
   override def unpackLong: Long =
     expect(ValueType.INTEGER)
@@ -438,21 +444,22 @@ private[parquet] object VectorUnpacker:
         (mp + 3).toInt
       else
         (mp - 9).toInt
-    val y =
-      (yoe + era * 400 + (
+    val y = (
+      yoe + era * 400 + (
         if m <= 2 then
           1
         else
           0
-      )).toInt
+      )
+    ).toInt
     if y < 1000 || y > 9999 then
       LocalDate.ofEpochDay(day.toLong).toString
     else
       val c = new Array[Char](10)
       c(0) = ('0' + y / 1000).toChar
       c(1) = ('0' + y / 100 % 10).toChar
-      c(2) = ('0' + y / 10 % 10).toChar
-      c(3) = ('0' + y % 10).toChar
+      c(2) = ('0' + y / 10  % 10).toChar
+      c(3) = ('0' + y       % 10).toChar
       c(4) = '-'
       c(5) = ('0' + m / 10).toChar
       c(6) = ('0' + m % 10).toChar
