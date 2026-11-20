@@ -14,7 +14,6 @@
 package wvlet.uni.msgpack.spi
 
 import java.math.BigInteger
-import java.nio.charset.StandardCharsets
 import java.time.Instant
 
 import wvlet.uni.msgpack.spi.ErrorCode.INVALID_EXT_FORMAT
@@ -522,9 +521,7 @@ object OffsetUnpacker:
       cursor.reverseCursor
       throw new TooLargeMessageException(len)
     else
-      // TODO reduce memory copy (e.g., by getting a memory reference of the Buffer)
-      val str = cursor.readBytes(len)
-      new String(str, 0, str.length, StandardCharsets.UTF_8)
+      cursor.readString(len)
 
   def unpackArrayHeader(cursor: ReadCursor): Int =
     val b = cursor.readByte

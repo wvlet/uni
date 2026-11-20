@@ -1,6 +1,7 @@
 package wvlet.uni.weaver
 
 import wvlet.uni.json.JSON.JSONValue
+import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.msgpack.spi.MsgPack
 import wvlet.uni.msgpack.spi.Packer
@@ -81,9 +82,11 @@ trait Weaver[A]:
               .getOrElse("null")}"
         )
 
-  def toJson(v: A, config: WeaverConfig = WeaverConfig()): String =
-    val msgpack = toMsgPack(v, config)
-    JSONWeaver.unweave(msgpack, config)
+  def toJson(v: A, config: WeaverConfig = WeaverConfig()): String = Weaver.withScratchPacker {
+    packer =>
+      pack(packer, v, config)
+      packer.writtenAsJson
+  }
 
   def toMsgPack(v: A, config: WeaverConfig = WeaverConfig()): MsgPack =
     val packer = MessagePack.newPacker()
@@ -113,6 +116,37 @@ trait Weaver[A]:
 end Weaver
 
 object Weaver:
+
+  private final class ScratchSlot:
+    var packer = PureScalaBufferPacker()
+    var inUse  = false
+
+  // One packer per thread for toJson, whose MessagePack form is only an intermediate step. A fresh
+  // packer would regrow its buffer for every value and copy it out once more; on Scala Native's
+  // Boehm GC each array above ~400 bytes also takes the global allocation lock.
+  // initialValue rather than ThreadLocal.withInitial, which Scala.js lacks
+  private val scratch =
+    new ThreadLocal[ScratchSlot]:
+      override def initialValue(): ScratchSlot = ScratchSlot()
+
+  // Drop a buffer grown past this, so an idle thread doesn't hold it
+  private final val MaxKeptScratchBytes = 1 << 20
+
+  private[weaver] def withScratchPacker[T](f: PureScalaBufferPacker => T): T =
+    val slot = scratch.get()
+    if slot.inUse then
+      // A weaver called toJson while packing: give it its own packer
+      f(PureScalaBufferPacker())
+    else
+      slot.inUse = true
+      try
+        f(slot.packer)
+      finally
+        if slot.packer.capacity > MaxKeptScratchBytes then
+          slot.packer = PureScalaBufferPacker()
+        else
+          slot.packer.clear
+        slot.inUse = false
 
   /**
     * Derive a Weaver for a case class or sealed trait at compile-time.

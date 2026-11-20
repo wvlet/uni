@@ -70,6 +70,11 @@ case class ReadCursor(var buf: ReadBuffer, var position: Int):
     offset += len
     v
 
+  def readString(len: Int): String =
+    val v = buf.readString(position + offset, len)
+    offset += len
+    v
+
   def readBytes(len: Int, dest: Array[Byte], destOffset: Int): Unit =
     val v = buf.readBytes(position + offset, len, dest, destOffset)
     offset += len

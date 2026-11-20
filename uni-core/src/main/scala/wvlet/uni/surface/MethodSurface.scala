@@ -89,9 +89,16 @@ case class StaticMethodParameter(
     methodArgAccessor: Option[Any => Any] = None,
     annotations: Seq[Annotation] = Seq.empty
 ) extends MethodParameter:
-  override def toString: String             = s"${name}:${surface.name}"
-  def get(x: Any): Any                      = accessor.map(a => a(x)).getOrElse(null)
-  override def getDefaultValue: Option[Any] = defaultValue
+  override def toString: String = s"${name}:${surface.name}"
+  // A match, not map/getOrElse: serializers call this per field, and Native allocates their closure
+  def get(x: Any): Any =
+    accessor match
+      case Some(a) =>
+        a(x)
+      case None =>
+        null
+
+  override def getDefaultValue: Option[Any]                            = defaultValue
   override def getMethodArgDefaultValue(methodOwner: Any): Option[Any] = methodArgAccessor.map {
     acc =>
       acc(methodOwner)

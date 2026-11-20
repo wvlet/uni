@@ -15,13 +15,27 @@ package wvlet.uni.msgpack.impl
 
 import wvlet.uni.msgpack.spi.*
 
+/**
+  * `require` without its cost: `require`'s message is a by-name argument, so every call allocates a
+  * closure on Scala Native even when the check passes, and these checks run on every buffer write.
+  * Inlined, the message is built only on failure. Throws what `require` throws.
+  */
+private inline def check(inline requirement: Boolean, inline message: String = ""): Unit =
+  if !requirement then
+    throw IllegalArgumentException(
+      if message.isEmpty then
+        "requirement failed"
+      else
+        s"requirement failed: ${message}"
+    )
+
 object ByteArrayBuffer:
   def newBuffer(size: Int): ByteArrayBuffer = apply(new Array[Byte](size))
 
   def apply(a: Array[Byte]): ByteArrayBuffer = fromArray(a, 0, a.length)
 
   def fromArray(a: Array[Byte], offset: Int, size: Int): ByteArrayBuffer =
-    require(
+    check(
       offset + size <= a.length,
       s"input array is smaller than offset:${offset} + size:${size}: ${a.length}"
     )
@@ -35,14 +49,15 @@ object ByteArrayBuffer:
 class ByteArrayBuffer(a: Array[Byte], offset: Int, size: Int)
     extends ByteArrayBufferBase(a, offset, size)
 
-class InfiniteByteArrayBuffer extends ByteArrayBufferBase(new Array[Byte](10), 0, 10):
+// Starts at 64 bytes, which holds most small values without regrowing
+class InfiniteByteArrayBuffer extends ByteArrayBufferBase(new Array[Byte](64), 0, 64):
   override def ensureCapacity(position: Int, requestedLength: Int): Unit =
     if !hasCapacity(position, requestedLength) then
       var newLength = a.length
       while newLength < position + requestedLength do
         newLength *= 2
       val newArray = new Array[Byte](newLength)
-      Array.copy(a, 0, newArray, 0, position)
+      System.arraycopy(a, 0, newArray, 0, position)
       a = newArray
       capacity = newLength
 
@@ -52,8 +67,8 @@ abstract class ByteArrayBufferBase(
     protected var capacity: Int
 ) extends ReadBuffer
     with WriteBuffer:
-  require(offset >= 0, s"baseOffset ${offset} < 0")
-  require(
+  check(offset >= 0, s"baseOffset ${offset} < 0")
+  check(
     offset + capacity <= a.length,
     s"insufficient buffer size. baseOffset:${offset} + capacity:${capacity} <= array size:${a
         .length}"
@@ -61,9 +76,12 @@ abstract class ByteArrayBufferBase(
 
   def size: Int = capacity
 
+  /** The backing array, for reading what was written without copying it */
+  private[uni] def array: Array[Byte] = a
+
   def toByteArray(position: Int, arraySize: Int): Array[Byte] =
-    require(arraySize >= 0)
-    require(
+    check(arraySize >= 0)
+    check(
       position + arraySize <= capacity,
       s"Insufficient array length (${a
           .length}, offset:${offset}, size:${capacity}) for slice(${position}, ${arraySize})"
@@ -72,11 +90,11 @@ abstract class ByteArrayBufferBase(
       a
     else
       val newArray = new Array[Byte](arraySize)
-      Array.copy(a, offset + position, newArray, 0, arraySize)
+      System.arraycopy(a, offset + position, newArray, 0, arraySize)
       newArray
 
   override def slice(position: Int, newSize: Int): ReadBuffer =
-    require(
+    check(
       position + newSize <= capacity,
       s"Insufficient array length (${a
           .length}, offset:${offset}, size:${size}) for slice(${position}, ${newSize})"
@@ -126,16 +144,21 @@ abstract class ByteArrayBufferBase(
   override def readBytes(position: Int, length: Int): Array[Byte] =
     ensureCapacity(position, length)
     val dest = new Array[Byte](length)
-    Array.copy(a, offset + position, dest, 0, length)
+    System.arraycopy(a, offset + position, dest, 0, length)
     dest
 
   override def readBytes(position: Int, length: Int, dest: Array[Byte], destOffset: Int): Unit =
     ensureCapacity(position, length)
-    Array.copy(a, offset + position, dest, destOffset, length)
+    System.arraycopy(a, offset + position, dest, destOffset, length)
 
   override def readBytes(position: Int, length: Int, dest: WriteBuffer, destIndex: Int): Unit =
     ensureCapacity(position, length)
     dest.writeBytes(destIndex, a, offset + position, length)
+
+  // Decode from the array in place, without copying the bytes out first
+  override def readString(position: Int, length: Int): String =
+    ensureCapacity(position, length)
+    wvlet.uni.util.Utf8.decode(a, offset + position, length)
 
   def writeByte(position: Int, v: Byte): Int =
     ensureCapacity(position, 1)
@@ -144,18 +167,18 @@ abstract class ByteArrayBufferBase(
     1
 
   def writeBytes(position: Int, source: Array[Byte], sourceOffset: Int, length: Int): Int =
-    require(source != null, "source is null")
-    require(
+    check(source != null, "source is null")
+    check(
       sourceOffset + length <= source.length,
       s"Insufficient input buffer size ${source.length} for reading ${sourceOffset}+${length} bytes"
     )
 
     ensureCapacity(position, length)
-    Array.copy(source, sourceOffset, a, offset + position, length)
+    System.arraycopy(source, sourceOffset, a, offset + position, length)
     length
 
   override def writeBytes(position: Int, src: ReadBuffer, srcPosition: Int, length: Int): Int =
-    require(src != null, "source is nul")
+    check(src != null, "source is nul")
     ensureCapacity(position, length)
     src.readBytes(srcPosition, length, a, offset + position)
     length

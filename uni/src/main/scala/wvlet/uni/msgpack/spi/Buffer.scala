@@ -54,6 +54,13 @@ trait ReadBuffer extends Buffer:
   def readBytes(position: Int, length: Int, dest: Array[Byte], destOffset: Int): Unit
   def readBytes(position: Int, length: Int, dest: WriteBuffer, destIndex: Int): Unit
 
+  /** `length` bytes at `position` decoded as UTF-8 */
+  def readString(position: Int, length: Int): String = wvlet
+    .uni
+    .util
+    .Utf8
+    .decode(readBytes(position, length))
+
 trait WriteBuffer extends Buffer:
   def writeByte(position: Int, v: Byte): Int
   def writeShort(position: Int, v: Short): Int
