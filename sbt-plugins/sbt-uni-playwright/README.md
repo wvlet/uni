@@ -58,7 +58,7 @@ test("dialog renders") {
 
 Goldens live in `src/test/screenshots` (`uniPlaywrightSnapshotDir`); accept changes with
 `uniPlaywrightUpdateSnapshots := true` or `UNI_PLAYWRIGHT_UPDATE_SNAPSHOTS=1`. See the
-[plugin docs](../docs/build/sbt-uni-playwright.md) for details.
+[plugin docs](../../docs/build/sbt-uni-playwright.md) for details.
 
 On an uncaught JS error, a screenshot and a Playwright trace are written under
 `target/uni-playwright` (open with `npx playwright show-trace <file>`).

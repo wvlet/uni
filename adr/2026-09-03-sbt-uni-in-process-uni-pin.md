@@ -29,7 +29,7 @@ Scala Steward bump in #688 (not a required check, so the PR auto-merged).
 
 ## Decision
 
-`sbt-uni/build.sbt` depends on a **pinned** uni release whose Scala minor version
+`sbt-uni/build.sbt` (now the `sbtUni` project in `sbt-plugins/build.sbt`) depends on a **pinned** uni release whose Scala minor version
 matches sbt's metabuild (`UNI_IN_PROCESS_VERSION = "2026.1.21"`, built with Scala
 3.8.4), independent of the uni version being developed in this tree. The pin is
 wrapped in `// scala-steward:off` / `:on`: Scala Steward rewrites same-shaped
@@ -40,7 +40,7 @@ the next, 3.9-built uni release and re-arm the exact failure above.
 The `UNI_VERSION` env var is kept only for `scriptedLaunchOpts` (`-Duni.version=`),
 because the scripted test *apps* must consume the 3.9-built local snapshot. Their
 `scalaVersion` comes from a `scala.version` property passed next to it, which
-`sbt-uni/build.sbt` reads from `val SCALA_3` in the root `build.sbt`, so a future
+`sbt-plugins/build.sbt` reads from `val SCALA_3` in the root `build.sbt`, so a future
 `SCALA_3` bump cannot leave the apps on a compiler too old to read the snapshot,
 in CI or locally. Both properties fail loudly when missing.
 
@@ -119,10 +119,10 @@ Alternatives rejected or deferred:
   output would close that gap.
 - **Lifting the pin.** Needs a released sbt whose metabuild is Scala 3.9 (sbt's
   `develop` already has `scala3 = "3.9.0"`). Then bump `sbt.version` in
-  `sbt-uni/project/build.properties` **and** the four scripted tests'
+  `sbt-plugins/project/build.properties` **and** the four scripted tests'
   `project/build.properties` (the root build's is irrelevant to the plugin),
   verify with `sbt "eval scala.util.Properties.versionNumberString"` inside
-  `sbt-uni/`, and set `UNI_IN_PROCESS_VERSION` back to `UNI_VERSION`. Note that a
+  `sbt-plugins/`, and set `UNI_IN_PROCESS_VERSION` back to `UNI_VERSION`. Note that a
   lifted plugin depends on a 3.9-built uni, so its minimum sbt version rises to
   that release; consumers on older sbt 2.0.x keep using the pinned plugin version.
 - The same rule applies to the other metabuild-loaded artifacts:

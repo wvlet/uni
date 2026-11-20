@@ -10,7 +10,9 @@
 - **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
 - **uni-test**: Unit testing framework
 
-The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via uni's own [`sbt-uni-crossproject`](sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via uni's own [`sbt-uni-crossproject`](sbt-plugins/sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+
+The sbt plugins (sbt-uni, sbt-uni-crossproject, sbt-uni-javadoc, sbt-uni-playwright) are a separate sbt build in [`sbt-plugins/`](sbt-plugins/): run `../sbt compile`, `../sbt "<project>/scripted"`, or `../sbt scalafmtAll` from that directory.
 
 Note (sbt 2.x): use `%%` (not the old `%%%`) for Scala.js/Native deps, and wrap a non-serializable `Test / jsEnv` in `Def.uncached(...)`.
 
