@@ -72,8 +72,16 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   including events after a terminal one, since `RxVar` ignores `Stop`. Its cases found that a
   throwing `flatMap` function left the previous nested var subscribed, and that `zip` over vars
   completed after its first pair in default mode (both fixed, see
-  `2026-10-14-rx-completion-semantics.md`). It leaves out continuous mode, `recoverWith`, and
-  `parFlatMap`.
+  `2026-10-14-rx-completion-semantics.md`).
+- The live-var model also covers `recoverWith`, continuous mode for `flatMap`/`transformRx`, and,
+  in `UniSpec/RxLiveFanIn.lean`, `merge` and `parFlatMap` in both modes. `parFlatMap`'s order across
+  threads depends on scheduling, but nested `RxVar`s deliver on the caller's thread, so a script
+  fixes the order of its permit queue. The model proves the rule that holds under any scheduling:
+  at most `parallelism` nested streams are subscribed after every step; its cases check that queued
+  values start in input order. Its cases found that `recoverWith` kept its input subscribed after a
+  recovery, so input events followed the recovery stream, and that in continuous mode a failed
+  nested stream of `parFlatMap` held its permit for good (both fixed, see
+  `2026-10-14-rx-completion-semantics.md` and `2026-10-27-rx-merge-parflatmap.md`).
 - `UniSpec/DomRender.lean` models how `DomRenderer` places what an `Rx` renders. The parent is a flat
   list of nodes with ids. The model runs the renderer's own steps: insert before an anchor, the
   backward walk that clears a section, and the keyed walk behind a cursor. A spec (`denote`) gives
@@ -93,8 +101,7 @@ minimal dependencies on JVM, JS, and Native, and Lean has no practical path into
   nested in another on the same variable got the update after the outer one removed its markers,
   and its clear walk threw. Sections and keyed lists now ignore updates once cancelled, as the model
   assumed. All are fixed (see `2026-11-05-keyed-list-rendering.md`).
-- Next candidates: continuous-mode `flatMap`/`merge`, `recoverWith`, `parFlatMap` ordering, and
-  MessagePack floats and timestamps.
+- Next candidates: MessagePack floats and timestamps.
 - Rejected: linking Lean-compiled C into Scala Native (one platform, ships the Lean runtime);
   verifying the Scala code with Stainless (does not fit Uni's Scala 3 code); hand-written expected
   outputs in property tests (they restate the implementation's own assumptions).
