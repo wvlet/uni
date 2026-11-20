@@ -1,6 +1,6 @@
 # sbt-uni Plugin
 
-`sbt-uni` is uni's sbt 2.x plugin. It does four jobs:
+`sbt-uni` is Uni's sbt 2.x plugin. It does four jobs:
 
 1. **HTTP/RPC client generation** — turn a Scala 3 service trait into a type-safe
    client at build time (see [RPC](/http/rpc) for the full guide).
@@ -13,12 +13,12 @@
 
 ::: tip sbt 2.x
 The plugin targets **sbt 2.x** (the metabuild runs on Scala 3, which lets the
-plugin call uni directly as a library). It is not published for sbt 1.x.
+plugin call Uni directly as a library). It is not published for sbt 1.x.
 
-The uni build the plugin loads in-process is pinned to a release built with sbt
-2.0.x's metabuild Scala (3.8), independently of the uni and Scala versions your
+The Uni build the plugin loads in-process is pinned to a release built with sbt
+2.0.x's metabuild Scala (3.8), independently of the Uni and Scala versions your
 project depends on. Declare `uni` only in `build.sbt`: adding it to
-`project/plugins.sbt` would replace the plugin's pinned uni with one sbt's
+`project/plugins.sbt` would replace the plugin's pinned Uni with one sbt's
 metabuild cannot load.
 :::
 
@@ -133,7 +133,7 @@ lazy val app = project
 
 `uniHttpClients` is wired into `Compile / sourceGenerators`, so clients are
 regenerated and compiled on the next `compile`. Generation forks a JVM that runs
-uni's `HttpCodeGeneratorMain` from the JVM uni release your app depends on, also
+Uni's `HttpCodeGeneratorMain` from the JVM Uni release your app depends on, also
 for Scala.js and Scala Native apps. The fork runs only when the service classes or
 targets changed, and it skips files whose content is unchanged. See [RPC](/http/rpc) for
 the target spec format and generated client API.
@@ -142,11 +142,11 @@ the target spec format and generated client API.
 | ---------------------- | ------------- | ------------------------ | -------------------------------------- |
 | `uniHttpClients`       | `Seq[String]` | `Seq.empty`              | Generation targets (`fqcn:type[:pkg]`) |
 | `uniHttpCodegenOutDir` | `File`        | `Compile / sourceManaged`| Output directory for generated code    |
-| `uniHttpCodegenVersion` | `String`     | uni in `libraryDependencies` | uni release that runs the generator |
+| `uniHttpCodegenVersion` | `String`     | Uni in `libraryDependencies` | Uni release that runs the generator |
 
 ## OpenAPI Generation
 
-`uniOpenAPI` writes an OpenAPI document for your `@Endpoint` routers. It forks a JVM that runs uni's generator on the project's runtime classpath, so it uses the uni version your app depends on, and the build never loads your classes.
+`uniOpenAPI` writes an OpenAPI document for your `@Endpoint` routers. It forks a JVM that runs Uni's generator on the project's runtime classpath, so it uses the Uni version your app depends on, and the build never loads your classes.
 
 ```scala
 lazy val server = project

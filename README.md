@@ -56,7 +56,7 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 ## Getting Started
 
 Add the dependencies you need to your `build.sbt`, replacing `<version>`
-with a uni version. Every release is published to the wvlet Maven
+with a Uni version. Every release is published to the wvlet Maven
 repository, `https://repo.wvlet.org/maven2`, and only some are copied to
 Maven Central. The version on the Maven Central badge above needs no
 extra setup; for a newer release, add the wvlet resolver:
@@ -83,7 +83,7 @@ libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
 
 See [Newest Releases](https://wvlet.org/uni/guide/installation#newest-releases)
 for scala-cli, Mill, and Gradle setup, and for why a library published to
-Maven Central should depend only on uni versions that are on Maven Central.
+Maven Central should depend only on Uni versions that are on Maven Central.
 
 ### Using `uni`
 
@@ -156,7 +156,7 @@ for assertions, property-based testing, and more.
 ## sbt 2.x Plugins
 
 Uni also ships sbt plugins for **sbt 2.x**, usable in any sbt 2.x project
-(with or without the uni library):
+(with or without the Uni library):
 
 | Plugin | Description |
 |--------|-------------|

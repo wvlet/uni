@@ -6,7 +6,7 @@ CI revealed the Scala.js gap)
 
 ## Context
 
-uni has several `wvlet.uni.<area>` shared modules whose runtime behavior depends on
+Uni has several `wvlet.uni.<area>` shared modules whose runtime behavior depends on
 platform-specific objects under `.jvm` / `.js` / `.native`. The pattern that's emerged
 is a `<Area>Compat` object — a platform-specific singleton extending a shared
 `<Area>CompatApi` trait, used by the shared code to access platform behavior. `HttpCompat`

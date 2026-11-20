@@ -141,7 +141,7 @@ turns input bytes into `Key` events.
 | Platform | Raw mode and window size |
 |----------|--------------------------|
 | JVM | libc `termios` through the Foreign Function & Memory API; needs Java 22 or later |
-| Scala Native | libc `termios` through a small C shim bundled with uni |
+| Scala Native | libc `termios` through a small C shim bundled with Uni |
 | Scala.js | Node.js `process.stdin.setRawMode`; not available in browsers |
 
 When stdin or stdout is not a terminal (a pipe, a file, CI), on Windows, or on a JVM older than 22,

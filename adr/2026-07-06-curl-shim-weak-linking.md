@@ -71,7 +71,7 @@ different checks:
 - **`test_native_3_windows`** ("Scala Native (Windows)") builds and runs the native
   test suite on Windows, compiling this shim for real. Nothing here compiled the
   Windows half of the `#if` when v2026.1.17 shipped its POSIX-only
-  `#include <dlfcn.h>`; uni had no Windows Native build at all, because
+  `#include <dlfcn.h>`; Uni had no Windows Native build at all, because
   `NativeServer` could not link there — see
   [`2026-07-08-native-socket-shim.md`](2026-07-08-native-socket-shim.md), which
   fixed that and made this job possible. ~15 minutes, so it runs on every push to
@@ -81,7 +81,7 @@ different checks:
 - **`.github/scripts/check-curl-shim.sh`**, a step in the Linux Native job, which
   compiles the shim standalone and asserts via `nm -u` that the object names no
   `curl_easy_*` symbol. No Scala Native job can catch that regression on any OS:
-  `build.sbt` passes `-lcurl` unconditionally, so uni's own binaries always
+  `build.sbt` passes `-lcurl` unconditionally, so Uni's own binaries always
   resolve those symbols. Only a consumer that doesn't link libcurl breaks — the
   object inspection stands in for that consumer.
 

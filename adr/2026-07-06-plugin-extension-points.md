@@ -36,8 +36,8 @@ The ergonomic surface is unchanged for plugin authors (`ctx.registerCommand(...)
 
 ## Consequences
 
-- `wvlet.uni.plugin` is dependency-free within uni (only stdlib), justifying the top-level
-  namespace: any uni app — CLI, HTTP server, Electron — can define its own points without
+- `wvlet.uni.plugin` is dependency-free within Uni (only stdlib), justifying the top-level
+  namespace: any Uni app — CLI, HTTP server, Electron — can define its own points without
   pulling in RPC concepts.
 - New contribution kinds are added by *defining a point*, not editing the core. A natural
   follow-up is a `Design` extension point so plugins contribute DI bindings.

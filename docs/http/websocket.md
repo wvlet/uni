@@ -1,6 +1,6 @@
 # WebSocket Client
 
-uni includes a cross-platform WebSocket **client** that runs on the JVM, Scala.js,
+Uni includes a cross-platform WebSocket **client** that runs on the JVM, Scala.js,
 and Scala Native. It connects to `ws://` / `wss://` endpoints and uses the same
 `WebSocketHandler` / `WebSocketContext` abstraction as the
 [server-side WebSocket](./server#websocket) support, so handler code is symmetric

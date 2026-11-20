@@ -1,6 +1,6 @@
 # Weaver
 
-`Weaver[A]` is uni's derivation-based serialization framework. A single `Weaver`
+`Weaver[A]` is Uni's derivation-based serialization framework. A single `Weaver`
 instance can read and write a value of type `A` as **MessagePack**, **JSON**, or
 a loosely-typed `Map[String, Any]` — so you derive the codec once and pick the
 wire format at the call site.

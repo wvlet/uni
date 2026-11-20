@@ -1,6 +1,6 @@
 # HTTP Retry Strategies
 
-uni's HTTP client includes automatic retry for transient failures.
+Uni's HTTP client includes automatic retry for transient failures.
 
 ## Default Retry Behavior
 

@@ -1,4 +1,4 @@
-# RouterHandler and RPCHandler live in uni; uni-netty is an optional backend
+# RouterHandler and RPCHandler live in `uni`; uni-netty is an optional backend
 
 - Status: Accepted
 - Date: 2026-11-20

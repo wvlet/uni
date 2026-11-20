@@ -38,7 +38,7 @@ a Node-compatible runtime via `process.versions.node` first (Bun and Deno both s
 A static `@JSImport("worker_threads")` is emitted by Scala.js as a top-level
 `import "worker_threads"` into **every** bundle that links `NodeSyncHttpChannel`.
 Because `JSHttpChannelFactory` is the *default* channel factory and its `newChannel`
-references `NodeSyncHttpChannel`, that import lands in any browser bundle using uni's
+references `NodeSyncHttpChannel`, that import lands in any browser bundle using Uni's
 HTTP at all — and browser bundlers (Webpack/Vite/Rollup) fail to resolve the Node-only
 `worker_threads` at build time, before `isNode` can ever return false.
 
@@ -51,7 +51,7 @@ invisible to bundlers — browser bundles build fine and hit the `isNode == fals
 
 The worker's module kind is independent of the parent artifact's. Node's
 `new Worker(code, {eval:true})` evaluates `code` as CommonJS — `require('worker_threads')`
-works there even though uni links as `ModuleKind.ESModule`. **Deno's** eval workers,
+works there even though Uni links as `ModuleKind.ESModule`. **Deno's** eval workers,
 however, run as ESM and have no `require`, so `require('worker_threads')` throws and the
 worker never notifies — the main thread then blocks until the safety timeout.
 

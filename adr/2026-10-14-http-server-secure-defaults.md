@@ -2,7 +2,7 @@
 
 ## Decision
 
-uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an app opts out explicitly:
+Uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an app opts out explicitly:
 
 - **Bind to `127.0.0.1`.** `withHost("0.0.0.0")` is required to accept connections from other hosts. This is a breaking change, accepted because a dev or sidecar server with no auth (MCP, Electron helpers, local tools) should never be reachable from the LAN by accident.
 - **Generic 500 bodies.** An unexpected exception becomes `Internal Server Error` (RPC: `INTERNAL_ERROR_I0` with the message `Internal error`). The full exception is logged at WARN. `withDetailedErrors(true)` restores the message.
@@ -22,7 +22,7 @@ uni's HTTP servers (Netty, Node.js, Scala Native) are secure by default, and an 
 
 `RPCHandler`/`RPCDispatcher` are built independently of the server config, so they take their own `detailedErrors` flag: an RPC error is an RPC-encoded response body, not a plain 500.
 
-`RouterHandler` does not render 500s (2026-10-21). A controller exception is returned as a failed `Rx`, as an exception inside a returned `Rx` already was, so an app's `RxHttpFilter` can `recover` from the original exception and classify it (airframe-http apps migrating to uni rely on this). The server's `OnError` path renders whatever no filter recovered from as the generic 500, honoring the server's `detailedErrors`, so the secure default holds at the outermost layer. `RouterHandler.withDetailedErrors` is deprecated as a no-op. Parameter-mapping failures stay a local 400, since that is the router's own classification of client input.
+`RouterHandler` does not render 500s (2026-10-21). A controller exception is returned as a failed `Rx`, as an exception inside a returned `Rx` already was, so an app's `RxHttpFilter` can `recover` from the original exception and classify it (airframe-http apps migrating to Uni rely on this). The server's `OnError` path renders whatever no filter recovered from as the generic 500, honoring the server's `detailedErrors`, so the secure default holds at the outermost layer. `RouterHandler.withDetailedErrors` is deprecated as a no-op. Parameter-mapping failures stay a local 400, since that is the router's own classification of client input.
 
 ## Host allowlist (DNS rebinding)
 

@@ -49,7 +49,7 @@ plus extract the server dispatch into a transport-neutral helper so both HTTP an
 - **`scalajs-java-securerandom` had to become a compile dependency.** Uni's main code reaches
   `java.security.SecureRandom` through `ULID` in the `Weaver` derivation chain, but the dep was
   declared `% Test`. Uni's own JS module only ever *links* under test (where the dep is present), so
-  the gap was invisible until a downstream app (the example) tried to link uni's main code and failed
+  the gap was invisible until a downstream app (the example) tried to link Uni's main code and failed
   with "Referring to non-existent class java.security.SecureRandom". Now `compile`-scoped so desktop
   apps link out of the box.
 - **Rx→Promise on the main side resolves, never rejects.** `RPCDispatcher` already encodes RPC

@@ -1,6 +1,6 @@
 # HTTP & RPC
 
-uni provides a cross-platform HTTP client and server, with automatic retry,
+Uni provides a cross-platform HTTP client and server, with automatic retry,
 streaming support, and reactive integration. The client runs on the JVM
 (`java.net.http`), Scala.js (Fetch / Node.js), and Scala Native (libcurl). The
 server is built into `uni` on the JVM (JDK 24+) and Scala Native, uses Node.js

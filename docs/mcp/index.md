@@ -24,7 +24,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ## 2. Define a service trait
 
 Any trait works. Method parameters and return values are (de)serialized with
-uni's [Weaver](/core/weaver), so primitives, `Option`, `Seq`, `Map`, and case
+Uni's [Weaver](/core/weaver), so primitives, `Option`, `Seq`, `Map`, and case
 classes are all supported. Add `@description` annotations — Surface does not
 capture Scaladoc, so this is how tool and parameter descriptions reach the
 client:
@@ -63,7 +63,7 @@ blocks until the client closes stdin; on Scala.js (Node.js) it returns
 immediately and the server runs on the event loop.
 
 ::: tip Logs go to stderr
-MCP reserves stdout for protocol messages. `serveStdio()` routes uni's logging
+MCP reserves stdout for protocol messages. `serveStdio()` routes Uni's logging
 to stderr (on Scala.js it replaces the default `console.log` handler), so
 `info(...)` / `debug(...)` calls in your tools are safe.
 :::
@@ -178,7 +178,7 @@ $ ./weather-server
 
 The same server can speak MCP's **Streamable HTTP** transport: one endpoint
 that answers each POSTed JSON-RPC message with `application/json` (202 for
-notifications). `httpHandler` exposes it as a standard uni
+notifications). `httpHandler` exposes it as a standard Uni
 [`RxHttpHandler`](/http/server), so it mounts on the HTTP server of every
 platform:
 
@@ -195,7 +195,7 @@ Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 Http.server.withPort(8080).withRxHandler(mcp.httpHandler).start()
 ```
 
-On the JVM, `Http.server` uses uni's built-in server (JDK 24+), or Netty when
+On the JVM, `Http.server` uses Uni's built-in server (JDK 24+), or Netty when
 the optional `uni-netty` module is on the classpath. To use Netty, add:
 
 ```scala
@@ -266,7 +266,7 @@ import wvlet.uni.json.JSON.{JSONObject, JSONString}
 
 `MCP.client` returns an immutable `MCPClientConfig`, configured with `withXXX(...)` like
 `Http.client`. `connect` returns an `Rx[MCPClient]` once the handshake completes, so a whole session composes
-with uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
+with Uni's reactive streams (`for` / `map` / `flatMap`). The client covers the same scope as the
 server — `tools/list`, `tools/call`, `ping` (the `initialize` handshake happens inside `connect`,
 as the spec allows only one per session) — and discovers tools **dynamically**, so no client code
 generation is needed: names, descriptions, and input schemas arrive from `tools/list` as
@@ -275,7 +275,7 @@ generation is needed: names, descriptions, and input schemas arrive from `tools/
 Wrap `connect` in `RxResource.fromAutoCloseable(...).use { ... }` to make `close()` run even when
 the session fails (or an exception is thrown): the resource is released after `use`'s body
 completes, on both success and error paths. Each call performs a blocking HTTP POST when the
-returned `Rx` is run (uni's synchronous HTTP channel), so `session.run()` drives a full session on
+returned `Rx` is run (Uni's synchronous HTTP channel), so `session.run()` drives a full session on
 the current thread.
 
 | Method | Default | Purpose |
@@ -289,7 +289,7 @@ HTTP retries are always disabled: `tools/call` is not idempotent, so a retry cou
 twice.
 
 A `Mcp-Session-Id` issued by the server is captured from `initialize` and echoed on subsequent
-requests; session-less servers (such as uni's own `MCPServer`) do not issue one. Errors follow the
+requests; session-less servers (such as Uni's own `MCPServer`) do not issue one. Errors follow the
 server's taxonomy: JSON-RPC errors and HTTP failures are thrown as
 `MCPClientException(code, message)`, while a failing tool returns `MCPToolResult(isError = true)`
 instead of throwing.
@@ -300,5 +300,5 @@ The current implementation covers the MCP **tools** capability over the
 **stdio** and **Streamable HTTP** transports (protocol version `2025-06-18`;
 `2025-03-26` clients are also accepted). Resources, prompts, and SSE streaming
 for server-initiated notifications are planned as follow-ups. Under the hood,
-dispatch reuses uni's transport-neutral [RPC](/http/rpc) layer, so behavior
-(parameter matching, default values, error statuses) is identical to uni RPC.
+dispatch reuses Uni's transport-neutral [RPC](/http/rpc) layer, so behavior
+(parameter matching, default values, error statuses) is identical to Uni RPC.

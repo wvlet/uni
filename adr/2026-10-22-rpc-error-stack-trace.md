@@ -18,4 +18,4 @@ Rejected: gating all frames on `detailedErrors` (safer, but migrating services w
 ## Consequences
 
 - RPC errors thrown by handlers now reveal server code locations to clients by default. Handlers that face untrusted clients should use `noStackTrace` where that matters.
-- Error bodies no longer contain `"appErrorCode":null`. Readers treat an absent field as None, so existing uni clients are unaffected.
+- Error bodies no longer contain `"appErrorCode":null`. Readers treat an absent field as None, so existing Uni clients are unaffected.

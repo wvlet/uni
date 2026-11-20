@@ -51,7 +51,7 @@ val yaml: String = OpenAPI
 
 ## With sbt-uni
 
-The `uniOpenAPI` task writes the document from the build. It runs the generator in a forked JVM on the project's runtime classpath, so it uses the uni version your app depends on, and the build never loads your classes.
+The `uniOpenAPI` task writes the document from the build. It runs the generator in a forked JVM on the project's runtime classpath, so it uses the Uni version your app depends on, and the build never loads your classes.
 
 ```scala
 // project/plugins.sbt

@@ -1,6 +1,6 @@
 # HTTP Client
 
-uni provides both synchronous and asynchronous HTTP clients.
+Uni provides both synchronous and asynchronous HTTP clients.
 
 ## Creating Clients
 
@@ -20,7 +20,7 @@ val asyncClient = Http.client.newAsyncClient
 
 ## Platform Backends
 
-The same `Http.client` API runs on all three Scala platforms. uni selects the
+The same `Http.client` API runs on all three Scala platforms. Uni selects the
 right transport for the runtime automatically — you write the request once and
 it works on JVM, Scala.js, and Scala Native.
 
@@ -71,7 +71,7 @@ When you do use the client, install libcurl as a **shared library** and Scala
 Native adds `-lcurl` for you — no `nativeConfig` entry needed.
 
 ::: warning libcurl must be dynamically linked
-uni looks `curl_easy_setopt` and `curl_easy_getinfo` up at runtime, among the
+Uni looks `curl_easy_setopt` and `curl_easy_getinfo` up at runtime, among the
 modules already loaded into the process. A statically linked libcurl (`libcurl.a`,
 or vcpkg's `*-windows-static` triplets) exports no symbols to find, so the binary
 links but aborts on its first request with `uni_curl_shim: libcurl symbol

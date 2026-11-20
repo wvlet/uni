@@ -23,7 +23,7 @@ println(path.extension)  // "txt"
 
 For most `IO` operations — read/write, list, copy, move, delete, exists,
 watch, and the gzip/zip helpers — you can pass paths as plain `String`s
-and skip the `IO.path(...)` wrapper. `IOPath` is uni's cross-platform path
+and skip the `IO.path(...)` wrapper. `IOPath` is Uni's cross-platform path
 abstraction — reach for it (via `IO.path(...)`) when you need composition
 (`/`), path queries (`fileName`, `parent`, `extension`, ...), or path
 arithmetic (`normalize`, `relativeTo`). A few APIs that take an

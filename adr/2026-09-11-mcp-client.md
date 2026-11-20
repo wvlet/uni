@@ -30,12 +30,12 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
 3. **Sync HTTP channel behind an Rx API.** The JVM `HttpAsyncClient` is not runnable today: its
    `JavaHttpAsyncChannel` returns `RxDeferred.get`, an anonymous `Rx` that `RxRunner.run` matches
    on no case (`MatchError`), and `RxDeferred`'s "handled specially by RxRunner" comment is
-   stale — uni-core cannot reference uni's `RxDeferred` (dependency direction), so the special
+   stale — uni-core cannot reference Uni's `RxDeferred` (dependency direction), so the special
    case was never implemented. Until that is fixed (e.g. move `RxDeferred` to uni-core and give
    RxRunner a callback-based source), the client uses `HttpSyncClient` and wraps each call in
    `Rx.single`, so each call blocks when the returned Rx is run. This matches the blocking stdio
    server and works on all platforms (browser JS has no sync HTTP anyway and throws, as
-   everywhere else in uni). Retries are disabled by default because JSON-RPC calls
+   everywhere else in Uni). Retries are disabled by default because JSON-RPC calls
    (`tools/call`) are not idempotent.
 
 4. **Message layer shares one code path.** `JsonRpc` gained the client counterparts of its
@@ -43,7 +43,7 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
    `parseResponse(...)` extracts `result`/`error` and validates the shape, so message framing and
    standard error codes stay in one place. Parse failures are **thrown** as
    `JsonRpcParseException(id, code, message)` (the pre-existing `parseRequest` was refactored from
-   `Either` to match): uni keeps `throw`/`try` inside internal code and reserves `Result` for API
+   `Either` to match): Uni keeps `throw`/`try` inside internal code and reserves `Result` for API
    boundaries that represent failure as a value — `Either[(...), ...]` is not used for exception
    propagation.
 

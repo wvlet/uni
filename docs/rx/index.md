@@ -1,6 +1,6 @@
 # Reactive Streams (Rx)
 
-uni provides a lightweight reactive streams implementation for handling asynchronous data flows.
+Uni provides a lightweight reactive streams implementation for handling asynchronous data flows.
 
 ## Overview
 

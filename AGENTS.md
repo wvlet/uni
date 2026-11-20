@@ -7,10 +7,10 @@
 ## Modules
 
 - **uni-core**: Pure-Scala essential libraries shared with uni-test (logging, Rx core, object wiring (Design), Surface; on Scala.js also the uni-dom rendering core and its testing toolkit, so uni-test can ship `DomTestSupport`)
-- **uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
+- **Uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
 - **uni-test**: Unit testing framework
 
-The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via uni's own [`sbt-uni-crossproject`](sbt-plugins/sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
+The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via Uni's own [`sbt-uni-crossproject`](sbt-plugins/sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
 
 The sbt plugins (sbt-uni, sbt-uni-crossproject, sbt-uni-javadoc, sbt-uni-playwright) are a separate sbt build in [`sbt-plugins/`](sbt-plugins/): run `../sbt compile`, `../sbt "<project>/scripted"`, or `../sbt scalafmtAll` from that directory.
 
@@ -54,7 +54,7 @@ See `.github/instructions/unitest.instructions.md` for more.
 - String interpolation: always use `${...}` with brackets
 - Avoid `Try[A]` return types
 - Config classes: `withXXX(...)` for all fields, `noXXX()` for optional fields
-- uni: minimal dependencies only
+- Uni: minimal dependencies only
 - Community tone: Uni is part of the Scala community. When docs, posts, or metadata mention other Scala libraries (the Scala Toolkit, sttp, uPickle, os-lib, MUnit, and others), present them respectfully as good choices and as libraries that work alongside Uni. Explain when each one fits; never frame them as rivals or as mistakes to avoid.
 - Terminology: call `Design` "object wiring", never "dependency injection" or "DI", in code, docs, and metadata. The DI label pulls in debates from legacy Java DI frameworks that don't apply to Uni.
 

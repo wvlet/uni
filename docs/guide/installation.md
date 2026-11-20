@@ -2,13 +2,13 @@
 
 ## Requirements
 
-- Scala 3.9 (LTS) or later. uni's artifacts are compiled with Scala 3.9, and
+- Scala 3.9 (LTS) or later. Uni's artifacts are compiled with Scala 3.9, and
   older compilers cannot read their TASTy.
 - sbt 1.9+ or sbt 2.x
 
 ## Adding Dependencies
 
-Add uni to your `build.sbt`:
+Add Uni to your `build.sbt`:
 
 ```scala
 // Core utilities (object wiring, logging, JSON, HTTP, Rx, etc.)
@@ -56,7 +56,7 @@ On sbt 2.x, `%%` resolves the platform-specific artifact for all
 platforms, so `%%%` is not needed.
 
 ::: tip Scala Native and libcurl
-No system libraries are needed to build a Scala Native binary against uni. Only
+No system libraries are needed to build a Scala Native binary against Uni. Only
 reaching for the HTTP client pulls in libcurl, which must then be present as a
 shared library — see
 [Linking libcurl on Scala Native](../http/client.md#linking-libcurl-on-scala-native).
@@ -64,7 +64,7 @@ shared library — see
 
 ## Newest Releases
 
-Every uni release is published to the wvlet Maven repository,
+Every Uni release is published to the wvlet Maven repository,
 `https://repo.wvlet.org/maven2`. Maven Central limits how much a
 project may publish each month, so only some releases are copied there.
 The versions shown on this site are the newest ones on Maven Central and
@@ -103,10 +103,10 @@ The artifacts and signatures are the same files that Maven Central gets,
 under the same coordinates. To go back, pin a version that is on Maven
 Central and remove the resolver.
 
-::: tip Publishing a library that depends on uni
-If your library is published to Maven Central, depend on a uni version
+::: tip Publishing a library that depends on Uni
+If your library is published to Maven Central, depend on a Uni version
 that is on Maven Central and don't add the wvlet resolver to its build.
-Your users then need no extra resolver for uni.
+Your users then need no extra resolver for Uni.
 :::
 
 ## Imports
@@ -154,7 +154,7 @@ You should see log output with your message.
 
 ## IDE Support
 
-uni works with all major Scala IDEs:
+Uni works with all major Scala IDEs:
 
 - **IntelliJ IDEA** with Scala plugin
 - **VS Code** with Metals

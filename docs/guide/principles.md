@@ -1,10 +1,10 @@
 # Design Principles
 
-uni is built on a set of core principles that guide its design and implementation.
+Uni is built on a set of core principles that guide its design and implementation.
 
 ## Minimal Dependencies
 
-uni avoids heavy external dependencies. The core module has minimal dependencies, making it suitable for:
+Uni avoids heavy external dependencies. The core module has minimal dependencies, making it suitable for:
 
 - Applications with strict dependency requirements
 - Libraries that don't want to impose dependencies on users
@@ -24,7 +24,7 @@ Platform-specific code is isolated in `.jvm`, `.js`, and `.native` directories.
 
 ## Compile-Time Safety
 
-uni leverages Scala 3's type system for compile-time guarantees:
+Uni leverages Scala 3's type system for compile-time guarantees:
 
 ```scala
 // Object wiring is type-safe
@@ -114,7 +114,7 @@ val config = HttpClientConfig()
 
 ## Avoid Try[A] Return Types
 
-Instead of returning `Try[A]`, uni uses:
+Instead of returning `Try[A]`, Uni uses:
 
 - Direct exceptions for programming errors
 - `Either[Error, A]` for expected failures

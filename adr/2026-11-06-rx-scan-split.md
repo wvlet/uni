@@ -5,7 +5,7 @@
 `map` and `flatMap` over an `Rx[Seq[A]]` keep no memory between emissions: each one builds a new
 `Seq`, so a consumer can't tell a kept item from a new one. uni-dom's `eachRx` (see
 `2026-11-05-keyed-list-rendering.md`) solved this inside `DomRenderer` with a key → `RxVar` table,
-which only the DOM renderer on Scala.js could use. uni `Rx` also had no operator that carries state
+which only the DOM renderer on Scala.js could use. Uni `Rx` also had no operator that carries state
 across emissions.
 
 ## Decision
@@ -34,7 +34,7 @@ across emissions.
 
 - One key table shared by all subscriptions of the same `split` (like `CacheOp`): subscribers
   would see the same row `Rx`s, but stopping rows would need reference counting across
-  subscribers, a `share` operator uni doesn't have.
+  subscribers, a `share` operator Uni doesn't have.
 - Emitting the list on every upstream change: still correct with `each`, but every row change
   would make the list consumer diff the whole list.
 - `fold` as the name: in Scala collections `fold` returns one final value. `split` follows
