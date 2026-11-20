@@ -1,7 +1,6 @@
 package wvlet.uni.parquet
 
 import wvlet.uni.msgpack.impl.PureScalaBufferPacker
-import wvlet.uni.msgpack.spi.BufferPacker
 import wvlet.uni.msgpack.spi.MessagePack
 import wvlet.uni.msgpack.spi.Packer
 import wvlet.uni.msgpack.spi.Value
@@ -73,9 +72,18 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
   def schema: ParquetSchema = core.schema
   def numRows: Long         = core.numRows
 
-  private val packer = MessagePack.newPacker()
+  // Reused for every non-JSON record; the shredder reads the record in the packer's buffer, as in
+  // ParquetWriter.write
+  private val packer = PureScalaBufferPacker()
 
-  def write(record: Any): Unit = core.write(RecordBytes.of(record, packer))
+  def write(record: Any): Unit =
+    record match
+      case json: String =>
+        core.write(RecordBytes.fromJson(json))
+      case other =>
+        packer.clear
+        RecordBytes.pack(packer, other)
+        core.write(packer.writtenArray, packer.writtenSize)
 
   def writeAll(records: IterableOnce[Any]): Unit = records.iterator.foreach(write)
 
@@ -87,20 +95,14 @@ class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoClosea
 /** Converts records into MessagePack bytes for the shredder */
 private[parquet] object RecordBytes:
 
-  def of(record: Any, packer: BufferPacker): Array[Byte] =
-    record match
-      case json: String =>
-        try
-          MessagePack.fromJSON(json)
-        catch
-          case e: ParquetException =>
-            throw e
-          case e: Exception =>
-            throw ParquetException(s"A record string is not valid JSON: ${e.getMessage}", e)
-      case other =>
-        packer.clear
-        pack(packer, other)
-        packer.toByteArray
+  def fromJson(json: String): Array[Byte] =
+    try
+      MessagePack.fromJSON(json)
+    catch
+      case e: ParquetException =>
+        throw e
+      case e: Exception =>
+        throw ParquetException(s"A record string is not valid JSON: ${e.getMessage}", e)
 
   def pack(p: Packer, v: Any): Unit =
     v match
