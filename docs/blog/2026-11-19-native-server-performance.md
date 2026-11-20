@@ -8,7 +8,7 @@ image: /blog/native-server-performance.png
 
 # Scala Without the JVM: Close to Rust's Speed, With 25x Less Memory Than the JVM
 
-**Compiled with Scala Native, Uni's HTTP server comes close to Rust and the JVM in throughput while using about 25x less memory than the JVM.** On the same endpoint and machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with Uni on the JVM on a small RPC response and reaches about 80% of the JVM's throughput on a 3.4 KB one, all in 25–28 MB of memory, where the JVM build used 590–614 MB and 650 MB.
+**Compiled with Scala Native, Uni's HTTP server comes close to Rust and the JVM in throughput while using about 25x less memory than the JVM.** On the same endpoint and machine, it reaches about 80% or more of the throughput of Rust with axum. It keeps pace with Uni on the JVM on a small RPC response and reaches about 80% of the JVM's throughput on a 3.4 KB one, using 25 MB and 27 MB of memory, where the JVM build used 590–614 MB and 650 MB.
 
 Below are the results next to Node.js, Python, Ruby, and Rust, followed by how we got there. A day earlier, the native server was about 5x slower than the JVM on the small response and about 50x slower on the larger one.
 
