@@ -19,8 +19,9 @@ import wvlet.uni.rx.Rx
 /**
   * An object location such as `s3://bucket/path/to/key` or `gs://bucket/path/to/key`. The scheme
   * only names the location; the store decides which service answers, so `s3://` also addresses R2
-  * or MinIO buckets through an [[S3ObjectStore]] configured for them, and `gs://` goes to Google
-  * Cloud Storage through a [[GcsObjectStore]].
+  * or MinIO buckets through an [[S3ObjectStore]] configured for them, `gs://` goes to Google Cloud
+  * Storage through a [[GcsObjectStore]], and `az://container/blob` to Azure Blob Storage through an
+  * [[AzureObjectStore]], whose [[AzureConfig]] names the storage account.
   */
 case class ObjectUri(bucket: String, key: String, scheme: String = "s3"):
   /** A key under this one, joined with `/` */
@@ -102,8 +103,9 @@ trait ObjectStore extends AutoCloseable:
 
   /**
     * A URL that lets anyone holding it send `method` to the object until it expires (at most 7
-    * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it). Fails
-    * with [[StorageErrorCode.NoCredentials]] when the store's credentials can't sign.
+    * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it; Azure
+    * also needs an `x-ms-blob-type: BlockBlob` header on the upload). Fails with
+    * [[StorageErrorCode.NoCredentials]] when the store's credentials can't sign.
     */
   def presign(
       uri: ObjectUri,
@@ -155,6 +157,12 @@ object ObjectStore:
     */
   def gcs(config: GcsConfig = GcsConfig.default): GcsObjectStore = GcsObjectStore(config)
 
+  /**
+    * Azure Blob Storage. The default config reads `AZURE_STORAGE_CONNECTION_STRING`, or the account
+    * from `AZURE_STORAGE_ACCOUNT` with the Azure credential chain. See [[AzureConfig]].
+    */
+  def azure(config: AzureConfig = AzureConfig.default): AzureObjectStore = AzureObjectStore(config)
+
 /**
   * An upload stream. `close()` publishes the object; `abort()` discards everything written so far,
   * and no object appears.
@@ -164,7 +172,9 @@ abstract class ObjectOutputStream extends java.io.OutputStream:
 
 /**
   * Error codes. S3 codes such as `NoSuchKey` or `AccessDenied` pass through as sent; GCS errors map
-  * to the same codes, or pass Google's `reason` (such as `rateLimitExceeded`) through.
+  * to the same codes, or pass Google's `reason` (such as `rateLimitExceeded`) through; Azure codes
+  * such as `BlobNotFound` pass through as sent. [[StorageException.isNotFound]] works on every
+  * store.
   */
 object StorageErrorCode:
   val NoSuchKey: String     = "NoSuchKey"
@@ -176,6 +186,9 @@ object StorageErrorCode:
   /** Credentials were found but can't be used (a malformed key, an unsupported file type) */
   val InvalidCredentials: String = "InvalidCredentials"
   val InvalidResponse: String    = "InvalidResponse"
+
+  /** The store's configuration can't work, such as a bearer token over plain HTTP */
+  val InvalidConfig: String = "InvalidConfig"
 
 /**
   * An object store refused or failed a request

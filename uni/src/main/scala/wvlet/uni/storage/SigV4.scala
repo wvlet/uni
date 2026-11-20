@@ -168,7 +168,10 @@ object SigV4:
 
 end SigV4
 
-/** UTC timestamps without java.time formatters, which Scala.js and Native don't all ship */
+/**
+  * UTC timestamps (for AWS, GCS, and Azure) without java.time formatters, which Scala.js and Native
+  * don't all ship
+  */
 private[storage] object AwsTime:
   /** `yyyyMMdd'T'HHmmss'Z'` */
   def amzDate(epochMillis: Long): String =
@@ -177,6 +180,41 @@ private[storage] object AwsTime:
     val sod       = Math.floorMod(secs, 86400L).toInt
     val (y, m, d) = civilFromDays(days)
     f"${y}%04d${m}%02d${d}%02dT${sod / 3600}%02d${(sod / 60) % 60}%02d${sod % 60}%02dZ"
+
+  /** RFC 1123, as HTTP `Date` and Azure `x-ms-date` use: `Fri, 20 Nov 2026 18:00:00 GMT` */
+  def httpDate(epochMillis: Long): String =
+    val secs      = Math.floorDiv(epochMillis, 1000L)
+    val days      = Math.floorDiv(secs, 86400L)
+    val sod       = Math.floorMod(secs, 86400L).toInt
+    val (y, m, d) = civilFromDays(days)
+    // 1970-01-01 was a Thursday
+    val dow          = DayNames(Math.floorMod(days + 4, 7L).toInt)
+    val (hh, mm, ss) = (sod / 3600, (sod / 60) % 60, sod % 60)
+    f"${dow}, ${d}%02d ${MonthNames(m - 1)} ${y}%04d ${hh}%02d:${mm}%02d:${ss}%02d GMT"
+
+  /** ISO-8601 to the second, as Azure SAS tokens use: `2026-11-20T18:00:00Z` */
+  def isoSeconds(epochMillis: Long): String =
+    val secs      = Math.floorDiv(epochMillis, 1000L)
+    val days      = Math.floorDiv(secs, 86400L)
+    val sod       = Math.floorMod(secs, 86400L).toInt
+    val (y, m, d) = civilFromDays(days)
+    f"${y}%04d-${m}%02d-${d}%02dT${sod / 3600}%02d:${(sod / 60) % 60}%02d:${sod % 60}%02dZ"
+
+  private val DayNames   = IndexedSeq("Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat")
+  private val MonthNames = IndexedSeq(
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec"
+  )
 
   /** Parses an ISO-8601 UTC timestamp such as `2026-11-20T18:00:00Z` into epoch millis */
   def parseIso(s: String): Option[Long] =

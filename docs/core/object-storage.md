@@ -1,5 +1,5 @@
 ---
-description: Read and write objects in AWS S3, S3-compatible stores (Cloudflare R2, MinIO), and Google Cloud Storage from Scala on the JVM, Scala.js, and Scala Native, with no AWS or Google SDK. Covers credentials (including Google Application Default Credentials), ranged reads, listing, multipart and resumable uploads, presigned and signed URLs, and Parquet files in S3 and GCS.
+description: Read and write objects in AWS S3, S3-compatible stores (Cloudflare R2, MinIO), Google Cloud Storage, and Azure Blob Storage from Scala on the JVM, Scala.js, and Scala Native, with no AWS, Google, or Azure SDK. Covers credentials (including Google Application Default Credentials), ranged reads, listing, multipart and resumable uploads, presigned and signed URLs, and Parquet files in S3 and GCS.
 ---
 
 # Object Storage
@@ -7,10 +7,11 @@ description: Read and write objects in AWS S3, S3-compatible stores (Cloudflare 
 `wvlet.uni.storage` reads and writes objects in [AWS S3](https://aws.amazon.com/s3/), in
 services that speak the S3 API ([Cloudflare R2](https://developers.cloudflare.com/r2/) and
 self-hosted servers such as [MinIO](https://min.io/) or the
-[Versity S3 Gateway](https://github.com/versity/versitygw)), and in
-[Google Cloud Storage](#google-cloud-storage) with Google credentials. It is part of the `uni`
-artifact and signs requests in pure Scala (AWS Signature Version 4, Google OAuth 2.0 and RSA), so
-the same code runs on the JVM, Scala Native, and Scala.js, with no AWS or Google SDK.
+[Versity S3 Gateway](https://github.com/versity/versitygw)), in
+[Google Cloud Storage](#google-cloud-storage) with Google credentials, and in
+[Azure Blob Storage](#azure-blob-storage). It is part of the `uni` artifact and signs requests in
+pure Scala (AWS Signature Version 4, Google OAuth 2.0 and RSA, Azure Shared Key and SAS), so the
+same code runs on the JVM, Scala Native, and Scala.js, with no AWS, Google, or Azure SDK.
 
 ```scala
 import wvlet.uni.storage.ObjectStore
@@ -26,10 +27,12 @@ store.delete("s3://my-bucket/hello.txt")
 store.close()
 ```
 
-Every method takes an `s3://bucket/key` (or `gs://bucket/key`) string or an `ObjectUri`. S3 and
-GCS stores share the `ObjectStore` interface, so code written against it works with either. `head` returns `None` for a
-missing object; the other methods raise `StorageException`, whose `code` is the store's error
-code (`NoSuchKey`, `AccessDenied`, `SlowDown`, …) and `statusCode` the HTTP status.
+Every method takes an `s3://bucket/key` (or `gs://bucket/key`, `az://container/key`) string or an
+`ObjectUri`. The S3, GCS, and Azure stores share the `ObjectStore` interface, so code written
+against it works with any of them. `head` returns `None` for a missing object; the other methods
+raise `StorageException`, whose `code` is the store's error code (`NoSuchKey`, `AccessDenied`,
+`SlowDown`, …) and `statusCode` the HTTP status. `e.isNotFound` checks for a missing object on
+every store.
 
 ## Credentials and Region
 
@@ -148,6 +151,78 @@ For local tests, point `STORAGE_EMULATOR_HOST` at an emulator such as
 [fake-gcs-server](https://github.com/fsouza/fake-gcs-server); `ObjectStore.gcs()` then sends
 anonymous requests to it, as Google's own client libraries do.
 
+## Azure Blob Storage
+
+`ObjectStore.azure()` reads and writes [Azure Blob Storage](https://learn.microsoft.com/azure/storage/blobs/)
+with the same methods, addressed as `az://container/path/to/blob` (`azure://` works too). The
+storage account comes from the store's `AzureConfig`, the way an S3 store's endpoint picks the
+service:
+
+```scala
+import wvlet.uni.storage.AzureConfig
+
+val azure = ObjectStore.azure(AzureConfig().withSharedKey("myaccount", "<account-key>"))
+
+azure.put("az://my-container/hello.txt", "Hello".getBytes("UTF-8"))
+val azureHello: Array[Byte] = azure.get("az://my-container/hello.txt")
+azure.list("az://my-container/logs/").foreach(o => println(o.uri))
+azure.close()
+```
+
+`ObjectStore.azure()` with no arguments reads `AZURE_STORAGE_CONNECTION_STRING`, or takes the
+account from `AZURE_STORAGE_ACCOUNT` and uses the first credential source that answers, in the
+order Azure's SDKs use:
+
+1. `AZURE_STORAGE_KEY` (Shared Key), or `AZURE_STORAGE_SAS_TOKEN`
+2. A service principal's secret: `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`
+3. Workload identity on AKS: `AZURE_FEDERATED_TOKEN_FILE` with `AZURE_TENANT_ID` and `AZURE_CLIENT_ID`
+4. Managed identity: App Service and Functions, then the VM instance metadata service
+
+Microsoft Entra ID tokens are cached until shortly before they expire. They are sent only over
+HTTPS, and need a role such as *Storage Blob Data Contributor* on the account. Azure CLI logins
+are not read; pass a token from `az account get-access-token --resource https://storage.azure.com/`
+with `AzureCredentialsProvider.bearer(token)`. Sovereign clouds set `withEndpoint` and
+`AZURE_AUTHORITY_HOST`.
+
+```scala
+import wvlet.uni.storage.AzureCredentialsProvider
+
+// A connection string from the Azure portal
+val fromPortal = ObjectStore.azure(AzureConfig.fromConnectionString("<connection-string>"))
+
+// A SAS token: requests carry it as is
+val withSas = ObjectStore.azure(AzureConfig().withAccount("myaccount").withSasToken("<sas-token>"))
+
+// A service principal
+val app = ObjectStore.azure(
+  AzureConfig()
+    .withAccount("myaccount")
+    .withCredentials(AzureCredentialsProvider.clientSecret("<tenant-id>", "<client-id>", "<secret>"))
+)
+
+// The Azurite emulator, with its well-known development account
+val emulator = ObjectStore.azure(AzureConfig.azurite())
+emulator.createContainer("my-container")
+```
+
+Missing blobs raise `StorageException` with Azure's own error code (`BlobNotFound`,
+`ContainerNotFound`, `AuthenticationFailed`, …); `isNotFound` is true for them.
+
+`newOutputStream` uploads 8 MiB blocks (set `withBlockSizeBytes`) with Put Block and commits them
+on `close()`; a stream that never fills a block sends one PUT. A blob holds at most 50,000
+blocks, so raise the block size for objects over about 390 GiB. `abort()` skips the commit: no blob
+appears, an existing blob keeps its content, and Azure discards the uncommitted blocks after a
+week.
+
+`presign` returns a SAS URL. With an account key it is a service SAS; with Entra ID credentials,
+a user delegation SAS, which costs one extra request for the delegation key and is valid for at
+most 7 days. A store that holds only a SAS token can't mint narrower URLs, so `presign` raises
+`NoCredentials` there; share a URL with that token instead. An upload to a PUT URL must send the
+`x-ms-blob-type: BlockBlob` header, as Azure requires. SAS URLs also work with `ByteSource.ofUrl`.
+
+In browsers, use SAS tokens, ideally short-lived user delegation SAS URLs handed out by your server,
+and add a CORS rule to the storage account. Never ship an account key in a web page.
+
 ## Ranges and Listings
 
 `getRange(uri, offset, length)` reads part of an object with an HTTP Range request. A range that
@@ -229,7 +304,7 @@ hand the page presigned URLs. Never ship long-lived access keys or service-accou
 page. The bucket also needs a CORS rule that allows the
 page's origin.
 
-## Parquet Files in S3 and GCS
+## Parquet Files in Object Storage
 
 [uni-parquet](../text/parquet) reads Parquet files straight from S3 or GCS with ranged reads,
 fetching only the footer and the column chunks it needs:
@@ -249,8 +324,10 @@ writer.close()
 ```
 
 `Parquet.openS3(uri, config)` takes an `S3Config` for R2 or MinIO, `Parquet.openGcs("gs://...")`
-reads from Google Cloud Storage, and `openS3Async` / `openGcsAsync` read in browsers. A writer that fails, or whose `abort()` you call, aborts the upload, so no partial file
-appears.
+reads from Google Cloud Storage, `Parquet.openAzure("az://container/key")` from Azure Blob, and
+`openS3Async` / `openGcsAsync` / `openAzureAsync` read in browsers. `ByteSource.ofObject(store, uri)`
+reads from any store you already hold. A writer that fails, or whose `abort()` you call, aborts the
+upload, so no partial file appears.
 
 ## When to Use Another Library
 
@@ -259,5 +336,8 @@ encryption settings, object lock, transfer acceleration, and parallel transfers)
 credential source, and is a good choice for JVM applications that use S3 heavily or other AWS
 services too. The [Google Cloud Storage client library for Java](https://cloud.google.com/java/docs/reference/google-cloud-storage/latest/overview)
 does the same for GCS, with every credential type (including workload identity federation) and
-features such as parallel composite uploads. Choose `wvlet.uni.storage` for the common object
+features such as parallel composite uploads. The
+[Azure SDK for Java](https://learn.microsoft.com/azure/developer/java/sdk/) covers every Azure
+Storage feature (Data Lake directories, leases, immutability policies, parallel transfers) and
+every Entra ID credential type, including Azure CLI and developer tool logins. Choose `wvlet.uni.storage` for the common object
 operations on Scala.js or Scala Native, in browsers, or with no dependencies beyond Uni.

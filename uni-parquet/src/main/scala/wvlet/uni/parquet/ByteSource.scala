@@ -9,6 +9,7 @@ import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.io.IOPath
 import wvlet.uni.rx.Rx
+import wvlet.uni.storage.AzureConfig
 import wvlet.uni.storage.GcsConfig
 import wvlet.uni.storage.ObjectStore
 import wvlet.uni.storage.ObjectUri
@@ -107,6 +108,16 @@ object ByteSource:
 
   def ofGcsAsync(uri: String, config: GcsConfig = GcsConfig.default): AsyncByteSource =
     AsyncObjectSource(ObjectStore.gcs(config), ObjectUri.parse(uri), true)
+
+  /** An Azure Blob such as `az://container/key.parquet`, in the storage account of `config` */
+  def ofAzure(uri: String, config: AzureConfig = AzureConfig.default): ByteSource = ObjectSource(
+    ObjectStore.azure(config),
+    ObjectUri.parse(uri),
+    true
+  )
+
+  def ofAzureAsync(uri: String, config: AzureConfig = AzureConfig.default): AsyncByteSource =
+    AsyncObjectSource(ObjectStore.azure(config), ObjectUri.parse(uri), true)
 
 end ByteSource
 

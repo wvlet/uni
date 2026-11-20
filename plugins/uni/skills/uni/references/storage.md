@@ -1,9 +1,10 @@
-# Object storage (S3, R2, MinIO, Google Cloud Storage)
+# Object storage (S3, R2, MinIO, Google Cloud Storage, Azure Blob)
 
 `wvlet.uni.storage` (in the `uni` artifact) reads and writes objects in AWS S3 and
-S3-compatible stores (AWS Signature V4) and in Google Cloud Storage (OAuth 2.0), in
-pure Scala: JVM, Scala.js, and Scala Native, no AWS or Google SDK. Both stores
-implement `ObjectStore`, so code written against it works with either. Sync methods run on the JVM, Native, and Node.js; `...Async`
+S3-compatible stores (AWS Signature V4), Google Cloud Storage (OAuth 2.0), and Azure
+Blob Storage (Shared Key, SAS, Entra ID), in pure Scala: JVM, Scala.js, and Scala
+Native, no AWS, Google, or Azure SDK. All stores
+implement `ObjectStore`, so code written against it works with any of them. Sync methods run on the JVM, Native, and Node.js; `...Async`
 methods (returning `Rx`) run everywhere, including browsers.
 
 Full reference: https://wvlet.org/uni/core/object-storage.md
@@ -97,3 +98,38 @@ multiples of 256 KiB). An unusable credentials file (malformed, or a type such a
 `external_account`) fails with code `InvalidCredentials` rather than falling
 through. `STORAGE_EMULATOR_HOST` points `ObjectStore.gcs()` at an emulator such as
 fake-gcs-server with anonymous requests. `S3Config.gcs` remains for HMAC keys.
+
+## Azure Blob Storage
+
+Same `ObjectStore` API with `az://container/blob` URIs (`azure://` also works).
+The storage account comes from `AzureConfig`, not the URI.
+
+```scala
+import wvlet.uni.storage.{AzureConfig, AzureCredentialsProvider}
+
+// Default: AZURE_STORAGE_CONNECTION_STRING, or AZURE_STORAGE_ACCOUNT plus
+// AZURE_STORAGE_KEY / AZURE_STORAGE_SAS_TOKEN / service principal env vars /
+// workload identity / managed identity
+val azure = ObjectStore.azure()
+
+val withKey  = AzureConfig().withSharedKey("myaccount", "<account-key>")
+val withSas  = AzureConfig().withAccount("myaccount").withSasToken("<sas-token>")
+val withApp  = AzureConfig()
+  .withAccount("myaccount")
+  .withCredentials(AzureCredentialsProvider.clientSecret("<tenant>", "<client-id>", "<secret>"))
+val portal   = AzureConfig.fromConnectionString("<connection-string>")
+val emulator = AzureConfig.azurite() // Azurite on 127.0.0.1:10000
+
+val blobs = ObjectStore.azure(withKey)
+blobs.put("az://my-container/a.txt", "hi".getBytes("UTF-8"))
+val sasUrl: String = blobs.presign("az://my-container/a.txt") // service SAS (user delegation SAS with Entra ID)
+
+try blobs.get("az://my-container/missing")
+catch case e: StorageException if e.isNotFound => Array.emptyByteArray // code is "BlobNotFound"
+```
+
+`newOutputStream` uploads 8 MiB blocks (Put Block, then Put Block List on
+`close()`); `abort()` skips the commit, so no blob appears. Errors keep Azure's
+codes (`BlobNotFound`, `AuthenticationFailed`); use `isNotFound` to check for a
+missing object on any store. A store holding only a SAS token can't `presign`.
+In browsers, use SAS tokens and a CORS rule; never ship account keys.

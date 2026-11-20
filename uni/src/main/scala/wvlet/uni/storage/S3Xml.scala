@@ -16,12 +16,18 @@ package wvlet.uni.storage
 import scala.collection.mutable
 
 /**
-  * A minimal XML reader for S3 responses (listings, multipart upload ids, errors). It keeps
-  * elements and text, drops attributes, namespace prefixes, comments, and processing instructions,
-  * and decodes the predefined and numeric entities. It is not a general XML parser.
+  * A minimal XML reader for object store responses (S3 and Azure listings, upload ids, errors). It
+  * keeps elements, attributes, and text, drops namespace prefixes, comments, and processing
+  * instructions, and decodes the predefined and numeric entities. It is not a general XML parser.
   */
 private[storage] object S3Xml:
-  case class Elem(name: String, children: Seq[Elem], text: String):
+  case class Elem(
+      name: String,
+      children: Seq[Elem],
+      text: String,
+      attributes: Map[String, String] = Map.empty
+  ):
+    def attribute(name: String): Option[String] = attributes.get(name)
     def child(name: String): Option[Elem]       = children.find(_.name == name)
     def all(name: String): Seq[Elem]            = children.filter(_.name == name)
     def childText(name: String): Option[String] = child(name).map(_.text)
@@ -74,22 +80,11 @@ private[storage] object S3Xml:
       val nameStart = i
       while i < s.length && !s.charAt(i).isWhitespace && s.charAt(i) != '>' && s.charAt(i) != '/' do
         i += 1
-      val name = localName(s.substring(nameStart, i))
-      // Skip attributes, honoring quoted values that may contain '>'
-      var quote: Char = 0
-      while i < s.length && (quote != 0 || (s.charAt(i) != '>' && s.charAt(i) != '/')) do
-        val c = s.charAt(i)
-        if quote != 0 then
-          if c == quote then
-            quote = 0
-        else if c == '"' || c == '\'' then
-          quote = c
-        i += 1
-      if i >= s.length then
-        fail(s"unterminated <${name}>")
+      val name  = localName(s.substring(nameStart, i))
+      val attrs = parseAttributes(name)
       if s.charAt(i) == '/' then
         i = indexOrFail(">", i) + 1
-        Elem(name, Nil, "")
+        Elem(name, Nil, "", attrs)
       else
         i += 1
         val children = mutable.ArrayBuffer.empty[Elem]
@@ -126,10 +121,51 @@ private[storage] object S3Xml:
             text.toString
           else
             text.toString.trim
-        Elem(name, children.toSeq, t)
+        Elem(name, children.toSeq, t, attrs)
       end if
 
     end parseElement
+
+    // Reads `name="value"` pairs up to '>' or '/>'. Quoted values may contain '>' or '/'.
+    private def parseAttributes(elem: String): Map[String, String] =
+      val attrs = Map.newBuilder[String, String]
+      var done  = false
+      while !done do
+        while i < s.length && s.charAt(i).isWhitespace do
+          i += 1
+        if i >= s.length then
+          fail(s"unterminated <${elem}>")
+        val c = s.charAt(i)
+        if c == '>' || c == '/' then
+          done = true
+        else
+          val start = i
+          while i < s.length && s.charAt(i) != '=' && s.charAt(i) != '>' && s.charAt(i) != '/' &&
+            !s.charAt(i).isWhitespace
+          do
+            i += 1
+          val name = localName(s.substring(start, i))
+          while i < s.length && s.charAt(i).isWhitespace do
+            i += 1
+          if i < s.length && s.charAt(i) == '=' then
+            i += 1
+            while i < s.length && s.charAt(i).isWhitespace do
+              i += 1
+            if i >= s.length || (s.charAt(i) != '"' && s.charAt(i) != '\'') then
+              fail(s"unquoted attribute ${name} in <${elem}>")
+            val q   = s.charAt(i)
+            val end = indexOrFail(q.toString, i + 1)
+            attrs += name -> decode(s.substring(i + 1, end))
+            i = end + 1
+          else if name.isEmpty then
+            fail(s"malformed <${elem}>")
+          else
+            // An attribute without a value (not XML, but tolerate it)
+            attrs += name -> ""
+      end while
+      attrs.result()
+
+    end parseAttributes
 
     private def decode(t: String): String =
       if t.indexOf('&') < 0 then
