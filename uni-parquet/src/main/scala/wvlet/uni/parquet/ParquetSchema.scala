@@ -69,6 +69,21 @@ case class ParquetSchema(root: ParquetField.Group):
 
   def field(name: String): Option[ParquetField] = root.field(name)
 
+  /**
+    * The schema with only the given top-level fields, in the given order, for example to write a
+    * projection of a file with [[Parquet.newBatchWriter]]. Leaf column indexes are renumbered.
+    */
+  def select(names: String*): ParquetSchema =
+    val dup = names.diff(names.distinct)
+    if dup.nonEmpty then
+      throw IllegalArgumentException(s"Duplicate columns: ${dup.distinct.mkString(", ")}")
+    val selected = names.map(n =>
+      field(n).getOrElse(throw java.util.NoSuchElementException(s"No column named ${n}"))
+    )
+    ParquetSchema.fromElements(
+      SchemaElements.of(ParquetSchema(root.copy(children = selected.toIndexedSeq)))
+    )
+
   /** True when no column is nested inside a group or repeated */
   def isFlat: Boolean = fields.forall {
     case p: ParquetField.Primitive =>

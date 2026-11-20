@@ -34,14 +34,14 @@ private[parquet] final class FileWriter(
 
   Compressors.check(options.compression)
 
-  private val writers   = schema.columns.map(ColumnWriter(_, options))
-  private val shredder  = Shredder(schema)
-  private val output    = CountingOutput(openOutput())
-  private val rowGroups = mutable.ArrayBuffer.empty[RowGroupMeta]
-  private var groupRows = 0L
-  private var totalRows = 0L
-  private var closed    = false
-  private var failure   = Option.empty[Throwable]
+  private val writers       = schema.columns.map(ColumnWriter(_, options))
+  private lazy val shredder = Shredder(schema)
+  private val output        = CountingOutput(openOutput())
+  private val rowGroups     = mutable.ArrayBuffer.empty[RowGroupMeta]
+  private var groupRows     = 0L
+  private var totalRows     = 0L
+  private var closed        = false
+  private var failure       = Option.empty[Throwable]
 
   io(output.write(Magic))
 
@@ -61,6 +61,38 @@ private[parquet] final class FileWriter(
       if bufferedSize >= options.rowGroupSize then
         flushRowGroup()
     }
+
+  /**
+    * Writes `numRows` rows column by column: `writeSlice(writers, from, to)` appends rows [from,
+    * to) to every column writer, calling `endRow()` after each row. Rows are passed in slices sized
+    * from the bytes per row seen so far, so a row group closes within a few rows of the row group
+    * size, at a row boundary.
+    */
+  def writeColumns(numRows: Int)(writeSlice: (IndexedSeq[ColumnWriter], Int, Int) => Unit): Unit =
+    ensureOpen()
+    io {
+      var from = 0
+      while from < numRows do
+        val to = from + sliceSize(numRows - from)
+        writeSlice(writers, from, to)
+        groupRows += to - from
+        totalRows += to - from
+        val size = bufferedSize
+        bytesPerRow = math.max(1.0, size.toDouble / groupRows)
+        if size >= options.rowGroupSize then
+          flushRowGroup()
+        from = to
+    }
+
+  // Estimated bytes per buffered row, from the current or the previous row group
+  private var bytesPerRow = 0.0
+
+  private def sliceSize(remaining: Int): Int =
+    if bytesPerRow == 0.0 then
+      math.min(remaining, 16)
+    else
+      val left = (options.rowGroupSize - bufferedSize).toDouble / bytesPerRow
+      math.max(1L, math.min(math.min(remaining.toLong, MaxSlice), left.toLong + 1)).toInt
 
   private def bufferedSize: Long =
     var s = 0L
@@ -135,3 +167,4 @@ end FileWriter
 private[parquet] object FileWriter:
   private val Magic     = "PAR1".getBytes("US-ASCII")
   private val CreatedBy = "uni-parquet"
+  private val MaxSlice  = 4096L

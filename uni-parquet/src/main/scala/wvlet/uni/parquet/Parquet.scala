@@ -203,6 +203,48 @@ object Parquet:
       options: ParquetWriteOptions
   ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, () => out))
 
+  /**
+    * Writes [[ColumnBatch]]es with an explicit schema to a local file, column by column. A batch
+    * read from another file can be written unchanged; see [[ParquetBatchWriter]] for the vectors
+    * each column takes.
+    *
+    * {{{
+    * val in = Parquet.open("events.parquet")
+    * val w  = Parquet.newBatchWriter("copy.parquet", in.schema)
+    * try w.writeAll(in.readBatches())
+    * finally
+    *   w.close()
+    *   in.close()
+    * }}}
+    */
+  def newBatchWriter(
+      path: String,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions = ParquetWriteOptions.default
+  ): ParquetBatchWriter = newBatchWriter(IOPath.parse(path), schema, options)
+
+  def newBatchWriter(path: IOPath, schema: ParquetSchema): ParquetBatchWriter = newBatchWriter(
+    path,
+    schema,
+    ParquetWriteOptions.default
+  )
+
+  def newBatchWriter(
+      path: IOPath,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions
+  ): ParquetBatchWriter = ParquetBatchWriter.create(schema, () => openFile(path), options)
+
+  /** Writes [[ColumnBatch]]es to an output stream, such as a `ByteArrayOutputStream` */
+  def newBatchWriter(out: java.io.OutputStream, schema: ParquetSchema): ParquetBatchWriter =
+    newBatchWriter(out, schema, ParquetWriteOptions.default)
+
+  def newBatchWriter(
+      out: java.io.OutputStream,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions
+  ): ParquetBatchWriter = ParquetBatchWriter.create(schema, () => out, options)
+
   private[parquet] def openFile(path: IOPath): java.io.OutputStream = FileSystem.writeStream(path)
 
 end Parquet

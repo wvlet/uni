@@ -64,9 +64,29 @@ object BenchRunner:
     } ++
       writeCodecs.map { c =>
         BenchCase(
+          "write uni batch",
+          s"${dir}/lineitem.${c}.parquet",
+          () =>
+            UniWriters.batches(
+              BenchTables.lineItemBatches(dir),
+              s"${out}/uni-batch.lineitem.${c}.parquet",
+              c
+            )
+        )
+      } ++
+      writeCodecs.map { c =>
+        BenchCase(
           "write uni case class",
           s"${dir}/orders.${c}.parquet",
           () => UniWriters.orders(BenchData.orders(dir), s"${out}/uni.orders.${c}.parquet", c)
+        )
+      } ++
+      writeCodecs.map { c =>
+        BenchCase(
+          "write uni batch",
+          s"${dir}/orders.${c}.parquet",
+          () =>
+            UniWriters.batches(BenchTables.orderBatches(dir), s"${out}/uni-batch.orders.${c}.parquet", c)
         )
       }
 
