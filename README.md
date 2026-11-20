@@ -50,8 +50,9 @@ See the [Airframe migration table](https://wvlet.org/uni/guide/for-ai-agents#how
 | `uni` | Core utilities: Design (object wiring), logging, JSON, MessagePack, Rx, HTTP client and server, RPC, control flow |
 | `uni-netty` | Optional Netty backend for the HTTP server (JVM only) |
 | `uni-test` | Lightweight testing framework with cross-platform support |
+| `uni-parquet` | Pure-Scala Apache Parquet reader: files, bytes, and HTTP ranges into case classes or column vectors |
 
-`uni` and `uni-test` are cross-platform: JVM, Scala.js, and Scala Native.
+`uni`, `uni-test`, and `uni-parquet` are cross-platform: JVM, Scala.js, and Scala Native.
 
 ## Getting Started
 
