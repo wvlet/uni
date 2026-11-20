@@ -317,8 +317,10 @@ private[parquet] object Assembly:
         DoubleColumn(p, copyOf(b.values, n), null)
       case b: BinaryBuffer =>
         // The buffer's offsets start at 0; its data array is shared
-        BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null)
-          .withDictionary(b.dict, dictIndices(b, n, i => i))
+        BinaryColumn(p, copyOf(b.offsets, n + 1), b.data, null).withDictionary(
+          b.dict,
+          dictIndices(b, n, i => i)
+        )
 
   /** The dictionary entry of each row, given the value index of row i (-1 for none) */
   private inline def dictIndices(b: BinaryBuffer, n: Int, inline valueOf: Int => Int): Array[Int] =
@@ -421,7 +423,7 @@ private[parquet] object Assembly:
           i += 1
         offsets(n) = total
         val startValue = (0 until n).find(pick(_) >= 0).map(pick).getOrElse(0)
-        val indices = dictIndices(b, n, i => pick(i))
+        val indices    = dictIndices(b, n, i => pick(i))
         if dense && startValue == 0 then
           BinaryColumn(p, offsets, b.data, nulls).withDictionary(b.dict, indices)
         else

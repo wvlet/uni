@@ -187,7 +187,7 @@ private[parquet] final class Shredder(schema: ParquetSchema):
     val seen     = s.seen
     java.util.Arrays.fill(seen, false)
     // Keys in schema order need no lookup
-    var i = 0
+    var i          = 0
     var positional = true
     while positional && i < count && i < children.length do
       val keyPos = in.pos
@@ -236,7 +236,14 @@ private[parquet] final class Shredder(schema: ParquetSchema):
     val st = stages(n.col)
     n.kind match
       case Kind.Bool if in.isBoolean =>
-        st.addInt(r, d, if in.readBoolean() then 1 else 0)
+        st.addInt(
+          r,
+          d,
+          if in.readBoolean() then
+            1
+          else
+            0
+        )
       case Kind.Int32 if in.isLong =>
         st.addInt(r, d, inRange(n, in.readLong()).toInt)
       case Kind.Int64 if in.isLong =>
@@ -261,7 +268,7 @@ private[parquet] final class Shredder(schema: ParquetSchema):
           timestamp(n, Math.floorDiv(millis, 1000L), Math.floorMod(millis, 1000L) * 1000000L)
         )
       case _ =>
-        val v = in.readValue()
+        val v        = in.readValue()
         val physical =
           try
             n.convert(v)
@@ -269,6 +276,9 @@ private[parquet] final class Shredder(schema: ParquetSchema):
             case e: ValueConverter.Mismatch =>
               fail(n.field, e.getMessage)
         st.addConverted(r, d, physical)
+    end match
+
+  end writeLeaf
 
   private def number(): Double =
     if in.isFloat then
@@ -300,8 +310,7 @@ end Shredder
 private object Shredder:
 
   /** A LIST or MAP group with a single repeated child */
-  def isWrapper(g: ParquetField.Group): Boolean =
-    g.children.size == 1 && g.children.head.isRepeated
+  def isWrapper(g: ParquetField.Group): Boolean = g.children.size == 1 && g.children.head.isRepeated
 
   /**
     * True when the repeated group of a LIST wraps the element (`list.element`); false for the
@@ -336,14 +345,21 @@ private object Shredder:
 
   /** The kinds of leaf with a fast path for the forms Weaver and JSON produce most */
   enum Kind:
-    case Bool, Int32, Int64, Float, Double, Bytes, Timestamp, Other
+    case Bool,
+      Int32,
+      Int64,
+      Float,
+      Double,
+      Bytes,
+      Timestamp,
+      Other
 
   final class LeafNode(p: ParquetField.Primitive, val convert: wvlet.uni.msgpack.spi.Value => Any)
       extends Node(p):
-    val col: Int = p.columnIndex
-    var min      = Long.MinValue
-    var max      = Long.MaxValue
-    var unit     = TimeUnit.MICROS
+    val col: Int   = p.columnIndex
+    var min        = Long.MinValue
+    var max        = Long.MaxValue
+    var unit       = TimeUnit.MICROS
     val kind: Kind =
       (p.physicalType, p.logicalType) match
         case (PhysicalType.BOOLEAN, _) =>
@@ -377,6 +393,8 @@ private object Shredder:
         case _ =>
           Kind.Other
 
+  end LeafNode
+
   final class StructNode(g: ParquetField.Group, val children: Array[Node]) extends Node(g):
     val names: Array[Array[Byte]] = children.map(_.field.name.getBytes("UTF-8"))
     val canonical: Array[String]  = children.map(c => Shredder.canonical(c.field.name))
@@ -392,8 +410,11 @@ private object Shredder:
       extends Node(g)
 
   /** A MAP group; `children` are the key, value, and any other fields of its key_value group */
-  final class MapNode(val group: ParquetField.Group, val entries: LeafRange, val children: Array[Node])
-      extends Node(group)
+  final class MapNode(
+      val group: ParquetField.Group,
+      val entries: LeafRange,
+      val children: Array[Node]
+  ) extends Node(group)
 
   final class InvalidNode(g: ParquetField.Group, val message: String) extends Node(g)
 

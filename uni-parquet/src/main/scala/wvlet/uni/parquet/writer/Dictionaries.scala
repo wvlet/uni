@@ -72,13 +72,13 @@ end LongDictionary
   * at their bytes there.
   */
 private[writer] final class BytesDictionary(page: ByteBuf, lengthPrefix: Boolean):
-  private var slots    = new Array[Int](64) // index + 1, or 0 when empty
-  private val offsets  = IntBuf()
-  private val lengths  = IntBuf()
-  private val hashes   = IntBuf()
-  private var count    = 0
-  var added: Boolean   = false
-  def size: Int        = count
+  private var slots   = new Array[Int](64) // index + 1, or 0 when empty
+  private val offsets = IntBuf()
+  private val lengths = IntBuf()
+  private val hashes  = IntBuf()
+  private var count   = 0
+  var added: Boolean  = false
+  def size: Int       = count
 
   private def hash(src: Array[Byte], off: Int, len: Int): Int =
     var h = len

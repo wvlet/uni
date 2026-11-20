@@ -100,6 +100,8 @@ case class Price(id: Int, price: BigDecimal, small: BigDecimal) derives Weaver
 
 case class Simple(id: Long, name: Option[String]) derives Weaver
 
+case class Tagged(id: Int, tags: Seq[String], note: Option[String]) derives Weaver
+
 case class Recursive(id: Int, children: Seq[Recursive]) derives Weaver
 
 class WriterTest extends UniTest:
@@ -189,6 +191,17 @@ class WriterTest extends UniTest:
     cols(1).encodings shouldContain Encoding.PLAIN
     f.close()
     roundTrip[Simple](bytes) shouldBe rows
+    // Batches that end inside a page, and a dictionary run followed by PLAIN values
+    roundTrip[Simple](bytes, ParquetReadOptions.default.withBatchSize(7)) shouldBe rows
+  }
+
+  test("read dictionary strings in nested columns and small batches") {
+    val rows = (0 until 2000).map(i =>
+      Tagged(i, Seq.tabulate(i % 4)(j => s"tag-${(i + j) % 5}"), Option.when(i % 3 != 0)("x"))
+    )
+    val bytes = Parquet.writeBytes(rows, ParquetWriteOptions.default.withPageSize(512))
+    roundTrip[Tagged](bytes) shouldBe rows
+    roundTrip[Tagged](bytes, ParquetReadOptions.default.withBatchSize(13)) shouldBe rows
   }
 
   test("split row groups and pages") {
@@ -405,6 +418,36 @@ class WriterTest extends UniTest:
     w.write(Map("user_name" -> "aina"))
     w.close()
     rows(out.toByteArray) shouldBe Seq(Map("userName" -> "aina"))
+  }
+
+  test("match record keys in any order, exact names before loose ones") {
+    val schema = ParquetSchema
+      .builder()
+      .required("id", ParquetType.INT64)
+      .optional("userName", ParquetType.STRING)
+      .optional(
+        "addr",
+        ParquetType.struct(
+          ParquetColumn.required("city", ParquetType.STRING),
+          ParquetColumn.optional("zip", ParquetType.STRING)
+        )
+      )
+      .build()
+    val out = java.io.ByteArrayOutputStream()
+    val w   = Parquet.newRecordWriter(out, schema)
+    w.write("""{"addr": {"zip": "1", "city": "kyoto"}, "user_name": "loose", "id": 1}""")
+    w.write("""{"id": 2, "user_name": "loose", "userName": "exact", "extra": [1, {"a": 2}]}""")
+    // When a key appears twice, the first one counts
+    w.write("""{"id": 3, "id": 4}""")
+    w.write(Seq(5, "aina", Map("city" -> "tokyo")))
+    w.close()
+    rows(out.toByteArray) shouldBe
+      Seq(
+        Map("id" -> 1L, "userName" -> "loose", "addr" -> Map("city" -> "kyoto", "zip" -> "1")),
+        Map("id" -> 2L, "userName" -> "exact", "addr" -> null),
+        Map("id" -> 3L, "userName" -> null, "addr"    -> null),
+        Map("id" -> 5L, "userName" -> "aina", "addr"  -> Map("city" -> "tokyo", "zip" -> null))
+      )
   }
 
   test("reject a bad row and keep writing") {

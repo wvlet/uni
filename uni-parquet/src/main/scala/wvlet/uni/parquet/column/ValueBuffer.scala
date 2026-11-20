@@ -243,10 +243,10 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
   // dictionary-encoded pages come before any PLAIN ones, so the entries are a prefix; when they are
   // not, `noDict` turns the indices off for this buffer. Case classes use them to build each
   // distinct String once.
-  var dict: BinaryBuffer    = null
-  var dictIdx: Array[Int]   = null
-  var dictCount: Int        = 0
-  private var noDict        = false
+  var dict: BinaryBuffer  = null
+  var dictIdx: Array[Int] = null
+  var dictCount: Int      = 0
+  private var noDict      = false
 
   /** The dictionary entry of value v, or -1 */
   def dictIndex(v: Int): Int =
@@ -346,21 +346,24 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
       else
         dict = d
         if dictIdx == null || dictIdx.length < size + n then
-          dictIdx = java.util.Arrays.copyOf(
-            if dictIdx == null then
-              new Array[Int](0)
-            else
-              dictIdx
-            ,
-            ValueBuffer.grow(
+          dictIdx = java
+            .util
+            .Arrays
+            .copyOf(
               if dictIdx == null then
-                0
+                new Array[Int](0)
               else
-                dictIdx.length
+                dictIdx
               ,
-              size + n
+              ValueBuffer.grow(
+                if dictIdx == null then
+                  0
+                else
+                  dictIdx.length
+                ,
+                size + n
+              )
             )
-          )
         System.arraycopy(indices, 0, dictIdx, size, n)
         dictCount += n
 

@@ -17,11 +17,21 @@ bit-packing code, and the decoders, which the writer reuses.
 
 - **One value path for every input.** Case classes go through Weaver to MessagePack, JSON through
   the existing JSON-to-MessagePack converter, and `Map`/`Seq`/Scala values through a small
-  converter. Each row becomes a MessagePack `Value` tree, and a schema-directed shredder turns it
+  packer. A schema-directed shredder reads each row's MessagePack bytes as a stream and turns them
   into leaf values with repetition and definition levels (Dremel striping, the inverse of the
   reader's assembly). Reading case-class fields through Surface getters would be faster, but it
-  would need a second path for maps and JSON and would duplicate Weaver's type handling; the
-  shredder can be fed another way later, as the reader ADR says for rows.
+  would need a second path for maps and JSON and would duplicate Weaver's type handling.
+  - Amended in PR 2 of `plans/2026-11-20-parquet-read-write-performance-and-batch-api.md`: the
+    first version unpacked each row into a `Value` tree (every map a `ListMap`) and looked fields
+    up by name, which took about half of the write time. The path stays single, but it is now a
+    byte stream: struct fields are matched by position in schema order, so Weaver's output needs
+    no lookup, with the exact-then-loose name lookup as the fallback for keys out of order (JSON
+    and maps). When a key appears twice, the first one counts. Values are staged and passed to the
+    column writers unboxed (typed appends, statistics, and open-addressing dictionaries). Common
+    value forms are converted from the bytes directly; the rest go through the same per-column
+    converters as before.
+  - If this ever falls short, the next step is a `Packer` that shreds as Weaver packs, with no
+    bytes in between.
 - **Conversion per column, not per input.** Weaver packs `BigDecimal` and `UUID` as strings,
   `Instant` as a timestamp extension, and `Array[Byte]` fields as arrays of numbers; JSON has no
   timestamps or decimals. Each leaf column has one converter that accepts all of these forms
@@ -29,8 +39,8 @@ bit-packing code, and the decoders, which the writer reuses.
   DECIMAL; and so on). Weaver's packing is not changed, because that would change every Uni user's
   JSON. Weaver's `Array[Byte]` now also *reads* MessagePack binary, an additive change that the
   reader needed too (its docs promised `Array[Byte]` for BYTE_ARRAY).
-- **Rows are all-or-nothing.** The shredder stages a row and copies it to the column writers only
-  when every value fits, so a `ParquetException` for a bad value leaves the writer usable. An I/O
+- **Rows are all-or-nothing.** The shredder stages a row (in typed buffers per column) and copies
+  it to the column writers only when every value fits, so a `ParquetException` for a bad value leaves the writer usable. An I/O
   error closes the output without a footer, so a partial file never reads as Parquet.
 - **Schemas from Surface, with Scala's nullability.** `ParquetSchema.of[A]`: non-`Option` fields
   are REQUIRED, collections are 3-level LISTs, `Map` is a MAP with required keys, case classes are

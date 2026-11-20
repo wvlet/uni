@@ -62,8 +62,14 @@ private[parquet] final class MsgReader:
   /** An integer that fits in a Long (uint64 values past Long.MaxValue are not) */
   def isLong: Boolean =
     val b = peek
-    b <= 0x7f || b >= 0xe0 || (b >= 0xcc && b <= 0xce) || (b >= 0xd0 && b <= 0xd3) ||
-    (b == 0xcf && { need(9); buf(pos + 1) >= 0 })
+    b <= 0x7f || b >= 0xe0 ||
+    (b >= 0xcc && b <= 0xce) ||
+    (b >= 0xd0 && b <= 0xd3) || (
+      b == 0xcf && {
+        need(9);
+        buf(pos + 1) >= 0
+      }
+    )
 
   def isFloat: Boolean =
     val b = peek
@@ -128,6 +134,9 @@ private[parquet] final class MsgReader:
             throw ParquetException(s"not an integer: 0x${b.toHexString}")
       pos += intSize(b)
       v
+    end if
+
+  end readLong
 
   private def intSize(b: Int): Int =
     b match
@@ -320,8 +329,10 @@ private[parquet] final class MsgReader:
             pos += 6 + i32(pos + 1)
           case _ =>
             throw ParquetException(s"Invalid MessagePack format byte 0x${b.toHexString}")
+      end if
       if pos > end || pos < 0 then
         throw ParquetException("Truncated MessagePack data")
+    end while
 
   end skip
 

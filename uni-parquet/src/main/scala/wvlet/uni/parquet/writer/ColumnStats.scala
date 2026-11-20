@@ -19,6 +19,7 @@ private[parquet] final class ColumnStats(field: ParquetField.Primitive):
         true
       case _ =>
         false
+
   private val signedBytes =
     field.logicalType match
       case Some(LogicalType.Decimal(_, _)) =>
@@ -74,13 +75,12 @@ private[parquet] final class ColumnStats(field: ParquetField.Primitive):
       if v > maxL then
         maxL = v
 
-  def addBoolean(v: Boolean): Unit =
-    addInt(
-      if v then
-        1
-      else
-        0
-    )
+  def addBoolean(v: Boolean): Unit = addInt(
+    if v then
+      1
+    else
+      0
+  )
 
   /** FLOAT and DOUBLE values; -0.0 and +0.0 compare equal */
   def addDouble(v: Double): Unit =
@@ -227,5 +227,7 @@ private[writer] object ColumnStats:
             Integer.compare(x, y)
       k += 1
     r
+
+  end signedCompare
 
 end ColumnStats

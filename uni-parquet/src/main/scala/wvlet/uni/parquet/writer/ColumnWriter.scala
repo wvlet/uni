@@ -65,6 +65,7 @@ private[parquet] final class ColumnWriter(
         null
       case _ =>
         LongDictionary()
+
   private val bytesDict =
     physical match
       case PhysicalType.BYTE_ARRAY =>

@@ -23,14 +23,14 @@ import java.time.LocalDate
   * Long.MaxValue are strings, and lists, maps, and structs are arrays and maps.
   *
   * How each vector is read is worked out once per batch, and column names are the schema's own
-  * Strings, so nothing is looked up or built per row for them. Strings of dictionary-encoded columns
-  * are built once per dictionary entry. Call [[startRow]] before Weaver reads each row.
+  * Strings, so nothing is looked up or built per row for them. Strings of dictionary-encoded
+  * columns are built once per dictionary entry. Call [[startRow]] before Weaver reads each row.
   */
 private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: Boolean)
     extends Unpacker:
   import VectorUnpacker.*
 
-  private val root: Array[Col]       = batch.columns.map(Col(_, binaryAsString)).toArray
+  private val root: Array[Col]         = batch.columns.map(Col(_, binaryAsString)).toArray
   private val rootNames: Array[String] = batch.columns.map(_.name).toArray
 
   // The value at the cursor
@@ -50,14 +50,14 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
   private var depth  = 0
 
   private final class Frame:
-    var kind: Int             = 0
-    var cols: Array[Col]      = null
-    var names: Array[String]  = null
-    var a: Col                = null
-    var b: Col                = null
-    var row: Int              = 0
-    var k: Int                = 0
-    var end: Int              = 0
+    var kind: Int            = 0
+    var cols: Array[Col]     = null
+    var names: Array[String] = null
+    var a: Col               = null
+    var b: Col               = null
+    var row: Int             = 0
+    var k: Int               = 0
+    var end: Int             = 0
 
     /** Moves the cursor to the next entry; false when there is none */
     def next(): Boolean =
@@ -305,8 +305,9 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
     kind = Ext
     ExtTypeHeader(TimestampExtType, 12)
 
-  override def unpackExtValue(extTypeHeader: ExtTypeHeader): Value = Value
-    .TimestampValue(unpackTimestamp)
+  override def unpackExtValue(extTypeHeader: ExtTypeHeader): Value = Value.TimestampValue(
+    unpackTimestamp
+  )
 
   override def unpackRawStringHeader: Int =
     if kind == Key then
@@ -394,28 +395,28 @@ private object VectorUnpacker:
   private final val TimestampExtType: Byte = -1
 
   // How a vector's values are read, in the order RowPacker checks them
-  private final val CBool       = 0
-  private final val CInt        = 1
-  private final val CUInt32     = 2
-  private final val CUInt16     = 3
-  private final val CUInt8      = 4
-  private final val CDate       = 5
-  private final val CTimeInt    = 6
-  private final val CDecimalInt = 7
-  private final val CLong       = 8
-  private final val CULong      = 9
-  private final val CTimestamp  = 10
-  private final val CTimeLong   = 11
+  private final val CBool        = 0
+  private final val CInt         = 1
+  private final val CUInt32      = 2
+  private final val CUInt16      = 3
+  private final val CUInt8       = 4
+  private final val CDate        = 5
+  private final val CTimeInt     = 6
+  private final val CDecimalInt  = 7
+  private final val CLong        = 8
+  private final val CULong       = 9
+  private final val CTimestamp   = 10
+  private final val CTimeLong    = 11
   private final val CDecimalLong = 12
-  private final val CFloat      = 13
-  private final val CDouble     = 14
-  private final val CStr        = 15 // UTF-8 bytes of a binary column
-  private final val CBinLogical = 16 // DECIMAL, UUID, or FLOAT16 in bytes
-  private final val CInt96      = 17
-  private final val CBin        = 18
-  private final val CList       = 19
-  private final val CMap        = 20
-  private final val CStruct     = 21
+  private final val CFloat       = 13
+  private final val CDouble      = 14
+  private final val CStr         = 15 // UTF-8 bytes of a binary column
+  private final val CBinLogical  = 16 // DECIMAL, UUID, or FLOAT16 in bytes
+  private final val CInt96       = 17
+  private final val CBin         = 18
+  private final val CList        = 19
+  private final val CMap         = 20
+  private final val CStruct      = 21
 
   /** A vector with how to read it, worked out once per batch */
   private final class Col(val vec: ColumnVector, binaryAsString: Boolean):
@@ -538,6 +539,7 @@ private object VectorUnpacker:
         bin.dictIndices
       else
         null
+
     private val dictStrings: Array[String] =
       if dictIndices != null then
         bin.dictionary.strings
@@ -550,24 +552,28 @@ private object VectorUnpacker:
           Col(l.elements, binaryAsString)
         case _ =>
           null
+
     val keys: Col =
       vec match
         case m: MapColumn =>
           Col(m.keys, binaryAsString)
         case _ =>
           null
+
     val values: Col =
       vec match
         case m: MapColumn =>
           Col(m.values, binaryAsString)
         case _ =>
           null
+
     val children: Array[Col] =
       vec match
         case s: StructColumn =>
           s.children.map(Col(_, binaryAsString)).toArray
         case _ =>
           null
+
     val names: Array[String] =
       vec match
         case s: StructColumn =>
@@ -599,8 +605,12 @@ private object VectorUnpacker:
           else
             ValueType.BINARY
 
-    def logicalBinary(i: Int): Any =
-      LogicalValues.fromBinary(bin.data, bin.offsets(i), bin.length(i), bin.field)
+    def logicalBinary(i: Int): Any = LogicalValues.fromBinary(
+      bin.data,
+      bin.offsets(i),
+      bin.length(i),
+      bin.field
+    )
 
     def string(i: Int): String =
       code match
