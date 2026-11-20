@@ -278,6 +278,23 @@ class WriterTest extends UniTest:
     f.close()
   }
 
+  test("an invalid writer creates no file") {
+    if FileSystem.isBrowser then
+      skip("no local files in browsers")
+    val dir  = FileSystem.createTempDirectory("uni-parquet")
+    val path = dir / "invalid.parquet"
+    try
+      intercept[IllegalArgumentException] {
+        Parquet.newRecordWriter(path, ParquetSchema.builder().build())
+      }
+      intercept[ParquetException] {
+        Parquet.newWriter[Recursive](path)
+      }
+      FileSystem.exists(path) shouldBe false
+    finally
+      FileSystem.delete(dir)
+  }
+
   test("write a local file") {
     if FileSystem.isBrowser then
       skip("no local files in browsers")
@@ -406,6 +423,10 @@ class WriterTest extends UniTest:
     }
     intercept[ParquetException] {
       w.write("{not json")
+    }
+    // 1e30 is a whole number but beyond Long; it must not saturate to Long.MaxValue
+    intercept[ParquetException] {
+      w.write("""{"id": 1e30}""")
     }
     intercept[ParquetException] {
       w.write(Seq(1, 2))

@@ -425,6 +425,8 @@ object Weaver:
       MapWeaver(fromSurface(s.typeArgs(0)), fromSurface(s.typeArgs(1)))
 
     // Array
+    case s: ArraySurface if s.elementSurface == Primitive.Byte =>
+      PrimitiveWeaver.byteArrayWeaver
     case s: ArraySurface =>
       ArrayWeaver(fromSurface(s.elementSurface), s.elementSurface.rawType)
   }

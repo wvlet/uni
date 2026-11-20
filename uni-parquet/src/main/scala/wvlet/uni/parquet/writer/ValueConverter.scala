@@ -116,7 +116,8 @@ private[parquet] object ValueConverter:
           x
         case BigIntegerValue(x) if x.bitLength() < 64 =>
           x.longValue()
-        case DoubleValue(d) if d == math.rint(d) && !d.isInfinite =>
+        // 2^63 and beyond would saturate to Long.MaxValue
+        case DoubleValue(d) if d == math.rint(d) && math.abs(d) < 9.223372036854775807e18 =>
           d.toLong
         case StringValue(s) =>
           s.trim.toLongOption.getOrElse(mismatch(v, "an integer"))

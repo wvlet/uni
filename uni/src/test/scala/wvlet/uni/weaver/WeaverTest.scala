@@ -16,7 +16,12 @@ class WeaverTest extends UniTest:
     w.unweave(packer.toByteArray).toSeq shouldBe Seq[Byte](1, -2, 3)
     // Packing is unchanged: an array of numbers, which also reads back
     w.toJson(Array[Byte](1, -2)) shouldBe "[1,-2]"
-    w.unweave(w.toMsgPack(Array[Byte](4, 5))).toSeq shouldBe Seq[Byte](4, 5)
+    w.unweave(w.toMsgPack(Array[Byte](4, 5))).toSeq shouldBe
+      Seq[Byte](4, 5) // Weavers built from a Surface take the same path
+    val fromSurface = Weaver
+      .fromSurface(wvlet.uni.surface.Surface.of[Array[Byte]])
+      .asInstanceOf[Weaver[Array[Byte]]]
+    fromSurface.unweave(packer.toByteArray).toSeq shouldBe Seq[Byte](1, -2, 3)
   }
 
   test("weave int") {

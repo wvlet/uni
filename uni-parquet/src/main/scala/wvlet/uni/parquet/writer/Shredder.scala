@@ -26,21 +26,6 @@ private[parquet] final class Shredder(schema: ParquetSchema):
   private val stagedDef  = Array.fill(leaves.size)(IntBuf(4))
   private val stagedVal  = Array.fill(leaves.size)(mutable.ArrayBuffer.empty[Any])
 
-  // Leaf column indexes under each field, for writing nulls
-  private val leavesUnder: Map[Seq[String], Array[Int]] =
-    val b                                 = Map.newBuilder[Seq[String], Array[Int]]
-    def walk(f: ParquetField): Array[Int] =
-      val ids =
-        f match
-          case p: ParquetField.Primitive =>
-            Array(p.columnIndex)
-          case g: ParquetField.Group =>
-            g.children.flatMap(walk).toArray
-      b += f.path -> ids
-      ids
-    schema.fields.foreach(walk)
-    b.result()
-
   /** Shreds a row into the staging area; throws ParquetException when a value does not fit */
   def shred(row: Value): Unit =
     var i = 0
@@ -86,9 +71,27 @@ private[parquet] final class Shredder(schema: ParquetSchema):
     stagedDef(col).add(d)
     stagedVal(col) += v
 
-  private def nulls(f: ParquetField, r: Int, d: Int): Unit = leavesUnder(f.path).foreach(
-    stage(_, r, d, null)
-  )
+  // The leaves under a field are the contiguous column indexes from its first leaf to its last
+  private def nulls(f: ParquetField, r: Int, d: Int): Unit =
+    var col  = edgeLeaf(f, first = true)
+    val last = edgeLeaf(f, first = false)
+    while col <= last do
+      stage(col, r, d, null)
+      col += 1
+
+  private def edgeLeaf(f: ParquetField, first: Boolean): Int =
+    f match
+      case p: ParquetField.Primitive =>
+        p.columnIndex
+      case g: ParquetField.Group =>
+        edgeLeaf(
+          if first then
+            g.children.head
+          else
+            g.children.last
+          ,
+          first
+        )
 
   private def fail(f: ParquetField, message: String): Nothing =
     throw ParquetException(s"Cannot write column ${f.pathString}: ${message}")

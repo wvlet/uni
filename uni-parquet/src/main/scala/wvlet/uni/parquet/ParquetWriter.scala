@@ -32,12 +32,12 @@ class ParquetWriter[A] private[parquet] (core: FileWriter, weaver: Weaver[A]) ex
 object ParquetWriter:
   private[parquet] def create[A](
       surface: Surface,
-      out: java.io.OutputStream,
+      openOutput: () => java.io.OutputStream,
       options: ParquetWriteOptions,
       weaver: Weaver[A]
   ): ParquetWriter[A] =
     val schema = ParquetSchema.fromSurface(surface, options)
-    ParquetWriter(FileWriter(schema, options, out), weaver)
+    ParquetWriter(FileWriter(schema, options, openOutput), weaver)
 
 /**
   * Writes records with an explicit schema. Create one with [[Parquet.newRecordWriter]]. `write`

@@ -19,11 +19,14 @@ import scala.util.control.NonFatal
   * A row that does not fit the schema is rejected before anything is buffered, and the writer stays
   * usable. An I/O error closes the output without a footer, so the partial file never reads as a
   * valid Parquet file.
+  *
+  * `openOutput` is called after the schema and options are checked, so an invalid writer creates no
+  * file.
   */
 private[parquet] final class FileWriter(
     val schema: ParquetSchema,
     options: ParquetWriteOptions,
-    out: java.io.OutputStream
+    openOutput: () => java.io.OutputStream
 ) extends AutoCloseable:
   import FileWriter.*
 
@@ -32,9 +35,9 @@ private[parquet] final class FileWriter(
 
   Compressors.check(options.compression)
 
-  private val output    = CountingOutput(out)
   private val writers   = schema.columns.map(ColumnWriter(_, options))
   private val shredder  = Shredder(schema)
+  private val output    = CountingOutput(openOutput())
   private val rowGroups = mutable.ArrayBuffer.empty[RowGroupMeta]
   private var groupRows = 0L
   private var totalRows = 0L

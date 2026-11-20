@@ -6,12 +6,25 @@ import wvlet.uni.parquet.thrift.CompactWriter
 private[parquet] object MetadataEncoder:
 
   def fileMetaData(m: FileMetaData): Array[Byte] =
+    // Leaf columns whose order is unsigned, so the signed deprecated min/max would mislead
+    val unsigned = m
+      .schema
+      .filter(e => e.physicalType.isDefined && e.numChildren.forall(_ == 0))
+      .map(
+        _.logicalType
+          .exists {
+            case LogicalType.Integer(_, false) =>
+              true
+            case _ =>
+              false
+          }
+      )
     val w = CompactWriter()
     w.struct {
       w.i32(1, m.version)
       w.structList(2, m.schema)(schemaElement(w, _))
       w.i64(3, m.numRows)
-      w.structList(4, m.rowGroups)(rowGroup(w, _))
+      w.structList(4, m.rowGroups)(rowGroup(w, _, unsigned))
       if m.keyValueMetadata.nonEmpty then
         w.structList(5, m.keyValueMetadata.toSeq.sortBy(_._1)) { (k, v) =>
           w.string(1, k)
@@ -25,6 +38,8 @@ private[parquet] object MetadataEncoder:
       }
     }
     w.toByteArray
+
+  end fileMetaData
 
   private def schemaElement(w: CompactWriter, e: SchemaElement): Unit =
     e.physicalType.foreach(t => w.i32(1, t.id))
@@ -147,15 +162,17 @@ private[parquet] object MetadataEncoder:
       case LogicalType.Interval | LogicalType.MapKeyValue | LogicalType.Other(_) =>
         ()
 
-  private def rowGroup(w: CompactWriter, g: RowGroupMeta): Unit =
-    w.structList(1, g.columns)(columnChunk(w, _))
+  private def rowGroup(w: CompactWriter, g: RowGroupMeta, unsigned: IndexedSeq[Boolean]): Unit =
+    w.structList(1, g.columns.zipWithIndex) { (c, i) =>
+      columnChunk(w, c, unsigned.lift(i).getOrElse(false))
+    }
     w.i64(2, g.totalByteSize)
     w.i64(3, g.numRows)
     g.columns.headOption.foreach(c => w.i64(5, c.startOffset))
     w.i64(6, g.columns.map(_.totalCompressedSize).sum)
     g.ordinal.foreach(w.i16(7, _))
 
-  private def columnChunk(w: CompactWriter, c: ColumnChunkMeta): Unit =
+  private def columnChunk(w: CompactWriter, c: ColumnChunkMeta, unsigned: Boolean): Unit =
     c.filePath.foreach(w.string(1, _))
     w.i64(2, c.startOffset)
     w.structField(3) {
@@ -168,13 +185,18 @@ private[parquet] object MetadataEncoder:
       w.i64(7, c.totalCompressedSize)
       w.i64(9, c.dataPageOffset)
       c.dictionaryPageOffset.foreach(w.i64(11, _))
-      c.statistics.foreach(s => w.structField(12)(statistics(w, s, c.physicalType)))
+      c.statistics.foreach(s => w.structField(12)(statistics(w, s, c.physicalType, unsigned)))
     }
 
-  private def statistics(w: CompactWriter, s: Statistics, tpe: PhysicalType): Unit =
+  private def statistics(
+      w: CompactWriter,
+      s: Statistics,
+      tpe: PhysicalType,
+      unsigned: Boolean
+  ): Unit =
     // Older readers know only the deprecated min/max (2, 1), which use signed order. Write them
-    // only for numbers and booleans, where that order is the column's order.
-    if tpe != PhysicalType.BYTE_ARRAY && tpe != PhysicalType.FIXED_LEN_BYTE_ARRAY then
+    // only for signed numbers and booleans, where that order is the column's order.
+    if !unsigned && tpe != PhysicalType.BYTE_ARRAY && tpe != PhysicalType.FIXED_LEN_BYTE_ARRAY then
       s.max.foreach(w.binary(1, _))
       s.min.foreach(w.binary(2, _))
     s.nullCount.foreach(w.i64(3, _))

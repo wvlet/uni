@@ -108,7 +108,7 @@ object Parquet:
 
   inline def newWriter[A](path: IOPath, options: ParquetWriteOptions)(using
       weaver: Weaver[A]
-  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], openFile(path), options, weaver)
+  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], () => openFile(path), options, weaver)
 
   /** Writes case classes to an output stream, such as a `ByteArrayOutputStream` */
   inline def newWriter[A](out: java.io.OutputStream)(using weaver: Weaver[A]): ParquetWriter[A] =
@@ -116,7 +116,7 @@ object Parquet:
 
   inline def newWriter[A](out: java.io.OutputStream, options: ParquetWriteOptions)(using
       weaver: Weaver[A]
-  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], out, options, weaver)
+  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], () => out, options, weaver)
 
   /** Writes all rows to a local file */
   inline def write[A](
@@ -156,7 +156,7 @@ object Parquet:
       path: IOPath,
       schema: ParquetSchema,
       options: ParquetWriteOptions
-  ): ParquetRecordWriter = newRecordWriter(openFile(path), schema, options)
+  ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, () => openFile(path)))
 
   def newRecordWriter(out: java.io.OutputStream, schema: ParquetSchema): ParquetRecordWriter =
     newRecordWriter(out, schema, ParquetWriteOptions.default)
@@ -165,7 +165,7 @@ object Parquet:
       out: java.io.OutputStream,
       schema: ParquetSchema,
       options: ParquetWriteOptions
-  ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, out))
+  ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, () => out))
 
   private[parquet] def openFile(path: IOPath): java.io.OutputStream = FileSystem.writeStream(path)
 
