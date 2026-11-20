@@ -2,9 +2,10 @@ package wvlet.uni.parquet
 
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.msgpack.spi.MessagePack
-import wvlet.uni.parquet.column.Assembly
-import wvlet.uni.parquet.column.ColumnChunkReader
-import wvlet.uni.parquet.column.ColumnData
+import wvlet.uni.parquet.column.ChunkInput
+import wvlet.uni.parquet.column.ColumnChunkCursor
+import wvlet.uni.parquet.column.RowGroupBatches
+import wvlet.uni.parquet.column.ValueBuffer
 import wvlet.uni.parquet.format.*
 import wvlet.uni.parquet.io.ByteReader
 import wvlet.uni.parquet.thrift.CompactProtocol
@@ -43,15 +44,17 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
 
   // ---- Synchronous reading ----
 
-  /** Reads one row group into column vectors */
+  /**
+    * Reads one row group into column vectors, as one batch. A row group with more than 2 GiB of
+    * values in a column does not fit in one batch and fails; [[readBatches]] reads it in several.
+    * The batch size option does not apply here.
+    */
   def readRowGroup(
       index: Int,
       options: ParquetReadOptions = ParquetReadOptions.default
   ): ColumnBatch =
     val plan = planRowGroup(index, options)
-    val src  = syncSource
-    val data = plan.ranges.map(r => r -> src.read(r.offset, r.length))
-    decode(plan, data, options)
+    wholeRowGroup(index, batches(plan, fetch(plan), options, whole = true))
 
   /** Indices of the row groups to read: all of them, minus those the row group filter skips */
   def selectRowGroups(options: ParquetReadOptions = ParquetReadOptions.default): IndexedSeq[Int] =
@@ -61,9 +64,18 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       case Some(f) =>
         (0 until numRowGroups).filter(i => RowGroupFilter.mayMatch(f, schema, rowGroups(i)))
 
-  /** Reads the selected row groups in order */
+  /**
+    * Reads the selected row groups in order, one batch per row group. A row group is split into
+    * several batches when [[ParquetReadOptions.withBatchSize]] asks for fewer rows, or when a
+    * column's values in it pass 1 GiB.
+    */
   def readBatches(options: ParquetReadOptions = ParquetReadOptions.default): Iterator[ColumnBatch] =
-    selectRowGroups(options).iterator.map(readRowGroup(_, options))
+    selectRowGroups(options)
+      .iterator
+      .flatMap { i =>
+        val plan = planRowGroup(i, options)
+        batches(plan, fetch(plan), options, whole = false)
+      }
 
   /** Reads every row into `A` through Weaver. Columns are matched to fields by name. */
   def readAs[A](options: ParquetReadOptions = ParquetReadOptions.default)(using
@@ -91,48 +103,53 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
 
   // ---- Asynchronous reading ----
 
+  /** Reads one row group as one batch, as [[readRowGroup]] does */
   def readRowGroupAsync(
       index: Int,
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Rx[ColumnBatch] = Rx
     .single(planRowGroup(index, options))
-    .flatMap { plan =>
-      val reads: Seq[Rx[(FetchRange, Array[Byte])]] = plan
-        .ranges
-        .map(r => source.readAsync(r.offset, r.length).map(b => r -> b))
-      ParquetFile.sequence(reads).map(data => decode(plan, data, options))
-    }
+    .flatMap(plan =>
+      fetchAsync(plan).map(in => wholeRowGroup(index, batches(plan, in, options, whole = true)))
+    )
 
-  /** Emits each row group's batch in order */
+  /** The batches of one row group, as [[readBatches]] splits them */
+  private def rowGroupBatchesAsync(
+      index: Int,
+      options: ParquetReadOptions
+  ): Rx[Iterator[ColumnBatch]] = Rx
+    .single(planRowGroup(index, options))
+    .flatMap(plan => fetchAsync(plan).map(in => batches(plan, in, options, whole = false)))
+
+  /**
+    * Emits the batches of the selected row groups in order, as [[readBatches]] does. Unlike
+    * [[readBatches]], a row group's batches are all decoded before the first is emitted.
+    */
   def readBatchesAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[ColumnBatch] =
-    Rx.concatRx(selectRowGroups(options).map(readRowGroupAsync(_, options)))
+    Rx.concatRx(
+      selectRowGroups(options).map(i =>
+        rowGroupBatchesAsync(i, options).flatMap(it => Rx.fromSeq(it.toSeq))
+      )
+    )
 
   /** Emits every row decoded into `A` */
   def readAsAsync[A](
       options: ParquetReadOptions = ParquetReadOptions.default
-  )(using weaver: Weaver[A]): Rx[A] = Rx.concatRx(
-    selectRowGroups(options).map(i =>
-      readRowGroupAsync(i, options).flatMap(b =>
-        Rx.fromSeq(ParquetFile.rows(b, weaver, options).toSeq)
-      )
-    )
+  )(using weaver: Weaver[A]): Rx[A] = readBatchesAsync(options).flatMap(b =>
+    Rx.fromSeq(ParquetFile.rows(b, weaver, options).toSeq)
   )
 
   /** Emits every row as a map from column name to value, as [[readRows]] does */
   def readRowsAsync(
       options: ParquetReadOptions = ParquetReadOptions.default
-  ): Rx[Map[String, Any]] = Rx.concatRx(
-    selectRowGroups(options).map(i =>
-      readRowGroupAsync(i, options).flatMap(b => Rx.fromSeq(b.rows.toSeq))
-    )
-  )
+  ): Rx[Map[String, Any]] = readBatchesAsync(options).flatMap(b => Rx.fromSeq(b.rows.toSeq))
 
   /** All rows as maps from column name to value, collected into one Seq */
   def readAllRowsAsync(
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Rx[Seq[Map[String, Any]]] = ParquetFile
-    .sequence(selectRowGroups(options).map(readRowGroupAsync(_, options)))
-    .map(_.flatMap(_.rows))
+    .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
+    .map(_.flatMap(_.flatMap(_.rows)))
 
   /** Emits every row as a JSON object, as [[readJson]] does */
   def readJsonAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[JSONObject] =
@@ -142,18 +159,20 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   def readAllAsync[A](
       options: ParquetReadOptions = ParquetReadOptions.default
   )(using weaver: Weaver[A]): Rx[Seq[A]] = ParquetFile
-    .sequence(selectRowGroups(options).map(readRowGroupAsync(_, options)))
-    .map(_.flatMap(b => ParquetFile.rows(b, weaver, options)))
+    .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
+    .map(_.flatMap(_.flatMap(b => ParquetFile.rows(b, weaver, options))))
 
   // ---- Planning and decoding ----
 
   private[parquet] case class FetchRange(offset: Long, length: Int)
 
+  /** A column chunk to read; a windowed chunk is read in windows instead of one fetched range */
   private[parquet] case class ChunkPlan(
       field: ParquetField.Primitive,
       meta: ColumnChunkMeta,
       start: Long,
-      length: Int
+      length: Long,
+      windowed: Boolean
   )
 
   private[parquet] case class Plan(
@@ -213,13 +232,13 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
           throw ParquetException.unsupported("encrypted Parquet columns")
         val start = meta.startOffset
         val len   = meta.totalCompressedSize
-        if start < 0 || len < 0 || len > Int.MaxValue then
+        if start < 0 || len < 0 then
           throw ParquetException.corrupt(
             s"column ${p.pathString} has an invalid range (offset ${start}, ${len} bytes)"
           )
-        ChunkPlan(p, meta, start, len.toInt)
+        ChunkPlan(p, meta, start, len, windowed = len > chunkWindowSize)
       }
-    Plan(rg, fields, chunks, mergeRanges(chunks, options.maxMergeGap))
+    Plan(rg, fields, chunks, mergeRanges(chunks.filterNot(_.windowed), options.maxMergeGap))
 
   end planRowGroup
 
@@ -243,43 +262,123 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     }
     out.result()
 
-  private def decode(
-      plan: Plan,
-      data: Seq[(FetchRange, Array[Byte])],
-      options: ParquetReadOptions
-  ): ColumnBatch =
-    val numRows = plan.rowGroup.numRows
-    if numRows < 0 || numRows > Int.MaxValue then
-      throw ParquetException.corrupt(s"row group has ${numRows} rows")
-    val columns: Map[Int, ColumnData] =
-      plan
-        .chunks
-        .map { c =>
-          val (range, bytes) = data
-            .find { case (r, _) =>
-              r.offset <= c.start && c.start + c.length <= r.offset + r.length
-            }
-            .getOrElse(
-              throw IllegalStateException(s"No fetched range covers ${c.field.pathString}")
-            )
-          if bytes.length != range.length then
-            throw ParquetException.corrupt(
-              s"${source.name} ended before offset ${range.offset + range.length}"
-            )
-          val off = (c.start - range.offset).toInt
-          c.field.columnIndex -> ColumnChunkReader.read(c.field, c.meta, bytes, off, c.length)
-        }
-        .toMap
-    val vectors = Assembly.build(plan.fields, columns, numRows.toInt)
-    ColumnBatch(
-      numRows.toInt,
-      if options.binaryAsString then
-        vectors.map(ColumnVector.withBinaryAsString)
-      else
-        vectors
+  // Limits for cutting batches and reading large chunks. Variables so tests can make them small.
+
+  /** A batch ends at the next complete row once a column's values pass this many bytes */
+  private[parquet] var batchSoftLimit: Long = 1L << 30
+
+  /** A column never decodes a page that would push its values past this many bytes */
+  private[parquet] var batchHardLimit: Long = ValueBuffer.MaxArrayLength.toLong
+
+  /** Chunks larger than this are read in windows of this size, not in one range */
+  private[parquet] var chunkWindowSize: Int = 256 * 1024 * 1024
+
+  private def chunkInput(c: ChunkPlan, data: Seq[(FetchRange, Array[Byte])]): ChunkInput =
+    val (range, bytes) = data
+      .find { case (r, _) =>
+        r.offset <= c.start && c.start + c.length <= r.offset + r.length
+      }
+      .getOrElse(throw IllegalStateException(s"No fetched range covers ${c.field.pathString}"))
+    if bytes.length != range.length then
+      throw ParquetException.corrupt(
+        s"${source.name} ended before offset ${range.offset + range.length}"
+      )
+    ChunkInput.OfArray(bytes, (c.start - range.offset).toInt, c.length)
+
+  /** Reads the merged ranges now; windowed chunks read their windows while they are decoded */
+  private def fetch(plan: Plan): Map[Int, ChunkInput] =
+    val src  = syncSource
+    val data = plan.ranges.map(r => r -> src.read(r.offset, r.length))
+    plan
+      .chunks
+      .map { c =>
+        val in =
+          if c.windowed then
+            ChunkInput.Windowed(src.read, c.start, c.length, chunkWindowSize)
+          else
+            chunkInput(c, data)
+        c.field.columnIndex -> in
+      }
+      .toMap
+
+  private def windowsOf(c: ChunkPlan): IndexedSeq[FetchRange] =
+    (0L until c.length by chunkWindowSize.toLong).map(o =>
+      FetchRange(c.start + o, math.min(chunkWindowSize.toLong, c.length - o).toInt)
     )
 
-  end decode
+  /** Reads the merged ranges and every window of the windowed chunks */
+  private def fetchAsync(plan: Plan): Rx[Map[Int, ChunkInput]] =
+    val ranges = plan.ranges ++ plan.chunks.filter(_.windowed).flatMap(windowsOf)
+    ParquetFile
+      .sequence(ranges.map(r => source.readAsync(r.offset, r.length).map(b => r -> b)))
+      .map { data =>
+        data.foreach { case (r, b) =>
+          if b.length != r.length then
+            throw ParquetException.corrupt(
+              s"${source.name} ended before offset ${r.offset + r.length}"
+            )
+        }
+        val byOffset =
+          data
+            .map { case (r, b) =>
+              r.offset -> b
+            }
+            .toMap
+        plan
+          .chunks
+          .map { c =>
+            val in =
+              if c.windowed then
+                ChunkInput.OfSegments(
+                  windowsOf(c).map(r => byOffset(r.offset)),
+                  chunkWindowSize,
+                  c.length
+                )
+              else
+                chunkInput(c, data)
+            c.field.columnIndex -> in
+          }
+          .toMap
+      }
+
+  end fetchAsync
+
+  private def batches(
+      plan: Plan,
+      inputs: Map[Int, ChunkInput],
+      options: ParquetReadOptions,
+      whole: Boolean
+  ): Iterator[ColumnBatch] =
+    // A whole row group may use all the space an array has
+    val soft =
+      if whole then
+        batchHardLimit
+      else
+        batchSoftLimit
+    val cursors = plan
+      .chunks
+      .map(c =>
+        ColumnChunkCursor(c.field, c.meta, inputs(c.field.columnIndex), soft, batchHardLimit)
+      )
+    val batchSize =
+      if whole then
+        ValueBuffer.MaxArrayLength
+      else
+        options.batchSize.getOrElse(ValueBuffer.MaxArrayLength)
+    RowGroupBatches(plan.fields, cursors, plan.rowGroup.numRows, batchSize, options.binaryAsString)
+
+  private def wholeRowGroup(index: Int, it: Iterator[ColumnBatch]): ColumnBatch =
+    val numRows = rowGroups(index).numRows
+    if numRows > ValueBuffer.MaxArrayLength then
+      throw ParquetException.unsupported(
+        s"reading row group ${index} (${numRows} rows) as one batch. Use readBatches, which splits it"
+      )
+    val b = it.next()
+    if it.hasNext then
+      throw ParquetException.unsupported(
+        s"reading row group ${index} as one batch: a column has more than 2 GiB of values. Use readBatches, which splits it"
+      )
+    b
 
 end ParquetFile
 

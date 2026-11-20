@@ -6,6 +6,15 @@ import wvlet.uni.parquet.ParquetException
 private[parquet] sealed abstract class ValueBuffer:
   def size: Int
 
+  /** Bytes the values take, for deciding where a batch ends */
+  def byteSize: Long
+
+  /** A new buffer with values [0, n) */
+  def take(n: Int): ValueBuffer
+
+  /** Removes values [0, n), keeping the rest at the front */
+  def dropFirst(n: Int): Unit
+
   /** Appends `dict(indices(i))` for i in [0, n) */
   def appendFromDictionary(dict: ValueBuffer, indices: Array[Int], n: Int): Unit
 
@@ -14,14 +23,19 @@ private[parquet] sealed abstract class ValueBuffer:
       throw ParquetException.corrupt(s"dictionary index ${i} is out of range (size ${dictSize})")
 
 private[parquet] object ValueBuffer:
+  // The largest array every platform allocates; the JVM refuses lengths close to Int.MaxValue
+  final val MaxArrayLength = Int.MaxValue - 8
+
   private[column] def grow(current: Int, needed: Int): Int =
-    if needed < 0 then
-      throw ParquetException.unsupported("column chunks with more than 2 GiB of values")
+    if needed < 0 || needed > MaxArrayLength then
+      throw ParquetException.unsupported(
+        "a batch with more than 2 GiB of values in one column. One row may be too large, or a page decodes to more than 2 GiB"
+      )
     var n = math.max(current, 16)
     while n < needed do
       n =
-        if n > (Int.MaxValue >> 1) then
-          Int.MaxValue
+        if n > (MaxArrayLength >> 1) then
+          MaxArrayLength
         else
           n << 1
     n
@@ -33,6 +47,18 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def byteSize: Long = size.toLong * 1
+
+  def take(n: Int): BooleanBuffer =
+    val b = BooleanBuffer(n)
+    System.arraycopy(values, 0, b.values, 0, n)
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    System.arraycopy(values, n, values, 0, size - n)
+    size -= n
 
   def add(v: Boolean): Unit =
     ensure(1)
@@ -50,6 +76,8 @@ private[parquet] final class BooleanBuffer(initial: Int = 16) extends ValueBuffe
       i += 1
     size += n
 
+end BooleanBuffer
+
 private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
   var values: Array[Int] = new Array[Int](math.max(initial, 1))
   var size: Int          = 0
@@ -57,6 +85,18 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def byteSize: Long = size.toLong * 4
+
+  def take(n: Int): IntBuffer =
+    val b = IntBuffer(n)
+    System.arraycopy(values, 0, b.values, 0, n)
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    System.arraycopy(values, n, values, 0, size - n)
+    size -= n
 
   def add(v: Int): Unit =
     ensure(1)
@@ -74,6 +114,8 @@ private[parquet] final class IntBuffer(initial: Int = 16) extends ValueBuffer:
       i += 1
     size += n
 
+end IntBuffer
+
 private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
   var values: Array[Long] = new Array[Long](math.max(initial, 1))
   var size: Int           = 0
@@ -81,6 +123,18 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def byteSize: Long = size.toLong * 8
+
+  def take(n: Int): LongBuffer =
+    val b = LongBuffer(n)
+    System.arraycopy(values, 0, b.values, 0, n)
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    System.arraycopy(values, n, values, 0, size - n)
+    size -= n
 
   def add(v: Long): Unit =
     ensure(1)
@@ -98,6 +152,8 @@ private[parquet] final class LongBuffer(initial: Int = 16) extends ValueBuffer:
       i += 1
     size += n
 
+end LongBuffer
+
 private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
   var values: Array[Float] = new Array[Float](math.max(initial, 1))
   var size: Int            = 0
@@ -105,6 +161,18 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def byteSize: Long = size.toLong * 4
+
+  def take(n: Int): FloatBuffer =
+    val b = FloatBuffer(n)
+    System.arraycopy(values, 0, b.values, 0, n)
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    System.arraycopy(values, n, values, 0, size - n)
+    size -= n
 
   def add(v: Float): Unit =
     ensure(1)
@@ -122,6 +190,8 @@ private[parquet] final class FloatBuffer(initial: Int = 16) extends ValueBuffer:
       i += 1
     size += n
 
+end FloatBuffer
+
 private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer:
   var values: Array[Double] = new Array[Double](math.max(initial, 1))
   var size: Int             = 0
@@ -129,6 +199,18 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
   def ensure(extra: Int): Unit =
     if size + extra > values.length then
       values = java.util.Arrays.copyOf(values, ValueBuffer.grow(values.length, size + extra))
+
+  def byteSize: Long = size.toLong * 8
+
+  def take(n: Int): DoubleBuffer =
+    val b = DoubleBuffer(n)
+    System.arraycopy(values, 0, b.values, 0, n)
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    System.arraycopy(values, n, values, 0, size - n)
+    size -= n
 
   def add(v: Double): Unit =
     ensure(1)
@@ -145,6 +227,8 @@ private[parquet] final class DoubleBuffer(initial: Int = 16) extends ValueBuffer
       values(size + i) = d.values(k)
       i += 1
     size += n
+
+end DoubleBuffer
 
 /**
   * Variable-length binary values: value i is data[offsets(i), offsets(i + 1)). Fixed-length values
@@ -175,6 +259,36 @@ private[parquet] final class BinaryBuffer(initial: Int = 16) extends ValueBuffer
     size += 1
 
   def length(i: Int): Int = offsets(i + 1) - offsets(i)
+
+  def byteSize: Long = dataSize.toLong + 4L * size
+
+  /**
+    * The longest value, for bounding how much a dictionary page can expand. Computed once, so use
+    * it only on dictionaries, which do not change after they are decoded.
+    */
+  lazy val maxLength: Int =
+    var m = 0
+    var i = 0
+    while i < size do
+      m = math.max(m, length(i))
+      i += 1
+    m
+
+  def take(n: Int): BinaryBuffer =
+    val b = BinaryBuffer(1)
+    b.offsets = java.util.Arrays.copyOf(offsets, n + 1)
+    b.data = java.util.Arrays.copyOf(data, math.max(offsets(n), 1))
+    b.size = n
+    b
+
+  def dropFirst(n: Int): Unit =
+    val base = offsets(n)
+    System.arraycopy(data, base, data, 0, dataSize - base)
+    var i = 0
+    while i <= size - n do
+      offsets(i) = offsets(i + n) - base
+      i += 1
+    size -= n
 
   def bytes(i: Int): Array[Byte] = java.util.Arrays.copyOfRange(data, offsets(i), offsets(i + 1))
 

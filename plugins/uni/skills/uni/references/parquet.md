@@ -72,6 +72,11 @@ def sumIds(path: String): Long =
     file.close()
 ```
 
+`readBatches` gives one batch per row group; `ParquetReadOptions.default.withBatchSize(rows)` caps
+the rows per batch. A row group whose column holds over 1 GiB of values is split automatically, so
+large files need no settings; `readRowGroup(i)` returns a whole row group and fails when one column
+passes 2 GiB.
+
 `file.schema`, `file.numRows`, and `file.rowGroups` (with statistics) come from the footer.
 `batch.row(i)` gives the same `Map[String, Any]` as `readRows`; `vector.getValue(i)` applies the
 logical type.
@@ -175,6 +180,6 @@ group is buffered in memory; on Scala.js a file stream holds the whole file unti
 
 ## Limits
 
-No modular encryption, LZO codec, or ALP encoding; a column chunk must hold under 2 GiB of
-values. These fail with `ParquetException`. The writer does not compress with ZSTD or BROTLI and
+No modular encryption, LZO codec, or ALP encoding, and one row must hold under 2 GiB of values
+in each column. These fail with `ParquetException`. The writer does not compress with ZSTD or BROTLI and
 writes no data page v2, DELTA encodings, page indexes, or bloom filters.
