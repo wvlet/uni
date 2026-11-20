@@ -49,10 +49,10 @@ private[parquet] object Assembly:
       a
 
   /**
-    * Instance ranges of one node for one leaf: the first `size` entries of `starts` and `ends`. The
-    * arrays are sized for the most instances the leaf can hold, so they are filled without growing.
+    * Instance ranges of one node for one leaf. The arrays are sized for the most instances the leaf
+    * can hold, so they are filled without growing; callers know the instance count.
     */
-  private final class Ranges(val starts: Array[Int], val ends: Array[Int], val size: Int)
+  private final class Ranges(val starts: Array[Int], val ends: Array[Int])
 
   private type Instances = Map[Int, Ranges]
 
@@ -84,7 +84,7 @@ private[parquet] object Assembly:
         starts(i) = i
         ends(i) = i + 1
         i += 1
-      Ranges(starts, ends, numRows)
+      Ranges(starts, ends)
     else
       val starts = new Array[Int](numRows)
       val ends   = new Array[Int](numRows)
@@ -107,7 +107,7 @@ private[parquet] object Assembly:
         throw ParquetException.corrupt(
           s"column ${leaf.data.field.pathString} has ${c} rows, expected ${numRows}"
         )
-      Ranges(starts, ends, numRows)
+      Ranges(starts, ends)
 
   private def leafIndices(f: ParquetField): Seq[Int] =
     f match
@@ -274,7 +274,7 @@ private[parquet] object Assembly:
             throw ParquetException.corrupt(
               s"columns below ${f.pathString} disagree on the number of list elements"
             )
-          idx -> Ranges(starts, ends, c)
+          idx -> Ranges(starts, ends)
         }
         .toMap
     if offsets == null then

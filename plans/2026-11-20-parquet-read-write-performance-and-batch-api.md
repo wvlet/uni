@@ -188,3 +188,11 @@ path.
   work, and a builder can come later without changing the writer.
 - **Compare against parquet-java's Avro or Protobuf writers.** They need Avro or Protobuf; the Group
   writer is what a parquet-java user without them has, as on the read side.
+
+## Follow-ups
+
+- After PR 1 (#1023) merges, in a new session: try platform-specific wide copies for ZSTD and
+  Snappy matches and literals (VarHandle 8-byte loads and stores on the JVM, pointers on Native,
+  today's code on JS). The goal is orders snappy and zstd at ≤1.0x. Isolated A/B baselines on
+  `orders.uncompressed` in 1 MiB chunks: uni ZSTD 127 ms vs zstd-jni 47 ms; uni Snappy 61 ms.
+  Byte-loop and unrolled copies were slower than `System.arraycopy`.
