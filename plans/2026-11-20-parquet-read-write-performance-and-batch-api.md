@@ -220,3 +220,8 @@ path.
   60 → 43 ms (snappy-java 23). Still open: ZSTD at ~1.2x of parquet-java on `orders`; the rest is
   the per-sequence dependency chain (table lookup → bit read → next state). Tried without gain:
   a table-driven Snappy tag decoder, VarHandle int loads in Snappy, and rep offsets in locals.
+- ZSTD sequences and Native 8-byte loads (plans/2026-11-20-parquet-zstd-sequences-and-native-le64.md):
+  Native `le64` now reads two aligned words (isolated ZSTD 90 → 76 ms, `orders.zstd` columns
+  252 → 226 ms). JVM ZSTD stays at ~1.2x of parquet-java: caching predefined tables (≤5% of
+  blocks use them), a zstd-style repeat-offset update, and a two-pass sequence decode were all
+  slower or no faster.
