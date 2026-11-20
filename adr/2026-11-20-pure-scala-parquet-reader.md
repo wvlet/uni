@@ -71,5 +71,6 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
 
 ## Not supported
 
-Writing, modular encryption, LZO, the ALP encoding, and column chunks over 2 GiB. Skipping
+Writing (since added; see [`2026-11-20-pure-scala-parquet-writer.md`](2026-11-20-pure-scala-parquet-writer.md)),
+modular encryption, LZO, the ALP encoding, and column chunks over 2 GiB. Skipping
 pages with the page index (ColumnIndex/OffsetIndex) and bloom filters are future work.

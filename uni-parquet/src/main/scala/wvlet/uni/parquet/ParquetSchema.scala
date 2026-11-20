@@ -1,6 +1,7 @@
 package wvlet.uni.parquet
 
 import wvlet.uni.parquet.format.*
+import wvlet.uni.surface.Surface
 
 /** A field in a Parquet schema: a leaf column or a group of fields */
 sealed trait ParquetField:
@@ -105,6 +106,40 @@ case class ParquetSchema(root: ParquetField.Group):
 end ParquetSchema
 
 object ParquetSchema:
+
+  /**
+    * Derives a schema from a case class, for writing it with [[Parquet.newWriter]].
+    *
+    * | Scala field                               | Parquet column                                                    |
+    * |:------------------------------------------|:------------------------------------------------------------------|
+    * | `Int`, `Long`, `Short`, `Byte`            | INT32, INT64, INT32 with INT(16), INT32 with INT(8)               |
+    * | `Float`, `Double`, `Boolean`              | FLOAT, DOUBLE, BOOLEAN                                            |
+    * | `String`, `Char`, enums                   | BYTE_ARRAY with STRING                                            |
+    * | `Array[Byte]`                             | BYTE_ARRAY                                                        |
+    * | `Instant`                                 | INT64 TIMESTAMP(MICROS, UTC)                                      |
+    * | `UUID`                                    | FIXED_LEN_BYTE_ARRAY(16) with UUID                                |
+    * | `BigDecimal`                              | DECIMAL(38, 18) unless set with `ParquetWriteOptions.withDecimal` |
+    * | `Option[A]`                               | an OPTIONAL column; other fields are REQUIRED                     |
+    * | `Seq[A]`, `List[A]`, `Set[A]`, `Array[A]` | a 3-level LIST                                                    |
+    * | `Map[K, V]`                               | a MAP with REQUIRED keys                                          |
+    * | a case class                              | a group                                                           |
+    */
+  inline def of[A]: ParquetSchema = fromSurface(Surface.of[A])
+
+  /** Derives a schema from a Surface; see [[of]] for the type mapping */
+  def fromSurface(
+      surface: Surface,
+      options: ParquetWriteOptions = ParquetWriteOptions.default
+  ): ParquetSchema = fromColumns("schema", SurfaceSchema.columns(surface, options))
+
+  /** Starts building a schema by hand, for writing records with [[Parquet.newRecordWriter]] */
+  def builder(name: String = "schema"): ParquetSchemaBuilder = ParquetSchemaBuilder(name)
+
+  /** A schema with the given top-level columns */
+  def fromColumns(name: String, columns: Seq[ParquetColumn]): ParquetSchema = fromElements(
+    SchemaElements.of(name, columns)
+  )
+
   private[parquet] def fromElements(elements: IndexedSeq[SchemaElement]): ParquetSchema =
     if elements.isEmpty then
       throw ParquetException.corrupt("the schema is empty")

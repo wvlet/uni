@@ -759,6 +759,27 @@ object PrimitiveWeaver:
       _.toArray
     )
 
+  /**
+    * Array[Byte] packs as an array of numbers, like other arrays, and also unpacks from MessagePack
+    * binary, which Parquet and other binary sources produce
+    */
+  given byteArrayWeaver: Weaver[Array[Byte]] =
+    val base = arrayWeaver[Byte]
+    new Weaver[Array[Byte]]:
+      override def pack(p: Packer, v: Array[Byte], config: WeaverConfig): Unit = base.pack(
+        p,
+        v,
+        config
+      )
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.BINARY =>
+            val len = u.unpackBinaryHeader
+            context.setObject(u.readPayload(len))
+          case _ =>
+            base.unpack(u, context)
+
   given vectorWeaver[A](using elementWeaver: Weaver[A]): Weaver[Vector[A]] =
     iterableCollectionWeaver(elementWeaver, "Vector", _.toVector)
 

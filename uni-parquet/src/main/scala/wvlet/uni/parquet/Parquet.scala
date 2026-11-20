@@ -2,18 +2,22 @@ package wvlet.uni.parquet
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
+import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONObject
+import wvlet.uni.parquet.writer.FileWriter
+import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
 import wvlet.uni.weaver.Weaver
 
 /**
-  * Entry points for reading Apache Parquet files.
+  * Entry points for reading and writing Apache Parquet files.
   *
   * {{{
   * import wvlet.uni.parquet.Parquet
   *
-  * case class Event(id: Long, user: String)
+  * case class Event(id: Long, user: String) derives Weaver
+  * Parquet.write("events.parquet", Seq(Event(1, "aina")))
   * val events: Seq[Event] = Parquet.readAs[Event]("events.parquet")
   * }}}
   */
@@ -86,5 +90,83 @@ object Parquet:
   private def withFile[A](f: ParquetFile)(read: ParquetFile => Iterator[A]): Seq[A] =
     try read(f).toSeq
     finally f.close()
+
+  // Writing
+
+  /**
+    * Writes case classes to a local file (JVM, Scala Native, and Node.js; in browsers, the
+    * in-memory file system). The schema is derived from `A`; see [[ParquetSchema.of]].
+    */
+  inline def newWriter[A](path: String, options: ParquetWriteOptions = ParquetWriteOptions.default)(
+      using weaver: Weaver[A]
+  ): ParquetWriter[A] = newWriter[A](IOPath.parse(path), options)
+
+  inline def newWriter[A](path: IOPath)(using weaver: Weaver[A]): ParquetWriter[A] = newWriter[A](
+    path,
+    ParquetWriteOptions.default
+  )
+
+  inline def newWriter[A](path: IOPath, options: ParquetWriteOptions)(using
+      weaver: Weaver[A]
+  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], () => openFile(path), options, weaver)
+
+  /** Writes case classes to an output stream, such as a `ByteArrayOutputStream` */
+  inline def newWriter[A](out: java.io.OutputStream)(using weaver: Weaver[A]): ParquetWriter[A] =
+    newWriter[A](out, ParquetWriteOptions.default)
+
+  inline def newWriter[A](out: java.io.OutputStream, options: ParquetWriteOptions)(using
+      weaver: Weaver[A]
+  ): ParquetWriter[A] = ParquetWriter.create(Surface.of[A], () => out, options, weaver)
+
+  /** Writes all rows to a local file */
+  inline def write[A](
+      path: String,
+      rows: Iterable[A],
+      options: ParquetWriteOptions = ParquetWriteOptions.default
+  )(using weaver: Weaver[A]): Unit =
+    val w = newWriter[A](IOPath.parse(path), options)
+    try w.writeAll(rows)
+    finally w.close()
+
+  /** Writes all rows to a Parquet file in memory, which works on every platform */
+  inline def writeBytes[A](
+      rows: Iterable[A],
+      options: ParquetWriteOptions = ParquetWriteOptions.default
+  )(using weaver: Weaver[A]): Array[Byte] =
+    val out = java.io.ByteArrayOutputStream()
+    val w   = newWriter[A](out, options)
+    try w.writeAll(rows)
+    finally w.close()
+    out.toByteArray
+
+  /** Writes records (maps, JSON, or value sequences) with an explicit schema to a local file */
+  def newRecordWriter(
+      path: String,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions = ParquetWriteOptions.default
+  ): ParquetRecordWriter = newRecordWriter(IOPath.parse(path), schema, options)
+
+  def newRecordWriter(path: IOPath, schema: ParquetSchema): ParquetRecordWriter = newRecordWriter(
+    path,
+    schema,
+    ParquetWriteOptions.default
+  )
+
+  def newRecordWriter(
+      path: IOPath,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions
+  ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, () => openFile(path)))
+
+  def newRecordWriter(out: java.io.OutputStream, schema: ParquetSchema): ParquetRecordWriter =
+    newRecordWriter(out, schema, ParquetWriteOptions.default)
+
+  def newRecordWriter(
+      out: java.io.OutputStream,
+      schema: ParquetSchema,
+      options: ParquetWriteOptions
+  ): ParquetRecordWriter = ParquetRecordWriter(FileWriter(schema, options, () => out))
+
+  private[parquet] def openFile(path: IOPath): java.io.OutputStream = FileSystem.writeStream(path)
 
 end Parquet
