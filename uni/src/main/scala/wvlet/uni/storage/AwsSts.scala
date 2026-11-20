@@ -175,17 +175,37 @@ private[storage] object AwsSts:
   private lazy val http: HttpClientConfig =
     Http.client.withConnectTimeoutMillis(5000).withReadTimeoutMillis(10000).noFollowRedirects
 
-  /** Sends a request and returns error responses instead of throwing */
-  def send(req: Request): Response =
-    val client = http.newSyncClient
+  /**
+    * Sends a request and returns HTTP error responses instead of throwing. Connection failures
+    * still throw, so the error says what went wrong rather than a made-up status. `retry = false`
+    * is for calls that must not repeat, such as an SSO token refresh, whose refresh token rotates.
+    */
+  def send(req: Request, retry: Boolean = true): Response =
+    val config =
+      if retry then
+        http
+      else
+        http.noRetry
+    val client = config.newSyncClient
     try
       client.send(req)
     catch
-      case e: HttpMaxRetryException =>
+      case e: HttpMaxRetryException if hasResponse(e.getCause) =>
         e.response
       case e: HttpException if e.response.isDefined =>
         e.response.get
     finally
       client.close()
+
+  // A retry exception made from a connection error carries a synthetic 500; only a real response
+  // counts
+  private def hasResponse(cause: Throwable): Boolean =
+    cause match
+      case e: HttpException =>
+        e.response.isDefined
+      case e: HttpMaxRetryException =>
+        hasResponse(e.getCause)
+      case _ =>
+        false
 
 end AwsSts

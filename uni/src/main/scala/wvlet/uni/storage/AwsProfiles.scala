@@ -73,10 +73,16 @@ private[storage] class AwsProfiles(env: AwsEnv):
   def profile(name: String): Map[String, String] =
     configProfile(name) ++ read(credentialsFile).getOrElse(name, Map.empty)
 
+  /** The `region` of a profile in the config file */
+  def configRegion(profile: String): Option[String] = configProfile(profile)
+    .get("region")
+    .filter(_.nonEmpty)
+
   /** An `[sso-session name]` section of the config file */
   def ssoSession(name: String): Option[Map[String, String]] = config.get(s"sso-session ${name}")
 
-  def region(profile: String): Option[String] = env("AWS_REGION")
+  /** The region for STS calls: `AWS_REGION`, `AWS_DEFAULT_REGION`, then the profile's `region` */
+  def stsRegion(profile: String): Option[String] = env("AWS_REGION")
     .orElse(env("AWS_DEFAULT_REGION"))
     .orElse(configProfile(profile).get("region"))
     .filter(_.nonEmpty)
@@ -88,9 +94,7 @@ private[storage] object AwsProfiles:
 
   /** The region set for a profile in the config file */
   def region(profile: String = currentProfile): Option[String] = AwsProfiles(AwsEnv.system)
-    .profile(profile)
-    .get("region")
-    .filter(_.nonEmpty)
+    .configRegion(profile)
 
   /** A minimal INI reader: `[section]` headers and `key = value` lines */
   def parseIni(text: String): Map[String, Map[String, String]] =
@@ -168,7 +172,7 @@ private[storage] class AwsProfileCredentials(env: AwsEnv):
         .getOrElse(fail(s"Profile ${name} has a duration_seconds that is not a number: ${d}"))
     }
 
-  private def sts(name: String) = AwsSts(env, profiles.region(name))
+  private def sts(name: String) = AwsSts(env, profiles.stsRegion(name))
 
   private def webIdentity(name: String, p: Map[String, String]): AwsCredentials = sts(name)
     .assumeRoleWithWebIdentity(
@@ -275,40 +279,54 @@ private[storage] object AwsCredentialProcess:
     parse(result.stdout).getOrElse(fail("printed no valid credentials JSON"))
 
   /** Parses the process output. Without `Expiration`, the credentials never refresh. */
-  def parse(json: String): Option[AwsCredentials] =
+  def parse(json: String): Option[AwsCredentials] = AwsJson
+    .parseObject(json)
+    .filter(o => AwsJson.long(o, "Version").contains(1L))
+    .flatMap { o =>
+      for
+        id     <- AwsJson.str(o, "AccessKeyId")
+        secret <- AwsJson.str(o, "SecretAccessKey")
+      yield AwsCredentials(
+        id,
+        secret,
+        AwsJson.str(o, "SessionToken"),
+        AwsJson.str(o, "Expiration").flatMap(AwsTime.parseIso)
+      )
+    }
+
+end AwsCredentialProcess
+
+/**
+  * Reads credential JSON. A parse error's message may quote its input, which holds secrets, so
+  * every credential source parses through here and a parse failure becomes `None`.
+  */
+private[storage] object AwsJson:
+  def parseObject(json: String): Option[JSON.JSONObject] =
     try
       JSON.parse(json) match
         case o: JSON.JSONObject =>
-          def str(key: String): Option[String] = o
-            .get(key)
-            .collect { case JSON.JSONString(s) =>
-              s
-            }
-            .filter(_.nonEmpty)
-          val version = o
-            .get("Version")
-            .collect {
-              case JSON.JSONLong(v) =>
-                v
-              case JSON.JSONDouble(v) =>
-                v.toLong
-            }
-          if !version.contains(1L) then
-            None
-          else
-            for
-              id     <- str("AccessKeyId")
-              secret <- str("SecretAccessKey")
-            yield AwsCredentials(
-              id,
-              secret,
-              str("SessionToken"),
-              str("Expiration").flatMap(AwsTime.parseIso)
-            )
+          Some(o)
         case _ =>
           None
     catch
       case e: Exception =>
         None
 
-end AwsCredentialProcess
+  /** A non-empty string field */
+  def str(o: JSON.JSONObject, key: String): Option[String] = o
+    .get(key)
+    .collect { case JSON.JSONString(s) =>
+      s
+    }
+    .filter(_.nonEmpty)
+
+  def long(o: JSON.JSONObject, key: String): Option[Long] = o
+    .get(key)
+    .collect {
+      case JSON.JSONLong(v) =>
+        v
+      case JSON.JSONDouble(v) =>
+        v.toLong
+    }
+
+end AwsJson

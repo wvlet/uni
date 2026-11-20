@@ -111,19 +111,9 @@ private[storage] class AwsSso(
     val file = dir.resolve(s"${cacheFileName(cacheKey)}")
     if !FileSystem.isFile(file) then
       fail(s"No cached SSO token; ${login}")
-    // A parse error's message may quote the file, which holds tokens, so it is not passed on
-    val parsed =
-      try
-        Some(JSON.parse(FileSystem.readString(file)))
-      catch
-        case e: Exception =>
-          None
-    val cache =
-      parsed match
-        case Some(o: JSON.JSONObject) =>
-          o
-        case _ =>
-          fail(s"The cached SSO token is not valid JSON; ${login}")
+    val cache = AwsJson
+      .parseObject(FileSystem.readString(file))
+      .getOrElse(fail(s"The cached SSO token is not valid JSON; ${login}"))
     val token = str(cache, "accessToken").getOrElse(
       fail(s"The cached SSO token is empty; ${login}")
     )
@@ -180,31 +170,18 @@ private[storage] class AwsSso(
             )
           )
           .toJSON
-      val resp = AwsSts.send(Request.post(s"${oidc}/token").withJsonContent(body))
+      val resp = AwsSts.send(Request.post(s"${oidc}/token").withJsonContent(body), retry = false)
       if !resp.isSuccessful then
         // Only the status: the body may echo request fields
         debug(s"SSO token refresh failed: HTTP ${resp.statusCode}")
         None
       else
-        val parsed =
-          try
-            Some(JSON.parse(resp.contentAsString.getOrElse("")))
-          catch
-            case e: Exception =>
-              None
-        parsed match
-          case Some(o: JSON.JSONObject) =>
-            val expiresIn = o
-              .get("expiresIn")
-              .collect {
-                case JSON.JSONLong(v) =>
-                  v
-                case JSON.JSONDouble(v) =>
-                  v.toLong
-              }
+        AwsJson
+          .parseObject(resp.contentAsString.getOrElse(""))
+          .flatMap { o =>
             for
               access <- str(o, "accessToken")
-              secs   <- expiresIn
+              secs   <- AwsJson.long(o, "expiresIn")
             yield
               val updates =
                 Seq(
@@ -213,8 +190,7 @@ private[storage] class AwsSso(
                 ) ++ str(o, "refreshToken").map("refreshToken" -> JSON.JSONString(_))
               writeCache(file, merge(cache, updates))
               access
-          case _ =>
-            None
+          }
       end if
     }
 
@@ -226,9 +202,15 @@ private[storage] class AwsSso(
     * (without contents) and the refreshed token is still used.
     */
   private def writeCache(file: IOPath, cache: JSON.JSONObject): Unit =
-    val tmp = file.parent.getOrElse(IOPath.parse(".")).resolve(s".${file.fileName}.${now()}.tmp")
+    // A random suffix, so two refreshes at once never share (or delete) a temp file
+    val tmp = file
+      .parent
+      .getOrElse(IOPath.parse("."))
+      .resolve(s".${file.fileName}.${java.util.UUID.randomUUID().toString}.tmp")
+    var created = false
     try
       FileSystem.writeString(tmp, "", WriteMode.CreateNew)
+      created = true
       try
         FileSystem.setPermissions(tmp, PermSet(OwnerOnly))
       catch
@@ -239,7 +221,8 @@ private[storage] class AwsSso(
     catch
       case e: Exception =>
         warn(s"Could not update the SSO token cache ${file.path}: ${e.getClass.getSimpleName}")
-        FileSystem.deleteIfExists(tmp)
+        if created then
+          FileSystem.deleteIfExists(tmp)
 
 end AwsSso
 
@@ -261,44 +244,24 @@ private[storage] object AwsSso:
         t
     )
 
-  private def str(o: JSON.JSONObject, key: String): Option[String] = o
-    .get(key)
-    .collect { case JSON.JSONString(s) =>
-      s
-    }
-    .filter(_.nonEmpty)
+  private def str(o: JSON.JSONObject, key: String): Option[String] = AwsJson.str(o, key)
 
   private def merge(o: JSON.JSONObject, updates: Seq[(String, JSON.JSONValue)]): JSON.JSONObject =
     val keys = updates.map(_._1).toSet
     JSON.JSONObject(o.v.filterNot((k, _) => keys.contains(k)) ++ updates)
 
   /** Parses `{"roleCredentials": {...}}`, whose `expiration` is epoch millis */
-  def parseRoleCredentials(json: String): Option[AwsCredentials] =
-    try
-      JSON.parse(json) match
-        case o: JSON.JSONObject =>
-          o.get("roleCredentials")
-            .collect { case c: JSON.JSONObject =>
-              c
-            }
-            .flatMap { c =>
-              val expiration = c
-                .get("expiration")
-                .collect {
-                  case JSON.JSONLong(v) =>
-                    v
-                  case JSON.JSONDouble(v) =>
-                    v.toLong
-                }
-              for
-                id     <- str(c, "accessKeyId")
-                secret <- str(c, "secretAccessKey")
-              yield AwsCredentials(id, secret, str(c, "sessionToken"), expiration)
-            }
-        case _ =>
-          None
-    catch
-      case e: Exception =>
-        None
+  def parseRoleCredentials(json: String): Option[AwsCredentials] = AwsJson
+    .parseObject(json)
+    .flatMap(_.get("roleCredentials"))
+    .collect { case c: JSON.JSONObject =>
+      c
+    }
+    .flatMap { c =>
+      for
+        id     <- str(c, "accessKeyId")
+        secret <- str(c, "secretAccessKey")
+      yield AwsCredentials(id, secret, str(c, "sessionToken"), AwsJson.long(c, "expiration"))
+    }
 
 end AwsSso

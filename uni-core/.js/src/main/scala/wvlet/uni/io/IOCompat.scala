@@ -32,7 +32,7 @@ trait IOCompat extends ProcessApi:
   )
 
   override def run(command: Seq[String], config: ProcessConfig): CommandResult =
-    if !NodeChildProcess.isNode then
+    if !FileSystem.isNode then
       unsupported("Subprocess execution")
     if command.isEmpty then
       throw IllegalArgumentException("No command to run")
@@ -106,12 +106,6 @@ end IOCompat
 
 /** Loads Node's `child_process` at run time, so a browser bundle never imports it */
 private[io] object NodeChildProcess:
-  def isNode: Boolean =
-    // typeof, because reading an undeclared `process` global throws a ReferenceError in browsers
-    js.typeOf(js.Dynamic.global.process) != "undefined" &&
-      !js.isUndefined(js.Dynamic.global.process.versions) &&
-      !js.isUndefined(js.Dynamic.global.process.versions.node)
-
   lazy val module: js.Dynamic =
     val process = js.Dynamic.global.process
     if !js.isUndefined(process.getBuiltinModule) then

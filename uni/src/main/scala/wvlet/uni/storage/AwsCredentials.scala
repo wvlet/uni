@@ -157,7 +157,7 @@ object AwsCredentialsProvider:
           roleArn   <- env("AWS_ROLE_ARN")
         yield
           val profiles = AwsProfiles(env)
-          AwsSts(env, profiles.region(profiles.currentProfile)).assumeRoleWithWebIdentity(
+          AwsSts(env, profiles.stsRegion(profiles.currentProfile)).assumeRoleWithWebIdentity(
             roleArn = roleArn,
             sessionName = env("AWS_ROLE_SESSION_NAME").getOrElse(AwsSts.defaultSessionName),
             token = AwsSts.readToken(tokenFile),
@@ -267,28 +267,19 @@ object AwsCredentialsProvider:
     }
 
   /** Parses the JSON that the container and IMDS endpoints return */
-  private[storage] def parseCredentialsJson(json: String): Option[AwsCredentials] =
-    // A parse error's message may quote the body, which holds secrets, so it is dropped
-    val parsed =
-      try
-        Some(JSON.parse(json))
-      catch
-        case e: Exception =>
-          None
-    parsed match
-      case Some(o: JSON.JSONObject) =>
-        def str(key: String): Option[String] = o
-          .get(key)
-          .collect { case JSON.JSONString(s) =>
-            s
-          }
-          .filter(_.nonEmpty)
-        for
-          id     <- str("AccessKeyId")
-          secret <- str("SecretAccessKey")
-        yield AwsCredentials(id, secret, str("Token"), str("Expiration").flatMap(AwsTime.parseIso))
-      case _ =>
-        None
+  private[storage] def parseCredentialsJson(json: String): Option[AwsCredentials] = AwsJson
+    .parseObject(json)
+    .flatMap { o =>
+      for
+        id     <- AwsJson.str(o, "AccessKeyId")
+        secret <- AwsJson.str(o, "SecretAccessKey")
+      yield AwsCredentials(
+        id,
+        secret,
+        AwsJson.str(o, "Token"),
+        AwsJson.str(o, "Expiration").flatMap(AwsTime.parseIso)
+      )
+    }
 
   private lazy val metadataHttp: HttpClientConfig =
     Http.client.withConnectTimeoutMillis(1000).withReadTimeoutMillis(2000).noRetry.noFollowRedirects
