@@ -23,7 +23,7 @@ private[parquet] final class TStruct(fields: Map[Int, Any]):
   def int(id: Int, name: String): Int   = TStruct.toInt(required(id, name), name)
   def intOpt(id: Int): Option[Int]      = fields.get(id).map(TStruct.toInt(_, s"field ${id}"))
   def long(id: Int, name: String): Long = TStruct.toLong(required(id, name), name)
-  def longOpt(id: Int): Option[Long]    = fields.get(id).map(TStruct.toLong(_, s"field ${id}"))
+  def longOpt(id: Int): Option[Long]    = fields.get(id).flatMap(TStruct.asLong)
   def bool(id: Int, default: Boolean): Boolean =
     fields.get(id) match
       case Some(b: Boolean) =>
@@ -78,6 +78,24 @@ private[parquet] final class TStruct(fields: Map[Int, Any]):
 end TStruct
 
 private[parquet] object TStruct:
+  private def asInt(v: Any): Option[Int] =
+    v match
+      case i: Int =>
+        Some(i)
+      case s: Short =>
+        Some(s.toInt)
+      case b: Byte =>
+        Some(b.toInt)
+      case _ =>
+        None
+
+  private def asLong(v: Any): Option[Long] =
+    v match
+      case l: Long =>
+        Some(l)
+      case _ =>
+        asInt(v).map(_.toLong)
+
   private def toInt(v: Any, name: String): Int =
     v match
       case i: Int =>
@@ -101,6 +119,8 @@ private[parquet] object TStruct:
         b.toLong
       case _ =>
         throw ParquetException.corrupt(s"${name} is not an integer")
+
+end TStruct
 
 /**
   * Reads the Thrift Compact Protocol, which Parquet uses for its footer and page headers.

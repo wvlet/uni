@@ -92,7 +92,7 @@ class DuckDBFilesTest extends UniTest:
   FileSystemInit.init()
   private val numRows = 3000
 
-  private val supported = Seq("uncompressed", "snappy", "gzip", "lz4_raw")
+  private val supported = Seq("uncompressed", "snappy", "gzip", "lz4_raw", "zstd")
 
   for
     codec   <- supported

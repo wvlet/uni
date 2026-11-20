@@ -153,7 +153,10 @@ private[parquet] object ColumnChunkReader:
           val valuesLen         = header.compressedSize - repLen - defLen
           val rawLen            = header.uncompressedSize - repLen - defLen
           val (buf, start, end) =
-            if h.isCompressed && meta.codec != CompressionCodec.UNCOMPRESSED then
+            if rawLen == 0 then
+              // An empty page: nothing to decompress
+              (Array.emptyByteArray, 0, 0)
+            else if h.isCompressed && meta.codec != CompressionCodec.UNCOMPRESSED then
               val out = Codecs.decompress(meta.codec, chunk, valuesStart, valuesLen, rawLen)
               (out, 0, out.length)
             else
