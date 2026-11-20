@@ -67,6 +67,12 @@ def wait_first_response(port, proc=None, deadline_s=60):
     raise RuntimeError("server did not answer in time")
 
 
+def seed(port, args):
+    """Add todos until `list` returns args.items of them; the readiness check already added one."""
+    for i in range(1, args.items):
+        rpc_call(port, "add", json.dumps({"request": {"title": f"todo item number {i}"}}).encode())
+
+
 def rss_mb(pid):
     status = f"/proc/{pid}/status"
     if os.path.exists(status):
@@ -175,6 +181,7 @@ def bench_process(name, cmd, args, tool):
         _, proc = start(cmd + [str(port)], args.server_cpus)
         try:
             wait_first_response(port, proc)
+            seed(port, args)
             run_load(tool, port, args, args.warmup)
             res.update(run_load(tool, port, args, args.duration))
             res["rss_load_mb"] = rss_mb(proc.pid)
@@ -244,6 +251,7 @@ def sweep_process(name, cmd, args, tool, levels):
     rows = []
     try:
         wait_first_response(port, proc)
+        seed(port, args)
         run_load(tool, port, args, args.warmup)
         for c in levels:
             # The probe starts 1 s in, once the load tool holds its connections
@@ -271,6 +279,7 @@ def soak_process(name, cmd, args, tool):
     _, proc = start(cmd + [str(port)], args.server_cpus)
     try:
         wait_first_response(port, proc)
+        seed(port, args)
         samples = [{"t_s": 0.0, "rss_mb": rss_mb(proc.pid)}]
         t0 = time.monotonic()
         while time.monotonic() - t0 < total and proc.poll() is None:
@@ -300,8 +309,9 @@ def soak_verdict(samples):
             + (", but requests failed" if any(s.get("errors") for s in samples) else "")}
 
 
-def load_line(tool):
-    return f"{first_line([tool, '--version'])}, POST {SERVICE}/list, keep-alive"
+def load_line(tool, args):
+    items = "1 item" if args.items == 1 else f"{args.items} items"
+    return f"{first_line([tool, '--version'])}, POST {SERVICE}/list ({items}), keep-alive"
 
 
 def probe_cell(row):
@@ -318,7 +328,7 @@ def sweep_report(args, tool, sweeps):
                          f"{fmt(r['p50_ms'], 2)} | {fmt(r['p99_ms'], 2)} | {r['errors']:,} | "
                          f"{probe_cell(r)} | {fmt(r['rss_mb'], 1)} |")
     lines += ["", "Environment:", "", *environment(args),
-              f"- Load: {load_line(tool)}; one server per target, {args.warmup} warm-up at "
+              f"- Load: {load_line(tool, args)}; one server per target, {args.warmup} warm-up at "
               f"{args.connections} connections, then {args.duration} per level in the order shown",
               *[f"- Failed requests ({s['name']}, {r['connections']} connections): {r['error_kinds']}"
                 for s in sweeps for r in s["levels"] if r.get("error_kinds")],
@@ -358,7 +368,7 @@ def soak_report(args, tool, soaks):
         else:
             lines.append(f"- **{s['name']}: {s['verdict']}**")
     lines += ["", "Environment:", "", *environment(args),
-              f"- Load: {load_line(tool)}, {args.connections} connections, held for "
+              f"- Load: {load_line(tool, args)}, {args.connections} connections, held for "
               f"{args.soak} as back-to-back {args.sample} runs; RSS read after each run",
               "- Sample: idle is the reading after the first response, before load; then one "
               "reading per sample run, so times are approximate. Targets run one after another; "
@@ -446,7 +456,7 @@ def report(args, tool, procs, containers):
         for c in containers:
             lines.append(f"| {c['name']} | {c['image_mb']:.1f} | {fmt(c['startup_ms'])} | "
                          f"{fmt(c['startup_min_ms'])} |")
-    load = tool and (f"{load_line(tool)}, {args.connections} connections, {args.warmup} warm-up "
+    load = tool and (f"{load_line(tool, args)}, {args.connections} connections, {args.warmup} warm-up "
                      f"then {args.duration}")
     lines += ["", "Environment:", "", *environment(args),
               f"- Load: {'skipped' if args.no_load else load}",
@@ -470,6 +480,8 @@ def main():
     p.add_argument("--runs", type=int, default=7, help="fresh launches per target")
     p.add_argument("--connections", "-c", type=int, default=16)
     p.add_argument("--duration", default="10s")
+    p.add_argument("--items", type=int, default=1,
+                   help="todos the list call returns (more items mean a larger JSON response)")
     p.add_argument("--warmup", default="5s")
     p.add_argument("--no-load", action="store_true", help="measure startup and memory only")
     p.add_argument("--server-cpus", help="taskset CPU list for the server, e.g. 0-1 (Linux)")

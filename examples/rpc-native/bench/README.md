@@ -29,7 +29,10 @@ Needs Python 3, a JDK, the Scala Native toolchain (clang), the Boehm GC library 
 examples/rpc-native/bench/build.sh      # builds bench/out/rpc-native and bench/out/lib/*.jar
 python3 examples/rpc-native/bench/bench.py
 python3 examples/rpc-native/bench/bench.py --runs 15 --duration 30s -c 64
+python3 examples/rpc-native/bench/bench.py --items 50   # list returns 50 todos (about 3.4 KB of JSON)
 ```
+
+`list` returns one todo by default, which measures the server's own overhead. `--items 50` gives a larger response, where serialization and allocation weigh more.
 
 On Linux, keep the load tool off the server's cores with `--server-cpus 0-1 --client-cpus 2-3`
 (taskset). On a laptop, both share the same cores, so treat throughput as a rough comparison.
