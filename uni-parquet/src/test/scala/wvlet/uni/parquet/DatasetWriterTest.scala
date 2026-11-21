@@ -5,7 +5,7 @@ import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
 import wvlet.uni.io.ListOptions
 import wvlet.uni.parquet.ColumnVector.*
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver

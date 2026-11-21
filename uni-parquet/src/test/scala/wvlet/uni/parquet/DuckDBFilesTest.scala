@@ -192,11 +192,11 @@ end DuckDBFilesTest
 
 class RowGroupFilterTest extends UniTest:
   FileSystemInit.init()
-  import RowGroupFilter.*
+  import ParquetFilter.*
 
   private val file = Parquet.open(TestFiles.bytes("duckdb/all_snappy_V1.parquet"))
 
-  private def groups(f: RowGroupFilter): Seq[Int] = file.selectRowGroups(
+  private def groups(f: ParquetFilter): Seq[Int] = file.selectRowGroups(
     ParquetReadOptions.default.withRowGroupFilter(f)
   )
 
