@@ -58,9 +58,8 @@ private[parquet] object Word8:
     * `limit`. Needs `b + 16 <= limit`.
     *
     * A match of 4 to 11 bytes ends inside the 8 bytes at `b + 4`, and the word at its end comes
-    * from the loads at `b + 4` and `b + 8` alone: a compressor's next hash lookup then doesn't
-    * wait for a load that depends on the match length, as in the reference Snappy's
-    * FindMatchLength.
+    * from the loads at `b + 4` and `b + 8` alone: a compressor's next hash lookup then doesn't wait
+    * for a load that depends on the match length, as in the reference Snappy's FindMatchLength.
     */
   def matchAndNextWord(src: Array[Byte], a: Int, b: Int, limit: Int): Long =
     val w1 = le64(src, b + 4)
@@ -68,12 +67,14 @@ private[parquet] object Word8:
     val x  = le64(src, a + 4) ^ w1
     if x != 0 then
       val shift = java.lang.Long.numberOfTrailingZeros(x)
-      // shift & 24 is the bit offset of the end inside w1, or inside w2 for 4 or more bytes
+      // The end is byte shift >>> 3 of w1; from byte 4 on, w2 holds it 4 bytes lower
       val next =
-        (if x.toInt == 0 then
-           w2
-         else
-           w1) >>> (shift & 24)
+        (
+          if x.toInt == 0 then
+            w2
+          else
+            w1
+        ) >>> (shift & 24)
       (4 + (shift >>> 3)) | (next << 32)
     else
       val n    = 12 + matchLength(src, a + 12, b + 12, limit)

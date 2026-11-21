@@ -48,7 +48,7 @@ final class Word8 {
     long x = (long) LONGS.get(src, a + 4) ^ w1;
     if (x != 0) {
       int shift = Long.numberOfTrailingZeros(x);
-      // shift & 24 is the bit offset of the end inside w1, or inside w2 for 4 or more bytes
+      // The end is byte shift >>> 3 of w1; from byte 4 on, w2 holds it 4 bytes lower
       long next = ((int) x == 0 ? w2 : w1) >>> (shift & 24);
       return (4 + (shift >>> 3)) | (next << 32);
     }

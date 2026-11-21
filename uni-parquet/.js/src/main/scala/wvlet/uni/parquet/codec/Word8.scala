@@ -43,3 +43,5 @@ private[parquet] object Word8:
     while b + n < limit && src(a + n) == src(b + n) do
       n += 1
     n
+
+end Word8
