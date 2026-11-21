@@ -254,7 +254,12 @@ class ParquetDataset private[parquet] (
                             Repetition.OPTIONAL
                           else
                             wide.repetition
-                        union(f.name) = (withRepetition(wide, rep), prevPath)
+                        val widePath =
+                          if wide eq f then
+                            s.file.path
+                          else
+                            prevPath
+                        union(f.name) = (withRepetition(wide, rep), widePath)
                       case None =>
                         throw ParquetException(
                           s"Column ${f.name} has different types in ${prevPath} (${describe(
@@ -1003,9 +1008,6 @@ object ParquetDataset:
 
   end literal
 
-  // ---- Schemas ----
-
-  /** Same type and nested structure, ignoring top-level optionality and column positions */
   // ---- Type widening ----
 
   /**
@@ -1050,9 +1052,9 @@ object ParquetDataset:
         a == b
 
   /**
-    * The wider of two top-level columns when one reads losslessly as the other, as Spark's schema
-    * merging does: INT8, INT16, and INT32 widen to INT64 and DOUBLE, and FLOAT to DOUBLE. INT64
-    * does not widen to DOUBLE, which would round values above 2^53.
+    * The wider of two top-level columns when one reads losslessly as the other, as DuckDB's
+    * `union_by_name` promotes them: INT8, INT16, and INT32 widen to INT64 and DOUBLE, and FLOAT to
+    * DOUBLE. Unlike DuckDB, INT64 does not widen to DOUBLE, which would round values above 2^53.
     */
   private[parquet] def widen(a: ParquetField, b: ParquetField): Option[ParquetField] =
     (numKind(a), numKind(b)) match
@@ -1070,6 +1072,7 @@ object ParquetDataset:
           if p.physicalType != q.physicalType || p.logicalType != q.logicalType =>
         v match
           case c: IntColumn if q.physicalType == PhysicalType.INT32 =>
+            // INT(8) or INT(16) under a wider INT32: same values, the dataset's field
             IntColumn(q, c.values, c.nulls)
           case c: IntColumn if q.physicalType == PhysicalType.INT64 =>
             LongColumn(q, c.values.map(_.toLong), c.nulls)
@@ -1082,6 +1085,9 @@ object ParquetDataset:
       case _ =>
         v
 
+  // ---- Schemas ----
+
+  /** Same type and nested structure, ignoring top-level optionality and column positions */
   private[parquet] def sameType(a: ParquetField, b: ParquetField): Boolean =
     a.isRepeated == b.isRepeated && sameShape(a, b)
 

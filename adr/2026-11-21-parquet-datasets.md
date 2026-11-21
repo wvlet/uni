@@ -71,7 +71,7 @@ built a new store for each file.
   the `_`/`.` rule and the listing request. Object sizes are then -1.
 
 - **Type widening (added later).** Top-level numeric columns widen losslessly when files disagree,
-  as Spark's schema merging does: signed INT8/16/32 to INT32, INT64, or DOUBLE, and FLOAT to
+  as DuckDB's `union_by_name` promotes them: signed INT8/16/32 to INT32, INT64, or DOUBLE, and FLOAT to
   DOUBLE. INT64 does not widen to DOUBLE, unlike DuckDB, because values above 2^53 would round.
   The widest type among the selected files is the dataset type, and narrow vectors are copied in
   `toOutput`. Filters need no change: integer statistics compare as `Long`, and a Double literal on
