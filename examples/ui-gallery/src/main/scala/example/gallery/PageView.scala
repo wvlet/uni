@@ -288,14 +288,30 @@ end ApiTable
 /**
   * Runs uni-ui's WAI-ARIA checker (`checkPattern`, the one uni-ui's own tests use) on the page's
   * live components and lists what it finds. The structure check doesn't change anything; the
-  * keyboard check presses keys, so a dialog it checks closes.
+  * keyboard check presses keys, so a dialog it checks closes. It checks again when a widget it
+  * looks for appears, such as a menu opening, since pressing Check would close it first.
   */
 class A11yPanel(page: ComponentPage, root: () => Option[dom.Element]) extends RxElement:
   import A11yPanel.Result
 
-  private val results  = Rx.variable(Seq.empty[Result])
-  private val running  = Rx.variable(false)
-  private val keyboard = Rx.variable(false)
+  private val results                                = Rx.variable(Seq.empty[Result])
+  private val running                                = Rx.variable(false)
+  private val keyboard                               = Rx.variable(false)
+  private var observer: Option[dom.MutationObserver] = None
+  private var pending                                = 0
+  private var counts                                 = Seq.empty[Int]
+
+  private def present: Seq[Int] = page
+    .a11y
+    .map(c => dom.document.querySelectorAll(c.selector).length)
+
+  // Re-check when a widget appears (an open menu, a shown tooltip); keep the results when it goes
+  private def recheckIfNew(): Unit =
+    val now     = present
+    val appears = now.zipAll(counts, 0, 0).exists((n, before) => n > before)
+    counts = now
+    if appears && !running.get then
+      run()
 
   private def describe(el: dom.Element): String =
     val role  = Option(el.getAttribute("role")).map(r => s"[role=${r}]").getOrElse("")
@@ -350,7 +366,30 @@ class A11yPanel(page: ComponentPage, root: () => Option[dom.Element]) extends Rx
 
   override def onMount(node: Any): Unit =
     if page.a11y.nonEmpty then
-      dom.window.setTimeout(() => run(), 400)
+      dom
+        .window
+        .setTimeout(
+          () =>
+            counts = present
+            run()
+          ,
+          400
+        )
+      val mo = dom.MutationObserver { (_, _) =>
+        dom.window.clearTimeout(pending)
+        pending = dom.window.setTimeout(() => recheckIfNew(), 200)
+      }
+      mo.observe(
+        dom.document.body,
+        new dom.MutationObserverInit:
+          subtree = true
+          childList = true
+      )
+      observer = Some(mo)
+
+  override def beforeUnmount: Unit =
+    observer.foreach(_.disconnect())
+    dom.window.clearTimeout(pending)
 
   private def resultRow(r: Result): RxElement =
     r.violations match

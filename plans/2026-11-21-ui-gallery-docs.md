@@ -111,6 +111,9 @@ Routes are `#/<page>` and `#/<page>/<example>`; earlier story ids map to example
 switch became a group of toggle buttons: as a `TabList` with no tab panels it failed the Tabs
 pattern's `aria-controls` check, which the new accessibility section caught.
 
-Part 2: more examples for Tree, Data table, Virtual list, Dock, and Foldable pane, plus pages for
-Command palette, Splitter, and Status bar.
+Part 2 (2026-11-21): 18 pages and 54 examples. Tree (open rows from code, multi-select), Data
+table (cell selection, buttons in cells, reordering), Virtual list (10,000 rows, filter with
+multi-select), Dock (the layout as JSON, opening and closing panels from code), Foldable pane
+(both sides), and new pages for Command palette and Status bar. The accessibility check now runs
+again when a widget it looks for appears, since pressing Check would close an open menu first.
 
