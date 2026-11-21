@@ -17,7 +17,7 @@ private[parquet] object SnappyCompressor:
   private final val MaxOffset = 65535
   // Matches start at least this many bytes before the end, so the loop's word loads (8 bytes on
   // Scala Native) stay inside the input
-  private final val InputMargin = 15
+  private final val InputMargin = 16
   // A literal up to this length is written as one 16-byte wide copy into the output slack
   private final val ShortLiteral = 16
 
@@ -74,7 +74,11 @@ private[parquet] object SnappyCompressor:
           // Emit copies for as long as the position after a copy starts another one
           var more = true
           while more do
-            val m = 4 + Word8.matchLength(src, cand + 4, i + 4, len)
+            // The word at the end of the match comes with its length, so the lookup for the
+            // next copy doesn't wait for a load that depends on the length
+            val r = Word8.matchAndNextWord(src, cand, i, len)
+            val m = r.toInt
+            val v = (r >>> 32).toInt
             op = emitCopy(out, op, i - cand, m)
             i += m
             lit = i
@@ -84,7 +88,6 @@ private[parquet] object SnappyCompressor:
             else
               // Index the last position of the copy and look for a copy at the next one
               table(hash(Word8.le32(src, i - 1))) = i - 1
-              val v = Word8.le32(src, i)
               val h = hash(v)
               cand = table(h)
               table(h) = i

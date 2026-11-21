@@ -34,6 +34,16 @@ class SnappyCompressorTest extends UniTest:
       roundTrip(data)
   }
 
+  test("back-to-back short copies, up to the end of the input") {
+    // Words of 4 to 14 bytes from a small vocabulary: most copies start right where the last
+    // one ended, and some run into the input's last bytes
+    val r     = scala.util.Random(4)
+    val vocab = Seq.fill(12)(Array.fill(4 + r.nextInt(11))(r.nextInt(256).toByte))
+    for n <- (16 to 80) ++ Seq(1000, 5000) do
+      val data = Iterator.continually(vocab(r.nextInt(vocab.length))).flatten.take(n).toArray
+      roundTrip(data)
+  }
+
   test("offsets at and past the 2-byte limit") {
     val r = scala.util.Random(3)
     for gap <- Seq(2047, 2048, 65000, 65535 - 16, 65535, 65536, 70000) do

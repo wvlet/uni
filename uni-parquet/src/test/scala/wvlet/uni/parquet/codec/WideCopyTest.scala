@@ -45,6 +45,23 @@ class WideCopyTest extends UniTest:
         Word8.le32(b, i) shouldBe want
   }
 
+  test("matchAndNextWord gives the match length and the word after the match") {
+    for size <- 16 to 64 do
+      val b = Array.fill[Byte](size)(rnd.nextInt(2).toByte)
+      for
+        x <- 0 until size
+        y <- x + 1 to size - 16
+        if (0 until 4).forall(k => b(x + k) == b(y + k))
+      do
+        var want = 0
+        while y + want < size && b(x + want) == b(y + want) do
+          want += 1
+        val r = Word8.matchAndNextWord(b, x, y, size)
+        r.toInt shouldBe want
+        if y + want + 8 <= size then
+          (r >>> 32).toInt shouldBe Zstd.le32(b, y + want)
+  }
+
   /** A copy program: (isMatch, length, offset), filling exactly `size` bytes */
   private def program(size: Int): Seq[(Boolean, Int, Int)] =
     val ops = Seq.newBuilder[(Boolean, Int, Int)]
