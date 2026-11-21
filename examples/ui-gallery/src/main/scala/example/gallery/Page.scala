@@ -1,6 +1,7 @@
 package example.gallery
 
 import example.gallery.stories.*
+import wvlet.uni.dom.RxElement
 import wvlet.uni.dom.testing.AriaPattern
 
 /**
@@ -9,6 +10,12 @@ import wvlet.uni.dom.testing.AriaPattern
   * hidden, such as "Open the menu first".
   */
 case class A11yCheck(pattern: AriaPattern, selector: String, howTo: String = "")
+
+/** A page of the gallery: a component's page, or a guide page such as Colors. */
+sealed trait GalleryPage:
+  def id: String
+  def name: String
+  def summary: String
 
 /**
   * One component's page: several examples (each a [[Story]]), the component's API read from its
@@ -22,31 +29,53 @@ case class ComponentPage(
     api: Seq[ApiEntry],
     a11y: Seq[A11yCheck] = Nil,
     a11yNote: String = ""
-):
+) extends GalleryPage:
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
 
+/** A page with its own view instead of examples, such as the color tokens. */
+case class GuidePage(id: String, name: String, summary: String, view: () => RxElement)
+    extends GalleryPage
+
 /** A sidebar section: the pages of one catalog page of the docs. */
-case class PageGroup(id: String, title: String, docs: String, pages: Seq[ComponentPage])
+case class PageGroup(id: String, title: String, docs: String, pages: Seq[GalleryPage]):
+  def components: Seq[ComponentPage] = pages.collect { case c: ComponentPage =>
+    c
+  }
 
 /** Where the gallery is: a page, and optionally one of its examples. */
-case class PageRoute(page: ComponentPage, example: Option[Story]):
+case class PageRoute(page: GalleryPage, example: Option[Story]):
   def hash: String = example.map(e => s"#/${e.id}").getOrElse(s"#/${page.id}")
+
+  /** The example an embedded card shows: the one named, else the page's first. */
+  def story: Option[Story] = example.orElse(
+    page match
+      case c: ComponentPage =>
+        c.examples.headOption
+      case _ =>
+        None
+  )
 
 object Pages:
   val groups: Seq[PageGroup] = Seq(
+    PageGroup("foundations", "Foundations", "theming", Seq(ColorsPage.page)),
     PageGroup("controls", "Controls", "controls", ControlStories.pages),
     PageGroup("overlays", "Overlays", "overlays", OverlayStories.pages),
     PageGroup("collections", "Collections", "collections", CollectionStories.pages),
     PageGroup("layout", "Layout & Dock", "layout", LayoutStories.pages)
   )
 
-  val all: Seq[ComponentPage] = groups.flatMap(_.pages)
+  /** Every page, guides included. */
+  val pages: Seq[GalleryPage] = groups.flatMap(_.pages)
+
+  /** The component pages, each with examples and an API. */
+  val all: Seq[ComponentPage] = groups.flatMap(_.components)
   val stories: Seq[Story]     = all.flatMap(_.examples)
 
-  def find(id: String): Option[ComponentPage]         = all.find(_.id == id)
-  def story(id: String): Option[Story]                = stories.find(_.id == id)
-  def groupOf(page: ComponentPage): Option[PageGroup] = groups.find(_.pages.contains(page))
-  def pageOf(story: Story): Option[ComponentPage]     = all.find(_.examples.contains(story))
+  def find(id: String): Option[ComponentPage]       = all.find(_.id == id)
+  def findPage(id: String): Option[GalleryPage]     = pages.find(_.id == id)
+  def story(id: String): Option[Story]              = stories.find(_.id == id)
+  def groupOf(page: GalleryPage): Option[PageGroup] = groups.find(_.pages.contains(page))
+  def pageOf(story: Story): Option[ComponentPage]   = all.find(_.examples.contains(story))
 
   /** Story ids of earlier gallery versions, kept so old links and docs embeds still open. */
   val aliases: Map[String, String] = Map(
@@ -72,7 +101,7 @@ object Pages:
     val id   = aliases.getOrElse(path, path)
     story(id)
       .flatMap(s => pageOf(s).map(p => PageRoute(p, Some(s))))
-      .orElse(find(id).map(p => PageRoute(p, None)))
+      .orElse(findPage(id).map(p => PageRoute(p, None)))
 
   def first: PageRoute = PageRoute(all.head, None)
 

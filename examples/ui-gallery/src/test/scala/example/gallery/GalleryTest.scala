@@ -270,6 +270,115 @@ class GalleryTest extends DomTestSupport:
     }
   }
 
+  /**
+    * Polls `cond` every 50 ms, up to `ms`, so a test can wait for the Colors page's probe frames.
+    */
+  private def waitFor(ms: Int)(cond: => Boolean): Rx[Unit] =
+    if cond || ms <= 0 then
+      Rx.const(())
+    else
+      waitMs(50).flatMap(_ => waitFor(ms - 50)(cond))
+
+  /** Loads uni-ui.css into the test page, as index.html does in the gallery. */
+  private def withUniUiCss[A](body: => Rx[A]): Rx[A] =
+    val style = dom.document.createElement("style")
+    style.textContent = UiCssTokens.text
+    dom.document.head.appendChild(style)
+    body.tapOn { case _ =>
+      style.remove()
+    }
+
+  test("the Colors page lists every color variable uni-ui.css declares, once") {
+    val names = ColorsPage.tokens.map(_.name)
+    names.distinct shouldBe names
+    names.toSet shouldBe UiCssTokens.declared.filter(ColorsPage.isColor).toSet
+  }
+
+  test("#/colors opens the Colors guide page in the Foundations group") {
+    val r = Pages.route("#/colors").get
+    r.page.id shouldBe "colors"
+    r.example shouldBe None
+    r.story shouldBe None
+    Pages.groupOf(r.page).map(_.id) shouldBe Some("foundations")
+    Pages.all.exists(_.id == "colors") shouldBe false
+    Pages.first.page.id shouldBe "button"
+  }
+
+  test("each swatch shows the light and dark values the cascade resolves") {
+    withUniUiCss {
+      val m                                           = mount(ColorsView())
+      def value(token: String, theme: String): String = m
+        .get(s"[data-token='${token}'] [data-theme-value='${theme}']")
+        .getAttribute("data-copy")
+      waitFor(3000)(
+        m.querySelector("[data-token='canvas'] [data-theme-value='dark']")
+          .exists(_.getAttribute("data-copy").nonEmpty)
+      ).map { _ =>
+        m.queryAll(".swatch").size shouldBe ColorsPage.tokens.size
+        value("canvas", "light") shouldBe "#eef3f4"
+        value("canvas", "dark") shouldBe "#061114"
+        value("accent", "light") shouldBe "#2e7685"
+        value("accent", "dark") shouldBe "#25a7c1"
+        // --uni-glow has one value for both themes
+        value("glow", "dark") shouldBe "#08bdcb"
+        m.get("[data-token='overlay-shadow'] .swatch-shadow").getAttribute("style") shouldContain
+          "box-shadow"
+      }
+    }
+  }
+
+  test("clicking a swatch copies its var() and says whether that worked") {
+    val m    = mount(ColorsView())
+    val chip = m.get("[data-token='accent'] .swatch-chip")
+    chip.getAttribute("data-copy") shouldBe "var(--uni-accent)"
+    fireEvent.click(chip)
+    // Headless Chromium may refuse a synthetic click's clipboard write; either way the chip says so
+    waitFor(2000)(chip.querySelector(".swatch-status").textContent.nonEmpty).map { _ =>
+      Seq("Copied", "Couldn't copy") shouldContain chip.querySelector(".swatch-status").textContent
+    }
+  }
+
+  test("the gallery shows the Colors page in the sidebar and as an embed") {
+    val m = mount(
+      Gallery(
+        Rx.variable(Pages.route("#/colors").get),
+        Rx.variable(ColorScheme.Light),
+        Rx.variable(ViewMode.Split),
+        embed = false
+      )
+    )
+    settle().map { _ =>
+      m.get(".story-title").textContent shouldBe "Colors"
+      m.queryAll(".colors-group").size shouldBe ColorsPage.groups.size
+      m.queryAll(".nav-story").map(_.textContent) shouldContain "Colors"
+      val e = mount(
+        Gallery(
+          Rx.variable(Pages.route("#/colors").get),
+          Rx.variable(ColorScheme.Light),
+          Rx.variable(ViewMode.Split),
+          embed = true
+        )
+      )
+      e.queryAll(".swatch").size shouldBe ColorsPage.tokens.size
+      e.querySelector(".gallery-rail") shouldBe None
+    }
+  }
+
+  test("an embed follows the hash between an example and the Colors page") {
+    val current = Rx.variable(Pages.route("#/button/busy").get)
+    val m       = mount(
+      Gallery(current, Rx.variable(ColorScheme.Light), Rx.variable(ViewMode.Split), embed = true)
+    )
+    settle().map { _ =>
+      m.get(".story-toolbar__title").textContent shouldBe "Busy"
+      current := Pages.route("#/colors").get
+      m.queryAll(".swatch").size shouldBe ColorsPage.tokens.size
+      current := Pages.route("#/button/disabled").get
+      m.queryAll(".swatch").size shouldBe 0
+      m.get(".story-toolbar__title").textContent shouldBe "Disabled"
+    }
+  }
+
   test("highlighting marks keywords, types, strings, and comments") {
     import ScalaHighlight.Kind
     val kinds = ScalaHighlight

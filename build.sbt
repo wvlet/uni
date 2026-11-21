@@ -757,6 +757,19 @@ lazy val exampleUiGallery = project
           )
         }
         .taskValue,
+    // The Colors page's test checks its tokens against the variables uni-ui.css declares
+    Test / sourceGenerators +=
+      Def
+        .task {
+          Def.uncached(
+            CssTokens.generate(
+              (ui / Compile / resourceDirectory).value / "wvlet" / "uni" / "ui" / "uni-ui.css",
+              (Test / sourceManaged).value,
+              "example.gallery"
+            )
+          )
+        }
+        .taskValue,
     gallerySite :=
       Def.uncached {
         val _ = (Compile / fastLinkJS).value

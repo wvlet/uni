@@ -34,6 +34,11 @@ and a live accessibility check. The docs embed it on the
   components ([`PageView.scala`](src/main/scala/example/gallery/PageView.scala)). Under each
   example, an event log lists the changes its components report and who made them
   ([`EventLog.scala`](src/main/scala/example/gallery/EventLog.scala)).
+- **Colors.** The Colors page ([`ColorsPage.scala`](src/main/scala/example/gallery/ColorsPage.scala))
+  shows every `--uni-*` color variable as a swatch, light and dark side by side, read live with
+  `getComputedStyle` from hidden frames that load the page's stylesheets with `data-theme` forced.
+  Click a swatch to copy its `var()`, or a value to copy the value. A test checks the page against
+  the variables `uni-ui.css` declares.
 - **State in the URL.** `#/menu` names a page and `#/menu/checked` an example,
   `?view=preview`, `code`, `split`, or `agent` picks the view, `?theme=dark` or `?theme=light` forces a color scheme, and `?embed` shows only
   one example's card for an iframe. An embedding page switches the theme with

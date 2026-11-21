@@ -13,7 +13,7 @@ import scala.language.implicitConversions
 /** A sidebar row: a catalog section, or one component page in it. */
 enum NavNode:
   case Section(group: PageGroup)
-  case Leaf(page: ComponentPage)
+  case Leaf(page: GalleryPage)
 
   def key: String =
     this match
@@ -42,7 +42,9 @@ class Gallery(
   private val sidebarOpen      = Rx.variable(!compact)
   private val sidebarWidth     = Rx.variable(248)
   private val selectedKey      = Rx.variable(Option(current.get.page.id))
-  private var subscriptions    = Cancelable.empty
+  // In embed mode, a guide page replaces the example card; the card stays mounted across examples
+  private val embedGuide    = Rx.variable(Gallery.guideOf(current.get))
+  private var subscriptions = Cancelable.empty
 
   override def onMount(node: Any): Unit =
     val keys = Keyboard.bindAll(
@@ -52,7 +54,12 @@ class Gallery(
       "ctrl+b" -> (() => sidebarOpen.update(!_))
     )
     // Keep the sidebar's highlight on the story shown, also after a back or forward navigation
-    val sync = current.run(r => selectedKey := Some(r.page.id))
+    val sync = current.run { r =>
+      selectedKey := Some(r.page.id)
+      val guide = Gallery.guideOf(r)
+      if guide != embedGuide.get then
+        embedGuide := guide
+    }
     subscriptions = Cancelable.merge(keys, sync)
 
   override def beforeUnmount: Unit = subscriptions.cancel
@@ -61,7 +68,12 @@ class Gallery(
     if embed then
       div(
         cls -> "gallery gallery--embed",
-        StoryView(current.map(r => r.example.getOrElse(r.page.examples.head)), mode, embed = true)
+        embedGuide.map {
+          case Some(g) =>
+            g.view()
+          case None =>
+            StoryView(current.map(_.story).filter(_.isDefined).map(_.get), mode, embed = true)
+        }
       )
     else
       div(
@@ -79,7 +91,13 @@ class Gallery(
         main(
           cls -> "gallery-main aurora",
           // A new page for a new component; moving to an example on the same page only scrolls
-          current.map(r => PageView(r.page, r.example, mode.get))
+          current.map(r =>
+            r.page match
+              case c: ComponentPage =>
+                PageView(c, r.example, mode.get)
+              case g: GuidePage =>
+                g.view()
+          )
         ),
         CommandPalette(paletteOpen, Rx.const(commands))
           .withPlaceholder("Search components and examples")
@@ -177,7 +195,7 @@ class Gallery(
       span("Search components"),
       Kbd("⌘K")
     ),
-    div(cls -> "sidebar-overline", "Components"),
+    div(cls -> "sidebar-overline", "Catalog"),
     Tree(
       Rx.const(Pages.groups.map(NavNode.Section(_))),
       children = {
@@ -190,10 +208,12 @@ class Gallery(
       render = {
         case NavNode.Section(g) =>
           span(cls -> "nav-section", Icons.forGroup(g.id), g.title)
+        case NavNode.Leaf(c: ComponentPage) =>
+          span(cls -> "nav-story", c.name, span(cls -> "nav-count", c.examples.size.toString))
         case NavNode.Leaf(p) =>
-          span(cls -> "nav-story", p.name, span(cls -> "nav-count", p.examples.size.toString))
+          span(cls -> "nav-story", p.name)
       }
-    ).withLabel("Components")
+    ).withLabel("Catalog")
       .withRowHeight(32)
       .withExpanded(Rx.variable(Pages.groups.map(g => s"group:${g.id}").toSet))
       .withSelected(selectedKey)
@@ -212,6 +232,13 @@ class Gallery(
       }(cls += "sidebar-tree")
   )
 
+  private def examplesOf(p: GalleryPage): Seq[Story] =
+    p match
+      case c: ComponentPage =>
+        c.examples
+      case _ =>
+        Nil
+
   private def commands: Seq[Command] =
     Pages
       .groups
@@ -222,14 +249,13 @@ class Gallery(
               .withGroup(g.title)
               .withHint(p.summary)
               .onRun(() => Gallery.navigateTo(p)) +:
-              p.examples
-                .map(s =>
-                  Command(s.id, s"${p.name}: ${s.title}")
-                    .withGroup(g.title)
-                    .withHint(s.summary)
-                    .withKeywords(p.name)
-                    .onRun(() => Gallery.navigate(s))
-                )
+              examplesOf(p).map(s =>
+                Command(s.id, s"${p.name}: ${s.title}")
+                  .withGroup(g.title)
+                  .withHint(s.summary)
+                  .withKeywords(p.name)
+                  .onRun(() => Gallery.navigate(s))
+              )
           )
       } ++
       ColorScheme
@@ -254,4 +280,11 @@ object Gallery:
   def navigate(story: Story): Unit = dom.window.location.hash = s"#/${story.id}"
 
   /** Show a component's page. */
-  def navigateTo(page: ComponentPage): Unit = dom.window.location.hash = s"#/${page.id}"
+  def guideOf(r: PageRoute): Option[GuidePage] =
+    r.page match
+      case g: GuidePage =>
+        Some(g)
+      case _ =>
+        None
+
+  def navigateTo(page: GalleryPage): Unit = dom.window.location.hash = s"#/${page.id}"
