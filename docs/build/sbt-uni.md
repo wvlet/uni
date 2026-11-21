@@ -27,6 +27,8 @@ metabuild cannot load.
 In `project/plugins.sbt`:
 
 ```scala
+// project/plugins.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "__UNI_VERSION__")
 ```
 

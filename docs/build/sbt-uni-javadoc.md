@@ -30,6 +30,8 @@ The plugin targets **sbt 2.x** (its metabuild runs on Scala 3).
 In `project/plugins.sbt`:
 
 ```scala
+// project/plugins.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 addSbtPlugin("org.wvlet.uni" % "sbt-uni-javadoc" % "__UNI_VERSION__")
 ```
 

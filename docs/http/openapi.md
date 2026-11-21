@@ -55,6 +55,7 @@ The `uniOpenAPI` task writes the document from the build. It runs the generator 
 
 ```scala
 // project/plugins.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 addSbtPlugin("org.wvlet.uni" % "sbt-uni" % "__UNI_VERSION__")
 
 // build.sbt

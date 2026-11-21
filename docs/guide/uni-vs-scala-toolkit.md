@@ -88,6 +88,7 @@ case class Repo(full_name: String, stargazers_count: Int) derives ReadWriter
 ```
 
 ```scala [Uni]
+//> using repository https://repo.wvlet.org/maven2
 //> using dep org.wvlet.uni::uni:__UNI_VERSION__
 import wvlet.uni.http.{Http, Request}
 import wvlet.uni.weaver.Weaver

@@ -8,9 +8,12 @@
 
 ## Adding Dependencies
 
-Add Uni to your `build.sbt`:
+Add the wvlet Maven repository and Uni to your `build.sbt`:
 
 ```scala
+// Every Uni release is published here (see "The wvlet Maven Repository" below)
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
 // Core utilities (object wiring, logging, JSON, HTTP, Rx, etc.)
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
@@ -62,22 +65,22 @@ shared library — see
 [Linking libcurl on Scala Native](../http/client.md#linking-libcurl-on-scala-native).
 :::
 
-## Newest Releases
+## The wvlet Maven Repository
 
 Every Uni release is published to the wvlet Maven repository,
-`https://repo.wvlet.org/maven2`. Maven Central limits how much a
-project may publish each month, so only some releases are copied there.
-The versions shown on this site are the newest ones on Maven Central and
-need no extra setup.
+`https://repo.wvlet.org/maven2`, and the versions on this site are the
+newest ones there. Maven Central limits how much a project may publish
+each month, so only some releases are copied to Central; the newest one
+there is `__UNI_CENTRAL_VERSION__`. The artifacts and signatures are the
+same files that Maven Central gets, under the same coordinates.
 
-To use a newer release (for example, a fix you need now), add the wvlet
-repository:
+Add the repository to your build:
 
 ```scala
 // build.sbt
 resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 
-// project/plugins.sbt, only for an sbt plugin version that is not yet on Maven Central
+// project/plugins.sbt, for Uni's sbt plugins
 resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 ```
 
@@ -99,14 +102,15 @@ repositories {
 }
 ```
 
-The artifacts and signatures are the same files that Maven Central gets,
-under the same coordinates. To go back, pin a version that is on Maven
-Central and remove the resolver.
+To use only Maven Central, pin a version that is on Central
+(`__UNI_CENTRAL_VERSION__` or older) and remove the resolver. Modules
+added after that version, such as `uni-parquet`, are not on Central yet.
 
 ::: tip Publishing a library that depends on Uni
 If your library is published to Maven Central, depend on a Uni version
-that is on Maven Central and don't add the wvlet resolver to its build.
-Your users then need no extra resolver for Uni.
+that is on Maven Central (`__UNI_CENTRAL_VERSION__` or older) and don't
+add the wvlet resolver to its build. Your users then need no extra
+resolver for Uni.
 :::
 
 ## Imports

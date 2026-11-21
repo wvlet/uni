@@ -28,6 +28,8 @@ In `project/plugins.sbt`, add the Scala.js and Scala Native plugins (for their
 `scalaJSLinkerConfig` / `nativeConfig` settings) and this one:
 
 ```scala
+// project/plugins.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 addSbtPlugin("org.scala-js"     % "sbt-scalajs"          % "1.22.0")
 addSbtPlugin("org.scala-native" % "sbt-scala-native"     % "0.5.12")
 addSbtPlugin("org.wvlet.uni"    % "sbt-uni-crossproject" % "__UNI_VERSION__")

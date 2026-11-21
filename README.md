@@ -82,7 +82,7 @@ libraryDependencies += "org.wvlet.uni" %%% "uni" % "<version>"
 libraryDependencies += "org.wvlet.uni" %%% "uni-test" % "<version>" % Test
 ```
 
-See [Newest Releases](https://wvlet.org/uni/guide/installation#newest-releases)
+See [The wvlet Maven Repository](https://wvlet.org/uni/guide/installation#the-wvlet-maven-repository)
 for scala-cli, Mill, and Gradle setup, and for why a library published to
 Maven Central should depend only on Uni versions that are on Maven Central.
 
