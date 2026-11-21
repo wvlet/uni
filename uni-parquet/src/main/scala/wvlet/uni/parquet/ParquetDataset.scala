@@ -57,7 +57,9 @@ class ParquetDataset private[parquet] (
     val partitionColumns: IndexedSeq[ParquetField.Primitive],
     store: Option[ObjectStore],
     ownsStore: Boolean,
-    prefetch: Int
+    prefetch: Int,
+    /** The columns `_common_metadata` records, the schema of a dataset without files */
+    metadataFields: IndexedSeq[ParquetField] = IndexedSeq.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -271,16 +273,19 @@ class ParquetDataset private[parquet] (
           }
       }
     val fileFields =
-      union
-        .values
-        .map { (f, _) =>
-          // A column some files lack reads as null there
-          if !f.isRepeated && !f.isOptional && present(f.name) < selected.size then
-            withRepetition(f, Repetition.OPTIONAL)
-          else
-            f
-        }
-        .toIndexedSeq
+      if files.isEmpty then
+        metadataFields.filterNot(f => partitionKeys.contains(f.name))
+      else
+        union
+          .values
+          .map { (f, _) =>
+            // A column some files lack reads as null there
+            if !f.isRepeated && !f.isOptional && present(f.name) < selected.size then
+              withRepetition(f, Repetition.OPTIONAL)
+            else
+              f
+          }
+          .toIndexedSeq
     val schema = ParquetSchema.fromElements(
       SchemaElements.of(
         ParquetSchema(
@@ -493,7 +498,7 @@ class ParquetDataset private[parquet] (
 
 end ParquetDataset
 
-object ParquetDataset:
+object ParquetDataset extends wvlet.uni.log.LogSupport:
   private[parquet] final val DefaultPartition = "__HIVE_DEFAULT_PARTITION__"
 
   /** Adds the file to an error's message, once */
@@ -557,7 +562,8 @@ object ParquetDataset:
       store: Option[ObjectStore],
       ownsStore: Boolean,
       skipHidden: Boolean = true,
-      source: String = ""
+      source: String = "",
+      metadata: Option[DatasetMetadata] = None
   ): ParquetDataset =
     val kept = listed
       .filter { l =>
@@ -567,6 +573,38 @@ object ParquetDataset:
       }
       .distinctBy(_.path)
       .sortBy(_.path)
+    if kept.isEmpty && metadata.isDefined then
+      // A write without rows leaves only the root files: an empty dataset with the recorded schema
+      val m       = metadata.get
+      val unknown = options.partitionTypes.keySet -- m.partitionTypes.keySet
+      if unknown.nonEmpty then
+        throw IllegalArgumentException(
+          s"withPartitionType names ${unknown
+              .toSeq
+              .sorted
+              .mkString(", ")}, but the partition keys under ${root} are: ${m
+              .partitionTypes
+              .keys
+              .mkString(", ")}"
+        )
+      val columns =
+        m.partitionTypes
+          .keys
+          .zipWithIndex
+          .map((k, i) =>
+            partitionColumn(k, options.partitionTypes.getOrElse(k, m.partitionTypes(k)), i)
+          )
+          .toIndexedSeq
+      return ParquetDataset(
+        rootNameOf(root),
+        IndexedSeq.empty,
+        columns,
+        store,
+        ownsStore,
+        options.prefetch,
+        m.fields
+      )
+    end if
     if kept.isEmpty then
       val where =
         if source.nonEmpty then
@@ -606,20 +644,29 @@ object ParquetDataset:
             .sorted
             .mkString(", ")}, but the partition keys under ${root} are: ${keys.mkString(", ")}"
       )
+    // Recorded types apply only when the recorded keys are the folder keys
+    val recorded: Map[String, ParquetType.Primitive] =
+      metadata match
+        case Some(m) if m.partitionTypes.keys.toSeq == keys =>
+          m.partitionTypes
+        case Some(m) =>
+          logger.warn(
+            s"Ignoring the partition types in ${rootNameOf(root)}${DatasetMetadata
+                .CommonMetadata}: it lists (${m
+                .partitionTypes
+                .keys
+                .mkString(", ")}), but the folders have (${keys.mkString(", ")})"
+          )
+          Map.empty
+        case None =>
+          Map.empty
     val columns =
       keys
         .zipWithIndex
         .map { (k, i) =>
-          val t = options.partitionTypes.getOrElse(k, ParquetType.STRING)
-          ParquetField.Primitive(
+          partitionColumn(
             k,
-            Repetition.OPTIONAL,
-            t.physicalType,
-            0,
-            t.logicalType,
-            Seq(k),
-            1,
-            0,
+            options.partitionTypes.getOrElse(k, recorded.getOrElse(k, ParquetType.STRING)),
             i
           )
         }
@@ -640,14 +687,68 @@ object ParquetDataset:
           )
         }
         .toIndexedSeq
-    val rootName =
-      if root.endsWith("/") then
-        root
-      else
-        s"${root}/"
-    ParquetDataset(rootName, files, columns, store, ownsStore, options.prefetch)
+    ParquetDataset(rootNameOf(root), files, columns, store, ownsStore, options.prefetch)
 
   end build
+
+  private def rootNameOf(root: String): String =
+    if root.endsWith("/") then
+      root
+    else
+      s"${root}/"
+
+  private def partitionColumn(
+      key: String,
+      t: ParquetType.Primitive,
+      index: Int
+  ): ParquetField.Primitive = ParquetField.Primitive(
+    key,
+    Repetition.OPTIONAL,
+    t.physicalType,
+    0,
+    t.logicalType,
+    Seq(key),
+    1,
+    0,
+    index
+  )
+
+  // ---- _common_metadata ----
+
+  /** The `_common_metadata` file directly under the root, from a listing that includes `_` files */
+  private[parquet] def metadataListed(
+      listed: Seq[Listed],
+      options: ParquetDatasetOptions
+  ): Option[Listed] =
+    if options.readCommonMetadata then
+      listed.find(_.segments == Seq(DatasetMetadata.CommonMetadata))
+    else
+      None
+
+  private[parquet] def readMetadata(
+      listed: Seq[Listed],
+      options: ParquetDatasetOptions,
+      store: Option[ObjectStore]
+  ): Option[DatasetMetadata] = metadataListed(listed, options).flatMap { l =>
+    val bytes =
+      store match
+        case Some(s) =>
+          s.get(ObjectUri.parse(l.path))
+        case None =>
+          FileSystem.readBytes(IOPath.parse(l.path))
+    DatasetMetadata.parse(bytes, l.path)
+  }
+
+  private[parquet] def readMetadataAsync(
+      listed: Seq[Listed],
+      options: ParquetDatasetOptions,
+      store: ObjectStore
+  ): Rx[Option[DatasetMetadata]] =
+    metadataListed(listed, options) match
+      case Some(l) =>
+        store.getAsync(ObjectUri.parse(l.path)).map(b => DatasetMetadata.parse(b, l.path))
+      case None =>
+        Rx.single(None)
 
   // ---- Glob patterns and file lists ----
 

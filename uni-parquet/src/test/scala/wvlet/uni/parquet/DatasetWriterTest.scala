@@ -32,8 +32,12 @@ class DatasetWriterTest extends UniTest:
     if FileSystem.isBrowser then
       skip("Dataset writers use local directories, which browsers don't have")
 
-  /** Every file under the root, as paths relative to it */
-  private def filesUnder(root: IOPath): Seq[String] =
+  /** Every file under the root, as paths relative to it, except the root's `_` files */
+  private def filesUnder(root: IOPath): Seq[String] = allFilesUnder(root).filterNot(
+    _.startsWith("_")
+  )
+
+  private def allFilesUnder(root: IOPath): Seq[String] =
     FileSystem
       .list(root, ListOptions.default.withRecursive(true).withIncludeHidden(true))
       .filter(FileSystem.isFile)
@@ -93,7 +97,7 @@ class DatasetWriterTest extends UniTest:
     files.map(_.partitions("dt")).toSet shouldBe dates.toSet
     filesUnder(root).map(_.takeWhile(_ != '/')).toSet shouldBe days.map(d => s"dt=${d}").toSet
 
-    // Partition values read as strings by default; the LocalDate weaver parses them
+    // The writer recorded dt as DATE; readAs works with either type
     val ds = Parquet.dataset(root.path)
     try ds.readAs[DatedSale]().toSeq.sortBy(_.id) shouldBe rows
     finally ds.close()
@@ -367,12 +371,12 @@ class DatasetWriterTest extends UniTest:
     skipInBrowser()
     val root = newRoot()
     Parquet.writeDataset(root.path, sales, byDtCountry)
-    FileSystem.writeString(root.resolve("_SUCCESS"), "")
+    FileSystem.writeString(root.resolve("_notes"), "")
     val jp = sales.filter(_.country == "JP")
     Parquet.writeDataset(root.path, jp, byDtCountry.withMode(ParquetWriteMode.Overwrite))
     readSales(root)._2 shouldBe jp
     // Files the reader skips are left alone
-    filesUnder(root).contains("_SUCCESS") shouldBe true
+    allFilesUnder(root).contains("_notes") shouldBe true
   }
 
   test("overwrite only the partitions a write touches") {
@@ -402,7 +406,7 @@ class DatasetWriterTest extends UniTest:
     w.writeAll(sales)
     (w.writtenFiles.size > 0) shouldBe true
     w.abort()
-    filesUnder(root) shouldBe Seq.empty
+    allFilesUnder(root) shouldBe Seq.empty
     intercept[ParquetException] {
       w.write(sales.head)
     }
@@ -416,7 +420,7 @@ class DatasetWriterTest extends UniTest:
     intercept[IllegalStateException] {
       Parquet.writeDataset(root.path, rows, byDtCountry.withMaxRowsPerFile(2))
     }
-    filesUnder(root) shouldBe Seq.empty
+    allFilesUnder(root) shouldBe Seq.empty
   }
 
   test("reject a row that doesn't fit and keep writing") {

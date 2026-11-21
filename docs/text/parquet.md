@@ -327,9 +327,12 @@ finally ds.close()
   `readAs`, `readRows`, `readJson`, and `readBatches` all see it. Values are URL-decoded, and
   `__HIVE_DEFAULT_PARTITION__` reads as null. If a file also stores a column with a partition key's
   name, the folder value wins.
-- **Partition types.** Partition values are strings unless you declare a type, so a type never
-  changes because of one odd folder name. ISO dates compare correctly as strings. Declare INT32,
-  INT64, or DATE with `ParquetDatasetOptions`:
+- **Partition types.** A dataset that `Parquet.writeDataset` wrote records its partition types in
+  `_common_metadata`, so its partitions read back typed (DATE, INT32, INT64) with no options. For
+  other data, partition values are strings unless you declare a type, so a type never changes
+  because of one odd folder name. ISO dates compare correctly as strings. Declare INT32, INT64, or
+  DATE with `ParquetDatasetOptions`; a declared type wins over a recorded one, and
+  `withReadCommonMetadata(false)` ignores the recorded types:
 
   ```scala
   import wvlet.uni.parquet.{ParquetDatasetOptions, ParquetType}
@@ -404,16 +407,24 @@ takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, option
   and are left out of the files. They must be top-level STRING, INT32, INT64, or DATE columns; a
   case-class `LocalDate` field is a DATE column.
   Folder values are percent-escaped as Hive does, and null or empty values are written as
-  `__HIVE_DEFAULT_PARTITION__`, so both read back as null. Reading INT32, INT64, or DATE partitions
-  back as typed values still needs `withPartitionType`, as for data that Spark or DuckDB wrote;
-  `readAs` into a `LocalDate` field works either way.
+  `__HIVE_DEFAULT_PARTITION__`, so both read back as null.
+- **Root files.** When a write finishes, the writer adds `_common_metadata` and an empty `_SUCCESS`
+  at the root, after every data file is published. `_common_metadata` is Parquet's summary file: a
+  Parquet file without rows that holds the files' schema and, in its key-value metadata, the
+  partition types, so `Parquet.dataset` reads INT32, INT64, and DATE partitions back typed and
+  reads a write without rows as an empty dataset. `_SUCCESS` is the marker that Spark and Hadoop
+  write, for schedulers that wait on it. Spark, DuckDB, Trino, and Hive skip both. `Append` and
+  `OverwritePartitions` record types only for folders the writer owns (an empty root, or a
+  matching `_common_metadata`), and fail before writing when the recorded types differ. The
+  overwrite modes delete an old `_SUCCESS` before they change anything. Turn either file off with
+  `withWriteSuccessMarker(false)` or `withWriteCommonMetadata(false)`.
 - **Write modes.** `withMode` decides what happens when the root already holds data files:
   `ErrorIfExists` (the default) fails before writing, `Append` adds files next to them (with the
   same partition keys), `Overwrite` replaces the dataset, and `OverwritePartitions` replaces only
   the partitions the write touches, like Spark's dynamic partition overwrite. Old files are deleted
   only after every new file is written, so a failed write keeps the old data. Only files the
-  reader would read are deleted: `_SUCCESS`, dot files, and other files that start with `_` or `.`
-  stay. A bucket or file system root can't be overwritten.
+  reader would read are deleted: dot files and other files that start with `_` or `.` stay, except
+  the root files above. A bucket or file system root can't be overwritten.
 - **Failures.** Each file is published only when it's finished: an object store file is a
   multipart upload, and a local file is renamed from a hidden `.inprogress` name. When writing
   fails, or on `abort()`, every file of the write is deleted, including finished ones. A row that

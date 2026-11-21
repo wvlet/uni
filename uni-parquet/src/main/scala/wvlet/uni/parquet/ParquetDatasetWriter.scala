@@ -200,8 +200,35 @@ private[parquet] final class DatasetWriterCore private (
 
   private lazy val batchShredder = BatchShredder(fileSchema)
 
+  /** The root listing before this write, including `_` files */
+  private val listedRoot: Seq[ParquetDataset.Listed] = listRoot()
+
   /** The reader-visible data files under the root before this write */
   private val existing: Seq[ParquetDataset.Listed] = checkExisting()
+
+  /** The partition keys and their types, as `_common_metadata` records them */
+  private val partitionTypes: Seq[(String, ParquetType.Primitive)] = keys.zip(kinds.map(typeOfKind))
+
+  private def rootFile(name: String): Option[ParquetDataset.Listed] = listedRoot.find(
+    _.segments == Seq(name)
+  )
+
+  private val priorMetadata: Option[ParquetDataset.Listed] = rootFile(
+    DatasetMetadata.CommonMetadata
+  )
+
+  /**
+    * Whether to write `_common_metadata`. Append and OverwritePartitions write it only when this
+    * writer owns the folders (an empty root, or a matching `_common_metadata` from an earlier
+    * write), so it never records types for folders another tool wrote.
+    */
+  private val writesMetadata: Boolean = checkMetadata()
+
+  // An overwrite removes the old marker first, so `_SUCCESS` never stands beside mixed files
+  if options.mode == ParquetWriteMode.Overwrite ||
+    options.mode == ParquetWriteMode.OverwritePartitions
+  then
+    rootFile(DatasetMetadata.SuccessMarker).foreach(l => deleteListed(l))
 
   private val writeId   = newWriteId()
   private var fileCount = 0
@@ -642,8 +669,11 @@ private[parquet] final class DatasetWriterCore private (
     if state == State.Open then
       fatal(open.valuesIterator.toList.foreach(finish))
       state = State.Closed
-      try deleteReplaced()
-      finally target.closeStore()
+      try
+        deleteReplaced()
+        writeRootFiles()
+      finally
+        target.closeStore()
 
   def abort(): Unit =
     if state == State.Open then
@@ -695,9 +725,88 @@ private[parquet] final class DatasetWriterCore private (
           )
     }
 
+  // ---- Root files ----
+
+  /**
+    * Writes `_common_metadata`, then `_SUCCESS`, after every data file is published and the
+    * replaced files are deleted. A failure keeps the data files and names the root file.
+    */
+  private def writeRootFiles(): Unit =
+    if writesMetadata then
+      putRootFile(
+        DatasetMetadata.CommonMetadata,
+        DatasetMetadata.toBytes(fileSchema, partitionTypes, options.writeOptions)
+      )
+    else if options.mode == ParquetWriteMode.Overwrite then
+      // A replaced dataset keeps no types recorded for the old one
+      priorMetadata.foreach(l => deleteListed(l))
+    if options.writeSuccessMarker then
+      putRootFile(DatasetMetadata.SuccessMarker, Array.emptyByteArray)
+
+  private def putRootFile(name: String, bytes: Array[Byte]): Unit =
+    try
+      target match
+        case DatasetTarget.Local(root) =>
+          FileSystem.createDirectoryIfNotExists(root)
+          FileSystem.writeBytes(root.resolve(name), bytes)
+        case DatasetTarget.Objects(store, root, _) =>
+          store.put(root.resolve(name), bytes)
+    catch
+      case NonFatal(e) =>
+        throw ParquetException(
+          s"The data files under ${rootName} were written, but writing ${rootName}${name} failed: ${e
+              .getMessage}",
+          e
+        )
+
+  private def deleteListed(l: ParquetDataset.Listed): Unit =
+    try
+      target match
+        case DatasetTarget.Local(_) =>
+          FileSystem.deleteIfExists(IOPath.parse(l.path))
+        case DatasetTarget.Objects(store, _, _) =>
+          store.delete(ObjectUri.parse(l.path))
+    catch
+      case NonFatal(e) =>
+        throw ParquetException(s"Failed to delete ${l.path}: ${e.getMessage}", e)
+
+  /** Decides whether to write `_common_metadata`, failing early when it records other types */
+  private def checkMetadata(): Boolean =
+    val prior = priorMetadata.flatMap { l =>
+      val bytes =
+        target match
+          case DatasetTarget.Local(_) =>
+            FileSystem.readBytes(IOPath.parse(l.path))
+          case DatasetTarget.Objects(store, _, _) =>
+            store.get(ObjectUri.parse(l.path))
+      DatasetMetadata.parse(bytes, l.path)
+    }
+    options.mode match
+      case ParquetWriteMode.ErrorIfExists | ParquetWriteMode.Overwrite =>
+        options.writeCommonMetadata
+      case ParquetWriteMode.Append | ParquetWriteMode.OverwritePartitions =>
+        prior.foreach { m =>
+          if m.partitionTypes.toSeq != partitionTypes then
+            throw ParquetException(
+              s"${priorMetadata.get.path} records partitions (${describeTypes(
+                  m.partitionTypes.toSeq
+                )}), but this write has (${describeTypes(partitionTypes)})"
+            )
+        }
+        options.writeCommonMetadata && (
+          if priorMetadata.isDefined then
+            prior.isDefined
+          else
+            existing.isEmpty
+        )
+
+  private def describeTypes(types: Seq[(String, ParquetType.Primitive)]): String = types
+    .map((k, t) => s"${k} ${DatasetMetadata.typeName(t)}")
+    .mkString(", ")
+
   // ---- Modes ----
 
-  private def checkExisting(): Seq[ParquetDataset.Listed] =
+  private def listRoot(): Seq[ParquetDataset.Listed] =
     val overwrite =
       options.mode == ParquetWriteMode.Overwrite ||
         options.mode == ParquetWriteMode.OverwritePartitions
@@ -705,17 +814,18 @@ private[parquet] final class DatasetWriterCore private (
       throw IllegalArgumentException(
         s"Refusing to overwrite ${rootName}: the root of a bucket or a file system holds more than one dataset. Write to a folder or prefix under it"
       )
-    val visible =
-      (
-        target match
-          case DatasetTarget.Local(root) =>
-            ParquetDataset.listLocal(root)
-          case DatasetTarget.Objects(store, root, _) =>
-            ParquetDataset.listObjects(store, root)
-      ).filter(l =>
-          l.segments.nonEmpty && !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))
-        )
-        .sortBy(_.path)
+    target match
+      case DatasetTarget.Local(root) =>
+        ParquetDataset.listLocal(root)
+      case DatasetTarget.Objects(store, root, _) =>
+        ParquetDataset.listObjects(store, root)
+
+  private def checkExisting(): Seq[ParquetDataset.Listed] =
+    val visible = listedRoot
+      .filter(l =>
+        l.segments.nonEmpty && !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))
+      )
+      .sortBy(_.path)
     options.mode match
       case ParquetWriteMode.ErrorIfExists =>
         visible
@@ -828,6 +938,17 @@ private[parquet] object DatasetWriterCore:
           None
 
   private def kindOf(p: ParquetField.Primitive): Kind = kindOfField(p).get
+
+  private def typeOfKind(k: Kind): ParquetType.Primitive =
+    k match
+      case Kind.Str =>
+        ParquetType.STRING
+      case Kind.I32 =>
+        ParquetType.INT32
+      case Kind.I64 =>
+        ParquetType.INT64
+      case Kind.Date =>
+        ParquetType.DATE
 
   /** The folder text of a value before escaping: null and "" become the Hive default partition */
   private def folderValue(v: Any): String =

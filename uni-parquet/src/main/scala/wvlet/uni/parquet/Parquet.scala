@@ -126,22 +126,26 @@ object Parquet:
               base
           )
           val matches = ParquetDataset.globMatcher(pattern)
+          val listed  = ParquetDataset.listLocal(path)
           ParquetDataset.build(
             path.path,
-            ParquetDataset.listLocal(path).filter(l => matches(l.segments)),
+            listed.filter(l => matches(l.segments)),
             options,
             None,
             ownsStore = false,
-            source = s"matching ${root}"
+            source = s"matching ${root}",
+            metadata = ParquetDataset.readMetadata(listed, options, None)
           )
         case None =>
-          val path = absolutePath(root)
+          val path   = absolutePath(root)
+          val listed = ParquetDataset.listLocal(path)
           ParquetDataset.build(
             path.path,
-            ParquetDataset.listLocal(path),
+            listed,
             options,
             None,
-            ownsStore = false
+            ownsStore = false,
+            metadata = ParquetDataset.readMetadata(listed, options, None)
           )
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
@@ -161,13 +165,15 @@ object Parquet:
       ownsStore: Boolean
   ): ParquetDataset =
     val (uri, matches, source) = objectPattern(root)
+    val listed                 = ParquetDataset.listObjects(store, uri)
     ParquetDataset.build(
       uri.toString,
-      ParquetDataset.listObjects(store, uri).filter(l => matches(l.segments)),
+      listed.filter(l => matches(l.segments)),
       options,
       Some(store),
       ownsStore,
-      source = source
+      source = source,
+      metadata = ParquetDataset.readMetadata(listed, options, Some(store))
     )
 
   /**
@@ -267,16 +273,21 @@ object Parquet:
     .flatMap { (uri, matches, source) =>
       ParquetDataset
         .listObjectsAsync(store, uri)
-        .map(listed =>
-          ParquetDataset.build(
-            uri.toString,
-            listed.filter(l => matches(l.segments)),
-            options,
-            Some(store),
-            ownsStore,
-            source = source
-          )
-        )
+        .flatMap { listed =>
+          ParquetDataset
+            .readMetadataAsync(listed, options, store)
+            .map(metadata =>
+              ParquetDataset.build(
+                uri.toString,
+                listed.filter(l => matches(l.segments)),
+                options,
+                Some(store),
+                ownsStore,
+                source = source,
+                metadata = metadata
+              )
+            )
+        }
     }
 
   /** The default store for a URI's scheme */

@@ -2,6 +2,7 @@ package wvlet.uni.parquet
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
+import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.storage.ObjectStore
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
@@ -140,8 +141,43 @@ class S3ParquetTest extends UniTest:
     w.writeAll(sales)
     w.abort()
     val left = store.list(ObjectUri.parse(root)).map(_.uri.toString)
-    left.size shouldBe 2
+    left.filterNot(_.contains("/_")).size shouldBe 2
+    left.filter(_.contains("/_")).map(_.stripPrefix(root)).sorted shouldBe
+      Seq("_SUCCESS", "_common_metadata")
     Parquet.dataset(store, root).readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales.take(3)
+  }
+
+  test("read partition types that the writer recorded") {
+    requireServer()
+    val root = prefix.resolve("typed/").toString
+    val rows = (0 until 6).map(i =>
+      Map("id" -> i.toLong, "dt" -> java.time.LocalDate.of(2026, 11, 20 + i % 2), "hour" -> i)
+    )
+    val schema = ParquetSchema
+      .builder()
+      .required("id", ParquetType.INT64)
+      .required("dt", ParquetType.DATE)
+      .required("hour", ParquetType.INT32)
+      .build()
+    val w = Parquet.newDatasetRecordWriter(
+      store,
+      root,
+      schema,
+      ParquetDatasetWriteOptions.default.withPartitionBy("dt", "hour")
+    )
+    try w.writeAll(rows)
+    finally w.close()
+    def check(ds: ParquetDataset): Unit =
+      try
+        ds.partitionColumns.map(_.logicalType) shouldBe IndexedSeq(Some(LogicalType.Date), None)
+        val day = ParquetReadOptions
+          .default
+          .withRowGroupFilter(RowGroupFilter.col("dt") === java.time.LocalDate.of(2026, 11, 21))
+        ds.readRows(day).map(_("id")).toSeq.sortBy(_.toString) shouldBe Seq(1L, 3L, 5L)
+      finally
+        ds.close()
+    check(Parquet.dataset(store, root))
+    check(Parquet.datasetAsync(store, root).await)
   }
 
   test("read a glob pattern and a list of objects") {

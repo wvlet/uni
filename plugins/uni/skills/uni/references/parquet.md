@@ -192,8 +192,11 @@ def typedDataset(root: String) = Parquet.dataset(
 )
 ```
 
-- Partition values are STRING unless declared with `withPartitionType` (INT32, INT64, DATE).
-  `readAs` into a `LocalDate` field parses the string either way.
+- A dataset `Parquet.writeDataset` wrote reads its partition types from `_common_metadata`, so
+  typed partitions need no options. Otherwise partition values are STRING unless declared with
+  `withPartitionType` (INT32, INT64, DATE), which also wins over recorded types;
+  `withReadCommonMetadata(false)` ignores them. `readAs` into a `LocalDate` field parses a string
+  either way.
   `__HIVE_DEFAULT_PARTITION__` reads as null.
 - A filter on partition columns skips whole files before they are opened (`ds.selectFiles(opts)`
   lists the files a read opens). A literal of the wrong type for a partition, or an unknown column
@@ -248,11 +251,13 @@ def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
 ```
 
 - Partition columns (top-level STRING, INT32, INT64, DATE) become folders and are left out of the
-  files. Values are Hive-escaped; null and `""` become `__HIVE_DEFAULT_PARTITION__`. Reading typed
-  partitions back still needs `withPartitionType`.
+  files. Values are Hive-escaped; null and `""` become `__HIVE_DEFAULT_PARTITION__`.
+- A finished write adds `_common_metadata` (schema and partition types, so typed partitions and an
+  empty write read back) and an empty `_SUCCESS` at the root; `withWriteSuccessMarker(false)` /
+  `withWriteCommonMetadata(false)` turn them off. Append fails early when recorded types differ.
 - `withMode`: `ErrorIfExists` (default), `Append` (same partition keys required), `Overwrite`,
   `OverwritePartitions`. Old files are deleted only after the new ones are written, and only files
-  the reader reads (not `_SUCCESS` or dot files). Bucket and file system roots can't be
+  the reader reads (not dot files or other `_` files). Bucket and file system roots can't be
   overwritten.
 - Files are published when finished (multipart upload, or a rename from `.inprogress`); a failure
   or `abort()` deletes every file of the write. Names are `part-<writeId>-<n>.parquet`.
