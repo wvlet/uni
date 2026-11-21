@@ -2,7 +2,7 @@
 
 ## Context
 
-Airframe's `http_server` log records the decoded `@Endpoint`/RPC method arguments as `rpc_args` and leaves out every parameter or field annotated with `@secret`. Apps migrating from Airframe, such as td-llm-proxy, rely on this to log `model` and `max_tokens` while keeping prompts out. `HttpAccessLogFilter` logged no arguments, and its `extraEntries` callback sees only the raw `Request`, so it could not reach the decoded values. The log writer encodes values it doesn't know with `AnyWeaver`, and `AnyWeaver` falls back to `toString`, which prints every field of a case class, `@secret` ones included.
+Airframe's `http_server` log records the decoded `@Endpoint`/RPC method arguments as `rpc_args` and leaves out every parameter or field annotated with `@secret`. Apps migrating from Airframe, such as LLM proxies, rely on this to log `model` and `max_tokens` while keeping prompts out. `HttpAccessLogFilter` logged no arguments, and its `extraEntries` callback sees only the raw `Request`, so it could not reach the decoded values. The log writer encodes values it doesn't know with `AnyWeaver`, and `AnyWeaver` falls back to `toString`, which prints every field of a case class, `@secret` ones included.
 
 ## Decision
 

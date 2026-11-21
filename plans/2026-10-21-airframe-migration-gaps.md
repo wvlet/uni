@@ -2,7 +2,7 @@
 
 ## Goals
 
-- td-llm-proxy cannot move its HTTP stack from Airframe to uni 2026.1.28: three gaps were confirmed with reproducers (Scala 3.9.0, Java 25). Close them in uni so the migration only needs a thin adapter, not a custom transport or router.
+- An app migrating from Airframe cannot move its HTTP stack from Airframe to uni 2026.1.28: three gaps were confirmed with reproducers (Scala 3.9.0, Java 25). Close them in uni so the migration only needs a thin adapter, not a custom transport or router.
 - Each fix keeps uni's secure defaults ([ADR: HTTP server secure defaults](../adr/2026-10-14-http-server-secure-defaults.md)).
 
 ## Background

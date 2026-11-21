@@ -2,7 +2,7 @@
 
 ## Context
 
-`Router` held a single `filterSurfaceOpt`. `Router.andThen` kept one side's filter for all combined routes and `FilterBuilder.andThen` replaced any filter the inner router had, so `Router.of[Public].andThen(Router.filter[Auth].andThen(Router.of[Protected]))` put `/public` behind `Auth`, and an inner filter under an outer one was dropped. Airframe's `RxRouter.filter[F].andThen(...)` scoped filters to their subtree; td-llm-proxy's migration depends on that.
+`Router` held a single `filterSurfaceOpt`. `Router.andThen` kept one side's filter for all combined routes and `FilterBuilder.andThen` replaced any filter the inner router had, so `Router.of[Public].andThen(Router.filter[Auth].andThen(Router.of[Protected]))` put `/public` behind `Auth`, and an inner filter under an outer one was dropped. Airframe's `RxRouter.filter[F].andThen(...)` scoped filters to their subtree; apps migrating from Airframe depend on that.
 
 ## Decision
 

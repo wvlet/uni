@@ -3,7 +3,7 @@
 ## Goals
 
 - `HttpAccessLogFilter` entries gain `rpc_interface`, `rpc_class`, `rpc_method`, and `rpc_args` (the decoded method arguments) for both `@Endpoint` routes and RPC calls.
-- `@secret` parameters and fields are dropped from `rpc_args` the way Airframe drops them. td-llm-proxy keeps today's log contents (`model`, `max_tokens`, … logged; `messages`, `system`, `tools` hidden) after it leaves Airframe.
+- `@secret` parameters and fields are dropped from `rpc_args` the way Airframe drops them. Migrating apps keep today's log contents (`model`, `max_tokens`, … logged; `messages`, `system`, `tools` hidden) after it leaves Airframe.
 
 ## Background
 
@@ -42,4 +42,4 @@ Lane: Standard. It adds a public config API and changes what every access log en
 - **Thread-local, as Airframe does.** Breaks with async `Rx` handlers and on JS. The request attribute already carries per-request state.
 - **A field on `Response`.** Lost when the controller throws, and it makes every response carry log-only state.
 - **Pass the arguments to `extraEntries` and let the app mask them.** Every app would have to reimplement the `@secret` walk, and the default would log nothing.
-- **Opt-in by default.** Safer for existing Uni users, but td-llm-proxy and other Airframe migrants would silently lose fields. The field names already mirror Airframe's `HttpLogger`.
+- **Opt-in by default.** Safer for existing Uni users, but Airframe migrants would silently lose fields. The field names already mirror Airframe's `HttpLogger`.

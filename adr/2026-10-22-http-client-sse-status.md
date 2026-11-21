@@ -2,7 +2,7 @@
 
 ## Context
 
-Upstream LLM provider streaming, the first consumer being the td-llm-proxy migration from Airframe, needs three things from the HTTP client:
+Upstream LLM provider streaming, the first consumer being an LLM proxy migrating from Airframe, needs three things from the HTTP client:
 
 - events delivered as they arrive;
 - the upstream status, headers, and error body, so the caller can classify a failure;

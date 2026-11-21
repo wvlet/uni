@@ -2,7 +2,7 @@
 
 ## Context
 
-`RPCException` was ported from Airframe with `noStackTrace` and `shouldReportStackTrace`, but `RPCErrorMessage` had no field to carry frames, so the flag had no effect (#751). Airframe's error body carries a `stackTrace` array (`className`, `methodName`, `fileName`, `lineNumber`) for every status except `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14`, and its client restores the frames. Services migrating from Airframe (td-llm-proxy) depend on that body. Stack frames expose class names, file names, and line numbers to clients, so this is a security decision.
+`RPCException` was ported from Airframe with `noStackTrace` and `shouldReportStackTrace`, but `RPCErrorMessage` had no field to carry frames, so the flag had no effect (#751). Airframe's error body carries a `stackTrace` array (`className`, `methodName`, `fileName`, `lineNumber`) for every status except `UNAUTHENTICATED_U13` and `PERMISSION_DENIED_U14`, and its client restores the frames. Services migrating from Airframe depend on that body. Stack frames expose class names, file names, and line numbers to clients, so this is a security decision.
 
 ## Decision
 

@@ -2,7 +2,7 @@
 
 ## Context
 
-`CaseClassWeaver` writes every constructor parameter, so an Option field holding None becomes nil (`"cache_control": null` in JSON). Airframe omits such keys. Apps migrating from Airframe that must keep their public wire shape (td-llm-proxy's Anthropic-compatible API) cannot send explicit nulls.
+`CaseClassWeaver` writes every constructor parameter, so an Option field holding None becomes nil (`"cache_control": null` in JSON). Airframe omits such keys. Apps migrating from Airframe that must keep their public wire shape (for example, a service that serves an Anthropic-compatible API) cannot send explicit nulls.
 
 ## Decision
 

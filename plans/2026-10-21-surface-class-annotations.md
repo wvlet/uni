@@ -2,7 +2,7 @@
 
 ## Goals
 
-- Emit a component schema's class description in uni's OpenAPI output, as sbt-airframe does. Then a service migrating from Airframe (td-llm-proxy's `doc/openapi.yaml` uses class-level `@description` on its `model.*` types) gets the same document.
+- Emit a component schema's class description in uni's OpenAPI output, as sbt-airframe does. Then a service migrating from Airframe (one whose `openapi.yaml` uses class-level `@description` on its model types) gets the same document.
 - To do that, make Surface record a class's own annotations, the way it already records method and constructor-parameter annotations.
 - Keep MCP tool schemas byte-for-byte unchanged.
 
@@ -64,4 +64,4 @@ Lane: **Standard**: it changes the core Surface macro and the public `Surface` A
 ## Out of scope
 
 - MessagePack response content types in OpenAPI (a separate gap).
-- Any td-llm-proxy changes.
+- Changes in apps that use uni.

@@ -1,8 +1,8 @@
-# OpenAPI parity with sbt-airframe for td-llm-proxy
+# OpenAPI parity with sbt-airframe
 
 ## Goals
 
-- #743 added OpenAPI generation, but a comparison with sbt-airframe's generator (airframe-http-codegen `OpenAPIGenerator`) found gaps that would visibly change td-llm-proxy's `doc/openapi.yaml`. Close the ones uni can support without misdocumenting the server.
+- #743 added OpenAPI generation, but a comparison with sbt-airframe's generator (airframe-http-codegen `OpenAPIGenerator`) found gaps that would visibly change the `openapi.yaml` of a service migrating from Airframe. Close the ones uni can support without misdocumenting the server.
 - MCP tool schemas share `mcp.JsonSchema` and must not change (tool schemas cost tokens).
 
 ## Background

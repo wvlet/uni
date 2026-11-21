@@ -3,7 +3,7 @@
 ## Goals
 
 - Add a CORS filter to uni, so a browser app on another origin can call a uni server. The filter handles preflight `OPTIONS` and adds `Access-Control-*` headers to responses.
-- Unblock td-llm-proxy: `CorsConfig.scala` is its last use of airframe-http's `wvlet.airframe.http.filter.Cors`. The proxy should need only a policy value, not its own preflight wrapper.
+- Unblock apps migrating from Airframe: a CORS config is often their last use of airframe-http's `wvlet.airframe.http.filter.Cors`. The proxy should need only a policy value, not its own preflight wrapper.
 - Keep uni's secure defaults ([ADR: HTTP server secure defaults](../adr/2026-10-14-http-server-secure-defaults.md)): no origin is allowed unless configured, and credentials are never paired with a `*` origin.
 
 ## Background

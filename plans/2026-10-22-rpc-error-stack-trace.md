@@ -3,7 +3,7 @@
 ## Goals
 
 - Make `RPCException.shouldReportStackTrace` / `noStackTrace` take effect: today they are read by nothing, so the RPC error body never carries a stack trace (wvlet/uni#751).
-- Match Airframe's wire shape so services migrating from Airframe (td-llm-proxy first) keep the same error bodies, and clients can see where a server-side failure happened.
+- Match Airframe's wire shape so services migrating from Airframe keep the same error bodies, and clients can see where a server-side failure happened.
 - Settle the security policy: which errors expose internal frames to clients by default.
 
 ## Background
