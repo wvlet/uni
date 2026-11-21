@@ -8,6 +8,7 @@ import wvlet.uni.parquet.format.*
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
   * Converts a MessagePack value into the physical value of a leaf column: `Boolean`, `Int`, `Long`,
@@ -48,6 +49,8 @@ private[parquet] object ValueConverter:
             unscaled.toLong
       case (PhysicalType.INT32, Some(LogicalType.Date)) =>
         date
+      case (PhysicalType.INT32, Some(LogicalType.Time(_, TimeUnit.MILLIS))) =>
+        v => (nanoOfDay(v) / 1000000L).toInt
       case (PhysicalType.INT32, Some(LogicalType.Integer(bits, signed))) =>
         val (min, max) =
           if signed then
@@ -59,6 +62,10 @@ private[parquet] object ValueConverter:
         v => integer(v, Int.MinValue, Int.MaxValue).toInt
       case (PhysicalType.INT64, Some(LogicalType.Timestamp(_, unit))) =>
         v => timestamp(v, unit)
+      case (PhysicalType.INT64, Some(LogicalType.Time(_, TimeUnit.MICROS))) =>
+        v => nanoOfDay(v) / 1000L
+      case (PhysicalType.INT64, Some(LogicalType.Time(_, TimeUnit.NANOS))) =>
+        nanoOfDay
       case (PhysicalType.INT64, Some(LogicalType.Integer(64, false))) =>
         v => integer(v, 0L, Long.MaxValue)
       case (PhysicalType.INT64, None | Some(LogicalType.Integer(_, true))) =>
@@ -217,6 +224,23 @@ private[parquet] object ValueConverter:
         x.intValue()
       case _ =>
         mismatch(v, "a date")
+
+  /**
+    * A TIME value as nanoseconds of the day, from an ISO-8601 string or an integer in nanoseconds,
+    * as Weaver reads integers into LocalTime. Callers truncate to the column's unit.
+    */
+  private def nanoOfDay(v: Value): Long =
+    v match
+      case StringValue(s) =>
+        try
+          LocalTime.parse(s.trim).toNanoOfDay
+        catch
+          case _: java.time.DateTimeException =>
+            mismatch(v, "a time (hh:mm[:ss[.fraction]])")
+      case _: IntegerValue =>
+        integer(v, 0L, 86400L * 1000000000L - 1)
+      case _ =>
+        mismatch(v, "a time of day")
 
   private def instant(v: Value): Instant =
     v match

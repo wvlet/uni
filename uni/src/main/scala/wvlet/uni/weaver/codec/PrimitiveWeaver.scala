@@ -16,6 +16,7 @@ import scala.reflect.ClassTag
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.util.UUID
 
 object PrimitiveWeaver:
@@ -756,6 +757,28 @@ object PrimitiveWeaver:
           case other =>
             u.skipValue
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to LocalDate"))
+
+  /**
+    * Packs a LocalTime as an ISO-8601 string ("09:30", "09:30:15.25"). Unpacking also accepts an
+    * integer as nanoseconds of the day, the form `LocalTime.toNanoOfDay` gives.
+    */
+  given localTimeWeaver: Weaver[LocalTime] =
+    new Weaver[LocalTime]:
+      override def pack(p: Packer, v: LocalTime, config: WeaverConfig): Unit = p.packString(
+        v.toString
+      )
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(context, u, LocalTime.parse(_), context.setObject, "LocalTime")
+          case ValueType.INTEGER =>
+            safeUnpack(context, LocalTime.ofNanoOfDay(u.unpackLong), context.setObject)
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(new IllegalArgumentException(s"Cannot convert ${other} to LocalTime"))
 
   given uuidWeaver: Weaver[UUID] =
     new Weaver[UUID]:

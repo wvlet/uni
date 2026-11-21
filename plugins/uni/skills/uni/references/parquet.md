@@ -307,6 +307,7 @@ val derived: ParquetSchema = ParquetSchema.of[Event]
 - The schema comes from the type: `Option[A]` is OPTIONAL (other fields REQUIRED), `Seq`/`List`/
   `Set`/`Array[A]` a 3-level LIST, `Map[K, V]` a MAP, a nested case class a group, `String` and
   enums STRING, `Array[Byte]` BYTE_ARRAY, `Instant` TIMESTAMP(MICROS, UTC; nanoseconds dropped), `LocalDate` DATE,
+  `LocalTime` TIME(MICROS, not UTC-adjusted),
   `UUID` UUID, `Short`/`Byte` INT32 with INT(16)/INT(8).
 - `BigDecimal` is DECIMAL(38, 18) by default. Change it with
   `ParquetWriteOptions.default.withDecimal(18, 4)`, or per field with
@@ -338,9 +339,9 @@ def writeRecords(path: String): Unit =
 
 - Missing columns are null; keys without a column are ignored; keys match loosely (`user_name`).
 - TIMESTAMP takes `Instant`, ISO-8601 strings, or epoch millis; DECIMAL takes numbers or strings;
-  DATE takes `LocalDate` or `yyyy-mm-dd`.
+  DATE takes `LocalDate` or `yyyy-mm-dd`; TIME takes `LocalTime`, `hh:mm:ss`, or nanos of the day.
 - More types: `INT8`, `INT16`, `INT32`, `FLOAT`, `DOUBLE`, `BOOLEAN`, `BINARY`, `ENUM`, `JSON`,
-  `DATE`, `TIMESTAMP_MICROS`, `UUID`, `decimal(p, s)`, `fixed(n)`, `map(k, v)`,
+  `DATE`, `TIMESTAMP_MICROS`, `TIME_MICROS`, `UUID`, `decimal(p, s)`, `fixed(n)`, `map(k, v)`,
   `struct(ParquetColumn.required(...), ...)`.
 - A row that does not fit throws `ParquetException` naming the column; the row is skipped and the
   writer stays usable.

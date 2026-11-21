@@ -86,7 +86,8 @@ are skipped, and fields without a column take their default values.
 | INT32, INT64, FLOAT, DOUBLE, BOOLEAN | `Int`, `Long`, `Float`, `Double`, `Boolean` |
 | STRING, ENUM, JSON | `String` |
 | TIMESTAMP (millis, micros, nanos), INT96 | `Instant` |
-| DATE, TIME | `String` in ISO-8601 (`2026-01-31`, `12:34:56`) |
+| DATE | `java.time.LocalDate`, or `String` in ISO-8601 (`2026-01-31`) |
+| TIME (millis, micros, nanos) | `java.time.LocalTime`, or `String` in ISO-8601 (`12:34:56`) |
 | DECIMAL | `BigDecimal` |
 | UUID | `String` or `java.util.UUID` |
 | BYTE_ARRAY without a logical type | `Array[Byte]`, or `String` with `withBinaryAsString(true)` |
@@ -505,12 +506,24 @@ writes to any `java.io.OutputStream`. Both work on every platform, including bro
 | `Array[Byte]` | BYTE_ARRAY |
 | `Instant` | TIMESTAMP(MICROS, UTC); nanoseconds are dropped |
 | `LocalDate` | DATE |
+| `LocalTime` | TIME(MICROS), not adjusted to UTC; nanoseconds are dropped |
 | `UUID` | UUID (FIXED_LEN_BYTE_ARRAY(16)) |
 | `BigDecimal` | DECIMAL(38, 18) by default |
 | `Option[A]` | an OPTIONAL column; other fields are REQUIRED |
 | `Seq[A]`, `List[A]`, `Set[A]`, `Array[A]` | LIST (the standard 3-level layout) |
 | `Map[K, V]` | MAP |
 | a nested case class | a group |
+
+A `LocalTime` field is a TIME column with no time zone, which DuckDB reads as `TIME`:
+
+```scala
+import java.time.LocalTime
+
+case class Shift(worker: String, start: LocalTime, end: Option[LocalTime]) derives Weaver
+
+val shifts     = Seq(Shift("aina", LocalTime.of(9, 30), Some(LocalTime.of(17, 0))))
+val shiftBytes = Parquet.writeBytes(shifts)
+```
 
 Columns keep the field names as written (`userName`). A file written from a case class reads back
 into the same case class with `readAs`. Recursive types, such as a case class with a
@@ -558,10 +571,11 @@ Control.withResource(Parquet.newRecordWriter("records.parquet", schema)) { w =>
 Missing columns are null, and keys without a column are ignored. Keys match column names loosely,
 as when reading (`user_name` fills `userName`). Each column accepts the usual forms of its type: a
 TIMESTAMP takes an `Instant`, an ISO-8601 string, or epoch milliseconds; a DECIMAL takes a number
-or a string (use strings in JSON for exact values); a DATE takes a `LocalDate` or `yyyy-mm-dd`.
+or a string (use strings in JSON for exact values); a DATE takes a `LocalDate` or `yyyy-mm-dd`; a TIME takes a `LocalTime`, `hh:mm:ss[.fraction]`, or
+nanoseconds of the day.
 Other column types are `ParquetType.INT8`, `INT16`, `INT32`, `FLOAT`, `DOUBLE`, `BOOLEAN`,
 `BINARY`, `ENUM`, `JSON`, `DATE`, `TIMESTAMP_MILLIS`, `TIMESTAMP_MICROS`, `TIMESTAMP_NANOS`,
-`UUID`, `fixed(n)`, `map(key, value)`, and `struct(columns*)`.
+`TIME_MILLIS`, `TIME_MICROS`, `TIME_NANOS`, `UUID`, `fixed(n)`, `map(key, value)`, and `struct(columns*)`.
 
 A row that does not fit the schema, such as a missing required value or a string in an INT64
 column, throws `ParquetException` naming the column. The row is not written, and the writer

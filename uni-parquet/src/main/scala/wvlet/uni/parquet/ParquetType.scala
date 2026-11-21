@@ -50,6 +50,9 @@ object ParquetType:
   val TIMESTAMP_MILLIS: Primitive = timestamp(TimeUnit.MILLIS)
   val TIMESTAMP_MICROS: Primitive = timestamp(TimeUnit.MICROS)
   val TIMESTAMP_NANOS: Primitive  = timestamp(TimeUnit.NANOS)
+  val TIME_MILLIS: Primitive      = time(TimeUnit.MILLIS)
+  val TIME_MICROS: Primitive      = time(TimeUnit.MICROS)
+  val TIME_NANOS: Primitive       = time(TimeUnit.NANOS)
   val UUID: Primitive = Primitive(PhysicalType.FIXED_LEN_BYTE_ARRAY, Some(LogicalType.Uuid), 16)
 
   /** A TIMESTAMP in UTC (`isAdjustedToUTC = true`), stored as INT64 */
@@ -57,6 +60,18 @@ object ParquetType:
     PhysicalType.INT64,
     Some(LogicalType.Timestamp(true, unit))
   )
+
+  /**
+    * A TIME of day with no zone (`isAdjustedToUTC = false`), as `LocalTime` holds. MILLIS is stored
+    * as INT32, MICROS and NANOS as INT64.
+    */
+  def time(unit: TimeUnit): Primitive =
+    val physical =
+      if unit == TimeUnit.MILLIS then
+        PhysicalType.INT32
+      else
+        PhysicalType.INT64
+    Primitive(physical, Some(LogicalType.Time(false, unit)))
 
   /**
     * A DECIMAL, stored as INT32 up to precision 9, INT64 up to 18, and FIXED_LEN_BYTE_ARRAY of the

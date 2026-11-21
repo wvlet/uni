@@ -11,6 +11,7 @@ import wvlet.uni.weaver.WeaverConfig
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 
 /**
   * Writes case classes of type `A` to a Parquet file. Create one with [[Parquet.newWriter]], call
@@ -64,9 +65,9 @@ object ParquetWriter:
   *   - a `Seq` of values in schema order: `Seq(1, "aina")`
   *   - a JSON array string: `"""[1, "aina"]"""`
   *
-  * Values may be numbers, strings, booleans, `Instant`, `LocalDate`, `BigDecimal`, `UUID`,
-  * `Array[Byte]`, `Option`, collections, maps, and case classes (for struct columns). Missing
-  * columns are null; keys without a column are ignored.
+  * Values may be numbers, strings, booleans, `Instant`, `LocalDate`, `LocalTime`, `BigDecimal`,
+  * `UUID`, `Array[Byte]`, `Option`, collections, maps, and case classes (for struct columns).
+  * Missing columns are null; keys without a column are ignored.
   */
 class ParquetRecordWriter private[parquet] (core: FileWriter) extends AutoCloseable:
   def schema: ParquetSchema = core.schema
@@ -142,6 +143,8 @@ private[parquet] object RecordBytes:
         p.packTimestamp(t)
       case d: LocalDate =>
         p.packString(d.toString)
+      case t: LocalTime =>
+        p.packString(t.toString)
       case u: java.util.UUID =>
         p.packString(u.toString)
       case b: Array[Byte] =>

@@ -15,7 +15,7 @@ losslessly, otherwise fall through to the legacy toString-quoted JSON path." A
 top-level `eq emptyObjectWeaver` check is not enough — `fromSurface` builds the
 fallback *inside* outer composite weavers for shapes like `Seq[Either[A, B]]` or
 `case class Foo(d: LocalDate)`, which would silently emit `[{}]` / `{"d":{}}`. (`LocalDate`
-has a built-in weaver since 2026-11-21; `LocalTime` is an example of a type that still doesn't.)
+and `LocalTime` have built-in weavers since 2026-11-21; `LocalDateTime` is an example of a type that still doesn't.)
 
 ## Decision
 
