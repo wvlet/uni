@@ -210,7 +210,8 @@ object Timeline:
   /** How much time the axis shows. */
   val windowMs: Int = 10000
 
-  private val maxMarbles = 200
+  // More than a 10-second axis can show side by side
+  private val maxMarbles = 60
 
   // The strip is 50 windows wide, so marbles and the grid scroll as one
   private val stripWindows = 50

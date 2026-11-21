@@ -35,13 +35,13 @@ class GalleryTest extends DomTestSupport:
   test("every component page lists its component's API, starting with how to create it") {
     Pages.all.foreach(p => p.examples.nonEmpty shouldBe true)
     Pages
-      .groups
-      .filter(_.id != "rx")
-      .flatMap(_.components)
+      .all
+      .filter(_.isComponent)
       .foreach { p =>
-        p.isComponent shouldBe true
+        p.api.nonEmpty shouldBe true
         p.api.head.kind shouldBe "create"
       }
+    Pages.all.filterNot(_.isComponent).map(_.id).forall(_.startsWith("rx-")) shouldBe true
     val button = page("button").api
     button.map(_.signature) shouldContain ".withLabel(l: String)"
     button.find(_.signature == ".withLabel(l: String)").get.doc shouldContain "accessible name"

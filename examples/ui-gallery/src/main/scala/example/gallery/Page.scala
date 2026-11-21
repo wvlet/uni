@@ -28,7 +28,8 @@ case class ComponentPage(
     examples: Seq[Story],
     api: Seq[ApiEntry],
     a11y: Seq[A11yCheck] = Nil,
-    a11yNote: String = ""
+    a11yNote: String = "",
+    topic: Boolean = false
 ) extends GalleryPage:
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
 
@@ -36,7 +37,7 @@ case class ComponentPage(
     * A page about a uni-ui component, with its parts, API, and accessibility check. A topic page
     * (such as the Rx pages) has examples only.
     */
-  def isComponent: Boolean = api.nonEmpty
+  def isComponent: Boolean = !topic
 
 /** A page with its own view instead of examples, such as the color tokens. */
 case class GuidePage(id: String, name: String, summary: String, view: () => RxElement)

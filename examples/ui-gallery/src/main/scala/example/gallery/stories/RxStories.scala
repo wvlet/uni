@@ -408,7 +408,8 @@ object RxStories:
           "Press name := name.get: nothing happens. forceSet emits the same value again."
         )(rxEqual)
       ),
-      api = Nil
+      api = Nil,
+      topic = true
     ),
     ComponentPage(
       "rx-time",
@@ -431,7 +432,8 @@ object RxStories:
           "Press Fast, then Slow: the slow reply misses the 1 second timeout and recover turns it into a value."
         )(rxTimeout)
       ),
-      api = Nil
+      api = Nil,
+      topic = true
     ),
     ComponentPage(
       "rx-async",
@@ -449,7 +451,8 @@ object RxStories:
           "Press Request, then Fail the next request and Request again: the plain lane ends, the guarded lane goes on."
         )(rxFuture)
       ),
-      api = Nil
+      api = Nil,
+      topic = true
     ),
     ComponentPage(
       "rx-errors",
@@ -467,7 +470,8 @@ object RxStories:
           "Press Next value, then setException: every lane ends, and Next value does nothing until Restart."
         )(rxTerminal)
       ),
-      api = Nil
+      api = Nil,
+      topic = true
     ),
     ComponentPage(
       "rx-lifecycle",
@@ -485,7 +489,8 @@ object RxStories:
           "Press n + 1 three times: take(3) completes. Then press n.stop(): every lane completes."
         )(rxEnd)
       ),
-      api = Nil
+      api = Nil,
+      topic = true
     )
   )
 

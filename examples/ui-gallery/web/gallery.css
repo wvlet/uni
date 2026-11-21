@@ -1787,6 +1787,7 @@ body {
   color: var(--uni-muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
 
 /* The marble diagram of the Rx examples (Timeline.scala) */
 .timeline {

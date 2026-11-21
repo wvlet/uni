@@ -50,8 +50,8 @@ and a live accessibility check. The docs embed it on the
   show how streams behave: values, time operators, `flatMap`, errors, and subscriptions. Each
   example ends with a `Timeline` ([`Timeline.scala`](src/main/scala/example/gallery/Timeline.scala)),
   a marble diagram that subscribes to the streams it lists and draws each `OnNext`, `OnError`, and
-  `OnCompletion`. These are topic pages: a `ComponentPage` with no API, so the page has no Parts,
-  API, or Accessibility sections.
+  `OnCompletion`. These are topic pages (`ComponentPage(..., topic = true)`), without the Parts, API, and
+  Accessibility sections.
 - **State in the URL.** `#/menu` names a page and `#/menu/checked` an example,
   `?view=preview`, `code`, `split`, or `agent` picks the view, `?theme=dark` or `?theme=light` forces a color scheme, and `?embed` shows only
   one example's card for an iframe. An embedding page switches the theme with
