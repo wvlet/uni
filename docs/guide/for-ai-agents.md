@@ -209,6 +209,7 @@ Copy one as a template:
 | [`rpc-native`](https://github.com/wvlet/uni/tree/main/examples/rpc-native) | One RPC server built with `Http.server` and `Design`, the same code on the JVM and as a Scala Native binary (no JVM), a typed client, a UniTest suite run on both, and a startup/memory/throughput benchmark |
 | [`mcp-server`](https://github.com/wvlet/uni/tree/main/examples/mcp-server) | A stdio MCP server with `MCP.server.withTools[...]` and how to add it to Claude Code |
 | [`web-ui`](https://github.com/wvlet/uni/tree/main/examples/web-ui) | A Scala.js todo list with `RxElement` and `Rx.variable` |
+| [`ui-gallery`](https://github.com/wvlet/uni/tree/main/examples/ui-gallery) | One short story per uni-ui component (buttons, tabs, menus, dialogs, trees, tables, the dock), each a `def` that returns an `RxElement` |
 
 ## Example: a wired service with logging and JSON
 

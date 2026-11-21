@@ -43,5 +43,7 @@ Pass extra attributes as modifiers, and use `cls +=` so the component's own clas
 | [Collections](./collections) | `VirtualList`, `Tree`, `DataTable`, `CommandPalette`; multi-select and reordering |
 | [Layout & Dock](./layout) | `FoldablePane`, `Splitter`, `StatusBar`, `Dock` |
 
+The [Gallery](./gallery) runs each of these components live, next to the code that renders it.
+
 [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) builds a full
 workspace shell with these components and Tailwind CSS.
