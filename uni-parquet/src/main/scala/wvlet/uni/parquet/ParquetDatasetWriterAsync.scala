@@ -11,6 +11,7 @@ import wvlet.uni.storage.ObjectUri
 import wvlet.uni.weaver.Weaver
 import wvlet.uni.weaver.WeaverConfig
 
+import java.util.concurrent.TimeUnit
 import scala.util.control.NonFatal
 
 /**
@@ -36,13 +37,14 @@ private[parquet] final class AsyncDatasetDriver(
       Rx.single(())
 
   /**
-    * Calls `write` for each element, uploading the files each call finishes before the next one. A
-    * failure that ruins the write deletes every file it uploaded.
+    * Calls `write` for each element, and uploads a batch of finished files whenever one is ready
+    * (or the queue holds half the memory budget). A failure that ruins the write deletes every file
+    * it uploaded.
     */
   def writeAll[A](it: Iterator[A], write: A => Unit): Rx[Unit] =
     var failed: Throwable = null
     try
-      while it.hasNext && !core.hasUploads do
+      while it.hasNext && !core.uploadsReady(AsyncDatasetDriver.UploadParallelism) do
         write(it.next())
     catch
       case NonFatal(e) =>
@@ -108,10 +110,22 @@ private[parquet] final class AsyncDatasetDriver(
     }
 
   /**
-    * Uploads a few files at a time. Each runs as a fiber, so a store whose puts complete at once
-    * doesn't grow the stack with every upload. A put that completes after an abort is deleted.
+    * Uploads the files a few at a time. Each batch starts after a timer hop, on a fresh stack, so a
+    * store whose puts complete at once doesn't grow the stack with every batch: Rx runs a
+    * continuation that is ready at once inline. A put that completes after an abort is deleted.
     */
-  private def uploadAll(uploads: Seq[Upload]): Rx[Unit] = RxParallel
+  private def uploadAll(uploads: Seq[Upload]): Rx[Unit] =
+    def loop(batches: List[Seq[Upload]]): Rx[Unit] =
+      batches match
+        case Nil =>
+          Rx.single(())
+        case batch :: rest =>
+          Rx.delay(0, TimeUnit.MILLISECONDS)
+            .flatMap(_ => uploadBatch(batch))
+            .flatMap(_ => loop(rest))
+    loop(uploads.grouped(AsyncDatasetDriver.UploadParallelism).toList)
+
+  private def uploadBatch(uploads: Seq[Upload]): Rx[Unit] = RxParallel
     .parSequenceN(AsyncDatasetDriver.UploadParallelism)(
       uploads.map { u =>
         u.target match

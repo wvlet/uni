@@ -15,13 +15,15 @@ import scala.collection.mutable
   * every put after that many succeed fail.
   */
 class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
-  val objects      = mutable.TreeMap.empty[String, Array[Byte]]
-  private var puts = 0
+  private val objects = mutable.TreeMap.empty[String, Array[Byte]]
+  private var puts    = 0
 
   private def syncCall(name: String): Nothing =
     throw UnsupportedOperationException(s"${name} is sync; the async writer must not call it")
 
-  def keys(prefix: String): Seq[String] = objects.keys.filter(_.startsWith(prefix)).toSeq
+  def keys(prefix: String): Seq[String] = synchronized(
+    objects.keys.filter(_.startsWith(prefix)).toSeq
+  )
 
   override def head(uri: ObjectUri): Option[ObjectInfo]                          = syncCall("head")
   override def get(uri: ObjectUri): Array[Byte]                                  = syncCall("get")
@@ -48,12 +50,17 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
     bytes.length.toLong
   )
 
+  // Puts run on several threads on the JVM, so every access to the objects holds the lock
+  def size: Int = synchronized(objects.size)
+
   override def headAsync(uri: ObjectUri): Rx[Option[ObjectInfo]] = Rx.single(
-    objects.get(uri.toString).map(info(uri.toString, _))
+    synchronized(objects.get(uri.toString)).map(info(uri.toString, _))
   )
 
   override def getAsync(uri: ObjectUri): Rx[Array[Byte]] = Rx.single(
-    objects.getOrElse(uri.toString, throw java.util.NoSuchElementException(uri.toString))
+    synchronized(objects.get(uri.toString)).getOrElse(
+      throw java.util.NoSuchElementException(uri.toString)
+    )
   )
 
   override def getRangeAsync(uri: ObjectUri, offset: Long, length: Long): Rx[Array[Byte]] =
@@ -61,16 +68,22 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
 
   override def putAsync(uri: ObjectUri, content: Array[Byte], contentType: String): Rx[Unit] = Rx
     .single {
-      if failPuts.exists(puts >= _) then
-        throw java.io.IOException(s"put failed: ${uri}")
-      puts += 1
-      objects(uri.toString) = content.clone()
+      synchronized {
+        if failPuts.exists(puts >= _) then
+          throw java.io.IOException(s"put failed: ${uri}")
+        puts += 1
+        objects(uri.toString) = content.clone()
+      }
     }
 
   override def listAsync(uri: ObjectUri, recursive: Boolean): Rx[Seq[ObjectInfo]] = Rx.single(
-    objects.iterator.filter(_._1.startsWith(uri.toString)).map((k, v) => info(k, v)).toSeq
+    synchronized(
+      objects.iterator.filter(_._1.startsWith(uri.toString)).map((k, v) => info(k, v)).toSeq
+    )
   )
 
-  override def deleteAsync(uri: ObjectUri): Rx[Unit] = Rx.single(objects.remove(uri.toString))
+  override def deleteAsync(uri: ObjectUri): Rx[Unit] = Rx.single(
+    synchronized(objects.remove(uri.toString))
+  )
 
 end MemoryObjectStore

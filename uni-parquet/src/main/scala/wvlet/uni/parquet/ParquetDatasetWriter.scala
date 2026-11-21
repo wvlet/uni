@@ -751,6 +751,13 @@ private[parquet] final class DatasetWriterCore private (
   def hasUploads: Boolean = queue.nonEmpty
 
   /**
+    * Async: whether enough files are queued to upload a batch, or the queue holds half the memory
+    * budget, so `writeAll` uploads before a `write` would fail for lack of room
+    */
+  def uploadsReady(batch: Int): Boolean =
+    queue.size >= batch || queuedBytes * 2 >= options.maxBufferedBytes
+
+  /**
     * Async: records an uploaded file, which an abort then deletes. False when the write was aborted
     * while the file was uploading, so the caller deletes it.
     */

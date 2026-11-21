@@ -106,7 +106,7 @@ class AsyncDatasetWriterTest extends UniTest:
       .writeDatasetAsync(store, root, sales, byDtCountry.withMaxRowsPerFile(3))
       .transform { result =>
         result.isFailure shouldBe true
-        store.objects.size shouldBe 0
+        store.size shouldBe 0
       }
   }
 
@@ -117,11 +117,11 @@ class AsyncDatasetWriterTest extends UniTest:
       .flatMap { w =>
         w.writeAll(sales)
           .flatMap { _ =>
-            (store.objects.size > 0) shouldBe true
+            (store.size > 0) shouldBe true
             w.abort()
           }
       }
-      .map(_ => store.objects.size shouldBe 0)
+      .map(_ => store.size shouldBe 0)
   }
 
   test("apply write modes and root files with async calls") {
