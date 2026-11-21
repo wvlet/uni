@@ -32,5 +32,4 @@ tests that built a runner instance, and the live-var Lean models (`RxLive.lean`,
 - `RxRecover.lean`, `RxNested.lean`, and `Rx.lean` keep their trace models; they describe a stream
   as `run` sees it, cut at its first error or end.
 - Left for later: whether a sink should answer `Continue` to an `OnError` so that `Stop` can mean
-  "stop" again. Today `Stop` after an error is transient everywhere, which keeps the old continuous
-  behavior intact.
+  "stop" again. Done in `2026-11-21-rx-sink-continue.md`.

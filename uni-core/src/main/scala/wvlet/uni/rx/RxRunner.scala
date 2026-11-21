@@ -97,8 +97,9 @@ object RxRunner extends LogSupport:
               effect(c)
             RxResult.Stop
           case other =>
+            // The stream continues past an error
             effect(ResumableError.toPublic(other))
-            RxResult.Stop
+            RxResult.Continue
     }
 
   /**
@@ -136,9 +137,10 @@ end RxRunner
 
 /**
   * Runs Rx operator chains with one semantics: `OnError` reports an error the stream continues
-  * past, and `OnCompletion` ends the stream (see `adr/2026-11-21-rx-single-mode.md`). A `Stop`
-  * returned after an error is transient: sinks answer `Stop` to every non-value event, and
-  * `RxRunner.run` ends its run itself.
+  * past, and `OnCompletion` ends the stream (see `adr/2026-11-21-rx-single-mode.md`). A downstream
+  * `Stop` means the downstream wants nothing more: `runContinuously` answers `Continue` to an
+  * error, and `run` / `runOnce` answer `Stop` to the event that ends their run
+  * (`adr/2026-11-21-rx-sink-continue.md`).
   */
 class RxRunner extends LogSupport:
   runner =>
@@ -256,9 +258,12 @@ class RxRunner extends LogSupport:
               // The stream ended with a failure: emit the transformed value, then complete
               Try(tryFunc(Failure(e))) match
                 case Success(x) =>
-                  // Complete even after a Stop, which is transient after a downstream error
-                  effect(OnNext(x))
-                  effect(OnCompletion.success)
+                  // Complete unless the downstream stopped
+                  val r = effect(OnNext(x))
+                  if r.toContinue then
+                    effect(OnCompletion.success)
+                  else
+                    r
                 case Failure(e2) =>
                   effect(OnCompletion.failure(e2))
             case other =>
@@ -283,9 +288,12 @@ class RxRunner extends LogSupport:
             case OnCompletion(Result.Failure(e)) =>
               tryFunc(Failure(e)) match
                 case Success(x) =>
-                  // Complete even after a Stop, which is transient after a downstream error
-                  effect(OnNext(x))
-                  effect(OnCompletion.success)
+                  // Complete unless the downstream stopped
+                  val r = effect(OnNext(x))
+                  if r.toContinue then
+                    effect(OnCompletion.success)
+                  else
+                    r
                 case Failure(e2) =>
                   effect(OnCompletion.failure(e2))
             case other =>
@@ -519,12 +527,15 @@ class RxRunner extends LogSupport:
                 count += 1
                 val result = effect(OnNext(v.asInstanceOf[A]))
                 if count < n then
-                  // A Stop after a downstream error is transient
+                  if !result.toContinue then
+                    // The downstream stopped early. Forward nothing more, but keep the upstream
+                    // subscribed so that its own completion still drives operators such as concat.
+                    done.set(true)
                   result
                 else
                   // Complete right after the nth value without waiting for the next upstream event,
-                  // even after a Stop, which is transient after a downstream error
-                  if done.compareAndSet(false, true) then
+                  // unless the downstream stopped
+                  if done.compareAndSet(false, true) && result.toContinue then
                     effect(OnCompletion.success)
                   c.cancel
                   RxResult.Stop
@@ -779,12 +790,15 @@ class RxRunner extends LogSupport:
                   case Failure(e) =>
                     effect(OnError(e))
               case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
-                // The stream ended with a failure: emit the recovered value, then complete, even
-                // after a Stop, which is transient after a downstream error
+                // The stream ended with a failure: emit the recovered value, then complete unless
+                // the downstream stopped
                 ended.set(true)
                 Try(effect(OnNext(f(e)))) match
                   case Success(result) =>
-                    effect(OnCompletion.success)
+                    if result.toContinue then
+                      effect(OnCompletion.success)
+                    else
+                      result
                   case Failure(e) =>
                     effect(OnCompletion.failure(e))
               case other =>
@@ -1082,7 +1096,7 @@ class RxRunner extends LogSupport:
             effect(OnCompletion.failure(e))
         Cancelable.empty
       case SeqOp(inputList) =>
-        // A Stop after a downstream error is transient, so emit the whole sequence unless cancelled
+        // Emit the list until the downstream stops or the subscription is cancelled
         val cancelled = AtomicBoolean(false)
         @tailrec
         def loop(lst: List[A]): Unit =
@@ -1091,15 +1105,15 @@ class RxRunner extends LogSupport:
               case Nil =>
                 effect(OnCompletion.success)
               case head :: tail =>
-                effect(OnNext(head))
-                loop(tail)
+                if effect(OnNext(head)).toContinue then
+                  loop(tail)
         loop(inputList.eval.toList)
         Cancelable { () =>
           cancelled.set(true)
         }
       case source: RxSource[?] =>
         val cancelled = AtomicBoolean(false)
-        // Set by OnCompletion: the source has ended
+        // Set by OnCompletion, or by a downstream Stop: nothing more is read
         val ended = AtomicBoolean(false)
         // True from calling source.next until its event arrives
         val awaiting = AtomicBoolean(false)
@@ -1113,13 +1127,19 @@ class RxRunner extends LogSupport:
             RxResult.Stop
           else
             ev match
-              case OnNext(v) =>
-                effect(OnNext(v.asInstanceOf[A]))
               case end: OnCompletion =>
                 ended.set(true)
                 effect(end)
               case other =>
-                effect(other)
+                val r =
+                  other match
+                    case OnNext(v) =>
+                      effect(OnNext(v.asInstanceOf[A]))
+                    case _ =>
+                      effect(other)
+                if !r.toContinue then
+                  ended.set(true)
+                r
 
         // Read one event at a time. An event that is already available continues this loop; one
         // that arrives later continues from its callback. Polling `next` again before its event
@@ -1398,7 +1418,12 @@ class RxRunner extends LogSupport:
           takeLatest()
       }
       v.foreach { x =>
-        effect(OnNext(x))
+        if !effect(OnNext(x)).toContinue then
+          // The downstream stopped: emit nothing more
+          lock.synchronized {
+            finished = true
+          }
+          input.cancel
       }
 
     input =
@@ -1422,8 +1447,14 @@ class RxRunner extends LogSupport:
                 finished = true
               takeLatest()
           }
-          pending.foreach(x => effect(OnNext(x)))
-          effect(other)
+          val r = pending.map(x => effect(OnNext(x))).getOrElse(RxResult.Continue)
+          if r.toContinue then
+            effect(other)
+          else
+            lock.synchronized {
+              finished = true
+            }
+            r
       }
     Cancelable { () =>
       lock.synchronized {
@@ -1539,9 +1570,9 @@ class RxRunner extends LogSupport:
     * Joins streams that may run concurrently (merge, parFlatMap) into one downstream. Events are
     * forwarded under a lock, since the streams may emit from different threads. The operator
     * completes when every opened slot has ended. An error the downstream recovers from ends only
-    * the failing slot, as in flatMap. An `OnError` and a downstream `Stop` are transient. A failed
-    * `OnCompletion` of a slot or a cancellation stops the operator: running streams are cancelled
-    * and later events are dropped.
+    * the failing slot, as in flatMap. An `OnError` passes. A failed `OnCompletion` of a slot, a
+    * downstream `Stop`, or a cancellation stops the operator: running streams are cancelled and
+    * later events are dropped.
     */
   private class FanIn(effect: RxEvent => RxResult):
     class Slot:
@@ -1689,8 +1720,14 @@ class RxRunner extends LogSupport:
         if stopped then
           RxResult.Stop
         else
-          effect(ev)
+          val r = effect(ev)
+          if !r.toContinue then
+            stopped = true
+          r
       }
+      // The downstream stopped: cancel every running stream
+      if !r.toContinue then
+        cancelRunning()
       r
 
     private def cancelRunning(): Unit =

@@ -49,8 +49,8 @@ class RxLiveSpecTest extends UniTest:
   private def failure = IllegalStateException("spec failure")
 
   /**
-    * Records what the sink receives. It answers Stop to a non-value event, as RxRunner's entry
-    * points do.
+    * Records what the sink receives. It answers Continue to an error and Stop to the end, as
+    * runContinuously does.
     */
   private class Sink:
     val records = mutable.ArrayBuffer.empty[String]
@@ -60,10 +60,13 @@ class RxLiveSpecTest extends UniTest:
         case OnNext(v) =>
           onValue(v)
           RxResult.Continue
+        case OnError(_) =>
+          records += "E"
+          RxResult.Continue
         case OnCompletion(Result.Success(_)) =>
           records += "C"
           RxResult.Stop
-        case OnError(_) | OnCompletion(wvlet.uni.util.Result.Failure(_)) =>
+        case OnCompletion(Result.Failure(_)) =>
           records += "E"
           RxResult.Stop
 
