@@ -1,4 +1,4 @@
-# Claude on Bedrock through the Anthropic Messages API
+# Claude and OpenAI models on Bedrock through their own APIs
 
 ## Goals
 
@@ -27,7 +27,9 @@ Lane: Standard. It removes a public package and changes Bedrock auth headers. Th
 - `countTokens` stays Anthropic-API only. On Bedrock it fails at once with a clear message instead of sending an undocumented request.
 - Remove the InvokeModel path (event-stream `chunk` decoding) from `AnthropicClient`.
 - Remove `wvlet.uni.ai.bedrock` (Converse model, converter, client, event-stream decoder) and its tests. Also remove `ProviderMetadata.Bedrock`, the `cache_control` ↔ `cachePoint` mapping, and the Bedrock tool-id sanitizer. Keep `BedrockAuth`.
-- For a non-Anthropic Bedrock model, use `OpenAIClient` with `baseUrl = https://bedrock-runtime.<region>.amazonaws.com/openai/v1` and the Bedrock API key as the bearer token.
+- OpenAI models on Bedrock (user request, added mid-cycle): `OpenAIConfig.bedrock(region, auth, endpoint)` sends Responses and Chat Completions to `/openai/v1` on bedrock-runtime.
+  - A Bedrock API key goes in `Authorization: Bearer`; AWS credentials sign with SigV4 (service `bedrock`), as documented for Chat Completions on runtime.
+  - The Responses page lists AWS credentials for HTTP requests but shows no signed example; the same signing is used.
 - Docs, ADR, and the `uni` skill: the Bedrock row becomes "Claude on Bedrock via the Anthropic API". Amend the 2026-11-21 LLM vendor APIs ADR, merged today, rather than add a second one. The ADR records what is lost:
   - Converse-only features, such as the Guardrails config and `additionalModelRequestFields`.
   - Bedrock models that offer neither an Anthropic nor an OpenAI API (e.g. some Llama, Mistral, and Titan models).
