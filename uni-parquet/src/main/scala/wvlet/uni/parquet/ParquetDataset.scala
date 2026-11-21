@@ -862,9 +862,15 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
           path,
           a.size,
           VectorMap.from(
-            columns.map(c =>
-              c.name -> parseValue(a.partitionValues.getOrElse(c.name, null), c, path)
-            )
+            columns.map { c =>
+              val v = a.partitionValues.getOrElse(c.name, null)
+              c.name -> (
+                if v == null then
+                  null
+                else
+                  parseValue(v, c, path, "the type in the table schema")
+              )
+            }
           )
         )
       }
@@ -903,16 +909,22 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
           throw outside
         uri.copy(key = unescape(uri.key)).toString
       else if p.startsWith("file:") then
-        // file:/a/b, file:///a/b
+        // file:/a/b, file:///a/b, or file://localhost/a/b
         val rest = p.substring("file:".length)
         val path =
           if rest.startsWith("///") then
             rest.substring(2)
-          else
+          else if rest.startsWith("//localhost/") then
+            rest.substring("//localhost".length)
+          else if rest.startsWith("/") && !rest.startsWith("//") then
             rest
+          else
+            throw outside
         unescape(path)
       else
         throw outside
+    else if p.startsWith("/") then
+      throw ParquetException(s"The Delta table ${tableRoot} lists ${p}, which is not a URI")
     else
       s"${tableRoot}${unescape(p)}"
 
@@ -1163,14 +1175,17 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   private def isHex(c: Char): Boolean = Character.digit(c, 16) >= 0
 
-  private def parseValue(v: String, c: ParquetField.Primitive, path: String): Any =
-    if v == null || v == DefaultPartition then
+  private def parseValue(
+      v: String,
+      c: ParquetField.Primitive,
+      path: String,
+      typeSource: String = "the type set with withPartitionType"
+  ): Any =
+    if v == DefaultPartition then
       null
     else
       def fail(tpe: String) =
-        throw ParquetException(
-          s"Partition ${c.name}=${v} in ${path} is not ${tpe}, the type set with withPartitionType"
-        )
+        throw ParquetException(s"Partition ${c.name}=${v} in ${path} is not ${tpe}, ${typeSource}")
       partitionKind(c) match
         case Kind.Str =>
           v

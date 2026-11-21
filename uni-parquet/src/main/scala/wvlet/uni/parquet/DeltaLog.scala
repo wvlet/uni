@@ -87,7 +87,7 @@ private[parquet] object DeltaLog:
     def chained(from: Long, to: Long): Boolean = (from + 1 to to).forall(commits.contains)
     // Ways to start: a checkpoint, or commit 0 (an empty table before it)
     val starts: Seq[(Long, Seq[Listed])] =
-      checkpoints.toSeq.map((v, ls) => (v, ls)) ++ (
+      checkpoints.toSeq ++ (
         if commits.contains(0) then
           Seq((-1L, Seq.empty))
         else

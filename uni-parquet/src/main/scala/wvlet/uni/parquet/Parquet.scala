@@ -182,8 +182,10 @@ object Parquet:
       ownsStore: Boolean
   ): ParquetDataset =
     val (uri, matches, source) = objectPattern(root)
-    val plainRoot              = ParquetDataset.splitGlob(root).isEmpty
-    val listed                 =
+    val plainRoot              = source.isEmpty
+    if !plainRoot then
+      ParquetDataset.requireFiles(options, root)
+    val listed =
       if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
         ParquetDataset.underLog(ParquetDataset.listObjects(store, ParquetDataset.deltaLogRoot(uri)))
       else
@@ -309,8 +311,10 @@ object Parquet:
   ): Rx[ParquetDataset] = Rx
     .single(objectPattern(root))
     .flatMap { (uri, matches, source) =>
-      val plainRoot = ParquetDataset.splitGlob(root).isEmpty
-      val listing   =
+      val plainRoot = source.isEmpty
+      if !plainRoot then
+        ParquetDataset.requireFiles(options, root)
+      val listing =
         if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
           ParquetDataset
             .listObjectsAsync(store, ParquetDataset.deltaLogRoot(uri))
