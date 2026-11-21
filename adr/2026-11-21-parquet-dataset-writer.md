@@ -52,5 +52,6 @@ would copy every byte twice there.
 - Case classes can have `LocalDate` fields and DATE partitions since the
   [LocalDate Weaver](2026-11-21-localdate-weaver.md). Records and batches can write them too.
 - `_SUCCESS` and `_common_metadata` are covered by [dataset root files](2026-11-21-parquet-dataset-root-files.md).
-- Not covered: an async writer, sorting within partitions, a full `_metadata` file, and
+- The async writer is covered by [async dataset writer](2026-11-21-parquet-async-dataset-writer.md).
+- Not covered: sorting within partitions, a full `_metadata` file, and
   bucketing.

@@ -267,6 +267,21 @@ def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
 - Limits: `withMaxRowsPerFile`, `withMaxFileSize`, `withMaxOpenFiles` (32), `withMaxBufferedBytes`
   (256 MiB). Per-file settings go in `withWriteOptions(ParquetWriteOptions...)`.
 
+Async I/O, for browsers or non-blocking code (object stores; a local root uses the sync writer):
+
+```scala
+import wvlet.uni.rx.Rx
+
+def writeVisitsAsync(root: String, visits: Seq[Visit]): Rx[Seq[WrittenFile]] =
+  Parquet.writeDatasetAsync(root, visits, ParquetDatasetWriteOptions.default.withPartitionBy("dt"))
+```
+
+- `newDatasetWriterAsync[A](store, root, options)` (also `...RecordWriterAsync`,
+  `...BatchWriterAsync`) gives `Rx` of a writer: `write` queues finished files, `flush()` /
+  `writeAll(rows)` upload them, `close()` returns `Rx[Seq[WrittenFile]]`, `abort()` deletes uploads.
+- Files are built in memory and uploaded with one put: capped at 128 MiB unless `withMaxFileSize`;
+  `withMaxBufferedBytes` counts whole files. Browsers need bucket CORS for PUT and DELETE.
+
 ## Write case classes
 
 Any case class with `derives Weaver` writes as is: no schema, annotations, or codecs. The same

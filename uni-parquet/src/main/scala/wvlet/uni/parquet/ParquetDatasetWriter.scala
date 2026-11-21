@@ -153,11 +153,24 @@ private[parquet] enum DatasetTarget:
 private[parquet] final class DatasetWriterCore private (
     target: DatasetTarget,
     val schema: ParquetSchema,
-    options: ParquetDatasetWriteOptions
+    options: ParquetDatasetWriteOptions,
+    /**
+      * For the async writer: the root listing and old `_common_metadata` bytes, fetched with async
+      * calls. Files are then built in memory and queued, and I/O is returned as actions to run.
+      */
+    prefetched: Option[DatasetWriterCore.Prefetched]
 ):
   import DatasetWriterCore.*
 
   val rootName: String = target.rootName
+
+  private val async: Boolean = prefetched.isDefined
+
+  private val maxFileSize: Option[Long] =
+    if async then
+      options.maxFileSize.orElse(Some(AsyncMaxFileSize))
+    else
+      options.maxFileSize
 
   private val keys: IndexedSeq[String]                            = options.partitionBy.toIndexedSeq
   private val partitionFields: IndexedSeq[ParquetField.Primitive] = keys.map(partitionField)
@@ -224,11 +237,27 @@ private[parquet] final class DatasetWriterCore private (
     */
   private val writesMetadata: Boolean = checkMetadata()
 
-  // An overwrite removes the old marker first, so `_SUCCESS` never stands beside mixed files
-  if options.mode == ParquetWriteMode.Overwrite ||
-    options.mode == ParquetWriteMode.OverwritePartitions
-  then
-    rootFile(DatasetMetadata.SuccessMarker).foreach(l => deleteListed(l))
+  /**
+    * What runs before any file is written: an overwrite removes the old marker first, so `_SUCCESS`
+    * never stands beside mixed files. The sync writer runs it here; the async writer runs it before
+    * returning the writer.
+    */
+  val startActions: Seq[RootAction] =
+    if options.mode == ParquetWriteMode.Overwrite ||
+      options.mode == ParquetWriteMode.OverwritePartitions
+    then
+      rootFile(DatasetMetadata.SuccessMarker).map(l => deleteAction(l)).toSeq
+    else
+      Seq.empty
+
+  if !async then
+    startActions.foreach(runSync)
+
+  // Finished in-memory files waiting for the async writer to upload them
+  private val queue       = mutable.ArrayBuffer.empty[Upload]
+  private var queuedBytes = 0L
+  // Deletes an async abort leaves for the async writer to run
+  private val pendingAbort = mutable.ArrayBuffer.empty[RootAction]
 
   private val writeId   = newWriteId()
   private var fileCount = 0
@@ -259,6 +288,7 @@ private[parquet] final class DatasetWriterCore private (
   /** Writes one row given as MessagePack bytes (a map, or an array in schema order) */
   def writeRow(bytes: Array[Byte], len: Int): Unit =
     ensureOpen()
+    ensureRoom()
     val (row, rowLen) = extractPartitions(bytes, len)
     val dir           = currentDir()
     val f             = fileFor(dir)
@@ -391,6 +421,7 @@ private[parquet] final class DatasetWriterCore private (
 
   def writeBatch(batch: ColumnBatch): Unit =
     ensureOpen()
+    ensureRoom()
     val n       = batch.numRows
     val vectors = partitionFields.map { p =>
       val v = batch
@@ -509,7 +540,7 @@ private[parquet] final class DatasetWriterCore private (
         .foreach { m =>
           to = math.min(to.toLong, from + math.max(1L, m - f.rows)).toInt
         }
-      if options.maxFileSize.isDefined then
+      if maxFileSize.isDefined then
         to = math.min(to, from + SizeCheckRows)
       val base = from
       try
@@ -595,12 +626,19 @@ private[parquet] final class DatasetWriterCore private (
         OpenFile(dir, partitions, w, Committed.LocalFile(fin), Some(tmp))
       case DatasetTarget.Objects(store, root, _) =>
         val uri = root.resolve(s"${dir}${name}")
-        val w   = FileWriter(fileSchema, options.writeOptions, () => store.newOutputStream(uri))
-        OpenFile(dir, partitions, w, Committed.Remote(store, uri), None)
+        if async then
+          // The async writer uploads the whole file with one put once it is finished
+          val buf = java.io.ByteArrayOutputStream()
+          val w   = FileWriter(fileSchema, options.writeOptions, () => buf)
+          OpenFile(dir, partitions, w, Committed.Remote(store, uri), None, Some(buf))
+        else
+          val w = FileWriter(fileSchema, options.writeOptions, () => store.newOutputStream(uri))
+          OpenFile(dir, partitions, w, Committed.Remote(store, uri), None)
+
+  end openFile
 
   private def afterWrite(f: OpenFile, rows: Int): Unit =
-    if options.maxRowsPerFile.exists(f.rows >= _) ||
-      options.maxFileSize.exists(f.writer.estimatedSize >= _)
+    if options.maxRowsPerFile.exists(f.rows >= _) || maxFileSize.exists(f.writer.estimatedSize >= _)
     then
       finish(f)
     else
@@ -611,6 +649,21 @@ private[parquet] final class DatasetWriterCore private (
 
   /** Writes out the largest buffered row groups early while the buffers exceed the budget */
   private def checkBudget(): Unit =
+    if async then
+      checkMemory()
+    else
+      checkBuffers()
+
+  /** Async: whole files stay in memory, so the largest open file is finished and queued */
+  private def checkMemory(): Unit =
+    var total = queuedBytes + open.valuesIterator.map(_.writer.estimatedSize).sum
+    while total > options.maxBufferedBytes && open.nonEmpty do
+      val largest = open.valuesIterator.maxBy(_.writer.estimatedSize)
+      total -= largest.writer.estimatedSize
+      finish(largest)
+      total += queue.lastOption.filter(_.target eq largest.target).map(_.bytes.length).getOrElse(0)
+
+  private def checkBuffers(): Unit =
     var total = open.valuesIterator.map(_.writer.bufferedSize).sum
     while total > options.maxBufferedBytes do
       val largest = open.valuesIterator.maxBy(_.writer.bufferedSize)
@@ -639,14 +692,28 @@ private[parquet] final class DatasetWriterCore private (
       }
       // Only now, so an abort after a failed close still discards the file
       open.remove(f.dir)
-      committed +=
-        WrittenFile(f.target.location, f.partitions, f.rows, f.writer.bytesWritten) -> f.target
+      val written = WrittenFile(f.target.location, f.partitions, f.rows, f.writer.bytesWritten)
+      f.memory match
+        case Some(buf) =>
+          val bytes = buf.toByteArray
+          queue += Upload(written, bytes, f.target)
+          queuedBytes += bytes.length
+        case None =>
+          committed += written -> f.target
 
   private def discard(f: OpenFile): Unit =
     f.writer.abort()
     f.tmp.foreach(FileSystem.deleteIfExists)
 
   // ---- Lifecycle ----
+
+  private def ensureRoom(): Unit =
+    if async && queuedBytes > options.maxBufferedBytes then
+      throw ParquetException(
+        s"${queue
+            .size} finished files (${queuedBytes} bytes) are waiting to upload, over maxBufferedBytes (${options
+            .maxBufferedBytes}). Call flush() to upload them, or use writeAll"
+      )
 
   private def ensureOpen(): Unit =
     state match
@@ -669,11 +736,46 @@ private[parquet] final class DatasetWriterCore private (
     if state == State.Open then
       fatal(open.valuesIterator.toList.foreach(finish))
       state = State.Closed
-      try
-        deleteReplaced()
-        writeRootFiles()
-      finally
-        target.closeStore()
+      try closeActions().foreach(runSync)
+      finally target.closeStore()
+
+  // ---- The async writer's steps ----
+
+  /** Async: finished files waiting to upload, removed from the queue */
+  def takeUploads(): Seq[Upload] =
+    val taken = queue.toSeq
+    queue.clear()
+    queuedBytes = 0L
+    taken
+
+  def hasUploads: Boolean = queue.nonEmpty
+
+  /** Async: records an uploaded file, which an abort then deletes */
+  def uploaded(u: Upload): Unit = committed += u.file -> u.target
+
+  /** Async: finishes every open file into the queue; the writer stays open until [[closed]] */
+  def finishAll(): Unit =
+    ensureOpen()
+    fatal(open.valuesIterator.toList.foreach(finish))
+
+  /** Async: marks the write closed and returns the deletes and root files to run, in order */
+  def closed(): Seq[RootAction] =
+    state = State.Closed
+    closeActions()
+
+  /** Async: aborts the write if it is still open and returns the deletes to run */
+  def abortActions(): Seq[RootAction] =
+    abortWith(null)
+    val actions = pendingAbort.toSeq
+    pendingAbort.clear()
+    actions
+
+  def closeStore(): Unit = target.closeStore()
+
+  /** Whether files are built in memory for the async writer */
+  def isAsync: Boolean = async
+
+  def isAborted: Boolean = state == State.Aborted
 
   def abort(): Unit =
     if state == State.Open then
@@ -692,15 +794,24 @@ private[parquet] final class DatasetWriterCore private (
               cause.addSuppressed(e)
       open.valuesIterator.toList.foreach(f => attempt(discard(f)))
       open.clear()
-      committed.foreach((_, c) => attempt(c.delete()))
+      queue.clear()
+      queuedBytes = 0L
+      if async then
+        // Deletes need async calls, which the async writer runs
+        pendingAbort ++=
+          committed.map((w, _) => RootAction.Delete(w.path, s"Failed to delete ${w.path}"))
+      else
+        committed.foreach((_, c) => attempt(c.delete()))
+        attempt(target.closeStore())
       committed.clear()
-      attempt(target.closeStore())
 
   /**
     * Deletes the files an overwrite replaces. It runs after every new file is published, so a
     * failure here keeps the new files and reports the file it could not delete.
     */
-  private def deleteReplaced(): Unit =
+  private def closeActions(): Seq[RootAction] = replacedDeletes() ++ rootFileActions()
+
+  private def replacedDeletes(): Seq[RootAction] =
     val replaced =
       options.mode match
         case ParquetWriteMode.Overwrite =>
@@ -709,20 +820,12 @@ private[parquet] final class DatasetWriterCore private (
           existing.filter(l => touched.contains(partitionsOf(l)))
         case _ =>
           Seq.empty
-    replaced.foreach { l =>
-      try
-        target match
-          case DatasetTarget.Local(_) =>
-            FileSystem.deleteIfExists(IOPath.parse(l.path))
-          case DatasetTarget.Objects(store, _, _) =>
-            store.delete(ObjectUri.parse(l.path))
-      catch
-        case NonFatal(e) =>
-          throw ParquetException(
-            s"The new files under ${rootName} were written, but deleting the replaced file ${l
-                .path} failed: ${e.getMessage}",
-            e
-          )
+    replaced.map { l =>
+      RootAction.Delete(
+        l.path,
+        s"The new files under ${rootName} were written, but deleting the replaced file ${l
+            .path} failed"
+      )
     }
 
   // ---- Root files ----
@@ -731,56 +834,77 @@ private[parquet] final class DatasetWriterCore private (
     * Writes `_common_metadata`, then `_SUCCESS`, after every data file is published and the
     * replaced files are deleted. A failure keeps the data files and names the root file.
     */
-  private def writeRootFiles(): Unit =
-    if writesMetadata then
-      putRootFile(
-        DatasetMetadata.CommonMetadata,
-        DatasetMetadata.toBytes(fileSchema, partitionTypes, options.writeOptions)
-      )
-    else if options.mode == ParquetWriteMode.Overwrite then
-      // A replaced dataset keeps no types recorded for the old one
-      priorMetadata.foreach(l => deleteListed(l))
-    if options.writeSuccessMarker then
-      putRootFile(DatasetMetadata.SuccessMarker, Array.emptyByteArray)
+  private def rootFileActions(): Seq[RootAction] =
+    val metadata =
+      if writesMetadata then
+        Seq(
+          putRootAction(
+            DatasetMetadata.CommonMetadata,
+            DatasetMetadata.toBytes(fileSchema, partitionTypes, options.writeOptions)
+          )
+        )
+      else if options.mode == ParquetWriteMode.Overwrite then
+        // A replaced dataset keeps no types recorded for the old one
+        priorMetadata.map(l => deleteAction(l)).toSeq
+      else
+        Seq.empty
+    val marker =
+      if options.writeSuccessMarker then
+        Seq(putRootAction(DatasetMetadata.SuccessMarker, Array.emptyByteArray))
+      else
+        Seq.empty
+    metadata ++ marker
 
-  private def putRootFile(name: String, bytes: Array[Byte]): Unit =
-    try
+  private def putRootAction(name: String, bytes: Array[Byte]): RootAction =
+    val path =
       target match
         case DatasetTarget.Local(root) =>
-          FileSystem.createDirectoryIfNotExists(root)
-          FileSystem.writeBytes(root.resolve(name), bytes)
-        case DatasetTarget.Objects(store, root, _) =>
-          store.put(root.resolve(name), bytes)
-    catch
-      case NonFatal(e) =>
-        throw ParquetException(
-          s"The data files under ${rootName} were written, but writing ${rootName}${name} failed: ${e
-              .getMessage}",
-          e
-        )
+          root.resolve(name).path
+        case DatasetTarget.Objects(_, root, _) =>
+          root.resolve(name).toString
+    RootAction.Put(
+      path,
+      bytes,
+      s"The data files under ${rootName} were written, but writing ${rootName}${name} failed"
+    )
 
-  private def deleteListed(l: ParquetDataset.Listed): Unit =
+  private def deleteAction(l: ParquetDataset.Listed): RootAction = RootAction.Delete(
+    l.path,
+    s"Failed to delete ${l.path}"
+  )
+
+  /** Runs an action with sync calls, for the sync writers */
+  private def runSync(a: RootAction): Unit =
     try
-      target match
-        case DatasetTarget.Local(_) =>
-          FileSystem.deleteIfExists(IOPath.parse(l.path))
-        case DatasetTarget.Objects(store, _, _) =>
-          store.delete(ObjectUri.parse(l.path))
+      (a, target) match
+        case (RootAction.Put(path, bytes, _), DatasetTarget.Local(root)) =>
+          FileSystem.createDirectoryIfNotExists(root)
+          FileSystem.writeBytes(IOPath.parse(path), bytes)
+        case (RootAction.Put(path, bytes, _), DatasetTarget.Objects(store, _, _)) =>
+          store.put(ObjectUri.parse(path), bytes)
+        case (RootAction.Delete(path, _), DatasetTarget.Local(_)) =>
+          FileSystem.deleteIfExists(IOPath.parse(path))
+        case (RootAction.Delete(path, _), DatasetTarget.Objects(store, _, _)) =>
+          store.delete(ObjectUri.parse(path))
     catch
       case NonFatal(e) =>
-        throw ParquetException(s"Failed to delete ${l.path}: ${e.getMessage}", e)
+        throw a.failure(e)
 
   /** Decides whether to write `_common_metadata`, failing early when it records other types */
   private def checkMetadata(): Boolean =
     // Only Append and OverwritePartitions keep the old file, so only they read it
     lazy val prior = priorMetadata.flatMap { l =>
       val bytes =
-        target match
-          case DatasetTarget.Local(_) =>
-            FileSystem.readBytes(IOPath.parse(l.path))
-          case DatasetTarget.Objects(store, _, _) =>
-            store.get(ObjectUri.parse(l.path))
-      DatasetMetadata.parse(bytes, l.path)
+        prefetched match
+          case Some(p) =>
+            p.metadataBytes
+          case None =>
+            target match
+              case DatasetTarget.Local(_) =>
+                Some(FileSystem.readBytes(IOPath.parse(l.path)))
+              case DatasetTarget.Objects(store, _, _) =>
+                Some(store.get(ObjectUri.parse(l.path)))
+      bytes.flatMap(b => DatasetMetadata.parse(b, l.path))
     }
     options.mode match
       case ParquetWriteMode.ErrorIfExists | ParquetWriteMode.Overwrite =>
@@ -801,6 +925,8 @@ private[parquet] final class DatasetWriterCore private (
             existing.isEmpty
         )
 
+  end checkMetadata
+
   private def describeTypes(types: Seq[(String, ParquetType.Primitive)]): String = types
     .map((k, t) => s"${k} ${DatasetMetadata.typeName(t)}")
     .mkString(", ")
@@ -815,11 +941,15 @@ private[parquet] final class DatasetWriterCore private (
       throw IllegalArgumentException(
         s"Refusing to overwrite ${rootName}: the root of a bucket or a file system holds more than one dataset. Write to a folder or prefix under it"
       )
-    target match
-      case DatasetTarget.Local(root) =>
-        ParquetDataset.listLocal(root)
-      case DatasetTarget.Objects(store, root, _) =>
-        ParquetDataset.listObjects(store, root)
+    prefetched match
+      case Some(p) =>
+        p.listing
+      case None =>
+        target match
+          case DatasetTarget.Local(root) =>
+            ParquetDataset.listLocal(root)
+          case DatasetTarget.Objects(store, root, _) =>
+            ParquetDataset.listObjects(store, root)
 
   private def checkExisting(): Seq[ParquetDataset.Listed] =
     val visible = listedRoot
@@ -869,16 +999,35 @@ private[parquet] object DatasetWriterCore:
   def create(
       target: DatasetTarget,
       schema: ParquetSchema,
-      options: ParquetDatasetWriteOptions
+      options: ParquetDatasetWriteOptions,
+      prefetched: Option[Prefetched] = None
   ): DatasetWriterCore =
     try
-      DatasetWriterCore(target, schema, options)
+      DatasetWriterCore(target, schema, options, prefetched)
     catch
       case e: Throwable =>
         target.closeStore()
         throw e
 
   private object Unset
+
+  /** The async writer's file size cap when none is set, since files are built in memory */
+  val AsyncMaxFileSize: Long = 128L * 1024 * 1024
+
+  /** What the async writer fetched before creating the core */
+  case class Prefetched(listing: Seq[ParquetDataset.Listed], metadataBytes: Option[Array[Byte]])
+
+  /** A finished in-memory file for the async writer to upload */
+  final class Upload(val file: WrittenFile, val bytes: Array[Byte], val target: Committed)
+
+  /**
+    * I/O the core plans: the sync writers run it with sync calls, the async writer with async ones
+    */
+  enum RootAction(val error: String):
+    case Put(path: String, bytes: Array[Byte], message: String) extends RootAction(message)
+    case Delete(path: String, message: String)                  extends RootAction(message)
+
+    def failure(e: Throwable): ParquetException = ParquetException(s"${error}: ${e.getMessage}", e)
 
   private val SizeCheckRows   = 1024
   private val BudgetCheckRows = 256
@@ -895,7 +1044,7 @@ private[parquet] object DatasetWriterCore:
       Date
 
   /** Where a finished file lives, so an abort can delete it */
-  private enum Committed:
+  enum Committed:
     case LocalFile(path: IOPath)
     case Remote(store: ObjectStore, uri: ObjectUri)
 
@@ -918,7 +1067,8 @@ private[parquet] object DatasetWriterCore:
       val partitions: VectorMap[String, Any],
       val writer: FileWriter,
       val target: Committed,
-      val tmp: Option[IOPath]
+      val tmp: Option[IOPath],
+      val memory: Option[java.io.ByteArrayOutputStream] = None
   ):
     var rows: Long = 0L
 
