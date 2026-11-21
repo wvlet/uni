@@ -204,6 +204,54 @@ def typedDataset(root: String) = Parquet.dataset(
   `readAllAsync[A]()` and `readAllRowsAsync()` prefetch footers. Pass `Parquet.dataset(store,
   root)` for R2, MinIO, or explicit credentials; the dataset closes only a store it created.
 
+## Write a partitioned dataset
+
+`Parquet.writeDataset(root, rows, options)` writes `key=value` folders that `Parquet.dataset`
+reads back, locally or under an `s3://`, `gs://`, `az://` prefix, like DuckDB's `COPY ... TO
+'dir' (FORMAT parquet, PARTITION_BY (...))`.
+
+```scala
+import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode, WrittenFile}
+
+def writeVisits(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
+  root,
+  visits,
+  ParquetDatasetWriteOptions
+    .default
+    .withPartitionBy("dt", "country")
+    .withMode(ParquetWriteMode.OverwritePartitions)
+)
+
+def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
+  val w = Parquet.newDatasetWriter[Visit](
+    root,
+    ParquetDatasetWriteOptions.default.withPartitionBy("dt").withMaxRowsPerFile(1_000_000)
+  )
+  try
+    chunks.foreach(w.writeAll)
+    w.close()
+    w.writtenFiles
+  catch
+    case e: Throwable =>
+      w.abort() // deletes every file of this write
+      throw e
+```
+
+- Partition columns (top-level STRING, INT32, INT64, DATE) become folders and are left out of the
+  files. Values are Hive-escaped; null and `""` become `__HIVE_DEFAULT_PARTITION__`. Reading typed
+  partitions back still needs `withPartitionType`.
+- `withMode`: `ErrorIfExists` (default), `Append` (same partition keys required), `Overwrite`,
+  `OverwritePartitions`. Old files are deleted only after the new ones are written, and only files
+  the reader reads (not `_SUCCESS` or dot files). Bucket and file system roots can't be
+  overwritten.
+- Files are published when finished (multipart upload, or a rename from `.inprogress`); a failure
+  or `abort()` deletes every file of the write. Names are `part-<writeId>-<n>.parquet`.
+- `newDatasetRecordWriter(root, schema, options)` takes maps, JSON, or `Seq` rows, and
+  `newDatasetBatchWriter(root, schema, options)` takes `ColumnBatch`es; the schema includes the
+  partition columns. Each also takes an `ObjectStore` first, which it leaves open.
+- Limits: `withMaxRowsPerFile`, `withMaxFileSize`, `withMaxOpenFiles` (32), `withMaxBufferedBytes`
+  (256 MiB). Per-file settings go in `withWriteOptions(ParquetWriteOptions...)`.
+
 ## Write case classes
 
 Any case class with `derives Weaver` writes as is: no schema, annotations, or codecs. The same

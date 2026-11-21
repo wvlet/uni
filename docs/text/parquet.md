@@ -361,8 +361,55 @@ finally ds.close()
   the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
   `Parquet.dataset(ObjectStore.s3(S3Config.r2("<account-id>")), "s3://my-bucket/visits/")`.
 
-Writing partitioned datasets, `_metadata` summary files, and table formats such as Delta Lake and
-Apache Iceberg aren't supported.
+`_metadata` summary files and table formats such as Delta Lake and Apache Iceberg aren't
+supported.
+
+## Writing a Dataset
+
+`Parquet.writeDataset` writes rows into `key=value` folders that `Parquet.dataset` reads back, as
+DuckDB's `COPY ... TO 'dir' (FORMAT parquet, PARTITION_BY (dt, country))` or Spark's `partitionBy`
+does. It writes to a local directory, or to an `s3://`, `gs://`, `az://`, or `azure://` prefix:
+
+```scala
+import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode}
+
+val visits  = Seq(Visit(1L, "aina", "2026-11-20", "JP"), Visit(2L, "leo", "2026-11-20", "US"))
+val options = ParquetDatasetWriteOptions.default.withPartitionBy("dt", "country")
+val written = Parquet.writeDataset("s3://my-bucket/visits/", visits, options)
+// dt=2026-11-20/country=JP/part-3f9a01c2-00000.parquet, ...
+written.foreach(f => println(s"${f.path} ${f.partitions} ${f.numRows} rows"))
+```
+
+For rows that arrive over time, `Parquet.newDatasetWriter[Visit](root, options)` returns a writer
+with `write`, `writeAll`, `close`, and `abort`. `newDatasetRecordWriter(root, schema, options)`
+takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, options)` takes
+`ColumnBatch`es. Each also accepts an `ObjectStore` first, which the writer leaves open.
+
+- **Partition columns** are fields of the rows, or columns of the schema. They become folder names
+  and are left out of the files. They must be top-level STRING, INT32, INT64, or DATE columns.
+  Folder values are percent-escaped as Hive does, and null or empty values are written as
+  `__HIVE_DEFAULT_PARTITION__`, so both read back as null. Reading INT32, INT64, or DATE partitions
+  back still needs `withPartitionType`, as for data that Spark or DuckDB wrote.
+- **Write modes.** `withMode` decides what happens when the root already holds data files:
+  `ErrorIfExists` (the default) fails before writing, `Append` adds files next to them (with the
+  same partition keys), `Overwrite` replaces the dataset, and `OverwritePartitions` replaces only
+  the partitions the write touches, like Spark's dynamic partition overwrite. Old files are deleted
+  only after every new file is written, so a failed write keeps the old data. Only files the
+  reader would read are deleted: `_SUCCESS`, dot files, and other files that start with `_` or `.`
+  stay. A bucket or file system root can't be overwritten.
+- **Failures.** Each file is published only when it's finished: an object store file is a
+  multipart upload, and a local file is renamed from a hidden `.inprogress` name. When writing
+  fails, or on `abort()`, every file of the write is deleted, including finished ones. A row that
+  doesn't fit the schema throws `ParquetException` without stopping the writer. A reader listing
+  the folder while a write runs can see the files finished so far.
+- **File names and sizes.** Files are named `part-<writeId>-<n>.parquet`, unique across writes.
+  `withMaxRowsPerFile(n)` and `withMaxFileSize(bytes)` start a new file in the same partition at
+  the limit.
+- **Memory.** Each open file buffers up to one row group (`withRowGroupSize`, 128 MiB by default).
+  `withMaxOpenFiles` (32) finishes the file that went longest without a row when another partition
+  needs one, and `withMaxBufferedBytes` (256 MiB) writes the largest buffered row group out early.
+  With many partitions, sort rows by the partition columns first, or set a smaller row group size.
+- **File settings** such as the codec go in `withWriteOptions(ParquetWriteOptions...)`.
 
 ## Writing Case Classes
 
