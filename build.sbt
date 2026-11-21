@@ -259,7 +259,11 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     description :=
       "Pure-Scala Apache Parquet reader and writer for JVM, Scala.js, and Scala Native: reads local files, byte arrays, and HTTP range requests into column batches or case classes, writes case classes, maps, and JSON records, with built-in Snappy, Gzip, LZ4, ZSTD, and Brotli codecs"
   )
-  .jvmSettings(jvmNativeSharedSources)
+  .jvmSettings(
+    jvmNativeSharedSources,
+    // Checks that the reference Snappy implementation reads what the pure-Scala compressor writes
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.7" % Test
+  )
   .jsSettings(jsBuildSettings, minimizeJavadoc)
   // The test binary stays on Immix. Boehm deadlocked it in about half the Linux CI runs: under
   // Scala Native 0.5.12, PosixThread.park allocates while holding its mutex, Boehm runs the

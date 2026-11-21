@@ -12,6 +12,8 @@ import java.nio.ByteOrder;
 final class Word8 {
   private static final VarHandle LONGS =
       MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+  private static final VarHandle INTS =
+      MethodHandles.byteArrayViewVarHandle(int[].class, ByteOrder.LITTLE_ENDIAN);
 
   private Word8() {}
 
@@ -23,5 +25,30 @@ final class Word8 {
   /** The little-endian long at b[i] */
   static long le64(byte[] b, int i) {
     return (long) LONGS.get(b, i);
+  }
+
+  /** The little-endian int at b[i], where b[i] to b[i + 7] must be inside the array */
+  static int le32(byte[] b, int i) {
+    return (int) INTS.get(b, i);
+  }
+
+  /**
+   * The number of equal bytes at src[a] and src[b], counting up to limit (exclusive) for b, where
+   * a is below b. Compares 8 bytes at a time: the first differing byte is the lowest set byte of
+   * the XOR.
+   */
+  static int matchLength(byte[] src, int a, int b, int limit) {
+    int n = 0;
+    while (b + n <= limit - 8) {
+      long x = (long) LONGS.get(src, a + n) ^ (long) LONGS.get(src, b + n);
+      if (x != 0) {
+        return n + (Long.numberOfTrailingZeros(x) >>> 3);
+      }
+      n += 8;
+    }
+    while (b + n < limit && src[a + n] == src[b + n]) {
+      n++;
+    }
+    return n;
   }
 }

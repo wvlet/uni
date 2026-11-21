@@ -271,6 +271,44 @@ path.
   uncompressed, in a run at load 17. Not taken: an in-place edit of a read vector would then write
   wrong values silently.
 
+## Follow-up: Snappy compressor
+
+- Goal: `orders` snappy batch writes ≤0.5x of parquet-java on the JVM (0.58x after PR 3).
+- Profile (JFR, compress only, `orders.uncompressed` in 1 MiB chunks): 9.5M matches of 6.4 bytes on
+  average, so the cost is per match: byte-at-a-time match extension, 4 byte loads per hash word,
+  and `ByteBuf` writes per tag byte.
+- `SnappyCompressor` (now its own file) follows the reference compressor's loop: a lookup stride
+  that grows while no match turns up, an immediate check for another copy after each copy, output
+  written into an array sized for the worst case, short literals as one 16-byte wide copy, and long
+  runs written by doubling the 64-byte copy tags. `Word8.matchLength` compares 8 bytes at a time on
+  the JVM and Native (4 on Scala.js, where a `Long` is emulated), and `Word8.le32` reads hash words
+  in one load on the JVM. The LZ4 compressor uses the same `matchLength`.
+- Tried and dropped: skipping the index of the last copied position (no gain, 0.7% larger output);
+  12, 13, and 15 hash bits (within noise, so it stays at 14 as in the reference).
+- Compress only, median of 20 after 10 warm-ups (load average 8–13):
+
+| input | old | new | snappy-java |
+|---|---|---|---|
+| orders | 233 ms | 109 ms | 66 ms |
+| lineitem | 169 ms | 95 ms | 60 ms |
+
+- Writes, median of 9 after 3 warm-ups, all writers in the same run. JVM `orders` snappy, three
+  runs (load average 5–15): 446 / 1,058 ms (0.42x), 406 / 904 ms (0.45x), 423 / 836 ms (0.51x);
+  the old compressor measured 522 / 875 ms (0.60x) next to the first. Snappy now adds 50–130 ms
+  over uncompressed, down from about 200 ms. The target holds in two of three runs.
+- Native and Node.js batch writes (the 0.45x run), ratio to JVM uni batch:
+
+| file | JVM | Native | Node.js |
+|---|---|---|---|
+| lineitem uncompressed | 281 ms | 251 ms · 0.9x | 560 ms · 2.0x |
+| lineitem snappy | 408 ms | 351 ms · 0.9x | 776 ms · 1.9x |
+| orders uncompressed | 338 ms | 340 ms · 1.0x | 666 ms · 2.0x |
+| orders snappy | 406 ms | 453 ms · 1.1x | 983 ms · 2.4x |
+
+- Node.js `orders` snappy went from 1,182 ms to 983 ms. Compatibility: `SnappyJavaTest` (JVM)
+  checks that snappy-java reads uni's output and uni reads snappy-java's, and `CodecBench` checks
+  it on the benchmark chunks.
+
 ## Alternatives and Why Not?
 
 - **Write case classes through the batch writer** (collect rows into vectors, then write columns).
