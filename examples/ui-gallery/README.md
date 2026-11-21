@@ -10,13 +10,20 @@ component running, with the Scala code that renders it underneath. The docs embe
   `// #region <id>` and `// #endregion` markers in [`stories/`](src/main/scala/example/gallery/stories/).
   `project/StoryRegions.scala` copies each block into the app at build time, so the code panel
   shows exactly the code that runs.
-- **A shell built with uni-ui.** The sidebar is a `Tree` in a resizable `FoldablePane`. The preview
-  and the code are panels of a `Dock` that the user can rearrange. ⌘K opens a `CommandPalette`
-  over the stories, and a `Menu` sets the `ColorScheme`.
-- **State in the URL.** `#/overlays/menu` names the story, `?theme=dark` or `?theme=light` forces
-  a color scheme, and `?embed` leaves out the header and sidebar for an iframe.
+- **A shell built with uni-ui**, styled after uni-harness. An icon rail and a `Tree` in a resizable
+  `FoldablePane` list the stories. A `TabList` switches between Preview, Code, and Split, where
+  the code sits in a second `FoldablePane` with a `Splitter`. ⌘K opens a `CommandPalette` over
+  the stories, and a `Menu` sets the `ColorScheme`.
+- **Code and UI side by side.** The chips under a story's title name the uni-ui components its
+  code uses. Hovering one outlines the component in the preview and marks the code lines that
+  create it (`Spotlight` in [`StoryView.scala`](src/main/scala/example/gallery/StoryView.scala)).
+- **State in the URL.** `#/overlays/menu` names the story, `?view=preview`, `code`, or `split`
+  picks the view, `?theme=dark` or `?theme=light` forces a color scheme, and `?embed` shows only
+  the story card for an iframe. An embedding page switches the theme with
+  `postMessage({ type: 'uni-gallery-theme', theme: 'dark' })`, which keeps the story's state.
 
 Source: [`Gallery.scala`](src/main/scala/example/gallery/Gallery.scala),
+[`StoryView.scala`](src/main/scala/example/gallery/StoryView.scala),
 [`CodeView.scala`](src/main/scala/example/gallery/CodeView.scala), and
 [`Story.scala`](src/main/scala/example/gallery/Story.scala).
 

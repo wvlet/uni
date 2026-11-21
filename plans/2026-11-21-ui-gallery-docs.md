@@ -84,3 +84,12 @@ Phase 1 is done: 12 stories in 4 groups, region extraction (`project/StoryRegion
 already works, so phase 2 is mostly adding embeds to the catalog pages. Known gap: switching the
 docs theme reloads the frame and goes back to the first story. Phase 2 should keep the story, for
 example by sending the theme with `postMessage` instead of changing `src`.
+
+Phase 2 (2026-11-21): a redesign after uni-harness (icon rail, aurora backdrop, glass card,
+gradient title), a Preview / Code / Split view switch (`TabList`, with the code in a resizable
+`FoldablePane`), component chips that outline a component in the preview and mark the code lines
+that create it (an early, name-based version of phase 3's anatomy view), inline embeds on the
+Controls, Overlays, Collections, and Layout pages, and theme switches by `postMessage`, so an
+embedded story keeps its state. Phase 3's source-position macro would make the chip-to-line
+mapping exact instead of by name.
+

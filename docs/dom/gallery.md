@@ -5,15 +5,18 @@ aside: false
 
 # Gallery
 
-Each uni-ui component below is running live, with the Scala code that renders it underneath. Pick
-a component in the sidebar or press ⌘K (Ctrl+K) to search. The preview and the code are panels of
-a [`Dock`](./layout#dock): drag a tab to put the code beside the preview.
+Each uni-ui component below is running live, with the Scala code that renders it. Pick a component
+in the sidebar or press ⌘K (Ctrl+K) to search. Preview, Code, and Split switch between the
+component, its code, and both side by side; drag the edge between them to resize. Hover a chip
+under the title, such as `Button`, to outline that component in the preview and mark the lines
+of code that create it.
 
-<UiGallery height="760px" />
+<UiGallery height="780px" />
 
-The gallery is built with uni-ui itself. The sidebar is a `Tree` in a `FoldablePane`, the search
-is a `CommandPalette`, and the theme switch is a `Menu` over `ColorScheme`. Open it
-[on its own page](/gallery/index.html) to use the whole window.
+The gallery is built with uni-ui itself. The sidebar is a `Tree` in a `FoldablePane`, the rail's
+buttons show `Tooltip`s, the view switch is a `TabList`, the code sits in a second `FoldablePane` with a
+`Splitter`, the search is a `CommandPalette`, and the theme switch is a `Menu` over
+`ColorScheme`. Open it [on its own page](/gallery/index.html) to use the whole window.
 
 ## The code is the code that runs
 
@@ -43,5 +46,7 @@ above the code links to those lines on GitHub. Each story assumes the imports fr
 python3 -m http.server -d examples/ui-gallery/target/site 8080
 ```
 
-The URL holds the gallery's state: `#/overlays/menu` opens a story, `?theme=dark` forces a color
-scheme, and `?embed` leaves out the header and sidebar for an iframe.
+The URL holds the gallery's state: `#/overlays/menu` opens a story, `?view=code` (or `preview`,
+`split`) picks the view, `?theme=dark` forces a color scheme, and `?embed` shows only the story
+card, for an iframe. The catalog pages embed single stories this way, with
+`<UiGallery story="overlays/menu" embed height="380px" />`.
