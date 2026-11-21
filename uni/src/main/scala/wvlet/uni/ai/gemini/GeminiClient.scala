@@ -3,7 +3,7 @@ package wvlet.uni.ai.gemini
 import wvlet.uni.ai.*
 import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.GoogleCredentialsProvider
+import wvlet.uni.cloud.GoogleCredentialsProvider
 
 /** Where Gemini is served */
 enum GeminiHost:

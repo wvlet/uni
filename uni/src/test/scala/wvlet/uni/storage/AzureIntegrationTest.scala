@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -25,14 +28,14 @@ import wvlet.uni.test.UniTest
   * when missing). For Azurite: `UseDevelopmentStorage=true`.
   */
 class AzureIntegrationTest extends UniTest:
-  private val connectionString = StorageEnv.get("UNI_AZURE_TEST_CONNECTION_STRING")
+  private val connectionString = CloudEnv.get("UNI_AZURE_TEST_CONNECTION_STRING")
 
   private lazy val config = AzureConfig
     .fromConnectionString(connectionString.get)
     .withBlockSizeBytes(AzureConfig.MinBlockSize)
 
   private lazy val store     = ObjectStore.azure(config)
-  private lazy val container = StorageEnv.get("UNI_AZURE_TEST_CONTAINER").getOrElse("uni-test")
+  private lazy val container = CloudEnv.get("UNI_AZURE_TEST_CONTAINER").getOrElse("uni-test")
   private lazy val prefix    = ObjectUri(container, s"it-${System.currentTimeMillis()}/", "az")
 
   private def requireServer(): Unit =

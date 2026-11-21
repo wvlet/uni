@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.test.UniTest
 
 /** V4 signed URLs checked against Google's conformance vectors */

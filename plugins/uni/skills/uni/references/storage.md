@@ -33,7 +33,7 @@ store.close()
 ## Configuration
 
 ```scala
-import wvlet.uni.storage.AwsCredentialsProvider
+import wvlet.uni.cloud.AwsCredentialsProvider
 
 val aws   = S3Config().withRegion("ap-northeast-1").withCredentials(AwsCredentialsProvider.profile("dev"))
 val r2    = S3Config.r2("<account-id>").withCredentials("<key-id>", "<secret>")
@@ -51,7 +51,8 @@ ECS / EKS Pod Identity endpoint, then EC2 IMDSv2. A profile may use
 `credential_process` (not in browsers), or static keys, first match in that order.
 `mfa_serial` profiles are not supported. Only `AWS_ENDPOINT_URL_STS`, `_SSO`, and
 `_SSO_OIDC` redirect credential calls, never the generic `AWS_ENDPOINT_URL`. A
-`NoCredentials` error lists why each source failed, without secrets.
+`NoCredentials` error lists why each source failed, without secrets. Credential
+errors are `wvlet.uni.cloud.CloudException`, the parent of `StorageException`.
 
 Redirects are never followed (signed headers must not go to another host); a
 bucket in another region fails with code `WrongRegion` naming the region.
@@ -79,7 +80,8 @@ URLs; never ship long-lived keys. The bucket needs CORS.
 ## Google Cloud Storage
 
 ```scala
-import wvlet.uni.storage.{GcsConfig, GoogleCredentialsProvider}
+import wvlet.uni.cloud.GoogleCredentialsProvider
+import wvlet.uni.storage.GcsConfig
 
 // Application Default Credentials: GOOGLE_APPLICATION_CREDENTIALS (service-account
 // key), then the `gcloud auth application-default login` file, then the GCE/GKE
@@ -116,7 +118,8 @@ Same `ObjectStore` API with `az://container/blob` URIs (`azure://` also works).
 The storage account comes from `AzureConfig`, not the URI.
 
 ```scala
-import wvlet.uni.storage.{AzureConfig, AzureCredentialsProvider}
+import wvlet.uni.cloud.AzureCredentialsProvider
+import wvlet.uni.storage.AzureConfig
 
 // Default: AZURE_STORAGE_CONNECTION_STRING, or AZURE_STORAGE_ACCOUNT plus
 // AZURE_STORAGE_KEY / AZURE_STORAGE_SAS_TOKEN / service principal env vars /

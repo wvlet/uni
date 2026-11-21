@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.util.Base64
 

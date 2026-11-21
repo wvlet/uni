@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -24,7 +27,7 @@ import wvlet.uni.test.UniTest
   * credentials; GoogleOAuthJvmTest covers the OAuth flows.
   */
 class GcsIntegrationTest extends UniTest:
-  private val endpoint = StorageEnv.get("UNI_GCS_TEST_ENDPOINT")
+  private val endpoint = CloudEnv.get("UNI_GCS_TEST_ENDPOINT")
 
   // Anonymous requests, plus the conformance key for signing URLs
   private object TestCredentials extends GoogleCredentialsProvider:
@@ -43,7 +46,7 @@ class GcsIntegrationTest extends UniTest:
     .withChunkSizeBytes(GcsConfig.ChunkUnit)
 
   private lazy val store  = ObjectStore.gcs(config)
-  private lazy val bucket = StorageEnv.get("UNI_GCS_TEST_BUCKET").getOrElse("uni-test")
+  private lazy val bucket = CloudEnv.get("UNI_GCS_TEST_BUCKET").getOrElse("uni-test")
   private lazy val prefix = ObjectUri(bucket, s"it-${System.currentTimeMillis()}/", "gs")
 
   private def requireServer(): Unit =

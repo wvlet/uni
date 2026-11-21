@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.HttpStatus
 import wvlet.uni.http.Response
@@ -78,15 +81,15 @@ class S3ParsingTest extends UniTest:
   }
 
   test("XML reader handles CDATA, comments, and numeric entities") {
-    val x = S3Xml.parse(
+    val x = XmlReader.parse(
       "<?xml version='1.0'?><!-- c --><a x='1>2'><b><![CDATA[<raw>]]></b><c>&#65;&#x42;</c><d/></a>"
     )
     x.name shouldBe "a"
     x.childText("b") shouldBe Some("<raw>")
     x.childText("c") shouldBe Some("AB")
     x.child("d").map(_.children) shouldBe Some(Nil)
-    intercept[StorageException] {
-      S3Xml.parse("<a><b></a")
+    intercept[CloudException] {
+      XmlReader.parse("<a><b></a")
     }
   }
 

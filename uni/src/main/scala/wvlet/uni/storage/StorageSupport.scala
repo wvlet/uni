@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.http.HttpClientConfig
 import wvlet.uni.http.HttpException
@@ -27,12 +30,8 @@ import java.io.ByteArrayOutputStream
 private[storage] object StorageSupport:
 
   /** The client throws for 3xx and 4xx; stores map the response to their own errors */
-  val unwrapHttpError: PartialFunction[Throwable, Response] = {
-    case e: HttpMaxRetryException =>
-      e.response
-    case e: HttpException if e.response.isDefined =>
-      e.response.get
-  }
+  val unwrapHttpError: PartialFunction[Throwable, Response] =
+    wvlet.uni.cloud.CloudHttp.unwrapHttpError
 
   def utf8(b: Array[Byte]): String = String(b, "UTF-8")
 

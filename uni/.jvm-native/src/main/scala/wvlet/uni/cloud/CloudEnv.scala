@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 /** Reads environment variables for credential and region lookup (JVM and Scala Native) */
-private[storage] object StorageEnv:
+private[uni] object CloudEnv:
   def get(name: String): Option[String] = Option(System.getenv(name)).filter(_.nonEmpty)
 
   def isBrowser: Boolean = false

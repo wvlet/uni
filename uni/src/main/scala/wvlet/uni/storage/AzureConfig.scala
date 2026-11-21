@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
 
@@ -77,10 +80,10 @@ case class AzureConfig(
   /** The storage account name. Fails when no source names one. */
   def resolvedAccount: String = account
     .orElse(endpoint.flatMap(AzureConfig.accountOfEndpoint))
-    .orElse(StorageEnv.get("AZURE_STORAGE_ACCOUNT"))
+    .orElse(CloudEnv.get("AZURE_STORAGE_ACCOUNT"))
     .getOrElse(
       throw StorageException(
-        StorageErrorCode.InvalidConfig,
+        CloudErrorCode.InvalidConfig,
         "No Azure storage account: set AzureConfig.withAccount, withSharedKey, withEndpoint, " +
           "a connection string, or AZURE_STORAGE_ACCOUNT"
       )
@@ -107,7 +110,7 @@ object AzureConfig:
     * `AZURE_STORAGE_CONNECTION_STRING` when set; otherwise the account from `AZURE_STORAGE_ACCOUNT`
     * (or the credentials) and the default credential chain
     */
-  def default: AzureConfig = StorageEnv
+  def default: AzureConfig = CloudEnv
     .get("AZURE_STORAGE_CONNECTION_STRING")
     .map(fromConnectionString)
     .getOrElse(AzureConfig())

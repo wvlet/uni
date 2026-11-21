@@ -14,7 +14,7 @@ import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxEvent
 import wvlet.uni.rx.RxRunner
-import wvlet.uni.storage.AwsCredentialsProvider
+import wvlet.uni.cloud.AwsCredentialsProvider
 import wvlet.uni.telemetry.{MetricExporter, SpanExporter, SpanKind, SpanStatus, Telemetry}
 import wvlet.uni.test.UniTest
 

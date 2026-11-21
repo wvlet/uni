@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpContent
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -129,7 +132,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       case AzureCredentials.Bearer(token, _) =>
         if endpointScheme != "https" then
           throw StorageException(
-            StorageErrorCode.InvalidConfig,
+            CloudErrorCode.InvalidConfig,
             s"Entra ID tokens are sent only over HTTPS; the endpoint is ${endpoint}"
           )
         req = req.setHeader("Authorization", s"Bearer ${token}")
@@ -188,7 +191,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       )
 
   override def get(uri: ObjectUri): Array[Byte] =
-    if StorageEnv.isNode then
+    if CloudEnv.isNode then
       // One response may not exceed maxResponseBytes there, so read the size and then ranges.
       // A failed HEAD keeps Azure's error code, which it sends in a header.
       val call = StorageCall(HttpMethod.HEAD, uri)
@@ -311,7 +314,7 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
       blockIds: Seq[String],
       contentType: String
   ): Unit =
-    val ids  = blockIds.map(id => s"<Latest>${S3Xml.escape(id)}</Latest>").mkString
+    val ids  = blockIds.map(id => s"<Latest>${XmlReader.escape(id)}</Latest>").mkString
     val body = s"""<?xml version="1.0" encoding="utf-8"?><BlockList>${ids}</BlockList>"""
     val call = StorageCall(
       HttpMethod.PUT,
@@ -391,13 +394,13 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
           )
         case Some(_: AzureCredentials.Sas) =>
           throw StorageException(
-            StorageErrorCode.NoCredentials,
+            CloudErrorCode.NoCredentials,
             "A store with only a SAS token can't sign narrower SAS URLs; share the URL with " +
               "your SAS token instead, or use an account key or Entra ID credentials"
           )
         case None =>
           throw StorageException(
-            StorageErrorCode.NoCredentials,
+            CloudErrorCode.NoCredentials,
             "Presigning needs credentials; this store is anonymous"
           )
     val q = params.map((k, v) => s"${k}=${URLEncoder.encode(v)}").mkString("&")
@@ -452,7 +455,7 @@ object AzureObjectStore:
   val Schemes: Set[String] = Set("az", "azure")
 
   private[storage] def parseListing(prefix: ObjectUri, body: Array[Byte]): ListPage =
-    val xml     = S3Xml.parse(utf8(body))
+    val xml     = XmlReader.parse(utf8(body))
     val blobs   = xml.child("Blobs").map(_.children).getOrElse(Nil)
     val entries = blobs.flatMap { e =>
       e.name match
@@ -477,7 +480,7 @@ object AzureObjectStore:
     val (dirs, objects) = entries.partition(_.isDirectory)
     ListPage(objects ++ dirs, xml.childText("NextMarker").map(_.trim).filter(_.nonEmpty))
 
-  private def nameOf(e: S3Xml.Elem): String =
+  private def nameOf(e: XmlReader.Elem): String =
     e.child("Name") match
       case Some(n) if n.attribute("Encoded").exists(_.equalsIgnoreCase("true")) =>
         AzureAuth.percentDecode(n.text)
@@ -487,14 +490,14 @@ object AzureObjectStore:
         ""
 
   private[storage] def parseDelegationKey(body: Array[Byte]): UserDelegationKey =
-    val xml                         = S3Xml.parse(utf8(body))
+    val xml                         = XmlReader.parse(utf8(body))
     def field(name: String): String = xml
       .childText(name)
       .map(_.trim)
       .filter(_.nonEmpty)
       .getOrElse(
         throw StorageException(
-          StorageErrorCode.InvalidResponse,
+          CloudErrorCode.InvalidResponse,
           s"No ${name} in the Get User Delegation Key answer"
         )
       )
@@ -518,7 +521,7 @@ object AzureObjectStore:
     val xml    =
       if text.contains("<Error") then
         try
-          Some(S3Xml.parse(text))
+          Some(XmlReader.parse(text))
         catch
           case _: StorageException =>
             None
@@ -533,7 +536,7 @@ object AzureObjectStore:
           case 404 =>
             StorageErrorCode.NoSuchKey
           case 403 =>
-            StorageErrorCode.AccessDenied
+            CloudErrorCode.AccessDenied
           case s =>
             s"HTTP${s}"
       )
@@ -596,7 +599,7 @@ private[storage] class AzureOutputStream(
     blocks += 1
     if blocks > AzureConfig.MaxBlocks then
       throw StorageException(
-        StorageErrorCode.InvalidConfig,
+        CloudErrorCode.InvalidConfig,
         s"${uri} needs more than ${AzureConfig
             .MaxBlocks} blocks; raise AzureConfig.withBlockSizeBytes"
       )

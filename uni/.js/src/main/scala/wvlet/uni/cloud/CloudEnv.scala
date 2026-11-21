@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 import scala.scalajs.js
 import scala.scalajs.js.Dynamic.global as g
@@ -20,7 +20,7 @@ import scala.scalajs.js.Dynamic.global as g
   * Reads environment variables for credential and region lookup. Node.js has `process.env`;
   * browsers have no environment, so every lookup is empty there.
   */
-private[storage] object StorageEnv:
+private[uni] object CloudEnv:
   def isNode: Boolean =
     js.typeOf(g.process) != "undefined" && js.typeOf(g.process.versions) != "undefined" &&
       js.typeOf(g.process.versions.node) != "undefined"

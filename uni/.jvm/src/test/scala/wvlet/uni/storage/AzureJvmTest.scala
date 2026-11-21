@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import wvlet.uni.test.UniTest
@@ -112,10 +115,10 @@ class AzureJvmTest extends UniTest:
       401,
       """{"error":"invalid_client","error_description":"AADSTS7000215: Invalid client secret.\r\nTrace ID: x"}"""
     ) { (url, _, _) =>
-      val e = intercept[StorageException] {
+      val e = intercept[CloudException] {
         AzureCredentialsProvider.clientSecret("t", "c", "wrong", Some(url)).credentials
       }
-      e.code shouldBe StorageErrorCode.NoCredentials
+      e.code shouldBe CloudErrorCode.NoCredentials
       e.getMessage shouldContain "AADSTS7000215: Invalid client secret."
     }
   }
@@ -156,10 +159,10 @@ class AzureJvmTest extends UniTest:
     val chain = AzureCredentialsProvider.chain(failing, AzureCredentialsProvider.sas("sv=x"))
     chain.credentials shouldBe Some(AzureCredentials.Sas("sv=x"))
     val empty = AzureCredentialsProvider.chain(failing)
-    val e     = intercept[StorageException] {
+    val e     = intercept[CloudException] {
       empty.credentials
     }
-    e.code shouldBe StorageErrorCode.NoCredentials
+    e.code shouldBe CloudErrorCode.NoCredentials
     // The reason a provider failed is part of the message
     e.getMessage shouldContain "failing: unreachable"
   }

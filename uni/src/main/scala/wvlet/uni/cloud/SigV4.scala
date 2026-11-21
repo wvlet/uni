@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.util.URLEncoder
 
@@ -172,7 +174,7 @@ end SigV4
   * UTC timestamps (for AWS, GCS, and Azure) without java.time formatters, which Scala.js and Native
   * don't all ship
   */
-private[storage] object AwsTime:
+private[uni] object AwsTime:
   /** `yyyyMMdd'T'HHmmss'Z'` */
   def amzDate(epochMillis: Long): String =
     val secs      = Math.floorDiv(epochMillis, 1000L)

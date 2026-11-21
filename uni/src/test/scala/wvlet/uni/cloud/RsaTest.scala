@@ -11,7 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.storage.*
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.test.UniTest
 
@@ -73,18 +77,18 @@ class RsaTest extends UniTest:
   }
 
   test("reject malformed PEM") {
-    val e1 = intercept[StorageException] {
+    val e1 = intercept[CloudException] {
       Rsa.parsePem("not a key")
     }
-    e1.code shouldBe StorageErrorCode.InvalidCredentials
-    val e2 = intercept[StorageException] {
+    e1.code shouldBe CloudErrorCode.InvalidCredentials
+    val e2 = intercept[CloudException] {
       Rsa.parsePem("-----BEGIN PRIVATE KEY-----\nMAA=\n-----END PRIVATE KEY-----")
     }
-    e2.code shouldBe StorageErrorCode.InvalidCredentials
-    val e3 = intercept[StorageException] {
+    e2.code shouldBe CloudErrorCode.InvalidCredentials
+    val e3 = intercept[CloudException] {
       Rsa.parsePem("-----BEGIN PRIVATE KEY-----\nMIIBAAAA\n-----END PRIVATE KEY-----")
     }
-    e3.code shouldBe StorageErrorCode.InvalidCredentials
+    e3.code shouldBe CloudErrorCode.InvalidCredentials
   }
 
 end RsaTest

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
@@ -117,7 +117,7 @@ object AwsCredentialsProvider:
   def default: AwsCredentialsProvider = defaultChain(AwsEnv.system)
 
   /** The default chain reading the given environment, so tests can point it at temp files */
-  private[storage] def defaultChain(env: AwsEnv): AwsCredentialsProvider = chain(
+  private[uni] def defaultChain(env: AwsEnv): AwsCredentialsProvider = chain(
     EnvironmentProvider(env),
     Cached(WebIdentityEnvProvider(env)),
     Cached(ProfileProvider(AwsProfiles(env).currentProfile, env)),
@@ -126,7 +126,7 @@ object AwsCredentialsProvider:
   )
 
   /** A profile provider reading the given environment, for tests */
-  private[storage] def profileOf(name: String, env: AwsEnv): AwsCredentialsProvider = Cached(
+  private[uni] def profileOf(name: String, env: AwsEnv): AwsCredentialsProvider = Cached(
     ProfileProvider(name, env)
   )
 
@@ -138,7 +138,7 @@ object AwsCredentialsProvider:
     def name: String                        = "static"
     def credentials: Option[AwsCredentials] = Some(c)
 
-  private[storage] final class EnvironmentProvider(env: AwsEnv) extends AwsCredentialsProvider:
+  private[uni] final class EnvironmentProvider(env: AwsEnv) extends AwsCredentialsProvider:
     def name: String                        = "environment"
     def credentials: Option[AwsCredentials] =
       for
@@ -149,7 +149,7 @@ object AwsCredentialsProvider:
   private final class WebIdentityEnvProvider(env: AwsEnv) extends AwsCredentialsProvider:
     def name: String                        = "web-identity"
     def credentials: Option[AwsCredentials] =
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         for
@@ -214,8 +214,8 @@ object AwsCredentialsProvider:
               ""
             else
               failed.mkString("\n  ", "\n  ", "")
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"No AWS credentials found. Checked: ${providers.map(_.name).mkString(", ")}${detail}"
           )
         found
@@ -224,13 +224,13 @@ object AwsCredentialsProvider:
   end Chain
 
   /**
-    * Why a provider failed, for the chain's error. The credential providers raise
-    * `StorageException`s whose messages they write without tokens or secrets; for anything else (a
-    * connection error), only the first line of its message is kept, shortened.
+    * Why a provider failed, for the chain's error. The credential providers raise `CloudException`s
+    * whose messages they write without tokens or secrets; for anything else (a connection error),
+    * only the first line of its message is kept, shortened.
     */
-  private[storage] def failureReason(e: Throwable): String =
+  private[uni] def failureReason(e: Throwable): String =
     e match
-      case s: StorageException =>
+      case s: CloudException =>
         s.getMessage
       case other =>
         val msg = Option(other.getMessage)
@@ -267,7 +267,7 @@ object AwsCredentialsProvider:
     }
 
   /** Parses the JSON that the container and IMDS endpoints return */
-  private[storage] def parseCredentialsJson(json: String): Option[AwsCredentials] = AwsJson
+  private[uni] def parseCredentialsJson(json: String): Option[AwsCredentials] = AwsJson
     .parseObject(json)
     .flatMap { o =>
       for
@@ -284,7 +284,7 @@ object AwsCredentialsProvider:
   private lazy val metadataHttp: HttpClientConfig =
     Http.client.withConnectTimeoutMillis(1000).withReadTimeoutMillis(2000).noRetry.noFollowRedirects
 
-  private[storage] final class ContainerProvider(env: AwsEnv) extends AwsCredentialsProvider:
+  private[uni] final class ContainerProvider(env: AwsEnv) extends AwsCredentialsProvider:
     def name: String = "container"
 
     // Hosts the AWS SDKs allow for AWS_CONTAINER_CREDENTIALS_FULL_URI over plain HTTP
@@ -298,7 +298,7 @@ object AwsCredentialsProvider:
     )
 
     def credentials: Option[AwsCredentials] =
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         val uri = env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
@@ -314,8 +314,8 @@ object AwsCredentialsProvider:
             try client.send(req)
             finally client.close()
           if !resp.isSuccessful then
-            throw StorageException(
-              StorageErrorCode.NoCredentials,
+            throw CloudException(
+              CloudErrorCode.NoCredentials,
               s"The container credentials endpoint answered HTTP ${resp.statusCode}"
             )
           parseCredentialsJson(resp.contentAsString.getOrElse(""))
@@ -330,23 +330,23 @@ object AwsCredentialsProvider:
         if allowedHttpHosts.contains(host) then
           uri
         else
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"AWS_CONTAINER_CREDENTIALS_FULL_URI must use HTTPS or a loopback/ECS host: ${host}"
           )
       else
-        throw StorageException(
-          StorageErrorCode.NoCredentials,
+        throw CloudException(
+          CloudErrorCode.NoCredentials,
           "AWS_CONTAINER_CREDENTIALS_FULL_URI must be an http(s) URL"
         )
 
   end ContainerProvider
 
-  private[storage] final class InstanceMetadataProvider(env: AwsEnv) extends AwsCredentialsProvider:
+  private[uni] final class InstanceMetadataProvider(env: AwsEnv) extends AwsCredentialsProvider:
     def name: String = "instance-metadata"
 
     def credentials: Option[AwsCredentials] =
-      if StorageEnv.isBrowser || env("AWS_EC2_METADATA_DISABLED").exists(_.equalsIgnoreCase("true"))
+      if CloudEnv.isBrowser || env("AWS_EC2_METADATA_DISABLED").exists(_.equalsIgnoreCase("true"))
       then
         None
       else

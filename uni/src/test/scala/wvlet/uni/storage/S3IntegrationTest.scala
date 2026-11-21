@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Http
 import wvlet.uni.http.Request
@@ -24,18 +27,18 @@ import wvlet.uni.test.UniTest
   * (an existing bucket).
   */
 class S3IntegrationTest extends UniTest:
-  private val endpoint = StorageEnv.get("UNI_S3_TEST_ENDPOINT")
+  private val endpoint = CloudEnv.get("UNI_S3_TEST_ENDPOINT")
 
   private lazy val config = S3Config
     .minio(endpoint.get)
     .withCredentials(
-      StorageEnv.get("UNI_S3_TEST_ACCESS_KEY").getOrElse("minioadmin"),
-      StorageEnv.get("UNI_S3_TEST_SECRET_KEY").getOrElse("minioadmin")
+      CloudEnv.get("UNI_S3_TEST_ACCESS_KEY").getOrElse("minioadmin"),
+      CloudEnv.get("UNI_S3_TEST_SECRET_KEY").getOrElse("minioadmin")
     )
     .withPartSizeBytes(S3Config.MinPartSize)
 
   private lazy val store  = ObjectStore.s3(config)
-  private lazy val bucket = StorageEnv.get("UNI_S3_TEST_BUCKET").getOrElse("uni-test")
+  private lazy val bucket = CloudEnv.get("UNI_S3_TEST_BUCKET").getOrElse("uni-test")
   private lazy val prefix = ObjectUri(bucket, s"it-${System.currentTimeMillis()}/")
 
   private def requireServer(): Unit =

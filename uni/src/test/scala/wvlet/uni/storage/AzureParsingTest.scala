@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpHeader
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.HttpMultiMap
@@ -136,7 +139,7 @@ class AzureParsingTest extends UniTest:
           0L
         )
       }
-      e.code shouldBe StorageErrorCode.InvalidConfig
+      e.code shouldBe CloudErrorCode.InvalidConfig
     finally
       plain.close()
   }
@@ -168,7 +171,7 @@ class AzureParsingTest extends UniTest:
     try
       intercept[StorageException] {
         sasOnly.presign("az://c/a")
-      }.code shouldBe StorageErrorCode.NoCredentials
+      }.code shouldBe CloudErrorCode.NoCredentials
     finally sasOnly.close()
   }
 
@@ -282,7 +285,7 @@ class AzureParsingTest extends UniTest:
   }
 
   test("XML attributes") {
-    val x = S3Xml.parse("""<a k="v" q='x>y' e="&amp;&lt;"><b flag/><c n="1"/>text</a>""")
+    val x = XmlReader.parse("""<a k="v" q='x>y' e="&amp;&lt;"><b flag/><c n="1"/>text</a>""")
     x.attributes shouldBe Map("k" -> "v", "q" -> "x>y", "e" -> "&<")
     x.child("b").map(_.attributes) shouldBe Some(Map("flag" -> ""))
     x.child("c").flatMap(_.attribute("n")) shouldBe Some("1")

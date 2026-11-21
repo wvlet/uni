@@ -11,7 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.storage.*
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpMethod
@@ -194,10 +198,10 @@ class GoogleOAuthJvmTest extends UniTest:
     val bad = GoogleCredentialsProvider.authorizedUser(
       GoogleAuthorizedUser("cid", "csecret", "revoked-refresh", s"${base}/token")
     )
-    val e = intercept[StorageException] {
+    val e = intercept[CloudException] {
       bad.accessToken
     }
-    e.code shouldBe StorageErrorCode.NoCredentials
+    e.code shouldBe CloudErrorCode.NoCredentials
     e.statusCode shouldBe Some(400)
     e.getMessage shouldContain "invalid_grant"
     e.getMessage shouldNotContain "revoked-refresh"
@@ -247,9 +251,9 @@ class GoogleOAuthJvmTest extends UniTest:
   test("presign with user credentials explains why it can't sign") {
     val store = ObjectStore.gcs(GcsConfig().withAccessToken("t"))
     try
-      intercept[StorageException] {
+      intercept[CloudException] {
         store.presign("gs://bucket/x")
-      }.code shouldBe StorageErrorCode.NoCredentials
+      }.code shouldBe CloudErrorCode.NoCredentials
     finally store.close()
   }
 
@@ -290,7 +294,7 @@ class GoogleOAuthJvmTest extends UniTest:
     val store = uploadStore
     try
       val out = store.newOutputStream("gs://bucket/big.bin")
-      val e   = intercept[StorageException] {
+      val e   = intercept[CloudException] {
         out.write(Array.fill[Byte](600 * 1024)(1))
       }
       e.getMessage shouldContain "stopped making progress"
