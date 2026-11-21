@@ -7,6 +7,13 @@ and a live accessibility check. The docs embed it on the
 
 ## What it shows
 
+- **Get started.** The first page (`#/start`, also what a URL without a hash opens) sets up a
+  Scala.js project: the build files, `uni-ui.css`, the imports, a minimal app shown live in an
+  example card, and how to run it ([`StartView.scala`](src/main/scala/example/gallery/StartView.scala),
+  [`StartStories.scala`](src/main/scala/example/gallery/stories/StartStories.scala)). It is a
+  `GuidePage`, like Colors. The versions in its snippets come from a `BuildInfo` object
+  that `build.sbt` generates: the last release tag, since the build's own version between releases
+  is a `-SNAPSHOT`.
 - **Pages of examples.** Each component has a `ComponentPage` ([`Page.scala`](src/main/scala/example/gallery/Page.scala))
   with its examples, its API, and the WAI-ARIA patterns it follows. Each example is an
   `inline def` that returns an `RxElement`, between `// #region <page>/<example>` and
@@ -75,4 +82,4 @@ python3 -m http.server -d examples/ui-gallery/target/site 8080
 After changing `SourceTag.scala`, run `./sbt exampleUiGallery/clean` first: the incremental
 compiler doesn't recompile the stories when only the macro changes.
 
-`GalleryTest` fails if an example has no region or doesn't mount, or a page has no API.
+`GalleryTest` fails if an example has no region or doesn't mount, or a component page has no API.
