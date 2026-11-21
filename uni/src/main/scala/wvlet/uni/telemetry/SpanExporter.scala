@@ -65,4 +65,10 @@ private class MultiSpanExporter(exporters: Seq[SpanExporter]) extends SpanExport
         warn(s"Span exporter ${e.getClass.getName} failed: ${ex.getMessage}")
   }
 
-  override def close(): Unit = exporters.foreach(_.close())
+  override def close(): Unit = exporters.foreach { e =>
+    try
+      e.close()
+    catch
+      case NonFatal(ex) =>
+        warn(s"Span exporter ${e.getClass.getName} failed to close: ${ex.getMessage}")
+  }

@@ -43,20 +43,12 @@ class TelemetryFilter(telemetry: Telemetry) extends RxHttpFilter:
       traced(request, next)
 
   private def traced(request: Request, next: RxHttpHandler): Rx[Response] =
-    val parent = request
-      .header(TraceContext.TraceParentHeader)
-      .flatMap(TraceContext.parse(_, request.header(TraceContext.TraceStateHeader)))
-    val span = telemetry.startSpan(request.method.name, SpanKind.Server, parent)
+    val parent = TelemetryFilter.traceContextOf(request)
+    val span   = telemetry.startSpan(request.method.name, SpanKind.Server, parent)
     span.setAttribute("http.request.method", request.method.name)
     span.setAttribute("url.path", request.path)
     // The query string is left out: it often carries tokens
-    request
-      .host
-      .foreach { h =>
-        val (host, port) = TelemetryFilter.splitHostPort(h)
-        span.setAttribute("server.address", host)
-        port.foreach(p => span.setAttribute("server.port", p.toLong))
-      }
+    request.host.foreach(TelemetryFilter.setServerAddress(span, _))
     request.userAgent.foreach(ua => span.setAttribute("user_agent.original", ua))
     request
       .attribute(RequestAttribute.RemoteAddress)
@@ -141,6 +133,17 @@ object TelemetryFilter:
         .setAttribute("http.route", pathPattern)
         .setAttribute("code.function.name", s"${controllerName}.${methodName}")
     }
+
+  /** The trace context of a `traceparent` header (and its `tracestate`) on `request`. */
+  private[http] def traceContextOf(request: Request): Option[TraceContext] = request
+    .header(TraceContext.TraceParentHeader)
+    .flatMap(TraceContext.parse(_, request.header(TraceContext.TraceStateHeader)))
+
+  /** Set `server.address` and `server.port` from a `host:port` authority. */
+  private[http] def setServerAddress(span: Span, authority: String): Unit =
+    val (host, port) = splitHostPort(authority)
+    span.setAttribute("server.address", host)
+    port.foreach(p => span.setAttribute("server.port", p.toLong))
 
   /** Split a `Host` header or URI authority into host and port, keeping IPv6 brackets off. */
   private[http] def splitHostPort(authority: String): (String, Option[Int]) =

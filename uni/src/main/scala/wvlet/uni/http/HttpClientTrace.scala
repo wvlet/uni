@@ -47,7 +47,20 @@ private[http] class HttpClientTrace(val span: Span, val request: HttpRequest):
     end()
 
   def fail(e: Throwable): Unit =
-    span.setAttribute("error.type", e.getClass.getName)
+    // A 4xx/5xx the client turned into an exception still reports its status code
+    val response =
+      e match
+        case h: HttpException =>
+          h.response
+        case m: HttpMaxRetryException =>
+          Some(m.response)
+        case _ =>
+          None
+    response match
+      case Some(r) =>
+        onResponse(r)
+      case None =>
+        span.setAttribute("error.type", e.getClass.getName)
     span.recordException(e)
     end()
 
@@ -66,10 +79,10 @@ end HttpClientTrace
 
 private[http] object HttpClientTrace:
   /** A trace that records nothing, for clients without telemetry. */
-  def none(request: HttpRequest): HttpClientTrace = HttpClientTrace(
-    Span.nonRecording(TraceContext("0" * 32, "0" * 16, sampled = false)),
-    request
-  )
+  def none(request: HttpRequest): HttpClientTrace = HttpClientTrace(noSpan, request)
+
+  // Never sent: a client without telemetry adds no traceparent header
+  private val noSpan = Span.nonRecording(TraceContext("0" * 32, "0" * 16, sampled = false))
 
   /**
     * Start the client span of `request` and add its `traceparent` header. The parent is a
@@ -80,32 +93,25 @@ private[http] object HttpClientTrace:
       request: HttpRequest,
       parent: Option[TraceContext]
   ): HttpClientTrace =
-    val explicitParent = request
-      .header(TraceContext.TraceParentHeader)
-      .flatMap(TraceContext.parse(_, request.header(TraceContext.TraceStateHeader)))
     val span = telemetry.startSpan(
       request.method.name,
       SpanKind.Client,
-      explicitParent.orElse(parent)
+      TelemetryFilter.traceContextOf(request).orElse(parent)
     )
     span.setAttribute("http.request.method", request.method.name)
     val (full, authority) = urlWithoutQuery(request.uri)
     span.setAttribute("url.full", full)
-    authority.foreach { a =>
-      val (host, port) = TelemetryFilter.splitHostPort(a)
-      span.setAttribute("server.address", host)
-      port.foreach(p => span.setAttribute("server.port", p.toLong))
-    }
-    val ctx    = span.context
+    authority.foreach(TelemetryFilter.setServerAddress(span, _))
+    val ctx = span.context
+    // Drop any tracestate the request carried: it belongs to the replaced traceparent
     var traced = request
       .removeHeader(TraceContext.TraceParentHeader)
+      .removeHeader(TraceContext.TraceStateHeader)
       .addHeader(TraceContext.TraceParentHeader, ctx.toTraceParent)
     ctx
       .traceState
       .foreach { state =>
-        traced = traced
-          .removeHeader(TraceContext.TraceStateHeader)
-          .addHeader(TraceContext.TraceStateHeader, state)
+        traced = traced.addHeader(TraceContext.TraceStateHeader, state)
       }
     HttpClientTrace(span, traced)
 

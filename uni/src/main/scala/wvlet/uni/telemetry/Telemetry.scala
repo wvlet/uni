@@ -75,13 +75,20 @@ case class Telemetry(
       kind: SpanKind = SpanKind.Internal,
       parent: Option[TraceContext] = Telemetry.currentContext
   ): Span =
+    if !isEnabled then
+      // No ids, no random draws: a disabled instance passes the parent through, if any
+      parent.map(Span.nonRecording).getOrElse(Telemetry.disabledSpan)
+    else
+      startEnabledSpan(name, kind, parent)
+
+  private def startEnabledSpan(name: String, kind: SpanKind, parent: Option[TraceContext]): Span =
     val context =
       parent match
         case Some(p) =>
           p.newChild
         case None =>
           TraceContext.newRoot(sampled = sample())
-    if !isEnabled || !context.sampled then
+    if !context.sampled then
       Span.nonRecording(context)
     else
       RecordingSpan(
@@ -127,6 +134,12 @@ object Telemetry:
   val noop: Telemetry = Telemetry()
 
   private val current = ThreadLocal[Span]()
+
+  // The span of a disabled instance with no parent. Its all-zero ids are invalid, so it is never
+  // propagated: only enabled clients send traceparent
+  private val disabledSpan: Span = Span.nonRecording(
+    TraceContext("0" * 32, "0" * 16, sampled = false)
+  )
 
   /**
     * The span running on this thread, if any. The HTTP server sets it while a handler runs its

@@ -24,6 +24,7 @@ import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxRunner
 import wvlet.uni.telemetry.Telemetry
 
+import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
 /**
@@ -210,7 +211,14 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
     Rx.single(())
       .flatMap { _ =>
         val trace = HttpClientTrace.start(config.telemetry, request, parent)
-        body(trace).onCancel(trace.end())
+        val rx    =
+          try
+            body(trace)
+          catch
+            case NonFatal(e) =>
+              trace.fail(e)
+              Rx.exception(e)
+        rx.onCancel(trace.end())
       }
 
   override def sendSSE(request: HttpRequest): Rx[ServerSentEvent] =

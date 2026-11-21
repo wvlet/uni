@@ -209,7 +209,11 @@ class TelemetryFilterTest extends UniTest:
         .withTelemetry(telemetry)
         .newSyncClient
     telemetry.trace("parent") { _ =>
-      client.send(Request.get("https://user:pw@example.com:8443/items?token=secret"))
+      client.send(
+        Request
+          .get("https://user:pw@example.com:8443/items?token=secret")
+          .addHeader("tracestate", "other=trace")
+      )
     }
     val Seq(clientSpan, parent) = exporter.spans
     clientSpan.kind shouldBe SpanKind.Client
@@ -220,6 +224,7 @@ class TelemetryFilterTest extends UniTest:
     clientSpan.attributes("server.port") shouldBe 8443L
     clientSpan.attributes("http.response.status_code") shouldBe 200L
     val sent = channel.requests.head.header("traceparent").flatMap(TraceContext.parse(_))
+    channel.requests.head.header("tracestate") shouldBe None
     sent.map(_.traceId) shouldBe Some(parent.traceId)
     sent.map(_.spanId) shouldBe Some(clientSpan.spanId)
   }
@@ -271,6 +276,8 @@ class TelemetryFilterTest extends UniTest:
     }
     val span = exporter.spans.head
     span.status shouldBe SpanStatus.Error
+    span.attributes("http.response.status_code") shouldBe 404L
+    span.attributes("error.type") shouldBe "404"
   }
 
   test("send no traceparent from a client without telemetry") {
