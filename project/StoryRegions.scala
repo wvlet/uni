@@ -3,11 +3,14 @@ import sbt.*
 /**
   * Extracts the `// #region <id>` ... `// #endregion` blocks of the ui-gallery's story sources into
   * a generated Scala object, so the gallery's code panel shows exactly the code the story runs.
-  * Each block is dedented, and keeps its file and line range for a link to GitHub.
+  * Each block is dedented, and keeps its file and line range for a link to GitHub. Story `def`s are
+  * `inline` only so the gallery's SourceTag macro can see their code, so the shown code drops that
+  * modifier: readers copy a plain method. Only the modifier goes, so every line keeps its number.
   */
 object StoryRegions:
-  private val Start = """^\s*// #region (\S+)\s*$""".r
-  private val End   = """^\s*// #endregion\s*$""".r
+  private val Start     = """^\s*// #region (\S+)\s*$""".r
+  private val End       = """^\s*// #endregion\s*$""".r
+  private val InlineDef = """^(\s*)inline def """.r
 
   case class Region(id: String, file: String, startLine: Int, endLine: Int, code: String)
 
@@ -25,7 +28,7 @@ object StoryRegions:
             sys.error(s"${file}:${i + 1}: region ${id} starts inside region ${outer}")
           case (End(), Some((id, start))) =>
             val body = lines.slice(start, i)
-            regions += Region(id, file, start + 1, i, dedent(body).mkString("\n"))
+            regions += Region(id, file, start + 1, i, dedent(body).map(plainDef).mkString("\n"))
             open = None
           case (End(), None) =>
             sys.error(s"${file}:${i + 1}: #endregion without #region")
@@ -33,6 +36,11 @@ object StoryRegions:
       }
     open.foreach((id, start) => sys.error(s"${file}:${start}: region ${id} is never closed"))
     regions.result()
+
+  /**
+    * `inline def f` becomes `def f`; other lines, including `inline` parameters, stay as they are.
+    */
+  private def plainDef(line: String): String = InlineDef.replaceFirstIn(line, "$1def ")
 
   private def dedent(body: Seq[String]): Seq[String] =
     val trimmed = body.dropWhile(_.trim.isEmpty).reverse.dropWhile(_.trim.isEmpty).reverse
