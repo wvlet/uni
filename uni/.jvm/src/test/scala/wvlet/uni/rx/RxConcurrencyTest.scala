@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.CountDownLatch
@@ -34,9 +36,9 @@ class RxConcurrencyTest extends UniTest:
     RxRunner.runOnce(rx) {
       case OnNext(v) =>
         result.set(v.asInstanceOf[A])
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         error = e
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
       // Ignore
     }
     if error != null then

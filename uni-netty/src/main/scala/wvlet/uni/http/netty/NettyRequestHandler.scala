@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.netty
 
+import wvlet.uni.util.Result
+
 import io.netty.buffer.Unpooled
 import io.netty.channel.{
   ChannelFuture,
@@ -217,14 +219,14 @@ class NettyRequestHandler(
               doWebSocketHandshake(ctx, nettyRequest, upgradeRequest.get(), route)
             else
               reject(response)
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           if handled.compareAndSet(false, true) then
             if HttpServerSecurity.isClientError(e) then
               debug(s"WebSocket upgrade error: ${e.getMessage}", e)
             else
               warn(s"WebSocket upgrade error: ${e.getMessage}", e)
             reject(errorResponse(e))
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           // The filter completed without emitting a response: release and close so the client
           // doesn't hang waiting for a handshake that won't come.
           if handled.compareAndSet(false, true) then
@@ -352,14 +354,14 @@ class NettyRequestHandler(
               // e.g. a header value containing CR/LF, rejected before anything was written
               warn(s"Invalid response: ${e.getMessage}", e)
               sendResponse(ctx, errorResponse(e), keepAlive = false)
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         if responded.compareAndSet(false, true) then
           if HttpServerSecurity.isClientError(e) then
             debug(s"Error in Rx handler: ${e.getMessage}", e)
           else
             warn(s"Error in Rx handler: ${e.getMessage}", e)
           sendResponse(ctx, errorResponse(e), keepAlive)
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         if responded.compareAndSet(false, true) then
           sendResponse(ctx, Response.notFound, keepAlive)
     }
@@ -422,13 +424,13 @@ class NettyRequestHandler(
                 val content = sse.toContent
                 val buf     = Unpooled.copiedBuffer(content.getBytes(StandardCharsets.UTF_8))
                 ctx.writeAndFlush(DefaultHttpContent(buf))
-              case OnError(e) =>
+              case OnCompletion(Result.Failure(e)) =>
                 warn(s"SSE stream error: ${e.getMessage}", e)
                 if ctx.channel().isActive then
                   ctx
                     .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
                     .addListener(ChannelFutureListener.CLOSE)
-              case OnCompletion =>
+              case OnCompletion(Result.Success(_)) =>
                 ctx
                   .writeAndFlush(LastHttpContent.EMPTY_LAST_CONTENT)
                   .addListener(ChannelFutureListener.CLOSE)

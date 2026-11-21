@@ -98,6 +98,10 @@ mode-dependent rules. Do it in steps:
    (a subclass of `OnError`) that every public entry point delivers as a plain `OnError`. See
    `adr/2026-11-21-rx-resumable-error.md`. The public name was changed from R3's
    `OnErrorResume`, because event names say what happened, not what to do next.
-3. Move operators to the target events one at a time, with the spec cases regenerated at each
-   step: `OnError` never ends a stream, and `OnCompletion(result: Result)` is the only end (a
-   failed source ends with a failed completion). Then drop continuous mode.
+3. Move to the target events: `OnError` never ends a stream, and `OnCompletion(result: Result)`
+   is the only end.
+   - 3a. Done: `OnCompletion(result)`, and `run`/`runOnce` deliver the first error as a failed
+     completion with a `RxRunEvent` handler type (`adr/2026-11-21-rx-oncompletion-result.md`).
+   - 3b. Sources end with a failed completion and `OnError` no longer ends a stream inside
+     `RxRunner`, one operator at a time, with the Lean models and spec cases updated first.
+   - 3c. Drop continuous mode.

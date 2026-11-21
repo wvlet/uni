@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -45,7 +47,7 @@ class RxNestedSpecTest extends UniTest:
         .toSeq
         .map {
           case "C" =>
-            OnCompletion
+            OnCompletion.success
           case "E" =>
             OnError(IllegalStateException("spec failure"))
           case v =>
@@ -61,7 +63,7 @@ class RxNestedSpecTest extends UniTest:
   private def nested(name: String)(x: Int): Rx[Int] =
     name match
       case "dup" =>
-        source(Seq(OnNext(x), OnNext(x * 10), OnCompletion))
+        source(Seq(OnNext(x), OnNext(x * 10), OnCompletion.success))
       case "open" =>
         source(Seq(OnNext(x)))
       case "failOdd" =>
@@ -71,11 +73,11 @@ class RxNestedSpecTest extends UniTest:
             if x % 2 == 1 then
               OnError(IllegalStateException("odd"))
             else
-              OnCompletion
+              OnCompletion.success
           )
         )
       case "empty" =>
-        source(Seq(OnCompletion))
+        source(Seq(OnCompletion.success))
       case other =>
         throw IllegalArgumentException(s"Unknown nested stream: ${other}")
 
@@ -102,9 +104,9 @@ class RxNestedSpecTest extends UniTest:
       RxRunner.run(build(c)) {
         case OnNext(v) =>
           observed += v.toString
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           observed += "C"
-        case OnError(_) =>
+        case OnCompletion(Result.Failure(_)) =>
           observed += "E"
       }
     cancel.cancel

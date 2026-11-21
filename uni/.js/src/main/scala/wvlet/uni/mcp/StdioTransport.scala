@@ -13,6 +13,8 @@
  */
 package wvlet.uni.mcp
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.{ConsoleLogHandler, LogSupport, Logger}
 import wvlet.uni.log.LogFormatter.SourceCodeLogFormatter
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
@@ -67,10 +69,10 @@ private[mcp] object StdioTransport extends LogSupport:
     RxRunner.run(handle(line)) {
       case OnNext(v) =>
         v.asInstanceOf[Option[String]].foreach(writeLine)
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         // handleMessage encodes its own errors; this is defensive only
         warn(s"Failed to handle MCP message: ${e.getMessage}", e)
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
     }
 
   private def writeLine(message: String): Unit = g.process.stdout.write(message + "\n")

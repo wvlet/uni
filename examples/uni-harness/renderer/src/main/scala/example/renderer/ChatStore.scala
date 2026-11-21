@@ -1,5 +1,7 @@
 package example.renderer
 
+import wvlet.uni.util.Result
+
 import example.api.{ChatApi, ChatEvent, ChatMessage, Conversation}
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
@@ -195,9 +197,9 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
         val event = a.asInstanceOf[A]
         finished = finished || isLast(event)
         onEvent(event)
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         fail(e)
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         if finished then
           done.trySuccess(())
         else

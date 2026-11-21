@@ -1,5 +1,7 @@
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
 import wvlet.uni.test.defined
@@ -37,9 +39,9 @@ object RxRunnerTest extends UniTest:
         }
       var c: Cancelable = Cancelable.empty
       RxRunner.run(rx) {
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           e shouldBeTheSameInstanceAs ex
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
         // ok
         case other =>
           fail(s"should not reach here: ${other}")
@@ -57,9 +59,9 @@ object RxRunnerTest extends UniTest:
       var c = Cancelable.empty
       c =
         RxRunner.run(rx) {
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             e shouldBeTheSameInstanceAs ex
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
           // ok
           case other =>
             fail(s"should not reach here: ${other}")
@@ -77,9 +79,9 @@ object RxRunnerTest extends UniTest:
       var c = Cancelable.empty
       c =
         RxRunner.run(rx) {
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             e shouldBeTheSameInstanceAs ex
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
           // ok
           case other =>
             fail(s"should not reach here: ${other}")
@@ -99,7 +101,7 @@ object RxRunnerTest extends UniTest:
       var c = Cancelable.empty
       c =
         RxRunner.run(rx) {
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             e shouldBeTheSameInstanceAs ex
           case other =>
             fail(s"should not be here: ${other}")
@@ -116,7 +118,7 @@ object RxRunnerTest extends UniTest:
     test("events") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.sequence(1, 2, 3).filter(_ % 2 == 1))(b += _)
-      b.result() shouldBe Seq(OnNext(1), OnNext(3), OnCompletion)
+      b.result() shouldBe Seq(OnNext(1), OnNext(3), OnCompletion.success)
     }
 
     test("concat runs after the upstream completes") {
@@ -134,7 +136,7 @@ object RxRunnerTest extends UniTest:
     test("a rejected Rx.const still completes") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.runOnce(Rx.const(1).filter(_ > 1))(b += _)
-      b.result() shouldBe Seq(OnCompletion)
+      b.result() shouldBe Seq(OnCompletion.success)
     }
   }
 
@@ -159,7 +161,7 @@ object RxRunnerTest extends UniTest:
     // The input has completed, but the nested stream is still pending
     b.result() shouldBe Seq.empty
     p.success(2)
-    b.result() shouldBe Seq(OnNext(2), OnCompletion)
+    b.result() shouldBe Seq(OnNext(2), OnCompletion.success)
   }
 
   test("flatMap completes after a recovered nested failure") {
@@ -174,7 +176,7 @@ object RxRunnerTest extends UniTest:
         }
     )(b += _)
     p.failure(ex)
-    b.result() shouldBe Seq(OnNext(0), OnCompletion)
+    b.result() shouldBe Seq(OnNext(0), OnCompletion.success)
   }
 
   test("transformRx completes after an asynchronous nested stream") {
@@ -185,7 +187,7 @@ object RxRunnerTest extends UniTest:
     // The input has completed, but the nested stream is still pending
     b.result() shouldBe Seq.empty
     p.success(2)
-    b.result() shouldBe Seq(OnNext(20), OnCompletion)
+    b.result() shouldBe Seq(OnNext(20), OnCompletion.success)
   }
 
   test("transformRx completes after a recovered asynchronous nested failure") {
@@ -201,7 +203,7 @@ object RxRunnerTest extends UniTest:
     )(b += _)
     b.result() shouldBe Seq.empty
     p.failure(ex)
-    b.result() shouldBe Seq(OnNext(0), OnCompletion)
+    b.result() shouldBe Seq(OnNext(0), OnCompletion.success)
   }
 
   test("transformRx reports an asynchronous nested failure") {
@@ -210,7 +212,7 @@ object RxRunnerTest extends UniTest:
     val b                  = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.single(1).transformRx(_ => Rx.future(p.future)))(b += _)
     p.failure(ex)
-    b.result() shouldBe Seq(OnError(ex))
+    b.result() shouldBe Seq(OnCompletion.failure(ex))
   }
 
   test("flatMap after transformRx with an asynchronous nested stream") {
@@ -226,7 +228,7 @@ object RxRunnerTest extends UniTest:
     p1.success(2)
     b.result() shouldBe Seq.empty
     p2.success(3)
-    b.result() shouldBe Seq(OnNext(5), OnCompletion)
+    b.result() shouldBe Seq(OnNext(5), OnCompletion.success)
   }
 
   test("transformRx turns a failed input into an asynchronous nested stream") {
@@ -244,36 +246,36 @@ object RxRunnerTest extends UniTest:
     )(b += _)
     b.result() shouldBe Seq.empty
     p.success(-1)
-    b.result() shouldBe Seq(OnNext(-1), OnCompletion)
+    b.result() shouldBe Seq(OnNext(-1), OnCompletion.success)
   }
 
   test("transformRx with a synchronous nested stream") {
     test("success") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.single(1).transformRx(t => Rx.fromTry(t.map(_ * 10))))(b += _)
-      b.result() shouldBe Seq(OnNext(10), OnCompletion)
+      b.result() shouldBe Seq(OnNext(10), OnCompletion.success)
     }
     test("failed input") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.exception[Int](ex).transformRx(_ => Rx.single(0)))(b += _)
-      b.result() shouldBe Seq(OnNext(0), OnCompletion)
+      b.result() shouldBe Seq(OnNext(0), OnCompletion.success)
     }
     test("failed input that also reports completion") {
       // MapOp turns the throw into OnError, and SingleOp still sends its OnCompletion
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.single(1).map[Int](_ => throw ex).transformRx(_ => Rx.single(0)))(b += _)
-      b.result() shouldBe Seq(OnNext(0), OnCompletion)
+      b.result() shouldBe Seq(OnNext(0), OnCompletion.success)
     }
     test("failed input transformed into a failure") {
       val ex2 = IllegalStateException("dummy2")
       val b   = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.exception[Int](ex).transformRx(_ => Rx.exception[Int](ex2)))(b += _)
-      b.result() shouldBe Seq(OnError(ex2))
+      b.result() shouldBe Seq(OnCompletion.failure(ex2))
     }
     test("multiple input values") {
       val b = Seq.newBuilder[RxEvent]
       RxRunner.run(Rx.fromSeq(Seq(1, 2)).transformRx(t => Rx.fromTry(t)))(b += _)
-      b.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
+      b.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion.success)
     }
   }
 
@@ -289,7 +291,7 @@ object RxRunnerTest extends UniTest:
     )(b += _)
     b.result() shouldBe Seq.empty
     p.success(1)
-    b.result() shouldBe Seq(OnNext(1), OnCompletion)
+    b.result() shouldBe Seq(OnNext(1), OnCompletion.success)
   }
 
   test("runOnce reports only the first event") {

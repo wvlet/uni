@@ -34,11 +34,11 @@ class RxFutureTest extends UniTest:
     b.toList
 
   test("deliver a failure that happened before the subscription") {
-    events(Rx.future(Future.failed[Int](ex))) shouldBe List(OnError(ex))
+    events(Rx.future(Future.failed[Int](ex))) shouldBe List(OnCompletion.failure(ex))
   }
 
   test("deliver a value and the completion that happened before the subscription") {
-    events(Rx.future(Future.successful(1))) shouldBe List(OnNext(1), OnCompletion)
+    events(Rx.future(Future.successful(1))) shouldBe List(OnNext(1), OnCompletion.success)
   }
 
   test("deliver each event once to a subscriber that attached before completion") {
@@ -47,23 +47,24 @@ class RxFutureTest extends UniTest:
     val rx = Rx.future(p.future)
     RxRunner.run(rx)(b += _)
     p.success(2)
-    b.toList shouldBe List(OnNext(2), OnCompletion)
+    b.toList shouldBe List(OnNext(2), OnCompletion.success)
 
     val failed = Promise[Int]()
     val b2     = ListBuffer.empty[RxEvent]
     RxRunner.run(Rx.future(failed.future))(b2 += _)
     failed.failure(ex)
-    b2.toList shouldBe List(OnError(ex))
+    b2.toList shouldBe List(OnCompletion.failure(ex))
   }
 
   test("runOnce reports a failure that happened before it ran") {
     var got: RxEvent = null
     RxRunner.runOnce(Rx.future(Future.failed[Int](ex)))(got = _)
-    got shouldBe OnError(ex)
+    got shouldBe OnCompletion.failure(ex)
   }
 
   test("fromFuture reports the waiting state, then a failure that happened before it ran") {
-    events(Rx.fromFuture(Future.failed[Int](ex))) shouldBe List(OnNext(None), OnError(ex))
+    events(Rx.fromFuture(Future.failed[Int](ex))) shouldBe
+      List(OnNext(None), OnCompletion.failure(ex))
   }
 
 end RxFutureTest

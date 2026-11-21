@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
@@ -250,9 +252,9 @@ private class WebSocketRelaySession(config: WebSocketRelay)
         case NonFatal(e) =>
           Rx.exception(e)
     RxRunner.runOnce(connecting) {
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         upstreamFailed(e)
-      case OnNext(_) | OnCompletion =>
+      case OnNext(_) | OnCompletion(Result.Success(_)) =>
         () // UpstreamHandler.onOpen takes over
     }
 

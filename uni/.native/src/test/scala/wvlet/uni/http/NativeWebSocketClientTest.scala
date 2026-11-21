@@ -13,7 +13,9 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.rx.{OnError, OnNext, RxRunner}
+import wvlet.uni.util.Result
+
+import wvlet.uni.rx.{OnCompletion, OnNext, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.atomic.AtomicReference
@@ -39,7 +41,7 @@ class NativeWebSocketClientTest extends UniTest:
       case OnNext(ctx) =>
         ref.set(ctx.asInstanceOf[WebSocketContext]);
         ready.countDown()
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         error.set(e);
         ready.countDown()
       case _ =>

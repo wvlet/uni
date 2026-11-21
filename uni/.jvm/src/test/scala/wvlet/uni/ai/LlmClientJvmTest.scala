@@ -1,5 +1,7 @@
 package wvlet.uni.ai
 
+import wvlet.uni.util.Result
+
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import wvlet.uni.ai.anthropic as an
@@ -200,7 +202,7 @@ class LlmClientJvmTest extends UniTest:
 
   private def single[A](rx: Rx[A]): A =
     val (values, terminal) = runStream(rx)
-    terminal shouldBe OnCompletion
+    terminal shouldBe OnCompletion.success
     values.head
 
   private val anthropic = an.AnthropicClient(
@@ -221,7 +223,7 @@ class LlmClientJvmTest extends UniTest:
     last.get().body.contains("max_tokens") shouldBe false
 
     val (events, terminal) = runStream(anthropic.stream(request))
-    terminal shouldBe OnCompletion
+    terminal shouldBe OnCompletion.success
     val acc = an.MessageAccumulator()
     events.foreach(acc.add)
     acc.result.text shouldBe "Hi"
@@ -230,7 +232,7 @@ class LlmClientJvmTest extends UniTest:
   test("an Anthropic error body becomes an LlmApiException with the error type") {
     val client = an.AnthropicClient(an.AnthropicConfig(an.AnthropicHost.Direct("overloaded", base)))
     val (_, terminal) = runStream(client.messages(request))
-    terminal shouldMatch { case OnError(e: LlmApiException) =>
+    terminal shouldMatch { case OnCompletion(Result.Failure(e: LlmApiException)) =>
       e.statusCode shouldBe 529
       e.errorType shouldBe Some("overloaded_error")
       e.isRetryable shouldBe true
@@ -242,7 +244,7 @@ class LlmClientJvmTest extends UniTest:
     val responses  = oa.OpenAIClient(oa.OpenAIConfig(Some("sk-1"), s"${base}/v1"))
     val acc        = LlmStreamAccumulator()
     val (parts, t) = runStream(responses.stream(llm))
-    t shouldBe OnCompletion
+    t shouldBe OnCompletion.success
     parts.foreach(acc.add)
     acc.result.text shouldBe "Yo"
     acc.result.usage.inputTokens shouldBe 5
@@ -253,7 +255,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val chatAcc      = LlmStreamAccumulator()
     val (cparts, ct) = runStream(chat.stream(llm))
-    ct shouldBe OnCompletion
+    ct shouldBe OnCompletion.success
     cparts.foreach(chatAcc.add)
     chatAcc.result.text shouldBe "A"
     chatAcc.result.usage.inputTokens shouldBe 4
@@ -270,7 +272,7 @@ class LlmClientJvmTest extends UniTest:
         gm.GenerateContentRequest(Seq(gm.Content.user("hi")))
       )
     )
-    t shouldBe OnCompletion
+    t shouldBe OnCompletion.success
     val acc = gm.GenerateContentAccumulator()
     chunks.foreach(acc.add)
     acc.result.text shouldBe "Gemini"
@@ -313,14 +315,14 @@ class LlmClientJvmTest extends UniTest:
       true
 
     val (events, t) = runStream(client.stream(req))
-    t shouldBe OnCompletion
+    t shouldBe OnCompletion.success
     last.get().path shouldBe "/anthropic/v1/messages"
     val acc = an.MessageAccumulator()
     events.foreach(acc.add)
     acc.result.text shouldBe "Hi"
 
     val (_, ct) = runStream(client.countTokens(req))
-    ct shouldMatch { case OnError(_: UnsupportedOperationException) =>
+    ct shouldMatch { case OnCompletion(Result.Failure(_: UnsupportedOperationException)) =>
     }
     client.close()
   }
@@ -338,7 +340,7 @@ class LlmClientJvmTest extends UniTest:
       bedrockHttp(bedrockHost)
     )
     val (events, t) = runStream(client.stream(request))
-    t shouldBe OnCompletion
+    t shouldBe OnCompletion.success
     events.nonEmpty shouldBe true
     val r    = last.get()
     val auth = r.headers.getOrElse("authorization", "")
@@ -358,7 +360,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val acc        = LlmStreamAccumulator()
     val (parts, t) = runStream(client.stream(llm))
-    t shouldBe OnCompletion
+    t shouldBe OnCompletion.success
     parts.foreach(acc.add)
     acc.result.text shouldBe "Yo"
     last.get().path shouldBe "/openai/v1/responses"
@@ -376,7 +378,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val chatAcc      = LlmStreamAccumulator()
     val (cparts, ct) = runStream(signed.stream(llm.copy(model = "openai.gpt-oss-120b-1:0")))
-    ct shouldBe OnCompletion
+    ct shouldBe OnCompletion.success
     cparts.foreach(chatAcc.add)
     chatAcc.result.text shouldBe "A"
     last.get().path shouldBe "/openai/v1/chat/completions"

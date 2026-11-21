@@ -13,6 +13,8 @@
  */
 package wvlet.uni.electron
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.http.{
   Http,
   HttpAsyncChannel,
@@ -264,9 +266,9 @@ object ElectronRenderer:
           ) {
             case OnNext(v) =>
               resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
-            case OnError(e) =>
+            case OnCompletion(Result.Failure(e)) =>
               fail(e)
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
           }
         catch
           case NonFatal(e) =>

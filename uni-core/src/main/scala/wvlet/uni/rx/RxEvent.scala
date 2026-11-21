@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 /**
   * Observable event types. http://reactivex.io/documentation/observable.html
   */
@@ -20,7 +22,35 @@ sealed trait RxEvent
 
 case class OnNext(v: Any)        extends RxEvent
 case class OnError(e: Throwable) extends RxEvent
-case object OnCompletion         extends RxEvent
+
+/**
+  * The end of a stream, with how it ended:
+  *
+  * {{{
+  *   case OnCompletion(Result.Success(_)) => // completed
+  *   case OnCompletion(Result.Failure(e)) => // ended with a failure
+  * }}}
+  */
+case class OnCompletion(result: Result[Unit]) extends RxEvent:
+  def isSuccess: Boolean = result.isSuccess
+  def isFailure: Boolean = !isSuccess
+
+/**
+  * The events `RxRunner.run` and `runOnce` deliver: they stop at the first error, which arrives as
+  * the stream's end, `OnCompletion(Result.Failure(e))`, so a handler never sees an [[OnError]].
+  */
+type RxRunEvent = OnNext | OnCompletion
+
+object OnCompletion:
+  /**
+    * The end of a stream that completed.
+    */
+  val success: OnCompletion = OnCompletion(Result.Success(()))
+
+  /**
+    * The end of a stream that failed with `e`.
+    */
+  def failure(e: Throwable): OnCompletion = OnCompletion(Result.Failure(e))
 
 /**
   * An error raised by an operator's function (a throwing `map`, `filter`, or `flatMap` function)
@@ -65,5 +95,18 @@ private[rx] object ResumableError:
         OnError(r.e)
       case other =>
         other
+
+  /**
+    * The event as `RxRunner.run` and `runOnce` deliver it: they stop at the first error, so it is
+    * the stream's end, `OnCompletion(Result.Failure(e))` (R3's `OnErrorResumeAsFailure`).
+    */
+  def toTerminal(ev: RxEvent): RxRunEvent =
+    ev match
+      case n: OnNext =>
+        n
+      case c: OnCompletion =>
+        c
+      case OnError(e) =>
+        OnCompletion.failure(e)
 
 end ResumableError

@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
 
@@ -227,13 +229,13 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
     RxRunner.runOnce(rx) {
       case OnNext(response) =>
         writeResponse(res, response.asInstanceOf[Response])
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         if HttpServerSecurity.isClientError(e) then
           debug(s"Error in Rx handler: ${e.getMessage}", e)
         else
           warn(s"Error in Rx handler: ${e.getMessage}", e)
         writeResponse(res, errorResponse(e))
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         writeResponse(res, Response.notFound)
     }
 
@@ -409,10 +411,10 @@ class NodeHttpServer(config: NodeServerConfig) extends HttpServer with LogSuppor
               case e: Throwable =>
                 warn(s"SSE write failed, cancelling stream: ${e.getMessage}", e)
                 subscription.cancel
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           warn(s"SSE stream error: ${e.getMessage}", e)
           endQuietly()
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           endQuietly()
       }
 

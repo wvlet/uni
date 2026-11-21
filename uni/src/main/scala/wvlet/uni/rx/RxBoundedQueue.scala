@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
@@ -119,7 +121,9 @@ object RxBoundedQueue:
           ()
         case OnError(e) =>
           complete(e)
-        case OnCompletion =>
+        case OnCompletion(wvlet.uni.util.Result.Failure(e)) =>
+          complete(e)
+        case OnCompletion(Result.Success(_)) =>
           complete(null) // null means normal completion
 
     // Takers wait only while the queue is empty, so wake them all: no element will come
@@ -145,7 +149,7 @@ object RxBoundedQueue:
       case Success(a) =>
         OnNext(a)
       case Failure(_: QueueCompleted) =>
-        OnCompletion
+        OnCompletion.success
       case Failure(e) =>
         OnError(e)
     }

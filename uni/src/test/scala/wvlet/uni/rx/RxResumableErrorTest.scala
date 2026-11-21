@@ -116,7 +116,7 @@ class RxResumableErrorTest extends UniTest:
     }
   }
 
-  test("run, runOnce, and runContinuously deliver a plain OnError") {
+  test("run and runOnce end with a failed completion; runContinuously delivers a plain OnError") {
     val failing = Rx
       .sequence(1, 2)
       .map(x =>
@@ -128,15 +128,11 @@ class RxResumableErrorTest extends UniTest:
 
     val runEvents = Seq.newBuilder[RxEvent]
     RxRunner.run(failing)(runEvents += _)
-    runEvents.result() shouldMatch {
-      case Seq(OnNext(1), e: OnError) if isPlain(e) =>
-    }
+    runEvents.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
 
     var first: RxEvent = null
     RxRunner.runOnce(Rx.single(1).map(_ => throw boom))(first = _)
-    first shouldMatch {
-      case e: OnError if isPlain(e) =>
-    }
+    first shouldBe OnCompletion.failure(boom)
 
     val v          = Rx.variable(1)
     val contEvents = Seq.newBuilder[RxEvent]

@@ -120,17 +120,25 @@ Streams emit three types of events:
 
 1. **OnNext(value)** - A value is emitted
 2. **OnError(exception)** - An error occurred
-3. **OnCompletion** - Stream finished
+3. **OnCompletion(result)** - The stream ended: `Result.Success(())` when it
+   completed, `Result.Failure(e)` when it failed
+
+`RxRunner.run` and `runOnce` stop at the first error, which arrives as the end of
+the stream, so their handler sees only `OnNext` and `OnCompletion`:
 
 ```scala
-import wvlet.uni.rx.{OnNext, OnError, OnCompletion}
+import wvlet.uni.rx.{OnCompletion, OnNext, RxRunner}
+import wvlet.uni.util.Result
 
-stream.run {
-  case OnNext(value) => println(s"Value: ${value}")
-  case OnError(e) => println(s"Error: ${e.getMessage}")
-  case OnCompletion => println("Done")
+RxRunner.run(stream) {
+  case OnNext(value)                   => println(s"Value: ${value}")
+  case OnCompletion(Result.Success(_)) => println("Done")
+  case OnCompletion(Result.Failure(e)) => println(s"Failed: ${e.getMessage}")
 }
 ```
+
+`RxRunner.runContinuously` (what `subscribe` uses) keeps running after an
+error, which it delivers as `OnError(e)`.
 
 ## Timers and Intervals
 

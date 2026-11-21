@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
 
@@ -568,11 +570,11 @@ abstract class SocketHttpServer private[http] (
                   subscription.cancel
                   done.countDown()
             }
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             warn(s"SSE stream error: ${e.getMessage}", e)
             ok.set(false)
             done.countDown()
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
             done.countDown()
         }
       )
@@ -672,10 +674,10 @@ abstract class SocketHttpServer private[http] (
         case OnNext(response) =>
           result.set(response.asInstanceOf[Response])
           latch.countDown()
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           result.set(handlerError(e))
           latch.countDown()
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           // Completed without emitting a response.
           result.compareAndSet(null, onEmpty)
           latch.countDown()

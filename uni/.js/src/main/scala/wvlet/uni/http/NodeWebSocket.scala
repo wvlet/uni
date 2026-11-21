@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 
@@ -119,13 +121,13 @@ private[http] object NodeWebSocket extends LogSupport:
           accept(socket, head, key, route, upgradeRequest, maxFrameSize, pingIntervalMillis)
         else
           reject(resp)
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         if HttpServerSecurity.isClientError(e) then
           debug(s"WebSocket upgrade filter error: ${e.getMessage}", e)
         else
           warn(s"WebSocket upgrade filter error: ${e.getMessage}", e)
         reject(HttpServerSecurity.errorResponse(e, detailedErrors))
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         // Filter completed without a verdict: close the connection rather than leave it hanging.
         if route.closeOnRejection then
           reject(Response.forbidden)

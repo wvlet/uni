@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -67,7 +69,7 @@ class RxRecoverSpecTest extends UniTest:
     val queue = Rx.queue[Int]()
     tokens(c.input).foreach {
       case "C" =>
-        queue.add(OnCompletion)
+        queue.add(OnCompletion.success)
       case "E" =>
         queue.add(OnError(IllegalStateException("source failure")))
       case v =>
@@ -78,9 +80,9 @@ class RxRecoverSpecTest extends UniTest:
     val effect: RxEvent => Unit = {
       case OnNext(v) =>
         observed += v.toString
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         observed += "C"
-      case OnError(_) =>
+      case OnError(_) | OnCompletion(Result.Failure(_)) =>
         observed += "E"
     }
     val cancel =

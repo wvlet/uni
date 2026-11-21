@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.util.ThreadUtil
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
@@ -73,10 +75,10 @@ object compat:
       RxRunner.run(rx) {
         case OnNext(v) =>
           s += v.asInstanceOf[A]
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           c.cancel
           throw e
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           c.cancel
           ready.set(true)
       }
@@ -89,9 +91,9 @@ object compat:
       RxRunner.runOnce(rx) {
         case OnNext(v) =>
           p.trySuccess(v.asInstanceOf[A])
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           p.tryFailure(e)
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           // If promise not yet completed, complete with Unit (for Rx[Unit] tests)
           p.trySuccess(().asInstanceOf[A])
       }

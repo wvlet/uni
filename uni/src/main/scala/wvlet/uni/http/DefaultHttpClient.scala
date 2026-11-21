@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.control.ResultClass
 import wvlet.uni.control.Retry
 import wvlet.uni.rx.OnCompletion
@@ -58,9 +60,9 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
       RxRunner.run(events) {
         case OnNext(event) =>
           handler.onEvent(event.asInstanceOf[ServerSentEvent])
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           handler.onError(e)
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           handler.onCompletion()
       }
 
