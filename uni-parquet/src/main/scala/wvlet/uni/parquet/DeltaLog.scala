@@ -9,7 +9,6 @@ import wvlet.uni.parquet.format.Repetition
 import wvlet.uni.parquet.format.TimeUnit
 
 import java.nio.charset.StandardCharsets
-import scala.collection.immutable.VectorMap
 import scala.collection.mutable
 
 /**
