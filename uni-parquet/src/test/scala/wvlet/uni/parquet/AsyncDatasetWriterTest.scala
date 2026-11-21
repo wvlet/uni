@@ -1,6 +1,6 @@
 package wvlet.uni.parquet
 
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver

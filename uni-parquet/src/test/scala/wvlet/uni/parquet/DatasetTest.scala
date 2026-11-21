@@ -3,7 +3,7 @@ package wvlet.uni.parquet
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
