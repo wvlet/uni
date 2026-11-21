@@ -138,7 +138,7 @@ RxRunner.run(stream) {
 ```
 
 `RxRunner.runContinuously` (what `subscribe` uses) keeps running after an
-error, which it delivers as `OnError(e)`.
+error, which it delivers as `OnError(e)`, and stops at the first `OnCompletion`.
 
 ## Timers and Intervals
 

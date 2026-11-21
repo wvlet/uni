@@ -2,8 +2,9 @@ import UniSpec.RxRecover
 
 /-!
 Writes `RxRecoverSpecCases.scala`: the expected output of small pipelines with `recover` and a
-throwing `map`, in default and continuous mode, evaluated from the model in
-`UniSpec/RxRecover.lean`. `RxRecoverSpecTest` replays the cases through `RxRunner`.
+throwing `map` in default mode (`RxRunner.run`), evaluated from the model in
+`UniSpec/RxRecover.lean`. `RxRecoverSpecTest` replays the cases through `RxRunner`. Continuous mode
+now follows the R3 event model; its cases come from `GenRxR3Cases.lean`.
 
 Usage: `lake exe gen-rx-recover-cases [output path]`
 -/
@@ -43,7 +44,7 @@ def inputs : List (List Event) :=
     [.done],
     [] ]
 
-def modes : List (String × Mode) := [("default", .default), ("continuous", .continuous)]
+def modes : List (String × Mode) := [("default", .default)]
 
 def caseLines : List String :=
   modes.flatMap fun (modeName, mode) =>
