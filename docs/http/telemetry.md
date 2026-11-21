@@ -210,8 +210,9 @@ The spans follow the OpenTelemetry
   without one becomes a child of the current span, such as the HTTP server span.
 - The server span is current while a tool runs, so the tool's own HTTP and LLM
   calls nest under it.
-- A JSON-RPC error sets `rpc.status_code` and `error.type` to its code. A tool
-  result with `isError` sets `error.type` to `tool_error`.
+- A JSON-RPC error sets `rpc.status_code` and `error.type` to its code; its
+  message is left out, since it can echo arguments. A tool result with
+  `isError` sets `error.type` to `tool_error`.
 - A method the server doesn't know is traced as `_OTHER`, and an unknown tool
   gets no `gen_ai.tool.name`, so a caller can't fill metrics with made-up names.
 - Tool arguments and results are never recorded.
@@ -248,7 +249,8 @@ The spans follow the OpenTelemetry
 - A streaming call's span ends when the stream ends, fails, or is cancelled.
   Usage comes from the stream's final events.
 - A failed call sets `error.type` to the vendor's error type, e.g.
-  `overloaded_error`, or else to the HTTP status.
+  `overloaded_error`, or else to the HTTP status. An error event inside a
+  stream, or a failed OpenAI response, marks the span failed too.
 - Prompts, messages, system instructions, and completions are never recorded.
 - The span starts when the returned `Rx` runs, as a child of the span that was
   current when you called the method.
