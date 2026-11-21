@@ -389,8 +389,12 @@ finally ds.close()
   of the files a read selects, so a column added in newer files reads as null in older ones. Numeric
   types widen as DuckDB's `union_by_name` promotes them: INT8, INT16, and INT32 read as INT64 or DOUBLE when
   another file has that type, and FLOAT as DOUBLE. INT64 never widens to DOUBLE, which would round
-  large values. Any other type difference fails with both file names; leave the column out with
-  `withColumns` to read the rest.
+  large values. Nested columns merge the same way, as Spark's `mergeSchema` does: struct fields
+  match by name, so a field added in newer files reads as null in older ones, and struct fields,
+  list elements, and map keys and values widen. Lists match whatever names a writer gave the
+  wrapper groups (`list.element`, `list.item`, or the legacy 2-level `array`). Any other type
+  difference fails with the nested path (such as `user.age`) and both file names; leave the
+  column out with `withColumns` to read the rest.
 - **Which files.** Every file below the root is read, except those under a folder, or with a name,
   starting with `_` or `.` (`_SUCCESS`, `_temporary/`, `.crc` files). Files without an extension,
   as Hive and Trino write them, are kept. `withFileExtension(".parquet")` keeps only Parquet files

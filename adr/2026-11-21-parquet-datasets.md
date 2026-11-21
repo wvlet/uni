@@ -61,7 +61,7 @@ built a new store for each file.
   statistics is still listed, though it yields no rows.
 - Partition types recorded by the writer in `_common_metadata` are read as declared types; see [dataset root files](2026-11-21-parquet-dataset-root-files.md).
 - Not covered: full `_metadata` summary files (row groups of every file), Iceberg (Delta Lake: see [Delta Lake tables](2026-11-21-parquet-delta-lake-tables.md)),
-  nested type widening, and the npm facade.
+  and the npm facade.
 - Writing partitioned datasets is covered by `2026-11-21-parquet-dataset-writer.md`.
 - **Globs and file lists (added later).** A root with glob characters lists only the part before
   the first glob segment and keeps a path when it or one of its folders matches, so a folder
@@ -77,3 +77,6 @@ built a new store for each file.
   The widest type among the selected files is the dataset type, and narrow vectors are copied in
   `toOutput`. Filters need no change: integer statistics compare as `Long`, and a Double literal on
   narrow integer statistics keeps the row group. Everything else must still match exactly.
+- **Nested merging (added later).** Structs, lists, and maps merge recursively with the same
+  widening, and struct fields union by name; see
+  [nested schema merging](2026-11-21-parquet-dataset-nested-merge.md).

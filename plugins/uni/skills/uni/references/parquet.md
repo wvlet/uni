@@ -214,8 +214,10 @@ def typedDataset(root: String) = Parquet.dataset(
   name, throws `IllegalArgumentException`. `withFilter` filters rows in the dataset schema: a
   column a file lacks is null there, and narrow columns are widened first.
 - Columns match by name across files. A column missing from a file reads as null. INT8/16/32 widen
-  to INT64 or DOUBLE and FLOAT to DOUBLE when files differ (never INT64 to DOUBLE); other type
-  differences throw a `ParquetException` naming both files.
+  to INT64 or DOUBLE and FLOAT to DOUBLE when files differ (never INT64 to DOUBLE). Nested columns
+  merge too: struct fields match by name (a missing field reads as null), and struct fields, list
+  elements, and map keys and values widen. Other type differences throw a `ParquetException`
+  naming the nested path (`user.age`) and both files.
 - Files or folders starting with `_` or `.` are skipped. Files without an extension are kept;
   `withFileExtension(".parquet")` narrows the listing.
 - The root can be a glob (`s3://b/visits/dt=2026-11-{19,20}/country=JP`; `*`, `?`, `[a-z]`,

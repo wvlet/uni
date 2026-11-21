@@ -259,8 +259,10 @@ class ParquetDataset private[parquet] (
       .columns
       .map(c => (c ++ filterTops).toSet -- partitionKeys)
     // Union of the files' top-level fields by name, in first-seen order
-    val union   = scala.collection.mutable.LinkedHashMap.empty[String, (ParquetField, String)]
+    val union   = scala.collection.mutable.LinkedHashMap.empty[String, ParquetField]
     val present = scala.collection.mutable.HashMap.empty[String, Int]
+    // The file that set the type at each nested path, for naming files in type errors
+    val origins = scala.collection.mutable.HashMap.empty[String, String]
     // Every top-level name in the selected files, for checking filter and column names
     val allNames = scala.collection.mutable.LinkedHashSet.empty[String]
     selected
@@ -275,30 +277,10 @@ class ParquetDataset private[parquet] (
               present(f.name) = present.getOrElse(f.name, 0) + 1
               union.get(f.name) match
                 case None =>
-                  union(f.name) = (f, s.file.path)
-                case Some((prev, prevPath)) =>
-                  if !sameType(prev, f) then
-                    widen(prev, f) match
-                      case Some(wide) =>
-                        val rep =
-                          if prev.isOptional || f.isOptional then
-                            Repetition.OPTIONAL
-                          else
-                            wide.repetition
-                        val widePath =
-                          if wide eq f then
-                            s.file.path
-                          else
-                            prevPath
-                        union(f.name) = (withRepetition(wide, rep), widePath)
-                      case None =>
-                        throw ParquetException(
-                          s"Column ${f.name} has different types in ${prevPath} (${describe(
-                              prev
-                            )}) and ${s.file.path} (${describe(f)})"
-                        )
-                  else if f.isOptional && !prev.isOptional then
-                    union(f.name) = (f, prevPath)
+                  union(f.name) = f
+                  origins(f.name) = s.file.path
+                case Some(prev) =>
+                  union(f.name) = mergeField(prev, f, f.name, s.file.path, origins)
           }
       }
     val fileFields =
@@ -307,7 +289,7 @@ class ParquetDataset private[parquet] (
       else
         union
           .values
-          .map { (f, _) =>
+          .map { f =>
             // A column some files lack reads as null there
             if !f.isRepeated && !f.isOptional && present(f.name) < selected.size then
               withRepetition(f, Repetition.OPTIONAL)
@@ -547,7 +529,7 @@ class ParquetDataset private[parquet] (
           else
             byName.get(f.name) match
               case Some(v) =>
-                widenVector(v, f)
+                conformField(v, f)
               case None =>
                 nullVector(f, n)
         }
@@ -1367,7 +1349,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   private def numKind(f: ParquetField): Option[Num] =
     f match
-      case p: ParquetField.Primitive if !p.isRepeated =>
+      case p: ParquetField.Primitive =>
         (p.physicalType, p.logicalType) match
           case (PhysicalType.INT32, None) =>
             Some(Num.SignedInt(32))
@@ -1397,20 +1379,230 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
         a == b
 
   /**
-    * The wider of two top-level columns when one reads losslessly as the other, as DuckDB's
-    * `union_by_name` promotes them: INT8, INT16, and INT32 widen to INT64 and DOUBLE, and FLOAT to
-    * DOUBLE. Unlike DuckDB, INT64 does not widen to DOUBLE, which would round values above 2^53.
+    * The dataset type of a column that two files store as `a` (the union so far) and `b` (the file
+    * at `bFile`), as Spark's `mergeSchema` and DuckDB's `union_by_name` combine them:
+    *
+    *   - Primitives must match or widen losslessly (see [[widensTo]]).
+    *   - Struct fields union by name in first-seen order. A field some files lack becomes OPTIONAL
+    *     and reads as null there (or as an empty list when it is REPEATED).
+    *   - Lists merge their elements and maps their keys and values, matched by position, so the
+    *     names writers give the wrapper groups (`list.element`, `list.item`, `bag.array`) don't
+    *     matter. When files mix the 3-level and legacy 2-level list layouts, the dataset uses the
+    *     3-level one.
+    *   - REQUIRED and OPTIONAL merge to OPTIONAL; REPEATED must match.
+    *
+    * Throws when the types don't merge, naming the nested path and the file behind each type.
     */
-  private[parquet] def widen(a: ParquetField, b: ParquetField): Option[ParquetField] =
-    (numKind(a), numKind(b)) match
-      case (Some(x), Some(y)) if widensTo(x, y) =>
-        Some(b)
-      case (Some(x), Some(y)) if widensTo(y, x) =>
-        Some(a)
-      case _ =>
-        None
+  private[parquet] def mergeField(
+      a: ParquetField,
+      b: ParquetField,
+      path: String,
+      bFile: String,
+      origins: scala.collection.mutable.Map[String, String]
+  ): ParquetField =
+    def fail(): Nothing =
+      // The longest recorded prefix of the path names the file behind a's type
+      val aFile = Iterator
+        .iterate(path)(p => p.substring(0, math.max(p.lastIndexOf('.'), 0)))
+        .takeWhile(_.nonEmpty)
+        .flatMap(origins.get)
+        .nextOption()
+        .getOrElse("an earlier file")
+      def desc(f: ParquetField): String =
+        if f.isRepeated then
+          s"repeated ${describe(f)}"
+        else
+          describe(f)
+      throw ParquetException(
+        s"Column ${path} has different types in ${aFile} (${desc(a)}) and ${bFile} (${desc(b)})"
+      )
 
-  /** A file's vector in the dataset's (possibly wider) type */
+    if a.isRepeated != b.isRepeated then
+      fail()
+    val rep =
+      if a.isRepeated then
+        Repetition.REPEATED
+      else if a.isOptional || b.isOptional then
+        Repetition.OPTIONAL
+      else
+        Repetition.REQUIRED
+    def merge(x: ParquetField, y: ParquetField, name: String): ParquetField = mergeField(
+      x,
+      y,
+      s"${path}.${name}",
+      bFile,
+      origins
+    )
+
+    (a, b) match
+      case (p: ParquetField.Primitive, q: ParquetField.Primitive) =>
+        if p.physicalType == q.physicalType && p.typeLength == q.typeLength &&
+          p.logicalType == q.logicalType
+        then
+          p.copy(repetition = rep)
+        else
+          (numKind(p), numKind(q)) match
+            case (Some(x), Some(y)) if widensTo(x, y) =>
+              origins(path) = bFile
+              q.copy(name = p.name, repetition = rep)
+            case (Some(x), Some(y)) if widensTo(y, x) =>
+              p.copy(repetition = rep)
+            case _ =>
+              fail()
+      case (g: ParquetField.Group, h: ParquetField.Group)
+          if Assembly.isList(g) && Assembly.isList(h) =>
+        val (ga, gb) = (g.children(0), h.children(0))
+        val (a3, b3) = (isThreeLevel(g), isThreeLevel(h))
+        val ea       = listElement(g)
+        val eb       = listElement(h)
+        val wide     =
+          if a3 == b3 then
+            merge(ea, eb, "element")
+          else
+            // A 2-level element is the repeated group itself: a required element in 3-level terms
+            merge(asElement(ea, a3), asElement(eb, b3), "element")
+        val (frame, e) =
+          if a3 || !b3 then
+            (g, ea)
+          else
+            (h.copy(name = g.name), eb)
+        val body =
+          if a3 || b3 then
+            frame
+              .children(0)
+              .asInstanceOf[ParquetField.Group]
+              .copy(children = IndexedSeq(withName(wide, e.name)))
+          else
+            withName(wide, ga.name)
+        frame.copy(repetition = rep, children = IndexedSeq(body))
+      case (g: ParquetField.Group, h: ParquetField.Group)
+          if Assembly.isMap(g) && Assembly.isMap(h) =>
+        val kv = g.children(0).asInstanceOf[ParquetField.Group]
+        val lv = h.children(0).asInstanceOf[ParquetField.Group]
+        val k  = merge(kv.children(0), lv.children(0), "key")
+        val v  = merge(kv.children(1), lv.children(1), "value")
+        g.copy(
+          repetition = rep,
+          children = IndexedSeq(
+            kv.copy(children =
+              IndexedSeq(withName(k, kv.children(0).name), withName(v, kv.children(1).name))
+            )
+          )
+        )
+      case (g: ParquetField.Group, h: ParquetField.Group)
+          if !isCollection(g) && !isCollection(h) && g.logicalType == h.logicalType =>
+        val byName = h.children.map(c => c.name -> c).toMap
+        val shared = g
+          .children
+          .map { c =>
+            byName.get(c.name) match
+              case Some(d) =>
+                merge(c, d, c.name)
+              case None =>
+                missingField(c)
+          }
+        val existing = g.children.map(_.name).toSet
+        val added    = h
+          .children
+          .filterNot(c => existing.contains(c.name))
+          .map { c =>
+            origins(s"${path}.${c.name}") = bFile
+            missingField(c)
+          }
+        g.copy(repetition = rep, children = shared ++ added)
+      case _ =>
+        fail()
+    end match
+
+  end mergeField
+
+  private def isCollection(g: ParquetField.Group): Boolean = Assembly.isList(g) || Assembly.isMap(g)
+
+  private def isThreeLevel(g: ParquetField.Group): Boolean = Assembly.isThreeLevelList(
+    g,
+    g.children(0)
+  )
+
+  /** The element of a LIST group: the child of the repeated group, or the repeated group itself */
+  private def listElement(g: ParquetField.Group): ParquetField =
+    if isThreeLevel(g) then
+      g.children(0).asInstanceOf[ParquetField.Group].children(0)
+    else
+      g.children(0)
+
+  private def asElement(e: ParquetField, threeLevel: Boolean): ParquetField =
+    if threeLevel then
+      e
+    else
+      withRepetition(e, Repetition.REQUIRED)
+
+  /** A struct field that some files lack: null there, or an empty list when it is REPEATED */
+  private def missingField(f: ParquetField): ParquetField =
+    if f.isRepeated then
+      f
+    else
+      withRepetition(f, Repetition.OPTIONAL)
+
+  private def withName(f: ParquetField, name: String): ParquetField =
+    f match
+      case p: ParquetField.Primitive =>
+        p.copy(name = name)
+      case g: ParquetField.Group =>
+        g.copy(name = name)
+
+  /**
+    * A file's vector in the dataset's type `f`, mirroring how the reader assembles a field: a
+    * repeated field is a list of its values. Leaves widen, struct children follow the dataset's
+    * fields by name, with nulls for fields the file lacks. A vector whose field already has the
+    * dataset's shape passes through.
+    */
+  private def conformField(v: ColumnVector, f: ParquetField): ColumnVector =
+    if sameShape(v.field, f) then
+      v
+    else
+      v match
+        case l: ListColumn if f.isRepeated =>
+          ListColumn(f, l.offsets, conformValue(l.elements, f), l.nulls)
+        case _ =>
+          conformValue(v, f)
+
+  /** [[conformField]] for a value, ignoring the field's own repetition */
+  private def conformValue(v: ColumnVector, f: ParquetField): ColumnVector =
+    (v, f) match
+      case (l: ListColumn, g: ParquetField.Group) if Assembly.isList(g) =>
+        val elements =
+          if isThreeLevel(g) then
+            conformField(l.elements, listElement(g))
+          else
+            conformValue(l.elements, listElement(g))
+        ListColumn(g, l.offsets, elements, l.nulls)
+      case (m: MapColumn, g: ParquetField.Group) if Assembly.isMap(g) =>
+        val kv = g.children(0).asInstanceOf[ParquetField.Group]
+        MapColumn(
+          g,
+          m.offsets,
+          conformField(m.keys, kv.children(0)),
+          conformField(m.values, kv.children(1)),
+          m.nulls
+        )
+      case (s: StructColumn, g: ParquetField.Group) =>
+        StructColumn(
+          g,
+          s.size,
+          g.children
+            .map { c =>
+              s.child(c.name) match
+                case Some(cv) =>
+                  conformField(cv, c)
+                case None =>
+                  nullVector(c, s.size)
+            },
+          s.nulls
+        )
+      case _ =>
+        widenVector(v, f)
+
+  /** A primitive vector in the dataset's (possibly wider) type */
   private def widenVector(v: ColumnVector, f: ParquetField): ColumnVector =
     (v.field, f) match
       case (p: ParquetField.Primitive, q: ParquetField.Primitive)
@@ -1432,10 +1624,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   // ---- Schemas ----
 
-  /** Same type and nested structure, ignoring top-level optionality and column positions */
-  private[parquet] def sameType(a: ParquetField, b: ParquetField): Boolean =
-    a.isRepeated == b.isRepeated && sameShape(a, b)
-
+  /** Same type and nested structure, ignoring the field's own optionality and positions */
   private def sameShape(a: ParquetField, b: ParquetField): Boolean =
     (a, b) match
       case (p: ParquetField.Primitive, q: ParquetField.Primitive) =>
