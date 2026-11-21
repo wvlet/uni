@@ -50,7 +50,7 @@ object RxRunner extends LogSupport:
           effect(v)
           RxResult.Continue
         case other =>
-          effect(other)
+          effect(ResumableError.toPublic(other))
           RxResult.Stop
     }
 
@@ -64,7 +64,7 @@ object RxRunner extends LogSupport:
     val observed = AtomicBoolean(false)
     tracked(defaultRunner, rx, "runOnce") { ev =>
       if observed.compareAndSet(false, true) then
-        effect(ev)
+        effect(ResumableError.toPublic(ev))
       RxResult.Stop
     }
 
@@ -75,7 +75,7 @@ object RxRunner extends LogSupport:
           effect(v)
           RxResult.Continue
         case other =>
-          effect(other)
+          effect(ResumableError.toPublic(other))
           RxResult.Stop
     }
 
@@ -137,7 +137,7 @@ class RxRunner(
               case Success(x) =>
                 effect(OnNext(x))
               case Failure(e) =>
-                effect(OnError(e))
+                effect(ResumableError(e))
           case other =>
             effect(other)
         }
@@ -171,7 +171,7 @@ class RxRunner(
                   toContinue
                 case Failure(e) =>
                   tracker.dropNested()
-                  effect(OnError(e))
+                  effect(ResumableError(e))
               end match
             case OnCompletion =>
               tracker.completeInput(effect)
@@ -195,7 +195,7 @@ class RxRunner(
                   // a later value, e.g. a pending Rx.future, arrives
                   RxResult.Continue
                 case Failure(e) =>
-                  effect(OnError(e))
+                  effect(ResumableError(e))
             case other =>
               effect(other)
         }
@@ -208,13 +208,13 @@ class RxRunner(
                 case Success(x) =>
                   effect(OnNext(x))
                 case Failure(e) =>
-                  effect(OnError(e))
+                  effect(ResumableError(e))
             case OnError(e) =>
               Try(tryFunc(Failure(e))) match
                 case Success(x) =>
                   effect(OnNext(x))
-                case Failure(e) =>
-                  effect(OnError(e))
+                case Failure(e2) =>
+                  effect(ResumableError.like(ev, e2))
             case other =>
               effect(other)
         }
@@ -227,13 +227,13 @@ class RxRunner(
                 case Success(x) =>
                   effect(OnNext(x))
                 case Failure(e) =>
-                  effect(OnError(e))
+                  effect(ResumableError(e))
             case OnError(e) =>
               tryFunc(Failure(e)) match
                 case Success(x) =>
                   effect(OnNext(x))
-                case Failure(e) =>
-                  effect(OnError(e))
+                case Failure(e2) =>
+                  effect(ResumableError.like(ev, e2))
             case other =>
               effect(other)
         }
@@ -274,7 +274,7 @@ class RxRunner(
                   evalRx(rxb)
                 case Failure(e) =>
                   tracker.dropNested()
-                  effect(OnError(e))
+                  effect(ResumableError(e))
             case OnError(e) =>
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
@@ -325,7 +325,7 @@ class RxRunner(
                 acc = x
                 effect(OnNext(x))
               case Failure(e) =>
-                effect(OnError(e))
+                effect(ResumableError(e))
           case other =>
             effect(other)
         }
@@ -358,7 +358,7 @@ class RxRunner(
                 firstItems
               } match
                 case Failure(e) =>
-                  effect(OnError(e))
+                  effect(ResumableError(e))
                 case Success(firstItems) =>
                   val pairs = firstItems
                     .toSeq
@@ -771,13 +771,13 @@ class RxRunner(
                 case Success(value) =>
                   effect(ev)
                 case Failure(e) =>
-                  effect(OnError(e))
+                  effect(ResumableError(e))
             case OnError(e) =>
               Try(f0.applyOrElse(Failure(e), (_: Try[?]) => ())) match
                 case Success(value) =>
                   effect(ev)
-                case Failure(e) =>
-                  effect(OnError(e))
+                case Failure(e2) =>
+                  effect(ResumableError.like(ev, e2))
             case _ =>
               effect(ev)
         }
