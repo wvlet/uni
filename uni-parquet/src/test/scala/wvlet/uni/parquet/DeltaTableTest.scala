@@ -4,7 +4,7 @@ import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON.JSONString
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.test.UniTest
@@ -123,7 +123,7 @@ class DeltaTableTest extends UniTest:
   test("prune files by partition values") {
     val ds = Parquet.dataset(fixture("partitioned"))
     try
-      val opts = ParquetReadOptions.default.withRowGroupFilter(col("country") === "US")
+      val opts = ParquetReadOptions.default.withFilter(col("country") === "US")
       ds.selectFiles(opts).size shouldBe 1
       ds.readRows(opts).map(_("id")).toSeq.sortBy(_.asInstanceOf[Long]) shouldBe Seq(4L, 5L)
     finally
