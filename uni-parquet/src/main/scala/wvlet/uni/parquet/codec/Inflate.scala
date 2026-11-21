@@ -264,4 +264,10 @@ private[parquet] object Inflate:
 
   end gunzip
 
+  /** Decodes raw DEFLATE data with no gzip or zlib wrapper, as Avro's deflate codec stores it */
+  def inflate(src: Array[Byte], offset: Int, length: Int, sizeHint: Int): Array[Byte] =
+    val s = State(src, offset, offset + length, sizeHint)
+    inflateBlocks(s)
+    java.util.Arrays.copyOf(s.out, s.outPos)
+
 end Inflate

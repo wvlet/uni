@@ -145,14 +145,46 @@ object Parquet:
             source = s"matching ${root}",
             metadata = ParquetDataset.readMetadata(listed, options, None)
           )
+        case None if ParquetDataset.isIcebergMetadataFile(root, options) =>
+          val step = ParquetDataset.icebergFromMetadataFile(
+            absolutePath(root).path,
+            options,
+            objects = false
+          )
+          ParquetDataset.icebergDataset(
+            ParquetDataset.runIceberg(step, None, options.prefetch),
+            options,
+            None,
+            ownsStore = false
+          )
         case None =>
           val path   = absolutePath(root)
           val listed =
-            if options.tableFormat == ParquetTableFormat.Delta then
-              ParquetDataset.underLog(ParquetDataset.listLocal(path.resolve(DeltaLog.LogDir)))
-            else
-              ParquetDataset.listLocal(path)
-          if ParquetDataset.isDelta(listed, options) then
+            options.tableFormat match
+              case ParquetTableFormat.Delta =>
+                ParquetDataset.underLog(ParquetDataset.listLocal(path.resolve(DeltaLog.LogDir)))
+              case ParquetTableFormat.Iceberg =>
+                ParquetDataset.under(
+                  IcebergTable.MetadataDir,
+                  ParquetDataset.listLocal(path.resolve(IcebergTable.MetadataDir))
+                )
+              case _ =>
+                ParquetDataset.listLocal(path)
+          if ParquetDataset.isIceberg(listed, options) && !ParquetDataset.isDelta(listed, options)
+          then
+            val step = ParquetDataset.icebergFromListing(
+              path.path,
+              listed,
+              options,
+              objects = false
+            )
+            ParquetDataset.icebergDataset(
+              ParquetDataset.runIceberg(step, None, options.prefetch),
+              options,
+              None,
+              ownsStore = false
+            )
+          else if ParquetDataset.isDelta(listed, options) then
             val plan = ParquetDataset.deltaPlan(path.path, listed, options)
             ParquetDataset.deltaDataset(
               path.path,
@@ -172,6 +204,7 @@ object Parquet:
               ownsStore = false,
               metadata = ParquetDataset.readMetadata(listed, options, None)
             )
+          end if
       end match
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
@@ -190,16 +223,42 @@ object Parquet:
       options: ParquetDatasetOptions,
       ownsStore: Boolean
   ): ParquetDataset =
+    if ParquetDataset.isIcebergMetadataFile(root, options) then
+      val step = ParquetDataset.icebergFromMetadataFile(
+        ObjectUri.parse(root).toString,
+        options,
+        objects = true
+      )
+      return ParquetDataset.icebergDataset(
+        ParquetDataset.runIceberg(step, Some(store), options.prefetch),
+        options,
+        Some(store),
+        ownsStore
+      )
     val (uri, matches, source) = objectPattern(root)
     val plainRoot              = source.isEmpty
     if !plainRoot then
       ParquetDataset.requireFiles(options, root)
     val listed =
-      if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
-        ParquetDataset.underLog(ParquetDataset.listObjects(store, ParquetDataset.deltaLogRoot(uri)))
-      else
+      if !plainRoot then
         ParquetDataset.listObjects(store, uri)
-    if plainRoot && ParquetDataset.isDelta(listed, options) then
+      else
+        tableListing(uri, options) match
+          case Some(dir) =>
+            ParquetDataset.under(dir, ParquetDataset.listObjects(store, subPrefix(uri, dir)))
+          case None =>
+            ParquetDataset.listObjects(store, uri)
+    if plainRoot && ParquetDataset.isIceberg(listed, options) &&
+      !ParquetDataset.isDelta(listed, options)
+    then
+      val step = ParquetDataset.icebergFromListing(uri.toString, listed, options, objects = true)
+      ParquetDataset.icebergDataset(
+        ParquetDataset.runIceberg(step, Some(store), options.prefetch),
+        options,
+        Some(store),
+        ownsStore
+      )
+    else if plainRoot && ParquetDataset.isDelta(listed, options) then
       val plan = ParquetDataset.deltaPlan(uri.toString, listed, options)
       ParquetDataset.deltaDataset(
         uri.toString,
@@ -220,8 +279,23 @@ object Parquet:
         source = source,
         metadata = ParquetDataset.readMetadata(listed, options, Some(store))
       )
+    end if
 
   end dataset
+
+  /** The folder that an explicit table format lists instead of the whole root */
+  private def tableListing(uri: ObjectUri, options: ParquetDatasetOptions): Option[String] =
+    options.tableFormat match
+      case ParquetTableFormat.Delta =>
+        Some(DeltaLog.LogDir)
+      case ParquetTableFormat.Iceberg =>
+        Some(IcebergTable.MetadataDir)
+      case _ =>
+        None
+
+  private def subPrefix(uri: ObjectUri, dir: String): ObjectUri = uri.copy(key =
+    s"${uri.key}${dir}/"
+  )
 
   /**
     * The prefix to list for a root or glob pattern, the filter for the listed paths, and how an
@@ -317,6 +391,33 @@ object Parquet:
       root: String,
       options: ParquetDatasetOptions,
       ownsStore: Boolean
+  ): Rx[ParquetDataset] =
+    if ParquetDataset.isIcebergMetadataFile(root, options) then
+      Rx.single(
+          ParquetDataset.icebergFromMetadataFile(
+            ObjectUri.parse(root).toString,
+            options,
+            objects = true
+          )
+        )
+        .flatMap(icebergAsync(_, store, options, ownsStore))
+    else
+      objectDatasetAsync(store, root, options, ownsStore)
+
+  private def icebergAsync(
+      step: IcebergTable.Step,
+      store: ObjectStore,
+      options: ParquetDatasetOptions,
+      ownsStore: Boolean
+  ): Rx[ParquetDataset] = ParquetDataset
+    .runIcebergAsync(step, store, options.prefetch)
+    .map(ParquetDataset.icebergDataset(_, options, Some(store), ownsStore))
+
+  private def objectDatasetAsync(
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetOptions,
+      ownsStore: Boolean
   ): Rx[ParquetDataset] = Rx
     .single(objectPattern(root))
     .flatMap { (uri, matches, source) =>
@@ -324,14 +425,22 @@ object Parquet:
       if !plainRoot then
         ParquetDataset.requireFiles(options, root)
       val listing =
-        if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
-          ParquetDataset
-            .listObjectsAsync(store, ParquetDataset.deltaLogRoot(uri))
-            .map(ParquetDataset.underLog)
-        else
-          ParquetDataset.listObjectsAsync(store, uri)
+        tableListing(uri, options).filter(_ => plainRoot) match
+          case Some(dir) =>
+            ParquetDataset
+              .listObjectsAsync(store, subPrefix(uri, dir))
+              .map(ParquetDataset.under(dir, _))
+          case None =>
+            ParquetDataset.listObjectsAsync(store, uri)
       listing.flatMap { listed =>
-        if plainRoot && ParquetDataset.isDelta(listed, options) then
+        if plainRoot && ParquetDataset.isIceberg(listed, options) &&
+          !ParquetDataset.isDelta(listed, options)
+        then
+          Rx.single(
+              ParquetDataset.icebergFromListing(uri.toString, listed, options, objects = true)
+            )
+            .flatMap(icebergAsync(_, store, options, ownsStore))
+        else if plainRoot && ParquetDataset.isDelta(listed, options) then
           val plan = ParquetDataset.deltaPlan(uri.toString, listed, options)
           ParquetDataset
             .fetchLogAsync(plan, store, options.prefetch)

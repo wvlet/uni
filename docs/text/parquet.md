@@ -457,8 +457,56 @@ val rawFiles = Parquet.dataset(
   `_delta_log/`, which skips listing old files that a vacuum hasn't removed yet.
   `withVersion` and `ParquetTableFormat.Delta` need the table's root, not a glob or a list of files.
 
-`_metadata` summary files and Apache Iceberg tables aren't supported yet, and Delta Lake tables
-aren't written.
+### Apache Iceberg Tables
+
+An Apache Iceberg table keeps its metadata under `metadata/`. Each commit writes a new
+`.metadata.json` file that lists the table's snapshots, and each snapshot lists its data files
+through Avro manifests. Like Delta, deletes and overwrites leave old files on disk until the
+snapshots expire. `Parquet.dataset` notices a `metadata/` folder with `.metadata.json` files at the
+root and reads only the files of the current snapshot, as Spark's `format("iceberg")` and DuckDB's
+`iceberg_scan` do:
+
+```scala
+val icebergTable = Parquet.dataset("s3://my-bucket/warehouse/db/visits/")
+val icebergSnapshot = Parquet.dataset(
+  "s3://my-bucket/warehouse/db/visits/",
+  ParquetDatasetOptions.default.withSnapshotId(4827129337210554812L) // time travel
+)
+// The metadata file that the catalog (Glue, REST, Hive) names as current
+val catalogVersion = Parquet.dataset(
+  "s3://my-bucket/warehouse/db/visits/metadata/00042-6c1b0a2e.metadata.json"
+)
+```
+
+- **Which metadata file.** With `metadata/version-hint.text` (Hadoop tables), the hinted version
+  is read. Otherwise the newest `.metadata.json` file is read. The table's catalog is the
+  authority on which file is current, and a rollback or a failed commit can leave a newer file
+  that isn't. When that matters, pass the catalog's metadata file as the root, as above. Two
+  files for the newest version fail, and the error asks for that file.
+- **Snapshots.** The current snapshot is read by default. `withSnapshotId(id)` reads an older one
+  that the metadata still lists, and an unknown id fails with the list of snapshots. The read uses
+  the snapshot's own schema.
+- **Columns** follow the snapshot's schema, in table order. A column the table dropped is hidden,
+  even where older files still hold it. A column added later reads as null in older files. The
+  `int`→`long` and `float`→`double` promotions widen as for any dataset.
+- **Partitions.** An identity partition on a `string`, `int`, `long`, or `date` column becomes a
+  partition column, with values from the manifests, so filters on it skip files. Other
+  partitions (`bucket`, `day`, `truncate`) need nothing, since the data files hold their source
+  columns. The `data/dt=.../` folders that Iceberg writers create are never read as `key=value`
+  partitions.
+- **Moved tables.** Iceberg records absolute paths. Paths under the table's recorded location
+  are read under the root you pass, so a copied or moved table reads too. Other paths must be in
+  the same bucket, or on the local file system for a local table.
+- **What fails** when the dataset opens, with the reason: delete files (merge-on-read deletes;
+  compact the table to rewrite them), format version 3, data files that aren't Parquet, and a
+  schema history with a renamed column or a column dropped and added again (the dataset matches
+  columns by name, and Iceberg by field id). The manifest Avro codecs `null`, `deflate`,
+  `snappy`, and `zstandard` are read.
+- **Format.** `ParquetTableFormat.Iceberg` fails when the root has no metadata and lists only
+  `metadata/`. A root with both `_delta_log/` and Iceberg metadata (Delta UniForm) reads as Delta.
+  `withSnapshotId` needs an Iceberg table, and `withVersion` a Delta table.
+
+`_metadata` summary files aren't supported yet, and Delta Lake and Iceberg tables aren't written.
 
 ## Writing a Dataset
 
