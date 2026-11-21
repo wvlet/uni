@@ -33,7 +33,8 @@ unreadable. Spark's `mergeSchema` and DuckDB's `union_by_name` merge such schema
 
 - Filters and `withColumns` address top-level columns only, so they need no change.
 - A legacy 2-level list whose repeated group has one child reads as a 3-level list (Parquet's
-  backward-compatibility rule), so such a struct gaining a second field changes the layout. The
-  merge handles that as a 3-level vs 2-level mix.
+  backward-compatibility rule), so its element is that child, not a struct. If a later file's
+  repeated group gains a second field, its element becomes a struct, and the merge fails with
+  "different types" (a primitive against a group).
 - An opt-out (strict schemas) can be added later as a dataset option if writer bugs hidden by
   null filling become a concern.
