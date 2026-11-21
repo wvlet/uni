@@ -231,4 +231,78 @@ class UiTelemetryTest extends DomTestSupport:
     UiTelemetrySink.datadogRum(js.undefined).send(UiEventBatch("s", Seq.empty), unloading = false)
   }
 
+  test("record a menu's open and close from its open state") {
+    val r    = Recorder()
+    val open = Rx.variable(false)
+    val time = RxTimeProvider.manual()
+    mount(div(Menu(open, trigger = Button("Actions"), entries = Seq(MenuItem("Copy")))))
+    val t = install(r, time)
+    time.advance(0)
+    t.flush()
+    // Mounted with its trigger, but not open
+    r.named("ui.open") shouldBe Seq.empty
+    pointerClick(find("button"))
+    settle().map { _ =>
+      open.get shouldBe true
+      ChangeGate.write(open, "open", false, ChangeCause.current, ChangeGate.noHandler)
+      t.flush()
+      r.named("ui.open").map(_.attributes("ui.kind")) shouldBe Seq("menu")
+      r.named("ui.close").map(_.attributes("ui.kind")) shouldBe Seq("menu")
+      t.uninstall()
+    }
+  }
+
+  test("attribute an agent's press to the agent") {
+    val r = Recorder()
+    mount(Button("Save"))
+    val t     = install(r)
+    val agent = UiAgent.install(AgentPolicy.allowAll)
+    agent
+      .act("button:save", "press")
+      .map { _ =>
+        t.flush()
+        r.named("ui.press").map(_.attributes("ui.source")) shouldBe Seq("agent")
+        agent.uninstall()
+        t.uninstall()
+      }
+  }
+
+  test("report the open tab and dialog when uninstalled") {
+    val r    = Recorder()
+    val open = Rx.variable(false)
+    val time = RxTimeProvider.manual()
+    mount(
+      div(
+        TabList(Rx.variable("a"), label = "Views", tabs = Seq(Tab("a", "Alpha"))),
+        Dialog(open, content = Seq(Button("Confirm")))
+      )
+    )
+    val t = install(r, time)
+    time.advance(0)
+    // Opened after the tabs: a modal dialog makes what is behind it inert
+    open := true
+    settle().map { _ =>
+      time.advance(0)
+      t.uninstall()
+      r.named("ui.view").map(_.ref) shouldBe Seq(Some("tabs:views"))
+      r.named("ui.close").map(_.attributes("ui.kind")) shouldBe Seq("dialog")
+    }
+  }
+
+  test("split relay requests by the relay's event and byte limits") {
+    val sink   = RelaySink("/x")
+    val events = (1 to 450).map(i =>
+      UiEvent("ui.press", i.toLong, Map("ui.ref" -> s"button:b${i}"))
+    )
+    val bodies = sink.chunks(UiEventBatch("s", events))
+    bodies.size shouldBe 3
+    bodies.map(b =>
+      JSON.parse(b).asInstanceOf[JSONObject].get("events").get.asInstanceOf[JSONArray].v.size
+    ) shouldBe Seq(200, 200, 50)
+    val wide  = (1 to 300).map(i => UiEvent("ui.view", i.toLong, Map("ui.value" -> ("表" * 100))))
+    val parts = sink.chunks(UiEventBatch("s", wide))
+    parts.forall(p => RelaySink.utf8Length(p) <= 48 * 1024) shouldBe true
+    (parts.size > 1) shouldBe true
+  }
+
 end UiTelemetryTest

@@ -50,7 +50,11 @@ case class UiEvent(name: String, timeMillis: Long, attributes: Map[String, Attri
   * @param pressKinds
   *   component kinds whose clicks are recorded as `ui.press`
   * @param openKinds
-  *   component kinds reported as `ui.open` / `ui.close` while they are mounted
+  *   component kinds reported as `ui.open` / `ui.close` as they mount and unmount, such as a
+  *   dialog, whose binding exists only while it is open
+  * @param openStateKinds
+  *   component kinds reported as `ui.open` / `ui.close` when their `open` state changes, such as a
+  *   menu, whose binding stays on its trigger
   * @param includeProgrammatic
   *   also record changes the app's own code makes, not only those of people and agents
   * @param mergeWindowMillis
@@ -64,7 +68,8 @@ case class UiTelemetryConfig(
     sampleRatio: Double = 1.0,
     valueKinds: Set[String] = Set("tabs"),
     pressKinds: Set[String] = Set("button", "menuitem"),
-    openKinds: Set[String] = Set("dialog", "menu", "commandpalette"),
+    openKinds: Set[String] = Set("dialog", "commandpalette"),
+    openStateKinds: Set[String] = Set("menu"),
     includeProgrammatic: Boolean = false,
     mergeWindowMillis: Long = 1000,
     flushIntervalMillis: Long = 5000,
@@ -83,6 +88,7 @@ case class UiTelemetryConfig(
   def noValues: UiTelemetryConfig                            = copy(valueKinds = Set.empty)
   def withPressKinds(kinds: String*): UiTelemetryConfig      = copy(pressKinds = kinds.toSet)
   def withOpenKinds(kinds: String*): UiTelemetryConfig       = copy(openKinds = kinds.toSet)
+  def withOpenStateKinds(kinds: String*): UiTelemetryConfig  = copy(openStateKinds = kinds.toSet)
   def withProgrammaticChanges(b: Boolean): UiTelemetryConfig = copy(includeProgrammatic = b)
   def withMergeWindowMillis(ms: Long): UiTelemetryConfig     = copy(mergeWindowMillis = ms)
   def withFlushIntervalMillis(ms: Long): UiTelemetryConfig   = copy(flushIntervalMillis = ms)
@@ -105,6 +111,7 @@ end UiTelemetryConfig
   *   - `ui.change`: a committed change through `onChange`, with its reason and source (pointer,
   *     keyboard, or agent), merged per drag and typing burst;
   *   - `ui.open` / `ui.close`: a dialog, menu, or command palette, with `duration.ms` on close;
+  *     they are also closed out by [[uninstall]];
   *   - `ui.view`: the time a tab stayed selected (`duration.ms`);
   *   - `command.run`: a command palette command, by its id.
   *
@@ -145,6 +152,8 @@ class UiTelemetry private (config: UiTelemetryConfig):
     val onHide: js.Function1[dom.Event, Unit] =
       _ =>
         if dom.document.visibilityState == "hidden" then
+          // The page may never come back: report the tab views so far, then keep timing
+          views.keys.toSeq.foreach(rollView)
           flush(unloading = true)
     dom.document.addEventListener("visibilitychange", onHide)
     dom.window.addEventListener("pagehide", onHide)
@@ -169,6 +178,11 @@ class UiTelemetry private (config: UiTelemetryConfig):
   /** Stop recording, and send what is queued. */
   def uninstall(): Unit =
     if installed then
+      // Close out what is still open, so the session's last view and dialog are reported
+      views.keys.toSeq.foreach(endView)
+      opened.keys.toSeq.foreach(closing)
+      views.clear()
+      pendingTimer.cancel
       installed = false
       cancelables.foreach(_.cancel)
       cancelables = Nil
@@ -218,13 +232,8 @@ class UiTelemetry private (config: UiTelemetryConfig):
       .filter(en => config.pressKinds.contains(en.binding.kind))
       .filterNot(en => AgentDom.isHidden(en.element) || AgentDom.isDisabled(en.element))
       .foreach { en =>
-        // A click from Enter or Space on a focused button has no pointer, so detail is 0
-        val source =
-          e match
-            case m: dom.MouseEvent if m.detail == 0 =>
-              ChangeSource.Keyboard
-            case _ =>
-              ChangeSource.Pointer
+        // An agent's press is a click inside ChangeSource.withSource(Agent)
+        val source = ChangeSource.scopedSource.getOrElse(ChangeSource.of(e))
         add(UiEvent("ui.press", now, target(en) + ("ui.source" -> sourceName(source))))
       }
 
@@ -232,39 +241,70 @@ class UiTelemetry private (config: UiTelemetryConfig):
     val d = r.details
     r.owner
       .flatMap(_.agent)
-      .filter(_ => config.includeProgrammatic || d.source != ChangeSource.Programmatic)
       .foreach { en =>
-        val kind  = en.binding.kind
-        var attrs =
-          target(en) ++
-            Map(
-              "ui.key"    -> d.key,
-              "ui.reason" -> d.reason.name,
-              "ui.source" -> sourceName(d.source)
-            )
-        if config.valueKinds.contains(kind) then
-          attrs += "ui.value" -> r.text(d.value)
-        val event = UiEvent("ui.change", now, attrs)
-        val ref   = attrs("ui.ref").asInstanceOf[String]
-        val key   = s"${ref}\u0000${d.key}"
-        pending match
-          case Some((_, k, g, at))
-              if k == key && (
-                g.exists(x => r.gesture.exists(_ eq x)) ||
-                  event.timeMillis - at <= config.mergeWindowMillis
-              ) =>
-            pending = Some((event, key, r.gesture, event.timeMillis))
-          case _ =>
-            flushPending()
-            pending = Some((event, key, r.gesture, event.timeMillis))
-        pendingTimer.cancel
-        pendingTimer = config.timeProvider.scheduleOnce(config.mergeWindowMillis)(flushPending())
-        if kind == "tabs" && views.contains(en.binding) then
-          endView(en.binding)
-          startView(en.binding, ref)
+        if config.openStateKinds.contains(en.binding.kind) && d.key == "open" then
+          // Whoever opens or closes it, app code included, so every open gets its close
+          d.value match
+            case true =>
+              opening(en.binding, en.binding.kind, AgentRegistry.refOf(en))
+            case _ =>
+              closing(en.binding)
+        else if config.includeProgrammatic || d.source != ChangeSource.Programmatic then
+          changed(r, en)
       }
 
-  end change
+  private def changed(r: AgentRegistry.Reported, en: AgentRegistry.Entry): Unit =
+    val d     = r.details
+    val kind  = en.binding.kind
+    var attrs =
+      target(en) ++
+        Map("ui.key" -> d.key, "ui.reason" -> d.reason.name, "ui.source" -> sourceName(d.source))
+    if config.valueKinds.contains(kind) then
+      attrs += "ui.value" -> r.text(d.value)
+    val event = UiEvent("ui.change", now, attrs)
+    val ref   = attrs("ui.ref").asInstanceOf[String]
+    val key   = s"${ref}\u0000${d.key}"
+    pending match
+      case Some((_, k, g, at))
+          if k == key && (
+            g.exists(x => r.gesture.exists(_ eq x)) ||
+              event.timeMillis - at <= config.mergeWindowMillis
+          ) =>
+        pending = Some((event, key, r.gesture, event.timeMillis))
+      case _ =>
+        flushPending()
+        pending = Some((event, key, r.gesture, event.timeMillis))
+    pendingTimer.cancel
+    pendingTimer = config.timeProvider.scheduleOnce(config.mergeWindowMillis)(flushPending())
+    if kind == "tabs" && views.contains(en.binding) then
+      endView(en.binding)
+      startView(en.binding, ref)
+
+  private def opening(b: AgentBinding, kind: String, ref: String): Unit =
+    if !opened.contains(b) then
+      opened(b) = (kind, ref, now)
+      add(UiEvent("ui.open", now, Map("ui.kind" -> kind, "ui.ref" -> ref)))
+
+  private def closing(b: AgentBinding): Unit = opened
+    .get(b)
+    .foreach { (kind, ref, since) =>
+      opened.remove(b)
+      add(
+        UiEvent(
+          "ui.close",
+          now,
+          Map("ui.kind" -> kind, "ui.ref" -> ref, "duration.ms" -> (now - since))
+        )
+      )
+    }
+
+  // Report the view so far and keep timing the same tab
+  private def rollView(b: AgentBinding): Unit = views
+    .get(b)
+    .foreach { (ref, label, _) =>
+      endView(b)
+      views(b) = (ref, label, now)
+    }
 
   private def flushPending(): Unit =
     pending.foreach((e, _, _, _) => add(e))
@@ -294,7 +334,8 @@ class UiTelemetry private (config: UiTelemetryConfig):
 
   private def mount(e: AgentRegistry.Entry, mounted: Boolean): Unit =
     val kind = e.binding.kind
-    if config.openKinds.contains(kind) || kind == "tabs" then
+    if (config.openKinds.contains(kind) && !config.openStateKinds.contains(kind)) || kind == "tabs"
+    then
       if mounted then
         // Labels and refs resolve once the element is in the document
         config
@@ -307,9 +348,8 @@ class UiTelemetry private (config: UiTelemetryConfig):
               if kind == "tabs" then
                 if !views.contains(e.binding) then
                   startView(e.binding, ref)
-              else if !opened.contains(e.binding) then
-                opened(e.binding) = (kind, ref, now)
-                add(UiEvent("ui.open", now, Map("ui.kind" -> kind, "ui.ref" -> ref)))
+              else
+                opening(e.binding, kind, ref)
           }
       else
         // A re-render replaces the element and mounts the binding again right away; wait to see
@@ -321,18 +361,7 @@ class UiTelemetry private (config: UiTelemetryConfig):
                 endView(e.binding)
                 views.remove(e.binding)
               else
-                opened
-                  .get(e.binding)
-                  .foreach { (k, ref, since) =>
-                    opened.remove(e.binding)
-                    add(
-                      UiEvent(
-                        "ui.close",
-                        now,
-                        Map("ui.kind" -> k, "ui.ref" -> ref, "duration.ms" -> (now - since))
-                      )
-                    )
-                  }
+                closing(e.binding)
           }
     end if
 

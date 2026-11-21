@@ -28,7 +28,10 @@ import scala.util.control.NonFatal
   *
   * The endpoint is open to anyone who can reach the page, so it accepts only what `UiTelemetry`
   * sends and drops the rest of the request:
-  *   - `POST` with a JSON body of at most `maxBodyBytes`, and at most `maxEvents` events;
+  *   - `POST` with an `application/json` body of at most `maxBodyBytes`, and at most `maxEvents`
+  *     events. Browsers send that content type cross-site only after a CORS preflight, which the
+  *     relay doesn't answer;
+  *   - an `Origin` header, when present, whose host matches the request's `Host`;
   *   - event names under `ui.` or `command.`, attribute keys of lower-case letters, digits, `.`,
   *     and `_`, at most `maxAttributes` per event, and string values cut to `maxValueLength`.
   *
@@ -42,7 +45,7 @@ case class UiTelemetryRelay(
     telemetry: Telemetry,
     path: String = UiTelemetryRelay.DefaultPath,
     maxBodyBytes: Int = 64 * 1024,
-    maxEvents: Int = 200,
+    maxEvents: Int = UiTelemetryRelay.DefaultMaxEvents,
     maxAttributes: Int = 24,
     maxValueLength: Int = 256
 ) extends RxHttpFilter:
@@ -59,6 +62,11 @@ case class UiTelemetryRelay(
       Rx.single(Response(HttpStatus.MethodNotAllowed_405).addHeader(HttpHeader.Allow, "POST"))
     else if request.content.length > maxBodyBytes then
       Rx.single(Response(HttpStatus.PayloadTooLarge_413))
+    else if !request.contentType.exists(_.isJson) then
+      // A cross-site page can post text/plain with no preflight, but not application/json
+      Rx.single(Response(HttpStatus.UnsupportedMediaType_415))
+    else if !UiTelemetryRelay.isSameOrigin(request) then
+      Rx.single(Response(HttpStatus.Forbidden_403))
     else
       Rx.single(relay(request))
 
@@ -137,6 +145,23 @@ end UiTelemetryRelay
 object UiTelemetryRelay:
   /** The path `UiTelemetry`'s relay sink posts to by default. */
   val DefaultPath: String = "/_uni/telemetry/ui"
+
+  /** The most events in one request, by default; `UiTelemetry` splits its batches to fit. */
+  val DefaultMaxEvents: Int = 200
+
+  // Browsers send Origin on every cross-origin POST; a request without one isn't from another site
+  private def isSameOrigin(request: Request): Boolean =
+    request.header(HttpHeader.Origin) match
+      case None =>
+        true
+      case Some(origin) =>
+        val authority =
+          origin.indexOf("://") match
+            case -1 =>
+              origin
+            case i =>
+              origin.substring(i + 3)
+        request.host.exists(_.equalsIgnoreCase(authority))
 
   private def isEventName(s: String): Boolean =
     s.length <= 64 &&

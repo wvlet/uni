@@ -22,10 +22,10 @@ it first and install afterwards.
 
 | Event | When | Attributes |
 |-------|------|------------|
-| `ui.press` | A button or menu item is clicked, or pressed with Enter or Space | `ui.kind`, `ui.ref`, `ui.source` (`pointer` or `keyboard`) |
+| `ui.press` | A button or menu item is clicked, or pressed with Enter or Space | `ui.kind`, `ui.ref`, `ui.source` (`pointer`, `keyboard`, or `agent`) |
 | `ui.change` | A component commits a change through `onChange` | `ui.kind`, `ui.ref`, `ui.key`, `ui.reason`, `ui.source` (`pointer`, `keyboard`, or `agent`), and `ui.value` for `valueKinds` |
-| `ui.open` / `ui.close` | A dialog, menu, or command palette mounts or unmounts | `ui.kind`, `ui.ref`, and `duration.ms` on close |
-| `ui.view` | A tab stops being selected | `ui.ref`, `duration.ms`, and the tab's label as `ui.value` |
+| `ui.open` / `ui.close` | A dialog, menu, or command palette opens or closes | `ui.kind`, `ui.ref`, and `duration.ms` on close |
+| `ui.view` | A tab stops being selected, the page is hidden, or telemetry is uninstalled | `ui.ref`, `duration.ms`, and the tab's label as `ui.value` |
 | `command.run` | A command palette runs a command | `command.id`, `ui.source` |
 
 What gets recorded and how:
@@ -88,7 +88,11 @@ origin and shouldn't face the internet. The relay is the only endpoint that does
 Anyone who can load the page can reach that endpoint, so the relay accepts only what
 `UiTelemetry` sends:
 
-- At most 64 KiB and 200 events per request.
+- `application/json` only, which a browser sends to another site only after a CORS preflight
+  that the relay doesn't answer.
+- When the request has an `Origin` header, its host must match the request's `Host`.
+- At most 64 KiB and 200 events per request. `UiTelemetrySink.relay()` splits its batches to
+  fit.
 - Event names under `ui.` or `command.`.
 - Lower-case attribute keys, string values cut to 256 characters, and no nested values.
 

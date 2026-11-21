@@ -90,44 +90,77 @@ object UiTelemetrySink:
 end UiTelemetrySink
 
 private class RelaySink(path: String) extends UiTelemetrySink:
-  // fetch keepalive allows 64 KiB in flight per page; leave room for headers
-  private val MaxBodyChars = 48 * 1024
+  // Each request stays under the relay's limits, in UTF-8 bytes and events
+  private val MaxBodyBytes = 48 * 1024
+  private val MaxEvents    = UiTelemetryRelay.DefaultMaxEvents
+  // fetch keepalive allows 64 KiB in flight per page across all requests; leave room for headers
+  private val KeepaliveBudget = 60 * 1024
 
-  override def send(batch: UiEventBatch, unloading: Boolean): Unit = chunks(batch).foreach { b =>
-    val init = js
-      .Dynamic
-      .literal(
-        method = "POST",
-        body = UiTelemetrySink.toJson(b).toJSON,
-        keepalive = true,
-        credentials = "same-origin",
-        headers = js.Dynamic.literal("Content-Type" -> "application/json")
-      )
-    val p = js.Dynamic.global.fetch(path, init)
-    // A failed send is dropped: telemetry never surfaces errors to the page
-    p.`catch`((_: js.Any) => ())
-  }
+  override def send(batch: UiEventBatch, unloading: Boolean): Unit =
+    var keepaliveBytes = 0
+    chunks(batch).foreach { body =>
+      val bytes = RelaySink.utf8Length(body)
+      // Requests past the shared budget go without keepalive: they finish unless the page closes
+      val keepalive = keepaliveBytes + bytes <= KeepaliveBudget
+      if keepalive then
+        keepaliveBytes += bytes
+      val init = js
+        .Dynamic
+        .literal(
+          method = "POST",
+          body = body,
+          keepalive = keepalive,
+          credentials = "same-origin",
+          headers = js.Dynamic.literal("Content-Type" -> "application/json")
+        )
+      val p = js.Dynamic.global.fetch(path, init)
+      // A failed send is dropped: telemetry never surfaces errors to the page
+      p.`catch`((_: js.Any) => ())
+    }
 
-  private def chunks(batch: UiEventBatch): Seq[UiEventBatch] =
-    val out     = Seq.newBuilder[UiEventBatch]
-    var current = Vector.empty[UiEvent]
-    var size    = 0
+  /** The batch as JSON request bodies, each within the relay's byte and event limits. */
+  private[telemetry] def chunks(batch: UiEventBatch): Seq[String] =
+    val out          = Seq.newBuilder[String]
+    var current      = Vector.empty[UiEvent]
+    var size         = 0
+    def emit(): Unit =
+      if current.nonEmpty then
+        out += UiTelemetrySink.toJson(UiEventBatch(batch.sessionId, current)).toJSON
+        current = Vector.empty
+        size = 0
     batch
       .events
       .foreach { e =>
-        val n = UiTelemetrySink.toJson(UiEventBatch(batch.sessionId, Seq(e))).toJSON.length
-        if current.nonEmpty && size + n > MaxBodyChars then
-          out += UiEventBatch(batch.sessionId, current)
-          current = Vector.empty
-          size = 0
+        val n = RelaySink.utf8Length(
+          UiTelemetrySink.toJson(UiEventBatch(batch.sessionId, Seq(e))).toJSON
+        )
+        if size + n > MaxBodyBytes || current.size >= MaxEvents then
+          emit()
         current :+= e
         size += n
       }
-    if current.nonEmpty then
-      out += UiEventBatch(batch.sessionId, current)
+    emit()
     out.result()
 
 end RelaySink
+
+private object RelaySink:
+  def utf8Length(s: String): Int =
+    var n = 0
+    var i = 0
+    while i < s.length do
+      val c = s.charAt(i)
+      if c < 0x80 then
+        n += 1
+      else if c < 0x800 then
+        n += 2
+      else if Character.isHighSurrogate(c) && i + 1 < s.length then
+        n += 4
+        i += 1
+      else
+        n += 3
+      i += 1
+    n
 
 private class DatadogRumSink(rum: () => js.UndefOr[js.Dynamic]) extends UiTelemetrySink:
   override def send(batch: UiEventBatch, unloading: Boolean): Unit = rum()

@@ -106,6 +106,23 @@ class UiTelemetryRelayTest extends UniTest:
     events.events shouldBe Seq.empty
   }
 
+  test("accept only JSON from the page's own origin") {
+    val (events, relay) = setup()
+    val body            = """{"events":[{"name":"ui.press"}]}"""
+    val plain           = Request.post(UiTelemetryRelay.DefaultPath).withTextContent(body)
+    run(relay(plain, app)).status shouldBe HttpStatus.UnsupportedMediaType_415
+    val crossSite = post(body)
+      .addHeader(HttpHeader.Host, "app.example.com")
+      .addHeader(HttpHeader.Origin, "https://evil.example.net")
+    run(relay(crossSite, app)).status shouldBe HttpStatus.Forbidden_403
+    events.events shouldBe Seq.empty
+    val sameSite = post(body)
+      .addHeader(HttpHeader.Host, "app.example.com")
+      .addHeader(HttpHeader.Origin, "https://app.example.com")
+    run(relay(sameSite, app)).status shouldBe HttpStatus.NoContent_204
+    events.events.size shouldBe 1
+  }
+
   test("pass other requests through") {
     val (_, relay) = setup()
     run(relay(Request.get("/index.html"), app)).contentAsString shouldBe Some("app")
