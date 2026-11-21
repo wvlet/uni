@@ -10,7 +10,7 @@ mirrors the state each operator keeps in `RxRunner`:
   nested stream have both ended;
 - `split` keeps one row var per key;
 - `zip` buffers values per source, and `join` keeps the latest value per source;
-- `take(n)` stops forwarding after a downstream `Stop` or the nth value;
+- `take(n)` stops forwarding after the nth value (a downstream `Stop` before it is transient);
 - `cancel` ends a subscription between two actions.
 
 `RxVar` is synchronous: `:=`, `stop()`, and `setException` deliver to every subscriber before they
@@ -19,14 +19,13 @@ every platform. A var delivers a value only when it differs from the current one
 stopped or failed gets no further actions, as `RxVar`'s contract leaves later updates undefined;
 the generated scripts respect this.
 
-The sink records every event it receives. It answers as `RxRunner.run` does (`Stop` to a terminal
-event) or, for `take`, as `runOnce` does (`Stop` to every event). `RxVar` ignores `Stop`, so the
+The sink records every event it receives and answers `Stop` to a non-value event. `RxRunner` has
+one semantics (`adr/2026-11-21-rx-single-mode.md`): an error raised by an operator (a throwing
+function) passes and the stream continues, a `Stop` after it is transient, and a var's failure
+(`setException`) is a failed `OnCompletion`, the end of that var. `RxVar` ignores `Stop`, so the
 model, like `RxRunner`, can deliver events after a terminal one where an operator does not guard
 against them. `GenRxLiveCases.lean` evaluates the model, and `RxLiveFanIn.lean` (`merge`,
 `parFlatMap`), to generate the cases that `RxLiveSpecTest` replays.
-
-A pipeline runs in default mode (`RxRunner.run`) or continuous mode (`runContinuously`, used by DOM
-rendering), where operators treat errors and `Stop` as transient.
 -/
 
 namespace UniSpec.RxLive
@@ -84,12 +83,6 @@ def Vars.apply (vs : Vars) : Action → Option (Nat × VarEvent) × Vars
     else (some (i, .fail), { vs with ended := fun j => j == i || vs.ended j })
   | .cancel => (none, vs)
 
-/-- `RxRunner(continuous = false)` or `RxRunner(continuous = true)`. -/
-inductive Mode where
-  | default
-  | continuous
-  deriving Repr, DecidableEq
-
 /-- Var `i` starts with `i * 10`, except var 0, which starts with 1. -/
 def initVars : Vars := { val := fun i => if i = 0 then 1 else i * 10, ended := fun _ => false }
 
@@ -113,7 +106,7 @@ theorem runFrom_silent {σ : Type} (step : σ → Action → σ × List Out) (p 
 
 Var 0 is the input. The function maps the input value 1 to var 1, 2 to var 2, and throws on any
 other value. `transformRx` maps an input error to var 2. A var's own failure (`setException`) ends
-the var with a failed `OnCompletion` in either mode, so the operator completes once the nested
+the var with a failed `OnCompletion`, so the operator completes once the nested
 stream built from it ends. -/
 
 /-- The nested var for an input value; `none` when the function throws. -/
@@ -127,7 +120,6 @@ inductive SwitchKind where
 
 structure Switch where
   vars : Vars
-  mode : Mode := .default
   /-- The subscription is not cancelled -/
   live : Bool := true
   /-- The var of the current nested stream. Every earlier one is cancelled. -/
@@ -186,11 +178,11 @@ def Switch.step (k : SwitchKind) (s : Switch) (a : Action) : Switch × List Out 
     else ({ s with vars := vs }).onNested i e
 
 /-- Subscribe: the input var delivers its current value, 1, at once. -/
-def Switch.init (k : SwitchKind) (m : Mode := .default) : Switch × List Out :=
-  Switch.onInput k { vars := initVars, mode := m } (.next 1)
+def Switch.init (k : SwitchKind) : Switch × List Out :=
+  Switch.onInput k { vars := initVars } (.next 1)
 
-def runSwitch (k : SwitchKind) (as : List Action) (m : Mode := .default) : List Out :=
-  (Switch.init k m).2 ++ runFrom (Switch.step k) (Switch.init k m).1 as
+def runSwitch (k : SwitchKind) (as : List Action) : List Out :=
+  (Switch.init k).2 ++ runFrom (Switch.step k) (Switch.init k).1 as
 
 theorem Switch.step_cancelled (k : SwitchKind) (s : Switch) (a : Action) (h : s.live = false) :
     (s.step k a).1.live = false ∧ (s.step k a).2 = [] := by
@@ -259,9 +251,8 @@ example : runSwitch .flatMap [.set 1 11, .set 0 2, .set 0 1] = [.next 10, .next 
 /-- A throwing function cancels the previous nested stream too. -/
 example : runSwitch .flatMap [.set 0 0, .set 1 11, .stop 0] = [.next 10, .fail, .done] := by decide
 
-/-- A var's failure ends the input in either mode, so `transformRx` completes after its nested
-stream. -/
-example : runSwitch .transformRx [.fail 0, .stop 2] .continuous = [.next 10, .next 20, .done] := by
+/-- A var's failure ends the input, so `transformRx` completes after its nested stream. -/
+example : runSwitch .transformRx [.fail 0, .stop 2] = [.next 10, .next 20, .done] := by
   decide
 example : runSwitch .transformRx [.fail 0, .stop 2] = [.next 10, .next 20, .done] := by decide
 
@@ -271,11 +262,10 @@ The input is `var0.map(g)`, where `g` throws on some values without ending the v
 that `f` recovers with var 1, on 3 an error that `f` rejects, and on 4 an error on which `f`
 throws. `f` recovers the var's own failure with var 2.
 
-In default mode a recovered error ends the input: the input is cancelled, and the operator ends
-with the recovery stream. In continuous mode the input stays subscribed, its next value cancels
-the recovery stream, and the recovery stream's completion does not end the stream, because the
-input continues past the error (the R3 model, `RxR3Ops.recoverWith`). The var's own failure ends
-the input in either mode. A new recovery always cancels the previous one. -/
+A recovered operator error keeps the input subscribed: its next value cancels the recovery stream,
+and the recovery stream's completion does not end the stream, because the input continues past the
+error (the R3 model, `RxR3Ops.recoverWith`). The var's own failure ends the input, and the operator
+ends with the recovery stream. A new recovery always cancels the previous one. -/
 
 /-- What `g` and `f` do with an input value. -/
 inductive Mapped where
@@ -294,7 +284,6 @@ def mapped (x : Int) : Mapped :=
 
 structure RecoverWith where
   vars : Vars
-  mode : Mode := .default
   /-- Not cancelled -/
   live : Bool := true
   /-- The input subscription is not cancelled -/
@@ -302,10 +291,10 @@ structure RecoverWith where
   /-- The var of the current recovery stream -/
   recovery : Option Nat := none
 
-/-- Recover with var `i`: cancel the previous recovery stream, end the input in default mode, and
-subscribe to var `i`, which delivers its current value at once. -/
+/-- Recover with var `i`: cancel the previous recovery stream and subscribe to var `i`, which
+delivers its current value at once. The input stays subscribed. -/
 def RecoverWith.recover (s : RecoverWith) (i : Nat) : RecoverWith × List Out :=
-  ({ s with recovery := some i, input := s.mode == .continuous }, [.next (s.vars.val i)])
+  ({ s with recovery := some i, input := true }, [.next (s.vars.val i)])
 
 def RecoverWith.onInput (s : RecoverWith) : VarEvent → RecoverWith × List Out
   | .next x =>
@@ -314,11 +303,11 @@ def RecoverWith.onInput (s : RecoverWith) : VarEvent → RecoverWith × List Out
     | .rejected => (s, [.fail])
     | .throws => ({ s with recovery := none }, [.fail])
     | .value v =>
-      -- In continuous mode a new input value replaces the recovery stream
-      let s := if s.mode == .continuous then { s with recovery := none } else s
+      -- A new input value replaces the recovery stream
+      let s := { s with recovery := none }
       (s, [.next v])
   | .done => (s, [.done])
-  -- The var's failure ends the input in either mode
+  -- The var's failure ends the input
   | .fail =>
     let r := s.recover 2
     ({ r.1 with input := false }, r.2)
@@ -342,11 +331,11 @@ def RecoverWith.step (s : RecoverWith) (a : Action) : RecoverWith × List Out :=
     if s.live then ({ s with vars := vs }).onVar i e else ({ s with vars := vs }, [])
 
 /-- Subscribe: the input var delivers its current value, 1, at once. -/
-def RecoverWith.init (m : Mode) : RecoverWith × List Out :=
-  RecoverWith.onInput { vars := initVars, mode := m } (.next 1)
+def RecoverWith.init : RecoverWith × List Out :=
+  RecoverWith.onInput { vars := initVars } (.next 1)
 
-def runRecoverWith (m : Mode) (as : List Action) : List Out :=
-  (RecoverWith.init m).2 ++ runFrom RecoverWith.step (RecoverWith.init m).1 as
+def runRecoverWith (as : List Action) : List Out :=
+  RecoverWith.init.2 ++ runFrom RecoverWith.step RecoverWith.init.1 as
 
 theorem RecoverWith.step_cancelled (s : RecoverWith) (a : Action) (h : s.live = false) :
     (s.step a).1.live = false ∧ (s.step a).2 = [] := by
@@ -358,11 +347,6 @@ theorem recoverWith_cancel (s : RecoverWith) (as : List Action) :
     runFrom RecoverWith.step (s.step .cancel).1 as = [] :=
   runFrom_silent _ (fun s => s.live = false) (fun s a h => RecoverWith.step_cancelled s a h) _ _
     (by simp [RecoverWith.step, Vars.apply])
-
-/-- A recovered error in default mode ends the input. -/
-theorem recoverWith_recover_ends_input (s : RecoverWith) (i : Nat) (h : s.mode = .default) :
-    (s.recover i).1.input = false ∧ (s.recover i).1.recovery = some i := by
-  simp [RecoverWith.recover, h]
 
 /-- Once the input has ended, the sink gets exactly the recovery var's events: the input reaches
 the sink with nothing, and the recovery stream is never replaced. -/
@@ -381,16 +365,14 @@ theorem recoverWith_after_input (s : RecoverWith) (a : Action) (h : s.input = fa
         · simp [h, hi]
     · simp [hl, h]
 
-/-- Default mode: input values after the recovered error are dropped, and the recovery var ends
-the operator. -/
-example : runRecoverWith .default [.set 0 0, .set 0 2, .set 1 11, .stop 1, .stop 0] =
-    [.next 1, .next 10, .next 11, .done] := by decide
-/-- Continuous mode: the next input value switches back from the recovery stream, so the
-recovery var's change is dropped until the next recovery subscribes to it again. -/
-example : runRecoverWith .continuous [.set 0 0, .set 0 2, .set 1 11, .set 0 0] =
+/-- The next input value switches back from the recovery stream, so the recovery var's change is
+dropped until the next recovery subscribes to it again. -/
+example : runRecoverWith [.set 0 0, .set 0 2, .set 1 11, .set 0 0] =
     [.next 1, .next 10, .next 2, .next 11] := by decide
 /-- An error `f` rejects reaches the sink, and the input stays subscribed. -/
-example : runRecoverWith .default [.set 0 3, .set 0 2] = [.next 1, .fail, .next 2] := by decide
+example : runRecoverWith [.set 0 3, .set 0 2] = [.next 1, .fail, .next 2] := by decide
+/-- The var's own failure ends the input: the operator ends with the recovery var. -/
+example : runRecoverWith [.fail 0, .set 0 5, .stop 2] = [.next 1, .next 20, .done] := by decide
 
 /-! ## split
 
@@ -669,7 +651,7 @@ theorem zip_buffers (s : Combine) (i : Nat) (v : Int) (hok : s.ea ≠ .fail ∧ 
     rcases hqa : s.qa with _ | ⟨x, qa⟩ <;> rcases hqb : s.qb with _ | ⟨y, qb⟩ <;>
     simp_all [Combine.on, Combine.process, Combine.emit] <;> split <;> simp_all
 
-/-- In default mode, `zip` over two vars keeps pairing: it does not complete after the first. -/
+/-- `zip` over two vars keeps pairing: it does not complete after the first. -/
 example : runCombine .zip [.set 0 2, .set 1 20] = [.pair 1 10, .pair 2 20] := by decide
 /-- The shorter source ends `zip` once its buffered values are paired. -/
 example : runCombine .zip [.set 0 2, .stop 0, .set 1 20] = [.pair 1 10, .pair 2 20, .done] := by
@@ -680,16 +662,10 @@ example : runCombine .join [.set 0 2, .stop 0, .set 1 20, .stop 1] =
 /-- An error fails the operator once. -/
 example : runCombine .join [.fail 0, .fail 1, .set 1 20] = [.pair 1 10, .fail] := by decide
 
-/-! ## take(n) and a downstream Stop
+/-! ## take(n)
 
-Var 0 starts with 1. -/
-
-/-- How the sink answers a value: `Continue` (`RxRunner.run`) or `Stop` (`runOnce`, before its
-own filter). Both answer `Stop` to a terminal event. -/
-inductive Sink where
-  | run
-  | once
-  deriving Repr, DecidableEq
+Var 0 starts with 1. A downstream `Stop` before the nth value is transient: the sink answers it to
+an error, which `take` passes on without counting. -/
 
 structure Take where
   vars : Vars
@@ -698,72 +674,56 @@ structure Take where
   /-- `take` forwards nothing more -/
   done : Bool := false
 
-def Take.on (n : Nat) (sink : Sink) (s : Take) : VarEvent → Take × List Out
+def Take.on (n : Nat) (s : Take) : VarEvent → Take × List Out
   | .next v =>
     if s.done then (s, [])
-    else if s.count + 1 < n then
-      -- A downstream Stop before the nth value: forward nothing more, but stay subscribed
-      ({ s with count := s.count + 1, done := sink == .once }, [.next v])
+    else if s.count + 1 < n then ({ s with count := s.count + 1 }, [.next v])
     else
-      -- The nth value: complete unless the downstream stopped, and cancel the upstream
-      ({ s with count := s.count + 1, done := true, live := false },
-        .next v :: if sink == .run then [.done] else [])
+      -- The nth value: complete, and cancel the upstream
+      ({ s with count := s.count + 1, done := true, live := false }, [.next v, .done])
   | .done => if s.done then (s, []) else ({ s with done := true, live := false }, [.done])
   | .fail => if s.done then (s, []) else ({ s with done := true, live := false }, [.fail])
 
-def Take.step (n : Nat) (sink : Sink) (s : Take) (a : Action) : Take × List Out :=
+def Take.step (n : Nat) (s : Take) (a : Action) : Take × List Out :=
   match s.vars.apply a with
   | (none, vs) =>
     if a = .cancel then ({ s with vars := vs, live := false }, [])
     else ({ s with vars := vs }, [])
   | (some (_, e), vs) =>
-    if s.live then ({ s with vars := vs }).on n sink e else ({ s with vars := vs }, [])
+    if s.live then ({ s with vars := vs }).on n e else ({ s with vars := vs }, [])
 
 /-- `take(0)` completes without subscribing. -/
-def Take.init (n : Nat) (sink : Sink) : Take × List Out :=
+def Take.init (n : Nat) : Take × List Out :=
   if n = 0 then ({ vars := initVars, live := false, done := true }, [.done])
-  else Take.on n sink { vars := initVars } (.next 1)
+  else Take.on n { vars := initVars } (.next 1)
 
-def runTake (n : Nat) (sink : Sink) (as : List Action) : List Out :=
-  (Take.init n sink).2 ++ runFrom (Take.step n sink) (Take.init n sink).1 as
+def runTake (n : Nat) (as : List Action) : List Out :=
+  (Take.init n).2 ++ runFrom (Take.step n) (Take.init n).1 as
 
-theorem Take.step_done (n : Nat) (sink : Sink) (s : Take) (a : Action) (h : s.done = true) :
-    (s.step n sink a).1.done = true ∧ (s.step n sink a).2 = [] := by
+theorem Take.step_done (n : Nat) (s : Take) (a : Action) (h : s.done = true) :
+    (s.step n a).1.done = true ∧ (s.step n a).2 = [] := by
   unfold Take.step
   rcases hap : s.vars.apply a with ⟨_ | ⟨i, e⟩, vs⟩
   · by_cases hc : a = .cancel <;> simp [hc, h]
   · by_cases hl : s.live = true <;> cases e <;> simp [hl, h, Take.on]
 
-theorem Take.step_cancelled (n : Nat) (sink : Sink) (s : Take) (a : Action)
-    (h : s.live = false) : (s.step n sink a).1.live = false ∧ (s.step n sink a).2 = [] := by
+theorem Take.step_cancelled (n : Nat) (s : Take) (a : Action)
+    (h : s.live = false) : (s.step n a).1.live = false ∧ (s.step n a).2 = [] := by
   unfold Take.step
   split <;> (try split) <;> simp_all
 
-/-- With a sink that answers `Stop` to every event, as `runOnce` does, `take(n)` delivers exactly
-one event, however the var changes, completes, or fails afterwards. -/
-theorem take_once (n : Nat) (as : List Action) : runTake n .once as = (Take.init n .once).2 ∧
-    (Take.init n .once).2.length = 1 := by
-  have hd : (Take.init n .once).1.done = true := by
-    unfold Take.init
-    by_cases h0 : n = 0
-    · simp [h0]
-    · by_cases h1 : 1 < n <;> simp [h0, h1, Take.on]
-  refine ⟨?_, ?_⟩
-  · simp only [runTake,
-      runFrom_silent _ (fun s => s.done = true) (fun s a h => Take.step_done n .once s a h) _ _ hd,
-      List.append_nil]
-  · unfold Take.init
-    by_cases h0 : n = 0
-    · simp [h0]
-    · by_cases h1 : 1 < n <;> simp [h0, h1, Take.on]
-
 /-- After `cancel`, the sink records nothing more. -/
-theorem take_cancel (n : Nat) (sink : Sink) (s : Take) (as : List Action) :
-    runFrom (Take.step n sink) (s.step n sink .cancel).1 as = [] :=
-  runFrom_silent _ (fun s => s.live = false) (fun s a h => Take.step_cancelled n sink s a h) _ _
+theorem take_cancel (n : Nat) (s : Take) (as : List Action) :
+    runFrom (Take.step n) (s.step n .cancel).1 as = [] :=
+  runFrom_silent _ (fun s => s.live = false) (fun s a h => Take.step_cancelled n s a h) _ _
     (by simp [Take.step, Vars.apply])
 
-example : runTake 2 .run [.set 0 2, .set 0 3] = [.next 1, .next 2, .done] := by decide
-example : runTake 2 .once [.set 0 2, .stop 0] = [.next 1] := by decide
+/-- After the nth value, `take` completes and the sink records nothing more. -/
+theorem take_done (n : Nat) (as : List Action) (s : Take) (h : s.done = true) :
+    runFrom (Take.step n) s as = [] :=
+  runFrom_silent _ (fun s => s.done = true) (fun s a h => Take.step_done n s a h) _ _ h
+
+example : runTake 2 [.set 0 2, .set 0 3] = [.next 1, .next 2, .done] := by decide
+example : runTake 2 [.set 0 2, .stop 0] = [.next 1, .next 2, .done] := by decide
 
 end UniSpec.RxLive

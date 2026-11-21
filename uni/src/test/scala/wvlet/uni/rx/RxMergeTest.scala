@@ -96,7 +96,7 @@ class RxMergeTest extends UniTest:
     }
   }
 
-  test("merge keeps running after a transient error in continuous mode") {
+  test("merge keeps running after an error") {
     val a      = Rx.variable(1)
     val b      = Rx.variable(10)
     val events = mutable.ArrayBuffer.empty[RxEvent]

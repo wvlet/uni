@@ -49,20 +49,17 @@ class RxLiveSpecTest extends UniTest:
   private def failure = IllegalStateException("spec failure")
 
   /**
-    * Records what the sink receives. It answers Stop to a terminal event, as RxRunner.run does, or
-    * to every event, as runOnce does before its own filter.
+    * Records what the sink receives. It answers Stop to a non-value event, as RxRunner's entry
+    * points do.
     */
-  private class Sink(stopEvery: Boolean = false):
+  private class Sink:
     val records = mutable.ArrayBuffer.empty[String]
 
     def apply(ev: RxEvent): RxResult =
       ev match
         case OnNext(v) =>
           onValue(v)
-          if stopEvery then
-            RxResult.Stop
-          else
-            RxResult.Continue
+          RxResult.Continue
         case OnCompletion(Result.Success(_)) =>
           records += "C"
           RxResult.Stop
@@ -99,17 +96,7 @@ class RxLiveSpecTest extends UniTest:
     )
   }
 
-  private val defaultRunner    = RxRunner(continuous = false)
-  private val continuousRunner = RxRunner(continuous = true)
-
-  // An operator ending in :continuous runs as runContinuously does
-  private def runnerFor(op: String): RxRunner =
-    if op.endsWith(":continuous") then
-      continuousRunner
-    else
-      defaultRunner
-
-  private def baseOp(op: String): String = op.stripSuffix(":continuous")
+  private val runner = RxRunner()
 
   private def runScript(script: String, vars: IndexedSeq[RxVar[Int]], cancel: () => Unit): Unit =
     actions(script).foreach { a =>
@@ -137,7 +124,7 @@ class RxLiveSpecTest extends UniTest:
   private def runSwitch(op: String, script: String): String =
     val vars = newVars(3)
     val rx   =
-      baseOp(op) match
+      op match
         case "flatMap" =>
           vars(0).flatMap(target(vars))
         case _ =>
@@ -148,7 +135,7 @@ class RxLiveSpecTest extends UniTest:
               vars(2)
           }
     val sink = Sink()
-    val c    = runnerFor(op).run(rx)(sink(_))
+    val c    = runner.run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -177,20 +164,20 @@ class RxLiveSpecTest extends UniTest:
           throw IllegalStateException("recovery failed")
       }
     val sink = Sink()
-    val c    = runnerFor(op).run(rx)(sink(_))
+    val c    = runner.run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
   private def runMerge(op: String, script: String): String =
     val vars = newVars(2)
     val sink = Sink()
-    val c    = runnerFor(op).run(Rx.MergeOp(Seq(vars(0), vars(1))))(sink(_))
+    val c    = runner.run(Rx.MergeOp(Seq(vars(0), vars(1))))(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
   // parFlatMap maps 1, 2, and 3 to vars 1, 2, and 3, and throws on any other value
   private def runParFlatMap(op: String, script: String): String =
-    val n    = baseOp(op).stripPrefix("parFlatMap:").toInt
+    val n    = op.stripPrefix("parFlatMap:").toInt
     val vars = newVars(4)
     val rx   =
       vars(0).parFlatMap(n) { x =>
@@ -201,7 +188,7 @@ class RxLiveSpecTest extends UniTest:
             throw IllegalArgumentException(s"no nested stream for ${x}")
       }
     val sink = Sink()
-    val c    = runnerFor(op).run(rx)(sink(_))
+    val c    = runner.run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -214,15 +201,15 @@ class RxLiveSpecTest extends UniTest:
         case _ =>
           vars(0).join(vars(1))
     val sink = Sink()
-    val c    = defaultRunner.run(rx)(sink(_))
+    val c    = runner.run(rx)(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
   private def runTake(op: String, script: String): String =
-    val Array(_, n, mode) = op.split(':')
-    val vars              = newVars(1)
-    val sink              = Sink(stopEvery = mode == "once")
-    val c                 = defaultRunner.run(vars(0).take(n.toInt))(sink(_))
+    val n    = op.stripPrefix("take:")
+    val vars = newVars(1)
+    val sink = Sink()
+    val c    = runner.run(vars(0).take(n.toInt))(sink(_))
     runScript(script, vars, () => c.cancel)
     sink.result
 
@@ -264,7 +251,7 @@ class RxLiveSpecTest extends UniTest:
         }
 
     val sink = SplitSink()
-    val c    = defaultRunner.run(src.split(_._1))(sink(_))
+    val c    = runner.run(src.split(_._1))(sink(_))
     actions(script).foreach {
       case "stop" =>
         src.stop()
@@ -282,7 +269,7 @@ class RxLiveSpecTest extends UniTest:
   end runSplit
 
   private def run(c: SpecCase): String =
-    baseOp(c.op) match
+    c.op match
       case "flatMap" | "transformRx" =>
         runSwitch(c.op, c.script)
       case "recoverWith" =>

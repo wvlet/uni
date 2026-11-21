@@ -136,8 +136,8 @@ trait RxOps[+A]:
     }
 
   /**
-    * Keep evaluating Rx[A] even if OnError(e) or OnCompletion is reported. This is useful for keep
-    * processing streams.
+    * Keep evaluating Rx[A] after an error, until the stream ends with `OnCompletion` or is
+    * cancelled.
     */
   def runContinuously[U](effect: A => U = Rx.doNothing): Cancelable =
     RxRunner.runContinuously(this) {

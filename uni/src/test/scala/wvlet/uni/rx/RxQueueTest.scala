@@ -107,7 +107,7 @@ class RxQueueTest extends UniTest:
     rest.map(_ shouldBe Seq(1, 2))
   }
 
-  test("continuous mode keeps reading after an error") {
+  test("runContinuously keeps reading after an error") {
     val queue  = Rx.queue[Int]()
     val events = mutable.ArrayBuffer.empty[RxEvent]
     val c      =
