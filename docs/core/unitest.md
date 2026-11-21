@@ -251,6 +251,24 @@ test("comparisons") {
 }
 ```
 
+### Rx Subscription Leaks
+
+`assertNoRxLeaks` fails when its block leaves an Rx subscription active, one
+that was neither cancelled nor ended with `OnError` / `OnCompletion`:
+
+```scala test
+test("cancels its binding") {
+  val counter = wvlet.uni.rx.Rx.variable(0)
+  assertNoRxLeaks {
+    val c = counter.subscribe(v => println(v))
+    c.cancel
+  }
+}
+```
+
+It tracks the subscriptions the block starts on the test thread. See
+[Finding Leaked Subscriptions](../rx/operators#finding-leaked-subscriptions).
+
 ## Testing Error Paths
 
 A test that makes code fail on purpose, such as a handler that throws, makes the code log a warning with a stack trace. Wrap the code in `captureLogs` to keep those records out of the test output and to check that they were logged:

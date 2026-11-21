@@ -152,6 +152,71 @@ Fail if no value in time:
 val withTimeout = stream.timeout(5, TimeUnit.SECONDS)
 ```
 
+### sampleFrame
+
+Emit at most one value per frame, the last one of the frame. In a browser a
+frame is a `requestAnimationFrame` callback, so a burst of updates renders once:
+
+```scala
+val position = pointer.sampleFrame
+```
+
+When the source ends, a value still waiting for its frame is emitted first.
+`Rx.everyFrame` emits the frame number (0, 1, 2, ...) on every frame, and
+`Rx.nextFrame` emits `()` once on the next frame. Outside a browser a frame is a
+16 ms timer.
+
+## Testing Time
+
+The time operators (`Rx.interval`, `Rx.timer`, `throttleFirst`, `throttleLast`,
+`sample`, `timeout`) read the clock from a `given RxTimeProvider`, and the frame
+operators from a `given RxFrameProvider`. Put a manual one in scope and move
+time by hand. Due tasks run on the calling thread, so the test needs no sleeps:
+
+```scala
+import wvlet.uni.rx.*
+
+given time: ManualTimeProvider = RxTimeProvider.manual()
+
+val ticks = Seq.newBuilder[Long]
+Rx.interval(100, TimeUnit.MILLISECONDS).take(3).run(ticks += _)
+time.advance(300, TimeUnit.MILLISECONDS)
+ticks.result() // Seq(100, 100, 100)
+
+given frames: ManualFrameProvider = RxFrameProvider.manual()
+val counter = Rx.variable(0)
+val out     = Seq.newBuilder[Int]
+counter.sampleFrame.subscribe(out += _)
+counter := 1
+counter := 2
+frames.advanceFrame() // out: Seq(2)
+```
+
+The provider is captured when the operator is built. `RxFrameProvider.fromTime(16)`
+makes frames from a time provider, manual or not.
+
+## Finding Leaked Subscriptions
+
+`RxTracker` records the subscriptions that are still active: neither cancelled
+nor ended by `OnError` / `OnCompletion`. A `subscribe` keeps running until it is
+cancelled, so a binding that nobody cancels shows up here:
+
+```scala
+val tracker = RxTracker()
+val c = tracker.trace {
+  counter.map(_ * 2).subscribe(render)
+}
+tracker.activeSubscriptions // Seq(RxSubscription(#1 runContinuously MapOp at MyView.scala:12))
+c.cancel
+tracker.activeCount         // 0
+```
+
+`trace` tracks what its block starts on the current thread. To watch the whole
+process, for example from a debug panel, use `RxTracker.startGlobal()` and
+`RxTracker.stopGlobal()`. Pass `captureStackTrace = false` to skip the stack
+traces that locate each subscription's `origin`. In a `UniTest`,
+`assertNoRxLeaks { ... }` fails when its block leaves a subscription active.
+
 ## Caching
 
 ### cache
@@ -307,4 +372,4 @@ val result = Rx.interval(100, TimeUnit.MILLISECONDS)
 2. **Use throttle** for UI events
 3. **Cache expensive** computations
 4. **Handle errors** at appropriate levels
-5. **Clean up** subscriptions to avoid leaks
+5. **Clean up** subscriptions to avoid leaks, and check with `RxTracker`

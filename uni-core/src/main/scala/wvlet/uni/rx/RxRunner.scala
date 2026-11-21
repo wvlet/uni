@@ -44,7 +44,7 @@ object RxRunner extends LogSupport:
   private val continuousRunner = new RxRunner(continuous = true)
 
   def run[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
-    defaultRunner.run(rx) { ev =>
+    tracked(defaultRunner, rx, "run") { ev =>
       ev match
         case v @ OnNext(_) =>
           effect(v)
@@ -62,14 +62,14 @@ object RxRunner extends LogSupport:
     */
   def runOnce[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
     val observed = AtomicBoolean(false)
-    defaultRunner.run(rx) { ev =>
+    tracked(defaultRunner, rx, "runOnce") { ev =>
       if observed.compareAndSet(false, true) then
         effect(ev)
       RxResult.Stop
     }
 
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
-    continuousRunner.run(rx) { ev =>
+    tracked(continuousRunner, rx, "runContinuously") { ev =>
       ev match
         case v @ OnNext(_) =>
           effect(v)
@@ -79,11 +79,38 @@ object RxRunner extends LogSupport:
           RxResult.Stop
     }
 
+  /**
+    * Run `rx` and report the subscription to the active [[RxTracker]]s. The subscription ends on
+    * cancel or, outside continuous mode, on a terminal event.
+    */
+  private def tracked[A](runner: RxRunner, rx: RxOps[A], mode: String)(
+      effect: RxEvent => RxResult
+  ): Cancelable =
+    val handle = RxTracker.onSubscribe(rx, mode)
+    if handle == null then
+      runner.run(rx)(effect)
+    else
+      val c =
+        runner.run(rx) { ev =>
+          ev match
+            case OnNext(_) =>
+              effect(ev)
+            case _ =>
+              try effect(ev)
+              finally
+                if !runner.continuous then
+                  handle.release()
+        }
+      Cancelable { () =>
+        try c.cancel
+        finally handle.release()
+      }
+
 end RxRunner
 
 class RxRunner(
     // If this value is true, evaluating Rx keeps reporting events after OnError or OnCompletion is observed
-    continuous: Boolean
+    private[rx] val continuous: Boolean
 ) extends LogSupport:
   runner =>
 
@@ -449,33 +476,73 @@ class RxRunner(
           if done.get() then
             c.cancel
           c
-      case IntervalOp(interval, unit) =>
+      case IntervalOp(interval, unit, time) =>
         val intervalMillis = TimeUnit.MILLISECONDS.convert(interval, unit).max(1)
-        val timer: Timer   = compat.newTimer
-        timer.schedule(intervalMillis) { interval =>
-          val canContinue = effect(OnNext(interval))
-          if !canContinue.toContinue then
-            timer.cancel
-        }
+        val stopped        = AtomicBoolean(false)
+        var lastNanos      = time.currentNanos
+        var timer          = Cancelable.empty
+        timer =
+          time.schedulePeriodically(intervalMillis, intervalMillis) {
+            if !stopped.get() then
+              val now     = time.currentNanos
+              val elapsed = TimeUnit.NANOSECONDS.toMillis(now - lastNanos)
+              lastNanos = now
+              if !effect(OnNext(elapsed)).toContinue then
+                stopped.set(true)
+                timer.cancel
+          }
         Cancelable { () =>
+          stopped.set(true)
           timer.cancel
         }
-      case TimerOp(interval, unit) =>
+      case TimerOp(interval, unit, time) =>
         val delayMillis = TimeUnit.MILLISECONDS.convert(interval, unit).max(1)
-        compat.scheduleOnce(delayMillis) {
+        time.scheduleOnce(delayMillis) {
           Try(effect(OnNext(0L))) match
             case Success(c) =>
               effect(OnCompletion)
             case Failure(e) =>
               effect(OnError(e))
         }
-      case ThrottleFirstOp(in, interval, unit) =>
-        var lastUpdateTimeNanos = -interval
+      case EveryFrameOp(frames) =>
+        val stopped             = AtomicBoolean(false)
+        var frameNumber         = 0L
+        var nextFrame           = Cancelable.empty
+        def requestNext(): Unit =
+          nextFrame = frames.requestFrame {
+            if !stopped.get() then
+              val n = frameNumber
+              frameNumber += 1
+              if effect(OnNext(n)).toContinue then
+                requestNext()
+              else
+                stopped.set(true)
+          }
+        requestNext()
+        Cancelable { () =>
+          stopped.set(true)
+          nextFrame.cancel
+        }
+      case NextFrameOp(frames) =>
+        frames.requestFrame {
+          Try(effect(OnNext(()))) match
+            case Success(c) =>
+              if c.toContinue then
+                effect(OnCompletion)
+            case Failure(e) =>
+              effect(OnError(e))
+        }
+      case SampleFrameOp(in, frames) =>
+        sampleFrame(in, frames)(effect)
+      case ThrottleFirstOp(in, interval, unit, time) =>
+        var hasEmitted          = false
+        var lastUpdateTimeNanos = 0L
         run(in) {
           case next @ OnNext(v) =>
-            val currentTimeNanos = System.nanoTime()
+            val currentTimeNanos = time.currentNanos
             val elapsed = unit.convert(currentTimeNanos - lastUpdateTimeNanos, TimeUnit.NANOSECONDS)
-            if elapsed >= interval then
+            if !hasEmitted || elapsed >= interval then
+              hasEmitted = true
               lastUpdateTimeNanos = currentTimeNanos
               effect(next)
             else
@@ -484,24 +551,24 @@ class RxRunner(
           case other =>
             effect(other)
         }
-      case ThrottleLastOp(in, interval, unit) =>
+      case ThrottleLastOp(in, interval, unit, time) =>
         val intervalMillis          = TimeUnit.MILLISECONDS.convert(interval, unit).max(1)
         var lastItem: Option[A]     = None
         var lastReported: Option[A] = None
-        val timer: Timer            = compat.newTimer
         var canContinue: RxResult   = RxResult.Continue
-        timer.schedule(intervalMillis) { interval =>
-          lastItem match
-            case Some(x) =>
-              lastItem = Some(x)
-              if lastReported != lastItem then
-                lastReported = lastItem
-                canContinue = effect(OnNext(x))
-                if !canContinue.toContinue then
-                  timer.cancel
-            case None =>
-            // Do nothing
-        }
+        var timer                   = Cancelable.empty
+        timer =
+          time.schedulePeriodically(intervalMillis, intervalMillis) {
+            lastItem match
+              case Some(x) if canContinue.toContinue =>
+                if lastReported != lastItem then
+                  lastReported = lastItem
+                  canContinue = effect(OnNext(x))
+                  if !canContinue.toContinue then
+                    timer.cancel
+              case _ =>
+              // Do nothing
+          }
         val c =
           run(in) {
             case OnNext(v) =>
@@ -514,13 +581,13 @@ class RxRunner(
           timer.cancel
           c.cancel
         }
-      case TimeoutOp(in, duration, unit) =>
+      case TimeoutOp(in, duration, unit, time) =>
         val timeoutMillis   = TimeUnit.MILLISECONDS.convert(duration, unit).max(1)
         val timedOut        = new AtomicBoolean(false)
         var inputCancelable = Cancelable.empty
         // Schedule the timeout
         val timeoutCancelable =
-          compat.scheduleOnce(timeoutMillis) {
+          time.scheduleOnce(timeoutMillis) {
             if timedOut.compareAndSet(false, true) then
               inputCancelable.cancel
               effect(OnError(Rx.TimeoutException(duration, unit)))
@@ -1160,6 +1227,80 @@ class RxRunner(
         (0 until size).exists(i =>
           lastEvent(i).contains(OnCompletion) && lastValueBuffer(i).isEmpty
         )
+
+  /**
+    * Hold the latest input value and emit it on the next frame. A terminal event flushes the held
+    * value first. Outside continuous mode a terminal event or a downstream Stop ends the operator.
+    */
+  private def sampleFrame[A](in: RxOps[A], frames: RxFrameProvider)(
+      effect: RxEvent => RxResult
+  ): Cancelable =
+    val lock                     = Object()
+    var latest: Option[Any]      = None
+    var frameRequest: Cancelable = null
+    var finished                 = false
+    var input                    = Cancelable.empty
+
+    def takeLatest(): Option[Any] =
+      val v = latest
+      latest = None
+      if frameRequest != null then
+        frameRequest.cancel
+        frameRequest = null
+      v
+
+    def onFrame(): Unit =
+      val v = lock.synchronized {
+        frameRequest = null
+        if finished then
+          None
+        else
+          takeLatest()
+      }
+      v.foreach { x =>
+        if !effect(OnNext(x)).toContinue && !continuous then
+          lock.synchronized {
+            finished = true
+          }
+          input.cancel
+      }
+
+    input =
+      run(in) {
+        case OnNext(v) =>
+          lock.synchronized {
+            if finished then
+              RxResult.Stop
+            else
+              latest = Some(v)
+              if frameRequest == null then
+                frameRequest = frames.requestFrame(onFrame())
+              RxResult.Continue
+          }
+        case other =>
+          val pending = lock.synchronized {
+            if finished then
+              None
+            else
+              if !continuous then
+                finished = true
+              takeLatest()
+          }
+          val r = pending.map(x => effect(OnNext(x))).getOrElse(RxResult.Continue)
+          if r.toContinue || continuous then
+            effect(other)
+          else
+            RxResult.Stop
+      }
+    Cancelable { () =>
+      lock.synchronized {
+        finished = true
+        takeLatest()
+      }
+      input.cancel
+    }
+
+  end sampleFrame
 
   private def zip[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new ZipStream(input)
     .run(effect)

@@ -609,23 +609,31 @@ trait Rx[+A] extends RxOps[A]:
     * Emit the first item of the source within each sampling period. For example, this is useful to
     * prevent double-clicks of buttons.
     */
-  def throttleFirst(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS): Rx[A] =
-    ThrottleFirstOp[A](this, timeWindow, unit)
+  def throttleFirst(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS)(using
+      time: RxTimeProvider
+  ): Rx[A] = ThrottleFirstOp[A](this, timeWindow, unit, time)
 
   /**
     * Emit the most recent item of the source within periodic time intervals.
     */
-  def throttleLast(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS): Rx[A] =
-    ThrottleLastOp[A](this, timeWindow, unit)
+  def throttleLast(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS)(using
+      time: RxTimeProvider
+  ): Rx[A] = ThrottleLastOp[A](this, timeWindow, unit, time)
 
   /**
     * Emit the most recent item of the source within periodic time intervals.
     */
-  def sample(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS): Rx[A] = ThrottleLastOp[A](
-    this,
-    timeWindow,
-    unit
-  )
+  def sample(timeWindow: Long, unit: TimeUnit = TimeUnit.MILLISECONDS)(using
+      time: RxTimeProvider
+  ): Rx[A] = ThrottleLastOp[A](this, timeWindow, unit, time)
+
+  /**
+    * Emit the most recent item of the source at most once per frame of the [[RxFrameProvider]], so
+    * a burst of updates within one frame yields only its last value. In a browser a frame is a
+    * `requestAnimationFrame` callback. When the source ends, a value still waiting for its frame is
+    * emitted before the `OnError` or `OnCompletion`.
+    */
+  def sampleFrame(using frames: RxFrameProvider): Rx[A] = SampleFrameOp[A](this, frames)
 
   /**
     * Emit the given item first before returning the items from the source.
@@ -653,11 +661,9 @@ trait Rx[+A] extends RxOps[A]:
     * @return
     *   an Rx that emits events or a TimeoutException if the first event doesn't arrive in time
     */
-  def timeout(duration: Long, unit: TimeUnit = TimeUnit.MILLISECONDS): Rx[A] = TimeoutOp(
-    this,
-    duration,
-    unit
-  )
+  def timeout(duration: Long, unit: TimeUnit = TimeUnit.MILLISECONDS)(using
+      time: RxTimeProvider
+  ): Rx[A] = TimeoutOp(this, duration, unit, time)
 
 end Rx
 
@@ -902,12 +908,18 @@ object Rx extends LogSupport:
     }
 
   /**
-    * Periodically trigger an event and report the interval millis. After running Rx with an
-    * interval, the cancel method must be called to stop the timer: <code> val c =
-    * Rx.interval(...).run { x => ... } c.cancel </code>
+    * Periodically trigger an event and report the milliseconds elapsed since the previous tick (or
+    * since the subscription, for the first tick). The first tick comes one interval after the
+    * subscription. After running Rx with an interval, the cancel method must be called to stop the
+    * timer: <code> val c = Rx.interval(...).run { x => ... } c.cancel </code>
     */
-  def interval(interval: Long, unit: TimeUnit): Rx[Long] = IntervalOp(interval, unit)
-  def intervalMillis(intervalMillis: Long): Rx[Long]     = interval(
+  def interval(interval: Long, unit: TimeUnit)(using time: RxTimeProvider): Rx[Long] = IntervalOp(
+    interval,
+    unit,
+    time
+  )
+
+  def intervalMillis(intervalMillis: Long)(using time: RxTimeProvider): Rx[Long] = interval(
     intervalMillis,
     TimeUnit.MILLISECONDS
   )
@@ -915,12 +927,31 @@ object Rx extends LogSupport:
   /**
     * Emits 0 once after the give delay period.
     */
-  def timer(interval: Long, unit: TimeUnit): Rx[Long] = TimerOp(interval, unit)
+  def timer(interval: Long, unit: TimeUnit)(using time: RxTimeProvider): Rx[Long] = TimerOp(
+    interval,
+    unit,
+    time
+  )
 
   /**
     * Emits 0 once after the give delay period.
     */
-  def delay(interval: Long, unit: TimeUnit): Rx[Long] = timer(interval, unit)
+  def delay(interval: Long, unit: TimeUnit)(using time: RxTimeProvider): Rx[Long] = timer(
+    interval,
+    unit
+  )
+
+  /**
+    * Emit the frame number (0, 1, 2, ...) on every frame of the [[RxFrameProvider]] until
+    * cancelled. In a browser a frame is a `requestAnimationFrame` callback.
+    */
+  def everyFrame(using frames: RxFrameProvider): Rx[Long] = EveryFrameOp(frames)
+
+  /**
+    * Emit `()` on the next frame of the [[RxFrameProvider]], then complete. Useful to read the
+    * layout after the DOM has been updated.
+    */
+  def nextFrame(using frames: RxFrameProvider): Rx[Unit] = NextFrameOp(frames)
 
   private def futureToRx[A](f: Future[A])(using ec: ExecutionContext): RxVar[Option[A]] =
     val v = FutureVar[A]()
@@ -1173,22 +1204,39 @@ object Rx extends LogSupport:
 
   case class OnCancelOp[A](input: RxOps[A], f: () => Unit) extends UnaryRx[A, A]
 
-  case class IntervalOp(interval: Long, unit: TimeUnit) extends Rx[Long]:
+  case class IntervalOp(interval: Long, unit: TimeUnit, time: RxTimeProvider) extends Rx[Long]:
     override def parents: Seq[RxOps[?]] = Seq.empty
 
-  case class TimerOp(interval: Long, unit: TimeUnit) extends Rx[Long]:
+  case class TimerOp(interval: Long, unit: TimeUnit, time: RxTimeProvider) extends Rx[Long]:
     override def parents: Seq[RxOps[?]] = Seq.empty
+
+  case class EveryFrameOp(frames: RxFrameProvider) extends Rx[Long]:
+    override def parents: Seq[RxOps[?]] = Seq.empty
+
+  case class NextFrameOp(frames: RxFrameProvider) extends Rx[Unit]:
+    override def parents: Seq[RxOps[?]] = Seq.empty
+
+  case class SampleFrameOp[A](input: RxOps[A], frames: RxFrameProvider) extends UnaryRx[A, A]
 
   case class TakeOp[A](input: RxOps[A], n: Long) extends Rx[A]:
     override def parents: Seq[RxOps[?]] = Seq(input)
 
-  case class ThrottleFirstOp[A](input: RxOps[A], interval: Long, unit: TimeUnit)
-      extends UnaryRx[A, A]
+  case class ThrottleFirstOp[A](
+      input: RxOps[A],
+      interval: Long,
+      unit: TimeUnit,
+      time: RxTimeProvider
+  ) extends UnaryRx[A, A]
 
-  case class ThrottleLastOp[A](input: RxOps[A], interval: Long, unit: TimeUnit)
-      extends UnaryRx[A, A]
+  case class ThrottleLastOp[A](
+      input: RxOps[A],
+      interval: Long,
+      unit: TimeUnit,
+      time: RxTimeProvider
+  ) extends UnaryRx[A, A]
 
-  case class TimeoutOp[A](input: RxOps[A], duration: Long, unit: TimeUnit) extends UnaryRx[A, A]
+  case class TimeoutOp[A](input: RxOps[A], duration: Long, unit: TimeUnit, time: RxTimeProvider)
+      extends UnaryRx[A, A]
 
   /**
     * Exception thrown when a timeout occurs.
