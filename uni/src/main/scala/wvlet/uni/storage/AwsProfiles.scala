@@ -253,22 +253,31 @@ end AwsProfileCredentials
   * Windows), as the AWS Java SDK v2 and Go SDK do, and reads the `Version: 1` JSON it prints.
   */
 private[storage] object AwsCredentialProcess:
+  private val commandEnvVar = "UNI_AWS_CREDENTIAL_PROCESS"
+
   def run(profile: String, command: String): AwsCredentials =
     def fail(msg: String): Nothing =
       throw StorageException(
         StorageErrorCode.NoCredentials,
         s"credential_process of profile ${profile} ${msg}"
       )
-    val shell =
+    val (shell, config) =
       if StorageEnv.isWindows then
-        Seq("cmd.exe", "/C", command)
+        // Pass the command through an environment variable: Scala Native escapes `"` in an
+        // argument as `\"`, which cmd.exe doesn't understand, so a quoted command (e.g. a path
+        // under "C:\Program Files") fails. cmd expands %VAR% before parsing quotes and `&&`, and
+        // a /C string without quotes also escapes cmd's outer-quote stripping.
+        (
+          Seq("cmd.exe", "/C", s"%${commandEnvVar}%"),
+          ProcessConfig.default.withEnv(commandEnvVar, command)
+        )
       else
-        Seq("sh", "-c", command)
+        (Seq("sh", "-c", command), ProcessConfig.default)
     // IO.run, not IO.call: call's exception carries the command line and stderr, which may hold
     // secrets
     val result =
       try
-        IO.run(shell, ProcessConfig.default)
+        IO.run(shell, config)
       catch
         case e: UnsupportedOperationException =>
           fail("can't run on this platform")
@@ -277,6 +286,8 @@ private[storage] object AwsCredentialProcess:
     if !result.isSuccess then
       fail(s"exited with code ${result.exitCode}")
     parse(result.stdout).getOrElse(fail("printed no valid credentials JSON"))
+
+  end run
 
   /** Parses the process output. Without `Expiration`, the credentials never refresh. */
   def parse(json: String): Option[AwsCredentials] = AwsJson
