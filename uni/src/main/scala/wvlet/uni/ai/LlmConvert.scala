@@ -138,7 +138,7 @@ object LlmConvert:
     * signatures.
     */
   object Carrier:
-    val Prefix: String = "uni-ai:"
+    val Prefix: String = "wvlet.uni.ai:"
 
     def encode(vendor: String, data: JSONObject): String = s"${Prefix}${vendor}:${data.toJSON}"
 

@@ -408,7 +408,9 @@ object ChatCompletionsConverter:
     private var modelName = model
     private var sentRole  = false
     private var toolIndex = -1
-    private var finished  = false
+    // True between the start and end of a tool the vendor ran, whose input Chat cannot express
+    private var skipping = false
+    private var finished = false
 
     private def chunk(d: ChatDelta, finish: Option[String] = None): ChatCompletionChunk =
       val delta =
@@ -431,6 +433,12 @@ object ChatCompletionsConverter:
           Seq(chunk(ChatDelta(content = Some(d))))
         case P.ReasoningDelta(_, d) =>
           Seq(chunk(ChatDelta(reasoningContent = Some(d))))
+        case P.ToolInputStart(_, _, true, _) =>
+          skipping = true
+          Nil
+        case _: P.ToolInputEnd if skipping =>
+          skipping = false
+          Nil
         case P.ToolInputStart(tid, name, false, _) =>
           toolIndex += 1
           Seq(
@@ -440,7 +448,7 @@ object ChatCompletionsConverter:
               )
             )
           )
-        case P.ToolInputDelta(_, d) if toolIndex >= 0 =>
+        case P.ToolInputDelta(_, d) if toolIndex >= 0 && !skipping =>
           Seq(chunk(ChatDelta(toolCalls = Seq(ChatToolCallDelta(toolIndex, arguments = Some(d))))))
         case P.Finish(reason, u) =>
           finished = true

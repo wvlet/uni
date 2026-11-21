@@ -280,10 +280,20 @@ object AnthropicConverter:
       case FileSource.FileId(id) =>
         Source.File(id)
 
-  private def fromLlmPart(p: LlmPart): Seq[ContentBlock] =
+  /**
+    * @param toClient
+    *   true when the blocks go to an Anthropic client (a proxy's response), which returns carriers
+    *   unchanged; false when they go to the Anthropic API, which rejects carrier signatures
+    */
+  private def fromLlmPart(p: LlmPart, toClient: Boolean): Seq[ContentBlock] =
+    def carrier(md: ProviderMetadata) =
+      if toClient then
+        carrierBefore(md)
+      else
+        Nil
     p match
       case LlmPart.Text(t, md) =>
-        carrierBefore(md) :+ ContentBlock.Text(t, cacheControl = cacheOf(md))
+        carrier(md) :+ ContentBlock.Text(t, cacheControl = cacheOf(md))
       case f: LlmPart.File if f.isImage =>
         Seq(ContentBlock.Image(sourceOf(f), cacheOf(f.providerMetadata)))
       case f: LlmPart.File =>
@@ -296,19 +306,22 @@ object AnthropicConverter:
             Seq(ContentBlock.Thinking(t, s))
           case (None, Some(d)) =>
             Seq(ContentBlock.RedactedThinking(d))
-          case _ =>
-            // Reasoning without an Anthropic signature is rejected; carry another vendor's data
+          case _ if toClient =>
+            // A client returns another vendor's reasoning unchanged when it rides in a signature
             md.find(_._1 != vendor)
               .map((v, data) => ContentBlock.Thinking(t, Carrier.encode(v, data)))
               .toSeq
+          case _ =>
+            // The Anthropic API rejects thinking without its own signature
+            Nil
       case LlmPart.ToolCall(id, name, input, _, md) =>
-        carrierBefore(md) :+
+        carrier(md) :+
           ContentBlock.ToolUse(LlmConvert.anthropicToolId(id), name, input, cacheOf(md))
       case r: LlmPart.ToolResult =>
         Seq(
           ContentBlock.ToolResult(
             LlmConvert.anthropicToolId(r.id),
-            r.output.flatMap(fromLlmPart),
+            r.output.flatMap(fromLlmPart(_, toClient)),
             Some(true).filter(_ => r.isError),
             cacheOf(r.providerMetadata)
           )
@@ -317,6 +330,9 @@ object AnthropicConverter:
         Seq(JsonCodec[ContentBlock].decode(raw))
       case _: LlmPart.Raw =>
         Nil
+    end match
+
+  end fromLlmPart
 
   /** A Gemini thought signature rides in an empty thinking block before its part */
   private def carrierBefore(md: ProviderMetadata): Seq[ContentBlock] =
@@ -334,7 +350,7 @@ object AnthropicConverter:
           Role.User
     // Tool results must lead a user turn
     val (results, rest) = m.parts.partition(_.isInstanceOf[LlmPart.ToolResult])
-    Message(role, (results ++ rest).flatMap(fromLlmPart))
+    Message(role, (results ++ rest).flatMap(fromLlmPart(_, toClient = false)))
 
   // ---------------------------------------------------------------- response
 
@@ -408,7 +424,7 @@ object AnthropicConverter:
     MessagesResponse(
       id = r.id,
       model = r.model,
-      content = r.content.flatMap(fromLlmPart),
+      content = r.content.flatMap(fromLlmPart(_, toClient = true)),
       stopReason = Some(stop),
       stopSequence = r.finishReason.raw.filter(_ => stop == StopReason.StopSequence),
       usage = fromLlmUsage(r.usage)
@@ -549,6 +565,9 @@ object AnthropicConverter:
     private var finished  = false
     private var index     = -1
     private var openBlock = false
+    // A reasoning block opens on its first delta, so text-less redacted reasoning can become a
+    // redacted_thinking block
+    private var pendingReasoning = false
 
     private def ensureStarted(id: String, m: String, u: LlmUsage): Seq[StreamEvent] =
       if started then
@@ -615,17 +634,28 @@ object AnthropicConverter:
           case _: P.TextEnd =>
             closeBlock()
           case _: P.ReasoningStart =>
-            startBlock(ContentBlock.Thinking("", ""))
+            pendingReasoning = true
+            closeBlock()
           case P.ReasoningDelta(_, d) =>
-            delta(Delta.ThinkingDelta(d))
+            val open =
+              if pendingReasoning then
+                pendingReasoning = false
+                startBlock(ContentBlock.Thinking("", ""))
+              else
+                Nil
+            open ++ delta(Delta.ThinkingDelta(d))
           case P.ReasoningEnd(_, sig, redacted, md) =>
-            val s = sig
-              .orElse(md.find(_._1 != vendor).map((v, data) => Carrier.encode(v, data)))
-              .orElse(
-                // Redacted reasoning of another vendor has no text; carry it as a signature
-                redacted.map(d => Carrier.encode("redacted", Json.obj(Json.field("data", d))))
-              )
-            s.toSeq.flatMap(x => delta(Delta.SignatureDelta(x))) ++ closeBlock()
+            val s = sig.orElse(md.find(_._1 != vendor).map((v, data) => Carrier.encode(v, data)))
+            val wasPending = pendingReasoning
+            pendingReasoning = false
+            (wasPending, redacted) match
+              case (true, Some(d)) if s.isEmpty =>
+                startBlock(ContentBlock.RedactedThinking(d)) ++ closeBlock()
+              case (true, _) =>
+                startBlock(ContentBlock.Thinking("", "")) ++
+                  s.toSeq.flatMap(x => delta(Delta.SignatureDelta(x))) ++ closeBlock()
+              case _ =>
+                s.toSeq.flatMap(x => delta(Delta.SignatureDelta(x))) ++ closeBlock()
           case P.ToolInputStart(id, name, _, md) =>
             carrierBefore(md).flatMap(b => startBlock(b) ++ closeBlock()) ++
               startBlock(ContentBlock.ToolUse(LlmConvert.anthropicToolId(id), name))

@@ -191,7 +191,7 @@ object ResponsesConverter:
         val items = mutable.ArrayBuffer.empty[Item]
         m.parts
           .foreach { p =>
-            fromLlmPart(m.role, p).foreach { item =>
+            fromLlmPart(m.role, p, toClient = false).foreach { item =>
               (items.lastOption, item) match
                 case (Some(prev: Item.Message), next: Item.Message) if prev.role == next.role =>
                   items(items.length - 1) = prev.copy(content = prev.content ++ next.content)
@@ -267,12 +267,17 @@ object ResponsesConverter:
       case _ =>
         None
 
-  private def fromLlmPart(role: LlmRole, p: LlmPart): Option[Item] =
+  /**
+    * @param toClient
+    *   true when the items go to a Responses client (a proxy's response), which returns carriers
+    *   unchanged; false when they go to OpenAI, which cannot decrypt them
+    */
+  private def fromLlmPart(role: LlmRole, p: LlmPart, toClient: Boolean): Option[Item] =
     p match
       case LlmPart.Text(t, _) if role == LlmRole.Assistant =>
         Some(Item.Message("assistant", Seq(ContentPart.OutputText(t))))
       case r: LlmPart.Reasoning =>
-        fromLlmReasoning(r)
+        fromLlmReasoning(r, toClient)
       case LlmPart.ToolCall(id, name, input, _, md) =>
         Some(
           Item.FunctionCall(
@@ -289,7 +294,7 @@ object ResponsesConverter:
       case other =>
         inputPart(other).map(c => Item.Message("user", Seq(c)))
 
-  private def fromLlmReasoning(r: LlmPart.Reasoning): Option[Item] =
+  private def fromLlmReasoning(r: LlmPart.Reasoning, toClient: Boolean): Option[Item] =
     val summary = Seq(ReasoningText(r.text)).filter(_.text.nonEmpty)
     (r.providerMetadata.get(vendor), r.signature, r.redactedData) match
       case (Some(md), _, _) =>
@@ -301,7 +306,7 @@ object ResponsesConverter:
             encryptedContent = o.strOpt("encryptedContent")
           )
         )
-      case (None, sig, red) if sig.isDefined || red.isDefined =>
+      case (None, sig, red) if toClient && (sig.isDefined || red.isDefined) =>
         val data = Json.obj(Json.opt("signature", sig), Json.opt("redactedData", red))
         Some(
           Item.Reasoning(
@@ -399,7 +404,7 @@ object ResponsesConverter:
     val output               = mutable.ArrayBuffer.empty[Item]
     r.content
       .foreach { p =>
-        fromLlmPart(LlmRole.Assistant, p).foreach {
+        fromLlmPart(LlmRole.Assistant, p, toClient = true).foreach {
           case m: Item.Message =>
             output.lastOption match
               case Some(prev: Item.Message) =>
@@ -641,7 +646,7 @@ object ResponsesConverter:
             Seq(E.TextDelta(E.ReasoningSummaryDelta, itemId, outputIndex, 0, d, next()))
           case P.ReasoningEnd(_, sig, red, md) =>
             val t    = text.result()
-            val item = fromLlmReasoning(LlmPart.Reasoning(t, sig, red, md))
+            val item = fromLlmReasoning(LlmPart.Reasoning(t, sig, red, md), toClient = true)
               .collect { case r: Item.Reasoning =>
                 r.copy(id = itemId)
               }

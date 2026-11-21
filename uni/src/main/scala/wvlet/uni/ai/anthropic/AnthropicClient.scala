@@ -7,8 +7,7 @@ import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.storage.GoogleCredentialsProvider
-
-import java.util.Base64
+import wvlet.uni.util.Base64
 
 /** Where the Messages API is served */
 enum AnthropicHost:
@@ -185,7 +184,7 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
             frame.messageType match
               case "event" if frame.eventType.contains("chunk") =>
                 val bytes = JsonObj(JSON.parseAny(frame.payloadString)).str("bytes")
-                val json  = String(Base64.getDecoder.decode(bytes), "UTF-8")
+                val json  = Base64.decodeToString(bytes)
                 Rx.single(JsonCodec[StreamEvent].fromJson(json))
               case "event" =>
                 Rx.empty

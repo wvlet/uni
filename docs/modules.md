@@ -80,7 +80,7 @@ available unless a row says otherwise.
 
 | Page | Description |
 |------|-------------|
-| [LLM APIs](./ai/) | Typed Anthropic, OpenAI, Gemini, and Bedrock requests, responses, and streams, with clients and converters between vendors (`uni-ai` artifact) |
+| [LLM APIs](./ai/) | Typed Anthropic, OpenAI, Gemini, and Bedrock requests, responses, and streams, with clients and converters between vendors |
 
 ## CLI
 

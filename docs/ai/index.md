@@ -4,7 +4,7 @@ description: Typed Scala models and clients for the Anthropic Messages, OpenAI R
 
 # LLM APIs
 
-`uni-ai` gives Scala code typed requests, responses, and streaming events for the LLM APIs that
+The `wvlet.uni.ai` packages of `uni` give Scala code typed requests, responses, and streaming events for the LLM APIs that
 apps call most:
 
 | Package | API | Hosts |
@@ -19,12 +19,9 @@ The types use Scala names, and their codecs write each vendor's exact JSON: `max
 `type: "tool_use"`, Gemini's `{"functionCall": ...}` parts, no `null` for absent fields. Block,
 item, and event types a release doesn't know yet decode to an `Unknown` case that keeps the raw
 JSON, and unmodeled request fields go in `extra`, so a newer payload passes through unchanged.
-It runs on the JVM, Scala.js, and Scala Native, and adds no dependencies beyond `uni`.
-
-```scala sbt
-resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
-libraryDependencies += "org.wvlet.uni" %% "uni-ai" % "__UNI_VERSION__"
-```
+It runs on the JVM, Scala.js, and Scala Native, and comes with the `uni` artifact
+([Installation](../guide/installation)); code you don't call is removed when Scala.js and Scala
+Native link.
 
 ## Calling a vendor API
 
@@ -146,7 +143,7 @@ What the converters take care of:
   wait for both before the final part.
 - **Reasoning across vendors**: Claude Code returns thinking blocks unchanged, signatures included.
   The Anthropic encoder puts OpenAI encrypted reasoning and Gemini thought signatures in the
-  thinking `signature`, with a `uni-ai:` prefix, and the decoder restores them on the next turn. The
+  thinking `signature`, with a `wvlet.uni.ai:` prefix, and the decoder restores them on the next turn. The
   OpenAI encoder carries Anthropic signatures in `encrypted_content` the same way. Gemini function
   calls in history without a signature get Gemini's documented placeholder.
 - **Tool ids and schemas**: ids are rewritten deterministically where a vendor restricts them

@@ -1,4 +1,4 @@
-# Typed LLM vendor APIs and converters (uni-ai)
+# Typed LLM vendor APIs and converters (wvlet.uni.ai)
 
 ## Goals
 
@@ -25,7 +25,7 @@
 
 Lane: Standard (new module and public API). The user set the scope and package layout in the goal and allowed auto-merge, so the work proceeds without a separate direction card.
 
-- **New cross-platform module `uni-ai`** (JVM, Scala.js, Native), depending only on `uni`. Keeps the main `uni` artifact small; no new third-party dependencies.
+- **In the `uni` artifact** (JVM, Scala.js, Native), with no new dependencies. A first draft used a separate `uni-ai` module; it moved into `uni` because the code is small, `uni` already holds the storage and MCP clients, and unused code is dropped at link time.
 - **Packages by wire protocol**, not by host:
   - `wvlet.uni.ai.anthropic` — Messages API; hosts: Anthropic, Vertex AI (`rawPredict`), Bedrock InvokeModel.
   - `wvlet.uni.ai.openai` — Responses and Chat Completions; also fits OpenAI-compatible servers (vLLM, Bedrock's OpenAI endpoint).
@@ -42,6 +42,6 @@ Lane: Standard (new module and public API). The user set the scope and package l
 ## Alternatives and Why Not?
 
 - Derived Weaver codecs with snake_case field names in Scala: unidiomatic, still cannot do key-based unions or unknown passthrough.
-- Put the models in the `uni` artifact: adds a large, fast-changing surface to every Uni user.
+- A separate `uni-ai` artifact: one more dependency for users and agents, with no release or size benefit.
 - Direct vendor-to-vendor converters: N² code paths; a canonical model is what mature proxies converge on.
 - A full proxy server in Uni (routing, keys, quotas): out of scope; apps build that on these pieces.

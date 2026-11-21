@@ -521,17 +521,20 @@ object BedrockConverter:
         p match
           case _: P.TextStart | _: P.ReasoningStart =>
             startBlock()
-          case P.TextDelta(_, d) =>
+          case P.TextDelta(_, d) if open =>
             Seq(E.ContentBlockDelta(index, text = Some(d)))
-          case P.ReasoningDelta(_, d) =>
+          case P.ReasoningDelta(_, d) if open =>
             Seq(E.ContentBlockDelta(index, reasoningText = Some(d)))
-          case P.ReasoningEnd(_, sig, red, _) =>
+          case P.ReasoningEnd(_, sig, red, _) if open =>
             sig.map(s => E.ContentBlockDelta(index, reasoningSignature = Some(s))).toSeq ++
               red.map(r => E.ContentBlockDelta(index, redactedContent = Some(r))).toSeq ++
               closeBlock()
           case P.ToolInputStart(id, name, false, _) =>
             startBlock() :+ E.ContentBlockStart(index, Some((LlmConvert.bedrockToolId(id), name)))
-          case P.ToolInputDelta(_, d) =>
+          case _: P.ToolInputStart =>
+            // A tool the vendor ran has no Converse form; skip its input
+            closeBlock()
+          case P.ToolInputDelta(_, d) if open =>
             Seq(E.ContentBlockDelta(index, toolUseInput = Some(d)))
           case _: P.TextEnd | _: P.ToolInputEnd =>
             closeBlock()

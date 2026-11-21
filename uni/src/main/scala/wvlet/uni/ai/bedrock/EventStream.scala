@@ -159,9 +159,19 @@ end EventStreamDecoder
 
 object EventStreamDecoder:
   /** Turn a stream of byte chunks into a stream of frames */
-  def frames(bytes: Rx[Array[Byte]]): Rx[EventStreamFrame] =
-    val decoder = EventStreamDecoder()
-    bytes.flatMap(chunk => Rx.fromSeq(decoder.feed(chunk)))
+  def frames(bytes: Rx[Array[Byte]]): Rx[EventStreamFrame] = Rx
+    // One decoder per subscription, so a re-run starts without leftover bytes
+    .single(EventStreamDecoder())
+    .flatMap { decoder =>
+      bytes
+        .flatMap(chunk => Rx.fromSeq(decoder.feed(chunk)))
+        .concat(
+          Rx.fromSeq {
+            decoder.finish()
+            Seq.empty[EventStreamFrame]
+          }
+        )
+    }
 
 /** CRC-32 (IEEE), as used by the event-stream prelude and message checksums */
 private[bedrock] object Crc32:

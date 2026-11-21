@@ -435,7 +435,8 @@ object GeminiConverter:
     private var sawCalls                    = false
     private var usage                       = LlmUsage()
     private var finished                    = false
-    private var callIndex                   = 0
+    // Calls without ids get the same ids as in toLlmRequest: per name, in order
+    private val callCount = mutable.Map.empty[String, Int].withDefaultValue(0)
 
     private def close(): Seq[LlmStreamPart] =
       val id = s"${block}"
@@ -497,8 +498,11 @@ object GeminiConverter:
               case Part.FunctionCall(name, args, id, s, _, _) =>
                 out ++= close()
                 sawCalls = true
-                val tid = id.getOrElse(LlmConvert.generatedToolId(name, callIndex))
-                callIndex += 1
+                val tid = id.getOrElse {
+                  val n = callCount(name)
+                  callCount(name) = n + 1
+                  LlmConvert.generatedToolId(name, n)
+                }
                 out += P.ToolInputStart(tid, name, providerMetadata = sigMeta(s))
                 out += P.ToolInputDelta(tid, args.toJSON)
                 out += P.ToolInputEnd(tid)

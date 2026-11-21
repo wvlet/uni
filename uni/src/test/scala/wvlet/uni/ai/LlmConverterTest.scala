@@ -48,7 +48,7 @@ class LlmConverterTest extends UniTest:
       TestJson.normalize(JsonCodec[an.MessagesRequest].encode(claudeCodeRequest))
   }
 
-  test("to OpenAI Responses: instructions, function items, effort, and carried signature") {
+  test("to OpenAI Responses: instructions, function items, and effort") {
     val r = oa.ResponsesConverter.fromLlmRequest(llmRequest.withModel("gpt-5.1"))
     r.model shouldBe "gpt-5.1"
     r.instructions shouldBe Some("You are Claude Code.")
@@ -56,6 +56,7 @@ class LlmConverterTest extends UniTest:
     r.store shouldBe Some(false)
     r.include shouldBe Seq(oa.ResponsesConverter.EncryptedReasoning)
     r.temperature shouldBe None
+    // Anthropic-signed thinking cannot be decrypted by OpenAI, so it is not sent
     r.input
       .map {
         case m: oa.Item.Message =>
@@ -64,25 +65,83 @@ class LlmConverterTest extends UniTest:
           "function_call"
         case _: oa.Item.FunctionCallOutput =>
           "function_call_output"
-        case _: oa.Item.Reasoning =>
-          "reasoning"
         case _ =>
           "other"
       } shouldBe
       Seq(
         "message:user",
-        "reasoning",
         "message:assistant",
         "function_call",
         "function_call_output",
         "message:user"
       )
-    r.input(3) shouldBe oa.Item.FunctionCall("toolu_01", "Bash", """{"command":"ls"}""")
-    // The Anthropic signature rides in encrypted_content and comes back on the next turn
-    val reasoning = r.input(1).asInstanceOf[oa.Item.Reasoning]
+    r.input(2) shouldBe oa.Item.FunctionCall("toolu_01", "Bash", """{"command":"ls"}""")
+  }
+
+  test("a Responses client gets Anthropic signatures in encrypted_content and returns them") {
+    val claude = LlmResponse(
+      "msg_1",
+      "claude",
+      Seq(LlmPart.Reasoning("Use ls.", Some("anthropic-sig")), LlmPart.Text("ok")),
+      FinishReason.stop
+    )
+    val res       = oa.ResponsesConverter.fromLlmResponse(claude)
+    val reasoning =
+      res
+        .output
+        .collectFirst { case r: oa.Item.Reasoning =>
+          r
+        }
+        .get
     reasoning.encryptedContent.exists(LlmConvert.Carrier.isCarrier) shouldBe true
-    val again = oa.ResponsesConverter.toLlmRequest(r)
-    again.messages(1).parts.head shouldBe LlmPart.Reasoning("Use ls.", Some("anthropic-sig"))
+    // The client sends the item back as input on the next turn
+    val next = oa.ResponsesConverter.toLlmRequest(oa.ResponsesRequest("gpt", Seq(reasoning)))
+    next.messages.head.parts.head shouldBe LlmPart.Reasoning("Use ls.", Some("anthropic-sig"))
+  }
+
+  test("requests to the Anthropic API carry no carrier signatures") {
+    val history = LlmRequest(
+      "claude",
+      Seq(
+        LlmMessage.user("q"),
+        LlmMessage(
+          LlmRole.Assistant,
+          Seq(
+            LlmPart.Reasoning(
+              "r",
+              providerMetadata = ProviderMetadata.of(
+                ProviderMetadata.OpenAI,
+                Json.field("encryptedContent", "gAAA")
+              )
+            ),
+            LlmPart.ToolCall(
+              "call_1",
+              "f",
+              JSONObject.empty,
+              providerMetadata = ProviderMetadata.of(
+                ProviderMetadata.Gemini,
+                Json.field("thoughtSignature", "c2ln")
+              )
+            )
+          )
+        )
+      )
+    )
+    val req = an.AnthropicConverter.fromLlmRequest(history)
+    req.messages(1).content.map(_.blockType) shouldBe Seq("tool_use")
+  }
+
+  test("redacted reasoning streams back as redacted_thinking") {
+    val enc    = an.AnthropicConverter.StreamEncoder()
+    val events = Seq(
+      LlmStreamPart.Start("m", "claude"),
+      LlmStreamPart.ReasoningStart("0"),
+      LlmStreamPart.ReasoningEnd("0", redactedData = Some("EmwKAhgB")),
+      LlmStreamPart.Finish(FinishReason.stop)
+    ).flatMap(enc.encode)
+    val acc = an.MessageAccumulator()
+    events.foreach(acc.add)
+    acc.result.content shouldBe Seq(an.ContentBlock.RedactedThinking("EmwKAhgB"))
   }
 
   test("to Chat Completions: system, tool_calls, and tool messages") {

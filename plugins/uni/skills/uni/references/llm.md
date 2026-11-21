@@ -1,6 +1,6 @@
-# LLM vendor APIs (uni-ai)
+# LLM vendor APIs
 
-`uni-ai` (`"org.wvlet.uni" %% "uni-ai"`, all platforms) models the Anthropic Messages, OpenAI
+`wvlet.uni.ai` (in `uni`, all platforms) models the Anthropic Messages, OpenAI
 Responses and Chat Completions, Gemini `generateContent`, and Bedrock Converse APIs, with clients
 and converters between them. Full page: https://wvlet.org/uni/ai/
 
@@ -88,4 +88,4 @@ Completions streams with `ChatCompletionChunk.done`. Bedrock streams are AWS eve
 What the converters handle, so don't redo it: usage normalization (Anthropic and Bedrock input
 excludes cache tokens; OpenAI and Gemini include them), stop reasons derived from tool calls,
 usage that arrives after the finish chunk, deterministic tool-id rewrites, `cache_control` ↔
-`cachePoint`, and reasoning carried across vendors in thinking signatures (`uni-ai:` prefix).
+`cachePoint`, and reasoning carried across vendors in thinking signatures (`wvlet.uni.ai:` prefix).
