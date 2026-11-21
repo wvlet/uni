@@ -2,7 +2,7 @@
 
 ## Goals
 
-Make Uni's HTTP client usable as an upstream SSE client for LLM provider streaming (the td-llm-proxy Airframe-to-Uni migration):
+Make Uni's HTTP client usable as an upstream SSE client for LLM provider streaming (an LLM proxy migrating from Airframe to Uni):
 
 - Stream provider events as they arrive, without buffering the whole completion.
 - Expose the upstream status, headers, and error body so a caller can classify a failed stream.

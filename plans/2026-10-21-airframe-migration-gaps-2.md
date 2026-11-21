@@ -2,7 +2,7 @@
 
 ## Goals
 
-- td-llm-proxy's Airframe → uni migration is paused until uni closes five more gaps, found in the 2026.1.29 sources after #730/#731/#732 shipped (see [the first gaps note](2026-10-21-airframe-migration-gaps.md); not redone here). Close all five, including OpenAPI generation, so the proxy can drop Airframe completely.
+- An app's Airframe → uni migration is paused until uni closes five more gaps, found in the 2026.1.29 sources after #730/#731/#732 shipped (see [the first gaps note](2026-10-21-airframe-migration-gaps.md); not redone here). Close all five, including OpenAPI generation, so the proxy can drop Airframe completely.
 - The proxy should only need configuration and a thin adapter, not a custom router, body decoder, logger, or thread-local context.
 - Each change keeps uni's secure defaults ([ADR: HTTP server secure defaults](../adr/2026-10-14-http-server-secure-defaults.md)).
 

@@ -4,7 +4,7 @@
 
 UniTest's sbt runner is shared across JVM, Scala.js and Scala Native. The async `UniTestTask.execute(..., continuation)` builds the suite with `Future(newInstance(...))` and drives the test queue through `flatMap`/`transform` callbacks, so async test bodies (`Future`, `Rx`) work on Scala.js. The blocking JVM `execute(handler, loggers)` used to delegate to that path and `Await` it, with `compat.executionContext = ExecutionContext.global`.
 
-So on the JVM, suite construction, `beforeAll`/`before`/`after`/`afterAll` and every test body ran on global-pool workers, while the sbt thread only waited. With suites running in parallel on a 2-CPU machine (or `maxExtraThreads=0`, or waits that bypass `blocking`), test bodies that synchronously awaited a `Future` on the global pool occupied the workers that `Future` needed and timed out. This was seen in td-llm-proxy's SSE ping tests on CircleCI.
+So on the JVM, suite construction, `beforeAll`/`before`/`after`/`afterAll` and every test body ran on global-pool workers, while the sbt thread only waited. With suites running in parallel on a 2-CPU machine (or `maxExtraThreads=0`, or waits that bypass `blocking`), test bodies that synchronously awaited a `Future` on the global pool occupied the workers that `Future` needed and timed out. This was seen in an app's SSE ping tests on CircleCI.
 
 AirSpec, which UniTest replaces, has the same Promise/Await structure but runs callbacks on a dedicated `Executors.newCachedThreadPool` of daemon threads (`airspec-executor`), so the global pool stayed free.
 

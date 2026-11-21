@@ -7,7 +7,7 @@
 
 ## Background
 
-From a td-llm-proxy CI log (sbt, suites in parallel):
+From an app's CI log (sbt, suites in parallel):
 
 - sbt buffers what a test framework writes to the `sbt.testing.Logger`s it hands each task, and flushes the buffer when the suite ends, so parallel suites don't interleave. UniTest writes the class header, every `+`/`-`/`x` line and the summary there.
 - uni's log records go through the root `java.util.logging` handler (`ConsoleLogHandler`) straight to stderr, outside that buffer. So every log line of a suite prints *before* its class header, mixed with other suites' logs, and a failure block can't be matched with its logs:

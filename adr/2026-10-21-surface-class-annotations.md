@@ -2,7 +2,7 @@
 
 ## Context
 
-OpenAPI component schemas need the class's `@description`, as sbt-airframe emits it and apps migrating from Airframe (td-llm-proxy's `model.*` types) depend on it. Surface already captured method and constructor-parameter annotations at compile time, but not the class's own. Design note: `plans/2026-10-21-surface-class-annotations.md`.
+OpenAPI component schemas need the class's `@description`, as sbt-airframe emits it and apps migrating from Airframe (for example, an API server's model types) depend on it. Surface already captured method and constructor-parameter annotations at compile time, but not the class's own. Design note: `plans/2026-10-21-surface-class-annotations.md`.
 
 ## Decision
 

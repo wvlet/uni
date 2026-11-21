@@ -2,7 +2,7 @@
 
 ## Context
 
-sbt buffers what a test framework writes to the `sbt.testing.Logger`s of a task and prints the buffer when the suite ends, so suites running in parallel don't interleave. UniTest writes its class header, result lines and summary there. Uni log records went through the root `java.util.logging` handler straight to stderr, outside that buffer. In CI (td-llm-proxy), a suite's log lines printed above its header, mixed with other suites' logs, so a failure could not be matched with its error output.
+sbt buffers what a test framework writes to the `sbt.testing.Logger`s of a task and prints the buffer when the suite ends, so suites running in parallel don't interleave. UniTest writes its class header, result lines and summary there. Uni log records went through the root `java.util.logging` handler straight to stderr, outside that buffer. In CI of an app with many suites, a suite's log lines printed above its header, mixed with other suites' logs, so a failure could not be matched with its error output.
 
 ## Decision
 

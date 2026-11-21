@@ -26,7 +26,7 @@
   `Future timed out after [5 seconds]`, and the stack traces show the bodies running on
   `ForkJoinWorkerThread`.
 - AirSpec passes the same suites under identical settings, so users migrating from AirSpec hit this
-  as a regression. The td-llm-proxy workaround (per-suite virtual-thread executors) stays as it is.
+  as a regression. An app's workaround (per-suite virtual-thread executors) stays as it is.
   This fix does not depend on it.
 
 ## Design
