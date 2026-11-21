@@ -158,7 +158,7 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
   private def side(m: ViewMode): RxElement =
     m match
       case ViewMode.Agent =>
-        AgentView(story, () => preview.flatMap(p => Option(p.querySelector(".story-stage"))))
+        AgentView(story, () => stage)
       case _ =>
         CodeView(story, link)
 
@@ -176,9 +176,17 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
               link.clear(LinkSource.Preview)
         case _ =>
 
+  private def stage: Option[dom.Element] = preview.flatMap(p =>
+    Option(p.querySelector(".story-stage"))
+  )
+
   override def render: RxElement = div(
-    cls -> "story",
-    when(!embed, hero),
+    cls -> (
+      if embed then
+        "story story--embed"
+      else
+        "example"
+    ),
     div(
       cls -> "story-card",
       toolbar,
@@ -248,51 +256,9 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
             "Resize the side panel"
           )
         )
-      )
+      ),
+      EventLog(() => stage)
     )
-  )
-
-  private def hero: RxElement = div(
-    cls -> "story-hero",
-    story.map { s =>
-      val group = Stories.groupOf(s)
-      div(
-        cls -> "story-hero__inner",
-        div(
-          cls -> "story-overline",
-          group.map(_.title).getOrElse(""),
-          span(cls -> "story-overline__sep", "/"),
-          s.title,
-          when(s.playground.isDefined, span(cls -> "story-badge", "Playground"))
-        ),
-        h1(cls -> "story-title", s.title),
-        p(cls  -> "story-summary", s.summary),
-        div(
-          cls -> "story-meta",
-          chips(s),
-          div(cls -> "story-meta__spacer"),
-          group.map(g =>
-            a(
-              cls    -> "story-link",
-              href   -> s"https://wvlet.org/uni/dom/${g.docs}",
-              target -> "_blank",
-              Icons.book,
-              "Docs"
-            )
-          ),
-          s.source
-            .map(src =>
-              a(
-                cls    -> "story-link",
-                href   -> src.githubUrl,
-                target -> "_blank",
-                Icons.github,
-                "Source"
-              )
-            )
-        )
-      )
-    }
   )
 
   private def chips(s: Story): RxElement = div(
@@ -330,16 +296,37 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
 
   private def toolbar: RxElement = div(
     cls -> "story-toolbar",
-    TabList(
-      mode,
-      label = "View",
-      tabs = Seq(
-        Tab(ViewMode.Preview, Icons.eye, "Preview"),
-        Tab(ViewMode.Code, Icons.code, "Code"),
-        Tab(ViewMode.Split, Icons.split, "Split"),
-        Tab(ViewMode.Agent, Icons.sparkle, "Agent")
+    // A group of toggle buttons, not a TabList: the views share one body, so there is no
+    // tab panel per view for aria-controls to name
+    div(
+      cls       -> "uni-tabs view-switch",
+      role      -> "group",
+      ariaLabel -> "View",
+      Seq(
+        (ViewMode.Preview, Icons.eye),
+        (ViewMode.Code, Icons.code),
+        (ViewMode.Split, Icons.split),
+        (ViewMode.Agent, Icons.sparkle)
+      ).map((m, icon) =>
+        button(
+          tpe           -> "button",
+          cls           -> "uni-tab",
+          ariaPressed   -> mode.map(c => (c == m).toString),
+          data("state") ->
+            mode.map(c =>
+              if c == m then
+                "active"
+              else
+                "inactive"
+            ),
+          onclick -> { () =>
+            mode := m
+          },
+          icon,
+          m.label
+        )
       )
-    )(cls += "view-switch"),
+    ),
     Tooltip(
       "Inspect: hover the preview to find each part's code",
       trigger = button(
@@ -362,7 +349,7 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
     ),
     when(embed, story.map(s => div(cls -> "story-toolbar__title", s.title))),
     div(cls -> "story-toolbar__spacer"),
-    when(embed, story.map(s => chips(s))),
+    story.map(s => chips(s)),
     when(
       embed,
       story.map(s =>

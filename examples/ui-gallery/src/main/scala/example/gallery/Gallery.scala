@@ -10,27 +10,27 @@ import wvlet.uni.ui.base.{Align, Side}
 
 import scala.language.implicitConversions
 
-/** A sidebar row: a catalog section, or one story in it. */
+/** A sidebar row: a catalog section, or one component page in it. */
 enum NavNode:
-  case Section(group: StoryGroup)
-  case Leaf(story: Story)
+  case Section(group: PageGroup)
+  case Leaf(page: ComponentPage)
 
   def key: String =
     this match
       case Section(g) =>
-        g.id
-      case Leaf(s) =>
-        s.id
+        s"group:${g.id}"
+      case Leaf(p) =>
+        p.id
 
 /**
   * The gallery, built with the components it shows, in the style of uni-harness: an icon rail of
-  * the catalog sections, a `Tree` of stories in a resizable `FoldablePane`, and the story with its
-  * preview and code. ⌘K opens a `CommandPalette` over the stories, and a `Menu` on the rail sets
-  * the `ColorScheme`. In embed mode (`?embed`, for an iframe in the docs) it shows only the story
-  * card.
+  * the catalog sections, a `Tree` of component pages in a resizable `FoldablePane`, and the page
+  * with its examples. ⌘K opens a `CommandPalette` over the pages and examples, and a `Menu` on the
+  * rail sets the `ColorScheme`. In embed mode (`?embed`, for an iframe in the docs) it shows one
+  * example's card.
   */
 class Gallery(
-    current: RxVar[Story],
+    current: RxVar[PageRoute],
     scheme: RxVar[ColorScheme],
     mode: RxVar[ViewMode],
     embed: Boolean
@@ -41,7 +41,7 @@ class Gallery(
   private def compact: Boolean = dom.window.innerWidth < Gallery.compactBelow
   private val sidebarOpen      = Rx.variable(!compact)
   private val sidebarWidth     = Rx.variable(248)
-  private val selectedKey      = Rx.variable(Option(current.get.id))
+  private val selectedKey      = Rx.variable(Option(current.get.page.id))
   private var subscriptions    = Cancelable.empty
 
   override def onMount(node: Any): Unit =
@@ -52,14 +52,17 @@ class Gallery(
       "ctrl+b" -> (() => sidebarOpen.update(!_))
     )
     // Keep the sidebar's highlight on the story shown, also after a back or forward navigation
-    val sync = current.run(s => selectedKey := Some(s.id))
+    val sync = current.run(r => selectedKey := Some(r.page.id))
     subscriptions = Cancelable.merge(keys, sync)
 
   override def beforeUnmount: Unit = subscriptions.cancel
 
   override def render: RxElement =
     if embed then
-      div(cls -> "gallery gallery--embed", StoryView(current, mode, embed = true))
+      div(
+        cls -> "gallery gallery--embed",
+        StoryView(current.map(r => r.example.getOrElse(r.page.examples.head)), mode, embed = true)
+      )
     else
       div(
         cls -> "gallery",
@@ -73,14 +76,18 @@ class Gallery(
               "Resize sidebar"
             )
           ),
-        main(cls -> "gallery-main aurora", StoryView(current, mode, embed = false)),
+        main(
+          cls -> "gallery-main aurora",
+          // A new page for a new component; moving to an example on the same page only scrolls
+          current.map(r => PageView(r.page, r.example, mode.get))
+        ),
         CommandPalette(paletteOpen, Rx.const(commands))
-          .withPlaceholder("Search components")
+          .withPlaceholder("Search components and examples")
           .withLabel("Search components")
       )
 
-  private def railButton(g: StoryGroup): RxElement =
-    val active = current.map(_.group == g.id)
+  private def railButton(g: PageGroup): RxElement =
+    val active = current.map(r => g.pages.contains(r.page))
     Tooltip(
       g.title,
       trigger = button(
@@ -95,7 +102,7 @@ class Gallery(
         onclick -> { () =>
           // On a phone this opens the floating story list; picking a story closes it
           sidebarOpen := true
-          g.stories.headOption.foreach(Gallery.navigate)
+          g.pages.headOption.foreach(Gallery.navigateTo)
         },
         Icons.forGroup(g.id)
       )
@@ -109,7 +116,7 @@ class Gallery(
       ariaLabel -> "Uni UI docs",
       Icons.logo
     ),
-    div(cls -> "rail-group", Stories.groups.map(railButton)),
+    div(cls -> "rail-group", Pages.groups.map(railButton)),
     div(cls -> "rail-spacer"),
     Tooltip(
       "Theme",
@@ -151,7 +158,10 @@ class Gallery(
       cls -> "sidebar-head",
       div(
         div(cls -> "sidebar-title", "Uni UI Gallery"),
-        div(cls -> "sidebar-sub", s"${Stories.all.size} stories · live code")
+        div(
+          cls -> "sidebar-sub",
+          s"${Pages.all.size} components · ${Pages.stories.size} live examples"
+        )
       ),
       Tooltip(
         "Hide sidebar (⌘B)",
@@ -169,10 +179,10 @@ class Gallery(
     ),
     div(cls -> "sidebar-overline", "Components"),
     Tree(
-      Rx.const(Stories.groups.map(NavNode.Section(_))),
+      Rx.const(Pages.groups.map(NavNode.Section(_))),
       children = {
         case NavNode.Section(g) =>
-          g.stories.map(NavNode.Leaf(_))
+          g.pages.map(NavNode.Leaf(_))
         case NavNode.Leaf(_) =>
           Seq.empty
       },
@@ -180,22 +190,22 @@ class Gallery(
       render = {
         case NavNode.Section(g) =>
           span(cls -> "nav-section", Icons.forGroup(g.id), g.title)
-        case NavNode.Leaf(s) =>
-          span(cls -> "nav-story", s.title)
+        case NavNode.Leaf(p) =>
+          span(cls -> "nav-story", p.name, span(cls -> "nav-count", p.examples.size.toString))
       }
     ).withLabel("Components")
       .withRowHeight(32)
-      .withExpanded(Rx.variable(Stories.groups.map(_.id).toSet))
+      .withExpanded(Rx.variable(Pages.groups.map(g => s"group:${g.id}").toSet))
       .withSelected(selectedKey)
       .withTypeahead {
         case NavNode.Section(g) =>
           g.title
-        case NavNode.Leaf(s) =>
-          s.title
+        case NavNode.Leaf(p) =>
+          p.name
       }
       .onSelect {
-        case NavNode.Leaf(s) =>
-          Gallery.navigate(s)
+        case NavNode.Leaf(p) =>
+          Gallery.navigateTo(p)
           if compact then
             sidebarOpen := false
         case NavNode.Section(_) =>
@@ -203,25 +213,25 @@ class Gallery(
   )
 
   private def commands: Seq[Command] =
-    Stories
+    Pages
       .groups
       .flatMap { g =>
-        g.stories
-          .map(s =>
-            Command(s.id, s.title)
+        g.pages
+          .flatMap(p =>
+            Command(p.id, p.name)
               .withGroup(g.title)
-              .withHint(s.summary)
-              .onRun(() => Gallery.navigate(s))
+              .withHint(p.summary)
+              .onRun(() => Gallery.navigateTo(p)) +:
+              p.examples
+                .map(s =>
+                  Command(s.id, s"${p.name}: ${s.title}")
+                    .withGroup(g.title)
+                    .withHint(s.summary)
+                    .withKeywords(p.name)
+                    .onRun(() => Gallery.navigate(s))
+                )
           )
       } ++
-      ViewMode
-        .values
-        .map(m =>
-          Command(s"view-${m}", s"View: ${m.label}")
-            .withGroup("View")
-            .withKeywords("code", "preview", "split")
-            .onRun(() => mode := m)
-        ) ++
       ColorScheme
         .values
         .map(s =>
@@ -243,5 +253,5 @@ object Gallery:
   /** Show `story` by setting the URL hash, so back and forward work and the URL can be shared. */
   def navigate(story: Story): Unit = dom.window.location.hash = s"#/${story.id}"
 
-  /** The story named by a hash such as `#/controls/buttons`. */
-  def storyOf(hash: String): Option[Story] = Stories.find(hash.stripPrefix("#").stripPrefix("/"))
+  /** Show a component's page. */
+  def navigateTo(page: ComponentPage): Unit = dom.window.location.hash = s"#/${page.id}"

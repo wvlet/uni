@@ -43,7 +43,7 @@ div(
 
 A menu, live. The Code tab shows its source:
 
-<UiGallery story="overlays/menu" embed height="380px" />
+<UiGallery story="menu/basic" embed height="380px" />
 
 `content` takes one element or a `Seq` of them: `content = form` or `content = Seq(hint, form)`.
 
@@ -107,7 +107,7 @@ div(
 
 Both dialogs here render in place:
 
-<UiGallery story="overlays/dialog" embed height="420px" />
+<UiGallery story="dialog/basic" embed height="420px" />
 
 - **Dialog.** The backdrop covers the nearest positioned ancestor, so give the panel
   `position: relative`. While the dialog is open, the content of that panel outside the dialog is

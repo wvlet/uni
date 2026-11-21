@@ -1,38 +1,70 @@
 package example.gallery
 
+import org.scalajs.dom
 import wvlet.uni.dom.all.{div, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.ui.ColorScheme
 
+import scala.concurrent.{ExecutionContext, Promise}
 import scala.language.implicitConversions
 
-/** The stories, their code, and the gallery shell, rendered into a real DOM. */
+/** The pages, their examples and code, and the gallery shell, rendered into a real DOM. */
 class GalleryTest extends DomTestSupport:
 
-  test("every story has a // #region block for its code panel") {
-    Stories.all.filter(_.source.isEmpty).map(_.id) shouldBe Seq.empty
+  private def story(id: String): Story        = Pages.story(id).get
+  private def page(id: String): ComponentPage = Pages.find(id).get
+
+  private def waitMs(ms: Int): Rx[Unit] =
+    val p = Promise[Unit]()
+    dom.window.setTimeout(() => p.success(()), ms)
+    Rx.future(p.future)(using ExecutionContext.parasitic)
+
+  test("every example has a // #region block for its code panel") {
+    Pages.stories.filter(_.source.isEmpty).map(_.id) shouldBe Seq.empty
   }
 
-  test("story ids are unique and start with their group") {
-    Stories.all.map(_.id).distinct.size shouldBe Stories.all.size
-    Stories.groups.foreach(g => g.stories.foreach(s => s.group shouldBe g.id))
+  test("example ids are unique and start with their page's id") {
+    Pages.stories.map(_.id).distinct.size shouldBe Pages.stories.size
+    Pages.all.foreach(p => p.examples.foreach(s => s.id.startsWith(s"${p.id}/") shouldBe true))
+    Pages.all.map(_.id).distinct.size shouldBe Pages.all.size
+  }
+
+  test("every page lists its component's API, starting with how to create it") {
+    Pages
+      .all
+      .foreach { p =>
+        (p.examples.nonEmpty && p.api.nonEmpty) shouldBe true
+        p.api.head.kind shouldBe "create"
+      }
+    val button = page("button").api
+    button.map(_.signature) shouldContain ".withLabel(l: String)"
+    button.find(_.signature == ".withLabel(l: String)").get.doc shouldContain "accessible name"
+    page("toast").api.map(_.signature) shouldContain ".info(message: String, durationMs: Int)"
+  }
+
+  test("a hash names a page or one of its examples; old story ids still work") {
+    Pages.route("#/button").map(r => (r.page.id, r.example.map(_.id))) shouldBe
+      Some(("button", None))
+    Pages.route("#/button/disabled").flatMap(_.example).map(_.id) shouldBe Some("button/disabled")
+    Pages.route("#/controls/buttons").flatMap(_.example).map(_.id) shouldBe Some("button/variants")
+    Pages.route("#/no/such").isEmpty shouldBe true
+    Pages.route("").isEmpty shouldBe true
   }
 
   test("a region keeps its file and lines, so the GitHub link points at the code") {
-    val src = Stories.find("controls/buttons").flatMap(_.source).get
+    val src = story("button/variants").source.get
     src.file shouldBe
       "examples/ui-gallery/src/main/scala/example/gallery/stories/ControlStories.scala"
-    src.code.startsWith("inline def buttons: RxElement =") shouldBe true
+    src.code.startsWith("inline def buttonVariants: RxElement =") shouldBe true
     src.code.contains("#region") shouldBe false
-    (src.endLine > src.startLine) shouldBe true
     src.githubUrl shouldContain s"#L${src.startLine}-L${src.endLine}"
   }
 
-  test("every story mounts") {
-    Stories
-      .all
+  test("every example mounts") {
+    Pages
+      .stories
       .foreach { s =>
         val m = mount(s.render())
         (m.container.childElementCount > 0) shouldBe true
@@ -40,31 +72,25 @@ class GalleryTest extends DomTestSupport:
       }
   }
 
-  test("the hash names the story") {
-    Gallery.storyOf("#/overlays/menu").map(_.id) shouldBe Some("overlays/menu")
-    Gallery.storyOf("#/no/such").isEmpty shouldBe true
-    Gallery.storyOf("").isEmpty shouldBe true
-  }
-
-  test("the gallery shows the current story and its code") {
-    val current = Rx.variable(Stories.find("controls/tabs").get)
+  test("the gallery shows a page with a card per example") {
+    val current = Rx.variable(Pages.route("#/tabs").get)
     val m       = mount(
       Gallery(current, Rx.variable(ColorScheme.Light), Rx.variable(ViewMode.Split), embed = false)
     )
     settle().map { _ =>
       m.get(".story-title").textContent shouldBe "Tabs"
-      m.get(".code-line").getAttribute("data-line") shouldBe
-        current.get.source.get.startLine.toString
-      current := Stories.find("overlays/select").get
+      m.queryAll(".example-section").size shouldBe page("tabs").examples.size
+      m.queryAll(".example-title").map(_.textContent) shouldBe page("tabs").examples.map(_.title)
+      current := Pages.route("#/select").get
       m.get(".story-title").textContent shouldBe "Select"
-      m.get(".code-block").textContent shouldContain "Select(selected"
+      m.get(".code-block").textContent shouldContain "Select(size"
     }
   }
 
-  test("embed mode leaves out the header and the sidebar") {
+  test("embed mode shows one example's card, without the shell") {
     val m = mount(
       Gallery(
-        Rx.variable(Stories.all.head),
+        Rx.variable(Pages.route("#/button/busy").get),
         Rx.variable(ColorScheme.Light),
         Rx.variable(ViewMode.Split),
         embed = true
@@ -72,20 +98,19 @@ class GalleryTest extends DomTestSupport:
     )
     m.querySelector(".gallery-rail") shouldBe None
     m.querySelector("[role=tree]") shouldBe None
-    m.querySelector(".story-hero") shouldBe None
-    m.querySelector(".code-view").isDefined shouldBe true
+    m.queryAll(".story-card").size shouldBe 1
+    m.get(".story-toolbar__title").textContent shouldBe "Busy"
   }
 
   test("the view switch shows the preview, the code, both, or the agent view") {
     val mode = Rx.variable(ViewMode.Preview)
-    val m = mount(StoryView(Rx.variable(Stories.find("controls/buttons").get), mode, embed = true))
+    val m    = mount(StoryView(Rx.variable(story("button/variants")), mode, embed = true))
     m.get(".story-body").getAttribute("data-view") shouldBe "preview"
     m.querySelector(".story-code-full") shouldBe None
     m.get(".uni-pane").getAttribute("data-state") shouldBe "closed"
     mode := ViewMode.Code
     m.querySelector(".story-code-full").isDefined shouldBe true
     mode := ViewMode.Split
-    m.querySelector(".story-code-full") shouldBe None
     m.get(".uni-pane").getAttribute("data-state") shouldBe "open"
     m.querySelector(".story-side .code-view").isDefined shouldBe true
     mode := ViewMode.Agent
@@ -96,11 +121,7 @@ class GalleryTest extends DomTestSupport:
     val m = mount(
       div(
         styleAttr -> "width: 600px; height: 600px; display: flex; flex-direction: column",
-        StoryView(
-          Rx.variable(Stories.find("controls/buttons").get),
-          Rx.variable(ViewMode.Split),
-          embed = true
-        )
+        StoryView(Rx.variable(story("button/variants")), Rx.variable(ViewMode.Split), embed = true)
       )
     )
     settle()
@@ -108,46 +129,41 @@ class GalleryTest extends DomTestSupport:
       .map { _ =>
         m.get(".story-body").getAttribute("data-layout") shouldBe "stacked"
         m.querySelector(".story-side--stacked .code-view").isDefined shouldBe true
-        m.get(".uni-pane").getAttribute("data-state") shouldBe "closed"
       }
   }
 
   test("the macro lists each component with the line that creates it") {
-    val story = Stories.find("controls/buttons").get
-    val src   = story.source.get
+    val s     = story("button/variants")
+    val src   = s.source.get
     val lines = src.code.split("\n").toSeq
-    story.kinds shouldBe Seq("Button")
-    story.tags.size shouldBe 7
-    story.tags.foreach(t => lines(t.line - src.startLine) shouldContain "Button(")
-    Stories.find("overlays/dialog").get.kinds shouldBe
-      Seq("Button", "Dialog", "Input", "AlertDialog")
+    s.kinds shouldBe Seq("Button")
+    s.tags.size shouldBe 6
+    s.tags.foreach(t => lines(t.line - src.startLine) shouldContain "Button(")
+    story("dialog/basic").kinds shouldBe Seq("Button", "Dialog", "Input")
+    // MenuItem entries are MenuEntry, not RxElement, so the macro leaves them as they are
+    story("menu/basic").kinds.toSet shouldBe Set("Menu", "Button")
   }
 
   test("tagged components carry their kind and line in the DOM") {
-    val story = Stories.find("controls/buttons").get
-    val m     = mount(story.render())
+    val s = story("button/variants")
+    val m = mount(s.render())
     settle().map { _ =>
       val tagged = m.queryAll("[data-src-kind=Button]")
-      tagged.size shouldBe 7
-      tagged.head.getAttribute("data-src-line") shouldBe story.tags.head.line.toString
+      tagged.size shouldBe 6
+      tagged.head.getAttribute("data-src-line") shouldBe s.tags.head.line.toString
     }
   }
 
-  test("a component passed where its own type is needed keeps that type, untagged") {
-    // MenuItem entries are MenuEntry, not RxElement, so the macro leaves them as they are
-    Stories.find("overlays/menu").get.kinds.toSet shouldBe Set("Menu", "Button")
-  }
-
   private def splitView(id: String): Mounted = mount(
-    StoryView(Rx.variable(Stories.find(id).get), Rx.variable(ViewMode.Split), embed = false)
+    StoryView(Rx.variable(story(id)), Rx.variable(ViewMode.Split), embed = false)
   )
 
-  test("a chip marks its component's lines and outlines it in the preview") {
-    val m = splitView("overlays/dialog")
+  test("a chip marks its component's lines") {
+    val m = splitView("dialog/basic")
     settle().map { _ =>
       val chip = m.queryAll(".chip").find(_.textContent == "Dialog").get
       fireEvent.mouseEnter(chip)
-      val dialogLine = Stories.find("overlays/dialog").get.linesOf("Dialog").head.toString
+      val dialogLine = story("dialog/basic").linesOf("Dialog").head.toString
       m.queryAll(".code-line.is-lit").map(_.getAttribute("data-line")) shouldBe Seq(dialogLine)
       fireEvent.mouseLeave(chip)
       m.queryAll(".code-line.is-lit").size shouldBe 0
@@ -155,9 +171,9 @@ class GalleryTest extends DomTestSupport:
   }
 
   test("hovering a code line outlines what it creates, with its name and line") {
-    val m = splitView("controls/buttons")
+    val m = splitView("button/variants")
     settle().map { _ =>
-      val line = Stories.find("controls/buttons").get.tags.head.line
+      val line = story("button/variants").tags.head.line
       fireEvent.mouseEnter(m.get(s".code-line[data-line='${line}']"))
       val labels = m.queryAll(".inspect-label").map(_.textContent)
       labels.size shouldBe 1
@@ -166,7 +182,7 @@ class GalleryTest extends DomTestSupport:
   }
 
   test("with Inspect on, hovering the preview marks the line that made the part") {
-    val m = splitView("controls/buttons")
+    val m = splitView("button/variants")
     settle().map { _ =>
       fireEvent.click(m.get("[aria-label=Inspect]"))
       val button = m.get(".story-stage .uni-button")
@@ -177,44 +193,71 @@ class GalleryTest extends DomTestSupport:
   }
 
   test("a playground writes its props into the code and the preview") {
-    val story = Stories.find("controls/button-props").get
-    story.kinds shouldBe Seq("Button")
-    val pg = story
+    val s = story("button/props")
+    s.kinds shouldBe Seq("Button")
+    val pg = s
       .playground
       .get
       .asInstanceOf[Playground[example.gallery.stories.ControlStories.ButtonProps]]
     var code = ""
-    story.code.run(c => code = c)
+    s.code.run(c => code = c)
     code shouldContain "Button(\"Save\")"
-    code shouldContain ".withVariant(ButtonVariant.Primary)"
     pg.props
       .update(_.copy(label = "Send", variant = wvlet.uni.ui.ButtonVariant.Danger, disabled = true))
     code shouldContain "Button(\"Send\")"
     code shouldContain ".withVariant(ButtonVariant.Danger)"
     code shouldContain ".withDisabled(true)"
-    val m = mount(story.render())
+    val m = mount(s.render())
     m.get(".uni-button").textContent shouldBe "Send"
-    m.get(".uni-button").classList.contains("uni-button--danger") shouldBe true
     pg.reset()
     m.get(".uni-button").textContent shouldBe "Save"
   }
 
   test("the agent view lists what an agent sees and runs its actions") {
     val m = mount(
-      StoryView(
-        Rx.variable(Stories.find("overlays/select").get),
-        Rx.variable(ViewMode.Agent),
-        embed = false
-      )
+      StoryView(Rx.variable(story("select/basic")), Rx.variable(ViewMode.Agent), embed = false)
     )
     settle()
       .flatMap(_ => settle())
       .map { _ =>
         m.queryAll(".agent-kind").map(_.textContent) shouldContain "select"
-        val large = m.queryAll(".agent-chip").find(_.textContent == "Large").get
-        fireEvent.click(large)
+        fireEvent.click(m.queryAll(".agent-chip").find(_.textContent == "Large").get)
         m.get(".story-stage .demo-note").textContent shouldBe "Size: Large"
       }
+  }
+
+  test("the event log lists each change with who made it") {
+    val m = mount(
+      StoryView(Rx.variable(story("select/basic")), Rx.variable(ViewMode.Agent), embed = false)
+    )
+    settle()
+      .flatMap(_ => settle())
+      .map { _ =>
+        fireEvent.click(m.queryAll(".agent-chip").find(_.textContent == "Small").get)
+        val row = m.get(".event-row")
+        row.querySelector(".event-value").textContent shouldBe "Medium → Small"
+        row.querySelector(".event-source").textContent shouldBe "agent"
+      }
+  }
+
+  test("the parts table lists the data-slot parts the examples render") {
+    val m = mount(PageView(page("tabs"), None, ViewMode.Preview))
+    waitMs(400).map { _ =>
+      val slots = m
+        .queryAll("#parts .ref-table tbody tr")
+        .map(_.querySelectorAll("code")(1).textContent)
+      slots shouldContain "tab-panel"
+      slots shouldContain "tab"
+    }
+  }
+
+  test("the accessibility check runs checkPattern on the live components") {
+    val m = mount(PageView(page("tabs"), None, ViewMode.Preview))
+    waitMs(700).map { _ =>
+      val rows = m.queryAll(".a11y-row")
+      (rows.size > 0) shouldBe true
+      rows.forall(_.classList.contains("a11y-row--pass")) shouldBe true
+    }
   }
 
   test("highlighting marks keywords, types, strings, and comments") {

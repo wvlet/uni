@@ -26,11 +26,11 @@ div(
 
 Buttons, live. The Code tab shows its source:
 
-<UiGallery story="controls/buttons" embed height="400px" />
+<UiGallery story="button/variants" embed height="400px" />
 
 Tabs, bound to an enum:
 
-<UiGallery story="controls/tabs" embed height="360px" />
+<UiGallery story="tabs/basic" embed height="360px" />
 
 | Component | What it does |
 |-----------|--------------|

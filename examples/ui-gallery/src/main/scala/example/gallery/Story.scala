@@ -1,7 +1,6 @@
 package example.gallery
 
 import example.gallery.SourceTag.Tag
-import example.gallery.stories.*
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.{Rx, RxVar}
@@ -167,20 +166,3 @@ object Control:
           .withLabel(name)
 
 end Control
-
-/** A sidebar section: the stories of one catalog page. */
-case class StoryGroup(id: String, title: String, docs: String, stories: Seq[Story])
-
-object Stories:
-  val groups: Seq[StoryGroup] = Seq(
-    StoryGroup("controls", "Controls", "controls", ControlStories.all),
-    StoryGroup("overlays", "Overlays", "overlays", OverlayStories.all),
-    StoryGroup("collections", "Collections", "collections", CollectionStories.all),
-    StoryGroup("layout", "Layout & Dock", "layout", LayoutStories.all)
-  )
-
-  val all: Seq[Story] = groups.flatMap(_.stories)
-
-  def find(id: String): Option[Story] = all.find(_.id == id)
-
-  def groupOf(story: Story): Option[StoryGroup] = groups.find(_.id == story.group)

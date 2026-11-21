@@ -46,7 +46,7 @@ div(
 
 A sortable table, live. The Code tab shows its source:
 
-<UiGallery story="collections/data-table" embed height="440px" />
+<UiGallery story="data-table/basic" embed height="440px" />
 
 | Component | What it does |
 |-----------|--------------|
@@ -146,5 +146,5 @@ VirtualList(tasks, rowHeight = 32, key = _.id, render = t => div(Reorder.grip, s
 
 Try it: drag a row, or select one and press Alt+ArrowUp:
 
-<UiGallery story="collections/reorder" embed height="380px" />
+<UiGallery story="virtual-list/reorder" embed height="380px" />
 
