@@ -105,6 +105,7 @@ const uiSidebar = [
     text: 'Components',
     items: [
       { text: 'Component Catalog', link: '/dom/ui' },
+      { text: 'Gallery', link: '/dom/gallery' },
       { text: 'Controls', link: '/dom/controls' },
       { text: 'Overlays', link: '/dom/overlays' },
       { text: 'Collections', link: '/dom/collections' },

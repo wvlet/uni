@@ -1,0 +1,102 @@
+/* The gallery's own layout. Colors come from uni-ui's --uni-* variables, so the light and dark
+   themes apply here too. uni-ui.css sits in the `uni` layer, so these unlayered rules win. */
+
+html, body, #app { height: 100%; margin: 0; }
+body {
+  background: var(--uni-canvas);
+  color: var(--uni-fg);
+  font-family: var(--uni-font-sans);
+  font-size: var(--uni-font-size);
+}
+
+.gallery { display: flex; flex-direction: column; height: 100%; }
+.gallery-header {
+  display: flex; align-items: center; gap: 8px;
+  height: 48px; padding: 0 12px; flex-shrink: 0;
+  border-bottom: 1px solid var(--uni-line);
+  background: var(--uni-surface);
+}
+.gallery-brand { font-weight: 600; color: var(--uni-fg); text-decoration: none; }
+.gallery-spacer { flex: 1; }
+.gallery-link { color: var(--uni-muted); text-decoration: none; padding: 0 8px; }
+.gallery-link:hover { color: var(--uni-fg); }
+.gallery-icon { font-size: 16px; line-height: 1; }
+
+.gallery-body { display: flex; flex: 1; min-height: 0; }
+.gallery-sidebar {
+  height: 100%; box-sizing: border-box; padding: 8px;
+  border-right: 1px solid var(--uni-line);
+  background: var(--uni-surface);
+}
+.nav-section { font-weight: 600; }
+.nav-story { color: var(--uni-fg); }
+
+.gallery-main { display: flex; flex-direction: column; flex: 1; min-width: 0; padding: 16px 20px; gap: 12px; }
+.gallery--embed .gallery-main { padding: 8px; }
+.gallery--embed .story-header { display: none; }
+.story-title { margin: 0; font-size: 20px; }
+.story-summary { margin: 4px 0 0; color: var(--uni-muted); }
+.story-docs { font-size: var(--uni-font-size-sm); color: var(--uni-accent); text-decoration: none; }
+.gallery-main > .uni-dock { flex: 1; min-height: 0; }
+
+.story-canvas {
+  height: 100%; box-sizing: border-box; overflow: auto; padding: 24px;
+  background:
+    radial-gradient(circle, var(--uni-line) 1px, transparent 1px) 0 0 / 16px 16px,
+    var(--uni-canvas);
+}
+.story-stage { position: relative; }
+
+/* Code panel */
+.code-view, .code-body { height: 100%; display: flex; flex-direction: column; min-height: 0; }
+.code-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 8px; border-bottom: 1px solid var(--uni-line);
+}
+.code-file { font-family: var(--uni-font-mono); font-size: var(--uni-font-size-sm); color: var(--uni-muted); }
+.code-block {
+  flex: 1; margin: 0; overflow: auto; padding: 8px 0;
+  font-family: var(--uni-font-mono); font-size: 13px; line-height: 1.55;
+  background: var(--uni-panel);
+}
+.code-line { display: block; padding-right: 16px; }
+.code-line:hover { background: var(--uni-hover); }
+.code-ln {
+  display: inline-block; width: 3.5em; padding-right: 1em; text-align: right;
+  color: var(--uni-faint); user-select: none;
+}
+.code-missing { padding: 16px; color: var(--uni-danger); }
+.tok-kw { color: #8b3dd6; }
+.tok-type { color: #0b7a75; }
+.tok-str { color: #a35200; }
+.tok-num { color: #0a58ca; }
+.tok-com { color: var(--uni-faint); font-style: italic; }
+:root[data-theme='dark'] .tok-kw { color: #c792ea; }
+:root[data-theme='dark'] .tok-type { color: #7fdbca; }
+:root[data-theme='dark'] .tok-str { color: #ecc48d; }
+:root[data-theme='dark'] .tok-num { color: #82aaff; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .tok-kw { color: #c792ea; }
+  :root:not([data-theme='light']) .tok-type { color: #7fdbca; }
+  :root:not([data-theme='light']) .tok-str { color: #ecc48d; }
+  :root:not([data-theme='light']) .tok-num { color: #82aaff; }
+}
+
+/* Helpers the stories use */
+.demo-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.demo-stack { display: flex; flex-direction: column; gap: 12px; }
+.demo-narrow { max-width: 360px; }
+.demo-note { margin: 0; color: var(--uni-muted); font-size: var(--uni-font-size-sm); }
+.demo-panel {
+  padding: 12px; border: 1px dashed var(--uni-line); border-radius: var(--uni-radius);
+  background: var(--uni-surface); color: var(--uni-muted);
+}
+.demo-frame { position: relative; min-height: 240px; align-content: flex-start; }
+.demo-task { display: flex; align-items: center; gap: 8px; }
+.demo-dock { height: 280px; display: flex; }
+.demo-dock > .uni-dock { flex: 1; }
+.demo-split {
+  position: relative; display: flex; height: 180px;
+  border: 1px solid var(--uni-line); border-radius: var(--uni-radius); overflow: hidden;
+}
+.demo-grow { flex: 1; border: 0; border-radius: 0; }

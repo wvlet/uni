@@ -29,3 +29,6 @@ metals.sbt
 
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
+
+# The ui-gallery page, staged by `./sbt exampleUiGallery/galleryDocs`
+docs/public/gallery

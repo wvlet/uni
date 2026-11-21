@@ -186,6 +186,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
   exampleHarnessApi,
   exampleHarnessServer,
   exampleHarnessRenderer,
+  exampleUiGallery,
   test.js
 )
 
@@ -712,6 +713,73 @@ lazy val exampleHarnessRenderer = project
       Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
   )
   .dependsOn(exampleHarnessApi, ui, exampleHarnessServer % Test, test.js % Test)
+
+lazy val gallerySite = taskKey[File]("Stage the ui-gallery page with fastLinkJS under target/site")
+lazy val galleryDocs = taskKey[File](
+  "Stage the ui-gallery page with fullLinkJS in docs/public/gallery"
+)
+
+// Copy the gallery's page, its CSS, uni-ui.css, and the linked JS into `out`
+def stageGallery(linked: File, web: File, uiCss: File, out: File): File =
+  IO.delete(out)
+  IO.createDirectory(out)
+  IO.copyDirectory(web, out)
+  IO.copyFile(uiCss, out / "uni-ui.css")
+  (linked * "*.js*").get().foreach(f => IO.copyFile(f, out / f.getName))
+  out
+
+// ui-gallery: a live catalog of uni-ui components next to their code, embedded in the docs
+// (docs/dom/gallery.md). Each story's code panel shows its `// #region` block, cut out at build time
+// by project/StoryRegions.scala, so the code shown is the code that runs.
+lazy val exampleUiGallery = project
+  .in(file("examples/ui-gallery"))
+  .enablePlugins(ScalaJSPlugin)
+  .settings(
+    buildSettings,
+    jsBuildSettings,
+    noPublish,
+    name                            := "uni-example-ui-gallery",
+    description                     := "Example: a gallery of uni-ui components with their code",
+    scalaJSUseMainModuleInitializer := true,
+    // The generator reads the story sources directly, so sbt 2 must not cache its result
+    Compile / sourceGenerators +=
+      Def
+        .task {
+          Def.uncached(
+            StoryRegions.generate(
+              (Compile / scalaSource).value / "example" / "gallery" / "stories",
+              (ThisBuild / baseDirectory).value,
+              (Compile / sourceManaged).value,
+              "example.gallery"
+            )
+          )
+        }
+        .taskValue,
+    gallerySite :=
+      Def.uncached {
+        val _ = (Compile / fastLinkJS).value
+        stageGallery(
+          (Compile / fastLinkJS / scalaJSLinkerOutputDirectory).value,
+          baseDirectory.value / "web",
+          (ui / Compile / resourceDirectory).value / "wvlet" / "uni" / "ui" / "uni-ui.css",
+          baseDirectory.value / "target" / "site"
+        )
+      },
+    galleryDocs :=
+      Def.uncached {
+        val _ = (Compile / fullLinkJS).value
+        stageGallery(
+          (Compile / fullLinkJS / scalaJSLinkerOutputDirectory).value,
+          baseDirectory.value / "web",
+          (ui / Compile / resourceDirectory).value / "wvlet" / "uni" / "ui" / "uni-ui.css",
+          (ThisBuild / baseDirectory).value / "docs" / "public" / "gallery"
+        )
+      },
+    // Every story mounts in headless Chromium, like the uni-ui tests
+    Test / jsEnv :=
+      Def.uncached(PlaywrightJSEnv(PlaywrightConfig(browserName = "chromium", headless = true)))
+  )
+  .dependsOn(ui, test.js % Test)
 
 // Compile-checks the `scala` code fences of Markdown files in place (see project/MarkdownSnippets.scala
 // for the fence modifiers). Free names in snippets resolve to hand-written stubs under

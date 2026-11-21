@@ -38,6 +38,8 @@ jobs:
             docs:
               - '.github/workflows/doc.yml'
               - 'docs/**'
+              - 'examples/ui-gallery/**'
+              - 'uni-ui/**'
               - 'package.json'
               - 'pnpm-lock.yaml'
 
@@ -53,6 +55,15 @@ jobs:
         with:
           # Full history so lastUpdated and sitemap <lastmod> reflect each page's last commit
           fetch-depth: 0
+      # The ui-gallery (docs/dom/gallery.md) is a Scala.js app, linked by sbt into docs/public/gallery
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'zulu'
+          java-version: '23'
+          cache: sbt
+      - uses: ./.github/actions/sbt-launcher
+      - name: Build the UI gallery
+        run: JVM_OPTS=-Xmx4g ./sbt "exampleUiGallery/galleryDocs"
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:
