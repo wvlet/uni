@@ -41,7 +41,7 @@ Maven Central should depend on a Central version and not add that resolver.
 |------|--------|-------------|
 | Object wiring | `wvlet.uni.design.Design` | `Design.newDesign.bindSingleton[A].build[A] { a => ... }` |
 | Logging | `wvlet.uni.log.LogSupport` | `class A extends LogSupport` then `info(...)`, `debug(...)` |
-| JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)` |
+| JSON / MessagePack codec | `wvlet.uni.weaver.Weaver` | `case class P(...) derives Weaver`, `Weaver.toJson(p)`, `Weaver.fromJson[P](json)`; `Instant`, `LocalDate` (ISO string), `UUID` built in |
 | JSON tree | `wvlet.uni.json.JSON` | `JSON.parse(text)` |
 | YAML config / frontmatter | `wvlet.uni.text.yaml.{YAML, Frontmatter}` | `YAML.fromYaml[P](text)`, `YAML.parse(text)`, `Frontmatter.parse(md).as[P]`, `YAML.parseDocument(text).set(path, v).toYaml` (keeps comments), `YAML.parseDocuments`/`YAML.writeStream` for `---` streams; see [references/core.md](references/core.md#yaml-and-frontmatter) |
 | Markdown to HTML | `wvlet.uni.text.markdown.{Markdown, MarkdownConfig}` | `Markdown.toHtml(md)` (raw HTML escaped by default), `Markdown.parse(md)`, `.frontmatterAs[P]`, `.toMarkdown` (lossless); see [references/core.md](references/core.md#markdown) |

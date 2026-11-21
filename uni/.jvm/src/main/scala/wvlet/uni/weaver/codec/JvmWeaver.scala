@@ -25,11 +25,8 @@ object JvmWeaver:
     ZonedDateTime.parse(_)
   )
 
-  given localDateWeaver: Weaver[LocalDate] = stringBasedWeaver(
-    "LocalDate",
-    _.toString,
-    LocalDate.parse(_)
-  )
+  // LocalDate is built in on every platform now; kept so `import JvmWeaver.given` code still compiles
+  given localDateWeaver: Weaver[LocalDate] = PrimitiveWeaver.localDateWeaver
 
   given localDateTimeWeaver: Weaver[LocalDateTime] = stringBasedWeaver(
     "LocalDateTime",

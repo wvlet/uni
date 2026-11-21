@@ -6,6 +6,7 @@ import wvlet.uni.io.IOPath
 import wvlet.uni.io.ListOptions
 import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.test.UniTest
 import wvlet.uni.weaver.Weaver
 
@@ -13,6 +14,7 @@ import java.time.LocalDate
 
 case class Sale(id: Long, amount: Double, dt: String, country: String) derives Weaver
 case class SaleRow(id: Long, amount: Double) derives Weaver
+case class DatedSale(id: Long, amount: Double, dt: LocalDate) derives Weaver
 
 class DatasetWriterTest extends UniTest:
   FileSystemInit.init()
@@ -80,6 +82,47 @@ class DatasetWriterTest extends UniTest:
     finally one.close()
 
     readSales(root)._2 shouldBe sales
+  }
+
+  test("write LocalDate partitions from case classes") {
+    skipInBrowser()
+    val root  = newRoot()
+    val rows  = sales.map(s => DatedSale(s.id, s.amount, LocalDate.parse(s.dt)))
+    val opts  = ParquetDatasetWriteOptions.default.withPartitionBy("dt")
+    val files = Parquet.writeDataset(root.path, rows, opts)
+    files.map(_.partitions("dt")).toSet shouldBe dates.toSet
+    filesUnder(root).map(_.takeWhile(_ != '/')).toSet shouldBe days.map(d => s"dt=${d}").toSet
+
+    // Partition values read as strings by default; the LocalDate weaver parses them
+    val ds = Parquet.dataset(root.path)
+    try ds.readAs[DatedSale]().toSeq.sortBy(_.id) shouldBe rows
+    finally ds.close()
+
+    val typed = Parquet.dataset(
+      root.path,
+      ParquetDatasetOptions.default.withPartitionType("dt", ParquetType.DATE)
+    )
+    try
+      typed.readAs[DatedSale]().toSeq.sortBy(_.id) shouldBe rows
+      typed.readRows().toSeq.head("dt") shouldMatch { case _: LocalDate =>
+      }
+    finally
+      typed.close()
+  }
+
+  test("write LocalDate fields as DATE columns") {
+    skipInBrowser()
+    val root = newRoot()
+    val rows = sales.take(4).map(s => DatedSale(s.id, s.amount, LocalDate.parse(s.dt)))
+    Parquet.writeDataset(root.path, rows, ParquetDatasetWriteOptions.default)
+    val ds = Parquet.dataset(root.path)
+    try
+      ds.schema.field("dt") shouldMatch {
+        case Some(f: ParquetField.Primitive) if f.logicalType.contains(LogicalType.Date) =>
+      }
+      ds.readAs[DatedSale]().toSeq.sortBy(_.id) shouldBe rows
+    finally
+      ds.close()
   }
 
   test("prune files written by the writer") {

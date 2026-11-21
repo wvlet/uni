@@ -79,7 +79,8 @@ Weaver resolves codecs for these out of the box (cross-platform):
 
 - **Primitives**: `Int`, `Long`, `Short`, `Byte`, `Double`, `Float`, `Boolean`,
   `Char`, `String`, `BigInt`, `BigDecimal`
-- **Common value types**: `UUID`, `java.time.Instant`,
+- **Common value types**: `UUID`, `java.time.Instant`, `java.time.LocalDate`
+  (an ISO-8601 string such as `"2026-11-21"`; an integer also reads as days since 1970-01-01),
   [`ULID`](./utilities#ulid), [`ElapsedTime`](./utilities#elapsedtime),
   `scala.concurrent.duration.Duration`, `java.net.URI`
 - **Collections**: `Option`, `Seq`/`List`/`Vector`/`IndexedSeq`, `Set`, `Map`,
@@ -96,7 +97,7 @@ available on Scala.js / Native):
 
 ```scala
 import wvlet.uni.weaver.codec.JvmWeaver.given
-// adds: ZonedDateTime, OffsetDateTime, LocalDate, LocalDateTime,
+// adds: ZonedDateTime, OffsetDateTime, LocalDateTime,
 //       java.time.Duration, java.io.File, java.net.URL,
 //       java.nio.file.Path, java.util.Optional[A]
 ```

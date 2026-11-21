@@ -49,7 +49,7 @@ would copy every byte twice there.
 - A write is not a transaction. A reader listing the folder during a write can see the files
   finished so far. Atomic commits across files need a table format (Delta Lake, Iceberg).
 - `ErrorIfExists`, `Append`, and the overwrite modes list the whole root before writing.
-- Case classes can't have `LocalDate` fields until uni has a `LocalDate` Weaver. Records and
-  batches can write DATE partitions.
+- Case classes can have `LocalDate` fields and DATE partitions since the
+  [LocalDate Weaver](2026-11-21-localdate-weaver.md). Records and batches can write them too.
 - Not covered: an async writer, sorting within partitions, `_SUCCESS` and `_metadata` files, and
   bucketing.

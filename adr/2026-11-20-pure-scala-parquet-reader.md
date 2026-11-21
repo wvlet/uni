@@ -50,6 +50,8 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
   possible optimization if profiles show the packing matters.
 - **DATE and TIME become ISO-8601 strings in rows** because Weaver has no `LocalDate` codec;
   `ColumnVector.getValue` returns `LocalDate`/`LocalTime`, which exist on every platform.
+  (Update 2026-11-21: Weaver now has a `LocalDate` codec that parses these strings; see
+  [LocalDate Weaver](2026-11-21-localdate-weaver.md).)
 - **`RowGroupFilter` only skips row groups.** It does not filter rows, and the API name says so.
   It understands only types whose statistics order is unambiguous (signed integers, floats
   without NaN bounds, booleans, UTF-8 strings with the new min/max fields, DATE, TIMESTAMP), and

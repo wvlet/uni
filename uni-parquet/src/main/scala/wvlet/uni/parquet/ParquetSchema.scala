@@ -132,6 +132,7 @@ object ParquetSchema:
     * | `String`, `Char`, enums                   | BYTE_ARRAY with STRING                                            |
     * | `Array[Byte]`                             | BYTE_ARRAY                                                        |
     * | `Instant`                                 | INT64 TIMESTAMP(MICROS, UTC)                                      |
+    * | `LocalDate`                               | INT32 with DATE                                                   |
     * | `UUID`                                    | FIXED_LEN_BYTE_ARRAY(16) with UUID                                |
     * | `BigDecimal`                              | DECIMAL(38, 18) unless set with `ParquetWriteOptions.withDecimal` |
     * | `Option[A]`                               | an OPTIONAL column; other fields are REQUIRED                     |

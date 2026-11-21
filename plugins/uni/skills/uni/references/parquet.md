@@ -173,8 +173,9 @@ columns after the files' own columns.
 ```scala
 import wvlet.uni.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
 import wvlet.uni.parquet.RowGroupFilter.col
+import java.time.LocalDate
 
-case class Visit(id: Long, user: String, dt: String, country: String) derives Weaver
+case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
 
 def recentVisits(root: String): Seq[Visit] =
   val ds = Parquet.dataset(root)
@@ -192,6 +193,7 @@ def typedDataset(root: String) = Parquet.dataset(
 ```
 
 - Partition values are STRING unless declared with `withPartitionType` (INT32, INT64, DATE).
+  `readAs` into a `LocalDate` field parses the string either way.
   `__HIVE_DEFAULT_PARTITION__` reads as null.
 - A filter on partition columns skips whole files before they are opened (`ds.selectFiles(opts)`
   lists the files a read opens). A literal of the wrong type for a partition, or an unknown column
@@ -284,7 +286,7 @@ val derived: ParquetSchema = ParquetSchema.of[Event]
 
 - The schema comes from the type: `Option[A]` is OPTIONAL (other fields REQUIRED), `Seq`/`List`/
   `Set`/`Array[A]` a 3-level LIST, `Map[K, V]` a MAP, a nested case class a group, `String` and
-  enums STRING, `Array[Byte]` BYTE_ARRAY, `Instant` TIMESTAMP(MICROS, UTC; nanoseconds dropped),
+  enums STRING, `Array[Byte]` BYTE_ARRAY, `Instant` TIMESTAMP(MICROS, UTC; nanoseconds dropped), `LocalDate` DATE,
   `UUID` UUID, `Short`/`Byte` INT32 with INT(16)/INT(8).
 - `BigDecimal` is DECIMAL(38, 18) by default. Change it with
   `ParquetWriteOptions.default.withDecimal(18, 4)`, or per field with

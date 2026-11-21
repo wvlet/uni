@@ -305,8 +305,9 @@ bucket prefix, split into `key=value` folders such as `dt=2026-11-20/country=JP/
 
 ```scala
 import wvlet.uni.parquet.RowGroupFilter.*
+import java.time.LocalDate
 
-case class Visit(id: Long, user: String, dt: String, country: String) derives Weaver
+case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
 
 val ds = Parquet.dataset("s3://my-bucket/visits/")
 try
@@ -386,7 +387,8 @@ does. It writes to a local directory, or to an `s3://`, `gs://`, `az://`, or `az
 ```scala
 import wvlet.uni.parquet.{ParquetDatasetWriteOptions, ParquetWriteMode}
 
-val visits  = Seq(Visit(1L, "aina", "2026-11-20", "JP"), Visit(2L, "leo", "2026-11-20", "US"))
+val day     = LocalDate.parse("2026-11-20")
+val visits  = Seq(Visit(1L, "aina", day, "JP"), Visit(2L, "leo", day, "US"))
 val options = ParquetDatasetWriteOptions.default.withPartitionBy("dt", "country")
 val written = Parquet.writeDataset("s3://my-bucket/visits/", visits, options)
 // dt=2026-11-20/country=JP/part-3f9a01c2-00000.parquet, ...
@@ -399,10 +401,12 @@ takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, option
 `ColumnBatch`es. Each also accepts an `ObjectStore` first, which the writer leaves open.
 
 - **Partition columns** are fields of the rows, or columns of the schema. They become folder names
-  and are left out of the files. They must be top-level STRING, INT32, INT64, or DATE columns.
+  and are left out of the files. They must be top-level STRING, INT32, INT64, or DATE columns; a
+  case-class `LocalDate` field is a DATE column.
   Folder values are percent-escaped as Hive does, and null or empty values are written as
   `__HIVE_DEFAULT_PARTITION__`, so both read back as null. Reading INT32, INT64, or DATE partitions
-  back still needs `withPartitionType`, as for data that Spark or DuckDB wrote.
+  back as typed values still needs `withPartitionType`, as for data that Spark or DuckDB wrote;
+  `readAs` into a `LocalDate` field works either way.
 - **Write modes.** `withMode` decides what happens when the root already holds data files:
   `ErrorIfExists` (the default) fails before writing, `Append` adds files next to them (with the
   same partition keys), `Overwrite` replaces the dataset, and `OverwritePartitions` replaces only
@@ -460,6 +464,7 @@ writes to any `java.io.OutputStream`. Both work on every platform, including bro
 | `String`, `Char`, enums | STRING |
 | `Array[Byte]` | BYTE_ARRAY |
 | `Instant` | TIMESTAMP(MICROS, UTC); nanoseconds are dropped |
+| `LocalDate` | DATE |
 | `UUID` | UUID (FIXED_LEN_BYTE_ARRAY(16)) |
 | `BigDecimal` | DECIMAL(38, 18) by default |
 | `Option[A]` | an OPTIONAL column; other fields are REQUIRED |
