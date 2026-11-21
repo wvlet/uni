@@ -58,6 +58,10 @@ generated data) paid a conversion to rows and back. A prototype that fed the col
 - `LongDictionary` keeps each key next to its index in one array, so a lookup touches one cache
   line; it was the top cost of numeric columns in both writers. Binary min/max statistics are
   updated only when the dictionary adds a value, since a repeated value cannot change them.
+- A binary row read from a dictionary page carries its reader entry, and the writer maps each
+  entry to its own dictionary index once per row group. Later rows of that entry skip the hash and
+  probe. They still compare bytes with the writer's entry, because callers may edit a read
+  vector's `data` before writing it.
 
 ## Alternatives considered
 
