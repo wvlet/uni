@@ -21,6 +21,7 @@ import wvlet.uni.weaver.codec.SealedTraitWeaver
 import wvlet.uni.weaver.codec.SingletonWeaver
 
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -230,6 +231,7 @@ object Weaver:
     bigIntWeaver,
     bigDecimalWeaver,
     instantWeaver,
+    localDateWeaver,
     uuidWeaver,
     uriWeaver,
     ulidWeaver,
@@ -279,7 +281,7 @@ object Weaver:
     * primitive surface like `java.math.BigInteger` that has no built-in branch). Callers that want
     * to fall back to a different encoding strategy (e.g. toString-quoted JSON) when a type isn't
     * directly supported can use this overload to detect the gap, including cases like
-    * `Seq[Either[A, B]]` or `case class Foo(d: LocalDate)` where `fromSurface` would otherwise
+    * `Seq[Either[A, B]]` or `case class Foo(t: LocalTime)` where `fromSurface` would otherwise
     * embed an empty fallback inside an outer composite weaver.
     */
   def fromSurfaceOpt(surface: Surface): Option[Weaver[?]] =
@@ -399,6 +401,8 @@ object Weaver:
         uuidWeaver
       case s if s.rawType == classOf[Instant] =>
         instantWeaver
+      case s if s.rawType == classOf[LocalDate] =>
+        localDateWeaver
       case s if s.rawType == classOf[ULID] =>
         ulidWeaver
       case s if s.rawType == classOf[ElapsedTime] =>

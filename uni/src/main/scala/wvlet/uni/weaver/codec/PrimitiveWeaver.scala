@@ -15,6 +15,7 @@ import scala.jdk.CollectionConverters.*
 import scala.reflect.ClassTag
 import java.net.URI
 import java.time.Instant
+import java.time.LocalDate
 import java.util.UUID
 
 object PrimitiveWeaver:
@@ -733,6 +734,28 @@ object PrimitiveWeaver:
           case other =>
             u.skipValue
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to Instant"))
+
+  /**
+    * Packs a LocalDate as an ISO-8601 string ("2026-11-21"). Unpacking also accepts an integer as
+    * days since 1970-01-01, the form Parquet DATE columns store.
+    */
+  given localDateWeaver: Weaver[LocalDate] =
+    new Weaver[LocalDate]:
+      override def pack(p: Packer, v: LocalDate, config: WeaverConfig): Unit = p.packString(
+        v.toString
+      )
+
+      override def unpack(u: Unpacker, context: WeaverContext): Unit =
+        u.getNextValueType match
+          case ValueType.STRING =>
+            safeConvertFromString(context, u, LocalDate.parse(_), context.setObject, "LocalDate")
+          case ValueType.INTEGER =>
+            safeUnpack(context, LocalDate.ofEpochDay(u.unpackLong), context.setObject)
+          case ValueType.NIL =>
+            safeUnpackNil(context, u)
+          case other =>
+            u.skipValue
+            context.setError(new IllegalArgumentException(s"Cannot convert ${other} to LocalDate"))
 
   given uuidWeaver: Weaver[UUID] =
     new Weaver[UUID]:

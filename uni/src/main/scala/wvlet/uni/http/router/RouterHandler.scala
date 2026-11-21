@@ -74,7 +74,7 @@ class RouterHandler(
   // The weaver is derived against the inner element surface (Rx[A] / Option[A] are peeled) to
   // match how ResponseConverter unwraps these wrappers before encoding the value. We use
   // `fromSurfaceOpt` so routes whose return type isn't covered by a built-in factory (e.g.
-  // `Either`, JVM-only `LocalDate`, `Path`) fall through to ResponseConverter's no-weaver path
+  // `Either`, JVM-only `Path`) fall through to ResponseConverter's no-weaver path
   // instead of getting silently encoded as the empty-object fallback. We also skip:
   //   - `Response` / `Rx[Response]` — ResponseConverter short-circuits before any weaver call.
   //   - Primitive surfaces (Int/Long/Boolean/Double/etc.) — the no-weaver path produces a

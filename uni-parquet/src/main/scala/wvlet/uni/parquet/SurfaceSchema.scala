@@ -93,6 +93,8 @@ private[parquet] object SurfaceSchema:
         throw unsupported(path, s, "recursive type")
       case _ if s.rawType == classOf[java.time.Instant] =>
         TIMESTAMP_MICROS
+      case _ if s.rawType == classOf[java.time.LocalDate] =>
+        DATE
       case _ if s.rawType == classOf[java.util.UUID] =>
         UUID
       case _
