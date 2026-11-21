@@ -112,12 +112,7 @@ object Parquet:
           throw e
     else
       // An absolute root, so listed paths and the root share one form for relativeTo
-      val parsed = IOPath.parse(root)
-      val path   =
-        if parsed.isAbsolute then
-          parsed
-        else
-          FileSystem.currentDirectory.resolve(parsed).normalize
+      val path = absolutePath(root)
       ParquetDataset.build(
         path.path,
         ParquetDataset.listLocal(path),
@@ -372,5 +367,141 @@ object Parquet:
   ): ParquetBatchWriter = ParquetBatchWriter.create(schema, () => out, options)
 
   private[parquet] def openFile(path: IOPath): java.io.OutputStream = FileSystem.writeStream(path)
+
+  // Writing datasets
+
+  /**
+    * Writes case classes to a partitioned dataset under a local directory or an `s3://`, `gs://`,
+    * or `az://` prefix, in the `key=value` folders [[dataset]] reads. The partition columns, set
+    * with [[ParquetDatasetWriteOptions.withPartitionBy]], are fields of `A` and are left out of the
+    * files. Returns the files written.
+    *
+    * {{{
+    * Parquet.writeDataset(
+    *   "s3://bucket/events/",
+    *   events,
+    *   ParquetDatasetWriteOptions.default.withPartitionBy("dt", "country")
+    * )
+    * }}}
+    *
+    * If writing fails, every file of the write is discarded and existing data is left as it was.
+    */
+  inline def writeDataset[A](
+      root: String,
+      rows: IterableOnce[A],
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): Seq[WrittenFile] = writeAllTo(
+    newDatasetWriter[A](root, options),
+    rows
+  )
+
+  inline def writeDataset[A](
+      store: ObjectStore,
+      root: String,
+      rows: IterableOnce[A],
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): Seq[WrittenFile] = writeAllTo(
+    newDatasetWriter[A](store, root, options),
+    rows
+  )
+
+  private def writeAllTo[A](w: ParquetDatasetWriter[A], rows: IterableOnce[A]): Seq[WrittenFile] =
+    try
+      w.writeAll(rows)
+      w.close()
+      w.writtenFiles
+    catch
+      case e: Throwable =>
+        w.abort()
+        throw e
+
+  /**
+    * A streaming writer of case classes to a partitioned dataset; see [[writeDataset]]. With a URI
+    * root, the writer creates the scheme's default store and closes it when it closes.
+    */
+  inline def newDatasetWriter[A](root: String, options: ParquetDatasetWriteOptions)(using
+      weaver: Weaver[A]
+  ): ParquetDatasetWriter[A] = ParquetDatasetWriter.create(
+    datasetTarget(root),
+    ParquetSchema.fromSurface(Surface.of[A], options.writeOptions),
+    options,
+    weaver
+  )
+
+  /** A dataset writer under a prefix of `store`, which the writer leaves open when it closes */
+  inline def newDatasetWriter[A](
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): ParquetDatasetWriter[A] = ParquetDatasetWriter.create(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+    ParquetSchema.fromSurface(Surface.of[A], options.writeOptions),
+    options,
+    weaver
+  )
+
+  /**
+    * Writes records (maps, JSON, or value sequences) to a partitioned dataset. The schema includes
+    * the partition columns.
+    */
+  def newDatasetRecordWriter(
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): ParquetDatasetRecordWriter = ParquetDatasetRecordWriter(
+    DatasetWriterCore.create(datasetTarget(root), schema, options)
+  )
+
+  def newDatasetRecordWriter(
+      store: ObjectStore,
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): ParquetDatasetRecordWriter = ParquetDatasetRecordWriter(
+    DatasetWriterCore.create(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      schema,
+      options
+    )
+  )
+
+  /**
+    * Writes [[ColumnBatch]]es to a partitioned dataset. Each batch has a vector for every column of
+    * the schema, including the partition columns; see [[ParquetDatasetBatchWriter]].
+    */
+  def newDatasetBatchWriter(
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): ParquetDatasetBatchWriter = ParquetDatasetBatchWriter(
+    DatasetWriterCore.create(datasetTarget(root), schema, options)
+  )
+
+  def newDatasetBatchWriter(
+      store: ObjectStore,
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): ParquetDatasetBatchWriter = ParquetDatasetBatchWriter(
+    DatasetWriterCore.create(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      schema,
+      options
+    )
+  )
+
+  private[parquet] def datasetTarget(root: String): DatasetTarget =
+    if ParquetDataset.isObjectUri(root) then
+      val uri = ParquetDataset.objectRoot(root)
+      DatasetTarget.Objects(storeFor(root), uri, ownsStore = true)
+    else
+      DatasetTarget.Local(absolutePath(root))
+
+  private def absolutePath(root: String): IOPath =
+    val parsed = IOPath.parse(root)
+    if parsed.isAbsolute then
+      parsed
+    else
+      FileSystem.currentDirectory.resolve(parsed).normalize
 
 end Parquet

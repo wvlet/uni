@@ -106,4 +106,44 @@ class S3ParquetTest extends UniTest:
     store.head(uri) shouldBe None
   }
 
+  test("write a partitioned dataset to a prefix and read it back") {
+    requireServer()
+    val root  = prefix.resolve("written/").toString
+    val sales = (0 until 30).map(i =>
+      S3Sale(
+        i.toLong,
+        if i % 2 == 0 then
+          "JP"
+        else
+          "US"
+      )
+    )
+    val options = ParquetDatasetWriteOptions
+      .default
+      .withPartitionBy("country")
+      .withMaxRowsPerFile(8)
+    val written = Parquet.writeDataset(store, root, sales, options)
+    written.map(_.numRows).sum shouldBe 30L
+    written.forall(_.path.startsWith(s"${root}country=")) shouldBe true
+
+    val ds = Parquet.dataset(store, root)
+    try
+      val jp = ParquetReadOptions.default.withRowGroupFilter(RowGroupFilter.col("country") === "JP")
+      ds.selectFiles(jp).size shouldBe 2
+      ds.readAs[S3Sale](jp).toSeq.sortBy(_.id) shouldBe sales.filter(_.country == "JP")
+    finally
+      ds.close()
+
+    // Replace the dataset, then abort a write: neither leaves stray objects
+    Parquet.writeDataset(store, root, sales.take(3), options.withMode(ParquetWriteMode.Overwrite))
+    val w = Parquet.newDatasetWriter[S3Sale](store, root, options.withMode(ParquetWriteMode.Append))
+    w.writeAll(sales)
+    w.abort()
+    val left = store.list(ObjectUri.parse(root)).map(_.uri.toString)
+    left.size shouldBe 2
+    Parquet.dataset(store, root).readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales.take(3)
+  }
+
 end S3ParquetTest
+
+case class S3Sale(id: Long, country: String) derives wvlet.uni.weaver.Weaver

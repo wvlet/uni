@@ -97,10 +97,31 @@ private[parquet] final class FileWriter(
       val left = (options.rowGroupSize - buffered).toDouble / bytesPerRow
       math.max(1L, math.min(math.min(remaining.toLong, MaxSlice), left.toLong + 1)).toInt
 
-  private def bufferedSize: Long =
+  private[parquet] def bufferedSize: Long =
     var s = 0L
     writers.foreach(w => s += w.bufferedSize)
     s
+
+  /** Bytes written to the output so far: the whole file once it is closed */
+  private[parquet] def bytesWritten: Long = output.position
+
+  /** The file size if it were closed now, not counting the footer */
+  private[parquet] def estimatedSize: Long = output.position + bufferedSize
+
+  /** True after an I/O error, which closed the output */
+  private[parquet] def hasFailed: Boolean = failure.isDefined
+
+  /**
+    * Writes the buffered rows out as a row group now, before the row group size is reached, to free
+    * memory. The file stays open.
+    */
+  private[parquet] def flushBuffered(): Unit =
+    ensureOpen()
+    if groupRows > 0 then
+      io {
+        flushRowGroup()
+        buffered = 0
+      }
 
   private def ensureOpen(): Unit =
     failure.foreach(e =>
