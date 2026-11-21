@@ -62,9 +62,11 @@ class Mounted(val container: dom.Element, private val cancelable: Cancelable) ex
     // such as a body portal's removeChild throws when it runs a second time.
     if !unmounted then
       unmounted = true
-      cancelable.cancel
-      if container.parentNode != null then
-        container.parentNode.removeChild(container)
+      try cancelable.cancel
+      finally
+        // Detach also when a cleanup throws, so the container doesn't leak into later tests
+        if container.parentNode != null then
+          container.parentNode.removeChild(container)
 
   override def close(): Unit = unmount()
 

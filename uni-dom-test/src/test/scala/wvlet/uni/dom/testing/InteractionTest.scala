@@ -142,4 +142,15 @@ class InteractionTest extends UniTest with DomTestSupport:
     m.unmount()
   }
 
+  test("a portal's teardown can run twice") {
+    val c = wvlet
+      .uni
+      .dom
+      .DomRenderer
+      .renderTo(dom.document.body, Portal.toBody(div(cls -> "portaled-twice")))
+    c.cancel
+    dom.document.querySelectorAll(".portaled-twice").length shouldBe 0
+    c.cancel
+  }
+
 end InteractionTest
