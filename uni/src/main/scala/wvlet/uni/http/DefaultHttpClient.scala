@@ -22,6 +22,9 @@ import wvlet.uni.rx.OnError
 import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxRunner
+import wvlet.uni.telemetry.Telemetry
+
+import scala.util.{Failure, Success}
 
 /**
   * Default synchronous HTTP client implementation that wraps an HttpChannel with retry and redirect
@@ -31,8 +34,23 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
     extends HttpSyncClient:
 
   override def send(request: HttpRequest): HttpResponse =
-    val resolvedRequest = prepareRequest(request)
-    val response        = sendWithRedirectHandling(resolvedRequest, redirectCount = 0)
+    val prepared = prepareRequest(request)
+    if config.telemetry.isEnabled then
+      val trace = HttpClientTrace.start(config.telemetry, prepared, Telemetry.currentContext)
+      try
+        val response = sendTraced(trace)
+        trace.finish(response)
+        response
+      catch
+        case e: Throwable =>
+          trace.fail(e)
+          throw e
+    else
+      sendTraced(HttpClientTrace.none(prepared))
+
+  private def sendTraced(trace: HttpClientTrace): HttpResponse =
+    val resolvedRequest = trace.request
+    val response        = sendWithRedirectHandling(resolvedRequest, redirectCount = 0, trace)
     if resolvedRequest.eventHandler != ServerSentEventHandler.empty then
       dispatchEvents(resolvedRequest.eventHandler, response)
       // The handler consumes the events; a streamed body cannot be read twice
@@ -66,15 +84,19 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
           handler.onCompletion()
       }
 
-  private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): HttpResponse =
-    val response = sendWithRetry(request)
+  private def sendWithRedirectHandling(
+      request: HttpRequest,
+      redirectCount: Int,
+      trace: HttpClientTrace
+  ): HttpResponse =
+    val response = sendWithRetry(request, trace)
 
     if config.followRedirects && response.status.isFollowableRedirect then
-      handleRedirect(request, response, redirectCount)
+      handleRedirect(request, response, redirectCount, trace)
     else
       response
 
-  private def sendWithRetry(request: HttpRequest): HttpResponse =
+  private def sendWithRetry(request: HttpRequest, trace: HttpClientTrace): HttpResponse =
     val retryContext = config
       .retryContext
       .withResultClassifier[HttpResponse](HttpExceptionClassifier.classifyHttpResponse)
@@ -82,6 +104,7 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
 
     try
       retryContext.run {
+        trace.onAttempt()
         channel.send(request, config)
       }
     catch
@@ -91,7 +114,8 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
   private def handleRedirect(
       originalRequest: HttpRequest,
       response: HttpResponse,
-      redirectCount: Int
+      redirectCount: Int,
+      trace: HttpClientTrace
   ): HttpResponse =
     if redirectCount >= config.maxRedirects then
       throw HttpException(
@@ -115,7 +139,7 @@ private[http] class DefaultHttpSyncClient(val config: HttpClientConfig, channel:
             else
               originalRequest.method
           )
-        sendWithRedirectHandling(redirectRequest, redirectCount + 1)
+        sendWithRedirectHandling(redirectRequest, redirectCount + 1, trace)
       case None =>
         throw HttpException(
           "Redirect response missing Location header",
@@ -149,11 +173,45 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
 
   override def send(request: HttpRequest): Rx[HttpResponse] =
     val resolvedRequest = prepareRequest(request)
-    sendWithRedirectHandling(resolvedRequest, redirectCount = 0)
+    if config.telemetry.isEnabled then
+      traced(resolvedRequest) { trace =>
+        sendWithRedirectHandling(trace.request, redirectCount = 0, trace).transformTry {
+          case s @ Success(response) =>
+            trace.finish(response)
+            s
+          case f @ Failure(e) =>
+            trace.fail(e)
+            f
+        }
+      }
+    else
+      sendWithRedirectHandling(
+        resolvedRequest,
+        redirectCount = 0,
+        HttpClientTrace.none(resolvedRequest)
+      )
 
   override def sendStreaming(request: HttpRequest): Rx[Array[Byte]] =
     val resolvedRequest = prepareRequest(request)
-    channel.sendStreaming(resolvedRequest, config)
+    if config.telemetry.isEnabled then
+      traced(resolvedRequest) { trace =>
+        trace.onAttempt()
+        trace.endWithStream(channel.sendStreaming(trace.request, config))
+      }
+    else
+      channel.sendStreaming(resolvedRequest, config)
+
+  /**
+    * Start the client span when the returned Rx runs, with the span current on the calling thread
+    * as its parent. Running the Rx again makes a new call, so it gets a new span.
+    */
+  private def traced[A](request: HttpRequest)(body: HttpClientTrace => Rx[A]): Rx[A] =
+    val parent = Telemetry.currentContext
+    Rx.single(())
+      .flatMap { _ =>
+        val trace = HttpClientTrace.start(config.telemetry, request, parent)
+        body(trace).onCancel(trace.end())
+      }
 
   override def sendSSE(request: HttpRequest): Rx[ServerSentEvent] =
     // Ensure Accept header is set for SSE
@@ -164,11 +222,30 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
         request.withAcceptEventStream
 
     val resolvedRequest = prepareRequest(sseRequest)
-    val handler         = resolvedRequest.eventHandler
+    if config.telemetry.isEnabled then
+      traced(resolvedRequest) { trace =>
+        trace.onAttempt()
+        trace.endWithStream(sseEvents(trace.request, trace.onResponse))
+      }
+    else
+      sseEvents(resolvedRequest, _ => ())
 
+  end sendSSE
+
+  private def sseEvents(
+      request: HttpRequest,
+      onConnect: HttpResponse => Unit
+  ): Rx[ServerSentEvent] =
+    val handler = request.eventHandler
     // Not retried: a stream that has started cannot be replayed without sending the request again.
     // UTF-8 is used per the SSE specification.
-    val chunks = channel.sendStreaming(resolvedRequest, config, handler.onConnect)
+    val chunks = channel.sendStreaming(
+      request,
+      config,
+      response =>
+        onConnect(response)
+        handler.onConnect(response)
+    )
     ServerSentEventParser
       .parseStream(chunks)
       .tap(handler.onEvent)
@@ -180,21 +257,22 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
         }
       )
 
-  end sendSSE
-
   private def prepareRequest(request: HttpRequest): HttpRequest =
     val uri = config.resolveUri(request.uri)
     config.requestFilter(request.withUri(uri))
 
-  private def sendWithRedirectHandling(request: HttpRequest, redirectCount: Int): Rx[HttpResponse] =
-    sendWithRetry(request).flatMap { response =>
-      if config.followRedirects && response.status.isFollowableRedirect then
-        handleRedirect(request, response, redirectCount)
-      else
-        Rx.single(response)
-    }
+  private def sendWithRedirectHandling(
+      request: HttpRequest,
+      redirectCount: Int,
+      trace: HttpClientTrace
+  ): Rx[HttpResponse] = sendWithRetry(request, trace).flatMap { response =>
+    if config.followRedirects && response.status.isFollowableRedirect then
+      handleRedirect(request, response, redirectCount, trace)
+    else
+      Rx.single(response)
+  }
 
-  private def sendWithRetry(request: HttpRequest): Rx[HttpResponse] =
+  private def sendWithRetry(request: HttpRequest, trace: HttpClientTrace): Rx[HttpResponse] =
     val retryContext = config
       .retryContext
       .withResultClassifier[HttpResponse](HttpExceptionClassifier.classifyHttpResponse)
@@ -202,6 +280,7 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
 
     retryContext
       .runAsyncWithContext(request) {
+        trace.onAttempt()
         channel.send(request, config)
       }
       .recover { case e: Retry.MaxRetryException =>
@@ -211,7 +290,8 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
   private def handleRedirect(
       originalRequest: HttpRequest,
       response: HttpResponse,
-      redirectCount: Int
+      redirectCount: Int,
+      trace: HttpClientTrace
   ): Rx[HttpResponse] =
     if redirectCount >= config.maxRedirects then
       Rx.exception(
@@ -238,7 +318,7 @@ private[http] class DefaultHttpAsyncClient(val config: HttpClientConfig, channel
               else
                 originalRequest.method
             )
-          sendWithRedirectHandling(redirectRequest, redirectCount + 1)
+          sendWithRedirectHandling(redirectRequest, redirectCount + 1, trace)
         case None =>
           Rx.exception(
             HttpException(

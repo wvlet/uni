@@ -24,6 +24,7 @@ import wvlet.uni.http.HttpStatus
 import wvlet.uni.http.Request
 import wvlet.uni.http.Response
 import wvlet.uni.http.ServerSentEvent
+import wvlet.uni.http.TelemetryFilter
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 
@@ -98,6 +99,7 @@ class RPCDispatcher(routers: Seq[RPCRouter], detailedErrors: Boolean = false) ex
       args
     )
     try
+      TelemetryFilter.recordRPC(request, route.serviceName, route.methodName)
       record(Seq.empty)
       // Decode parameters from the request body
       val json = request.content.asString.getOrElse("")

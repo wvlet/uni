@@ -13,7 +13,14 @@
  */
 package wvlet.uni.http.router
 
-import wvlet.uni.http.{HttpAccessLogFilter, Request, Response, RxHttpFilter, RxHttpHandler}
+import wvlet.uni.http.{
+  HttpAccessLogFilter,
+  Request,
+  Response,
+  RxHttpFilter,
+  RxHttpHandler,
+  TelemetryFilter
+}
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.{OptionSurface, Surface}
@@ -172,6 +179,12 @@ class RouterHandler(
         controller.getClass.getName,
         route.methodSurface,
         args
+      )
+      TelemetryFilter.recordRoute(
+        request,
+        route.pathPattern,
+        route.controllerSurface.name,
+        route.methodSurface.name
       )
       record(Seq.empty)
       val args = mapper.bindParameters(
