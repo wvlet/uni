@@ -63,11 +63,13 @@ class GalleryTest extends DomTestSupport:
   }
 
   test("shown code drops the inline modifier, so copied code is a plain method") {
-    StorySources
+    val stillInline = StorySources
       .all
-      .foreach { (id, src) =>
-        src.code.linesIterator.exists(_.trim.startsWith("inline def")) shouldBe false
+      .collect {
+        case (id, src) if src.code.linesIterator.exists(_.trim.startsWith("inline def")) =>
+          id
       }
+    stillInline.toSeq shouldBe Seq.empty
   }
 
   test("every example mounts") {
