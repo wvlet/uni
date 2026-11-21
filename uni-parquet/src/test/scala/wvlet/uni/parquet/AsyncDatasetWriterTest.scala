@@ -198,4 +198,31 @@ class AsyncDatasetWriterTest extends UniTest:
       }
   }
 
+  test("sort rows within partitions with async calls") {
+    val store    = MemoryObjectStore()
+    val shuffled = scala.util.Random(7).shuffle(sales)
+    Parquet
+      .writeDatasetAsync(
+        store,
+        root,
+        shuffled,
+        byDtCountry.withSortBy(ParquetSortKey.desc("id")).withMaxRowsPerFile(4)
+      )
+      .flatMap { written =>
+        written.map(_.numRows).sum shouldBe 40L
+        Parquet.datasetAsync(store, root).flatMap(_.readAllAsync[AsyncSale]())
+      }
+      .map { rows =>
+        rows.sortBy(_.id) shouldBe sales
+        // Files of a partition are read in name order, which is write order
+        rows
+          .groupBy(s => (s.dt, s.country))
+          .values
+          .foreach { part =>
+            val ids = part.map(_.id)
+            ids shouldBe ids.sorted.reverse
+          }
+      }
+  }
+
 end AsyncDatasetWriterTest

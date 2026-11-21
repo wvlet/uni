@@ -83,6 +83,96 @@ private[parquet] object VectorGather:
 
   end take
 
+  /** The batches' rows end to end; every batch has the same columns in the same order */
+  def concat(batches: Seq[ColumnBatch]): ColumnBatch =
+    if batches.size == 1 then
+      batches.head
+    else
+      val n = batches.map(_.numRows).sum
+      ColumnBatch(
+        n,
+        batches.head.columns.indices.map(c => concatVectors(batches.map(_.columns(c))))
+      )
+
+  private def concatVectors(vs: Seq[ColumnVector]): ColumnVector =
+    val n     = vs.map(_.size).sum
+    val nulls =
+      if vs.exists(_.nulls != null) then
+        val a   = new Array[Boolean](n)
+        var pos = 0
+        vs.foreach { v =>
+          if v.nulls != null then
+            System.arraycopy(v.nulls, 0, a, pos, v.size)
+          pos += v.size
+        }
+        a
+      else
+        null
+    vs.head match
+      case c: BooleanColumn =>
+        BooleanColumn(c.field, Array.concat(vs.map(_.asInstanceOf[BooleanColumn].values)*), nulls)
+      case c: IntColumn =>
+        IntColumn(c.field, Array.concat(vs.map(_.asInstanceOf[IntColumn].values)*), nulls)
+      case c: LongColumn =>
+        LongColumn(c.field, Array.concat(vs.map(_.asInstanceOf[LongColumn].values)*), nulls)
+      case c: FloatColumn =>
+        FloatColumn(c.field, Array.concat(vs.map(_.asInstanceOf[FloatColumn].values)*), nulls)
+      case c: DoubleColumn =>
+        DoubleColumn(c.field, Array.concat(vs.map(_.asInstanceOf[DoubleColumn].values)*), nulls)
+      case c: BinaryColumn =>
+        val bs = vs.map(_.asInstanceOf[BinaryColumn])
+        BinaryColumn(
+          c.field,
+          concatOffsets(bs.map(_.offsets)),
+          Array.concat(bs.map(_.data)*),
+          nulls,
+          c.binaryAsString
+        )
+      case c: ListColumn =>
+        val ls = vs.map(_.asInstanceOf[ListColumn])
+        ListColumn(
+          c.field,
+          concatOffsets(ls.map(_.offsets)),
+          concatVectors(ls.map(_.elements)),
+          nulls
+        )
+      case c: MapColumn =>
+        val ms = vs.map(_.asInstanceOf[MapColumn])
+        MapColumn(
+          c.field,
+          concatOffsets(ms.map(_.offsets)),
+          concatVectors(ms.map(_.keys)),
+          concatVectors(ms.map(_.values)),
+          nulls
+        )
+      case c: StructColumn =>
+        val ss = vs.map(_.asInstanceOf[StructColumn])
+        StructColumn(
+          c.field,
+          n,
+          c.children.indices.map(i => concatVectors(ss.map(_.children(i)))),
+          nulls
+        )
+    end match
+
+  end concatVectors
+
+  /** Offsets of ranges laid end to end; each input starts at its own offsets(0) */
+  private def concatOffsets(all: Seq[Array[Int]]): Array[Int] =
+    val n   = all.map(_.length - 1).sum
+    val out = new Array[Int](n + 1)
+    var pos = 0
+    var end = 0
+    all.foreach { o =>
+      var i = 0
+      while i < o.length - 1 do
+        out(pos + i + 1) = end + o(i + 1) - o(0)
+        i += 1
+      pos += o.length - 1
+      end = out(pos)
+    }
+    out
+
   private def takeNulls(v: ColumnVector, rows: Array[Int], n: Int): Array[Boolean] =
     if !v.hasNulls then
       null

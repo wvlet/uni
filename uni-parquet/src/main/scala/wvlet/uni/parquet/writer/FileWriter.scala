@@ -25,7 +25,9 @@ import scala.util.control.NonFatal
 private[parquet] final class FileWriter(
     val schema: ParquetSchema,
     options: ParquetWriteOptions,
-    openOutput: () => java.io.OutputStream
+    openOutput: () => java.io.OutputStream,
+    /** The sort order to record in each row group; the caller writes the rows in this order */
+    sortingColumns: IndexedSeq[SortingColumn] = IndexedSeq.empty
 ) extends AutoCloseable:
   import FileWriter.*
 
@@ -150,7 +152,8 @@ private[parquet] final class FileWriter(
         columns = chunks,
         totalByteSize = chunks.map(_.totalUncompressedSize).sum,
         numRows = groupRows,
-        ordinal = Some(rowGroups.size)
+        ordinal = Some(rowGroups.size),
+        sortingColumns = sortingColumns
       )
     groupRows = 0
 

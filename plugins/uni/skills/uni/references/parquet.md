@@ -266,6 +266,25 @@ def streamVisits(root: String, chunks: Iterator[Seq[Visit]]): Seq[WrittenFile] =
   partition columns. Each also takes an `ObjectStore` first, which it leaves open.
 - Limits: `withMaxRowsPerFile`, `withMaxFileSize`, `withMaxOpenFiles` (32), `withMaxBufferedBytes`
   (256 MiB). Per-file settings go in `withWriteOptions(ParquetWriteOptions...)`.
+- `withSortBy("user", "id")` or `withSortBy(ParquetSortKey.desc("ts").withNullsFirst(true))`
+  sorts each partition's rows before writing (Spark's `sortWithinPartitions`), for tight row group
+  statistics. Ascending and nulls last by default, in Parquet statistics order (strings by UTF-8
+  bytes). Rows are held in memory and written as one sorted run on `close`; over
+  `withMaxBufferedBytes` the largest partition is written early as another run (each file stays
+  sorted). Row groups record `sorting_columns`.
+
+```scala
+import wvlet.uni.parquet.ParquetSortKey
+
+def writeSorted(root: String, visits: Seq[Visit]): Seq[WrittenFile] = Parquet.writeDataset(
+  root,
+  visits,
+  ParquetDatasetWriteOptions
+    .default
+    .withPartitionBy("dt")
+    .withSortBy(ParquetSortKey.asc("user"), ParquetSortKey.desc("id"))
+)
+```
 
 Async I/O, for browsers or non-blocking code (object stores; a local root uses the sync writer):
 
