@@ -71,9 +71,9 @@ class S3ParquetTest extends UniTest:
   test("read a partitioned dataset under a prefix") {
     requireServer()
     val ds = prefix.resolve("visits/")
-    store.put(ds.resolve("dt=2026-11-19/part-0.parquet"), Parquet.writeBytes(rows.take(3)))
-    store.put(ds.resolve("dt=2026-11-20/part-0.parquet"), Parquet.writeBytes(rows.slice(3, 5)))
-    store.put(ds.resolve("dt=2026-11-20/_SUCCESS"), Array.emptyByteArray)
+    store.put(ds.resolve("day=2026-11-19/part-0.parquet"), Parquet.writeBytes(rows.take(3)))
+    store.put(ds.resolve("day=2026-11-20/part-0.parquet"), Parquet.writeBytes(rows.slice(3, 5)))
+    store.put(ds.resolve("day=2026-11-20/_SUCCESS"), Array.emptyByteArray)
     // A sibling prefix that `visits` without a slash would also match
     store.put(prefix.resolve("visits_old/part-0.parquet"), Parquet.writeBytes(rows.take(1)))
 
@@ -83,14 +83,14 @@ class S3ParquetTest extends UniTest:
       dataset.files.size shouldBe 2
       val opts = ParquetReadOptions
         .default
-        .withRowGroupFilter(RowGroupFilter.col("dt") === "2026-11-20")
+        .withRowGroupFilter(RowGroupFilter.col("day") === "2026-11-20")
       dataset.readAs[AllTypes](opts).toSeq shouldBe rows.slice(3, 5)
-      dataset.readAllRowsAsync().await.map(_("dt")) shouldBe
+      dataset.readAllRowsAsync().await.map(_("day")) shouldBe
         Seq.fill(3)("2026-11-19") ++ Seq.fill(2)("2026-11-20")
     finally
       dataset.close()
     // The dataset leaves a store it was given open
-    store.head(ds.resolve("dt=2026-11-19/part-0.parquet")).isDefined shouldBe true
+    store.head(ds.resolve("day=2026-11-19/part-0.parquet")).isDefined shouldBe true
 
     val listedAsync = Parquet.datasetAsync(store, root).await
     try listedAsync.files.size shouldBe 2
