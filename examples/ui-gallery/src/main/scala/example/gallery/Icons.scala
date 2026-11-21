@@ -33,6 +33,15 @@ object Icons:
     p("M8.5 20.5h9.5a2.5 2.5 0 0 0 2.5-2.5V8.5")
   )
 
+  def foundations: RxElement = icon(
+    p(
+      "M12 3.5a8.5 8.5 0 1 0 0 17c1.1 0 1.7-.8 1.7-1.7 0-.9-.7-1.3-.7-2.2 0-1 .8-1.6 1.8-1.6h2a3.7 3.7 0 0 0 3.7-3.7C20.5 7 16.7 3.5 12 3.5Z"
+    ),
+    circle(cx -> 7.8, cy  -> 11.5, r -> 1),
+    circle(cx -> 10.5, cy -> 7.8, r  -> 1),
+    circle(cx -> 15, cy   -> 8.2, r  -> 1)
+  )
+
   def collections: RxElement = icon(
     p("M8.5 6.5h12M8.5 12h12M8.5 17.5h12M4 6.5h.01M4 12h.01M4 17.5h.01")
   )
@@ -122,6 +131,8 @@ object Icons:
         controls
       case "overlays" =>
         overlays
+      case "foundations" =>
+        foundations
       case "collections" =>
         collections
       case _ =>

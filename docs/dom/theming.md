@@ -29,12 +29,16 @@ To change colors, set the variables after `uni-ui.css`:
 }
 ```
 
+The gallery's [Colors](/gallery/index.html#/colors){target="_self"} page shows each color variable
+below as a swatch, in light and dark side by side, with its value; click one to copy its `var()`.
+
 | Variable | Used for |
 |----------|----------|
 | `--uni-canvas`, `--uni-surface`, `--uni-panel`, `--uni-raised` | Backgrounds, from the window down to raised controls |
 | `--uni-fg`, `--uni-muted`, `--uni-faint` | Text, from primary to placeholder |
-| `--uni-line`, `--uni-hover` | Borders and hover fills |
-| `--uni-accent`, `--uni-accent-2`, `--uni-accent-fg`, `--uni-accent-soft` | The primary button gradient, its text, and focus rings |
+| `--uni-line`, `--uni-hover`, `--uni-focus` | Borders, hover fills, and focus rings |
+| `--uni-accent`, `--uni-accent-2`, `--uni-accent-fg`, `--uni-accent-soft` | The primary button gradient, its text, and the halo of focused fields and selected rows |
+| `--uni-glow` | The dot of an accent badge, in both themes |
 | `--uni-danger`, `--uni-danger-soft` | Danger buttons and invalid fields |
 | `--uni-success`, `--uni-success-soft` | Success toasts |
 | `--uni-overlay-shadow`, `--uni-backdrop` | Overlay shadows and the dialog backdrop |
