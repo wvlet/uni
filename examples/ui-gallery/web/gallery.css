@@ -770,6 +770,12 @@ body {
   min-height: 200px;
 }
 
+/* Stacked, the side view goes below the preview (.story-side--stacked), so the pane stays out of the
+   column instead of taking its height */
+.story-body[data-layout='stacked'] > .uni-pane {
+  display: none;
+}
+
 .story-side--stacked {
   flex: 0 0 55%;
   min-height: 0;
@@ -1781,6 +1787,149 @@ body {
   color: var(--uni-muted);
   font-size: 12.5px;
   line-height: 1.4;
+}
+
+/* The marble diagram of the Rx examples (Timeline.scala) */
+.timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--uni-line);
+  border-radius: var(--uni-radius-lg);
+  background: var(--uni-surface);
+}
+
+.tl-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tl-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.tl-label {
+  color: var(--uni-fg);
+  font-family: var(--uni-font-mono);
+}
+
+.tl-status {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--uni-muted);
+}
+
+.tl-value {
+  font-family: var(--uni-font-mono);
+  color: var(--uni-fg);
+}
+
+.tl-state {
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--uni-hover);
+  color: var(--uni-faint);
+  font-size: 11px;
+}
+
+.tl-state--done {
+  background: var(--uni-success-soft);
+  color: var(--uni-success);
+}
+
+.tl-state--failed {
+  background: var(--uni-danger-soft);
+  color: var(--uni-danger);
+}
+
+.tl-track {
+  position: relative;
+  height: 30px;
+  overflow: hidden;
+}
+
+/* 50 windows wide; one second per grid line */
+.tl-strip {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5000%;
+  background:
+    linear-gradient(var(--uni-line), var(--uni-line)) 0 50% / 100% 1px no-repeat,
+    repeating-linear-gradient(
+      to right,
+      transparent 0,
+      transparent calc(0.2% - 1px),
+      color-mix(in srgb, var(--uni-line) 60%, transparent) calc(0.2% - 1px),
+      color-mix(in srgb, var(--uni-line) 60%, transparent) 0.2%
+    );
+  will-change: transform;
+}
+
+.marble {
+  position: absolute;
+  box-sizing: border-box;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 6px;
+  border: 1.5px solid var(--uni-accent);
+  border-radius: 999px;
+  background: var(--uni-accent-soft);
+  color: var(--uni-fg);
+  font-family: var(--uni-font-mono);
+  font-size: 11px;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.marble--error,
+.marble--failed {
+  border-color: var(--uni-danger);
+  background: var(--uni-danger-soft);
+  color: var(--uni-danger);
+}
+
+/* An end is a bar across the line */
+.marble--done,
+.marble--failed {
+  min-width: 0;
+  width: 4px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 2px;
+  background: var(--uni-success);
+}
+
+.marble--failed {
+  background: var(--uni-danger);
+}
+
+.marble--failed .marble__glyph {
+  position: absolute;
+  left: 8px;
+  font-size: 12px;
+}
+
+.tl-axis {
+  display: flex;
+  justify-content: space-between;
+  color: var(--uni-faint);
+  font-size: 11px;
+}
+
+.demo-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: var(--uni-font-size-sm);
 }
 
 /* Get started: numbered steps, each with its files to copy */

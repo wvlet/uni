@@ -178,7 +178,7 @@ class Gallery(
         div(cls -> "sidebar-title", "Uni UI Gallery"),
         div(
           cls -> "sidebar-sub",
-          s"${Pages.all.size} components · ${Pages.stories.size} live examples"
+          s"${Pages.all.count(_.isComponent)} components · ${Pages.stories.size} live examples"
         )
       ),
       Tooltip(

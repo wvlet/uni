@@ -257,7 +257,8 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
           )
         )
       ),
-      EventLog(() => stage)
+      // A topic page's examples draw their own events, such as the Rx timelines
+      story.map(s => when(Pages.pageOf(s).forall(_.isComponent), EventLog(() => stage)))
     )
   )
 

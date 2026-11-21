@@ -105,6 +105,13 @@ val withFallback = primary.recoverWith {
 }
 ```
 
+`recover` and `recoverWith` handle both an `OnError` (the stream goes on) and a
+failed end (`recover` emits its value, then completes; `recoverWith` continues
+as the recovery stream). Inside `flatMap`, a failed inner stream ends the
+`flatMap`; put `recover` on the inner stream to keep going.
+
+<UiGallery story="rx-errors/terminal" embed height="500px" />
+
 ### transformFailure
 
 Transform specific errors:
@@ -143,6 +150,10 @@ Emit last in time window:
 ```scala
 val sampled = stream.sample(100, TimeUnit.MILLISECONDS)
 ```
+
+Click the button to see both on a timeline:
+
+<UiGallery story="rx-time/throttle" embed height="460px" />
 
 ### timeout
 
@@ -216,6 +227,8 @@ process, for example from a debug panel, use `RxTracker.startGlobal()` and
 `RxTracker.stopGlobal()`. Pass `captureStackTrace = false` to skip the stack
 traces that locate each subscription's `origin`. In a `UniTest`,
 `assertNoRxLeaks { ... }` fails when its block leaves a subscription active.
+
+<UiGallery story="rx-lifecycle/tracker" embed height="440px" />
 
 ## Caching
 

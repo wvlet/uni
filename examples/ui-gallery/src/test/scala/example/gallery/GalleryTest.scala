@@ -5,7 +5,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.{div, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Rx, RxTracker}
 import wvlet.uni.ui.ColorScheme
 
 import scala.concurrent.{ExecutionContext, Promise}
@@ -32,13 +32,16 @@ class GalleryTest extends DomTestSupport:
     Pages.all.map(_.id).distinct.size shouldBe Pages.all.size
   }
 
-  test("every page lists its component's API, starting with how to create it") {
+  test("every component page lists its component's API, starting with how to create it") {
+    Pages.all.foreach(p => p.examples.nonEmpty shouldBe true)
     Pages
       .all
+      .filter(_.isComponent)
       .foreach { p =>
-        (p.examples.nonEmpty && p.api.nonEmpty) shouldBe true
+        p.api.nonEmpty shouldBe true
         p.api.head.kind shouldBe "create"
       }
+    Pages.all.filterNot(_.isComponent).map(_.id).forall(_.startsWith("rx-")) shouldBe true
     val button = page("button").api
     button.map(_.signature) shouldContain ".withLabel(l: String)"
     button.find(_.signature == ".withLabel(l: String)").get.doc shouldContain "accessible name"
@@ -427,6 +430,196 @@ class GalleryTest extends DomTestSupport:
         ("\"Save\"", Kind.Str),
         ("// done", Kind.Comment)
       )
+  }
+
+  // The Rx examples
+
+  private def lane(m: Mounted, label: String): dom.Element = m.get(s"[data-lane='${label}']")
+
+  private def marbles(m: Mounted, label: String, kind: String): Seq[String] = lane(m, label)
+    .querySelectorAll(s".marble--${kind}")
+    .toSeq
+    .map(_.textContent)
+
+  private def state(m: Mounted, label: String): String =
+    lane(m, label).querySelector(".tl-state").textContent
+
+  private def press(m: Mounted, text: String): Unit = fireEvent.click(
+    m.queryAll(".uni-button").find(_.textContent == text).get
+  )
+
+  test("the Rx group lists topic pages, without the component reference sections") {
+    val rx = Pages.groups.find(_.id == "rx").get
+    rx.docs shouldBe "rx/operators"
+    rx.pages.map(_.id) shouldBe Seq("rx-values", "rx-time", "rx-async", "rx-errors", "rx-lifecycle")
+    rx.components.size shouldBe rx.pages.size
+    rx.components.foreach(_.isComponent shouldBe false)
+    val m = mount(PageView(page("rx-errors"), None, ViewMode.Preview))
+    m.querySelector("#api") shouldBe None
+    m.queryAll(".page-toc__link--ref").size shouldBe 0
+    m.queryAll(".example-section").size shouldBe 2
+    m.get(".story-link").getAttribute("href") shouldBe "https://wvlet.org/uni/rx/operators"
+  }
+
+  test("the timeline draws each value a stream emits, and its latest value") {
+    val m = mount(story("rx-values/derived").render())
+    settle().map { _ =>
+      press(m, "n + 1")
+      press(m, "n + 1")
+      press(m, "n + 1")
+      marbles(m, "n", "next") shouldBe Seq("1", "2", "3", "4")
+      marbles(m, "n.filter(_ % 2 == 0)", "next") shouldBe Seq("2", "4")
+      marbles(m, "n.scan(0)(_ + _)", "next") shouldBe Seq("1", "3", "6", "10")
+      lane(m, "n.map(_ * 10)").querySelector(".tl-value").textContent shouldBe "40"
+      state(m, "n") shouldBe "live"
+    }
+  }
+
+  test("join emits on any change, zip by position") {
+    val m = mount(story("rx-values/join-zip").render())
+    settle().map { _ =>
+      press(m, "a + 1")
+      press(m, "a + 1")
+      press(m, "b + 10")
+      marbles(m, "Rx.join(a, b)", "next") shouldBe Seq("(1,10)", "(2,10)", "(3,10)", "(3,20)")
+      marbles(m, "Rx.zip(a, b)", "next") shouldBe Seq("(1,10)", "(2,20)")
+    }
+  }
+
+  test("an RxVar skips an equal value; forceSet emits it") {
+    val m = mount(story("rx-values/equal").render())
+    settle().map { _ =>
+      press(m, "name := name.get")
+      marbles(m, "name", "next") shouldBe Seq("Ada")
+      press(m, "name.forceSet(name.get)")
+      marbles(m, "name", "next") shouldBe Seq("Ada", "Ada")
+    }
+  }
+
+  test("an OnError passes and the stream goes on; run stops at the first error") {
+    val m = mount(story("rx-errors/resume").render())
+    settle().map { _ =>
+      press(m, "n + 1")
+      press(m, "n + 1")
+      press(m, "n + 1")
+      marbles(m, "checked", "next") shouldBe Seq("1", "2", "4")
+      marbles(m, "checked", "error").size shouldBe 1
+      state(m, "checked") shouldBe "live"
+      marbles(m, "checked.recover { case _ => -1 }", "next") shouldBe Seq("1", "2", "-1", "4")
+      marbles(m, "checked, with run", "next") shouldBe Seq("1", "2")
+      marbles(m, "checked, with run", "failed").size shouldBe 1
+      state(m, "checked, with run") shouldBe "failed"
+      m.get(".demo-note").textContent shouldBe "DOM binding: 4"
+    }
+  }
+
+  test("a failed source ends every lane; recover and recoverWith end with a success") {
+    val m = mount(story("rx-errors/terminal").render())
+    settle()
+      .map { _ =>
+        press(m, "Next value")
+        press(m, "setException")
+        press(m, "Next value")
+        marbles(m, "feed", "next") shouldBe Seq("live 1", "live 2")
+        state(m, "feed") shouldBe "failed"
+        marbles(m, "feed.recover { … }", "next").last shouldBe "lost: down"
+        state(m, "feed.recover { … }") shouldBe "completed"
+        marbles(m, "feed.recoverWith { … }", "next").takeRight(2) shouldBe
+          Seq("cached 1", "cached 2")
+        state(m, "feed.recoverWith { … }") shouldBe "completed"
+        press(m, "Restart")
+      }
+      .flatMap(_ => settle())
+      .map { _ =>
+        // A new variable, and new lanes
+        marbles(m, "feed", "next") shouldBe Seq("live 1")
+        state(m, "feed") shouldBe "live"
+      }
+  }
+
+  test("take(3) and stop() end a stream") {
+    val m = mount(story("rx-lifecycle/end").render())
+    settle().map { _ =>
+      press(m, "n + 1")
+      press(m, "n + 1")
+      state(m, "n.take(3)") shouldBe "completed"
+      state(m, "n") shouldBe "live"
+      press(m, "n.stop()")
+      state(m, "n") shouldBe "completed"
+      state(m, "n.map(_ * 10)") shouldBe "completed"
+    }
+  }
+
+  test("flatMap cancels the previous request when a newer query arrives") {
+    val m = mount(story("rx-async/switch").render())
+    settle()
+      .flatMap { _ =>
+        val input = m.get("input")
+        fireEvent.input(input, "a")
+        fireEvent.input(input, "ab")
+        waitMs(800)
+      }
+      .map { _ =>
+        marbles(m, "results", "next") shouldBe Seq("hits for ab")
+        marbles(m, "cancelled", "next") shouldBe Seq("a")
+      }
+  }
+
+  test("a failed Rx.future ends the plain flatMap; recover inside keeps the other going") {
+    val m = mount(story("rx-async/future").render())
+    settle()
+      .flatMap { _ =>
+        press(m, "Fail the next request")
+        press(m, "Request")
+        waitMs(700)
+      }
+      .map { _ =>
+        state(m, "sent.flatMap(n => Rx.future(fetch(n)))") shouldBe "failed"
+        state(m, "… Rx.future(fetch(n)).recover { … }") shouldBe "live"
+        marbles(m, "… Rx.future(fetch(n)).recover { … }", "next") shouldBe Seq("no reply 1")
+      }
+  }
+
+  test("timeout gives a slow reply 1 second, and recover turns the timeout into a value") {
+    val m = mount(story("rx-time/timeout").render())
+    settle()
+      .flatMap { _ =>
+        press(m, "Slow (2 s)")
+        waitMs(1200)
+      }
+      .map { _ =>
+        marbles(m, "replies", "next") shouldBe Seq("timed out")
+      }
+  }
+
+  test("the tracker lists each subscription until it is cancelled") {
+    val m = mount(story("rx-lifecycle/tracker").render())
+    press(m, "subscribe")
+    press(m, "subscribe")
+    m.queryAll(".demo-list li").size shouldBe 2
+    press(m, "counter + 1")
+    m.get(".demo-note").textContent shouldBe "handler calls: 4"
+    press(m, "cancel the newest")
+    m.queryAll(".demo-list li").size shouldBe 1
+    m.get(".demo-list li").textContent shouldContain "runContinuously MapOp"
+  }
+
+  test("the Rx examples cancel every subscription they start when they unmount") {
+    val tracker = RxTracker.startGlobal(captureStackTrace = false)
+    try
+      val before = tracker.activeCount
+      Pages
+        .find("rx-lifecycle")
+        .toSeq
+        .flatMap(_.examples)
+        .foreach { s =>
+          val m = mount(s.render())
+          m.queryAll(".uni-button").filter(_.textContent == "subscribe").foreach(fireEvent.click(_))
+          m.unmount()
+        }
+      tracker.activeCount shouldBe before
+    finally
+      RxTracker.stopGlobal()
   }
 
 end GalleryTest

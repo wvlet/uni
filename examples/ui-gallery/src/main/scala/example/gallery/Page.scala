@@ -28,15 +28,25 @@ case class ComponentPage(
     examples: Seq[Story],
     api: Seq[ApiEntry],
     a11y: Seq[A11yCheck] = Nil,
-    a11yNote: String = ""
+    a11yNote: String = "",
+    topic: Boolean = false
 ) extends GalleryPage:
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
+
+  /**
+    * A page about a uni-ui component, with its parts, API, and accessibility check. A topic page
+    * (such as the Rx pages) has examples only.
+    */
+  def isComponent: Boolean = !topic
 
 /** A page with its own view instead of examples, such as the color tokens. */
 case class GuidePage(id: String, name: String, summary: String, view: () => RxElement)
     extends GalleryPage
 
-/** A sidebar section: the pages of one catalog page of the docs. */
+/**
+  * A sidebar section: the pages of one catalog page of the docs, at `docs` under
+  * https://wvlet.org/uni/.
+  */
 case class PageGroup(id: String, title: String, docs: String, pages: Seq[GalleryPage]):
   def components: Seq[ComponentPage] = pages.collect { case c: ComponentPage =>
     c
@@ -58,11 +68,12 @@ case class PageRoute(page: GalleryPage, example: Option[Story]):
 object Pages:
   val groups: Seq[PageGroup] = Seq(
     PageGroup("start", "Start here", "", Seq(StartStories.page)),
-    PageGroup("foundations", "Foundations", "theming", Seq(ColorsPage.page)),
-    PageGroup("controls", "Controls", "controls", ControlStories.pages),
-    PageGroup("overlays", "Overlays", "overlays", OverlayStories.pages),
-    PageGroup("collections", "Collections", "collections", CollectionStories.pages),
-    PageGroup("layout", "Layout & Dock", "layout", LayoutStories.pages)
+    PageGroup("foundations", "Foundations", "dom/theming", Seq(ColorsPage.page)),
+    PageGroup("controls", "Controls", "dom/controls", ControlStories.pages),
+    PageGroup("overlays", "Overlays", "dom/overlays", OverlayStories.pages),
+    PageGroup("collections", "Collections", "dom/collections", CollectionStories.pages),
+    PageGroup("layout", "Layout & Dock", "dom/layout", LayoutStories.pages),
+    PageGroup("rx", "Rx", "rx/operators", RxStories.pages)
   )
 
   /** Every page, guides included. */

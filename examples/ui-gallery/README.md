@@ -46,6 +46,12 @@ and a live accessibility check. The docs embed it on the
   `getComputedStyle` from hidden frames that load the page's stylesheets with `data-theme` forced.
   Click a swatch to copy its `var()`, or a value to copy the value. A test checks the page against
   the variables `uni-ui.css` declares.
+- **Rx streams.** The Rx group's pages ([`RxStories.scala`](src/main/scala/example/gallery/stories/RxStories.scala))
+  show how streams behave: values, time operators, `flatMap`, errors, and subscriptions. Each
+  example ends with a `Timeline` ([`Timeline.scala`](src/main/scala/example/gallery/Timeline.scala)),
+  a marble diagram that subscribes to the streams it lists and draws each `OnNext`, `OnError`, and
+  `OnCompletion`. These are topic pages (`ComponentPage(..., topic = true)`), without the Parts, API, and
+  Accessibility sections.
 - **State in the URL.** `#/menu` names a page and `#/menu/checked` an example,
   `?view=preview`, `code`, `split`, or `agent` picks the view, `?theme=dark` or `?theme=light` forces a color scheme, and `?embed` shows only
   one example's card for an iframe. An embedding page switches the theme with
