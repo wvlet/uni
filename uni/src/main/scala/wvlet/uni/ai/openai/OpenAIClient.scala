@@ -105,33 +105,88 @@ class OpenAIClient(val config: OpenAIConfig, http: HttpAsyncClient = LlmHttp.new
       case None =>
         LlmHttp.jsonRequest(s"${config.baseUrl.stripSuffix("/")}${path}", body, headers)
 
-  def responses(r: ResponsesRequest): Rx[Response] = LlmHttp
-    .postJson(http, post("/responses", JsonCodec[ResponsesRequest].encode(r.copy(stream = None))))
-    .map(JsonCodec[Response].decode)
+  private def provider: String =
+    if config.bedrock.isDefined then
+      "aws.bedrock"
+    else
+      // Also for other OpenAI-compatible hosts; server.address names the host
+      "openai"
 
-  def streamResponses(r: ResponsesRequest): Rx[ResponseStreamEvent] = LlmHttp
-    .postSSE(http, post("/responses", JsonCodec[ResponsesRequest].encode(r.withStream(true))))
-    .filter(e => e.data.nonEmpty && e.data != "[DONE]")
-    .map(ResponseStreamEvent.fromServerSentEvent)
+  private def operation(
+      model: String,
+      stream: Boolean,
+      maxTokens: Option[Int],
+      temperature: Option[Double],
+      topP: Option[Double]
+  ) = LlmOperation("chat", provider, model, stream, maxTokens.map(_.toLong), temperature, topP)
 
-  def chatCompletions(r: ChatCompletionRequest): Rx[ChatCompletion] = LlmHttp
-    .postJson(
+  private def observeResponse(trace: LlmCallTrace, r: Response): Unit =
+    trace.response(r.id, r.model)
+    r.usage.foreach(u => trace.setUsage(ResponsesConverter.toLlmUsage(u)))
+    trace.setFinishReasons(LlmTelemetry.finishReason(ResponsesConverter.toFinishReason(r)).toSeq)
+
+  def responses(r: ResponsesRequest): Rx[Response] =
+    LlmTelemetry.traced(
       http,
+      operation(r.model, false, r.maxOutputTokens, r.temperature, r.topP),
+      post("/responses", JsonCodec[ResponsesRequest].encode(r.copy(stream = None)))
+    )(req => LlmHttp.postJson(http, req).map(JsonCodec[Response].decode))(observeResponse)
+
+  def streamResponses(r: ResponsesRequest): Rx[ResponseStreamEvent] =
+    LlmTelemetry.traced(
+      http,
+      operation(r.model, true, r.maxOutputTokens, r.temperature, r.topP),
+      post("/responses", JsonCodec[ResponsesRequest].encode(r.withStream(true)))
+    ) { req =>
+      LlmHttp
+        .postSSE(http, req)
+        .filter(e => e.data.nonEmpty && e.data != "[DONE]")
+        .map(ResponseStreamEvent.fromServerSentEvent)
+    } { (trace, event) =>
+      event match
+        case ResponseStreamEvent.Lifecycle(t, response, _)
+            if OpenAIClient.TerminalEvents.contains(t) =>
+          observeResponse(trace, response)
+        case ResponseStreamEvent.Lifecycle(_, response, _) =>
+          trace.response(response.id, response.model)
+        case _ =>
+          ()
+    }
+
+  def chatCompletions(r: ChatCompletionRequest): Rx[ChatCompletion] =
+    LlmTelemetry.traced(
+      http,
+      operation(r.model, false, r.maxCompletionTokens.orElse(r.maxTokens), r.temperature, r.topP),
       post(
         "/chat/completions",
         JsonCodec[ChatCompletionRequest].encode(r.withStream(false).copy(stream = None))
       )
-    )
-    .map(JsonCodec[ChatCompletion].decode)
+    )(req => LlmHttp.postJson(http, req).map(JsonCodec[ChatCompletion].decode)) { (trace, c) =>
+      trace.response(c.id, c.model)
+      c.usage.foreach(u => trace.setUsage(ChatCompletionsConverter.toLlmUsage(u)))
+      trace.setFinishReasons(c.choices.flatMap(_.finishReason))
+    }
 
   /** Stream chunks until `[DONE]`; the last chunk carries usage */
-  def streamChatCompletions(r: ChatCompletionRequest): Rx[ChatCompletionChunk] = LlmHttp
-    .postSSE(
+  def streamChatCompletions(r: ChatCompletionRequest): Rx[ChatCompletionChunk] =
+    LlmTelemetry.traced(
       http,
+      operation(r.model, true, r.maxCompletionTokens.orElse(r.maxTokens), r.temperature, r.topP),
       post("/chat/completions", JsonCodec[ChatCompletionRequest].encode(r.withStream(true)))
-    )
-    .filter(e => e.data.nonEmpty && !ChatCompletionChunk.isDone(e))
-    .map(ChatCompletionChunk.fromServerSentEvent)
+    ) { req =>
+      LlmHttp
+        .postSSE(http, req)
+        .filter(e => e.data.nonEmpty && !ChatCompletionChunk.isDone(e))
+        .map(ChatCompletionChunk.fromServerSentEvent)
+    } {
+      // The finish reason of each choice arrives in its last chunk
+      val reasons = scala.collection.mutable.TreeMap.empty[Int, String]
+      (trace, c) =>
+        trace.response(c.id, c.model)
+        c.choices.foreach(ch => ch.finishReason.foreach(reasons(ch.index) = _))
+        trace.setFinishReasons(reasons.values.toSeq)
+        c.usage.foreach(u => trace.setUsage(ChatCompletionsConverter.toLlmUsage(u)))
+    }
 
   override def generate(request: LlmRequest): Rx[LlmResponse] =
     if config.useChatCompletions then
@@ -156,3 +211,7 @@ class OpenAIClient(val config: OpenAIConfig, http: HttpAsyncClient = LlmHttp.new
   override def close(): Unit = http.close()
 
 end OpenAIClient
+
+object OpenAIClient:
+  // Lifecycle events that carry the final response, with its usage
+  private val TerminalEvents = Set("response.completed", "response.incomplete", "response.failed")

@@ -15,6 +15,7 @@ import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxEvent
 import wvlet.uni.rx.RxRunner
 import wvlet.uni.storage.AwsCredentialsProvider
+import wvlet.uni.telemetry.{MetricExporter, SpanExporter, SpanKind, SpanStatus, Telemetry}
 import wvlet.uni.test.UniTest
 
 import java.net.InetSocketAddress
@@ -389,6 +390,191 @@ class LlmClientJvmTest extends UniTest:
       .contains("/us-east-1/bedrock/aws4_request") shouldBe true
     client.close()
     signed.close()
+  }
+
+  // Telemetry: GenAI spans and metrics
+
+  private class Traced:
+    val spans     = SpanExporter.inMemory()
+    val metrics   = MetricExporter.inMemory()
+    val telemetry = Telemetry().withExporter(spans).withMetricExporter(metrics)
+    def http      = wvlet.uni.http.Http.client.noRetry.withTelemetry(telemetry).newAsyncClient
+
+    def genAi = spans.spans.filter(_.attributes.contains("gen_ai.operation.name"))
+
+    // collect() returns what arrived since the last call, so keep everything seen
+    private val collected = scala
+      .collection
+      .mutable
+      .ArrayBuffer
+      .empty[wvlet.uni.telemetry.HistogramData]
+
+    def histogram(name: String) =
+      collected ++= metrics.collect()
+      collected.toSeq.filter(_.instrument.name == name)
+
+  test("an Anthropic call is a GenAI span over its HTTP span, with usage and metrics") {
+    val t      = Traced()
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(an.AnthropicHost.Direct("key-1", base)),
+      t.http
+    )
+    single(client.messages(request.copy(temperature = Some(0.5)))).text shouldBe "Hello"
+    val span = t.genAi.head
+    span.name shouldBe "chat claude"
+    span.kind shouldBe SpanKind.Client
+    span.attributes("gen_ai.provider.name") shouldBe "anthropic"
+    span.attributes("gen_ai.request.model") shouldBe "claude"
+    span.attributes("gen_ai.request.max_tokens") shouldBe 100L
+    span.attributes("gen_ai.request.temperature") shouldBe 0.5
+    span.attributes("gen_ai.response.model") shouldBe "claude"
+    span.attributes("gen_ai.response.id") shouldBe "msg_1"
+    span.attributes("gen_ai.response.finish_reasons") shouldBe "end_turn"
+    span.attributes("gen_ai.usage.input_tokens") shouldBe 3L
+    span.attributes("gen_ai.usage.output_tokens") shouldBe 2L
+    span.attributes("server.address") shouldBe "127.0.0.1"
+    // No content on the span
+    span.attributes.values.exists(_ == "hi") shouldBe false
+    span.attributes.values.exists(_ == "Hello") shouldBe false
+    val httpSpan = t.spans.spans.find(_.attributes.contains("http.request.method")).get
+    httpSpan.parentSpanId shouldBe Some(span.spanId)
+    httpSpan.traceId shouldBe span.traceId
+    // Propagated to the vendor
+    last.get().headers.get("traceparent").exists(_.contains(span.traceId)) shouldBe true
+
+    val duration = t.histogram("gen_ai.client.inference.duration")
+    duration.map(_.count).sum shouldBe 1L
+    duration.head.attributes("gen_ai.provider.name") shouldBe "anthropic"
+    duration.head.attributes("gen_ai.response.model") shouldBe "claude"
+    duration.head.attributes.contains("gen_ai.response.id") shouldBe false
+    t.histogram("gen_ai.client.inference.operation.input_tokens").head.sum shouldBe 3.0
+    t.histogram("gen_ai.client.inference.operation.output_tokens").head.sum shouldBe 2.0
+    client.close()
+  }
+
+  test("an Anthropic stream ends its span with the stream, under the caller's span") {
+    val t      = Traced()
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(an.AnthropicHost.Direct("key-1", base)),
+      t.http
+    )
+    val parent = t.telemetry.startSpan("handler")
+    val rx     = Telemetry.withSpan(parent)(client.stream(request))
+    // The span starts only when the stream runs
+    t.genAi shouldBe Seq.empty
+    val (_, terminal) = runStream(rx)
+    terminal shouldBe OnCompletion.success
+    parent.end()
+    val span = t.genAi.head
+    span.parentSpanId shouldBe Some(parent.context.spanId)
+    span.attributes("gen_ai.request.stream") shouldBe true
+    span.attributes("gen_ai.response.id") shouldBe "msg_1"
+    span.attributes("gen_ai.response.finish_reasons") shouldBe "end_turn"
+    span.attributes("gen_ai.usage.input_tokens") shouldBe 3L
+    span.attributes("gen_ai.usage.output_tokens") shouldBe 2L
+    // Running the stream again is a new call with a new span
+    runStream(rx)._2 shouldBe OnCompletion.success
+    t.genAi.map(_.spanId).distinct.size shouldBe 2
+    client.close()
+  }
+
+  test("a failed LLM call records the vendor's error type") {
+    val t      = Traced()
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(an.AnthropicHost.Direct("overloaded", base)),
+      t.http
+    )
+    runStream(client.messages(request))._2 shouldMatch { case OnCompletion(Result.Failure(_)) =>
+    }
+    val span = t.genAi.head
+    span.status shouldBe SpanStatus.Error
+    span.attributes("error.type") shouldBe "overloaded_error"
+    t.histogram("gen_ai.client.inference.duration").head.attributes("error.type") shouldBe
+      "overloaded_error"
+    client.close()
+  }
+
+  test("OpenAI and Gemini streams report provider, response, usage, and finish reasons") {
+    val t         = Traced()
+    val llm       = LlmRequest("gpt", Seq(LlmMessage.user("hi")))
+    val responses = oa.OpenAIClient(oa.OpenAIConfig(Some("sk-1"), s"${base}/v1"), t.http)
+    runStream(responses.stream(llm))._2 shouldBe OnCompletion.success
+    val r = t.genAi.last
+    r.name shouldBe "chat gpt"
+    r.attributes("gen_ai.provider.name") shouldBe "openai"
+    r.attributes("gen_ai.response.id") shouldBe "resp_1"
+    r.attributes("gen_ai.response.finish_reasons") shouldBe "stop"
+    r.attributes("gen_ai.usage.input_tokens") shouldBe 5L
+
+    val chat = oa.OpenAIClient(
+      oa.OpenAIConfig(Some("sk-2"), s"${base}/v1", useChatCompletions = true),
+      t.http
+    )
+    runStream(chat.stream(llm))._2 shouldBe OnCompletion.success
+    val c = t.genAi.last
+    c.attributes("gen_ai.response.id") shouldBe "c1"
+    c.attributes("gen_ai.response.model") shouldBe "m"
+    c.attributes("gen_ai.response.finish_reasons") shouldBe "stop"
+    c.attributes("gen_ai.usage.input_tokens") shouldBe 4L
+    c.attributes("gen_ai.usage.output_tokens") shouldBe 1L
+
+    val gemini = gm.GeminiClient(
+      gm.GeminiConfig(gm.GeminiHost.AiStudio("g-key", s"${base}/v1beta")),
+      t.http
+    )
+    runStream(
+      gemini.streamGenerateContent(
+        "gemini-2.5-flash",
+        gm.GenerateContentRequest(Seq(gm.Content.user("hi")))
+      )
+    )._2 shouldBe OnCompletion.success
+    val g = t.genAi.last
+    g.name shouldBe "generate_content gemini-2.5-flash"
+    g.attributes("gen_ai.provider.name") shouldBe "gcp.gemini"
+    g.attributes("gen_ai.response.model") shouldBe "gemini-2.5-flash"
+    g.attributes("gen_ai.response.finish_reasons") shouldBe "STOP"
+    g.attributes("gen_ai.usage.input_tokens") shouldBe 2L
+    g.attributes("gen_ai.usage.output_tokens") shouldBe 2L
+    Seq(responses, chat, gemini).foreach(_.close())
+  }
+
+  test("Bedrock reports aws.bedrock as the provider") {
+    val t    = Traced()
+    val http =
+      wvlet
+        .uni
+        .http
+        .Http
+        .client
+        .noRetry
+        .withTelemetry(t.telemetry)
+        .withRequestFilter(r => r.withUri(r.uri.replace(s"https://${bedrockHost}", base)))
+        .newAsyncClient
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(
+        an.AnthropicHost.Bedrock("us-east-1", BedrockAuth.ApiKey("bk"), Some(bedrockHost))
+      ),
+      http
+    )
+    single(client.messages(request)).text shouldBe "Hello"
+    t.genAi.head.attributes("gen_ai.provider.name") shouldBe "aws.bedrock"
+    client.close()
+  }
+
+  test("metrics-only telemetry records GenAI metrics without spans or traceparent") {
+    val metrics   = MetricExporter.inMemory()
+    val telemetry = Telemetry().withMetricExporter(metrics)
+    val client    = an.AnthropicClient(
+      an.AnthropicConfig(an.AnthropicHost.Direct("key-1", base)),
+      wvlet.uni.http.Http.client.noRetry.withTelemetry(telemetry).newAsyncClient
+    )
+    single(client.messages(request)).text shouldBe "Hello"
+    last.get().headers.contains("traceparent") shouldBe false
+    metrics
+      .collect()
+      .filter(_.instrument.name == "gen_ai.client.inference.operation.output_tokens")
+      .map(_.sum) shouldBe Seq(2.0)
+    client.close()
   }
 
 end LlmClientJvmTest

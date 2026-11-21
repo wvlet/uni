@@ -206,7 +206,7 @@ object TelemetryFilter:
     port.foreach(p => span.setAttribute("server.port", p.toLong))
 
   /** Split a `Host` header or URI authority into host and port, keeping IPv6 brackets off. */
-  private[http] def splitHostPort(authority: String): (String, Option[Int]) =
+  private[uni] def splitHostPort(authority: String): (String, Option[Int]) =
     val colon        = authority.lastIndexOf(':')
     val close        = authority.lastIndexOf(']')
     val (host, port) =
@@ -218,12 +218,6 @@ object TelemetryFilter:
 
   /** Call `onEnd` once when `events` completes, fails, or is cancelled. */
   private[http] def endWithStream[A](events: Rx[A])(onEnd: Option[Throwable] => Unit): Rx[A] =
-    val onCompletion: Rx[A] = Rx
-      .single(())
-      .flatMap { _ =>
-        onEnd(None)
-        Rx.empty[A]
-      }
-    events.tapOnFailure(e => onEnd(Some(e))).concat(onCompletion).onCancel(onEnd(None))
+    wvlet.uni.telemetry.OperationTrace.endWithStream(events)(onEnd)
 
 end TelemetryFilter

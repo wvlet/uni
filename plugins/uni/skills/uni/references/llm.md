@@ -59,6 +59,26 @@ val gemini = GeminiClient(GeminiConfig.fromEnv) // GEMINI_API_KEY; or GeminiHost
 gemini.streamGenerateContent("gemini-2.5-flash", GenerateContentRequest(Seq(Content.user("Hi"))))
 ```
 
+## Tracing
+
+A client traces its calls when its HTTP client has telemetry: each call is a GenAI span
+(`chat <model>`) with the model, token usage, and finish reasons, plus the
+`gen_ai.client.inference.duration` and token histograms. Keep `noRetry`, as the default client
+does. Prompts and completions are never recorded.
+
+```scala reset
+import wvlet.uni.ai.anthropic.*
+import wvlet.uni.http.Http
+import wvlet.uni.telemetry.Telemetry
+import wvlet.uni.telemetry.otlp.OtlpConfig
+
+val telemetry = Telemetry().withServiceName("agent").withOtlp(OtlpConfig())
+val traced    = AnthropicClient(
+  AnthropicConfig.fromEnv,
+  Http.client.noRetry.withTelemetry(telemetry).newAsyncClient
+)
+```
+
 ## Converting between vendors
 
 ```scala reset

@@ -26,6 +26,7 @@ import wvlet.uni.json.JSON.{
 }
 import wvlet.uni.log.LogSupport
 import wvlet.uni.rx.Rx
+import wvlet.uni.telemetry.{HistogramInstrument, OperationTrace, SpanKind, Telemetry}
 
 import java.util.concurrent.atomic.AtomicLong
 import scala.util.Failure
@@ -164,17 +165,86 @@ class MCPClient private[mcp] (
     * Send a JSON-RPC request (with id) and return its result. Notifications (HTTP 202) yield None.
     */
   private def call(method: String, params: Option[JSONObject]): Rx[Option[JSONValue]] =
-    val id = JSONLong(nextId.getAndIncrement())
-    Rx.single(parseResult(sendMessage(JsonRpc.request(Some(id), method, params)), id))
+    val id     = JSONLong(nextId.getAndIncrement())
+    val parent = Telemetry.currentContext
+    Rx.single {
+      traced(method, params, Some(id), parent) { p =>
+        parseResult(sendMessage(JsonRpc.request(Some(id), method, p)), id)
+      }
+    }
 
   /**
     * Send a JSON-RPC notification (no id). The server answers 202 with no body.
     */
-  private def notify(method: String, params: Option[JSONObject]): Rx[Unit] = Rx.single {
-    val response = sendMessage(JsonRpc.request(None, method, params))
-    if !response.status.isSuccessful then
-      httpFailure(response)
-  }
+  private def notify(method: String, params: Option[JSONObject]): Rx[Unit] =
+    val parent = Telemetry.currentContext
+    Rx.single {
+      traced(method, params, None, parent) { p =>
+        val response = sendMessage(JsonRpc.request(None, method, p))
+        if !response.status.isSuccessful then
+          httpFailure(response)
+        None
+      }
+      ()
+    }
+
+  private def telemetry: Telemetry = config.httpClientConfig.telemetry
+
+  /**
+    * Run one JSON-RPC exchange in a client span, a child of `parent` (the span current where the
+    * call was made), and write the span's context into `params._meta` so the server joins the trace
+    * on any transport. The span is current while the HTTP request runs, so the HTTP client span
+    * nests under it. Without telemetry this is `send(params)`.
+    */
+  private def traced(
+      method: String,
+      params: Option[JSONObject],
+      id: Option[JSONValue],
+      parent: Option[wvlet.uni.telemetry.TraceContext]
+  )(send: Option[JSONObject] => Option[JSONValue]): Option[JSONValue] =
+    if !telemetry.isEnabled then
+      send(params)
+    else
+      val tool  = Option.when(method == "tools/call")(MCPTelemetry.toolNameOf(params)).flatten
+      val trace = OperationTrace(
+        telemetry,
+        telemetry.startSpan(MCPTelemetry.spanName(method, tool), SpanKind.Client, parent),
+        HistogramInstrument.McpClientOperationDuration
+      )
+      MCPTelemetry.describe(trace, method, id, tool, Some("tcp"))
+      trace.setServer(serverUri)
+      protocolVersion.foreach(trace.setAttribute("mcp.protocol.version", _))
+      val ctx = trace.span.context
+      // Metrics only: no trace to propagate
+      val withMeta =
+        if telemetry.isTracingEnabled && ctx.isValid then
+          Some(MCPTelemetry.withContext(params, ctx))
+        else
+          params
+      try
+        val result = Telemetry.withSpan(trace.span)(send(withMeta))
+        result match
+          case Some(o: JSONObject) if o.get("isError").contains(JSONBoolean(true)) =>
+            MCPTelemetry.recordToolError(trace)
+          case _ =>
+            ()
+        trace.end()
+        result
+      catch
+        case e: MCPClientException if e.code < 0 =>
+          // A JSON-RPC error code; positive codes are HTTP statuses
+          MCPTelemetry.recordErrorCode(trace, e.code, e.message)
+          trace.end()
+          throw e
+        case e: MCPClientException =>
+          trace.setError(e.code.toString, Some(e.message))
+          trace.end()
+          throw e
+        case NonFatal(e) =>
+          trace.fail(e)
+          throw e
+
+  end traced
 
   /**
     * Perform the `initialize` handshake and return the server info. Captures `Mcp-Session-Id` if
@@ -192,11 +262,16 @@ class MCPClient private[mcp] (
           )
       )
     )
-    val id = JSONLong(nextId.getAndIncrement())
+    val id     = JSONLong(nextId.getAndIncrement())
+    val parent = Telemetry.currentContext
     Rx.single {
-      val response = sendMessage(JsonRpc.request(Some(id), "initialize", Some(params)))
-      response.header(MCPClient.SessionIdHeader).foreach(s => sessionId = Some(s))
-      val info = parseServerInfo(asObject(parseResult(response, id).getOrElse(JSONNull())))
+      val result =
+        traced("initialize", Some(params), Some(id), parent) { p =>
+          val response = sendMessage(JsonRpc.request(Some(id), "initialize", p))
+          response.header(MCPClient.SessionIdHeader).foreach(s => sessionId = Some(s))
+          parseResult(response, id)
+        }
+      val info = parseServerInfo(asObject(result.getOrElse(JSONNull())))
       protocolVersion = Some(info.protocolVersion)
       info
     }

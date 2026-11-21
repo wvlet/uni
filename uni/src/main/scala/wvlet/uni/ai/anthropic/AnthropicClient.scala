@@ -145,16 +145,67 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
 
   end request
 
+  private def provider: String =
+    config.host match
+      case _: Direct =>
+        "anthropic"
+      case _: Vertex =>
+        "gcp.vertex_ai"
+      case _: Bedrock =>
+        "aws.bedrock"
+
+  private def operation(r: MessagesRequest, stream: Boolean) = LlmOperation(
+    "chat",
+    provider,
+    r.model,
+    stream,
+    Some(r.maxTokens.toLong),
+    r.temperature,
+    r.topP
+  )
+
   /** Send a request and wait for the whole message */
-  def messages(r: MessagesRequest): Rx[MessagesResponse] = LlmHttp
-    .postJson(http, request(r, stream = false))
-    .map(JsonCodec[MessagesResponse].decode)
+  def messages(r: MessagesRequest): Rx[MessagesResponse] =
+    LlmTelemetry.traced(http, operation(r, stream = false), request(r, stream = false)) { req =>
+      LlmHttp.postJson(http, req).map(JsonCodec[MessagesResponse].decode)
+    } { (trace, m) =>
+      trace.response(m.id, m.model)
+      trace.setUsage(AnthropicConverter.toLlmUsage(m.usage))
+      trace.setFinishReasons(m.stopReason.toSeq)
+    }
 
   /** Send a request and receive the message as stream events */
-  def stream(r: MessagesRequest): Rx[StreamEvent] = LlmHttp
-    .postSSE(http, request(r, stream = true))
-    .filter(e => e.data.nonEmpty)
-    .map(StreamEvent.fromServerSentEvent)
+  def stream(r: MessagesRequest): Rx[StreamEvent] =
+    LlmTelemetry.traced(http, operation(r, stream = true), request(r, stream = true)) { req =>
+      LlmHttp.postSSE(http, req).filter(e => e.data.nonEmpty).map(StreamEvent.fromServerSentEvent)
+    } {
+      // message_start carries the input usage, message_delta the cumulative output usage
+      var usage = Usage()
+      (trace, event) =>
+        event match
+          case StreamEvent.MessageStart(m) =>
+            trace.response(m.id, m.model)
+            usage = m.usage
+            trace.setUsage(AnthropicConverter.toLlmUsage(usage))
+          case StreamEvent.MessageDelta(reason, _, u, _) =>
+            trace.setFinishReasons(reason.toSeq)
+            usage = Usage(
+              inputTokens =
+                if u.inputTokens > 0 then
+                  u.inputTokens
+                else
+                  usage.inputTokens
+              ,
+              outputTokens = u.outputTokens,
+              cacheCreationInputTokens = u
+                .cacheCreationInputTokens
+                .orElse(usage.cacheCreationInputTokens),
+              cacheReadInputTokens = u.cacheReadInputTokens.orElse(usage.cacheReadInputTokens)
+            )
+            trace.setUsage(AnthropicConverter.toLlmUsage(usage))
+          case _ =>
+            ()
+    }
 
   /**
     * Count the input tokens of a request (Anthropic API only; Bedrock documents `count_tokens` only

@@ -231,6 +231,9 @@ val tracedClient = Http.client.withTelemetry(telemetry).newSyncClient
 - `Telemetry.currentSpan` is set while the handler's synchronous part runs;
   pass a span to `Rx` callbacks with `Telemetry.withSpan(span) { ... }`.
 - `telemetry.trace("name") { span => ... }` wraps your own code in a span.
+- `MCP.server.withTelemetry(telemetry)` and `MCP.client.withTelemetry(telemetry)` trace MCP
+  messages as `tools/call <tool>` spans, on stdio too, joined through `params._meta.traceparent`.
+  LLM clients trace when their HTTP client has telemetry (see [llm.md](llm.md#tracing)).
 - At shutdown, `telemetry.shutdown().await` (JVM, Native) sends what is buffered;
   `close()` starts it without waiting.
 

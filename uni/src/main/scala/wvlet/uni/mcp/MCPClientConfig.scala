@@ -15,6 +15,7 @@ package wvlet.uni.mcp
 
 import wvlet.uni.http.{Http, HttpClientConfig, HttpSyncClient}
 import wvlet.uni.rx.Rx
+import wvlet.uni.telemetry.Telemetry
 
 /**
   * Configuration of an [[MCPClient]]. Create one with `MCP.client`.
@@ -44,6 +45,18 @@ case class MCPClientConfig(
   def withHttpClientConfig(httpClientConfig: HttpClientConfig): MCPClientConfig = copy(
     httpClientConfig = httpClientConfig
   )
+
+  /**
+    * Trace each MCP call as a client span named after its method and tool (e.g. `tools/call
+    * search`), joining the current span, and record `mcp.client.operation.duration`. The span's
+    * `traceparent` goes in the request's `params._meta`, where an MCP server reads it on any
+    * transport. Sets the telemetry of [[httpClientConfig]], so the HTTP requests are traced too.
+    */
+  def withTelemetry(telemetry: Telemetry): MCPClientConfig = copy(httpClientConfig =
+    httpClientConfig.withTelemetry(telemetry)
+  )
+
+  def noTelemetry: MCPClientConfig = copy(httpClientConfig = httpClientConfig.noTelemetry)
 
   /**
     * Connect to an MCP server over Streamable HTTP and perform the MCP handshake (initialize +

@@ -85,33 +85,59 @@ class GeminiClient(
           Seq("Authorization" -> s"Bearer ${LlmHttp.googleToken(creds)}")
         )
 
+  private def operation(model: String, r: GenerateContentRequest, stream: Boolean) =
+    val g = r.generationConfig
+    LlmOperation(
+      "generate_content",
+      config.host match
+        case _: AiStudio =>
+          "gcp.gemini"
+        case _: Vertex =>
+          "gcp.vertex_ai"
+      ,
+      model,
+      stream,
+      g.flatMap(_.maxOutputTokens).map(_.toLong),
+      g.flatMap(_.temperature),
+      g.flatMap(_.topP)
+    )
+
+  // Each chunk of a stream carries the usage so far; the last one is final
+  private def observe(trace: LlmCallTrace, r: GenerateContentResponse): Unit =
+    trace.response(r.responseId.getOrElse(""), r.modelVersion.getOrElse(""))
+    r.usageMetadata.foreach(u => trace.setUsage(GeminiConverter.toLlmUsage(u)))
+    trace.setFinishReasons(r.candidates.flatMap(_.finishReason))
+
   def generateContent(model: String, r: GenerateContentRequest): Rx[GenerateContentResponse] =
-    val (url, auth) = endpoint(model, "generateContent")
-    LlmHttp
-      .postJson(
-        http,
+    LlmTelemetry.traced(
+      http,
+      operation(model, r, stream = false), {
+        val (url, auth) = endpoint(model, "generateContent")
         LlmHttp.jsonRequest(
           url,
           JsonCodec[GenerateContentRequest].encode(r),
           auth ++ config.headers
         )
-      )
-      .map(JsonCodec[GenerateContentResponse].decode)
+      }
+    )(req => LlmHttp.postJson(http, req).map(JsonCodec[GenerateContentResponse].decode))(observe)
 
-  /** Stream response chunks; each chunk holds only the new parts */
   def streamGenerateContent(model: String, r: GenerateContentRequest): Rx[GenerateContentResponse] =
-    val (url, auth) = endpoint(model, "streamGenerateContent")
-    LlmHttp
-      .postSSE(
-        http,
+    LlmTelemetry.traced(
+      http,
+      operation(model, r, stream = true), {
+        val (url, auth) = endpoint(model, "streamGenerateContent")
         LlmHttp.jsonRequest(
           s"${url}?alt=sse",
           JsonCodec[GenerateContentRequest].encode(r),
           auth ++ config.headers
         )
-      )
-      .filter(_.data.nonEmpty)
-      .map(GenerateContentResponse.fromServerSentEvent)
+      }
+    ) { req =>
+      LlmHttp
+        .postSSE(http, req)
+        .filter(_.data.nonEmpty)
+        .map(GenerateContentResponse.fromServerSentEvent)
+    }(observe)
 
   private def modelOf(r: LlmRequest): String =
     if r.model.nonEmpty then
