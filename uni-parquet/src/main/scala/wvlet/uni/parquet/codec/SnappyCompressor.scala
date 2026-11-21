@@ -8,14 +8,15 @@ package wvlet.uni.parquet.codec
   * stride that grows while no match turns up (so incompressible input passes quickly), and after a
   * copy an immediate check for another copy at the next position. Unlike the reference, it doesn't
   * split the input into 64 KiB fragments: the table holds absolute positions, and a candidate
-  * farther back than a 2-byte offset reaches is skipped, so the table is cleared only once.
+  * farther back than a 2-byte offset reaches is skipped, so one table serves the whole page.
   */
 private[parquet] object SnappyCompressor:
+  import MatchTable.HashBits
+  import MatchTable.hash
 
-  private final val HashBits  = 14
   private final val MaxOffset = 65535
-  // Matches start at least this many bytes before the end, so the 4-byte loads in the loop stay
-  // inside the input
+  // Matches start at least this many bytes before the end, so the loop's word loads (8 bytes on
+  // Scala Native) stay inside the input
   private final val InputMargin = 15
   // A literal up to this length is written as one 16-byte wide copy into the output slack
   private final val ShortLiteral = 16
@@ -38,8 +39,6 @@ private[parquet] object SnappyCompressor:
       op += 1
     out(op) = v.toByte
     op + 1
-
-  private inline def hash(v: Int): Int = (v * 0x1e35a7bd) >>> (32 - HashBits)
 
   private def compressBlock(src: Array[Byte], len: Int, out: Array[Byte], start: Int): Int =
     var op  = start

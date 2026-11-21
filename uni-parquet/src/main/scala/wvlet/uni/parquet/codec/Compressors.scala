@@ -63,7 +63,7 @@ private[parquet] object Compressors:
 
 end Compressors
 
-/** Shared hash table for the LZ4 compressor */
+/** Shared hash table for the LZ77-style compressors */
 private object MatchTable:
   final val HashBits = 14
 
