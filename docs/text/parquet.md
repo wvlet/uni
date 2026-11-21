@@ -425,10 +425,14 @@ DuckDB's `delta_scan` do:
 ```scala
 import wvlet.uni.parquet.ParquetTableFormat
 
-val events = Parquet.dataset("s3://my-bucket/events/") // the latest version
+val latest = Parquet.dataset("s3://my-bucket/events/") // the latest version
 val v12 = Parquet.dataset(
   "s3://my-bucket/events/",
   ParquetDatasetOptions.default.withVersion(12)         // time travel
+)
+val rawFiles = Parquet.dataset(
+  "s3://my-bucket/events/",
+  ParquetDatasetOptions.default.withTableFormat(ParquetTableFormat.Files)
 )
 ```
 
