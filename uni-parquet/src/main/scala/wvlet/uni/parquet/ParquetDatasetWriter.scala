@@ -7,6 +7,7 @@ import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.format.LogicalType
 import wvlet.uni.parquet.format.PhysicalType
 import wvlet.uni.parquet.writer.BatchShredder
+import wvlet.uni.parquet.writer.DatasetSort
 import wvlet.uni.parquet.writer.FileWriter
 import wvlet.uni.parquet.writer.MsgReader
 import wvlet.uni.parquet.writer.ValueConverter
@@ -159,7 +160,7 @@ private[parquet] final class DatasetWriterCore private (
       * calls. Files are then built in memory and queued, and I/O is returned as actions to run.
       */
     prefetched: Option[DatasetWriterCore.Prefetched]
-):
+) extends wvlet.uni.log.LogSupport:
   import DatasetWriterCore.*
 
   val rootName: String = target.rootName
@@ -212,6 +213,27 @@ private[parquet] final class DatasetWriterCore private (
         )
 
   private lazy val batchShredder = BatchShredder(fileSchema)
+
+  /** The sort order of `withSortBy`, checked against the file schema */
+  private val sort: Option[DatasetSort] =
+    if options.sortBy.isEmpty then
+      None
+    else
+      options
+        .sortBy
+        .find(k => keys.contains(k.column))
+        .foreach { k =>
+          throw IllegalArgumentException(
+            s"Sort column ${k.column} is a partition column, which is constant within a partition"
+          )
+        }
+      Some(DatasetSort(fileSchema, options.sortBy))
+
+  // Rows held for sorting, by partition folder
+  private val sortBuffers = mutable.LinkedHashMap.empty[String, SortBuffer]
+  private var sortBytes   = 0L
+  // Partitions written as more than one sorted run, because the held rows exceeded the budget
+  private var earlyRuns = 0
 
   /** The root listing before this write, including `_` files */
   private val listedRoot: Seq[ParquetDataset.Listed] = listRoot()
@@ -291,7 +313,24 @@ private[parquet] final class DatasetWriterCore private (
     ensureRoom()
     val (row, rowLen) = extractPartitions(bytes, len)
     val dir           = currentDir()
-    val f             = fileFor(dir)
+    sort match
+      case Some(s) =>
+        // Check the row now, so a row that doesn't fit fails here rather than in a later run
+        val keys = s.keysOfRow(row, rowLen)
+        val buf  = sortBuffer(dir)
+        buf.rows += java.util.Arrays.copyOf(row, rowLen)
+        buf.keys += keys
+        // The row's bytes plus about 16 bytes per key and 32 for the row's own arrays
+        held(buf, rowLen + 16L * keys.length + 32)
+        rowCount += 1
+        checkSortBudget()
+      case None =>
+        writeShredded(dir, row, rowLen)
+        rowCount += 1
+
+  /** Writes a row (without partition columns) to its partition's current file */
+  private def writeShredded(dir: String, row: Array[Byte], rowLen: Int): Unit =
+    val f = fileFor(dir)
     try
       f.writer.write(row, rowLen)
     catch
@@ -300,7 +339,6 @@ private[parquet] final class DatasetWriterCore private (
           abortWith(e)
         throw e
     f.rows += 1
-    rowCount += 1
     afterWrite(f, 1)
 
   /**
@@ -448,7 +486,7 @@ private[parquet] final class DatasetWriterCore private (
   ): Unit =
     val n = data.numRows
     if keys.isEmpty then
-      writeGroup("", data, checked)
+      writeOrHold("", data, checked)
     else
       val groups = mutable.LinkedHashMap.empty[String, (Array[Any], mutable.ArrayBuilder.ofInt)]
       var i      = 0
@@ -465,19 +503,91 @@ private[parquet] final class DatasetWriterCore private (
         // Every row is in one partition: write the batch as it is
         val (dir, (vs, _)) = groups.head
         setValues(vs)
-        writeGroup(dir, data, checked)
+        writeOrHold(dir, data, checked)
       else
         groups.foreach { case (dir, (vs, rows)) =>
           setValues(vs)
           val r    = rows.result()
           val part = VectorGather.take(data, r, r.length)
-          writeGroup(dir, part, batchShredder.check(part))
+          if sort.isDefined then
+            hold(dir, part)
+          else
+            writeGroup(dir, part, batchShredder.check(part))
         }
     end if
 
   end writePartitions
 
   private def setValues(vs: Array[Any]): Unit = System.arraycopy(vs, 0, values, 0, vs.length)
+
+  private def writeOrHold(dir: String, data: ColumnBatch, checked: Array[ColumnVector]): Unit =
+    if sort.isDefined then
+      // A copy, so the caller can reuse the batch's arrays
+      hold(dir, VectorGather.take(data, Array.range(0, data.numRows), data.numRows))
+    else
+      writeGroup(dir, data, checked)
+
+  /** Holds a checked batch of one partition (in file schema order) for a sorted run */
+  private def hold(dir: String, part: ColumnBatch): Unit =
+    val buf = sortBuffer(dir)
+    buf.batches += part
+    held(buf, DatasetSort.estimatedBytes(part))
+    rowCount += part.numRows
+    checkSortBudget()
+
+  // ---- Sorted runs ----
+
+  private def sortBuffer(dir: String): SortBuffer = sortBuffers.getOrElseUpdate(
+    dir,
+    SortBuffer(values.clone())
+  )
+
+  private def held(buf: SortBuffer, bytes: Long): Unit =
+    buf.bytes += bytes
+    sortBytes += bytes
+
+  /**
+    * Writes the largest held partition as a sorted run while the held rows (plus, for the async
+    * writer, the queued files) exceed the memory budget
+    */
+  private def checkSortBudget(): Unit =
+    while sortBuffers.nonEmpty && sortBytes + queuedBytes > options.maxBufferedBytes do
+      val (dir, buf) = sortBuffers.maxBy(_._2.bytes)
+      earlyRuns += 1
+      if earlyRuns == 1 then
+        logger.warn(
+          s"The rows held for sorting exceed maxBufferedBytes (${options
+              .maxBufferedBytes}), so partition ${rootName}/${dir} is written as more than one sorted run. Each file stays sorted, but the runs overlap. Raise withMaxBufferedBytes to keep one run per partition."
+        )
+      writeRun(dir, buf)
+
+  /** Sorts a partition's held rows and writes them as new files, the last one finished */
+  private def writeRun(dir: String, buf: SortBuffer): Unit =
+    sortBuffers.remove(dir)
+    sortBytes -= buf.bytes
+    val s = sort.get
+    setValues(buf.values)
+    fatal {
+      if buf.batches.nonEmpty then
+        val all     = VectorGather.concat(buf.batches.toSeq)
+        val n       = all.numRows
+        val vectors = batchShredder.check(all).toIndexedSeq
+        val order   = s.order(i => s.keysOf(vectors, i), n)
+        val sorted  = VectorGather.take(all, order, n)
+        try writeGroup(dir, sorted, batchShredder.check(sorted), countRows = false)
+        finally batchShredder.release()
+      else
+        val order = s.order(buf.keys(_), buf.rows.size)
+        var i     = 0
+        while i < order.length do
+          val row = buf.rows(order(i))
+          writeShredded(dir, row, row.length)
+          i += 1
+      open.get(dir).foreach(finish)
+    }
+
+  /** Writes every held partition as a sorted run */
+  private def writeRuns(): Unit = sortBuffers.toList.foreach((dir, buf) => writeRun(dir, buf))
 
   private def checkPartitionVector(p: ParquetField.Primitive, v: ColumnVector, n: Int): Unit =
     val ok =
@@ -530,7 +640,12 @@ private[parquet] final class DatasetWriterCore private (
     * Writes the rows of one partition, starting new files at the file limits. `checked` holds the
     * batch's vectors from `BatchShredder.check`, and each file gets a row range of them.
     */
-  private def writeGroup(dir: String, data: ColumnBatch, checked: Array[ColumnVector]): Unit =
+  private def writeGroup(
+      dir: String,
+      data: ColumnBatch,
+      checked: Array[ColumnVector],
+      countRows: Boolean = true
+  ): Unit =
     var from = 0
     while from < data.numRows do
       val f  = fileFor(dir)
@@ -554,7 +669,8 @@ private[parquet] final class DatasetWriterCore private (
             abortWith(e)
           throw e
       f.rows += to - from
-      rowCount += to - from
+      if countRows then
+        rowCount += to - from
       afterWrite(f, to - from)
       from = to
     end while
@@ -618,7 +734,12 @@ private[parquet] final class DatasetWriterCore private (
         val fin = folder.resolve(name)
         val w   =
           try
-            FileWriter(fileSchema, options.writeOptions, () => FileSystem.writeStream(tmp))
+            FileWriter(
+              fileSchema,
+              options.writeOptions,
+              () => FileSystem.writeStream(tmp),
+              sortingColumns
+            )
           catch
             case NonFatal(e) =>
               FileSystem.deleteIfExists(tmp)
@@ -629,13 +750,23 @@ private[parquet] final class DatasetWriterCore private (
         if async then
           // The async writer uploads the whole file with one put once it is finished
           val buf = java.io.ByteArrayOutputStream()
-          val w   = FileWriter(fileSchema, options.writeOptions, () => buf)
+          val w   = FileWriter(fileSchema, options.writeOptions, () => buf, sortingColumns)
           OpenFile(dir, partitions, w, Committed.Remote(store, uri), None, Some(buf))
         else
-          val w = FileWriter(fileSchema, options.writeOptions, () => store.newOutputStream(uri))
+          val w = FileWriter(
+            fileSchema,
+            options.writeOptions,
+            () => store.newOutputStream(uri),
+            sortingColumns
+          )
           OpenFile(dir, partitions, w, Committed.Remote(store, uri), None)
+    end match
 
   end openFile
+
+  private def sortingColumns: IndexedSeq[format.SortingColumn] = sort
+    .map(_.sortingColumns)
+    .getOrElse(IndexedSeq.empty)
 
   private def afterWrite(f: OpenFile, rows: Int): Unit =
     if options.maxRowsPerFile.exists(f.rows >= _) || maxFileSize.exists(f.writer.estimatedSize >= _)
@@ -734,6 +865,7 @@ private[parquet] final class DatasetWriterCore private (
 
   def close(): Unit =
     if state == State.Open then
+      writeRuns()
       fatal(open.valuesIterator.toList.foreach(finish))
       state = State.Closed
       try closeActions().foreach(runSync)
@@ -772,6 +904,7 @@ private[parquet] final class DatasetWriterCore private (
   /** Async: finishes every open file into the queue; the writer stays open until [[closed]] */
   def finishAll(): Unit =
     ensureOpen()
+    writeRuns()
     fatal(open.valuesIterator.toList.foreach(finish))
 
   /** Async: marks the write closed and returns the deletes and root files to run, in order */
@@ -810,6 +943,8 @@ private[parquet] final class DatasetWriterCore private (
               cause.addSuppressed(e)
       open.valuesIterator.toList.foreach(f => attempt(discard(f)))
       open.clear()
+      sortBuffers.clear()
+      sortBytes = 0L
       queue.clear()
       queuedBytes = 0L
       if async then
@@ -1078,6 +1213,13 @@ private[parquet] object DatasetWriterCore:
           FileSystem.deleteIfExists(p)
         case Remote(store, uri) =>
           store.delete(uri)
+
+  /** The rows of one partition held for a sorted run: MessagePack rows or column batches */
+  private final class SortBuffer(val values: Array[Any]):
+    val rows    = mutable.ArrayBuffer.empty[Array[Byte]]
+    val keys    = mutable.ArrayBuffer.empty[Array[Any]]
+    val batches = mutable.ArrayBuffer.empty[ColumnBatch]
+    var bytes   = 0L
 
   private final class OpenFile(
       val dir: String,

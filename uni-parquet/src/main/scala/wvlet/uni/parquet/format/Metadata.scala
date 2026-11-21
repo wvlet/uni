@@ -58,11 +58,25 @@ case class ColumnChunkMeta(
       case _ =>
         dataPageOffset
 
+/**
+  * A column the rows of a row group are sorted by (Parquet's `SortingColumn`)
+  *
+  * @param columnIdx
+  *   the leaf column's index in the file schema, as in [[ParquetSchema.columns]]
+  */
+case class SortingColumn(columnIdx: Int, descending: Boolean, nullsFirst: Boolean)
+
+/**
+  * @param sortingColumns
+  *   the columns the rows are sorted by, most significant first; empty when the writer did not
+  *   record a sort order
+  */
 case class RowGroupMeta(
     columns: IndexedSeq[ColumnChunkMeta],
     totalByteSize: Long,
     numRows: Long,
-    ordinal: Option[Int]
+    ordinal: Option[Int],
+    sortingColumns: IndexedSeq[SortingColumn] = IndexedSeq.empty
 )
 
 case class FileMetaData(
@@ -191,7 +205,12 @@ private[parquet] object MetadataDecoder:
     columns = s.structList(1).map(columnChunk),
     totalByteSize = s.longOpt(2).getOrElse(0L),
     numRows = s.long(3, "num_rows"),
-    ordinal = s.intOpt(7)
+    ordinal = s.intOpt(7),
+    sortingColumns = s
+      .structList(4)
+      .map { c =>
+        SortingColumn(c.int(1, "column_idx"), c.bool(2, false), c.bool(3, false))
+      }
   )
 
   private def columnChunk(s: TStruct): ColumnChunkMeta =

@@ -439,6 +439,44 @@ takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, option
   With many partitions, sort rows by the partition columns first, or set a smaller row group size.
 - **File settings** such as the codec go in `withWriteOptions(ParquetWriteOptions...)`.
 
+### Sorting Within Partitions
+
+`withSortBy` sorts each partition's rows before they are written, as Spark's
+`sortWithinPartitions` or DuckDB's `ORDER BY` before `COPY` does. Sorted files have tight row group
+min and max values, so a `RowGroupFilter` on a sort column skips most row groups:
+
+```scala
+import wvlet.uni.parquet.ParquetSortKey
+
+val byUser = ParquetDatasetWriteOptions
+  .default
+  .withPartitionBy("dt")
+  .withSortBy("user", "id")
+Parquet.writeDataset("s3://my-bucket/visits-by-user/", visits, byUser)
+
+// Newest first, with nulls before every value
+val newestFirst = ParquetDatasetWriteOptions
+  .default
+  .withPartitionBy("dt")
+  .withSortBy(ParquetSortKey.desc("id").withNullsFirst(true))
+```
+
+- **Order.** Keys are compared as Parquet statistics compare them: integers, dates, timestamps,
+  and decimals signed; unsigned integers unsigned; strings and binary by their UTF-8 bytes; false
+  before true; NaN after every other number. Nulls go last by default, as in DuckDB, in either
+  direction. Rows with equal keys keep the order they were written in.
+- **Sort columns** are top-level primitive columns other than the partition columns. INT96,
+  INTERVAL, and FLOAT16 columns have no defined order and are rejected when the writer is created.
+- **Runs.** A partition's rows are held in memory and written as one sorted run when the writer
+  closes. File rolling (`withMaxRowsPerFile`, `withMaxFileSize`) splits a run into files that
+  cover consecutive key ranges. When the held rows exceed `withMaxBufferedBytes`, the largest
+  partition is written early as a separate run, and the writer logs a warning once: each file is
+  still sorted, but the runs overlap. Raise `withMaxBufferedBytes` to keep one run per partition.
+  `withMaxOpenFiles` has no effect, because a run writes one file at a time.
+- **Metadata.** Every row group records Parquet's `sorting_columns`, which other engines can use.
+  `Parquet.open(path).rowGroups.map(_.sortingColumns)` reads it back.
+- A row that doesn't fit the schema still throws from `write`, before it is held.
+
 ### Writing with Async I/O
 
 In browsers, and in code that must not block, `Parquet.writeDatasetAsync` writes a dataset to S3,

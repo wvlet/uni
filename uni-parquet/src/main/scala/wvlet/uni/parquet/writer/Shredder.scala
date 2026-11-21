@@ -82,6 +82,12 @@ private[parquet] final class Shredder(schema: ParquetSchema):
       stages(i).commit(writers(i), row)
       i += 1
 
+  /**
+    * The staged value of a top-level primitive column, after [[shred]]: null, or its physical value
+    * (Boolean, Int, Long, Float, Double, or a copy of the bytes). `row` is the shredded row.
+    */
+  def stagedValue(col: Int, row: Array[Byte]): Any = stages(col).value(row)
+
   private def fail(f: ParquetField, message: String): Nothing =
     throw ParquetException(s"Cannot write column ${f.pathString}: ${message}")
 
@@ -512,6 +518,29 @@ private object Shredder:
           addDouble(r, d, v.asInstanceOf[Double])
         case _ =>
           addOwnBytes(r, d, v.asInstanceOf[Array[Byte]])
+
+    /** The single staged value of a non-repeated column; see [[Shredder.stagedValue]] */
+    def value(row: Array[Byte]): Any =
+      if reps.size == 0 || defs(0) < maxDef then
+        null
+      else
+        physical match
+          case PhysicalType.BOOLEAN =>
+            ints(0) != 0
+          case PhysicalType.INT32 =>
+            ints(0)
+          case PhysicalType.FLOAT =>
+            java.lang.Float.intBitsToFloat(ints(0))
+          case PhysicalType.INT64 =>
+            longs(0)
+          case PhysicalType.DOUBLE =>
+            doubles(0)
+          case _ =>
+            val off = offsets(0)
+            if off >= 0 then
+              java.util.Arrays.copyOfRange(row, off, off + lengths(0))
+            else
+              java.util.Arrays.copyOfRange(bytes.array, -1 - off, -1 - off + lengths(0))
 
     /** Adds the staged values to `w`, with `row` the bytes the row was read from */
     def commit(w: ColumnWriter, row: Array[Byte]): Unit =

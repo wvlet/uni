@@ -23,6 +23,29 @@ enum ParquetWriteMode:
   case OverwritePartitions
 
 /**
+  * A column to sort dataset rows by, for [[ParquetDatasetWriteOptions.withSortBy]]
+  *
+  * Values are ordered as Parquet statistics order them, so row group min/max follow the sort:
+  * signed for integers, dates, timestamps, and decimals; unsigned for unsigned integers; encoded
+  * (UTF-8) bytes, unsigned, for strings and binary; false before true; NaN after every other
+  * number.
+  *
+  * @param column
+  *   a top-level primitive column that is not a partition column
+  * @param descending
+  *   largest first
+  * @param nullsFirst
+  *   nulls before every value. The default puts them last, as DuckDB does, in either direction.
+  */
+case class ParquetSortKey(column: String, descending: Boolean = false, nullsFirst: Boolean = false):
+  def withDescending(enabled: Boolean): ParquetSortKey = copy(descending = enabled)
+  def withNullsFirst(enabled: Boolean): ParquetSortKey = copy(nullsFirst = enabled)
+
+object ParquetSortKey:
+  def asc(column: String): ParquetSortKey  = ParquetSortKey(column)
+  def desc(column: String): ParquetSortKey = ParquetSortKey(column, descending = true)
+
+/**
   * How [[Parquet.writeDataset]] and the dataset writers lay out files. Per-file settings (codec,
   * row group size, dictionary) are in [[writeOptions]].
   *
@@ -52,6 +75,14 @@ enum ParquetWriteMode:
   *   write `_common_metadata` at the root: a Parquet file without rows that holds the files' schema
   *   and the partition column types, so [[Parquet.dataset]] reads typed partitions without
   *   `withPartitionType`
+  * @param sortBy
+  *   sort each partition's rows by these columns before writing, like Spark's
+  *   `sortWithinPartitions` or DuckDB's `ORDER BY` before `COPY`. A partition's rows are held in
+  *   memory and written as one sorted run when the writer closes, so its files cover consecutive
+  *   key ranges. When the held rows exceed [[maxBufferedBytes]], the largest partition is written
+  *   early as a separate run: each file stays sorted, but runs overlap. Every row group records
+  *   Parquet's `sorting_columns`. [[maxOpenFiles]] has no effect, as a run writes one file at a
+  *   time.
   */
 case class ParquetDatasetWriteOptions(
     partitionBy: Seq[String] = Seq.empty,
@@ -62,7 +93,8 @@ case class ParquetDatasetWriteOptions(
     maxBufferedBytes: Long = 256L * 1024 * 1024,
     writeOptions: ParquetWriteOptions = ParquetWriteOptions.default,
     writeSuccessMarker: Boolean = true,
-    writeCommonMetadata: Boolean = true
+    writeCommonMetadata: Boolean = true,
+    sortBy: Seq[ParquetSortKey] = Seq.empty
 ):
   def withPartitionBy(columns: String*): ParquetDatasetWriteOptions =
     require(columns.distinct.size == columns.size, s"Duplicate partition columns: ${columns}")
@@ -110,6 +142,23 @@ case class ParquetDatasetWriteOptions(
   def withWriteCommonMetadata(enabled: Boolean): ParquetDatasetWriteOptions = copy(
     writeCommonMetadata = enabled
   )
+
+  /** Sort each partition's rows by these columns, ascending with nulls last */
+  def withSortBy(columns: String*): ParquetDatasetWriteOptions = withSortKeys(
+    columns.map(ParquetSortKey(_))
+  )
+
+  /** Sort each partition's rows by these keys, most significant first */
+  def withSortBy(key: ParquetSortKey, more: ParquetSortKey*): ParquetDatasetWriteOptions =
+    withSortKeys(key +: more)
+
+  private def withSortKeys(keys: Seq[ParquetSortKey]): ParquetDatasetWriteOptions =
+    val names = keys.map(_.column)
+    require(names.distinct.size == names.size, s"Duplicate sort columns: ${names.mkString(", ")}")
+    keys.foreach(k => require(k.column.nonEmpty, "A sort column name is empty"))
+    copy(sortBy = keys)
+
+  def noSortBy(): ParquetDatasetWriteOptions = copy(sortBy = Seq.empty)
 
 end ParquetDatasetWriteOptions
 
