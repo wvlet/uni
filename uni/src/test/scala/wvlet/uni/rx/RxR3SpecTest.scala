@@ -21,18 +21,19 @@ import scala.collection.mutable
 /**
   * Replays the cases generated from the target event model in `spec/lean/UniSpec/RxR3.lean` and
   * `RxR3Ops.lean`: `OnError` never ends a stream, and `OnCompletion` (success or failure) is the
-  * only end. Each input is a pre-filled `Rx.queue`, run with `RxRunner.runContinuously`.
+  * only end. Each input is a pre-filled `Rx.queue`, run with `RxRunner.runContinuously` or
+  * `RxRunner.run`.
   */
 class RxR3SpecTest extends UniTest:
 
-  private case class SpecCase(input: String, ops: String, expected: String)
+  private case class SpecCase(mode: String, input: String, ops: String, expected: String)
 
   private val specCases: Seq[SpecCase] = RxR3SpecCases
     .cases
     .map { line =>
       line.split('|').map(_.trim) match
-        case Array(input, ops, expected) =>
-          SpecCase(input, ops, expected)
+        case Array(mode, input, ops, expected) =>
+          SpecCase(mode, input, ops, expected)
         case _ =>
           throw IllegalArgumentException(s"Invalid case: ${line}")
     }
@@ -111,19 +112,26 @@ class RxR3SpecTest extends UniTest:
         throw IllegalArgumentException(s"Unknown operator: ${op}")
 
   private def run(c: SpecCase): String =
-    val rx       = tokens(c.ops).foldLeft(source(c.input))(applyOp)
-    val observed = mutable.ArrayBuffer.empty[String]
-    val cancel   =
-      RxRunner.runContinuously(rx) {
-        case OnNext(v) =>
-          observed += v.toString
-        case OnError(_) =>
-          observed += "E"
-        case OnCompletion(Result.Success(_)) =>
-          observed += "C"
-        case OnCompletion(Result.Failure(_)) =>
-          observed += "F"
-      }
+    val rx                      = tokens(c.ops).foldLeft(source(c.input))(applyOp)
+    val observed                = mutable.ArrayBuffer.empty[String]
+    val effect: RxEvent => Unit = {
+      case OnNext(v) =>
+        observed += v.toString
+      case OnError(_) =>
+        observed += "E"
+      case OnCompletion(Result.Success(_)) =>
+        observed += "C"
+      case OnCompletion(Result.Failure(_)) =>
+        observed += "F"
+    }
+    val cancel =
+      c.mode match
+        case "continuous" =>
+          RxRunner.runContinuously(rx)(effect)
+        case "run" =>
+          RxRunner.run(rx)(effect)
+        case other =>
+          throw IllegalArgumentException(s"Unknown entry point: ${other}")
     cancel.cancel
     if observed.isEmpty then
       "-"
@@ -136,7 +144,7 @@ class RxR3SpecTest extends UniTest:
     val failures = specCases.flatMap { c =>
       val actual = run(c)
       Option.when(actual != c.expected)(
-        s"${c.input} | ${c.ops} | expected ${c.expected}, got ${actual}"
+        s"${c.mode} | ${c.input} | ${c.ops} | expected ${c.expected}, got ${actual}"
       )
     }
     if failures.nonEmpty then

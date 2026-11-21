@@ -151,6 +151,32 @@ class RxResumableErrorTest extends UniTest:
     }
   }
 
+  test("run delivers nothing after a failed end, even from a live RxVar") {
+    val v      = Rx.variable(1)
+    val events = Seq.newBuilder[RxEvent]
+    val c      =
+      RxRunner.run(
+        v.map(x =>
+          if x == 2 then
+            throw boom
+          else
+            x
+        )
+      )(events += _)
+    v := 2
+    v := 4
+    c.cancel
+    events.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+
+    val w       = Rx.variable(1)
+    val wEvents = Seq.newBuilder[RxEvent]
+    val c2      = RxRunner.run(w)(wEvents += _)
+    w.setException(boom)
+    w := 4
+    c2.cancel
+    wEvents.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+  }
+
   test("recover handles a resumable error as an error") {
     val v      = Rx.variable(1)
     val events =

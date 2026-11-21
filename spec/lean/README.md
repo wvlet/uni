@@ -9,9 +9,9 @@ oracle here, never a dependency: no published artifact and no sbt project uses i
 | --- | --- | --- | --- |
 | `UniSpec/Rx.lean` | `map`, `filter`, `take` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxSpecCases.scala` | `RxSpecTest` (JVM, JS, Native) |
 | `UniSpec/RxNested.lean` | `concat`, `merge`, `flatMap` completion rules | `uni/src/test/scala/wvlet/uni/rx/RxNestedSpecCases.scala` | `RxNestedSpecTest` (JVM, JS, Native) |
-| `UniSpec/RxRecover.lean` | `recover` in default mode, and the pre-R3 continuous mode that `RxR3.lean` compares against | `uni/src/test/scala/wvlet/uni/rx/RxRecoverSpecCases.scala` | `RxRecoverSpecTest` (JVM, JS, Native) |
+| `UniSpec/RxRecover.lean` | `recover` and the old default and continuous modes, kept as the baseline `RxR3.lean` compares against | none (the R3 cases replace them) | none |
 | `UniSpec/RxLive.lean`, `UniSpec/RxLiveFanIn.lean` | `flatMap`/`transformRx` switching, `recoverWith`, `split`, `zip`/`join`, `merge`, `parFlatMap` permits, `take` after `Stop`, and cancel over live `RxVar`s, in default and continuous mode | `uni/src/test/scala/wvlet/uni/rx/RxLiveSpecCases.scala` | `RxLiveSpecTest` (JVM, JS, Native) |
-| `UniSpec/RxR3.lean`, `UniSpec/RxR3Ops.lean` | The target event model (`OnError` never ends a stream, `OnCompletion` with a result does), proofs that the old default and continuous modes are projections of it, and `flatMap`, `take`, `recoverWith` under it (see `plans/2026-11-21-rx-r3-event-model.md`) | `uni/src/test/scala/wvlet/uni/rx/RxR3SpecCases.scala` (`map`, `filter`, `take`, `recover`, `flatMap`, `recoverWith`) | `RxR3SpecTest` (JVM, JS, Native), through `runContinuously` |
+| `UniSpec/RxR3.lean`, `UniSpec/RxR3Ops.lean` | The target event model (`OnError` never ends a stream, `OnCompletion` with a result does), proofs that the old default and continuous modes are projections of it, and `flatMap`, `take`, `recoverWith` under it (see `plans/2026-11-21-rx-r3-event-model.md`) | `uni/src/test/scala/wvlet/uni/rx/RxR3SpecCases.scala` (`map`, `filter`, `take`, `recover`, `flatMap`, `recoverWith`) | `RxR3SpecTest` (JVM, JS, Native), through `run` and `runContinuously` |
 | `UniSpec/MsgPack.lean` | MessagePack integer, str/bin/array/map/ext header, float, and timestamp bytes | `uni/src/test/scala/wvlet/uni/msgpack/spi/MsgPackSpecCases.scala` | `MsgPackSpecTest` (JVM, JS, Native) |
 | `UniSpec/HttpReader.lean` | HTTP/1.1 request framing on a keep-alive connection (the built-in JVM and Native servers) | `uni/.jvm-native/src/test/scala/wvlet/uni/http/HttpReaderSpecCases.scala` | `HttpReaderSpecTest` (JVM, Native) |
 | `UniSpec/DomRender.lean` | Where `DomRenderer` places `Rx` sections, keyed lists (`each`), and `RxElement`s, and which nodes it keeps | `uni-dom-test/src/test/scala/wvlet/uni/dom/DomRenderSpecCases.scala` | `DomRenderSpecTest` (Chromium) |
@@ -29,7 +29,6 @@ Lean release in a `deps/lean-toolchain` PR, which merges once the required `Lean
 lake build              # check every proof and build the generator
 lake exe gen-rx-cases        # rewrite RxSpecCases.scala from the Rx model
 lake exe gen-rx-nested-cases # rewrite RxNestedSpecCases.scala from the nested-stream Rx model
-lake exe gen-rx-recover-cases # rewrite RxRecoverSpecCases.scala from the recover model (default mode)
 lake exe gen-rx-r3-cases     # rewrite RxR3SpecCases.scala from the R3 event model
 lake exe gen-msgpack-cases   # rewrite MsgPackSpecCases.scala from the MessagePack model
 lake exe gen-http-reader-cases # rewrite HttpReaderSpecCases.scala from the request-framing model

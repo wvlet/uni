@@ -49,14 +49,20 @@ object RxRunner extends LogSupport:
     * `OnError`.
     */
   def run[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
-    tracked(defaultRunner, rx, "run") { ev =>
-      ev match
-        case v: OnNext =>
-          effect(v)
-          RxResult.Continue
-        case other =>
-          effect(ResumableError.toTerminal(other))
-          RxResult.Stop
+    // The first error or end is the end of the run: later events are dropped
+    val ended = AtomicBoolean(false)
+    tracked(continuousRunner, rx, "run", endsAtError = true) { ev =>
+      if ended.get() then
+        RxResult.Stop
+      else
+        ev match
+          case v: OnNext =>
+            effect(v)
+            RxResult.Continue
+          case other =>
+            if ended.compareAndSet(false, true) then
+              effect(ResumableError.toTerminal(other))
+            RxResult.Stop
     }
 
   /**
@@ -67,7 +73,7 @@ object RxRunner extends LogSupport:
     */
   def runOnce[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     val observed = AtomicBoolean(false)
-    tracked(defaultRunner, rx, "runOnce") { ev =>
+    tracked(continuousRunner, rx, "runOnce", endsAtError = true) { ev =>
       if observed.compareAndSet(false, true) then
         effect(ResumableError.toTerminal(ev))
       RxResult.Stop
@@ -101,9 +107,12 @@ object RxRunner extends LogSupport:
     * Run `rx` and report the subscription to the active [[RxTracker]]s. The subscription ends on
     * cancel or, outside continuous mode, on a terminal event.
     */
-  private def tracked[A](runner: RxRunner, rx: RxOps[A], mode: String)(
-      effect: RxEvent => RxResult
-  ): Cancelable =
+  private def tracked[A](
+      runner: RxRunner,
+      rx: RxOps[A],
+      mode: String,
+      endsAtError: Boolean = false
+  )(effect: RxEvent => RxResult): Cancelable =
     val handle = RxTracker.onSubscribe(rx, mode)
     if handle == null then
       runner.run(rx)(effect)
@@ -113,11 +122,12 @@ object RxRunner extends LogSupport:
           ev match
             case OnNext(_) =>
               effect(ev)
+            case OnError(_) if !endsAtError =>
+              effect(ev)
             case _ =>
+              // The end of the stream, or an error that ends a run
               try effect(ev)
-              finally
-                if !runner.continuous then
-                  handle.release()
+              finally handle.release()
         }
       Cancelable { () =>
         try c.cancel
@@ -633,6 +643,15 @@ class RxRunner(
             case OnNext(v) =>
               lastItem = Some(v.asInstanceOf[A])
               canContinue
+            case end: OnCompletion =>
+              // Emit the value still waiting for its window, then end
+              timer.cancel
+              lastItem match
+                case Some(x) if canContinue.toContinue && lastReported != lastItem =>
+                  lastReported = lastItem
+                  canContinue = effect(OnNext(x))
+                case _ =>
+              canContinue && effect(end)
             case other =>
               canContinue && effect(other)
           }
@@ -896,14 +915,16 @@ class RxRunner(
               effect(ev)
         }
       case OnCancelOp(in, f) =>
-        // Set by the first cancel, or by a terminal event outside continuous mode (where a source
-        // such as RxVar can still emit after an error), so f runs at most once
+        // Set by the first cancel, by OnCompletion, or outside continuous mode by an error, so f
+        // runs at most once and not after the stream ended
         val ended        = AtomicBoolean(false)
         val subscription =
           run(in) { ev =>
             ev match
-              case OnNext(_) =>
-              case _         =>
+              case OnNext(_)       =>
+              case _: OnCompletion =>
+                ended.set(true)
+              case _ =>
                 if !continuous then
                   ended.set(true)
             effect(ev)
@@ -1095,17 +1116,19 @@ class RxRunner(
         }
       case source: RxSource[?] =>
         val cancelled = AtomicBoolean(false)
-        // Set by a terminal event or a downstream Stop; continuous mode keeps reading
+        // Set by OnCompletion: the source has ended, in every mode
+        val ended = AtomicBoolean(false)
+        // Set by an error or a downstream Stop outside continuous mode; continuous mode keeps reading
         val finished = AtomicBoolean(false)
         // True from calling source.next until its event arrives
         val awaiting = AtomicBoolean(false)
         val current  = AtomicReference[Cancelable](Cancelable.empty)
 
-        def active: Boolean = !cancelled.get && (continuous || !finished.get)
+        def active: Boolean = !cancelled.get && !ended.get && (continuous || !finished.get)
 
         def deliver(ev: RxEvent): RxResult =
           awaiting.set(false)
-          if cancelled.get then
+          if cancelled.get || ended.get then
             RxResult.Stop
           else
             ev match
@@ -1114,6 +1137,9 @@ class RxRunner(
                 if !r.toContinue then
                   finished.set(true)
                 r
+              case end: OnCompletion =>
+                ended.set(true)
+                effect(end)
               case other =>
                 finished.set(true)
                 effect(other)
