@@ -1,0 +1,61 @@
+name: Lean toolchain update
+
+# Dependabot and Scala Steward don't read spec/lean/lean-toolchain, so this job bumps it to the
+# newest stable Lean release and opens (or refreshes) a single PR. The PR's `Lean spec` CI job
+# checks every proof and the generated cases on the new version.
+on:
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update:
+    name: Update Lean toolchain
+    runs-on: ubuntu-latest
+    steps:
+      # A PR opened with GITHUB_TOKEN would not trigger CI, so act as the GitHub App
+      - name: Generate token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+      - uses: actions/checkout@v7
+      - name: Find the latest stable Lean release
+        id: lean
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          # `gh release view` without a tag returns the release marked Latest, which skips -rc tags
+          tag=$(gh release view --repo leanprover/lean4 --json tagName -q .tagName)
+          current=$(cat spec/lean/lean-toolchain)
+          echo "Current: ${current}, latest: leanprover/lean4:${tag}"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          if [ "${current}" != "leanprover/lean4:${tag}" ]; then
+            echo "leanprover/lean4:${tag}" > spec/lean/lean-toolchain
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install elan
+        if: ${{ steps.lean.outputs.changed == 'true' }}
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+      - name: Refresh the Lake manifest
+        if: ${{ steps.lean.outputs.changed == 'true' }}
+        working-directory: spec/lean
+        run: lake update
+      - name: Open a pull request
+        if: ${{ steps.lean.outputs.changed == 'true' }}
+        uses: peter-evans/create-pull-request@v8
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          branch: deps/lean-toolchain
+          title: 'deps: Update Lean to ${{ steps.lean.outputs.tag }}'
+          commit-message: 'deps: Update Lean to ${{ steps.lean.outputs.tag }}'
+          labels: test-library-update
+          delete-branch: true
+          body: |
+            Updates `spec/lean/lean-toolchain` to the latest stable Lean release, [${{ steps.lean.outputs.tag }}](https://github.com/leanprover/lean4/releases/tag/${{ steps.lean.outputs.tag }}).
+
+            The `Lean spec` CI job checks every proof and that the generated Scala cases are unchanged. If a proof breaks (a renamed lemma, a `simp` change), fix it on this branch; see `spec/lean/README.md`.

@@ -20,7 +20,9 @@ You need Lean only to change a model. `./sbt test` runs the checked-in cases wit
 ## Build and regenerate
 
 Install [elan](https://github.com/leanprover/elan) (for example `brew install elan-init`), which
-picks the Lean version in `lean-toolchain`. Then, in this directory:
+picks the Lean version in `lean-toolchain`. A weekly workflow
+([`lean-update.yml`](../../.github/workflows/lean-update.yml)) bumps that file to the newest stable
+Lean release in a `deps/lean-toolchain` PR, which is not auto-merged. Then, in this directory:
 
 ```bash
 lake build              # check every proof and build the generator
