@@ -22,10 +22,13 @@ If any of the above is unverified, drop the claim.
 
 ## Non-obvious VitePress bits
 
-- **`__UNI_VERSION__`** inside code fences is replaced at build time
-  with the latest release (`docs/.vitepress/fetchLatestVersion.ts`).
-  Use it in `libraryDependencies` examples instead of a hardcoded
-  version. Likewise **`__SCALA_VERSION__`** is replaced with `SCALA_3`
+- **`__UNI_VERSION__`** inside code fences and inline code is replaced
+  at build time with the newest release on repo.wvlet.org
+  (`docs/.vitepress/fetchLatestVersion.ts`), and
+  **`__UNI_CENTRAL_VERSION__`** with the newest one on Maven Central.
+  Use `__UNI_VERSION__` in `libraryDependencies` examples instead of a
+  hardcoded version; a getting-started snippet also needs the
+  `repo.wvlet.org` resolver, since newer releases are not on Central. Likewise **`__SCALA_VERSION__`** is replaced with `SCALA_3`
   from the root `build.sbt`; use it for `scalaVersion` in samples.
 - **Sidebars are built from shared lists.** In `docs/.vitepress/config.mts`,
   a new module page goes in `moduleGroups` and in `docs/modules.md`, a guide page in

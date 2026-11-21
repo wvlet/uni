@@ -1,7 +1,7 @@
 import { defineConfig, type DefaultTheme } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
 import llmstxt from 'vitepress-plugin-llms'
-import { fetchLatestVersion } from './fetchLatestVersion'
+import { CENTRAL_METADATA_URL, WVLET_METADATA_URL, fetchLatestVersion } from './fetchLatestVersion'
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { readdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -29,9 +29,12 @@ async function addSectionMainPages(outDir: string) {
   )
 }
 
-const FALLBACK_VERSION = '2026.1.22'
 const VERSION_TOKEN = '__UNI_VERSION__'
-const uniVersion = await fetchLatestVersion(FALLBACK_VERSION)
+const CENTRAL_VERSION_TOKEN = '__UNI_CENTRAL_VERSION__'
+const [uniVersion, uniCentralVersion] = await Promise.all([
+  fetchLatestVersion('repo.wvlet.org', WVLET_METADATA_URL, '2026.2.2'),
+  fetchLatestVersion('Maven Central', CENTRAL_METADATA_URL, '2026.1.41')
+])
 
 // The Scala version uni is built with (SCALA_3 in the root build.sbt). uni's artifacts need a
 // compiler of at least that minor, so samples must not drift behind it.
@@ -44,7 +47,13 @@ const scalaVersion = (() => {
 })()
 
 const replaceVersionTokens = (text: string): string =>
-  text.split(VERSION_TOKEN).join(uniVersion).split(SCALA_VERSION_TOKEN).join(scalaVersion)
+  text
+    .split(CENTRAL_VERSION_TOKEN)
+    .join(uniCentralVersion)
+    .split(VERSION_TOKEN)
+    .join(uniVersion)
+    .split(SCALA_VERSION_TOKEN)
+    .join(scalaVersion)
 
 const SITE_URL = 'https://wvlet.org/uni/'
 const SITE_TITLE = 'Uni - One Scala 3 Library for the Whole Stack'

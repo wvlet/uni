@@ -70,6 +70,7 @@ Native. The two coexist in one build. See [Uni and the Scala Toolkit](./uni-vs-s
 
 ```scala
 // build.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 libraryDependencies ++= Seq(
   "org.wvlet.uni" %% "uni"       % "__UNI_VERSION__",
   "org.wvlet.uni" %% "uni-test"  % "__UNI_VERSION__" % Test
@@ -86,12 +87,11 @@ libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
 Uni requires Scala `__SCALA_VERSION__` or later. On sbt 2.x, use `%%` for all
 platforms. On sbt 1.x, use `%%%` for Scala.js and Scala Native projects.
 
-`__UNI_VERSION__` is the newest version on Maven Central. Every release is also
-published to `https://repo.wvlet.org/maven2`, and newer versions may be only
-there. To use one, an application adds
-`resolvers += "wvlet" at "https://repo.wvlet.org/maven2"`. A library published
-to Maven Central should depend on a Central version and not add that resolver.
-See [Newest Releases](./installation#newest-releases).
+`__UNI_VERSION__` is the newest release. Every release is published to
+`https://repo.wvlet.org/maven2`, so add that resolver; only some releases are
+copied to Maven Central (newest there: `__UNI_CENTRAL_VERSION__`). A library
+published to Maven Central should depend on a Central version and not add the
+resolver. See [The wvlet Maven Repository](./installation#the-wvlet-maven-repository).
 
 ## What are the canonical imports?
 

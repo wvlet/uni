@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+  # Rebuild after each release so the site shows the new version (read from the Maven metadata)
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -19,6 +23,7 @@ concurrency:
 
 jobs:
   changes:
+    if: ${{ github.event_name != 'workflow_run' }}
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -39,7 +44,9 @@ jobs:
   build-doc:
     name: Build docs
     needs: changes
-    if: ${{ needs.changes.outputs.docs == 'true' }}
+    if: >-
+      ${{ !cancelled() && (needs.changes.outputs.docs == 'true' ||
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success')) }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -64,7 +71,7 @@ jobs:
   deploy-doc:
     name: Deploy docs
     needs: build-doc
-    if: ${{ github.ref == 'refs/heads/main' }}
+    if: ${{ !cancelled() && needs.build-doc.result == 'success' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     environment:
       name: github-pages

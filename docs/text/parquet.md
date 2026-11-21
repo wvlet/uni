@@ -11,6 +11,7 @@ byte arrays, files on any HTTP server that supports Range requests, and objects 
 MinIO, or Azure Blob Storage. It writes case classes, maps, and JSON records to local files, byte arrays, or object storage.
 
 ```scala sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
 ```
 

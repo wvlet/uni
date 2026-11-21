@@ -78,6 +78,9 @@ conventions across these concerns.
 ::: code-group
 
 ```scala [sbt]
+// Every Uni release is published to the wvlet Maven repository
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
+
 libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 
 // Testing
@@ -89,6 +92,7 @@ libraryDependencies += "org.wvlet.uni" %% "uni-netty" % "__UNI_VERSION__"
 ```
 
 ```scala [Scala CLI]
+//> using repository https://repo.wvlet.org/maven2
 //> using dep org.wvlet.uni::uni:__UNI_VERSION__
 ```
 

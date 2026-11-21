@@ -25,6 +25,8 @@ Scala.js projects. It is not published for sbt 1.x.
 In `project/plugins.sbt`, add the Scala.js plugin and this one:
 
 ```scala
+// project/plugins.sbt
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 addSbtPlugin("org.scala-js"  % "sbt-scalajs"        % "1.22.0")
 addSbtPlugin("org.wvlet.uni" % "sbt-uni-playwright" % "__UNI_VERSION__")
 ```

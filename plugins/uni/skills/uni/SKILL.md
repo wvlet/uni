@@ -13,7 +13,8 @@ the same code runs on JVM, Scala.js, and Scala Native. It replaces Airframe; the
 
 ```scala sbt
 // build.sbt — use the latest version from
-// https://central.sonatype.com/artifact/org.wvlet.uni/uni_3 (or the one already in the build)
+// https://repo.wvlet.org/maven2/org/wvlet/uni/uni_3/maven-metadata.xml (or the one already in the build)
+resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
 libraryDependencies ++= Seq(
   "org.wvlet.uni" %% "uni"      % "<version>",
   "org.wvlet.uni" %% "uni-test" % "<version>" % Test
@@ -31,8 +32,7 @@ On sbt 2.x use `%%` for all platforms. On sbt 1.x use `%%%` for Scala.js and
 Scala Native.
 
 Every release is on `https://repo.wvlet.org/maven2`; only some reach Maven
-Central. For a newer version than Central has, an application adds
-`resolvers += "wvlet" at "https://repo.wvlet.org/maven2"`. A library published to
+Central, so an application keeps the wvlet resolver above. A library published to
 Maven Central should depend on a Central version and not add that resolver.
 
 ## Canonical imports

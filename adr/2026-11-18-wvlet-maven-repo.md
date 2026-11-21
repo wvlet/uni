@@ -15,7 +15,9 @@ Other projects took the same path: Scala moved Scala 3 nightlies to `repo.scala-
 - A published version is never overwritten, so repo.wvlet.org keeps the exact files that may already have been copied to Central.
 - Maven Central gets at most about one Uni release per month, chosen by hand: run the Release workflow with `central_version`. It downloads that version's files from R2, zips them into a Central Portal bundle and uploads it (`.github/scripts/central-release.sh`). Central therefore gets the same bytes and signatures as repo.wvlet.org.
 - A failed Central upload does not affect the release on repo.wvlet.org. The job turns red and opens an issue; re-running the workflow with the same `central_version` retries it.
-- The docs show the newest version on Maven Central (read from its `maven-metadata.xml`), so every snippet works without the extra resolver. The installation guide explains the resolver for newer versions, and the rule that a library published to Central depends on Central versions only and does not add the resolver.
+- The docs show the newest version on repo.wvlet.org (read from its `maven-metadata.xml`), and getting-started snippets add the `repo.wvlet.org` resolver. The installation guide also names the newest version on Maven Central, and the rule that a library published to Central depends on Central versions only and does not add the resolver.
+  - *Revised 2026-11-21:* the docs first showed the newest Central version so that snippets needed no resolver. Central's limit was not raised, so Central stayed on 2026.1.41 while releases went on, and modules added since (uni-parquet, object storage) had no Central version at all. Their pages showed a version that could not resolve them.
+  - The docs site rebuilds after each successful Release run, so the version it shows follows the releases.
 
 ## Consequences
 
