@@ -295,6 +295,31 @@ trait Assertions:
     if !cond then
       throw AssertionFailure(message, source)
 
+  /**
+    * Run `body` and fail if Rx subscriptions it started on this thread are still active afterwards,
+    * i.e., neither cancelled nor ended with `OnError` / `OnCompletion`. Returns the result of
+    * `body`.
+    *
+    * {{{
+    *   test("closes its subscriptions") {
+    *     assertNoRxLeaks {
+    *       val c = counter.subscribe(render)
+    *       c.cancel
+    *     }
+    *   }
+    * }}}
+    */
+  inline def assertNoRxLeaks[A](body: => A)(using source: TestSource): A =
+    val tracker = wvlet.uni.rx.RxTracker()
+    val result  = tracker.trace(body)
+    val leaks   = tracker.activeSubscriptions
+    if leaks.nonEmpty then
+      throw AssertionFailure(
+        s"${leaks.size} Rx subscription(s) still active:\n${leaks.mkString("  ", "\n  ", "")}",
+        source
+      )
+    result
+
 end Assertions
 
 object Assertions:

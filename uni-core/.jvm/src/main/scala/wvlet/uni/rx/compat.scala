@@ -14,7 +14,6 @@
 package wvlet.uni.rx
 
 import wvlet.uni.util.ThreadUtil
-import java.util.TimerTask
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -27,22 +26,6 @@ import scala.concurrent.Promise
 object compat:
   def defaultExecutionContext: scala.concurrent.ExecutionContext =
     scala.concurrent.ExecutionContext.global
-
-  def newTimer: Timer =
-    new Timer:
-      private val t                                                 = new java.util.Timer(true)
-      override def schedule[U](millis: Long)(body: Long => U): Unit = t.schedule(
-        new TimerTask:
-          private var lastTime     = System.currentTimeMillis()
-          override def run(): Unit =
-            val currentTime = System.currentTimeMillis()
-            try body(currentTime - lastTime)
-            finally lastTime = currentTime
-        ,
-        0,
-        millis
-      )
-      override def cancel: Unit = t.cancel()
 
   private lazy val scheduledThreadManager = Executors.newScheduledThreadPool(
     1,
@@ -60,6 +43,27 @@ object compat:
     Cancelable { () =>
       schedule.cancel(false)
     }
+
+  /**
+    * Run `body` after `initialDelayMillis`, then every `periodMillis` after the previous run ends.
+    */
+  def schedulePeriodically(initialDelayMillis: Long, periodMillis: Long)(
+      body: => Unit
+  ): Cancelable =
+    val schedule = scheduledThreadManager.scheduleWithFixedDelay(
+      new Runnable:
+        override def run(): Unit = body
+      ,
+      initialDelayMillis.max(0L),
+      periodMillis.max(1L),
+      TimeUnit.MILLISECONDS
+    )
+    Cancelable { () =>
+      schedule.cancel(false)
+    }
+
+  lazy val defaultFrameProvider: RxFrameProvider =
+    RxFrameProvider.fromTime(16L)(using RxTimeProvider.system)
 
   def toSeq[A](rx: Rx[A]): Seq[A] =
     val ready = new AtomicBoolean(true)

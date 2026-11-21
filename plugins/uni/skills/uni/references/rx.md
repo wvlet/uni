@@ -69,6 +69,7 @@ nums.onCancel(println("cancelled"))        // runs only if a subscriber cancels 
 nums.cache                                 // RxCache: replays the last value
 nums.timeout(5, TimeUnit.SECONDS)          // fails with Rx.TimeoutException
 nums.throttleFirst(500)                    // also throttleLast / sample (milliseconds by default)
+nums.sampleFrame                           // last value per frame (requestAnimationFrame in a browser)
 
 Rx.exception[Int](IllegalStateException("x")).recover { case _: IllegalStateException => 0 }
 Rx.exception[Int](IllegalStateException("x")).recoverWith { case _ => Rx.single(0) }
@@ -89,6 +90,28 @@ case class Message(id: String, text: String)
 val messages = Rx.variable(Seq(Message("1", "hi")))
 val rows: Rx[Seq[(String, Rx[Message])]] = messages.split(_.id)
 ```
+
+Time operators (`interval`, `timer`, `throttleFirst`, `throttleLast`, `sample`,
+`timeout`) take a `given RxTimeProvider`; frame operators (`sampleFrame`,
+`Rx.everyFrame`, `Rx.nextFrame`) take a `given RxFrameProvider`. Tests drive time
+by hand instead of sleeping:
+
+```scala
+import wvlet.uni.rx.{ManualTimeProvider, Rx, RxTimeProvider}
+import java.util.concurrent.TimeUnit
+
+def ticksAfter300ms: Seq[Long] =
+  given time: ManualTimeProvider = RxTimeProvider.manual()
+  val ticks = Seq.newBuilder[Long]
+  Rx.interval(100, TimeUnit.MILLISECONDS).take(3).run(ticks += _)
+  time.advance(300, TimeUnit.MILLISECONDS) // runs the ticks on this thread
+  ticks.result()                           // Seq(100, 100, 100)
+```
+
+`RxTracker().trace { ... }` records the subscriptions a block leaves active
+(`activeSubscriptions`, each with an `origin` stack frame);
+`RxTracker.startGlobal()` watches the whole process. In a `UniTest`,
+`assertNoRxLeaks { ... }` fails on a subscription that is never cancelled.
 
 Completion is terminal: `filter` does not complete on a rejected value,
 `flatMap` completes only after its nested stream, and `take(n)` cancels its

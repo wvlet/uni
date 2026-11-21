@@ -24,11 +24,6 @@ import java.util.concurrent.ThreadFactory
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
-import scala.scalanative.posix.timer.timer_create
-import scala.scalanative.posix.time.*
-import scala.scalanative.posix.signal.*
-import scala.scalanative.posix.sys.types.timer_t
-import scala.scalanative.unsafe.*
 
 /**
   */
@@ -39,19 +34,6 @@ object compat:
   )
 
   def defaultExecutionContext: scala.concurrent.ExecutionContext = defaultExecutor
-
-  def newTimer: Timer = ???
-//    Zone {
-//      val timerId: Ptr[timer_t] = alloc[timer_t]()
-//      val se: sigevent          = stackalloc[sigevent]()
-//      se._1 = SIGEV_THREAD
-////        sigev_notify = SIGEV_THREAD,
-////        sigev_signo = SIGALRM,
-////        sigev_value = sigval(0),
-////        sigev_notify_thread_id = pthread_self()
-////      )
-//// timer_create is not yet implemented in Scala Native
-//      // timer_create(CLOCK_REALTIME, se, timerId)
 
   private lazy val scheduledThreadManager = Executors.newScheduledThreadPool(
     1,
@@ -69,6 +51,27 @@ object compat:
     Cancelable { () =>
       schedule.cancel(false)
     }
+
+  /**
+    * Run `body` after `initialDelayMillis`, then every `periodMillis` after the previous run ends.
+    */
+  def schedulePeriodically(initialDelayMillis: Long, periodMillis: Long)(
+      body: => Unit
+  ): Cancelable =
+    val schedule = scheduledThreadManager.scheduleWithFixedDelay(
+      new Runnable:
+        override def run(): Unit = body
+      ,
+      initialDelayMillis.max(0L),
+      periodMillis.max(1L),
+      TimeUnit.MILLISECONDS
+    )
+    Cancelable { () =>
+      schedule.cancel(false)
+    }
+
+  lazy val defaultFrameProvider: RxFrameProvider =
+    RxFrameProvider.fromTime(16L)(using RxTimeProvider.system)
 
   def toSeq[A](rx: Rx[A]): Seq[A] =
     val ready = new AtomicBoolean(true)
