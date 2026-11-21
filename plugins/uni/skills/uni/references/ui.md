@@ -250,6 +250,29 @@ changeLog.entries.map(_.describe)                    // "Agent set Region to ore
   one entry, and a drag cancelled with Escape (which puts the size back) leaves none. Presses and app callbacks are not recorded; `open` and secret values report
   `unsupported`; an unmounted component reports `missing`.
 
+## Recording which components people use
+
+`UiTelemetry` (package `wvlet.uni.ui.telemetry`) records presses, committed changes, dialog and
+menu open/close, tab view time, and palette commands. Each event is named by the component's
+kind and agent ref (`button:save`, or `UiAgent.ref("name")`), so the app needs no tracking calls:
+
+```scala
+import wvlet.uni.ui.telemetry.{UiTelemetry, UiTelemetryConfig, UiTelemetrySink}
+
+val usage = UiTelemetryConfig(UiTelemetrySink.relay()) // posts to UiTelemetryRelay on the server
+  .withSampleRatio(0.5)
+  .install()
+usage.uninstall()
+```
+
+- `UiTelemetrySink.relay()` posts to `/_uni/telemetry/ui`. The server adds
+  `UiTelemetryRelay(telemetry)` (`wvlet.uni.http`), which accepts only `ui.*`/`command.*`
+  events and sends them to OTLP `/v1/logs` with `withOtlp`. `UiTelemetrySink.datadogRum()`
+  reports RUM custom actions instead.
+- Values are off except tab labels (`withValueKinds(...)` adds kinds). Secret and hidden
+  components follow the `UiAgent` rules, and changes the app's own code makes are left out.
+- Install after consent: nothing is recorded before `install` or after `uninstall()`.
+
 ## Behaviors for your own widgets
 
 `wvlet.uni.ui.base` holds the interaction logic uni-ui is built from. Each behavior is a pure model

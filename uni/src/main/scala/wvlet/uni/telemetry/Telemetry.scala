@@ -41,6 +41,7 @@ case class Telemetry(
     serviceName: String = "unknown_service",
     exporter: SpanExporter = SpanExporter.none,
     metricExporter: MetricExporter = MetricExporter.none,
+    eventExporter: EventExporter = EventExporter.none,
     sampleRatio: Double = 1.0,
     resourceAttributes: Map[String, AttributeValue] = Map.empty,
     clock: TelemetryClock = TelemetryClock.system
@@ -58,14 +59,17 @@ case class Telemetry(
   def withMetricExporter(exporter: MetricExporter): Telemetry = copy(metricExporter = exporter)
   def noMetricExporter: Telemetry = copy(metricExporter = MetricExporter.none)
 
+  def withEventExporter(exporter: EventExporter): Telemetry = copy(eventExporter = exporter)
+  def noEventExporter: Telemetry = copy(eventExporter = EventExporter.none)
+
   /**
-    * Send spans and metrics to an OTLP/HTTP endpoint, e.g. the Datadog Agent's OTLP receiver or an
-    * OpenTelemetry Collector. Starts the exporter's flush timer; [[shutdown]] stops it and sends
-    * what is left.
+    * Send spans, metrics, and events to an OTLP/HTTP endpoint, e.g. the Datadog Agent's OTLP
+    * receiver or an OpenTelemetry Collector. Starts the exporter's flush timer; [[shutdown]] stops
+    * it and sends what is left.
     */
   def withOtlp(config: wvlet.uni.telemetry.otlp.OtlpConfig): Telemetry =
     val otlp = wvlet.uni.telemetry.otlp.OtlpExporter(config)
-    copy(exporter = otlp, metricExporter = otlp)
+    copy(exporter = otlp, metricExporter = otlp, eventExporter = otlp)
 
   def withSampleRatio(ratio: Double): Telemetry = copy(sampleRatio = ratio)
   def withResourceAttribute(key: String, value: AttributeValue): Telemetry = copy(
@@ -80,7 +84,29 @@ case class Telemetry(
   /** True when metrics are exported. */
   def isMetricsEnabled: Boolean = metricExporter ne MetricExporter.none
 
-  /** False when neither spans nor metrics are exported; then nothing is recorded. */
+  /** True when events are exported. */
+  def isEventsEnabled: Boolean = eventExporter ne EventExporter.none
+
+  /**
+    * Emit a named event, e.g. a UI interaction reported by [[wvlet.uni.http.UiTelemetryRelay]].
+    * Does nothing without an event exporter.
+    */
+  def emitEvent(
+      name: String,
+      attributes: Map[String, AttributeValue] = Map.empty,
+      epochNanos: Long = clock.epochNanos
+  ): Unit =
+    if isEventsEnabled then
+      try
+        eventExporter.exportEvent(EventData(resource, name, epochNanos, attributes))
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to export event ${name}: ${e.getMessage}")
+
+  /**
+    * False when neither spans nor metrics are exported; then the server filter and HTTP client
+    * record nothing. Events are separate: see [[isEventsEnabled]].
+    */
   def isEnabled: Boolean = isTracingEnabled || isMetricsEnabled
 
   /**
@@ -99,11 +125,16 @@ case class Telemetry(
         case NonFatal(e) =>
           warn(s"Failed to record ${instrument.name}: ${e.getMessage}")
 
+  // One exporter often serves several roles (OtlpExporter); close each once
   private def exporters: Seq[TelemetryExporter] =
-    if metricExporter eq exporter then
-      Seq(exporter)
-    else
-      Seq(exporter, metricExporter)
+    Seq[TelemetryExporter](exporter, metricExporter, eventExporter).foldLeft(
+      Seq.empty[TelemetryExporter]
+    )((acc, e) =>
+      if acc.exists(_ eq e) then
+        acc
+      else
+        acc :+ e
+    )
 
   /**
     * Send what the exporters buffer and stop them. The returned Rx emits once the last send is

@@ -39,6 +39,9 @@ object ChangeSource:
     try body
     finally scoped = saved
 
+  /** The source set by an enclosing [[withSource]], if any. */
+  private[ui] def scopedSource: Option[ChangeSource] = scoped
+
   /**
     * The source of a DOM event. A click with `detail == 0` comes from the keyboard (Enter or Space
     * on a button), not from a pointer.

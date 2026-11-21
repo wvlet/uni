@@ -69,17 +69,19 @@ end OtlpConfig
   * Sends spans and metrics to an OTLP/HTTP endpoint as JSON, on every platform: the JVM, Scala
   * Native, Node.js, and browsers (where the endpoint must allow the page's origin).
   *
-  * Spans are buffered and histograms aggregated in memory, then sent every `flushIntervalMillis`
-  * with Uni's async HTTP client. Histograms use delta temporality. A failed send is logged once and
-  * dropped: telemetry never blocks or fails the code it observes. [[shutdown]] stops the timer and
-  * sends what is left.
+  * Spans and events (as log records, to `/v1/logs`) are buffered and histograms aggregated in
+  * memory, then sent every `flushIntervalMillis` with Uni's async HTTP client. Histograms use delta
+  * temporality. A failed send is logged once and dropped: telemetry never blocks or fails the code
+  * it observes. [[shutdown]] stops the timer and sends what is left.
   */
 class OtlpExporter(config: OtlpConfig = OtlpConfig())
     extends SpanExporter
     with MetricExporter
+    with EventExporter
     with LogSupport:
   private val endpoint   = config.endpoint.stripSuffix("/")
   private val spans      = mutable.ArrayBuffer.empty[SpanData]
+  private val events     = mutable.ArrayBuffer.empty[EventData]
   private var dropped    = 0L
   private val histograms = HistogramAggregator(config.clock)
   @volatile
@@ -107,6 +109,15 @@ class OtlpExporter(config: OtlpConfig = OtlpConfig())
       spans += span
   }
 
+  override def exportEvent(event: EventData): Unit = synchronized {
+    if closed then
+      ()
+    else if events.size >= config.maxQueueSize then
+      dropped += 1
+    else
+      events += event
+  }
+
   override def recordHistogram(
       resource: Map[String, AttributeValue],
       instrument: HistogramInstrument,
@@ -122,19 +133,22 @@ class OtlpExporter(config: OtlpConfig = OtlpConfig())
     * failed request is logged, not raised.
     */
   def flush(): Rx[Unit] =
-    val (batch, droppedNow) = synchronized {
+    val (batch, eventBatch, droppedNow) = synchronized {
       val b = spans.toSeq
       spans.clear()
+      val e = events.toSeq
+      events.clear()
       val d = dropped
       dropped = 0
-      (b, d)
+      (b, e, d)
     }
     if droppedNow > 0 then
-      warn(s"Dropped ${droppedNow} spans: more than ${config.maxQueueSize} were buffered")
+      warn(s"Dropped ${droppedNow} spans or events: more than ${config.maxQueueSize} were buffered")
     val metrics = histograms.collect()
     val bodies  =
       batch.grouped(config.maxBatchSize).map(b => "/v1/traces" -> OtlpJson.traces(b)).toSeq ++
-        Option.when(metrics.nonEmpty)("/v1/metrics" -> OtlpJson.metrics(metrics))
+        Option.when(metrics.nonEmpty)("/v1/metrics" -> OtlpJson.metrics(metrics)) ++
+        eventBatch.grouped(config.maxBatchSize).map(b => "/v1/logs" -> OtlpJson.logs(b))
     bodies.foldLeft(Rx.single(())) { case (acc, (path, body)) =>
       acc.flatMap(_ => post(path, body))
     }

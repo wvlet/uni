@@ -211,4 +211,19 @@ class OtlpExporterTest extends UniTest:
     otlp.close()
   }
 
+  test("send events as OTLP logs") {
+    val channel = RecordingAsyncChannel()
+    val otlp    = OtlpExporter(
+      OtlpConfig()
+        .withTimeProvider(RxTimeProvider.manual())
+        .withClient(Http.client.withChannelFactory(factory(channel)))
+    )
+    val telemetry = Telemetry().withEventExporter(otlp)
+    telemetry.emitEvent("ui.press", Map("ui.ref" -> "button:save"))
+    RxRunner.run(otlp.flush())(_ => ())
+    channel.requests.map(_.uri) shouldBe Seq("http://localhost:4318/v1/logs")
+    channel.requests.head.content.asString.get.contains("\"eventName\":\"ui.press\"") shouldBe true
+    otlp.close()
+  }
+
 end OtlpExporterTest
