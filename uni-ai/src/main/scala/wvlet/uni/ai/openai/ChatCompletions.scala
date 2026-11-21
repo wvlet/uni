@@ -368,7 +368,7 @@ object ChatUsage:
 end ChatUsage
 
 /** Values of `finish_reason` */
-object FinishReason:
+object ChatFinishReason:
   val Stop: String          = "stop"
   val Length: String        = "length"
   val ToolCalls: String     = "tool_calls"

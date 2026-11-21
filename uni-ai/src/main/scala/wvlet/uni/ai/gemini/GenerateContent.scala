@@ -356,7 +356,7 @@ object GenerateContentRequest:
 end GenerateContentRequest
 
 /** Values of `finishReason` */
-object FinishReason:
+object GeminiFinishReason:
   val Stop: String                  = "STOP"
   val MaxTokens: String             = "MAX_TOKENS"
   val Safety: String                = "SAFETY"
