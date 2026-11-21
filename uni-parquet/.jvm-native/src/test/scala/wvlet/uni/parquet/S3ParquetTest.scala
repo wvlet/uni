@@ -68,6 +68,35 @@ class S3ParquetTest extends UniTest:
     finally f.close()
   }
 
+  test("read a partitioned dataset under a prefix") {
+    requireServer()
+    val ds = prefix.resolve("visits/")
+    store.put(ds.resolve("day=2026-11-19/part-0.parquet"), Parquet.writeBytes(rows.take(3)))
+    store.put(ds.resolve("day=2026-11-20/part-0.parquet"), Parquet.writeBytes(rows.slice(3, 5)))
+    store.put(ds.resolve("day=2026-11-20/_SUCCESS"), Array.emptyByteArray)
+    // A sibling prefix that `visits` without a slash would also match
+    store.put(prefix.resolve("visits_old/part-0.parquet"), Parquet.writeBytes(rows.take(1)))
+
+    val root    = ds.toString.stripSuffix("/")
+    val dataset = Parquet.dataset(store, root)
+    try
+      dataset.files.size shouldBe 2
+      val opts = ParquetReadOptions
+        .default
+        .withRowGroupFilter(RowGroupFilter.col("day") === "2026-11-20")
+      dataset.readAs[AllTypes](opts).toSeq shouldBe rows.slice(3, 5)
+      dataset.readAllRowsAsync().await.map(_("day")) shouldBe
+        Seq.fill(3)("2026-11-19") ++ Seq.fill(2)("2026-11-20")
+    finally
+      dataset.close()
+    // The dataset leaves a store it was given open
+    store.head(ds.resolve("day=2026-11-19/part-0.parquet")).isDefined shouldBe true
+
+    val listedAsync = Parquet.datasetAsync(store, root).await
+    try listedAsync.files.size shouldBe 2
+    finally listedAsync.close()
+  }
+
   test("an aborted writer leaves no object") {
     requireServer()
     val uri = prefix.resolve("aborted.parquet")

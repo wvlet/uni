@@ -296,6 +296,74 @@ unchanged, so filter them again in your code. It checks top-level columns of int
 point, boolean, string, DATE (compare with `LocalDate`), and TIMESTAMP (compare with `Instant`)
 types; for other types, or when a column has no statistics, the row group is read.
 
+## Reading a Dataset of Files
+
+Data that Spark, Hive, Trino, DuckDB, or Athena writes is usually many files under one folder or
+bucket prefix, split into `key=value` folders such as `dt=2026-11-20/country=JP/part-0.parquet`.
+`Parquet.dataset` lists them and reads them as one table. It works on a local directory, or on an
+`s3://`, `gs://`, `az://`, or `azure://` prefix:
+
+```scala
+import wvlet.uni.parquet.RowGroupFilter.*
+
+case class Visit(id: Long, user: String, dt: String, country: String) derives Weaver
+
+val ds = Parquet.dataset("s3://my-bucket/visits/")
+try
+  ds.files            // every file found, with its partition values
+  ds.partitionColumns // dt, country
+  ds.schema           // the files' columns, then the partition columns
+
+  val recentJP = ParquetReadOptions
+    .default
+    .withRowGroupFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
+  ds.selectFiles(recentJP)                   // the files this read opens
+  val visits = ds.readAs[Visit](recentJP).toSeq
+finally ds.close()
+```
+
+- **Partitions.** Each `key=value` folder becomes a column, appended after the files' columns, so
+  `readAs`, `readRows`, `readJson`, and `readBatches` all see it. Values are URL-decoded, and
+  `__HIVE_DEFAULT_PARTITION__` reads as null. If a file also stores a column with a partition key's
+  name, the folder value wins.
+- **Partition types.** Partition values are strings unless you declare a type, so a type never
+  changes because of one odd folder name. ISO dates compare correctly as strings. Declare INT32,
+  INT64, or DATE with `ParquetDatasetOptions`:
+
+  ```scala
+  import wvlet.uni.parquet.{ParquetDatasetOptions, ParquetType}
+
+  val typed = Parquet.dataset(
+    "s3://my-bucket/visits/",
+    ParquetDatasetOptions.default.withPartitionType("dt", ParquetType.DATE)
+  )
+  // Filters on dt now take LocalDate (or an ISO date string)
+  ```
+
+- **Skipping files.** A `RowGroupFilter` on partition columns is checked exactly against each
+  file's folder values, so files that can't match are never opened. The rest of the filter skips
+  row groups by statistics, as it does for one file. A filter value of the wrong type for a
+  partition fails, instead of quietly reading every file. When the read selects any file, a
+  column name that none of its files has also fails before any rows are read.
+- **Columns across files.** Columns are matched by name. The schema is the union of the columns
+  of the files a read selects, so a column added in newer files reads as null in older ones. A
+  column whose type differs between files fails with both file names; leave it out with
+  `withColumns` to read the rest.
+- **Which files.** Every file below the root is read, except those under a folder, or with a name,
+  starting with `_` or `.` (`_SUCCESS`, `_temporary/`, `.crc` files). Files without an extension,
+  as Hive and Trino write them, are kept. `withFileExtension(".parquet")` keeps only Parquet files
+  in mixed folders. The root always ends with `/`, so `visits` doesn't also match `visits_old/`.
+- **Order and memory.** Files are read in path order, then row group order. Synchronous reads
+  return an `Iterator` that opens one file at a time. `readAllAsync`, `readAllRowsAsync`, and
+  `readBatchesAsync` fetch footers several at a time (`withPrefetch`, 4 by default), which helps
+  with object store latency.
+- **Stores.** `Parquet.dataset(uri)` creates the store with its default config and closes it with
+  the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
+  `Parquet.dataset(ObjectStore.s3(S3Config.r2("<account-id>")), "s3://my-bucket/visits/")`.
+
+Writing partitioned datasets, `_metadata` summary files, and table formats such as Delta Lake and
+Apache Iceberg aren't supported.
+
 ## Writing Case Classes
 
 `Parquet.write` writes a collection of case classes. The schema comes from the type, so any case
