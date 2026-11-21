@@ -60,7 +60,7 @@ built a new store for each file.
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
 - Not covered: `_metadata` summary files, Delta Lake and Iceberg,
-  type widening across files, and the npm facade.
+  nested type widening, and the npm facade.
 - Writing partitioned datasets is covered by `2026-11-21-parquet-dataset-writer.md`.
 - **Globs and file lists (added later).** A root with glob characters lists only the part before
   the first glob segment and keeps a path when it or one of its folders matches, so a folder
@@ -69,3 +69,10 @@ built a new store for each file.
   invalid in JavaScript's unicode mode. An explicit `Seq` of files must be all local or all in one
   bucket. Partitions come from the folders below the files' common parent, and listed files skip
   the `_`/`.` rule and the listing request. Object sizes are then -1.
+
+- **Type widening (added later).** Top-level numeric columns widen losslessly when files disagree,
+  as Spark's schema merging does: signed INT8/16/32 to INT32, INT64, or DOUBLE, and FLOAT to
+  DOUBLE. INT64 does not widen to DOUBLE, unlike DuckDB, because values above 2^53 would round.
+  The widest type among the selected files is the dataset type, and narrow vectors are copied in
+  `toOutput`. Filters need no change: integer statistics compare as `Long`, and a Double literal on
+  narrow integer statistics keeps the row group. Everything else must still match exactly.

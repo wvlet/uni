@@ -14,6 +14,12 @@ case class VisitV2(id: Long, user: String, durationMs: Option[Long]) derives Wea
 case class VisitWithDt(id: Long, user: String, dt: String, country: String) derives Weaver
 case class VisitTyped(id: Long, year: Long) derives Weaver
 case class VisitOtherType(id: String, user: String) derives Weaver
+case class VisitIntId(id: Int, user: String) derives Weaver
+case class VisitShortId(id: Short, user: String) derives Weaver
+case class Score(id: Long, value: Float) derives Weaver
+case class ScoreDouble(id: Long, value: Double) derives Weaver
+case class ScoreInt(id: Long, value: Int) derives Weaver
+case class ScoreLong(id: Long, value: Long) derives Weaver
 
 class DatasetTest extends UniTest:
   FileSystemInit.init()
@@ -437,6 +443,51 @@ class DatasetTest extends UniTest:
       withDataset(root, ParquetDatasetOptions.default.withPrefetch(8))(_.readAs[Visit]().toSeq)
     par shouldBe seq
     par.size shouldBe 24
+  }
+
+  test("widen integer columns across files") {
+    skipInBrowser()
+    val root = datasetDir(
+      "a/old.parquet"   -> Parquet.writeBytes(Seq(VisitIntId(1, "a"), VisitIntId(2, "b"))),
+      "b/new.parquet"   -> visits(3 until 5, "c"),
+      "c/small.parquet" -> Parquet.writeBytes(Seq(VisitShortId(5.toShort, "d")))
+    )
+    withDataset(root) { ds =>
+      ds.schema.field("id").get.asInstanceOf[ParquetField.Primitive].physicalType shouldBe
+        format.PhysicalType.INT64
+      ds.readAs[Visit]().map(_.id).toSeq shouldBe Seq(1L, 2L, 3L, 4L, 5L)
+      ds.readRows().map(_("id")).toSeq shouldBe Seq(1L, 2L, 3L, 4L, 5L)
+      ds.readBatches().forall(_.column("id").isInstanceOf[ColumnVector.LongColumn]) shouldBe true
+      // An integer filter compares against both widths
+      ds.readAs[Visit](ParquetReadOptions.default.withRowGroupFilter(col("id") >= 3L))
+        .map(_.id)
+        .toSeq shouldBe Seq(3L, 4L, 5L)
+    }
+  }
+
+  test("widen FLOAT and INT32 columns to DOUBLE") {
+    skipInBrowser()
+    val root = datasetDir(
+      "1.parquet" -> Parquet.writeBytes(Seq(ScoreDouble(1L, 0.25))),
+      "2.parquet" -> Parquet.writeBytes(Seq(Score(2L, 1.5f))),
+      "3.parquet" -> Parquet.writeBytes(Seq(ScoreInt(3L, 7)))
+    )
+    withDataset(root) { ds =>
+      ds.readAs[ScoreDouble]().toSeq shouldBe
+        Seq(ScoreDouble(1L, 0.25), ScoreDouble(2L, 1.5), ScoreDouble(3L, 7.0))
+    }
+  }
+
+  test("keep type errors for changes that can lose values") {
+    skipInBrowser()
+    // INT64 doesn't widen to DOUBLE: values above 2^53 would round
+    val root = datasetDir(
+      "1.parquet" -> Parquet.writeBytes(Seq(ScoreDouble(1L, 0.5))),
+      "2.parquet" -> Parquet.writeBytes(Seq(Visit(2L, "x")).map(v => ScoreLong(v.id, v.id)))
+    )
+    withDataset(root) { ds =>
+      intercept[ParquetException](ds.schema).getMessage.contains("different types") shouldBe true
+    }
   }
 
 end DatasetTest
