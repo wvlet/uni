@@ -4,8 +4,8 @@ import wvlet.uni.json.JSON.*
 
 /**
   * A vendor-neutral model of LLM requests, responses, and streams, used to convert between vendor
-  * APIs. Each vendor package (`anthropic`, `openai`, `gemini`, `bedrock`) converts its own types to
-  * and from this model, so any vendor's request can be served by any other vendor.
+  * APIs. Each vendor package (`anthropic`, `openai`, `gemini`) converts its own types to and from
+  * this model, so any vendor's request can be served by any other vendor.
   *
   * The shape follows the Vercel AI SDK provider spec: typed parts, stream parts that open and close
   * blocks by id, and `providerMetadata` for data only one vendor understands (thinking signatures,
@@ -19,7 +19,6 @@ object ProviderMetadata:
   val Anthropic: String = "anthropic"
   val OpenAI: String    = "openai"
   val Gemini: String    = "gemini"
-  val Bedrock: String   = "bedrock"
 
   def of(vendor: String, fields: JsonField*): ProviderMetadata =
     val o = Json.obj(fields*)
@@ -78,8 +77,8 @@ object LlmPart:
     def isImage: Boolean = mediaType.startsWith("image/")
 
   /**
-    * Model reasoning. `signature` is the vendor's proof that the text is unmodified (Anthropic and
-    * Bedrock); `redactedData` holds encrypted reasoning that has no visible text.
+    * Model reasoning. `signature` is the vendor's proof that the text is unmodified (Anthropic);
+    * `redactedData` holds encrypted reasoning that has no visible text.
     */
   case class Reasoning(
       text: String,
@@ -159,8 +158,8 @@ enum LlmToolChoice:
   case Tool(name: String)
 
 /**
-  * Reasoning settings. Vendors take either a token budget (Anthropic, Gemini 2.5, Bedrock) or an
-  * effort level (OpenAI, Gemini 3); converters derive whichever the target needs.
+  * Reasoning settings. Vendors take either a token budget (Anthropic, Gemini 2.5) or an effort
+  * level (OpenAI, Gemini 3); converters derive whichever the target needs.
   */
 case class ReasoningOptions(
     effort: Option[String] = None,

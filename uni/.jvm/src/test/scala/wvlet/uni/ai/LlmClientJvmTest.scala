@@ -3,7 +3,6 @@ package wvlet.uni.ai
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import wvlet.uni.ai.anthropic as an
-import wvlet.uni.ai.bedrock as br
 import wvlet.uni.ai.gemini as gm
 import wvlet.uni.ai.openai as oa
 import wvlet.uni.json.JSON
@@ -26,7 +25,7 @@ import scala.jdk.CollectionConverters.*
 
 /**
   * The vendor clients against a loopback server that answers like each vendor: request paths, auth
-  * headers, bodies, SSE and event-stream responses, and error bodies
+  * headers, bodies, SSE responses, and error bodies
   */
 class LlmClientJvmTest extends UniTest:
 
@@ -88,7 +87,8 @@ class LlmClientJvmTest extends UniTest:
       )
     )
     val streaming = last.get().body.contains("\"stream\":true")
-    path match
+    // Bedrock serves the Anthropic and OpenAI APIs under these prefixes
+    path.stripPrefix("/anthropic").stripPrefix("/openai") match
       case "/v1/messages" if last.get().headers.get("x-api-key").contains("overloaded") =>
         respond(
           ex,
@@ -172,31 +172,6 @@ class LlmClientJvmTest extends UniTest:
               """{"candidates":[{"content":{"role":"model","parts":[{"text":"Gem"}]}}],"modelVersion":"gemini-2.5-flash"}""",
             "" ->
               """{"candidates":[{"content":{"role":"model","parts":[{"text":"ini"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":2,"totalTokenCount":4}}"""
-          )
-        )
-      case p if p.endsWith("/converse-stream") =>
-        val frames =
-          Seq(
-            br.EventStreamFrame.event("messageStart", """{"role":"assistant"}"""),
-            br.EventStreamFrame
-              .event("contentBlockDelta", """{"contentBlockIndex":0,"delta":{"text":"Bed"}}"""),
-            br.EventStreamFrame
-              .event("contentBlockDelta", """{"contentBlockIndex":0,"delta":{"text":"rock"}}"""),
-            br.EventStreamFrame.event("contentBlockStop", """{"contentBlockIndex":0}"""),
-            br.EventStreamFrame.event("messageStop", """{"stopReason":"end_turn"}"""),
-            br.EventStreamFrame
-              .event("metadata", """{"usage":{"inputTokens":3,"outputTokens":2,"totalTokens":5}}""")
-          ).flatten.toArray
-        // Split frames across chunks
-        respond(ex, 200, "application/vnd.amazon.eventstream", frames.grouped(11).toSeq)
-      case p if p.endsWith("/converse") =>
-        respond(
-          ex,
-          200,
-          "application/json",
-          Seq(
-            """{"output":{"message":{"role":"assistant","content":[{"text":"Conv"}]}},"stopReason":"end_turn","usage":{"inputTokens":1,"outputTokens":1,"totalTokens":2}}"""
-              .getBytes(UTF_8)
           )
         )
       case _ =>
@@ -305,63 +280,113 @@ class LlmClientJvmTest extends UniTest:
     r.headers.get("x-goog-api-key") shouldBe Some("g-key")
   }
 
-  test("Bedrock converse and converse-stream with an API key") {
-    val host   = s"127.0.0.1:${server.getAddress.getPort}"
-    val client = br.BedrockClient(br.BedrockConfig("us-east-1", BedrockAuth.ApiKey("bk")))
-    // The client builds https URLs; point it at the loopback server over http instead
-    val http =
-      wvlet
-        .uni
-        .http
-        .Http
-        .client
-        .noRetry
-        .withRequestFilter(r => r.withUri(r.uri.replace(s"https://${host}", base)))
-        .newAsyncClient
-    val local = br.BedrockClient(
-      br.BedrockConfig("us-east-1", BedrockAuth.ApiKey("bk"), Some(host)),
-      http
-    )
-    single(local.converse("anthropic.claude:0", br.ConverseRequest(Seq(br.Message.user("hi")))))
-      .text shouldBe "Conv"
-    last.get().path shouldBe "/model/anthropic.claude%3A0/converse"
-    last.get().headers.get("authorization") shouldBe Some("Bearer bk")
+  // The clients build https URLs; point a Bedrock host at the loopback server over http
+  private def bedrockHttp(host: String) =
+    wvlet
+      .uni
+      .http
+      .Http
+      .client
+      .noRetry
+      .withRequestFilter(r => r.withUri(r.uri.replace(s"https://${host}", base)))
+      .newAsyncClient
 
-    val (events, t) = runStream(
-      local.converseStream("anthropic.claude:0", br.ConverseRequest(Seq(br.Message.user("hi"))))
+  private def bedrockHost = s"127.0.0.1:${server.getAddress.getPort}"
+
+  test("Claude on Bedrock through the Anthropic API with an API key") {
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(
+          an.AnthropicHost.Bedrock("us-east-1", BedrockAuth.ApiKey("bk"), Some(bedrockHost))
+        )
+        .withBetas(Seq("b1")),
+      bedrockHttp(bedrockHost)
     )
+    val req = request.copy(model = "us.anthropic.claude-sonnet-5")
+    single(client.messages(req)).text shouldBe "Hello"
+    val r = last.get()
+    r.path shouldBe "/anthropic/v1/messages"
+    r.headers.get("x-api-key") shouldBe Some("bk")
+    r.headers.get("anthropic-version") shouldBe Some("2023-06-01")
+    r.headers.get("anthropic-beta") shouldBe Some("b1")
+    r.headers.contains("authorization") shouldBe false
+    JSON.parseAny(r.body).toJSON.contains("\"model\":\"us.anthropic.claude-sonnet-5\"") shouldBe
+      true
+
+    val (events, t) = runStream(client.stream(req))
     t shouldBe OnCompletion
-    val acc = br.ConverseAccumulator()
+    last.get().path shouldBe "/anthropic/v1/messages"
+    val acc = an.MessageAccumulator()
     events.foreach(acc.add)
-    acc.result.text shouldBe "Bedrock"
-    acc.result.usage.totalTokens shouldBe 5
+    acc.result.text shouldBe "Hi"
+
+    val (_, ct) = runStream(client.countTokens(req))
+    ct shouldMatch { case OnError(_: UnsupportedOperationException) =>
+    }
     client.close()
   }
 
-  test("Bedrock requests are SigV4-signed with AWS credentials") {
-    val host = s"127.0.0.1:${server.getAddress.getPort}"
-    val http =
-      wvlet
-        .uni
-        .http
-        .Http
-        .client
-        .noRetry
-        .withRequestFilter(r => r.withUri(r.uri.replace(s"https://${host}", base)))
-        .newAsyncClient
-    val client = br.BedrockClient(
-      br.BedrockConfig(
-        "us-west-2",
-        BedrockAuth.Credentials(AwsCredentialsProvider.static("AKIDEXAMPLE", "secret")),
-        Some(host)
+  test("Claude on Bedrock signs requests with SigV4 for AWS credentials") {
+    val client = an.AnthropicClient(
+      an.AnthropicConfig(
+        an.AnthropicHost
+          .Bedrock(
+            "us-west-2",
+            BedrockAuth.Credentials(AwsCredentialsProvider.static("AKIDEXAMPLE", "secret")),
+            Some(bedrockHost)
+          )
       ),
-      http
+      bedrockHttp(bedrockHost)
     )
-    single(client.converse("m:1", br.ConverseRequest(Seq(br.Message.user("hi")))))
-    val auth = last.get().headers.getOrElse("authorization", "")
+    val (events, t) = runStream(client.stream(request))
+    t shouldBe OnCompletion
+    events.nonEmpty shouldBe true
+    val r    = last.get()
+    val auth = r.headers.getOrElse("authorization", "")
+    r.path shouldBe "/anthropic/v1/messages"
     auth.startsWith("AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE/") shouldBe true
     auth.contains("/us-west-2/bedrock/aws4_request") shouldBe true
-    last.get().headers.contains("x-amz-date") shouldBe true
+    r.headers.contains("x-amz-date") shouldBe true
+    r.headers.contains("x-api-key") shouldBe false
+    client.close()
+  }
+
+  test("OpenAI models on Bedrock through Responses and Chat Completions") {
+    val llm    = LlmRequest("us.openai.gpt-5.6-sol", Seq(LlmMessage.user("hi")))
+    val client = oa.OpenAIClient(
+      oa.OpenAIConfig.bedrock("us-east-1", BedrockAuth.ApiKey("bk"), Some(bedrockHost)),
+      bedrockHttp(bedrockHost)
+    )
+    val acc        = LlmStreamAccumulator()
+    val (parts, t) = runStream(client.stream(llm))
+    t shouldBe OnCompletion
+    parts.foreach(acc.add)
+    acc.result.text shouldBe "Yo"
+    last.get().path shouldBe "/openai/v1/responses"
+    last.get().headers.get("authorization") shouldBe Some("Bearer bk")
+
+    val signed = oa.OpenAIClient(
+      oa.OpenAIConfig
+        .bedrock(
+          "us-east-1",
+          BedrockAuth.Credentials(AwsCredentialsProvider.static("AKIDEXAMPLE", "secret")),
+          Some(bedrockHost)
+        )
+        .withUseChatCompletions(true),
+      bedrockHttp(bedrockHost)
+    )
+    val chatAcc      = LlmStreamAccumulator()
+    val (cparts, ct) = runStream(signed.stream(llm.copy(model = "openai.gpt-oss-120b-1:0")))
+    ct shouldBe OnCompletion
+    cparts.foreach(chatAcc.add)
+    chatAcc.result.text shouldBe "A"
+    last.get().path shouldBe "/openai/v1/chat/completions"
+    last
+      .get()
+      .headers
+      .getOrElse("authorization", "")
+      .contains("/us-east-1/bedrock/aws4_request") shouldBe true
+    client.close()
+    signed.close()
   }
 
 end LlmClientJvmTest

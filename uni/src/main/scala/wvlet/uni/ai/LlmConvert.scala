@@ -34,12 +34,6 @@ object LlmConvert:
     maxLength = 128
   )
 
-  /** Bedrock tool ids: `[a-zA-Z0-9_.:-]+`, at most 64 characters */
-  def bedrockToolId(id: String): String = sanitizeToolId(
-    id,
-    c => c.isLetterOrDigit && c < 128 || c == '_' || c == '-' || c == '.' || c == ':'
-  )
-
   /** A deterministic id for a tool call that came without one (Gemini before version 3) */
   def generatedToolId(name: String, index: Int): String = f"call_${fnv1a(s"${name}:${index}")}%08x"
 

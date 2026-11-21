@@ -1,7 +1,6 @@
 package wvlet.uni.ai
 
 import wvlet.uni.ai.anthropic as an
-import wvlet.uni.ai.bedrock as br
 import wvlet.uni.ai.gemini as gm
 import wvlet.uni.ai.openai as oa
 import wvlet.uni.json.JSON
@@ -186,22 +185,6 @@ class LlmConverterTest extends UniTest:
       Some(gm.ThinkingConfig(thinkingBudget = Some(4000), includeThoughts = Some(true)))
   }
 
-  test("to Bedrock Converse: cache points, signed reasoning, and Claude thinking fields") {
-    val r = br
-      .BedrockConverter
-      .fromLlmRequest(llmRequest.withModel("us.anthropic.claude-sonnet-4-5-20250929-v1:0"))
-    r.system shouldBe Seq(br.ContentBlock.Text("You are Claude Code."), br.ContentBlock.CachePoint)
-    r.messages.map(_.role) shouldBe Seq("user", "assistant", "user")
-    r.messages(1).content.head shouldBe
-      br.ContentBlock.Reasoning(Some("Use ls."), Some("anthropic-sig"))
-    r.messages(2).content.head shouldMatch {
-      case br.ContentBlock.ToolResult("toolu_01", _, Some("success")) =>
-    }
-    r.additionalModelRequestFields shouldBe
-      Some(JSON.parseAny("""{"thinking":{"type":"enabled","budget_tokens":4000}}"""))
-    r.inferenceConfig.flatMap(_.maxTokens) shouldBe Some(16000)
-  }
-
   // ------------------------------------------------------------------ streams
 
   private def toAnthropic(parts: Seq[LlmStreamPart]): an.MessagesResponse =
@@ -333,30 +316,6 @@ class LlmConverterTest extends UniTest:
     }
   }
 
-  test("Bedrock ConverseStream to Anthropic events") {
-    import br.ConverseStreamEvent as E
-    val events = Seq(
-      E.MessageStart("assistant"),
-      E.ContentBlockDelta(0, reasoningText = Some("Think")),
-      E.ContentBlockDelta(0, reasoningSignature = Some("brsig")),
-      E.ContentBlockStop(0),
-      E.ContentBlockDelta(1, text = Some("Done")),
-      E.ContentBlockStop(1),
-      E.MessageStop("end_turn"),
-      E.Metadata(br.TokenUsage(10, 3, 13, cacheReadInputTokens = Some(5)))
-    )
-    // Through the event-stream wire format and back
-    val wire = br.EventStreamDecoder().feed(events.flatMap(br.BedrockConverter.toFrame).toArray)
-    val dec  = br.BedrockConverter.StreamDecoder("claude-on-bedrock")
-    val m    = toAnthropic(
-      wire.map(br.ConverseStreamEvent.fromFrame).flatMap(dec.decode) ++ dec.finish()
-    )
-    m.content shouldBe Seq(an.ContentBlock.Thinking("Think", "brsig"), an.ContentBlock.Text("Done"))
-    m.stopReason shouldBe Some(an.StopReason.EndTurn)
-    m.usage.inputTokens shouldBe 10
-    m.usage.cacheReadInputTokens shouldBe Some(5L)
-  }
-
   private def anthropicParts: Seq[LlmStreamPart] =
     val events = Seq(
       """{"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":7,"output_tokens":1,"cache_read_input_tokens":3}}}""",
@@ -410,7 +369,7 @@ class LlmConverterTest extends UniTest:
     r.finishReason.kind shouldBe FinishReason.Kind.ToolCalls
   }
 
-  test("Anthropic stream to Gemini chunks and Bedrock events") {
+  test("Anthropic stream to Gemini chunks") {
     val genc = gm.GeminiConverter.StreamEncoder()
     val gdec = gm.GeminiConverter.StreamDecoder()
     val g    = neutral(
@@ -420,14 +379,6 @@ class LlmConverterTest extends UniTest:
     g.toolCalls.map(_.name) shouldBe Seq("Read")
     g.finishReason.kind shouldBe FinishReason.Kind.ToolCalls
 
-    val benc = br.BedrockConverter.StreamEncoder()
-    val bdec = br.BedrockConverter.StreamDecoder()
-    val b    = neutral(
-      (anthropicParts.flatMap(benc.encode) ++ benc.finish()).flatMap(bdec.decode) ++ bdec.finish()
-    )
-    b.text shouldBe "Hello"
-    b.toolCalls.map(_.input) shouldBe Seq(JSON.parseAny("""{"path":"a"}"""))
-    b.usage.cacheReadTokens shouldBe 3
   }
 
   test("non-streaming responses convert between vendors") {
@@ -450,9 +401,6 @@ class LlmConverterTest extends UniTest:
     val r = oa.ResponsesConverter.fromLlmResponse(llm)
     r.functionCalls.map(_.callId) shouldBe Seq("call_1")
     oa.ResponsesConverter.toLlmResponse(r).finishReason.kind shouldBe FinishReason.Kind.ToolCalls
-
-    val b = br.BedrockConverter.fromLlmResponse(llm)
-    b.stopReason shouldBe br.StopReason.ToolUse
   }
 
   test("finish reasons map across vendors") {
@@ -469,8 +417,6 @@ class LlmConverterTest extends UniTest:
     gm.GeminiConverter.toFinishReason(Some("STOP"), true).kind shouldBe FinishReason.Kind.ToolCalls
     gm.GeminiConverter.toFinishReason(None, false, Some("PROHIBITED_CONTENT")).kind shouldBe
       FinishReason.Kind.ContentFilter
-    br.BedrockConverter.toFinishReason("guardrail_intervened").kind shouldBe
-      FinishReason.Kind.ContentFilter
     oa.ChatCompletionsConverter.toFinishReason(Some("stop"), hasToolCalls = true).kind shouldBe
       FinishReason.Kind.ToolCalls
   }
@@ -481,7 +427,7 @@ class LlmConverterTest extends UniTest:
     rewritten shouldBe LlmConvert.anthropicToolId("fc|a.b")
     rewritten.forall(c => c.isLetterOrDigit || c == '_' || c == '-') shouldBe true
     (LlmConvert.anthropicToolId("a|b") != LlmConvert.anthropicToolId("a/b")) shouldBe true
-    (LlmConvert.bedrockToolId("x" * 100).length <= 64) shouldBe true
+    (LlmConvert.anthropicToolId("x" * 200).length <= 128) shouldBe true
   }
 
 end LlmConverterTest

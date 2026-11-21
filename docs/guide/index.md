@@ -111,7 +111,7 @@ how APIs map between them.
 
 | Module | Description |
 |--------|-------------|
-| [LLM APIs](/ai/) | Typed Anthropic, OpenAI, Gemini, and Bedrock APIs, with converters between vendors |
+| [LLM APIs](/ai/) | Typed Anthropic, OpenAI, and Gemini (also on Vertex AI and Bedrock) APIs, with converters between vendors |
 
 #### UI & CLI
 
