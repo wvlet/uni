@@ -150,7 +150,7 @@ class RxMergeTest extends UniTest:
     errorOf(fromNested) shouldBe Some("nested")
   }
 
-  test("parFlatMap continues after the downstream recovers from a nested error") {
+  test("a failed nested stream ends parFlatMap; recover then completes it") {
     collect(
       Rx.fromSeq(1 to 3)
         .parFlatMap(2)(i =>
@@ -162,6 +162,23 @@ class RxMergeTest extends UniTest:
         .recover { case _: IllegalStateException =>
           0
         }
+    ).map { values =>
+      values.sorted shouldBe Seq(0, 1)
+    }
+  }
+
+  test("recover inside the nested stream keeps parFlatMap running") {
+    collect(
+      Rx.fromSeq(1 to 3)
+        .parFlatMap(2)(i =>
+          if i == 2 then
+            Rx.exception[Int](IllegalStateException("x"))
+              .recover { case _: IllegalStateException =>
+                0
+              }
+          else
+            Rx.single(i)
+        )
     ).map { values =>
       values.sorted shouldBe Seq(0, 1, 3)
     }

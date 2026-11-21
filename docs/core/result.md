@@ -135,5 +135,5 @@ val rx1: Rx[Int] = Rx.fromResult(Result.success(1))
 val rx2: Rx[Int] = Result.success(1).toRx
 ```
 
-`Result.Failure(e)` converts to an `Rx` that emits `OnError(e)` — the same
-termination signal a thrown exception would produce.
+`Result.Failure(e)` converts to an `Rx` that ends with
+`OnCompletion(Result.Failure(e))`, as any failed source does.

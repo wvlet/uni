@@ -107,4 +107,6 @@ mode-dependent rules. Do it in steps:
      First part done: continuous mode ends at `OnCompletion`, `take` passes errors, `recover`
      handles a failed end, replayed from `GenRxR3Cases.lean`
      (`adr/2026-11-21-rx-continuous-r3.md`).
+     Second part done: failed sources end with a failed `OnCompletion`, and the operators that
+     react to errors handle it (`adr/2026-11-21-rx-source-failure.md`).
    - 3c. Drop continuous mode.

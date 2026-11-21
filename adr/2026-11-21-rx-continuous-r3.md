@@ -33,7 +33,7 @@ and `recover` did not see a failed end. The target model (`spec/lean/UniSpec/RxR
 - Default mode is unchanged: `RxRecoverSpecCases` (default mode) and the other Lean-generated
   suites pass as before.
 - Still to do in step 3b: sources (`RxVar.setException`, failed futures, `Rx.exception`, queues)
-  end with a failed `OnCompletion` instead of `OnError`; `flatMap`, `transformRx`, and
+  end with a failed `OnCompletion` instead of `OnError` (done: `2026-11-21-rx-source-failure.md`); `flatMap`, `transformRx`, and
   `recoverWith` follow `RxR3Ops.lean` (with `resumeAsFailure` before RPC streaming's
   `recoverWith`); `zip`, `join`, `merge`, and `parFlatMap` are checked against the model. Then
   continuous mode can be dropped (3c).

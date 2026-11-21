@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import scala.collection.mutable.ArrayBuffer
 import scala.language.higherKinds
 import scala.util.control.NonFatal
@@ -39,6 +41,8 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
           case OnNext(v) =>
             f(v.asInstanceOf[A])
           case OnError(e) =>
+            throw e
+          case OnCompletion(Result.Failure(e)) =>
             throw e
           case _ =>
     foreachEvent(s)
@@ -104,7 +108,10 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
       }
     }
 
-  override def setException(e: Throwable): Unit = propagateEvent(OnError(e))
+  /**
+    * End this variable with a failure: subscribers receive `OnCompletion(Result.Failure(e))`.
+    */
+  override def setException(e: Throwable): Unit = propagateEvent(OnCompletion.failure(e))
 
 end RxVar
 
@@ -112,8 +119,9 @@ object RxVar {}
 
 /**
   * The variable behind `Rx.future` and `Rx.fromFuture`: None until the future completes, then its
-  * value and OnCompletion, or OnError. A subscriber that attaches after the future completed still
-  * receives that terminal event, so a future that fails before anyone subscribes is not lost.
+  * value and a successful OnCompletion, or a failed OnCompletion. A subscriber that attaches after
+  * the future completed still receives that terminal event, so a future that fails before anyone
+  * subscribes is not lost.
   */
 private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
   // Guarded by this
@@ -128,7 +136,7 @@ private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
         terminal = OnCompletion.success
         stop()
       case Failure(e) =>
-        terminal = OnError(e)
+        terminal = OnCompletion.failure(e)
         setException(e)
   }
 
