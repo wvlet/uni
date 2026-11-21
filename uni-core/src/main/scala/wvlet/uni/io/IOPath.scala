@@ -24,9 +24,13 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   def path: String =
     val sep = IOPath.separator
     if isAbsolute then
-      if IOPath.isWindows && segments.nonEmpty && segments.head.contains(":") then
-        // Windows absolute path with drive letter (e.g., C:\foo\bar)
-        segments.mkString(sep)
+      if IOPath.isWindows && hasDrive then
+        // Windows absolute path with drive letter (e.g., C:\foo\bar). A drive root keeps its
+        // separator: `C:` alone means the current folder on drive C, not its root
+        if isDriveRoot then
+          segments.head + sep
+        else
+          segments.mkString(sep)
       else
         // Unix absolute path (e.g., /foo/bar)
         sep + segments.mkString(sep)
@@ -38,9 +42,12 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     */
   def posixPath: String =
     if isAbsolute then
-      if segments.nonEmpty && segments.head.contains(":") then
-        // Windows drive letter - convert backslash style
-        segments.mkString("/")
+      if hasDrive then
+        // Windows drive letter - convert backslash style. A drive root renders as `C:/`
+        if isDriveRoot then
+          segments.head + "/"
+        else
+          segments.mkString("/")
       else
         "/" + segments.mkString("/")
     else
@@ -81,7 +88,7 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     * Returns the parent path, or None if this is the root or has no parent.
     */
   def parent: Option[IOPath] =
-    if segments.isEmpty then
+    if segments.isEmpty || isDriveRoot then
       None
     else if segments.size == 1 then
       if isAbsolute then
@@ -142,7 +149,11 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
           case "." =>
             acc
           case ".." if acc.nonEmpty && acc.last != ".." =>
-            acc.dropRight(1)
+            // `..` at a drive root stays at the root, as `..` at `/` does
+            if isAbsolute && acc.size == 1 && hasDrive then
+              acc
+            else
+              acc.dropRight(1)
           case ".." if !isAbsolute =>
             acc :+ ".."
           case ".." =>
@@ -177,13 +188,23 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     */
   def root: Option[IOPath] =
     if isAbsolute then
-      if segments.nonEmpty && segments.head.contains(":") then
+      if hasDrive then
         // Windows drive root
         Some(IOPath(Seq(segments.head), isAbsolute = true))
       else
         Some(IOPath(Seq.empty, isAbsolute = true))
     else
       None
+
+  /**
+    * True for an absolute path whose first segment is a Windows drive (`C:`), matching how
+    * [[IOPath.parse]] detects one
+    */
+  private def hasDrive: Boolean =
+    isAbsolute && segments.headOption.exists(s => s.length >= 2 && s.charAt(1) == ':')
+
+  /** True for a drive root such as `C:\` */
+  private def isDriveRoot: Boolean = hasDrive && segments.size == 1 && segments.head.length == 2
 
   override def toString: String = path
 
