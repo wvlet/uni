@@ -36,6 +36,11 @@ bundles each carry their own Scala runtime and cannot exchange Scala objects.
   (`./sbt npm/npmPackage`, then `npm publish --access public` in `uni-npm/target/npm`), and
   `wvlet/uni`'s `release-npm.yml` (environment `npm`) is then added as the trusted publisher on
   npmjs.com.
+- That happened for 2026.2.2: its tag's `release-npm.yml` run failed with E404, as expected, and a
+  maintainer published the staged package by hand (`npm publish` needs `--otp=<code>` when run
+  non-interactively). npm then asks for one publish through the new trusted publisher within two
+  days to validate it. Re-running the workflow for the first tag does not count, since that version
+  is already on npm and the job skips it, so the next tag is cut right away.
 
 ## Alternatives
 
