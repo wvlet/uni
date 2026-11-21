@@ -196,8 +196,9 @@ def typedDataset(root: String) = Parquet.dataset(
 - A filter on partition columns skips whole files before they are opened (`ds.selectFiles(opts)`
   lists the files a read opens). A literal of the wrong type for a partition, or an unknown column
   name, throws `IllegalArgumentException`.
-- Columns match by name across files. A column missing from a file reads as null. Different types
-  for one column throw a `ParquetException` naming both files.
+- Columns match by name across files. A column missing from a file reads as null. INT8/16/32 widen
+  to INT64 or DOUBLE and FLOAT to DOUBLE when files differ (never INT64 to DOUBLE); other type
+  differences throw a `ParquetException` naming both files.
 - Files or folders starting with `_` or `.` are skipped. Files without an extension are kept;
   `withFileExtension(".parquet")` narrows the listing.
 - The root can be a glob (`s3://b/visits/dt=2026-11-{19,20}/country=JP`; `*`, `?`, `[a-z]`,

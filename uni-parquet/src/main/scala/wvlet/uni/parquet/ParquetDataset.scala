@@ -247,12 +247,26 @@ class ParquetDataset private[parquet] (
                   union(f.name) = (f, s.file.path)
                 case Some((prev, prevPath)) =>
                   if !sameType(prev, f) then
-                    throw ParquetException(
-                      s"Column ${f.name} has different types in ${prevPath} (${describe(
-                          prev
-                        )}) and ${s.file.path} (${describe(f)})"
-                    )
-                  if f.isOptional && !prev.isOptional then
+                    widen(prev, f) match
+                      case Some(wide) =>
+                        val rep =
+                          if prev.isOptional || f.isOptional then
+                            Repetition.OPTIONAL
+                          else
+                            wide.repetition
+                        val widePath =
+                          if wide eq f then
+                            s.file.path
+                          else
+                            prevPath
+                        union(f.name) = (withRepetition(wide, rep), widePath)
+                      case None =>
+                        throw ParquetException(
+                          s"Column ${f.name} has different types in ${prevPath} (${describe(
+                              prev
+                            )}) and ${s.file.path} (${describe(f)})"
+                        )
+                  else if f.isOptional && !prev.isOptional then
                     union(f.name) = (f, prevPath)
           }
       }
@@ -457,7 +471,11 @@ class ParquetDataset private[parquet] (
           if partitionKeys.contains(f.name) then
             constantVector(f.asInstanceOf[ParquetField.Primitive], file.partitions(f.name), n)
           else
-            byName.getOrElse(f.name, nullVector(f, n))
+            byName.get(f.name) match
+              case Some(v) =>
+                widenVector(v, f)
+              case None =>
+                nullVector(f, n)
         }
     )
 
@@ -989,6 +1007,83 @@ object ParquetDataset:
     end match
 
   end literal
+
+  // ---- Type widening ----
+
+  /**
+    * Numeric column kinds that widen losslessly: small signed ints to INT64 or DOUBLE, FLOAT to
+    * DOUBLE
+    */
+  private enum Num:
+    case SignedInt(bits: Int)
+    case Int64
+    case Float32
+    case Float64
+
+  private def numKind(f: ParquetField): Option[Num] =
+    f match
+      case p: ParquetField.Primitive if !p.isRepeated =>
+        (p.physicalType, p.logicalType) match
+          case (PhysicalType.INT32, None) =>
+            Some(Num.SignedInt(32))
+          case (PhysicalType.INT32, Some(LogicalType.Integer(bits, true))) =>
+            Some(Num.SignedInt(bits))
+          case (PhysicalType.INT64, None | Some(LogicalType.Integer(64, true))) =>
+            Some(Num.Int64)
+          case (PhysicalType.FLOAT, None) =>
+            Some(Num.Float32)
+          case (PhysicalType.DOUBLE, None) =>
+            Some(Num.Float64)
+          case _ =>
+            None
+      case _ =>
+        None
+
+  /** Whether a column of kind `from` reads losslessly as kind `to` */
+  private def widensTo(from: Num, to: Num): Boolean =
+    (from, to) match
+      case (Num.SignedInt(a), Num.SignedInt(b)) =>
+        a <= b
+      case (Num.SignedInt(_), Num.Int64 | Num.Float64) =>
+        true
+      case (Num.Float32, Num.Float64) =>
+        true
+      case (a, b) =>
+        a == b
+
+  /**
+    * The wider of two top-level columns when one reads losslessly as the other, as DuckDB's
+    * `union_by_name` promotes them: INT8, INT16, and INT32 widen to INT64 and DOUBLE, and FLOAT to
+    * DOUBLE. Unlike DuckDB, INT64 does not widen to DOUBLE, which would round values above 2^53.
+    */
+  private[parquet] def widen(a: ParquetField, b: ParquetField): Option[ParquetField] =
+    (numKind(a), numKind(b)) match
+      case (Some(x), Some(y)) if widensTo(x, y) =>
+        Some(b)
+      case (Some(x), Some(y)) if widensTo(y, x) =>
+        Some(a)
+      case _ =>
+        None
+
+  /** A file's vector in the dataset's (possibly wider) type */
+  private def widenVector(v: ColumnVector, f: ParquetField): ColumnVector =
+    (v.field, f) match
+      case (p: ParquetField.Primitive, q: ParquetField.Primitive)
+          if p.physicalType != q.physicalType || p.logicalType != q.logicalType =>
+        v match
+          case c: IntColumn if q.physicalType == PhysicalType.INT32 =>
+            // INT(8) or INT(16) under a wider INT32: same values, the dataset's field
+            IntColumn(q, c.values, c.nulls)
+          case c: IntColumn if q.physicalType == PhysicalType.INT64 =>
+            LongColumn(q, c.values.map(_.toLong), c.nulls)
+          case c: IntColumn if q.physicalType == PhysicalType.DOUBLE =>
+            DoubleColumn(q, c.values.map(_.toDouble), c.nulls)
+          case c: FloatColumn if q.physicalType == PhysicalType.DOUBLE =>
+            DoubleColumn(q, c.values.map(_.toDouble), c.nulls)
+          case _ =>
+            v
+      case _ =>
+        v
 
   // ---- Schemas ----
 

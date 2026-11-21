@@ -346,8 +346,10 @@ finally ds.close()
   partition fails, instead of quietly reading every file. When the read selects any file, a
   column name that none of its files has also fails before any rows are read.
 - **Columns across files.** Columns are matched by name. The schema is the union of the columns
-  of the files a read selects, so a column added in newer files reads as null in older ones. A
-  column whose type differs between files fails with both file names; leave it out with
+  of the files a read selects, so a column added in newer files reads as null in older ones. Numeric
+  types widen as DuckDB's `union_by_name` promotes them: INT8, INT16, and INT32 read as INT64 or DOUBLE when
+  another file has that type, and FLOAT as DOUBLE. INT64 never widens to DOUBLE, which would round
+  large values. Any other type difference fails with both file names; leave the column out with
   `withColumns` to read the rest.
 - **Which files.** Every file below the root is read, except those under a folder, or with a name,
   starting with `_` or `.` (`_SUCCESS`, `_temporary/`, `.crc` files). Files without an extension,
