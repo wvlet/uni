@@ -57,5 +57,6 @@ built a new store for each file.
   fetches them one after another, while the async path overlaps them.
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
-- Not covered: writing partitioned datasets, `_metadata` summary files, Delta Lake and Iceberg,
+- Not covered: `_metadata` summary files, Delta Lake and Iceberg,
   type widening across files, glob patterns, an explicit file list, and the npm facade.
+- Writing partitioned datasets is covered by `2026-11-21-parquet-dataset-writer.md`.

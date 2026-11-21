@@ -5,9 +5,8 @@ import wvlet.uni.parquet.ColumnVector
 import wvlet.uni.parquet.ColumnVector.*
 
 /**
-  * Copies selected rows of column vectors into new vectors, so a batch can be split by partition or
-  * at a file limit. Nested vectors (lists, maps, structs) copy the child elements of each selected
-  * row.
+  * Copies selected rows of column vectors into new vectors, so a batch can be split by partition.
+  * Nested vectors (lists, maps, structs) copy the child elements of each selected row.
   */
 private[parquet] object VectorGather:
 
@@ -16,16 +15,6 @@ private[parquet] object VectorGather:
     n,
     batch.columns.map(take(_, rows, n))
   )
-
-  /** The batch's rows [from, to) */
-  def range(batch: ColumnBatch, from: Int, to: Int): ColumnBatch =
-    val n    = to - from
-    val rows = new Array[Int](n)
-    var i    = 0
-    while i < n do
-      rows(i) = from + i
-      i += 1
-    take(batch, rows, n)
 
   def take(v: ColumnVector, rows: Array[Int], n: Int): ColumnVector =
     val nulls = takeNulls(v, rows, n)

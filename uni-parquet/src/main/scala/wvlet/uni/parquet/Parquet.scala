@@ -421,24 +421,25 @@ object Parquet:
     */
   inline def newDatasetWriter[A](root: String, options: ParquetDatasetWriteOptions)(using
       weaver: Weaver[A]
-  ): ParquetDatasetWriter[A] = ParquetDatasetWriter.create(
-    datasetTarget(root),
-    ParquetSchema.fromSurface(Surface.of[A], options.writeOptions),
-    options,
-    weaver
-  )
+  ): ParquetDatasetWriter[A] =
+    // The schema first, so a case class that can't be written creates no store
+    val schema = ParquetSchema.fromSurface(Surface.of[A], options.writeOptions)
+    ParquetDatasetWriter.create(datasetTarget(root), schema, options, weaver)
 
   /** A dataset writer under a prefix of `store`, which the writer leaves open when it closes */
   inline def newDatasetWriter[A](
       store: ObjectStore,
       root: String,
       options: ParquetDatasetWriteOptions
-  )(using weaver: Weaver[A]): ParquetDatasetWriter[A] = ParquetDatasetWriter.create(
-    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
-    ParquetSchema.fromSurface(Surface.of[A], options.writeOptions),
-    options,
-    weaver
-  )
+  )(using weaver: Weaver[A]): ParquetDatasetWriter[A] =
+    // The schema first, so a case class that can't be written creates no store
+    val schema = ParquetSchema.fromSurface(Surface.of[A], options.writeOptions)
+    ParquetDatasetWriter.create(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      schema,
+      options,
+      weaver
+    )
 
   /**
     * Writes records (maps, JSON, or value sequences) to a partitioned dataset. The schema includes

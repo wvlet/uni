@@ -220,6 +220,9 @@ private[parquet] final class DatasetWriterCore private (
   private var lastDir      = ""
   private var sinceBudget  = 0
   private val partitionSet = keys.toSet
+  private val keyIndexes   = mutable.HashMap.empty[String, Int]
+  // Start and end positions of the map entries a row keeps
+  private val kept = mutable.ArrayBuffer.empty[Int]
 
   def numRows: Long                  = rowCount
   def writtenFiles: Seq[WrittenFile] = committed.map(_._1).toSeq
@@ -245,8 +248,8 @@ private[parquet] final class DatasetWriterCore private (
 
   /**
     * Reads the partition values of a row into `values`, and returns the bytes to shred against the
-    * file schema. Map rows are shredded as they are, because the shredder skips keys that have no
-    * column. Array rows are rebuilt without the partition positions.
+    * file schema. Rows are rebuilt without the partition entries, so the remaining fields keep
+    * their schema positions and the shredder's positional fast path.
     */
   private def extractPartitions(bytes: Array[Byte], len: Int): (Array[Byte], Int) =
     var i = 0
@@ -259,17 +262,30 @@ private[parquet] final class DatasetWriterCore private (
       reader.reset(bytes, len)
       if reader.isMap then
         val n = reader.readMapHeader()
+        kept.clear()
         var j = 0
         while j < n do
-          val key = reader.readKey()
-          val idx = keyIndex(key)
-          if idx >= 0 && values(idx) == Unset then
-            values(idx) = readPartitionValue(idx)
+          val start = reader.pos
+          val idx   = keyIndex(reader.readKey())
+          if idx >= 0 then
+            // A repeated partition key counts once, as the shredder does for columns
+            if values(idx) == Unset then
+              values(idx) = readPartitionValue(idx)
+            else
+              reader.skip()
           else
             reader.skip()
+            kept += start
+            kept += reader.pos
           j += 1
         finishValues()
-        (bytes, len)
+        rowPacker.clear
+        rowPacker.packMapHeader(kept.length / 2)
+        var k = 0
+        while k < kept.length do
+          rowPacker.writePayload(bytes, kept(k), kept(k + 1) - kept(k))
+          k += 2
+        (rowPacker.writtenArray, rowPacker.writtenSize)
       else if reader.isArray then
         val n = reader.readArrayHeader()
         if n != schema.fields.size then
@@ -297,16 +313,21 @@ private[parquet] final class DatasetWriterCore private (
 
   end extractPartitions
 
+  /** The partition index of a row key, cached because rows repeat the same keys */
   private def keyIndex(key: String): Int =
     if key == null then
       -1
     else
-      val exact = keys.indexOf(key)
-      if exact >= 0 then
-        exact
-      else
-        val n = normalize(key)
-        keys.indexWhere(k => normalize(k) == n)
+      keyIndexes.getOrElseUpdate(
+        key, {
+          val exact = keys.indexOf(key)
+          if exact >= 0 then
+            exact
+          else
+            val n = normalize(key)
+            keys.indexWhere(k => normalize(k) == n)
+        }
+      )
 
   private def readPartitionValue(idx: Int): Any =
     if reader.isNil then
@@ -354,38 +375,49 @@ private[parquet] final class DatasetWriterCore private (
     }
     val data = ColumnBatch(n, batch.columns.filterNot(c => partitionSet.contains(c.name)))
     // Check the whole batch before any of it is written
-    batchShredder.check(data)
-    batchShredder.release()
-    if n > 0 then
-      if keys.isEmpty then
-        writeGroup("", data)
-      else
-        val groups = mutable.LinkedHashMap.empty[String, (Array[Any], mutable.ArrayBuilder.ofInt)]
-        var i      = 0
-        while i < n do
-          var k = 0
-          while k < keys.size do
-            values(k) = vectorValue(vectors(k), i, kinds(k))
-            k += 1
-          finishValues()
-          val dir = currentDir()
-          groups.getOrElseUpdate(dir, (values.clone(), mutable.ArrayBuilder.ofInt())) match
-            case (_, rows) =>
-              rows += i
-          i += 1
-        if groups.size == 1 then
-          val (dir, (vs, _)) = groups.head
-          setValues(vs)
-          writeGroup(dir, data)
-        else
-          groups.foreach { case (dir, (vs, rows)) =>
-            setValues(vs)
-            val r = rows.result()
-            writeGroup(dir, VectorGather.take(data, r, r.length))
-          }
-    end if
+    val checked = batchShredder.check(data)
+    try
+      if n > 0 then
+        writePartitions(data, checked, vectors)
+    finally batchShredder.release()
 
   end writeBatch
+
+  private def writePartitions(
+      data: ColumnBatch,
+      checked: Array[ColumnVector],
+      vectors: IndexedSeq[ColumnVector]
+  ): Unit =
+    val n = data.numRows
+    if keys.isEmpty then
+      writeGroup("", data, checked)
+    else
+      val groups = mutable.LinkedHashMap.empty[String, (Array[Any], mutable.ArrayBuilder.ofInt)]
+      var i      = 0
+      while i < n do
+        var k = 0
+        while k < keys.size do
+          values(k) = vectorValue(vectors(k), i, kinds(k))
+          k += 1
+        finishValues()
+        val dir = currentDir()
+        groups.getOrElseUpdate(dir, (values.clone(), mutable.ArrayBuilder.ofInt()))._2 += i
+        i += 1
+      if groups.size == 1 then
+        // Every row is in one partition: write the batch as it is
+        val (dir, (vs, _)) = groups.head
+        setValues(vs)
+        writeGroup(dir, data, checked)
+      else
+        groups.foreach { case (dir, (vs, rows)) =>
+          setValues(vs)
+          val r    = rows.result()
+          val part = VectorGather.take(data, r, r.length)
+          writeGroup(dir, part, batchShredder.check(part))
+        }
+    end if
+
+  end writePartitions
 
   private def setValues(vs: Array[Any]): Unit = System.arraycopy(vs, 0, values, 0, vs.length)
 
@@ -436,8 +468,11 @@ private[parquet] final class DatasetWriterCore private (
         case other =>
           throw ParquetException(s"Unexpected partition vector ${other.getClass.getSimpleName}")
 
-  /** Writes rows of one partition, starting new files at the file limits */
-  private def writeGroup(dir: String, data: ColumnBatch): Unit =
+  /**
+    * Writes the rows of one partition, starting new files at the file limits. `checked` holds the
+    * batch's vectors from `BatchShredder.check`, and each file gets a row range of them.
+    */
+  private def writeGroup(dir: String, data: ColumnBatch, checked: Array[ColumnVector]): Unit =
     var from = 0
     while from < data.numRows do
       val f  = fileFor(dir)
@@ -449,27 +484,20 @@ private[parquet] final class DatasetWriterCore private (
         }
       if options.maxFileSize.isDefined then
         to = math.min(to, from + SizeCheckRows)
-      val slice =
-        if from == 0 && to == data.numRows then
-          data
-        else
-          VectorGather.range(data, from, to)
-      val vectors = batchShredder.check(slice)
+      val base = from
       try
         f.writer
-          .writeColumns(slice.numRows)((writers, a, b) =>
-            batchShredder.write(vectors, writers, a, b)
+          .writeColumns(to - from)((writers, a, b) =>
+            batchShredder.write(checked, writers, base + a, base + b)
           )
       catch
         case NonFatal(e) =>
           if f.writer.hasFailed then
             abortWith(e)
           throw e
-      finally
-        batchShredder.release()
-      f.rows += slice.numRows
-      rowCount += slice.numRows
-      afterWrite(f, slice.numRows)
+      f.rows += to - from
+      rowCount += to - from
+      afterWrite(f, to - from)
       from = to
     end while
 
@@ -530,7 +558,13 @@ private[parquet] final class DatasetWriterCore private (
         FileSystem.createDirectoryIfNotExists(folder)
         val tmp = folder.resolve(s".${name}.inprogress")
         val fin = folder.resolve(name)
-        val w   = FileWriter(fileSchema, options.writeOptions, () => FileSystem.writeStream(tmp))
+        val w   =
+          try
+            FileWriter(fileSchema, options.writeOptions, () => FileSystem.writeStream(tmp))
+          catch
+            case NonFatal(e) =>
+              FileSystem.deleteIfExists(tmp)
+              throw e
         OpenFile(dir, partitions, w, Committed.LocalFile(fin), Some(tmp))
       case DatasetTarget.Objects(store, root, _) =>
         val uri = root.resolve(s"${dir}${name}")
@@ -562,9 +596,9 @@ private[parquet] final class DatasetWriterCore private (
 
   /** Finishes and publishes a file; a file that got no rows is discarded instead */
   private def finish(f: OpenFile): Unit =
-    open.remove(f.dir)
     if f.rows == 0 then
       fatal(discard(f))
+      open.remove(f.dir)
     else
       fatal {
         f.writer.close()
@@ -576,6 +610,8 @@ private[parquet] final class DatasetWriterCore private (
               case _ =>
           }
       }
+      // Only now, so an abort after a failed close still discards the file
+      open.remove(f.dir)
       committed +=
         WrittenFile(f.target.location, f.partitions, f.rows, f.writer.bytesWritten) -> f.target
 
