@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.http.*
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
@@ -46,9 +48,9 @@ private class InMemoryRPCChannelFactory(dispatcher: RPCDispatcher) extends HttpC
         result = r
       case OnNext(_) =>
         throw IllegalStateException("RPCDispatcher must produce a Response")
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         error = e
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
     }
     if error != null then
       throw error

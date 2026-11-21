@@ -20,7 +20,7 @@ trait RxSource[A] extends Rx[A]:
   def put(e: A): Unit = add(OnNext(e))
   def add(ev: RxEvent): Unit
   def next: Rx[RxEvent]
-  def stop(): Unit = add(OnCompletion)
+  def stop(): Unit = add(OnCompletion.success)
 
   /**
     * Called when a subscription is cancelled while it waits for the event from [[next]]. The

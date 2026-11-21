@@ -43,40 +43,58 @@ object RxRunner extends LogSupport:
   // This runner will not report OnCompleiton event
   private val continuousRunner = new RxRunner(continuous = true)
 
-  def run[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
+  /**
+    * Run until the first error or the end. The effect receives each value, then the end: an error
+    * ends the run and arrives as `OnCompletion(Result.Failure(e))`, so the effect never sees an
+    * `OnError`.
+    */
+  def run[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     tracked(defaultRunner, rx, "run") { ev =>
       ev match
-        case v @ OnNext(_) =>
+        case v: OnNext =>
           effect(v)
           RxResult.Continue
         case other =>
-          effect(ResumableError.toPublic(other))
+          effect(ResumableError.toTerminal(other))
           RxResult.Stop
     }
 
   /**
-    * Run until the first event is observed. Only the first event (OnNext, OnError, or OnCompletion)
-    * is passed to the effect: some sources (e.g., RxVar, Rx.single) keep emitting after the
-    * downstream returns Stop, and later events are dropped here. The upstream subscription is not
-    * cancelled, so its own completion still drives operators such as concat.
+    * Run until the first event is observed. Only the first event (OnNext, or OnCompletion, which an
+    * error arrives as) is passed to the effect: some sources (e.g., RxVar, Rx.single) keep emitting
+    * after the downstream returns Stop, and later events are dropped here. The upstream
+    * subscription is not cancelled, so its own completion still drives operators such as concat.
     */
-  def runOnce[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
+  def runOnce[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     val observed = AtomicBoolean(false)
     tracked(defaultRunner, rx, "runOnce") { ev =>
       if observed.compareAndSet(false, true) then
-        effect(ResumableError.toPublic(ev))
+        effect(ResumableError.toTerminal(ev))
       RxResult.Stop
     }
 
+  /**
+    * Keep running after an error, which arrives as `OnError(e)`, until the end (`OnCompletion`) or
+    * a cancel.
+    */
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
+    // OnCompletion ends the stream: a source that keeps emitting after it is not followed
+    val ended = AtomicBoolean(false)
     tracked(continuousRunner, rx, "runContinuously") { ev =>
-      ev match
-        case v @ OnNext(_) =>
-          effect(v)
-          RxResult.Continue
-        case other =>
-          effect(ResumableError.toPublic(other))
-          RxResult.Stop
+      if ended.get() then
+        RxResult.Stop
+      else
+        ev match
+          case v @ OnNext(_) =>
+            effect(v)
+            RxResult.Continue
+          case c: OnCompletion =>
+            if ended.compareAndSet(false, true) then
+              effect(c)
+            RxResult.Stop
+          case other =>
+            effect(ResumableError.toPublic(other))
+            RxResult.Stop
     }
 
   /**
@@ -160,11 +178,14 @@ class RxRunner(
                       case n @ OnNext(x) =>
                         toContinue = effect(n)
                         toContinue
-                      case OnCompletion =>
+                      case OnCompletion(Result.Success(_)) =>
                         if tracker.endNested(current) then
-                          toContinue = effect(OnCompletion)
+                          toContinue = effect(OnCompletion.success)
                         toContinue
                       case ev @ OnError(e) =>
+                        toContinue = tracker.nestedError(current, ev, effect)
+                        toContinue
+                      case ev @ OnCompletion(Result.Failure(e)) =>
                         toContinue = tracker.nestedError(current, ev, effect)
                         toContinue
                     }
@@ -173,7 +194,7 @@ class RxRunner(
                   tracker.dropNested()
                   effect(ResumableError(e))
               end match
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               tracker.completeInput(effect)
             case other =>
               effect(other)
@@ -252,11 +273,14 @@ class RxRunner(
               case n @ OnNext(x) =>
                 toContinue = effect(n)
                 toContinue
-              case OnCompletion =>
+              case OnCompletion(Result.Success(_)) =>
                 if tracker.endNested(current) then
-                  toContinue = effect(OnCompletion)
+                  toContinue = effect(OnCompletion.success)
                 toContinue
               case ev @ OnError(e) =>
+                toContinue = tracker.nestedError(current, ev, effect)
+                toContinue
+              case ev @ OnCompletion(Result.Failure(e)) =>
                 toContinue = tracker.nestedError(current, ev, effect)
                 toContinue
             }
@@ -288,7 +312,20 @@ class RxRunner(
                     tracker.completeInput(effect)
                 case Failure(e) =>
                   effect(OnError(e))
-            case OnCompletion =>
+            case OnCompletion(Result.Failure(e)) =>
+              Try(tryFunc(Failure(e))) match
+                case Success(rxb) =>
+                  val result = evalRx(rxb)
+                  // An error terminates the input (e.g., a failed Rx.future reports no
+                  // OnCompletion), so complete once the nested stream built from it ends.
+                  // A continuous source (RxVar) may emit again after an error, so keep waiting.
+                  if continuous || !result.toContinue then
+                    result
+                  else
+                    tracker.completeInput(effect)
+                case Failure(e) =>
+                  effect(OnError(e))
+            case OnCompletion(Result.Success(_)) =>
               tracker.completeInput(effect)
           }
         Cancelable { () =>
@@ -299,7 +336,7 @@ class RxRunner(
         var c1 = Cancelable.empty
         val c2 =
           run(first) {
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               var toContinue: RxResult = RxResult.Continue
               // Properly cancel the effect if this operator is evaluated before
               c1.cancel
@@ -388,9 +425,9 @@ class RxRunner(
                       lastKeys = Some(keys)
                       effect(OnNext(pairs))
                   finally left.foreach(_.stop())
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               stopRows()
-              effect(OnCompletion)
+              effect(OnCompletion.success)
             case other =>
               effect(other)
           }
@@ -406,10 +443,12 @@ class RxRunner(
             RxResult.Continue
           case err @ OnError(e) =>
             effect(err)
-          case OnCompletion =>
+          case err @ OnCompletion(Result.Failure(e)) =>
+            effect(err)
+          case OnCompletion(Result.Success(_)) =>
             Try(effect(OnNext(last))) match
               case Success(v) =>
-                effect(OnCompletion)
+                effect(OnCompletion.success)
               case Failure(e) =>
                 effect(OnError(e))
         }
@@ -435,7 +474,7 @@ class RxRunner(
         }
       case TakeOp(in, n) =>
         if n <= 0 then
-          effect(OnCompletion)
+          effect(OnCompletion.success)
           Cancelable.empty
         else
           var count = 0L
@@ -447,6 +486,9 @@ class RxRunner(
               case _ if done.get() =>
                 // Some sources (e.g., RxVar, Rx.single) keep emitting after Stop
                 RxResult.Stop
+              case ev @ OnError(_) if continuous =>
+                // An error does not end the stream: pass it on without counting it
+                effect(ev)
               case OnNext(v) =>
                 count += 1
                 val result = effect(OnNext(v.asInstanceOf[A]))
@@ -462,7 +504,7 @@ class RxRunner(
                   // A downstream Stop suppresses it, except in continuous mode, where Stop after a
                   // downstream error is transient (as for the values before the nth)
                   if done.compareAndSet(false, true) && (continuous || result.toContinue) then
-                    effect(OnCompletion)
+                    effect(OnCompletion.success)
                   c.cancel
                   RxResult.Stop
               case other =>
@@ -500,7 +542,7 @@ class RxRunner(
         time.scheduleOnce(delayMillis) {
           Try(effect(OnNext(0L))) match
             case Success(c) =>
-              effect(OnCompletion)
+              effect(OnCompletion.success)
             case Failure(e) =>
               effect(OnError(e))
         }
@@ -528,7 +570,7 @@ class RxRunner(
           Try(effect(OnNext(()))) match
             case Success(c) =>
               if c.toContinue then
-                effect(OnCompletion)
+                effect(OnCompletion.success)
             case Failure(e) =>
               effect(OnError(e))
         }
@@ -603,10 +645,14 @@ class RxRunner(
               if timedOut.compareAndSet(false, true) then
                 timeoutCancelable.cancel
               effect(ev)
-            case OnCompletion =>
+            case ev @ OnCompletion(Result.Failure(e)) =>
               if timedOut.compareAndSet(false, true) then
                 timeoutCancelable.cancel
-              effect(OnCompletion)
+              effect(ev)
+            case OnCompletion(Result.Success(_)) =>
+              if timedOut.compareAndSet(false, true) then
+                timeoutCancelable.cancel
+              effect(OnCompletion.success)
           }
         Cancelable { () =>
           timeoutCancelable.cancel
@@ -667,7 +713,7 @@ class RxRunner(
             // A single-value source: complete after the value, as SingleOp does
             Try(effect(OnNext(x))) match
               case Success(_) =>
-                effect(OnCompletion)
+                effect(OnCompletion.success)
               case Failure(e) =>
                 effect(OnError(e))
           case Failure(e) =>
@@ -684,20 +730,37 @@ class RxRunner(
             effect(ev)
           }
       case RecoverOp(in, f) =>
+        // Set once a recovered failure has ended the stream; later input events are dropped
+        val ended = AtomicBoolean(false)
         run(in) { ev =>
-          ev match
-            case OnNext(v) =>
-              effect(ev)
-            case OnError(e) if f.isDefinedAt(e) =>
-              Try(effect(OnNext(f(e)))) match
-                case Success(result) =>
-                  // Recovery succeeded: pass on the downstream's answer, which is Stop when an
-                  // operator after recover failed on the recovered value
-                  result
-                case Failure(e) =>
-                  effect(OnError(e))
-            case other =>
-              effect(other)
+          if ended.get() then
+            RxResult.Stop
+          else
+            ev match
+              case OnNext(v) =>
+                effect(ev)
+              case OnError(e) if f.isDefinedAt(e) =>
+                Try(effect(OnNext(f(e)))) match
+                  case Success(result) =>
+                    // Recovery succeeded: pass on the downstream's answer, which is Stop when an
+                    // operator after recover failed on the recovered value
+                    result
+                  case Failure(e) =>
+                    effect(OnError(e))
+              case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
+                // The stream ended with a failure: emit the recovered value, then complete. In
+                // continuous mode a Stop after an error downstream is transient, so complete anyway
+                ended.set(true)
+                Try(effect(OnNext(f(e)))) match
+                  case Success(result) =>
+                    if result.toContinue || continuous then
+                      effect(OnCompletion.success)
+                    else
+                      result
+                  case Failure(e) =>
+                    effect(OnCompletion.failure(e))
+              case other =>
+                effect(other)
         }
       case MaterializeOp(in) =>
         run(in) { ev =>
@@ -707,11 +770,17 @@ class RxRunner(
             case OnError(e) =>
               val downstream = effect(OnNext(Result.Failure(e)))
               if downstream.toContinue then
-                effect(OnCompletion)
+                effect(OnCompletion.success)
               else
                 downstream
-            case OnCompletion =>
-              effect(OnCompletion)
+            case OnCompletion(Result.Failure(e)) =>
+              val downstream = effect(OnNext(Result.Failure(e)))
+              if downstream.toContinue then
+                effect(OnCompletion.success)
+              else
+                downstream
+            case OnCompletion(Result.Success(_)) =>
+              effect(OnCompletion.success)
         }
       case RecoverWithOp(in, f) =>
         var toContinue: RxResult = RxResult.Continue
@@ -813,7 +882,7 @@ class RxRunner(
               case Success(v) =>
                 Try(effect(OnNext(v.asInstanceOf[A]))) match
                   case Success(_) =>
-                    effect(OnCompletion)
+                    effect(OnCompletion.success)
                   case Failure(e) =>
                     effect(OnError(e))
               case Failure(e) =>
@@ -830,7 +899,7 @@ class RxRunner(
         }
       case MergeOp(sources) =>
         if sources.isEmpty then
-          effect(OnCompletion)
+          effect(OnCompletion.success)
           Cancelable.empty
         else
           val fanIn = FanIn(effect)
@@ -846,9 +915,11 @@ class RxRunner(
                   run(source) {
                     case ev @ OnNext(_) =>
                       fanIn.next(ev)
-                    case OnCompletion =>
+                    case OnCompletion(Result.Success(_)) =>
                       fanIn.end(slot)
                     case ev @ OnError(_) =>
+                      fanIn.error(slot, ev)
+                    case ev @ OnCompletion(Result.Failure(_)) =>
                       fanIn.error(slot, ev)
                   }
                 )
@@ -910,9 +981,11 @@ class RxRunner(
                 run(rxb) {
                   case ev @ OnNext(_) =>
                     fanIn.next(slot, ev)
-                  case OnCompletion =>
+                  case OnCompletion(Result.Success(_)) =>
                     fanIn.end(slot, releasePermit)
                   case ev @ OnError(_) =>
+                    fanIn.error(slot, ev, releasePermit, endInContinuous = true)
+                  case ev @ OnCompletion(Result.Failure(_)) =>
                     fanIn.error(slot, ev, releasePermit, endInContinuous = true)
                 }
               )
@@ -937,9 +1010,11 @@ class RxRunner(
                   if startNow then
                     launch(x)
                   fanIn.result
-                case OnCompletion =>
+                case OnCompletion(Result.Success(_)) =>
                   fanIn.end(inputSlot)
                 case ev @ OnError(_) =>
+                  fanIn.error(inputSlot, ev)
+                case ev @ OnCompletion(Result.Failure(_)) =>
                   fanIn.error(inputSlot, ev)
               }
             )
@@ -948,7 +1023,7 @@ class RxRunner(
       case SingleOp(v) =>
         Try(effect(OnNext(v.eval))) match
           case Success(c) =>
-            effect(OnCompletion)
+            effect(OnCompletion.success)
           case Failure(e) =>
             effect(OnError(e))
         Cancelable.empty
@@ -959,7 +1034,7 @@ class RxRunner(
           if continuous || lastResult.toContinue then
             lst match
               case Nil =>
-                lastResult = effect(OnCompletion)
+                lastResult = effect(OnCompletion.success)
               case head :: tail =>
                 lastResult = effect(OnNext(head))
                 loop(tail)
@@ -1011,7 +1086,7 @@ class RxRunner(
                   // mode keeps reading after that)
                   val r =
                     other match
-                      case OnCompletion =>
+                      case OnCompletion(Result.Success(_)) =>
                         RxResult.Continue
                       case _ =>
                         deliver(other)
@@ -1160,7 +1235,7 @@ class RxRunner(
           // value has just been paired
           if result.toContinue && isCompleted && completed.compareAndSet(false, true) then
             trace(s"emit OnCompletion")
-            effect(OnCompletion)
+            effect(OnCompletion.success)
           else
             result
         else
@@ -1225,7 +1300,7 @@ class RxRunner(
     override protected def isCompleted: Boolean =
       !continuous &&
         (0 until size).exists(i =>
-          lastEvent(i).contains(OnCompletion) && lastValueBuffer(i).isEmpty
+          lastEvent(i).contains(OnCompletion.success) && lastValueBuffer(i).isEmpty
         )
 
   /**
@@ -1320,7 +1395,7 @@ class RxRunner(
     override protected def update(index: Int, v: A): Unit = lastValue(index) = Some(v)
 
     override protected def isCompleted: Boolean =
-      !continuous && lastEvent.forall(x => x.isDefined && x.get == OnCompletion)
+      !continuous && lastEvent.forall(x => x.isDefined && x.get == OnCompletion.success)
 
   private def join[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new JoinStream(input)
     .run(effect)
@@ -1372,11 +1447,11 @@ class RxRunner(
       * completed. The error is delivered before the nested stream is marked as ended, so an input
       * completing on another thread waits instead of overtaking the error or the recovered value.
       */
-    def nestedError(current: Int, ev: OnError, effect: RxEvent => RxResult): RxResult =
+    def nestedError(current: Int, ev: RxEvent, effect: RxEvent => RxResult): RxResult =
       val result = effect(ev)
       val done   = endNested(current)
       if done && result.toContinue then
-        effect(OnCompletion)
+        effect(OnCompletion.success)
       else
         result
 
@@ -1397,7 +1472,7 @@ class RxRunner(
       else if waitForNested then
         RxResult.Continue
       else
-        effect(OnCompletion)
+        effect(OnCompletion.success)
 
   end NestedStreamTracker
 
@@ -1470,7 +1545,7 @@ class RxRunner(
       */
     def error(
         slot: Slot,
-        ev: OnError,
+        ev: RxEvent,
         beforeEnd: () => Unit = () => (),
         endInContinuous: Boolean = false
     ): RxResult =
@@ -1522,7 +1597,7 @@ class RxRunner(
           synchronized {
             if !stopped then
               stopped = true
-              effect(OnCompletion)
+              effect(OnCompletion.success)
           }
           RxResult.Stop
         else

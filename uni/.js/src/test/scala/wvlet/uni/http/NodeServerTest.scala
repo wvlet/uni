@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -199,9 +201,9 @@ class NodeServerTest extends UniTest:
         RxRunner.run(asyncClient(server).sendSSE(Request.get("/events"))) {
           case OnNext(event) =>
             buffer += event.asInstanceOf[ServerSentEvent].data
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             received.failure(e)
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
             received.success(buffer.toSeq)
         }
         Rx.future(received.future)

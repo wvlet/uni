@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable.ArrayBuffer
@@ -59,7 +61,7 @@ class RxScanSplitTest extends UniTest:
   test("scan turns an exception in f into an error") {
     val events = ArrayBuffer.empty[RxEvent]
     RxRunner.run(Rx.single(1).scan(0)((_, _) => throw IllegalStateException("boom")))(events += _)
-    events.head shouldMatch { case OnError(_: IllegalStateException) =>
+    events.head shouldMatch { case OnCompletion(Result.Failure(_: IllegalStateException)) =>
     }
   }
 
@@ -110,7 +112,7 @@ class RxScanSplitTest extends UniTest:
     var completed = false
     val rc        =
       RxRunner.runContinuously(row2) {
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           completed = true
         case _ =>
       }
@@ -145,7 +147,7 @@ class RxScanSplitTest extends UniTest:
       .last
       .map { (_, row) =>
         RxRunner.runContinuously(row) {
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
             completed += 1
           case _ =>
         }
@@ -163,7 +165,7 @@ class RxScanSplitTest extends UniTest:
         v.asInstanceOf[Seq[(Int, Rx[Item])]]
           .foreach { (_, row) =>
             RxRunner.runContinuously(row) {
-              case OnCompletion =>
+              case OnCompletion(Result.Success(_)) =>
                 completed += 1
               case _ =>
             }
@@ -172,7 +174,7 @@ class RxScanSplitTest extends UniTest:
       case other =>
         events += other
     }
-    events.last shouldBe OnCompletion
+    events.last shouldBe OnCompletion.success
     completed shouldBe 2
   }
 

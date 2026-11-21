@@ -13,6 +13,8 @@
  */
 package wvlet.uni.mcp
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.http.{
   Http,
   HttpChannel,
@@ -42,9 +44,9 @@ private class InMemoryChannel(handler: RxHttpHandler) extends HttpChannel:
         result = r
       case OnNext(_) =>
         throw IllegalStateException("MCP handler must produce a Response")
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         error = e
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
     }
     if error != null then
       throw error
@@ -206,7 +208,7 @@ class MCPClientTest extends UniTest:
       ) {
         case OnNext(r: MCPToolResult) =>
           result = Some(r)
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           throw e
         case _ =>
       }

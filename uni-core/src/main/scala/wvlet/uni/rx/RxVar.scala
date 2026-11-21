@@ -83,7 +83,7 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
     * this method is called, the behavior of the downstream subscribers is undefined for further
     * updates of this variable.
     */
-  override def stop(): Unit = propagateEvent(OnCompletion)
+  override def stop(): Unit = propagateEvent(OnCompletion.success)
 
   private def propagateEvent(e: RxEvent): Unit =
     // Wrap with a synchrnoized block to avoid concurrent modification of subscribers
@@ -125,7 +125,7 @@ private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
     result match
       case Success(x) =>
         set(Some(x))
-        terminal = OnCompletion
+        terminal = OnCompletion.success
         stop()
       case Failure(e) =>
         terminal = OnError(e)

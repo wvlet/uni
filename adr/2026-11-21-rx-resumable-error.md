@@ -40,10 +40,11 @@ To get there one operator at a time, step 2 adds an internal marker and changes 
 ## Consequences
 
 - No behavior change: the Lean-generated spec suites and all existing tests pass unchanged.
-- Step 3 is a breaking change. `case object OnCompletion` becomes a class carrying a `Result`, so
-  each `case OnCompletion =>` site fails to compile and gets fixed where it is, rather than
-  silently changing meaning. Code that treats `OnError` as terminal keeps today's default-mode
-  behavior, because the model proves default mode is that conversion. Only code waiting for a
-  source failure must also match a failed completion.
+- Step 3 is a breaking change. Amended 2026-11-21: an earlier version said a class-carrying
+  `OnCompletion` makes each `case OnCompletion =>` site fail to compile. It does not: the old
+  pattern compiles with an "Unreachable case" warning and never matches. See
+  `2026-11-21-rx-oncompletion-result.md` for the shape chosen and how the sites were found.
+  Code that treats `OnError` as terminal keeps today's default-mode behavior, because the model
+  proves default mode is that conversion.
 - `recoverWith` is the one known behavior change (`RxR3Ops.lean`, `old_default_inconsistent`).
   RPC server streaming needs a terminal conversion before its `recoverWith`.

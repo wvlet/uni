@@ -101,9 +101,9 @@ class BackgroundTaskConcurrencyTest extends UniTest:
     RxRunner.run(task.progressStream) {
       case OnNext(v) =>
         seen += v.asInstanceOf[Int]
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         completed.countDown()
-      case OnError(_) =>
+      case OnCompletion(Result.Failure(_)) =>
         completed.countDown()
     }
     canReport.countDown()

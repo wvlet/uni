@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -35,7 +37,7 @@ class RxMergeTest extends UniTest:
   private def errorOf(rx: Rx[Int]): Option[String] =
     var error: Option[String] = None
     RxRunner.run(rx) {
-      case OnError(e) if error.isEmpty =>
+      case OnCompletion(Result.Failure(e)) if error.isEmpty =>
         error = Some(e.getMessage)
       case _ =>
     }

@@ -13,7 +13,9 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.rx.{OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.util.Result
+
+import wvlet.uni.rx.{OnCompletion, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.TimeUnit
@@ -64,7 +66,7 @@ class NodeWebSocketRelayTest extends UniTest:
     RxRunner.runOnce(client.connect(request, handler)) {
       case OnNext(ctx) =>
         opened.trySuccess(Right(ctx.asInstanceOf[WebSocketContext]))
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         opened.trySuccess(Left(e))
       case _ =>
     }

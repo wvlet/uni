@@ -196,11 +196,11 @@ class ResultTest extends UniTest:
   test("Rx.materialize reifies OnNext and OnError as Result values and completes") {
     val events = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.exception[Int](boom).materialize)(events += _)
-    events.result() shouldBe Seq(OnNext(Result.Failure(boom)), OnCompletion)
+    events.result() shouldBe Seq(OnNext(Result.Failure(boom)), OnCompletion.success)
 
     val ok = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.single(1).materialize)(ok += _)
-    ok.result() shouldBe Seq(OnNext(Result.Success(1)), OnCompletion)
+    ok.result() shouldBe Seq(OnNext(Result.Success(1)), OnCompletion.success)
   }
 
   test("Rx.materialize emits Result values for multi-element streams") {
@@ -211,7 +211,7 @@ class ResultTest extends UniTest:
         OnNext(Result.Success(1)),
         OnNext(Result.Success(2)),
         OnNext(Result.Success(3)),
-        OnCompletion
+        OnCompletion.success
       )
   }
 
@@ -225,7 +225,7 @@ class ResultTest extends UniTest:
 
     val failureEvents = Seq.newBuilder[RxEvent]
     RxRunner.run(Result.Failure(boom).toRx)(failureEvents += _)
-    failureEvents.result() shouldMatch { case OnError(e) +: _ =>
+    failureEvents.result() shouldMatch { case OnCompletion(Result.Failure(e)) +: _ =>
       e shouldBe boom
     }
   }

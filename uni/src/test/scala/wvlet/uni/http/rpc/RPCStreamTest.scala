@@ -13,6 +13,8 @@
  */
 package wvlet.uni.http.rpc
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.http.*
 import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner, RxStream}
 import wvlet.uni.test.UniTest
@@ -95,9 +97,9 @@ class RPCStreamTest extends UniTest:
     RxRunner.run(rx) {
       case OnNext(v) =>
         values += v.asInstanceOf[A]
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         failure = Some(e)
-      case OnCompletion =>
+      case OnCompletion(Result.Success(_)) =>
         completed = true
     }
     (completed || failure.isDefined) shouldBe true

@@ -13,6 +13,8 @@
  */
 package wvlet.uni.electron
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.log.LogSupport
 import wvlet.uni.http.{Response, ServerSentEvent}
 import wvlet.uni.http.ServiceStatus
@@ -271,9 +273,9 @@ object ElectronRPCServer extends LogSupport:
           RxRunner.run(response.events) {
             case OnNext(event) =>
               reply.send(ElectronIPC.streamChunk(event.asInstanceOf[ServerSentEvent].toContent))
-            case OnError(e) =>
+            case OnCompletion(Result.Failure(e)) =>
               fail(e)
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               end()
           }
       else
@@ -286,9 +288,9 @@ object ElectronRPCServer extends LogSupport:
           case OnNext(v) =>
             if !finished then
               forward(v.asInstanceOf[Response])
-          case OnError(e) =>
+          case OnCompletion(Result.Failure(e)) =>
             fail(e)
-          case OnCompletion =>
+          case OnCompletion(Result.Success(_)) =>
         }
     catch
       case NonFatal(e) =>
@@ -308,7 +310,7 @@ object ElectronRPCServer extends LogSupport:
       RxRunner.run(dispatcher.dispatch(request)) {
         case OnNext(v) =>
           resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           warn(s"Unexpected error in RPC dispatch: ${e.getMessage}", e)
           val errorResponse =
             ServiceStatus
@@ -317,7 +319,7 @@ object ElectronRPCServer extends LogSupport:
               .noStackTrace
               .toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
         // No value emitted: nothing to resolve with (should not happen for RPC).
       }
     )

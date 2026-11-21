@@ -13,13 +13,15 @@
  */
 package wvlet.uni.ui.agent
 
+import wvlet.uni.util.Result
+
 import org.scalajs.dom
 import wvlet.uni.agent.UiAgentApi
 import wvlet.uni.dom.{DomNode, DomRenderer}
 import wvlet.uni.dom.all.data
 import wvlet.uni.json.JSON.{JSONArray, JSONLong, JSONObject}
 import wvlet.uni.mcp.MCPServer
-import wvlet.uni.rx.{Cancelable, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnNext, Rx, RxRunner}
 import wvlet.uni.ui.{AlertDialog, ChangeSource}
 
 import scala.collection.mutable
@@ -238,7 +240,7 @@ class UiAgent private (val policy: AgentPolicy, root: () => dom.Element):
               else
                 ActResult(ActStatus.Declined, "The human declined")
             )
-          case OnError(err) =>
+          case OnCompletion(Result.Failure(err)) =>
             settle(ActResult(ActStatus.Declined, s"Confirmation failed: ${err.getMessage}"))
           case _ =>
             settle(ActResult(ActStatus.Declined, "The confirmation ended without an answer"))
@@ -446,7 +448,7 @@ object UiAgent:
             reject(js.JavaScriptException(response.selectDynamic("error")))
           else
             resolve(toolText(result))
-        case OnError(e) =>
+        case OnCompletion(Result.Failure(e)) =>
           reject(e)
         case _ =>
       }

@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
@@ -84,9 +86,9 @@ object RxFiber:
           RxRunner.runOnce(rx) {
             case OnNext(v) =>
               fiber.complete(Success(v.asInstanceOf[A]))
-            case OnError(e) =>
+            case OnCompletion(Result.Failure(e)) =>
               fiber.complete(Failure(e))
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               fiber.complete(
                 Failure(new IllegalStateException("Fiber completed without producing a value"))
               )

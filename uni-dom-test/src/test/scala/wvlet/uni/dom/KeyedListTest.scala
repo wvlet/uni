@@ -13,6 +13,8 @@
  */
 package wvlet.uni.dom
 
+import wvlet.uni.util.Result
+
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -189,7 +191,7 @@ class KeyedListTest extends UniTest:
         items.eachRx(_.id) { (_, current) =>
           rendered += 1
           RxRunner.runContinuously(current) {
-            case OnCompletion =>
+            case OnCompletion(Result.Success(_)) =>
               completed += 1
             case _ =>
           }

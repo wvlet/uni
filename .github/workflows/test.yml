@@ -95,6 +95,7 @@ jobs:
           lake exe gen-http-reader-cases
           lake exe gen-rx-live-cases
           lake exe gen-dom-render-cases
+          lake exe gen-rx-r3-cases
           if ! git diff --exit-code -- ../../uni/src/test/scala ../../uni/.jvm-native/src/test/scala ../../uni-dom-test/src/test/scala; then
             echo "::error::Run the gen-* executables in spec/lean (see spec/lean/README.md) and commit the generated cases"
             exit 1

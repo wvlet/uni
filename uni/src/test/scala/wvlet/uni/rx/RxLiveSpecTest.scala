@@ -13,6 +13,8 @@
  */
 package wvlet.uni.rx
 
+import wvlet.uni.util.Result
+
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -61,10 +63,10 @@ class RxLiveSpecTest extends UniTest:
             RxResult.Stop
           else
             RxResult.Continue
-        case OnCompletion =>
+        case OnCompletion(Result.Success(_)) =>
           records += "C"
           RxResult.Stop
-        case OnError(_) =>
+        case OnError(_) | OnCompletion(wvlet.uni.util.Result.Failure(_)) =>
           records += "E"
           RxResult.Stop
 
@@ -252,9 +254,9 @@ class RxLiveSpecTest extends UniTest:
             RxRunner.run(row) {
               case OnNext((_, v)) =>
                 records += s"${k}=${v}"
-              case OnCompletion =>
+              case OnCompletion(Result.Success(_)) =>
                 records += s"${k}:C"
-              case OnError(_) =>
+              case OnCompletion(Result.Failure(_)) =>
                 records += s"${k}:E"
               case other =>
                 throw IllegalStateException(s"Unexpected row event: ${other}")

@@ -13,7 +13,9 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.rx.{OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.util.Result
+
+import wvlet.uni.rx.{OnCompletion, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import scala.concurrent.{ExecutionContext, Future, Promise}
@@ -38,7 +40,7 @@ class JSWebSocketClientTest extends UniTest:
     RxRunner.runOnce(Http.webSocketClient.connect(request, handler)) {
       case OnNext(ctx) =>
         opened.trySuccess(ctx.asInstanceOf[WebSocketContext])
-      case OnError(e) =>
+      case OnCompletion(Result.Failure(e)) =>
         opened.tryFailure(e)
       case _ =>
     }
