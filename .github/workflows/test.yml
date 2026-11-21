@@ -91,7 +91,6 @@ jobs:
           lake exe gen-rx-cases
           lake exe gen-msgpack-cases
           lake exe gen-rx-nested-cases
-          lake exe gen-rx-recover-cases
           lake exe gen-http-reader-cases
           lake exe gen-rx-live-cases
           lake exe gen-dom-render-cases

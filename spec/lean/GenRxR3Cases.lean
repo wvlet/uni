@@ -4,7 +4,7 @@ import UniSpec.RxR3Ops
 Writes `RxR3SpecCases.scala`: the expected output of small pipelines under the target event model
 of `UniSpec/RxR3.lean` and `UniSpec/RxR3Ops.lean` (including `flatMap` and `recoverWith`), where `OnError` never ends a stream and
 `OnCompletion` (success or failure) is the only end. `RxR3SpecTest` replays the cases through
-`RxRunner.runContinuously`.
+`RxRunner.runContinuously` and `RxRunner.run`.
 
 Usage: `lake exe gen-rx-r3-cases [output path]`
 -/
@@ -66,12 +66,18 @@ def nestedOps : List (String × (List REvent → List REvent)) :=
 def nestedPipelines : List (List (String × (List REvent → List REvent))) :=
   nestedOps.map (fun o => [o]) ++ nestedOps.map (fun o => [("boom:2", (Op.boom 2).r3), o])
 
+/-- The two entry points: `runContinuously` delivers the model's trace; `run` stops at the first
+error, which arrives as a failed `OnCompletion` (`resumeAsFailure` before the sink). -/
+def modes : List (String × (List REvent → List REvent)) :=
+  [ ("continuous", observe), ("run", fun s => observe (resumeAsFailure s)) ]
+
 def caseLines : List String :=
-  (pipelines ++ nestedPipelines).flatMap fun p =>
-    inputs.map fun input =>
-      let names := " ".intercalate (p.map (·.1))
-      let out := observe (applyAll (p.map (·.2)) input)
-      s!"    \"{renderTrace input} | {names} | {renderTrace out}\""
+  modes.flatMap fun (modeName, sink) =>
+    (pipelines ++ nestedPipelines).flatMap fun p =>
+      inputs.map fun input =>
+        let names := " ".intercalate (p.map (·.1))
+        let out := sink (applyAll (p.map (·.2)) input)
+        s!"    \"{modeName} | {renderTrace input} | {names} | {renderTrace out}\""
 
 -- Formatted as scalafmt would, so the Code format check passes on the generated file
 def scalaSource : String :=
@@ -80,7 +86,7 @@ def scalaSource : String :=
     "package wvlet.uni.rx",
     "",
     "object RxR3SpecCases:",
-    "  // Each case: input events | operators | expected events.",
+    "  // Each case: entry point | input events | operators | expected events.",
     "  // Events: an Int for OnNext, E for OnError, C for a successful OnCompletion, F for a failed",
     "  // OnCompletion; - for none.",
     "  val cases: Seq[String] = Seq("
