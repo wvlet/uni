@@ -7,10 +7,7 @@ private[parquet] object Word8:
   inline def le64(b: Array[Byte], i: Int): Long =
     (Zstd.le32(b, i) & 0xffffffffL) | (Zstd.le32(b, i + 4).toLong << 32)
 
-  /**
-    * The little-endian int at `b(i)`. The JVM and Scala Native versions need `b(i)` to `b(i + 7)`
-    * inside the array.
-    */
+  /** The little-endian int at `b(i)`, where `b(i)` to `b(i + 3)` must be inside the array */
   inline def le32(b: Array[Byte], i: Int): Int = Zstd.le32(b, i)
 
   /**

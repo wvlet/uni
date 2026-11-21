@@ -27,7 +27,7 @@ final class Word8 {
     return (long) LONGS.get(b, i);
   }
 
-  /** The little-endian int at b[i], where b[i] to b[i + 7] must be inside the array */
+  /** The little-endian int at b[i], where b[i] to b[i + 3] must be inside the array */
   static int le32(byte[] b, int i) {
     return (int) INTS.get(b, i);
   }

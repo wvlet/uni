@@ -35,6 +35,16 @@ class WideCopyTest extends UniTest:
         Word8.matchLength(b, x, y, limit) shouldBe want
   }
 
+  test("le32 reads 4 bytes at every offset, up to the end of the array") {
+    for size <- 4 to 40 do
+      val b = Array.fill[Byte](size)(rnd.nextInt().toByte)
+      for i <- 0 to size - 4 do
+        var want = 0
+        for k <- 3 to 0 by -1 do
+          want = (want << 8) | (b(i + k) & 0xff)
+        Word8.le32(b, i) shouldBe want
+  }
+
   /** A copy program: (isMatch, length, offset), filling exactly `size` bytes */
   private def program(size: Int): Seq[(Boolean, Int, Int)] =
     val ops = Seq.newBuilder[(Boolean, Int, Int)]
