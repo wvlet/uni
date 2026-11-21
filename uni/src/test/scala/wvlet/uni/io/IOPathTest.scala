@@ -141,13 +141,28 @@ class IOPathTest extends UniTest:
     (IOPath.parse("C:foo") / "D:\\bar").posixPath shouldBe "D:/bar"
   }
 
-  test("relativeTo, normalize, and startsWith on a Windows drive-relative path") {
+  test("relativeTo on a Windows drive-relative path") {
     IOPath.parse("C:foo\\bar").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe "bar"
     IOPath.parse("C:foo").relativeTo(IOPath.parse("C:")).posixPath shouldBe "foo"
     IOPath.parse("C:").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe ".."
     IOPath.parse("C:foo").relativeTo(IOPath.parse("D:foo")).posixPath shouldBe "C:foo"
     IOPath.parse("C:foo").relativeTo(IOPath.parse("bar")).posixPath shouldBe "C:foo"
     IOPath.parse("bar").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe "bar"
+  }
+
+  test("relativeTo across Windows drives returns the path itself") {
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("D:\\b")).posixPath shouldBe "C:/a"
+    IOPath.parse("C:\\a\\b").relativeTo(IOPath.parse("D:\\")).posixPath shouldBe "C:/a/b"
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("/b")).posixPath shouldBe "C:/a"
+    IOPath.parse("/b").relativeTo(IOPath.parse("C:\\a")).posixPath shouldBe "/b"
+    // On the same drive, the drive letter's case does not matter
+    IOPath.parse("c:\\a\\b").relativeTo(IOPath.parse("C:\\a")).posixPath shouldBe "b"
+    IOPath.parse("C:\\a\\b").relativeTo(IOPath.parse("C:\\c")).posixPath shouldBe "../a/b"
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("C:\\")).posixPath shouldBe "a"
+    IOPath.parse("/a/b").relativeTo(IOPath.parse("/a")).posixPath shouldBe "b"
+  }
+
+  test("normalize and startsWith on a Windows drive-relative path") {
 
     IOPath.parse("C:foo\\..\\bar").normalize.posixPath shouldBe "C:bar"
     IOPath.parse("C:foo\\..").normalize.posixPath shouldBe "C:"

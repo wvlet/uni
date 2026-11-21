@@ -144,15 +144,17 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   def relativeTo(base: IOPath): IOPath =
     if isAbsolute != base.isAbsolute then
       this // Cannot relativize paths with different absolute status
-    else if (isDriveRelative || base.isDriveRelative) &&
-      !drive.exists(d => base.drive.exists(d.equalsIgnoreCase))
-    then
-      this // A drive-relative path has no relative path from another drive or a plain relative path
+    else if drive.map(_.toUpperCase) != base.drive.map(_.toUpperCase) then
+      // No relative path leads to another drive (`C:\a` from `D:\b`, or `C:foo` from `foo`)
+      this
     else
-      val commonPrefixLength = segments.zip(base.segments).takeWhile((a, b) => a == b).length
-      val ups                = Seq.fill(base.segments.length - commonPrefixLength)("..")
-      val remaining          = segments.drop(commonPrefixLength)
-      IOPath(ups ++ remaining, isAbsolute = false)
+      // Same drive, or none: compare the folders after it, so `c:` and `C:` match
+      val skip               = drive.size
+      val own                = segments.drop(skip)
+      val from               = base.segments.drop(skip)
+      val commonPrefixLength = own.zip(from).takeWhile((a, b) => a == b).length
+      val ups                = Seq.fill(from.length - commonPrefixLength)("..")
+      IOPath(ups ++ own.drop(commonPrefixLength), isAbsolute = false)
 
   /**
     * Normalizes the path by resolving `.` and `..` segments.
