@@ -1116,17 +1116,19 @@ class RxRunner(
         }
       case source: RxSource[?] =>
         val cancelled = AtomicBoolean(false)
-        // Set by a terminal event or a downstream Stop; continuous mode keeps reading
+        // Set by OnCompletion: the source has ended, in every mode
+        val ended = AtomicBoolean(false)
+        // Set by an error or a downstream Stop outside continuous mode; continuous mode keeps reading
         val finished = AtomicBoolean(false)
         // True from calling source.next until its event arrives
         val awaiting = AtomicBoolean(false)
         val current  = AtomicReference[Cancelable](Cancelable.empty)
 
-        def active: Boolean = !cancelled.get && (continuous || !finished.get)
+        def active: Boolean = !cancelled.get && !ended.get && (continuous || !finished.get)
 
         def deliver(ev: RxEvent): RxResult =
           awaiting.set(false)
-          if cancelled.get then
+          if cancelled.get || ended.get then
             RxResult.Stop
           else
             ev match
@@ -1135,6 +1137,9 @@ class RxRunner(
                 if !r.toContinue then
                   finished.set(true)
                 r
+              case end: OnCompletion =>
+                ended.set(true)
+                effect(end)
               case other =>
                 finished.set(true)
                 effect(other)
