@@ -364,7 +364,7 @@ object OverlayStories:
         A11yCheck(
           AriaPattern.Tooltip,
           "[role=tooltip]",
-          "Hover or focus a trigger to show a tooltip first."
+          "Hover or focus a trigger: the check runs as the tooltip shows."
         )
       )
     ),
@@ -386,7 +386,7 @@ object OverlayStories:
       ApiDoc.of[Menu] ++ ApiDoc.of[MenuItem] ++ ApiDoc.of[ContextMenu],
       Seq(
         A11yCheck(AriaPattern.MenuButton, "[aria-haspopup=menu]"),
-        A11yCheck(AriaPattern.Menu, "[role=menu]", "Open a menu first.")
+        A11yCheck(AriaPattern.Menu, "[role=menu]", "Open a menu: the check runs as it opens.")
       )
     ),
     ComponentPage(
@@ -406,8 +406,16 @@ object OverlayStories:
       ),
       ApiDoc.of[Dialog] ++ ApiDoc.of[AlertDialog],
       Seq(
-        A11yCheck(AriaPattern.Dialog, "[role=dialog]", "Open a dialog first."),
-        A11yCheck(AriaPattern.AlertDialog, "[role=alertdialog]", "Open the alert dialog first.")
+        A11yCheck(
+          AriaPattern.Dialog,
+          "[role=dialog]",
+          "Open a dialog: the check runs as it opens."
+        ),
+        A11yCheck(
+          AriaPattern.AlertDialog,
+          "[role=alertdialog]",
+          "Open the alert dialog: the check runs as it opens."
+        )
       )
     ),
     ComponentPage(
@@ -426,7 +434,13 @@ object OverlayStories:
         Story("select/disabled", "Disabled", "Press Unlock to enable it.")(selectDisabled)
       ),
       ApiDoc.of[Select[?]],
-      Seq(A11yCheck(AriaPattern.Listbox, "[role=listbox]", "Open a select first."))
+      Seq(
+        A11yCheck(
+          AriaPattern.Listbox,
+          "[role=listbox]",
+          "Open a select: the check runs as it opens."
+        )
+      )
     ),
     ComponentPage(
       "toast",

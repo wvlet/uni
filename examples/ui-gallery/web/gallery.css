@@ -1573,3 +1573,27 @@ body {
     padding: 5px 8px;
   }
 }
+
+.demo-dock--short {
+  height: 200px;
+}
+
+.demo-json {
+  max-height: 110px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--uni-line);
+  border-radius: var(--uni-radius);
+  background: var(--g-code-bg);
+  font-family: var(--uni-font-mono);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.demo-statusbar {
+  border: 1px solid var(--uni-line);
+  border-radius: var(--uni-radius);
+  overflow: hidden;
+}
