@@ -20,13 +20,8 @@ object JsDataset:
 
   private def fail(msg: String): Nothing = throw IllegalArgumentException(msg)
 
-  private def isSet(v: js.Any): Boolean = !js.isUndefined(v) && v != null
-
-  private def optionsOf(options: js.UndefOr[js.Dynamic]): js.Dynamic =
-    if options.isEmpty || options.get == null then
-      js.Dynamic.literal()
-    else
-      options.get
+  import ParquetNpm.isSet
+  import ParquetNpm.optionsOf
 
   private def isObjectUri(s: String): Boolean = ParquetDataset.isObjectUri(s)
 

@@ -18,7 +18,7 @@ private[npm] object JsStorage:
 
   private def fail(msg: String): Nothing = throw IllegalArgumentException(msg)
 
-  private def obj(o: js.Dynamic, key: String): Option[js.Dynamic] =
+  private def obj(o: js.Dynamic, key: String, at: String): Option[js.Dynamic] =
     if o == null || js.isUndefined(o) then
       None
     else
@@ -26,7 +26,7 @@ private[npm] object JsStorage:
       if js.isUndefined(v) || v == null then
         None
       else if js.typeOf(v) != "object" then
-        fail(s"storage.${key} must be an object")
+        fail(s"${at}.${key} must be an object")
       else
         Some(v)
 
@@ -109,7 +109,7 @@ private[npm] object JsStorage:
     str(o, "account", at).foreach(a => conf = conf.withAccount(a))
     str(o, "endpoint", at).foreach(e => conf = conf.withEndpoint(e))
     val sas       = str(o, "sasToken", at)
-    val shared    = obj(o, "sharedKey")
+    val shared    = obj(o, "sharedKey", at)
     val anonymous = bool(o, "anonymous", at).getOrElse(false)
     if Seq(sas.isDefined, shared.isDefined, anonymous).count(identity) > 1 then
       fail(s"${at} takes one of sasToken, sharedKey, or anonymous")
@@ -132,11 +132,11 @@ private[npm] object JsStorage:
     val empty   = js.Dynamic.literal()
     ObjectUri.parse(uri).scheme match
       case "s3" =>
-        ObjectStore.s3(s3Config(obj(storage, "s3").getOrElse(empty), browser))
+        ObjectStore.s3(s3Config(obj(storage, "s3", "storage").getOrElse(empty), browser))
       case "gs" =>
-        ObjectStore.gcs(gcsConfig(obj(storage, "gcs").getOrElse(empty), browser))
+        ObjectStore.gcs(gcsConfig(obj(storage, "gcs", "storage").getOrElse(empty), browser))
       case "az" | "azure" =>
-        ObjectStore.azure(azureConfig(obj(storage, "azure").getOrElse(empty), browser))
+        ObjectStore.azure(azureConfig(obj(storage, "azure", "storage").getOrElse(empty), browser))
       case other =>
         fail(s"Unsupported scheme ${other}:// in ${uri}. Use s3://, gs://, az://, or a local path")
 

@@ -117,18 +117,21 @@ object ParquetNpm:
 
   // ---- Reading, shared by files and datasets ----
 
-  private def isSet(v: js.Any): Boolean = !js.isUndefined(v) && v != null
+  private[npm] def isSet(v: js.Any): Boolean = !js.isUndefined(v) && v != null
+
+  /** An options argument, or an empty object when it is missing or null */
+  private[npm] def optionsOf(options: js.UndefOr[js.Dynamic]): js.Dynamic =
+    if options.isEmpty || options.get == null then
+      js.Dynamic.literal()
+    else
+      options.get
 
   /** Parses `ReadOptions`; the schema resolves what a `Date` in the filter means */
   private[npm] def readOptions(
       options: js.UndefOr[js.Dynamic],
       schema: ParquetSchema
   ): (ParquetReadOptions, JsValues.Mapping) =
-    val o =
-      if options.isEmpty || options.get == null then
-        js.Dynamic.literal()
-      else
-        options.get
+    val o    = optionsOf(options)
     var opts = ParquetReadOptions.default
     if isSet(o.columns) then
       opts = opts.withColumns(o.columns.asInstanceOf[js.Array[String]].toSeq*)
@@ -300,9 +303,6 @@ class JsParquetFile private[npm] (file: ParquetFile) extends js.Object:
     .rowGroupBatchesAsync(i, options)
     .map(_.filter(_.numRows > 0))
 
-  private def rows(b: ColumnBatch, m: JsValues.Mapping)  = ParquetNpm.rows(b, m)
-  private def batch(b: ColumnBatch, m: JsValues.Mapping) = ParquetNpm.batch(b, m)
-
   def readRows(options: js.UndefOr[js.Dynamic] = js.undefined): js.Promise[js.Array[js.Any]] =
     ParquetNpm.toPromise(
       Future
@@ -314,7 +314,7 @@ class JsParquetFile private[npm] (file: ParquetFile) extends js.Object:
               .sequence(file.selectRowGroups(opts).map(rowGroupBatches(_, opts)))
               .map { groups =>
                 val out = js.Array[js.Any]()
-                groups.foreach(_.foreach(b => rows(b, m).foreach(r => out.push(r))))
+                groups.foreach(_.foreach(b => ParquetNpm.rows(b, m).foreach(r => out.push(r))))
                 out
               }
           )
@@ -323,31 +323,30 @@ class JsParquetFile private[npm] (file: ParquetFile) extends js.Object:
 
   /** An AsyncIterable of column batches: one per row group, or several for a large row group */
   def batches(options: js.UndefOr[js.Dynamic] = js.undefined): js.Object =
-    val (opts, m)                        = ParquetNpm.guard(parse(options))
-    val groups                           = ParquetNpm.guard(file.selectRowGroups(opts))
-    val iterable                         = js.Object()
-    val factory: js.Function0[js.Object] =
-      () =>
-        var nextGroup                      = 0
-        var current: Iterator[ColumnBatch] = Iterator.empty
-        def step(): Future[js.Object]      =
-          if current.hasNext then
-            Future(js.Dynamic.literal(done = false, value = batch(current.next(), m)))
-          else if nextGroup < groups.size then
-            val i = groups(nextGroup)
-            nextGroup += 1
-            ParquetNpm
-              .first(rowGroupBatches(i, opts))
-              .flatMap { it =>
-                current = it
-                step()
-              }
-          else
-            Future.successful(js.Dynamic.literal(done = true, value = js.undefined))
-        js.Dynamic
-          .literal(next = (() => ParquetNpm.toPromise(step())): js.Function0[js.Promise[js.Object]])
-    js.Dynamic.global.Reflect.set(iterable, js.Dynamic.global.Symbol.asyncIterator, factory)
-    iterable
+    val (opts, m) = ParquetNpm.guard(parse(options))
+    val groups    = ParquetNpm.guard(file.selectRowGroups(opts))
+    ParquetNpm.asyncIterable { () =>
+      var nextGroup                      = 0
+      var current: Iterator[ColumnBatch] = Iterator.empty
+      def step(): Future[Option[js.Any]] =
+        if current.hasNext then
+          Future(Some(ParquetNpm.batch(current.next(), m)))
+        else if nextGroup < groups.size then
+          val i = groups(nextGroup)
+          nextGroup += 1
+          ParquetNpm
+            .first(rowGroupBatches(i, opts))
+            .flatMap { it =>
+              current = it
+              step()
+            }
+        else
+          Future.successful(None)
+      def stop(): Unit =
+        nextGroup = groups.size
+        current = Iterator.empty
+      (step, stop)
+    }
 
   def close(): Unit = file.close()
 
