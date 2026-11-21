@@ -772,7 +772,8 @@ private[parquet] final class DatasetWriterCore private (
 
   /** Decides whether to write `_common_metadata`, failing early when it records other types */
   private def checkMetadata(): Boolean =
-    val prior = priorMetadata.flatMap { l =>
+    // Only Append and OverwritePartitions keep the old file, so only they read it
+    lazy val prior = priorMetadata.flatMap { l =>
       val bytes =
         target match
           case DatasetTarget.Local(_) =>

@@ -14,7 +14,9 @@ private[parquet] case class PartitionTypeEntry(name: String, `type`: String) der
   */
 private[parquet] case class DatasetMetadata(
     fields: IndexedSeq[ParquetField],
-    partitionTypes: VectorMap[String, ParquetType.Primitive]
+    partitionTypes: VectorMap[String, ParquetType.Primitive],
+    /** Whether the root listing had data files, before any glob or extension filter */
+    rootHasData: Boolean = true
 )
 
 /**
@@ -22,7 +24,7 @@ private[parquet] case class DatasetMetadata(
   * file name. It is a Parquet file with no row groups, whose key-value metadata lists the partition
   * types. Partition columns stay out of its schema, as they are out of the data files.
   */
-private[parquet] object DatasetMetadata:
+private[parquet] object DatasetMetadata extends wvlet.uni.log.LogSupport:
   val SuccessMarker  = "_SUCCESS"
   val CommonMetadata = "_common_metadata"
 
@@ -60,40 +62,34 @@ private[parquet] object DatasetMetadata:
     w.close()
     out.toByteArray
 
-  /** Reads `_common_metadata`; a file Uni didn't write, without partition types, gives None */
+  /**
+    * Reads `_common_metadata`. A file Uni didn't write (no partition types) gives None, and so does
+    * an unreadable one, with a warning: the data files can still be read without it.
+    */
   def parse(bytes: Array[Byte], path: String): Option[DatasetMetadata] =
-    val file =
-      try
-        Parquet.open(bytes)
-      catch
-        case NonFatal(e) =>
-          throw ParquetException(s"Failed to read ${path}: ${e.getMessage}", e)
-    try file
-        .keyValueMetadata
-        .get(PartitionTypesKey)
-        .map { json =>
-          val entries =
-            try
-              entriesWeaver.fromJson(json)
-            catch
-              case NonFatal(e) =>
-                throw ParquetException(
-                  s"${path} has unreadable partition types (${json}): ${e.getMessage}",
-                  e
-                )
-          val types = entries.map { e =>
-            e.name ->
-              typeNames.getOrElse(
-                e.`type`,
-                throw ParquetException(
-                  s"${path} gives partition ${e.name} the unsupported type ${e.`type`}"
-                )
-              )
+    try
+      val file = Parquet.open(bytes)
+      try file
+          .keyValueMetadata
+          .get(PartitionTypesKey)
+          .map { json =>
+            val types = entriesWeaver
+              .fromJson(json)
+              .map { e =>
+                e.name ->
+                  typeNames.getOrElse(
+                    e.`type`,
+                    throw IllegalArgumentException(
+                      s"partition ${e.name} has the unsupported type ${e.`type`}"
+                    )
+                  )
+              }
+            DatasetMetadata(file.schema.fields, VectorMap.from(types))
           }
-          DatasetMetadata(file.schema.fields, VectorMap.from(types))
-        }
-    finally file.close()
-
-  end parse
+      finally file.close()
+    catch
+      case NonFatal(e) =>
+        logger.warn(s"Ignoring ${path}, which can't be read: ${e.getMessage}")
+        None
 
 end DatasetMetadata

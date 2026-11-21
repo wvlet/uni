@@ -209,4 +209,28 @@ class DatasetMetadataTest extends UniTest:
     }
   }
 
+  test("a glob that matches nothing is still an error") {
+    skipInBrowser()
+    val root = newRoot()
+    write(root)
+    intercept[ParquetException] {
+      Parquet.dataset(s"${root.path}/dt=2099-*")
+    }
+    intercept[ParquetException] {
+      Parquet.dataset(root.path, ParquetDatasetOptions.default.withFileExtension(".pq"))
+    }
+  }
+
+  test("ignore an unreadable hint") {
+    skipInBrowser()
+    val root = newRoot()
+    write(root)
+    FileSystem.writeBytes(root.resolve("_common_metadata"), Array[Byte](1, 2, 3))
+    types(root) shouldBe
+      IndexedSeq("dt" -> Some(LogicalType.String), "hour" -> Some(LogicalType.String))
+    // An overwrite replaces it
+    write(root, byDtHour.withMode(ParquetWriteMode.Overwrite))
+    types(root) shouldBe recorded
+  }
+
 end DatasetMetadataTest

@@ -573,7 +573,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       }
       .distinctBy(_.path)
       .sortBy(_.path)
-    if kept.isEmpty && metadata.isDefined then
+    if kept.isEmpty && metadata.exists(!_.rootHasData) then
       // A write without rows leaves only the root files: an empty dataset with the recorded schema
       val m       = metadata.get
       val unknown = options.partitionTypes.keySet -- m.partitionTypes.keySet
@@ -736,8 +736,12 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
           s.get(ObjectUri.parse(l.path))
         case None =>
           FileSystem.readBytes(IOPath.parse(l.path))
-    DatasetMetadata.parse(bytes, l.path)
+    DatasetMetadata.parse(bytes, l.path).map(_.copy(rootHasData = hasDataFiles(listed)))
   }
+
+  private def hasDataFiles(listed: Seq[Listed]): Boolean = listed.exists(l =>
+    l.segments.nonEmpty && !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))
+  )
 
   private[parquet] def readMetadataAsync(
       listed: Seq[Listed],
@@ -746,7 +750,11 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   ): Rx[Option[DatasetMetadata]] =
     metadataListed(listed, options) match
       case Some(l) =>
-        store.getAsync(ObjectUri.parse(l.path)).map(b => DatasetMetadata.parse(b, l.path))
+        store
+          .getAsync(ObjectUri.parse(l.path))
+          .map(b =>
+            DatasetMetadata.parse(b, l.path).map(_.copy(rootHasData = hasDataFiles(listed)))
+          )
       case None =>
         Rx.single(None)
 
