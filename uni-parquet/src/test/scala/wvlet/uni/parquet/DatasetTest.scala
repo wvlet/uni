@@ -56,6 +56,12 @@ class DatasetTest extends UniTest:
     try body(ds)
     finally ds.close()
 
+  // The path below the root, with `/` separators on every platform
+  private def relativePath(ds: ParquetDataset, f: DatasetFile): String = f
+    .path
+    .stripPrefix(ds.root)
+    .replace('\\', '/')
+
   private def skipInBrowser(): Unit =
     if FileSystem.isBrowser then
       skip("Datasets list local directories, which browsers don't have")
@@ -73,7 +79,7 @@ class DatasetTest extends UniTest:
   test("find files and partition columns") {
     skipInBrowser()
     withDataset(datasetDir(lake*)) { ds =>
-      ds.files.map(_.path.stripPrefix(ds.root)) shouldBe
+      ds.files.map(relativePath(ds, _)) shouldBe
         Seq(
           "dt=2026-11-19/country=JP/part-0.parquet",
           "dt=2026-11-19/country=US/part-0.parquet",
@@ -344,7 +350,7 @@ class DatasetTest extends UniTest:
 
   private def globFiles(root: IOPath, pattern: String): Seq[String] =
     val ds = Parquet.dataset(s"${root.path}/${pattern}")
-    try ds.files.map(_.path.stripPrefix(ds.root))
+    try ds.files.map(relativePath(ds, _))
     finally ds.close()
 
   test("read files that match a glob pattern") {

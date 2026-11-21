@@ -588,6 +588,11 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   private[parquet] def isObjectUri(root: String): Boolean = root.contains("://")
 
   /**
+    * Whether local paths are Windows paths. Touches FileSystem first, which sets IOPath.isWindows
+    */
+  private[parquet] def isWindows: Boolean = !FileSystem.isBrowser && IOPath.isWindows
+
+  /**
     * The root of an object prefix, with a trailing `/` so `events` doesn't also match `events_old`
     */
   private[parquet] def objectRoot(root: String): ObjectUri =
@@ -760,11 +765,23 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   end build
 
+  /**
+    * The root with a trailing separator, `\` for a local Windows path, so file paths start with it
+    */
   private def rootNameOf(root: String): String =
-    if root.endsWith("/") then
+    if root.endsWith("/") || (isWindows && root.endsWith("\\")) then
       root
+    else if isWindows && !isObjectUri(root) then
+      s"${root}\\"
     else
       s"${root}/"
+
+  /** A local file path in the platform form: Delta logs and globs use `/` even on Windows */
+  private def localPath(p: String): String =
+    if isWindows then
+      IOPath.parse(p).path
+    else
+      p
 
   private[parquet] def partitionColumn(
       key: String,
@@ -920,13 +937,16 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
             rest
           else
             throw outside
-        unescape(path)
+        // On Windows, file:///C:/a gives /C:/a, which parses as C:\a
+        localPath(unescape(path))
       else
         throw outside
     else if p.startsWith("/") then
       throw ParquetException(s"The Delta table ${tableRoot} lists ${p}, which is not a URI")
-    else
+    else if objects then
       s"${tableRoot}${unescape(p)}"
+    else
+      localPath(s"${tableRoot}${unescape(p)}")
 
   /** Fetches log files: several at a time where threads exist */
   private[parquet] def fetchLog(

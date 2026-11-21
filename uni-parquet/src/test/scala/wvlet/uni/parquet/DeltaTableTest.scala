@@ -252,10 +252,11 @@ class DeltaTableTest extends UniTest:
   test("partition values: empty strings are null, absolute paths, and unsupported types") {
     val schema =
       """{"type":"struct","fields":[{"name":"id","type":"integer","nullable":true,"metadata":{}},{"name":"v","type":"double","nullable":true,"metadata":{}},{"name":"flag","type":"boolean","nullable":true,"metadata":{}},{"name":"n","type":"long","nullable":true,"metadata":{}}]}"""
-    val a    = points(1)
-    val b    = points(2)
-    val dir  = tableDir("x/a%20b.parquet" -> a, "b.parquet" -> b)
-    val absB = s"file://${dir.path}/b.parquet"
+    val a   = points(1)
+    val b   = points(2)
+    val dir = tableDir("x/a%20b.parquet" -> a, "b.parquet" -> b)
+    // file:///C:/... on Windows, file:///tmp/... elsewhere
+    val absB = s"file:///${dir.posixPath.stripPrefix("/")}/b.parquet"
     FileSystem.writeBytes(
       dir.resolve(commit(0)),
       utf8(
@@ -276,7 +277,7 @@ class DeltaTableTest extends UniTest:
     )
     try
       ds.files.map(_.path) shouldBe
-        IndexedSeq(s"${dir.path}/b.parquet", s"${dir.path}/x/a%20b.parquet")
+        IndexedSeq(dir.resolve("b.parquet").path, dir.resolve("x/a%20b.parquet").path)
       ds.readRows()
         .toSeq
         .sortBy(_("id").asInstanceOf[Int])
