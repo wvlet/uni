@@ -38,7 +38,7 @@ val yaml: String = OpenAPI
 ## Mapping
 
 - **Paths:** `/v1/users/:id` becomes `/v1/users/{id}`.
-- **Operations:** `operationId` and `summary` are the method name, so method names must be unique across the routers (a duplicate throws `IllegalArgumentException`). `description` comes from `@Endpoint(description = ...)`, or else from the method's `@description` (`wvlet.uni.mcp.description`, or any annotation named `description` with a `value`, such as Airframe's), and `tags` is the controller's simple name.
+- **Operations:** `operationId` and `summary` are the method name, so method names must be unique across the routers (a duplicate throws `IllegalArgumentException`). `description` comes from `@Endpoint(description = ...)`, or else from the method's `@description` (`wvlet.uni.surface.description`, or any annotation named `description` with a `value`, such as Airframe's), and `tags` is the controller's simple name.
 - **Parameters** follow the router's [request body rules](./server.md#request-body):
   - path parameters are `in: path`;
   - a parameter that takes the whole body becomes the `requestBody` (JSON and MessagePack), and the primitives next to it are `in: query`;

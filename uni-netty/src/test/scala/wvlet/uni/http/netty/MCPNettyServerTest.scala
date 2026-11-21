@@ -13,7 +13,8 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.mcp.{MCPServer, description}
+import wvlet.uni.ai.mcp.MCPServer
+import wvlet.uni.surface.description
 import wvlet.uni.test.UniTest
 
 import java.net.URI

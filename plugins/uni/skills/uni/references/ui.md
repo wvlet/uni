@@ -227,7 +227,7 @@ agent.installWebMcp()                              // WebMCP tools where the bro
   `withRowLabel` doesn't turn on typeahead.
 - A `Dock` is a `dock` node with its panels' components inside, including those of panels
   detached into their own windows. It offers `maximize` (a panel title) and `restore`.
-- `agent.api` is `wvlet.uni.agent.UiAgentApi` (JSON text; every method returns `Rx[String]`), so
+- `agent.api` is `wvlet.uni.ai.agent.UiAgentApi` (JSON text; every method returns `Rx[String]`), so
   `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools. In Electron, serve it to
   the main process with `ElectronRenderer.serve(RPCRouter.of[UiAgentApi](agent.api))` (see
   [electron.md](electron.md)).

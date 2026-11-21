@@ -13,7 +13,7 @@
  */
 package example.server
 
-import wvlet.uni.agent.UiAgentApi
+import wvlet.uni.ai.agent.UiAgentApi
 import wvlet.uni.electron.{ElectronMain, ElectronMainChannelConfig}
 import wvlet.uni.http.{
   Http,
@@ -28,7 +28,7 @@ import wvlet.uni.http.{
 import wvlet.uni.http.ServiceStatus
 import wvlet.uni.json.JSON
 import wvlet.uni.http.rpc.RPCClient
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.ai.mcp.MCPServer
 import wvlet.uni.rx.Rx
 
 import scala.scalajs.js

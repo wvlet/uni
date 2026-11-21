@@ -14,13 +14,13 @@
 package wvlet.uni.ui.agent
 
 import org.scalajs.dom
-import wvlet.uni.agent.UiAgentApi
+import wvlet.uni.ai.agent.UiAgentApi
 import wvlet.uni.dom.all.{div, span}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.{JSONArray, JSONObject, JSONString}
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.ai.mcp.MCPServer
 import wvlet.uni.rx.Rx
 import wvlet.uni.ui.*
 

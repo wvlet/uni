@@ -1,4 +1,4 @@
-# MCP client (`wvlet.uni.mcp.MCPClient`): consume MCP servers over Streamable HTTP
+# MCP client (`wvlet.uni.ai.mcp.MCPClient`): consume MCP servers over Streamable HTTP
 
 Date: 2026-09-11
 
@@ -14,7 +14,7 @@ and `JSON`/`Weaver` (all three platforms), the MCP package's `JsonRpc` JSON-RPC 
 
 1. **Inside `uni`, same package as the server.** Module splits exist only for dependency
    isolation (`uni-netty` ⇒ Netty); like the server, the client adds zero dependencies. Living in
-   `wvlet.uni.mcp` lets it reuse `JsonRpc` (`private[mcp]`) and the `MCPTool`/`inputSchema` types
+   `wvlet.uni.ai.mcp` lets it reuse `JsonRpc` (`private[mcp]`) and the `MCPTool`/`inputSchema` types
    without widening visibility. A stdio client transport remains out of scope: there is no
    cross-platform process-spawn primitive in `uni`, and HTTP already covers remote servers.
 

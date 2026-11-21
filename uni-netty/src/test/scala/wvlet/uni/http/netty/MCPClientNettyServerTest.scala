@@ -14,7 +14,8 @@
 package wvlet.uni.http.netty
 
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
-import wvlet.uni.mcp.{MCP, MCPContent, description}
+import wvlet.uni.ai.mcp.{MCP, MCPContent}
+import wvlet.uni.surface.description
 import wvlet.uni.rx.RxResource
 import wvlet.uni.test.UniTest
 

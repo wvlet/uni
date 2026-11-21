@@ -1,7 +1,8 @@
 package example.mcp
 
 import wvlet.uni.log.LogSupport
-import wvlet.uni.mcp.{description, MCP, MCPServer}
+import wvlet.uni.ai.mcp.{MCP, MCPServer}
+import wvlet.uni.surface.description
 import wvlet.uni.weaver.Weaver
 
 import java.time.Instant

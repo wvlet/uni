@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.mcp
+package wvlet.uni.ai.mcp
 
 import wvlet.uni.json.JSON.{JSONLong, JSONObject, JSONString, JSONValue}
 import wvlet.uni.telemetry.{OperationTrace, TraceContext}

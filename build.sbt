@@ -644,7 +644,7 @@ lazy val exampleMcpServer = project
     buildSettings,
     noPublish,
     name        := "uni-example-mcp-server",
-    description := "Example: a stdio MCP server built with wvlet.uni.mcp",
+    description := "Example: a stdio MCP server built with wvlet.uni.ai.mcp",
     // `sbt run` as an MCP command: fork so stdin reaches the server and stdout carries only
     // protocol messages
     run / fork         := true,

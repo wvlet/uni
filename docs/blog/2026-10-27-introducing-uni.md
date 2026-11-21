@@ -51,7 +51,7 @@ Uni takes the other path: **learn one library, build the whole app.**
 | HTTP client | [`Http.client`](/http/client): sync and async, retries, Server-Sent Events, WebSocket |
 | HTTP server | [REST Server](/http/server): Netty on the JVM (`uni-netty`), Node.js on Scala.js, a native server on Scala Native |
 | Typed RPC | [RPC](/http/rpc): services defined as Scala traits, with type-safe clients |
-| MCP servers | [`wvlet.uni.mcp`](/mcp/): a Scala trait becomes tools that AI agents can call |
+| MCP servers | [`wvlet.uni.ai.mcp`](/mcp/): a Scala trait becomes tools that AI agents can call |
 | Reactive streams | [Rx](/rx/): composable streams and variables for async code and UI state |
 | CLI | [Command Launcher](/cli/launcher), terminal colors, progress bars |
 | Web UI (Scala.js) | [RxElement](/dom/): reactive HTML components driven by `Rx` |
@@ -78,7 +78,7 @@ let `Design` wire it:
 ```scala
 import wvlet.uni.design.Design
 import wvlet.uni.log.LogSupport
-import wvlet.uni.mcp.description
+import wvlet.uni.surface.description
 import wvlet.uni.weaver.Weaver
 
 case class Greeting(name: String, message: String) derives Weaver
@@ -104,7 +104,7 @@ Claude Code or another MCP client can call, with its input schema derived from
 the method signature:
 
 ```scala
-import wvlet.uni.mcp.MCP
+import wvlet.uni.ai.mcp.MCP
 
 @main def greeterMcp(): Unit = MCP.server
   .withName("greeter")

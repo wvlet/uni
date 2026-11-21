@@ -199,7 +199,8 @@ Public methods of the trait become MCP tools. Parameters and results go through
 Weaver, so case classes work.
 
 ```scala
-import wvlet.uni.mcp.{MCP, description}
+import wvlet.uni.ai.mcp.MCP
+import wvlet.uni.surface.description
 
 case class Forecast(city: String, temperature: Double)
 

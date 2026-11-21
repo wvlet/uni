@@ -1,4 +1,4 @@
-# MCP server (`wvlet.uni.mcp`): a thin JSON-RPC layer over the existing RPC dispatcher
+# MCP server (`wvlet.uni.ai.mcp`): a thin JSON-RPC layer over the existing RPC dispatcher
 
 Date: 2026-07-20 · PRs: [#659](https://github.com/wvlet/uni/pull/659) (stdio),
 [#660](https://github.com/wvlet/uni/pull/660) (Streamable HTTP)
@@ -14,7 +14,7 @@ already had Surface (compile-time method metadata), Weaver (JSON codecs), and th
 ## Decisions
 
 1. **Package inside `uni`, not a new module.** Module splits in this repo exist for dependency
-   isolation (uni-netty ⇒ Netty). MCP adds zero dependencies, so it lives at `wvlet.uni.mcp` like
+   isolation (uni-netty ⇒ Netty). MCP adds zero dependencies, so it lives at `wvlet.uni.ai.mcp` like
    `wvlet.uni.electron` does.
 
 2. **`tools/call` dispatches by synthesizing a Uni `Request`** (`POST /{service}/{method}`, body

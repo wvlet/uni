@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.agent
+package wvlet.uni.ai.agent
 
-import wvlet.uni.mcp.description
+import wvlet.uni.surface.description
 import wvlet.uni.rx.Rx
 
 /**

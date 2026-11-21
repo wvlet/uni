@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.mcp
+package wvlet.uni.ai.mcp
 
 import wvlet.uni.util.Result
 
@@ -22,9 +22,9 @@ import java.io.{BufferedReader, InputStreamReader}
 import java.nio.charset.StandardCharsets
 
 /**
-  * JVM stdio transport: reads newline-delimited messages from System.in on the calling thread
-  * (serve blocks until EOF) and writes responses to System.out. Writes are serialized so async
-  * (`Rx`) tool results never interleave.
+  * Scala Native stdio transport: reads newline-delimited messages from System.in on the calling
+  * thread (serve blocks until EOF) and writes responses to System.out. Writes are serialized so
+  * async (`Rx`) tool results never interleave.
   */
 private[mcp] object StdioTransport extends LogSupport:
   private val writeLock = new Object

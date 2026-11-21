@@ -16,11 +16,11 @@ package wvlet.uni.ui.agent
 import wvlet.uni.util.Result
 
 import org.scalajs.dom
-import wvlet.uni.agent.UiAgentApi
+import wvlet.uni.ai.agent.UiAgentApi
 import wvlet.uni.dom.{DomNode, DomRenderer}
 import wvlet.uni.dom.all.data
 import wvlet.uni.json.JSON.{JSONArray, JSONLong, JSONObject}
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.ai.mcp.MCPServer
 import wvlet.uni.rx.{Cancelable, OnCompletion, OnNext, Rx, RxRunner}
 import wvlet.uni.ui.{AlertDialog, ChangeSource}
 

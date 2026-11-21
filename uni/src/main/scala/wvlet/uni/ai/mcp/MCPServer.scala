@@ -11,16 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.mcp
+package wvlet.uni.ai.mcp
 
 import wvlet.uni.http.{HttpHeader, HttpMethod, Request, Response}
 import wvlet.uni.http.{ServiceException, ServiceStatus}
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRoute, RPCRouter}
-import wvlet.uni.json.JSON
+import wvlet.uni.json.{JSON, JsonSchema}
 import wvlet.uni.json.JSON.{JSONArray, JSONBoolean, JSONObject, JSONString, JSONValue}
 import wvlet.uni.log.LogSupport
-import wvlet.uni.mcp.JsonRpc.JsonRpcRequest
+import wvlet.uni.ai.mcp.JsonRpc.JsonRpcRequest
 import wvlet.uni.rx.Rx
+import wvlet.uni.surface.description
 import wvlet.uni.telemetry.{HistogramInstrument, OperationTrace, SpanKind, Telemetry}
 import wvlet.uni.weaver.Weaver
 

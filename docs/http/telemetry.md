@@ -187,7 +187,7 @@ How client spans work:
 as HTTP. On an MCP client it traces each call:
 
 ```scala
-import wvlet.uni.mcp.MCP
+import wvlet.uni.ai.mcp.MCP
 
 trait SearchService:
   def search(query: String): Seq[String]
