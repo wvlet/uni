@@ -21,7 +21,10 @@ import wvlet.uni.json.JSON.{JSONArray, JSONBoolean, JSONObject, JSONString, JSON
 import wvlet.uni.log.LogSupport
 import wvlet.uni.mcp.JsonRpc.JsonRpcRequest
 import wvlet.uni.rx.Rx
+import wvlet.uni.telemetry.{HistogramInstrument, OperationTrace, SpanKind, Telemetry}
 import wvlet.uni.weaver.Weaver
+
+import scala.util.control.NonFatal
 
 /**
   * An MCP (Model Context Protocol) tool derived from a service method.
@@ -62,8 +65,10 @@ case class MCPServer(
     name: String = "uni-mcp",
     version: String = "0.1.0",
     routers: List[RPCRouter] = Nil,
-    allowedOrigins: List[String] = Nil
+    allowedOrigins: List[String] = Nil,
+    telemetry: Telemetry = Telemetry.noop
 ) extends LogSupport:
+  import MCPServer.Outcome
 
   def withName(name: String): MCPServer       = copy(name = name)
   def withVersion(version: String): MCPServer = copy(version = version)
@@ -73,6 +78,15 @@ case class MCPServer(
     * localhost. See [[httpHandler]].
     */
   def withAllowedOrigins(origins: String*): MCPServer = copy(allowedOrigins = origins.toList)
+
+  /**
+    * Trace each JSON-RPC message as a server span named after its method and tool (e.g.
+    * `tools/call search`), and record `mcp.server.operation.duration`, on stdio and HTTP alike. The
+    * caller's `params._meta.traceparent` is the parent, else the current span. Tool arguments and
+    * results are never recorded.
+    */
+  def withTelemetry(telemetry: Telemetry): MCPServer = copy(telemetry = telemetry)
+  def noTelemetry: MCPServer                         = copy(telemetry = Telemetry.noop)
 
   /**
     * Register every public method of service trait T as an MCP tool. Fails fast on tool-name
@@ -118,18 +132,67 @@ case class MCPServer(
     * (notifications produce no response). This is the transport-independent core, usable directly
     * in tests.
     */
-  def handleMessage(line: String): Rx[Option[String]] =
+  def handleMessage(line: String): Rx[Option[String]] = handleMessage(line, None)
+
+  /** [[handleMessage]] for a transport, reported as `network.transport` (`pipe`, `tcp`). */
+  private[mcp] def handleMessage(line: String, transport: Option[String]): Rx[Option[String]] =
     try
       val request = JsonRpc.parseRequest(line)
-      request.id match
-        case None =>
-          // Notifications (e.g. notifications/initialized) expect no response, even on error
-          Rx.single(None)
-        case Some(id) =>
-          handleRequest(id, request)
+      if telemetry.isEnabled then
+        traced(request, transport)
+      else
+        respond(request).map(_.map(_.json))
     catch
       case e: JsonRpc.JsonRpcParseException =>
         Rx.single(Some(JsonRpc.errorResponse(e.id, e.code, e.message)))
+
+  private def respond(request: JsonRpcRequest): Rx[Option[Outcome]] =
+    request.id match
+      case None =>
+        // Notifications (e.g. notifications/initialized) expect no response, even on error
+        Rx.single(None)
+      case Some(id) =>
+        handleRequest(id, request).map(Some(_))
+
+  private def traced(request: JsonRpcRequest, transport: Option[String]): Rx[Option[String]] =
+    // Names come from the request, so keep metric attributes to known methods and tools
+    val method =
+      if MCPServer.KnownMethods.contains(request.method) then
+        request.method
+      else
+        "_OTHER"
+    val tool = Option
+      .when(method == "tools/call")(MCPTelemetry.toolNameOf(request.params))
+      .flatten
+      .filter(toolsByName.contains)
+    val parent = MCPTelemetry.contextOf(request.params).orElse(Telemetry.currentContext)
+    val trace  = OperationTrace(
+      telemetry,
+      telemetry.startSpan(MCPTelemetry.spanName(method, tool), SpanKind.Server, parent),
+      HistogramInstrument.McpServerOperationDuration
+    )
+    MCPTelemetry.describe(trace, method, request.id, tool, transport)
+    try
+      // Current while a tool runs its synchronous part, so the tool's own calls nest under it
+      val rx = Telemetry.withSpan(trace.span)(respond(request))
+      trace.endWith(
+        rx.map { outcome =>
+          outcome.foreach { o =>
+            o.errorCode.foreach(MCPTelemetry.recordErrorCode(trace, _))
+            if o.toolError then
+              MCPTelemetry.recordToolError(trace)
+          }
+          // One response per message: end before it is written
+          trace.end()
+          outcome.map(_.json)
+        }
+      )
+    catch
+      case NonFatal(e) =>
+        trace.fail(e)
+        throw e
+
+  end traced
 
   // MCP reports tool failures to the model as isError results so it can correct its call, so the
   // message is part of the protocol here (and the stdio transport is local to the client).
@@ -137,25 +200,23 @@ case class MCPServer(
   private lazy val toolsByName: Map[String, MCPTool] = tools.map(t => t.name -> t).toMap
   private val emptyObject: JSONObject                = JSONObject(Seq.empty)
 
-  private def handleRequest(id: JSONValue, request: JsonRpcRequest): Rx[Option[String]] =
+  private def handleRequest(id: JSONValue, request: JsonRpcRequest): Rx[Outcome] =
     try
       request.method match
         case "initialize" =>
-          Rx.single(Some(JsonRpc.resultResponse(id, initializeResult(request.params))))
+          Rx.single(Outcome.result(id, initializeResult(request.params)))
         case "ping" =>
-          Rx.single(Some(JsonRpc.resultResponse(id, emptyObject)))
+          Rx.single(Outcome.result(id, emptyObject))
         case "tools/list" =>
-          Rx.single(Some(JsonRpc.resultResponse(id, toolsListResult)))
+          Rx.single(Outcome.result(id, toolsListResult))
         case "tools/call" =>
           handleToolCall(id, request.params)
         case other =>
-          Rx.single(
-            Some(JsonRpc.errorResponse(id, JsonRpc.MethodNotFound, s"Unknown method: ${other}"))
-          )
+          Rx.single(Outcome.error(id, JsonRpc.MethodNotFound, s"Unknown method: ${other}"))
     catch
       case e: Exception =>
         warn(s"Unexpected error while handling '${request.method}'", e)
-        Rx.single(Some(JsonRpc.errorResponse(id, JsonRpc.InternalError, s"${e.getMessage}")))
+        Rx.single(Outcome.error(id, JsonRpc.InternalError, s"${e.getMessage}"))
 
   private def initializeResult(params: Option[JSONObject]): JSONObject =
     val requestedVersion = params
@@ -192,7 +253,7 @@ case class MCPServer(
     )
   )
 
-  private def handleToolCall(id: JSONValue, params: Option[JSONObject]): Rx[Option[String]] =
+  private def handleToolCall(id: JSONValue, params: Option[JSONObject]): Rx[Outcome] =
     val toolName = params
       .flatMap(_.get("name"))
       .collect { case JSONString(v) =>
@@ -201,12 +262,10 @@ case class MCPServer(
     toolName.flatMap(toolsByName.get) match
       case None =>
         Rx.single(
-          Some(
-            JsonRpc.errorResponse(
-              id,
-              JsonRpc.InvalidParams,
-              s"Unknown tool: ${toolName.getOrElse("(missing 'name' parameter)")}"
-            )
+          Outcome.error(
+            id,
+            JsonRpc.InvalidParams,
+            s"Unknown tool: ${toolName.getOrElse("(missing 'name' parameter)")}"
           )
         )
       case Some(tool) =>
@@ -223,14 +282,14 @@ case class MCPServer(
         )
         dispatcher
           .dispatch(request)
-          .map(response => Some(toolCallResponse(id, response)))
+          .map(response => toolCallResponse(id, response))
           .recover { case e =>
-            Some(JsonRpc.errorResponse(id, JsonRpc.InternalError, s"${e.getMessage}"))
+            Outcome.error(id, JsonRpc.InternalError, s"${e.getMessage}")
           }
 
   end handleToolCall
 
-  private def toolCallResponse(id: JSONValue, response: Response): String =
+  private def toolCallResponse(id: JSONValue, response: Response): Outcome =
     val isSuccess = response
       .header(HttpHeader.XRPCStatus)
       .contains(ServiceStatus.SUCCESS_S0.code.toString)
@@ -251,16 +310,16 @@ case class MCPServer(
               body
         else
           body
-      JsonRpc.resultResponse(id, toolResult(text, isError = false))
+      Outcome.result(id, toolResult(text, isError = false))
     else
       val e = ServiceException.fromResponse(response)
       e.status match
         case ServiceStatus.INVALID_REQUEST_U1 | ServiceStatus.INVALID_ARGUMENT_U2 =>
           // Malformed arguments are protocol-level errors per the MCP spec
-          JsonRpc.errorResponse(id, JsonRpc.InvalidParams, e.message)
+          Outcome.error(id, JsonRpc.InvalidParams, e.message)
         case _ =>
           // Tool execution failures are reported as results with isError = true
-          JsonRpc.resultResponse(id, toolResult(e.message, isError = true))
+          Outcome.result(id, toolResult(e.message, isError = true), toolError = true)
 
   end toolCallResponse
 
@@ -283,7 +342,7 @@ case class MCPServer(
     // Force tool derivation before serving so invalid setups fail on startup
     val toolCount = toolsByName.size
     debug(s"Serving ${toolCount} MCP tool(s) over stdio")
-    StdioTransport.serve(handleMessage)
+    StdioTransport.serve(handleMessage(_, Some("pipe")))
 
   /**
     * MCP Streamable HTTP transport as an [[wvlet.uni.http.RxHttpHandler]]: mount it on any uni HTTP
@@ -301,6 +360,36 @@ case class MCPServer(
 end MCPServer
 
 object MCPServer:
+  // The methods this server answers; others are traced as _OTHER
+  private val KnownMethods = Set(
+    "initialize",
+    "ping",
+    "tools/list",
+    "tools/call",
+    "notifications/initialized",
+    "notifications/cancelled",
+    "notifications/progress",
+    "notifications/roots/list_changed"
+  )
+
+  /** A response line, with what telemetry reports about it. */
+  private case class Outcome(
+      json: String,
+      errorCode: Option[Int] = None,
+      toolError: Boolean = false
+  )
+
+  private object Outcome:
+    def result(id: JSONValue, result: JSONValue, toolError: Boolean = false): Outcome = Outcome(
+      JsonRpc.resultResponse(id, result),
+      toolError = toolError
+    )
+
+    def error(id: JSONValue, code: Int, message: String): Outcome = Outcome(
+      JsonRpc.errorResponse(id, code, message),
+      Some(code)
+    )
+
   val LatestProtocolVersion: String          = "2025-06-18"
   val SupportedProtocolVersions: Seq[String] = Seq("2025-06-18", "2025-03-26")
 

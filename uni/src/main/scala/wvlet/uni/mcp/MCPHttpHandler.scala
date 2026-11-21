@@ -43,7 +43,7 @@ private[mcp] class MCPHttpHandler(server: MCPServer) extends RxHttpHandler:
           Rx.single(Response.badRequest(s"Unsupported MCP protocol version: ${v}"))
         case _ =>
           server
-            .handleMessage(request.content.asString.getOrElse(""))
+            .handleMessage(request.content.asString.getOrElse(""), Some("tcp"))
             .map {
               case Some(json) =>
                 Response.ok.withJsonContent(json)

@@ -1,5 +1,5 @@
 ---
-description: Report traces and HTTP duration metrics from Uni services to Datadog or any OpenTelemetry backend, with a JVM agent or with Uni's built-in OTLP tracing on JVM, Scala Native, and Scala.js.
+description: Report traces and HTTP, MCP, and LLM metrics from Uni services to Datadog or any OpenTelemetry backend, with a JVM agent or with Uni's built-in OTLP tracing on JVM, Scala Native, and Scala.js.
 ---
 
 # Telemetry
@@ -181,17 +181,97 @@ How client spans work:
   request through several services reads as one trace.
 - `url.full` leaves out the query string and any user info in the URL.
 
+### MCP spans
+
+`withTelemetry` on an MCP server traces each JSON-RPC message, over stdio as well
+as HTTP. On an MCP client it traces each call:
+
+```scala
+import wvlet.uni.mcp.MCP
+
+trait SearchService:
+  def search(query: String): Seq[String]
+
+class SearchServiceImpl extends SearchService:
+  def search(query: String): Seq[String] = Seq.empty
+
+val mcpServer = MCP.server.withTools[SearchService](SearchServiceImpl()).withTelemetry(telemetry)
+val mcpClient = MCP.client.withTelemetry(telemetry).connect("http://localhost:8080/mcp")
+```
+
+The spans follow the OpenTelemetry
+[MCP conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md):
+
+- A span is named after the method and tool, e.g. `tools/call search`, with
+  `mcp.method.name`, `gen_ai.tool.name`, `jsonrpc.request.id`, and
+  `network.transport` (`pipe` for stdio, `tcp` for HTTP).
+- The client writes its `traceparent` into the request's `params._meta`, and the
+  server uses it as the parent, so the two join on any transport. A message
+  without one becomes a child of the current span, such as the HTTP server span.
+- The server span is current while a tool runs, so the tool's own HTTP and LLM
+  calls nest under it.
+- A JSON-RPC error sets `rpc.status_code` and `error.type` to its code; its
+  message is left out, since it can echo arguments. A tool result with
+  `isError` sets `error.type` to `tool_error`.
+- A method the server doesn't know is traced as `_OTHER`, and an unknown tool
+  gets no `gen_ai.tool.name`, so a caller can't fill metrics with made-up names.
+- Tool arguments and results are never recorded.
+
+### LLM spans
+
+An LLM vendor client traces its calls when the HTTP client you give it has
+telemetry. Keep `noRetry`, as the default client does, since a retried call is
+billed again:
+
+```scala
+import wvlet.uni.ai.anthropic.*
+
+val claude = AnthropicClient(
+  AnthropicConfig.fromEnv,
+  Http.client.noRetry.withTelemetry(telemetry).newAsyncClient
+)
+```
+
+The spans follow the OpenTelemetry
+[GenAI conventions](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/client-inference.md):
+
+- A span is named after the operation and model, e.g. `chat claude-sonnet-5-5`
+  or `generate_content gemini-2.5-flash`, and is the parent of the call's HTTP
+  span.
+- `gen_ai.provider.name` names the host: `anthropic`, `openai`, `gcp.gemini`,
+  `gcp.vertex_ai`, or `aws.bedrock`. An OpenAI-compatible server reports
+  `openai`, and `server.address` names it.
+- Attributes: `gen_ai.request.model`, `gen_ai.request.max_tokens`,
+  `temperature`, and `top_p`, `gen_ai.response.model`, `gen_ai.response.id`,
+  `gen_ai.response.finish_reasons` (joined with `,` when there are several
+  choices), and `gen_ai.usage.input_tokens`, `output_tokens`, and the cache and
+  reasoning token counts.
+- A streaming call's span ends when the stream ends, fails, or is cancelled.
+  Usage comes from the stream's final events.
+- A failed call sets `error.type` to the vendor's error type, e.g.
+  `overloaded_error`, or else to the HTTP status. An error event inside a
+  stream, or a failed OpenAI response, marks the span failed too.
+- Prompts, messages, system instructions, and completions are never recorded.
+- The span starts when the returned `Rx` runs, as a child of the span that was
+  current when you called the method.
+
 ### Metrics
 
 With an OTLP exporter, the server filter and HTTP client also record duration
 histograms, following the OpenTelemetry
 [HTTP metrics](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/)
+conventions. MCP and LLM calls add their own, following the MCP and GenAI
 conventions:
 
 | Metric | Unit | Attributes |
 |--------|------|------------|
 | `http.server.request.duration` | s | `http.request.method`, `http.route` (for `@Endpoint` methods), `rpc.system`, `rpc.service`, and `rpc.method` (for RPC calls), `http.response.status_code`, `error.type` |
 | `http.client.request.duration` | s | `http.request.method`, `server.address`, `server.port`, `http.response.status_code`, `error.type` |
+| `mcp.server.operation.duration` | s | `mcp.method.name`, `gen_ai.operation.name`, `gen_ai.tool.name`, `network.transport`, `rpc.status_code`, `error.type` |
+| `mcp.client.operation.duration` | s | the same, plus `server.address` and `server.port` |
+| `gen_ai.client.inference.duration` | s | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `server.address`, `server.port`, `error.type` |
+| `gen_ai.client.inference.operation.input_tokens` | {token} | the same, without `error.type` |
+| `gen_ai.client.inference.operation.output_tokens` | {token} | the same, without `error.type` |
 
 What is recorded:
 

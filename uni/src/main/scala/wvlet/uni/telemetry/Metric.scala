@@ -44,6 +44,59 @@ object HistogramInstrument:
     "Duration of HTTP client requests"
   )
 
+  /** The OpenTelemetry GenAI advice for inference durations in seconds. */
+  val GenAiDurationSecondsBoundaries: IndexedSeq[Double] = IndexedSeq(
+    0.01, 0.02, 0.04, 0.08, 0.16, 0.32, 0.64, 1.28, 2.56, 5.12, 10.24, 20.48, 40.96, 81.92
+  )
+
+  /** The OpenTelemetry GenAI advice for token counts. */
+  val TokenCountBoundaries: IndexedSeq[Double] = IndexedSeq(
+    1.0, 4.0, 16.0, 64.0, 256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0,
+    16777216.0, 67108864.0
+  )
+
+  /** The OpenTelemetry MCP advice for operation durations in seconds. */
+  val McpDurationSecondsBoundaries: IndexedSeq[Double] = IndexedSeq(
+    0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0
+  )
+
+  val GenAiClientInferenceDuration: HistogramInstrument = HistogramInstrument(
+    "gen_ai.client.inference.duration",
+    "s",
+    "GenAI client inference operation duration",
+    GenAiDurationSecondsBoundaries
+  )
+
+  val GenAiClientInferenceInputTokens: HistogramInstrument = HistogramInstrument(
+    "gen_ai.client.inference.operation.input_tokens",
+    "{token}",
+    "Input tokens per GenAI client inference operation",
+    TokenCountBoundaries
+  )
+
+  val GenAiClientInferenceOutputTokens: HistogramInstrument = HistogramInstrument(
+    "gen_ai.client.inference.operation.output_tokens",
+    "{token}",
+    "Output tokens per GenAI client inference operation",
+    TokenCountBoundaries
+  )
+
+  val McpClientOperationDuration: HistogramInstrument = HistogramInstrument(
+    "mcp.client.operation.duration",
+    "s",
+    "Duration of MCP requests as seen by the client",
+    McpDurationSecondsBoundaries
+  )
+
+  val McpServerOperationDuration: HistogramInstrument = HistogramInstrument(
+    "mcp.server.operation.duration",
+    "s",
+    "Duration of MCP requests as seen by the server",
+    McpDurationSecondsBoundaries
+  )
+
+end HistogramInstrument
+
 /**
   * The values one attribute set of a histogram received during [[startEpochNanos]] to
   * [[endEpochNanos]].

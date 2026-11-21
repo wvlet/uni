@@ -105,6 +105,12 @@ type (`overloaded_error`, `rate_limit_error`, `RESOURCE_EXHAUSTED`, `ThrottlingE
 body. The clients don't retry: a retried completion is billed twice, so retry where you know that
 is safe, with [Retry](../control/retry).
 
+To trace the calls, give a client an HTTP client with telemetry, and keep `noRetry`:
+`AnthropicClient(config, Http.client.noRetry.withTelemetry(telemetry).newAsyncClient)`. Each call
+is then an OpenTelemetry GenAI span such as `chat claude-sonnet-5-5`, with the model, token usage,
+and finish reasons, and the `gen_ai.client.inference.*` duration and token metrics. Prompts and
+completions are never recorded. See [Telemetry](../http/telemetry#llm-spans).
+
 ## Converting between vendors
 
 `wvlet.uni.ai` has a vendor-neutral model: `LlmRequest`, `LlmResponse`, and a stream of
