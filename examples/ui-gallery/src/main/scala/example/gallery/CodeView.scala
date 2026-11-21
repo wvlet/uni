@@ -18,16 +18,10 @@ import scala.util.matching.Regex
   * changed flash.
   */
 class CodeView(story: Rx[Story], link: Link) extends RxElement:
-  private val copied                    = Rx.variable(false)
   private var root: Option[dom.Element] = None
   private var subscription              = Cancelable.empty
   // The code shown last, to flash the lines a playground change rewrote
   private var previous: (String, Seq[String]) = ("", Seq.empty)
-
-  private def copy(code: String): Unit =
-    dom.window.navigator.clipboard.writeText(code)
-    copied := true
-    dom.window.setTimeout(() => copied := false, 1500)
 
   override def onMount(node: Any): Unit =
     root = Some(node.asInstanceOf[dom.Element])
@@ -105,17 +99,10 @@ class CodeView(story: Rx[Story], link: Link) extends RxElement:
               span(cls -> "code-file", Icons.file, src.file.split('/').last),
               span(cls -> "code-lines", s"L${src.startLine}–${src.endLine}"),
               div(cls  -> "code-toolbar__spacer"),
-              Tooltip(
-                "Copy the code",
-                trigger = IconButton(
-                  "Copy the code",
-                  copied.map(c =>
-                    if c then
-                      Icons.check
-                    else
-                      Icons.copy
-                  )
-                ).onClick(() => s.code.run(c => copy(c)).cancel)
+              CopyButton(() =>
+                var c = ""
+                s.code.run(c = _).cancel
+                c
               ),
               Tooltip(
                 "Open these lines on GitHub",
@@ -135,6 +122,69 @@ class CodeView(story: Rx[Story], link: Link) extends RxElement:
   )
 
 end CodeView
+
+/** Copies `code()` to the clipboard, and shows a check mark for a moment after. */
+class CopyButton(code: () => String) extends RxElement:
+  private val copied = Rx.variable(false)
+
+  private def copy(): Unit =
+    dom.window.navigator.clipboard.writeText(code())
+    copied := true
+    dom.window.setTimeout(() => copied := false, 1500)
+
+  override def render: RxElement = Tooltip(
+    "Copy the code",
+    trigger = IconButton(
+      "Copy the code",
+      copied.map(c =>
+        if c then
+          Icons.check
+        else
+          Icons.copy
+      )
+    ).onClick(() => copy())
+  )
+
+end CopyButton
+
+/**
+  * A file to copy as it is, such as `build.sbt` or `index.html`: its name, a copy button, and the
+  * text, with Scala highlighting for `.scala` and `.sbt` files.
+  */
+class CodeBlock(file: String, text: String) extends RxElement:
+  private def scalaLike: Boolean = file.endsWith(".scala") || file.endsWith(".sbt")
+
+  override def render: RxElement = div(
+    cls -> "code-view code-snippet",
+    div(
+      cls -> "code-toolbar",
+      span(cls -> "code-file", Icons.file, file),
+      div(cls  -> "code-toolbar__spacer"),
+      CopyButton(() => text)
+    ),
+    pre(
+      cls -> "code-block",
+      code(
+        text
+          .split("\n", -1)
+          .toSeq
+          .map(l =>
+            span(
+              cls -> "code-line",
+              span(
+                cls -> "code-text",
+                if scalaLike then
+                  ScalaHighlight.tokens(l).map(_.node)
+                else
+                  Seq[DomNode](l)
+              )
+            )
+          )
+      )
+    )
+  )
+
+end CodeBlock
 
 /** Just enough Scala highlighting for short story snippets: one line at a time, no parser. */
 object ScalaHighlight:

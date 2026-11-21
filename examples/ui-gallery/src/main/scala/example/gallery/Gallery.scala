@@ -79,7 +79,12 @@ class Gallery(
         main(
           cls -> "gallery-main aurora",
           // A new page for a new component; moving to an example on the same page only scrolls
-          current.map(r => PageView(r.page, r.example, mode.get))
+          current.map(r =>
+            if r.page.guide then
+              StartView(r.page, mode.get)
+            else
+              PageView(r.page, r.example, mode.get)
+          )
         ),
         CommandPalette(paletteOpen, Rx.const(commands))
           .withPlaceholder("Search components and examples")
@@ -160,7 +165,10 @@ class Gallery(
         div(cls -> "sidebar-title", "Uni UI Gallery"),
         div(
           cls -> "sidebar-sub",
-          s"${Pages.all.size} components · ${Pages.stories.size} live examples"
+          s"${Pages.components.size} components · ${Pages
+              .components
+              .flatMap(_.examples)
+              .size} live examples"
         )
       ),
       Tooltip(
@@ -177,7 +185,7 @@ class Gallery(
       span("Search components"),
       Kbd("⌘K")
     ),
-    div(cls -> "sidebar-overline", "Components"),
+    div(cls -> "sidebar-overline", "Pages"),
     Tree(
       Rx.const(Pages.groups.map(NavNode.Section(_))),
       children = {
@@ -193,7 +201,7 @@ class Gallery(
         case NavNode.Leaf(p) =>
           span(cls -> "nav-story", p.name, span(cls -> "nav-count", p.examples.size.toString))
       }
-    ).withLabel("Components")
+    ).withLabel("Pages")
       .withRowHeight(32)
       .withExpanded(Rx.variable(Pages.groups.map(g => s"group:${g.id}").toSet))
       .withSelected(selectedKey)

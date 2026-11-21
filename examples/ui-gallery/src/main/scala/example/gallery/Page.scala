@@ -21,7 +21,9 @@ case class ComponentPage(
     examples: Seq[Story],
     api: Seq[ApiEntry],
     a11y: Seq[A11yCheck] = Nil,
-    a11yNote: String = ""
+    a11yNote: String = "",
+    // A guide page, such as Get started: its own sections instead of Parts, API, and Accessibility
+    guide: Boolean = false
 ):
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
 
@@ -34,14 +36,16 @@ case class PageRoute(page: ComponentPage, example: Option[Story]):
 
 object Pages:
   val groups: Seq[PageGroup] = Seq(
+    PageGroup("start", "Start here", "", StartStories.pages),
     PageGroup("controls", "Controls", "controls", ControlStories.pages),
     PageGroup("overlays", "Overlays", "overlays", OverlayStories.pages),
     PageGroup("collections", "Collections", "collections", CollectionStories.pages),
     PageGroup("layout", "Layout & Dock", "layout", LayoutStories.pages)
   )
 
-  val all: Seq[ComponentPage] = groups.flatMap(_.pages)
-  val stories: Seq[Story]     = all.flatMap(_.examples)
+  val all: Seq[ComponentPage]        = groups.flatMap(_.pages)
+  val components: Seq[ComponentPage] = all.filterNot(_.guide)
+  val stories: Seq[Story]            = all.flatMap(_.examples)
 
   def find(id: String): Option[ComponentPage]         = all.find(_.id == id)
   def story(id: String): Option[Story]                = stories.find(_.id == id)
@@ -74,6 +78,7 @@ object Pages:
       .flatMap(s => pageOf(s).map(p => PageRoute(p, Some(s))))
       .orElse(find(id).map(p => PageRoute(p, None)))
 
+  /** The page a URL without a hash opens: Get started. */
   def first: PageRoute = PageRoute(all.head, None)
 
 end Pages

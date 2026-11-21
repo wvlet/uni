@@ -8,7 +8,9 @@ aside: false
 **[Open the gallery →](/gallery/index.html){target="_self"}** It is a full-window app, best on its
 own page. A smaller copy is embedded below.
 
-Every uni-ui component has a page in the gallery: several live examples, each next to the Scala code that
+The gallery opens on **Get started**, which sets up a Scala.js project with Uni: the build files,
+the stylesheet, the imports, and a first app shown live next to its code. After it, every uni-ui
+component has a page: several live examples, each next to the Scala code that
 renders it, then the component's parts, API, and an accessibility check. Pick a component in the
 sidebar or press ⌘K (Ctrl+K) to search components and examples.
 
@@ -29,7 +31,7 @@ sidebar or press ⌘K (Ctrl+K) to search components and examples.
   uni-ui's own tests use, run on the live examples. Turn on keys to have it press the keys the
   pattern requires too.
 
-<UiGallery height="780px" />
+<UiGallery story="button" height="780px" />
 
 The gallery is built with uni-ui itself. The sidebar is a `Tree` in a `FoldablePane`, the rail's
 buttons show `Tooltip`s, the code sits in a second `FoldablePane` with a `Splitter`, the search
