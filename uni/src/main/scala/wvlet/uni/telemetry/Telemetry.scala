@@ -18,15 +18,16 @@ import wvlet.uni.log.LogSupport
 import scala.util.control.NonFatal
 
 /**
-  * Starts spans and sends them to an exporter. Uni's HTTP server
+  * Starts spans and records metrics, and sends them to exporters. Uni's HTTP server
   * ([[wvlet.uni.http.TelemetryFilter]]) and HTTP client (`HttpClientConfig.withTelemetry`) use it
   * to trace requests with no code in the handlers.
   *
-  * `Telemetry()` with no exporter is disabled: it starts no spans and costs nothing per request.
+  * `Telemetry()` with no exporter is disabled: it starts no spans and costs nothing per request. To
+  * report to an OTLP endpoint such as the Datadog Agent:
   * {{{
   * val telemetry = Telemetry()
   *   .withServiceName("orders")
-  *   .withExporter(SpanExporter.log())
+  *   .withOtlp(OtlpConfig().withEndpoint("http://localhost:4318"))
   * }}}
   *
   * @param serviceName
@@ -38,10 +39,12 @@ import scala.util.control.NonFatal
 case class Telemetry(
     serviceName: String = "unknown_service",
     exporter: SpanExporter = SpanExporter.none,
+    metricExporter: MetricExporter = MetricExporter.none,
     sampleRatio: Double = 1.0,
     resourceAttributes: Map[String, AttributeValue] = Map.empty,
     clock: TelemetryClock = TelemetryClock.system
-) extends LogSupport:
+) extends AutoCloseable
+    with LogSupport:
   require(
     sampleRatio >= 0.0 && sampleRatio <= 1.0,
     s"sampleRatio must be in [0, 1]: ${sampleRatio}"
@@ -50,21 +53,61 @@ case class Telemetry(
   def withServiceName(name: String): Telemetry        = copy(serviceName = name)
   def withExporter(exporter: SpanExporter): Telemetry = copy(exporter = exporter)
   def noExporter: Telemetry                           = copy(exporter = SpanExporter.none)
-  def withSampleRatio(ratio: Double): Telemetry       = copy(sampleRatio = ratio)
+
+  def withMetricExporter(exporter: MetricExporter): Telemetry = copy(metricExporter = exporter)
+  def noMetricExporter: Telemetry = copy(metricExporter = MetricExporter.none)
+
+  /**
+    * Send spans and metrics to an OTLP/HTTP endpoint, e.g. the Datadog Agent's OTLP receiver or an
+    * OpenTelemetry Collector. Starts the exporter's flush timer; [[close]] stops it and sends what
+    * is left.
+    */
+  def withOtlp(config: wvlet.uni.telemetry.otlp.OtlpConfig): Telemetry =
+    val otlp = wvlet.uni.telemetry.otlp.OtlpExporter(config)
+    copy(exporter = otlp, metricExporter = otlp)
+
+  def withSampleRatio(ratio: Double): Telemetry = copy(sampleRatio = ratio)
   def withResourceAttribute(key: String, value: AttributeValue): Telemetry = copy(
     resourceAttributes = resourceAttributes.updated(key, value)
   )
 
   def withClock(clock: TelemetryClock): Telemetry = copy(clock = clock)
 
-  /** False when no exporter is set; then no spans are started. */
-  def isEnabled: Boolean = exporter ne SpanExporter.none
+  /** True when spans are exported. */
+  def isTracingEnabled: Boolean = exporter ne SpanExporter.none
+
+  /** True when metrics are exported. */
+  def isMetricsEnabled: Boolean = metricExporter ne MetricExporter.none
+
+  /** False when neither spans nor metrics are exported; then nothing is recorded. */
+  def isEnabled: Boolean = isTracingEnabled || isMetricsEnabled
+
+  /**
+    * Record a histogram measurement, e.g. a duration in seconds. Does nothing without a metric
+    * exporter.
+    */
+  def recordHistogram(
+      instrument: HistogramInstrument,
+      value: Double,
+      attributes: Map[String, AttributeValue] = Map.empty
+  ): Unit =
+    if isMetricsEnabled then
+      try
+        metricExporter.recordHistogram(resource, instrument, value, attributes)
+      catch
+        case NonFatal(e) =>
+          warn(s"Failed to record ${instrument.name}: ${e.getMessage}")
+
+  /** Close the exporters, which flushes what they buffer. */
+  override def close(): Unit =
+    exporter.close()
+    if metricExporter ne exporter then
+      metricExporter.close()
 
   /** The resource attributes every span of this service carries, including `service.name`. */
-  def resource: Map[String, AttributeValue] = resourceAttributes.updated(
-    "service.name",
-    serviceName
-  )
+  lazy val resource: Map[String, AttributeValue] = resourceAttributes
+    .updated("service.name", serviceName)
+    .updated("telemetry.sdk.name", "wvlet.uni")
 
   /**
     * Start a span. With no `parent`, the current span ([[Telemetry.currentSpan]]) is the parent;
@@ -75,11 +118,13 @@ case class Telemetry(
       kind: SpanKind = SpanKind.Internal,
       parent: Option[TraceContext] = Telemetry.currentContext
   ): Span =
-    if !isEnabled then
-      // No ids, no random draws: a disabled instance passes the parent through, if any
-      parent.map(Span.nonRecording).getOrElse(Telemetry.disabledSpan)
+    // An invalid parent comes from an instance that records metrics only; it starts no trace
+    val validParent = parent.filter(_.isValid)
+    if !isTracingEnabled then
+      // No ids, no random draws: pass the parent through, if any
+      validParent.map(Span.nonRecording).getOrElse(Telemetry.disabledSpan)
     else
-      startEnabledSpan(name, kind, parent)
+      startEnabledSpan(name, kind, validParent)
 
   private def startEnabledSpan(name: String, kind: SpanKind, parent: Option[TraceContext]): Span =
     val context =
@@ -99,7 +144,8 @@ case class Telemetry(
         clock.epochNanos,
         clock.nanoTime,
         clock,
-        safeExporter
+        safeExporter,
+        resource
       )
 
   /** Run `body` in a new span, which ends when `body` returns or throws. */
@@ -137,9 +183,7 @@ object Telemetry:
 
   // The span of a disabled instance with no parent. Its all-zero ids are invalid, so it is never
   // propagated: only enabled clients send traceparent
-  private val disabledSpan: Span = Span.nonRecording(
-    TraceContext("0" * 32, "0" * 16, sampled = false)
-  )
+  private val disabledSpan: Span = Span.nonRecording(TraceContext.invalid)
 
   /**
     * The span running on this thread, if any. The HTTP server sets it while a handler runs its

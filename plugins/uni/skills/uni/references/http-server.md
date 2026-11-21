@@ -209,13 +209,18 @@ Http
 `TelemetryFilter` traces each request as a server span: an RPC call is named
 `Service/method`, an `@Endpoint` call `GET /route/:template`. A client with
 `withTelemetry` traces its calls and sends W3C `traceparent`, so calls made inside
-a traced request join its trace. A `Telemetry` without an exporter is disabled:
+a traced request join its trace. `withOtlp` sends spans and
+`http.server/client.request.duration` histograms as OTLP/HTTP JSON, e.g. to the
+Datadog Agent's OTLP receiver. A `Telemetry` without an exporter is disabled:
 
 ```scala
 import wvlet.uni.http.TelemetryFilter
-import wvlet.uni.telemetry.{SpanExporter, Telemetry}
+import wvlet.uni.telemetry.Telemetry
+import wvlet.uni.telemetry.otlp.OtlpConfig
 
-val telemetry = Telemetry().withServiceName("orders").withExporter(SpanExporter.log())
+val telemetry = Telemetry()
+  .withServiceName("orders")
+  .withOtlp(OtlpConfig().withEndpoint("http://localhost:4318"))
 
 Http.server.withPort(8080).withFilter(TelemetryFilter(telemetry)).withRxHandler(handler)
 val tracedClient = Http.client.withTelemetry(telemetry).newSyncClient
@@ -226,6 +231,7 @@ val tracedClient = Http.client.withTelemetry(telemetry).newSyncClient
 - `Telemetry.currentSpan` is set while the handler's synchronous part runs;
   pass a span to `Rx` callbacks with `Telemetry.withSpan(span) { ... }`.
 - `telemetry.trace("name") { span => ... }` wraps your own code in a span.
+- Call `telemetry.close()` at shutdown to send what is buffered.
 
 ## Lifecycle
 

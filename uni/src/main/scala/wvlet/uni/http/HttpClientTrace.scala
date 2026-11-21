@@ -14,15 +14,36 @@
 package wvlet.uni.http
 
 import wvlet.uni.rx.Rx
-import wvlet.uni.telemetry.{Span, SpanKind, SpanStatus, Telemetry, TraceContext}
+import wvlet.uni.telemetry.{
+  AttributeValue,
+  HistogramInstrument,
+  Span,
+  SpanKind,
+  SpanStatus,
+  Telemetry,
+  TraceContext
+}
+
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
-  * The client span of one logical HTTP call. Retries and redirects are attempts of the same call:
-  * each attempt after the first is a span event, and the span takes the final response's status, as
-  * in the OpenTelemetry HTTP client conventions for a span per call.
+  * The client span and duration metric of one logical HTTP call. Retries and redirects are attempts
+  * of the same call: each attempt after the first is a span event, and the span takes the final
+  * response's status, as in the OpenTelemetry HTTP client conventions for a span per call.
   */
-private[http] class HttpClientTrace(val span: Span, val request: HttpRequest):
+private[http] class HttpClientTrace(
+    telemetry: Telemetry,
+    val span: Span,
+    val request: HttpRequest,
+    baseAttributes: Map[String, AttributeValue]
+):
+  private val startNanos = telemetry.clock.nanoTime
+  private val ended      = AtomicBoolean(false)
+  @volatile
   private var attempts = 0
+
+  @volatile
+  private var metricAttributes = baseAttributes
 
   /** Called before each attempt, including retries and redirects. */
   def onAttempt(): Unit =
@@ -37,10 +58,15 @@ private[http] class HttpClientTrace(val span: Span, val request: HttpRequest):
   def onResponse(response: HttpResponse): Unit =
     val code = response.status.code
     span.setAttribute("http.response.status_code", code.toLong)
+    metricAttributes = metricAttributes.updated("http.response.status_code", code.toLong)
     // Client spans fail on any 4xx or 5xx, which the caller sees as an error
     if code >= 400 then
-      span.setAttribute("error.type", code.toString)
+      setErrorType(code.toString)
       span.setStatus(SpanStatus.Error)
+
+  private def setErrorType(errorType: String): Unit =
+    span.setAttribute("error.type", errorType)
+    metricAttributes = metricAttributes.updated("error.type", errorType)
 
   def finish(response: HttpResponse): Unit =
     onResponse(response)
@@ -60,29 +86,43 @@ private[http] class HttpClientTrace(val span: Span, val request: HttpRequest):
       case Some(r) =>
         onResponse(r)
       case None =>
-        span.setAttribute("error.type", e.getClass.getName)
+        setErrorType(e.getClass.getName)
     span.recordException(e)
     end()
 
+  /** End the span and record the duration, once. */
   def end(): Unit =
-    if attempts > 1 then
-      span.setAttribute("http.request.resend_count", (attempts - 1).toLong)
-    span.end()
+    if ended.compareAndSet(false, true) then
+      if attempts > 1 then
+        span.setAttribute("http.request.resend_count", (attempts - 1).toLong)
+      span.end()
+      telemetry.recordHistogram(
+        HistogramInstrument.HttpClientRequestDuration,
+        (telemetry.clock.nanoTime - startNanos) / 1e9,
+        metricAttributes
+      )
 
   /** End the span when `events` completes, fails, or is cancelled. */
-  def endWithStream[A](events: Rx[A]): Rx[A] = TelemetryFilter.endWithStream(
-    events.tapOnFailure(e => span.setAttribute("error.type", e.getClass.getName)),
-    span
-  )
+  def endWithStream[A](events: Rx[A]): Rx[A] =
+    TelemetryFilter.endWithStream(events) {
+      case Some(e) =>
+        fail(e)
+      case None =>
+        end()
+    }
 
 end HttpClientTrace
 
 private[http] object HttpClientTrace:
   /** A trace that records nothing, for clients without telemetry. */
-  def none(request: HttpRequest): HttpClientTrace = HttpClientTrace(noSpan, request)
+  def none(request: HttpRequest): HttpClientTrace = HttpClientTrace(
+    Telemetry.noop,
+    noSpan,
+    request,
+    Map.empty
+  )
 
-  // Never sent: a client without telemetry adds no traceparent header
-  private val noSpan = Span.nonRecording(TraceContext("0" * 32, "0" * 16, sampled = false))
+  private val noSpan = Span.nonRecording(TraceContext.invalid)
 
   /**
     * Start the client span of `request` and add its `traceparent` header. The parent is a
@@ -102,18 +142,26 @@ private[http] object HttpClientTrace:
     val (full, authority) = urlWithoutQuery(request.uri)
     span.setAttribute("url.full", full)
     authority.foreach(TelemetryFilter.setServerAddress(span, _))
-    val ctx = span.context
-    // Drop any tracestate the request carried: it belongs to the replaced traceparent
-    var traced = request
-      .removeHeader(TraceContext.TraceParentHeader)
-      .removeHeader(TraceContext.TraceStateHeader)
-      .addHeader(TraceContext.TraceParentHeader, ctx.toTraceParent)
-    ctx
-      .traceState
-      .foreach { state =>
-        traced = traced.addHeader(TraceContext.TraceStateHeader, state)
-      }
-    HttpClientTrace(span, traced)
+    // Metrics get low-cardinality attributes only: no URL
+    var attrs = Map[String, AttributeValue]("http.request.method" -> request.method.name)
+    authority.foreach { a =>
+      val (host, port) = TelemetryFilter.splitHostPort(a)
+      attrs = attrs.updated("server.address", host)
+      port.foreach(p => attrs = attrs.updated("server.port", p.toLong))
+    }
+    val ctx    = span.context
+    val traced =
+      if !ctx.isValid then
+        // Metrics only: no trace to propagate
+        request
+      else
+        // Drop any tracestate the request carried: it belongs to the replaced traceparent
+        val r = request
+          .removeHeader(TraceContext.TraceParentHeader)
+          .removeHeader(TraceContext.TraceStateHeader)
+          .addHeader(TraceContext.TraceParentHeader, ctx.toTraceParent)
+        ctx.traceState.fold(r)(r.addHeader(TraceContext.TraceStateHeader, _))
+    HttpClientTrace(telemetry, span, traced, attrs)
 
   end start
 

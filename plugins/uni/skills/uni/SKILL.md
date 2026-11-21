@@ -55,7 +55,7 @@ Maven Central should depend on a Central version and not add that resolver.
 | HTTP client | `wvlet.uni.http.{Http, Request}` | `Http.client.newSyncClient.send(Request.get(url))` |
 | HTTP server (all platforms) | `wvlet.uni.http.Http` | `Http.server.withPort(8080).withRxHandler(handler).start()` with `uni` alone; on the JVM a built-in server (JDK 24+), or Netty when `uni-netty` is on the classpath; JVM-only projects can use `Netty.server` (`wvlet.uni.http.netty.Netty`); see [references/http-server.md](references/http-server.md) |
 | REST router (all platforms) | `wvlet.uni.http.router.{Router, RouterHandler}` | [references/http-server.md](references/http-server.md) |
-| Tracing (all platforms) | `wvlet.uni.telemetry.{Telemetry, SpanExporter}`, `wvlet.uni.http.TelemetryFilter` | `Http.server.withFilter(TelemetryFilter(t))`, `Http.client.withTelemetry(t)`; W3C `traceparent`; see [references/http-server.md](references/http-server.md#tracing-all-platforms) |
+| Tracing and metrics (all platforms) | `wvlet.uni.telemetry.Telemetry`, `wvlet.uni.telemetry.otlp.OtlpConfig`, `wvlet.uni.http.TelemetryFilter` | `Telemetry().withServiceName(n).withOtlp(OtlpConfig())`, `Http.server.withFilter(TelemetryFilter(t))`, `Http.client.withTelemetry(t)`; W3C `traceparent`; see [references/http-server.md](references/http-server.md#tracing-all-platforms) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.rpc.RPCHandler` | [references/rpc.md](references/rpc.md) |
 | MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
 | MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
