@@ -102,7 +102,9 @@ object Parquet:
     * The root may be a glob pattern, such as `s3://bucket/events/dt=2026-11-{19,20}/country=JP`:
     * only the part before the first glob segment is listed, and paths below it are kept when they,
     * or one of their folders, match. `*` and `?` match within a segment, `[a-z]` and `[!a-z]` are
-    * sets, `{a,b}` alternatives, `**` any number of folders, and `\` escapes a character.
+    * sets, `{a,b}` alternatives, `**` any number of folders, and `\` escapes a character. On
+    * Windows, `\` in a local path separates folders instead; write a glob character in a set, such
+    * as `[*]`, to match it literally.
     */
   def dataset(root: String): ParquetDataset = dataset(root, ParquetDatasetOptions.default)
 
@@ -116,7 +118,13 @@ object Parquet:
           store.close()
           throw e
     else
-      ParquetDataset.splitGlob(root) match
+      // A Windows path separates folders with `\`, so it can't also escape glob characters there
+      val glob =
+        if ParquetDataset.isWindows then
+          root.replace('\\', '/')
+        else
+          root
+      ParquetDataset.splitGlob(glob) match
         case Some((base, pattern)) =>
           // An absolute root, so listed paths and the root share one form for relativeTo
           val path = absolutePath(
@@ -164,6 +172,7 @@ object Parquet:
               ownsStore = false,
               metadata = ParquetDataset.readMetadata(listed, options, None)
             )
+      end match
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
   def dataset(store: ObjectStore, root: String): ParquetDataset = dataset(
