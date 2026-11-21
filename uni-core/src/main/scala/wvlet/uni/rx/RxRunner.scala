@@ -163,8 +163,12 @@ class RxRunner(
         // This var is a placeholder to remember the preceding Cancelable operator, which will be updated later
         var c1      = Cancelable.empty
         val tracker = NestedStreamTracker()
-        val c2      =
+        // Set when the input completes: a source that keeps emitting after its end is not followed
+        val inputEnded = AtomicBoolean(false)
+        val c2         =
           run(fm.input) {
+            case _ if inputEnded.get() =>
+              RxResult.Stop
             case OnNext(x) =>
               var toContinue: RxResult = RxResult.Continue
               // A new input value replaces the previous nested stream, even when f throws
@@ -195,6 +199,7 @@ class RxRunner(
                   effect(ResumableError(e))
               end match
             case OnCompletion(Result.Success(_)) =>
+              inputEnded.set(true)
               tracker.completeInput(effect)
             case other =>
               effect(other)
@@ -821,9 +826,14 @@ class RxRunner(
                         inputEnded.set(true)
                         c2.cancel
                       c1 =
-                        run(recoverySource) { ev =>
-                          toContinue = effect(ev)
-                          toContinue
+                        run(recoverySource) {
+                          case OnCompletion(Result.Success(_)) if continuous =>
+                            // The input continues past this error, so the recovery stream's
+                            // completion does not end the stream
+                            RxResult.Continue
+                          case ev =>
+                            toContinue = effect(ev)
+                            toContinue
                         }
                       toContinue
                     case Failure(e) =>

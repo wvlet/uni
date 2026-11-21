@@ -109,4 +109,7 @@ mode-dependent rules. Do it in steps:
      (`adr/2026-11-21-rx-continuous-r3.md`).
      Second part done: failed sources end with a failed `OnCompletion`, and the operators that
      react to errors handle it (`adr/2026-11-21-rx-source-failure.md`).
+     Third part done: generated cases for `flatMap` and `recoverWith`, which fixed their
+     continuous-mode ends (`adr/2026-11-21-rx-continuous-r3.md`, amended). `zip`, `join`,
+     `merge`, and `parFlatMap` are covered by `RxLive.lean`/`RxLiveFanIn.lean`, which pass.
    - 3c. Drop continuous mode.
