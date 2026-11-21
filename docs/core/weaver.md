@@ -81,6 +81,8 @@ Weaver resolves codecs for these out of the box (cross-platform):
   `Char`, `String`, `BigInt`, `BigDecimal`
 - **Common value types**: `UUID`, `java.time.Instant`, `java.time.LocalDate`
   (an ISO-8601 string such as `"2026-11-21"`; an integer also reads as days since 1970-01-01),
+  `java.time.LocalTime` (an ISO-8601 string such as `"09:30:15"`; an integer also reads as
+  nanoseconds of the day),
   [`ULID`](./utilities#ulid), [`ElapsedTime`](./utilities#elapsedtime),
   `scala.concurrent.duration.Duration`, `java.net.URI`
 - **Collections**: `Option`, `Seq`/`List`/`Vector`/`IndexedSeq`, `Set`, `Map`,
