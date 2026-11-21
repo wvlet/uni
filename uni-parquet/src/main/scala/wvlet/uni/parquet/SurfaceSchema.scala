@@ -95,6 +95,8 @@ private[parquet] object SurfaceSchema:
         TIMESTAMP_MICROS
       case _ if s.rawType == classOf[java.time.LocalDate] =>
         DATE
+      case _ if s.rawType == classOf[java.time.LocalTime] =>
+        TIME_MICROS
       case _ if s.rawType == classOf[java.util.UUID] =>
         UUID
       case _

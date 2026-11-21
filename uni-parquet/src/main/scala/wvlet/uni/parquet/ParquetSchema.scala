@@ -133,6 +133,7 @@ object ParquetSchema:
     * | `Array[Byte]`                             | BYTE_ARRAY                                                        |
     * | `Instant`                                 | INT64 TIMESTAMP(MICROS, UTC)                                      |
     * | `LocalDate`                               | INT32 with DATE                                                   |
+    * | `LocalTime`                               | INT64 TIME(MICROS), not UTC-adjusted; nanoseconds are dropped     |
     * | `UUID`                                    | FIXED_LEN_BYTE_ARRAY(16) with UUID                                |
     * | `BigDecimal`                              | DECIMAL(38, 18) unless set with `ParquetWriteOptions.withDecimal` |
     * | `Option[A]`                               | an OPTIONAL column; other fields are REQUIRED                     |
