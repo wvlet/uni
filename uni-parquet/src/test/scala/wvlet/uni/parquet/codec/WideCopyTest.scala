@@ -20,6 +20,21 @@ class WideCopyTest extends UniTest:
         Word8.le64(b, i) shouldBe want
   }
 
+  test("matchLength counts equal bytes up to the limit, at every offset") {
+    for size <- 1 to 48 do
+      // Few distinct bytes, so matches of every length turn up
+      val b = Array.fill[Byte](size)(rnd.nextInt(2).toByte)
+      for
+        x     <- 0 until size
+        y     <- x + 1 until size
+        limit <- y to size
+      do
+        var want = 0
+        while y + want < limit && b(x + want) == b(y + want) do
+          want += 1
+        Word8.matchLength(b, x, y, limit) shouldBe want
+  }
+
   /** A copy program: (isMatch, length, offset), filling exactly `size` bytes */
   private def program(size: Int): Seq[(Boolean, Int, Int)] =
     val ops = Seq.newBuilder[(Boolean, Int, Int)]

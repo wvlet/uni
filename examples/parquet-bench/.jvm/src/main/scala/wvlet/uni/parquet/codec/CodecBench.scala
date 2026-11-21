@@ -3,8 +3,9 @@ package wvlet.uni.parquet.codec
 import java.nio.file.{Files, Paths}
 
 /**
-  * Isolated decompression benchmark: splits a file into 1 MiB chunks, compresses each with
-  * snappy-java and zstd-jni, then times uni-parquet's decoders against the native ones.
+  * Isolated codec benchmark: splits a file into 1 MiB chunks, compresses each with snappy-java and
+  * zstd-jni, then times uni-parquet's decoders against the native ones. It also times uni's Snappy
+  * compressor against snappy-java's, after checking that snappy-java reads uni's output.
   *
   * {{{
   * java -cp examples/parquet-bench/out/lib/(all jars) wvlet.uni.parquet.codec.CodecBench <file> [rounds] [name filter]
@@ -54,6 +55,13 @@ object CodecBench:
     time("snappy-java")(i => org.xerial.snappy.Snappy.uncompress(snappy(i)))
     time("uni zstd")(i => Zstd.decompress(zstd(i), 0, zstd(i).length, chunks(i).length))
     time("zstd-jni")(i => com.github.luben.zstd.Zstd.decompress(zstd(i), chunks(i).length))
+
+    // Compression: snappy-java must read what uni writes
+    val uniSnappy = chunks.map(c => SnappyCompressor.compress(c, c.length))
+    check("snappy-java reads uni", i => org.xerial.snappy.Snappy.uncompress(uniSnappy(i)))
+    println(s"uni snappy compress: ${uniSnappy.map(_.length).sum} bytes")
+    time("uni snappy compress")(i => SnappyCompressor.compress(chunks(i), chunks(i).length))
+    time("snappy-java compress")(i => org.xerial.snappy.Snappy.compress(chunks(i)))
 
   end main
 

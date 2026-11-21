@@ -39,4 +39,23 @@ private[parquet] object Word8:
     // hi << 1 << (63 - shift) is hi << (64 - shift), but also 0 when shift is 0
     (lo >>> shift) | ((hi << 1) << (63 - shift))
 
+  /** The little-endian int at `b(i)`, where `b(i)` to `b(i + 7)` must be inside the array */
+  inline def le32(b: Array[Byte], i: Int): Int = le64(b, i).toInt
+
+  /**
+    * The number of equal bytes at `src(a)` and `src(b)`, counting up to `limit` (exclusive) for
+    * `b`, where `a` is below `b`. Compares 8 bytes at a time: the first differing byte is the
+    * lowest set byte of the XOR.
+    */
+  def matchLength(src: Array[Byte], a: Int, b: Int, limit: Int): Int =
+    var n = 0
+    while b + n <= limit - 8 do
+      val x = le64(src, a + n) ^ le64(src, b + n)
+      if x != 0 then
+        return n + (java.lang.Long.numberOfTrailingZeros(x) >>> 3)
+      n += 8
+    while b + n < limit && src(a + n) == src(b + n) do
+      n += 1
+    n
+
 end Word8
