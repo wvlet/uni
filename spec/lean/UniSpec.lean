@@ -7,3 +7,4 @@ import UniSpec.RxLive
 import UniSpec.DomRender
 import UniSpec.RxLiveFanIn
 import UniSpec.RxR3
+import UniSpec.RxR3Ops
