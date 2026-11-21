@@ -28,7 +28,8 @@ import wvlet.uni.rx.Cancelable
   */
 class Mounted(val container: dom.Element, private val cancelable: Cancelable) extends AutoCloseable:
 
-  private val q: Query = Query(container)
+  private val q: Query  = Query(container)
+  private var unmounted = false
 
   /** The first rendered element (the root of the mounted component), if any. */
   def root: Option[dom.Element] = Option(container.firstElementChild)
@@ -57,9 +58,15 @@ class Mounted(val container: dom.Element, private val cancelable: Cancelable) ex
 
   /** Detach the container from the DOM and cancel all Rx subscriptions. Idempotent. */
   def unmount(): Unit =
-    cancelable.cancel
-    if container.parentNode != null then
-      container.parentNode.removeChild(container)
+    // A test may unmount before DomTestSession's cleanup does it again. Cancel only once: teardown
+    // such as a body portal's removeChild throws when it runs a second time.
+    if !unmounted then
+      unmounted = true
+      try cancelable.cancel
+      finally
+        // Detach also when a cleanup throws, so the container doesn't leak into later tests
+        if container.parentNode != null then
+          container.parentNode.removeChild(container)
 
   override def close(): Unit = unmount()
 

@@ -1020,7 +1020,7 @@ object DomRenderer extends LogSupport:
     // Render children into container
     val cancelables = children.map(child => renderTo(container, child))
 
-    Cancelable.merge(Cancelable.merge(cancelables), Cancelable(() => target.removeChild(container)))
+    Cancelable.merge(Cancelable.merge(cancelables), Cancelable(() => detach(container)))
   end handlePortal
 
   /**
@@ -1034,10 +1034,7 @@ object DomRenderer extends LogSupport:
     // Render children into container
     val cancelables = children.map(child => renderTo(container, child))
 
-    Cancelable.merge(
-      Cancelable.merge(cancelables),
-      Cancelable(() => dom.document.body.removeChild(container))
-    )
+    Cancelable.merge(Cancelable.merge(cancelables), Cancelable(() => detach(container)))
   end handlePortalToBody
 
   /**
@@ -1051,8 +1048,13 @@ object DomRenderer extends LogSupport:
     // Render children into container
     val cancelables = children.map(child => renderTo(container, child))
 
-    Cancelable.merge(Cancelable.merge(cancelables), Cancelable(() => target.removeChild(container)))
+    Cancelable.merge(Cancelable.merge(cancelables), Cancelable(() => detach(container)))
   end handlePortalToElement
+
+  /** Remove a portal's container; a no-op when it is already detached, so cancel may run twice. */
+  private def detach(container: dom.Node): Unit =
+    if container.parentNode != null then
+      container.parentNode.removeChild(container)
 
   extension (node: dom.Node)
     private def eval(v: Any): Cancelable =
