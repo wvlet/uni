@@ -180,6 +180,33 @@ class S3ParquetTest extends UniTest:
     check(Parquet.datasetAsync(store, root).await)
   }
 
+  test("write a dataset with the async writer") {
+    requireServer()
+    val root  = prefix.resolve("async/").toString
+    val sales = (0 until 20).map(i =>
+      S3Sale(
+        i.toLong,
+        if i % 2 == 0 then
+          "JP"
+        else
+          "US"
+      )
+    )
+    val written =
+      Parquet
+        .writeDatasetAsync(
+          store,
+          root,
+          sales,
+          ParquetDatasetWriteOptions.default.withPartitionBy("country").withMaxRowsPerFile(4)
+        )
+        .await
+    written.map(_.numRows).sum shouldBe 20L
+    val ds = Parquet.datasetAsync(store, root).await
+    try ds.readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales
+    finally ds.close()
+  }
+
   test("read a glob pattern and a list of objects") {
     requireServer()
     val root    = prefix.resolve("globbed/").toString

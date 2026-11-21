@@ -595,6 +595,107 @@ object Parquet:
     )
   )
 
+  // ---- Async dataset writers ----
+
+  /**
+    * Writes case classes to a partitioned dataset with async I/O, as [[writeDataset]] does with
+    * sync I/O. It runs in browsers: each file is built in memory and uploaded with one put, so
+    * files are capped at 128 MiB unless `withMaxFileSize` sets another size. A local root uses the
+    * sync writer. If writing fails, every file of the write is deleted.
+    */
+  inline def writeDatasetAsync[A](
+      root: String,
+      rows: IterableOnce[A],
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): Rx[Seq[WrittenFile]] = newDatasetWriterAsync[A](root, options)
+    .flatMap(w => writeAllAsyncTo(w, rows))
+
+  inline def writeDatasetAsync[A](
+      store: ObjectStore,
+      root: String,
+      rows: IterableOnce[A],
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): Rx[Seq[WrittenFile]] = newDatasetWriterAsync[A](store, root, options)
+    .flatMap(w => writeAllAsyncTo(w, rows))
+
+  private def writeAllAsyncTo[A](
+      w: ParquetDatasetWriterAsync[A],
+      rows: IterableOnce[A]
+  ): Rx[Seq[WrittenFile]] = w
+    .writeAll(rows)
+    .flatMap(_ => w.close())
+    .recoverWith { case e: Throwable =>
+      w.abort().transformRx(_ => Rx.exception[Seq[WrittenFile]](e))
+    }
+
+  /**
+    * A dataset writer with async I/O; see [[ParquetDatasetWriterAsync]]. With a URI root, it
+    * creates the scheme's default store and closes it when it closes. Creating it lists the root
+    * with async calls.
+    */
+  inline def newDatasetWriterAsync[A](root: String, options: ParquetDatasetWriteOptions)(using
+      weaver: Weaver[A]
+  ): Rx[ParquetDatasetWriterAsync[A]] =
+    val schema = ParquetSchema.fromSurface(Surface.of[A], options.writeOptions)
+    asyncDriver(root, schema, options).map(d => ParquetDatasetWriterAsync.create(d, weaver))
+
+  inline def newDatasetWriterAsync[A](
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetWriteOptions
+  )(using weaver: Weaver[A]): Rx[ParquetDatasetWriterAsync[A]] =
+    val schema = ParquetSchema.fromSurface(Surface.of[A], options.writeOptions)
+    AsyncDatasetDriver
+      .create(store, root, schema, options, ownsStore = false)
+      .map(d => ParquetDatasetWriterAsync.create(d, weaver))
+
+  def newDatasetRecordWriterAsync(
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): Rx[ParquetDatasetRecordWriterAsync] = asyncDriver(root, schema, options).map(
+    ParquetDatasetRecordWriterAsync(_)
+  )
+
+  def newDatasetRecordWriterAsync(
+      store: ObjectStore,
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): Rx[ParquetDatasetRecordWriterAsync] = AsyncDatasetDriver
+    .create(store, root, schema, options, ownsStore = false)
+    .map(ParquetDatasetRecordWriterAsync(_))
+
+  def newDatasetBatchWriterAsync(
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): Rx[ParquetDatasetBatchWriterAsync] = asyncDriver(root, schema, options).map(
+    ParquetDatasetBatchWriterAsync(_)
+  )
+
+  def newDatasetBatchWriterAsync(
+      store: ObjectStore,
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): Rx[ParquetDatasetBatchWriterAsync] = AsyncDatasetDriver
+    .create(store, root, schema, options, ownsStore = false)
+    .map(ParquetDatasetBatchWriterAsync(_))
+
+  private[parquet] def asyncDriver(
+      root: String,
+      schema: ParquetSchema,
+      options: ParquetDatasetWriteOptions
+  ): Rx[AsyncDatasetDriver] =
+    if ParquetDataset.isObjectUri(root) then
+      Rx.single(storeFor(root))
+        .flatMap(store => AsyncDatasetDriver.create(store, root, schema, options, ownsStore = true))
+    else
+      Rx.single(
+        AsyncDatasetDriver.local(DatasetWriterCore.create(datasetTarget(root), schema, options))
+      )
+
   private[parquet] def datasetTarget(root: String): DatasetTarget =
     if ParquetDataset.isObjectUri(root) then
       val uri = ParquetDataset.objectRoot(root)

@@ -439,6 +439,35 @@ takes maps, JSON, or `Seq` rows, and `newDatasetBatchWriter(root, schema, option
   With many partitions, sort rows by the partition columns first, or set a smaller row group size.
 - **File settings** such as the codec go in `withWriteOptions(ParquetWriteOptions...)`.
 
+### Writing with Async I/O
+
+In browsers, and in code that must not block, `Parquet.writeDatasetAsync` writes a dataset to S3,
+GCS, or Azure Blob with the stores' async calls only, as `datasetAsync` reads one:
+
+```scala
+import wvlet.uni.parquet.WrittenFile
+import wvlet.uni.rx.Rx
+
+val done: Rx[Seq[WrittenFile]] = Parquet.writeDatasetAsync(
+  "s3://my-bucket/visits/",
+  visits,
+  ParquetDatasetWriteOptions.default.withPartitionBy("dt", "country")
+)
+```
+
+`Parquet.newDatasetWriterAsync[A](store, root, options)` (and `newDatasetRecordWriterAsync`,
+`newDatasetBatchWriterAsync`) returns an `Rx` of a writer. `write(row)` encodes a row and queues the
+files it finishes, `flush()` uploads them, `writeAll(rows)` writes and uploads in turn, and
+`close()` uploads the rest and writes the root files. Write modes, `_common_metadata`, `_SUCCESS`,
+and cleanup work as in the sync writer: a failure, or `abort()`, deletes every uploaded file.
+
+- **Memory.** Each file is built in memory and uploaded with one put, so files are capped at 128
+  MiB unless `withMaxFileSize` sets another size. `withMaxBufferedBytes` (256 MiB) counts whole
+  files, open and queued: over it, the largest open file is finished and queued. A `write` fails
+  with a message to call `flush()` while the queued files exceed it; `writeAll` never does.
+- **Browsers** also need the bucket's CORS rules to allow `PUT` and `DELETE`, besides `GET`.
+- A local root uses the sync writer, wrapped in `Rx`.
+
 ## Writing Case Classes
 
 `Parquet.write` writes a collection of case classes. The schema comes from the type, so any case
