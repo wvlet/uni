@@ -1,6 +1,6 @@
 package example.gallery.stories
 
-import example.gallery.Story
+import example.gallery.{Control, Story}
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
@@ -15,7 +15,7 @@ import scala.language.implicitConversions
 object ControlStories:
 
   // #region controls/buttons
-  def buttons: RxElement =
+  inline def buttons: RxElement =
     val clicks = Rx.variable(0)
     val busy   = Rx.variable(false)
 
@@ -49,7 +49,7 @@ object ControlStories:
   // #endregion
 
   // #region controls/text-fields
-  def textFields: RxElement =
+  inline def textFields: RxElement =
     val name  = Rx.variable("")
     val notes = Rx.variable("")
 
@@ -73,12 +73,12 @@ object ControlStories:
   // #endregion
 
   // #region controls/tabs
-  def tabs: RxElement =
-    enum Pane:
-      case Overview
-      case Activity
-      case Settings
+  enum Pane:
+    case Overview
+    case Activity
+    case Settings
 
+  inline def tabs: RxElement =
     val selected = Rx.variable(Pane.Overview)
     val list     = TabList(
       selected,
@@ -103,25 +103,86 @@ object ControlStories:
     )
   // #endregion
 
+  // #region controls/button-props
+  case class ButtonProps(
+      label: String = "Save",
+      variant: ButtonVariant = ButtonVariant.Primary,
+      size: ButtonSize = ButtonSize.Medium,
+      disabled: Boolean = false
+  )
+
+  inline def buttonProps(p: ButtonProps): RxElement = Button(p.label)
+    .withVariant(p.variant)
+    .withSize(p.size)
+    .withDisabled(p.disabled)
+  // #endregion
+
+  // #region controls/input-props
+  case class InputProps(
+      label: String = "Email",
+      placeholder: String = "ada@example.com",
+      invalid: Boolean = false,
+      disabled: Boolean = false,
+      readOnly: Boolean = false
+  )
+
+  inline def inputProps(p: InputProps): RxElement = Input(Rx.variable(""))
+    .withLabel(p.label)
+    .withPlaceholder(p.placeholder)
+    .withInvalid(Rx.const(p.invalid))
+    .withDisabled(p.disabled)
+    .withReadOnly(p.readOnly)
+  // #endregion
+
   val all: Seq[Story] = Seq(
-    Story(
-      "controls/buttons",
-      "Buttons",
-      "Variants, sizes, and a disabled state bound to an Rx.",
-      () => buttons
+    Story("controls/buttons", "Buttons", "Variants, sizes, and a disabled state bound to an Rx.")(
+      buttons
     ),
     Story(
       "controls/text-fields",
       "Text fields",
-      "Input and Textarea, bound both ways to an RxVar[String].",
-      () => textFields
+      "Input and Textarea, bound both ways to an RxVar[String]."
+    )(textFields),
+    Story("controls/tabs", "Tabs", "TabList and TabPanel over an enum, with keyboard navigation.")(
+      tabs
     ),
-    Story(
-      "controls/tabs",
-      "Tabs",
-      "TabList and TabPanel over an enum, with keyboard navigation.",
-      () => tabs
-    )
+    Story.playground(
+      "controls/button-props",
+      "Button props",
+      "Change a Button's options and watch the code follow.",
+      ButtonProps(),
+      Seq(
+        Control.text("label", _.label, (p, v) => p.copy(label = v)),
+        Control.choice(
+          "variant",
+          ButtonVariant.values.toSeq,
+          _.variant,
+          (p, v) => p.copy(variant = v),
+          v => s"ButtonVariant.${v}"
+        ),
+        Control.choice(
+          "size",
+          ButtonSize.values.toSeq,
+          _.size,
+          (p, v) => p.copy(size = v),
+          v => s"ButtonSize.${v}"
+        ),
+        Control.toggle("disabled", _.disabled, (p, v) => p.copy(disabled = v))
+      )
+    )((p: ButtonProps) => buttonProps(p)),
+    Story.playground(
+      "controls/input-props",
+      "Input props",
+      "Label, placeholder, and the invalid, disabled, and read-only states of an Input.",
+      InputProps(),
+      Seq(
+        Control.text("label", _.label, (p, v) => p.copy(label = v)),
+        Control.text("placeholder", _.placeholder, (p, v) => p.copy(placeholder = v)),
+        Control.toggle("invalid", _.invalid, (p, v) => p.copy(invalid = v)),
+        Control.toggle("disabled", _.disabled, (p, v) => p.copy(disabled = v)),
+        Control.toggle("readOnly", _.readOnly, (p, v) => p.copy(readOnly = v))
+      )
+    )((p: InputProps) => inputProps(p))
   )
 
 end ControlStories

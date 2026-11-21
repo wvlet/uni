@@ -93,3 +93,9 @@ Controls, Overlays, Collections, and Layout pages, and theme switches by `postMe
 embedded story keeps its state. Phase 3's source-position macro would make the chip-to-line
 mapping exact instead of by name.
 
+Phase 3 (2026-11-21): the `SourceTag` macro (`adr/2026-11-21-ui-gallery-source-tags.md`) tags
+each component with its source line, which drives exact two-way links: hover a line to outline
+what it creates (with name, line, slot, and state), turn on Inspect and hover the preview to mark
+the line, and chips from the macro's tag list. `Story.playground` adds controls for Button and
+Input props whose values are written into the shown code, with changed lines flashing. An Agent
+view installs a `UiAgent` over the story, lists its snapshot, and runs actions through it.

@@ -12,7 +12,7 @@ import scala.language.implicitConversions
 object LayoutStories:
 
   // #region layout/dock
-  def dock: RxElement =
+  inline def dock: RxElement =
     val layout = Rx.variable(
       DockLayout(
         DockNode.row(DockNode.group("files", "search"), DockNode.group("editor", "preview"))
@@ -48,7 +48,7 @@ object LayoutStories:
   // #endregion
 
   // #region layout/foldable-pane
-  def foldablePane: RxElement =
+  inline def foldablePane: RxElement =
     val open  = Rx.variable(true)
     val width = Rx.variable(200)
     val range = SizeRange(min = 140, default = 200, max = 320)
@@ -88,15 +88,13 @@ object LayoutStories:
     Story(
       "layout/dock",
       "Dock",
-      "Tab groups and splits that the user rearranges; the layout is plain data.",
-      () => dock
-    ),
+      "Tab groups and splits that the user rearranges; the layout is plain data."
+    )(dock),
     Story(
       "layout/foldable-pane",
       "Foldable pane",
-      "A side pane that folds to zero width, resized by a Splitter.",
-      () => foldablePane
-    )
+      "A side pane that folds to zero width, resized by a Splitter."
+    )(foldablePane)
   )
 
 end LayoutStories

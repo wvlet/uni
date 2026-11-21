@@ -12,9 +12,9 @@ import scala.language.implicitConversions
 object CollectionStories:
 
   // #region collections/tree
-  def tree: RxElement =
-    case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
+  case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
 
+  inline def tree: RxElement =
     val roots = Seq(
       FileNode(
         "src",
@@ -50,9 +50,9 @@ object CollectionStories:
   // #endregion
 
   // #region collections/data-table
-  def dataTable: RxElement =
-    case class Call(id: Long, method: String, status: Int, millis: Double)
+  case class Call(id: Long, method: String, status: Int, millis: Double)
 
+  inline def dataTable: RxElement =
     val calls = Rx.variable(
       Seq(
         Call(1, "getUser", 200, 3.2),
@@ -84,9 +84,9 @@ object CollectionStories:
   // #endregion
 
   // #region collections/reorder
-  def reorder: RxElement =
-    case class Task(id: Int, title: String)
+  case class Task(id: Int, title: String)
 
+  inline def reorder: RxElement =
     val tasks = Rx.variable(
       Seq(Task(1, "Write"), Task(2, "Review"), Task(3, "Test"), Task(4, "Ship"))
     )
@@ -112,23 +112,16 @@ object CollectionStories:
   // #endregion
 
   val all: Seq[Story] = Seq(
-    Story(
-      "collections/tree",
-      "Tree",
-      "An expandable tree over your own data, with typeahead.",
-      () => tree
+    Story("collections/tree", "Tree", "An expandable tree over your own data, with typeahead.")(
+      tree
     ),
     Story(
       "collections/data-table",
       "Data table",
-      "A sortable grid with a sticky header and multi-select.",
-      () => dataTable
-    ),
-    Story(
-      "collections/reorder",
-      "Reorderable list",
-      "Move rows by drag or with Alt+arrow keys.",
-      () => reorder
+      "A sortable grid with a sticky header and multi-select."
+    )(dataTable),
+    Story("collections/reorder", "Reorderable list", "Move rows by drag or with Alt+arrow keys.")(
+      reorder
     )
   )
 

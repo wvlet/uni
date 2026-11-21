@@ -98,6 +98,23 @@ object Icons:
     )
   )
 
+  def sparkle: RxElement = icon(
+    p("M12 3.5l1.7 4.8 4.8 1.7-4.8 1.7L12 16.5l-1.7-4.8L5.5 10l4.8-1.7z"),
+    p("M18.5 15.5l.6 1.6 1.6.6-1.6.6-.6 1.6-.6-1.6-1.6-.6 1.6-.6z")
+  )
+
+  def crosshair: RxElement = icon(
+    circle(cx -> 12, cy -> 12, r -> 7.5),
+    p("M12 2.5v4M12 17.5v4M2.5 12h4M17.5 12h4")
+  )
+
+  def sliders: RxElement = icon(
+    p("M4 7h9M17 7h3M4 12h3M11 12h9M4 17h11M19 17h1"),
+    circle(cx -> 15, cy -> 7, r  -> 2),
+    circle(cx -> 9, cy  -> 12, r -> 2),
+    circle(cx -> 17, cy -> 17, r -> 2)
+  )
+
   /** The icon of a sidebar section. */
   def forGroup(id: String): RxElement =
     id match

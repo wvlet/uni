@@ -12,7 +12,7 @@ import scala.language.implicitConversions
 object OverlayStories:
 
   // #region overlays/menu
-  def menu: RxElement =
+  inline def menu: RxElement =
     val open     = Rx.variable(false)
     val wrap     = Rx.variable(true)
     val lastPick = Rx.variable("Nothing yet")
@@ -36,7 +36,7 @@ object OverlayStories:
   // #endregion
 
   // #region overlays/dialog
-  def dialog: RxElement =
+  inline def dialog: RxElement =
     val renameOpen = Rx.variable(false)
     val deleteOpen = Rx.variable(false)
     val name       = Rx.variable("Untitled")
@@ -63,7 +63,7 @@ object OverlayStories:
   // #endregion
 
   // #region overlays/select
-  def select: RxElement =
+  inline def select: RxElement =
     val sizes    = Seq("Small", "Medium", "Large", "Extra large")
     val selected = Rx.variable("Medium")
 
@@ -75,7 +75,7 @@ object OverlayStories:
   // #endregion
 
   // #region overlays/popover-tooltip
-  def popoverTooltip: RxElement =
+  inline def popoverTooltip: RxElement =
     val filterOpen = Rx.variable(false)
     val query      = Rx.variable("")
 
@@ -103,27 +103,21 @@ object OverlayStories:
     Story(
       "overlays/menu",
       "Menu",
-      "Items with shortcuts, a checked item, a separator, and a disabled item.",
-      () => menu
-    ),
+      "Items with shortcuts, a checked item, a separator, and a disabled item."
+    )(menu),
     Story(
       "overlays/dialog",
       "Dialog",
-      "A Dialog and an AlertDialog rendered in place, with focus trapping and Escape.",
-      () => dialog
-    ),
-    Story(
-      "overlays/select",
-      "Select",
-      "A button with a list of options, bound to an RxVar.",
-      () => select
+      "A Dialog and an AlertDialog rendered in place, with focus trapping and Escape."
+    )(dialog),
+    Story("overlays/select", "Select", "A button with a list of options, bound to an RxVar.")(
+      select
     ),
     Story(
       "overlays/popover-tooltip",
       "Popover & Tooltip",
-      "A non-modal panel next to its trigger, and a text label on hover or focus.",
-      () => popoverTooltip
-    )
+      "A non-modal panel next to its trigger, and a text label on hover or focus."
+    )(popoverTooltip)
   )
 
 end OverlayStories
