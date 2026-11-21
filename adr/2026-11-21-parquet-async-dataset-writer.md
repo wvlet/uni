@@ -14,6 +14,7 @@ The dataset writers do sync I/O: each object-store file streams through a multip
   - Close runs the replaced-file deletes, then the root files.
   - Abort deletes the uploaded files.
   - The sync writers run these actions with sync calls. The async driver runs them with `putAsync` and `deleteAsync`. The mode and root-file rules stay in one place.
+- Finished files upload four at a time with `RxParallel.parSequenceN`. Each put runs as a fiber, so a store whose puts complete at once doesn't grow the stack with every upload. A put that completes after `abort()` is deleted. A failed read of the old `_common_metadata` fails the write, as in the sync writer.
 - A failure that ruins the write deletes every uploaded file, as in the sync writer. A failure after the data files are published (deletes or root files) keeps them and names the step.
 - A local root uses the sync writer wrapped in `Rx`, as `datasetAsync` does for local reads.
 - Tests run against an in-memory `ObjectStore` whose sync methods fail, so JS and JVM tests prove the async path makes no sync call. The S3 round trip runs on the JVM in CI.

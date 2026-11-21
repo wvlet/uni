@@ -5,6 +5,7 @@ import wvlet.uni.parquet.DatasetWriterCore.Committed
 import wvlet.uni.parquet.DatasetWriterCore.RootAction
 import wvlet.uni.parquet.DatasetWriterCore.Upload
 import wvlet.uni.rx.Rx
+import wvlet.uni.rx.RxParallel
 import wvlet.uni.storage.ObjectStore
 import wvlet.uni.storage.ObjectUri
 import wvlet.uni.weaver.Weaver
@@ -106,16 +107,30 @@ private[parquet] final class AsyncDatasetDriver(
       result.get
     }
 
-  private def uploadAll(uploads: Seq[Upload]): Rx[Unit] =
-    uploads.foldLeft(Rx.single(())) { (acc, u) =>
-      acc.flatMap { _ =>
+  /**
+    * Uploads a few files at a time. Each runs as a fiber, so a store whose puts complete at once
+    * doesn't grow the stack with every upload. A put that completes after an abort is deleted.
+    */
+  private def uploadAll(uploads: Seq[Upload]): Rx[Unit] = RxParallel
+    .parSequenceN(AsyncDatasetDriver.UploadParallelism)(
+      uploads.map { u =>
         u.target match
           case Committed.Remote(s, uri) =>
-            s.putAsync(uri, u.bytes).map(_ => core.uploaded(u))
+            s.putAsync(uri, u.bytes)
+              .flatMap { _ =>
+                if core.uploaded(u) then
+                  Rx.single(())
+                else
+                  s.deleteAsync(uri)
+                    .recover { case NonFatal(_) =>
+                      ()
+                    }
+              }
           case Committed.LocalFile(p) =>
-            Rx.exception(IllegalStateException(s"A local file is not uploaded: ${p}"))
+            Rx.exception[Unit](IllegalStateException(s"A local file is not uploaded: ${p}"))
       }
-    }
+    )
+    .map(_ => ())
 
   private def runAll(actions: Seq[RootAction]): Rx[Unit] =
     actions.foldLeft(Rx.single(()))((acc, a) => acc.flatMap(_ => run(a)))
@@ -135,6 +150,9 @@ private[parquet] final class AsyncDatasetDriver(
 end AsyncDatasetDriver
 
 private[parquet] object AsyncDatasetDriver:
+
+  /** How many finished files upload at once */
+  private val UploadParallelism = 4
 
   /** Lists the root and reads an old `_common_metadata` with async calls, then creates the core */
   def create(
@@ -164,12 +182,8 @@ private[parquet] object AsyncDatasetDriver:
             val bytes: Rx[Option[Array[Byte]]] =
               metadata match
                 case Some(l) if keepsMetadata =>
-                  store
-                    .getAsync(ObjectUri.parse(l.path))
-                    .map(Option(_))
-                    .recover { case NonFatal(_) =>
-                      None
-                    }
+                  // A failed read fails the write, as in the sync writer
+                  store.getAsync(ObjectUri.parse(l.path)).map(Option(_))
                 case _ =>
                   Rx.single(None)
             bytes.map(b =>

@@ -187,4 +187,15 @@ class AsyncDatasetWriterTest extends UniTest:
       }
   }
 
+  test("write many small files without growing the stack") {
+    val store = MemoryObjectStore()
+    val rows  = (0 until 2000).map(i => AsyncSale(i.toLong, 1.0, days(i % 2), "JP"))
+    Parquet
+      .writeDatasetAsync(store, root, rows, byDtCountry.withMaxRowsPerFile(1))
+      .map { written =>
+        written.size shouldBe 2000
+        dataKeys(store).size shouldBe 2000
+      }
+  }
+
 end AsyncDatasetWriterTest

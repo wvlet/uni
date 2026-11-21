@@ -750,8 +750,17 @@ private[parquet] final class DatasetWriterCore private (
 
   def hasUploads: Boolean = queue.nonEmpty
 
-  /** Async: records an uploaded file, which an abort then deletes */
-  def uploaded(u: Upload): Unit = committed += u.file -> u.target
+  /**
+    * Async: records an uploaded file, which an abort then deletes. False when the write was aborted
+    * while the file was uploading, so the caller deletes it.
+    */
+  def uploaded(u: Upload): Boolean = synchronized {
+    if state == State.Aborted then
+      false
+    else
+      committed += u.file -> u.target
+      true
+  }
 
   /** Async: finishes every open file into the queue; the writer stays open until [[closed]] */
   def finishAll(): Unit =
@@ -782,7 +791,7 @@ private[parquet] final class DatasetWriterCore private (
       abortWith(null)
 
   /** Discards open files and deletes finished ones. Cleanup errors are added to `cause`. */
-  private def abortWith(cause: Throwable): Unit =
+  private def abortWith(cause: Throwable): Unit = synchronized {
     if state == State.Open then
       state = State.Aborted
       def attempt(body: => Unit): Unit =
@@ -804,6 +813,7 @@ private[parquet] final class DatasetWriterCore private (
         committed.foreach((_, c) => attempt(c.delete()))
         attempt(target.closeStore())
       committed.clear()
+  }
 
   /**
     * Deletes the files an overwrite replaces. It runs after every new file is published, so a
