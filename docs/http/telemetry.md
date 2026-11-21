@@ -1,3 +1,7 @@
+---
+description: Report traces and HTTP duration metrics from Uni services to Datadog or any OpenTelemetry backend, with a JVM agent or with Uni's built-in OTLP tracing on JVM, Scala Native, and Scala.js.
+---
+
 # Telemetry
 
 Uni services can report traces to Datadog, or to any backend that speaks
@@ -85,12 +89,39 @@ no cost.
 
 ```scala
 import wvlet.uni.http.{Http, TelemetryFilter}
-import wvlet.uni.telemetry.{SpanExporter, Telemetry}
+import wvlet.uni.telemetry.Telemetry
+import wvlet.uni.telemetry.otlp.OtlpConfig
 
 val telemetry = Telemetry()
   .withServiceName("orders")
-  .withExporter(SpanExporter.log())
+  .withOtlp(OtlpConfig().withEndpoint("http://localhost:4318"))
 ```
+
+`withOtlp` sends spans and metrics as OTLP/HTTP JSON to `/v1/traces` and
+`/v1/metrics` under the endpoint. Port 4318 is where the Datadog Agent's
+[OTLP receiver](#opentelemetry-java-agent) and the OpenTelemetry Collector
+listen, so the `datadog.yaml` above works unchanged. Spans are buffered and sent
+every 5 seconds (`withFlushIntervalMillis`), in batches of up to 512
+(`withMaxBatchSize`). Past 4,096 buffered spans (`withMaxQueueSize`), new spans
+are dropped and the count is logged.
+
+At shutdown, stop the timer and send what is left. `shutdown()` returns an `Rx`
+that emits once the last send is done. On the JVM and Scala Native, wait for it,
+so the process doesn't exit first:
+
+```scala
+sys.addShutdownHook {
+  telemetry.shutdown().await
+}
+```
+
+`telemetry.close()` starts the same shutdown without waiting.
+
+The exporter works on the JVM, Scala Native, and Node.js. In a browser, the
+endpoint must accept the page's origin, which the Datadog Agent does not.
+
+To print spans while developing, use `.withExporter(SpanExporter.log())`
+instead.
 
 ### Server spans
 
@@ -150,6 +181,28 @@ How client spans work:
   request through several services reads as one trace.
 - `url.full` leaves out the query string and any user info in the URL.
 
+### Metrics
+
+With an OTLP exporter, the server filter and HTTP client also record duration
+histograms, following the OpenTelemetry
+[HTTP metrics](https://opentelemetry.io/docs/specs/semconv/http/http-metrics/)
+conventions:
+
+| Metric | Unit | Attributes |
+|--------|------|------------|
+| `http.server.request.duration` | s | `http.request.method`, `http.route` (for `@Endpoint` methods), `rpc.system`, `rpc.service`, and `rpc.method` (for RPC calls), `http.response.status_code`, `error.type` |
+| `http.client.request.duration` | s | `http.request.method`, `server.address`, `server.port`, `http.response.status_code`, `error.type` |
+
+What is recorded:
+
+- Durations are measured for every request, including traces that aren't
+  sampled.
+- Histograms use delta temporality, which Datadog reads directly.
+- To record metrics without traces, set only a metric exporter, e.g.
+  `Telemetry().withMetricExporter(OtlpExporter(config))`. Its HTTP clients then
+  send no `traceparent`.
+- Your own measurements go through `telemetry.recordHistogram(instrument, value, attributes)`.
+
 ### Spans in your own code
 
 `Telemetry.trace` wraps a block in a span. It records an exception and rethrows it:
@@ -178,7 +231,8 @@ does the request's `TelemetryFilter.CurrentSpan` attribute.
 - **A JVM agent and Uni share trace ids, not parent links.** They don't see each
   other's current span. The `traceparent` header still keeps both sets of spans
   in one trace, but some spans may show as siblings instead of parent and child.
-- `SpanExporter.log()` and `SpanExporter.inMemory()` are the built-in exporters.
-  To send spans elsewhere, implement `SpanExporter.exportSpan`, which runs on the
-  thread that ended the span. An exporter that does I/O should buffer spans and
-  send them from its own thread.
+- **A failed send is logged once and dropped.** Telemetry never blocks or fails
+  a request. The HTTP client's usual retries for 5xx and 429 still apply.
+- To send spans somewhere other than OTLP, implement `SpanExporter.exportSpan`,
+  which runs on the thread that ended the span. An exporter that does I/O should
+  buffer spans and send them from its own thread, as `OtlpExporter` does.

@@ -42,6 +42,10 @@ case class TraceContext(
         "00"
     s"00-${traceId}-${spanId}-${flags}"
 
+  /** False for the all-zero ids of a disabled [[Telemetry]]; such a context is never propagated. */
+  def isValid: Boolean =
+    traceId != TraceContext.InvalidTraceId && spanId != TraceContext.InvalidSpanId
+
   /** A context for a new child span in the same trace. */
   def newChild: TraceContext = copy(spanId = TraceContext.newSpanId)
 
@@ -52,8 +56,11 @@ object TraceContext:
   /** The W3C header that carries vendor-specific trace data, passed on unchanged. */
   val TraceStateHeader: String = "tracestate"
 
-  private val InvalidTraceId = "0" * 32
-  private val InvalidSpanId  = "0" * 16
+  private[telemetry] val InvalidTraceId = "0" * 32
+  private[telemetry] val InvalidSpanId  = "0" * 16
+
+  /** The context of a span that belongs to no trace. */
+  val invalid: TraceContext = TraceContext(InvalidTraceId, InvalidSpanId, sampled = false)
 
   /** A new root context with fresh trace and span ids. */
   def newRoot(sampled: Boolean): TraceContext = TraceContext(newTraceId, newSpanId, sampled)

@@ -49,7 +49,8 @@ case class SpanData(
     attributes: Map[String, AttributeValue],
     events: Seq[SpanEvent],
     status: SpanStatus,
-    statusMessage: Option[String]
+    statusMessage: Option[String],
+    resource: Map[String, AttributeValue] = Map.empty
 ):
   def traceId: String        = context.traceId
   def spanId: String         = context.spanId
@@ -109,7 +110,8 @@ private[telemetry] class RecordingSpan(
     startEpochNanos: Long,
     startNanoTime: Long,
     clock: TelemetryClock,
-    exporter: SpanExporter
+    exporter: SpanExporter,
+    resource: Map[String, AttributeValue]
 ) extends Span:
   private var name                          = initialName
   private val attributes                    = mutable.LinkedHashMap.empty[String, AttributeValue]
@@ -171,7 +173,8 @@ private[telemetry] class RecordingSpan(
             attributes.toMap,
             events.toSeq,
             status,
-            statusMessage
+            statusMessage,
+            resource
           )
         )
       else

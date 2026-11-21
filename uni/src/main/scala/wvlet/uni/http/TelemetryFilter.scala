@@ -14,9 +14,18 @@
 package wvlet.uni.http
 
 import wvlet.uni.rx.Rx
-import wvlet.uni.telemetry.{Span, SpanKind, SpanStatus, Telemetry, TraceContext}
+import wvlet.uni.telemetry.{
+  AttributeValue,
+  HistogramInstrument,
+  Span,
+  SpanKind,
+  SpanStatus,
+  Telemetry,
+  TraceContext
+}
 
 import java.util.concurrent.atomic.AtomicBoolean
+import scala.collection.mutable
 import scala.util.control.NonFatal
 import scala.util.{Failure, Success}
 
@@ -43,8 +52,11 @@ class TelemetryFilter(telemetry: Telemetry) extends RxHttpFilter:
       traced(request, next)
 
   private def traced(request: Request, next: RxHttpHandler): Rx[Response] =
-    val parent = TelemetryFilter.traceContextOf(request)
-    val span   = telemetry.startSpan(request.method.name, SpanKind.Server, parent)
+    val span = telemetry.startSpan(
+      request.method.name,
+      SpanKind.Server,
+      TelemetryFilter.traceContextOf(request)
+    )
     span.setAttribute("http.request.method", request.method.name)
     span.setAttribute("url.path", request.path)
     // The query string is left out: it often carries tokens
@@ -53,34 +65,38 @@ class TelemetryFilter(telemetry: Telemetry) extends RxHttpFilter:
     request
       .attribute(RequestAttribute.RemoteAddress)
       .foreach(a => span.setAttribute("client.address", a))
+    val call = TelemetryFilter.ServerCall(telemetry, span, request.method.name)
 
     val rx =
       try
         Telemetry.withSpan(span) {
-          next.handle(request.withAttribute(TelemetryFilter.CurrentSpan, span))
+          next.handle(
+            request
+              .withAttribute(TelemetryFilter.CurrentSpan, span)
+              .withAttribute(TelemetryFilter.CallKey, call)
+          )
         }
       catch
         case NonFatal(e) =>
           Rx.exception(e)
 
-    // The server answers only the first response; a failure after it must not end the span twice
+    // The server answers only the first response; a failure after it must not end the call twice
     val answered  = AtomicBoolean(false)
     val responses = rx.transformTry {
       case Success(response) =>
         if answered.compareAndSet(false, true) then
-          TelemetryFilter.setStatus(span, response.status)
+          call.setStatus(response.status)
           if response.isEventStream then
-            Success(response.withEvents(TelemetryFilter.endWithStream(response.events, span)))
+            Success(response.withEvents(TelemetryFilter.endWithStream(response.events)(call.end)))
           else
-            span.end()
+            call.end(None)
             Success(response)
         else
           Success(response)
       case Failure(e) =>
         if answered.compareAndSet(false, true) then
-          span.recordException(e)
-          TelemetryFilter.setStatus(span, HttpStatus.InternalServerError_500)
-          span.end()
+          call.setStatus(HttpStatus.InternalServerError_500)
+          call.end(Some(e))
         Failure(e)
     }
     // A handler Rx that completes without a response is answered with 404 by the server
@@ -88,11 +104,11 @@ class TelemetryFilter(telemetry: Telemetry) extends RxHttpFilter:
       .single(())
       .flatMap { _ =>
         if answered.compareAndSet(false, true) then
-          TelemetryFilter.setStatus(span, HttpStatus.NotFound_404)
-          span.end()
+          call.setStatus(HttpStatus.NotFound_404)
+          call.end(None)
         Rx.empty[Response]
       }
-    responses.concat(onEmpty).onCancel(span.end())
+    responses.concat(onEmpty).onCancel(call.end(None))
 
   end traced
 
@@ -107,17 +123,66 @@ object TelemetryFilter:
 
   def apply(telemetry: Telemetry): TelemetryFilter = new TelemetryFilter(telemetry)
 
+  /** The span and the duration metric of one request. */
+  private[http] class ServerCall(telemetry: Telemetry, val span: Span, method: String):
+    private val startNanos = telemetry.clock.nanoTime
+    private val ended      = AtomicBoolean(false)
+    private val attributes = mutable.LinkedHashMap[String, AttributeValue](
+      "http.request.method" -> method
+    )
+
+    private def metric(key: String, value: AttributeValue): Unit = synchronized(attributes(key) =
+      value
+    )
+
+    def recordRPC(serviceName: String, methodName: String): Unit =
+      span
+        .updateName(s"${serviceName}/${methodName}")
+        .setAttribute("rpc.system", RPCSystem)
+        .setAttribute("rpc.service", serviceName)
+        .setAttribute("rpc.method", methodName)
+      metric("rpc.system", RPCSystem)
+      metric("rpc.service", serviceName)
+      metric("rpc.method", methodName)
+
+    def recordRoute(pathPattern: String, controllerName: String, methodName: String): Unit =
+      span
+        .updateName(s"${method} ${pathPattern}")
+        .setAttribute("http.route", pathPattern)
+        .setAttribute("code.function.name", s"${controllerName}.${methodName}")
+      metric("http.route", pathPattern)
+
+    def setStatus(status: HttpStatus): Unit =
+      span.setAttribute("http.response.status_code", status.code.toLong)
+      metric("http.response.status_code", status.code.toLong)
+      // Server spans fail only on 5xx: a 4xx is the client's error, not the server's
+      if status.code >= 500 then
+        span.setAttribute("error.type", status.code.toString)
+        span.setStatus(SpanStatus.Error)
+        metric("error.type", status.code.toString)
+
+    /** End the span and record the duration, once. */
+    def end(error: Option[Throwable]): Unit =
+      if ended.compareAndSet(false, true) then
+        error.foreach { e =>
+          span.recordException(e)
+          metric("error.type", e.getClass.getName)
+        }
+        span.end()
+        val seconds = (telemetry.clock.nanoTime - startNanos) / 1e9
+        telemetry.recordHistogram(
+          HistogramInstrument.HttpServerRequestDuration,
+          seconds,
+          synchronized(attributes.toMap)
+        )
+
+  end ServerCall
+
+  private[http] val CallKey: RequestAttribute[ServerCall] = RequestAttribute("telemetry.call")
+
   /** Name the server span after the RPC method. Called by the RPC dispatcher. */
   private[http] def recordRPC(request: Request, serviceName: String, methodName: String): Unit =
-    request
-      .attribute(CurrentSpan)
-      .foreach { span =>
-        span
-          .updateName(s"${serviceName}/${methodName}")
-          .setAttribute("rpc.system", RPCSystem)
-          .setAttribute("rpc.service", serviceName)
-          .setAttribute("rpc.method", methodName)
-      }
+    request.attribute(CallKey).foreach(_.recordRPC(serviceName, methodName))
 
   /** Name the server span after the matched route. Called by the router. */
   private[http] def recordRoute(
@@ -126,13 +191,8 @@ object TelemetryFilter:
       controllerName: String,
       methodName: String
   ): Unit = request
-    .attribute(CurrentSpan)
-    .foreach { span =>
-      span
-        .updateName(s"${request.method.name} ${pathPattern}")
-        .setAttribute("http.route", pathPattern)
-        .setAttribute("code.function.name", s"${controllerName}.${methodName}")
-    }
+    .attribute(CallKey)
+    .foreach(_.recordRoute(pathPattern, controllerName, methodName))
 
   /** The trace context of a `traceparent` header (and its `tracestate`) on `request`. */
   private[http] def traceContextOf(request: Request): Option[TraceContext] = request
@@ -156,27 +216,14 @@ object TelemetryFilter:
         (authority, None)
     (host.stripPrefix("[").stripSuffix("]"), port)
 
-  private def setStatus(span: Span, status: HttpStatus): Unit =
-    span.setAttribute("http.response.status_code", status.code.toLong)
-    // Server spans fail only on 5xx: a 4xx is the client's error, not the server's
-    if status.code >= 500 then
-      span.setAttribute("error.type", status.code.toString)
-      span.setStatus(SpanStatus.Error)
-
-  /** End `span` when `events` completes, fails, or is cancelled. */
-  private[http] def endWithStream[A](events: Rx[A], span: Span): Rx[A] =
+  /** Call `onEnd` once when `events` completes, fails, or is cancelled. */
+  private[http] def endWithStream[A](events: Rx[A])(onEnd: Option[Throwable] => Unit): Rx[A] =
     val onCompletion: Rx[A] = Rx
       .single(())
       .flatMap { _ =>
-        span.end()
+        onEnd(None)
         Rx.empty[A]
       }
-    events
-      .tapOnFailure { e =>
-        span.recordException(e)
-        span.end()
-      }
-      .concat(onCompletion)
-      .onCancel(span.end())
+    events.tapOnFailure(e => onEnd(Some(e))).concat(onCompletion).onCancel(onEnd(None))
 
 end TelemetryFilter

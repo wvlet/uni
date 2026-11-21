@@ -14,17 +14,27 @@
 package wvlet.uni.telemetry
 
 import wvlet.uni.log.LogSupport
+import wvlet.uni.rx.Rx
 
 import scala.collection.mutable
 import scala.util.control.NonFatal
+
+/** Lifecycle shared by span and metric exporters. */
+trait TelemetryExporter extends AutoCloseable:
+  override def close(): Unit = ()
+
+  /**
+    * Send what is buffered and stop. The returned Rx emits once done, so on the JVM and Scala
+    * Native `shutdown().await` waits for the last send. The default just closes.
+    */
+  def shutdown(): Rx[Unit] = Rx.single(close())
 
 /**
   * Receives each span once it ends. `exportSpan` runs on the thread that ended the span, so an
   * exporter that does I/O should buffer and send from its own thread.
   */
-trait SpanExporter extends AutoCloseable:
+trait SpanExporter extends TelemetryExporter:
   def exportSpan(span: SpanData): Unit
-  override def close(): Unit = ()
 
 object SpanExporter:
   /** Drops every span. A [[Telemetry]] with this exporter is disabled. */
@@ -64,6 +74,9 @@ private class MultiSpanExporter(exporters: Seq[SpanExporter]) extends SpanExport
       case NonFatal(ex) =>
         warn(s"Span exporter ${e.getClass.getName} failed: ${ex.getMessage}")
   }
+
+  override def shutdown(): Rx[Unit] =
+    exporters.foldLeft(Rx.single(()))((acc, e) => acc.flatMap(_ => e.shutdown()))
 
   override def close(): Unit = exporters.foreach { e =>
     try

@@ -17,7 +17,14 @@ import wvlet.uni.util.Result
 import wvlet.uni.http.router.{Endpoint, Router, RouterHandler}
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
 import wvlet.uni.rx.{OnCompletion, OnNext, Rx, RxRunner}
-import wvlet.uni.telemetry.{SpanExporter, SpanKind, SpanStatus, Telemetry, TraceContext}
+import wvlet.uni.telemetry.{
+  MetricExporter,
+  SpanExporter,
+  SpanKind,
+  SpanStatus,
+  Telemetry,
+  TraceContext
+}
 import wvlet.uni.test.UniTest
 
 object TelemetryFilterTest:
@@ -314,6 +321,46 @@ class TelemetryFilterTest extends UniTest:
     clientSpan.attributes("http.response.status_code") shouldBe 200L
     sent.head.header("traceparent").flatMap(TraceContext.parse(_)).map(_.spanId) shouldBe
       Some(clientSpan.spanId)
+  }
+
+  test("record request durations with metrics only, without traces") {
+    val metrics   = MetricExporter.inMemory()
+    val telemetry = Telemetry().withMetricExporter(metrics)
+    val filter    = TelemetryFilter(telemetry)
+    val channel   = RecordingChannel(_ => Response.ok)
+    val client    =
+      Http
+        .client
+        .withChannelFactory(RecordingChannelFactory(channel))
+        .withTelemetry(telemetry)
+        .newSyncClient
+    val routes = RouterHandler(Router.of[OrderController])
+    run(
+      filter(
+        Request.get("/orders/1").addHeader("traceparent", s"00-${traceId}-${spanId}-01"),
+        req =>
+          client.send(Request.get("http://inventory:9000/stock"))
+          routes.handle(req)
+      )
+    )
+    run(filter(rpc("get", """{"id":1}"""), handler))
+    // Metrics only: no trace to propagate
+    channel.requests.head.header("traceparent") shouldBe None
+    val points = metrics.collect()
+    val byName = points.groupBy(_.instrument.name)
+    val server = byName("http.server.request.duration")
+    server.map(_.attributes.get("http.route")) shouldContain Some("/orders/:id")
+    server.flatMap(_.attributes.get("rpc.method")) shouldBe Seq("get")
+    server.forall(_.attributes("http.response.status_code") == 200L) shouldBe true
+    val clientPoint = byName("http.client.request.duration").head
+    clientPoint.attributes shouldBe
+      Map(
+        "http.request.method"       -> "GET",
+        "server.address"            -> "inventory",
+        "server.port"               -> 9000L,
+        "http.response.status_code" -> 200L
+      )
+    clientPoint.count shouldBe 1L
   }
 
 end TelemetryFilterTest
