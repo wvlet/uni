@@ -9,89 +9,132 @@ import wvlet.uni.ui.*
 
 import scala.language.implicitConversions
 
-/** How a story shows its preview and its code. */
+/**
+  * How a story shows its preview: alone, as code, side by side with its code, or with its agent
+  * view.
+  */
 enum ViewMode(val label: String) derives StorageCodec:
   case Preview extends ViewMode("Preview")
   case Code    extends ViewMode("Code")
   case Split   extends ViewMode("Split")
+  case Agent   extends ViewMode("Agent")
 
 object ViewMode:
   def parse(s: String): Option[ViewMode] = values.find(_.toString.equalsIgnoreCase(s))
 
+/** What pointed the preview and the code at something. */
+enum LinkSource:
+  case Chip,
+    Code,
+    Preview,
+    None
+
 /**
-  * The uni-ui components a story's code uses, and how to find each one on screen. Hovering a chip
-  * outlines the component in the preview and marks the code lines that create it.
+  * The lines of code and the parts of the preview that are marked together. `selector` picks the
+  * elements to outline, by the `data-src-kind` and `data-src-line` attributes the [[SourceTag]]
+  * macro sets.
   */
-object Spotlight:
-  /** Component name → the CSS selector of its root element. */
-  val selectors: Seq[(String, String)] = Seq(
-    "IconButton"     -> ".uni-button--icon",
-    "Button"         -> ".uni-button",
-    "Input"          -> ".uni-input",
-    "Textarea"       -> ".uni-textarea",
-    "TabList"        -> ".uni-tabs",
-    "TabPanel"       -> ".uni-tab-panel",
-    "Badge"          -> ".uni-badge",
-    "Kbd"            -> ".uni-kbd",
-    "Popover"        -> ".uni-popover-anchor, .uni-popover",
-    "Tooltip"        -> ".uni-tooltip",
-    "Menu"           -> ".uni-menu, [aria-haspopup='menu']",
-    "Dialog"         -> ".uni-dialog",
-    "AlertDialog"    -> ".uni-dialog",
-    "Select"         -> ".uni-select",
-    "VirtualList"    -> ".uni-virtual-list",
-    "Tree"           -> ".uni-tree",
-    "DataTable"      -> ".uni-table",
-    "CommandPalette" -> ".uni-palette",
-    "FoldablePane"   -> ".uni-pane",
-    "Splitter"       -> ".uni-splitter",
-    "StatusBar"      -> ".uni-statusbar",
-    "Dock"           -> ".uni-dock"
-  )
+case class Lit(lines: Set[Int], selector: Option[String], from: LinkSource)
 
-  /** The components `code` calls, in the order they first appear. */
-  def usedIn(code: String): Seq[String] = selectors
-    .map(_._1)
-    .flatMap(name => s"\\b${name}\\(".r.findFirstMatchIn(code).map(m => (m.start, name)))
-    .sortBy(_._1)
-    .map(_._2)
-
-  def selectorOf(name: String): Option[String] = selectors.find(_._1 == name).map(_._2)
-
-  /** Whether a line of code creates `name`. */
-  def creates(line: String, name: String): Boolean = s"\\b${name}\\(".r.findFirstIn(line).isDefined
-
-end Spotlight
+object Lit:
+  val empty: Lit = Lit(Set.empty, None, LinkSource.None)
 
 /**
-  * One story: a header with its title and the components it uses, then a card that shows the live
-  * preview and the code, as tabs or side by side.
+  * Shared by the preview, the code, and the chips, so each can point at a component for the others.
+  */
+class Link:
+  val lit: RxVar[Lit] = Rx.variable(Lit.empty)
+
+  def pointAtLine(line: Int, from: LinkSource): Unit =
+    lit := Lit(Set(line), Some(s"[data-src-line='${line}']"), from)
+
+  def pointAtKind(story: Story, kind: String): Unit =
+    lit := Lit(story.linesOf(kind), Some(s"[data-src-kind='${kind}']"), LinkSource.Chip)
+
+  /** Clear the marks, if `from` set them. */
+  def clear(from: LinkSource): Unit =
+    if lit.get.from == from then
+      lit := Lit.empty
+
+/** An outline drawn over the preview, with the component's name, line, slot, and state. */
+case class Box(
+    top: Double,
+    left: Double,
+    width: Double,
+    height: Double,
+    label: String,
+    detail: String
+)
+
+/**
+  * One story: a header with its title and the components it uses, then a card with the live
+  * preview, the code, and what an AI agent sees, as tabs or side by side. Hovering a part of the
+  * preview with Inspect on, a line of code, or a chip marks the matching part and lines in both.
   */
 class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends RxElement:
-  private val spot                      = Rx.variable(Option.empty[String])
-  private val codeWidth                 = Rx.variable(520)
+  private val link                      = Link()
+  private val inspecting                = Rx.variable(false)
+  private val boxes                     = Rx.variable(Seq.empty[Box])
+  private val paneWidth                 = Rx.variable(520)
   private var root: Option[dom.Element] = None
   private var subscription              = Cancelable.empty
 
-  // Outline the spotlighted component in the preview
-  private def outline(name: Option[String]): Unit = root
-    .flatMap(r => Option(r.querySelector(".story-stage")))
-    .foreach { stage =>
-      val old = stage.querySelectorAll(".is-spotlit")
-      (0 until old.length).foreach(i => old(i).classList.remove("is-spotlit"))
-      name
-        .flatMap(Spotlight.selectorOf)
-        .foreach { sel =>
-          val found = stage.querySelectorAll(sel)
-          (0 until found.length).foreach(i => found(i).classList.add("is-spotlit"))
-        }
-    }
+  private def preview: Option[dom.Element] = root.flatMap(r =>
+    Option(r.querySelector(".story-preview"))
+  )
+
+  // Draw a box over each element the link points at, in the preview's scrolled coordinates
+  private def draw(l: Lit): Unit =
+    val drawn =
+      for
+        pv  <- preview.toSeq
+        sel <- l.selector.toSeq
+        stage = pv.querySelector(".story-stage")
+        if stage != null
+        nodes = stage.querySelectorAll(sel)
+        i <- 0 until nodes.length
+      yield
+        val el     = nodes(i)
+        val r      = el.getBoundingClientRect()
+        val pr     = pv.getBoundingClientRect()
+        val kind   = Option(el.getAttribute("data-src-kind")).getOrElse("")
+        val line   = Option(el.getAttribute("data-src-line")).map(n => s" · L${n}").getOrElse("")
+        val detail = Seq("data-slot", "data-state", "role")
+          .flatMap(a => Option(el.getAttribute(a)).map(v => s"${a.stripPrefix("data-")}=${v}"))
+          .mkString("  ")
+        Box(
+          top = r.top - pr.top + pv.scrollTop,
+          left = r.left - pr.left + pv.scrollLeft,
+          width = r.width,
+          height = r.height,
+          label = s"${kind}${line}",
+          detail = detail
+        )
+    boxes := drawn.filter(b => b.width > 0 && b.height > 0)
 
   override def onMount(node: Any): Unit =
     root = Some(node.asInstanceOf[dom.Element])
-    subscription = spot.run(outline)
+    subscription = Cancelable.merge(
+      link.lit.run(draw),
+      // A new story starts with nothing marked
+      story.run(_ => link.lit := Lit.empty)
+    )
 
   override def beforeUnmount: Unit = subscription.cancel
+
+  // With Inspect on, hovering a part of the preview points the code at the line that made it
+  private def inspect(e: dom.MouseEvent): Unit =
+    if inspecting.get then
+      e.target match
+        case el: dom.Element =>
+          Option(el.closest("[data-src-line]")) match
+            case Some(tagged) =>
+              val line = tagged.getAttribute("data-src-line").toInt
+              if !link.lit.get.lines.contains(line) || link.lit.get.from != LinkSource.Preview then
+                link.pointAtLine(line, LinkSource.Preview)
+            case None =>
+              link.clear(LinkSource.Preview)
+        case _ =>
 
   override def render: RxElement = div(
     cls -> "story",
@@ -99,30 +142,70 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
     div(
       cls -> "story-card",
       toolbar,
+      story.map(s => s.playground.map(pg => PropsPanel(pg))),
       div(
         cls          -> "story-body",
         data("view") -> mode.map(_.toString.toLowerCase),
         div(
-          cls -> "story-preview",
-          story.map { s =>
-            spot := None
-            div(cls -> "story-stage", s.render())
-          }
+          cls ->
+            inspecting.map(on =>
+              if on then
+                "story-preview is-inspecting"
+              else
+                "story-preview"
+            ),
+          onmousemove  -> inspect,
+          onmouseleave -> { () =>
+            link.clear(LinkSource.Preview)
+          },
+          onscroll -> { () =>
+            draw(link.lit.get)
+          },
+          story.map(s => div(cls -> "story-stage", s.render())),
+          div(
+            cls -> "inspect-layer",
+            boxes.map(
+              _.map { b =>
+                div(
+                  cls       -> "inspect-box",
+                  styleAttr ->
+                    s"top: ${b.top}px; left: ${b.left}px; width: ${b.width}px; height: ${b
+                        .height}px",
+                  span(
+                    cls -> "inspect-label",
+                    b.label,
+                    when(b.detail.nonEmpty, span(cls -> "inspect-detail", b.detail))
+                  )
+                )
+              }
+            )
+          )
         ),
         mode.map(m =>
-          when(m == ViewMode.Code, div(cls -> "story-code-full", CodeView(story, spot)))
+          when(m == ViewMode.Code, div(cls -> "story-code-full", CodeView(story, link)))
         ),
         FoldablePane(
-          mode.map(_ == ViewMode.Split),
-          width = codeWidth,
+          mode.map(m => m == ViewMode.Split || m == ViewMode.Agent),
+          width = paneWidth,
           edge = Edge.Left,
-          content = CodeView(story, spot)
+          content = div(
+            cls -> "story-side",
+            mode.map {
+              case ViewMode.Agent =>
+                AgentView(
+                  story,
+                  () => preview.flatMap(p => Option(p.querySelector(".story-stage")))
+                )
+              case _ =>
+                CodeView(story, link)
+            }
+          )
         ).withSplitter(
           Splitter(
-            codeWidth,
+            paneWidth,
             SizeRange(min = 320, default = 520, max = 960),
             Edge.Left,
-            "Resize code"
+            "Resize the side panel"
           )
         )
       )
@@ -139,7 +222,8 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
           cls -> "story-overline",
           group.map(_.title).getOrElse(""),
           span(cls -> "story-overline__sep", "/"),
-          s.title
+          s.title,
+          when(s.playground.isDefined, span(cls -> "story-badge", "Playground"))
         ),
         h1(cls -> "story-title", s.title),
         p(cls  -> "story-summary", s.summary),
@@ -173,32 +257,33 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
 
   private def chips(s: Story): RxElement = div(
     cls -> "story-chips",
-    s.source
-      .toSeq
-      .flatMap(src => Spotlight.usedIn(src.code))
-      .map { name =>
+    s.kinds
+      .map { kind =>
+        val lines = s.linesOf(kind).toSeq.sorted.map(n => s"L${n}").mkString(", ")
         button(
           cls ->
-            spot.map(sp =>
-              if sp.contains(name) then
-                "chip is-active"
-              else
-                "chip"
-            ),
-          titleAttr    -> s"Highlight ${name} in the preview and the code",
+            link
+              .lit
+              .map(l =>
+                if l.from == LinkSource.Chip && l.selector.exists(_.contains(s"'${kind}'")) then
+                  "chip is-active"
+                else
+                  "chip"
+              ),
+          titleAttr    -> s"${kind} at ${lines}: hover to find it in the preview and the code",
           onmouseenter -> { () =>
-            spot := Some(name)
+            link.pointAtKind(s, kind)
           },
           onmouseleave -> { () =>
-            spot := None
+            link.clear(LinkSource.Chip)
           },
           onfocus -> { () =>
-            spot := Some(name)
+            link.pointAtKind(s, kind)
           },
           onblur -> { () =>
-            spot := None
+            link.clear(LinkSource.Chip)
           },
-          name
+          kind
         )
       }
   )
@@ -211,9 +296,30 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
       tabs = Seq(
         Tab(ViewMode.Preview, Icons.eye, "Preview"),
         Tab(ViewMode.Code, Icons.code, "Code"),
-        Tab(ViewMode.Split, Icons.split, "Split")
+        Tab(ViewMode.Split, Icons.split, "Split"),
+        Tab(ViewMode.Agent, Icons.sparkle, "Agent")
       )
     )(cls += "view-switch"),
+    Tooltip(
+      "Inspect: hover the preview to find each part's code",
+      trigger = button(
+        cls ->
+          inspecting.map(on =>
+            if on then
+              "inspect-toggle is-on"
+            else
+              "inspect-toggle"
+          ),
+        ariaLabel   -> "Inspect",
+        ariaPressed -> inspecting.map(_.toString),
+        onclick     -> { () =>
+          inspecting.update(!_)
+          link.clear(LinkSource.Preview)
+        },
+        Icons.crosshair,
+        span("Inspect")
+      )
+    ),
     when(embed, story.map(s => div(cls -> "story-toolbar__title", s.title))),
     div(cls -> "story-toolbar__spacer"),
     when(embed, story.map(s => chips(s))),
@@ -232,3 +338,15 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
   )
 
 end StoryView
+
+/** The controls of a playground story, in a bar above the preview. */
+class PropsPanel(pg: Playground[?]) extends RxElement:
+  override def render: RxElement = renderOf(pg)
+
+  private def renderOf[P](p: Playground[P]): RxElement = div(
+    cls -> "props-panel",
+    span(cls -> "props-title", Icons.sliders, "Props"),
+    p.controls.map(c => div(cls -> "props-control", c.editor(p.props))),
+    div(cls -> "props-spacer"),
+    Button("Reset").ghost.small.onClick(() => p.reset())
+  )

@@ -3,37 +3,93 @@ package example.gallery
 import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
-import wvlet.uni.rx.Rx
+import wvlet.uni.rx.{Cancelable, Rx}
 import wvlet.uni.ui.{IconButton, Tooltip}
 
 import scala.language.implicitConversions
+import scala.scalajs.js
 import scala.util.matching.Regex
 
 /**
   * The code panel: the story's `// #region` block with line numbers, a link to the lines on GitHub,
   * and a copy button. Each line is a `span.code-line` with `data-line` set to its line number in
-  * the source file. The lines that create the spotlighted component are marked.
+  * the source file. It marks the lines `link` points at, and hovering a line points `link` at it,
+  * so the preview outlines what that line creates. When a playground changes a prop, the lines that
+  * changed flash.
   */
-class CodeView(story: Rx[Story], spot: Rx[Option[String]] = Rx.const(None)) extends RxElement:
-  private val copied = Rx.variable(false)
+class CodeView(story: Rx[Story], link: Link) extends RxElement:
+  private val copied                    = Rx.variable(false)
+  private var root: Option[dom.Element] = None
+  private var subscription              = Cancelable.empty
+  // The code shown last, to flash the lines a playground change rewrote
+  private var previous: (String, Seq[String]) = ("", Seq.empty)
 
   private def copy(code: String): Unit =
     dom.window.navigator.clipboard.writeText(code)
     copied := true
     dom.window.setTimeout(() => copied := false, 1500)
 
-  private def line(text: String, number: Int): RxElement = span(
+  override def onMount(node: Any): Unit =
+    root = Some(node.asInstanceOf[dom.Element])
+    // Bring the line into view when the preview points at it
+    subscription = link
+      .lit
+      .run { l =>
+        if l.from == LinkSource.Preview then
+          l.lines
+            .headOption
+            .foreach { n =>
+              root
+                .flatMap(r => Option(r.querySelector(s".code-line[data-line='${n}']")))
+                .foreach(
+                  _.asInstanceOf[js.Dynamic]
+                    .scrollIntoView(js.Dynamic.literal(block = "nearest", behavior = "smooth"))
+                )
+            }
+      }
+
+  override def beforeUnmount: Unit = subscription.cancel
+
+  private def line(text: String, number: Int, changed: Boolean): RxElement = span(
     cls ->
-      spot.map {
-        case Some(name) if Spotlight.creates(text, name) =>
-          "code-line is-spotlit"
-        case _ =>
-          "code-line"
-      },
+      link
+        .lit
+        .map { l =>
+          val lit =
+            if l.lines.contains(number) then
+              " is-lit"
+            else
+              ""
+          val chg =
+            if changed then
+              " is-changed"
+            else
+              ""
+          s"code-line${lit}${chg}"
+        },
     data("line") -> number.toString,
+    onmouseenter -> { () =>
+      link.pointAtLine(number, LinkSource.Code)
+    },
+    onmouseleave -> { () =>
+      link.clear(LinkSource.Code)
+    },
     span(cls -> "code-ln", number.toString),
     span(cls -> "code-text", ScalaHighlight.tokens(text).map(_.node))
   )
+
+  private def lines(s: Story, src: StorySource, code: String): Seq[RxElement] =
+    val now = code.split("\n", -1).toSeq
+    // Flash only the lines a prop change rewrote in the same story, not a story switch
+    val before =
+      if previous._1 == s.id then
+        previous._2
+      else
+        now
+    previous = (s.id, now)
+    now
+      .zipWithIndex
+      .map((text, i) => line(text, src.startLine + i, before.lift(i).exists(_ != text)))
 
   override def render: RxElement = div(
     cls -> "code-view",
@@ -59,7 +115,7 @@ class CodeView(story: Rx[Story], spot: Rx[Option[String]] = Rx.const(None)) exte
                     else
                       Icons.copy
                   )
-                ).onClick(() => copy(src.code))
+                ).onClick(() => s.code.run(c => copy(c)).cancel)
               ),
               Tooltip(
                 "Open these lines on GitHub",
@@ -73,17 +129,7 @@ class CodeView(story: Rx[Story], spot: Rx[Option[String]] = Rx.const(None)) exte
                 )
               )
             ),
-            pre(
-              cls -> "code-block",
-              code(
-                src
-                  .code
-                  .split("\n", -1)
-                  .toSeq
-                  .zipWithIndex
-                  .map((text, i) => line(text, src.startLine + i))
-              )
-            )
+            pre(cls -> "code-block", code(s.code.map(c => lines(s, src, c))))
           )
     }
   )
