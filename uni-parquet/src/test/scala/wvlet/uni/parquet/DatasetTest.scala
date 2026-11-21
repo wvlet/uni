@@ -378,6 +378,16 @@ class DatasetTest extends UniTest:
     e.getMessage.contains("matching") shouldBe true
   }
 
+  test("a glob below a Windows extended-length path") {
+    skipInBrowser()
+    val root = datasetDir(lake*)
+    // `?` in the `\\?\` prefix isn't a glob character
+    if ParquetDataset.isWindows then
+      val ds = Parquet.dataset(s"\\\\?\\${root.path}\\dt=*\\country=US")
+      try ds.files.map(relativePath(ds, _)) shouldBe Seq("dt=2026-11-19/country=US/part-0.parquet")
+      finally ds.close()
+  }
+
   test("escape glob characters") {
     // The listed base has its escapes removed; the pattern keeps them
     ParquetDataset.splitGlob("s3://b/a\\*b/c*") shouldBe Some(("s3://b/a*b/", "c*"))

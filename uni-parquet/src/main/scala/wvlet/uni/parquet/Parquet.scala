@@ -118,10 +118,11 @@ object Parquet:
           store.close()
           throw e
     else
-      // A Windows path separates folders with `\`, so it can't also escape glob characters there
+      // A Windows path separates folders with `\`, so it can't also escape glob characters there.
+      // The `?` of a `\\?\` prefix isn't a glob character either
       val glob =
         if ParquetDataset.isWindows then
-          root.replace('\\', '/')
+          IOPath.stripWin32Prefix(root).replace('\\', '/')
         else
           root
       ParquetDataset.splitGlob(glob) match
