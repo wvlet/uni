@@ -37,6 +37,9 @@ object Icons:
     p("M8.5 6.5h12M8.5 12h12M8.5 17.5h12M4 6.5h.01M4 12h.01M4 17.5h.01")
   )
 
+  /** A play triangle in a circle, for Get started. */
+  def start: RxElement = icon(circle(cx -> 12, cy -> 12, r -> 8.5), p("M10.5 9l4.5 3-4.5 3z"))
+
   def layout: RxElement = icon(
     rect(x -> 3.5, y -> 4.5, width -> 17, height -> 15, rx -> 2.5),
     p("M9.5 4.5v15M9.5 12h11")
@@ -124,6 +127,8 @@ object Icons:
         overlays
       case "collections" =>
         collections
+      case "start" =>
+        start
       case _ =>
         layout
 
