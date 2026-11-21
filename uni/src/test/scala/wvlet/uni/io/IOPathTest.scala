@@ -41,6 +41,32 @@ class IOPathTest extends UniTest:
     path.fileName shouldBe "file.txt"
   }
 
+  test("Windows drive root keeps its separator") {
+    val root = IOPath.parse("C:\\")
+    root.segments shouldBe Seq("C:")
+    root.posixPath shouldBe "C:/"
+    // `C:` alone is the current folder on drive C, so a drive root must render as `C:\`
+    // Touch FileSystem first: it sets IOPath.isWindows and separator when it initializes
+    if !FileSystem.isBrowser && IOPath.isWindows then
+      root.path shouldBe "C:\\"
+      IOPath.parse("C:/Users").path shouldBe "C:\\Users"
+  }
+
+  test("Windows drive root as parent, root, and normalized path") {
+    val file = IOPath.parse("C:\\Users\\file.txt")
+    file.parent.flatMap(_.parent) shouldBe Some(IOPath.parse("C:\\"))
+    file.parent.flatMap(_.parent).flatMap(_.parent) shouldBe None
+    file.root shouldBe Some(IOPath.parse("C:\\"))
+    file.root.map(_.posixPath) shouldBe Some("C:/")
+    IOPath.parse("C:\\foo").parent.map(_.posixPath) shouldBe Some("C:/")
+    IOPath.parse("C:\\foo\\..\\..").normalize.posixPath shouldBe "C:/"
+    (IOPath.parse("C:\\") / "foo").posixPath shouldBe "C:/foo"
+  }
+
+  test("colon in a Unix path is not a drive") {
+    IOPath.parse("/ab:c/d").posixPath shouldBe "/ab:c/d"
+  }
+
   test("parse empty path") {
     val path = IOPath.parse("")
     path.isAbsolute shouldBe false
