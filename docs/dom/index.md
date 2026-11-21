@@ -23,6 +23,11 @@ rendering core ships in `uni-core`, which `uni` depends on, so `uni-test` can te
 
 ## Setup
 
+::: tip Quick start
+The gallery's [Get started](/gallery/index.html#/start){target="_self"} page has the whole setup on
+one page: the build files, the stylesheet, the imports, a first app shown live, and how to run it.
+:::
+
 Add the artifacts to a Scala.js project. `uni` brings uni-dom; add `uni-ui` for the components:
 
 ```scala sbt

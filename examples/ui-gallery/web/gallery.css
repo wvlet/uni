@@ -1782,3 +1782,120 @@ body {
   font-size: 12.5px;
   line-height: 1.4;
 }
+
+/* Get started: numbered steps, each with its files to copy */
+.page--guide {
+  max-width: 920px;
+}
+
+.start-step {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-margin-top: 16px;
+}
+
+.start-step > p {
+  margin: 0;
+  color: var(--uni-muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.start-step p code {
+  padding: 1px 5px;
+  border-radius: 5px;
+  background: var(--uni-raised);
+  color: var(--uni-fg);
+  font-family: var(--uni-font-mono);
+  font-size: 12.5px;
+}
+
+.start-step a {
+  color: var(--uni-accent);
+}
+
+.start-step__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.start-step__num {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  background: var(--uni-accent);
+  color: var(--uni-accent-fg, #fff);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.start-step > .start-note {
+  font-size: 13px;
+}
+
+/* A file to copy: the code panel's toolbar and lines, sized to its text */
+.code-snippet {
+  min-width: 0;
+  height: auto;
+  overflow: hidden;
+  border: 1px solid var(--uni-line);
+  border-radius: 12px;
+}
+
+.code-snippet .code-block {
+  flex: none;
+  padding: 10px 14px 12px;
+}
+
+/* Keep blank lines */
+.code-snippet .code-line {
+  min-height: 1.6em;
+}
+
+.code-snippet .code-line:hover {
+  background: none;
+}
+
+.start-version {
+  font-family: var(--uni-font-mono);
+  font-size: 12px;
+}
+
+.start-next {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.start-step .start-next__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--uni-line);
+  border-radius: 12px;
+  background: var(--uni-raised);
+  color: var(--uni-fg);
+  text-decoration: none;
+}
+
+.start-next__card:hover {
+  border-color: var(--uni-accent);
+}
+
+.start-next__title {
+  font-weight: 650;
+}
+
+.start-next__hint {
+  color: var(--uni-muted);
+  font-size: 13px;
+}

@@ -1,5 +1,6 @@
 package example.gallery
 
+import example.gallery.stories.StartStories
 import org.scalajs.dom
 import wvlet.uni.dom.all.{div, styleAttr}
 import wvlet.uni.dom.all.given
@@ -51,6 +52,41 @@ class GalleryTest extends DomTestSupport:
     Pages.route("#/controls/buttons").flatMap(_.example).map(_.id) shouldBe Some("button/variants")
     Pages.route("#/no/such").isEmpty shouldBe true
     Pages.route("").isEmpty shouldBe true
+  }
+
+  test("a URL without a hash opens Get started, which #/start also names") {
+    Pages.first.page.id shouldBe "start"
+    Pages.route("#/start").map(_.page) shouldBe Some(StartStories.page)
+    Pages.groups.head.pages.map(_.name) shouldBe Seq("Get started")
+    Pages.all.exists(_.id == "start") shouldBe false
+  }
+
+  test("Get started shows the build files, the imports, and the first app next to its code") {
+    val m = mount(
+      Gallery(
+        Rx.variable(Pages.first),
+        Rx.variable(ColorScheme.Light),
+        Rx.variable(ViewMode.Split),
+        embed = false
+      )
+    )
+    settle().map { _ =>
+      m.get(".story-title").textContent shouldBe "Get started"
+      m.queryAll(".start-step").map(_.id) shouldBe StartView.steps.map(_._1)
+      val files = m.queryAll(".code-snippet .code-file").map(_.textContent)
+      files shouldContain "project/plugins.sbt"
+      files shouldContain "build.sbt"
+      files shouldContain "web/index.html"
+      val build = m.queryAll(".code-snippet").find(_.textContent.contains("uniUiCssFile")).get
+      build.textContent shouldContain s"\"uni-ui\" % \"${BuildInfo.uniVersion}\""
+      // Each file has its own copy button
+      m.queryAll(".code-snippet [aria-label='Copy the code']").size shouldBe
+        m.queryAll(".code-snippet").size
+      // The first app runs in the example card, next to its code
+      m.querySelector(".story-stage input").isDefined shouldBe true
+      m.get(".story-card .code-block").textContent shouldContain "Hello().renderTo(\"app\")"
+      m.get(".gallery-sidebar [aria-selected=true]").textContent shouldContain "Get started"
+    }
   }
 
   test("a region keeps its file and lines, so the GitHub link points at the code") {
@@ -301,7 +337,6 @@ class GalleryTest extends DomTestSupport:
     r.story shouldBe None
     Pages.groupOf(r.page).map(_.id) shouldBe Some("foundations")
     Pages.all.exists(_.id == "colors") shouldBe false
-    Pages.first.page.id shouldBe "button"
   }
 
   test("each swatch shows the light and dark values the cascade resolves") {

@@ -57,6 +57,7 @@ case class PageRoute(page: GalleryPage, example: Option[Story]):
 
 object Pages:
   val groups: Seq[PageGroup] = Seq(
+    PageGroup("start", "Start here", "", Seq(StartStories.page)),
     PageGroup("foundations", "Foundations", "theming", Seq(ColorsPage.page)),
     PageGroup("controls", "Controls", "controls", ControlStories.pages),
     PageGroup("overlays", "Overlays", "overlays", OverlayStories.pages),
@@ -103,6 +104,7 @@ object Pages:
       .flatMap(s => pageOf(s).map(p => PageRoute(p, Some(s))))
       .orElse(findPage(id).map(p => PageRoute(p, None)))
 
-  def first: PageRoute = PageRoute(all.head, None)
+  /** The page a URL without a hash opens: Get started. */
+  def first: PageRoute = PageRoute(pages.head, None)
 
 end Pages
