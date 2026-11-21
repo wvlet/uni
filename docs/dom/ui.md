@@ -43,7 +43,7 @@ Pass extra attributes as modifiers, and use `cls +=` so the component's own clas
 | [Collections](./collections) | `VirtualList`, `Tree`, `DataTable`, `CommandPalette`; multi-select and reordering |
 | [Layout & Dock](./layout) | `Stack`, `Grid`, `GridItem`, `Separator`, `FoldablePane`, `Splitter`, `StatusBar`, `Dock` |
 
-The [Gallery](./gallery) runs each of these components live, next to the code that renders it.
+The [gallery](/gallery/index.html){target="_self"} runs each of these components live, next to the code that renders it ([how it works](./gallery)).
 
 [`examples/uni-harness`](https://github.com/wvlet/uni/tree/main/examples/uni-harness) builds a full
 workspace shell with these components and Tailwind CSS.

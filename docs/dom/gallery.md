@@ -5,7 +5,10 @@ aside: false
 
 # Gallery
 
-Every uni-ui component has a page here: several live examples, each next to the Scala code that
+**[Open the gallery →](/gallery/index.html){target="_self"}** It is a full-window app, best on its
+own page. A smaller copy is embedded below.
+
+Every uni-ui component has a page in the gallery: several live examples, each next to the Scala code that
 renders it, then the component's parts, API, and an accessibility check. Pick a component in the
 sidebar or press ⌘K (Ctrl+K) to search components and examples.
 

@@ -15,6 +15,10 @@ hero:
       text: Get Started
       link: /guide/
     - theme: alt
+      text: UI Gallery
+      link: /gallery/index.html
+      target: _self
+    - theme: alt
       text: For AI Agents
       link: /guide/for-ai-agents
     - theme: alt
@@ -49,6 +53,11 @@ features:
   - title: HTTP Server & RPC
     details: A built-in server on every platform. Serve REST endpoints, and define RPC services as Scala traits with type-safe clients.
     link: /http/server
+  - title: Web UI
+    details: Components for Scala.js apps, from buttons and dialogs to virtualized tables and a dock, each running live next to its code in the gallery.
+    link: /gallery/index.html
+    linkText: Open the gallery
+    target: _self
   - title: MCP Servers
     details: Turn a Scala trait into an MCP server whose methods AI agents can call as tools.
     link: /mcp/
