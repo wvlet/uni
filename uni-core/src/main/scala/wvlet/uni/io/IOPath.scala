@@ -229,7 +229,7 @@ object IOPath:
       IOPath(Seq.empty, isAbsolute = false)
     else
       // Normalize separators
-      val normalized = pathStr.replace("\\", "/")
+      val normalized = stripWin32Prefix(pathStr).replace("\\", "/")
 
       // Check for absolute path
       val isAbs =
@@ -240,6 +240,34 @@ object IOPath:
       val parts = normalized.split("/").filter(_.nonEmpty).toSeq
 
       IOPath(parts, isAbs)
+
+  /**
+    * Removes the Windows `\\?\` (extended-length) or `\\.\` (device) prefix from a drive or UNC
+    * path: `\\?\C:\x` becomes `C:\x`, and `\\?\UNC\server\share\x` becomes `\\server\share\x`. The
+    * prefix only lifts the 260-character limit of Win32 calls, and the JVM, Node.js, and Windows
+    * add it back where they need it. Other prefixed paths, such as `\\.\pipe\name` or
+    * `\\?\Volume{...}\`, name devices or volumes that IOPath can't represent, so they are rejected.
+    * Only the backslash form is a prefix: `//?/x` stays a POSIX path.
+    */
+  private[uni] def stripWin32Prefix(pathStr: String): String =
+    if !(pathStr.startsWith("\\\\?\\") || pathStr.startsWith("\\\\.\\")) then
+      pathStr
+    else
+      val rest                   = pathStr.substring(4)
+      def isSep(i: Int): Boolean =
+        rest.length > i && (rest.charAt(i) == '\\' || rest.charAt(i) == '/')
+      // `\\.\C:` without a separator opens the volume itself, not its root folder
+      val isDrive = rest.length >= 3 && rest.charAt(0).isLetter && rest.charAt(1) == ':' && isSep(2)
+      val isUnc   = rest.take(3).equalsIgnoreCase("UNC") && isSep(3) && rest.length > 4
+      if isDrive then
+        rest
+      else if isUnc then
+        s"\\\\${rest.substring(4)}"
+      else
+        val prefix = pathStr.take(4)
+        throw IllegalArgumentException(
+          s"IOPath can't represent the Windows device path ${pathStr}: only a drive or UNC path can follow ${prefix}"
+        )
 
   /**
     * Creates an IOPath from the given path string.

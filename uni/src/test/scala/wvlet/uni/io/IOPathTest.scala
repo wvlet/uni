@@ -63,6 +63,45 @@ class IOPathTest extends UniTest:
     (IOPath.parse("C:\\") / "foo").posixPath shouldBe "C:/foo"
   }
 
+  test("Windows extended-length drive path drops its \\\\?\\ prefix") {
+    val file = IOPath.parse("\\\\?\\C:\\data\\x.parquet")
+    file shouldBe IOPath.parse("C:\\data\\x.parquet")
+    file.posixPath shouldBe "C:/data/x.parquet"
+    file.parent.map(_.posixPath) shouldBe Some("C:/data")
+    file.parent.flatMap(_.parent) shouldBe Some(IOPath.parse("C:\\"))
+    file.root shouldBe Some(IOPath.parse("C:\\"))
+    IOPath.parse("\\\\?\\C:\\data\\..\\..\\x").normalize.posixPath shouldBe "C:/x"
+    (IOPath.parse("\\\\?\\C:\\") / "data").posixPath shouldBe "C:/data"
+    (IOPath.parse("C:\\") / "\\\\?\\D:\\y").posixPath shouldBe "D:/y"
+    file.relativeTo(IOPath.parse("C:\\")) shouldBe IOPath.parse("data/x.parquet")
+    file.startsWith(IOPath.parse("C:\\data")) shouldBe true
+    IOPath.parse("\\\\.\\C:\\data") shouldBe IOPath.parse("C:\\data")
+    if !FileSystem.isBrowser && IOPath.isWindows then
+      file.path shouldBe "C:\\data\\x.parquet"
+      IOPath.parse("\\\\?\\C:\\").path shouldBe "C:\\"
+  }
+
+  test("Windows extended-length UNC path parses as the UNC path") {
+    IOPath.parse("\\\\?\\UNC\\server\\share\\dir") shouldBe IOPath.parse("\\\\server\\share\\dir")
+    IOPath.parse("\\\\?\\unc\\server\\share") shouldBe IOPath.parse("\\\\server\\share")
+    IOPath.parse("\\\\.\\UNC\\server\\share") shouldBe IOPath.parse("\\\\server\\share")
+  }
+
+  test("Windows device paths are rejected") {
+    Seq("\\\\.\\pipe\\name", "\\\\.\\COM1", "\\\\?\\Volume{1234}\\x", "\\\\.\\C:", "\\\\?\\UNC\\")
+      .foreach { p =>
+        val e = intercept[IllegalArgumentException] {
+          IOPath.parse(p)
+        }
+        e.getMessage shouldContain p
+      }
+  }
+
+  test("forward-slash //?/ and //./ stay POSIX paths") {
+    IOPath.parse("//?/x").posixPath shouldBe "/?/x"
+    IOPath.parse("//./x").normalize.posixPath shouldBe "/x"
+  }
+
   test("colon in a Unix path is not a drive") {
     IOPath.parse("/ab:c/d").posixPath shouldBe "/ab:c/d"
   }
