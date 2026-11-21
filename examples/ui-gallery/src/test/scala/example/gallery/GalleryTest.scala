@@ -44,7 +44,9 @@ class GalleryTest extends DomTestSupport:
 
   test("the gallery shows the current story and its code") {
     val current = Rx.variable(Stories.find("controls/tabs").get)
-    val m       = mount(Gallery(current, Rx.variable(ColorScheme.Light), embed = false))
+    val m       = mount(
+      Gallery(current, Rx.variable(ColorScheme.Light), Rx.variable(ViewMode.Split), embed = false)
+    )
     settle().map { _ =>
       m.get(".story-title").textContent shouldBe "Tabs"
       m.get(".code-line").getAttribute("data-line") shouldBe
@@ -57,11 +59,55 @@ class GalleryTest extends DomTestSupport:
 
   test("embed mode leaves out the header and the sidebar") {
     val m = mount(
-      Gallery(Rx.variable(Stories.all.head), Rx.variable(ColorScheme.Light), embed = true)
+      Gallery(
+        Rx.variable(Stories.all.head),
+        Rx.variable(ColorScheme.Light),
+        Rx.variable(ViewMode.Split),
+        embed = true
+      )
     )
-    m.querySelector(".gallery-header") shouldBe None
+    m.querySelector(".gallery-rail") shouldBe None
     m.querySelector("[role=tree]") shouldBe None
+    m.querySelector(".story-hero") shouldBe None
     m.querySelector(".code-view").isDefined shouldBe true
+  }
+
+  test("the view switch shows the preview, the code, or both") {
+    val mode = Rx.variable(ViewMode.Preview)
+    val m = mount(StoryView(Rx.variable(Stories.find("controls/buttons").get), mode, embed = true))
+    m.get(".story-body").getAttribute("data-view") shouldBe "preview"
+    m.querySelector(".story-code-full") shouldBe None
+    m.get(".uni-pane").getAttribute("data-state") shouldBe "closed"
+    mode := ViewMode.Code
+    m.querySelector(".story-code-full").isDefined shouldBe true
+    mode := ViewMode.Split
+    m.querySelector(".story-code-full") shouldBe None
+    m.get(".uni-pane").getAttribute("data-state") shouldBe "open"
+  }
+
+  test("chips name the components a story uses, in order") {
+    val code = Stories.find("overlays/dialog").flatMap(_.source).get.code
+    Spotlight.usedIn(code) shouldBe Seq("Button", "Dialog", "Input", "AlertDialog")
+    Spotlight.creates("""    Button("Save").primary""", "Button") shouldBe true
+    Spotlight.creates("""    IconButton("Close", x)""", "Button") shouldBe false
+  }
+
+  test("a chip outlines its component in the preview and marks its code lines") {
+    val m = mount(
+      StoryView(
+        Rx.variable(Stories.find("controls/buttons").get),
+        Rx.variable(ViewMode.Split),
+        embed = false
+      )
+    )
+    settle().map { _ =>
+      val chip = m.get(".chip")
+      fireEvent.mouseEnter(chip)
+      (m.queryAll(".story-stage .uni-button.is-spotlit").size > 0) shouldBe true
+      (m.queryAll(".code-line.is-spotlit").size > 0) shouldBe true
+      fireEvent.mouseLeave(chip)
+      m.queryAll(".is-spotlit").size shouldBe 0
+    }
   }
 
   test("highlighting marks keywords, types, strings, and comments") {

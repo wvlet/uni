@@ -4,7 +4,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
-import wvlet.uni.ui.{Button, Tooltip}
+import wvlet.uni.ui.{IconButton, Tooltip}
 
 import scala.language.implicitConversions
 import scala.util.matching.Regex
@@ -12,15 +12,28 @@ import scala.util.matching.Regex
 /**
   * The code panel: the story's `// #region` block with line numbers, a link to the lines on GitHub,
   * and a copy button. Each line is a `span.code-line` with `data-line` set to its line number in
-  * the source file.
+  * the source file. The lines that create the spotlighted component are marked.
   */
-class CodeView(story: Rx[Story]) extends RxElement:
+class CodeView(story: Rx[Story], spot: Rx[Option[String]] = Rx.const(None)) extends RxElement:
   private val copied = Rx.variable(false)
 
   private def copy(code: String): Unit =
     dom.window.navigator.clipboard.writeText(code)
     copied := true
     dom.window.setTimeout(() => copied := false, 1500)
+
+  private def line(text: String, number: Int): RxElement = span(
+    cls ->
+      spot.map {
+        case Some(name) if Spotlight.creates(text, name) =>
+          "code-line is-spotlit"
+        case _ =>
+          "code-line"
+      },
+    data("line") -> number.toString,
+    span(cls -> "code-ln", number.toString),
+    span(cls -> "code-text", ScalaHighlight.tokens(text).map(_.node))
+  )
 
   override def render: RxElement = div(
     cls -> "code-view",
@@ -33,23 +46,31 @@ class CodeView(story: Rx[Story]) extends RxElement:
             cls -> "code-body",
             div(
               cls -> "code-toolbar",
-              a(
-                cls    -> "code-file",
-                href   -> src.githubUrl,
-                target -> "_blank",
-                rel    -> "noopener",
-                s"${src.file.split('/').last}:${src.startLine}–${src.endLine}"
-              ),
+              span(cls -> "code-file", Icons.file, src.file.split('/').last),
+              span(cls -> "code-lines", s"L${src.startLine}–${src.endLine}"),
+              div(cls  -> "code-toolbar__spacer"),
               Tooltip(
                 "Copy the code",
-                trigger = Button(
+                trigger = IconButton(
+                  "Copy the code",
                   copied.map(c =>
                     if c then
-                      "Copied"
+                      Icons.check
                     else
-                      "Copy"
+                      Icons.copy
                   )
-                ).ghost.small.onClick(() => copy(src.code))
+                ).onClick(() => copy(src.code))
+              ),
+              Tooltip(
+                "Open these lines on GitHub",
+                trigger = a(
+                  cls       -> "code-github",
+                  href      -> src.githubUrl,
+                  target    -> "_blank",
+                  rel       -> "noopener",
+                  ariaLabel -> "Open these lines on GitHub",
+                  Icons.github
+                )
               )
             ),
             pre(
@@ -60,14 +81,7 @@ class CodeView(story: Rx[Story]) extends RxElement:
                   .split("\n", -1)
                   .toSeq
                   .zipWithIndex
-                  .map { (line, i) =>
-                    span(
-                      cls          -> "code-line",
-                      data("line") -> (src.startLine + i).toString,
-                      span(cls -> "code-ln", (src.startLine + i).toString),
-                      span(cls -> "code-text", ScalaHighlight.tokens(line).map(_.node))
-                    )
-                  }
+                  .map((text, i) => line(text, src.startLine + i))
               )
             )
           )

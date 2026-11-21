@@ -24,6 +24,14 @@ div(
 )
 ```
 
+Buttons, live. The Code tab shows its source:
+
+<UiGallery story="controls/buttons" embed height="400px" />
+
+Tabs, bound to an enum:
+
+<UiGallery story="controls/tabs" embed height="360px" />
+
 | Component | What it does |
 |-----------|--------------|
 | `Button(content*)` | `<button type="button">`. Variants are `.primary`, `.ghost`, and `.danger`, plus `.small`; set the state with `.withDisabled(rx)` and the action with `.onClick(f)` |

@@ -44,6 +44,10 @@ div(
 )
 ```
 
+A sortable table, live. The Code tab shows its source:
+
+<UiGallery story="collections/data-table" embed height="440px" />
+
 | Component | What it does |
 |-----------|--------------|
 | `VirtualList(items, rowHeight = 24, key = a => k, render = a => node)` | A long list (`role="listbox"`). `.withSelected(rxVar)` or `.withMultiSelect(setVar)`, `.onSelect`, `.withTypeahead(label)`, `.withOverscan(n)`, `.withReorder(itemsVar)`. `.withRowLabel(a => text)` names rows for `UiAgent`, and `.withAgentConfirm(a => Option(msg))` asks the human before an agent selects or drops a guarded row |
@@ -139,3 +143,8 @@ VirtualList(tasks, rowHeight = 32, key = _.id, render = t => div(Reorder.grip, s
   .withReorder(tasks)
   .onChange(d => if d.key == "order" && d.source == ChangeSource.Agent then d.cancel())
 ```
+
+Try it: drag a row, or select one and press Alt+ArrowUp:
+
+<UiGallery story="collections/reorder" embed height="380px" />
+
