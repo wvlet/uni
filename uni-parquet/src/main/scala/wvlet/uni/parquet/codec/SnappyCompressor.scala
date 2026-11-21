@@ -15,8 +15,8 @@ private[parquet] object SnappyCompressor:
   import MatchTable.hash
 
   private final val MaxOffset = 65535
-  // Matches start at least this many bytes before the end, so the loop's word loads (8 bytes on
-  // Scala Native) stay inside the input
+  // Matches start at least this many bytes before the end, so the loop's word loads stay inside
+  // the input: Word8.matchAndNextWord reads up to i + 15 on the JVM and Scala Native
   private final val InputMargin = 16
   // A literal up to this length is written as one 16-byte wide copy into the output slack
   private final val ShortLiteral = 16
