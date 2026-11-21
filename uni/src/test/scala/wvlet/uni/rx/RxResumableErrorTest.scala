@@ -14,6 +14,7 @@
 package wvlet.uni.rx
 
 import wvlet.uni.test.UniTest
+import wvlet.uni.util.Result
 
 class RxResumableErrorTest extends UniTest:
   private val boom = IllegalStateException("boom")
@@ -192,6 +193,54 @@ class RxResumableErrorTest extends UniTest:
     b := 20
     c.cancel
     events.result() shouldBe Seq(OnNext(1), OnNext(10), OnCompletion.failure(boom))
+  }
+
+  test("runContinuously answers Continue to an error, so a finite source keeps going") {
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.runContinuously(
+      Rx.sequence(1, 2, 3)
+        .map(x =>
+          if x == 2 then
+            throw boom
+          else
+            x
+        )
+    )(events += _)
+    events.result() shouldMatch {
+      case Seq(OnNext(1), OnError(e), OnNext(3), OnCompletion(Result.Success(_))) if e eq boom =>
+    }
+  }
+
+  test("a downstream Stop ends take before the nth value") {
+    val v      = Rx.variable(1)
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner().run(v.take(3)) { ev =>
+      events += ev
+      RxResult.Stop
+    }
+    v := 2
+    v.stop()
+    events.result() shouldBe Seq(OnNext(1))
+  }
+
+  test("a downstream Stop ends Rx.sequence and merge") {
+    val seqEvents = Seq.newBuilder[RxEvent]
+    RxRunner().run(Rx.sequence(1, 2, 3)) { ev =>
+      seqEvents += ev
+      RxResult.Stop
+    }
+    seqEvents.result() shouldBe Seq(OnNext(1))
+
+    val a           = Rx.variable(1)
+    val b           = Rx.variable(10)
+    val mergeEvents = Seq.newBuilder[RxEvent]
+    RxRunner().run(a.merge(b)) { ev =>
+      mergeEvents += ev
+      RxResult.Stop
+    }
+    a := 2
+    b := 20
+    mergeEvents.result() shouldBe Seq(OnNext(1))
   }
 
   test("recover handles a resumable error as an error") {

@@ -115,3 +115,5 @@ mode-dependent rules. Do it in steps:
    - 3c. Drop continuous mode. First part done: `run` and `runOnce` use the R3 runner
      (`adr/2026-11-21-rx-run-on-r3.md`). Second part done: `RxRunner` has no `continuous` flag and
      `RxLive.lean` has one mode (`adr/2026-11-21-rx-single-mode.md`).
+   - Follow-up done: sinks answer `Continue` to an error, so operators honor a downstream `Stop`
+     again (`adr/2026-11-21-rx-sink-continue.md`).
