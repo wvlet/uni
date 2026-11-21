@@ -2,7 +2,8 @@
 
 `wvlet.uni.ai` (in `uni`, all platforms) models the Anthropic Messages, OpenAI
 Responses and Chat Completions, and Gemini `generateContent` APIs, with clients and converters
-between them. Claude and OpenAI models on Amazon Bedrock use the Anthropic and OpenAI clients. Full page: https://wvlet.org/uni/ai/
+between them. Claude and OpenAI models on Amazon Bedrock use the Anthropic and OpenAI clients.
+Full page: https://wvlet.org/uni/ai/
 
 ## Rules
 
@@ -81,4 +82,5 @@ Completions streams with `ChatCompletionChunk.done`.
 
 What the converters handle, so don't redo it: usage normalization (Anthropic input
 excludes cache tokens; OpenAI and Gemini include them), stop reasons derived from tool calls,
-usage that arrives after the finish chunk, deterministic tool-id rewrites, and reasoning carried across vendors in thinking signatures (`wvlet.uni.ai:` prefix).
+usage that arrives after the finish chunk, deterministic tool-id rewrites, and reasoning carried
+across vendors in thinking signatures (`wvlet.uni.ai:` prefix).

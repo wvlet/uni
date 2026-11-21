@@ -13,8 +13,9 @@ import wvlet.uni.rx.Rx
   *   serve [[LlmClient]] calls through Chat Completions instead of Responses, for servers that only
   *   implement Chat Completions
   * @param bedrock
-  *   serve requests from Amazon Bedrock's OpenAI API (`/openai/v1` on bedrock-runtime) instead of
-  *   `baseUrl`, authenticated with a Bedrock API key or SigV4. See [[OpenAIConfig.bedrock]].
+  *   serve requests from Amazon Bedrock's OpenAI API (`/openai/v1` on bedrock-runtime),
+  *   authenticated with a Bedrock API key or SigV4. When set, `baseUrl` and `apiKey` are not used;
+  *   set a VPC endpoint with [[OpenAIBedrock.endpoint]]. See [[OpenAIConfig.bedrock]].
   */
 case class OpenAIConfig(
     apiKey: Option[String],
