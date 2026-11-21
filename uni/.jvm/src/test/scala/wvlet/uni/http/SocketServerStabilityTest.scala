@@ -105,6 +105,21 @@ class SocketServerStabilityTest extends UniTest:
       b = in.read()
 
   /** Wait up to 10 s for `cond`, polling. */
+  /**
+    * Names of the live platform threads whose name starts with `prefix`. Unlike
+    * `Thread.activeCount()`, this ignores threads the JVM, sbt, and other tests start and end
+    * meanwhile, such as virtual-thread carriers and pollers that the JDK creates on first use.
+    */
+  private def platformThreadNames(prefix: String): Seq[String] =
+    Thread
+      .getAllStackTraces
+      .keySet
+      .toArray(Array.empty[Thread])
+      .toSeq
+      .filter(t => t.isAlive && t.getName.startsWith(prefix))
+      .map(_.getName)
+      .sorted
+
   private def eventually(cond: => Boolean): Boolean =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
     while !cond && System.nanoTime() < deadline do
@@ -224,8 +239,11 @@ class SocketServerStabilityTest extends UniTest:
   }
 
   test("return to no open connections or streams after many clients come and go") {
-    withServer() { server =>
-      val threadsBefore = Thread.activeCount()
+    // A distinct name, so the threads this server starts can be told apart from all others
+    val name = "churn-test-server"
+    withServer(app.withName(name)) { server =>
+      val threadsBefore = platformThreadNames(name)
+      threadsBefore shouldBe Seq(s"${name}-acceptor", s"${name}-write-watchdog")
       for i <- 1 to 50 do
         val s = connect(server)
         try
@@ -238,8 +256,9 @@ class SocketServerStabilityTest extends UniTest:
         finally s.close()
       // Closed SSE clients are found by the next failed write; plain ones by the next read
       eventually(server.openConnections == 0 && server.activeStreams == 0) shouldBe true
-      // Connections run on virtual threads, so no platform thread is left per client
-      (Thread.activeCount() <= threadsBefore + 2) shouldBe true
+      // Connections run on virtual threads, so no platform thread is left per client. A leaked
+      // thread never ends, so waiting for any that are still finishing keeps the check strict
+      eventually(platformThreadNames(name) == threadsBefore) shouldBe true
     }
   }
 
