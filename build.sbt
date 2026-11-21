@@ -161,6 +161,7 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
   uni.jvm,
   parquet.jvm,
+  ai.jvm,
   netty,
   bookExamples,
   docSnippets,
@@ -177,6 +178,7 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
   parquet.js,
+  ai.js,
   npm,
   ui,
   domTest,
@@ -193,6 +195,7 @@ lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
   parquet.native,
+  ai.native,
   exampleCli.native,
   exampleRepl.native,
   exampleRpcNative.native,
@@ -271,6 +274,20 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   // locking the mutex again (fixed upstream after 0.5.12). Immix can still crash under concurrent
   // allocation (scala-native#5046, #5160), but rarely. Revisit both on Scala Native 0.5.13.
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
+  .dependsOn(uni, test % Test)
+
+// uni-ai - Typed models, clients, and converters for LLM vendor APIs (JVM, Scala.js, Scala Native)
+lazy val ai = crossProject(JVMPlatform, JSPlatform, NativePlatform)
+  .crossType(CrossType.Pure)
+  .in(file("uni-ai"))
+  .settings(
+    buildSettings,
+    name        := "uni-ai",
+    description :=
+      "Typed request, response, and streaming models for LLM vendor APIs (Anthropic Messages, OpenAI Responses and Chat Completions, Gemini on Google AI Studio and Vertex AI, Amazon Bedrock Converse), with clients on the Uni HTTP client and converters between vendors"
+  )
+  .jsSettings(jsBuildSettings, minimizeJavadoc)
+  .nativeSettings(nativeBuildSettings, minimizeJavadoc)
   .dependsOn(uni, test % Test)
 
 lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under target/npm")
