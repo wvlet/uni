@@ -320,8 +320,9 @@ private[parquet] final class DatasetWriterCore private (
         val buf  = sortBuffer(dir)
         buf.rows += java.util.Arrays.copyOf(row, rowLen)
         buf.keys += keys
-        // The row's bytes plus about 16 bytes per key and 32 for the row's own arrays
-        held(buf, rowLen + 16L * keys.length + 32)
+        // The row's bytes, its keys (copied bytes for strings and binary), and about 32 bytes for
+        // the row's own arrays
+        held(buf, rowLen + keyBytes(keys) + 32)
         rowCount += 1
         checkSortBudget()
       case None =>
@@ -469,9 +470,15 @@ private[parquet] final class DatasetWriterCore private (
       checkPartitionVector(p, v, n)
       v
     }
-    val data = ColumnBatch(n, batch.columns.filterNot(c => partitionSet.contains(c.name)))
+    val asGiven = ColumnBatch(n, batch.columns.filterNot(c => partitionSet.contains(c.name)))
     // Check the whole batch before any of it is written
-    val checked = batchShredder.check(data)
+    val checked = batchShredder.check(asGiven)
+    // Held batches are joined by position, so a sorted write keeps them in schema order
+    val data =
+      if sort.isDefined then
+        ColumnBatch(n, checked.toIndexedSeq)
+      else
+        asGiven
     try
       if n > 0 then
         writePartitions(data, checked, vectors)
@@ -527,7 +534,7 @@ private[parquet] final class DatasetWriterCore private (
     else
       writeGroup(dir, data, checked)
 
-  /** Holds a checked batch of one partition (in file schema order) for a sorted run */
+  /** Holds a checked batch of one partition, its columns in file schema order, for a sorted run */
   private def hold(dir: String, part: ColumnBatch): Unit =
     val buf = sortBuffer(dir)
     buf.batches += part
@@ -541,6 +548,20 @@ private[parquet] final class DatasetWriterCore private (
     dir,
     SortBuffer(values.clone())
   )
+
+  private def keyBytes(keys: Array[Any]): Long =
+    var total = 0L
+    var k     = 0
+    while k < keys.length do
+      total += (
+        keys(k) match
+          case b: Array[Byte] =>
+            16L + b.length
+          case _ =>
+            16L
+      )
+      k += 1
+    total
 
   private def held(buf: SortBuffer, bytes: Long): Unit =
     buf.bytes += bytes
@@ -569,12 +590,12 @@ private[parquet] final class DatasetWriterCore private (
     setValues(buf.values)
     fatal {
       if buf.batches.nonEmpty then
-        val all     = VectorGather.concat(buf.batches.toSeq)
-        val n       = all.numRows
-        val vectors = batchShredder.check(all).toIndexedSeq
-        val order   = s.order(i => s.keysOf(vectors, i), n)
-        val sorted  = VectorGather.take(all, order, n)
-        try writeGroup(dir, sorted, batchShredder.check(sorted), countRows = false)
+        // Every held batch was checked at write, with its columns in file schema order
+        val all    = VectorGather.concat(buf.batches.toSeq)
+        val n      = all.numRows
+        val order  = s.order(i => s.keysOf(all.columns, i), n)
+        val sorted = VectorGather.take(all, order, n)
+        try writeGroup(dir, sorted, sorted.columns.toArray, countRows = false)
         finally batchShredder.release()
       else
         val order = s.order(buf.keys(_), buf.rows.size)
