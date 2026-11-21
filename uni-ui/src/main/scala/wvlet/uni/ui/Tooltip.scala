@@ -24,9 +24,10 @@ import scala.language.implicitConversions
 
 /**
   * A short text label for its trigger, such as the name of an icon button. It shows when the
-  * pointer rests on the trigger (after a delay) and right away when the trigger gets keyboard
-  * focus. It hides on pointer leave, blur, a click, or Escape. While shown, the trigger's
-  * `aria-describedby` points to it.
+  * pointer rests on the trigger (after a delay, 200 ms by default) and right away when the trigger
+  * gets keyboard focus. Within half a second of another tooltip hiding, it shows at once, so moving
+  * along a toolbar or an icon rail doesn't wait at each button. It hides on pointer leave, blur, a
+  * click, or Escape. While shown, the trigger's `aria-describedby` points to it.
   *
   * {{{
   *   Tooltip("Close dock", trigger = IconButton("Close dock", Icons.close).onClick(...))
@@ -49,7 +50,7 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
 
   def withSide(s: Side): Tooltip = copy(side = s)
 
-  /** How long the pointer rests on the trigger before the tooltip shows. */
+  /** How long the pointer rests on the trigger before the tooltip shows; 200 ms by default. */
   def withDelay(ms: Int): Tooltip = copy(delayMs = ms)
 
   private def cancelTimer(): Unit =
@@ -62,11 +63,17 @@ class Tooltip private (text: Rx[String], trigger: RxElement, side: Side, delayMs
 
   private def hide(): Unit =
     cancelTimer()
+    if shown.get then
+      Tooltip.lastHidden = dom.window.performance.now()
     shown := false
 
   private def showLater(): Unit =
     cancelTimer()
-    timer = Some(dom.window.setTimeout(() => show(), delayMs.toDouble))
+    // Another tooltip just hid: the pointer is moving along a row of triggers, so skip the delay
+    if dom.window.performance.now() - Tooltip.lastHidden < Tooltip.skipDelayMs then
+      show()
+    else
+      timer = Some(dom.window.setTimeout(() => show(), delayMs.toDouble))
 
   private def onPointerEnter(e: dom.Event): Unit =
     e match
@@ -139,7 +146,13 @@ end Tooltip
 
 object Tooltip:
   // `new` is required in this file: the `apply`s below replace the constructor proxy
-  private val defaultDelayMs = 500
+  private val defaultDelayMs = 200
+
+  /** How long after a tooltip hides the next one shows without the delay. */
+  private[ui] val skipDelayMs = 500.0
+
+  // When a shown tooltip last hid, shared by every tooltip on the page
+  private[ui] var lastHidden: Double = Double.NegativeInfinity
 
   def apply(text: String, trigger: RxElement): Tooltip =
     new Tooltip(Rx.const(text), trigger, Side.Top, defaultDelayMs)
