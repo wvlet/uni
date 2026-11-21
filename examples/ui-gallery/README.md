@@ -12,7 +12,8 @@ and a live accessibility check. The docs embed it on the
   `inline def` that returns an `RxElement`, between `// #region <page>/<example>` and
   `// #endregion` markers in
   [`stories/`](src/main/scala/example/gallery/stories/). `project/StoryRegions.scala` copies each
-  block into the app at build time, so the code panel shows exactly the code that runs.
+  block into the app at build time, so the code panel shows exactly the code that runs. It drops
+  the `inline` modifier, which only the macro needs, so the shown and copied code is a plain `def`.
 - **Exact links between the UI and the code.** The `SourceTag` macro
   ([`SourceTag.scala`](src/main/scala/example/gallery/SourceTag.scala)) finds each uni-ui
   component an example creates and tags it with `data-src-kind` and `data-src-line`. Hovering a line

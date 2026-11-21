@@ -26,8 +26,9 @@ CSS class, and can't tell two buttons on different lines apart.
   `MenuItem` entries (typed `MenuEntry`), the receiver of `.primary`, and references to a `val`
   are left as they are.
 - **Story `def`s are `inline`.** `Story(id, title, summary)(buttons)` passes the call into the
-  macro, which sees the inlined body with its original positions. Readers who copy a story get a
-  plain method; `inline` changes nothing for them. Scala 3 rejects case classes inside an
+  macro, which sees the inlined body with its original positions. `project/StoryRegions.scala`
+  drops the `inline` modifier from the shown code, keeping every line where it was, so readers see
+  and copy a plain method. Scala 3 rejects case classes inside an
   `inline def`, so a story's data types sit just above it, inside the same `// #region`.
 - **The wrapping call is built with the reflection API, not a quote.** A quote re-owns the
   lambdas inside the spliced tree (`onClick` handlers), which crashed lambda lifting.

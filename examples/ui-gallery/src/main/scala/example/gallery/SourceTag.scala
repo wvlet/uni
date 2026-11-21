@@ -13,8 +13,8 @@ import scala.quoted.*
   * line in the source file) to it. The gallery reads those attributes to link a part of the preview
   * to its code and back.
   *
-  * Story `def`s are `inline`, so the macro sees their code, while the code readers copy stays plain
-  * Scala.
+  * Story `def`s are `inline`, so the macro sees their code. The code panel drops that modifier
+  * (project/StoryRegions.scala), so the code readers copy is a plain method.
   */
 object SourceTag:
   /** A component the story's code creates, and on which line. */

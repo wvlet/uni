@@ -56,7 +56,8 @@ At build time, `project/StoryRegions.scala` copies each block into the app, so t
 can't drift from the demo. At compile time, the gallery's `SourceTag` macro finds each uni-ui
 component the example creates and tags it with its name and line (`data-src-kind`,
 `data-src-line`), which is how the preview and the code find each other. The `def` is `inline`
-so the macro can see its code; copied into an app, it works as a plain `def`. The `def` also compiles with the rest of the build. The file name
+in the source so the macro can see its code. The code panel and the copy button drop that
+`inline`, so you copy a plain `def buttonVariants: RxElement`. The `def` also compiles with the rest of the build. The file name
 above the code links to those lines on GitHub. Each example assumes the imports from
 [Setup](./#setup).
 

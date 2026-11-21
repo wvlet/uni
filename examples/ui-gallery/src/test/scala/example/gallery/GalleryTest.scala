@@ -57,9 +57,17 @@ class GalleryTest extends DomTestSupport:
     val src = story("button/variants").source.get
     src.file shouldBe
       "examples/ui-gallery/src/main/scala/example/gallery/stories/ControlStories.scala"
-    src.code.startsWith("inline def buttonVariants: RxElement =") shouldBe true
+    src.code.startsWith("def buttonVariants: RxElement =") shouldBe true
     src.code.contains("#region") shouldBe false
     src.githubUrl shouldContain s"#L${src.startLine}-L${src.endLine}"
+  }
+
+  test("shown code drops the inline modifier, so copied code is a plain method") {
+    StorySources
+      .all
+      .foreach { (id, src) =>
+        src.code.linesIterator.exists(_.trim.startsWith("inline def")) shouldBe false
+      }
   }
 
   test("every example mounts") {
