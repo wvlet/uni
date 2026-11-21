@@ -1,6 +1,7 @@
 package example.gallery.stories
 
-import example.gallery.Story
+import example.gallery.{A11yCheck, ApiDoc, ComponentPage, Story}
+import wvlet.uni.dom.testing.AriaPattern
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.Rx
@@ -11,7 +12,7 @@ import scala.language.implicitConversions
 
 object CollectionStories:
 
-  // #region collections/tree
+  // #region tree/basic
   case class FileNode(path: String, name: String, children: Seq[FileNode] = Seq.empty)
 
   inline def tree: RxElement =
@@ -49,7 +50,7 @@ object CollectionStories:
   end tree
   // #endregion
 
-  // #region collections/data-table
+  // #region data-table/basic
   case class Call(id: Long, method: String, status: Int, millis: Double)
 
   inline def dataTable: RxElement =
@@ -83,7 +84,7 @@ object CollectionStories:
   end dataTable
   // #endregion
 
-  // #region collections/reorder
+  // #region virtual-list/reorder
   case class Task(id: Int, title: String)
 
   inline def reorder: RxElement =
@@ -111,17 +112,48 @@ object CollectionStories:
     )
   // #endregion
 
-  val all: Seq[Story] = Seq(
-    Story("collections/tree", "Tree", "An expandable tree over your own data, with typeahead.")(
-      tree
+  val pages: Seq[ComponentPage] = Seq(
+    ComponentPage(
+      "tree",
+      "Tree",
+      "An expandable tree over your own data, rendering only the rows in view.",
+      Seq(
+        Story(
+          "tree/basic",
+          "Basic",
+          "Arrow keys move; Right opens a row, Left closes it; Enter opens a file."
+        )(tree)
+      ),
+      ApiDoc.of[Tree[?, ?]],
+      Seq(A11yCheck(AriaPattern.Tree, "[role=tree]"))
     ),
-    Story(
-      "collections/data-table",
+    ComponentPage(
+      "data-table",
       "Data table",
-      "A sortable grid with a sticky header and multi-select."
-    )(dataTable),
-    Story("collections/reorder", "Reorderable list", "Move rows by drag or with Alt+arrow keys.")(
-      reorder
+      "A sortable grid with a sticky header, cell navigation, and multi-select.",
+      Seq(
+        Story(
+          "data-table/basic",
+          "Sort and select",
+          "Press a header to sort; Shift or ⌘ click to select rows."
+        )(dataTable)
+      ),
+      ApiDoc.of[DataTable[?, ?]] ++ ApiDoc.of[Column[?]],
+      Seq(A11yCheck(AriaPattern.Grid, "[role=grid]"))
+    ),
+    ComponentPage(
+      "virtual-list",
+      "Virtual list",
+      "A long list that renders only the rows in view, with selection, typeahead, and reordering.",
+      Seq(
+        Story(
+          "virtual-list/reorder",
+          "Reorder",
+          "Drag a row, or select one and press Alt+ArrowUp or Alt+ArrowDown."
+        )(reorder)
+      ),
+      ApiDoc.of[VirtualList[?, ?]],
+      Seq(A11yCheck(AriaPattern.Listbox, "[role=listbox]"))
     )
   )
 

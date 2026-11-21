@@ -1,6 +1,7 @@
 package example.gallery.stories
 
-import example.gallery.Story
+import example.gallery.{A11yCheck, ApiDoc, ComponentPage, Story}
+import wvlet.uni.dom.testing.AriaPattern
 import wvlet.uni.dom.SizeRange
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
@@ -11,7 +12,7 @@ import scala.language.implicitConversions
 
 object LayoutStories:
 
-  // #region layout/dock
+  // #region dock/basic
   inline def dock: RxElement =
     val layout = Rx.variable(
       DockLayout(
@@ -47,7 +48,7 @@ object LayoutStories:
   end dock
   // #endregion
 
-  // #region layout/foldable-pane
+  // #region foldable-pane/basic
   inline def foldablePane: RxElement =
     val open  = Rx.variable(true)
     val width = Rx.variable(200)
@@ -84,17 +85,36 @@ object LayoutStories:
   end foldablePane
   // #endregion
 
-  val all: Seq[Story] = Seq(
-    Story(
-      "layout/dock",
+  val pages: Seq[ComponentPage] = Seq(
+    ComponentPage(
+      "dock",
       "Dock",
-      "Tab groups and splits that the user rearranges; the layout is plain data."
-    )(dock),
-    Story(
-      "layout/foldable-pane",
+      "Tab groups and splits that the user rearranges; the layout is plain data you can save.",
+      Seq(
+        Story(
+          "dock/basic",
+          "Rearrange",
+          "Drag a tab onto another group or an edge; right-click a tab for its menu."
+        )(dock)
+      ),
+      ApiDoc.of[Dock] ++ ApiDoc.of[DockPanel],
+      Seq(A11yCheck(AriaPattern.Tabs, "[role=tablist]"))
+    ),
+    ComponentPage(
+      "foldable-pane",
       "Foldable pane",
-      "A side pane that folds to zero width, resized by a Splitter."
-    )(foldablePane)
+      "A side pane that folds to zero width without reflowing, resized by a Splitter.",
+      Seq(
+        Story(
+          "foldable-pane/basic",
+          "Fold and resize",
+          "Press the button, or drag the edge (or focus it and use ← →)."
+        )(foldablePane)
+      ),
+      ApiDoc.of[FoldablePane] ++ ApiDoc.of[Splitter],
+      a11yNote =
+        "The splitter is a focusable separator with aria-valuenow; Escape mid-drag puts the size back."
+    )
   )
 
 end LayoutStories

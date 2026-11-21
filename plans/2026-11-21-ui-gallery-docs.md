@@ -99,3 +99,18 @@ what it creates (with name, line, slot, and state), turn on Inspect and hover th
 the line, and chips from the macro's tag list. `Story.playground` adds controls for Button and
 Input props whose values are written into the shown code, with changed lines flashing. An Agent
 view installs a `UiAgent` over the story, lists its snapshot, and runs actions through it.
+
+Phase 4, part 1 (2026-11-21): a page per component, after ui-sdk.dev's component docs. 16 pages
+and 41 examples, with Controls (Button, Input, Textarea, Tabs, Badge & Kbd) and Overlays
+(Popover, Tooltip, Menu, Dialog, Select, Toast) filled out; Collections and Layout keep one
+example each for part 2. Each page has an on-this-page list, a card per example with a "what to
+try" line and an event log of `onChange` changes with their source, then Parts (`data-slot` and
+`data-state` read from the running page), API (listed at compile time by `ApiDoc`, with doc
+comments from TASTy via `-Xread-docs`), and Accessibility (`checkPattern` on the live examples).
+Routes are `#/<page>` and `#/<page>/<example>`; earlier story ids map to examples. The view
+switch became a group of toggle buttons: as a `TabList` with no tab panels it failed the Tabs
+pattern's `aria-controls` check, which the new accessibility section caught.
+
+Part 2: more examples for Tree, Data table, Virtual list, Dock, and Foldable pane, plus pages for
+Command palette, Splitter, and Status bar.
+

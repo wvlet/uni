@@ -31,7 +31,7 @@ FoldablePane(open, width = width, edge = Edge.Right, content = ChatList())
 
 A resizable sidebar, live. The Code tab shows its source:
 
-<UiGallery story="layout/foldable-pane" embed height="400px" />
+<UiGallery story="foldable-pane/basic" embed height="400px" />
 
 `Edge` names the pane's inner side, the one that faces the main content: `Edge.Right` for a left
 sidebar, `Edge.Left` for a right-hand dock.
@@ -62,7 +62,7 @@ Dock(
 
 Drag a tab onto another group or onto an edge:
 
-<UiGallery story="layout/dock" embed height="460px" />
+<UiGallery story="dock/basic" embed height="460px" />
 
 - **Layout.** A layout is a tree of `DockNode.Split(direction, children, sizes)` and
   `DockNode.Group(panels, active)`. `DockNode.row`, `DockNode.column`, and `DockNode.group` build

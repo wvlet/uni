@@ -21,12 +21,23 @@ object GalleryApp:
   def main(args: Array[String]): Unit =
     val params  = dom.URLSearchParams(dom.window.location.search)
     val embed   = params.has("embed")
-    val current = Rx.variable(Gallery.storyOf(dom.window.location.hash).getOrElse(Stories.all.head))
+    val current = Rx.variable(Pages.route(dom.window.location.hash).getOrElse(Pages.first))
     dom
       .window
       .addEventListener(
         "hashchange",
-        (_: dom.Event) => Gallery.storyOf(dom.window.location.hash).foreach(current := _)
+        (_: dom.Event) =>
+          Pages
+            .route(dom.window.location.hash)
+            .foreach { r =>
+              // Another example on the same page: scroll to it and keep the page's state
+              if !embed && r.page == current.get.page then
+                r.example
+                  .flatMap(e => Option(dom.document.querySelector(s"[data-example='${e.id}']")))
+                  .foreach(_.scrollIntoView(true))
+              else
+                current := r
+            }
       )
 
     val forcedTheme = Option(params.get("theme")).flatMap(t =>

@@ -741,6 +741,8 @@ lazy val exampleUiGallery = project
     name                            := "uni-example-ui-gallery",
     description                     := "Example: a gallery of uni-ui components with their code",
     scalaJSUseMainModuleInitializer := true,
+    // Read uni-ui's doc comments from TASTy, so ApiDoc can show them in each page's API list
+    scalacOptions += "-Xread-docs",
     // The generator reads the story sources directly, so sbt 2 must not cache its result
     Compile / sourceGenerators +=
       Def
