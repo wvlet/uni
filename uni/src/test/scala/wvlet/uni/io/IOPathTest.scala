@@ -178,6 +178,64 @@ class IOPathTest extends UniTest:
     IOPath.parse("C:foo").startsWith(IOPath.parse("foo")) shouldBe false
   }
 
+  test("UNC path keeps its server and share") {
+    val file = IOPath.parse("\\\\server\\share\\dir\\file.txt")
+    file.isAbsolute shouldBe true
+    file.segments shouldBe Seq("//server/share", "dir", "file.txt")
+    file.posixPath shouldBe "//server/share/dir/file.txt"
+    file.fileName shouldBe "file.txt"
+    // A path on the current drive is a different path
+    file shouldNotBe IOPath.parse("\\server\\share\\dir\\file.txt")
+    // Touch FileSystem first: it sets IOPath.isWindows and separator when it initializes
+    if !FileSystem.isBrowser && IOPath.isWindows then
+      // On Windows the POSIX form is a UNC path too, so it parses back to the same path
+      IOPath.parse(file.posixPath) shouldBe file
+      file.path shouldBe "\\\\server\\share\\dir\\file.txt"
+      IOPath.parse("\\\\server\\share").path shouldBe "\\\\server\\share"
+  }
+
+  test("UNC share root as parent, root, and normalized path") {
+    val share = IOPath.parse("\\\\server\\share")
+    val file  = IOPath.parse("\\\\server\\share\\dir\\file.txt")
+    share.posixPath shouldBe "//server/share"
+    share.parent shouldBe None
+    file.parent.flatMap(_.parent) shouldBe Some(share)
+    file.root shouldBe Some(share)
+    share.root shouldBe Some(share)
+    IOPath.parse("\\\\server\\share\\dir\\..\\..\\..").normalize shouldBe share
+    IOPath.parse("\\\\server\\share\\.\\a\\..\\b").normalize.posixPath shouldBe "//server/share/b"
+  }
+
+  test("UNC path with resolve, relativeTo, and startsWith") {
+    val share = IOPath.parse("\\\\server\\share")
+    val file  = share / "dir" / "file.txt"
+    file.posixPath shouldBe "//server/share/dir/file.txt"
+    share.resolve("\\\\other\\share2\\x").posixPath shouldBe "//other/share2/x"
+    file.relativeTo(share).posixPath shouldBe "dir/file.txt"
+    file.startsWith(share) shouldBe true
+    file.startsWith(IOPath.parse("\\\\server")) shouldBe false
+    file.startsWith(IOPath.parse("\\\\server\\other")) shouldBe false
+  }
+
+  test("a // path is a UNC path only on Windows") {
+    val p = IOPath.parse("//data/t")
+    // Touch FileSystem first: it sets IOPath.isWindows when it initializes
+    if FileSystem.isBrowser || !IOPath.isWindows then
+      // Linux and macOS read //data/t as /data/t and list its files that way
+      p shouldBe IOPath.parse("/data/t")
+      p.parent shouldBe Some(IOPath.parse("/data"))
+    else
+      p.segments shouldBe Seq("//data/t")
+  }
+
+  test("a lone UNC server is not a share root") {
+    // Without a share there is no UNC root, so today's parsing applies
+    IOPath.parse("\\\\server").segments shouldBe Seq("server")
+    IOPath.parse("///a/b").segments shouldBe Seq("a", "b")
+    // The extended-length form keeps the server and share too
+    IOPath.parse("\\\\?\\UNC\\server\\share\\dir").segments shouldBe Seq("//server/share", "dir")
+  }
+
   test("colon in a Unix path is not a drive") {
     IOPath.parse("/ab:c/d").posixPath shouldBe "/ab:c/d"
   }

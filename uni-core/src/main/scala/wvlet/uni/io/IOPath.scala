@@ -24,7 +24,10 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   def path: String =
     val sep = IOPath.separator
     if isAbsolute then
-      if IOPath.isWindows && hasDrive then
+      if hasUnc then
+        // A UNC path (e.g., \\server\share\dir) keeps its two leading separators
+        (segments.head.replace("/", sep) +: segments.tail).mkString(sep)
+      else if IOPath.isWindows && hasDrive then
         // Windows absolute path with drive letter (e.g., C:\foo\bar). A drive root keeps its
         // separator: `C:` alone means the current folder on drive C, not its root
         if isDriveRoot then
@@ -42,7 +45,10 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     */
   def posixPath: String =
     if isAbsolute then
-      if hasDrive then
+      if hasUnc then
+        // A UNC root is stored as //server/share
+        segments.mkString("/")
+      else if hasDrive then
         // Windows drive letter - convert backslash style. A drive root renders as `C:/`
         if isDriveRoot then
           segments.head + "/"
@@ -98,7 +104,7 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     * Returns the parent path, or None if this is the root or has no parent.
     */
   def parent: Option[IOPath] =
-    if segments.isEmpty || isDriveRoot then
+    if segments.isEmpty || isRootSegment then
       None
     else if segments.size == 1 then
       if isAbsolute then
@@ -167,8 +173,8 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
             acc
           // `C:..` is above the current folder on drive C, so `..` right after the drive stays
           case ".." if acc.nonEmpty && acc.last != ".." && !(isDriveRelative && acc.size == 1) =>
-            // `..` at a drive root stays at the root, as `..` at `/` does
-            if isAbsolute && acc.size == 1 && hasDrive then
+            // `..` at a drive or share root stays at the root, as `..` at `/` does
+            if acc.size == 1 && hasRoot then
               acc
             else
               acc.dropRight(1)
@@ -206,8 +212,8 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
     */
   def root: Option[IOPath] =
     if isAbsolute then
-      if hasDrive then
-        // Windows drive root
+      if hasRoot then
+        // Windows drive root or UNC share root
         Some(IOPath(Seq(segments.head), isAbsolute = true))
       else
         Some(IOPath(Seq.empty, isAbsolute = true))
@@ -238,6 +244,18 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   /** True for a drive root such as `C:\` */
   private def isDriveRoot: Boolean = hasDrive && segments.size == 1 && segments.head.length == 2
 
+  /**
+    * True for an absolute path whose first segment is a UNC share root (`//server/share`), matching
+    * how [[IOPath.parse]] stores one
+    */
+  private def hasUnc: Boolean = isAbsolute && segments.headOption.exists(_.startsWith("//"))
+
+  /** True when the first segment is a root of its own: a drive or a UNC share */
+  private def hasRoot: Boolean = hasDrive || hasUnc
+
+  /** True for a root with no parent: `C:\` or `\\server\share` */
+  private def isRootSegment: Boolean = isDriveRoot || (hasUnc && segments.size == 1)
+
   override def toString: String = path
 
 end IOPath
@@ -264,13 +282,30 @@ object IOPath:
       val normalized = stripWin32Prefix(pathStr).replace("\\", "/")
 
       def split(s: String): Seq[String] = s.split("/").filter(_.nonEmpty).toSeq
-      if normalized.length >= 2 && normalized.charAt(0) != '/' && normalized.charAt(1) == ':' then
+      val parts                         = split(normalized)
+      if isUnc(pathStr, normalized, parts) then
+        // A UNC path (\\server\share\dir): the server and share form the root segment
+        IOPath(s"//${parts(0)}/${parts(1)}" +: parts.drop(2), isAbsolute = true)
+      else if normalized.length >= 2 && normalized.charAt(0) != '/' && normalized.charAt(1) == ':'
+      then
         // A Windows drive letter. `C:\foo` is absolute, while `C:foo` and `C:` are drive-relative:
         // they name a path under the current folder of drive C, so they stay relative
         val rest = normalized.substring(2)
         IOPath(normalized.substring(0, 2) +: split(rest), isAbsolute = rest.startsWith("/"))
       else
-        IOPath(split(normalized), isAbsolute = normalized.startsWith("/"))
+        IOPath(parts, isAbsolute = normalized.startsWith("/"))
+
+  /**
+    * True for a UNC path with both a server and a share. `\\server\share` is UNC on every platform,
+    * since no POSIX file system lists a path in that form. `//server/share` is UNC only on Windows:
+    * Linux and macOS read it as `/server/share` and list its files that way, so a UNC root there
+    * would not match its own children. [[stripWin32Prefix]] has already turned
+    * `\\?\UNC\server\share` into `\\server\share`; the forward-slash `//?/` and `//./` stay POSIX
+    * paths.
+    */
+  private def isUnc(pathStr: String, normalized: String, parts: Seq[String]): Boolean =
+    (pathStr.startsWith("\\\\") || IOPath.isWindows) && normalized.startsWith("//") &&
+      !normalized.startsWith("///") && parts.size >= 2 && parts(0) != "?" && parts(0) != "."
 
   /**
     * Removes the Windows `\\?\` (extended-length) or `\\.\` (device) prefix from a drive or UNC
