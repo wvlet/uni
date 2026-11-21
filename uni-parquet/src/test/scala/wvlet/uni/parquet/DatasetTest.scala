@@ -336,4 +336,107 @@ class DatasetTest extends UniTest:
       }
   }
 
+  private def globFiles(root: IOPath, pattern: String): Seq[String] =
+    val ds = Parquet.dataset(s"${root.path}/${pattern}")
+    try ds.files.map(_.path.stripPrefix(ds.root))
+    finally ds.close()
+
+  test("read files that match a glob pattern") {
+    skipInBrowser()
+    val root = datasetDir(lake*)
+    globFiles(root, "dt=2026-11-2*/") shouldBe
+      Seq("dt=2026-11-20/country=JP/000001_0", "dt=2026-11-20/country=JP/part-0.parquet")
+    globFiles(root, "dt=*/country=US") shouldBe Seq("dt=2026-11-19/country=US/part-0.parquet")
+    globFiles(root, "**/*.parquet").size shouldBe 3
+    globFiles(root, "dt=2026-11-1?/country=[JU]*/part-0.parquet").size shouldBe 2
+    globFiles(root, "dt=2026-11-{19,20}/country=[!U]*").size shouldBe 3
+    // Hidden and underscore paths stay skipped, even when the pattern matches them
+    globFiles(root, "**").size shouldBe 4
+
+    // Partition columns are still parsed below the listed root, and pruning still applies
+    val ds = Parquet.dataset(s"${root.path}/dt=*/country=JP/*.parquet")
+    try
+      ds.partitionColumns.map(_.name) shouldBe Seq("dt", "country")
+      val opts = ParquetReadOptions.default.withRowGroupFilter(col("dt") === "2026-11-20")
+      ds.readAs[Visit](opts).map(_.id).toSeq shouldBe Seq(5L, 6L, 7L, 8L)
+    finally
+      ds.close()
+
+    val e = intercept[ParquetException](globFiles(root, "dt=2027-*"))
+    e.getMessage.contains("matching") shouldBe true
+  }
+
+  test("escape glob characters") {
+    // The listed base has its escapes removed; the pattern keeps them
+    ParquetDataset.splitGlob("s3://b/a\\*b/c*") shouldBe Some(("s3://b/a*b/", "c*"))
+    intercept[IllegalArgumentException](ParquetDataset.splitGlob("s3://logs-*/x"))
+    // A set never matches the folder separator
+    ParquetDataset.globMatcher("x[!a]y")(Seq("x", "y")) shouldBe false
+    ParquetDataset.globMatcher("x[!a]y")(Seq("xby")) shouldBe true
+    ParquetDataset.splitGlob("s3://b/events/") shouldBe None
+    val m = ParquetDataset.globMatcher("a\\*b/x.parquet")
+    m(Seq("a*b", "x.parquet")) shouldBe true
+    m(Seq("aXb", "x.parquet")) shouldBe false
+    ParquetDataset.globMatcher("k=a.b")(Seq("k=aXb", "f")) shouldBe false
+    intercept[IllegalArgumentException](ParquetDataset.globMatcher("{a,b"))
+  }
+
+  test("read an explicit list of files") {
+    skipInBrowser()
+    val root  = datasetDir(lake*)
+    val files = Seq(
+      "dt=2026-11-20/country=JP/part-0.parquet",
+      "dt=2026-11-19/country=US/part-0.parquet",
+      "dt=2026-11-19/country=US/part-0.parquet"
+    ).map(f => root.resolve(f).path)
+    val ds = Parquet.dataset(files)
+    try
+      ds.files.size shouldBe 2
+      ds.partitionColumns.map(_.name) shouldBe Seq("dt", "country")
+      ds.readAs[Visit]().map(_.id).toSeq shouldBe Seq(3L, 4L, 5L, 6L, 7L, 8L)
+    finally
+      ds.close()
+
+    // Files in one folder have no partitions; files the caller names are read even when hidden
+    val one = Parquet.dataset(Seq(root.resolve("_temporary/0/part-9.parquet").path))
+    try
+      one.partitionColumns shouldBe IndexedSeq.empty
+      one.readAs[Visit]().map(_.id).toSeq shouldBe Seq(100L)
+    finally
+      one.close()
+
+    intercept[ParquetException](Parquet.dataset(Seq(root.resolve("missing.parquet").path)))
+    intercept[IllegalArgumentException](Parquet.dataset(Seq.empty[String]))
+    intercept[IllegalArgumentException] {
+      Parquet.dataset(Seq(files.head, "s3://bucket/x.parquet"))
+    }
+  }
+
+  test("list objects of one bucket") {
+    val (root, listed) = ParquetDataset.listedObjects(
+      Seq("s3://b/t/dt=1/a.parquet", "s3://b/t/dt=2/b.parquet").map(
+        wvlet.uni.storage.ObjectUri.parse
+      )
+    )
+    root.toString shouldBe "s3://b/t/"
+    listed.map(_.segments) shouldBe Seq(Seq("dt=1", "a.parquet"), Seq("dt=2", "b.parquet"))
+    intercept[IllegalArgumentException] {
+      ParquetDataset.listedObjects(
+        Seq("s3://b/a.parquet", "s3://c/b.parquet").map(wvlet.uni.storage.ObjectUri.parse)
+      )
+    }
+  }
+
+  test("prefetch footers on sync reads") {
+    skipInBrowser()
+    val many = (0 until 12).map(i => s"part=${i}/f.parquet" -> visits(i * 2 until i * 2 + 2, "p"))
+    val root = datasetDir(many*)
+    val seq  =
+      withDataset(root, ParquetDatasetOptions.default.withPrefetch(1))(_.readAs[Visit]().toSeq)
+    val par =
+      withDataset(root, ParquetDatasetOptions.default.withPrefetch(8))(_.readAs[Visit]().toSeq)
+    par shouldBe seq
+    par.size shouldBe 24
+  }
+
 end DatasetTest

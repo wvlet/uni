@@ -353,16 +353,27 @@ finally ds.close()
   starting with `_` or `.` (`_SUCCESS`, `_temporary/`, `.crc` files). Files without an extension,
   as Hive and Trino write them, are kept. `withFileExtension(".parquet")` keeps only Parquet files
   in mixed folders. The root always ends with `/`, so `visits` doesn't also match `visits_old/`.
+- **Glob patterns.** The root can be a pattern, as in DuckDB and Spark:
+  `Parquet.dataset("s3://my-bucket/visits/dt=2026-11-{19,20}/country=JP")`. Only the part before the
+  first glob segment is listed (`visits/` here), and a path is kept when it or one of its folders
+  matches. `*` and `?` match within a folder name, `[a-z]` and `[!a-z]` are sets, `{a,b}` lists
+  alternatives, `**` matches any number of folders, and `\` escapes a character. Partition columns
+  still come from the folders below the listed part.
+- **A list of files.** `Parquet.dataset(Seq(path1, path2))` reads exactly those files, as
+  `read_parquet([...])` does in DuckDB, for example the `writtenFiles` of a write. The paths are all
+  local, or all in one bucket. Partition columns come from the `key=value` folders below the files'
+  common parent, and a listed file is read even when its name starts with `_` or `.`.
 - **Order and memory.** Files are read in path order, then row group order. Synchronous reads
-  return an `Iterator` that opens one file at a time. `readAllAsync`, `readAllRowsAsync`, and
-  `readBatchesAsync` fetch footers several at a time (`withPrefetch`, 4 by default), which helps
-  with object store latency.
+  return an `Iterator` that opens one file at a time. A read fetches the footers of the selected
+  files several at a time (`withPrefetch`, 4 by default), which hides object store latency: sync
+  reads do so on the JVM, and `readAllAsync`, `readAllRowsAsync`, and `readBatchesAsync`
+  everywhere.
 - **Stores.** `Parquet.dataset(uri)` creates the store with its default config and closes it with
   the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
   `Parquet.dataset(ObjectStore.s3(S3Config.r2("<account-id>")), "s3://my-bucket/visits/")`.
 
 `_metadata` summary files and table formats such as Delta Lake and Apache Iceberg aren't
-supported.
+supported yet.
 
 ## Writing a Dataset
 

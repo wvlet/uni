@@ -23,6 +23,8 @@ import scala.collection.immutable.VectorMap
   *
   * @param path
   *   a local path, or an object URI such as `s3://bucket/events/dt=2026-11-20/part-0.parquet`
+  * @param size
+  *   the size in bytes, or -1 for an object given in a list of files, which is not listed
   * @param partitions
   *   the values of the `key=value` folders above the file, typed as the dataset's partition
   *   columns; null for `__HIVE_DEFAULT_PARTITION__`
@@ -39,9 +41,10 @@ case class DatasetFile(path: String, size: Long, partitions: VectorMap[String, A
   * across files: a file without a selected column reads it as nulls, and a column whose type
   * differs between files is an error.
   *
-  * Synchronous reads open one file at a time and close it before the next. The `...Async` reads
-  * fetch several footers at a time (see [[ParquetDatasetOptions.withPrefetch]]). Rows come in file
-  * order (files are sorted by path), then row group order.
+  * Synchronous reads open one file at a time and close it before the next. Footers are fetched
+  * several at a time (see [[ParquetDatasetOptions.withPrefetch]]): on the JVM for every read, and
+  * on Scala.js and Scala Native for the `...Async` reads. Rows come in file order (files are sorted
+  * by path), then row group order.
   *
   * Close the dataset when done: it closes the object store if the dataset created it, and any file
   * an unfinished read left open. A store passed to [[Parquet.dataset]] is left open.
@@ -202,6 +205,8 @@ class ParquetDataset private[parquet] (
 
   private def prepare(options: ParquetReadOptions): Plan =
     val selected = selectByPartition(options)
+    // Footers are fetched several at a time where threads exist, as the async path does
+    ParallelMap(selected.filter(s => cachedFooter(s.file).isEmpty), prefetch)(s => footer(s.file))
     buildPlan(options, selected, selected.map(s => footer(s.file)))
 
   private def prepareAsync(
@@ -532,16 +537,25 @@ object ParquetDataset:
       listed: Seq[Listed],
       options: ParquetDatasetOptions,
       store: Option[ObjectStore],
-      ownsStore: Boolean
+      ownsStore: Boolean,
+      skipHidden: Boolean = true,
+      source: String = ""
   ): ParquetDataset =
     val kept = listed
       .filter { l =>
-        l.segments.nonEmpty && !l.segments.exists(s => s.startsWith("_") || s.startsWith(".")) &&
+        l.segments.nonEmpty &&
+        (!skipHidden || !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))) &&
         options.fileExtension.forall(ext => l.segments.last.endsWith(ext))
       }
+      .distinctBy(_.path)
       .sortBy(_.path)
     if kept.isEmpty then
-      throw ParquetException(s"No Parquet files found under ${root}")
+      val where =
+        if source.nonEmpty then
+          source
+        else
+          s"under ${root}"
+      throw ParquetException(s"No Parquet files found ${where}")
     val withKeys = kept.map { l =>
       val parts = l
         .segments
@@ -616,6 +630,158 @@ object ParquetDataset:
     ParquetDataset(rootName, files, columns, store, ownsStore, options.prefetch)
 
   end build
+
+  // ---- Glob patterns and file lists ----
+
+  private val GlobChars   = "*?[{"
+  private val RegexSyntax = "\\^$.|?*+()[]{}"
+
+  /**
+    * Splits a glob pattern into the root to list (up to the last `/` before the first unescaped
+    * glob character) and the pattern for the paths below it. None when there is no glob character.
+    */
+  private[parquet] def splitGlob(pattern: String): Option[(String, String)] =
+    var i     = 0
+    var first = -1
+    while first < 0 && i < pattern.length do
+      val c = pattern.charAt(i)
+      if c == '\\' then
+        i += 2
+      else
+        if GlobChars.indexOf(c) >= 0 then
+          first = i
+        i += 1
+    if first < 0 then
+      None
+    else
+      val cut  = pattern.lastIndexOf('/', first)
+      val base = pattern.substring(0, cut + 1)
+      if isObjectUri(pattern) && !base.substring(base.indexOf("://") + 3).contains('/') then
+        throw IllegalArgumentException(
+          s"A glob pattern can't be in the bucket name: ${pattern}. List each bucket separately"
+        )
+      // The base is listed as is, so its escapes are removed
+      Some((base.replaceAll("\\\\(.)", "$1"), pattern.substring(cut + 1).stripSuffix("/")))
+
+  /**
+    * A matcher for paths below a glob root: `*` and `?` match within one segment, `[...]` is a set
+    * (`[!...]` negated), `{a,b}` alternatives, `**` any number of segments, and `\` escapes the
+    * next character. A path matches when the pattern matches it or one of its parent folders, so
+    * `dt=2026-11-*` keeps every file below the matching folders.
+    */
+  private[parquet] def globMatcher(pattern: String): Seq[String] => Boolean =
+    val regex = java.util.regex.Pattern.compile(globRegex(pattern))
+    segments =>
+      var n     = segments.length
+      var found = false
+      while !found && n > 0 do
+        found = regex.matcher(segments.take(n).mkString("/")).matches()
+        n -= 1
+      found
+
+  private def globRegex(p: String): String =
+    val sb     = StringBuilder()
+    var i      = 0
+    var braces = 0
+    // Escape only regex syntax characters: other escapes such as `\=` are invalid in the unicode
+    // mode of JavaScript regexes, which Scala.js may use
+    def quote(c: Char): Unit =
+      if RegexSyntax.indexOf(c) >= 0 then
+        sb.append('\\')
+      sb.append(c)
+    while i < p.length do
+      val c = p.charAt(i)
+      c match
+        case '\\' if i + 1 < p.length =>
+          quote(p.charAt(i + 1))
+          i += 1
+        case '*' if i + 1 < p.length && p.charAt(i + 1) == '*' =>
+          if i + 2 < p.length && p.charAt(i + 2) == '/' then
+            // `**/` matches zero or more whole folders
+            sb.append("(?:[^/]+/)*")
+            i += 2
+          else
+            sb.append(".*")
+            i += 1
+        case '*' =>
+          sb.append("[^/]*")
+        case '?' =>
+          sb.append("[^/]")
+        case '[' =>
+          val end = p.indexOf(']', i + 2)
+          if end < 0 then
+            quote(c)
+          else
+            val body = p.substring(i + 1, end)
+            // A set matches one character within a folder name, never `/`
+            sb.append('[')
+            val set =
+              if body.startsWith("!") || body.startsWith("^") then
+                sb.append("^/")
+                body.substring(1)
+              else
+                body.filterNot(_ == '/')
+            set.foreach { ch =>
+              if "\\]^[".indexOf(ch) >= 0 then
+                sb.append('\\')
+              sb.append(ch)
+            }
+            sb.append(']')
+            i = end
+        case '{' =>
+          braces += 1
+          sb.append("(?:")
+        case '}' if braces > 0 =>
+          braces -= 1
+          sb.append(')')
+        case ',' if braces > 0 =>
+          sb.append('|')
+        case other =>
+          quote(other)
+      end match
+      i += 1
+    end while
+    if braces > 0 then
+      throw IllegalArgumentException(s"Unclosed { in the pattern ${p}")
+    sb.result()
+
+  end globRegex
+
+  /** Listed entries for an explicit list of local files, relative to their common parent */
+  private[parquet] def listedLocalFiles(paths: Seq[IOPath]): (IOPath, Seq[Listed]) =
+    val parent = commonParent(paths.map(_.segments))
+    val root   = IOPath(parent, isAbsolute = true)
+    val listed = paths.map { p =>
+      if !FileSystem.isFile(p) then
+        throw ParquetException(s"No such file: ${p.path}")
+      Listed(p.path, FileSystem.info(p).size, p.segments.drop(parent.size))
+    }
+    (root, listed)
+
+  /**
+    * Listed entries for an explicit list of objects in one bucket, relative to their common parent.
+    * No request is made, so sizes are -1.
+    */
+  private[parquet] def listedObjects(uris: Seq[ObjectUri]): (ObjectUri, Seq[Listed]) =
+    val first = uris.head
+    uris
+      .find(u => u.scheme != first.scheme || u.bucket != first.bucket)
+      .foreach { u =>
+        throw IllegalArgumentException(
+          s"Every file of a dataset must be in one bucket, but the list has ${first} and ${u}"
+        )
+      }
+    val keys   = uris.map(_.key.split('/').toSeq)
+    val parent = commonParent(keys)
+    val root   = ObjectUri(first.bucket, parent.map(s => s"${s}/").mkString, first.scheme)
+    (root, uris.zip(keys).map((u, k) => Listed(u.toString, -1L, k.drop(parent.size))))
+
+  /** The longest common folder of the paths, given as segments ending with the file name */
+  private def commonParent(paths: Seq[Seq[String]]): Seq[String] = paths
+    .map(_.init)
+    .reduce { (a, b) =>
+      a.zip(b).takeWhile((x, y) => x == y).map(_._1)
+    }
 
   /** Decodes the `%XX` escapes Hive and Spark write in partition folder names */
   private[parquet] def unescape(s: String): String =

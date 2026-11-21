@@ -144,6 +144,29 @@ class S3ParquetTest extends UniTest:
     Parquet.dataset(store, root).readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales.take(3)
   }
 
+  test("read a glob pattern and a list of objects") {
+    requireServer()
+    val root    = prefix.resolve("globbed/").toString
+    val sales   = (0 until 12).map(i => S3Sale(i.toLong, Seq("JP", "US", "FR")(i % 3)))
+    val written = Parquet.writeDataset(
+      store,
+      root,
+      sales,
+      ParquetDatasetWriteOptions.default.withPartitionBy("country")
+    )
+    val jpUs = Parquet.dataset(store, s"${root}country={JP,US}")
+    try jpUs.readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales.filter(_.country != "FR")
+    finally jpUs.close()
+
+    // Partitions come from the folders below the listed files' common parent
+    val listed = Parquet.dataset(store, written.map(_.path).filterNot(_.contains("country=US")))
+    try
+      listed.partitionColumns.map(_.name) shouldBe Seq("country")
+      listed.readAs[S3Sale]().toSeq.sortBy(_.id) shouldBe sales.filter(_.country != "US")
+    finally
+      listed.close()
+  }
+
 end S3ParquetTest
 
 case class S3Sale(id: Long, country: String) derives wvlet.uni.weaver.Weaver

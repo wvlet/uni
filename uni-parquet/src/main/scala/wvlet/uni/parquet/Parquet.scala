@@ -98,6 +98,11 @@ object Parquet:
     * ).toSeq
     * ds.close()
     * }}}
+    *
+    * The root may be a glob pattern, such as `s3://bucket/events/dt=2026-11-{19,20}/country=JP`:
+    * only the part before the first glob segment is listed, and paths below it are kept when they,
+    * or one of their folders, match. `*` and `?` match within a segment, `[a-z]` and `[!a-z]` are
+    * sets, `{a,b}` alternatives, `**` any number of folders, and `\` escapes a character.
     */
   def dataset(root: String): ParquetDataset = dataset(root, ParquetDatasetOptions.default)
 
@@ -111,15 +116,33 @@ object Parquet:
           store.close()
           throw e
     else
-      // An absolute root, so listed paths and the root share one form for relativeTo
-      val path = absolutePath(root)
-      ParquetDataset.build(
-        path.path,
-        ParquetDataset.listLocal(path),
-        options,
-        None,
-        ownsStore = false
-      )
+      ParquetDataset.splitGlob(root) match
+        case Some((base, pattern)) =>
+          // An absolute root, so listed paths and the root share one form for relativeTo
+          val path = absolutePath(
+            if base.isEmpty then
+              "."
+            else
+              base
+          )
+          val matches = ParquetDataset.globMatcher(pattern)
+          ParquetDataset.build(
+            path.path,
+            ParquetDataset.listLocal(path).filter(l => matches(l.segments)),
+            options,
+            None,
+            ownsStore = false,
+            source = s"matching ${root}"
+          )
+        case None =>
+          val path = absolutePath(root)
+          ParquetDataset.build(
+            path.path,
+            ParquetDataset.listLocal(path),
+            options,
+            None,
+            ownsStore = false
+          )
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
   def dataset(store: ObjectStore, root: String): ParquetDataset = dataset(
@@ -137,14 +160,75 @@ object Parquet:
       options: ParquetDatasetOptions,
       ownsStore: Boolean
   ): ParquetDataset =
-    val uri = ParquetDataset.objectRoot(root)
+    val (uri, matches, source) = objectPattern(root)
     ParquetDataset.build(
       uri.toString,
-      ParquetDataset.listObjects(store, uri),
+      ParquetDataset.listObjects(store, uri).filter(l => matches(l.segments)),
       options,
       Some(store),
-      ownsStore
+      ownsStore,
+      source = source
     )
+
+  /**
+    * The prefix to list for a root or glob pattern, the filter for the listed paths, and how an
+    * empty result names the pattern
+    */
+  private def objectPattern(root: String): (ObjectUri, Seq[String] => Boolean, String) =
+    ParquetDataset.splitGlob(root) match
+      case Some((base, pattern)) =>
+        (ParquetDataset.objectRoot(base), ParquetDataset.globMatcher(pattern), s"matching ${root}")
+      case None =>
+        (ParquetDataset.objectRoot(root), _ => true, "")
+
+  /**
+    * Reads the listed files as one dataset, as `read_parquet([...])` does in DuckDB. The paths are
+    * all local, or all objects in one bucket. Partition columns come from the `key=value` folders
+    * below the files' common parent. Files are read even when a name starts with `_` or `.`.
+    */
+  def dataset(paths: Seq[String]): ParquetDataset = dataset(paths, ParquetDatasetOptions.default)
+
+  def dataset(paths: Seq[String], options: ParquetDatasetOptions): ParquetDataset =
+    require(paths.nonEmpty, "The list of files is empty")
+    if paths.forall(ParquetDataset.isObjectUri) then
+      val store = storeFor(paths.head)
+      try
+        filesDataset(store, paths, options, ownsStore = true)
+      catch
+        case e: Throwable =>
+          store.close()
+          throw e
+    else if paths.exists(ParquetDataset.isObjectUri) then
+      throw IllegalArgumentException(
+        s"A list of files must be all local or all in one bucket: ${paths.mkString(", ")}"
+      )
+    else
+      val (root, listed) = ParquetDataset.listedLocalFiles(paths.map(absolutePath))
+      ParquetDataset.build(root.path, listed, options, None, ownsStore = false, skipHidden = false)
+
+  /** Listed objects of `store` as one dataset; the store is left open */
+  def dataset(store: ObjectStore, paths: Seq[String]): ParquetDataset = dataset(
+    store,
+    paths,
+    ParquetDatasetOptions.default
+  )
+
+  def dataset(
+      store: ObjectStore,
+      paths: Seq[String],
+      options: ParquetDatasetOptions
+  ): ParquetDataset =
+    require(paths.nonEmpty, "The list of files is empty")
+    filesDataset(store, paths, options, ownsStore = false)
+
+  private def filesDataset(
+      store: ObjectStore,
+      paths: Seq[String],
+      options: ParquetDatasetOptions,
+      ownsStore: Boolean
+  ): ParquetDataset =
+    val (root, listed) = ParquetDataset.listedObjects(paths.map(ObjectUri.parse))
+    ParquetDataset.build(root.toString, listed, options, Some(store), ownsStore, skipHidden = false)
 
   /** Lists the dataset asynchronously, as [[dataset(root:String)*]] does */
   def datasetAsync(root: String): Rx[ParquetDataset] = datasetAsync(
@@ -179,12 +263,21 @@ object Parquet:
       options: ParquetDatasetOptions,
       ownsStore: Boolean
   ): Rx[ParquetDataset] = Rx
-    .single(ParquetDataset.objectRoot(root))
-    .flatMap(uri =>
+    .single(objectPattern(root))
+    .flatMap { (uri, matches, source) =>
       ParquetDataset
         .listObjectsAsync(store, uri)
-        .map(listed => ParquetDataset.build(uri.toString, listed, options, Some(store), ownsStore))
-    )
+        .map(listed =>
+          ParquetDataset.build(
+            uri.toString,
+            listed.filter(l => matches(l.segments)),
+            options,
+            Some(store),
+            ownsStore,
+            source = source
+          )
+        )
+    }
 
   /** The default store for a URI's scheme */
   private def storeFor(root: String): ObjectStore =
