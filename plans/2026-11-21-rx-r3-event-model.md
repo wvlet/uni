@@ -113,5 +113,5 @@ mode-dependent rules. Do it in steps:
      continuous-mode ends (`adr/2026-11-21-rx-continuous-r3.md`, amended). `zip`, `join`,
      `merge`, and `parFlatMap` are covered by `RxLive.lean`/`RxLiveFanIn.lean`, which pass.
    - 3c. Drop continuous mode. First part done: `run` and `runOnce` use the R3 runner
-     (`adr/2026-11-21-rx-run-on-r3.md`). Next: give `RxLive.lean` one mode, then remove the
-     `continuous` flag of `RxRunner`.
+     (`adr/2026-11-21-rx-run-on-r3.md`). Second part done: `RxRunner` has no `continuous` flag and
+     `RxLive.lean` has one mode (`adr/2026-11-21-rx-single-mode.md`).

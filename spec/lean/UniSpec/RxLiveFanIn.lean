@@ -4,8 +4,9 @@ import UniSpec.RxLive
 # `merge` and `parFlatMap` over live `RxVar`s
 
 Both operators join streams through `FanIn` in `RxRunner`: a set of running slots, one per
-subscribed stream. The operator completes when the last slot ends. In default mode an error stops
-it, cancelling every slot. In continuous mode errors are transient, and only `cancel` stops it.
+subscribed stream. The operator completes when the last slot ends. A var's failure (a failed
+`OnCompletion`) stops it, cancelling every slot, as does `cancel`. An error raised by the
+function (an `OnError`) passes, and the operator keeps running.
 
 `parFlatMap(n)` runs at most `n` nested streams. Further input values wait in a queue, and a nested
 stream that ends hands its permit to the next queued value. Its event order depends on thread
@@ -23,8 +24,7 @@ Var 0 starts with 1, and var 1 with 10. -/
 
 structure Merge where
   vars : Vars
-  mode : Mode := .default
-  /-- `FanIn.stopped`: completed, failed in default mode, or cancelled -/
+  /-- `FanIn.stopped`: completed, failed, or cancelled -/
   stopped : Bool := false
   /-- The sources whose slot is still running -/
   running : List Nat := [0, 1]
@@ -38,12 +38,8 @@ def Merge.on (s : Merge) (i : Nat) (e : VarEvent) : Merge × List Out :=
       let r := s.running.erase i
       if r.isEmpty then ({ s with running := r, stopped := true }, [.done])
       else ({ s with running := r }, [])
-    | .fail =>
-      match s.mode with
-      -- The sink answers Stop to the error, which stops the operator
-      | .default => ({ s with stopped := true, running := [] }, [.fail])
-      -- Transient: the slot keeps running
-      | .continuous => (s, [.fail])
+    -- A var's failure ends the merge with it, cancelling the other source
+    | .fail => ({ s with stopped := true, running := [] }, [.fail])
 
 def Merge.step (s : Merge) (a : Action) : Merge × List Out :=
   match s.vars.apply a with
@@ -53,11 +49,11 @@ def Merge.step (s : Merge) (a : Action) : Merge × List Out :=
   | (some (i, e), vs) => ({ s with vars := vs }).on i e
 
 /-- Subscribe to var 0, then var 1, each delivering its current value at once. -/
-def Merge.init (m : Mode) : Merge × List Out :=
-  ({ vars := initVars, mode := m }, [.next 1, .next 10])
+def Merge.init : Merge × List Out :=
+  ({ vars := initVars }, [.next 1, .next 10])
 
-def runMerge (m : Mode) (as : List Action) : List Out :=
-  (Merge.init m).2 ++ runFrom Merge.step (Merge.init m).1 as
+def runMerge (as : List Action) : List Out :=
+  Merge.init.2 ++ runFrom Merge.step Merge.init.1 as
 
 theorem Merge.step_stopped (s : Merge) (a : Action) (h : s.stopped = true) :
     (s.step a).1.stopped = true ∧ (s.step a).2 = [] := by
@@ -66,8 +62,7 @@ theorem Merge.step_stopped (s : Merge) (a : Action) (h : s.stopped = true) :
   · split <;> simp_all
   · simp [Merge.on, h]
 
-/-- Once the merge completed, failed in default mode, or was cancelled, the sink records nothing
-more. -/
+/-- Once the merge completed, failed, or was cancelled, the sink records nothing more. -/
 theorem merge_stopped (s : Merge) (as : List Action) (h : s.stopped = true) :
     runFrom Merge.step s as = [] :=
   runFrom_silent _ (fun s => s.stopped = true) (fun s a h => Merge.step_stopped s a h) _ _ h
@@ -77,21 +72,13 @@ theorem merge_cancel (s : Merge) (as : List Action) :
     runFrom Merge.step (s.step .cancel).1 as = [] :=
   merge_stopped _ _ (by simp [Merge.step, Vars.apply])
 
-/-- In default mode an error stops the merge. -/
-theorem merge_fail_stops (s : Merge) (i : Nat) (h : s.mode = .default) :
+/-- A var's failure stops the merge. -/
+theorem merge_fail_stops (s : Merge) (i : Nat) :
     (s.on i .fail).1.stopped = true ∨ (s.on i .fail).2 = [] := by
   unfold Merge.on
   split
   · simp
-  · simp [h]
-
-/-- In continuous mode an error ends no source: every running source keeps reaching the sink. -/
-theorem merge_continuous_fail (s : Merge) (i : Nat) (h : s.mode = .continuous) :
-    (s.on i .fail).1 = s := by
-  unfold Merge.on
-  split
-  · rfl
-  · simp [h]
+  · simp
 
 /-- The merge completes only when its last running source completes. -/
 theorem merge_done (s : Merge) (i : Nat) (e : VarEvent) (h : Out.done ∈ (s.on i e).2) :
@@ -107,13 +94,11 @@ theorem merge_done (s : Merge) (i : Nat) (e : VarEvent) (h : Out.done ∈ (s.on 
       · rename_i he
         exact ⟨rfl, List.isEmpty_iff.mp he⟩
       · simp at h
-    | fail => cases hm : s.mode <;> simp [hm] at h
+    | fail => simp at h
 
-example : runMerge .default [.set 0 2, .stop 0, .set 1 20, .stop 1] =
+example : runMerge [.set 0 2, .stop 0, .set 1 20, .stop 1] =
     [.next 1, .next 10, .next 2, .next 20, .done] := by decide
-example : runMerge .default [.fail 0, .set 1 20] = [.next 1, .next 10, .fail] := by decide
-example : runMerge .continuous [.fail 0, .set 1 20, .stop 1] = [.next 1, .next 10, .fail, .next 20]
-    := by decide
+example : runMerge [.fail 0, .set 1 20] = [.next 1, .next 10, .fail] := by decide
 
 /-! ## parFlatMap(n)
 
@@ -131,7 +116,6 @@ def parTarget (x : Int) : Option Nat :=
 
 structure ParFlatMap where
   vars : Vars
-  mode : Mode := .default
   /-- `parallelism` -/
   n : Nat
   /-- `FanIn.stopped` -/
@@ -148,8 +132,8 @@ structure ParFlatMap where
 def ParFlatMap.stopAll (s : ParFlatMap) : ParFlatMap :=
   { s with stopped := true, inputOpen := false, slots := [] }
 
-/-- Start queued values while a permit is free. A value whose function throws fails at once: in
-default mode that stops the operator; in continuous mode its permit passes to the next value. -/
+/-- Start queued values while a permit is free. A value whose function throws reports an `OnError`
+at once, and its permit passes to the next value. -/
 def ParFlatMap.handoff : Nat → ParFlatMap → ParFlatMap × List Out
   | 0, s => (s, [])
   | fuel + 1, s =>
@@ -165,11 +149,8 @@ def ParFlatMap.handoff : Nat → ParFlatMap → ParFlatMap × List Out
           ({ s with slots := s.slots ++ [(s.nextId, i)], nextId := s.nextId + 1 },
             [.next (s.vars.val i)])
         | none =>
-          match s.mode with
-          | .default => (s.stopAll, [.fail])
-          | .continuous =>
-            let r := handoff fuel s
-            (r.1, .fail :: r.2)
+          let r := handoff fuel s
+          (r.1, .fail :: r.2)
 
 def ParFlatMap.release (s : ParFlatMap) : ParFlatMap × List Out :=
   s.handoff (s.pending.length + 1)
@@ -185,25 +166,17 @@ def ParFlatMap.endSlot (s : ParFlatMap) (id : Nat) : ParFlatMap × List Out :=
   let c := r.1.checkDone
   (c.1, r.2 ++ c.2)
 
-/-- An event from the nested stream in slot `id`. In continuous mode a nested error cancels that
-stream and hands its permit on; the operator keeps running. -/
+/-- An event from the nested stream in slot `id`. A nested var's failure stops the operator. -/
 def ParFlatMap.onSlot (s : ParFlatMap) (id : Nat) : VarEvent → ParFlatMap × List Out
   | .next v => (s, [.next v])
   | .done => s.endSlot id
-  | .fail =>
-    match s.mode with
-    | .default => (s.stopAll, [.fail])
-    | .continuous =>
-      let r := s.endSlot id
-      (r.1, .fail :: r.2)
+  | .fail => (s.stopAll, [.fail])
 
 def ParFlatMap.onInput (s : ParFlatMap) : VarEvent → ParFlatMap × List Out
   | .next x => ({ s with pending := s.pending ++ [x] }).release
   | .done => ({ s with inputOpen := false }).checkDone
-  | .fail =>
-    match s.mode with
-    | .default => (s.stopAll, [.fail])
-    | .continuous => (s, [.fail])
+  -- The input var's failure stops the operator
+  | .fail => (s.stopAll, [.fail])
 
 /-- Var `i` delivers to its subscribers in subscription order. It iterates over a snapshot, so a
 slot that a handoff subscribes while the event is delivered does not receive it. -/
@@ -229,11 +202,11 @@ def ParFlatMap.step (s : ParFlatMap) (a : Action) : ParFlatMap × List Out :=
   | (some (i, e), vs) => ({ s with vars := vs }).onVar i e
 
 /-- Subscribe: the input var delivers its current value, 1, at once. -/
-def ParFlatMap.init (m : Mode) (n : Nat) : ParFlatMap × List Out :=
-  ParFlatMap.onInput { vars := initVars, mode := m, n := n } (.next 1)
+def ParFlatMap.init (n : Nat) : ParFlatMap × List Out :=
+  ParFlatMap.onInput { vars := initVars, n := n } (.next 1)
 
-def runParFlatMap (m : Mode) (n : Nat) (as : List Action) : List Out :=
-  (ParFlatMap.init m n).2 ++ runFrom ParFlatMap.step (ParFlatMap.init m n).1 as
+def runParFlatMap (n : Nat) (as : List Action) : List Out :=
+  (ParFlatMap.init n).2 ++ runFrom ParFlatMap.step (ParFlatMap.init n).1 as
 
 /-! ### Theorems -/
 
@@ -270,9 +243,7 @@ theorem ParFlatMap.handoff_bounded (fuel : Nat) (s : ParFlatMap) (h : s.bounded)
       · exact ⟨h, rfl⟩
       · split
         · simp [ParFlatMap.bounded]; omega
-        · cases hm : s.mode
-          · exact ParFlatMap.stopAll_bounded _
-          · exact ih _ h
+        · exact ih _ h
 
 theorem ParFlatMap.checkDone_bounded (s : ParFlatMap) (h : s.bounded) :
     s.checkDone.1.bounded ∧ s.checkDone.1.n = s.n := by
@@ -294,10 +265,7 @@ theorem ParFlatMap.onSlot_bounded (s : ParFlatMap) (id : Nat) (e : VarEvent) (h 
   cases e with
   | next v => exact ⟨h, rfl⟩
   | done => exact ParFlatMap.endSlot_bounded s id h
-  | fail =>
-    cases hm : s.mode <;> simp only [ParFlatMap.onSlot, hm]
-    · exact ParFlatMap.stopAll_bounded _
-    · exact ParFlatMap.endSlot_bounded s id h
+  | fail => exact ParFlatMap.stopAll_bounded _
 
 theorem ParFlatMap.onInput_bounded (s : ParFlatMap) (e : VarEvent) (h : s.bounded) :
     (s.onInput e).1.bounded ∧ (s.onInput e).1.n = s.n := by
@@ -305,10 +273,7 @@ theorem ParFlatMap.onInput_bounded (s : ParFlatMap) (e : VarEvent) (h : s.bounde
   | next x =>
     exact ParFlatMap.handoff_bounded _ ({ s with pending := s.pending ++ [x] } : ParFlatMap) h
   | done => exact ParFlatMap.checkDone_bounded ({ s with inputOpen := false } : ParFlatMap) h
-  | fail =>
-    cases hm : s.mode <;> simp only [ParFlatMap.onInput, hm]
-    · exact ParFlatMap.stopAll_bounded _
-    · exact ⟨h, trivial⟩
+  | fail => exact ParFlatMap.stopAll_bounded _
 
 theorem ParFlatMap.onNestedFrom_bounded (i : Nat) (e : VarEvent) (n : Nat) :
     ∀ (ids : List Nat) (acc : ParFlatMap × List Out), acc.1.bounded → acc.1.n = n →
@@ -346,25 +311,25 @@ theorem parFlatMap_bounded (s : ParFlatMap) (a : Action) (h : s.bounded) :
         exact ParFlatMap.onNestedFrom_bounded _ _ _ _ _ hv rfl
 
 /-- Subscribing keeps the bound too, so by `parFlatMap_bounded` it holds after every script. -/
-theorem ParFlatMap.init_bounded (m : Mode) (n : Nat) :
-    (ParFlatMap.init m n).1.bounded ∧ (ParFlatMap.init m n).1.n = n := by
-  have : ({ vars := initVars, mode := m, n := n } : ParFlatMap).bounded := by
+theorem ParFlatMap.init_bounded (n : Nat) :
+    (ParFlatMap.init n).1.bounded ∧ (ParFlatMap.init n).1.n = n := by
+  have : ({ vars := initVars, n := n } : ParFlatMap).bounded := by
     simp [ParFlatMap.bounded]
   exact ParFlatMap.handoff_bounded _ _ this
 
 /-- With one permit, queued values start in input order, each when the running one ends. -/
-example : runParFlatMap .default 1 [.set 0 2, .set 0 3, .stop 1, .stop 2, .stop 0, .stop 3] =
+example : runParFlatMap 1 [.set 0 2, .set 0 3, .stop 1, .stop 2, .stop 0, .stop 3] =
     [.next 10, .next 20, .next 30, .done] := by decide
 /-- With two permits, the second value starts at once. -/
-example : runParFlatMap .default 2 [.set 0 2, .set 1 11, .set 2 21] =
+example : runParFlatMap 2 [.set 0 2, .set 1 11, .set 2 21] =
     [.next 10, .next 20, .next 11, .next 21] := by decide
-/-- Default mode: a nested error stops the operator. -/
-example : runParFlatMap .default 1 [.set 0 2, .fail 1, .set 2 21] = [.next 10, .fail] := by decide
-/-- Continuous mode: a nested error cancels that stream and hands its permit on. -/
-example : runParFlatMap .continuous 1 [.set 0 2, .fail 1, .set 2 21] =
-    [.next 10, .fail, .next 20, .next 21] := by decide
+/-- A nested var's failure stops the operator. -/
+example : runParFlatMap 1 [.set 0 2, .fail 1, .set 2 21] = [.next 10, .fail] := by decide
+/-- A throwing function reports an error and hands its permit on: the operator keeps running. -/
+example : runParFlatMap 1 [.set 0 0, .set 0 2, .stop 1, .stop 2, .stop 0] =
+    [.next 10, .fail, .next 20, .done] := by decide
 /-- Completion waits for the input and every nested stream. -/
-example : runParFlatMap .default 2 [.set 0 2, .stop 0, .stop 1, .stop 2] =
+example : runParFlatMap 2 [.set 0 2, .stop 0, .stop 1, .stop 2] =
     [.next 10, .next 20, .done] := by decide
 
 end UniSpec.RxLive

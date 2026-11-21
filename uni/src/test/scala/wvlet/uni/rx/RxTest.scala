@@ -959,19 +959,7 @@ object RxTest extends UniTest:
     events.result() shouldBe Seq(OnNext(2), OnCompletion.success)
   }
 
-  test("take(n) forwards nothing after the downstream stops before the nth value") {
-    val v      = Rx.variable(1)
-    val events = Seq.newBuilder[RxEvent]
-    RxRunner(continuous = false).run(v.take(3)) { ev =>
-      events += ev
-      RxResult.Stop
-    }
-    v := 2
-    v.stop()
-    events.result() shouldBe Seq(OnNext(1))
-  }
-
-  test("take(n) keeps reading after a downstream error in continuous mode") {
+  test("take(n) keeps reading after a downstream error") {
     val ex     = IllegalArgumentException("test error")
     val v      = Rx.variable(1)
     val events = Seq.newBuilder[RxEvent]

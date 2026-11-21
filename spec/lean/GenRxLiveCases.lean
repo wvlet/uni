@@ -76,10 +76,6 @@ def dedup {α : Type} [BEq α] (l : List α) : List α :=
 
 def line (op script out : String) : String := s!"    \"{op} | {script} | {out}\""
 
-def modeSuffix : Mode → String
-  | .default => ""
-  | .continuous => ":continuous"
-
 def switchCases : List String :=
   let alphabet := [Action.set 0 0, .set 0 1, .set 0 2, .set 1 11, .set 2 21, .stop 0, .stop 1,
     .stop 2, .fail 0, .fail 1, .fail 2, .cancel]
@@ -91,15 +87,14 @@ def switchCases : List String :=
     [.set 0 0, .set 0 2, .set 2 21, .stop 0, .stop 2],
     [.set 1 11, .set 0 2, .stop 1, .set 0 1, .stop 0]]
   let ss := ((scripts alphabet 2).filter valid) ++ longer
-  [Mode.default, .continuous].flatMap fun m =>
-    [SwitchKind.flatMap, .transformRx].flatMap fun k =>
-      let op := (match k with | .flatMap => "flatMap" | .transformRx => "transformRx") ++ modeSuffix m
-      ss.map fun as => line op (renderScript renderAction as) (renderOuts (runSwitch k as m))
+  [SwitchKind.flatMap, .transformRx].flatMap fun k =>
+    let op := match k with | .flatMap => "flatMap" | .transformRx => "transformRx"
+    ss.map fun as => line op (renderScript renderAction as) (renderOuts (runSwitch k as))
 
 def recoverWithCases : List String :=
   let alphabet := [Action.set 0 0, .set 0 2, .set 0 3, .set 0 4, .set 1 11, .set 2 21, .stop 0,
     .stop 1, .stop 2, .fail 0, .fail 1, .cancel]
-  -- Recovering twice, and switching back and forth in continuous mode
+  -- Recovering twice, and switching back and forth
   let longer := [
     [Action.set 0 0, .set 0 2, .set 0 0, .set 1 11],
     [.set 0 0, .set 0 2, .fail 0, .set 2 21, .stop 2],
@@ -108,18 +103,14 @@ def recoverWithCases : List String :=
     [.set 0 0, .set 0 4, .set 1 11, .stop 1],
     [.set 0 0, .set 0 3, .set 1 11, .stop 1]]
   let ss := ((scripts alphabet 2).filter valid) ++ longer
-  [Mode.default, .continuous].flatMap fun m =>
-    ss.map fun as =>
-      line ("recoverWith" ++ modeSuffix m) (renderScript renderAction as)
-        (renderOuts (runRecoverWith m as))
+  ss.map fun as =>
+    line "recoverWith" (renderScript renderAction as) (renderOuts (runRecoverWith as))
 
 def mergeCases : List String :=
   let alphabet := [Action.set 0 2, .set 1 20, .stop 0, .stop 1, .fail 0, .fail 1, .cancel]
   let small := [Action.set 0 2, .set 1 20, .stop 0, .stop 1, .fail 0]
   let ss := dedup (((scripts alphabet 2) ++ (scripts small 3)).filter valid)
-  [Mode.default, .continuous].flatMap fun m =>
-    ss.map fun as =>
-      line ("merge" ++ modeSuffix m) (renderScript renderAction as) (renderOuts (runMerge m as))
+  ss.map fun as => line "merge" (renderScript renderAction as) (renderOuts (runMerge as))
 
 def parFlatMapCases : List String :=
   let alphabet := [Action.set 0 0, .set 0 2, .set 0 3, .set 1 11, .set 2 21, .stop 0, .stop 1,
@@ -132,11 +123,9 @@ def parFlatMapCases : List String :=
     [.set 0 2, .set 0 3, .fail 2, .stop 1, .set 3 31, .stop 0, .stop 3],
     [.set 0 0, .set 0 2, .set 0 3, .stop 1, .stop 2, .cancel, .stop 3]]
   let ss := ((scripts alphabet 2).filter valid) ++ longer
-  [Mode.default, .continuous].flatMap fun m =>
-    [1, 2].flatMap fun n =>
-      ss.map fun as =>
-        line (s!"parFlatMap:{n}" ++ modeSuffix m) (renderScript renderAction as)
-          (renderOuts (runParFlatMap m n as))
+  [1, 2].flatMap fun n =>
+    ss.map fun as =>
+      line s!"parFlatMap:{n}" (renderScript renderAction as) (renderOuts (runParFlatMap n as))
 
 def splitCases : List String :=
   let lists : List Items := [
@@ -167,9 +156,7 @@ def takeCases : List String :=
   let alphabet := [Action.set 0 2, .set 0 3, .stop 0, .fail 0, .cancel]
   let ss := (scripts alphabet 2).filter valid
   [0, 1, 2, 3].flatMap fun n =>
-    [Sink.run, .once].flatMap fun sink =>
-      let op := s!"take:{n}:" ++ match sink with | .run => "run" | .once => "once"
-      ss.map fun as => line op (renderScript renderAction as) (renderOuts (runTake n sink as))
+    ss.map fun as => line s!"take:{n}" (renderScript renderAction as) (renderOuts (runTake n as))
 
 def caseLines : List String :=
   switchCases ++ recoverWithCases ++ splitCases ++ combineCases ++ mergeCases ++ parFlatMapCases ++
@@ -183,8 +170,7 @@ def scalaSource : String :=
     "package wvlet.uni.rx",
     "",
     "object RxLiveSpecCases:",
-    "  // Each case: operator | script of actions separated by , | what the sink records. An",
-    "  // operator ending in :continuous runs with runContinuously.",
+    "  // Each case: operator | script of actions separated by , | what the sink records.",
     "  // Records: an Int or (a,b) for OnNext, C for OnCompletion, E for OnError, [keys] for a split",
     "  // list, k=v for a row value, k:C for a row completion; - for none.",
     "  val cases: Seq[String] = Seq("

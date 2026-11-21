@@ -19,12 +19,12 @@ class RxResumableErrorTest extends UniTest:
   private val boom = IllegalStateException("boom")
 
   /**
-    * Run in continuous mode on an RxRunner instance, which shows the internal events.
+    * Run on an RxRunner instance, which shows the internal events.
     */
   private def internalEvents[A](rx: Rx[A])(body: => Unit): Seq[RxEvent] =
     val events = Seq.newBuilder[RxEvent]
     val c      =
-      RxRunner(continuous = true).run(rx) { ev =>
+      RxRunner().run(rx) { ev =>
         events += ev
         RxResult.Continue
       }
@@ -175,6 +175,23 @@ class RxResumableErrorTest extends UniTest:
     w := 4
     c2.cancel
     wEvents.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+  }
+
+  test("run completes a zip of finite sources") {
+    val events = Seq.newBuilder[RxEvent]
+    RxRunner.run(Rx.sequence(1, 2).zip(Rx.sequence("a", "b", "c")))(events += _)
+    events.result() shouldBe Seq(OnNext((1, "a")), OnNext((2, "b")), OnCompletion.success)
+  }
+
+  test("a failed source ends merge and cancels the other source") {
+    val a      = Rx.variable(1)
+    val b      = Rx.variable(10)
+    val events = Seq.newBuilder[RxEvent]
+    val c      = RxRunner.runContinuously(a.merge(b))(events += _)
+    a.setException(boom)
+    b := 20
+    c.cancel
+    events.result() shouldBe Seq(OnNext(1), OnNext(10), OnCompletion.failure(boom))
   }
 
   test("recover handles a resumable error as an error") {

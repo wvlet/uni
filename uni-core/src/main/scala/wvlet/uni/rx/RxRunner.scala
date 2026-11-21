@@ -38,10 +38,8 @@ object RxResult:
 
 object RxRunner extends LogSupport:
 
-  private val defaultRunner = new RxRunner(continuous = false)
-  // Used for continuous RxVar evaluation (e.g., RxVar -> DOM rendering).
-  // This runner will not report OnCompleiton event
-  private val continuousRunner = new RxRunner(continuous = true)
+  // One runner for every entry point: OnError passes, and OnCompletion ends a stream
+  private val runner = new RxRunner
 
   /**
     * Run until the first error or the end. The effect receives each value, then the end: an error
@@ -51,7 +49,7 @@ object RxRunner extends LogSupport:
   def run[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     // The first error or end is the end of the run: later events are dropped
     val ended = AtomicBoolean(false)
-    tracked(continuousRunner, rx, "run", endsAtError = true) { ev =>
+    tracked(runner, rx, "run", endsAtError = true) { ev =>
       if ended.get() then
         RxResult.Stop
       else
@@ -73,7 +71,7 @@ object RxRunner extends LogSupport:
     */
   def runOnce[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     val observed = AtomicBoolean(false)
-    tracked(continuousRunner, rx, "runOnce", endsAtError = true) { ev =>
+    tracked(runner, rx, "runOnce", endsAtError = true) { ev =>
       if observed.compareAndSet(false, true) then
         effect(ResumableError.toTerminal(ev))
       RxResult.Stop
@@ -86,7 +84,7 @@ object RxRunner extends LogSupport:
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
     // OnCompletion ends the stream: a source that keeps emitting after it is not followed
     val ended = AtomicBoolean(false)
-    tracked(continuousRunner, rx, "runContinuously") { ev =>
+    tracked(runner, rx, "runContinuously") { ev =>
       if ended.get() then
         RxResult.Stop
       else
@@ -105,7 +103,7 @@ object RxRunner extends LogSupport:
 
   /**
     * Run `rx` and report the subscription to the active [[RxTracker]]s. The subscription ends on
-    * cancel or, outside continuous mode, on a terminal event.
+    * cancel, on `OnCompletion`, or (for `run` and `runOnce`) on the first error.
     */
   private def tracked[A](
       runner: RxRunner,
@@ -136,10 +134,13 @@ object RxRunner extends LogSupport:
 
 end RxRunner
 
-class RxRunner(
-    // If this value is true, evaluating Rx keeps reporting events after OnError or OnCompletion is observed
-    private[rx] val continuous: Boolean
-) extends LogSupport:
+/**
+  * Runs Rx operator chains with one semantics: `OnError` reports an error the stream continues
+  * past, and `OnCompletion` ends the stream (see `adr/2026-11-21-rx-single-mode.md`). A `Stop`
+  * returned after an error is transient: sinks answer `Stop` to every non-value event, and
+  * `RxRunner.run` ends its run itself.
+  */
+class RxRunner extends LogSupport:
   runner =>
 
   import Rx.*
@@ -255,7 +256,9 @@ class RxRunner(
               // The stream ended with a failure: emit the transformed value, then complete
               Try(tryFunc(Failure(e))) match
                 case Success(x) =>
-                  completeAfter(effect(OnNext(x)), effect)
+                  // Complete even after a Stop, which is transient after a downstream error
+                  effect(OnNext(x))
+                  effect(OnCompletion.success)
                 case Failure(e2) =>
                   effect(OnCompletion.failure(e2))
             case other =>
@@ -280,7 +283,9 @@ class RxRunner(
             case OnCompletion(Result.Failure(e)) =>
               tryFunc(Failure(e)) match
                 case Success(x) =>
-                  completeAfter(effect(OnNext(x)), effect)
+                  // Complete even after a Stop, which is transient after a downstream error
+                  effect(OnNext(x))
+                  effect(OnCompletion.success)
                 case Failure(e2) =>
                   effect(OnCompletion.failure(e2))
             case other =>
@@ -330,14 +335,8 @@ class RxRunner(
             case OnError(e) =>
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
-                  val result = evalRx(rxb)
-                  // An error terminates the input (e.g., a failed Rx.future reports no
-                  // OnCompletion), so complete once the nested stream built from it ends.
-                  // A continuous source (RxVar) may emit again after an error, so keep waiting.
-                  if continuous || !result.toContinue then
-                    result
-                  else
-                    tracker.completeInput(effect)
+                  // The input continues past an error, so it does not complete here
+                  evalRx(rxb)
                 case Failure(e) =>
                   effect(OnError(e))
             case OnCompletion(Result.Failure(e)) =>
@@ -513,24 +512,19 @@ class RxRunner(
               case _ if done.get() =>
                 // Some sources (e.g., RxVar, Rx.single) keep emitting after Stop
                 RxResult.Stop
-              case ev @ OnError(_) if continuous =>
+              case ev @ OnError(_) =>
                 // An error does not end the stream: pass it on without counting it
                 effect(ev)
               case OnNext(v) =>
                 count += 1
                 val result = effect(OnNext(v.asInstanceOf[A]))
                 if count < n then
-                  if !continuous && !result.toContinue then
-                    // The downstream stopped early. Forward nothing more, but keep the upstream
-                    // subscribed so that its own completion still drives operators such as concat.
-                    // In continuous mode, Stop after a downstream error is transient.
-                    done.set(true)
+                  // A Stop after a downstream error is transient
                   result
                 else
-                  // Complete right after the nth value without waiting for the next upstream event.
-                  // A downstream Stop suppresses it, except in continuous mode, where Stop after a
-                  // downstream error is transient (as for the values before the nth)
-                  if done.compareAndSet(false, true) && (continuous || result.toContinue) then
+                  // Complete right after the nth value without waiting for the next upstream event,
+                  // even after a Stop, which is transient after a downstream error
+                  if done.compareAndSet(false, true) then
                     effect(OnCompletion.success)
                   c.cancel
                   RxResult.Stop
@@ -785,15 +779,12 @@ class RxRunner(
                   case Failure(e) =>
                     effect(OnError(e))
               case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
-                // The stream ended with a failure: emit the recovered value, then complete. In
-                // continuous mode a Stop after an error downstream is transient, so complete anyway
+                // The stream ended with a failure: emit the recovered value, then complete, even
+                // after a Stop, which is transient after a downstream error
                 ended.set(true)
                 Try(effect(OnNext(f(e)))) match
                   case Success(result) =>
-                    if result.toContinue || continuous then
-                      effect(OnCompletion.success)
-                    else
-                      result
+                    effect(OnCompletion.success)
                   case Failure(e) =>
                     effect(OnCompletion.failure(e))
               case other =>
@@ -825,10 +816,9 @@ class RxRunner(
         // Assigned after subscribing, and read by a recovery that may run on another thread
         @volatile
         var c2 = Cancelable.empty
-        // Outside continuous mode a recovered error ends the input, as in transformRx: the input is
-        // cancelled, and the operator ends with the recovery stream. An error that does not end its
-        // source (e.g., a throwing map over an RxVar) would otherwise let later input events reach
-        // the downstream after the recovery stream completed.
+        // Set when a failed completion ended the input: the operator ends with the recovery
+        // stream. A recovered OnError keeps the input running, and its next value replaces the
+        // recovery stream.
         val inputEnded = AtomicBoolean(false)
         c2 =
           run(in) { ev =>
@@ -841,12 +831,9 @@ class RxRunner(
                   c1 = Cancelable.empty
                   Try(f(e)) match
                     case Success(recoverySource) =>
-                      if !continuous then
-                        inputEnded.set(true)
-                        c2.cancel
                       c1 =
                         run(recoverySource) {
-                          case OnCompletion(Result.Success(_)) if continuous =>
+                          case OnCompletion(Result.Success(_)) =>
                             // The input continues past this error, so the recovery stream's
                             // completion does not end the stream
                             RxResult.Continue
@@ -873,9 +860,8 @@ class RxRunner(
                       toContinue
                     case Failure(e) =>
                       effect(OnCompletion.failure(e))
-                case ev @ OnNext(_) if continuous =>
-                  // In continuous mode the input stays subscribed, and its next value replaces the
-                  // recovery stream
+                case ev @ OnNext(_) =>
+                  // The input stays subscribed, and its next value replaces the recovery stream
                   c1.cancel
                   c1 = Cancelable.empty
                   effect(ev)
@@ -915,18 +901,15 @@ class RxRunner(
               effect(ev)
         }
       case OnCancelOp(in, f) =>
-        // Set by the first cancel, by OnCompletion, or outside continuous mode by an error, so f
-        // runs at most once and not after the stream ended
+        // Set by the first cancel or by OnCompletion, so f runs at most once and not after the
+        // stream ended
         val ended        = AtomicBoolean(false)
         val subscription =
           run(in) { ev =>
             ev match
-              case OnNext(_)       =>
               case _: OnCompletion =>
                 ended.set(true)
               case _ =>
-                if !continuous then
-                  ended.set(true)
             effect(ev)
           }
         Cancelable { () =>
@@ -1050,13 +1033,13 @@ class RxRunner(
                   case OnCompletion(Result.Success(_)) =>
                     fanIn.end(slot, releasePermit)
                   case ev @ OnError(_) =>
-                    fanIn.error(slot, ev, releasePermit, endInContinuous = true)
+                    fanIn.error(slot, ev, releasePermit, endSlot = true)
                   case ev @ OnCompletion(Result.Failure(_)) =>
-                    fanIn.error(slot, ev, releasePermit, endInContinuous = true)
+                    fanIn.error(slot, ev, releasePermit, endSlot = true)
                 }
               )
             case Failure(e) =>
-              fanIn.error(slot, OnError(e), releasePermit, endInContinuous = true)
+              fanIn.error(slot, OnError(e), releasePermit, endSlot = true)
 
         fanIn
           .open()
@@ -1099,32 +1082,30 @@ class RxRunner(
             effect(OnCompletion.failure(e))
         Cancelable.empty
       case SeqOp(inputList) =>
-        var lastResult: RxResult = RxResult.Continue
+        // A Stop after a downstream error is transient, so emit the whole sequence unless cancelled
+        val cancelled = AtomicBoolean(false)
         @tailrec
         def loop(lst: List[A]): Unit =
-          if continuous || lastResult.toContinue then
+          if !cancelled.get then
             lst match
               case Nil =>
-                lastResult = effect(OnCompletion.success)
+                effect(OnCompletion.success)
               case head :: tail =>
-                lastResult = effect(OnNext(head))
+                effect(OnNext(head))
                 loop(tail)
         loop(inputList.eval.toList)
-        // Stop reading the next element if cancelled
         Cancelable { () =>
-          lastResult = RxResult.Stop
+          cancelled.set(true)
         }
       case source: RxSource[?] =>
         val cancelled = AtomicBoolean(false)
-        // Set by OnCompletion: the source has ended, in every mode
+        // Set by OnCompletion: the source has ended
         val ended = AtomicBoolean(false)
-        // Set by an error or a downstream Stop outside continuous mode; continuous mode keeps reading
-        val finished = AtomicBoolean(false)
         // True from calling source.next until its event arrives
         val awaiting = AtomicBoolean(false)
         val current  = AtomicReference[Cancelable](Cancelable.empty)
 
-        def active: Boolean = !cancelled.get && !ended.get && (continuous || !finished.get)
+        def active: Boolean = !cancelled.get && !ended.get
 
         def deliver(ev: RxEvent): RxResult =
           awaiting.set(false)
@@ -1133,15 +1114,11 @@ class RxRunner(
           else
             ev match
               case OnNext(v) =>
-                val r = effect(OnNext(v.asInstanceOf[A]))
-                if !r.toContinue then
-                  finished.set(true)
-                r
+                effect(OnNext(v.asInstanceOf[A]))
               case end: OnCompletion =>
                 ended.set(true)
                 effect(end)
               case other =>
-                finished.set(true)
                 effect(other)
 
         // Read one event at a time. An event that is already available continues this loop; one
@@ -1158,8 +1135,8 @@ class RxRunner(
                 case OnNext(ev: RxEvent) =>
                   deliver(ev)
                 case other =>
-                  // The event's Rx ended: OnCompletion, or OnError if the effect threw (continuous
-                  // mode keeps reading after that)
+                  // The event's Rx ended: OnCompletion, or OnError if the effect threw, after which
+                  // reading continues
                   val r =
                     other match
                       case OnCompletion(Result.Success(_)) =>
@@ -1325,8 +1302,8 @@ class RxRunner(
           else
             result
         else
-          // Report the completion event only once
-          if continuous || completed.compareAndSet(false, true) then
+          // Report a failed end only once; an OnError is reported each time
+          if !failedEnd || completed.compareAndSet(false, true) then
             // If there are multiple exceptions, add them to the suppressed list
             val ex: Throwable = errors.reduce { (e1, e2) =>
               e1.addSuppressed(e2);
@@ -1387,25 +1364,13 @@ class RxRunner(
 
     // Complete once a completed source has no buffered value left to pair (the shortest source
     // ends zip). Values must not count: an RxVar delivers its current value on subscription.
-    override protected def isCompleted: Boolean =
-      !continuous &&
-        (0 until size).exists(i =>
-          lastEvent(i).contains(OnCompletion.success) && lastValueBuffer(i).isEmpty
-        )
-
-  /**
-    * After a value that replaced a failed end, complete the stream unless the downstream stopped.
-    * In continuous mode a Stop after an error downstream is transient, so complete anyway.
-    */
-  private def completeAfter(result: RxResult, effect: RxEvent => RxResult): RxResult =
-    if result.toContinue || continuous then
-      effect(OnCompletion.success)
-    else
-      result
+    override protected def isCompleted: Boolean = (0 until size).exists(i =>
+      lastEvent(i).contains(OnCompletion.success) && lastValueBuffer(i).isEmpty
+    )
 
   /**
     * Hold the latest input value and emit it on the next frame. A terminal event flushes the held
-    * value first. Outside continuous mode a terminal event or a downstream Stop ends the operator.
+    * value first. OnCompletion ends the operator.
     */
   private def sampleFrame[A](in: RxOps[A], frames: RxFrameProvider)(
       effect: RxEvent => RxResult
@@ -1433,11 +1398,7 @@ class RxRunner(
           takeLatest()
       }
       v.foreach { x =>
-        if !effect(OnNext(x)).toContinue && !continuous then
-          lock.synchronized {
-            finished = true
-          }
-          input.cancel
+        effect(OnNext(x))
       }
 
     input =
@@ -1457,15 +1418,12 @@ class RxRunner(
             if finished then
               None
             else
-              if !continuous then
+              if other.isInstanceOf[OnCompletion] then
                 finished = true
               takeLatest()
           }
-          val r = pending.map(x => effect(OnNext(x))).getOrElse(RxResult.Continue)
-          if r.toContinue || continuous then
-            effect(other)
-          else
-            RxResult.Stop
+          pending.foreach(x => effect(OnNext(x)))
+          effect(other)
       }
     Cancelable { () =>
       lock.synchronized {
@@ -1494,8 +1452,9 @@ class RxRunner(
 
     override protected def update(index: Int, v: A): Unit = lastValue(index) = Some(v)
 
-    override protected def isCompleted: Boolean =
-      !continuous && lastEvent.forall(x => x.isDefined && x.get == OnCompletion.success)
+    override protected def isCompleted: Boolean = lastEvent.forall(x =>
+      x.isDefined && x.get == OnCompletion.success
+    )
 
   private def join[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new JoinStream(input)
     .run(effect)
@@ -1580,9 +1539,9 @@ class RxRunner(
     * Joins streams that may run concurrently (merge, parFlatMap) into one downstream. Events are
     * forwarded under a lock, since the streams may emit from different threads. The operator
     * completes when every opened slot has ended. An error the downstream recovers from ends only
-    * the failing slot, as in flatMap. An unrecovered error, a downstream Stop, or a cancellation
-    * stops the operator: running streams are cancelled and later events are dropped. In continuous
-    * mode, errors and Stop are transient and only a cancellation stops it.
+    * the failing slot, as in flatMap. An `OnError` and a downstream `Stop` are transient. A failed
+    * `OnCompletion` of a slot or a cancellation stops the operator: running streams are cancelled
+    * and later events are dropped.
     */
   private class FanIn(effect: RxEvent => RxResult):
     class Slot:
@@ -1639,37 +1598,52 @@ class RxRunner(
         deliver(ev)
 
     /**
-      * Forward an error from a slot's stream. If the downstream recovers, the slot has ended. In
-      * continuous mode the error is transient and the slot keeps running, unless `endInContinuous`
-      * is set: then the slot's stream is cancelled and ends, so parFlatMap hands its permit on.
+      * Forward an error from a slot's stream. A failed `OnCompletion` ends the whole operator with
+      * that failure: the other slots are cancelled. An `OnError` is passed on and the slot keeps
+      * running, unless `endSlot` is set: then the slot's stream is cancelled and ends, so
+      * parFlatMap hands its permit on.
       */
     def error(
         slot: Slot,
         ev: RxEvent,
         beforeEnd: () => Unit = () => (),
-        endInContinuous: Boolean = false
+        endSlot: Boolean = false
     ): RxResult =
-      val r = deliver(ev)
-      if continuous then
-        if endInContinuous then
-          // End the slot once: a cancelled RxVar subscription may still deliver the current event
-          val c = synchronized {
-            if slot.cancelled || slot.ended then
-              None
+      ev match
+        case _: OnCompletion =>
+          val r = synchronized {
+            if stopped then
+              RxResult.Stop
             else
-              slot.cancelled = true
-              Some(slot.cancelable)
+              stopped = true
+              effect(ev)
           }
-          c match
-            case Some(c) =>
-              c.cancel
-              end(slot, beforeEnd)
-            case None =>
-              r
-        else
+          cancelRunning()
           r
-      else if r.toContinue then
-        end(slot, beforeEnd)
+        case _ =>
+          failSlot(slot, deliver(ev), beforeEnd, endSlot)
+
+    private def failSlot(
+        slot: Slot,
+        r: RxResult,
+        beforeEnd: () => Unit,
+        endSlot: Boolean
+    ): RxResult =
+      if endSlot then
+        // End the slot once: a cancelled RxVar subscription may still deliver the current event
+        val c = synchronized {
+          if slot.cancelled || slot.ended then
+            None
+          else
+            slot.cancelled = true
+            Some(slot.cancelable)
+        }
+        c match
+          case Some(c) =>
+            c.cancel
+            end(slot, beforeEnd)
+          case None =>
+            r
       else
         r
 
@@ -1715,13 +1689,8 @@ class RxRunner(
         if stopped then
           RxResult.Stop
         else
-          val r = effect(ev)
-          if !continuous && !r.toContinue then
-            stopped = true
-          r
+          effect(ev)
       }
-      if !continuous && !r.toContinue then
-        cancelRunning()
       r
 
     private def cancelRunning(): Unit =
