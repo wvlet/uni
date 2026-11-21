@@ -14,7 +14,6 @@ import wvlet.uni.storage.GoogleCredentialsProvider
 import wvlet.uni.storage.Sha256
 import wvlet.uni.storage.SigV4
 import wvlet.uni.storage.SigV4Request
-import wvlet.uni.util.URLEncoder
 
 /**
   * A failed LLM API call: the HTTP status, the vendor's error type when the body names one, and the
@@ -34,8 +33,8 @@ class LlmApiException(
 
 object LlmApiException:
   /**
-    * Read the error shapes of all four vendors: `{"error": {"type"|"code"|"status", "message"}}`
-    * and Bedrock's `{"message": ...}`
+    * Read the error shapes of the vendors: `{"error": {"type"|"code"|"status", "message"}}` and
+    * Bedrock's `{"message": ...}`
     */
   def fromHttpException(e: HttpException): Throwable =
     e.statusCode match
@@ -55,8 +54,8 @@ object LlmApiException:
         e
 
 /**
-  * How to authenticate to Amazon Bedrock: a Bedrock API key (`Authorization: Bearer`, from
-  * `AWS_BEARER_TOKEN_BEDROCK`) or SigV4 with AWS credentials
+  * How to authenticate to Amazon Bedrock: a Bedrock API key (from `AWS_BEARER_TOKEN_BEDROCK`) or
+  * SigV4 with AWS credentials
   */
 enum BedrockAuth:
   case ApiKey(key: String)
@@ -99,10 +98,6 @@ private[ai] object LlmHttp:
     http.sendSSE(req)
   )
 
-  def postBytes(http: HttpAsyncClient, req: Request): Rx[Array[Byte]] = mapError(
-    http.sendStreaming(req)
-  )
-
   /** Decode a stream with a per-subscription stateful converter, flushing it at the end */
   def convert[A, B, C](
       src: Rx[A],
@@ -120,27 +115,27 @@ private[ai] object LlmHttp:
     .getOrElse(throw IllegalStateException(s"No Google access token from ${provider.name}"))
 
   /**
-    * Sign a Bedrock request. The model id in the path is percent-encoded once in the URL and twice
-    * in the canonical request, as SigV4 requires for services other than S3.
+    * A Bedrock request on bedrock-runtime: a Bedrock API key goes in the header `apiKeyHeader`
+    * returns (`x-api-key` for the Anthropic API, `Authorization: Bearer` for the OpenAI API); AWS
+    * credentials sign the request with SigV4 (service `bedrock`). `path` must need no
+    * percent-encoding.
     */
   def bedrockRequest(
       region: String,
       endpoint: Option[String],
-      rawPath: Seq[String],
+      path: String,
       body: JSONValue,
       auth: BedrockAuth,
-      accept: String = "application/json"
+      headers: Seq[(String, String)],
+      apiKeyHeader: String => (String, String)
   ): Request =
     val host    = endpoint.getOrElse(s"bedrock-runtime.${region}.amazonaws.com")
-    val path    = rawPath.map(URLEncoder.encode).mkString("/", "/", "")
     val payload = body.toJSON
-    val base    = Request
-      .post(s"https://${host}${path}")
-      .withJsonContent(payload)
-      .setHeader("Accept", accept)
+    val base    = jsonRequest(s"https://${host}${path}", body, headers)
     auth match
       case BedrockAuth.ApiKey(key) =>
-        base.setHeader("Authorization", s"Bearer ${key}")
+        val (k, v) = apiKeyHeader(key)
+        base.setHeader(k, v)
       case BedrockAuth.Credentials(provider) =>
         val creds = provider
           .credentials
@@ -149,7 +144,7 @@ private[ai] object LlmHttp:
           SigV4Request(
             "POST",
             host,
-            rawPath.map(s => URLEncoder.encode(URLEncoder.encode(s))).mkString("/", "/", ""),
+            path,
             headers = Seq("content-type" -> "application/json"),
             payloadHash = Sha256.hex(payload.getBytes("UTF-8"))
           ),

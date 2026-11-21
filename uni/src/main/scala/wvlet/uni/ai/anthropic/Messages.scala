@@ -8,7 +8,7 @@ import wvlet.uni.json.JSON.*
 
 /**
   * Models of the Anthropic Messages API (`POST /v1/messages`), also served by Vertex AI
-  * (`rawPredict`) and Amazon Bedrock (`InvokeModel`). See
+  * (`rawPredict`) and Amazon Bedrock (`/anthropic/v1/messages`). See
   * https://docs.anthropic.com/en/api/messages
   *
   * Field names follow Scala style; the codecs write the API's snake_case keys. Block, tool, and

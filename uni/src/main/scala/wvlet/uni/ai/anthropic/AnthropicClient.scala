@@ -1,13 +1,11 @@
 package wvlet.uni.ai.anthropic
 
 import wvlet.uni.ai.*
-import wvlet.uni.ai.bedrock.EventStreamDecoder
 import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.storage.GoogleCredentialsProvider
-import wvlet.uni.util.Base64
 
 /** Where the Messages API is served */
 enum AnthropicHost:
@@ -23,7 +21,11 @@ enum AnthropicHost:
       )
   )
 
-  /** Claude on Amazon Bedrock through InvokeModel */
+  /**
+    * Claude on Amazon Bedrock through its Anthropic Messages API (`/anthropic/v1/messages` on
+    * bedrock-runtime). `model` is a Bedrock model or inference profile id such as
+    * `us.anthropic.claude-sonnet-5`; `endpoint` overrides the host (e.g. a VPC endpoint).
+    */
   case Bedrock(
       region: String,
       auth: BedrockAuth = BedrockAuth.default,
@@ -79,14 +81,11 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
       )
     )
     config.host match
-      case _: Direct =>
+      case _: Direct | _: Bedrock =>
         json
       case _: Vertex =>
         // The model goes in the URL; the version in the body
         withoutKeys(json, Set("model")) :+ ("anthropic_version" -> JSONString("vertex-2023-10-16"))
-      case _: Bedrock =>
-        withoutKeys(json, Set("model", "stream")) :+
-          ("anthropic_version" -> JSONString("bedrock-2023-05-31"))
 
   extension (o: JSONObject)
     private def :+(kv: (String, JSONValue)): JSONObject = JSONObject(o.v :+ kv)
@@ -133,37 +132,15 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
             config.headers
         )
       case bd: Bedrock =>
-        val action =
-          if stream then
-            "invoke-with-response-stream"
-          else
-            "invoke"
-        val withBetas =
-          if config.betas.isEmpty then
-            b
-          else
-            JSONObject(
-              b.asInstanceOf[JSONObject].v :+
-                ("anthropic_beta" -> JsonCodec[Seq[String]].encode(config.betas))
-            )
-        config
-          .headers
-          .foldLeft(
-            LlmHttp.bedrockRequest(
-              bd.region,
-              bd.endpoint,
-              Seq("model", r.model, action),
-              withBetas,
-              bd.auth,
-              accept =
-                if stream then
-                  "application/vnd.amazon.eventstream"
-                else
-                  "application/json"
-            )
-          ) { case (req, (k, v)) =>
-            req.setHeader(k, v)
-          }
+        LlmHttp.bedrockRequest(
+          bd.region,
+          bd.endpoint,
+          s"/anthropic${path}",
+          b,
+          bd.auth,
+          Seq("anthropic-version" -> config.version) ++ betaHeaders ++ config.headers,
+          key => "x-api-key" -> key
+        )
     end match
 
   end request
@@ -174,41 +151,25 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
     .map(JsonCodec[MessagesResponse].decode)
 
   /** Send a request and receive the message as stream events */
-  def stream(r: MessagesRequest): Rx[StreamEvent] =
+  def stream(r: MessagesRequest): Rx[StreamEvent] = LlmHttp
+    .postSSE(http, request(r, stream = true))
+    .filter(e => e.data.nonEmpty)
+    .map(StreamEvent.fromServerSentEvent)
+
+  /**
+    * Count the input tokens of a request (Anthropic API only; Bedrock documents `count_tokens` only
+    * on its deprecated mantle endpoint)
+    */
+  def countTokens(r: MessagesRequest): Rx[CountTokensResponse] =
     config.host match
       case _: Bedrock =>
-        // InvokeModelWithResponseStream wraps each event in a "chunk" frame with base64 bytes
-        EventStreamDecoder
-          .frames(LlmHttp.postBytes(http, request(r, stream = true)))
-          .flatMap { frame =>
-            frame.messageType match
-              case "event" if frame.eventType.contains("chunk") =>
-                val bytes = JsonObj(JSON.parseAny(frame.payloadString)).str("bytes")
-                val json  = Base64.decodeToString(bytes)
-                Rx.single(JsonCodec[StreamEvent].fromJson(json))
-              case "event" =>
-                Rx.empty
-              case _ =>
-                val msg = JsonObj
-                  .unapply(Json.parseOrString(frame.payloadString))
-                  .flatMap(_.strOpt("message"))
-                Rx.single(
-                  StreamEvent.Error(
-                    ErrorDetail(
-                      frame.exceptionType.getOrElse("api_error"),
-                      msg.getOrElse(frame.payloadString)
-                    )
-                  )
-                )
-          }
+        Rx.exception(
+          UnsupportedOperationException("countTokens is not available for Claude on Bedrock")
+        )
       case _ =>
-        LlmHttp
-          .postSSE(http, request(r, stream = true))
-          .filter(e => e.data.nonEmpty)
-          .map(StreamEvent.fromServerSentEvent)
+        countTokensOnAnthropic(r)
 
-  /** Count the input tokens of a request (Anthropic API only) */
-  def countTokens(r: MessagesRequest): Rx[CountTokensResponse] =
+  private def countTokensOnAnthropic(r: MessagesRequest): Rx[CountTokensResponse] =
     val req = request(r.copy(maxTokens = 0), stream = false, "/v1/messages/count_tokens")
     // count_tokens takes no max_tokens
     val json = withoutKeys(
