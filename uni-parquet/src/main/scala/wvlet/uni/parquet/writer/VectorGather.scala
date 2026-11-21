@@ -83,7 +83,11 @@ private[parquet] object VectorGather:
 
   end take
 
-  /** The batches' rows end to end; every batch has the same columns in the same order */
+  /**
+    * The batches' rows end to end. Every batch has the same columns in the same order (struct
+    * fields are matched by name), and is compact, as [[take]] returns it: offsets start at 0 and
+    * data and child vectors end at the last offset.
+    */
   def concat(batches: Seq[ColumnBatch]): ColumnBatch =
     if batches.size == 1 then
       batches.head
@@ -150,14 +154,14 @@ private[parquet] object VectorGather:
         StructColumn(
           c.field,
           n,
-          c.children.indices.map(i => concatVectors(ss.map(_.children(i)))),
+          c.children.map(f => concatVectors(ss.map(s => s.children.find(_.name == f.name).get))),
           nulls
         )
     end match
 
   end concatVectors
 
-  /** Offsets of ranges laid end to end; each input starts at its own offsets(0) */
+  /** Offsets of compact inputs laid end to end */
   private def concatOffsets(all: Seq[Array[Int]]): Array[Int] =
     val n   = all.map(_.length - 1).sum
     val out = new Array[Int](n + 1)

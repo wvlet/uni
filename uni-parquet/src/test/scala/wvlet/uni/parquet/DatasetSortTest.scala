@@ -194,7 +194,9 @@ class DatasetSortTest extends UniTest:
     val w = Parquet.newDatasetBatchWriter(root.path, schema, byDt.withSortBy("id"))
     w.write(batch(Seq(9L, 3L, 4L, 0L)))
     w.write(batch(Seq(7L, 2L, 1L)))
-    w.write(batch(Seq(8L, 5L, 6L)))
+    // Columns in another order: held batches are joined in schema order
+    val last = batch(Seq(8L, 5L, 6L))
+    w.write(ColumnBatch(last.numRows, last.columns.reverse))
     w.close()
     w.numRows shouldBe 10L
     fileRows(w.writtenFiles).foreach { (wf, rows) =>
