@@ -227,6 +227,7 @@ const moduleGroups = [
       { text: 'Server-Sent Events', link: '/http/sse' },
       { text: 'WebSocket Client', link: '/http/websocket' },
       { text: 'HTTP Retry Strategies', link: '/http/retry' },
+      { text: 'Telemetry', link: '/http/telemetry' },
       { text: 'MCP Server (stdio)', link: '/mcp/' }
     ]
   },

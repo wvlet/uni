@@ -15,6 +15,7 @@ package wvlet.uni.http
 
 import wvlet.uni.control.Retry
 import wvlet.uni.control.Retry.RetryContext
+import wvlet.uni.telemetry.Telemetry
 
 /**
   * Configuration for HTTP clients. Includes channel factory for creating platform-specific clients.
@@ -33,7 +34,8 @@ case class HttpClientConfig(
         .withBackOff(maxRetry = 3, initialIntervalMillis = 1000, maxIntervalMillis = 30000)
         .noRetryLogging,
     requestFilter: HttpRequest => HttpRequest = identity,
-    channelFactory: HttpChannelFactory = HttpClientConfig.NoOpChannelFactory
+    channelFactory: HttpChannelFactory = HttpClientConfig.NoOpChannelFactory,
+    telemetry: Telemetry = Telemetry.noop
 ):
   def withBaseUri(uri: String): HttpClientConfig = copy(baseUri = Some(uri))
   def noBaseUri: HttpClientConfig                = copy(baseUri = None)
@@ -62,6 +64,15 @@ case class HttpClientConfig(
   def withChannelFactory(factory: HttpChannelFactory): HttpClientConfig = copy(channelFactory =
     factory
   )
+
+  /**
+    * Trace each call as a client span and send a W3C `traceparent` header to every host this client
+    * calls. Retries and redirects are attempts of one span. The current span
+    * ([[Telemetry.currentSpan]]) is the parent, so calls made inside a traced server request join
+    * its trace.
+    */
+  def withTelemetry(telemetry: Telemetry): HttpClientConfig = copy(telemetry = telemetry)
+  def noTelemetry: HttpClientConfig                         = copy(telemetry = Telemetry.noop)
 
   def withMaxRetry(maxRetries: Int): HttpClientConfig = copy(retryContext =
     retryContext.withMaxRetry(maxRetries)
