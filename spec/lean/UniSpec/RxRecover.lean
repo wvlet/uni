@@ -8,8 +8,10 @@ never cut the trace; `take` keeps its own end. The run mode decides where the tr
 
 - **default** (`RxRunner.run`): `Rx.queue` stops after its own terminal event, and the sink answers
   `Stop` to the first terminal event it receives, which stops everything upstream;
-- **continuous** (`RxRunner.runContinuously`): terminal events and `Stop` are transient, so neither
-  cut applies.
+- **continuous** (`RxRunner.runContinuously` before the R3 event model): terminal events and
+  `Stop` are transient, so neither cut applies. `RxRunner` now runs continuous mode by the R3 model
+  (`RxR3.lean`, `RxR3Ops.lean`, replayed by `RxR3SpecTest`), where `OnError` passes and
+  `OnCompletion` ends the stream. This mode stays here because `RxR3.lean` compares against it.
 
 `recover` passes on the downstream's answer to the recovered value, so a recovered error ends the
 stream only when it came from the source, which has already stopped: the stream then goes quiet.

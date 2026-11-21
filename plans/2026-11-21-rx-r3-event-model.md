@@ -104,4 +104,7 @@ mode-dependent rules. Do it in steps:
      completion with a `RxRunEvent` handler type (`adr/2026-11-21-rx-oncompletion-result.md`).
    - 3b. Sources end with a failed completion and `OnError` no longer ends a stream inside
      `RxRunner`, one operator at a time, with the Lean models and spec cases updated first.
+     First part done: continuous mode ends at `OnCompletion`, `take` passes errors, `recover`
+     handles a failed end, replayed from `GenRxR3Cases.lean`
+     (`adr/2026-11-21-rx-continuous-r3.md`).
    - 3c. Drop continuous mode.

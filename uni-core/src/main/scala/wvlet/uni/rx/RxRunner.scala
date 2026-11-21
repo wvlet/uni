@@ -78,14 +78,23 @@ object RxRunner extends LogSupport:
     * a cancel.
     */
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
+    // OnCompletion ends the stream: a source that keeps emitting after it is not followed
+    val ended = AtomicBoolean(false)
     tracked(continuousRunner, rx, "runContinuously") { ev =>
-      ev match
-        case v @ OnNext(_) =>
-          effect(v)
-          RxResult.Continue
-        case other =>
-          effect(ResumableError.toPublic(other))
-          RxResult.Stop
+      if ended.get() then
+        RxResult.Stop
+      else
+        ev match
+          case v @ OnNext(_) =>
+            effect(v)
+            RxResult.Continue
+          case c: OnCompletion =>
+            if ended.compareAndSet(false, true) then
+              effect(c)
+            RxResult.Stop
+          case other =>
+            effect(ResumableError.toPublic(other))
+            RxResult.Stop
     }
 
   /**
@@ -477,6 +486,9 @@ class RxRunner(
               case _ if done.get() =>
                 // Some sources (e.g., RxVar, Rx.single) keep emitting after Stop
                 RxResult.Stop
+              case ev @ OnError(_) if continuous =>
+                // An error does not end the stream: pass it on without counting it
+                effect(ev)
               case OnNext(v) =>
                 count += 1
                 val result = effect(OnNext(v.asInstanceOf[A]))
@@ -718,20 +730,37 @@ class RxRunner(
             effect(ev)
           }
       case RecoverOp(in, f) =>
+        // Set once a recovered failure has ended the stream; later input events are dropped
+        val ended = AtomicBoolean(false)
         run(in) { ev =>
-          ev match
-            case OnNext(v) =>
-              effect(ev)
-            case OnError(e) if f.isDefinedAt(e) =>
-              Try(effect(OnNext(f(e)))) match
-                case Success(result) =>
-                  // Recovery succeeded: pass on the downstream's answer, which is Stop when an
-                  // operator after recover failed on the recovered value
-                  result
-                case Failure(e) =>
-                  effect(OnError(e))
-            case other =>
-              effect(other)
+          if ended.get() then
+            RxResult.Stop
+          else
+            ev match
+              case OnNext(v) =>
+                effect(ev)
+              case OnError(e) if f.isDefinedAt(e) =>
+                Try(effect(OnNext(f(e)))) match
+                  case Success(result) =>
+                    // Recovery succeeded: pass on the downstream's answer, which is Stop when an
+                    // operator after recover failed on the recovered value
+                    result
+                  case Failure(e) =>
+                    effect(OnError(e))
+              case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
+                // The stream ended with a failure: emit the recovered value, then complete. In
+                // continuous mode a Stop after an error downstream is transient, so complete anyway
+                ended.set(true)
+                Try(effect(OnNext(f(e)))) match
+                  case Success(result) =>
+                    if result.toContinue || continuous then
+                      effect(OnCompletion.success)
+                    else
+                      result
+                  case Failure(e) =>
+                    effect(OnCompletion.failure(e))
+              case other =>
+                effect(other)
         }
       case MaterializeOp(in) =>
         run(in) { ev =>
