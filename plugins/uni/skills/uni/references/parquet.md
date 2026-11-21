@@ -164,6 +164,46 @@ This skips whole row groups only; rows of the groups that are read are not filte
 them again. Only top-level integer, float, boolean, string, DATE (`LocalDate`), and TIMESTAMP
 (`Instant`) columns are checked.
 
+## Read a dataset: a folder or bucket prefix of files
+
+`Parquet.dataset(root)` lists every file under a local directory or an `s3://`, `gs://`, `az://`
+prefix and reads them as one table. `key=value` folders (`dt=2026-11-20/country=JP/`) become
+columns after the files' own columns.
+
+```scala
+import wvlet.uni.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
+import wvlet.uni.parquet.RowGroupFilter.col
+
+case class Visit(id: Long, user: String, dt: String, country: String) derives Weaver
+
+def recentVisits(root: String): Seq[Visit] =
+  val ds = Parquet.dataset(root)
+  try
+    val opts = ParquetReadOptions
+      .default
+      .withRowGroupFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
+    ds.readAs[Visit](opts).toSeq
+  finally ds.close()
+
+def typedDataset(root: String) = Parquet.dataset(
+  root,
+  ParquetDatasetOptions.default.withPartitionType("dt", ParquetType.DATE)
+)
+```
+
+- Partition values are STRING unless declared with `withPartitionType` (INT32, INT64, DATE).
+  `__HIVE_DEFAULT_PARTITION__` reads as null.
+- A filter on partition columns skips whole files before they are opened (`ds.selectFiles(opts)`
+  lists the files a read opens). A literal of the wrong type for a partition, or an unknown column
+  name, throws `IllegalArgumentException`.
+- Columns match by name across files. A column missing from a file reads as null. Different types
+  for one column throw a `ParquetException` naming both files.
+- Files or folders starting with `_` or `.` are skipped. Files without an extension are kept;
+  `withFileExtension(".parquet")` narrows the listing.
+- `readAs`, `readRows`, `readJson`, and `readBatches` return iterators that open one file at a time.
+  `readAllAsync[A]()` and `readAllRowsAsync()` prefetch footers. Pass `Parquet.dataset(store,
+  root)` for R2, MinIO, or explicit credentials; the dataset closes only a store it created.
+
 ## Write case classes
 
 Any case class with `derives Weaver` writes as is: no schema, annotations, or codecs. The same

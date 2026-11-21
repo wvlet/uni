@@ -10,6 +10,8 @@ import wvlet.uni.surface.Surface
 import wvlet.uni.rx.Rx
 import wvlet.uni.storage.AzureConfig
 import wvlet.uni.storage.GcsConfig
+import wvlet.uni.storage.ObjectStore
+import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
@@ -78,6 +80,118 @@ object Parquet:
 
   def openUrlAsync(url: String, config: HttpClientConfig = Http.client): Rx[ParquetFile] =
     ParquetFile.openAsync(ByteSource.ofUrlAsync(url, config))
+
+  // Datasets
+
+  /**
+    * Lists the Parquet files under a local directory or an object store prefix (`s3://`, `gs://`,
+    * `az://`, or `azure://`) and reads them as one table, with `key=value` folders as partition
+    * columns. The object store is created with its default config and closed with the dataset; pass
+    * a store to [[dataset(store:wvlet\.uni\.storage\.ObjectStore,root:String)*]] for other configs
+    * or S3-compatible stores. See [[ParquetDataset]].
+    *
+    * {{{
+    * import wvlet.uni.parquet.RowGroupFilter.col
+    * val ds     = Parquet.dataset("s3://bucket/events/")
+    * val events = ds.readAs[Event](
+    *   ParquetReadOptions.default.withRowGroupFilter(col("dt") >= "2026-11-15")
+    * ).toSeq
+    * ds.close()
+    * }}}
+    */
+  def dataset(root: String): ParquetDataset = dataset(root, ParquetDatasetOptions.default)
+
+  def dataset(root: String, options: ParquetDatasetOptions): ParquetDataset =
+    if ParquetDataset.isObjectUri(root) then
+      val store = storeFor(root)
+      try
+        dataset(store, root, options, ownsStore = true)
+      catch
+        case e: Throwable =>
+          store.close()
+          throw e
+    else
+      val path = IOPath.parse(root)
+      ParquetDataset.build(root, ParquetDataset.listLocal(path), options, None, ownsStore = false)
+
+  /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
+  def dataset(store: ObjectStore, root: String): ParquetDataset = dataset(
+    store,
+    root,
+    ParquetDatasetOptions.default
+  )
+
+  def dataset(store: ObjectStore, root: String, options: ParquetDatasetOptions): ParquetDataset =
+    dataset(store, root, options, ownsStore = false)
+
+  private def dataset(
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetOptions,
+      ownsStore: Boolean
+  ): ParquetDataset =
+    val uri = ParquetDataset.objectRoot(root)
+    ParquetDataset.build(
+      uri.toString,
+      ParquetDataset.listObjects(store, uri),
+      options,
+      Some(store),
+      ownsStore
+    )
+
+  /** Lists the dataset asynchronously, as [[dataset(root:String)*]] does */
+  def datasetAsync(root: String): Rx[ParquetDataset] = datasetAsync(
+    root,
+    ParquetDatasetOptions.default
+  )
+
+  def datasetAsync(root: String, options: ParquetDatasetOptions): Rx[ParquetDataset] =
+    if ParquetDataset.isObjectUri(root) then
+      Rx.single(storeFor(root))
+        .flatMap { store =>
+          datasetAsync(store, root, options, ownsStore = true).tapOnFailure(_ => store.close())
+        }
+    else
+      Rx.single(dataset(root, options))
+
+  def datasetAsync(store: ObjectStore, root: String): Rx[ParquetDataset] = datasetAsync(
+    store,
+    root,
+    ParquetDatasetOptions.default
+  )
+
+  def datasetAsync(
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetOptions
+  ): Rx[ParquetDataset] = datasetAsync(store, root, options, ownsStore = false)
+
+  private def datasetAsync(
+      store: ObjectStore,
+      root: String,
+      options: ParquetDatasetOptions,
+      ownsStore: Boolean
+  ): Rx[ParquetDataset] = Rx
+    .single(ParquetDataset.objectRoot(root))
+    .flatMap(uri =>
+      ParquetDataset
+        .listObjectsAsync(store, uri)
+        .map(listed => ParquetDataset.build(uri.toString, listed, options, Some(store), ownsStore))
+    )
+
+  /** The default store for a URI's scheme */
+  private def storeFor(root: String): ObjectStore =
+    ObjectUri.parse(root).scheme match
+      case "s3" =>
+        ObjectStore.s3()
+      case "gs" =>
+        ObjectStore.gcs()
+      case "az" | "azure" =>
+        ObjectStore.azure()
+      case other =>
+        throw IllegalArgumentException(
+          s"No default object store for ${other}:// (${root}). Pass an ObjectStore to Parquet.dataset."
+        )
 
   /** Reads every row of a local file into `A` */
   def readAs[A](path: String, options: ParquetReadOptions = ParquetReadOptions.default)(using
