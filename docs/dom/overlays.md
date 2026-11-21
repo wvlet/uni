@@ -50,7 +50,7 @@ A menu, live. The Code tab shows its source:
 | Component | What it does |
 |-----------|--------------|
 | `Popover(open, trigger = element, content = element)` | A non-modal panel next to `trigger`. `.withSide`, `.withAlign`, `.withLabel` |
-| `Tooltip(text, trigger = element)` | A text label that shows on hover (after `.withDelay(ms)`, 500 by default) and on keyboard focus; `text` can be an `Rx[String]` |
+| `Tooltip(text, trigger = element)` | A text label that shows on hover (after `.withDelay(ms)`, 200 by default, or at once within half a second of another tooltip hiding) and on keyboard focus; `text` can be an `Rx[String]` |
 | `Menu(open, trigger = element, entries = Seq(...))` | A list of `MenuItem`s and `MenuSeparator`s. Items take `.onSelect`, `.withShortcut`, `.withDisabled`, and `.withChecked(rx)` |
 | `ContextMenu(target, entries = Seq(...))` | A menu that opens at the pointer when `target` is right-clicked |
 | `Dialog(open, content = element)` | A modal dialog with a backdrop. `.withTitle`, `.withDescription`, `.withActions(buttons*)`, `.noDismissOnBackdrop()` |

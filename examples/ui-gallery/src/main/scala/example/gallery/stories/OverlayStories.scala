@@ -65,7 +65,7 @@ object OverlayStories:
   inline def tooltipBasic: RxElement = div(
     cls -> "demo-row",
     Tooltip(
-      "Shows after 500 ms, or at once on keyboard focus",
+      "Shows after 200 ms, or at once on keyboard focus",
       trigger = Button("Hover or focus me").ghost
     )
   )
@@ -356,7 +356,11 @@ object OverlayStories:
       "A text label that shows on hover, after a delay, and at once on keyboard focus.",
       Seq(
         Story("tooltip/basic", "Basic", "Hover the button, or Tab to it.")(tooltipBasic),
-        Story("tooltip/sides", "Sides", "Hover each button.")(tooltipSides),
+        Story(
+          "tooltip/sides",
+          "Sides",
+          "Hover one button, then the next: once a tooltip has shown, the next shows at once."
+        )(tooltipSides),
         Story("tooltip/delay", "Delay", "Compare the two buttons.")(tooltipDelay)
       ),
       ApiDoc.of[Tooltip],

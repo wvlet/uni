@@ -350,6 +350,25 @@ class OverlayTest extends DomTestSupport:
     }
   }
 
+  test("a tooltip shows at once right after another one hides") {
+    val m = mount(
+      div(
+        Tooltip("First", trigger = Button("A")).withDelay(0),
+        // A long delay, so only the skip can show it in time
+        Tooltip("Second", trigger = Button("B")).withDelay(10000)
+      )
+    )
+    val Seq(a, b) = m.queryAll("button")
+    fireEvent.pointerEnter(a)
+    settle().map { _ =>
+      find(".uni-tooltip").map(_.textContent) shouldBe Some("First")
+      fireEvent.pointerLeave(a)
+      fireEvent.pointerEnter(b)
+      find(".uni-tooltip:not([data-state=closed])").map(_.textContent) shouldBe Some("Second")
+      fireEvent.pointerLeave(b)
+    }
+  }
+
   test("toasts stack, announce errors as alerts, and close on their button or timer") {
     val toasts = Toaster()
     mount(div(toasts))
