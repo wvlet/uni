@@ -54,3 +54,10 @@ which is left for a separate decision.
   upstream subscription (see `2026-10-14-rx-completion-semantics.md`). This is a real open
   subscription, not a false positive.
 - `trace` does not see subscriptions started on other threads (Future callbacks, fibers).
+- Amended 2026-11-21: `RxRunner.run` now cancels its upstream at its terminal event and drops
+  any event a source sends after it. Before, an `RxVar` kept delivering to a `run` that had ended
+  (values after `OnCompletion(Failure)`), while the tracker already counted it as ended. An
+  `onCancel(f)` above the point where the run ended now runs `f` at that end, as it does for
+  `take(n)`. `runOnce` still keeps its upstream. `throttleLast` used to forward its input's end
+  at once and emit the pending value from its timer afterwards; it now stops the timer and emits
+  that value before the end.

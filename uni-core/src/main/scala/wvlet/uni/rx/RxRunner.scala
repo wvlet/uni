@@ -49,15 +49,40 @@ object RxRunner extends LogSupport:
     * `OnError`.
     */
   def run[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
-    tracked(defaultRunner, rx, "run") { ev =>
-      ev match
-        case v: OnNext =>
-          effect(v)
-          RxResult.Continue
-        case other =>
-          effect(ResumableError.toTerminal(other))
+    // A source such as RxVar keeps emitting after Stop, so the run cancels its upstream at its end
+    // and drops anything that still arrives. The flag is set before the effect runs: RxVar retries
+    // a subscriber that throws (as Rx.run does on a failure) with OnError.
+    val ended = AtomicBoolean(false)
+    // The upstream subscription, or null until the run has subscribed
+    val upstream = AtomicReference[Cancelable](null)
+    val c        =
+      tracked(defaultRunner, rx, "run") { ev =>
+        if ended.get() then
           RxResult.Stop
-    }
+        else
+          ev match
+            case v: OnNext =>
+              effect(v)
+              RxResult.Continue
+            case other =>
+              if ended.compareAndSet(false, true) then
+                try
+                  effect(ResumableError.toTerminal(other))
+                finally
+                  // Null when the run ends while subscribing: the cancel below covers it
+                  val u = upstream.get()
+                  if u != null then
+                    u.cancel
+              RxResult.Stop
+      }
+    upstream.set(c)
+    // An end that arrived before the set above, possibly on another thread, found no subscription
+    // to cancel. Cancelling twice is harmless.
+    if ended.get() then
+      c.cancel
+    c
+
+  end run
 
   /**
     * Run until the first event is observed. Only the first event (OnNext, or OnCompletion, which an
@@ -615,26 +640,47 @@ class RxRunner(
         var lastItem: Option[A]     = None
         var lastReported: Option[A] = None
         var canContinue: RxResult   = RxResult.Continue
-        var timer                   = Cancelable.empty
+        // Set when the input ends: the timer emits nothing after it
+        var ended = false
+        var timer = Cancelable.empty
+        // The timer and the input run on different threads
+        val lock = Object()
+
+        // Emit the last value unless it has been reported
+        def report(): Unit =
+          lastItem match
+            case Some(x) if canContinue.toContinue && lastReported != lastItem =>
+              lastReported = lastItem
+              canContinue = effect(OnNext(x))
+            case _ =>
+
         timer =
           time.schedulePeriodically(intervalMillis, intervalMillis) {
-            lastItem match
-              case Some(x) if canContinue.toContinue =>
-                if lastReported != lastItem then
-                  lastReported = lastItem
-                  canContinue = effect(OnNext(x))
-                  if !canContinue.toContinue then
-                    timer.cancel
-              case _ =>
-              // Do nothing
+            lock.synchronized {
+              if !ended then
+                report()
+                if !canContinue.toContinue then
+                  timer.cancel
+            }
           }
         val c =
           run(in) {
             case OnNext(v) =>
-              lastItem = Some(v.asInstanceOf[A])
-              canContinue
+              lock.synchronized {
+                lastItem = Some(v.asInstanceOf[A])
+                canContinue
+              }
             case other =>
-              canContinue && effect(other)
+              // The input ended: emit the pending value before the end, so nothing follows it
+              lock.synchronized {
+                if ended then
+                  RxResult.Stop
+                else
+                  ended = true
+                  timer.cancel
+                  report()
+                  canContinue && effect(other)
+              }
           }
         Cancelable { () =>
           timer.cancel

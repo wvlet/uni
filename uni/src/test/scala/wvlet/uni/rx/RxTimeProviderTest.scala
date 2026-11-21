@@ -112,6 +112,21 @@ class RxTimeProviderTest extends UniTest:
     time.pendingTasks shouldBe 0
   }
 
+  test("throttleLast emits the pending value before its input's end") {
+    given time: ManualTimeProvider = RxTimeProvider.manual()
+    val v                          = Rx.variable(0)
+    val events                     = Seq.newBuilder[RxEvent]
+    RxRunner.run(v.throttleLast(100))(events += _)
+    v := 1
+    time.advance(100)
+    v := 2
+    v.stop()
+    // The end stops the timer, so nothing follows the completion
+    time.pendingTasks shouldBe 0
+    time.advance(100)
+    events.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion.success)
+  }
+
   test("timeout fails when the first event is late") {
     given time: ManualTimeProvider = RxTimeProvider.manual()
     val v                          = Rx.variable(Option.empty[Int])

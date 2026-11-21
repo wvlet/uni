@@ -300,4 +300,83 @@ object RxRunnerTest extends UniTest:
     b.result() shouldBe Seq(OnNext(1))
   }
 
+  test("run ends at its first terminal event over an RxVar") {
+    test("a throwing map") {
+      val n     = Rx.variable(1)
+      var calls = 0
+      val b     = Seq.newBuilder[RxEvent]
+      RxRunner.run(
+        n.map { v =>
+          calls += 1
+          if v == 3 then
+            throw ex
+          v
+        }
+      )(b += _)
+      n := 2
+      n := 3
+      n := 4
+      n := 5
+      b.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion(Result.Failure(ex)))
+      // The ended run no longer subscribes to the var
+      calls shouldBe 3
+    }
+
+    test("a failed var") {
+      val n = Rx.variable(1)
+      val b = Seq.newBuilder[RxEvent]
+      RxRunner.run(n)(b += _)
+      n := 2
+      n.setException(ex)
+      n := 4
+      b.result() shouldBe Seq(OnNext(1), OnNext(2), OnCompletion(Result.Failure(ex)))
+    }
+
+    test("an end while subscribing") {
+      val n     = Rx.variable(1)
+      var calls = 0
+      val b     = Seq.newBuilder[RxEvent]
+      RxRunner.run(
+        n.map { v =>
+          calls += 1
+          if v == 1 then
+            throw ex
+          v
+        }
+      )(b += _)
+      b.result() shouldBe Seq(OnCompletion(Result.Failure(ex)))
+      n := 2
+      // The run ended before it had subscribed, and the cancel still ran
+      calls shouldBe 1
+    }
+
+    test("an effect that throws on the failure") {
+      val n     = Rx.variable(1)
+      var calls = 0
+      n.run { _ =>
+        calls += 1
+      }
+      // Rx.run throws on the failure, and RxVar retries it with OnError: the run has ended
+      n.setException(ex)
+      n := 2
+      calls shouldBe 1
+    }
+
+    test("onCancel upstream of the end") {
+      val n         = Rx.variable(1)
+      var cancelled = 0
+      RxRunner.run(
+        n.onCancel(cancelled += 1)
+          .map { v =>
+            if v == 2 then
+              throw ex
+            v
+          }
+      )(_ => ())
+      n := 2
+      // The end came from downstream of onCancel, so the run's cancel runs f
+      cancelled shouldBe 1
+    }
+  }
+
 end RxRunnerTest
