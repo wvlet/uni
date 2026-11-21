@@ -168,6 +168,12 @@ private[parquet] object MetadataEncoder:
     }
     w.i64(2, g.totalByteSize)
     w.i64(3, g.numRows)
+    if g.sortingColumns.nonEmpty then
+      w.structList(4, g.sortingColumns) { c =>
+        w.i32(1, c.columnIdx)
+        w.bool(2, c.descending)
+        w.bool(3, c.nullsFirst)
+      }
     g.columns.headOption.foreach(c => w.i64(5, c.startOffset))
     w.i64(6, g.columns.map(_.totalCompressedSize).sum)
     g.ordinal.foreach(w.i16(7, _))
