@@ -137,8 +137,19 @@ RxRunner.run(stream) {
 }
 ```
 
-`RxRunner.runContinuously` (what `subscribe` uses) keeps running after an
-error, which it delivers as `OnError(e)`, and stops at the first `OnCompletion`.
+`RxRunner.runContinuously` keeps running after an error, which it delivers as
+`OnError(e)`, and stops at the first `OnCompletion`. `subscribe(f)` runs this
+way, but `f` receives values only: an `OnError` is thrown back to the code that
+pushed the value, such as the caller of `:=`, and later values still arrive. A
+uni-dom binding shows nothing for an `OnError` and renders the next value.
+
+A throwing `map` reports an `OnError`, and the stream goes on. A failed source
+(`RxVar.setException`, a failed `Rx.future`, `Rx.exception`) ends the stream with
+`OnCompletion(Result.Failure(e))` (see [error handling](./operators#error-handling)).
+Try a throwing `map` in the gallery, where each lane draws the events of one
+stream:
+
+<UiGallery story="rx-errors/resume" embed height="520px" />
 
 ## Timers and Intervals
 
@@ -155,11 +166,16 @@ delayed.subscribe(_ => println("Timer fired!"))
 ### Periodic Interval
 
 ```scala
-// Emit every 500ms
+// Emit every 500ms: each tick is the milliseconds since the previous one
 val ticker = Rx.interval(500, TimeUnit.MILLISECONDS)
   .take(10)  // Limit to 10 emissions
-  .subscribe(i => println(s"Tick ${i}"))
+  .subscribe(ms => println(s"Tick after ${ms} ms"))
 ```
+
+Each new value pushed into a variable that feeds `flatMap` cancels the inner
+stream still running, so only the newest request answers:
+
+<UiGallery story="rx-async/switch" embed height="460px" />
 
 ## Option Streams
 

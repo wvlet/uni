@@ -11,7 +11,9 @@ own page. A smaller copy is embedded below.
 The gallery opens on **Get started**, which sets up a Scala.js project with Uni: the build files,
 the stylesheet, the imports, and a first app shown live next to its code. Then every uni-ui
 component has a page: several live examples, each next to the Scala code that
-renders it, then the component's parts, API, and an accessibility check. Pick a component in the
+renders it, then the component's parts, API, and an accessibility check. The Rx group shows how
+[Rx streams](../rx/) behave: each example draws its streams' events on a timeline as you click
+and type. Pick a component in the
 sidebar or press ⌘K (Ctrl+K) to search components and examples.
 
 - **Examples.** Each card switches between Preview, Code, Split, and Agent (what an AI agent

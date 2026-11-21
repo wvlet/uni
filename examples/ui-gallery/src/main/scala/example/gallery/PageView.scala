@@ -62,39 +62,43 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
                     s.title,
                     when(s.playground.isDefined, span(cls -> "story-badge", "Playground"))
                   )
-                ) ++
-                Seq(
-                  a(
-                    cls     -> "page-toc__link page-toc__link--ref",
-                    href    -> s"#/${page.id}",
-                    onclick -> { (e: dom.Event) =>
-                      scrollTo(e, "parts")
-                    },
-                    "Parts"
-                  ),
-                  a(
-                    cls     -> "page-toc__link page-toc__link--ref",
-                    href    -> s"#/${page.id}",
-                    onclick -> { (e: dom.Event) =>
-                      scrollTo(e, "api")
-                    },
-                    "API"
-                  ),
-                  a(
-                    cls     -> "page-toc__link page-toc__link--ref",
-                    href    -> s"#/${page.id}",
-                    onclick -> { (e: dom.Event) =>
-                      scrollTo(e, "a11y")
-                    },
-                    "Accessibility"
+                ) ++ (
+                if !page.isComponent then
+                  Nil
+                else
+                  Seq(
+                    a(
+                      cls     -> "page-toc__link page-toc__link--ref",
+                      href    -> s"#/${page.id}",
+                      onclick -> { (e: dom.Event) =>
+                        scrollTo(e, "parts")
+                      },
+                      "Parts"
+                    ),
+                    a(
+                      cls     -> "page-toc__link page-toc__link--ref",
+                      href    -> s"#/${page.id}",
+                      onclick -> { (e: dom.Event) =>
+                        scrollTo(e, "api")
+                      },
+                      "API"
+                    ),
+                    a(
+                      cls     -> "page-toc__link page-toc__link--ref",
+                      href    -> s"#/${page.id}",
+                      onclick -> { (e: dom.Event) =>
+                        scrollTo(e, "a11y")
+                      },
+                      "Accessibility"
+                    )
                   )
-                )
+              )
             ),
             div(cls -> "story-meta__spacer"),
             group.map(g =>
               a(
                 cls    -> "story-link",
-                href   -> s"https://wvlet.org/uni/dom/${g.docs}",
+                href   -> s"https://wvlet.org/uni/${g.docs}",
                 target -> "_blank",
                 Icons.book,
                 "Docs"
@@ -117,18 +121,29 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
             StoryView(Rx.const(s), Rx.variable(defaultMode), embed = false)
           )
         ),
-      section(
-        cls -> "ref-section",
-        id  -> "parts",
-        h2(cls -> "ref-title", "Parts"),
-        PartsTable(() => root)
-      ),
-      section(cls -> "ref-section", id -> "api", h2(cls -> "ref-title", "API"), ApiTable(page.api)),
-      section(
-        cls -> "ref-section",
-        id  -> "a11y",
-        h2(cls -> "ref-title", "Accessibility"),
-        A11yPanel(page, () => root)
+      // A topic page, such as the Rx pages, has examples only
+      when(
+        page.isComponent,
+        Seq(
+          section(
+            cls -> "ref-section",
+            id  -> "parts",
+            h2(cls -> "ref-title", "Parts"),
+            PartsTable(() => root)
+          ),
+          section(
+            cls -> "ref-section",
+            id  -> "api",
+            h2(cls -> "ref-title", "API"),
+            ApiTable(page.api)
+          ),
+          section(
+            cls -> "ref-section",
+            id  -> "a11y",
+            h2(cls -> "ref-title", "Accessibility"),
+            A11yPanel(page, () => root)
+          )
+        )
       )
     )
 

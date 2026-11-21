@@ -42,6 +42,14 @@ object Icons:
     circle(cx -> 15, cy   -> 8.2, r  -> 1)
   )
 
+  /** A stream: a line with events on it. */
+  def stream: RxElement = icon(
+    p("M3 12h18"),
+    circle(cx -> 7, cy  -> 12, r -> 2.2),
+    circle(cx -> 13, cy -> 12, r -> 2.2),
+    p("M18 8.5v7")
+  )
+
   def collections: RxElement = icon(
     p("M8.5 6.5h12M8.5 12h12M8.5 17.5h12M4 6.5h.01M4 12h.01M4 17.5h.01")
   )
@@ -140,6 +148,8 @@ object Icons:
         collections
       case "start" =>
         start
+      case "rx" =>
+        stream
       case _ =>
         layout
 
