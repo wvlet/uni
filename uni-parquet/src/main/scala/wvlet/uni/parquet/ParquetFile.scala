@@ -52,16 +52,21 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       index: Int,
       options: ParquetReadOptions = ParquetReadOptions.default
   ): ColumnBatch =
-    val plan = planRowGroup(index, options)
-    wholeRowGroup(index, batches(plan, fetch(plan), options, whole = true))
+    val fl   = filtering(options)
+    val opts = readOptions(options, fl)
+    val plan = planRowGroup(index, opts)
+    val b    = wholeRowGroup(index, batches(plan, fetch(plan), opts, whole = true))
+    fl.fold(b)(_(b))
 
   /** Indices of the row groups to read: all of them, minus those the row group filter skips */
   def selectRowGroups(options: ParquetReadOptions = ParquetReadOptions.default): IndexedSeq[Int] =
-    options.rowGroupFilter match
+    options.pruneFilter match
       case None =>
         0 until numRowGroups
       case Some(f) =>
-        (0 until numRowGroups).filter(i => RowGroupFilter.mayMatch(f, schema, rowGroups(i)))
+        (0 until numRowGroups).filter(i =>
+          ParquetFilter.mayMatch(f, schema, rowGroups(i), options.binaryAsString)
+        )
 
   /**
     * Reads the selected row groups in order, one batch per row group. A row group is split into
@@ -69,11 +74,13 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
     * column's values in it pass 1 GiB.
     */
   def readBatches(options: ParquetReadOptions = ParquetReadOptions.default): Iterator[ColumnBatch] =
+    val fl   = filtering(options)
+    val opts = readOptions(options, fl)
     selectRowGroups(options)
       .iterator
       .flatMap { i =>
-        val plan = planRowGroup(i, options)
-        batches(plan, fetch(plan), options, whole = false)
+        val plan = planRowGroup(i, opts)
+        filtered(batches(plan, fetch(plan), opts, whole = false), fl)
       }
 
   /** Reads every row into `A` through Weaver. Columns are matched to fields by name. */
@@ -107,27 +114,42 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
       index: Int,
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Rx[ColumnBatch] = Rx
-    .single(planRowGroup(index, options))
-    .flatMap(plan =>
-      fetchAsync(plan).map(in => wholeRowGroup(index, batches(plan, in, options, whole = true)))
-    )
+    .single {
+      val fl = filtering(options)
+      (fl, readOptions(options, fl))
+    }
+    .flatMap { (fl, opts) =>
+      val plan = planRowGroup(index, opts)
+      fetchAsync(plan).map { in =>
+        val b = wholeRowGroup(index, batches(plan, in, opts, whole = true))
+        fl.fold(b)(_(b))
+      }
+    }
 
   /** The batches of one row group, as [[readBatches]] splits them */
   private[parquet] def rowGroupBatchesAsync(
       index: Int,
       options: ParquetReadOptions
   ): Rx[Iterator[ColumnBatch]] = Rx
-    .single(planRowGroup(index, options))
-    .flatMap(plan => fetchAsync(plan).map(in => batches(plan, in, options, whole = false)))
+    .single {
+      val fl = filtering(options)
+      (fl, readOptions(options, fl))
+    }
+    .flatMap { (fl, opts) =>
+      val plan = planRowGroup(index, opts)
+      fetchAsync(plan).map(in => filtered(batches(plan, in, opts, whole = false), fl))
+    }
 
   /**
     * Emits the batches of the selected row groups in order, as [[readBatches]] does. Unlike
     * [[readBatches]], a row group's batches are all decoded before the first is emitted.
     */
   def readBatchesAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[ColumnBatch] =
-    Rx.concatRx(
-      selectRowGroups(options).map(i =>
-        rowGroupBatchesAsync(i, options).flatMap(it => Rx.fromSeq(it.toSeq))
+    checked(options)(
+      Rx.concatRx(
+        selectRowGroups(options).map(i =>
+          rowGroupBatchesAsync(i, options).flatMap(it => Rx.fromSeq(it.toSeq))
+        )
       )
     )
 
@@ -146,9 +168,12 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   /** All rows as maps from column name to value, collected into one Seq */
   def readAllRowsAsync(
       options: ParquetReadOptions = ParquetReadOptions.default
-  ): Rx[Seq[Map[String, Any]]] = ParquetFile
-    .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
-    .map(_.flatMap(_.flatMap(_.rows)))
+  ): Rx[Seq[Map[String, Any]]] =
+    checked(options)(
+      ParquetFile
+        .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
+        .map(_.flatMap(_.flatMap(_.rows)))
+    )
 
   /** Emits every row as a JSON object, as [[readJson]] does */
   def readJsonAsync(options: ParquetReadOptions = ParquetReadOptions.default): Rx[JSONObject] =
@@ -157,9 +182,62 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
   /** All rows decoded into `A`, collected into one Seq */
   def readAllAsync[A](
       options: ParquetReadOptions = ParquetReadOptions.default
-  )(using weaver: Weaver[A]): Rx[Seq[A]] = ParquetFile
-    .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
-    .map(_.flatMap(_.flatMap(b => ParquetFile.rows(b, weaver, options))))
+  )(using weaver: Weaver[A]): Rx[Seq[A]] =
+    checked(options)(
+      ParquetFile
+        .sequence(selectRowGroups(options).map(rowGroupBatchesAsync(_, options)))
+        .map(_.flatMap(_.flatMap(b => ParquetFile.rows(b, weaver, options))))
+    )
+
+  // ---- Row filtering ----
+
+  /**
+    * A row filter and the columns to return. Columns the filter needs but the read doesn't select
+    * are read too, then dropped.
+    */
+  private case class Filtering(
+      rowFilter: ParquetFilter.RowFilter,
+      extra: Seq[String],
+      output: Option[Seq[String]]
+  ):
+    def apply(b: ColumnBatch): ColumnBatch =
+      val kept = rowFilter(b)
+      output match
+        case Some(names) if extra.nonEmpty =>
+          kept.select(names*)
+        case _ =>
+          kept
+
+  /** The row filter of a read, which fails here when the filter can't be evaluated exactly */
+  private def filtering(options: ParquetReadOptions): Option[Filtering] = options
+    .filter
+    .map { f =>
+      val rf    = ParquetFilter.RowFilter(f, schema, options.binaryAsString)
+      val extra =
+        options.columns.fold(Seq.empty[String])(cols => rf.topColumns.filterNot(cols.contains))
+      Filtering(rf, extra, options.columns)
+    }
+
+  private def readOptions(options: ParquetReadOptions, fl: Option[Filtering]): ParquetReadOptions =
+    fl match
+      case Some(f) if f.extra.nonEmpty =>
+        options.copy(columns = options.columns.map(_ ++ f.extra))
+      case _ =>
+        options
+
+  private def filtered(it: Iterator[ColumnBatch], fl: Option[Filtering]): Iterator[ColumnBatch] =
+    fl match
+      case None =>
+        it
+      case Some(f) =>
+        it.map(f(_)).filter(_.numRows > 0)
+
+  /** Checks the filter when the stream starts, even when no row group is selected */
+  private def checked[A](options: ParquetReadOptions)(body: => Rx[A]): Rx[A] =
+    if options.filter.isEmpty then
+      body
+    else
+      Rx.single(filtering(options)).flatMap(_ => body)
 
   // ---- Planning and decoding ----
 

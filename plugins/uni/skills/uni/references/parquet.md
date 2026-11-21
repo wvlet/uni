@@ -151,18 +151,29 @@ def writeAzure(uri: String, events: Seq[Event]): Unit =
 
 See [storage.md](storage.md) for credentials and other stores.
 
-## Skip row groups with statistics
+## Filter rows
 
 ```scala
-import wvlet.uni.parquet.RowGroupFilter.col
+import wvlet.uni.parquet.ParquetFilter.col
 
 val since2026 = ParquetReadOptions.default
-  .withRowGroupFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z"))
+  .withFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("address.city") === "Tokyo")
 ```
 
-This skips whole row groups only; rows of the groups that are read are not filtered, so filter
-them again. Only top-level integer, float, boolean, string, DATE (`LocalDate`), and TIMESTAMP
-(`Instant`) columns are checked.
+- `withFilter` returns exactly the matching rows from `readAs`, `readRows`, `readJson`,
+  `readBatches`, `readRowGroup`, and the async variants, for files and datasets. It also skips
+  row groups by statistics and dataset files by partition values. Columns only the filter needs
+  are read, then dropped.
+- SQL nulls: a comparison with null is unknown, and only rows where the filter is true are kept.
+  Match nulls with `col("x").isNull` / `isNotNull`; `=== null` throws. NaN matches no comparison
+  (IEEE 754, unlike Spark and DuckDB), and `-0.0` equals `0.0`.
+- Literals convert only without loss: integers (or digit strings) to INT32/INT64, `LocalDate` or
+  an ISO string to DATE, `Instant` to TIMESTAMP/INT96 (exact), `String` to STRING/ENUM, numbers
+  to FLOAT/DOUBLE (integers within ±2^53). `col("a.b")` names a struct field.
+- An unknown column, a list or map, DECIMAL/TIME/UUID, or a wrong literal type throws
+  `IllegalArgumentException` when the read starts.
+- `withRowGroupFilter(f)` only skips row groups and ignores what it can't check; rows inside are
+  not filtered. `RowGroupFilter` is the deprecated old name of `ParquetFilter`.
 
 ## Read a dataset: a folder or bucket prefix of files
 
@@ -172,7 +183,7 @@ columns after the files' own columns.
 
 ```scala
 import wvlet.uni.parquet.{Parquet, ParquetDatasetOptions, ParquetReadOptions, ParquetType}
-import wvlet.uni.parquet.RowGroupFilter.col
+import wvlet.uni.parquet.ParquetFilter.col
 import java.time.LocalDate
 
 case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
@@ -182,7 +193,7 @@ def recentVisits(root: String): Seq[Visit] =
   try
     val opts = ParquetReadOptions
       .default
-      .withRowGroupFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
+      .withFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
     ds.readAs[Visit](opts).toSeq
   finally ds.close()
 
@@ -200,7 +211,8 @@ def typedDataset(root: String) = Parquet.dataset(
   `__HIVE_DEFAULT_PARTITION__` reads as null.
 - A filter on partition columns skips whole files before they are opened (`ds.selectFiles(opts)`
   lists the files a read opens). A literal of the wrong type for a partition, or an unknown column
-  name, throws `IllegalArgumentException`.
+  name, throws `IllegalArgumentException`. `withFilter` filters rows in the dataset schema: a
+  column a file lacks is null there, and narrow columns are widened first.
 - Columns match by name across files. A column missing from a file reads as null. INT8/16/32 widen
   to INT64 or DOUBLE and FLOAT to DOUBLE when files differ (never INT64 to DOUBLE); other type
   differences throw a `ParquetException` naming both files.

@@ -113,7 +113,7 @@ Keys follow the schema's column order. Values keep their Parquet types: `Int`, `
 `LocalTime` for TIME, `BigDecimal` for DECIMAL, `java.util.UUID` for UUID, and `Array[Byte]` for
 binary without a logical type. Lists become `Seq`, maps `Map`, and groups nested
 `Map[String, Any]`. A null value is `null`. `Parquet.readRows` also accepts an `Array[Byte]`, and
-`ParquetFile.readRows(options)` reads with column projection and row group filters.
+`ParquetFile.readRows(options)` reads with column projection and row filters.
 
 `readRows` is usually a better fit than `readAs[Map[String, Any]]`. `readAs` decodes rows through
 Weaver, which only knows that the target is a map, so integers come back as `Long`, FLOAT as
@@ -279,23 +279,56 @@ val toAzure    = Parquet.newWriter[Event](azureStore.newOutputStream("az://my-co
 
 `ByteSource.ofObject(store, uri)` opens a file in any store you already hold.
 
-## Skipping Row Groups
+## Filtering Rows
 
-Writers store min, max, and null counts for each column chunk. A `RowGroupFilter` skips row groups
-whose statistics show that no row can match:
+`withFilter` returns only the rows that match a `ParquetFilter`, as Spark and DuckDB do with
+pushed-down predicates. Writers store min, max, and null counts for each column chunk, so row
+groups that can't match are skipped without being read, and the rest are filtered on the column
+vectors:
 
 ```scala
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 
 val recent = ParquetReadOptions.default
-  .withRowGroupFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("country") === "JP")
+  .withFilter(col("ts") >= Instant.parse("2026-01-01T00:00:00Z") && col("country") === "JP")
 file.readAs[Event](recent)
 ```
 
-The filter only skips whole row groups. Rows inside the row groups that are read come back
-unchanged, so filter them again in your code. It checks top-level columns of integer, floating
-point, boolean, string, DATE (compare with `LocalDate`), and TIMESTAMP (compare with `Instant`)
-types; for other types, or when a column has no statistics, the row group is read.
+The filter applies to `readAs`, `readRows`, `readJson`, `readBatches`, `readRowGroup`, and their
+async variants. A column the filter needs but `withColumns` leaves out is read, then dropped.
+
+- **Nulls.** As in SQL, a comparison with null is unknown, and a row is kept only when the whole
+  filter is true. Use `col("x").isNull` or `isNotNull` to match nulls; `col("x") === null` is an
+  error.
+- **Floating point.** Comparisons follow IEEE 754: NaN matches no comparison, and `-0.0` equals
+  `0.0`. Spark and DuckDB instead sort NaN above every number.
+- **Literals** convert to the column's type only without loss: integers to INT32 and INT64
+  columns (signed or unsigned, also from a string of digits such as `"2026"`), `LocalDate` or an
+  ISO date string to DATE, `Instant` to TIMESTAMP and INT96 (compared exactly, below the column's
+  unit too), `String` to STRING and ENUM, `Boolean` to BOOLEAN, and numbers to FLOAT and DOUBLE
+  (integers only within ±2^53). Strings compare in UTF-8 byte order, which is code point order.
+- **Nested columns.** A dotted name such as `col("address.city")` names a field inside structs; a
+  top-level column with that exact name wins. A null struct makes its fields null.
+- **Errors.** A filter that can't be evaluated exactly fails when the read starts, naming the
+  column: an unknown column, a list or map, a type such as DECIMAL, TIME, or UUID, or a literal of
+  the wrong type. Untyped binary columns compare with strings under `withBinaryAsString(true)`.
+
+A batch from `readBatches` holds only matching rows, so it can be smaller than `withBatchSize`;
+batches with no rows are not returned. `readRowGroup` always returns its one batch, which can be
+empty.
+
+### Skipping Row Groups Only
+
+`withRowGroupFilter` takes the same filter but only skips row groups (and dataset files) that
+can't match; rows inside the row groups that are read come back unchanged. It never fails on a
+column or literal it doesn't understand, and reads that row group instead:
+
+```scala
+val hint = ParquetReadOptions.default.withRowGroupFilter(col("country") === "JP")
+file.selectRowGroups(hint) // the row groups a read with this filter opens
+```
+
+`RowGroupFilter` is the old, deprecated name of `ParquetFilter`.
 
 ## Reading a Dataset of Files
 
@@ -305,7 +338,7 @@ bucket prefix, split into `key=value` folders such as `dt=2026-11-20/country=JP/
 `s3://`, `gs://`, `az://`, or `azure://` prefix:
 
 ```scala
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import java.time.LocalDate
 
 case class Visit(id: Long, user: String, dt: LocalDate, country: String) derives Weaver
@@ -318,7 +351,7 @@ try
 
   val recentJP = ParquetReadOptions
     .default
-    .withRowGroupFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
+    .withFilter(col("dt") >= "2026-11-15" && col("country") === "JP")
   ds.selectFiles(recentJP)                   // the files this read opens
   val visits = ds.readAs[Visit](recentJP).toSeq
 finally ds.close()
@@ -345,9 +378,11 @@ finally ds.close()
   // Filters on dt now take LocalDate (or an ISO date string)
   ```
 
-- **Skipping files.** A `RowGroupFilter` on partition columns is checked exactly against each
-  file's folder values, so files that can't match are never opened. The rest of the filter skips
-  row groups by statistics, as it does for one file. A filter value of the wrong type for a
+- **Skipping files.** A filter on partition columns is checked exactly against each file's
+  folder values, so files that can't match are never opened. The rest of the filter skips row
+  groups by statistics, and `withFilter` then filters the rows. Rows are filtered in the dataset's
+  schema, so a column a file lacks is null there (only `isNull` matches), and a narrow column is
+  widened before it is compared. A filter value of the wrong type for a
   partition fails, instead of quietly reading every file. When the read selects any file, a
   column name that none of its files has also fails before any rows are read.
 - **Columns across files.** Columns are matched by name. The schema is the union of the columns
@@ -681,7 +716,7 @@ batch if needed, so batch sizes do not show in the file. On the JVM, writing bat
 The writer produces files that other engines read: data page v1, PLAIN and RLE encodings, and
 dictionary encoding for every column except booleans. A column whose dictionary grows past
 `dictionaryPageSize` (1 MiB) switches to PLAIN for the rest of its row group. Each column chunk
-stores min, max, and null counts, so `RowGroupFilter`, DuckDB, and Spark can skip row groups.
+stores min, max, and null counts, so `ParquetFilter`, DuckDB, and Spark can skip row groups.
 
 ```scala
 import wvlet.uni.parquet.format.CompressionCodec

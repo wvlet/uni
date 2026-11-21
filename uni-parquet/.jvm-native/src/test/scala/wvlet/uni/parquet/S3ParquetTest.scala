@@ -84,7 +84,7 @@ class S3ParquetTest extends UniTest:
       dataset.files.size shouldBe 2
       val opts = ParquetReadOptions
         .default
-        .withRowGroupFilter(RowGroupFilter.col("day") === "2026-11-20")
+        .withRowGroupFilter(ParquetFilter.col("day") === "2026-11-20")
       dataset.readAs[AllTypes](opts).toSeq shouldBe rows.slice(3, 5)
       dataset.readAllRowsAsync().await.map(_("day")) shouldBe
         Seq.fill(3)("2026-11-19") ++ Seq.fill(2)("2026-11-20")
@@ -129,7 +129,7 @@ class S3ParquetTest extends UniTest:
 
     val ds = Parquet.dataset(store, root)
     try
-      val jp = ParquetReadOptions.default.withRowGroupFilter(RowGroupFilter.col("country") === "JP")
+      val jp = ParquetReadOptions.default.withRowGroupFilter(ParquetFilter.col("country") === "JP")
       ds.selectFiles(jp).size shouldBe 2
       ds.readAs[S3Sale](jp).toSeq.sortBy(_.id) shouldBe sales.filter(_.country == "JP")
     finally
@@ -172,7 +172,7 @@ class S3ParquetTest extends UniTest:
         ds.partitionColumns.map(_.logicalType) shouldBe IndexedSeq(Some(LogicalType.Date), None)
         val day = ParquetReadOptions
           .default
-          .withRowGroupFilter(RowGroupFilter.col("dt") === java.time.LocalDate.of(2026, 11, 21))
+          .withRowGroupFilter(ParquetFilter.col("dt") === java.time.LocalDate.of(2026, 11, 21))
         ds.readRows(day).map(_("id")).toSeq.sortBy(_.toString) shouldBe Seq(1L, 3L, 5L)
       finally
         ds.close()

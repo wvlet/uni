@@ -3,7 +3,7 @@ package wvlet.uni.parquet
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.parquet.ColumnVector.*
-import wvlet.uni.parquet.RowGroupFilter.*
+import wvlet.uni.parquet.ParquetFilter.*
 import wvlet.uni.parquet.format.CompressionCodec
 import wvlet.uni.parquet.format.Encoding
 import wvlet.uni.test.UniTest

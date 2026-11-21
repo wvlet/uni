@@ -36,10 +36,12 @@ case class DatasetFile(path: String, size: Long, partitions: VectorMap[String, A
   * with [[Parquet.dataset]].
   *
   * Folders named `key=value` become partition columns, appended after the files' columns. A
-  * [[RowGroupFilter]] on a partition column skips whole files before they are opened; on other
-  * columns it skips row groups by statistics, as it does for one file. Columns are matched by name
-  * across files: a file without a selected column reads it as nulls, and a column whose type
-  * differs between files is an error.
+  * [[ParquetFilter]] on a partition column skips whole files before they are opened; on other
+  * columns it skips row groups by statistics, as it does for one file. With
+  * [[ParquetReadOptions.withFilter]], the remaining rows are then filtered exactly, after missing
+  * columns become nulls and narrow columns are widened. Columns are matched by name across files: a
+  * file without a selected column reads it as nulls, and a column whose type differs between files
+  * is an error.
   *
   * Synchronous reads open one file at a time and close it before the next. Footers are fetched
   * several at a time (see [[ParquetDatasetOptions.withPrefetch]]): on the JVM for every read, and
@@ -169,8 +171,15 @@ class ParquetDataset private[parquet] (
 
   // ---- Planning ----
 
-  /** A file that passed partition pruning, with what remains of the filter for its row groups */
-  private case class Selected(file: DatasetFile, residual: Option[RowGroupFilter])
+  /**
+    * A file that passed partition pruning, with what remains of each filter for its row groups.
+    * `rowResidual` is None when the partition values alone decide that every row matches.
+    */
+  private case class Selected(
+      file: DatasetFile,
+      residual: Option[ParquetFilter],
+      rowResidual: Option[ParquetFilter]
+  )
 
   /**
     * What a read produces
@@ -180,30 +189,45 @@ class ParquetDataset private[parquet] (
     * @param output
     *   the columns of each batch, in order
     * @param fileColumns
-    *   the output columns read from files (not partitions)
+    *   the columns read from files (not partitions)
+    * @param eval
+    *   the output columns, then the columns only the row filter needs
+    * @param rowFilter
+    *   the exact filter, checked against batches of the `eval` columns
     */
   private case class Plan(
       schema: ParquetSchema,
       output: IndexedSeq[ParquetField],
       fileColumns: IndexedSeq[String],
-      options: ParquetReadOptions
+      options: ParquetReadOptions,
+      eval: IndexedSeq[ParquetField],
+      rowFilter: Option[ParquetFilter.RowFilter]
   )
 
   private def selectByPartition(options: ParquetReadOptions): IndexedSeq[Selected] =
-    options.rowGroupFilter match
-      case None =>
-        files.map(Selected(_, None))
-      case Some(f) =>
-        val types = partitionColumns.map(p => p.name -> p).toMap
-        files.flatMap { file =>
-          simplify(f, file.partitions, types) match
-            case Left(false) =>
-              None
-            case Left(true) =>
-              Some(Selected(file, None))
-            case Right(r) =>
-              Some(Selected(file, Some(r)))
-        }
+    if options.rowGroupFilter.isEmpty && options.filter.isEmpty then
+      files.map(Selected(_, None, None))
+    else
+      val types = partitionColumns.map(p => p.name -> p).toMap
+      // None: no file matches; Some(None): every row matches; Some(Some(r)): check r
+      def residual(f: Option[ParquetFilter], file: DatasetFile): Option[Option[ParquetFilter]] =
+        f match
+          case None =>
+            Some(None)
+          case Some(f) =>
+            simplify(f, file.partitions, types) match
+              case Left(false) =>
+                None
+              case Left(true) =>
+                Some(None)
+              case Right(r) =>
+                Some(Some(r))
+      files.flatMap { file =>
+        for
+          r   <- residual(options.rowGroupFilter, file)
+          row <- residual(options.filter, file)
+        yield Selected(file, r, row)
+      }
 
   private def prepare(options: ParquetReadOptions): Plan =
     val selected = selectByPartition(options)
@@ -228,7 +252,12 @@ class ParquetDataset private[parquet] (
       selected: IndexedSeq[Selected],
       metas: IndexedSeq[FileMetaData]
   ): Plan =
-    val wanted: Option[Set[String]] = options.columns.map(_.toSet -- partitionKeys)
+    // A dotted filter name may refer to a top-level column with that name or to a struct field
+    val filterNames = options.filter.toSeq.flatMap(_.columnNames)
+    val filterTops  = filterNames.flatMap(n => Seq(n, n.takeWhile(_ != '.'))).distinct
+    val wanted: Option[Set[String]] = options
+      .columns
+      .map(c => (c ++ filterTops).toSet -- partitionKeys)
     // Union of the files' top-level fields by name, in first-seen order
     val union   = scala.collection.mutable.LinkedHashMap.empty[String, (ParquetField, String)]
     val present = scala.collection.mutable.HashMap.empty[String, Int]
@@ -306,9 +335,15 @@ class ParquetDataset private[parquet] (
     if selected.nonEmpty then
       val known   = allNames.toSet ++ partitionKeys
       val missing =
-        (options.columns.getOrElse(Seq.empty) ++ options.rowGroupFilter.toSeq.flatMap(columnsOf))
-          .distinct
-          .filterNot(known.contains)
+        // A dotted filter name may name a struct field, checked later against the schema
+        (
+          options.columns.getOrElse(Seq.empty).filterNot(known.contains) ++
+            options
+              .pruneFilter
+              .toSeq
+              .flatMap(_.columnNames)
+              .filterNot(n => known.contains(n) || known.contains(n.takeWhile(_ != '.')))
+        ).distinct
       if missing.nonEmpty then
         throw IllegalArgumentException(
           s"No column named ${missing.mkString(", ")} in ${root}. Columns: ${(
@@ -321,7 +356,24 @@ class ParquetDataset private[parquet] (
           schema.fields
         case Some(names) =>
           names.flatMap(n => schema.field(n)).toIndexedSeq
-    Plan(schema, output, output.map(_.name).filterNot(partitionKeys.contains), options)
+    // The exact filter is checked against the dataset schema, so a file without a column reads it
+    // as nulls and a narrow column compares after widening
+    val rowFilter = options
+      .filter
+      .filter(_ => selected.nonEmpty)
+      .map(f => ParquetFilter.RowFilter(f, schema, options.binaryAsString))
+    val outputNames = output.map(_.name).toSet
+    val eval        =
+      output ++
+        rowFilter.toSeq.flatMap(_.topColumns).filterNot(outputNames.contains).flatMap(schema.field)
+    Plan(
+      schema,
+      output,
+      eval.map(_.name).filterNot(partitionKeys.contains),
+      options,
+      eval,
+      rowFilter
+    )
 
   end buildPlan
 
@@ -392,7 +444,8 @@ class ParquetDataset private[parquet] (
       .options
       .copy(
         columns = Some(plan.fileColumns.filter(n => fileSchema.field(n).isDefined)),
-        rowGroupFilter = s.residual
+        rowGroupFilter = ParquetFilter.both(s.residual, s.rowResidual),
+        filter = None
       )
 
   private def fileBatches(s: Selected, meta: FileMetaData, plan: Plan): Iterator[ColumnBatch] =
@@ -405,7 +458,10 @@ class ParquetDataset private[parquet] (
         if it == null && !done then
           file = track(ParquetFile(wrapErrors(s.file)(openSource(s.file)), meta))
           val opts = fileOptions(s, plan, file.schema)
-          it = wrapIterator(s.file, batchesOf(file, opts).map(b => toOutput(b, s.file, plan)))
+          it = wrapIterator(
+            s.file,
+            batchesOf(file, opts).map(b => finish(b, s, plan)).filter(_.numRows > 0)
+          )
 
       override def hasNext: Boolean =
         start()
@@ -440,7 +496,7 @@ class ParquetDataset private[parquet] (
         Seq.empty
       }
       Rx.concatRx(rowGroups :+ closing)
-        .flatMap(bs => Rx.fromSeq(bs.map(b => toOutput(b, s.file, plan))))
+        .flatMap(bs => Rx.fromSeq(bs.map(b => finish(b, s, plan)).filter(_.numRows > 0)))
         .recoverWith { case e: Throwable =>
           release(file)
           Rx.exception(fileError(s.file, e))
@@ -464,6 +520,19 @@ class ParquetDataset private[parquet] (
       .takeWhile(_ < numRows)
       .map(start => ColumnBatch(math.min(size, numRows - start).toInt, IndexedSeq.empty))
 
+  /** A file's batch as the read returns it: in the plan's columns, with rows filtered */
+  private def finish(b: ColumnBatch, s: Selected, plan: Plan): ColumnBatch =
+    val all  = toOutput(b, s.file, plan)
+    val kept =
+      if s.rowResidual.isDefined then
+        plan.rowFilter.fold(all)(_(all))
+      else
+        all
+    if plan.eval.size == plan.output.size then
+      kept
+    else
+      ColumnBatch(kept.numRows, kept.columns.take(plan.output.size))
+
   /** The batch with the plan's columns: the file's vectors, nulls, and partition values */
   private def toOutput(b: ColumnBatch, file: DatasetFile, plan: Plan): ColumnBatch =
     val n      = b.numRows
@@ -471,7 +540,7 @@ class ParquetDataset private[parquet] (
     ColumnBatch(
       n,
       plan
-        .output
+        .eval
         .map { f =>
           if partitionKeys.contains(f.name) then
             constantVector(f.asInstanceOf[ParquetField.Primitive], file.partitions(f.name), n)
@@ -971,29 +1040,16 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   // ---- Partition pruning ----
 
-  private[parquet] def columnsOf(f: RowGroupFilter): Seq[String] =
-    f match
-      case RowGroupFilter.Compare(c, _, _) =>
-        Seq(c)
-      case RowGroupFilter.IsNull(c) =>
-        Seq(c)
-      case RowGroupFilter.IsNotNull(c) =>
-        Seq(c)
-      case RowGroupFilter.And(a, b) =>
-        columnsOf(a) ++ columnsOf(b)
-      case RowGroupFilter.Or(a, b) =>
-        columnsOf(a) ++ columnsOf(b)
-
   /**
     * Evaluates the partition columns of a filter against one file's values. Left is the filter's
     * exact answer; Right is what is left to check against row group statistics.
     */
   private[parquet] def simplify(
-      f: RowGroupFilter,
+      f: ParquetFilter,
       values: Map[String, Any],
       columns: Map[String, ParquetField.Primitive]
-  ): Either[Boolean, RowGroupFilter] =
-    import RowGroupFilter.*
+  ): Either[Boolean, ParquetFilter] =
+    import ParquetFilter.*
     f match
       case And(a, b) =>
         (simplify(a, values, columns), simplify(b, values, columns)) match
@@ -1029,7 +1085,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
             val cmp =
               (pv, lit) match
                 case (a: String, b: String) =>
-                  a.compareTo(b)
+                  // UTF-8 byte order, as string columns compare
+                  compareStrings(a, b)
                 case (a: Int, b: Long) =>
                   a.toLong.compareTo(b)
                 case (a: Long, b: Long) =>
