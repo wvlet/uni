@@ -160,29 +160,26 @@ object Parquet:
       options: ParquetDatasetOptions,
       ownsStore: Boolean
   ): ParquetDataset =
-    val (uri, matches) = objectPattern(root)
+    val (uri, matches, source) = objectPattern(root)
     ParquetDataset.build(
       uri.toString,
       ParquetDataset.listObjects(store, uri).filter(l => matches(l.segments)),
       options,
       Some(store),
       ownsStore,
-      source = patternSource(root)
+      source = source
     )
 
-  /** The prefix to list for a root or glob pattern, and the filter for the listed paths */
-  private def objectPattern(root: String): (ObjectUri, Seq[String] => Boolean) =
+  /**
+    * The prefix to list for a root or glob pattern, the filter for the listed paths, and how an
+    * empty result names the pattern
+    */
+  private def objectPattern(root: String): (ObjectUri, Seq[String] => Boolean, String) =
     ParquetDataset.splitGlob(root) match
       case Some((base, pattern)) =>
-        (ParquetDataset.objectRoot(base), ParquetDataset.globMatcher(pattern))
+        (ParquetDataset.objectRoot(base), ParquetDataset.globMatcher(pattern), s"matching ${root}")
       case None =>
-        (ParquetDataset.objectRoot(root), _ => true)
-
-  private def patternSource(root: String): String =
-    if ParquetDataset.splitGlob(root).isDefined then
-      s"matching ${root}"
-    else
-      ""
+        (ParquetDataset.objectRoot(root), _ => true, "")
 
   /**
     * Reads the listed files as one dataset, as `read_parquet([...])` does in DuckDB. The paths are
@@ -267,7 +264,7 @@ object Parquet:
       ownsStore: Boolean
   ): Rx[ParquetDataset] = Rx
     .single(objectPattern(root))
-    .flatMap { (uri, matches) =>
+    .flatMap { (uri, matches, source) =>
       ParquetDataset
         .listObjectsAsync(store, uri)
         .map(listed =>
@@ -277,7 +274,7 @@ object Parquet:
             options,
             Some(store),
             ownsStore,
-            source = patternSource(root)
+            source = source
           )
         )
     }

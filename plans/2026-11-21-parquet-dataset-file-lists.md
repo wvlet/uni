@@ -35,7 +35,7 @@ Decisions:
   - Partitions are the `key=value` segments below the longest common parent folder, so every file must have the same keys, as today.
   - Listed files are read even when a name starts with `_` or `.`, because the caller asked for them. They are deduplicated and sorted by path.
   - No listing request is made. Sizes come from the footer reads.
-- **Sync footer prefetch** on the JVM and Scala Native: `prepare` fetches up to `withPrefetch` (4) footers at a time on a small thread pool, created for the read and shut down after it. Results keep file order. Scala.js keeps the sequential loop. The default and the option are shared with the async path.
+- **Sync footer prefetch** on the JVM (Native stays sequential after review, because its Immix GC can crash under concurrent allocation): `prepare` fetches up to `withPrefetch` (4) footers at a time on a small thread pool, created for the read and shut down after it. Results keep file order. Scala.js keeps the sequential loop. The default and the option are shared with the async path.
 - **Tests** cover glob forms (`*`, `?`, sets, alternatives, `**`, escapes), pruning on top of a pattern, explicit lists with partitions, mixed-bucket and missing-file errors, and sync prefetch giving the same result as sequential reads. One S3 test reads a glob and a file list.
 - **Docs**: the dataset section of `docs/text/parquet.md`, `for-ai-agents.md`, and the uni skill (version bump).
 

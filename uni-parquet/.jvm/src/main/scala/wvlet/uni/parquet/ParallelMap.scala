@@ -5,7 +5,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.Future
 import java.util.concurrent.ThreadFactory
 
-/** Runs blocking reads a few at a time on a short-lived thread pool (JVM and Scala Native) */
+/** Runs blocking reads a few at a time on a short-lived thread pool (JVM) */
 private[parquet] object ParallelMap:
 
   /** `items.map(f)` with up to `parallelism` calls in flight; results keep the input order */

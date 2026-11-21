@@ -42,8 +42,8 @@ case class DatasetFile(path: String, size: Long, partitions: VectorMap[String, A
   * differs between files is an error.
   *
   * Synchronous reads open one file at a time and close it before the next. Footers are fetched
-  * several at a time (see [[ParquetDatasetOptions.withPrefetch]]): on the JVM and Scala Native for
-  * every read, and on Scala.js for the `...Async` reads. Rows come in file order (files are sorted
+  * several at a time (see [[ParquetDatasetOptions.withPrefetch]]): on the JVM for every read, and
+  * on Scala.js and Scala Native for the `...Async` reads. Rows come in file order (files are sorted
   * by path), then row group order.
   *
   * Close the dataset when done: it closes the object store if the dataset created it, and any file
@@ -206,7 +206,8 @@ class ParquetDataset private[parquet] (
   private def prepare(options: ParquetReadOptions): Plan =
     val selected = selectByPartition(options)
     // Footers are fetched several at a time where threads exist, as the async path does
-    buildPlan(options, selected, ParallelMap(selected, prefetch)(s => footer(s.file)))
+    ParallelMap(selected.filter(s => cachedFooter(s.file).isEmpty), prefetch)(s => footer(s.file))
+    buildPlan(options, selected, selected.map(s => footer(s.file)))
 
   private def prepareAsync(
       options: ParquetReadOptions
@@ -653,8 +654,14 @@ object ParquetDataset:
     if first < 0 then
       None
     else
-      val cut = pattern.lastIndexOf('/', first)
-      Some((pattern.substring(0, cut + 1), pattern.substring(cut + 1).stripSuffix("/")))
+      val cut  = pattern.lastIndexOf('/', first)
+      val base = pattern.substring(0, cut + 1)
+      if isObjectUri(pattern) && !base.substring(base.indexOf("://") + 3).contains('/') then
+        throw IllegalArgumentException(
+          s"A glob pattern can't be in the bucket name: ${pattern}. List each bucket separately"
+        )
+      // The base is listed as is, so its escapes are removed
+      Some((base.replaceAll("\\\\(.)", "$1"), pattern.substring(cut + 1).stripSuffix("/")))
 
   /**
     * A matcher for paths below a glob root: `*` and `?` match within one segment, `[...]` is a set
@@ -706,13 +713,14 @@ object ParquetDataset:
             quote(c)
           else
             val body = p.substring(i + 1, end)
+            // A set matches one character within a folder name, never `/`
             sb.append('[')
             val set =
               if body.startsWith("!") || body.startsWith("^") then
-                sb.append('^')
+                sb.append("^/")
                 body.substring(1)
               else
-                body
+                body.filterNot(_ == '/')
             set.foreach { ch =>
               if "\\]^[".indexOf(ch) >= 0 then
                 sb.append('\\')

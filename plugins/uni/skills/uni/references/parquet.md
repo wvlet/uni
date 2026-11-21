@@ -207,7 +207,7 @@ def typedDataset(root: String) = Parquet.dataset(
   files, all local or all in one bucket. Partitions come from `key=value` folders below their common
   parent; listed files are read even when named `_...` or `.`.
 - `readAs`, `readRows`, `readJson`, and `readBatches` return iterators that open one file at a time.
-  Footers are fetched `withPrefetch` (4) at a time: sync reads on the JVM and Native, async reads
+  Footers are fetched `withPrefetch` (4) at a time: sync reads on the JVM, async reads
   (`readAllAsync[A]()`, `readAllRowsAsync()`) everywhere. Pass `Parquet.dataset(store,
   root)` for R2, MinIO, or explicit credentials; the dataset closes only a store it created.
 

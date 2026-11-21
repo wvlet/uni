@@ -367,7 +367,12 @@ class DatasetTest extends UniTest:
   }
 
   test("escape glob characters") {
-    ParquetDataset.splitGlob("s3://b/a\\*b/c*") shouldBe Some(("s3://b/a\\*b/", "c*"))
+    // The listed base has its escapes removed; the pattern keeps them
+    ParquetDataset.splitGlob("s3://b/a\\*b/c*") shouldBe Some(("s3://b/a*b/", "c*"))
+    intercept[IllegalArgumentException](ParquetDataset.splitGlob("s3://logs-*/x"))
+    // A set never matches the folder separator
+    ParquetDataset.globMatcher("x[!a]y")(Seq("x", "y")) shouldBe false
+    ParquetDataset.globMatcher("x[!a]y")(Seq("xby")) shouldBe true
     ParquetDataset.splitGlob("s3://b/events/") shouldBe None
     val m = ParquetDataset.globMatcher("a\\*b/x.parquet")
     m(Seq("a*b", "x.parquet")) shouldBe true

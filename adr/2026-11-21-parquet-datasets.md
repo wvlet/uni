@@ -54,8 +54,9 @@ built a new store for each file.
 ## Consequences
 
 - A read with many files waits for all of their footers before the first row. Both paths fetch
-  `withPrefetch` footers at a time: sync reads on a short-lived thread pool (JVM and Scala Native;
-  Scala.js stays sequential), async reads with `RxParallel.parSequenceN`.
+  `withPrefetch` footers at a time: sync reads on a short-lived thread pool on the JVM, async reads
+  with `RxParallel.parSequenceN`. Sync reads stay sequential on Scala.js (no threads) and on Scala
+  Native, whose Immix GC can still crash under concurrent allocation (scala-native#5046, #5160).
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
 - Not covered: `_metadata` summary files, Delta Lake and Iceberg,

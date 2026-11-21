@@ -366,8 +366,8 @@ finally ds.close()
 - **Order and memory.** Files are read in path order, then row group order. Synchronous reads
   return an `Iterator` that opens one file at a time. A read fetches the footers of the selected
   files several at a time (`withPrefetch`, 4 by default), which hides object store latency: sync
-  reads do so on the JVM and Scala Native, and `readAllAsync`, `readAllRowsAsync`, and
-  `readBatchesAsync` everywhere.
+  reads do so on the JVM, and `readAllAsync`, `readAllRowsAsync`, and `readBatchesAsync`
+  everywhere.
 - **Stores.** `Parquet.dataset(uri)` creates the store with its default config and closes it with
   the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
   `Parquet.dataset(ObjectStore.s3(S3Config.r2("<account-id>")), "s3://my-bucket/visits/")`.
