@@ -203,6 +203,21 @@ What is recorded:
   send no `traceparent`.
 - Your own measurements go through `telemetry.recordHistogram(instrument, value, attributes)`.
 
+### UI events
+
+To find out which uni-ui components and features people use,
+[`UiTelemetry`](../dom/telemetry) records presses, changes, dialogs, tabs, and palette commands
+in the browser. `UiTelemetryRelay` on the server receives them and emits them as events, and
+`withOtlp` sends events to `/v1/logs`:
+
+```scala
+import wvlet.uni.http.UiTelemetryRelay
+
+val web = Http.server.withFilter(UiTelemetryRelay(telemetry)).withFilter(TelemetryFilter(telemetry))
+```
+
+`telemetry.emitEvent(name, attributes)` emits your own events the same way.
+
 ### Spans in your own code
 
 `Telemetry.trace` wraps a block in a span. It records an exception and rethrows it:

@@ -43,3 +43,21 @@ Users want what `dd-java-agent` gives them, traces with no metric code, and they
 - **Metrics only is a mode.** A `Telemetry` with a metric exporter and no span exporter records durations, starts no traces, and its clients send no `traceparent`. Spans of a root request have an invalid all-zero context, which `startSpan` ignores as a parent.
 - **Failures are logged once per outage and dropped.** The exporter warns when sends start failing and logs once when a response arrives again. Recovery is judged by a delivered response, not by stream completion. Past `maxQueueSize` buffered spans, new ones are dropped and counted.
 - Alternatives: a periodic reader owned by `Telemetry` (a value type with no lifecycle, and `copy` would duplicate timers); cumulative temporality (needs per-series start times kept forever, and Datadog prefers delta); deriving metrics from spans (wrong under sampling).
+
+## Addendum (2026-11-21): UI telemetry (PR 3)
+
+- **`UiTelemetry` in uni-ui (`wvlet.uni.ui.telemetry`) reads `AgentRegistry`, not the DOM.** Events carry each component's kind and stable ref, the names agents use, so they survive markup changes. Its sources:
+  - `ui.change`: committed changes from `AgentRegistry.record`, which skips canceled ones and hidden components.
+  - `ui.press`: one capturing `click` listener that resolves the nearest bound element. Presses aren't state writes, so `ChangeGate` doesn't see them. `detail == 0` marks a keyboard click.
+  - `ui.open` / `ui.close`: new `AgentRegistry.watchMounts` events for dialog, menu, and palette bindings. An unmount is confirmed a tick later, so a re-render that remounts the binding isn't a close.
+  - `ui.view`: tab dwell time, measured between changes and on unmount.
+  - `command.run`: a new `AgentRegistry.reportCommand` call in `CommandPalette.run`, after the close is accepted, by `Command.id`.
+- **Off unless installed, values off unless asked for.** Nothing is recorded before `install` or after `uninstall`, so consent stays with the app. Values are sent only for `valueKinds`, by default tabs, whose values are labels. Secret fields go through the registry's redaction. App-made (`Programmatic`) changes are left out by default, since they say nothing about use.
+- **Merging, not one event per keystroke.** Changes to the same ref and key within `mergeWindowMillis` (1s), or in one pointer gesture, send one event with the last value.
+- **Sampling is per page session**, decided at install, with a random session id that is never tied to a person.
+- **The browser posts to a same-origin relay, not to OTLP.** `UiTelemetrySink.relay()` uses `fetch` with `keepalive`, flushing on `visibilitychange`/`pagehide`. `sendBeacon` can't send `application/json` cross-origin, and the Datadog Agent's OTLP port neither accepts a page's origin nor should face the internet. Batches are split to stay under the browser's 64 KiB keepalive budget.
+- **`UiTelemetryRelay` (in `uni`) is an untrusted input boundary.** It accepts only `POST` JSON up to 64 KiB with at most 200 events. Names must be `ui.*` or `command.*`, keys lower-case `[a-z0-9._]`, values scalars with strings cut to 256 characters. It adds `session.id` (hex only) and the user agent, and drops anything else. It doesn't authenticate or rate-limit; apps put their own filters before it. Events become `Telemetry.emitEvent`, which `OtlpExporter` sends to `/v1/logs` as INFO records with `eventName` and an `event.name` attribute.
+- **Datadog RUM through its own SDK.** `UiTelemetrySink.datadogRum()` calls `addAction("ui.press button:save", context)` on `window.DD_RUM` (or an npm `datadogRum` object passed in) with no new dependency, and does nothing when the SDK is absent.
+- Alternatives: DOM autocapture with selectors (names break with markup and leak text); posting OTLP from the browser (blocked by CORS, and it would expose the collector); Beacon API (no JSON content type cross-origin, no response).
+- Follow-up: Dock panels report no view time, because the Dock binding exposes only its maximized panel.
+

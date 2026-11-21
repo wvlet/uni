@@ -118,6 +118,7 @@ const uiSidebar = [
       { text: 'Behaviors', link: '/dom/behaviors' },
       { text: 'Changes & Parts', link: '/dom/changes' },
       { text: 'Agents', link: '/dom/agents' },
+      { text: 'UI Telemetry', link: '/dom/telemetry' },
       { text: 'Theming', link: '/dom/theming' },
       { text: 'Testing', link: '/dom/testing' }
     ]

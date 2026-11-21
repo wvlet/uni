@@ -185,6 +185,7 @@ class CommandPalette(
     // Close first, so focus is back on the opener when the command runs
     if ChangeGate.write(open, "open", false, cause, changeHandler) then
       query := ""
+      AgentRegistry.reportCommand(c.id, cause.source)
       ChangeCause.during(cause)(c.action())
 
   private def moveTo(i: Int): Unit = current

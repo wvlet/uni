@@ -192,7 +192,7 @@ private[ui] object AgentBinding:
 /** The registry of mounted components that [[UiAgent]] reads. */
 private[ui] object AgentRegistry:
 
-  private[agent] class Entry(val binding: AgentBinding, val element: dom.Element):
+  private[ui] class Entry(val binding: AgentBinding, val element: dom.Element):
     var ref: Option[String]  = None
     var watching: Cancelable = Cancelable.empty
 
@@ -204,17 +204,15 @@ private[ui] object AgentRegistry:
     * A mounted component that owns state: an agent binding, or a component without one, such as a
     * Dock, that [[UiHistory]] still reverts through.
     */
-  private[agent] class Owner(
-      val state: StateOwner,
-      val element: dom.Element,
-      val agent: Option[Entry]
-  )
+  private[ui] class Owner(val state: StateOwner, val element: dom.Element, val agent: Option[Entry])
 
   private val byState = java.util.IdentityHashMap[AnyRef, Owner]()
 
   private var seq       = 0L
   private val listeners = mutable.ArrayBuffer.empty[UiChange => Unit]
   private val recorders = mutable.ArrayBuffer.empty[Reported => Unit]
+  private val mounts    = mutable.ArrayBuffer.empty[((Entry, Boolean)) => Unit]
+  private val commands  = mutable.ArrayBuffer.empty[((String, ChangeSource)) => Unit]
   // The changes reported while an agent action runs, to tell whether the app canceled it
   private var tracked: Option[mutable.ArrayBuffer[ChangeDetails[Any]]] = None
 
@@ -245,6 +243,7 @@ private[ui] object AgentRegistry:
       owner.states.foreach(s => byState.put(s, o))
       entry.foreach(e => e.watching = e.binding.watch())
       mounted = Some(o)
+      entry.foreach(e => AgentRegistry.notify(mounts.toSeq, e -> true, "mount listener"))
 
     override def clear(): Unit =
       super.clear()
@@ -265,6 +264,7 @@ private[ui] object AgentRegistry:
       .foreach { e =>
         e.watching.cancel
         entries -= e
+        notify(mounts.toSeq, e -> false, "mount listener")
         val el = e.element.asInstanceOf[js.Dynamic]
         if el.selectDynamic(ElementKey).asInstanceOf[js.Any] eq e.asInstanceOf[js.Any] then
           // Another component on the same element takes over
@@ -340,7 +340,7 @@ private[ui] object AgentRegistry:
     * @param gesture
     *   the pointer drag the change is part of, if any; see `ChangeGate.inGesture`
     */
-  private[agent] class Reported(
+  private[ui] class Reported(
       val target: RxVar[Any],
       val details: ChangeDetails[Any],
       val owner: Option[Owner],
@@ -359,6 +359,26 @@ private[ui] object AgentRegistry:
   def record(f: Reported => Unit): Cancelable =
     recorders += f
     Cancelable(() => recorders -= f)
+
+  /**
+    * Calls `f(entry, true)` when a component with an agent binding mounts, and `f(entry, false)`
+    * when it unmounts. A re-render that replaces the element reports an unmount, then a mount.
+    */
+  def watchMounts(f: (Entry, Boolean) => Unit): Cancelable =
+    val g = f.tupled
+    mounts += g
+    Cancelable(() => mounts -= g)
+
+  /** Calls `f(commandId, source)` each time a [[wvlet.uni.ui.CommandPalette]] runs a command. */
+  def watchCommands(f: (String, ChangeSource) => Unit): Cancelable =
+    val g = f.tupled
+    commands += g
+    Cancelable(() => commands -= g)
+
+  /** Called by the command palette once a command runs. */
+  def reportCommand(id: String, source: ChangeSource): Unit =
+    if commands.nonEmpty then
+      notify(commands.toSeq, id -> source, "command listener")
 
   /** The mounted component that owns `target`, if any. */
   def ownerOf(target: AnyRef): Option[Owner] = Option(byState.get(target)).filter(

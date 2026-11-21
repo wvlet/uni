@@ -84,6 +84,52 @@ object OtlpJson:
     )
   )
 
+  /**
+    * An `ExportLogsServiceRequest` for `/v1/logs`. Each event is an INFO log record named by
+    * `eventName` and, for receivers that predate that field, an `event.name` attribute.
+    */
+  def logs(events: Seq[EventData]): JSONObject = JSONObject(
+    Seq(
+      "resourceLogs" ->
+        JSONArray(
+          events
+            .groupBy(_.resource)
+            .map { (resource, group) =>
+              JSONObject(
+                Seq(
+                  "resource"  -> resourceJson(resource),
+                  "scopeLogs" ->
+                    JSONArray(
+                      IndexedSeq(
+                        JSONObject(
+                          Seq(
+                            "scope"      -> scope,
+                            "logRecords" -> JSONArray(group.map(log).toIndexedSeq)
+                          )
+                        )
+                      )
+                    )
+                )
+              )
+            }
+            .toIndexedSeq
+        )
+    )
+  )
+
+  private val SeverityInfo = 9L // SEVERITY_NUMBER_INFO
+
+  private def log(e: EventData): JSONObject = JSONObject(
+    Seq(
+      "timeUnixNano"   -> int64(e.epochNanos),
+      "severityNumber" -> JSONLong(SeverityInfo),
+      "severityText"   -> JSONString("INFO"),
+      "eventName"      -> JSONString(e.name),
+      "body"           -> JSONObject(Seq("stringValue" -> JSONString(e.name))),
+      "attributes"     -> attributes(e.attributes.updated("event.name", e.name))
+    )
+  )
+
   private def scope: JSONObject = JSONObject(Seq("name" -> JSONString(ScopeName)))
 
   private def resourceJson(resource: Map[String, AttributeValue]): JSONObject = JSONObject(
