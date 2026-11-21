@@ -104,7 +104,6 @@ class SocketServerStabilityTest extends UniTest:
         fail("Connection closed before the stream started")
       b = in.read()
 
-  /** Wait up to 10 s for `cond`, polling. */
   /**
     * Names of the live platform threads whose name starts with `prefix`. Unlike
     * `Thread.activeCount()`, this ignores threads the JVM, sbt, and other tests start and end
@@ -120,6 +119,7 @@ class SocketServerStabilityTest extends UniTest:
       .map(_.getName)
       .sorted
 
+  /** Wait up to 10 s for `cond`, polling. */
   private def eventually(cond: => Boolean): Boolean =
     val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
     while !cond && System.nanoTime() < deadline do
