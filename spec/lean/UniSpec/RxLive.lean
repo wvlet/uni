@@ -272,8 +272,10 @@ that `f` recovers with var 1, on 3 an error that `f` rejects, and on 4 an error 
 throws. `f` recovers the var's own failure with var 2.
 
 In default mode a recovered error ends the input: the input is cancelled, and the operator ends
-with the recovery stream. In continuous mode the input stays subscribed, and its next value cancels
-the recovery stream. A new recovery always cancels the previous one. -/
+with the recovery stream. In continuous mode the input stays subscribed, its next value cancels
+the recovery stream, and the recovery stream's completion does not end the stream, because the
+input continues past the error (the R3 model, `RxR3Ops.recoverWith`). The var's own failure ends
+the input in either mode. A new recovery always cancels the previous one. -/
 
 /-- What `g` and `f` do with an input value. -/
 inductive Mapped where
@@ -316,12 +318,19 @@ def RecoverWith.onInput (s : RecoverWith) : VarEvent → RecoverWith × List Out
       let s := if s.mode == .continuous then { s with recovery := none } else s
       (s, [.next v])
   | .done => (s, [.done])
-  | .fail => s.recover 2
+  -- The var's failure ends the input in either mode
+  | .fail =>
+    let r := s.recover 2
+    ({ r.1 with input := false }, r.2)
 
 def RecoverWith.onVar (s : RecoverWith) (i : Nat) (e : VarEvent) : RecoverWith × List Out :=
   if i = 0 then (if s.input then s.onInput e else (s, []))
   else if s.recovery = some i then
-    (s, [match e with | .next v => .next v | .done => .done | .fail => .fail])
+    match e with
+    | .next v => (s, [.next v])
+    -- While the input continues, the recovery stream's completion does not end the stream
+    | .done => (s, if s.input then [] else [.done])
+    | .fail => (s, [.fail])
   else (s, [])
 
 def RecoverWith.step (s : RecoverWith) (a : Action) : RecoverWith × List Out :=
@@ -367,7 +376,9 @@ theorem recoverWith_after_input (s : RecoverWith) (a : Action) (h : s.input = fa
     · by_cases hi : i = 0
       · simp [hl, hi, RecoverWith.onVar, h]
       · simp only [hl, ite_true, RecoverWith.onVar, hi, ite_false]
-        split <;> simp [h, hi]
+        split
+        · cases e <;> simp [h, hi]
+        · simp [h, hi]
     · simp [hl, h]
 
 /-- Default mode: input values after the recovered error are dropped, and the recovery var ends

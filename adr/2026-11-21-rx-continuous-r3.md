@@ -37,3 +37,10 @@ and `recover` did not see a failed end. The target model (`spec/lean/UniSpec/RxR
   `recoverWith` follow `RxR3Ops.lean` (with `resumeAsFailure` before RPC streaming's
   `recoverWith`); `zip`, `join`, `merge`, and `parFlatMap` are checked against the model. Then
   continuous mode can be dropped (3c).
+- Amended 2026-11-21: `GenRxR3Cases.lean` also covers `flatMap` (nested streams that complete,
+  fail, report a non-ending `OnError`, or stay live) and `recoverWith` (recovery streams that
+  complete, fail, or stay live), alone and after a throwing `map`. Two rules followed from it:
+  `flatMap` ignores input events after its input completed, as `recover` already did, and in
+  continuous mode a recovery stream's completion does not end `recoverWith` while its input
+  continues past the error. `RxLive.lean`'s `recoverWith` follows the same rule, and a var's
+  failure ends its input in either mode.

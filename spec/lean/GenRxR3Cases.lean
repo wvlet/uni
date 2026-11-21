@@ -2,7 +2,7 @@ import UniSpec.RxR3Ops
 
 /-!
 Writes `RxR3SpecCases.scala`: the expected output of small pipelines under the target event model
-of `UniSpec/RxR3.lean` and `UniSpec/RxR3Ops.lean`, where `OnError` never ends a stream and
+of `UniSpec/RxR3.lean` and `UniSpec/RxR3Ops.lean` (including `flatMap` and `recoverWith`), where `OnError` never ends a stream and
 `OnCompletion` (success or failure) is the only end. `RxR3SpecTest` replays the cases through
 `RxRunner.runContinuously`.
 
@@ -45,8 +45,29 @@ def inputs : List (List REvent) :=
     [.done],
     [] ]
 
+/-- Nested streams of `flatMap`, by the name `RxR3SpecTest` builds them from. A stream with no
+terminal event is a live source. -/
+def nestedFns : List (String × (Int → List REvent)) :=
+  [ ("dup", fun x => [.next x, .next (x * 10), .done]),
+    ("fail", fun x => [.next x, .failed]),
+    ("resume", fun x => [.next x, .resume, .next (x * 10), .done]),
+    ("live", fun x => [.next x]) ]
+
+/-- Recovery streams of `recoverWith`. -/
+def recoveries : List (String × List REvent) :=
+  [ ("done", [.next 0, .done]),
+    ("fail", [.next 0, .failed]),
+    ("live", [.next 0]) ]
+
+def nestedOps : List (String × (List REvent → List REvent)) :=
+  nestedFns.map (fun (n, f) => (s!"flatMap:{n}", flatMap f)) ++
+    recoveries.map (fun (n, g) => (s!"recoverWith:{n}", recoverWith g))
+
+def nestedPipelines : List (List (String × (List REvent → List REvent))) :=
+  nestedOps.map (fun o => [o]) ++ nestedOps.map (fun o => [("boom:2", (Op.boom 2).r3), o])
+
 def caseLines : List String :=
-  pipelines.flatMap fun p =>
+  (pipelines ++ nestedPipelines).flatMap fun p =>
     inputs.map fun input =>
       let names := " ".intercalate (p.map (·.1))
       let out := observe (applyAll (p.map (·.2)) input)

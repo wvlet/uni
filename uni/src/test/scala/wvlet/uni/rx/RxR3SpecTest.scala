@@ -43,8 +43,54 @@ class RxR3SpecTest extends UniTest:
     else
       s.split(' ').toSeq
 
+  private def source(trace: String): Rx[Int] =
+    val queue = Rx.queue[Int]()
+    tokens(trace).foreach {
+      case "C" =>
+        queue.add(OnCompletion.success)
+      case "F" =>
+        queue.add(OnCompletion.failure(IllegalStateException("source failure")))
+      case "E" =>
+        queue.add(OnError(IllegalStateException("source error")))
+      case v =>
+        queue.add(OnNext(v.toInt))
+    }
+    queue
+
+  // The nested streams of flatMap, as defined in GenRxR3Cases.lean
+  private def nested(name: String)(x: Int): Rx[Int] =
+    name match
+      case "dup" =>
+        source(s"${x} ${x * 10} C")
+      case "fail" =>
+        source(s"${x} F")
+      case "resume" =>
+        source(s"${x} E ${x * 10} C")
+      case "live" =>
+        source(s"${x}")
+      case other =>
+        throw IllegalArgumentException(s"Unknown nested stream: ${other}")
+
+  // The recovery streams of recoverWith, as defined in GenRxR3Cases.lean
+  private def recovery(name: String): Rx[Int] =
+    name match
+      case "done" =>
+        source("0 C")
+      case "fail" =>
+        source("0 F")
+      case "live" =>
+        source("0")
+      case other =>
+        throw IllegalArgumentException(s"Unknown recovery stream: ${other}")
+
   private def applyOp(rx: Rx[Int], op: String): Rx[Int] =
     op.split(':') match
+      case Array("flatMap", name) =>
+        rx.flatMap(nested(name))
+      case Array("recoverWith", name) =>
+        rx.recoverWith { case _ =>
+          recovery(name)
+        }
       case Array("even") =>
         rx.filter(_ % 2 == 0)
       case Array("inc") =>
@@ -65,18 +111,7 @@ class RxR3SpecTest extends UniTest:
         throw IllegalArgumentException(s"Unknown operator: ${op}")
 
   private def run(c: SpecCase): String =
-    val queue = Rx.queue[Int]()
-    tokens(c.input).foreach {
-      case "C" =>
-        queue.add(OnCompletion.success)
-      case "F" =>
-        queue.add(OnCompletion.failure(IllegalStateException("source failure")))
-      case "E" =>
-        queue.add(OnError(IllegalStateException("source error")))
-      case v =>
-        queue.add(OnNext(v.toInt))
-    }
-    val rx       = tokens(c.ops).foldLeft(queue: Rx[Int])(applyOp)
+    val rx       = tokens(c.ops).foldLeft(source(c.input))(applyOp)
     val observed = mutable.ArrayBuffer.empty[String]
     val cancel   =
       RxRunner.runContinuously(rx) {
