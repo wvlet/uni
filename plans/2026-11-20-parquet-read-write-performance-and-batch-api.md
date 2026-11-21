@@ -341,6 +341,13 @@ path.
 | orders | 101.5–104.2 ms | 94.7–97.6 ms | 62.5–64.5 ms |
 | lineitem | 83.1–85.0 ms | 83.8–86.7 ms | 51.8–53.4 ms |
 
+- Writes, `orders.snappy` "write uni batch" against parquet-java in the same run, median of 9
+  (load average 6–12). New: 383 / 829 ms (0.46x), 399 / 802 ms (0.50x), 439 / 1,134 ms (0.39x,
+  a slow parquet-java run). Old jars alternated with them: 404 / 839 ms (0.48x), 388 / 864 ms
+  (0.45x). The 7 ms compress gain is within the write bench's noise, so the target holds about
+  as often as before; it doesn't yet hold with a clear margin.
+- Native and Node.js in the first run, ratio to JVM uni batch (383 ms): Native 435 ms (1.1x),
+  Node.js 904 ms (2.4x).
 - Follow-ups (out of scope here): probing several positions per 8-byte load in the search loop
   (the reference's 1.1.10 loop), `compressInto` to drop the final `Arrays.copyOf`, and
   compressing columns in parallel.
