@@ -78,8 +78,7 @@ expressed.
 
 ## Cost of doing B
 
-- `RxEvent` gains `OnErrorResume` and `OnCompletion` carries a result, or `OnError` becomes
-  terminal-only. All of `RxRunner` (about 1,400 lines) changes, plus `RxVar.setException`,
+- `OnError` becomes non-terminal and `OnCompletion` carries a `Result` (chosen in step 2). All of `RxRunner` (about 1,400 lines) changes, plus `RxVar.setException`,
   `RxSource`, uni-test's `RxTestRunner`, `DomRenderer` (all its bindings use `runContinuously`),
   HTTP/RPC streaming, and the five Rx Lean models and their generated cases.
 - Behavior a user can see: a throwing `map` inside `subscribe` already keeps going (continuous
@@ -95,7 +94,10 @@ mode-dependent rules. Do it in steps:
 1. Extend the Lean model to `flatMap`, `recoverWith`, and `take` with `resume`/`failed`. Done,
    see Step 1 above: one difference, `recoverWith`, which needs `resumeAsFailure` where code
    relies on today's behavior.
-2. Add `OnErrorResume` to `RxEvent` with today's mapping (operators emit it; `run` converts it
-   with `resumeAsFailure`; `runContinuously` passes it), so nothing visible changes yet.
-3. Make `failed` the only terminal error and drop continuous mode, one operator at a time, with
-   the spec cases regenerated at each step.
+2. Mark operator errors internally, with no visible change. Done: an internal `ResumableError`
+   (a subclass of `OnError`) that every public entry point delivers as a plain `OnError`. See
+   `adr/2026-11-21-rx-resumable-error.md`. The public name was changed from R3's
+   `OnErrorResume`, because event names say what happened, not what to do next.
+3. Move operators to the target events one at a time, with the spec cases regenerated at each
+   step: `OnError` never ends a stream, and `OnCompletion(result: Result)` is the only end (a
+   failed source ends with a failed completion). Then drop continuous mode.
