@@ -364,6 +364,21 @@ class GalleryTest extends DomTestSupport:
     }
   }
 
+  test("an embed follows the hash between an example and the Colors page") {
+    val current = Rx.variable(Pages.route("#/button/busy").get)
+    val m       = mount(
+      Gallery(current, Rx.variable(ColorScheme.Light), Rx.variable(ViewMode.Split), embed = true)
+    )
+    settle().map { _ =>
+      m.get(".story-toolbar__title").textContent shouldBe "Busy"
+      current := Pages.route("#/colors").get
+      m.queryAll(".swatch").size shouldBe ColorsPage.tokens.size
+      current := Pages.route("#/button/disabled").get
+      m.queryAll(".swatch").size shouldBe 0
+      m.get(".story-toolbar__title").textContent shouldBe "Disabled"
+    }
+  }
+
   test("highlighting marks keywords, types, strings, and comments") {
     import ScalaHighlight.Kind
     val kinds = ScalaHighlight

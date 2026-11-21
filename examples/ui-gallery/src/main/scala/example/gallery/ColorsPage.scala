@@ -188,13 +188,17 @@ end ThemeProbe
   * the light theme on its left half and the dark theme on its right, read live by a [[ThemeProbe]].
   */
 class ColorsView extends RxElement:
-  private val probe  = ThemeProbe(ColorsPage.tokens.map(_.variable))
-  private val copied = Rx.variable(Option.empty[(String, Boolean)])
-  private var timer  = 0
+  private val probe   = ThemeProbe(ColorsPage.tokens.map(_.variable))
+  private val copied  = Rx.variable(Option.empty[(String, Boolean)])
+  private var timer   = 0
+  private var mounted = false
 
-  override def onMount(node: Any): Unit = probe.start()
+  override def onMount(node: Any): Unit =
+    mounted = true
+    probe.start()
 
   override def beforeUnmount: Unit =
+    mounted = false
     probe.stop()
     dom.window.clearTimeout(timer)
 
@@ -203,9 +207,11 @@ class ColorsView extends RxElement:
     Clipboard
       .writeText(text)
       .onComplete { r =>
-        copied := Some((key, r.isSuccess))
-        dom.window.clearTimeout(timer)
-        timer = dom.window.setTimeout(() => copied := None, 1500)
+        // The copy may finish after the page is gone, e.g. behind a permission prompt
+        if mounted then
+          copied := Some((key, r.isSuccess))
+          dom.window.clearTimeout(timer)
+          timer = dom.window.setTimeout(() => copied := None, 1500)
       }
 
   /** "Copied" on a token's chip after copying its var() or one of its values. */

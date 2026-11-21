@@ -42,7 +42,9 @@ class Gallery(
   private val sidebarOpen      = Rx.variable(!compact)
   private val sidebarWidth     = Rx.variable(248)
   private val selectedKey      = Rx.variable(Option(current.get.page.id))
-  private var subscriptions    = Cancelable.empty
+  // In embed mode, a guide page replaces the example card; the card stays mounted across examples
+  private val embedGuide    = Rx.variable(Gallery.guideOf(current.get))
+  private var subscriptions = Cancelable.empty
 
   override def onMount(node: Any): Unit =
     val keys = Keyboard.bindAll(
@@ -52,21 +54,27 @@ class Gallery(
       "ctrl+b" -> (() => sidebarOpen.update(!_))
     )
     // Keep the sidebar's highlight on the story shown, also after a back or forward navigation
-    val sync = current.run(r => selectedKey := Some(r.page.id))
+    val sync = current.run { r =>
+      selectedKey := Some(r.page.id)
+      val guide = Gallery.guideOf(r)
+      if guide != embedGuide.get then
+        embedGuide := guide
+    }
     subscriptions = Cancelable.merge(keys, sync)
 
   override def beforeUnmount: Unit = subscriptions.cancel
 
   override def render: RxElement =
     if embed then
-      current.get.page match
-        case g: GuidePage =>
-          div(cls -> "gallery gallery--embed", g.view())
-        case _ =>
-          div(
-            cls -> "gallery gallery--embed",
+      div(
+        cls -> "gallery gallery--embed",
+        embedGuide.map {
+          case Some(g) =>
+            g.view()
+          case None =>
             StoryView(current.map(_.story).filter(_.isDefined).map(_.get), mode, embed = true)
-          )
+        }
+      )
     else
       div(
         cls -> "gallery",
@@ -205,7 +213,7 @@ class Gallery(
         case NavNode.Leaf(p) =>
           span(cls -> "nav-story", p.name)
       }
-    ).withLabel("Components")
+    ).withLabel("Catalog")
       .withRowHeight(32)
       .withExpanded(Rx.variable(Pages.groups.map(g => s"group:${g.id}").toSet))
       .withSelected(selectedKey)
@@ -272,4 +280,11 @@ object Gallery:
   def navigate(story: Story): Unit = dom.window.location.hash = s"#/${story.id}"
 
   /** Show a component's page. */
+  def guideOf(r: PageRoute): Option[GuidePage] =
+    r.page match
+      case g: GuidePage =>
+        Some(g)
+      case _ =>
+        None
+
   def navigateTo(page: GalleryPage): Unit = dom.window.location.hash = s"#/${page.id}"
