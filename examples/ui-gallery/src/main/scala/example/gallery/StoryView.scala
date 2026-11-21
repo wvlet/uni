@@ -72,12 +72,16 @@ case class Box(
   * preview with Inspect on, a line of code, or a chip marks the matching part and lines in both.
   */
 class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends RxElement:
-  private val link                      = Link()
-  private val inspecting                = Rx.variable(false)
-  private val boxes                     = Rx.variable(Seq.empty[Box])
-  private val paneWidth                 = Rx.variable(520)
-  private var root: Option[dom.Element] = None
-  private var subscription              = Cancelable.empty
+  private val link       = Link()
+  private val inspecting = Rx.variable(false)
+  private val boxes      = Rx.variable(Seq.empty[Box])
+  private val paneWidth  = Rx.variable(520)
+  // Too narrow for side by side: the code or agent view goes below the preview instead
+  private val narrow                             = Rx.variable(false)
+  private var bodyWidth                          = 0.0
+  private var resize: Option[dom.ResizeObserver] = None
+  private var root: Option[dom.Element]          = None
+  private var subscription                       = Cancelable.empty
 
   private def preview: Option[dom.Element] = root.flatMap(r =>
     Option(r.querySelector(".story-preview"))
@@ -112,15 +116,51 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
         )
     boxes := drawn.filter(b => b.width > 0 && b.height > 0)
 
+  // Keep the preview visible: the side pane takes at most 60% of the card, and below 760px the
+  // side view stacks under the preview
+  private def fit(width: Double): Unit =
+    bodyWidth = width
+    narrow := width > 0 && width < StoryView.stackBelow
+    val max = (width * StoryView.maxShare).toInt
+    if width > 0 && paneWidth.get > max then
+      paneWidth := math.max(StoryView.minPane, (width * 0.5).toInt)
+
   override def onMount(node: Any): Unit =
     root = Some(node.asInstanceOf[dom.Element])
+    root
+      .flatMap(r => Option(r.querySelector(".story-body")))
+      .foreach { body =>
+        val ro = dom.ResizeObserver((_, _) => fit(body.getBoundingClientRect().width))
+        ro.observe(body)
+        resize = Some(ro)
+        fit(body.getBoundingClientRect().width)
+      }
     subscription = Cancelable.merge(
-      link.lit.run(draw),
-      // A new story starts with nothing marked
-      story.run(_ => link.lit := Lit.empty)
+      Seq(
+        link.lit.run(draw),
+        // A new story starts with nothing marked
+        story.run(_ => link.lit := Lit.empty),
+        // Dragging the splitter can't push the preview out either
+        paneWidth.run(w =>
+          if bodyWidth > 0 && w > bodyWidth * StoryView.maxShare then
+            fit(bodyWidth)
+        )
+      )
     )
 
-  override def beforeUnmount: Unit = subscription.cancel
+  override def beforeUnmount: Unit =
+    subscription.cancel
+    resize.foreach(_.disconnect())
+    resize = None
+
+  private def hasSide(m: ViewMode): Boolean = m == ViewMode.Split || m == ViewMode.Agent
+
+  private def side(m: ViewMode): RxElement =
+    m match
+      case ViewMode.Agent =>
+        AgentView(story, () => preview.flatMap(p => Option(p.querySelector(".story-stage"))))
+      case _ =>
+        CodeView(story, link)
 
   // With Inspect on, hovering a part of the preview points the code at the line that made it
   private def inspect(e: dom.MouseEvent): Unit =
@@ -144,8 +184,15 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
       toolbar,
       story.map(s => s.playground.map(pg => PropsPanel(pg))),
       div(
-        cls          -> "story-body",
-        data("view") -> mode.map(_.toString.toLowerCase),
+        cls            -> "story-body",
+        data("view")   -> mode.map(_.toString.toLowerCase),
+        data("layout") ->
+          narrow.map(n =>
+            if n then
+              "stacked"
+            else
+              "row"
+          ),
         div(
           cls ->
             inspecting.map(on =>
@@ -184,26 +231,19 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
         mode.map(m =>
           when(m == ViewMode.Code, div(cls -> "story-code-full", CodeView(story, link)))
         ),
+        Rx.join(mode, narrow)
+          .map((m, n) =>
+            when(n && hasSide(m), div(cls -> "story-side story-side--stacked", side(m)))
+          ),
         FoldablePane(
-          mode.map(m => m == ViewMode.Split || m == ViewMode.Agent),
+          Rx.join(mode, narrow).map((m, n) => !n && hasSide(m)),
           width = paneWidth,
           edge = Edge.Left,
-          content = div(
-            cls -> "story-side",
-            mode.map {
-              case ViewMode.Agent =>
-                AgentView(
-                  story,
-                  () => preview.flatMap(p => Option(p.querySelector(".story-stage")))
-                )
-              case _ =>
-                CodeView(story, link)
-            }
-          )
+          content = div(cls -> "story-side", mode.map(side))
         ).withSplitter(
           Splitter(
             paneWidth,
-            SizeRange(min = 320, default = 520, max = 960),
+            SizeRange(min = StoryView.minPane, default = 520, max = 960),
             Edge.Left,
             "Resize the side panel"
           )
@@ -338,6 +378,14 @@ class StoryView(story: Rx[Story], mode: RxVar[ViewMode], embed: Boolean) extends
   )
 
 end StoryView
+
+object StoryView:
+  /** Below this card width, the code or agent view goes under the preview. */
+  val stackBelow: Double = 760
+
+  /** The largest share of the card the side pane takes, so the preview stays visible. */
+  val maxShare: Double = 0.6
+  val minPane: Int     = 280
 
 /** The controls of a playground story, in a bar above the preview. */
 class PropsPanel(pg: Playground[?]) extends RxElement:

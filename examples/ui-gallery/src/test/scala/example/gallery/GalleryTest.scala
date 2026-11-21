@@ -1,8 +1,12 @@
 package example.gallery
 
+import wvlet.uni.dom.all.{div, styleAttr}
+import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.rx.Rx
 import wvlet.uni.ui.ColorScheme
+
+import scala.language.implicitConversions
 
 /** The stories, their code, and the gallery shell, rendered into a real DOM. */
 class GalleryTest extends DomTestSupport:
@@ -86,6 +90,26 @@ class GalleryTest extends DomTestSupport:
     m.querySelector(".story-side .code-view").isDefined shouldBe true
     mode := ViewMode.Agent
     m.querySelector(".story-side .agent-view").isDefined shouldBe true
+  }
+
+  test("on a narrow card the code goes below the preview instead of covering it") {
+    val m = mount(
+      div(
+        styleAttr -> "width: 600px; height: 600px; display: flex; flex-direction: column",
+        StoryView(
+          Rx.variable(Stories.find("controls/buttons").get),
+          Rx.variable(ViewMode.Split),
+          embed = true
+        )
+      )
+    )
+    settle()
+      .flatMap(_ => settle())
+      .map { _ =>
+        m.get(".story-body").getAttribute("data-layout") shouldBe "stacked"
+        m.querySelector(".story-side--stacked .code-view").isDefined shouldBe true
+        m.get(".uni-pane").getAttribute("data-state") shouldBe "closed"
+      }
   }
 
   test("the macro lists each component with the line that creates it") {

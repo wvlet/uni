@@ -88,6 +88,7 @@ body {
 
 /* Shell: rail | sidebar | main */
 .gallery {
+  position: relative;
   display: flex;
   height: 100%;
   overflow: hidden;
@@ -754,6 +755,20 @@ body {
   letter-spacing: 0.06em;
 }
 
+.story-body[data-layout='stacked'] {
+  flex-direction: column;
+}
+
+.story-body[data-layout='stacked'] .story-preview {
+  min-height: 200px;
+}
+
+.story-side--stacked {
+  flex: 0 0 55%;
+  min-height: 0;
+  border-top: 1px solid var(--uni-line);
+}
+
 .story-side {
   display: flex;
   flex-direction: column;
@@ -1110,4 +1125,41 @@ body {
   flex: 1;
   border: 0;
   border-radius: 0;
+}
+
+/* Phone-sized windows: the sidebar floats over the story, and the story keeps the width */
+@media (max-width: 760px) {
+  .gallery > .uni-pane {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 56px;
+    z-index: 20;
+    box-shadow: 0 24px 60px -12px rgb(0 0 0 / 0.5);
+  }
+
+  .story {
+    padding: 14px 12px 12px;
+    gap: 12px;
+  }
+
+  .story-title {
+    font-size: 22px;
+  }
+
+  .story-meta__spacer {
+    display: none;
+  }
+
+  .story-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .inspect-toggle span {
+    display: none;
+  }
+
+  .view-switch .uni-tab {
+    padding: 5px 8px;
+  }
 }

@@ -35,12 +35,14 @@ class Gallery(
     mode: RxVar[ViewMode],
     embed: Boolean
 ) extends RxElement:
-  private val paletteOpen   = Rx.variable(false)
-  private val themeOpen     = Rx.variable(false)
-  private val sidebarOpen   = Rx.variable(true)
-  private val sidebarWidth  = Rx.variable(248)
-  private val selectedKey   = Rx.variable(Option(current.get.id))
-  private var subscriptions = Cancelable.empty
+  private val paletteOpen = Rx.variable(false)
+  private val themeOpen   = Rx.variable(false)
+  // On a phone-sized window the sidebar starts folded and floats over the story when opened
+  private def compact: Boolean = dom.window.innerWidth < Gallery.compactBelow
+  private val sidebarOpen      = Rx.variable(!compact)
+  private val sidebarWidth     = Rx.variable(248)
+  private val selectedKey      = Rx.variable(Option(current.get.id))
+  private var subscriptions    = Cancelable.empty
 
   override def onMount(node: Any): Unit =
     val keys = Keyboard.bindAll(
@@ -91,6 +93,7 @@ class Gallery(
               "rail-button"
           ),
         onclick -> { () =>
+          // On a phone this opens the floating story list; picking a story closes it
           sidebarOpen := true
           g.stories.headOption.foreach(Gallery.navigate)
         },
@@ -193,6 +196,8 @@ class Gallery(
       .onSelect {
         case NavNode.Leaf(s) =>
           Gallery.navigate(s)
+          if compact then
+            sidebarOpen := false
         case NavNode.Section(_) =>
       }(cls += "sidebar-tree")
   )
@@ -229,6 +234,12 @@ class Gallery(
 end Gallery
 
 object Gallery:
+  /**
+    * Below this window width (matching `@media (max-width: 760px)` in gallery.css), the sidebar
+    * floats.
+    */
+  val compactBelow: Int = 760
+
   /** Show `story` by setting the URL hash, so back and forward work and the URL can be shared. */
   def navigate(story: Story): Unit = dom.window.location.hash = s"#/${story.id}"
 
