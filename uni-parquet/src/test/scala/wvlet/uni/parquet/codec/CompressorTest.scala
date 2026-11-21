@@ -121,6 +121,25 @@ class CompressorTest extends UniTest:
     }
   }
 
+  test("the backward bit writer round trips through the bit reader") {
+    val r = scala.util.Random(3)
+    for round <- 0 until 50 do
+      val fields =
+        Seq.fill(r.nextInt(400)) {
+          val n = r.nextInt(33)
+          (r.nextLong() & ((1L << n) - 1), n)
+        }
+      val out = ByteBuf()
+      val w   = BackwardBitWriter(out, sizeHint = 1) // starts small, so the buffer grows
+      fields.foreach((v, n) => w.add(v, n))
+      w.close()
+      val bytes = out.toByteArray
+      val br    = BackwardBitReader(bytes, 0, bytes.length)
+      // The last field written is the first read
+      fields.reverse.foreach((v, n) => br.read(n).toLong & 0xffffffffL shouldBe v)
+      br.remaining shouldBe 0L
+  }
+
   test("zstd frames span more than the window") {
     // Over 2 MiB: a frame with a window descriptor instead of a single segment
     val data = Array.tabulate(3 * 1024 * 1024 + 17)(i => ((i / 7) % 251 + (i >>> 20)).toByte)

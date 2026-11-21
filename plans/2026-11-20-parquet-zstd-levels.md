@@ -43,7 +43,9 @@ Speed: level 3 100-300 MB/s, level 6 45-110 MB/s, level 9 13-25 MB/s.
 Tried and dropped:
 
 - Levels 1-2 without the lazy step, or with faster skipping over unmatched data: larger files at
-  the same speed, because entropy coding bounds the speed there. They compress as 3.
+  the same speed, since most of the time goes to the lookups at every position. They compress
+  as 3. (An earlier version of this note blamed entropy coding; a profile in
+  `plans/2026-11-20-zstd-entropy-coding.md` showed match finding takes about 60% of level 3.)
 - Chain depths 128-2048 for levels 10-22: no smaller (sometimes 30% larger) and 4-30x slower.
   They compress as 9.
 

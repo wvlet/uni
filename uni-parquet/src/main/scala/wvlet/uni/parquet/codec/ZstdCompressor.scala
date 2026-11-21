@@ -37,8 +37,8 @@ private[parquet] object ZstdCompressor:
   private[codec] def params(level: Int): LevelParams =
     level match
       case 1 | 2 | 3 =>
-        // Entropy coding, not match finding, bounds the speed here: taking the first match
-        // (no lazy step) or skipping faster wrote larger files no faster
+        // Taking the first match (no lazy step) or skipping faster wrote larger files no faster:
+        // most of the time goes to the hash and repeat-offset lookups at every position
         LevelParams(16, 1, 1)
       case 4 =>
         LevelParams(17, 4, 1)
@@ -205,6 +205,10 @@ private[parquet] object ZstdCompressor:
     private val seqML    = new Array[Int](maxSeq)
     private val seqOF = new Array[Int](maxSeq) // offset values: 1-3 repeat codes, else offset + 3
     private var nbSeq = 0
+    // The codes of the sequences, filled when a block is encoded
+    private val llCodes = new Array[Int](maxSeq)
+    private val mlCodes = new Array[Int](maxSeq)
+    private val ofCodes = new Array[Int](maxSeq)
 
     private val body = ByteBuf(blockCap / 2 + 64)
 
@@ -613,10 +617,7 @@ private[parquet] object ZstdCompressor:
         out.writeByte(v)
         out.writeByte(v >>> 8)
       if nbSeq > 0 then
-        val llCodes = new Array[Int](nbSeq)
-        val mlCodes = new Array[Int](nbSeq)
-        val ofCodes = new Array[Int](nbSeq)
-        var i       = 0
+        var i = 0
         while i < nbSeq do
           llCodes(i) = llCode(seqLL(i))
           mlCodes(i) = mlCode(seqML(i))
@@ -624,9 +625,36 @@ private[parquet] object ZstdCompressor:
           i += 1
         val modesPos = out.size
         out.writeByte(0)
-        val (llMode, llTable) = SeqTableChoice.choose(llCodes, nbSeq, 35, 9, Zstd.LLDefault, 6, out)
-        val (ofMode, ofTable) = SeqTableChoice.choose(ofCodes, nbSeq, 31, 8, Zstd.OFDefault, 5, out)
-        val (mlMode, mlTable) = SeqTableChoice.choose(mlCodes, nbSeq, 52, 9, Zstd.MLDefault, 6, out)
+        val (llMode, llTable) = SeqTableChoice.choose(
+          llCodes,
+          nbSeq,
+          35,
+          9,
+          Zstd.LLDefault,
+          6,
+          SeqTableChoice.LLPredefined,
+          out
+        )
+        val (ofMode, ofTable) = SeqTableChoice.choose(
+          ofCodes,
+          nbSeq,
+          31,
+          8,
+          Zstd.OFDefault,
+          5,
+          SeqTableChoice.OFPredefined,
+          out
+        )
+        val (mlMode, mlTable) = SeqTableChoice.choose(
+          mlCodes,
+          nbSeq,
+          52,
+          9,
+          Zstd.MLDefault,
+          6,
+          SeqTableChoice.MLPredefined,
+          out
+        )
         out.array(modesPos) =
           (
             (
@@ -634,31 +662,117 @@ private[parquet] object ZstdCompressor:
             ) | (ofMode << 4) | (mlMode << 2)
           ).toByte
 
-        val w    = BackwardBitWriter(out)
-        val last = nbSeq - 1
-        var llS  = llTable.initState(llCodes(last))
-        var ofS  = ofTable.initState(ofCodes(last))
-        var mlS  = mlTable.initState(mlCodes(last))
-        addExtraBits(w, last, llCodes(last), mlCodes(last), ofCodes(last))
-        i = last - 1
-        while i >= 0 do
-          ofS = ofTable.encode(w, ofS, ofCodes(i))
-          mlS = mlTable.encode(w, mlS, mlCodes(i))
-          llS = llTable.encode(w, llS, llCodes(i))
-          addExtraBits(w, i, llCodes(i), mlCodes(i), ofCodes(i))
-          i -= 1
-        mlTable.flush(w, mlS)
-        ofTable.flush(w, ofS)
-        llTable.flush(w, llS)
-        w.close()
+        encodeSequences(llTable, ofTable, mlTable, out)
       end if
 
     end writeSequences
 
-    private inline def addExtraBits(w: BackwardBitWriter, i: Int, ll: Int, ml: Int, of: Int): Unit =
-      w.add(seqLL(i) - Zstd.LLBase(ll), Zstd.LLBits(ll))
-      w.add(seqML(i) - Zstd.MLBase(ml), Zstd.MLBits(ml))
-      w.add(seqOF(i) - (1 << of), of)
+    /**
+      * Writes the sequences bitstream. The bit container and the tables live in local variables, so
+      * the JIT keeps them in registers: through the writer's fields, each write waited on the
+      * previous one's store. Fields go in groups of at most 32 bits, with one flush check per
+      * group: the three state updates (at most 26 bits), the two length extras (32), and the offset
+      * extra (31).
+      */
+    private def encodeSequences(
+        llTable: FseCTable,
+        ofTable: FseCTable,
+        mlTable: FseCTable,
+        out: ByteBuf
+    ): Unit =
+      // At most about 89 bits per sequence
+      val w         = BackwardBitWriter(out, nbSeq * 12 + 16)
+      val llStates  = llTable.stateTable
+      val llDelta   = llTable.deltaNbBits
+      val llFind    = llTable.deltaFindState
+      val ofStates  = ofTable.stateTable
+      val ofDelta   = ofTable.deltaNbBits
+      val ofFind    = ofTable.deltaFindState
+      val mlStates  = mlTable.stateTable
+      val mlDelta   = mlTable.deltaNbBits
+      val mlFind    = mlTable.deltaFindState
+      var container = 0L
+      var bits      = 0
+
+      inline def put(v: Int, n: Int): Unit =
+        val mask =
+          (
+            1L << n
+          ) - 1
+        container |= (
+          v & mask
+        ) << bits
+        bits += n
+
+      inline def flush(): Unit =
+        if bits >= 32 then
+          w.write32(container.toInt)
+          container >>>= 32
+          bits -= 32
+
+      inline def extras(i: Int): Unit =
+        val ll = llCodes(i)
+        val ml = mlCodes(i)
+        val of = ofCodes(i)
+        put(seqLL(i) - Zstd.LLBase(ll), Zstd.LLBits(ll))
+        put(seqML(i) - Zstd.MLBase(ml), Zstd.MLBits(ml))
+        flush()
+        put(seqOF(i) - (1 << of), of)
+        flush()
+
+      val last = nbSeq - 1
+      var llS  = llTable.initState(llCodes(last))
+      var ofS  = ofTable.initState(ofCodes(last))
+      var mlS  = mlTable.initState(mlCodes(last))
+      extras(last)
+      var i = last - 1
+      while i >= 0 do
+        // FseCTable.encode, on the locals
+        val of   = ofCodes(i)
+        val ofNb =
+          (
+            ofS + ofDelta(of)
+          ) >> 16
+        put(ofS, ofNb)
+        ofS = ofStates(
+          (
+            ofS >> ofNb
+          ) + ofFind(of)
+        )
+        val ml   = mlCodes(i)
+        val mlNb =
+          (
+            mlS + mlDelta(ml)
+          ) >> 16
+        put(mlS, mlNb)
+        mlS = mlStates(
+          (
+            mlS >> mlNb
+          ) + mlFind(ml)
+        )
+        val ll   = llCodes(i)
+        val llNb =
+          (
+            llS + llDelta(ll)
+          ) >> 16
+        put(llS, llNb)
+        llS = llStates(
+          (
+            llS >> llNb
+          ) + llFind(ll)
+        )
+        flush()
+        extras(i)
+        i -= 1
+      end while
+      put(mlS, mlTable.tableLog)
+      put(ofS, ofTable.tableLog)
+      put(llS, llTable.tableLog)
+      flush()
+      w.add(container, bits)
+      w.close()
+
+    end encodeSequences
 
   end FrameState
 
@@ -672,6 +786,20 @@ end ZstdCompressor
 
 /** Picks the table mode for one kind of sequence code and writes its description */
 private object SeqTableChoice:
+  // Built once: the predefined tables never change
+  val LLPredefined: FseCTable = FseCTable.build(Zstd.LLDefault, Zstd.LLDefault.length, 6)
+  val OFPredefined: FseCTable = FseCTable.build(Zstd.OFDefault, Zstd.OFDefault.length, 5)
+  val MLPredefined: FseCTable = FseCTable.build(Zstd.MLDefault, Zstd.MLDefault.length, 6)
+
+  // log2(p) for probabilities up to the largest table (2^9)
+  private val Log2: Array[Double] =
+    Array.tabulate(513) { p =>
+      if p == 0 then
+        0.0
+      else
+        math.log(p.toDouble) / math.log(2.0)
+    }
+
   /**
     * Chooses between the predefined table (mode 0), a single symbol (mode 1), and a table described
     * in the block (mode 2), writing the description of mode 2 to `out`.
@@ -683,6 +811,7 @@ private object SeqTableChoice:
       maxLog: Int,
       default: Array[Int],
       defaultLog: Int,
+      predefined: FseCTable,
       out: ByteBuf
   ): (Int, FseCTable) =
     val counts = new Array[Int](maxSymbol + 1)
@@ -717,7 +846,7 @@ private object SeqTableChoice:
       FseCTable.writeNCount(norm, max + 1, log, desc)
       val custom = desc.size * 8 + cost(counts, max, norm, log)
       if predefinedCost <= custom then
-        (0, FseCTable.build(default, default.length, defaultLog))
+        (0, predefined)
       else
         out.write(desc)
         (2, FseCTable.build(norm, max + 1, log))
@@ -737,7 +866,7 @@ private object SeqTableChoice:
             norm(s)
         if p <= 0 then
           return Double.MaxValue
-        bits += counts(s) * (log - math.log(p.toDouble) / math.log(2.0))
+        bits += counts(s) * (log - Log2(p))
       s += 1
     bits
 
@@ -746,32 +875,72 @@ end SeqTableChoice
 /**
   * Writes a bitstream that [[BackwardBitReader]] reads: bits go in from the lowest bit up, and
   * `close` adds the 1 bit that marks the end. The last bits written are the first read.
+  *
+  * Bits gather in a 64-bit container and leave 32 at a time, into an array of the writer's own;
+  * `close` appends the stream to `out`. `sizeHint` is the expected size in bytes.
   */
-private[codec] final class BackwardBitWriter(out: ByteBuf):
+private[codec] final class BackwardBitWriter(out: ByteBuf, sizeHint: Int = 64):
+  private var buf       = new Array[Byte](math.max(16, sizeHint))
+  private var pos       = 0
   private var container = 0L
   private var bitCount  = 0
 
-  /** Appends the low `n` (at most 32) bits of `v` */
+  /** Appends the low `n` (at most 32, or up to 63 when nothing is pending) bits of `v` */
   def add(v: Long, n: Int): Unit =
-    container |= (
-      v & (
+    if n > 32 then
+      add(v, 32)
+      add(v >>> 32, n - 32)
+    else
+      val mask =
         (
           1L << n
         ) - 1
-      )
-    ) << bitCount
-    bitCount += n
-    while bitCount >= 8 do
-      out.writeByte(container.toInt)
-      container >>>= 8
-      bitCount -= 8
+      container |= (
+        v & mask
+      ) << bitCount
+      bitCount += n
+      if bitCount >= 32 then
+        flush32()
+
+  /** Appends 32 bits, when no bits are pending: for callers that gather bits themselves */
+  def write32(v: Int): Unit =
+    val p = pos
+    if p + 4 > buf.length then
+      buf = java.util.Arrays.copyOf(buf, buf.length * 2)
+    val b = buf
+    b(p) = v.toByte
+    b(p + 1) =
+      (
+        v >>> 8
+      ).toByte
+    b(p + 2) =
+      (
+        v >>> 16
+      ).toByte
+    b(p + 3) =
+      (
+        v >>> 24
+      ).toByte
+    pos = p + 4
+
+  private def flush32(): Unit =
+    write32(container.toInt)
+    container >>>= 32
+    bitCount -= 32
 
   def close(): Unit =
     add(1, 1)
-    if bitCount > 0 then
-      out.writeByte(container.toInt)
-      container = 0
-      bitCount = 0
+    while bitCount > 0 do
+      if pos == buf.length then
+        buf = java.util.Arrays.copyOf(buf, buf.length * 2)
+      buf(pos) = container.toByte
+      pos += 1
+      container >>>= 8
+      bitCount -= 8
+    out.write(buf, 0, pos)
+    pos = 0
+    container = 0L
+    bitCount = 0
 
 end BackwardBitWriter
 
@@ -781,9 +950,9 @@ end BackwardBitWriter
   */
 private[codec] final class FseCTable(
     val tableLog: Int,
-    stateTable: Array[Int],
-    deltaNbBits: Array[Int],
-    deltaFindState: Array[Int]
+    private[codec] val stateTable: Array[Int],
+    private[codec] val deltaNbBits: Array[Int],
+    private[codec] val deltaFindState: Array[Int]
 ):
   /** The state that encodes `sym` first, for the last symbol of a stream */
   def initState(sym: Int): Int =
@@ -945,6 +1114,19 @@ private[codec] object FseCTable:
         norm(s) = math.min(maxProb, math.max(1, p))
         sum += norm(s)
       s += 1
+    // Usually the most probable symbol can take the whole difference, as in zstd's
+    // FSE_normalizeCount; otherwise spread it one step at a time
+    if sum != size then
+      var largest = -1
+      s = 0
+      while s <= maxSymbol do
+        if norm(s) > 0 && (largest < 0 || norm(s) > norm(largest)) then
+          largest = s
+        s += 1
+      val adjusted = norm(largest) + size - sum
+      if adjusted >= 1 && adjusted <= maxProb && adjusted * 2 >= norm(largest) then
+        norm(largest) = adjusted
+        sum = size
     // Take the excess from the most probable symbols
     while sum > size do
       var best = -1
@@ -1253,12 +1435,31 @@ private[codec] object HuffmanEncoder:
       lengths: Array[Int],
       out: ByteBuf
   ): Unit =
-    val w = BackwardBitWriter(out)
-    var i = from + n - 1
-    while i >= from do
+    // At most 11 bits per literal. Two literals (22 bits) go in per flush check, with the bit
+    // container in locals, as in encodeSequences
+    val w         = BackwardBitWriter(out, n * 11 / 8 + 16)
+    var container = 0L
+    var bits      = 0
+    var i         = from + n - 1
+    while i > from do
+      val b1 = src(i) & 0xff
+      container |= codes(b1).toLong << bits
+      bits += lengths(b1)
+      val b2 = src(i - 1) & 0xff
+      container |= codes(b2).toLong << bits
+      bits += lengths(b2)
+      if bits >= 32 then
+        w.write32(container.toInt)
+        container >>>= 32
+        bits -= 32
+      i -= 2
+    if i == from then
       val b = src(i) & 0xff
-      w.add(codes(b), lengths(b))
-      i -= 1
+      container |= codes(b).toLong << bits
+      bits += lengths(b)
+    w.add(container, bits)
     w.close()
+
+  end encodeStream
 
 end HuffmanEncoder
