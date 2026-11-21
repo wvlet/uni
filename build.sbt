@@ -262,7 +262,7 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .jvmSettings(
     jvmNativeSharedSources,
     // Checks that the reference Snappy implementation reads what the pure-Scala compressor writes
-    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.7" % Test
+    libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Test
   )
   .jsSettings(jsBuildSettings, minimizeJavadoc)
   // The test binary stays on Immix. Boehm deadlocked it in about half the Linux CI runs: under
