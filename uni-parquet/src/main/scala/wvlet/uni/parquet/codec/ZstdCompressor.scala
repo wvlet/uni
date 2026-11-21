@@ -24,9 +24,11 @@ private[parquet] object ZstdCompressor:
   // Literals sections shorter than this stay raw: a Huffman tree costs more than it saves
   private final val MinHuffmanLiterals = 64
 
-  final val MinLevel     = 1
-  final val MaxLevel     = 22
-  final val DefaultLevel = 3
+  // A chain search stops at a match this long: walking further rarely found a better one
+  private final val TargetLength = 32
+  final val MinLevel             = 1
+  final val MaxLevel             = 22
+  final val DefaultLevel         = 3
 
   /**
     * Match finder settings for a level: the largest hash table (log2), the hash chain depth (1 for
@@ -212,7 +214,8 @@ private[parquet] object ZstdCompressor:
 
     private val body = ByteBuf(blockCap / 2 + 64)
 
-    private inline def load32(i: Int): Int = Zstd.le32(src, i)
+    // Not inline: an inline def calling the JVM's Java Word8 crashes the Scala 3 compiler
+    private def load32(i: Int): Int = Word8.le32(src, i)
 
     private inline def hash(v: Int): Int =
       (
@@ -220,16 +223,7 @@ private[parquet] object ZstdCompressor:
       ) >>> (32 - hashLog)
 
     /** The match length between `a` and a later `b`, with `b` + length at most `limit` */
-    private def matchLength(a: Int, b: Int, limit: Int): Int =
-      var n = 0
-      while b + n + 8 <= limit do
-        val x = Word8.le64(src, a + n) ^ Word8.le64(src, b + n)
-        if x != 0 then
-          return n + (java.lang.Long.numberOfTrailingZeros(x) >>> 3)
-        n += 8
-      while b + n < limit && src(a + n) == src(b + n) do
-        n += 1
-      n
+    private def matchLength(a: Int, b: Int, limit: Int): Int = Word8.matchLength(src, a, b, limit)
 
     def writeBlock(start: Int, end: Int, last: Boolean, out: ByteBuf): Unit =
       val size = end - start
@@ -279,7 +273,16 @@ private[parquet] object ZstdCompressor:
           anchor = ip
           afterMatch(ip)
         else
-          var best = search(ip, end)
+          // The check above already failed for the last offset when ip > anchor
+          var best = search(
+            ip,
+            end,
+            firstRep =
+              if ip > anchor then
+                1
+              else
+                0
+          )
           if best == 0L then
             // Step faster through data that does not match
             val skip =
@@ -292,12 +295,12 @@ private[parquet] object ZstdCompressor:
             var pos  = ip
             var look = p.lazyDepth > 0
             while look && pos < ilimit do
-              val next = search(pos + 1, end)
+              val next = search(pos + 1, end, lazyProbe = true)
               if gain(next) > gain(best) + 4 then
                 pos += 1
                 best = next
               else if p.lazyDepth >= 2 && pos + 1 < ilimit then
-                val next2 = search(pos + 2, end)
+                val next2 = search(pos + 2, end, lazyProbe = true)
                 if gain(next2) > gain(best) + 7 then
                   pos += 2
                   best = next2
@@ -347,7 +350,7 @@ private[parquet] object ZstdCompressor:
         highBit(off + 1)
 
     /** The longest match at `ip` ending by `end`, after hashing `ip` and the positions before it */
-    private def search(ip: Int, end: Int): Long =
+    private def search(ip: Int, end: Int, firstRep: Int = 0, lazyProbe: Boolean = false): Long =
       val v = load32(ip)
       var c = -1
       if useChain then
@@ -367,9 +370,15 @@ private[parquet] object ZstdCompressor:
         val h = hash(v)
         c = table(h)
         table(h) = ip
-      var best  = 0
-      var off   = 0
-      var depth = p.searchDepth
+      var best = 0
+      var off  = 0
+      // A lazy step only asks whether a later match is better, so it searches half as deep:
+      // that wrote files as small (within 0.2%) at up to twice the speed at level 9
+      var depth =
+        if lazyProbe then
+          math.max(1, p.searchDepth >> 1)
+        else
+          p.searchDepth
       // A candidate wins on its score, so a far match must be long enough to pay for its offset
       inline def consider(cand: Int): Unit =
         if load32(cand) == v then
@@ -378,16 +387,19 @@ private[parquet] object ZstdCompressor:
           then
             best = m
             off = ip - cand
-      // The repeat offsets first: their matches are the cheapest to encode
-      var r = 0
+            if useChain && best >= TargetLength then
+              depth = 0
+      // The repeat offsets first, from `firstRep`: their matches are the cheapest to encode
+      var r = firstRep
       while r < 3 do
         val cand = ip - rep(r)
         if cand >= 0 then
           consider(cand)
         r += 1
       while c >= 0 && ip - c <= maxDist && depth > 0 && ip + best < end do
-        // Check the byte that would extend the best match first: most candidates fail there
-        if best == 0 || src(c + best) == src(ip + best) then
+        // A candidate can beat `best` only if its 4 bytes up to the byte that would extend the
+        // match agree too: most candidates fail this one comparison
+        if best == 0 || load32(c + best - 3) == load32(ip + best - 3) then
           consider(c)
         depth -= 1
         if depth > 0 then

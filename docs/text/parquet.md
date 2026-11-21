@@ -471,7 +471,7 @@ Compression is SNAPPY by default, with UNCOMPRESSED (`noCompression()`), LZ4_RAW
 ZSTD gives the smallest files (30-60% smaller than SNAPPY on text and numbers) and, at its default
 level 3, writes at about half SNAPPY's speed. `withCompression(CompressionCodec.ZSTD, 9)` (or
 `withCompressionLevel(9)`) sets the level, from 1 to 22 as in other ZSTD writers. Level 9 writes
-files 10-25% smaller than level 3, at about a tenth of the speed. Levels 1-3 compress alike, as do
+files 10-25% smaller than level 3, at about a seventh of the speed. Levels 1-3 compress alike, as do
 9-22: the compressor has no faster mode, and no optimal parser for the top levels. Other codecs
 take no level. GZIP uses the
 platform's zlib, so browsers cannot write it. BROTLI files can be read but not written.

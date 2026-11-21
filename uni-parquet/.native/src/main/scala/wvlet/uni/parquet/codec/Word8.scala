@@ -39,8 +39,17 @@ private[parquet] object Word8:
     // hi << 1 << (63 - shift) is hi << (64 - shift), but also 0 when shift is 0
     (lo >>> shift) | ((hi << 1) << (63 - shift))
 
-  /** The little-endian int at `b(i)`, where `b(i)` to `b(i + 7)` must be inside the array */
-  inline def le32(b: Array[Byte], i: Int): Int = le64(b, i).toInt
+  /**
+    * The little-endian int at `b(i)`, where `b(i)` to `b(i + 3)` must be inside the array: read as
+    * in [[le64]], from the aligned words that hold `b(i)` and `b(i + 3)`, so a read at the array's
+    * last 4 bytes stays inside its heap object
+    */
+  inline def le32(b: Array[Byte], i: Int): Int =
+    val a     = b.atUnsafe(i).toLong
+    val lo    = !fromRawPtr[Long](castLongToRawPtr(a & ~7L))
+    val hi    = !fromRawPtr[Long](castLongToRawPtr((a + 3) & ~7L))
+    val shift = ((a & 7) << 3).toInt
+    ((lo >>> shift) | ((hi << 1) << (63 - shift))).toInt
 
   /**
     * The number of equal bytes at `src(a)` and `src(b)`, counting up to `limit` (exclusive) for
