@@ -325,6 +325,8 @@ object ParquetFilter:
         asLong match
           case Some(l) if isUnsigned64 && l < 0 && !v.isInstanceOf[BigInt] =>
             Left(expected)
+          case Some(_) if isUnsigned64 && v.isInstanceOf[BigInt] && v.asInstanceOf[BigInt] < 0 =>
+            Left(expected)
           case Some(l) =>
             Right(Key.Num(l))
           case None =>
@@ -873,8 +875,30 @@ object ParquetFilter:
                 0
             i += 1
         case (c: BinaryColumn, _, Key.Bytes(k)) =>
+          // Dictionary-encoded values compare each distinct entry once
+          val dict    = c.dictionary
+          val idx     = c.dictIndices
+          val byEntry =
+            if dict != null && idx != null then
+              val e = new Array[Int](dict.size)
+              var j = 0
+              while j < e.length do
+                e(j) = compareBytes(
+                  dict.data,
+                  dict.offsets(j),
+                  dict.offsets(j + 1) - dict.offsets(j),
+                  k
+                )
+                j += 1
+              e
+            else
+              null
           while i < n do
-            r(i) = compareBytes(c.data, c.offsets(i), c.length(i), k)
+            r(i) =
+              if byEntry != null && idx(i) >= 0 then
+                byEntry(idx(i))
+              else
+                compareBytes(c.data, c.offsets(i), c.length(i), k)
             i += 1
         case (c: BinaryColumn, _, Key.Moment(k)) =>
           while i < n do

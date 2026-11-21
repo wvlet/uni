@@ -283,6 +283,10 @@ class RowFilterTest extends UniTest:
           .toSeq
       out shouldBe Seq(Map("id" -> 6L))
       intercept[IllegalArgumentException](dsIds(col("x") === "abc"))
+      // A dotted name in withColumns is still an unknown column
+      intercept[IllegalArgumentException](
+        ds.readRows(ParquetReadOptions.default.withColumns("id.x"))
+      )
     finally
       ds.close()
   }

@@ -335,9 +335,15 @@ class ParquetDataset private[parquet] (
     if selected.nonEmpty then
       val known   = allNames.toSet ++ partitionKeys
       val missing =
-        (options.columns.getOrElse(Seq.empty) ++ options.pruneFilter.toSeq.flatMap(_.columnNames))
-          .distinct
-          .filterNot(n => known.contains(n) || known.contains(n.takeWhile(_ != '.')))
+        // A dotted filter name may name a struct field, checked later against the schema
+        (
+          options.columns.getOrElse(Seq.empty).filterNot(known.contains) ++
+            options
+              .pruneFilter
+              .toSeq
+              .flatMap(_.columnNames)
+              .filterNot(n => known.contains(n) || known.contains(n.takeWhile(_ != '.')))
+        ).distinct
       if missing.nonEmpty then
         throw IllegalArgumentException(
           s"No column named ${missing.mkString(", ")} in ${root}. Columns: ${(
