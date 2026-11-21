@@ -102,6 +102,82 @@ class IOPathTest extends UniTest:
     IOPath.parse("//./x").normalize.posixPath shouldBe "/x"
   }
 
+  test("Windows drive-relative path is relative and keeps its drive") {
+    val p = IOPath.parse("C:foo\\bar")
+    p.isAbsolute shouldBe false
+    p.segments shouldBe Seq("C:", "foo", "bar")
+    p.posixPath shouldBe "C:foo/bar"
+    p.fileName shouldBe "bar"
+    p.root shouldBe None
+    p.parent.map(_.posixPath) shouldBe Some("C:foo")
+    p.parent.flatMap(_.parent).map(_.posixPath) shouldBe Some("C:")
+    p.parent.flatMap(_.parent).flatMap(_.parent) shouldBe None
+
+    // `C:` alone is the current folder on drive C, not its root
+    val drive = IOPath.parse("C:")
+    drive.isAbsolute shouldBe false
+    drive.segments shouldBe Seq("C:")
+    drive.posixPath shouldBe "C:"
+    IOPath.parse("C:foo").fileName shouldBe "foo"
+    // A relative path starting with a drive segment must not render as the absolute `C:\foo`
+    IOPath(Seq("C:", "foo"), isAbsolute = false).posixPath shouldBe "C:foo"
+    if !FileSystem.isBrowser && IOPath.isWindows then
+      p.path shouldBe "C:foo\\bar"
+      drive.path shouldBe "C:"
+  }
+
+  test("resolve a Windows drive-relative path") {
+    (IOPath.parse("C:foo") / "bar").posixPath shouldBe "C:foo/bar"
+    (IOPath.parse("C:") / "foo").posixPath shouldBe "C:foo"
+    IOPath.of("C:", "foo").posixPath shouldBe "C:foo"
+    // On the same drive the rest continues the base path, as java.nio and Python resolve it
+    (IOPath.parse("C:\\work") / "C:foo").posixPath shouldBe "C:/work/foo"
+    (IOPath.parse("c:\\work") / IOPath.parse("C:foo")).posixPath shouldBe "c:/work/foo"
+    (IOPath.parse("C:bar") / "C:foo").posixPath shouldBe "C:bar/foo"
+    // On another drive or a path without a drive, it names its own location
+    (IOPath.parse("D:\\work") / "C:foo").posixPath shouldBe "C:foo"
+    (IOPath.parse("/work") / "C:foo").posixPath shouldBe "C:foo"
+    (IOPath.parse("work") / "C:foo").posixPath shouldBe "C:foo"
+    (IOPath.parse("C:foo") / "D:\\bar").posixPath shouldBe "D:/bar"
+  }
+
+  test("relativeTo on a Windows drive-relative path") {
+    IOPath.parse("C:foo\\bar").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe "bar"
+    IOPath.parse("C:foo").relativeTo(IOPath.parse("C:")).posixPath shouldBe "foo"
+    IOPath.parse("C:").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe ".."
+    IOPath.parse("C:foo").relativeTo(IOPath.parse("D:foo")).posixPath shouldBe "C:foo"
+    IOPath.parse("C:foo").relativeTo(IOPath.parse("bar")).posixPath shouldBe "C:foo"
+    IOPath.parse("bar").relativeTo(IOPath.parse("C:foo")).posixPath shouldBe "bar"
+  }
+
+  test("relativeTo across Windows drives returns the path itself") {
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("D:\\b")).posixPath shouldBe "C:/a"
+    IOPath.parse("C:\\a\\b").relativeTo(IOPath.parse("D:\\")).posixPath shouldBe "C:/a/b"
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("/b")).posixPath shouldBe "C:/a"
+    IOPath.parse("/b").relativeTo(IOPath.parse("C:\\a")).posixPath shouldBe "/b"
+    // On the same drive, the drive letter's case does not matter
+    IOPath.parse("c:\\a\\b").relativeTo(IOPath.parse("C:\\a")).posixPath shouldBe "b"
+    IOPath.parse("C:\\a\\b").relativeTo(IOPath.parse("C:\\c")).posixPath shouldBe "../a/b"
+    IOPath.parse("C:\\a").relativeTo(IOPath.parse("C:\\")).posixPath shouldBe "a"
+    IOPath.parse("/a/b").relativeTo(IOPath.parse("/a")).posixPath shouldBe "b"
+  }
+
+  test("normalize and startsWith on a Windows drive-relative path") {
+
+    IOPath.parse("C:foo\\..\\bar").normalize.posixPath shouldBe "C:bar"
+    IOPath.parse("C:foo\\..").normalize.posixPath shouldBe "C:"
+    IOPath.parse("C:.\\foo").normalize.posixPath shouldBe "C:foo"
+    // `..` right after the drive goes above the drive's current folder, so it stays
+    IOPath.parse("C:..\\foo").normalize.posixPath shouldBe "C:../foo"
+    IOPath.parse("C:foo\\..\\..").normalize.posixPath shouldBe "C:.."
+
+    IOPath.parse("C:foo\\bar").startsWith(IOPath.parse("C:foo")) shouldBe true
+    IOPath.parse("C:foo").startsWith(IOPath.parse("C:")) shouldBe true
+    IOPath.parse("C:foo").startsWith(IOPath.parse("C:\\")) shouldBe false
+    IOPath.parse("C:\\foo").startsWith(IOPath.parse("C:")) shouldBe false
+    IOPath.parse("C:foo").startsWith(IOPath.parse("foo")) shouldBe false
+  }
+
   test("colon in a Unix path is not a drive") {
     IOPath.parse("/ab:c/d").posixPath shouldBe "/ab:c/d"
   }
