@@ -236,6 +236,13 @@ class RxRunner(
                   effect(OnNext(x))
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
+            case OnCompletion(Result.Failure(e)) =>
+              // The stream ended with a failure: emit the transformed value, then complete
+              Try(tryFunc(Failure(e))) match
+                case Success(x) =>
+                  completeAfter(effect(OnNext(x)), effect)
+                case Failure(e2) =>
+                  effect(OnCompletion.failure(e2))
             case other =>
               effect(other)
         }
@@ -255,6 +262,12 @@ class RxRunner(
                   effect(OnNext(x))
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
+            case OnCompletion(Result.Failure(e)) =>
+              tryFunc(Failure(e)) match
+                case Success(x) =>
+                  completeAfter(effect(OnNext(x)), effect)
+                case Failure(e2) =>
+                  effect(OnCompletion.failure(e2))
             case other =>
               effect(other)
         }
@@ -316,10 +329,9 @@ class RxRunner(
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
                   val result = evalRx(rxb)
-                  // An error terminates the input (e.g., a failed Rx.future reports no
-                  // OnCompletion), so complete once the nested stream built from it ends.
-                  // A continuous source (RxVar) may emit again after an error, so keep waiting.
-                  if continuous || !result.toContinue then
+                  // A failed completion ends the input, so complete once the nested stream built
+                  // from it ends
+                  if !result.toContinue then
                     result
                   else
                     tracker.completeInput(effect)
@@ -717,7 +729,8 @@ class RxRunner(
               case Failure(e) =>
                 effect(OnError(e))
           case Failure(e) =>
-            effect(OnError(e))
+            // A failed source ends with a failed completion
+            effect(OnCompletion.failure(e))
         Cancelable.empty
       case o: RxOptionVar[?] =>
         o.asInstanceOf[RxOptionVar[A]]
@@ -815,6 +828,22 @@ class RxRunner(
                       toContinue
                     case Failure(e) =>
                       effect(OnError(e))
+                case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
+                  // The input ended with a failure: the stream continues as the recovery stream
+                  c1.cancel
+                  c1 = Cancelable.empty
+                  Try(f(e)) match
+                    case Success(recoverySource) =>
+                      inputEnded.set(true)
+                      c2.cancel
+                      c1 =
+                        run(recoverySource) { ev =>
+                          toContinue = effect(ev)
+                          toContinue
+                        }
+                      toContinue
+                    case Failure(e) =>
+                      effect(OnCompletion.failure(e))
                 case ev @ OnNext(_) if continuous =>
                   // In continuous mode the input stays subscribed, and its next value replaces the
                   // recovery stream
@@ -847,6 +876,12 @@ class RxRunner(
                   effect(ev)
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
+            case OnCompletion(Result.Failure(e)) =>
+              Try(f0.applyOrElse(Failure(e), (_: Try[?]) => ())) match
+                case Success(value) =>
+                  effect(ev)
+                case Failure(e2) =>
+                  effect(OnCompletion.failure(e2))
             case _ =>
               effect(ev)
         }
@@ -886,7 +921,7 @@ class RxRunner(
                   case Failure(e) =>
                     effect(OnError(e))
               case Failure(e) =>
-                effect(OnError(e))
+                effect(OnCompletion.failure(e))
             true
           else
             false
@@ -1021,11 +1056,16 @@ class RxRunner(
           }
         fanIn.cancelable
       case SingleOp(v) =>
-        Try(effect(OnNext(v.eval))) match
-          case Success(c) =>
-            effect(OnCompletion.success)
+        Try(v.eval) match
+          case Success(x) =>
+            Try(effect(OnNext(x))) match
+              case Success(c) =>
+                effect(OnCompletion.success)
+              case Failure(e) =>
+                effect(OnError(e))
           case Failure(e) =>
-            effect(OnError(e))
+            // A failed source ends with a failed completion
+            effect(OnCompletion.failure(e))
         Cancelable.empty
       case SeqOp(inputList) =>
         var lastResult: RxResult = RxResult.Continue
@@ -1222,8 +1262,18 @@ class RxRunner(
 
       // Scan the last events and emit the next value or a completion event
       def processEvents(doEmit: Boolean): RxResult =
-        val errors = lastEvent.collect { case Some(e @ OnError(ex)) =>
-          ex
+        val errors = lastEvent.collect {
+          case Some(OnError(ex)) =>
+            ex
+          case Some(OnCompletion(Result.Failure(ex))) =>
+            ex
+        }
+        // A source that ended with a failure ends this operator with a failure too
+        val failedEnd = lastEvent.exists {
+          case Some(OnCompletion(Result.Failure(_))) =>
+            true
+          case _ =>
+            false
         }
         if errors.isEmpty then
           val result =
@@ -1246,9 +1296,13 @@ class RxRunner(
               e1.addSuppressed(e2);
               e1
             }
-            effect(OnError(ex))
+            if failedEnd then
+              effect(OnCompletion.failure(ex))
+            else
+              effect(OnError(ex))
           else
             RxResult.Continue
+      end processEvents
 
       for i <- 0 until size do
         c(i) =
@@ -1302,6 +1356,16 @@ class RxRunner(
         (0 until size).exists(i =>
           lastEvent(i).contains(OnCompletion.success) && lastValueBuffer(i).isEmpty
         )
+
+  /**
+    * After a value that replaced a failed end, complete the stream unless the downstream stopped.
+    * In continuous mode a Stop after an error downstream is transient, so complete anyway.
+    */
+  private def completeAfter(result: RxResult, effect: RxEvent => RxResult): RxResult =
+    if result.toContinue || continuous then
+      effect(OnCompletion.success)
+    else
+      result
 
   /**
     * Hold the latest input value and emit it on the next frame. A terminal event flushes the held

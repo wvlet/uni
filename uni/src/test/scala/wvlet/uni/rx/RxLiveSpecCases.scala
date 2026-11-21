@@ -526,7 +526,7 @@ object RxLiveSpecCases:
     "transformRx:continuous | fail 0, set 1 11 | 10 20",
     "transformRx:continuous | fail 0, set 2 21 | 10 20 21",
     "transformRx:continuous | fail 0, stop 1 | 10 20",
-    "transformRx:continuous | fail 0, stop 2 | 10 20",
+    "transformRx:continuous | fail 0, stop 2 | 10 20 C",
     "transformRx:continuous | fail 0, fail 1 | 10 20",
     "transformRx:continuous | fail 0, fail 2 | 10 20 E",
     "transformRx:continuous | fail 0, cancel | 10 20",

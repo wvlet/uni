@@ -112,9 +112,9 @@ theorem runFrom_silent {σ : Type} (step : σ → Action → σ × List Out) (p 
 /-! ## flatMap and transformRx: switching nested streams
 
 Var 0 is the input. The function maps the input value 1 to var 1, 2 to var 2, and throws on any
-other value. `transformRx` maps an input error to var 2. The two modes differ only there: in default
-mode the input error ends the input, while in continuous mode the input may emit again, so the
-operator never completes after it. -/
+other value. `transformRx` maps an input error to var 2. A var's own failure (`setException`) ends
+the var with a failed `OnCompletion` in either mode, so the operator completes once the nested
+stream built from it ends. -/
 
 /-- The nested var for an input value; `none` when the function throws. -/
 def target (x : Int) : Option Nat :=
@@ -161,12 +161,9 @@ def Switch.onInput (k : SwitchKind) (s : Switch) : VarEvent → Switch × List O
     | .flatMap => (s, [.fail])
     | .transformRx =>
       let r := s.subscribe 2
-      match s.mode with
-      -- The error ends the input once the nested stream built from it ends
-      | .default =>
-        let c := r.1.completeInput
-        (c.1, r.2 ++ c.2)
-      | .continuous => r
+      -- The failure ends the input, so complete once the nested stream built from it ends
+      let c := r.1.completeInput
+      (c.1, r.2 ++ c.2)
 
 /-- An event from var `i`, which reaches the sink only from the current nested stream. -/
 def Switch.onNested (s : Switch) (i : Nat) (e : VarEvent) : Switch × List Out :=
@@ -241,10 +238,8 @@ theorem switch_done (k : SwitchKind) (s : Switch) (a : Action) (h : Out.done ∈
         | fail =>
           cases k
           · simp [Switch.onInput] at h
-          · cases hm : s.mode
-            · simp only [Switch.onInput, Switch.subscribe, Switch.completeInput, hm] at h
-              split at h <;> simp at h
-            · simp [Switch.onInput, Switch.subscribe, hm] at h
+          · simp only [Switch.onInput, Switch.subscribe, Switch.completeInput] at h
+            split at h <;> simp at h
       · simp only [hl, hi, Bool.not_true, Bool.false_eq_true, ite_false] at h ⊢
         simp only [Switch.onNested] at h ⊢
         by_cases hn : s.nested = some i
@@ -264,8 +259,10 @@ example : runSwitch .flatMap [.set 1 11, .set 0 2, .set 0 1] = [.next 10, .next 
 /-- A throwing function cancels the previous nested stream too. -/
 example : runSwitch .flatMap [.set 0 0, .set 1 11, .stop 0] = [.next 10, .fail, .done] := by decide
 
-/-- Continuous mode: an input error does not end the input, so `transformRx` does not complete. -/
-example : runSwitch .transformRx [.fail 0, .stop 2] .continuous = [.next 10, .next 20] := by decide
+/-- A var's failure ends the input in either mode, so `transformRx` completes after its nested
+stream. -/
+example : runSwitch .transformRx [.fail 0, .stop 2] .continuous = [.next 10, .next 20, .done] := by
+  decide
 example : runSwitch .transformRx [.fail 0, .stop 2] = [.next 10, .next 20, .done] := by decide
 
 /-! ## recoverWith

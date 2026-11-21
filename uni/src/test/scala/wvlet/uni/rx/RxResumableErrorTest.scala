@@ -105,15 +105,13 @@ class RxResumableErrorTest extends UniTest:
     }
   }
 
-  test("a source error stays a plain OnError") {
+  test("a failed source ends with a failed completion") {
     val v      = Rx.variable(1)
     val events =
       internalEvents(v.map(_ + 1)) {
         v.setException(boom)
       }
-    events shouldMatch {
-      case Seq(OnNext(2), e: OnError) if isPlain(e) =>
-    }
+    events shouldBe Seq(OnNext(2), OnCompletion.failure(boom))
   }
 
   test("run and runOnce end with a failed completion; runContinuously delivers a plain OnError") {
