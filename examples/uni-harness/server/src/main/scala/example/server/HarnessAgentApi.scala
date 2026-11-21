@@ -13,7 +13,7 @@
  */
 package example.server
 
-import wvlet.uni.mcp.description
+import wvlet.uni.surface.description
 import wvlet.uni.rx.Rx
 
 /**

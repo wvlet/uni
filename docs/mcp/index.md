@@ -1,6 +1,6 @@
 # MCP Server (stdio)
 
-`wvlet.uni.mcp` turns a plain Scala service trait into an [MCP (Model Context
+`wvlet.uni.ai.mcp` turns a plain Scala service trait into an [MCP (Model Context
 Protocol)](https://modelcontextprotocol.io/) server: every public method becomes
 a **tool** that AI agents (Claude Code, Claude Desktop, and other MCP clients)
 can discover and call. The server speaks JSON-RPC 2.0 over **stdio** and runs on
@@ -30,7 +30,7 @@ capture Scaladoc, so this is how tool and parameter descriptions reach the
 client:
 
 ```scala
-import wvlet.uni.mcp.description
+import wvlet.uni.surface.description
 
 case class Forecast(city: String, temperature: Double, condition: String)
 
@@ -48,7 +48,7 @@ class WeatherServiceImpl extends WeatherService:
 ## 3. Start the server
 
 ```scala
-import wvlet.uni.mcp.MCP
+import wvlet.uni.ai.mcp.MCP
 
 @main def start(): Unit = MCP.server
   .withName("weather")
@@ -242,7 +242,7 @@ Scala program (JVM / Scala.js on Node.js / Scala Native) can discover and call t
 MCP server — Uni-built or third-party. No extra dependency is needed beyond `uni` itself.
 
 ```scala
-import wvlet.uni.mcp.MCP
+import wvlet.uni.ai.mcp.MCP
 import wvlet.uni.rx.RxResource
 import wvlet.uni.json.JSON.{JSONObject, JSONString}
 

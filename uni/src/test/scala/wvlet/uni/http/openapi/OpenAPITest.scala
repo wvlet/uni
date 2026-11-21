@@ -16,7 +16,7 @@ package wvlet.uni.http.openapi
 import wvlet.uni.http.{HttpMethod, Request, Response}
 import wvlet.uni.http.router.{Endpoint, Router}
 import wvlet.uni.json.JSON.*
-import wvlet.uni.mcp.description
+import wvlet.uni.surface.description
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 

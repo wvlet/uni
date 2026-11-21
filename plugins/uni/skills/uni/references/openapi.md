@@ -41,7 +41,7 @@ val yaml: String = OpenAPI
   that map to the same schema name.
 - `/users/:id` becomes `/users/{id}`; `Request` parameters are left out;
   parameters with defaults or `Option` types are optional.
-- `@description` (`wvlet.uni.mcp.description`) on a method, a field, or a case
+- `@description` (`wvlet.uni.surface.description`) on a method, a field, or a case
   class becomes the description of the operation, the property, or the schema.
 
 ## From the build (sbt-uni)

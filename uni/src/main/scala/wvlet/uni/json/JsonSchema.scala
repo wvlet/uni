@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.mcp
+package wvlet.uni.json
 
 import wvlet.uni.json.JSON.{
   JSONArray,
@@ -30,7 +30,8 @@ import wvlet.uni.surface.{
   MethodSurface,
   Parameter,
   Primitive,
-  Surface
+  Surface,
+  description
 }
 import wvlet.uni.weaver.WeaverConfig
 

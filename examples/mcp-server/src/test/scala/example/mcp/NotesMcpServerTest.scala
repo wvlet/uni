@@ -1,6 +1,6 @@
 package example.mcp
 
-import wvlet.uni.mcp.MCPServer
+import wvlet.uni.ai.mcp.MCPServer
 import wvlet.uni.test.*
 
 class NotesMcpServerTest extends UniTest:

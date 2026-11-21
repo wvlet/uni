@@ -57,8 +57,8 @@ Maven Central should depend on a Central version and not add that resolver.
 | REST router (all platforms) | `wvlet.uni.http.router.{Router, RouterHandler}` | [references/http-server.md](references/http-server.md) |
 | Tracing and metrics (all platforms) | `wvlet.uni.telemetry.Telemetry`, `wvlet.uni.telemetry.otlp.OtlpConfig`, `wvlet.uni.http.TelemetryFilter` | `Telemetry().withServiceName(n).withOtlp(OtlpConfig())`, `Http.server.withFilter(TelemetryFilter(t))`, `Http.client.withTelemetry(t)`; W3C `traceparent`; `MCP.server.withTelemetry(t)`, `MCP.client.withTelemetry(t)`, and LLM clients given `Http.client.noRetry.withTelemetry(t).newAsyncClient` add MCP and GenAI spans; see [references/http-server.md](references/http-server.md#tracing-all-platforms) |
 | Typed RPC | `wvlet.uni.http.rpc.RPCRouter`, `wvlet.uni.http.rpc.RPCHandler` | [references/rpc.md](references/rpc.md) |
-| MCP server (stdio) | `wvlet.uni.mcp.{MCP, description}` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
-| MCP client (HTTP) | `wvlet.uni.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
+| MCP server (stdio) | `wvlet.uni.ai.mcp.MCP`, `wvlet.uni.surface.description` | `MCP.server.withName(n).withTools[T](impl).serveStdio()` |
+| MCP client (HTTP) | `wvlet.uni.ai.mcp.MCP` | `MCP.client.withName(n).connect(url)` returns `Rx[MCPClient]` |
 | Off-heap memory | `wvlet.uni.canvas.{Canvas, OffHeapMemoryAllocator}` | `Canvas.newOffHeapCanvas(size)` (`Long` offsets, beyond 2 GB), `readInt`/`writeLong` (little-endian; `*BigEndian` variants), `close()` frees it now; JVM needs Java 22+; see [references/core.md](references/core.md#off-heap-memory-canvas) |
 | Retry | `wvlet.uni.control.Retry` | `Retry.withBackOff().run { ... }` |
 | CLI arguments | `wvlet.uni.cli.launcher.*` | `Launcher.execute[A](args)` on a case class with `@option` fields |

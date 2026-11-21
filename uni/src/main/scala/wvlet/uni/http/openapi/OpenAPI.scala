@@ -17,7 +17,8 @@ import wvlet.uni.http.{HttpMethod, Response}
 import wvlet.uni.http.router.{HttpRequestMapper, PathComponent, Route, Router}
 import wvlet.uni.json.JSON.*
 import wvlet.uni.json.YAMLFormatter
-import wvlet.uni.mcp.{JsonSchema, description}
+import wvlet.uni.json.JsonSchema
+import wvlet.uni.surface.description
 import wvlet.uni.rx.Rx
 import wvlet.uni.surface.{MethodParameter, OptionSurface, Primitive, StaticMethodParameter, Surface}
 

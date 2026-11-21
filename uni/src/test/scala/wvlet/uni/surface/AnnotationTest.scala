@@ -18,18 +18,18 @@ import wvlet.uni.test.UniTest
 import scala.annotation.StaticAnnotation
 
 // Test annotations with various parameter types
-class label(val value: String)                             extends StaticAnnotation
-class description(val text: String, val priority: Int = 0) extends StaticAnnotation
-class range(val min: Int, val max: Int)                    extends StaticAnnotation
-class tags(val values: String*)                            extends StaticAnnotation
-class enabled(val flag: Boolean)                           extends StaticAnnotation
-class precision(val value: Double)                         extends StaticAnnotation
-class marker                                               extends StaticAnnotation
+class label(val value: String)                        extends StaticAnnotation
+class remark(val text: String, val priority: Int = 0) extends StaticAnnotation
+class range(val min: Int, val max: Int)               extends StaticAnnotation
+class tags(val values: String*)                       extends StaticAnnotation
+class enabled(val flag: Boolean)                      extends StaticAnnotation
+class precision(val value: Double)                    extends StaticAnnotation
+class marker                                          extends StaticAnnotation
 
 // Test case class with annotated parameters
 case class ModelWithAnnotations(
     @label("user-id")
-    @description("The unique identifier", priority = 1)
+    @remark("The unique identifier", priority = 1)
     id: String,
     @range(min = 0, max = 100)
     score: Int,
@@ -83,8 +83,8 @@ class AnnotationTest extends UniTest:
     labelAnnot.get("value") shouldBe Some("user-id")
     labelAnnot.getAs[String]("value") shouldBe Some("user-id")
 
-    val descAnnot = pid.findAnnotation("description").get
-    descAnnot.name shouldBe "description"
+    val descAnnot = pid.findAnnotation("remark").get
+    descAnnot.name shouldBe "remark"
     descAnnot.get("text") shouldBe Some("The unique identifier")
     descAnnot.get("priority") shouldBe Some(1)
   }

@@ -106,7 +106,7 @@ agent.changes(since = 0)                              // what people changed, an
 - **Changes.** `agent.changes(cursor)` returns what people and app code changed since the
   cursor, without the agent's own changes, so an agent can catch up at the start of its turn.
   `agent.subscribe(c => ...)` sees every change as it happens.
-- **Transports.** `agent.api` is the same API as JSON text (`wvlet.uni.agent.UiAgentApi`).
+- **Transports.** `agent.api` is the same API as JSON text (`wvlet.uni.ai.agent.UiAgentApi`).
   `MCPServer().withTools[UiAgentApi](agent.api)` serves it as MCP tools, and
   `agent.installWebMcp()` registers it with the browser's WebMCP (`document.modelContext`)
   where the browser offers it: Chrome 150 and later behind `chrome://flags/#enable-webmcp-testing`
