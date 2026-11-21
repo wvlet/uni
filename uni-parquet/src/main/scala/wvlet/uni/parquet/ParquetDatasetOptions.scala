@@ -13,7 +13,8 @@ package wvlet.uni.parquet
   *   except those under a folder or with a name starting with `_` or `.`, so files that Hive or
   *   Trino write without an extension are read too.
   * @param prefetch
-  *   how many file footers the async reads fetch at a time
+  *   how many file footers a read fetches at a time (sync reads on the JVM and Scala Native, and
+  *   async reads everywhere)
   */
 case class ParquetDatasetOptions(
     partitionTypes: Map[String, ParquetType.Primitive] = Map.empty,

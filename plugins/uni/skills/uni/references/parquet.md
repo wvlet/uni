@@ -200,8 +200,15 @@ def typedDataset(root: String) = Parquet.dataset(
   for one column throw a `ParquetException` naming both files.
 - Files or folders starting with `_` or `.` are skipped. Files without an extension are kept;
   `withFileExtension(".parquet")` narrows the listing.
+- The root can be a glob (`s3://b/visits/dt=2026-11-{19,20}/country=JP`; `*`, `?`, `[a-z]`,
+  `{a,b}`, `**`, `\` escapes). Only the part before the first glob segment is listed, and a path is
+  kept when it or a parent folder matches.
+- `Parquet.dataset(Seq(path1, path2))` (or `Parquet.dataset(store, paths)`) reads exactly those
+  files, all local or all in one bucket. Partitions come from `key=value` folders below their common
+  parent; listed files are read even when named `_...` or `.`.
 - `readAs`, `readRows`, `readJson`, and `readBatches` return iterators that open one file at a time.
-  `readAllAsync[A]()` and `readAllRowsAsync()` prefetch footers. Pass `Parquet.dataset(store,
+  Footers are fetched `withPrefetch` (4) at a time: sync reads on the JVM and Native, async reads
+  (`readAllAsync[A]()`, `readAllRowsAsync()`) everywhere. Pass `Parquet.dataset(store,
   root)` for R2, MinIO, or explicit credentials; the dataset closes only a store it created.
 
 ## Write a partitioned dataset

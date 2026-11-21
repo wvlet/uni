@@ -53,10 +53,18 @@ built a new store for each file.
 
 ## Consequences
 
-- A read with many files waits for all of their footers before the first row. The sync path
-  fetches them one after another, while the async path overlaps them.
+- A read with many files waits for all of their footers before the first row. Both paths fetch
+  `withPrefetch` footers at a time: sync reads on a short-lived thread pool (JVM and Scala Native;
+  Scala.js stays sequential), async reads with `RxParallel.parSequenceN`.
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
 - Not covered: `_metadata` summary files, Delta Lake and Iceberg,
-  type widening across files, glob patterns, an explicit file list, and the npm facade.
+  type widening across files, and the npm facade.
 - Writing partitioned datasets is covered by `2026-11-21-parquet-dataset-writer.md`.
+- **Globs and file lists (added later).** A root with glob characters lists only the part before
+  the first glob segment and keeps a path when it or one of its folders matches, so a folder
+  pattern such as `dt=2026-11-*` keeps everything below it, as a plain root does. Patterns compile
+  to regexes that escape only regex syntax characters, because identity escapes such as `\=` are
+  invalid in JavaScript's unicode mode. An explicit `Seq` of files must be all local or all in one
+  bucket. Partitions come from the folders below the files' common parent, and listed files skip
+  the `_`/`.` rule and the listing request. Object sizes are then -1.
