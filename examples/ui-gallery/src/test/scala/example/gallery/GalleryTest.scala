@@ -5,6 +5,7 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.{div, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
+import wvlet.uni.log.{BufferedLogHandler, LogFormatter, Logger}
 import wvlet.uni.rx.{Rx, RxTracker}
 import wvlet.uni.ui.ColorScheme
 
@@ -111,14 +112,24 @@ class GalleryTest extends DomTestSupport:
     stillInline.toSeq shouldBe Seq.empty
   }
 
-  test("every example mounts") {
-    Pages
-      .stories
-      .foreach { s =>
-        val m = mount(s.render())
-        (m.container.childElementCount > 0) shouldBe true
-        m.unmount()
-      }
+  test("every example mounts and unmounts cleanly") {
+    // Cancelable.merge logs each cleanup that throws, as a warning on this logger
+    val logger   = Logger("wvlet.uni.rx.Cancelable")
+    val warnings = BufferedLogHandler(LogFormatter.BareFormatter)
+    logger.addHandler(warnings)
+    try
+      Pages
+        .stories
+        .foreach { s =>
+          val m = mount(s.render())
+          (m.container.childElementCount > 0) shouldBe true
+          m.unmount()
+          // DomTestSupport unmounts it again after the test
+          m.unmount()
+        }
+      warnings.logs shouldBe Seq.empty
+    finally
+      logger.clearHandlers
   }
 
   test("the gallery shows a page with a card per example") {
