@@ -133,4 +133,13 @@ class InteractionTest extends UniTest with DomTestSupport:
     (container.parentNode == null) shouldBe true
   }
 
+  test("unmount twice runs cleanup once, also for a body portal") {
+    val m = mount(RxElement(div(Portal.toBody(div(cls -> "portaled", "overlay")))))
+    dom.document.querySelectorAll(".portaled").length shouldBe 1
+    m.unmount()
+    dom.document.querySelectorAll(".portaled").length shouldBe 0
+    // The portal's teardown removes its container from <body>; a second run would throw
+    m.unmount()
+  }
+
 end InteractionTest
