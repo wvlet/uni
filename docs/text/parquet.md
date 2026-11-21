@@ -874,9 +874,73 @@ for await (const batch of file.batches()) {
   `{ map: { key, value } }`, or `{ struct: [...] }`. Columns are optional unless they say
   `optional: false`. Its options are `compression` (`"snappy"`, `"none"`, `"lz4"`, `"zstd"`, or
   `"gzip"`) and `compressionLevel` for ZSTD.
-- The package is about 360 KB minified and gzipped. In browsers, bundlers must leave out the
-  Node.js built-ins it refers to (`os`, `path`, `zlib`): Vite does this by itself; with webpack, set
+- `readRows` and `batches` take a `filter`, written as in PyArrow (see the datasets below).
+- The package is about 860 KB gzipped, including the S3, GCS, and Azure clients that datasets use.
+  In browsers, bundlers must leave out the Node.js built-ins it refers to (`os`, `path`, `zlib`):
+  Vite does this by itself; with webpack, set
   `resolve.fallback: { os: false, path: false, zlib: false }`.
+
+### Datasets from TypeScript
+
+`openDataset` reads a [dataset](#reading-a-dataset-of-files) by its root, a glob, or a list of files: a local
+directory in Node.js, or an `s3://`, `gs://`, or `az://` prefix. `writeDataset` and
+`newDatasetWriter` write one, split into `key=value` folders. Object-store reads and writes use
+only async calls, so they work in browsers as well as in Node.js.
+
+```ts
+import { openDataset, writeDataset } from "@wvlet/uni/parquet";
+
+const storage = { s3: { region: "us-east-1" } }; // Node.js: the default credential chain
+
+await writeDataset(
+  "s3://bucket/events/",
+  [{ id: 1n, country: "JP", dt: "2026-11-20" }],
+  [
+    { name: "id", type: "int64", optional: false },
+    { name: "country", type: "string" },
+    { name: "dt", type: "date" },
+  ],
+  { partitionBy: ["dt"], mode: "overwrite-partitions", storage },
+);
+
+const ds = await openDataset("s3://bucket/events/", { storage });
+ds.partitionColumns; // ["dt"], read back as a DATE from _common_metadata
+const filter = [["dt", ">=", "2026-11-15"], ["country", "in", ["JP", "US"]]];
+await ds.files({ filter }); // the files the filter keeps, with their partition values
+for await (const batch of ds.batches({ filter, columns: ["id", "dt"] })) {
+  // one row group at a time, partition columns last
+}
+ds.close();
+```
+
+- A filter is a condition `[column, op, value]`, an array of conditions (AND), or an array of
+  arrays of conditions (OR of ANDs). The operators are `=`, `!=`, `<`, `<=`, `>`, `>=`, `in`,
+  `not in`, `is null`, and `is not null`. Only matching rows come back, as with
+  [`withFilter`](#filtering-rows), and files and row groups that can't match are skipped unread. A
+  `Date` compares as a DATE on date columns and as a timestamp otherwise.
+- Partitions are strings unless their types are recorded in `_common_metadata` (the writer does
+  this) or declared with `partitionTypes: { hour: "int32" }`. Types are `"string"`, `"int32"`,
+  `"int64"`, and `"date"`. A list of files has no root, so it doesn't read `_common_metadata`.
+- Write modes are `"error-if-exists"` (the default), `"overwrite"`, `"append"`, and
+  `"overwrite-partitions"`. `newDatasetWriter` returns a writer with `write(row)`, `flush()`,
+  `close()`, and `abort()`. `write` throws while finished files waiting for upload exceed
+  `maxBufferedBytes` (256 MiB), so await `flush()` regularly, or use `writeAll(rows)`.
+  Object-store files are built in memory and capped at 128 MiB each.
+- `storage` holds the settings for each scheme and is passed on every call; nothing is kept
+  globally:
+  - `s3`: `region`, `endpoint`, `pathStyle`, and `credentials`, which is
+    `{ accessKeyId, secretAccessKey, sessionToken? }` or `"anonymous"`.
+  - `gcs`: `endpoint`, plus one of `accessToken`, `credentialsJson` (Node.js only), or `anonymous: true`.
+  - `azure`: `connectionString`, `account`, `endpoint`, plus one of `sasToken`,
+    `sharedKey: { accountName, accountKey }`, or `anonymous: true`.
+- Without credentials, Node.js uses the same default chains as Scala: environment variables and
+  profile files, then cloud metadata endpoints. Those endpoints are called with sync HTTP, which
+  blocks the event loop until they answer, so servers should pass credentials explicitly or set the
+  usual environment variables. Browsers have no default chain, so `openDataset` rejects there
+  unless `storage` has credentials or `anonymous`.
+- In browsers, every value in `storage` is visible to the page's users. Hand the page short-lived
+  credentials, such as STS session credentials, a SAS token, or an OAuth access token, scoped to
+  the data it needs. Buckets need CORS rules that allow GET (and PUT and DELETE for writes).
 
 For browser pages that only read files and need a small bundle,
 [hyparquet](https://github.com/hyparam/hyparquet) is a good choice.
