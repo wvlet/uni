@@ -52,6 +52,40 @@ private[parquet] object Word8:
     ((lo >>> shift) | ((hi << 1) << (63 - shift))).toInt
 
   /**
+    * The length of the match at `src(a)` and `src(b)` (`a` below `b`), whose first 4 bytes are
+    * equal, counting up to `limit` (exclusive) for `b`, in the low 32 bits; the int at the end of
+    * the match on the `b` side in the high 32 bits, unless fewer than 8 bytes remain there before
+    * `limit`. Needs `b + 16 <= limit`.
+    *
+    * A match of 4 to 11 bytes ends inside the 8 bytes at `b + 4`, and the word at its end comes
+    * from the loads at `b + 4` and `b + 8` alone: a compressor's next hash lookup then doesn't wait
+    * for a load that depends on the match length, as in the reference Snappy's FindMatchLength.
+    */
+  def matchAndNextWord(src: Array[Byte], a: Int, b: Int, limit: Int): Long =
+    val w1 = le64(src, b + 4)
+    val w2 = le64(src, b + 8)
+    val x  = le64(src, a + 4) ^ w1
+    if x != 0 then
+      val shift = java.lang.Long.numberOfTrailingZeros(x)
+      // The end is byte shift >>> 3 of w1; from byte 4 on, w2 holds it 4 bytes lower
+      val next =
+        (
+          if x.toInt == 0 then
+            w2
+          else
+            w1
+        ) >>> (shift & 24)
+      (4 + (shift >>> 3)) | (next << 32)
+    else
+      val n    = 12 + matchLength(src, a + 12, b + 12, limit)
+      val next =
+        if b + n + 8 <= limit then
+          le32(src, b + n)
+        else
+          0
+      n | (next.toLong << 32)
+
+  /**
     * The number of equal bytes at `src(a)` and `src(b)`, counting up to `limit` (exclusive) for
     * `b`, where `a` is below `b`. Compares 8 bytes at a time: the first differing byte is the
     * lowest set byte of the XOR.

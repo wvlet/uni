@@ -11,6 +11,24 @@ private[parquet] object Word8:
   inline def le32(b: Array[Byte], i: Int): Int = Zstd.le32(b, i)
 
   /**
+    * The length of the match at `src(a)` and `src(b)` (`a` below `b`), whose first 4 bytes are
+    * equal, counting up to `limit` (exclusive) for `b`, in the low 32 bits; the int at the end of
+    * the match on the `b` side in the high 32 bits, unless fewer than 8 bytes remain there before
+    * `limit`. The JVM and Scala Native versions need `b + 16 <= limit`.
+    *
+    * Compares 4 bytes at a time and reads the word after the match, since a `Long` is emulated on
+    * Scala.js; the JVM and Scala Native versions get the word from their 8-byte loads.
+    */
+  def matchAndNextWord(src: Array[Byte], a: Int, b: Int, limit: Int): Long =
+    val n    = 4 + matchLength(src, a + 4, b + 4, limit)
+    val next =
+      if b + n + 8 <= limit then
+        Zstd.le32(src, b + n)
+      else
+        0
+    n | (next.toLong << 32)
+
+  /**
     * The number of equal bytes at `src(a)` and `src(b)`, counting up to `limit` (exclusive) for
     * `b`, where `a` is below `b`. Compares 4 bytes at a time, since a `Long` is emulated on
     * Scala.js: the first differing byte is the lowest set byte of the XOR.
@@ -25,3 +43,5 @@ private[parquet] object Word8:
     while b + n < limit && src(a + n) == src(b + n) do
       n += 1
     n
+
+end Word8

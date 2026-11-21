@@ -309,6 +309,49 @@ path.
   checks that snappy-java reads uni's output and uni reads snappy-java's, and `CodecBench` checks
   it on the benchmark chunks.
 
+### Round 2: per-match work
+
+- Profiling: async-profiler on macOS has no perf_events, so `-e cycles` and `-e branch-misses`
+  fail ("PerfEvents are not supported on this platform"). CPU-mode samples put 51% in
+  `compressBlock`, 31% in `emitCopy`, and 11% in `matchLength`, but ablations in the same JVM show
+  that `emitCopy`'s share is skid: dropping every tag write saves about 1 ms of 102, and dropping
+  all output (literals and copies) saves 4 ms. Forcing `matchLength` inline changes nothing.
+- Counts on `orders` (1 MiB chunks): 9.56M matches, 77% of 4–7 bytes and 2.7% of 12 or more;
+  the check for a copy right after a copy hits 66% of the time. The cost is the serial chain per
+  match: compare, length, next position, hash word load, table load, candidate load.
+- Step 1 as planned (one XOR of the 8-byte words at `i` and `cand`) was 12–20% slower. The
+  existing `4 + matchLength(cand + 4, i + 4)` resolves matches of 4–11 bytes with its first XOR,
+  where an XOR at `i` resolves only 4–7, so the many 8–11-byte matches took a second loop
+  iteration. Reading `le64(i - 1)` once for both hashes after a copy measured within noise
+  (+2 ms). Both dropped.
+- Step 2 (each copy tag as one 32-bit store) was 3 ms slower with the branch between 2- and
+  3-byte tags, and 8 ms slower with a branchless select; the ablation caps its gain at 1 ms.
+  Dropped, so no `put32`/`put64`.
+- Kept: `Word8.matchAndNextWord`, the reference compressor's `FindMatchLength` trick. Besides the
+  length it returns the word at the end of the match, built from the loads at `i + 4` and
+  `i + 8`, which don't depend on the candidate, so the next hash lookup no longer waits for a load
+  that depends on the length. On the JVM the rare 12+ byte path is a separate method, or C2
+  sometimes refuses to inline the method ("callee is too large", and the gain disappears). Scala.js
+  keeps 4-byte compares and reads the word after the match. The input margin grows from 15 to 16
+  bytes for the load at `i + 8`.
+- Compress only, in-process A/B against a copy of the old compressor, median of 40 (load 6–10):
+
+| input | old | new | snappy-java |
+|---|---|---|---|
+| orders | 101.5–104.2 ms | 94.7–97.6 ms | 62.5–64.5 ms |
+| lineitem | 83.1–85.0 ms | 83.8–86.7 ms | 51.8–53.4 ms |
+
+- Writes, `orders.snappy` "write uni batch" against parquet-java in the same run, median of 9
+  (load average 6–12). New: 383 / 829 ms (0.46x), 399 / 802 ms (0.50x), 439 / 1,134 ms (0.39x,
+  a slow parquet-java run). Old jars alternated with them: 404 / 839 ms (0.48x), 388 / 864 ms
+  (0.45x). The 7 ms compress gain is within the write bench's noise, so the target holds about
+  as often as before; it doesn't yet hold with a clear margin.
+- Native and Node.js in the first run, ratio to JVM uni batch (383 ms): Native 435 ms (1.1x),
+  Node.js 904 ms (2.4x).
+- Follow-ups (out of scope here): probing several positions per 8-byte load in the search loop
+  (the reference's 1.1.10 loop), `compressInto` to drop the final `Arrays.copyOf`, and
+  compressing columns in parallel.
+
 ## Alternatives and Why Not?
 
 - **Write case classes through the batch writer** (collect rows into vectors, then write columns).
