@@ -1597,3 +1597,30 @@ body {
   border-radius: var(--uni-radius);
   overflow: hidden;
 }
+
+.demo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--uni-line);
+  border-radius: var(--uni-radius-lg);
+  background: var(--uni-raised);
+  color: var(--uni-muted);
+  font-size: 13px;
+}
+
+.demo-tall {
+  min-height: 96px;
+}
+
+.demo-strong {
+  color: var(--uni-fg);
+  font-weight: 600;
+}
+
+.demo-outline {
+  padding: 8px;
+  border: 1px dashed var(--uni-line);
+  border-radius: var(--uni-radius);
+}

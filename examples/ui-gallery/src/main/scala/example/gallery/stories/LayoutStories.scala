@@ -208,6 +208,119 @@ object LayoutStories:
   end statusBarBasic
   // #endregion
 
+  // #region stack/toolbar
+  inline def stackToolbar: RxElement =
+    val justify = Rx.variable(Justify.Between)
+
+    Stack(
+      Stack
+        .row(
+          span(cls -> "demo-strong", "Projects"),
+          Badge("12"),
+          Button("New project").primary.small
+        )
+        .withGap(12)
+        .withJustify(Justify.Between),
+      justify.map(j =>
+        Stack
+          .row(Button("Cancel").ghost.small, Button("Save").primary.small)
+          .withJustify(j)(cls += "demo-outline")
+      ),
+      Select(justify, options = Justify.values.toSeq, optionLabel = _.toString).withLabel("Justify")
+    ).withGap(16)
+  end stackToolbar
+  // #endregion
+
+  // #region stack/form
+  inline def stackForm: RxElement =
+    val name  = Rx.variable("")
+    val email = Rx.variable("")
+
+    Stack(
+      Input(name).withLabel("Name"),
+      Input(email).withLabel("Email"),
+      Stack.row(Button("Back").ghost, Button("Continue").primary).withJustify(Justify.End)
+    ).withGap(12)(cls += "demo-narrow")
+  end stackForm
+  // #endregion
+
+  // #region grid/responsive
+  inline def gridResponsive: RxElement =
+    val minWidth = Rx.variable(160)
+    val services = Seq("Auth", "Billing", "Search", "Storage", "Email", "Analytics", "Queue", "CDN")
+
+    Stack(
+      Stack.row(
+        Button("Narrower").ghost.small.onClick(() => minWidth.update(w => math.max(100, w - 40))),
+        Button("Wider").ghost.small.onClick(() => minWidth.update(w => math.min(320, w + 40))),
+        span(
+          cls -> "demo-note",
+          minWidth.map(w => s"Columns at least ${w}px wide; resize the window too")
+        )
+      ),
+      minWidth.map(w =>
+        Grid(
+          services.map(name =>
+            div(cls -> "demo-card", span(cls -> "demo-strong", name), span("Healthy"))
+          )*
+        ).withMinColumnWidth(w).withGap(12)
+      )
+    ).withGap(14)
+  end gridResponsive
+  // #endregion
+
+  // #region grid/dashboard
+  inline def gridDashboard: RxElement = Grid(
+    GridItem(
+      div(
+        cls -> "demo-card demo-tall",
+        span(cls -> "demo-strong", "Traffic"),
+        span("A chart spanning two columns")
+      )
+    ).withColumnSpan(2),
+    div(cls -> "demo-card", span(cls -> "demo-strong", "Users"), span("1,284")),
+    div(cls -> "demo-card", span(cls -> "demo-strong", "Errors"), span("3")),
+    div(cls -> "demo-card", span(cls -> "demo-strong", "Latency"), span("42 ms")),
+    div(cls -> "demo-card", span(cls -> "demo-strong", "Uptime"), span("99.98%")),
+    GridItem(
+      div(cls -> "demo-card", span(cls -> "demo-strong", "Deploys"), span("A full-width row"))
+    ).withColumnSpan(0)
+  ).withColumns(3).withGap(12)
+  // #endregion
+
+  // #region grid/align
+  inline def gridAlign: RxElement =
+    val align = Rx.variable(Alignment.Stretch)
+
+    Stack(
+      Select(align, options = Alignment.values.toSeq, optionLabel = _.toString).withLabel("Align"),
+      align.map(a =>
+        Grid(
+          div(cls -> "demo-card", "Short"),
+          div(cls -> "demo-card", "A longer card", br(), "with two lines"),
+          div(cls -> "demo-card", "Short")
+        ).withColumns(3).withAlign(a)
+      )
+    ).withGap(12)
+  end gridAlign
+  // #endregion
+
+  // #region separator/basic
+  inline def separatorBasic: RxElement = Stack(
+    Stack.row(
+      Button("Bold").ghost.small,
+      Button("Italic").ghost.small,
+      Separator().vertical,
+      Button("Link").ghost.small
+    ),
+    Separator(),
+    p(
+      cls -> "demo-note",
+      "A horizontal separator between sections, and a vertical one between toolbar groups."
+    )
+  ).withGap(12)
+  // #endregion
+
   val pages: Seq[ComponentPage] = Seq(
     ComponentPage(
       "dock",
@@ -250,6 +363,56 @@ object LayoutStories:
       ApiDoc.of[FoldablePane] ++ ApiDoc.of[Splitter],
       a11yNote =
         "The splitter is a focusable separator with aria-valuenow; Escape mid-drag puts the size back."
+    ),
+    ComponentPage(
+      "stack",
+      "Stack",
+      "Children in a column or a row, with a gap, alignment, and justification: flexbox without CSS.",
+      Seq(
+        Story("stack/toolbar", "Rows", "Change Justify: the row of buttons follows.")(stackToolbar),
+        Story("stack/form", "A form", "A column of fields with a row of actions at the end.")(
+          stackForm
+        )
+      ),
+      ApiDoc.of[Stack]
+    ),
+    ComponentPage(
+      "grid",
+      "Grid",
+      "Children in equal columns, or in as many columns of a minimum width as fit, with spans.",
+      Seq(
+        Story(
+          "grid/responsive",
+          "Responsive columns",
+          "Press Narrower or Wider, or resize the window: the cards reflow."
+        )(gridResponsive),
+        Story(
+          "grid/dashboard",
+          "Spans",
+          "Three columns: Traffic spans two, and Deploys takes the whole row."
+        )(gridDashboard),
+        Story(
+          "grid/align",
+          "Alignment",
+          "Change Align: the short cards stretch, or line up in their cells."
+        )(gridAlign)
+      ),
+      ApiDoc.of[Grid] ++ ApiDoc.of[GridItem]
+    ),
+    ComponentPage(
+      "separator",
+      "Separator",
+      "A thin line between groups: horizontal between sections, vertical in a row.",
+      Seq(
+        Story(
+          "separator/basic",
+          "Basic",
+          "Inspect the lines: each is role=separator with its orientation."
+        )(separatorBasic)
+      ),
+      ApiDoc.of[Separator],
+      a11yNote =
+        "role=separator with aria-orientation; .decorative sets role=none for a purely visual line."
     ),
     ComponentPage(
       "status-bar",
