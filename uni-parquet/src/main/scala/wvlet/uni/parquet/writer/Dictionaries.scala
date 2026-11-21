@@ -96,7 +96,8 @@ private[writer] final class BytesDictionary(page: ByteBuf, lengthPrefix: Boolean
       i += 1
     h ^ (h >>> 16)
 
-  private def same(e: Int, src: Array[Byte], off: Int, len: Int): Boolean =
+  /** True when entry e holds the bytes `src[off, off + len)` */
+  def same(e: Int, src: Array[Byte], off: Int, len: Int): Boolean =
     lengths(e) == len && {
       val d = page.array
       val o = offsets(e)

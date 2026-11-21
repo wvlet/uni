@@ -2,6 +2,8 @@ package example.parquetbench
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.parquet.ColumnBatch
+import wvlet.uni.parquet.ColumnVector
+import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.Parquet
 import wvlet.uni.parquet.ParquetSchema
 import wvlet.uni.parquet.ParquetWriteOptions
@@ -35,7 +37,15 @@ object BenchData:
   )
 
 /** A table as column batches, for the batch writer */
-case class BenchBatches(schema: ParquetSchema, batches: Seq[ColumnBatch])
+case class BenchBatches(schema: ParquetSchema, batches: Seq[ColumnBatch]):
+  /**
+    * The same batches rebuilt as an application builds them, without the dictionary entries the
+    * reader attaches to binary vectors, so the writer looks up every value
+    */
+  lazy val rebuilt: BenchBatches = BenchBatches(
+    schema,
+    batches.map(b => ColumnBatch(b.numRows, b.columns.map(BenchBatches.rebuild)))
+  )
 
 object BenchBatches:
   private var cache = Option.empty[(String, BenchBatches)]
@@ -58,6 +68,26 @@ object BenchBatches:
         BenchData.clear()
         cache = Some(key -> b)
         b
+
+  private def nullsOf(v: ColumnVector): Array[Boolean] =
+    val n = Array.tabulate(v.size)(v.isNull)
+    if n.contains(true) then
+      n
+    else
+      null
+
+  def rebuild(v: ColumnVector): ColumnVector =
+    v match
+      case b: BinaryColumn =>
+        BinaryColumn(b.field, b.offsets, b.data, nullsOf(b), b.binaryAsString)
+      case l: ListColumn =>
+        ListColumn(l.field, l.offsets, rebuild(l.elements), nullsOf(l))
+      case m: MapColumn =>
+        MapColumn(m.field, m.offsets, rebuild(m.keys), rebuild(m.values), nullsOf(m))
+      case s: StructColumn =>
+        StructColumn(s.field, s.size, s.children.map(rebuild), nullsOf(s))
+      case other =>
+        other
 
   def lineItems(dir: String): BenchBatches = load(
     "lineitem",

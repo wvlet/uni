@@ -248,6 +248,29 @@ path.
   indexes in one array (one cache line per probe), and binary min/max statistics are updated only
   when the dictionary adds a value.
 
+## Follow-up: reuse the reader's dictionary in batch copies
+
+- Design note: [2026-11-20-parquet-batch-writer-dict-reuse.md](2026-11-20-parquet-batch-writer-dict-reuse.md).
+  Binary rows that carry a reader dictionary entry are mapped to the writer's dictionary once per
+  (reader dictionary, writer row group); later rows skip the hash and probe but still compare bytes.
+- New bench case `write uni batch, rebuilt`: the same cached batches rebuilt without dictionary
+  entries, run right after `write uni batch`, so the pair is an A/B in one process. Medians of 15
+  after 3 warm-ups, load average 6–12 (absolute numbers are inflated):
+
+| file | JVM | Native | Node.js |
+|---|---|---|---|
+| lineitem uncompressed | 217 → 189 ms (−13%) | 247 → 213 ms (−14%) | 549 → 531 ms (−3%) |
+| lineitem snappy | 383 → 359 ms (−6%) | 379 → 350 ms (−8%) | 754 → 709 ms (−6%) |
+| orders uncompressed | 321 → 322 ms | 328 → 363 ms | 720 → 667 ms |
+| orders snappy | 509 → 514 ms | 492 → 486 ms | 943 → 1,030 ms |
+
+- `lineitem` gains on every platform; `orders` is within noise, as its strings are mostly
+  high-cardinality and stay PLAIN. lineitem values are short (1–44 bytes), so the remaining byte
+  compare costs about as much as the hash it replaces.
+- Trusting the indices without the compare measured 209 → 163 ms (−22%) on JVM lineitem
+  uncompressed, in a run at load 17. Not taken: an in-place edit of a read vector would then write
+  wrong values silently.
+
 ## Alternatives and Why Not?
 
 - **Write case classes through the batch writer** (collect rows into vectors, then write columns).

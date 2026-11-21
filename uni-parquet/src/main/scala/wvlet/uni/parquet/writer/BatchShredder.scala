@@ -298,13 +298,11 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
           w.endRow()
           i += 1
       case c: BinaryColumn =>
-        val offsets = c.offsets
-        val data    = c.data
         while i < to do
           if nulls != null && nulls(i) then
             w.addNull(0, 0)
           else
-            w.addBytes(0, data, offsets(i), offsets(i + 1) - offsets(i))
+            addBinary(w, 0, c, i)
           w.endRow()
           i += 1
       case other =>
@@ -312,6 +310,16 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
     end match
 
   end writeFlat
+
+  /** Row i of a binary vector, through the reader's dictionary entry when it has one */
+  private inline def addBinary(w: ColumnWriter, r: Int, c: BinaryColumn, i: Int): Unit =
+    val off     = c.offsets(i)
+    val len     = c.offsets(i + 1) - off
+    val entries = c.dictIndices
+    if entries != null && entries(i) >= 0 then
+      w.addDictBytes(r, c.data, off, len, c.dictionary, entries(i))
+    else
+      w.addBytes(r, c.data, off, len)
 
   /** Nulls for every leaf under a node, at definition level d */
   private def nulls(node: Node, r: Int, d: Int, writers: IndexedSeq[ColumnWriter]): Unit =
@@ -383,7 +391,7 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
           case c: BooleanColumn =>
             w.addBoolean(r, c.values(i))
           case c: BinaryColumn =>
-            w.addBytes(r, c.data, c.offsets(i), c.offsets(i + 1) - c.offsets(i))
+            addBinary(w, r, c, i)
           case other =>
             mismatch(leaf.field, other, "primitive vector")
       case s: Struct =>

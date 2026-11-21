@@ -62,16 +62,12 @@ object BenchRunner:
         () => UniWriters.lineItems(BenchData.lineItems(dir), s"${out}/uni.lineitem.${c}.parquet", c)
       )
     } ++
-      writeCodecs.map { c =>
-        BenchCase(
-          "write uni batch",
+      writeCodecs.flatMap { c =>
+        batchCases(
           s"${dir}/lineitem.${c}.parquet",
-          () =>
-            UniWriters.batches(
-              BenchBatches.lineItems(dir),
-              s"${out}/uni-batch.lineitem.${c}.parquet",
-              c
-            )
+          () => BenchBatches.lineItems(dir),
+          s"${out}/uni-batch.lineitem.${c}.parquet",
+          c
         )
       } ++
       writeCodecs.map { c =>
@@ -81,16 +77,30 @@ object BenchRunner:
           () => UniWriters.orders(BenchData.orders(dir), s"${out}/uni.orders.${c}.parquet", c)
         )
       } ++
-      writeCodecs.map { c =>
-        BenchCase(
-          "write uni batch",
+      writeCodecs.flatMap { c =>
+        batchCases(
           s"${dir}/orders.${c}.parquet",
-          () =>
-            UniWriters.batches(BenchBatches.orders(dir), s"${out}/uni-batch.orders.${c}.parquet", c)
+          () => BenchBatches.orders(dir),
+          s"${out}/uni-batch.orders.${c}.parquet",
+          c
         )
       }
 
   end uniWriteCases
+
+  /**
+    * The batch writer over batches read from `path`, and over the same batches rebuilt without the
+    * reader's dictionary entries. Back to back, so the pair compares well on a busy machine.
+    */
+  private def batchCases(
+      path: String,
+      data: () => BenchBatches,
+      out: String,
+      codec: String
+  ): Seq[BenchCase] = Seq(
+    BenchCase("write uni batch", path, () => UniWriters.batches(data(), out, codec)),
+    BenchCase("write uni batch, rebuilt", path, () => UniWriters.batches(data().rebuilt, out, codec))
+  )
 
   /** Uncompressed bytes of the column data, from the footer, so MB/s is comparable across codecs */
   private def uncompressedBytes(path: String): Long =
