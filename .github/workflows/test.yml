@@ -25,11 +25,18 @@ jobs:
             # Building Scala Native on Windows costs ~15 minutes, mostly toolchain setup, so the
             # Windows job sits behind this narrower filter: the C sources Scala Native compiles into
             # every downstream binary, the Native-only Scala, and the Scala Native version itself.
+            # It also covers shared code that starts processes or branches on Windows, since Scala
+            # Native's Windows process launching differs from the JVM's (#1046).
             native:
               - '.github/workflows/test.yml'
               - '**.c'
               - '**/.native/**'
               - 'project/**'
+              - 'uni-core/src/main/scala/wvlet/uni/io/IO.scala'
+              - 'uni-core/src/main/scala/wvlet/uni/io/IOPath.scala'
+              - 'uni/.jvm-native/src/main/scala/wvlet/uni/storage/StorageEnv.scala'
+              - 'uni/src/main/scala/wvlet/uni/storage/AwsProfiles.scala'
+              - 'uni/src/test/scala/wvlet/uni/storage/AwsProfileCredentialsTest.scala'
             # The Lean spec and the Scala cases generated from it (see spec/lean/README.md)
             lean:
               - '.github/workflows/test.yml'
