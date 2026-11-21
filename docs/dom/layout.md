@@ -1,10 +1,47 @@
 ---
-description: Lay out a Scala.js app with uni-ui — resizable foldable side panes, splitters, a status bar, and a Dock of tab groups and splits that the user rearranges and the app saves as JSON.
+description: Lay out a Scala.js app with uni-ui — stacks, responsive grids, and separators, resizable foldable side panes, splitters, a status bar, and a Dock of tab groups and splits that the user rearranges and the app saves as JSON.
 ---
 
 # Layout & Dock
 
-Side panes that fold and resize, a status bar, and a `Dock` of panels the user rearranges.
+Stacks and grids to arrange content, side panes that fold and resize, a status bar, and a `Dock`
+of panels the user rearranges.
+
+## Stack, Grid, and Separator
+
+`Stack` lays children out in a column or a row with a gap, and `Grid` in equal columns, or in as
+many columns of a minimum width as fit, so tiles reflow on a narrow screen with no media query:
+
+```scala
+import wvlet.uni.dom.all.*
+import wvlet.uni.dom.all.given
+import wvlet.uni.ui.*
+import scala.language.implicitConversions
+
+val header = Stack.row(h2("Projects"), Badge("12"), Button("New").primary)
+  .withGap(12)
+  .withJustify(Justify.Between)
+
+val cards = Grid(Seq("Docs", "API", "Billing", "Members").map(t => div(cls -> "card", t))*)
+  .withMinColumnWidth(220)
+  .withGap(16)
+
+Stack(header, Separator(), cards).withGap(16)
+```
+
+| Component | What it does |
+|-----------|--------------|
+| `Stack(content*)`, `Stack.row(content*)` | A flex column (stretched) or row (centered across), 8px apart. `.withGap(px)`, `.withAlign(Alignment.Center)`, `.withJustify(Justify.Between)`, `.withWrap(true)`, `.row` and `.column` |
+| `Grid(content*)` | A CSS grid of columns at least 200px wide, 12px apart. `.withColumns(n)` for exactly `n` columns, `.withMinColumnWidth(px)`, `.withGap(px)`, `.withRowGap(px)`, `.withAlign(a)` |
+| `GridItem(content*)` | A grid child that spans: `.withColumnSpan(n)` (`0` takes the whole row) and `.withRowSpan(n)` |
+| `Separator()` | A 1px line, `role="separator"` with `aria-orientation`; `.vertical` for a row, `.decorative` to hide it from assistive technology |
+
+They render `div.uni-stack` (with `data-direction`, `data-align`, `data-justify`, and the gap in
+`--uni-stack-gap`), `div.uni-grid` (with the column template in `--uni-grid-columns` and the gaps
+in `--uni-grid-gap` and `--uni-grid-row-gap`), `div.uni-grid-item`, and `div.uni-separator`, so CSS
+can restyle any of them.
+
+## Panes and splitters
 
 | Component | What it does |
 |-----------|--------------|

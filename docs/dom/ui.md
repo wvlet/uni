@@ -41,7 +41,7 @@ Pass extra attributes as modifiers, and use `cls +=` so the component's own clas
 | [Controls](./controls) | `Button`, `IconButton`, `Input`, `Textarea`, `TabList`/`TabPanel`, `Badge`, `Kbd` |
 | [Overlays](./overlays) | `Popover`, `Tooltip`, `Menu`, `ContextMenu`, `Dialog`, `AlertDialog`, `Select`, `Toaster` |
 | [Collections](./collections) | `VirtualList`, `Tree`, `DataTable`, `CommandPalette`; multi-select and reordering |
-| [Layout & Dock](./layout) | `FoldablePane`, `Splitter`, `StatusBar`, `Dock` |
+| [Layout & Dock](./layout) | `Stack`, `Grid`, `GridItem`, `Separator`, `FoldablePane`, `Splitter`, `StatusBar`, `Dock` |
 
 The [Gallery](./gallery) runs each of these components live, next to the code that renders it.
 

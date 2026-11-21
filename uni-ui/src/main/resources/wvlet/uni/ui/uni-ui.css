@@ -915,6 +915,109 @@
     flex: 1;
   }
 
+  /* Stack: a flex row or column with a gap; options arrive as data attributes */
+  .uni-stack {
+    display: flex;
+    flex-direction: column;
+    gap: var(--uni-stack-gap, 8px);
+    min-width: 0;
+  }
+
+  .uni-stack[data-direction='row'] {
+    flex-direction: row;
+  }
+
+  .uni-stack[data-wrap='true'] {
+    flex-wrap: wrap;
+  }
+
+  .uni-stack[data-align='start'] {
+    align-items: flex-start;
+  }
+
+  .uni-stack[data-align='center'] {
+    align-items: center;
+  }
+
+  .uni-stack[data-align='end'] {
+    align-items: flex-end;
+  }
+
+  .uni-stack[data-align='stretch'] {
+    align-items: stretch;
+  }
+
+  .uni-stack[data-align='baseline'] {
+    align-items: baseline;
+  }
+
+  .uni-stack[data-justify='start'] {
+    justify-content: flex-start;
+  }
+
+  .uni-stack[data-justify='center'] {
+    justify-content: center;
+  }
+
+  .uni-stack[data-justify='end'] {
+    justify-content: flex-end;
+  }
+
+  .uni-stack[data-justify='space-between'] {
+    justify-content: space-between;
+  }
+
+  .uni-stack[data-justify='space-around'] {
+    justify-content: space-around;
+  }
+
+  /* Grid: the column template and gaps arrive as CSS variables */
+  .uni-grid {
+    display: grid;
+    grid-template-columns: var(--uni-grid-columns, repeat(auto-fill, minmax(200px, 1fr)));
+    column-gap: var(--uni-grid-gap, 12px);
+    row-gap: var(--uni-grid-row-gap, var(--uni-grid-gap, 12px));
+    align-items: stretch;
+    min-width: 0;
+  }
+
+  .uni-grid[data-align='start'] {
+    align-items: start;
+  }
+
+  .uni-grid[data-align='center'] {
+    align-items: center;
+  }
+
+  .uni-grid[data-align='end'] {
+    align-items: end;
+  }
+
+  .uni-grid[data-align='baseline'] {
+    align-items: baseline;
+  }
+
+  .uni-grid-item {
+    min-width: 0;
+  }
+
+  /* Separator: a 1px line, horizontal or vertical */
+  .uni-separator {
+    flex-shrink: 0;
+    background: var(--uni-line);
+  }
+
+  .uni-separator[data-orientation='horizontal'] {
+    align-self: stretch;
+    height: 1px;
+  }
+
+  .uni-separator[data-orientation='vertical'] {
+    align-self: stretch;
+    width: 1px;
+    min-height: 1em;
+  }
+
   /* Overlays: Popover, Menu, Select's list. Placed by script with position: fixed */
   .uni-popover,
   .uni-menu,
