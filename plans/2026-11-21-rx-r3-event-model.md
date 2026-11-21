@@ -45,11 +45,33 @@ and the mode becomes a property of the event instead of the runner.
 Six of nine rules disappear or become a fix. The three that remain are about concurrency and
 buffering, which the event model does not touch.
 
+## Step 1: `flatMap`, `take`, and `recoverWith`
+
+`spec/lean/UniSpec/RxR3Ops.lean` adds the stateful operators. As in `RxNested.lean`, sources are
+traces, and a trace with no terminal event is a live source, so an open nested stream can be
+expressed.
+
+- **`flatMap` and `take` keep today's default mode** (`flatMap_default_eq`, `take_default_eq`):
+  each equals the R3 operator with `resumeAsFailure` before the sink, over any input. A nested
+  `failed` ends `flatMap` with no special rule (`flatMap_nested_failed`). A nested `resume` is
+  reported while the nested stream keeps going. A live nested stream keeps `flatMap` open until a
+  new input value switches away from it.
+- **`take` passes `resume` without counting it** (`take_passes_resume`). Today, continuous mode
+  ends `take` at the first error, although continuous mode otherwise treats errors as transient.
+- **`recoverWith` shows that today's default mode is inconsistent** (`old_default_inconsistent`).
+  When a throwing `map` sits before `recover`, the input continues; when it sits before
+  `recoverWith`, the input ends. With R3 events both continue on `resume` and both end on
+  `failed` (`r3_consistent`). So `recoverWith` is the one operator whose current default-mode
+  behavior is not R3 plus a sink conversion. Code that relies on it would add `resumeAsFailure`
+  before `recoverWith` (`recoverWith_after_resumeAsFailure`). RPC server streaming relies on it
+  (`2026-11-06-rpc-server-streaming.md`), so its handler needs that conversion in step 2.
+
 ## What the model leaves out
 
-- Stateful and nested operators (`flatMap`, `recoverWith`, `zip`, `take`, `merge`). The table
-  argues them from the definitions; they are not proved. The next model step is an
-  `RxLive.lean`-style script model over live vars with `resume`/`failed`.
+- `zip`, `merge`, `split`, and `parFlatMap`. Their rules in the table above are about buffering
+  and concurrency, not errors, and are argued, not proved.
+- Asynchronous nested streams: the operator models in `RxR3Ops.lean` run each nested stream to
+  its end before the next input event.
 - `RxResult.Stop` and cancellation. In R3 the observer is disposed on completion instead; whether
   `Stop` can go away is a separate question.
 - Concurrency.
@@ -70,8 +92,9 @@ buffering, which the event model does not touch.
 B looks worth doing. The model shows it subsumes both modes and removes most of the
 mode-dependent rules. Do it in steps:
 
-1. Extend the Lean model to `flatMap`, `recoverWith`, and `take` over live vars with
-   `resume`/`failed`, and check the unchanged rules still hold.
+1. Extend the Lean model to `flatMap`, `recoverWith`, and `take` with `resume`/`failed`. Done,
+   see Step 1 above: one difference, `recoverWith`, which needs `resumeAsFailure` where code
+   relies on today's behavior.
 2. Add `OnErrorResume` to `RxEvent` with today's mapping (operators emit it; `run` converts it
    with `resumeAsFailure`; `runContinuously` passes it), so nothing visible changes yet.
 3. Make `failed` the only terminal error and drop continuous mode, one operator at a time, with
