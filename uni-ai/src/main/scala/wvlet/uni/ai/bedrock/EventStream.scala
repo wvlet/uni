@@ -31,9 +31,9 @@ object EventStreamFrame:
       h.write(v.length & 0xff)
       h.write(v)
     }
-    val headerBytes = h.toByteArray
-    val total       = 12 + headerBytes.length + payload.length + 4
-    val out         = ByteArrayOutputStream(total)
+    val headerBytes         = h.toByteArray
+    val total               = 12 + headerBytes.length + payload.length + 4
+    val out                 = ByteArrayOutputStream(total)
     def int32(x: Int): Unit =
       out.write((x >>> 24) & 0xff)
       out.write((x >>> 16) & 0xff)
@@ -50,7 +50,11 @@ object EventStreamFrame:
 
   /** Encode an event frame (`:message-type event`) with a JSON payload */
   def event(eventType: String, json: String): Array[Byte] = encode(
-    Seq(":event-type" -> eventType, ":content-type" -> "application/json", ":message-type" -> "event"),
+    Seq(
+      ":event-type"   -> eventType,
+      ":content-type" -> "application/json",
+      ":message-type" -> "event"
+    ),
     json.getBytes(StandardCharsets.UTF_8)
   )
 
@@ -99,7 +103,9 @@ class EventStreamDecoder:
       buf = next
 
   private def int32(p: Int): Int =
-    ((buf(p) & 0xff) << 24) | ((buf(p + 1) & 0xff) << 16) | ((buf(p + 2) & 0xff) << 8) |
+    ((buf(p) & 0xff) << 24) |
+      ((buf(p + 1) & 0xff) << 16) |
+      ((buf(p + 2) & 0xff) << 8) |
       (buf(p + 3) & 0xff)
 
   private def int16(p: Int): Int = ((buf(p) & 0xff) << 8) | (buf(p + 1) & 0xff)
@@ -159,16 +165,17 @@ object EventStreamDecoder:
 
 /** CRC-32 (IEEE), as used by the event-stream prelude and message checksums */
 private[bedrock] object Crc32:
-  private val table: Array[Int] = Array.tabulate(256) { n =>
-    var c = n
-    for _ <- 0 until 8 do
-      c =
-        if (c & 1) != 0 then
-          0xedb88320 ^ (c >>> 1)
-        else
-          c >>> 1
-    c
-  }
+  private val table: Array[Int] =
+    Array.tabulate(256) { n =>
+      var c = n
+      for _ <- 0 until 8 do
+        c =
+          if (c & 1) != 0 then
+            0xedb88320 ^ (c >>> 1)
+          else
+            c >>> 1
+      c
+    }
 
   def of(bytes: Array[Byte], offset: Int, length: Int): Int =
     var c = 0xffffffff

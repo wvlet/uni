@@ -8,16 +8,16 @@ import scala.collection.mutable
 /**
   * Converts Gemini `generateContent` types to and from the vendor-neutral model.
   *
-  * Thought signatures are kept in `providerMetadata("gemini")("thoughtSignature")` on the part
-  * they came with. Function calls without an id (models before Gemini 3) get a deterministic id,
-  * and their responses are matched by function name and order.
+  * Thought signatures are kept in `providerMetadata("gemini")("thoughtSignature")` on the part they
+  * came with. Function calls without an id (models before Gemini 3) get a deterministic id, and
+  * their responses are matched by function name and order.
   */
 object GeminiConverter:
   private val vendor = ProviderMetadata.Gemini
 
   /**
-    * The documented placeholder for a function call in history that has no thought signature
-    * (e.g. one produced by another vendor). Gemini 3 rejects such calls otherwise.
+    * The documented placeholder for a function call in history that has no thought signature (e.g.
+    * one produced by another vendor). Gemini 3 rejects such calls otherwise.
     */
   val SkipThoughtSignature: String = "skip_thought_signature_validator"
 
@@ -34,8 +34,8 @@ object GeminiConverter:
     // Pair calls and responses without ids by name and order
     val callCount     = mutable.Map.empty[String, Int].withDefaultValue(0)
     val responseCount = mutable.Map.empty[String, Int].withDefaultValue(0)
-    def callId(name: String, id: Option[String], counter: mutable.Map[String, Int]): String =
-      id.getOrElse {
+    def callId(name: String, id: Option[String], counter: mutable.Map[String, Int]): String = id
+      .getOrElse {
         val n = counter(name)
         counter(name) = n + 1
         LlmConvert.generatedToolId(name, n)
@@ -59,7 +59,13 @@ object GeminiConverter:
             case Part.FileData(m, uri, _) =>
               parts += LlmPart.File(m.getOrElse("application/octet-stream"), FileSource.Url(uri))
             case Part.FunctionCall(name, args, id, sig, _, _) =>
-              parts += LlmPart.ToolCall(callId(name, id, callCount), name, args, providerMetadata = sigMeta(sig))
+              parts +=
+                LlmPart.ToolCall(
+                  callId(name, id, callCount),
+                  name,
+                  args,
+                  providerMetadata = sigMeta(sig)
+                )
             case Part.FunctionResponse(name, resp, id, _) =>
               results +=
                 LlmPart.ToolResult(
@@ -83,11 +89,11 @@ object GeminiConverter:
         ).filter(_.parts.nonEmpty)
       }
 
-    val fc     = r.functionCallingConfig
-    val gen    = r.generationConfig.getOrElse(GenerationConfig())
-    val think  = gen.thinkingConfig
-    val extra  = r.extra ++
-      Option.when(gen.extra.nonEmpty)("generationConfig" -> JSONObject(gen.extra.toSeq))
+    val fc    = r.functionCallingConfig
+    val gen   = r.generationConfig.getOrElse(GenerationConfig())
+    val think = gen.thinkingConfig
+    val extra =
+      r.extra ++ Option.when(gen.extra.nonEmpty)("generationConfig" -> JSONObject(gen.extra.toSeq))
     LlmRequest(
       model = model,
       messages = messages,
@@ -105,22 +111,25 @@ object GeminiConverter:
             .map(f =>
               LlmTool.Function(
                 f.name,
-                f.parametersJsonSchema.orElse(f.parameters).getOrElse(Json.obj(Json.field("type", "object"))),
+                f.parametersJsonSchema
+                  .orElse(f.parameters)
+                  .getOrElse(Json.obj(Json.field("type", "object"))),
                 f.description
               )
             ) ++ t.extra.map((k, v) => LlmTool.Provider(vendor, Json.obj(k -> Some(v))))
         },
       toolChoice = fc.flatMap(c =>
-        c.mode.map {
-          case "ANY" if c.allowedFunctionNames.size == 1 =>
-            LlmToolChoice.Tool(c.allowedFunctionNames.head)
-          case "ANY" =>
-            LlmToolChoice.Required
-          case "NONE" =>
-            LlmToolChoice.NoTool
-          case _ =>
-            LlmToolChoice.Auto
-        }
+        c.mode
+          .map {
+            case "ANY" if c.allowedFunctionNames.size == 1 =>
+              LlmToolChoice.Tool(c.allowedFunctionNames.head)
+            case "ANY" =>
+              LlmToolChoice.Required
+            case "NONE" =>
+              LlmToolChoice.NoTool
+            case _ =>
+              LlmToolChoice.Auto
+          }
       ),
       maxOutputTokens = gen.maxOutputTokens,
       temperature = gen.temperature,
@@ -159,9 +168,12 @@ object GeminiConverter:
     *   send `functionCall.id` and `functionResponse.id`; Vertex AI `v1` rejects them, so turn this
     *   off there
     */
-  def fromLlmRequest(r: LlmRequest, includeFunctionCallIds: Boolean = true): GenerateContentRequest =
-    val toolNames = mutable.Map.empty[String, String]
-    val contents  = mutable.ArrayBuffer.empty[Content]
+  def fromLlmRequest(
+      r: LlmRequest,
+      includeFunctionCallIds: Boolean = true
+  ): GenerateContentRequest =
+    val toolNames                                 = mutable.Map.empty[String, String]
+    val contents                                  = mutable.ArrayBuffer.empty[Content]
     def add(role: String, parts: Seq[Part]): Unit =
       if parts.nonEmpty then
         contents.lastOption match
@@ -199,11 +211,13 @@ object GeminiConverter:
               }
             // Gemini 3 needs a signature on the first function call of a turn
             val firstCall = parts.indexWhere(_.isInstanceOf[Part.FunctionCall])
-            val signed =
+            val signed    =
               if firstCall >= 0 && parts.forall(_.thoughtSignature.isEmpty) then
                 parts.updated(
                   firstCall,
-                  parts(firstCall).asInstanceOf[Part.FunctionCall].copy(thoughtSignature = Some(SkipThoughtSignature))
+                  parts(firstCall)
+                    .asInstanceOf[Part.FunctionCall]
+                    .copy(thoughtSignature = Some(SkipThoughtSignature))
                 )
               else
                 parts
@@ -225,7 +239,13 @@ object GeminiConverter:
                         Some(Part.FileData(Some(f.mediaType), fid))
                   case t: LlmPart.ToolResult =>
                     val name = t.name.orElse(toolNames.get(t.id)).getOrElse("")
-                    Some(Part.FunctionResponse(name, responseJson(LlmConvert.toolOutputText(t.output)), id(t.id)))
+                    Some(
+                      Part.FunctionResponse(
+                        name,
+                        responseJson(LlmConvert.toolOutputText(t.output)),
+                        id(t.id)
+                      )
+                    )
                   case LlmPart.Raw(`vendor`, raw: JSONObject) =>
                     Some(JsonCodec[Part].decode(raw))
                   case _ =>
@@ -296,8 +316,11 @@ object GeminiConverter:
 
   // ---------------------------------------------------------------- response
 
-  def toFinishReason(reason: Option[String], hasToolCalls: Boolean, blockReason: Option[String] = None)
-      : FinishReason =
+  def toFinishReason(
+      reason: Option[String],
+      hasToolCalls: Boolean,
+      blockReason: Option[String] = None
+  ): FinishReason =
     reason match
       case Some(GeminiFinishReason.Stop) if hasToolCalls =>
         FinishReason(FinishReason.Kind.ToolCalls, reason)
@@ -349,9 +372,9 @@ object GeminiConverter:
 
   def toLlmResponse(r: GenerateContentResponse, model: String = ""): LlmResponse =
     val c       = r.candidates.headOption
-    val content = toLlmRequest(GenerateContentRequest(c.flatMap(_.content).toSeq.map(_.copy(role = Some("model")))))
-      .messages
-      .flatMap(_.parts)
+    val content = toLlmRequest(
+      GenerateContentRequest(c.flatMap(_.content).toSeq.map(_.copy(role = Some("model"))))
+    ).messages.flatMap(_.parts)
     LlmResponse(
       id = r.responseId.getOrElse(""),
       model = r.modelVersion.getOrElse(model),
@@ -365,9 +388,7 @@ object GeminiConverter:
     )
 
   def fromLlmResponse(r: LlmResponse): GenerateContentResponse =
-    val req = fromLlmRequest(
-      LlmRequest(r.model, Seq(LlmMessage(LlmRole.Assistant, r.content)))
-    )
+    val req = fromLlmRequest(LlmRequest(r.model, Seq(LlmMessage(LlmRole.Assistant, r.content))))
     // Keep the signatures as they are; the placeholder is only for request history
     val parts = req
       .contents
@@ -380,7 +401,11 @@ object GeminiConverter:
       }
     GenerateContentResponse(
       candidates = Seq(
-        Candidate(Some(Content(Some("model"), parts)), Some(fromFinishReason(r.finishReason)), Some(0))
+        Candidate(
+          Some(Content(Some("model"), parts)),
+          Some(fromFinishReason(r.finishReason)),
+          Some(0)
+        )
       ),
       usageMetadata = Some(fromLlmUsage(r.usage)),
       modelVersion = Some(r.model).filter(_.nonEmpty),
@@ -397,18 +422,20 @@ object GeminiConverter:
     import LlmStreamPart as P
 
     private enum Open:
-      case NoBlock, Text, Reasoning
+      case NoBlock,
+        Text,
+        Reasoning
 
-    private var started                   = false
-    private var open                      = Open.NoBlock
-    private var block                     = 0
-    private var sig: Option[String]       = None
-    private var reason: Option[String]    = None
+    private var started                     = false
+    private var open                        = Open.NoBlock
+    private var block                       = 0
+    private var sig: Option[String]         = None
+    private var reason: Option[String]      = None
     private var blockReason: Option[String] = None
-    private var sawCalls                  = false
-    private var usage                     = LlmUsage()
-    private var finished                  = false
-    private var callIndex                 = 0
+    private var sawCalls                    = false
+    private var usage                       = LlmUsage()
+    private var finished                    = false
+    private var callIndex                   = 0
 
     private def close(): Seq[LlmStreamPart] =
       val id = s"${block}"
@@ -453,21 +480,19 @@ object GeminiConverter:
                   if open != kind then
                     out ++= close()
                     open = kind
-                    out +=
-                      (
-                        if kind == Open.Reasoning then
-                          P.ReasoningStart(s"${block}")
-                        else
-                          P.TextStart(s"${block}")
-                      )
+                    out += (
+                      if kind == Open.Reasoning then
+                        P.ReasoningStart(s"${block}")
+                      else
+                        P.TextStart(s"${block}")
+                    )
                   if text.nonEmpty then
-                    out +=
-                      (
-                        if kind == Open.Reasoning then
-                          P.ReasoningDelta(s"${block}", text)
-                        else
-                          P.TextDelta(s"${block}", text)
-                      )
+                    out += (
+                      if kind == Open.Reasoning then
+                        P.ReasoningDelta(s"${block}", text)
+                      else
+                        P.TextDelta(s"${block}", text)
+                    )
                   s.foreach(x => sig = Some(x))
               case Part.FunctionCall(name, args, id, s, _, _) =>
                 out ++= close()
@@ -502,16 +527,19 @@ object GeminiConverter:
   class StreamEncoder(model: String = ""):
     import LlmStreamPart as P
 
-    private var responseId          = ""
-    private var modelVersion        = model
-    private var toolId              = ""
-    private var toolName            = ""
-    private var toolMeta            = ProviderMetadata.empty
-    private val args                = StringBuilder()
-    private var finished            = false
+    private var responseId   = ""
+    private var modelVersion = model
+    private var toolId       = ""
+    private var toolName     = ""
+    private var toolMeta     = ProviderMetadata.empty
+    private val args         = StringBuilder()
+    private var finished     = false
 
-    private def chunk(parts: Seq[Part], finish: Option[String] = None, usage: Option[UsageMetadata] = None)
-        : GenerateContentResponse = GenerateContentResponse(
+    private def chunk(
+        parts: Seq[Part],
+        finish: Option[String] = None,
+        usage: Option[UsageMetadata] = None
+    ): GenerateContentResponse = GenerateContentResponse(
       candidates = Seq(Candidate(Some(Content(Some("model"), parts)), finish, Some(0))),
       usageMetadata = usage,
       modelVersion = Some(modelVersion).filter(_.nonEmpty),

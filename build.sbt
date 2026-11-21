@@ -756,6 +756,7 @@ lazy val docSnippets = project
                 base / "docs/core/canvas.md"                -> "snippets.core",
                 base / "docs/core/object-storage.md"        -> "snippets.core",
                 base / "docs/text/parquet.md"               -> "snippets.text",
+                base / "docs/ai"                            -> "snippets.ai",
                 base / "docs/blog"                          -> "snippets.blog"
               ),
               base,
@@ -767,7 +768,7 @@ lazy val docSnippets = project
         }
         .taskValue
   )
-  .dependsOn(uni.jvm, parquet.jvm, netty, test.jvm % Test)
+  .dependsOn(uni.jvm, parquet.jvm, ai.jvm, netty, test.jvm % Test)
 
 // The Scala.js counterpart of docSnippets: compile-checks the snippets of the UI pages (uni-dom and
 // uni-ui) against uni.js and uni-ui. Stubs live in docs/snippets-js/src/test/scala. Snippets are

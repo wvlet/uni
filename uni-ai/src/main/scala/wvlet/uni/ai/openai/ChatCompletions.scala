@@ -22,8 +22,11 @@ object ChatContentPart:
   case class ImageUrl(url: String, detail: Option[String] = None) extends ChatContentPart
 
   /** A file by id or as a `data:` URL in `fileData` */
-  case class File(fileId: Option[String] = None, fileData: Option[String] = None, filename: Option[String] = None)
-      extends ChatContentPart
+  case class File(
+      fileId: Option[String] = None,
+      fileData: Option[String] = None,
+      filename: Option[String] = None
+  ) extends ChatContentPart
 
   case class Refusal(refusal: String) extends ChatContentPart
   case class Unknown(raw: JSONObject) extends ChatContentPart
@@ -41,7 +44,13 @@ object ChatContentPart:
         Json.obj(
           Json.field("type", "file"),
           "file" ->
-            Some(Json.obj(Json.opt("file_id", id), Json.opt("file_data", data), Json.opt("filename", name)))
+            Some(
+              Json.obj(
+                Json.opt("file_id", id),
+                Json.opt("file_data", data),
+                Json.opt("filename", name)
+              )
+            )
         )
       case Refusal(r) =>
         Json.obj(Json.field("type", "refusal"), Json.field("refusal", r))
@@ -67,7 +76,9 @@ object ChatContentPart:
 
 end ChatContentPart
 
-/** A tool call of an assistant message: `{"id", "type": "function", "function": {name, arguments}}` */
+/**
+  * A tool call of an assistant message: `{"id", "type": "function", "function": {name, arguments}}`
+  */
 case class ChatToolCall(id: String, name: String, arguments: String)
 
 object ChatToolCall:
@@ -76,7 +87,8 @@ object ChatToolCall:
       Seq(
         Json.field("id", c.id),
         Json.field("type", "function"),
-        "function" -> Some(Json.obj(Json.field("name", c.name), Json.field("arguments", c.arguments)))
+        "function" ->
+          Some(Json.obj(Json.field("name", c.name), Json.field("arguments", c.arguments)))
       ),
     o =>
       val f = o.obj("function")
@@ -215,7 +227,12 @@ object ChatTool:
       ),
     o =>
       val f = o.obj("function")
-      ChatTool(f.str("name"), f.opt[JSONValue]("parameters"), f.strOpt("description"), f.opt[Boolean]("strict"))
+      ChatTool(
+        f.str("name"),
+        f.opt[JSONValue]("parameters"),
+        f.strOpt("description"),
+        f.opt[Boolean]("strict")
+      )
   )
 
 /**
@@ -241,13 +258,13 @@ case class ChatCompletionRequest(
     user: Option[String] = None,
     extra: Map[String, JSONValue] = Map.empty
 ):
-  def withModel(m: String): ChatCompletionRequest                 = copy(model = m)
-  def withMessages(m: Seq[ChatMessage]): ChatCompletionRequest    = copy(messages = m)
-  def withTools(t: Seq[ChatTool]): ChatCompletionRequest          = copy(tools = t)
-  def withToolChoice(c: ToolChoice): ChatCompletionRequest        = copy(toolChoice = Some(c))
-  def withMaxCompletionTokens(n: Int): ChatCompletionRequest      = copy(maxCompletionTokens = Some(n))
-  def withTemperature(t: Double): ChatCompletionRequest           = copy(temperature = Some(t))
-  def withReasoningEffort(e: String): ChatCompletionRequest       = copy(reasoningEffort = Some(e))
+  def withModel(m: String): ChatCompletionRequest              = copy(model = m)
+  def withMessages(m: Seq[ChatMessage]): ChatCompletionRequest = copy(messages = m)
+  def withTools(t: Seq[ChatTool]): ChatCompletionRequest       = copy(tools = t)
+  def withToolChoice(c: ToolChoice): ChatCompletionRequest     = copy(toolChoice = Some(c))
+  def withMaxCompletionTokens(n: Int): ChatCompletionRequest   = copy(maxCompletionTokens = Some(n))
+  def withTemperature(t: Double): ChatCompletionRequest        = copy(temperature = Some(t))
+  def withReasoningEffort(e: String): ChatCompletionRequest    = copy(reasoningEffort = Some(e))
 
   /** Stream, and ask for a final usage chunk (`stream_options.include_usage`) */
   def withStream(enabled: Boolean): ChatCompletionRequest = copy(
@@ -260,6 +277,8 @@ case class ChatCompletionRequest(
   )
 
   def withExtra(key: String, v: JSONValue): ChatCompletionRequest = copy(extra = extra + (key -> v))
+
+end ChatCompletionRequest
 
 object ChatCompletionRequest:
   private val known = Set(
@@ -351,7 +370,8 @@ object ChatUsage:
         Json.field("prompt_tokens", u.promptTokens),
         Json.field("completion_tokens", u.completionTokens),
         Json.field("total_tokens", u.totalTokens),
-        "prompt_tokens_details" -> u.cachedTokens.map(c => Json.obj(Json.field("cached_tokens", c))),
+        "prompt_tokens_details" ->
+          u.cachedTokens.map(c => Json.obj(Json.field("cached_tokens", c))),
         "completion_tokens_details" ->
           u.reasoningTokens.map(r => Json.obj(Json.field("reasoning_tokens", r)))
       ),
@@ -384,7 +404,12 @@ object ChatChoice:
         Json.field("message", c.message),
         "finish_reason" -> Some(c.finishReason.map(JSONString(_)).getOrElse(JSONNull()))
       ),
-    o => ChatChoice(o.getOrElse[Int]("index", 0), o.get[ChatMessage]("message"), o.strOpt("finish_reason"))
+    o =>
+      ChatChoice(
+        o.getOrElse[Int]("index", 0),
+        o.get[ChatMessage]("message"),
+        o.strOpt("finish_reason")
+      )
   )
 
 case class ChatCompletion(
@@ -441,7 +466,7 @@ object ChatToolCallDelta:
       Seq(
         Json.field("index", d.index),
         Json.opt("id", d.id),
-        "type" -> d.id.map(_ => JSONString("function")),
+        "type"     -> d.id.map(_ => JSONString("function")),
         "function" -> Some(Json.obj(Json.opt("name", d.name), Json.opt("arguments", d.arguments)))
       ),
     o =>
@@ -511,7 +536,9 @@ case class ChatCompletionChunk(
     created: Long = 0,
     usage: Option[ChatUsage] = None
 ):
-  def toServerSentEvent: ServerSentEvent = ServerSentEvent(data = JsonCodec[ChatCompletionChunk].toJson(this))
+  def toServerSentEvent: ServerSentEvent = ServerSentEvent(data =
+    JsonCodec[ChatCompletionChunk].toJson(this)
+  )
 
 object ChatCompletionChunk:
   given JsonCodec[ChatCompletionChunk] = JsonCodec.obj(

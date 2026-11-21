@@ -24,7 +24,10 @@ object Role:
     .find(_.name == s)
     .getOrElse(throw JsonCodecException(s"Unknown role: ${s}"))
 
-  given JsonCodec[Role] = JsonCodec.of(r => JSONString(r.name), v => of(JsonCodec[String].decode(v)))
+  given JsonCodec[Role] = JsonCodec.of(
+    r => JSONString(r.name),
+    v => of(JsonCodec[String].decode(v))
+  )
 
 /** Prompt-caching breakpoint, `{"type": "ephemeral", "ttl": "5m" | "1h"}` */
 case class CacheControl(`type`: String = "ephemeral", ttl: Option[String] = None)
@@ -41,11 +44,11 @@ object CacheControl:
 sealed trait Source
 
 object Source:
-  case class Base64(mediaType: String, data: String) extends Source
-  case class Url(url: String)                        extends Source
-  case class File(fileId: String)                    extends Source
+  case class Base64(mediaType: String, data: String)              extends Source
+  case class Url(url: String)                                     extends Source
+  case class File(fileId: String)                                 extends Source
   case class Text(data: String, mediaType: String = "text/plain") extends Source
-  case class Unknown(raw: JSONObject)                extends Source
+  case class Unknown(raw: JSONObject)                             extends Source
 
   given JsonCodec[Source] = JsonCodec.of(
     {
@@ -244,6 +247,7 @@ object ContentBlock:
         )
       case _ =>
         Unknown(o.value)
+    end match
 
   end decode
 
@@ -263,11 +267,12 @@ end ContentBlock
 
 case class Message(role: Role, content: Seq[ContentBlock]):
   /** The concatenated text of the Text blocks */
-  def text: String = content
-    .collect { case ContentBlock.Text(t, _, _) =>
-      t
-    }
-    .mkString
+  def text: String =
+    content
+      .collect { case ContentBlock.Text(t, _, _) =>
+        t
+      }
+      .mkString
 
 object Message:
   def user(text: String): Message      = Message(Role.User, Seq(ContentBlock.Text(text)))
@@ -400,20 +405,22 @@ case class MessagesRequest(
     serviceTier: Option[String] = None,
     extra: Map[String, JSONValue] = Map.empty
 ):
-  def withModel(m: String): MessagesRequest                = copy(model = m)
-  def withMaxTokens(n: Int): MessagesRequest               = copy(maxTokens = n)
-  def withMessages(m: Seq[Message]): MessagesRequest       = copy(messages = m)
-  def withSystem(text: String): MessagesRequest            = copy(system = Seq(ContentBlock.Text(text)))
-  def withTools(t: Seq[Tool]): MessagesRequest             = copy(tools = t)
-  def withToolChoice(c: ToolChoice): MessagesRequest       = copy(toolChoice = Some(c))
-  def noToolChoice(): MessagesRequest                      = copy(toolChoice = None)
-  def withThinking(t: ThinkingConfig): MessagesRequest     = copy(thinking = Some(t))
-  def noThinking(): MessagesRequest                        = copy(thinking = None)
-  def withTemperature(t: Double): MessagesRequest          = copy(temperature = Some(t))
-  def noTemperature(): MessagesRequest                     = copy(temperature = None)
-  def withStream(enabled: Boolean): MessagesRequest        = copy(stream = Some(enabled))
-  def withStopSequences(s: Seq[String]): MessagesRequest   = copy(stopSequences = s)
+  def withModel(m: String): MessagesRequest            = copy(model = m)
+  def withMaxTokens(n: Int): MessagesRequest           = copy(maxTokens = n)
+  def withMessages(m: Seq[Message]): MessagesRequest   = copy(messages = m)
+  def withSystem(text: String): MessagesRequest        = copy(system = Seq(ContentBlock.Text(text)))
+  def withTools(t: Seq[Tool]): MessagesRequest         = copy(tools = t)
+  def withToolChoice(c: ToolChoice): MessagesRequest   = copy(toolChoice = Some(c))
+  def noToolChoice(): MessagesRequest                  = copy(toolChoice = None)
+  def withThinking(t: ThinkingConfig): MessagesRequest = copy(thinking = Some(t))
+  def noThinking(): MessagesRequest                    = copy(thinking = None)
+  def withTemperature(t: Double): MessagesRequest      = copy(temperature = Some(t))
+  def noTemperature(): MessagesRequest                 = copy(temperature = None)
+  def withStream(enabled: Boolean): MessagesRequest    = copy(stream = Some(enabled))
+  def withStopSequences(s: Seq[String]): MessagesRequest    = copy(stopSequences = s)
   def withExtra(key: String, v: JSONValue): MessagesRequest = copy(extra = extra + (key -> v))
+
+end MessagesRequest
 
 object MessagesRequest:
   private val known = Set(
@@ -602,14 +609,14 @@ object ErrorDetail:
   )
 
   /** Error types and the HTTP status each one is returned with */
-  val InvalidRequest: String = "invalid_request_error" // 400
-  val Authentication: String = "authentication_error"  // 401
-  val Permission: String     = "permission_error"      // 403
-  val NotFound: String       = "not_found_error"       // 404
-  val RequestTooLarge: String = "request_too_large"    // 413
-  val RateLimit: String      = "rate_limit_error"      // 429
-  val Api: String            = "api_error"             // 500
-  val Overloaded: String     = "overloaded_error"      // 529
+  val InvalidRequest: String  = "invalid_request_error" // 400
+  val Authentication: String  = "authentication_error"  // 401
+  val Permission: String      = "permission_error"      // 403
+  val NotFound: String        = "not_found_error"       // 404
+  val RequestTooLarge: String = "request_too_large"     // 413
+  val RateLimit: String       = "rate_limit_error"      // 429
+  val Api: String             = "api_error"             // 500
+  val Overloaded: String      = "overloaded_error"      // 529
 
   def httpStatusOf(errorType: String): Int =
     errorType match

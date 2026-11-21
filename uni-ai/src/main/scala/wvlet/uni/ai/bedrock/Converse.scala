@@ -56,7 +56,9 @@ object ContentBlock:
       case Image(f, b) =>
         Json.obj(
           "image" ->
-            Some(Json.obj(Json.field("format", f), "source" -> Some(Json.obj(Json.field("bytes", b)))))
+            Some(
+              Json.obj(Json.field("format", f), "source" -> Some(Json.obj(Json.field("bytes", b))))
+            )
         )
       case Document(f, n, b) =>
         Json.obj(
@@ -72,7 +74,13 @@ object ContentBlock:
       case ToolUse(id, name, input) =>
         Json.obj(
           "toolUse" ->
-            Some(Json.obj(Json.field("toolUseId", id), Json.field("name", name), Json.field("input", input)))
+            Some(
+              Json.obj(
+                Json.field("toolUseId", id),
+                Json.field("name", name),
+                Json.field("input", input)
+              )
+            )
         )
       case ToolResult(id, content, status) =>
         Json.obj(
@@ -117,7 +125,11 @@ object ContentBlock:
         )
       else if o.has("toolUse") then
         val t = o.obj("toolUse")
-        ToolUse(t.str("toolUseId"), t.str("name"), t.getOrElse[JSONValue]("input", JSONObject.empty))
+        ToolUse(
+          t.str("toolUseId"),
+          t.str("name"),
+          t.getOrElse[JSONValue]("input", JSONObject.empty)
+        )
       else if o.has("toolResult") then
         val t = o.obj("toolResult")
         ToolResult(t.str("toolUseId"), t.seq[JSONValue]("content"), t.strOpt("status"))
@@ -133,16 +145,18 @@ object ContentBlock:
         CachePoint
       else
         Unknown(o.value)
+      end if
   )
 
 end ContentBlock
 
 case class Message(role: String, content: Seq[ContentBlock]):
-  def text: String = content
-    .collect { case ContentBlock.Text(t) =>
-      t
-    }
-    .mkString
+  def text: String =
+    content
+      .collect { case ContentBlock.Text(t) =>
+        t
+      }
+      .mkString
 
 object Message:
   def user(text: String): Message = Message("user", Seq(ContentBlock.Text(text)))
@@ -156,9 +170,11 @@ object Message:
 sealed trait Tool
 
 object Tool:
-  case class Spec(name: String, inputSchema: JSONValue, description: Option[String] = None) extends Tool
-  case object CachePoint                                                                       extends Tool
-  case class Unknown(raw: JSONObject)                                                          extends Tool
+  case class Spec(name: String, inputSchema: JSONValue, description: Option[String] = None)
+      extends Tool
+
+  case object CachePoint              extends Tool
+  case class Unknown(raw: JSONObject) extends Tool
 
   given JsonCodec[Tool] = JsonCodec.of(
     {
@@ -264,11 +280,11 @@ case class ConverseRequest(
     additionalModelRequestFields: Option[JSONValue] = None,
     extra: Map[String, JSONValue] = Map.empty
 ):
-  def withMessages(m: Seq[Message]): ConverseRequest            = copy(messages = m)
-  def withSystem(text: String): ConverseRequest                 = copy(system = Seq(ContentBlock.Text(text)))
-  def withInferenceConfig(c: InferenceConfig): ConverseRequest  = copy(inferenceConfig = Some(c))
-  def withTools(t: Seq[Tool]): ConverseRequest                  = copy(tools = t)
-  def withToolChoice(c: ToolChoice): ConverseRequest            = copy(toolChoice = Some(c))
+  def withMessages(m: Seq[Message]): ConverseRequest = copy(messages = m)
+  def withSystem(text: String): ConverseRequest      = copy(system = Seq(ContentBlock.Text(text)))
+  def withInferenceConfig(c: InferenceConfig): ConverseRequest = copy(inferenceConfig = Some(c))
+  def withTools(t: Seq[Tool]): ConverseRequest                 = copy(tools = t)
+  def withToolChoice(c: ToolChoice): ConverseRequest           = copy(toolChoice = Some(c))
   def withAdditionalModelRequestFields(v: JSONValue): ConverseRequest = copy(
     additionalModelRequestFields = Some(v)
   )
@@ -290,13 +306,12 @@ object ConverseRequest:
         Json.field("messages", r.messages),
         Json.nonEmpty("system", r.system),
         Json.opt("inferenceConfig", r.inferenceConfig),
-        "toolConfig" ->
-          (
-            if r.tools.isEmpty then
-              None
-            else
-              Some(Json.obj(Json.field("tools", r.tools), Json.opt("toolChoice", r.toolChoice)))
-          ),
+        "toolConfig" -> (
+          if r.tools.isEmpty then
+            None
+          else
+            Some(Json.obj(Json.field("tools", r.tools), Json.opt("toolChoice", r.toolChoice)))
+        ),
         Json.opt("additionalModelRequestFields", r.additionalModelRequestFields)
       ) ++ Json.extra(r.extra),
     o =>
@@ -316,12 +331,12 @@ end ConverseRequest
 
 /** Values of `stopReason` */
 object StopReason:
-  val EndTurn: String             = "end_turn"
-  val ToolUse: String             = "tool_use"
-  val MaxTokens: String           = "max_tokens"
-  val StopSequence: String        = "stop_sequence"
-  val GuardrailIntervened: String = "guardrail_intervened"
-  val ContentFiltered: String     = "content_filtered"
+  val EndTurn: String                    = "end_turn"
+  val ToolUse: String                    = "tool_use"
+  val MaxTokens: String                  = "max_tokens"
+  val StopSequence: String               = "stop_sequence"
+  val GuardrailIntervened: String        = "guardrail_intervened"
+  val ContentFiltered: String            = "content_filtered"
   val ModelContextWindowExceeded: String = "model_context_window_exceeded"
 
 /** Token usage. `inputTokens` excludes the cache read and write counts. */
@@ -389,8 +404,8 @@ object ConverseResponse:
   )
 
 /**
-  * An event of ConverseStream. Bedrock sends these as AWS event-stream frames whose
-  * `:event-type` header names the event; see [[EventStreamDecoder]].
+  * An event of ConverseStream. Bedrock sends these as AWS event-stream frames whose `:event-type`
+  * header names the event; see [[EventStreamDecoder]].
   */
 sealed trait ConverseStreamEvent
 
@@ -416,8 +431,10 @@ object ConverseStreamEvent:
 
   case class ContentBlockStop(contentBlockIndex: Int) extends ConverseStreamEvent
 
-  case class MessageStop(stopReason: String, additionalModelResponseFields: Option[JSONValue] = None)
-      extends ConverseStreamEvent
+  case class MessageStop(
+      stopReason: String,
+      additionalModelResponseFields: Option[JSONValue] = None
+  ) extends ConverseStreamEvent
 
   /** Usage and metrics; sent after [[MessageStop]] */
   case class Metadata(usage: TokenUsage, extra: Map[String, JSONValue] = Map.empty)
@@ -441,7 +458,9 @@ object ConverseStreamEvent:
               Some(
                 Json.obj(
                   "toolUse" ->
-                    tool.map((id, name) => Json.obj(Json.field("toolUseId", id), Json.field("name", name)))
+                    tool.map((id, name) =>
+                      Json.obj(Json.field("toolUseId", id), Json.field("name", name))
+                    )
                 )
               )
           )
@@ -468,7 +487,10 @@ object ConverseStreamEvent:
         "contentBlockStop" -> Json.obj(Json.field("contentBlockIndex", i))
       case MessageStop(reason, fields) =>
         "messageStop" ->
-          Json.obj(Json.field("stopReason", reason), Json.opt("additionalModelResponseFields", fields))
+          Json.obj(
+            Json.field("stopReason", reason),
+            Json.opt("additionalModelResponseFields", fields)
+          )
       case Metadata(usage, extra) =>
         "metadata" -> Json.obj((Json.field("usage", usage) +: Json.extra(extra))*)
       case Exception(t, msg) =>
@@ -477,9 +499,7 @@ object ConverseStreamEvent:
         t -> payload
 
   def decode(eventType: String, payload: JSONValue): ConverseStreamEvent =
-    val o = JsonObj
-      .unapply(payload)
-      .getOrElse(JsonObj(JSONObject.empty))
+    val o = JsonObj.unapply(payload).getOrElse(JsonObj(JSONObject.empty))
     eventType match
       case "messageStart" =>
         MessageStart(o.getOrElse("role", "assistant"))
@@ -516,8 +536,14 @@ object ConverseStreamEvent:
     frame.messageType match
       case "exception" | "error" =>
         val payload = Json.parseOrString(frame.payloadString)
-        val message = JsonObj.unapply(payload).flatMap(_.strOpt("message")).getOrElse(frame.payloadString)
-        Exception(frame.exceptionType.orElse(frame.header(":error-code")).getOrElse("unknown"), message)
+        val message = JsonObj
+          .unapply(payload)
+          .flatMap(_.strOpt("message"))
+          .getOrElse(frame.payloadString)
+        Exception(
+          frame.exceptionType.orElse(frame.header(":error-code")).getOrElse("unknown"),
+          message
+        )
       case _ =>
         decode(frame.eventType.getOrElse(""), Json.parseOrString(frame.payloadString))
 
@@ -525,12 +551,12 @@ end ConverseStreamEvent
 
 /** Folds ConverseStream events into a [[ConverseResponse]] */
 class ConverseAccumulator:
-  private var role                       = "assistant"
-  private val blocks                     = mutable.TreeMap.empty[Int, ContentBlock]
-  private val toolInput                  = mutable.Map.empty[Int, StringBuilder]
-  private var stopReason                 = ""
-  private var usage                      = TokenUsage()
-  private var extra                      = Map.empty[String, JSONValue]
+  private var role       = "assistant"
+  private val blocks     = mutable.TreeMap.empty[Int, ContentBlock]
+  private val toolInput  = mutable.Map.empty[Int, StringBuilder]
+  private var stopReason = ""
+  private var usage      = TokenUsage()
+  private var extra      = Map.empty[String, JSONValue]
 
   def add(e: ConverseStreamEvent): Unit =
     import ConverseStreamEvent.*
@@ -550,7 +576,9 @@ class ConverseAccumulator:
                 blocks(i) = ContentBlock.Text(t)
           }
         d.toolUseInput.foreach(s => toolInput.getOrElseUpdate(i, StringBuilder()).append(s))
-        if d.reasoningText.isDefined || d.reasoningSignature.isDefined || d.redactedContent.isDefined then
+        if d.reasoningText.isDefined || d.reasoningSignature.isDefined ||
+          d.redactedContent.isDefined
+        then
           val prev =
             blocks.get(i) match
               case Some(r: ContentBlock.Reasoning) =>
@@ -587,6 +615,11 @@ class ConverseAccumulator:
 
   end add
 
-  def result: ConverseResponse = ConverseResponse(Message(role, blocks.values.toSeq), stopReason, usage, extra)
+  def result: ConverseResponse = ConverseResponse(
+    Message(role, blocks.values.toSeq),
+    stopReason,
+    usage,
+    extra
+  )
 
 end ConverseAccumulator

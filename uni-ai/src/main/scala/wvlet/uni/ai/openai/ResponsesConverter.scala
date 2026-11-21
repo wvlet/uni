@@ -10,9 +10,8 @@ import scala.collection.mutable
   * Converts OpenAI Responses types to and from the vendor-neutral model.
   *
   * Reasoning items keep their id and `encrypted_content` in `providerMetadata("openai")`. Signed
-  * reasoning of another vendor (an Anthropic thinking signature) is carried in
-  * `encrypted_content` with a [[LlmConvert.Carrier]] prefix, so a stateless Responses client
-  * returns it unchanged.
+  * reasoning of another vendor (an Anthropic thinking signature) is carried in `encrypted_content`
+  * with a [[LlmConvert.Carrier]] prefix, so a stateless Responses client returns it unchanged.
   */
 object ResponsesConverter:
   private val vendor = ProviderMetadata.OpenAI
@@ -23,9 +22,9 @@ object ResponsesConverter:
   // ---------------------------------------------------------------- request
 
   def toLlmRequest(r: ResponsesRequest): LlmRequest =
-    val system   = Seq.newBuilder[LlmPart.Text]
+    val system = Seq.newBuilder[LlmPart.Text]
     r.instructions.foreach(i => system += LlmPart.Text(i))
-    val messages = mutable.ArrayBuffer.empty[LlmMessage]
+    val messages                             = mutable.ArrayBuffer.empty[LlmMessage]
     def add(role: LlmRole, p: LlmPart): Unit =
       messages.lastOption match
         case Some(last) if last.role == role =>
@@ -36,7 +35,14 @@ object ResponsesConverter:
     r.input
       .foreach {
         case Item.Message(role @ ("system" | "developer"), content, _, _) =>
-          system += LlmPart.Text(content.collect { case ContentPart.InputText(t) => t }.mkString)
+          system +=
+            LlmPart.Text(
+              content
+                .collect { case ContentPart.InputText(t) =>
+                  t
+                }
+                .mkString
+            )
         case Item.Message(role, content, _, _) =>
           val r =
             if role == "assistant" then
@@ -62,13 +68,13 @@ object ResponsesConverter:
           add(LlmRole.Assistant, LlmPart.Raw(vendor, raw))
       }
 
-    val extra = r.extra ++
-      r.store.map(b => "store" -> JSONBoolean(b)) ++
-      r.previousResponseId.map(x => "previous_response_id" -> JSONString(x)) ++
-      Option.when(r.include.nonEmpty)("include" -> JsonCodec[Seq[String]].encode(r.include)) ++
-      r.metadata.map("metadata" -> _) ++
-      r.serviceTier.map(x => "service_tier" -> JSONString(x)) ++
-      r.promptCacheKey.map(x => "prompt_cache_key" -> JSONString(x))
+    val extra =
+      r.extra ++ r.store.map(b => "store" -> JSONBoolean(b)) ++
+        r.previousResponseId.map(x => "previous_response_id" -> JSONString(x)) ++
+        Option.when(r.include.nonEmpty)("include" -> JsonCodec[Seq[String]].encode(r.include)) ++
+        r.metadata.map("metadata" -> _) ++
+        r.serviceTier.map(x => "service_tier" -> JSONString(x)) ++
+        r.promptCacheKey.map(x => "prompt_cache_key" -> JSONString(x))
 
     LlmRequest(
       model = r.model,
@@ -83,7 +89,12 @@ object ResponsesConverter:
       reasoning = r
         .reasoning
         .flatMap(_.effort)
-        .map(e => ReasoningOptions(effort = Some(e), includeThoughts = r.reasoning.exists(_.summary.isDefined))),
+        .map(e =>
+          ReasoningOptions(
+            effort = Some(e),
+            includeThoughts = r.reasoning.exists(_.summary.isDefined)
+          )
+        ),
       stream = r.stream.contains(true),
       providerOptions = LlmConvert.providerOptionsOf(vendor, extra)
     )
@@ -212,10 +223,7 @@ object ResponsesConverter:
         .reasoning
         .filter(_ => hasReasoning)
         .map(o =>
-          ReasoningConfig(
-            Some(o.effortLevel),
-            Some("auto").filter(_ => o.includeThoughts)
-          )
+          ReasoningConfig(Some(o.effortLevel), Some("auto").filter(_ => o.includeThoughts))
         ),
       stream =
         if r.stream then
@@ -267,7 +275,12 @@ object ResponsesConverter:
         fromLlmReasoning(r)
       case LlmPart.ToolCall(id, name, input, _, md) =>
         Some(
-          Item.FunctionCall(id, name, LlmConvert.toolInputString(input), md.string(vendor, "itemId"))
+          Item.FunctionCall(
+            id,
+            name,
+            LlmConvert.toolInputString(input),
+            md.string(vendor, "itemId")
+          )
         )
       case r: LlmPart.ToolResult =>
         Some(Item.FunctionCallOutput(r.id, JSONString(LlmConvert.toolOutputText(r.output))))
@@ -281,7 +294,13 @@ object ResponsesConverter:
     (r.providerMetadata.get(vendor), r.signature, r.redactedData) match
       case (Some(md), _, _) =>
         val o = JsonObj(md)
-        Some(Item.Reasoning(o.strOrEmpty("itemId"), summary, encryptedContent = o.strOpt("encryptedContent")))
+        Some(
+          Item.Reasoning(
+            o.strOrEmpty("itemId"),
+            summary,
+            encryptedContent = o.strOpt("encryptedContent")
+          )
+        )
       case (None, sig, red) if sig.isDefined || red.isDefined =>
         val data = Json.obj(Json.opt("signature", sig), Json.opt("redactedData", red))
         Some(
@@ -310,12 +329,14 @@ object ResponsesConverter:
       case ResponseStatus.Completed =>
         if r.functionCalls.nonEmpty then
           FinishReason.toolCalls
-        else if r.output.exists {
-            case m: Item.Message =>
-              m.content.exists(_.isInstanceOf[ContentPart.Refusal])
-            case _ =>
-              false
-          }
+        else if r
+            .output
+            .exists {
+              case m: Item.Message =>
+                m.content.exists(_.isInstanceOf[ContentPart.Refusal])
+              case _ =>
+                false
+            }
         then
           FinishReason(FinishReason.Kind.ContentFilter, Some("refusal"))
         else
@@ -386,7 +407,8 @@ object ResponsesConverter:
               case _ =>
                 output += m.copy(id = Some(s"msg_${output.length}"), status = Some("completed"))
           case f: Item.FunctionCall =>
-            output += f.copy(id = f.id.orElse(Some(s"fc_${output.length}")), status = Some("completed"))
+            output +=
+              f.copy(id = f.id.orElse(Some(s"fc_${output.length}")), status = Some("completed"))
           case other =>
             output += other
         }
@@ -399,9 +421,10 @@ object ResponsesConverter:
       createdAt = createdAt,
       usage = Some(fromLlmUsage(r.usage)),
       incompleteReason = incomplete,
-      error = Option.when(status == ResponseStatus.Failed)(
-        ResponseError(r.finishReason.raw.getOrElse("error"), Some("server_error"))
-      )
+      error =
+        Option.when(status == ResponseStatus.Failed)(
+          ResponseError(r.finishReason.raw.getOrElse("error"), Some("server_error"))
+        )
     )
 
   end fromLlmResponse
@@ -447,7 +470,7 @@ object ResponsesConverter:
           item match
             case f: Item.FunctionCall =>
               val itemId = f.id.getOrElse(f.callId)
-              val pre =
+              val pre    =
                 if argsSeen.contains(itemId) || f.arguments.isEmpty then
                   Nil
                 else
@@ -481,7 +504,7 @@ object ResponsesConverter:
           else if t == E.ReasoningSummaryDelta then
             // Separate summary parts with a blank line
             val prev = summarySeen.getOrElseUpdate(itemId, i)
-            val sep =
+            val sep  =
               if prev != i then
                 summarySeen(itemId) = i
                 "\n\n"
@@ -515,29 +538,23 @@ object ResponsesConverter:
     import ResponseStreamEvent as E
     import LlmStreamPart as P
 
-    private var seq                   = 0L
-    private var started               = false
-    private var finished              = false
-    private var id                    = responseId
-    private var modelName             = model
-    private var outputIndex           = -1
-    private var itemId                = ""
-    private var callId                = ""
-    private var toolName              = ""
-    private val text                  = StringBuilder()
-    private val acc                   = LlmStreamAccumulator()
+    private var seq         = 0L
+    private var started     = false
+    private var finished    = false
+    private var id          = responseId
+    private var modelName   = model
+    private var outputIndex = -1
+    private var itemId      = ""
+    private var callId      = ""
+    private var toolName    = ""
+    private val text        = StringBuilder()
+    private val acc         = LlmStreamAccumulator()
 
     private def next(): Long =
       seq += 1
       seq - 1
 
-    private def response(status: String): Response = Response(
-      id,
-      modelName,
-      Nil,
-      status,
-      createdAt
-    )
+    private def response(status: String): Response = Response(id, modelName, Nil, status, createdAt)
 
     private def ensureStarted(): Seq[ResponseStreamEvent] =
       if started then
@@ -599,7 +616,12 @@ object ResponsesConverter:
               E.OutputItem(
                 "response.output_item.done",
                 outputIndex,
-                Item.Message("assistant", Seq(ContentPart.OutputText(t)), Some(itemId), Some("completed")),
+                Item.Message(
+                  "assistant",
+                  Seq(ContentPart.OutputText(t)),
+                  Some(itemId),
+                  Some("completed")
+                ),
                 next()
               )
             )

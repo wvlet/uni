@@ -7,8 +7,8 @@ import scala.collection.mutable
 
 /**
   * Converts OpenAI Chat Completions types to and from the vendor-neutral model. Chat Completions
-  * has no place for reasoning signatures or cache breakpoints, so those are dropped; reasoning
-  * text maps to `reasoning_content`, as vLLM and other compatible servers use it.
+  * has no place for reasoning signatures or cache breakpoints, so those are dropped; reasoning text
+  * maps to `reasoning_content`, as vLLM and other compatible servers use it.
   */
 object ChatCompletionsConverter:
   private val vendor = ProviderMetadata.OpenAI
@@ -16,8 +16,8 @@ object ChatCompletionsConverter:
   // ---------------------------------------------------------------- request
 
   def toLlmRequest(r: ChatCompletionRequest): LlmRequest =
-    val system   = Seq.newBuilder[LlmPart.Text]
-    val messages = mutable.ArrayBuffer.empty[LlmMessage]
+    val system                                        = Seq.newBuilder[LlmPart.Text]
+    val messages                                      = mutable.ArrayBuffer.empty[LlmMessage]
     def add(role: LlmRole, parts: Seq[LlmPart]): Unit =
       if parts.nonEmpty then
         messages.lastOption match
@@ -36,7 +36,8 @@ object ChatCompletionsConverter:
               LlmRole.Assistant,
               m.reasoningContent.filter(_.nonEmpty).map(LlmPart.Reasoning(_)).toSeq ++
                 contentParts(m.content) ++
-                m.toolCalls.map(c => LlmPart.ToolCall(c.id, c.name, LlmConvert.parseToolInput(c.arguments)))
+                m.toolCalls
+                  .map(c => LlmPart.ToolCall(c.id, c.name, LlmConvert.parseToolInput(c.arguments)))
             )
           case "tool" =>
             add(
@@ -52,7 +53,15 @@ object ChatCompletionsConverter:
       model = r.model,
       messages = messages.toSeq,
       system = system.result(),
-      tools = r.tools.map(t => LlmTool.Function(t.name, t.parameters.getOrElse(Json.obj(Json.field("type", "object"))), t.description)),
+      tools = r
+        .tools
+        .map(t =>
+          LlmTool.Function(
+            t.name,
+            t.parameters.getOrElse(Json.obj(Json.field("type", "object"))),
+            t.description
+          )
+        ),
       toolChoice = r.toolChoice.flatMap(ResponsesConverter.toLlmToolChoice),
       parallelToolCalls = r.parallelToolCalls,
       maxOutputTokens = r.maxCompletionTokens.orElse(r.maxTokens),
@@ -98,7 +107,12 @@ object ChatCompletionsConverter:
       .foreach { m =>
         m.role match
           case LlmRole.Assistant =>
-            val text  = m.parts.collect { case LlmPart.Text(t, _) => t }.mkString
+            val text =
+              m.parts
+                .collect { case LlmPart.Text(t, _) =>
+                  t
+                }
+                .mkString
             val calls = m
               .parts
               .collect { case LlmPart.ToolCall(id, name, input, false, _) =>
@@ -107,7 +121,9 @@ object ChatCompletionsConverter:
             msgs +=
               ChatMessage(
                 "assistant",
-                content = Some(ChatMessage.Content.Text(text)).filter(_ => text.nonEmpty || calls.isEmpty),
+                content = Some(ChatMessage.Content.Text(text)).filter(_ =>
+                  text.nonEmpty || calls.isEmpty
+                ),
                 toolCalls = calls
               )
           case LlmRole.Tool =>
@@ -226,13 +242,15 @@ object ChatCompletionsConverter:
   def toLlmResponse(c: ChatCompletion): LlmResponse =
     val choice = c.choices.headOption
     val m      = choice.map(_.message)
-    val parts  =
-      m.toSeq
-        .flatMap { msg =>
-          msg.reasoningContent.filter(_.nonEmpty).map(LlmPart.Reasoning(_)).toSeq ++
-            contentParts(msg.content) ++ msg.refusal.map(LlmPart.Text(_)) ++
-            msg.toolCalls.map(t => LlmPart.ToolCall(t.id, t.name, LlmConvert.parseToolInput(t.arguments)))
-        }
+    val parts  = m
+      .toSeq
+      .flatMap { msg =>
+        msg.reasoningContent.filter(_.nonEmpty).map(LlmPart.Reasoning(_)).toSeq ++
+          contentParts(msg.content) ++ msg.refusal.map(LlmPart.Text(_)) ++
+          msg
+            .toolCalls
+            .map(t => LlmPart.ToolCall(t.id, t.name, LlmConvert.parseToolInput(t.arguments)))
+      }
     LlmResponse(
       id = c.id,
       model = c.model,
@@ -243,8 +261,13 @@ object ChatCompletionsConverter:
 
   def fromLlmResponse(r: LlmResponse, created: Long = 0): ChatCompletion =
     val text      = r.text
-    val reasoning = r.content.collect { case x: LlmPart.Reasoning => x.text }.mkString
-    val calls     = r
+    val reasoning =
+      r.content
+        .collect { case x: LlmPart.Reasoning =>
+          x.text
+        }
+        .mkString
+    val calls = r
       .toolCalls
       .filterNot(_.providerExecuted)
       .map(t => ChatToolCall(t.id, t.name, LlmConvert.toolInputString(t.input)))
@@ -257,7 +280,9 @@ object ChatCompletionsConverter:
           0,
           ChatMessage(
             "assistant",
-            content = Some(ChatMessage.Content.Text(text)).filter(_ => text.nonEmpty || calls.isEmpty),
+            content = Some(ChatMessage.Content.Text(text)).filter(_ =>
+              text.nonEmpty || calls.isEmpty
+            ),
             toolCalls = calls,
             reasoningContent = Some(reasoning).filter(_.nonEmpty)
           ),
@@ -266,6 +291,8 @@ object ChatCompletionsConverter:
       ),
       usage = Some(fromLlmUsage(r.usage))
     )
+
+  end fromLlmResponse
 
   // ---------------------------------------------------------------- streams
 
@@ -278,21 +305,24 @@ object ChatCompletionsConverter:
     import LlmStreamPart as P
 
     private enum Open:
-      case NoBlock, Text, Reasoning, Tool
+      case NoBlock,
+        Text,
+        Reasoning,
+        Tool
 
-    private var started            = false
-    private var open               = Open.NoBlock
-    private var toolId             = ""
-    private var toolIndex          = -1
-    private var block              = 0
+    private var started                = false
+    private var open                   = Open.NoBlock
+    private var toolId                 = ""
+    private var toolIndex              = -1
+    private var block                  = 0
     private var reason: Option[String] = None
-    private var sawToolCalls       = false
-    private var usage              = LlmUsage()
-    private var finished           = false
+    private var sawToolCalls           = false
+    private var usage                  = LlmUsage()
+    private var finished               = false
 
     private def close(): Seq[LlmStreamPart] =
       val id = s"${block}"
-      val r =
+      val r  =
         open match
           case Open.Text =>
             Seq(P.TextEnd(id))
@@ -342,7 +372,9 @@ object ChatCompletionsConverter:
                 out ++= close()
                 open = Open.Tool
                 toolIndex = tc.index
-                toolId = tc.id.getOrElse(LlmConvert.generatedToolId(tc.name.getOrElse(""), tc.index))
+                toolId = tc
+                  .id
+                  .getOrElse(LlmConvert.generatedToolId(tc.name.getOrElse(""), tc.index))
                 out += P.ToolInputStart(toolId, tc.name.getOrElse(""))
               tc.arguments.filter(_.nonEmpty).foreach(a => out += P.ToolInputDelta(toolId, a))
             }
@@ -401,7 +433,13 @@ object ChatCompletionsConverter:
           Seq(chunk(ChatDelta(reasoningContent = Some(d))))
         case P.ToolInputStart(tid, name, false, _) =>
           toolIndex += 1
-          Seq(chunk(ChatDelta(toolCalls = Seq(ChatToolCallDelta(toolIndex, Some(tid), Some(name), Some(""))))))
+          Seq(
+            chunk(
+              ChatDelta(toolCalls =
+                Seq(ChatToolCallDelta(toolIndex, Some(tid), Some(name), Some("")))
+              )
+            )
+          )
         case P.ToolInputDelta(_, d) if toolIndex >= 0 =>
           Seq(chunk(ChatDelta(toolCalls = Seq(ChatToolCallDelta(toolIndex, arguments = Some(d))))))
         case P.Finish(reason, u) =>

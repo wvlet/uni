@@ -32,18 +32,19 @@ end ProviderMetadata
 
 extension (m: ProviderMetadata)
   def field(vendor: String, key: String): Option[JSONValue] = m.get(vendor).flatMap(_.get(key))
-  def string(vendor: String, key: String): Option[String] = field(vendor, key).collect {
+  def string(vendor: String, key: String): Option[String]   = field(vendor, key).collect {
     case JSONString(s) =>
       s
   }
 
-  def merge(other: ProviderMetadata): ProviderMetadata = other.foldLeft(m) { case (acc, (k, v)) =>
-    acc.get(k) match
-      case Some(prev) =>
-        acc + (k -> JSONObject(prev.v.filterNot(x => v.get(x._1).isDefined) ++ v.v))
-      case None =>
-        acc + (k -> v)
-  }
+  def merge(other: ProviderMetadata): ProviderMetadata =
+    other.foldLeft(m) { case (acc, (k, v)) =>
+      acc.get(k) match
+        case Some(prev) =>
+          acc + (k -> JSONObject(prev.v.filterNot(x => v.get(x._1).isDefined) ++ v.v))
+        case None =>
+          acc + (k -> v)
+    }
 
 enum LlmRole:
   case User
@@ -107,11 +108,12 @@ object LlmPart:
       isError: Boolean = false,
       providerMetadata: ProviderMetadata = ProviderMetadata.empty
   ) extends LlmPart:
-    def text: String = output
-      .collect { case Text(t, _) =>
-        t
-      }
-      .mkString
+    def text: String =
+      output
+        .collect { case Text(t, _) =>
+          t
+        }
+        .mkString
 
   /**
     * A vendor-specific block with no neutral equivalent (e.g. `web_search_tool_result`), forwarded
@@ -123,11 +125,12 @@ object LlmPart:
 end LlmPart
 
 case class LlmMessage(role: LlmRole, parts: Seq[LlmPart]):
-  def text: String = parts
-    .collect { case LlmPart.Text(t, _) =>
-      t
-    }
-    .mkString
+  def text: String =
+    parts
+      .collect { case LlmPart.Text(t, _) =>
+        t
+      }
+      .mkString
 
 object LlmMessage:
   def user(text: String): LlmMessage      = LlmMessage(LlmRole.User, Seq(LlmPart.Text(text)))
@@ -221,19 +224,19 @@ case class LlmRequest(
 ):
   def systemText: String = system.map(_.text).mkString("\n\n")
 
-  def withModel(m: String): LlmRequest                = copy(model = m)
-  def withMessages(m: Seq[LlmMessage]): LlmRequest    = copy(messages = m)
-  def withSystem(text: String): LlmRequest            = copy(system = Seq(LlmPart.Text(text)))
-  def withTools(t: Seq[LlmTool]): LlmRequest          = copy(tools = t)
-  def withToolChoice(c: LlmToolChoice): LlmRequest    = copy(toolChoice = Some(c))
-  def noToolChoice(): LlmRequest                      = copy(toolChoice = None)
-  def withMaxOutputTokens(n: Int): LlmRequest         = copy(maxOutputTokens = Some(n))
-  def noMaxOutputTokens(): LlmRequest                 = copy(maxOutputTokens = None)
-  def withTemperature(t: Double): LlmRequest          = copy(temperature = Some(t))
-  def noTemperature(): LlmRequest                     = copy(temperature = None)
-  def withReasoning(r: ReasoningOptions): LlmRequest  = copy(reasoning = Some(r))
-  def noReasoning(): LlmRequest                       = copy(reasoning = None)
-  def withStream(enabled: Boolean): LlmRequest        = copy(stream = enabled)
+  def withModel(m: String): LlmRequest               = copy(model = m)
+  def withMessages(m: Seq[LlmMessage]): LlmRequest   = copy(messages = m)
+  def withSystem(text: String): LlmRequest           = copy(system = Seq(LlmPart.Text(text)))
+  def withTools(t: Seq[LlmTool]): LlmRequest         = copy(tools = t)
+  def withToolChoice(c: LlmToolChoice): LlmRequest   = copy(toolChoice = Some(c))
+  def noToolChoice(): LlmRequest                     = copy(toolChoice = None)
+  def withMaxOutputTokens(n: Int): LlmRequest        = copy(maxOutputTokens = Some(n))
+  def noMaxOutputTokens(): LlmRequest                = copy(maxOutputTokens = None)
+  def withTemperature(t: Double): LlmRequest         = copy(temperature = Some(t))
+  def noTemperature(): LlmRequest                    = copy(temperature = None)
+  def withReasoning(r: ReasoningOptions): LlmRequest = copy(reasoning = Some(r))
+  def noReasoning(): LlmRequest                      = copy(reasoning = None)
+  def withStream(enabled: Boolean): LlmRequest       = copy(stream = enabled)
 
 end LlmRequest
 
@@ -281,11 +284,12 @@ case class LlmResponse(
     usage: LlmUsage = LlmUsage(),
     providerMetadata: ProviderMetadata = ProviderMetadata.empty
 ):
-  def text: String = content
-    .collect { case LlmPart.Text(t, _) =>
-      t
-    }
-    .mkString
+  def text: String =
+    content
+      .collect { case LlmPart.Text(t, _) =>
+        t
+      }
+      .mkString
 
   def toolCalls: Seq[LlmPart.ToolCall] = content.collect { case t: LlmPart.ToolCall =>
     t

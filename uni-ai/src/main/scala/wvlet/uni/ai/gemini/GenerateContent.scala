@@ -14,8 +14,8 @@ import scala.collection.mutable
   * Studio (`generativelanguage.googleapis.com`) and Vertex AI (`aiplatform.googleapis.com`). See
   * https://ai.google.dev/api/generate-content
   *
-  * Parts are key-tagged unions (`{"text": ...}`, `{"functionCall": ...}`). A `thoughtSignature`
-  * may sit on any part and must be sent back unchanged with the part it came on.
+  * Parts are key-tagged unions (`{"text": ...}`, `{"functionCall": ...}`). A `thoughtSignature` may
+  * sit on any part and must be sent back unchanged with the part it came on.
   */
 sealed trait Part:
   def thoughtSignature: Option[String]
@@ -34,8 +34,11 @@ object Part:
       extends Part
 
   /** A file by URI (`gs://...`, Files API URI, or https URL) */
-  case class FileData(mimeType: Option[String], fileUri: String, thoughtSignature: Option[String] = None)
-      extends Part
+  case class FileData(
+      mimeType: Option[String],
+      fileUri: String,
+      thoughtSignature: Option[String] = None
+  ) extends Part
 
   /**
     * A function call. `id` is returned by newer models (Gemini 3 and later); match the response by
@@ -97,7 +100,9 @@ object Part:
       case FunctionResponse(name, resp, id, s) =>
         Json.obj(
           "functionResponse" ->
-            Some(Json.obj(Json.opt("id", id), Json.field("name", name), Json.field("response", resp))),
+            Some(
+              Json.obj(Json.opt("id", id), Json.field("name", name), Json.field("response", resp))
+            ),
           sig(s)
         )
       case Unknown(raw) =>
@@ -140,12 +145,13 @@ end Part
 
 /** A turn: role `user` or `model` (function responses go in `user` turns) */
 case class Content(role: Option[String], parts: Seq[Part]):
-  def text: String = parts
-    .collect {
-      case t: Part.Text if !t.isThought =>
-        t.text
-    }
-    .mkString
+  def text: String =
+    parts
+      .collect {
+        case t: Part.Text if !t.isThought =>
+          t.text
+      }
+      .mkString
 
 object Content:
   def user(text: String): Content  = Content(Some("user"), Seq(Part.Text(text)))
@@ -197,7 +203,8 @@ case class Tool(
 object Tool:
   given JsonCodec[Tool] = JsonCodec.obj(
     t => Seq(Json.nonEmpty("functionDeclarations", t.functionDeclarations)) ++ Json.extra(t.extra),
-    o => Tool(o.seq[FunctionDeclaration]("functionDeclarations"), o.extra(Set("functionDeclarations")))
+    o =>
+      Tool(o.seq[FunctionDeclaration]("functionDeclarations"), o.extra(Set("functionDeclarations")))
   )
 
 /** `toolConfig.functionCallingConfig`; mode `AUTO`, `ANY`, `NONE`, or `VALIDATED` */
@@ -313,21 +320,32 @@ case class GenerateContentRequest(
     extra: Map[String, JSONValue] = Map.empty
 ):
   def withContents(c: Seq[Content]): GenerateContentRequest       = copy(contents = c)
-  def withSystemInstruction(text: String): GenerateContentRequest = copy(
-    systemInstruction = Some(Content(None, Seq(Part.Text(text))))
+  def withSystemInstruction(text: String): GenerateContentRequest = copy(systemInstruction =
+    Some(Content(None, Seq(Part.Text(text))))
   )
 
-  def noSystemInstruction(): GenerateContentRequest                         = copy(systemInstruction = None)
-  def withTools(t: Seq[Tool]): GenerateContentRequest                       = copy(tools = t)
-  def withGenerationConfig(g: GenerationConfig): GenerateContentRequest     = copy(generationConfig = Some(g))
+  def noSystemInstruction(): GenerateContentRequest   = copy(systemInstruction = None)
+  def withTools(t: Seq[Tool]): GenerateContentRequest = copy(tools = t)
+  def withGenerationConfig(g: GenerationConfig): GenerateContentRequest = copy(generationConfig =
+    Some(g)
+  )
+
   def withFunctionCallingConfig(c: FunctionCallingConfig): GenerateContentRequest = copy(
     functionCallingConfig = Some(c)
   )
 
-  def withExtra(key: String, v: JSONValue): GenerateContentRequest = copy(extra = extra + (key -> v))
+  def withExtra(key: String, v: JSONValue): GenerateContentRequest = copy(extra =
+    extra + (key -> v)
+  )
 
 object GenerateContentRequest:
-  private val known = Set("contents", "systemInstruction", "tools", "toolConfig", "generationConfig")
+  private val known = Set(
+    "contents",
+    "systemInstruction",
+    "tools",
+    "toolConfig",
+    "generationConfig"
+  )
 
   given JsonCodec[GenerateContentRequest] = JsonCodec.obj(
     r =>
@@ -336,8 +354,7 @@ object GenerateContentRequest:
         Json.opt("systemInstruction", r.systemInstruction),
         Json.nonEmpty("tools", r.tools),
         "toolConfig" ->
-          r.functionCallingConfig
-            .map(c => Json.obj(Json.field("functionCallingConfig", c))),
+          r.functionCallingConfig.map(c => Json.obj(Json.field("functionCallingConfig", c))),
         Json.opt("generationConfig", r.generationConfig)
       ) ++ Json.extra(r.extra),
     o =>
@@ -369,7 +386,14 @@ object GeminiFinishReason:
   val Other: String                 = "OTHER"
 
   /** Reasons that mean the output was blocked by a content filter */
-  val filtered: Set[String] = Set(Safety, Recitation, Blocklist, ProhibitedContent, Spii, ImageSafety)
+  val filtered: Set[String] = Set(
+    Safety,
+    Recitation,
+    Blocklist,
+    ProhibitedContent,
+    Spii,
+    ImageSafety
+  )
 
 case class Candidate(
     content: Option[Content],
@@ -388,7 +412,13 @@ object Candidate:
         Json.opt("finishReason", c.finishReason),
         Json.opt("index", c.index)
       ) ++ Json.extra(c.extra),
-    o => Candidate(o.opt[Content]("content"), o.strOpt("finishReason"), o.opt[Int]("index"), o.extra(known))
+    o =>
+      Candidate(
+        o.opt[Content]("content"),
+        o.strOpt("finishReason"),
+        o.opt[Int]("index"),
+        o.extra(known)
+      )
   )
 
 /**
@@ -440,8 +470,8 @@ object UsageMetadata:
 end UsageMetadata
 
 /**
-  * A `generateContent` response, and also each chunk of `streamGenerateContent?alt=sse`, where
-  * each chunk holds only the new parts.
+  * A `generateContent` response, and also each chunk of `streamGenerateContent?alt=sse`, where each
+  * chunk holds only the new parts.
   *
   * @param extra
   *   `promptFeedback`, `createTime`, and other fields
@@ -471,8 +501,8 @@ case class GenerateContentResponse(
     .flatMap(JsonObj.unapply)
     .flatMap(_.strOpt("blockReason"))
 
-  def toServerSentEvent: ServerSentEvent = ServerSentEvent(
-    data = JsonCodec[GenerateContentResponse].toJson(this)
+  def toServerSentEvent: ServerSentEvent = ServerSentEvent(data =
+    JsonCodec[GenerateContentResponse].toJson(this)
   )
 
 object GenerateContentResponse:
@@ -496,9 +526,8 @@ object GenerateContentResponse:
       )
   )
 
-  def fromServerSentEvent(e: ServerSentEvent): GenerateContentResponse = JsonCodec[
-    GenerateContentResponse
-  ].decode(JSON.parseAny(e.data))
+  def fromServerSentEvent(e: ServerSentEvent): GenerateContentResponse =
+    JsonCodec[GenerateContentResponse].decode(JSON.parseAny(e.data))
 
 end GenerateContentResponse
 
@@ -507,14 +536,14 @@ end GenerateContentResponse
   * text of the same kind is joined), the last finish reason and usage win.
   */
 class GenerateContentAccumulator:
-  private val parts                          = mutable.ArrayBuffer.empty[Part]
-  private var role: Option[String]           = None
-  private var finishReason: Option[String]   = None
-  private var candidateExtra                 = Map.empty[String, JSONValue]
-  private var usage: Option[UsageMetadata]   = None
-  private var modelVersion: Option[String]   = None
-  private var responseId: Option[String]     = None
-  private var extra                          = Map.empty[String, JSONValue]
+  private val parts                        = mutable.ArrayBuffer.empty[Part]
+  private var role: Option[String]         = None
+  private var finishReason: Option[String] = None
+  private var candidateExtra               = Map.empty[String, JSONValue]
+  private var usage: Option[UsageMetadata] = None
+  private var modelVersion: Option[String] = None
+  private var responseId: Option[String]   = None
+  private var extra                        = Map.empty[String, JSONValue]
 
   def add(chunk: GenerateContentResponse): Unit =
     chunk
@@ -547,7 +576,12 @@ class GenerateContentAccumulator:
 
   def result: GenerateContentResponse = GenerateContentResponse(
     candidates = Seq(
-      Candidate(Some(Content(role.orElse(Some("model")), parts.toSeq)), finishReason, Some(0), candidateExtra)
+      Candidate(
+        Some(Content(role.orElse(Some("model")), parts.toSeq)),
+        finishReason,
+        Some(0),
+        candidateExtra
+      )
     ),
     usageMetadata = usage,
     modelVersion = modelVersion,

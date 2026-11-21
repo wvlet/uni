@@ -23,10 +23,10 @@ object AnthropicConverter:
   // ---------------------------------------------------------------- request: Anthropic -> neutral
 
   def toLlmRequest(r: MessagesRequest): LlmRequest =
-    val extra = r.extra ++
-      r.metadata.map("metadata" -> _) ++
-      r.serviceTier.map(t => "service_tier" -> JSONString(t)) ++
-      r.thinking.map(t => "thinking" -> JsonCodec[ThinkingConfig].encode(t))
+    val extra =
+      r.extra ++ r.metadata.map("metadata" -> _) ++
+        r.serviceTier.map(t => "service_tier" -> JSONString(t)) ++
+        r.thinking.map(t => "thinking" -> JsonCodec[ThinkingConfig].encode(t))
     LlmRequest(
       model = r.model,
       messages = r.messages.flatMap(toLlmMessages),
@@ -64,6 +64,8 @@ object AnthropicConverter:
           Map(vendor -> JSONObject(extra.toSeq))
     )
 
+  end toLlmRequest
+
   private def toReasoningOptions(t: ThinkingConfig): Option[ReasoningOptions] =
     t.`type` match
       case "enabled" =>
@@ -99,8 +101,12 @@ object AnthropicConverter:
       case ToolChoice.NoTool =>
         Some(LlmToolChoice.NoTool)
 
-  private def toLlmFile(source: Source, title: Option[String], c: Option[CacheControl], defaultType: String)
-      : LlmPart =
+  private def toLlmFile(
+      source: Source,
+      title: Option[String],
+      c: Option[CacheControl],
+      defaultType: String
+  ): LlmPart =
     source match
       case Source.Base64(m, d) =>
         LlmPart.File(m, FileSource.Base64(d), title, cacheMeta(c))
@@ -119,7 +125,7 @@ object AnthropicConverter:
     */
   private def toLlmMessages(m: Message): Seq[LlmMessage] =
     // A Gemini signature carried in a thinking block belongs to the part that follows it
-    var pendingMeta = ProviderMetadata.empty
+    var pendingMeta                 = ProviderMetadata.empty
     def attach(p: LlmPart): LlmPart =
       val md = pendingMeta
       pendingMeta = ProviderMetadata.empty
@@ -173,16 +179,17 @@ object AnthropicConverter:
           LlmRole.User
         case Role.Assistant =>
           LlmRole.Assistant
-    Seq(LlmMessage(LlmRole.Tool, results.result()), LlmMessage(role, parts.result()))
-      .filter(_.parts.nonEmpty)
+    Seq(LlmMessage(LlmRole.Tool, results.result()), LlmMessage(role, parts.result())).filter(
+      _.parts.nonEmpty
+    )
 
   end toLlmMessages
 
   // ---------------------------------------------------------------- request: neutral -> Anthropic
 
   def fromLlmRequest(r: LlmRequest): MessagesRequest =
-    val opts   = r.providerOptions.get(vendor).map(o => JsonObj(o)).toSeq
-    val extras = opts.flatMap(_.fields).toMap
+    val opts     = r.providerOptions.get(vendor).map(o => JsonObj(o)).toSeq
+    val extras   = opts.flatMap(_.fields).toMap
     val thinking = extras
       .get("thinking")
       .map(JsonCodec[ThinkingConfig].decode)
@@ -191,7 +198,9 @@ object AnthropicConverter:
       model = r.model,
       maxTokens = r.maxOutputTokens.getOrElse(DefaultMaxTokens),
       messages = mergeTurns(r.messages.map(fromLlmMessage)).filter(_.content.nonEmpty),
-      system = r.system.map(t => ContentBlock.Text(t.text, cacheControl = cacheOf(t.providerMetadata))),
+      system = r
+        .system
+        .map(t => ContentBlock.Text(t.text, cacheControl = cacheOf(t.providerMetadata))),
       tools = r
         .tools
         .collect {
@@ -231,9 +240,11 @@ object AnthropicConverter:
           None
       ,
       metadata = extras.get("metadata"),
-      serviceTier = extras.get("service_tier").collect { case JSONString(s) =>
-        s
-      },
+      serviceTier = extras
+        .get("service_tier")
+        .collect { case JSONString(s) =>
+          s
+        },
       extra = extras -- Set("metadata", "service_tier", "thinking")
     )
 
@@ -276,7 +287,9 @@ object AnthropicConverter:
       case f: LlmPart.File if f.isImage =>
         Seq(ContentBlock.Image(sourceOf(f), cacheOf(f.providerMetadata)))
       case f: LlmPart.File =>
-        Seq(ContentBlock.Document(sourceOf(f), f.filename, cacheControl = cacheOf(f.providerMetadata)))
+        Seq(
+          ContentBlock.Document(sourceOf(f), f.filename, cacheControl = cacheOf(f.providerMetadata))
+        )
       case LlmPart.Reasoning(t, sig, redacted, md) =>
         (sig, redacted) match
           case (Some(s), _) =>
@@ -306,11 +319,11 @@ object AnthropicConverter:
         Nil
 
   /** A Gemini thought signature rides in an empty thinking block before its part */
-  private def carrierBefore(md: ProviderMetadata): Seq[ContentBlock] = md
-    .get(ProviderMetadata.Gemini)
-    .filter(_.get("thoughtSignature").isDefined)
-    .map(d => ContentBlock.Thinking("", Carrier.encode(ProviderMetadata.Gemini, d)))
-    .toSeq
+  private def carrierBefore(md: ProviderMetadata): Seq[ContentBlock] =
+    md.get(ProviderMetadata.Gemini)
+      .filter(_.get("thoughtSignature").isDefined)
+      .map(d => ContentBlock.Thinking("", Carrier.encode(ProviderMetadata.Gemini, d)))
+      .toSeq
 
   private def fromLlmMessage(m: LlmMessage): Message =
     val role =
@@ -406,11 +419,14 @@ object AnthropicConverter:
   /** Converts Anthropic stream events to neutral stream parts; one instance per stream */
   class StreamDecoder:
     private enum Block:
-      case Text, Reasoning, Tool, Raw
+      case Text,
+        Reasoning,
+        Tool,
+        Raw
 
-    private val open      = mutable.Map.empty[Int, (Block, String)]
-    private val signature = mutable.Map.empty[Int, String]
-    private val rawBlocks = mutable.Map.empty[Int, (ContentBlock, StringBuilder)]
+    private val open                 = mutable.Map.empty[Int, (Block, String)]
+    private val signature            = mutable.Map.empty[Int, String]
+    private val rawBlocks            = mutable.Map.empty[Int, (ContentBlock, StringBuilder)]
     private var stop: Option[String] = None
     private var usage                = LlmUsage()
     private var finished             = false
@@ -489,9 +505,13 @@ object AnthropicConverter:
               if u.inputTokens > 0 then
                 next.inputTokens
               else
-                usage.inputTokens,
+                usage.inputTokens
+            ,
             outputTokens = u.outputTokens,
-            cacheReadTokens = u.cacheReadInputTokens.map(_ => next.cacheReadTokens).getOrElse(usage.cacheReadTokens),
+            cacheReadTokens = u
+              .cacheReadInputTokens
+              .map(_ => next.cacheReadTokens)
+              .getOrElse(usage.cacheReadTokens),
             cacheWriteTokens = u
               .cacheCreationInputTokens
               .map(_ => next.cacheWriteTokens)
@@ -520,9 +540,9 @@ object AnthropicConverter:
   end StreamDecoder
 
   /**
-    * Converts neutral stream parts to Anthropic stream events, adding the framing Anthropic
-    * clients expect: `message_start` first, a start and stop around every block, and `message_delta`
-    * plus `message_stop` at the end.
+    * Converts neutral stream parts to Anthropic stream events, adding the framing Anthropic clients
+    * expect: `message_start` first, a start and stop around every block, and `message_delta` plus
+    * `message_stop` at the end.
     */
   class StreamEncoder(messageId: String = "msg_uni", model: String = ""):
     private var started   = false
@@ -542,12 +562,14 @@ object AnthropicConverter:
                 if id.isEmpty then
                   messageId
                 else
-                  id,
+                  id
+              ,
               model =
                 if m.isEmpty then
                   model
                 else
-                  m,
+                  m
+              ,
               content = Nil,
               usage = fromLlmUsage(u).copy(outputTokens = 0)
             )
@@ -597,12 +619,12 @@ object AnthropicConverter:
           case P.ReasoningDelta(_, d) =>
             delta(Delta.ThinkingDelta(d))
           case P.ReasoningEnd(_, sig, redacted, md) =>
-            val s = sig.orElse(
-              md.find(_._1 != vendor).map((v, data) => Carrier.encode(v, data))
-            ).orElse(
-              // Redacted reasoning of another vendor has no text; carry it as a signature
-              redacted.map(d => Carrier.encode("redacted", Json.obj(Json.field("data", d))))
-            )
+            val s = sig
+              .orElse(md.find(_._1 != vendor).map((v, data) => Carrier.encode(v, data)))
+              .orElse(
+                // Redacted reasoning of another vendor has no text; carry it as a signature
+                redacted.map(d => Carrier.encode("redacted", Json.obj(Json.field("data", d))))
+              )
             s.toSeq.flatMap(x => delta(Delta.SignatureDelta(x))) ++ closeBlock()
           case P.ToolInputStart(id, name, _, md) =>
             carrierBefore(md).flatMap(b => startBlock(b) ++ closeBlock()) ++

@@ -23,7 +23,7 @@ trait JsonCodec[A]:
   def encode(a: A): JSONValue
   def decode(v: JSONValue): A
 
-  def toJson(a: A): String   = encode(a).toJSON
+  def toJson(a: A): String      = encode(a).toJSON
   def fromJson(json: String): A = decode(JSON.parseAny(json))
 
   /**
@@ -134,8 +134,8 @@ object JsonCodec:
 end JsonCodec
 
 /**
-  * One key of a JSON object being built; `None` values are dropped, so absent optional fields
-  * never become `null`
+  * One key of a JSON object being built; `None` values are dropped, so absent optional fields never
+  * become `null`
   */
 type JsonField = (String, Option[JSONValue])
 
@@ -175,7 +175,8 @@ object Json:
 
   /** Parse a JSON string, or return it as a JSON string when it is not valid JSON */
   def parseOrString(s: String): JSONValue =
-    try JSON.parseAny(s)
+    try
+      JSON.parseAny(s)
     catch
       case _: Exception =>
         JSONString(s)
@@ -188,11 +189,12 @@ end Json
 class JsonObj(val value: JSONObject):
   def fields: Seq[(String, JSONValue)] = value.v
 
-  def raw(key: String): Option[JSONValue] = value.get(key) match
-    case Some(_: JSONNull) =>
-      None
-    case other =>
-      other
+  def raw(key: String): Option[JSONValue] =
+    value.get(key) match
+      case Some(_: JSONNull) =>
+        None
+      case other =>
+        other
 
   def has(key: String): Boolean = raw(key).isDefined
 
@@ -211,11 +213,11 @@ class JsonObj(val value: JSONObject):
 
   def seq[A](key: String)(using c: JsonCodec[A]): Seq[A] = opt[Seq[A]](key).getOrElse(Seq.empty)
 
-  def str(key: String): String               = get[String](key)
-  def strOpt(key: String): Option[String]    = opt[String](key)
-  def strOrEmpty(key: String): String        = strOpt(key).getOrElse("")
-  def obj(key: String): JsonObj              = JsonObj(get[JSONValue](key))
-  def objOpt(key: String): Option[JsonObj]   = opt[JSONValue](key).map(JsonObj(_))
+  def str(key: String): String                     = get[String](key)
+  def strOpt(key: String): Option[String]          = opt[String](key)
+  def strOrEmpty(key: String): String              = strOpt(key).getOrElse("")
+  def obj(key: String): JsonObj                    = JsonObj(get[JSONValue](key))
+  def objOpt(key: String): Option[JsonObj]         = opt[JSONValue](key).map(JsonObj(_))
   def jsonMap(key: String): Map[String, JSONValue] = opt[Map[String, JSONValue]](key).getOrElse(
     Map.empty
   )
@@ -231,7 +233,8 @@ class JsonObj(val value: JSONObject):
       .toMap
 
   private def decodeAt[A](key: String, v: JSONValue)(using c: JsonCodec[A]): A =
-    try c.decode(v)
+    try
+      c.decode(v)
     catch
       case e: JsonCodecException =>
         throw JsonCodecException(s"Field '${key}': ${e.getMessage}")

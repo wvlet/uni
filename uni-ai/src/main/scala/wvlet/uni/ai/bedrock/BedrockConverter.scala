@@ -16,12 +16,12 @@ object BedrockConverter:
   private val vendor = ProviderMetadata.Bedrock
 
   private val cacheMeta: ProviderMetadata = Map(
-    ProviderMetadata.Anthropic -> Json.obj("cacheControl" -> Some(Json.obj(Json.field("type", "ephemeral"))))
+    ProviderMetadata.Anthropic ->
+      Json.obj("cacheControl" -> Some(Json.obj(Json.field("type", "ephemeral"))))
   )
 
-  private def hasCache(md: ProviderMetadata): Boolean = md
-    .field(ProviderMetadata.Anthropic, "cacheControl")
-    .isDefined
+  private def hasCache(md: ProviderMetadata): Boolean =
+    md.field(ProviderMetadata.Anthropic, "cacheControl").isDefined
 
   private def withCache(p: LlmPart): LlmPart =
     p match
@@ -139,13 +139,15 @@ object BedrockConverter:
     }
     out.toSeq
 
+  end toLlmParts
+
   def toLlmRequest(r: ConverseRequest, modelId: String = ""): LlmRequest =
     val messages = r
       .messages
       .flatMap { m =>
         val parts           = toLlmParts(m.content)
         val (results, rest) = parts.partition(_.isInstanceOf[LlmPart.ToolResult])
-        val role =
+        val role            =
           if m.role == "assistant" then
             LlmRole.Assistant
           else
@@ -154,11 +156,12 @@ object BedrockConverter:
       }
     val fields   = r.additionalModelRequestFields.flatMap(JsonObj.unapply)
     val thinking = fields.flatMap(_.objOpt("thinking"))
-    val extra = r.extra ++
-      fields
-        .map(f => f.extra(Set("thinking")))
-        .filter(_.nonEmpty)
-        .map(e => "additionalModelRequestFields" -> JSONObject(e.toSeq))
+    val extra    =
+      r.extra ++
+        fields
+          .map(f => f.extra(Set("thinking")))
+          .filter(_.nonEmpty)
+          .map(e => "additionalModelRequestFields" -> JSONObject(e.toSeq))
     LlmRequest(
       model = modelId,
       messages = messages,
@@ -264,43 +267,50 @@ object BedrockConverter:
     modelId.contains("anthropic") || modelId.contains("claude")
 
   def fromLlmRequest(r: LlmRequest): ConverseRequest =
-    val msgs = r
-      .messages
-      .map { m =>
-        val role =
-          if m.role == LlmRole.Assistant then
-            "assistant"
-          else
-            "user"
-        val (results, rest) = m.parts.partition(_.isInstanceOf[LlmPart.ToolResult])
-        Message(role, fromLlmParts(results ++ rest))
-      }
-      .filter(_.content.nonEmpty)
-      // Roles must alternate; merge consecutive turns of the same role
-      .foldLeft(Vector.empty[Message]) { (acc, m) =>
-        acc.lastOption match
-          case Some(last) if last.role == m.role =>
-            acc.init :+ last.copy(content = last.content ++ m.content)
-          case _ =>
-            acc :+ m
-      }
+    val msgs =
+      r.messages
+        .map { m =>
+          val role =
+            if m.role == LlmRole.Assistant then
+              "assistant"
+            else
+              "user"
+          val (results, rest) = m.parts.partition(_.isInstanceOf[LlmPart.ToolResult])
+          Message(role, fromLlmParts(results ++ rest))
+        }
+        .filter(_.content.nonEmpty)
+        // Roles must alternate; merge consecutive turns of the same role
+        .foldLeft(Vector.empty[Message]) { (acc, m) =>
+          acc.lastOption match
+            case Some(last) if last.role == m.role =>
+              acc.init :+ last.copy(content = last.content ++ m.content)
+            case _ =>
+              acc :+ m
+        }
     val thinking = r
       .reasoning
       .filter(o => o.effortLevel != "none" && isClaude(r.model))
       .map(o =>
         Json.obj(
           "thinking" ->
-            Some(Json.obj(Json.field("type", "enabled"), Json.field("budget_tokens", math.max(1024, o.budget))))
+            Some(
+              Json.obj(
+                Json.field("type", "enabled"),
+                Json.field("budget_tokens", math.max(1024, o.budget))
+              )
+            )
         )
       )
-    val opts       = r.providerOptions.get(vendor).map(_.v.toMap).getOrElse(Map.empty)
-    val addFields  = (thinking.map(_.v).getOrElse(Nil) ++
-      opts
-        .get("additionalModelRequestFields")
-        .collect { case o: JSONObject =>
-          o.v
-        }
-        .getOrElse(Nil))
+    val opts      = r.providerOptions.get(vendor).map(_.v.toMap).getOrElse(Map.empty)
+    val addFields = (
+      thinking.map(_.v).getOrElse(Nil) ++
+        opts
+          .get("additionalModelRequestFields")
+          .collect { case o: JSONObject =>
+            o.v
+          }
+          .getOrElse(Nil)
+    )
     ConverseRequest(
       messages = msgs,
       system = fromLlmParts(r.system),
@@ -312,15 +322,15 @@ object BedrockConverter:
           r.stopSequences
         )
       ).filter(_ != InferenceConfig()),
-      tools = r
-        .tools
-        .collect {
-          case LlmTool.Function(name, schema, desc, md) =>
-            Seq(Tool.Spec(name, schema, desc)) ++ Option.when(hasCache(md))(Tool.CachePoint)
-          case LlmTool.Provider(`vendor`, raw: JSONObject) =>
-            Seq(Tool.Unknown(raw))
-        }
-        .flatten,
+      tools =
+        r.tools
+          .collect {
+            case LlmTool.Function(name, schema, desc, md) =>
+              Seq(Tool.Spec(name, schema, desc)) ++ Option.when(hasCache(md))(Tool.CachePoint)
+            case LlmTool.Provider(`vendor`, raw: JSONObject) =>
+              Seq(Tool.Unknown(raw))
+          }
+          .flatten,
       toolChoice = r
         .toolChoice
         .collect {
@@ -406,13 +416,15 @@ object BedrockConverter:
     import LlmStreamPart as P
 
     private enum Block:
-      case Text, Reasoning, Tool
+      case Text,
+        Reasoning,
+        Tool
 
-    private val open                   = mutable.Map.empty[Int, (Block, String)]
-    private val signature              = mutable.Map.empty[Int, String]
-    private val redacted               = mutable.Map.empty[Int, String]
-    private var stop: Option[String]   = None
-    private var finished               = false
+    private val open                 = mutable.Map.empty[Int, (Block, String)]
+    private val signature            = mutable.Map.empty[Int, String]
+    private val redacted             = mutable.Map.empty[Int, String]
+    private var stop: Option[String] = None
+    private var finished             = false
 
     def decode(e: ConverseStreamEvent): Seq[LlmStreamPart] =
       e match
@@ -431,7 +443,9 @@ object BedrockConverter:
                 out += P.TextStart(s"${i}")
               out += P.TextDelta(s"${i}", t)
             }
-          if d.reasoningText.isDefined || d.reasoningSignature.isDefined || d.redactedContent.isDefined then
+          if d.reasoningText.isDefined || d.reasoningSignature.isDefined ||
+            d.redactedContent.isDefined
+          then
             if !open.contains(i) then
               open(i) = (Block.Reasoning, s"${i}")
               out += P.ReasoningStart(s"${i}")
@@ -513,7 +527,8 @@ object BedrockConverter:
             Seq(E.ContentBlockDelta(index, reasoningText = Some(d)))
           case P.ReasoningEnd(_, sig, red, _) =>
             sig.map(s => E.ContentBlockDelta(index, reasoningSignature = Some(s))).toSeq ++
-              red.map(r => E.ContentBlockDelta(index, redactedContent = Some(r))).toSeq ++ closeBlock()
+              red.map(r => E.ContentBlockDelta(index, redactedContent = Some(r))).toSeq ++
+              closeBlock()
           case P.ToolInputStart(id, name, false, _) =>
             startBlock() :+ E.ContentBlockStart(index, Some((LlmConvert.bedrockToolId(id), name)))
           case P.ToolInputDelta(_, d) =>
@@ -522,12 +537,15 @@ object BedrockConverter:
             closeBlock()
           case P.Finish(reason, u) =>
             finished = true
-            closeBlock() ++ Seq(E.MessageStop(fromFinishReason(reason)), E.Metadata(fromLlmUsage(u)))
+            closeBlock() ++
+              Seq(E.MessageStop(fromFinishReason(reason)), E.Metadata(fromLlmUsage(u)))
           case P.Error(msg, tpe) =>
             Seq(E.Exception(tpe.getOrElse("internalServerException"), msg))
           case _ =>
             Nil
       prefix ++ body
+
+    end encode
 
     def finish(): Seq[ConverseStreamEvent] =
       if finished then
@@ -542,7 +560,11 @@ object BedrockConverter:
     e match
       case ConverseStreamEvent.Exception(t, msg) =>
         EventStreamFrame.encode(
-          Seq(":exception-type" -> t, ":content-type" -> "application/json", ":message-type" -> "exception"),
+          Seq(
+            ":exception-type" -> t,
+            ":content-type"   -> "application/json",
+            ":message-type"   -> "exception"
+          ),
           Json.obj(Json.field("message", msg)).toJSON.getBytes("UTF-8")
         )
       case other =>

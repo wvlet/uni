@@ -13,12 +13,12 @@ import scala.collection.mutable
 sealed trait Delta
 
 object Delta:
-  case class TextDelta(text: String)               extends Delta
-  case class InputJsonDelta(partialJson: String)   extends Delta
-  case class ThinkingDelta(thinking: String)       extends Delta
-  case class SignatureDelta(signature: String)     extends Delta
-  case class CitationsDelta(citation: JSONValue)   extends Delta
-  case class Unknown(raw: JSONObject)              extends Delta
+  case class TextDelta(text: String)             extends Delta
+  case class InputJsonDelta(partialJson: String) extends Delta
+  case class ThinkingDelta(thinking: String)     extends Delta
+  case class SignatureDelta(signature: String)   extends Delta
+  case class CitationsDelta(citation: JSONValue) extends Delta
+  case class Unknown(raw: JSONObject)            extends Delta
 
   given JsonCodec[Delta] = JsonCodec.of(
     {
@@ -60,6 +60,14 @@ end Delta
   */
 sealed trait StreamEvent:
   def eventType: String
+
+  /** The text of a `text_delta`, for printing a stream as it arrives */
+  def textDelta: Option[String] =
+    this match
+      case StreamEvent.ContentBlockDelta(_, Delta.TextDelta(t)) =>
+        Some(t)
+      case _ =>
+        None
 
   def toServerSentEvent: ServerSentEvent = ServerSentEvent(
     event = Some(eventType),
@@ -126,8 +134,10 @@ object StreamEvent:
           "delta" ->
             Some(
               Json.obj(
-                (Seq("stop_reason" -> nullable(reason), "stop_sequence" -> nullable(seq)) ++
-                  Json.extra(extra))*
+                (
+                  Seq("stop_reason" -> nullable(reason), "stop_sequence" -> nullable(seq)) ++
+                    Json.extra(extra)
+                )*
               )
             ),
           Json.field("usage", usage)
@@ -179,12 +189,12 @@ end StreamEvent
   * thinking, and tool-input deltas per block index.
   */
 class MessageAccumulator:
-  private var start: Option[MessagesResponse]     = None
-  private val blocks                              = mutable.TreeMap.empty[Int, ContentBlock]
-  private val partialJson                         = mutable.Map.empty[Int, StringBuilder]
-  private var stopReason: Option[String]          = None
-  private var stopSequence: Option[String]        = None
-  private var usage: Option[Usage]                = None
+  private var start: Option[MessagesResponse] = None
+  private val blocks                          = mutable.TreeMap.empty[Int, ContentBlock]
+  private val partialJson                     = mutable.Map.empty[Int, StringBuilder]
+  private var stopReason: Option[String]      = None
+  private var stopSequence: Option[String]    = None
+  private var usage: Option[Usage]            = None
 
   def add(e: StreamEvent): Unit =
     import StreamEvent.*
@@ -239,7 +249,8 @@ class MessageAccumulator:
       if u.inputTokens > 0 then
         u.inputTokens
       else
-        base.inputTokens,
+        base.inputTokens
+    ,
     outputTokens = u.outputTokens,
     cacheCreationInputTokens = u.cacheCreationInputTokens.orElse(base.cacheCreationInputTokens),
     cacheReadInputTokens = u.cacheReadInputTokens.orElse(base.cacheReadInputTokens),

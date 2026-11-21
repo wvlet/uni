@@ -76,7 +76,12 @@ object ContentPart:
         case "input_image" =>
           InputImage(o.strOpt("image_url"), o.strOpt("file_id"), o.strOpt("detail"))
         case "input_file" =>
-          InputFile(o.strOpt("file_id"), o.strOpt("file_data"), o.strOpt("filename"), o.strOpt("file_url"))
+          InputFile(
+            o.strOpt("file_id"),
+            o.strOpt("file_data"),
+            o.strOpt("filename"),
+            o.strOpt("file_url")
+          )
         case "output_text" =>
           OutputText(o.str("text"), o.seq[JSONValue]("annotations"))
         case "refusal" =>
@@ -86,7 +91,10 @@ object ContentPart:
   )
 
   /** Content given as a string or an array of parts */
-  private[openai] def partsOf(v: Option[JSONValue], textPart: String => ContentPart): Seq[ContentPart] =
+  private[openai] def partsOf(
+      v: Option[JSONValue],
+      textPart: String => ContentPart
+  ): Seq[ContentPart] =
     v match
       case None =>
         Nil
@@ -126,14 +134,15 @@ object Item:
       id: Option[String] = None,
       status: Option[String] = None
   ) extends Item:
-    def text: String = content
-      .collect {
-        case ContentPart.OutputText(t, _) =>
-          t
-        case ContentPart.InputText(t) =>
-          t
-      }
-      .mkString
+    def text: String =
+      content
+        .collect {
+          case ContentPart.OutputText(t, _) =>
+            t
+          case ContentPart.InputText(t) =>
+            t
+        }
+        .mkString
 
   case class FunctionCall(
       callId: String,
@@ -152,8 +161,9 @@ object Item:
   ) extends Item
 
   /**
-    * Model reasoning. `encryptedContent` is returned with `include: ["reasoning.encrypted_content"]`
-    * and must be sent back unchanged for stateless multi-turn use.
+    * Model reasoning. `encryptedContent` is returned with
+    * `include: ["reasoning.encrypted_content"]` and must be sent back unchanged for stateless
+    * multi-turn use.
     */
   case class Reasoning(
       id: String,
@@ -251,6 +261,7 @@ object Item:
         )
       case _ =>
         Unknown(o.value)
+    end match
 
   end decode
 
@@ -373,18 +384,20 @@ case class ResponsesRequest(
     promptCacheKey: Option[String] = None,
     extra: Map[String, JSONValue] = Map.empty
 ):
-  def withModel(m: String): ResponsesRequest                = copy(model = m)
-  def withInput(i: Seq[Item]): ResponsesRequest             = copy(input = i)
-  def withInstructions(s: String): ResponsesRequest         = copy(instructions = Some(s))
-  def noInstructions(): ResponsesRequest                    = copy(instructions = None)
-  def withTools(t: Seq[Tool]): ResponsesRequest             = copy(tools = t)
-  def withToolChoice(c: ToolChoice): ResponsesRequest       = copy(toolChoice = Some(c))
-  def withMaxOutputTokens(n: Int): ResponsesRequest         = copy(maxOutputTokens = Some(n))
-  def withReasoning(r: ReasoningConfig): ResponsesRequest   = copy(reasoning = Some(r))
-  def withStream(enabled: Boolean): ResponsesRequest        = copy(stream = Some(enabled))
-  def withStore(enabled: Boolean): ResponsesRequest         = copy(store = Some(enabled))
-  def withInclude(i: Seq[String]): ResponsesRequest         = copy(include = i)
+  def withModel(m: String): ResponsesRequest                 = copy(model = m)
+  def withInput(i: Seq[Item]): ResponsesRequest              = copy(input = i)
+  def withInstructions(s: String): ResponsesRequest          = copy(instructions = Some(s))
+  def noInstructions(): ResponsesRequest                     = copy(instructions = None)
+  def withTools(t: Seq[Tool]): ResponsesRequest              = copy(tools = t)
+  def withToolChoice(c: ToolChoice): ResponsesRequest        = copy(toolChoice = Some(c))
+  def withMaxOutputTokens(n: Int): ResponsesRequest          = copy(maxOutputTokens = Some(n))
+  def withReasoning(r: ReasoningConfig): ResponsesRequest    = copy(reasoning = Some(r))
+  def withStream(enabled: Boolean): ResponsesRequest         = copy(stream = Some(enabled))
+  def withStore(enabled: Boolean): ResponsesRequest          = copy(store = Some(enabled))
+  def withInclude(i: Seq[String]): ResponsesRequest          = copy(include = i)
   def withExtra(key: String, v: JSONValue): ResponsesRequest = copy(extra = extra + (key -> v))
+
+end ResponsesRequest
 
 object ResponsesRequest:
   private val known = Set(
@@ -514,11 +527,12 @@ case class Response(
     extra: Map[String, JSONValue] = Map.empty
 ):
   /** The concatenated `output_text` of the assistant messages */
-  def outputText: String = output
-    .collect { case m: Item.Message =>
-      m.text
-    }
-    .mkString
+  def outputText: String =
+    output
+      .collect { case m: Item.Message =>
+        m.text
+      }
+      .mkString
 
   def functionCalls: Seq[Item.FunctionCall] = output.collect { case f: Item.FunctionCall =>
     f
@@ -549,9 +563,7 @@ object Response:
         Json.opt("usage", r.usage),
         "incomplete_details" ->
           Some(
-            r.incompleteReason
-              .map(x => Json.obj(Json.field("reason", x)))
-              .getOrElse(JSONNull())
+            r.incompleteReason.map(x => Json.obj(Json.field("reason", x))).getOrElse(JSONNull())
           ),
         "error" -> Some(r.error.map(JsonCodec[ResponseError].encode).getOrElse(JSONNull()))
       ) ++ Json.extra(r.extra),
@@ -578,7 +590,12 @@ object ResponseError:
   given JsonCodec[ResponseError] = JsonCodec.obj(
     e =>
       Seq(Json.opt("code", e.code), Json.field("message", e.message), Json.opt("param", e.param)),
-    o => ResponseError(o.strOrEmpty("message"), o.strOpt("code").orElse(o.strOpt("type")), o.strOpt("param"))
+    o =>
+      ResponseError(
+        o.strOrEmpty("message"),
+        o.strOpt("code").orElse(o.strOpt("type")),
+        o.strOpt("param")
+      )
   )
 
 /**
@@ -714,8 +731,10 @@ object ResponseStreamEvent:
 
   private def encode(e: ResponseStreamEvent): JSONValue =
     def ev(fields: (String, Option[JSONValue])*): JSONValue = Json.obj(
-      ((Json.field("type", e.eventType) +: fields) :+
-        Json.field("sequence_number", e.sequenceNumber))*
+      (
+        (Json.field("type", e.eventType) +: fields) :+
+          Json.field("sequence_number", e.sequenceNumber)
+      )*
     )
     e match
       case Lifecycle(_, r, _) =>
@@ -731,13 +750,17 @@ object ResponseStreamEvent:
         )
       case TextDelta(t, id, oi, i, d, _) =>
         ev(
-          (Seq(Json.field("item_id", id), Json.field("output_index", oi)) ++
-            indexKey(t).map(k => Json.field(k, i)) :+ Json.field("delta", d))*
+          (
+            Seq(Json.field("item_id", id), Json.field("output_index", oi)) ++
+              indexKey(t).map(k => Json.field(k, i)) :+ Json.field("delta", d)
+          )*
         )
       case TextDone(t, id, oi, i, text, _) =>
         ev(
-          (Seq(Json.field("item_id", id), Json.field("output_index", oi)) ++
-            indexKey(t).map(k => Json.field(k, i)) :+ Json.field(doneKey(t), text))*
+          (
+            Seq(Json.field("item_id", id), Json.field("output_index", oi)) ++
+              indexKey(t).map(k => Json.field(k, i)) :+ Json.field(doneKey(t), text)
+          )*
         )
       case ReasoningSummaryPart(_, id, oi, si, part, _) =>
         ev(
@@ -747,9 +770,14 @@ object ResponseStreamEvent:
           Json.field("part", part)
         )
       case Error(err, _) =>
-        ev(Json.opt("code", err.code), Json.field("message", err.message), Json.opt("param", err.param))
+        ev(
+          Json.opt("code", err.code),
+          Json.field("message", err.message),
+          Json.opt("param", err.param)
+        )
       case Unknown(raw) =>
         raw
+    end match
 
   end encode
 
@@ -772,10 +800,26 @@ object ResponseStreamEvent:
         seq
       )
     else if deltaTypes.contains(t) then
-      TextDelta(t, o.strOrEmpty("item_id"), o.getOrElse[Int]("output_index", 0), idx, o.strOrEmpty("delta"), seq)
+      TextDelta(
+        t,
+        o.strOrEmpty("item_id"),
+        o.getOrElse[Int]("output_index", 0),
+        idx,
+        o.strOrEmpty("delta"),
+        seq
+      )
     else if doneTypes.contains(t) then
-      TextDone(t, o.strOrEmpty("item_id"), o.getOrElse[Int]("output_index", 0), idx, o.strOrEmpty(doneKey(t)), seq)
-    else if t == "response.reasoning_summary_part.added" || t == "response.reasoning_summary_part.done" then
+      TextDone(
+        t,
+        o.strOrEmpty("item_id"),
+        o.getOrElse[Int]("output_index", 0),
+        idx,
+        o.strOrEmpty(doneKey(t)),
+        seq
+      )
+    else if t == "response.reasoning_summary_part.added" ||
+      t == "response.reasoning_summary_part.done"
+    then
       ReasoningSummaryPart(
         t,
         o.strOrEmpty("item_id"),
@@ -785,12 +829,10 @@ object ResponseStreamEvent:
         seq
       )
     else if t == "error" then
-      Error(
-        ResponseError(o.strOrEmpty("message"), o.strOpt("code"), o.strOpt("param")),
-        seq
-      )
+      Error(ResponseError(o.strOrEmpty("message"), o.strOpt("code"), o.strOpt("param")), seq)
     else
       Unknown(o.value)
+    end if
 
   end decode
 
