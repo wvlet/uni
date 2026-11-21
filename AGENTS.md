@@ -7,7 +7,7 @@
 ## Modules
 
 - **uni-core**: Pure-Scala essential libraries shared with uni-test (logging, Rx core, object wiring (Design), Surface; on Scala.js also the uni-dom rendering core and its testing toolkit, so uni-test can ship `DomTestSupport`)
-- **Uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP)
+- **Uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP, typed LLM vendor APIs)
 - **uni-test**: Unit testing framework
 - **uni-parquet**: Pure-Scala Apache Parquet reader and writer (all platforms; codecs included)
 

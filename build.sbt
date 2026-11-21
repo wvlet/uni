@@ -242,7 +242,7 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni",
     description :=
-      "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
+      "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, typed LLM vendor APIs (Anthropic, OpenAI, Gemini, Bedrock), retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
   )
   .jvmSettings(jvmNativeSharedSources)
   .jsSettings(jsBuildSettings, minimizeJavadoc)
@@ -739,6 +739,7 @@ lazy val docSnippets = project
                 base / "docs/core/canvas.md"                -> "snippets.core",
                 base / "docs/core/object-storage.md"        -> "snippets.core",
                 base / "docs/text/parquet.md"               -> "snippets.text",
+                base / "docs/ai"                            -> "snippets.ai",
                 base / "docs/blog"                          -> "snippets.blog"
               ),
               base,

@@ -230,6 +230,11 @@ const moduleGroups = [
     ]
   },
   {
+    text: 'AI',
+    collapsed: true,
+    items: [{ text: 'LLM APIs', link: '/ai/' }]
+  },
+  {
     text: 'CLI',
     collapsed: true,
     items: [

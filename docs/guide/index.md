@@ -107,6 +107,12 @@ how APIs map between them.
 | [WebSocket](/http/websocket) | Cross-platform bidirectional WebSocket client |
 | [Server-Sent Events](/http/sse) | One-way server→client streaming |
 
+#### AI
+
+| Module | Description |
+|--------|-------------|
+| [LLM APIs](/ai/) | Typed Anthropic, OpenAI, Gemini, and Bedrock APIs, with converters between vendors |
+
 #### UI & CLI
 
 | Module | Description |

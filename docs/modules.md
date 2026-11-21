@@ -1,5 +1,5 @@
 ---
-description: Every Uni module page in one place, grouped by task — core, data and serialization, files, Rx, control flow, HTTP and RPC, CLI, testing and build, and web UI.
+description: Every Uni module page in one place, grouped by task — core, data and serialization, files, Rx, control flow, HTTP and RPC, AI, CLI, testing and build, and web UI.
 ---
 
 # All Modules
@@ -75,6 +75,12 @@ available unless a row says otherwise.
 | [WebSocket Client](./http/websocket) | Cross-platform bidirectional WebSocket client |
 | [HTTP Retry Strategies](./http/retry) | Automatic retry for transient HTTP failures |
 | [MCP Server (stdio)](./mcp/) | A Scala trait as an MCP server that AI agents call as tools |
+
+## AI
+
+| Page | Description |
+|------|-------------|
+| [LLM APIs](./ai/) | Typed Anthropic, OpenAI, Gemini, and Bedrock requests, responses, and streams, with clients and converters between vendors |
 
 ## CLI
 
