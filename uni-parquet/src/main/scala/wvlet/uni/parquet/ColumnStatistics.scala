@@ -20,8 +20,8 @@ import scala.collection.immutable.VectorMap
   *   bytes of the column chunks after decompression
   * @param min
   *   the smallest value with its logical type applied (for example an Instant), or None when a row
-  *   group has no statistics or the type has no reliable order (see [[RowGroupFilter]]). Writers
-  *   may truncate long strings, so for strings min and max are bounds rather than stored values.
+  *   group has no statistics or the type has no reliable order (see [[ParquetFilter]]). Writers may
+  *   truncate long strings, so for strings min and max are bounds rather than stored values.
   * @param max
   *   the largest value, under the same rules as min
   */
@@ -61,7 +61,8 @@ object ColumnStatistics:
           .flatten
           .map { s =>
             for
-              ord   <- RowGroupFilter.ordering(p, s)
+              ord <- ParquetFilter.order(p, binaryAsString = false)
+              if ord.trusts(s)
               bytes <- pick(s)
               key   <- ord.decode(bytes)
             yield (ord, key, bytes)

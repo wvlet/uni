@@ -91,10 +91,10 @@ object Parquet:
     * or S3-compatible stores. See [[ParquetDataset]].
     *
     * {{{
-    * import wvlet.uni.parquet.RowGroupFilter.col
+    * import wvlet.uni.parquet.ParquetFilter.col
     * val ds     = Parquet.dataset("s3://bucket/events/")
     * val events = ds.readAs[Event](
-    *   ParquetReadOptions.default.withRowGroupFilter(col("dt") >= "2026-11-15")
+    *   ParquetReadOptions.default.withFilter(col("dt") >= "2026-11-15")
     * ).toSeq
     * ds.close()
     * }}}

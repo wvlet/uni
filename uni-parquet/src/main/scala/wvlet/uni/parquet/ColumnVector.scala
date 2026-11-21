@@ -182,6 +182,88 @@ object ColumnVector:
       else
         VectorMap.from(children.map(c => c.name -> c.getValue(i)))
 
+  /** The given rows of a vector, in order, at any depth */
+  private[parquet] def take(v: ColumnVector, rows: Array[Int]): ColumnVector =
+    val n     = rows.length
+    val nulls =
+      if v.nulls == null then
+        null
+      else
+        val ns = new Array[Boolean](n)
+        var i  = 0
+        while i < n do
+          ns(i) = v.nulls(rows(i))
+          i += 1
+        ns
+    inline def pick[A: scala.reflect.ClassTag](values: Array[A]): Array[A] =
+      val out = new Array[A](n)
+      var i   = 0
+      while i < n do
+        out(i) = values(rows(i))
+        i += 1
+      out
+    // The child rows of each picked row's [offsets(r), offsets(r + 1)) range, and new offsets
+    def ranges(offsets: Array[Int]): (Array[Int], Array[Int]) =
+      val newOffsets = new Array[Int](n + 1)
+      var i          = 0
+      while i < n do
+        newOffsets(i + 1) = newOffsets(i) + offsets(rows(i) + 1) - offsets(rows(i))
+        i += 1
+      val childRows = new Array[Int](newOffsets(n))
+      i = 0
+      while i < n do
+        var j = offsets(rows(i))
+        var k = newOffsets(i)
+        while j < offsets(rows(i) + 1) do
+          childRows(k) = j
+          j += 1
+          k += 1
+        i += 1
+      (newOffsets, childRows)
+
+    v match
+      case c: BooleanColumn =>
+        BooleanColumn(c.field, pick(c.values), nulls)
+      case c: IntColumn =>
+        IntColumn(c.field, pick(c.values), nulls)
+      case c: LongColumn =>
+        LongColumn(c.field, pick(c.values), nulls)
+      case c: FloatColumn =>
+        FloatColumn(c.field, pick(c.values), nulls)
+      case c: DoubleColumn =>
+        DoubleColumn(c.field, pick(c.values), nulls)
+      case c: BinaryColumn =>
+        val offsets = new Array[Int](n + 1)
+        var i       = 0
+        while i < n do
+          offsets(i + 1) = offsets(i) + c.length(rows(i))
+          i += 1
+        val data = new Array[Byte](offsets(n))
+        i = 0
+        while i < n do
+          System.arraycopy(c.data, c.offsets(rows(i)), data, offsets(i), c.length(rows(i)))
+          i += 1
+        val indices =
+          if c.dictIndices == null then
+            null
+          else
+            pick(c.dictIndices)
+        BinaryColumn(c.field, offsets, data, nulls, c.binaryAsString).withDictionary(
+          c.dictionary,
+          indices
+        )
+      case c: ListColumn =>
+        val (offsets, childRows) = ranges(c.offsets)
+        ListColumn(c.field, offsets, take(c.elements, childRows), nulls)
+      case c: MapColumn =>
+        val (offsets, childRows) = ranges(c.offsets)
+        MapColumn(c.field, offsets, take(c.keys, childRows), take(c.values, childRows), nulls)
+      case c: StructColumn =>
+        StructColumn(c.field, n, c.children.map(take(_, rows)), nulls)
+    end match
+
+  end take
+
   /** The vector with binary columns at any depth set to decode as strings */
   private[parquet] def withBinaryAsString(v: ColumnVector): ColumnVector =
     v match
