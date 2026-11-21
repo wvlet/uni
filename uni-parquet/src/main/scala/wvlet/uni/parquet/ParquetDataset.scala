@@ -271,7 +271,8 @@ class ParquetDataset private[parquet] (
     // The file that set the type at each nested path, for naming files in type errors
     val origins = scala.collection.mutable.HashMap.empty[String, String]
     // Every top-level name in the selected files, for checking filter and column names
-    val allNames = scala.collection.mutable.LinkedHashSet.empty[String]
+    val allNames                        = scala.collection.mutable.LinkedHashSet.empty[String]
+    val tableNames: Option[Set[String]] = tableFields.map(_.map(_.name).toSet)
     selected
       .zip(metas)
       .foreach { (s, meta) =>
@@ -284,7 +285,6 @@ class ParquetDataset private[parquet] (
                   .path} has no column ${name}, and the table's manifests don't give its value"
             )
         }
-        val tableNames = tableFields.map(_.map(_.name).toSet)
         fileFields
           .filter(f => tableNames.forall(_.contains(f.name)))
           .foreach { f =>
@@ -305,36 +305,35 @@ class ParquetDataset private[parquet] (
         withRepetition(f, Repetition.OPTIONAL)
       else
         f
-    val fileFields =
+    val columns =
       tableFields match
         case Some(table) =>
-          // The table's columns in table order; one that no selected file has reads as null
-          table
-            .filter(t => !partitionKeys.contains(t.name) && wanted.forall(_.contains(t.name)))
-            .map(t => union.get(t.name).map(nullable).getOrElse(nullable(t)))
+          // The table's columns in table order, partition columns included; one that no selected
+          // file has reads as null
+          table.flatMap { t =>
+            partitionColumns.find(_.name == t.name) match
+              case Some(p) =>
+                Some(p)
+              case None if wanted.forall(_.contains(t.name)) =>
+                Some(union.get(t.name).map(nullable).getOrElse(nullable(t)))
+              case None =>
+                None
+          }
         case None if files.isEmpty =>
-          metadataFields.filterNot(f => partitionKeys.contains(f.name))
+          metadataFields.filterNot(f => partitionKeys.contains(f.name)) ++ partitionColumns
         case None =>
-          union.values.map(nullable).toIndexedSeq
+          union.values.map(nullable).toIndexedSeq ++ partitionColumns
     val schema = ParquetSchema.fromElements(
       SchemaElements.of(
         ParquetSchema(
-          ParquetField.Group(
-            "schema",
-            Repetition.REQUIRED,
-            None,
-            Seq.empty,
-            0,
-            0,
-            fileFields ++ partitionColumns
-          )
+          ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, columns)
         )
       )
     )
     // Unknown names fail here, before any rows are read. A filter may name columns the read
     // doesn't select. With no file selected there are no footers to check names against.
     if selected.nonEmpty then
-      val known   = tableFields.map(_.map(_.name).toSet).getOrElse(allNames.toSet) ++ partitionKeys
+      val known   = tableNames.getOrElse(allNames.toSet) ++ partitionKeys
       val missing =
         // A dotted filter name may name a struct field, checked later against the schema
         (

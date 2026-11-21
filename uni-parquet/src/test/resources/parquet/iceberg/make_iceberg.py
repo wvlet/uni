@@ -75,7 +75,12 @@ cat.create_table("db.empty", schema=Schema(
     NestedField(4, "point", StructType(NestedField(8, "x", DoubleType(), required=False)), required=False),
 ))
 
-for name in ["events", "evolved", "renamed", "respec", "v1", "empty"]:
+# leading: the identity partition column comes first in the schema
+t = cat.create_table("db.leading", schema=Schema(NestedField(1, "dt", DateType(), required=False), NestedField(2, "id", LongType(), required=False)),
+                     partition_spec=PartitionSpec(PartitionField(1, 1000, IdentityTransform(), "dt")))
+t.append(pa.table({"dt": pa.array([datetime.date(2026, 11, 21)], pa.date32()), "id": pa.array([1], pa.int64())}))
+
+for name in ["events", "evolved", "renamed", "respec", "v1", "empty", "leading"]:
     shutil.copytree(os.path.join(wh, "db", name), os.path.join(out, name))
 
 # deletes and orc: copies of v1-style one-file tables whose current snapshot is edited by hand,

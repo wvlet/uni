@@ -210,6 +210,15 @@ class IcebergTableTest extends UniTest:
       ds.close()
   }
 
+  test("partition columns keep their place in the table schema") {
+    val ds = Parquet.dataset(fixture("leading"))
+    try
+      ds.schema.fields.map(_.name) shouldBe IndexedSeq("dt", "id")
+      ds.readRows().toSeq shouldBe Seq(Map("dt" -> LocalDate.of(2026, 11, 21), "id" -> 1L))
+    finally
+      ds.close()
+  }
+
   test("read a format version 1 table") {
     val ds = Parquet.dataset(fixture("v1"))
     try
