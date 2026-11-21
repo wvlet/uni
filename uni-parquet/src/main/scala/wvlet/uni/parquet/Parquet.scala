@@ -125,6 +125,7 @@ object Parquet:
             else
               base
           )
+          ParquetDataset.requireFiles(options, root)
           val matches = ParquetDataset.globMatcher(pattern)
           val listed  = ParquetDataset.listLocal(path)
           ParquetDataset.build(
@@ -138,15 +139,31 @@ object Parquet:
           )
         case None =>
           val path   = absolutePath(root)
-          val listed = ParquetDataset.listLocal(path)
-          ParquetDataset.build(
-            path.path,
-            listed,
-            options,
-            None,
-            ownsStore = false,
-            metadata = ParquetDataset.readMetadata(listed, options, None)
-          )
+          val listed =
+            if options.tableFormat == ParquetTableFormat.Delta then
+              ParquetDataset.underLog(ParquetDataset.listLocal(path.resolve(DeltaLog.LogDir)))
+            else
+              ParquetDataset.listLocal(path)
+          if ParquetDataset.isDelta(listed, options) then
+            val plan = ParquetDataset.deltaPlan(path.path, listed, options)
+            ParquetDataset.deltaDataset(
+              path.path,
+              plan,
+              ParquetDataset.fetchLog(plan, None, options.prefetch),
+              options,
+              None,
+              ownsStore = false
+            )
+          else
+            ParquetDataset.requireFiles(options, root)
+            ParquetDataset.build(
+              path.path,
+              listed,
+              options,
+              None,
+              ownsStore = false,
+              metadata = ParquetDataset.readMetadata(listed, options, None)
+            )
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
   def dataset(store: ObjectStore, root: String): ParquetDataset = dataset(
@@ -165,16 +182,35 @@ object Parquet:
       ownsStore: Boolean
   ): ParquetDataset =
     val (uri, matches, source) = objectPattern(root)
-    val listed                 = ParquetDataset.listObjects(store, uri)
-    ParquetDataset.build(
-      uri.toString,
-      listed.filter(l => matches(l.segments)),
-      options,
-      Some(store),
-      ownsStore,
-      source = source,
-      metadata = ParquetDataset.readMetadata(listed, options, Some(store))
-    )
+    val plainRoot              = ParquetDataset.splitGlob(root).isEmpty
+    val listed                 =
+      if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
+        ParquetDataset.underLog(ParquetDataset.listObjects(store, ParquetDataset.deltaLogRoot(uri)))
+      else
+        ParquetDataset.listObjects(store, uri)
+    if plainRoot && ParquetDataset.isDelta(listed, options) then
+      val plan = ParquetDataset.deltaPlan(uri.toString, listed, options)
+      ParquetDataset.deltaDataset(
+        uri.toString,
+        plan,
+        ParquetDataset.fetchLog(plan, Some(store), options.prefetch),
+        options,
+        Some(store),
+        ownsStore
+      )
+    else
+      ParquetDataset.requireFiles(options, root)
+      ParquetDataset.build(
+        uri.toString,
+        listed.filter(l => matches(l.segments)),
+        options,
+        Some(store),
+        ownsStore,
+        source = source,
+        metadata = ParquetDataset.readMetadata(listed, options, Some(store))
+      )
+
+  end dataset
 
   /**
     * The prefix to list for a root or glob pattern, the filter for the listed paths, and how an
@@ -209,6 +245,7 @@ object Parquet:
         s"A list of files must be all local or all in one bucket: ${paths.mkString(", ")}"
       )
     else
+      ParquetDataset.requireFiles(options, paths.mkString(", "))
       val (root, listed) = ParquetDataset.listedLocalFiles(paths.map(absolutePath))
       ParquetDataset.build(root.path, listed, options, None, ownsStore = false, skipHidden = false)
 
@@ -233,6 +270,7 @@ object Parquet:
       options: ParquetDatasetOptions,
       ownsStore: Boolean
   ): ParquetDataset =
+    ParquetDataset.requireFiles(options, paths.mkString(", "))
     val (root, listed) = ParquetDataset.listedObjects(paths.map(ObjectUri.parse))
     ParquetDataset.build(root.toString, listed, options, Some(store), ownsStore, skipHidden = false)
 
@@ -271,9 +309,31 @@ object Parquet:
   ): Rx[ParquetDataset] = Rx
     .single(objectPattern(root))
     .flatMap { (uri, matches, source) =>
-      ParquetDataset
-        .listObjectsAsync(store, uri)
-        .flatMap { listed =>
+      val plainRoot = ParquetDataset.splitGlob(root).isEmpty
+      val listing   =
+        if plainRoot && options.tableFormat == ParquetTableFormat.Delta then
+          ParquetDataset
+            .listObjectsAsync(store, ParquetDataset.deltaLogRoot(uri))
+            .map(ParquetDataset.underLog)
+        else
+          ParquetDataset.listObjectsAsync(store, uri)
+      listing.flatMap { listed =>
+        if plainRoot && ParquetDataset.isDelta(listed, options) then
+          val plan = ParquetDataset.deltaPlan(uri.toString, listed, options)
+          ParquetDataset
+            .fetchLogAsync(plan, store, options.prefetch)
+            .map(fetched =>
+              ParquetDataset.deltaDataset(
+                uri.toString,
+                plan,
+                fetched,
+                options,
+                Some(store),
+                ownsStore
+              )
+            )
+        else
+          ParquetDataset.requireFiles(options, root)
           ParquetDataset
             .readMetadataAsync(listed, options, store)
             .map(metadata =>
@@ -287,7 +347,7 @@ object Parquet:
                 metadata = metadata
               )
             )
-        }
+      }
     }
 
   /** The default store for a URI's scheme */

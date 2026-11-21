@@ -414,8 +414,43 @@ finally ds.close()
   the dataset. For R2, MinIO, or other credentials, pass a store, which the dataset leaves open:
   `Parquet.dataset(ObjectStore.s3(S3Config.r2("<account-id>")), "s3://my-bucket/visits/")`.
 
-`_metadata` summary files and table formats such as Delta Lake and Apache Iceberg aren't
-supported yet.
+### Delta Lake Tables
+
+A Delta Lake table is a folder of Parquet files plus a `_delta_log/` folder that records which
+files each version of the table has. Deletes, updates, and overwrites leave the old files on disk
+until a vacuum, so reading every file would return removed rows. `Parquet.dataset` notices
+`_delta_log/` at the root and reads only the table's live files, as Spark's `format("delta")` and
+DuckDB's `delta_scan` do:
+
+```scala
+import wvlet.uni.parquet.ParquetTableFormat
+
+val events = Parquet.dataset("s3://my-bucket/events/") // the latest version
+val v12 = Parquet.dataset(
+  "s3://my-bucket/events/",
+  ParquetDatasetOptions.default.withVersion(12)         // time travel
+)
+```
+
+- **Partitions** come from the log, typed by the table schema: `string`, `byte`, `short`,
+  `integer`, `long`, and `date` partition columns read as STRING, INT32, INT64, and DATE. Other
+  partition types fail with a hint to read them as strings with
+  `withPartitionType(key, ParquetType.STRING)`. Filters on partition columns skip files as for any
+  dataset.
+- **Versions.** The reader starts from the newest checkpoint at or before the version, then
+  replays the later commits. A version is readable while the log still has a checkpoint at or
+  before it and every commit after that; otherwise the error names the readable range.
+- **Reader features** that change what a file means fail when the dataset opens, naming the
+  feature: deletion vectors, column mapping, and v2 checkpoints. `timestampNtz`,
+  `vacuumProtocolCheck`, and type widening are read.
+- **A table without files** reads as an empty dataset with the schema from the log.
+- **Format.** `withTableFormat(ParquetTableFormat.Files)` reads every Parquet file under a table
+  root as plain files. `ParquetTableFormat.Delta` fails when the root has no log, and lists only
+  `_delta_log/`, which skips listing old files that a vacuum hasn't removed yet.
+  `withVersion` and `ParquetTableFormat.Delta` need the table's root, not a glob or a list of files.
+
+`_metadata` summary files and Apache Iceberg tables aren't supported yet, and Delta Lake tables
+aren't written.
 
 ## Writing a Dataset
 

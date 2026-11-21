@@ -18,12 +18,19 @@ package wvlet.uni.parquet
   * @param readCommonMetadata
   *   read `_common_metadata` at the root, which [[Parquet.writeDataset]] writes, for the partition
   *   types and for the schema of a dataset without files. Types set with [[withPartitionType]] win.
+  * @param tableFormat
+  *   how a root is read: [[ParquetTableFormat.Auto]] reads a root with a `_delta_log/` folder as a
+  *   Delta Lake table, and any other root as Parquet files
+  * @param version
+  *   the Delta table version to read, instead of the latest
   */
 case class ParquetDatasetOptions(
     partitionTypes: Map[String, ParquetType.Primitive] = Map.empty,
     fileExtension: Option[String] = None,
     prefetch: Int = 4,
-    readCommonMetadata: Boolean = true
+    readCommonMetadata: Boolean = true,
+    tableFormat: ParquetTableFormat = ParquetTableFormat.Auto,
+    version: Option[Long] = None
 ):
   def withPartitionType(key: String, tpe: ParquetType.Primitive): ParquetDatasetOptions =
     require(
@@ -43,9 +50,33 @@ case class ParquetDatasetOptions(
     enabled
   )
 
+  def withTableFormat(format: ParquetTableFormat): ParquetDatasetOptions = copy(tableFormat =
+    format
+  )
+
+  /** Reads this version of a Delta table (time travel) instead of the latest */
+  def withVersion(version: Long): ParquetDatasetOptions =
+    require(version >= 0, s"version must not be negative: ${version}")
+    copy(version = Some(version))
+
+  def noVersion(): ParquetDatasetOptions = copy(version = None)
+
   def withPrefetch(files: Int): ParquetDatasetOptions =
     require(files > 0, s"prefetch must be positive: ${files}")
     copy(prefetch = files)
+
+end ParquetDatasetOptions
+
+/** How [[Parquet.dataset]] reads a root */
+enum ParquetTableFormat:
+  /** A Delta Lake table when the root has a `_delta_log/` folder, Parquet files otherwise */
+  case Auto
+
+  /** Every Parquet file under the root, even when it is a table */
+  case Files
+
+  /** A Delta Lake table: only the files of the chosen version, as its `_delta_log/` records */
+  case Delta
 
 object ParquetDatasetOptions:
   val default: ParquetDatasetOptions = ParquetDatasetOptions()

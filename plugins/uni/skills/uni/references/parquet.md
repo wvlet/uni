@@ -229,6 +229,13 @@ def typedDataset(root: String) = Parquet.dataset(
   (`readAllAsync[A]()`, `readAllRowsAsync()`) everywhere. Pass `Parquet.dataset(store,
   root)` for R2, MinIO, or explicit credentials; the dataset closes only a store it created.
 
+- A root with a `_delta_log/` folder is read as a Delta Lake table: only the live files of the
+  latest version (`withVersion(n)` for time travel), with partition columns typed by the table
+  schema (string, byte/short/integer, long, date; others need `withPartitionType(key,
+  ParquetType.STRING)`). Deletion vectors, column mapping, and v2 checkpoints fail by name.
+  `withTableFormat(ParquetTableFormat.Files)` reads the raw files; `ParquetTableFormat.Delta`
+  requires a log. Iceberg isn't supported yet.
+
 ## Write a partitioned dataset
 
 `Parquet.writeDataset(root, rows, options)` writes `key=value` folders that `Parquet.dataset`
