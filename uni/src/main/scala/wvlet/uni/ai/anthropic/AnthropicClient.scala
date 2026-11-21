@@ -189,13 +189,8 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
             trace.setUsage(AnthropicConverter.toLlmUsage(usage))
           case StreamEvent.MessageDelta(reason, _, u, _) =>
             trace.setFinishReasons(reason.toSeq)
-            usage = Usage(
-              inputTokens =
-                if u.inputTokens > 0 then
-                  u.inputTokens
-                else
-                  usage.inputTokens
-              ,
+            usage = usage.copy(
+              inputTokens = Some(u.inputTokens).filter(_ > 0).getOrElse(usage.inputTokens),
               outputTokens = u.outputTokens,
               cacheCreationInputTokens = u
                 .cacheCreationInputTokens
@@ -203,6 +198,9 @@ class AnthropicClient(val config: AnthropicConfig, http: HttpAsyncClient = LlmHt
               cacheReadInputTokens = u.cacheReadInputTokens.orElse(usage.cacheReadInputTokens)
             )
             trace.setUsage(AnthropicConverter.toLlmUsage(usage))
+          // An error event ends the stream without a failed HTTP response
+          case StreamEvent.Error(err) =>
+            trace.setError(err.`type`)
           case _ =>
             ()
     }

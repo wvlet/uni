@@ -233,11 +233,11 @@ class MCPClient private[mcp] (
       catch
         case e: MCPClientException if e.code < 0 =>
           // A JSON-RPC error code; positive codes are HTTP statuses
-          MCPTelemetry.recordErrorCode(trace, e.code, e.message)
+          MCPTelemetry.recordErrorCode(trace, e.code)
           trace.end()
           throw e
         case e: MCPClientException =>
-          trace.setError(e.code.toString, Some(e.message))
+          trace.setError(e.code.toString)
           trace.end()
           throw e
         case NonFatal(e) =>

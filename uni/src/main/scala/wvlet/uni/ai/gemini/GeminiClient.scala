@@ -121,6 +121,7 @@ class GeminiClient(
       }
     )(req => LlmHttp.postJson(http, req).map(JsonCodec[GenerateContentResponse].decode))(observe)
 
+  /** Stream response chunks; each chunk holds only the new parts */
   def streamGenerateContent(model: String, r: GenerateContentRequest): Rx[GenerateContentResponse] =
     LlmTelemetry.traced(
       http,

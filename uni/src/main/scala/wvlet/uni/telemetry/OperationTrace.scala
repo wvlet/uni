@@ -59,7 +59,7 @@ private[uni] class OperationTrace(
   def setServer(uri: String): Unit = OperationTrace
     .authorityOf(uri)
     .foreach { authority =>
-      val (host, port) = wvlet.uni.http.TelemetryFilter.splitHostPort(authority)
+      val (host, port) = OperationTrace.splitHostPort(authority)
       setDimension("server.address", host)
       port
         .orElse(
@@ -124,6 +124,17 @@ private[uni] object OperationTrace:
         span.setAttribute(key, d)
       case b: Boolean =>
         span.setAttribute(key, b)
+
+  /** Split a `Host` header or URI authority into host and port, keeping IPv6 brackets off. */
+  def splitHostPort(authority: String): (String, Option[Int]) =
+    val colon        = authority.lastIndexOf(':')
+    val close        = authority.lastIndexOf(']')
+    val (host, port) =
+      if colon > close && colon >= 0 then
+        (authority.substring(0, colon), authority.substring(colon + 1).toIntOption)
+      else
+        (authority, None)
+    (host.stripPrefix("[").stripSuffix("]"), port)
 
   // The host[:port] of an absolute URL, without user info
   private def authorityOf(uri: String): Option[String] =

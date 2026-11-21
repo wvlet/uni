@@ -90,10 +90,13 @@ private[mcp] object MCPTelemetry:
     }
     transport.foreach(trace.setDimension("network.transport", _))
 
-  /** A JSON-RPC error response: `rpc.status_code` and `error.type` carry the code. */
-  def recordErrorCode(trace: OperationTrace, code: Int, message: String): Unit =
+  /**
+    * A JSON-RPC error response: `rpc.status_code` and `error.type` carry the code. The message is
+    * left out, since it can echo tool arguments.
+    */
+  def recordErrorCode(trace: OperationTrace, code: Int): Unit =
     trace.setDimension("rpc.status_code", code.toString)
-    trace.setError(code.toString, Some(message))
+    trace.setError(code.toString)
 
   /** A `tools/call` result with `isError: true`. */
   def recordToolError(trace: OperationTrace): Unit = trace.setError("tool_error")

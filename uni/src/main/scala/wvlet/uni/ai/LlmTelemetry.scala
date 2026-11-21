@@ -76,8 +76,8 @@ private[ai] class LlmCallTrace(telemetry: Telemetry, span: Span)
     e match
       case a: LlmApiException =>
         a.errorType.getOrElse(a.statusCode.toString)
-      case other =>
-        other.getClass.getName
+      case _ =>
+        super.errorTypeOf(e)
 
   override protected def onEnd(): Unit =
     responseId.foreach(setAttribute("gen_ai.response.id", _))

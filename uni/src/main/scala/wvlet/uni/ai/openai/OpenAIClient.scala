@@ -124,6 +124,8 @@ class OpenAIClient(val config: OpenAIConfig, http: HttpAsyncClient = LlmHttp.new
     trace.response(r.id, r.model)
     r.usage.foreach(u => trace.setUsage(ResponsesConverter.toLlmUsage(u)))
     trace.setFinishReasons(LlmTelemetry.finishReason(ResponsesConverter.toFinishReason(r)).toSeq)
+    if r.status == ResponseStatus.Failed then
+      trace.setError(r.error.flatMap(_.code).getOrElse("response_failed"))
 
   def responses(r: ResponsesRequest): Rx[Response] =
     LlmTelemetry.traced(
@@ -149,6 +151,8 @@ class OpenAIClient(val config: OpenAIConfig, http: HttpAsyncClient = LlmHttp.new
           observeResponse(trace, response)
         case ResponseStreamEvent.Lifecycle(_, response, _) =>
           trace.response(response.id, response.model)
+        case ResponseStreamEvent.Error(err, _) =>
+          trace.setError(err.code.getOrElse("error"))
         case _ =>
           ()
     }

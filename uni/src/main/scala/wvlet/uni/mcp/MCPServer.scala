@@ -157,9 +157,7 @@ case class MCPServer(
   private def traced(request: JsonRpcRequest, transport: Option[String]): Rx[Option[String]] =
     // Names come from the request, so keep metric attributes to known methods and tools
     val method =
-      if MCPServer.KnownMethods.contains(request.method) ||
-        request.method.startsWith("notifications/")
-      then
+      if MCPServer.KnownMethods.contains(request.method) then
         request.method
       else
         "_OTHER"
@@ -180,7 +178,7 @@ case class MCPServer(
       trace.endWith(
         rx.map { outcome =>
           outcome.foreach { o =>
-            o.errorCode.foreach(MCPTelemetry.recordErrorCode(trace, _, o.errorMessage))
+            o.errorCode.foreach(MCPTelemetry.recordErrorCode(trace, _))
             if o.toolError then
               MCPTelemetry.recordToolError(trace)
           }
@@ -363,13 +361,21 @@ end MCPServer
 
 object MCPServer:
   // The methods this server answers; others are traced as _OTHER
-  private val KnownMethods = Set("initialize", "ping", "tools/list", "tools/call")
+  private val KnownMethods = Set(
+    "initialize",
+    "ping",
+    "tools/list",
+    "tools/call",
+    "notifications/initialized",
+    "notifications/cancelled",
+    "notifications/progress",
+    "notifications/roots/list_changed"
+  )
 
   /** A response line, with what telemetry reports about it. */
   private case class Outcome(
       json: String,
       errorCode: Option[Int] = None,
-      errorMessage: String = "",
       toolError: Boolean = false
   )
 
@@ -381,8 +387,7 @@ object MCPServer:
 
     def error(id: JSONValue, code: Int, message: String): Outcome = Outcome(
       JsonRpc.errorResponse(id, code, message),
-      Some(code),
-      message
+      Some(code)
     )
 
   val LatestProtocolVersion: String          = "2025-06-18"
