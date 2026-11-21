@@ -60,7 +60,7 @@ built a new store for each file.
 - `selectFiles` reflects partition pruning only. A file whose row groups are all skipped by
   statistics is still listed, though it yields no rows.
 - Partition types recorded by the writer in `_common_metadata` are read as declared types; see [dataset root files](2026-11-21-parquet-dataset-root-files.md).
-- Not covered: full `_metadata` summary files (row groups of every file), Delta Lake and Iceberg,
+- Not covered: full `_metadata` summary files (row groups of every file), Iceberg (Delta Lake: see [Delta Lake tables](2026-11-21-parquet-delta-lake-tables.md)),
   nested type widening, and the npm facade.
 - Writing partitioned datasets is covered by `2026-11-21-parquet-dataset-writer.md`.
 - **Globs and file lists (added later).** A root with glob characters lists only the part before

@@ -766,7 +766,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     else
       s"${root}/"
 
-  private def partitionColumn(
+  private[parquet] def partitionColumn(
       key: String,
       t: ParquetType.Primitive,
       index: Int
@@ -780,6 +780,182 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     1,
     0,
     index
+  )
+
+  // ---- Delta Lake tables ----
+
+  /** Whether to read a plain root as a Delta table, from its listing */
+  private[parquet] def isDelta(listed: Seq[Listed], options: ParquetDatasetOptions): Boolean =
+    options.tableFormat match
+      case ParquetTableFormat.Delta =>
+        true
+      case ParquetTableFormat.Files =>
+        false
+      case ParquetTableFormat.Auto =>
+        DeltaLog.isTable(listed)
+
+  /** Fails for Delta-only options on a root read as files */
+  private[parquet] def requireFiles(options: ParquetDatasetOptions, root: String): Unit =
+    if options.tableFormat == ParquetTableFormat.Delta || options.version.isDefined then
+      throw IllegalArgumentException(
+        s"withTableFormat(Delta) and withVersion read a Delta table, so they need the table's root folder with a ${DeltaLog
+            .LogDir}/ folder: ${root}"
+      )
+
+  /** The log files to fetch for a Delta table, with the root listing or a `_delta_log/` listing */
+  private[parquet] def deltaPlan(
+      root: String,
+      listed: Seq[Listed],
+      options: ParquetDatasetOptions
+  ): DeltaLog.LogPlan =
+    if !DeltaLog.isTable(listed) then
+      throw ParquetException(
+        s"${rootNameOf(root)} is not a Delta table: it has no ${DeltaLog.LogDir}/ folder"
+      )
+    DeltaLog.plan(rootNameOf(root), listed, options.version)
+
+  /** A dataset of a Delta table's live files at the planned version */
+  private[parquet] def deltaDataset(
+      root: String,
+      plan: DeltaLog.LogPlan,
+      fetched: Seq[Array[Byte]],
+      options: ParquetDatasetOptions,
+      store: Option[ObjectStore],
+      ownsStore: Boolean
+  ): ParquetDataset =
+    val tableRoot = rootNameOf(root)
+    val snapshot  = DeltaLog.replay(tableRoot, plan, fetched)
+    val fields    = DeltaLog.fields(snapshot.schema)
+    val keys      = snapshot.partitionColumns
+    val unknown   = options.partitionTypes.keySet -- keys
+    if unknown.nonEmpty then
+      throw IllegalArgumentException(
+        s"withPartitionType names ${unknown
+            .toSeq
+            .sorted
+            .mkString(", ")}, but the partition columns of ${tableRoot} are: ${keys.mkString(", ")}"
+      )
+    val columns = keys
+      .zipWithIndex
+      .map { (k, i) =>
+        val deltaType = fields.find(_._1 == k).map(_._2)
+        val tpe       = options
+          .partitionTypes
+          .get(k)
+          .orElse(deltaType.flatMap(DeltaLog.partitionType))
+          .getOrElse(
+            throw ParquetException(
+              s"Partition column ${k} of ${tableRoot} has the Delta type ${deltaType
+                  .map(_.toJSON)
+                  .getOrElse(
+                    "(missing)"
+                  )}, which uni-parquet reads only with withPartitionType(\"${k}\", ParquetType.STRING)"
+            )
+          )
+        partitionColumn(k, tpe, i)
+      }
+    val files = snapshot
+      .files
+      .map { a =>
+        val path = deltaFilePath(tableRoot, a.path, store.isDefined)
+        DatasetFile(
+          path,
+          a.size,
+          VectorMap.from(
+            columns.map { c =>
+              val v = a.partitionValues.getOrElse(c.name, null)
+              c.name -> (
+                if v == null then
+                  null
+                else
+                  parseValue(v, c, path, "the type in the table schema")
+              )
+            }
+          )
+        )
+      }
+      .sortBy(_.path)
+    val schemaFields =
+      if files.isEmpty then
+        ParquetSchema
+          .fromColumns("schema", DeltaLog.columns(fields.filterNot(f => keys.contains(f._1))))
+          .fields
+      else
+        IndexedSeq.empty
+    ParquetDataset(tableRoot, files, columns, store, ownsStore, options.prefetch, schemaFields)
+
+  end deltaDataset
+
+  /** A data file's path or URI, from the relative or absolute URI that the log records */
+  private def deltaFilePath(tableRoot: String, p: String, objects: Boolean): String =
+    if p.contains("://") || p.startsWith("file:") then
+      def outside = ParquetException(
+        s"The Delta table ${tableRoot} lists ${p}, which is not in the same ${
+            if objects then
+              "bucket"
+            else
+              "file system"
+          }"
+      )
+      if objects then
+        val normalized =
+          if p.startsWith("s3a://") || p.startsWith("s3n://") then
+            s"s3${p.substring(3)}"
+          else
+            p
+        val uri  = ObjectUri.parse(normalized)
+        val base = ObjectUri.parse(tableRoot)
+        if uri.scheme != base.scheme || uri.bucket != base.bucket then
+          throw outside
+        uri.copy(key = unescape(uri.key)).toString
+      else if p.startsWith("file:") then
+        // file:/a/b, file:///a/b, or file://localhost/a/b
+        val rest = p.substring("file:".length)
+        val path =
+          if rest.startsWith("///") then
+            rest.substring(2)
+          else if rest.startsWith("//localhost/") then
+            rest.substring("//localhost".length)
+          else if rest.startsWith("/") && !rest.startsWith("//") then
+            rest
+          else
+            throw outside
+        unescape(path)
+      else
+        throw outside
+    else if p.startsWith("/") then
+      throw ParquetException(s"The Delta table ${tableRoot} lists ${p}, which is not a URI")
+    else
+      s"${tableRoot}${unescape(p)}"
+
+  /** Fetches log files: several at a time where threads exist */
+  private[parquet] def fetchLog(
+      plan: DeltaLog.LogPlan,
+      store: Option[ObjectStore],
+      prefetch: Int
+  ): Seq[Array[Byte]] =
+    ParallelMap(plan.files.toIndexedSeq, prefetch) { l =>
+      store match
+        case Some(s) =>
+          s.get(ObjectUri.parse(l.path))
+        case None =>
+          FileSystem.readBytes(IOPath.parse(l.path))
+    }
+
+  private[parquet] def fetchLogAsync(
+      plan: DeltaLog.LogPlan,
+      store: ObjectStore,
+      prefetch: Int
+  ): Rx[Seq[Array[Byte]]] =
+    RxParallel.parSequenceN(prefetch)(plan.files.map(l => store.getAsync(ObjectUri.parse(l.path))))
+
+  /** The `_delta_log/` listing of a table, for an explicit Delta read, as root-relative segments */
+  private[parquet] def deltaLogRoot(root: ObjectUri): ObjectUri = root.copy(key =
+    s"${root.key}${DeltaLog.LogDir}/"
+  )
+
+  private[parquet] def underLog(listed: Seq[Listed]): Seq[Listed] = listed.map(l =>
+    l.copy(segments = DeltaLog.LogDir +: l.segments)
   )
 
   // ---- _common_metadata ----
@@ -999,14 +1175,17 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
 
   private def isHex(c: Char): Boolean = Character.digit(c, 16) >= 0
 
-  private def parseValue(v: String, c: ParquetField.Primitive, path: String): Any =
+  private def parseValue(
+      v: String,
+      c: ParquetField.Primitive,
+      path: String,
+      typeSource: String = "the type set with withPartitionType"
+  ): Any =
     if v == DefaultPartition then
       null
     else
       def fail(tpe: String) =
-        throw ParquetException(
-          s"Partition ${c.name}=${v} in ${path} is not ${tpe}, the type set with withPartitionType"
-        )
+        throw ParquetException(s"Partition ${c.name}=${v} in ${path} is not ${tpe}, ${typeSource}")
       partitionKind(c) match
         case Kind.Str =>
           v
