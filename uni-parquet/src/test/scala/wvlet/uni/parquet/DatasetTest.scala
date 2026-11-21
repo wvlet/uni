@@ -217,6 +217,14 @@ class DatasetTest extends UniTest:
     }
   }
 
+  test("filter on a column the read doesn't select") {
+    skipInBrowser()
+    withDataset(datasetDir(lake*)) { ds =>
+      val opts = ParquetReadOptions.default.withColumns("user").withRowGroupFilter(col("id") >= 9L)
+      ds.readRows(opts).map(_("user")).toSeq shouldBe Seq("d-9")
+    }
+  }
+
   test("fail on unknown column names before reading rows") {
     skipInBrowser()
     withDataset(datasetDir(lake*)) { ds =>

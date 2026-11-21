@@ -343,8 +343,8 @@ finally ds.close()
 - **Skipping files.** A `RowGroupFilter` on partition columns is checked exactly against each
   file's folder values, so files that can't match are never opened. The rest of the filter skips
   row groups by statistics, as it does for one file. A filter value of the wrong type for a
-  partition fails, instead of quietly reading every file. A column name the dataset doesn't have
-  also fails before any rows are read.
+  partition fails, instead of quietly reading every file. When the read selects any file, a
+  column name that none of its files has also fails before any rows are read.
 - **Columns across files.** Columns are matched by name. The schema is the union of the columns
   of the files a read selects, so a column added in newer files reads as null in older ones. A
   column whose type differs between files fails with both file names; leave it out with

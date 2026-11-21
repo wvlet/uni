@@ -111,8 +111,20 @@ object Parquet:
           store.close()
           throw e
     else
-      val path = IOPath.parse(root)
-      ParquetDataset.build(root, ParquetDataset.listLocal(path), options, None, ownsStore = false)
+      // An absolute root, so listed paths and the root share one form for relativeTo
+      val parsed = IOPath.parse(root)
+      val path   =
+        if parsed.isAbsolute then
+          parsed
+        else
+          FileSystem.currentDirectory.resolve(parsed).normalize
+      ParquetDataset.build(
+        path.path,
+        ParquetDataset.listLocal(path),
+        options,
+        None,
+        ownsStore = false
+      )
 
   /** A dataset under a prefix of `store`, which the dataset leaves open when it closes */
   def dataset(store: ObjectStore, root: String): ParquetDataset = dataset(

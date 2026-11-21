@@ -225,6 +225,8 @@ class ParquetDataset private[parquet] (
     // Union of the files' top-level fields by name, in first-seen order
     val union   = scala.collection.mutable.LinkedHashMap.empty[String, (ParquetField, String)]
     val present = scala.collection.mutable.HashMap.empty[String, Int]
+    // Every top-level name in the selected files, for checking filter and column names
+    val allNames = scala.collection.mutable.LinkedHashSet.empty[String]
     selected
       .zip(metas)
       .foreach { (s, meta) =>
@@ -232,6 +234,7 @@ class ParquetDataset private[parquet] (
           .fromElements(meta.schema)
           .fields
           .foreach { f =>
+            allNames += f.name
             if !partitionKeys.contains(f.name) && wanted.forall(_.contains(f.name)) then
               present(f.name) = present.getOrElse(f.name, 0) + 1
               union.get(f.name) match
@@ -274,17 +277,19 @@ class ParquetDataset private[parquet] (
         )
       )
     )
-    // Unknown names fail here, before any rows are read. With no file selected, only partition
-    // names can be checked.
+    // Unknown names fail here, before any rows are read. A filter may name columns the read
+    // doesn't select. With no file selected there are no footers to check names against.
     if selected.nonEmpty then
-      val known   = schema.fields.map(_.name).toSet
+      val known   = allNames.toSet ++ partitionKeys
       val missing =
         (options.columns.getOrElse(Seq.empty) ++ options.rowGroupFilter.toSeq.flatMap(columnsOf))
           .distinct
           .filterNot(known.contains)
       if missing.nonEmpty then
         throw IllegalArgumentException(
-          s"No column named ${missing.mkString(", ")} in ${root}. Columns: ${known.mkString(", ")}"
+          s"No column named ${missing.mkString(", ")} in ${root}. Columns: ${(
+              allNames ++ partitionKeys
+            ).mkString(", ")}"
         )
     val output =
       options.columns match
@@ -437,7 +442,8 @@ class ParquetDataset private[parquet] (
 
   /** The batch with the plan's columns: the file's vectors, nulls, and partition values */
   private def toOutput(b: ColumnBatch, file: DatasetFile, plan: Plan): ColumnBatch =
-    val n = b.numRows
+    val n      = b.numRows
+    val byName = b.columns.map(c => c.name -> c).toMap
     ColumnBatch(
       n,
       plan
@@ -446,7 +452,7 @@ class ParquetDataset private[parquet] (
           if partitionKeys.contains(f.name) then
             constantVector(f.asInstanceOf[ParquetField.Primitive], file.partitions(f.name), n)
           else
-            b.columns.find(_.name == f.name).getOrElse(nullVector(f, n))
+            byName.getOrElse(f.name, nullVector(f, n))
         }
     )
 
