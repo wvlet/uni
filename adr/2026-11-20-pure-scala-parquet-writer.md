@@ -75,8 +75,8 @@ bit-packing code, and the decoders, which the writer reuses.
     `withCompressionLevel` (`compressionLevel` on npm), with 3 as the default. Levels 4-9 add
     hash chains of growing depth and a second lazy step. Every level tries the three repeat
     offsets and scores matches with repeat offsets as nearly free, which halved the default
-    level's output on column-shaped text. Levels 1-2 compress as 3, since entropy coding bounds
-    their speed, and 10-22 as 9, since deeper search without optimal parsing made files larger
+    level's output on column-shaped text. Levels 1-2 compress as 3, since the faster settings
+    measured wrote larger files no faster, and 10-22 as 9, since deeper search without optimal parsing made files larger
     and slower to write; both ranges are accepted because other writers pass them. A level on a
     codec without levels fails when the writer is created, not silently.
 - **One row group in memory.** Pages are compressed as they close and the row group is written
