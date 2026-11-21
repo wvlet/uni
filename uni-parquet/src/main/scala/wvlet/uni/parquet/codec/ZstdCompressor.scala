@@ -904,7 +904,7 @@ private[codec] final class BackwardBitWriter(out: ByteBuf, sizeHint: Int = 64):
 
   /** Appends 32 bits, when no bits are pending: for callers that gather bits themselves */
   def write32(v: Int): Unit =
-    var p = pos
+    val p = pos
     if p + 4 > buf.length then
       buf = java.util.Arrays.copyOf(buf, buf.length * 2)
     val b = buf
@@ -924,23 +924,7 @@ private[codec] final class BackwardBitWriter(out: ByteBuf, sizeHint: Int = 64):
     pos = p + 4
 
   private def flush32(): Unit =
-    if pos + 4 > buf.length then
-      buf = java.util.Arrays.copyOf(buf, buf.length * 2)
-    val c = container.toInt
-    buf(pos) = c.toByte
-    buf(pos + 1) =
-      (
-        c >>> 8
-      ).toByte
-    buf(pos + 2) =
-      (
-        c >>> 16
-      ).toByte
-    buf(pos + 3) =
-      (
-        c >>> 24
-      ).toByte
-    pos += 4
+    write32(container.toInt)
     container >>>= 32
     bitCount -= 32
 
