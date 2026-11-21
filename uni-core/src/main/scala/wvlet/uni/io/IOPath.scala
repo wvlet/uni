@@ -35,7 +35,7 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
         // Unix absolute path (e.g., /foo/bar)
         sep + segments.mkString(sep)
     else
-      segments.mkString(sep)
+      relativePath(sep)
 
   /**
     * Returns the path as a POSIX string (using forward slashes).
@@ -51,7 +51,17 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
       else
         "/" + segments.mkString("/")
     else
-      segments.mkString("/")
+      relativePath("/")
+
+  /**
+    * A drive-relative path joins its drive to the rest without a separator (`C:foo`), because
+    * `C:\foo` would be an absolute path
+    */
+  private def relativePath(sep: String): String =
+    if isDriveRelative then
+      segments.head + segments.tail.mkString(sep)
+    else
+      segments.mkString(sep)
 
   /**
     * Returns the file name (last segment of the path).
@@ -101,12 +111,7 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   /**
     * Resolves a child path relative to this path.
     */
-  def resolve(child: String): IOPath =
-    val childPath = IOPath.parse(child)
-    if childPath.isAbsolute then
-      childPath
-    else
-      IOPath(segments ++ childPath.segments, isAbsolute)
+  def resolve(child: String): IOPath = resolve(IOPath.parse(child))
 
   /**
     * Resolves a child path relative to this path.
@@ -114,6 +119,12 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   def resolve(child: IOPath): IOPath =
     if child.isAbsolute then
       child
+    else if child.isDriveRelative then
+      // `C:foo` continues a path on drive C, and names its own location on any other path
+      if drive.exists(_.equalsIgnoreCase(child.segments.head)) then
+        IOPath(segments ++ child.segments.tail, isAbsolute)
+      else
+        child
     else
       IOPath(segments ++ child.segments, isAbsolute)
 
@@ -133,6 +144,10 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   def relativeTo(base: IOPath): IOPath =
     if isAbsolute != base.isAbsolute then
       this // Cannot relativize paths with different absolute status
+    else if (isDriveRelative || base.isDriveRelative) &&
+      !drive.exists(d => base.drive.exists(d.equalsIgnoreCase))
+    then
+      this // A drive-relative path has no relative path from another drive or a plain relative path
     else
       val commonPrefixLength = segments.zip(base.segments).takeWhile((a, b) => a == b).length
       val ups                = Seq.fill(base.segments.length - commonPrefixLength)("..")
@@ -148,7 +163,8 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
         segment match
           case "." =>
             acc
-          case ".." if acc.nonEmpty && acc.last != ".." =>
+          // `C:..` is above the current folder on drive C, so `..` right after the drive stays
+          case ".." if acc.nonEmpty && acc.last != ".." && !(isDriveRelative && acc.size == 1) =>
             // `..` at a drive root stays at the root, as `..` at `/` does
             if isAbsolute && acc.size == 1 && hasDrive then
               acc
@@ -203,6 +219,20 @@ case class IOPath(segments: Seq[String], isAbsolute: Boolean):
   private def hasDrive: Boolean =
     isAbsolute && segments.headOption.exists(s => s.length >= 2 && s.charAt(1) == ':')
 
+  /**
+    * True for a Windows drive-relative path such as `C:foo` or `C:`: a path under the current
+    * folder of drive C. It is relative, and its first segment is the drive
+    */
+  private def isDriveRelative: Boolean =
+    !isAbsolute && segments.headOption.exists(IOPath.isDriveSegment)
+
+  /** The drive (`C:`) of an absolute drive path or a drive-relative path */
+  private def drive: Option[String] =
+    if hasDrive || isDriveRelative then
+      segments.headOption
+    else
+      None
+
   /** True for a drive root such as `C:\` */
   private def isDriveRoot: Boolean = hasDrive && segments.size == 1 && segments.head.length == 2
 
@@ -231,15 +261,14 @@ object IOPath:
       // Normalize separators
       val normalized = stripWin32Prefix(pathStr).replace("\\", "/")
 
-      // Check for absolute path
-      val isAbs =
-        normalized.startsWith("/") ||
-          (normalized.length >= 2 && normalized(1) == ':') // Windows drive letter
-
-      // Split into segments
-      val parts = normalized.split("/").filter(_.nonEmpty).toSeq
-
-      IOPath(parts, isAbs)
+      def split(s: String): Seq[String] = s.split("/").filter(_.nonEmpty).toSeq
+      if normalized.length >= 2 && normalized.charAt(0) != '/' && normalized.charAt(1) == ':' then
+        // A Windows drive letter. `C:\foo` is absolute, while `C:foo` and `C:` are drive-relative:
+        // they name a path under the current folder of drive C, so they stay relative
+        val rest = normalized.substring(2)
+        IOPath(normalized.substring(0, 2) +: split(rest), isAbsolute = rest.startsWith("/"))
+      else
+        IOPath(split(normalized), isAbsolute = normalized.startsWith("/"))
 
   /**
     * Removes the Windows `\\?\` (extended-length) or `\\.\` (device) prefix from a drive or UNC
@@ -273,6 +302,9 @@ object IOPath:
     * Creates an IOPath from the given path string.
     */
   def apply(pathStr: String): IOPath = parse(pathStr)
+
+  /** A Windows drive segment such as `C:` */
+  private def isDriveSegment(s: String): Boolean = s.length == 2 && s.charAt(1) == ':'
 
   /**
     * Creates an IOPath by joining multiple path segments.
