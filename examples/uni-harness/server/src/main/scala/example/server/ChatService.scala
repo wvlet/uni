@@ -1,7 +1,7 @@
 package example.server
 
 import example.api.{ChatApi, ChatEvent, ChatMessage, ChatReply, Conversation}
-import wvlet.uni.config.{InMemoryStoreBackend, NodeFileStoreBackend, SettingStore, StoreBackend}
+import wvlet.uni.storage.{InMemoryStoreBackend, NodeFileStoreBackend, SettingStore, StoreBackend}
 import wvlet.uni.io.IOPath
 import wvlet.uni.rx.Rx
 import wvlet.uni.rx.RxStream

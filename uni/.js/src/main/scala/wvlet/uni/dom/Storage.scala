@@ -14,7 +14,7 @@
 package wvlet.uni.dom
 
 import org.scalajs.dom
-import wvlet.uni.config.LocalStorageBackend
+import wvlet.uni.storage.LocalStorageBackend
 import wvlet.uni.rx.RxVar
 
 import scala.compiletime.{constValueTuple, summonAll}

@@ -11,11 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.config
+package wvlet.uni.storage
 
 import wvlet.uni.io.IOPath
 
-private[config] object SettingStoreCompat:
+private[storage] object SettingStoreCompat:
   def env(name: String): Option[String] = sys.env.get(name).filter(_.nonEmpty)
 
   def homeDir: IOPath = IOPath.homeDir
