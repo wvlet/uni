@@ -65,15 +65,13 @@ case class HistogramData(
   * Receives metric measurements. Implementations aggregate them and report on their own schedule;
   * `recordHistogram` runs on the thread that took the measurement, so it must be cheap.
   */
-trait MetricExporter extends AutoCloseable:
+trait MetricExporter extends TelemetryExporter:
   def recordHistogram(
       resource: Map[String, AttributeValue],
       instrument: HistogramInstrument,
       value: Double,
       attributes: Map[String, AttributeValue]
   ): Unit
-
-  override def close(): Unit = ()
 
 object MetricExporter:
   /** Drops every measurement. A [[Telemetry]] with this exporter records no metrics. */

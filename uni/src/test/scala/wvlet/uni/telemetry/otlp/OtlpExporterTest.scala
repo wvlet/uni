@@ -16,7 +16,7 @@ package wvlet.uni.telemetry.otlp
 import wvlet.uni.http.*
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
-import wvlet.uni.rx.{Rx, RxTimeProvider}
+import wvlet.uni.rx.{Rx, RxRunner, RxTimeProvider}
 import wvlet.uni.telemetry.*
 import wvlet.uni.test.UniTest
 
@@ -135,7 +135,7 @@ class OtlpExporterTest extends UniTest:
     val time    = RxTimeProvider.manual()
     val otlp    = OtlpExporter(
       OtlpConfig()
-        .withEndpoint("http://collector:4318/")
+        .copy(endpoint = "http://collector:4318/")
         .withHeader("DD-API-KEY", "test-key")
         .withFlushIntervalMillis(1000)
         .withTimeProvider(time)
@@ -186,7 +186,7 @@ class OtlpExporterTest extends UniTest:
     val telemetry = Telemetry().withExporter(otlp)
     val logs      = captureLogs {
       (1 to 7).foreach(i => telemetry.trace(s"s${i}")(_ => ()))
-      otlp.flush()
+      RxRunner.run(otlp.flush())(_ => ())
     }
     channel.requests.size shouldBe 3
     logs.warnings shouldContain "Dropped 2 spans"
@@ -203,9 +203,9 @@ class OtlpExporterTest extends UniTest:
     val telemetry = Telemetry().withExporter(otlp)
     val logs      = captureLogs {
       telemetry.trace("a")(_ => ())
-      otlp.flush()
+      RxRunner.run(otlp.flush())(_ => ())
       telemetry.trace("b")(_ => ())
-      otlp.flush()
+      RxRunner.run(otlp.flush())(_ => ())
     }
     logs.warnings.split("\n").count(_.contains("Failed to send telemetry")) shouldBe 1
     otlp.close()

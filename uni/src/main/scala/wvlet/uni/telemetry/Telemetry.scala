@@ -14,6 +14,7 @@
 package wvlet.uni.telemetry
 
 import wvlet.uni.log.LogSupport
+import wvlet.uni.rx.Rx
 
 import scala.util.control.NonFatal
 
@@ -59,8 +60,8 @@ case class Telemetry(
 
   /**
     * Send spans and metrics to an OTLP/HTTP endpoint, e.g. the Datadog Agent's OTLP receiver or an
-    * OpenTelemetry Collector. Starts the exporter's flush timer; [[close]] stops it and sends what
-    * is left.
+    * OpenTelemetry Collector. Starts the exporter's flush timer; [[shutdown]] stops it and sends
+    * what is left.
     */
   def withOtlp(config: wvlet.uni.telemetry.otlp.OtlpConfig): Telemetry =
     val otlp = wvlet.uni.telemetry.otlp.OtlpExporter(config)
@@ -98,11 +99,22 @@ case class Telemetry(
         case NonFatal(e) =>
           warn(s"Failed to record ${instrument.name}: ${e.getMessage}")
 
-  /** Close the exporters, which flushes what they buffer. */
-  override def close(): Unit =
-    exporter.close()
-    if metricExporter ne exporter then
-      metricExporter.close()
+  private def exporters: Seq[TelemetryExporter] =
+    if metricExporter eq exporter then
+      Seq(exporter)
+    else
+      Seq(exporter, metricExporter)
+
+  /**
+    * Send what the exporters buffer and stop them. The returned Rx emits once the last send is
+    * done; on the JVM and Scala Native, `telemetry.shutdown().await` before exit keeps the last
+    * batch.
+    */
+  def shutdown(): Rx[Unit] =
+    exporters.foldLeft(Rx.single(()))((acc, e) => acc.flatMap(_ => e.shutdown()))
+
+  /** Start [[shutdown]] without waiting for the last send. */
+  override def close(): Unit = exporters.foreach(_.close())
 
   /** The resource attributes every span of this service carries, including `service.name`. */
   lazy val resource: Map[String, AttributeValue] = resourceAttributes

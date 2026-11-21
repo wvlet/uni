@@ -337,7 +337,7 @@ class TelemetryFilterTest extends UniTest:
     val routes = RouterHandler(Router.of[OrderController])
     run(
       filter(
-        Request.get("/orders/1"),
+        Request.get("/orders/1").addHeader("traceparent", s"00-${traceId}-${spanId}-01"),
         req =>
           client.send(Request.get("http://inventory:9000/stock"))
           routes.handle(req)

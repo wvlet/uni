@@ -16,11 +16,11 @@ package wvlet.uni.telemetry.otlp
 import wvlet.uni.http.{Http, HttpAsyncClient, HttpClientConfig, Request}
 import wvlet.uni.json.JSON.JSONObject
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{Cancelable, OnCompletion, OnNext, RxRunner, RxTimeProvider}
+import wvlet.uni.rx.{Cancelable, Rx, RxRunner, RxTimeProvider}
 import wvlet.uni.telemetry.*
-import wvlet.uni.util.Result
 
 import scala.collection.mutable
+import scala.util.{Failure, Success}
 
 /**
   * Where and how often [[OtlpExporter]] sends.
@@ -71,10 +71,14 @@ end OtlpConfig
   *
   * Spans are buffered and histograms aggregated in memory, then sent every `flushIntervalMillis`
   * with Uni's async HTTP client. Histograms use delta temporality. A failed send is logged once and
-  * dropped: telemetry never blocks or fails the code it observes. [[close]] stops the timer and
+  * dropped: telemetry never blocks or fails the code it observes. [[shutdown]] stops the timer and
   * sends what is left.
   */
-class OtlpExporter(config: OtlpConfig) extends SpanExporter with MetricExporter with LogSupport:
+class OtlpExporter(config: OtlpConfig = OtlpConfig())
+    extends SpanExporter
+    with MetricExporter
+    with LogSupport:
+  private val endpoint   = config.endpoint.stripSuffix("/")
   private val spans      = mutable.ArrayBuffer.empty[SpanData]
   private var dropped    = 0L
   private val histograms = HistogramAggregator(config.clock)
@@ -90,7 +94,9 @@ class OtlpExporter(config: OtlpConfig) extends SpanExporter with MetricExporter 
   private val timer: Cancelable =
     config
       .timeProvider
-      .schedulePeriodically(config.flushIntervalMillis, config.flushIntervalMillis)(flush())
+      .schedulePeriodically(config.flushIntervalMillis, config.flushIntervalMillis) {
+        RxRunner.run(flush())(_ => ())
+      }
 
   override def exportSpan(span: SpanData): Unit = synchronized {
     if closed then
@@ -110,8 +116,12 @@ class OtlpExporter(config: OtlpConfig) extends SpanExporter with MetricExporter 
     if !closed then
       histograms.record(resource, instrument, value, attributes)
 
-  /** Send the buffered spans and the metrics collected since the last flush. */
-  def flush(): Unit =
+  /**
+    * Send the buffered spans and the metrics collected since the last flush. The data is taken when
+    * called; the returned Rx sends it, one request after another, and emits once when done. A
+    * failed request is logged, not raised.
+    */
+  def flush(): Rx[Unit] =
     val (batch, droppedNow) = synchronized {
       val b = spans.toSeq
       spans.clear()
@@ -121,40 +131,54 @@ class OtlpExporter(config: OtlpConfig) extends SpanExporter with MetricExporter 
     }
     if droppedNow > 0 then
       warn(s"Dropped ${droppedNow} spans: more than ${config.maxQueueSize} were buffered")
-    batch.grouped(config.maxBatchSize).foreach(b => post("/v1/traces", OtlpJson.traces(b)))
     val metrics = histograms.collect()
-    if metrics.nonEmpty then
-      post("/v1/metrics", OtlpJson.metrics(metrics))
+    val bodies  =
+      batch.grouped(config.maxBatchSize).map(b => "/v1/traces" -> OtlpJson.traces(b)).toSeq ++
+        Option.when(metrics.nonEmpty)("/v1/metrics" -> OtlpJson.metrics(metrics))
+    bodies.foldLeft(Rx.single(())) { case (acc, (path, body)) =>
+      acc.flatMap(_ => post(path, body))
+    }
 
-  private def post(path: String, body: JSONObject): Unit =
+  private def post(path: String, body: JSONObject): Rx[Unit] =
     val request =
       config
         .headers
-        .foldLeft(Request.post(s"${config.endpoint}${path}").withJsonContent(body.toJSON)) {
+        .foldLeft(Request.post(s"${endpoint}${path}").withJsonContent(body.toJSON)) {
           case (r, (k, v)) =>
             r.addHeader(k, v)
         }
-    // Recovery is judged by a delivered response: a failed stream can also report completion
-    RxRunner.run(client.send(request)) {
-      case OnNext(_) =>
-        if failing then
-          failing = false
-          info(s"Sending telemetry to ${config.endpoint} again")
-      case OnCompletion(Result.Failure(e)) =>
-        if !failing then
-          failing = true
-          warn(s"Failed to send telemetry to ${config.endpoint}${path}: ${e.getMessage}")
-      case _ =>
-    }
+    client
+      .send(request)
+      .transformTry {
+        case Success(_) =>
+          if failing then
+            failing = false
+            info(s"Sending telemetry to ${endpoint} again")
+          Success(())
+        case Failure(e) =>
+          if !failing then
+            failing = true
+            warn(s"Failed to send telemetry to ${endpoint}${path}: ${e.getMessage}")
+          Success(())
+      }
 
-  /** Stop the flush timer and send what is buffered. */
-  override def close(): Unit =
-    if !closed then
+  /**
+    * Stop the flush timer and send what is buffered. The returned Rx emits once the last request is
+    * done; on the JVM and Scala Native, `shutdown().await` waits for it before the process exits.
+    */
+  override def shutdown(): Rx[Unit] =
+    val first = synchronized {
+      val f = !closed
+      closed = true
+      f
+    }
+    if first then
       timer.cancel
       flush()
-      closed = true
+    else
+      Rx.single(())
+
+  /** Start [[shutdown]] without waiting for the last request. */
+  override def close(): Unit = RxRunner.run(shutdown())(_ => ())
 
 end OtlpExporter
-
-object OtlpExporter:
-  def apply(config: OtlpConfig = OtlpConfig()): OtlpExporter = new OtlpExporter(config)

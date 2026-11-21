@@ -103,8 +103,19 @@ val telemetry = Telemetry()
 listen, so the `datadog.yaml` above works unchanged. Spans are buffered and sent
 every 5 seconds (`withFlushIntervalMillis`), in batches of up to 512
 (`withMaxBatchSize`). Past 4,096 buffered spans (`withMaxQueueSize`), new spans
-are dropped and the count is logged. Call `telemetry.close()` at shutdown to
-stop the timer and send what is left.
+are dropped and the count is logged.
+
+At shutdown, stop the timer and send what is left. `shutdown()` returns an `Rx`
+that emits once the last send is done. On the JVM and Scala Native, wait for it,
+so the process doesn't exit first:
+
+```scala
+sys.addShutdownHook {
+  telemetry.shutdown().await
+}
+```
+
+`telemetry.close()` starts the same shutdown without waiting.
 
 The exporter works on the JVM, Scala Native, and Node.js. In a browser, the
 endpoint must accept the page's origin, which the Datadog Agent does not.
@@ -179,7 +190,7 @@ conventions:
 
 | Metric | Unit | Attributes |
 |--------|------|------------|
-| `http.server.request.duration` | s | `http.request.method`, `http.route` (for `@Endpoint` methods), `rpc.service` and `rpc.method` (for RPC calls), `http.response.status_code`, `error.type` |
+| `http.server.request.duration` | s | `http.request.method`, `http.route` (for `@Endpoint` methods), `rpc.system`, `rpc.service`, and `rpc.method` (for RPC calls), `http.response.status_code`, `error.type` |
 | `http.client.request.duration` | s | `http.request.method`, `server.address`, `server.port`, `http.response.status_code`, `error.type` |
 
 What is recorded:
@@ -188,8 +199,8 @@ What is recorded:
   sampled.
 - Histograms use delta temporality, which Datadog reads directly.
 - To record metrics without traces, set only a metric exporter, e.g.
-  `Telemetry().withMetricExporter(OtlpExporter(config))`. No `traceparent` is
-  sent then.
+  `Telemetry().withMetricExporter(OtlpExporter(config))`. Its HTTP clients then
+  send no `traceparent`.
 - Your own measurements go through `telemetry.recordHistogram(instrument, value, attributes)`.
 
 ### Spans in your own code

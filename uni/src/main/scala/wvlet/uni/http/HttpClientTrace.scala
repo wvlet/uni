@@ -24,8 +24,6 @@ import wvlet.uni.telemetry.{
   TraceContext
 }
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 /**
   * The client span and duration metric of one logical HTTP call. Retries and redirects are attempts
   * of the same call: each attempt after the first is a span event, and the span takes the final
@@ -37,8 +35,14 @@ private[http] class HttpClientTrace(
     val request: HttpRequest,
     baseAttributes: Map[String, AttributeValue]
 ):
-  private val startNanos = telemetry.clock.nanoTime
-  private val ended      = AtomicBoolean(false)
+  // Read the clock only when a metric will use it: a client without telemetry pays nothing
+  private val startNanos =
+    if telemetry.isMetricsEnabled then
+      telemetry.clock.nanoTime
+    else
+      0L
+
+  private var ended = false
   @volatile
   private var attempts = 0
 
@@ -92,15 +96,21 @@ private[http] class HttpClientTrace(
 
   /** End the span and record the duration, once. */
   def end(): Unit =
-    if ended.compareAndSet(false, true) then
+    val first = synchronized {
+      val f = !ended
+      ended = true
+      f
+    }
+    if first then
       if attempts > 1 then
         span.setAttribute("http.request.resend_count", (attempts - 1).toLong)
       span.end()
-      telemetry.recordHistogram(
-        HistogramInstrument.HttpClientRequestDuration,
-        (telemetry.clock.nanoTime - startNanos) / 1e9,
-        metricAttributes
-      )
+      if telemetry.isMetricsEnabled then
+        telemetry.recordHistogram(
+          HistogramInstrument.HttpClientRequestDuration,
+          (telemetry.clock.nanoTime - startNanos) / 1e9,
+          metricAttributes
+        )
 
   /** End the span when `events` completes, fails, or is cancelled. */
   def endWithStream[A](events: Rx[A]): Rx[A] =
@@ -151,8 +161,8 @@ private[http] object HttpClientTrace:
     }
     val ctx    = span.context
     val traced =
-      if !ctx.isValid then
-        // Metrics only: no trace to propagate
+      if !telemetry.isTracingEnabled || !ctx.isValid then
+        // Metrics only: this client doesn't trace, so it doesn't propagate a trace either
         request
       else
         // Drop any tracestate the request carried: it belongs to the replaced traceparent

@@ -231,7 +231,8 @@ val tracedClient = Http.client.withTelemetry(telemetry).newSyncClient
 - `Telemetry.currentSpan` is set while the handler's synchronous part runs;
   pass a span to `Rx` callbacks with `Telemetry.withSpan(span) { ... }`.
 - `telemetry.trace("name") { span => ... }` wraps your own code in a span.
-- Call `telemetry.close()` at shutdown to send what is buffered.
+- At shutdown, `telemetry.shutdown().await` (JVM, Native) sends what is buffered;
+  `close()` starts it without waiting.
 
 ## Lifecycle
 
