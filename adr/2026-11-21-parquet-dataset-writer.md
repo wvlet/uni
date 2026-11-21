@@ -51,5 +51,6 @@ would copy every byte twice there.
 - `ErrorIfExists`, `Append`, and the overwrite modes list the whole root before writing.
 - Case classes can have `LocalDate` fields and DATE partitions since the
   [LocalDate Weaver](2026-11-21-localdate-weaver.md). Records and batches can write them too.
-- Not covered: an async writer, sorting within partitions, `_SUCCESS` and `_metadata` files, and
+- `_SUCCESS` and `_common_metadata` are covered by [dataset root files](2026-11-21-parquet-dataset-root-files.md).
+- Not covered: an async writer, sorting within partitions, a full `_metadata` file, and
   bucketing.

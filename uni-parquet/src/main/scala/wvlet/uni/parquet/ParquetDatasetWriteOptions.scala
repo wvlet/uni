@@ -46,6 +46,12 @@ enum ParquetWriteMode:
   *   is written out early; its file stays open.
   * @param writeOptions
   *   settings for each file, as for [[Parquet.newWriter]]
+  * @param writeSuccessMarker
+  *   write an empty `_SUCCESS` file at the root once every file is written, as Spark and Hadoop do
+  * @param writeCommonMetadata
+  *   write `_common_metadata` at the root: a Parquet file without rows that holds the files' schema
+  *   and the partition column types, so [[Parquet.dataset]] reads typed partitions without
+  *   `withPartitionType`
   */
 case class ParquetDatasetWriteOptions(
     partitionBy: Seq[String] = Seq.empty,
@@ -54,7 +60,9 @@ case class ParquetDatasetWriteOptions(
     maxFileSize: Option[Long] = None,
     maxOpenFiles: Int = 32,
     maxBufferedBytes: Long = 256L * 1024 * 1024,
-    writeOptions: ParquetWriteOptions = ParquetWriteOptions.default
+    writeOptions: ParquetWriteOptions = ParquetWriteOptions.default,
+    writeSuccessMarker: Boolean = true,
+    writeCommonMetadata: Boolean = true
 ):
   def withPartitionBy(columns: String*): ParquetDatasetWriteOptions =
     require(columns.distinct.size == columns.size, s"Duplicate partition columns: ${columns}")
@@ -93,6 +101,14 @@ case class ParquetDatasetWriteOptions(
 
   def withWriteOptions(options: ParquetWriteOptions): ParquetDatasetWriteOptions = copy(
     writeOptions = options
+  )
+
+  def withWriteSuccessMarker(enabled: Boolean): ParquetDatasetWriteOptions = copy(
+    writeSuccessMarker = enabled
+  )
+
+  def withWriteCommonMetadata(enabled: Boolean): ParquetDatasetWriteOptions = copy(
+    writeCommonMetadata = enabled
   )
 
 end ParquetDatasetWriteOptions

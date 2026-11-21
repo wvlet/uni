@@ -15,11 +15,15 @@ package wvlet.uni.parquet
   * @param prefetch
   *   how many file footers a read fetches at a time (sync reads on the JVM, and async reads
   *   everywhere)
+  * @param readCommonMetadata
+  *   read `_common_metadata` at the root, which [[Parquet.writeDataset]] writes, for the partition
+  *   types and for the schema of a dataset without files. Types set with [[withPartitionType]] win.
   */
 case class ParquetDatasetOptions(
     partitionTypes: Map[String, ParquetType.Primitive] = Map.empty,
     fileExtension: Option[String] = None,
-    prefetch: Int = 4
+    prefetch: Int = 4,
+    readCommonMetadata: Boolean = true
 ):
   def withPartitionType(key: String, tpe: ParquetType.Primitive): ParquetDatasetOptions =
     require(
@@ -34,6 +38,10 @@ case class ParquetDatasetOptions(
 
   def withFileExtension(ext: String): ParquetDatasetOptions = copy(fileExtension = Some(ext))
   def noFileExtension(): ParquetDatasetOptions              = copy(fileExtension = None)
+
+  def withReadCommonMetadata(enabled: Boolean): ParquetDatasetOptions = copy(readCommonMetadata =
+    enabled
+  )
 
   def withPrefetch(files: Int): ParquetDatasetOptions =
     require(files > 0, s"prefetch must be positive: ${files}")
