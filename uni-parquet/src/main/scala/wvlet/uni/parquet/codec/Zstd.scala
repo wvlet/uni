@@ -41,6 +41,50 @@ private[parquet] object Zstd:
       fail(s"decoded ${op} bytes, expected ${expectedSize}")
     out
 
+  /**
+    * Decodes frames whose total size isn't known, as in Avro's zstandard blocks. Decoding fails
+    * when the output buffer is too small, so this retries with a buffer twice as large.
+    */
+  def decompressUnknownSize(src: Array[Byte], offset: Int, length: Int): Array[Byte] =
+    var size = math.max(length.toLong * 4, 1024L)
+    // Avro blocks hold about 64 KB of records, so a few doublings suffice
+    while true do
+      val out = new Array[Byte](size.toInt)
+      var ip  = offset
+      val end = offset + length
+      var op  = 0
+      try
+        while ip < end do
+          if end - ip < 4 then
+            fail("frame header is truncated")
+          val magic = le32(src, ip)
+          if (magic & 0xfffffff0) == 0x184d2a50 then
+            if end - ip < 8 then
+              fail("skippable frame is truncated")
+            val skip = le32(src, ip + 4).toLong & 0xffffffffL
+            if skip > end - ip - 8 then
+              fail("skippable frame is truncated")
+            ip += 8 + skip.toInt
+          else if magic != Magic then
+            fail(f"unknown frame magic 0x${magic}%08x")
+          else
+            val frame = FrameDecoder(src, ip + 4, end, out, op)
+            frame.run()
+            ip = frame.inputPos
+            op = frame.outputPos
+        return java.util.Arrays.copyOf(out, op)
+      catch
+        case e: ParquetException =>
+          // The buffer was too small, or the data is corrupt and fails again at every size, so
+          // stop at a ratio no real block reaches
+          size *= 2
+          if size > math.min(length.toLong * 256 + (1 << 20), Int.MaxValue - 8L) then
+            throw e
+    end while
+    throw IllegalStateException("unreachable")
+
+  end decompressUnknownSize
+
   private[codec] inline def le32(b: Array[Byte], i: Int): Int =
     (b(i) & 0xff) | ((b(i + 1) & 0xff) << 8) | ((b(i + 2) & 0xff) << 16) | ((b(i + 3) & 0xff) << 24)
 

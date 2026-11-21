@@ -61,7 +61,14 @@ class ParquetDataset private[parquet] (
     ownsStore: Boolean,
     prefetch: Int,
     /** The columns `_common_metadata` records, the schema of a dataset without files */
-    metadataFields: IndexedSeq[ParquetField] = IndexedSeq.empty
+    metadataFields: IndexedSeq[ParquetField] = IndexedSeq.empty,
+    /**
+      * A table's columns, for a table format that records its schema (Iceberg): the schema lists
+      * these in this order, with types from the files, so columns that the table dropped are hidden
+      */
+    tableFields: Option[IndexedSeq[ParquetField]] = None,
+    /** Columns each file must hold, since no partition value fills them */
+    requiredInFiles: Set[String] = Set.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -264,13 +271,22 @@ class ParquetDataset private[parquet] (
     // The file that set the type at each nested path, for naming files in type errors
     val origins = scala.collection.mutable.HashMap.empty[String, String]
     // Every top-level name in the selected files, for checking filter and column names
-    val allNames = scala.collection.mutable.LinkedHashSet.empty[String]
+    val allNames                        = scala.collection.mutable.LinkedHashSet.empty[String]
+    val tableNames: Option[Set[String]] = tableFields.map(_.map(_.name).toSet)
     selected
       .zip(metas)
       .foreach { (s, meta) =>
-        ParquetSchema
-          .fromElements(meta.schema)
-          .fields
+        val fileFields = ParquetSchema.fromElements(meta.schema).fields
+        requiredInFiles.foreach { name =>
+          if !fileFields.exists(_.name == name) then
+            throw ParquetException(
+              s"${s
+                  .file
+                  .path} has no column ${name}, and the table's manifests don't give its value"
+            )
+        }
+        fileFields
+          .filter(f => tableNames.forall(_.contains(f.name)))
           .foreach { f =>
             allNames += f.name
             if !partitionKeys.contains(f.name) && wanted.forall(_.contains(f.name)) then
@@ -283,39 +299,41 @@ class ParquetDataset private[parquet] (
                   union(f.name) = mergeField(prev, f, f.name, s.file.path, origins)
           }
       }
-    val fileFields =
-      if files.isEmpty then
-        metadataFields.filterNot(f => partitionKeys.contains(f.name))
+    // A column some files lack reads as null there
+    def nullable(f: ParquetField): ParquetField =
+      if !f.isRepeated && !f.isOptional && present.getOrElse(f.name, 0) < selected.size then
+        withRepetition(f, Repetition.OPTIONAL)
       else
-        union
-          .values
-          .map { f =>
-            // A column some files lack reads as null there
-            if !f.isRepeated && !f.isOptional && present(f.name) < selected.size then
-              withRepetition(f, Repetition.OPTIONAL)
-            else
-              f
+        f
+    val columns =
+      tableFields match
+        case Some(table) =>
+          // The table's columns in table order, partition columns included; one that no selected
+          // file has reads as null
+          table.flatMap { t =>
+            partitionColumns.find(_.name == t.name) match
+              case Some(p) =>
+                Some(p)
+              case None if wanted.forall(_.contains(t.name)) =>
+                Some(union.get(t.name).map(nullable).getOrElse(nullable(t)))
+              case None =>
+                None
           }
-          .toIndexedSeq
+        case None if files.isEmpty =>
+          metadataFields.filterNot(f => partitionKeys.contains(f.name)) ++ partitionColumns
+        case None =>
+          union.values.map(nullable).toIndexedSeq ++ partitionColumns
     val schema = ParquetSchema.fromElements(
       SchemaElements.of(
         ParquetSchema(
-          ParquetField.Group(
-            "schema",
-            Repetition.REQUIRED,
-            None,
-            Seq.empty,
-            0,
-            0,
-            fileFields ++ partitionColumns
-          )
+          ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, columns)
         )
       )
     )
     // Unknown names fail here, before any rows are read. A filter may name columns the read
     // doesn't select. With no file selected there are no footers to check names against.
     if selected.nonEmpty then
-      val known   = allNames.toSet ++ partitionKeys
+      val known   = tableNames.getOrElse(allNames.toSet) ++ partitionKeys
       val missing =
         // A dotted filter name may name a struct field, checked later against the schema
         (
@@ -329,7 +347,7 @@ class ParquetDataset private[parquet] (
       if missing.nonEmpty then
         throw IllegalArgumentException(
           s"No column named ${missing.mkString(", ")} in ${root}. Columns: ${(
-              allNames ++ partitionKeys
+              tableFields.map(_.map(_.name)).getOrElse(allNames.toSeq) ++ partitionKeys
             ).mkString(", ")}"
         )
     val output =
@@ -759,7 +777,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       s"${root}/"
 
   /** A local file path in the platform form: Delta logs and globs use `/` even on Windows */
-  private def localPath(p: String): String =
+  private[parquet] def localPath(p: String): String =
     if isWindows then
       IOPath.parse(p).path
     else
@@ -788,7 +806,7 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     options.tableFormat match
       case ParquetTableFormat.Delta =>
         true
-      case ParquetTableFormat.Files =>
+      case ParquetTableFormat.Files | ParquetTableFormat.Iceberg =>
         false
       case ParquetTableFormat.Auto =>
         DeltaLog.isTable(listed)
@@ -800,6 +818,11 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
         s"withTableFormat(Delta) and withVersion read a Delta table, so they need the table's root folder with a ${DeltaLog
             .LogDir}/ folder: ${root}"
       )
+    if options.tableFormat == ParquetTableFormat.Iceberg || options.snapshotId.isDefined then
+      throw IllegalArgumentException(
+        s"withTableFormat(Iceberg) and withSnapshotId read an Iceberg table, so they need the table's root folder with a ${IcebergTable
+            .MetadataDir}/ folder, or a metadata file: ${root}"
+      )
 
   /** The log files to fetch for a Delta table, with the root listing or a `_delta_log/` listing */
   private[parquet] def deltaPlan(
@@ -810,6 +833,12 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
     if !DeltaLog.isTable(listed) then
       throw ParquetException(
         s"${rootNameOf(root)} is not a Delta table: it has no ${DeltaLog.LogDir}/ folder"
+      )
+    if options.snapshotId.isDefined then
+      throw IllegalArgumentException(
+        s"withSnapshotId reads an Iceberg table, but ${rootNameOf(
+            root
+          )} is a Delta table. Use withVersion"
       )
     DeltaLog.plan(rootNameOf(root), listed, options.version)
 
@@ -908,19 +937,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
           throw outside
         uri.copy(key = unescape(uri.key)).toString
       else if p.startsWith("file:") then
-        // file:/a/b, file:///a/b, or file://localhost/a/b
-        val rest = p.substring("file:".length)
-        val path =
-          if rest.startsWith("///") then
-            rest.substring(2)
-          else if rest.startsWith("//localhost/") then
-            rest.substring("//localhost".length)
-          else if rest.startsWith("/") && !rest.startsWith("//") then
-            rest
-          else
-            throw outside
         // On Windows, file:///C:/a gives /C:/a, which parses as C:\a
-        localPath(unescape(path))
+        localPath(unescape(localPathOfFileUri(p).getOrElse(throw outside)))
       else
         throw outside
     else if p.startsWith("/") then
@@ -929,6 +947,18 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       s"${tableRoot}${unescape(p)}"
     else
       localPath(s"${tableRoot}${unescape(p)}")
+
+  /** The local path of a `file:/a/b`, `file:///a/b`, or `file://localhost/a/b` URI */
+  private[parquet] def localPathOfFileUri(p: String): Option[String] =
+    val rest = p.substring("file:".length)
+    if rest.startsWith("///") then
+      Some(rest.substring(2))
+    else if rest.startsWith("//localhost/") then
+      Some(rest.substring("//localhost".length))
+    else if rest.startsWith("/") && !rest.startsWith("//") then
+      Some(rest)
+    else
+      None
 
   /** Fetches log files: several at a time where threads exist */
   private[parquet] def fetchLog(
@@ -951,14 +981,170 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
   ): Rx[Seq[Array[Byte]]] =
     RxParallel.parSequenceN(prefetch)(plan.files.map(l => store.getAsync(ObjectUri.parse(l.path))))
 
-  /** The `_delta_log/` listing of a table, for an explicit Delta read, as root-relative segments */
-  private[parquet] def deltaLogRoot(root: ObjectUri): ObjectUri = root.copy(key =
-    s"${root.key}${DeltaLog.LogDir}/"
+  private[parquet] def underLog(listed: Seq[Listed]): Seq[Listed] = under(DeltaLog.LogDir, listed)
+
+  /** A listing of `dir/` below a root, as root-relative segments */
+  private[parquet] def under(dir: String, listed: Seq[Listed]): Seq[Listed] = listed.map(l =>
+    l.copy(segments = dir +: l.segments)
   )
 
-  private[parquet] def underLog(listed: Seq[Listed]): Seq[Listed] = listed.map(l =>
-    l.copy(segments = DeltaLog.LogDir +: l.segments)
-  )
+  // ---- Apache Iceberg tables ----
+
+  /** Whether to read a plain root as an Iceberg table, from its listing (after Delta detection) */
+  private[parquet] def isIceberg(listed: Seq[Listed], options: ParquetDatasetOptions): Boolean =
+    options.tableFormat match
+      case ParquetTableFormat.Iceberg =>
+        true
+      case ParquetTableFormat.Files | ParquetTableFormat.Delta =>
+        false
+      case ParquetTableFormat.Auto =>
+        IcebergTable.isTable(listed)
+
+  /** Whether a root names one Iceberg metadata file, read as that table version */
+  private[parquet] def isIcebergMetadataFile(
+      root: String,
+      options: ParquetDatasetOptions
+  ): Boolean =
+    IcebergTable.isMetadataFile(root) && (
+      options.tableFormat == ParquetTableFormat.Auto ||
+        options.tableFormat == ParquetTableFormat.Iceberg
+    )
+
+  private def checkIcebergOptions(root: String, options: ParquetDatasetOptions): Unit =
+    if options.version.isDefined then
+      throw IllegalArgumentException(
+        s"withVersion reads a Delta table, but ${root} is an Iceberg table. Use withSnapshotId"
+      )
+    if options.partitionTypes.nonEmpty then
+      throw IllegalArgumentException(
+        s"withPartitionType doesn't apply to the Iceberg table ${root}: its schema gives the partition types"
+      )
+
+  /** The steps that read an Iceberg table from its root listing */
+  private[parquet] def icebergFromListing(
+      root: String,
+      listed: Seq[Listed],
+      options: ParquetDatasetOptions,
+      objects: Boolean
+  ): IcebergTable.Step =
+    val tableRoot = rootNameOf(root)
+    checkIcebergOptions(tableRoot, options)
+    if !IcebergTable.isTable(listed) then
+      throw ParquetException(
+        s"${tableRoot} is not an Iceberg table: it has no ${IcebergTable
+            .MetadataDir}/*.metadata.json"
+      )
+    IcebergTable.fromListing(tableRoot, listed, options.snapshotId, objects)
+
+  /** The steps that read an Iceberg table from one of its metadata files */
+  private[parquet] def icebergFromMetadataFile(
+      path: String,
+      options: ParquetDatasetOptions,
+      objects: Boolean
+  ): IcebergTable.Step =
+    val tableRoot = IcebergTable
+      .rootOfMetadataFile(path)
+      .getOrElse(path.substring(0, IcebergTable.lastSeparator(path) + 1))
+    checkIcebergOptions(tableRoot, options)
+    IcebergTable.fromMetadataFile(tableRoot, path, options.snapshotId, objects)
+
+  /** Runs the steps of an Iceberg read, fetching several files at a time where threads exist */
+  private[parquet] def runIceberg(
+      step: IcebergTable.Step,
+      store: Option[ObjectStore],
+      prefetch: Int
+  ): IcebergTable.Resolved =
+    var s = step
+    while true do
+      s match
+        case IcebergTable.Step.Done(t) =>
+          return t
+        case IcebergTable.Step.Fetch(paths, next) =>
+          s = next(ParallelMap(paths, prefetch)(p => fetchBytes(p, store)))
+    throw IllegalStateException("unreachable")
+
+  /**
+    * Runs the steps asynchronously. Files are fetched in batches, each after a timer hop, so a
+    * snapshot with many manifests on a store that completes at once doesn't grow the stack.
+    */
+  private[parquet] def runIcebergAsync(
+      step: IcebergTable.Step,
+      store: ObjectStore,
+      prefetch: Int
+  ): Rx[IcebergTable.Resolved] =
+    step match
+      case IcebergTable.Step.Done(t) =>
+        Rx.single(t)
+      case IcebergTable.Step.Fetch(paths, next) =>
+        def loop(
+            batches: List[IndexedSeq[String]],
+            acc: Vector[Array[Byte]]
+        ): Rx[Vector[Array[Byte]]] =
+          batches match
+            case Nil =>
+              Rx.single(acc)
+            case batch :: rest =>
+              Rx.delay(0, java.util.concurrent.TimeUnit.MILLISECONDS)
+                .flatMap(_ =>
+                  RxParallel.parSequenceN(prefetch)(
+                    batch.map(p => store.getAsync(ObjectUri.parse(p)))
+                  )
+                )
+                .flatMap(bytes => loop(rest, acc ++ bytes))
+        loop(paths.grouped(IcebergFetchBatch).toList, Vector.empty).flatMap(bytes =>
+          runIcebergAsync(next(bytes), store, prefetch)
+        )
+
+  private val IcebergFetchBatch = 64
+
+  private def fetchBytes(path: String, store: Option[ObjectStore]): Array[Byte] =
+    try
+      store match
+        case Some(s) =>
+          s.get(ObjectUri.parse(path))
+        case None =>
+          FileSystem.readBytes(IOPath.parse(path))
+    catch
+      case e: ParquetException =>
+        throw e
+      case e: Exception =>
+        throw ParquetException(s"Failed to read ${path}: ${e.getMessage}", e)
+
+  /** A dataset of an Iceberg table's live files at the chosen snapshot */
+  private[parquet] def icebergDataset(
+      table: IcebergTable.Resolved,
+      options: ParquetDatasetOptions,
+      store: Option[ObjectStore],
+      ownsStore: Boolean
+  ): ParquetDataset =
+    val columns = table
+      .partitionColumns
+      .zipWithIndex
+      .map { case ((k, t), i) =>
+        partitionColumn(k, t, i)
+      }
+    val files = table
+      .files
+      .map(f =>
+        DatasetFile(
+          f.path,
+          f.size,
+          VectorMap.from(columns.map(c => c.name -> f.partitions.getOrElse(c.name, null)))
+        )
+      )
+    val fields = ParquetSchema.fromColumns("schema", table.columns).fields
+    ParquetDataset(
+      table.root,
+      files,
+      columns,
+      store,
+      ownsStore,
+      options.prefetch,
+      tableFields = Some(fields),
+      requiredInFiles = table.requiredInFiles
+    )
+
+  end icebergDataset
 
   // ---- _common_metadata ----
 

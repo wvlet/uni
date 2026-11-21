@@ -20,9 +20,12 @@ package wvlet.uni.parquet
   *   types and for the schema of a dataset without files. Types set with [[withPartitionType]] win.
   * @param tableFormat
   *   how a root is read: [[ParquetTableFormat.Auto]] reads a root with a `_delta_log/` folder as a
-  *   Delta Lake table, and any other root as Parquet files
+  *   Delta Lake table, a root with a `metadata/` folder with `.metadata.json` files as an Apache
+  *   Iceberg table, and any other root as Parquet files
   * @param version
   *   the Delta table version to read, instead of the latest
+  * @param snapshotId
+  *   the Iceberg snapshot to read, instead of the table's current snapshot
   */
 case class ParquetDatasetOptions(
     partitionTypes: Map[String, ParquetType.Primitive] = Map.empty,
@@ -30,7 +33,8 @@ case class ParquetDatasetOptions(
     prefetch: Int = 4,
     readCommonMetadata: Boolean = true,
     tableFormat: ParquetTableFormat = ParquetTableFormat.Auto,
-    version: Option[Long] = None
+    version: Option[Long] = None,
+    snapshotId: Option[Long] = None
 ):
   def withPartitionType(key: String, tpe: ParquetType.Primitive): ParquetDatasetOptions =
     require(
@@ -61,6 +65,11 @@ case class ParquetDatasetOptions(
 
   def noVersion(): ParquetDatasetOptions = copy(version = None)
 
+  /** Reads this snapshot of an Iceberg table (time travel) instead of the current one */
+  def withSnapshotId(id: Long): ParquetDatasetOptions = copy(snapshotId = Some(id))
+
+  def noSnapshotId(): ParquetDatasetOptions = copy(snapshotId = None)
+
   def withPrefetch(files: Int): ParquetDatasetOptions =
     require(files > 0, s"prefetch must be positive: ${files}")
     copy(prefetch = files)
@@ -69,7 +78,10 @@ end ParquetDatasetOptions
 
 /** How [[Parquet.dataset]] reads a root */
 enum ParquetTableFormat:
-  /** A Delta Lake table when the root has a `_delta_log/` folder, Parquet files otherwise */
+  /**
+    * A Delta Lake table when the root has a `_delta_log/` folder, an Iceberg table when it has a
+    * `metadata/` folder with `.metadata.json` files (or is such a file), Parquet files otherwise
+    */
   case Auto
 
   /** Every Parquet file under the root, even when it is a table */
@@ -77,6 +89,12 @@ enum ParquetTableFormat:
 
   /** A Delta Lake table: only the files of the chosen version, as its `_delta_log/` records */
   case Delta
+
+  /**
+    * An Apache Iceberg table: only the data files of the chosen snapshot, as its `metadata/`
+    * records
+    */
+  case Iceberg
 
 object ParquetDatasetOptions:
   val default: ParquetDatasetOptions = ParquetDatasetOptions()

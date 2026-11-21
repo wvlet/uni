@@ -236,7 +236,13 @@ def typedDataset(root: String) = Parquet.dataset(
   schema (string, byte/short/integer, long, date; others need `withPartitionType(key,
   ParquetType.STRING)`). Deletion vectors, column mapping, and v2 checkpoints fail by name.
   `withTableFormat(ParquetTableFormat.Files)` reads the raw files; `ParquetTableFormat.Delta`
-  requires a log. Iceberg isn't supported yet.
+  requires a log.
+- A root with a `metadata/` folder holding `.metadata.json` files is read as an Apache Iceberg
+  table: only the files of the current snapshot (`withSnapshotId(id)` for time travel), with the
+  snapshot schema's columns (dropped columns hidden). Identity partitions on string, int, long, or
+  date columns are partition columns. It reads `version-hint.text` or else the newest metadata
+  file; pass the catalog's `.metadata.json` path as the root to read exactly the catalog's
+  version. Delete files, format v3, non-Parquet data files, and renamed columns fail by name.
 
 ## Write a partitioned dataset
 
