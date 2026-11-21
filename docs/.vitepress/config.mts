@@ -483,6 +483,9 @@ export default withMermaid(defineConfig<UniThemeConfig>({
         activeMatch: '^/(modules|core|text|rx|control|http(?!/electron)|mcp|cli|build)(/|$)'
       },
       { text: 'UI', link: '/dom/', activeMatch: '^/(dom/|http/electron)' },
+      // The gallery is a static Scala.js app in docs/public/gallery, not a VitePress page, so the
+      // link loads the page instead of going through the router
+      { text: 'Gallery', link: '/gallery/index.html', target: '_self' },
       { text: 'Book', link: '/book/', activeMatch: '^/book/' },
       { text: 'For AI Agents', link: '/guide/for-ai-agents' },
       { text: 'Blog', link: '/blog/', activeMatch: '^/blog/' },
