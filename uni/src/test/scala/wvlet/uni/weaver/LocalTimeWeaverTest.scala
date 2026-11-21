@@ -41,10 +41,20 @@ class LocalTimeWeaverTest extends UniTest:
   }
 
   test("report a malformed time as an error") {
-    val e = intercept[Exception] {
-      summon[Weaver[LocalTime]].fromJson("\"25:61\"")
+    Seq("25:00", "9:30", "09:30:", "09:30:15.", "09:30:15.1234567890", "09-30", "").foreach { s =>
+      val e = intercept[Exception] {
+        summon[Weaver[LocalTime]].fromJson(s"\"${s}\"")
+      }
+      e.getMessage shouldContain "LocalTime"
     }
-    e.getMessage shouldContain "LocalTime"
+  }
+
+  test("parse every ISO-8601 local time form") {
+    val w = summon[Weaver[LocalTime]]
+    w.fromJson("\"00:00\"") shouldBe LocalTime.MIDNIGHT
+    w.fromJson("\"23:59:59\"") shouldBe LocalTime.of(23, 59, 59)
+    w.fromJson("\"12:00:00.5\"") shouldBe LocalTime.of(12, 0, 0, 500000000)
+    w.fromJson("\"12:00:00.000000001\"") shouldBe LocalTime.of(12, 0, 0, 1)
   }
 
 end LocalTimeWeaverTest

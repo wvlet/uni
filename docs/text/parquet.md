@@ -571,8 +571,8 @@ Control.withResource(Parquet.newRecordWriter("records.parquet", schema)) { w =>
 Missing columns are null, and keys without a column are ignored. Keys match column names loosely,
 as when reading (`user_name` fills `userName`). Each column accepts the usual forms of its type: a
 TIMESTAMP takes an `Instant`, an ISO-8601 string, or epoch milliseconds; a DECIMAL takes a number
-or a string (use strings in JSON for exact values); a DATE takes a `LocalDate` or `yyyy-mm-dd`; a TIME takes a `LocalTime`, `hh:mm:ss[.fraction]`, or
-nanoseconds of the day.
+or a string (use strings in JSON for exact values); a DATE takes a `LocalDate` or `yyyy-mm-dd`;
+a TIME takes a `LocalTime`, `hh:mm:ss[.fraction]`, or nanoseconds of the day.
 Other column types are `ParquetType.INT8`, `INT16`, `INT32`, `FLOAT`, `DOUBLE`, `BOOLEAN`,
 `BINARY`, `ENUM`, `JSON`, `DATE`, `TIMESTAMP_MILLIS`, `TIMESTAMP_MICROS`, `TIMESTAMP_NANOS`,
 `TIME_MILLIS`, `TIME_MICROS`, `TIME_NANOS`, `UUID`, `fixed(n)`, `map(key, value)`, and `struct(columns*)`.

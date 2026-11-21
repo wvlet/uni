@@ -5,10 +5,10 @@ import wvlet.uni.msgpack.spi.Value.*
 import wvlet.uni.parquet.ParquetException
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.format.*
+import wvlet.uni.weaver.codec.PrimitiveWeaver
 
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
 
 /**
   * Converts a MessagePack value into the physical value of a leaf column: `Boolean`, `Int`, `Long`,
@@ -233,7 +233,7 @@ private[parquet] object ValueConverter:
     v match
       case StringValue(s) =>
         try
-          LocalTime.parse(s.trim).toNanoOfDay
+          PrimitiveWeaver.parseLocalTime(s.trim).toNanoOfDay
         catch
           case _: java.time.DateTimeException =>
             mismatch(v, "a time (hh:mm[:ss[.fraction]])")

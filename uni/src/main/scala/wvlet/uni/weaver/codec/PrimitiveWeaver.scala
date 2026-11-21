@@ -759,6 +759,46 @@ object PrimitiveWeaver:
             context.setError(new IllegalArgumentException(s"Cannot convert ${other} to LocalDate"))
 
   /**
+    * Parses an ISO-8601 local time (`hh:mm`, `hh:mm:ss`, or `hh:mm:ss.f` with 1 to 9 fraction
+    * digits). Scala.js's java.time has no `LocalTime.parse`, so this works on every platform.
+    */
+  private[uni] def parseLocalTime(s: String): LocalTime =
+    def fail               = throw java.time.DateTimeException(s"Invalid time: ${s}")
+    def digit(i: Int): Int =
+      val c = s.charAt(i)
+      if c < '0' || c > '9' then
+        fail
+      c - '0'
+    def two(i: Int): Int = digit(i) * 10 + digit(i + 1)
+    val n                = s.length
+    if n < 5 || s.charAt(2) != ':' then
+      fail
+    val hour   = two(0)
+    val minute = two(3)
+    var second = 0
+    var nano   = 0
+    if n > 5 then
+      if n < 8 || s.charAt(5) != ':' then
+        fail
+      second = two(6)
+      if n > 8 then
+        val digits = n - 9
+        if s.charAt(8) != '.' || digits < 1 || digits > 9 then
+          fail
+        var i = 9
+        while i < n do
+          nano = nano * 10 + digit(i)
+          i += 1
+        var pad = digits
+        while pad < 9 do
+          nano *= 10
+          pad += 1
+    // LocalTime.of rejects out-of-range fields with a DateTimeException
+    LocalTime.of(hour, minute, second, nano)
+
+  end parseLocalTime
+
+  /**
     * Packs a LocalTime as an ISO-8601 string ("09:30", "09:30:15.25"). Unpacking also accepts an
     * integer as nanoseconds of the day, the form `LocalTime.toNanoOfDay` gives.
     */
@@ -771,7 +811,7 @@ object PrimitiveWeaver:
       override def unpack(u: Unpacker, context: WeaverContext): Unit =
         u.getNextValueType match
           case ValueType.STRING =>
-            safeConvertFromString(context, u, LocalTime.parse(_), context.setObject, "LocalTime")
+            safeConvertFromString(context, u, parseLocalTime, context.setObject, "LocalTime")
           case ValueType.INTEGER =>
             safeUnpack(context, LocalTime.ofNanoOfDay(u.unpackLong), context.setObject)
           case ValueType.NIL =>
