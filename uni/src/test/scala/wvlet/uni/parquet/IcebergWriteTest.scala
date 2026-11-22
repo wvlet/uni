@@ -196,6 +196,61 @@ class IcebergWriteTest extends UniTest:
       "apple"
   }
 
+  test("skip data files by the column bounds in the manifest") {
+    val root  = newRoot()
+    val plain = asIceberg.withPartitionBy()
+    Parquet.writeDataset(root, first, plain)
+    Parquet.writeDataset(root, second, plain.withMode(ParquetWriteMode.Append))
+    val ds = Parquet.dataset(root)
+    try
+      ds.files.size shouldBe 2
+      ds.files.foreach(_.stats.map(_.numRows).isDefined shouldBe true)
+      def selected(f: ParquetFilter): Seq[Long] = ds
+        .selectFiles(ParquetReadOptions.default.withFilter(f))
+        .flatMap(_.stats.map(_.numRows))
+      // ids 1-3 are in the first file, 4 in the second
+      selected(col("id") > 3L) shouldBe Seq(1L)
+      selected(col("id") <= 3L) shouldBe Seq(3L)
+      selected(col("id") === 10L) shouldBe Seq.empty
+      selected(col("item") === "durian") shouldBe Seq(1L)
+      selected(col("dt") === d1) shouldBe Seq(3L)
+      // Only the first file has a null country
+      selected(col("country").isNull) shouldBe Seq(3L)
+      selected(col("id") === 2L || col("id") === 4L).size shouldBe 2
+      // An unknown column is still an error, even when the bounds would skip every file
+      intercept[IllegalArgumentException] {
+        ds.readAs[IcebergSale](
+            ParquetReadOptions.default.withFilter(col("id") === 10L && col("nmae") === "x")
+          )
+          .toSeq
+      }
+      ds.readAs[IcebergSale](ParquetReadOptions.default.withFilter(col("id") > 3L)).toSeq shouldBe
+        second
+    finally
+      ds.close()
+  }
+
+  test("skip data files by bounds written before an int column became long") {
+    val root = newRoot()
+    Parquet.writeDataset(
+      root,
+      Seq(IcebergPoint(-5, 0.5), IcebergPoint(2, 1.5)),
+      asIceberg.withPartitionBy()
+    )
+    Parquet.alterIcebergTable(root, IcebergTableChange.WidenColumn("x", ParquetType.INT64))
+    val ds = Parquet.dataset(root)
+    try
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("x") === 2L)).size shouldBe 1
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("x") > 2L)).size shouldBe 0
+      // A negative bound is sign-extended
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("x") < -5L)).size shouldBe 0
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("x") === -5L)).size shouldBe 1
+      // Floating-point bounds aren't used
+      ds.selectFiles(ParquetReadOptions.default.withFilter(col("y") > 10.0)).size shouldBe 1
+    finally
+      ds.close()
+  }
+
   test("keep empty strings apart from nulls in partition values") {
     val root = newRoot()
     val rows = Seq(
