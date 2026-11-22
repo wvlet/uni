@@ -5,7 +5,8 @@ import java.nio.file.{Files, Paths}
 /**
   * Isolated codec benchmark: splits a file into 1 MiB chunks, compresses each with snappy-java and
   * zstd-jni, then times Uni's decoders against the native ones. It also times uni's Snappy
-  * compressor against snappy-java's, after checking that snappy-java reads uni's output.
+  * compressor against snappy-java's, and its ZSTD compressor against zstd-jni's at level 3, after
+  * checking that the native library reads uni's output.
   *
   * {{{
   * java -cp examples/parquet-bench/out/lib/(all jars) wvlet.uni.io.codec.CodecBench <file> [rounds] [name filter]
@@ -62,6 +63,16 @@ object CodecBench:
     println(s"uni snappy compress: ${uniSnappy.map(_.length).sum} bytes")
     time("uni snappy compress")(i => SnappyCompressor.compress(chunks(i), chunks(i).length))
     time("snappy-java compress")(i => org.xerial.snappy.Snappy.compress(chunks(i)))
+
+    // ZSTD at level 3, the default of both
+    val uniZstd = chunks.map(c => ZstdCompressor.compress(c, c.length))
+    check(
+      "zstd-jni reads uni",
+      i => com.github.luben.zstd.Zstd.decompress(uniZstd(i), chunks(i).length)
+    )
+    println(s"uni zstd compress: ${uniZstd.map(_.length).sum} bytes")
+    time("uni zstd compress")(i => ZstdCompressor.compress(chunks(i), chunks(i).length))
+    time("zstd-jni compress")(i => com.github.luben.zstd.Zstd.compress(chunks(i), 3))
 
   end main
 
