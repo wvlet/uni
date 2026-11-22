@@ -7,7 +7,7 @@ import wvlet.uni.parquet.column.BinaryBuffer
 import wvlet.uni.parquet.encoding.BitPacking
 import wvlet.uni.parquet.encoding.RleEncoder
 import wvlet.uni.parquet.format.*
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 import wvlet.uni.parquet.io.IntBuf
 
 import scala.collection.mutable

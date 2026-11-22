@@ -1,6 +1,6 @@
 package wvlet.uni.parquet.thrift
 
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 
 /**
   * Writes the Thrift Compact Protocol. Call the field methods in increasing field-id order inside

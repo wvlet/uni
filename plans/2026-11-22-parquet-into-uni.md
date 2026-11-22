@@ -6,3 +6,7 @@
 2. **Codecs to `wvlet.uni.io.codec`**: Snappy, LZ4, Inflate, ZSTD, and Brotli leave `wvlet.uni.parquet.codec`, staying internal (`private[uni]`) until a public API is designed (for example HTTP `Content-Encoding: zstd`/`br`).
 
 Keep `wvlet.uni.parquet` as the package: Parquet is a binary format like `msgpack`. Datasets, Delta Lake, Iceberg, and Avro stay under it; they are reached only through `Parquet.dataset`.
+
+## Status
+
+- Step 1: PR #1110. Step 2: this PR; it also adds an internal `CodecException`, wrapped into `ParquetException` at Parquet's call sites, and moves `ByteBuf` with the codecs.

@@ -6,7 +6,7 @@ object UniBench:
     wvlet.uni.io.FileSystemInit.init()
     // `codec <dir> [rounds]` runs the isolated ZSTD decompression benchmark instead
     if args.headOption.contains("codec") then
-      wvlet.uni.parquet.codec.CodecBench.main(args.tail)
+      wvlet.uni.io.codec.CodecBench.main(args.tail)
       return
     val (dir, warmup, iterations, filter) = BenchRunner.parse(args.toSeq)
     BenchRunner.run(

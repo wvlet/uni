@@ -18,3 +18,9 @@
 - `uni`'s clean compile and its Native test link get slower; sbt 2's cache keeps incremental builds close to before.
 - Next: the codecs move to `wvlet.uni.io.codec` (still internal) so other `uni` code can use them.
 - Supersedes the "separate cross-built module" item of `2026-11-20-pure-scala-parquet-reader.md`.
+
+## Addendum: codecs in `wvlet.uni.io.codec`
+
+- Snappy, LZ4 (block), Inflate, ZSTD, and Brotli, their compressors, `WideCopy`/`Word8`, and `ByteBuf` move from `wvlet.uni.parquet.codec` to `wvlet.uni.io.codec`, next to `wvlet.uni.io.Gzip`. They stay internal (`private[uni]`); a public API (for example HTTP `Content-Encoding: zstd`/`br`) is a separate decision.
+- They throw `CodecException` (internal) instead of `ParquetException`. Parquet's call sites (`Codecs.decompress`, `Compressors.compress`, and Avro blocks) wrap it back into a `ParquetException` with the same message, so Parquet users still catch `ParquetException`; the messages now say "Corrupt compressed data" or "Unsupported compression feature".
+- The Parquet-specific parts stay in `wvlet.uni.parquet.codec`: the `CompressionCodec` dispatch (`Codecs`, `Compressors`) and Hadoop's LZ4 framing (`Lz4Hadoop`).

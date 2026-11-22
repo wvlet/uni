@@ -1,5 +1,6 @@
 package wvlet.uni.parquet.codec
 
+import wvlet.uni.io.codec.*
 import wvlet.uni.parquet.ParquetException
 
 /**

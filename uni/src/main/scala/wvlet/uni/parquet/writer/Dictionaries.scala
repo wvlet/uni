@@ -1,6 +1,6 @@
 package wvlet.uni.parquet.writer
 
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 import wvlet.uni.parquet.io.IntBuf
 
 /**
