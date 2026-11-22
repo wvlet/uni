@@ -103,8 +103,8 @@ repositories {
 ```
 
 To use only Maven Central, pin a version that is on Central
-(`__UNI_CENTRAL_VERSION__` or older) and remove the resolver. Modules
-added after that version, such as `uni-parquet`, are not on Central yet.
+(`__UNI_CENTRAL_VERSION__` or older) and remove the resolver. Features
+added after that version, such as Parquet support, are not on Central yet.
 
 ::: tip Publishing a library that depends on Uni
 If your library is published to Maven Central, depend on a Uni version

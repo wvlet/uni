@@ -14,7 +14,7 @@ import java.nio.file.Path
 
 /**
   * parquet-java writers that do the same work as [[UniWriters]]: the example Group writer, fed
-  * Groups built from the same case classes, with the schema uni-parquet derives for them (camelCase
+  * Groups built from the same case classes, with the schema Uni derives for them (camelCase
   * names, dates as strings). Each returns (rows, file size).
   */
 object ParquetJavaWriters:

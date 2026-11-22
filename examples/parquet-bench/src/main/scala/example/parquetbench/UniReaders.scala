@@ -5,7 +5,7 @@ import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.Parquet
 
 /**
-  * uni-parquet readers. Each returns (rows, checksum); the checksum keeps the JIT from skipping
+  * Uni readers. Each returns (rows, checksum); the checksum keeps the JIT from skipping
   * work.
   */
 object UniReaders:

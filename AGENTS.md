@@ -7,9 +7,8 @@
 ## Modules
 
 - **uni-core**: Pure-Scala essential libraries shared with uni-test (logging, Rx core, object wiring (Design), Surface; on Scala.js also the uni-dom rendering core and its testing toolkit, so uni-test can ship `DomTestSupport`)
-- **Uni**: Main library collection (logging, DI, JSON/MessagePack, RPC/HTTP, typed LLM vendor APIs)
+- **Uni**: Main library collection (logging, object wiring, JSON/MessagePack, RPC/HTTP, typed LLM vendor APIs, object storage, Parquet)
 - **uni-test**: Unit testing framework
-- **uni-parquet**: Pure-Scala Apache Parquet reader and writer (all platforms; codecs included)
 
 The build runs on **sbt 2.x** (Scala 3 metabuild). Cross-platform — JVM, Scala.js, Scala Native — via Uni's own [`sbt-uni-crossproject`](sbt-plugins/sbt-uni-crossproject/) plugin (`crossProject`, `CrossType.Pure`), which replaced the unported portable-scala plugins. Platform-specific code in `.jvm`, `.js`, `.native` folders.
 

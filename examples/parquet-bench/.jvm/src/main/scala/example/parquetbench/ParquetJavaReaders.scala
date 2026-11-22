@@ -94,7 +94,7 @@ object ParquetJavaReaders:
 
   /**
     * Reads every field of a Group, building a String for each string value as a case class would,
-    * so the row path does the same work as uni-parquet's case-class path
+    * so the row path does the same work as Uni's case-class path
     */
   private def touchGroup(g: Group): Long =
     val t = g.getType

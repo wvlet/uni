@@ -160,7 +160,6 @@ lazy val root = project
 lazy val jvmProjects: Seq[ProjectReference] = Seq(
   core.jvm,
   uni.jvm,
-  parquet.jvm,
   netty,
   bookExamples,
   docSnippets,
@@ -176,7 +175,6 @@ lazy val jvmProjects: Seq[ProjectReference] = Seq(
 lazy val jsProjects: Seq[ProjectReference] = Seq(
   core.js,
   uni.js,
-  parquet.js,
   npm,
   ui,
   domTest,
@@ -193,7 +191,6 @@ lazy val jsProjects: Seq[ProjectReference] = Seq(
 lazy val nativeProjects: Seq[ProjectReference] = Seq(
   core.native,
   uni.native,
-  parquet.native,
   exampleCli.native,
   exampleRepl.native,
   exampleRpcNative.native,
@@ -243,22 +240,7 @@ lazy val uni = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     buildSettings,
     name        := "uni",
     description :=
-      "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, typed LLM vendor APIs (Anthropic, OpenAI, Gemini, Bedrock), retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
-  )
-  .jvmSettings(jvmNativeSharedSources)
-  .jsSettings(jsBuildSettings, minimizeJavadoc)
-  .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
-  .dependsOn(core, test % Test)
-
-// uni-parquet - Pure-Scala Apache Parquet reader and writer for JVM, Scala.js, and Scala Native
-lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
-  .crossType(CrossType.Pure)
-  .in(file("uni-parquet"))
-  .settings(
-    buildSettings,
-    name        := "uni-parquet",
-    description :=
-      "Pure-Scala Apache Parquet reader and writer for JVM, Scala.js, and Scala Native: reads local files, byte arrays, and HTTP range requests into column batches or case classes, writes case classes, maps, and JSON records, with built-in Snappy, Gzip, LZ4, ZSTD, and Brotli codecs"
+      "Scala 3 utilities for JVM, Scala.js, and Scala Native: object wiring (Design), logging, JSON/MessagePack, object serialization (Weaver), Surface reflection, Rx, HTTP client and router, RPC, OpenAPI, MCP servers, typed LLM vendor APIs (Anthropic, OpenAI, Gemini, Bedrock), Parquet files and datasets (with Delta Lake and Iceberg tables), object storage (S3, GCS, Azure), retry and circuit breaker, CLI tools, and reactive DOM UI and Electron for Scala.js"
   )
   .jvmSettings(
     jvmNativeSharedSources,
@@ -266,17 +248,18 @@ lazy val parquet = crossProject(JVMPlatform, JSPlatform, NativePlatform)
     libraryDependencies += "org.xerial.snappy" % "snappy-java" % "1.1.10.12" % Test
   )
   .jsSettings(jsBuildSettings, minimizeJavadoc)
-  // The test binary stays on Immix. Boehm deadlocked it in about half the Linux CI runs: under
-  // Scala Native 0.5.12, PosixThread.park allocates while holding its mutex, Boehm runs the
-  // weak-reference finalizer inside that allocation, and the finalizer unparks the same thread,
-  // locking the mutex again (fixed upstream after 0.5.12). Immix can still crash under concurrent
-  // allocation (scala-native#5046, #5160), but rarely. Revisit both on Scala Native 0.5.13.
+  // The test binary stays on Immix (the default). Boehm deadlocked the Parquet tests in about half
+  // the Linux CI runs: under Scala Native 0.5.12, PosixThread.park allocates while holding its
+  // mutex, Boehm runs the weak-reference finalizer inside that allocation, and the finalizer
+  // unparks the same thread, locking the mutex again (fixed upstream after 0.5.12). Immix can
+  // still crash under concurrent allocation (scala-native#5046, #5160), but rarely. Revisit both
+  // on Scala Native 0.5.13.
   .nativeSettings(nativeBuildSettings, jvmNativeSharedSources, minimizeJavadoc)
-  .dependsOn(uni, test % Test)
+  .dependsOn(core, test % Test)
 
 lazy val npmPackage = taskKey[File]("Stage the @wvlet/uni npm package under target/npm")
 
-// @wvlet/uni on npm: a JS-shaped facade over uni-parquet (and later modules), linked as one ES
+// @wvlet/uni on npm: a JS-shaped facade over Uni (Parquet first), linked as one ES
 // module set so every subpath shares one Scala runtime. Not published to Maven. The package
 // itself is staged by `npm/npmPackage` and published by .github/workflows/release-npm.yml
 // (adr/2026-11-20-npm-package.md).
@@ -315,7 +298,7 @@ lazy val npm = project
         out
       }
   )
-  .dependsOn(parquet.js % "compile->compile;test->test", test.js % Test)
+  .dependsOn(uni.js % "compile->compile;test->test", test.js % Test)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
 lazy val ui = project
@@ -548,10 +531,10 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
 
 lazy val stageBenchJars = taskKey[File]("Copy the runtime classpath jars for the benchmark")
 
-// Read benchmark for uni-parquet: compares it with parquet-java on the JVM and measures Scala.js
-// (Node.js) and Scala Native over the same files. Run it with examples/parquet-bench/run.sh.
+// Read benchmark for Uni's Parquet reader: compares it with parquet-java on the JVM and measures
+// Scala.js (Node.js) and Scala Native over the same files. Run it with examples/parquet-bench/run.sh.
 // Kept out of the projectJVM/JS/Native aggregates: parquet-java pulls in Hadoop's client jars,
-// which neither uni-parquet nor CI needs.
+// which neither Uni nor CI needs.
 lazy val exampleParquetBench = crossProject(JVMPlatform, JSPlatform, NativePlatform)
   .crossType(CrossType.Pure)
   .in(file("examples/parquet-bench"))
@@ -559,7 +542,7 @@ lazy val exampleParquetBench = crossProject(JVMPlatform, JSPlatform, NativePlatf
     buildSettings,
     noPublish,
     name        := "uni-example-parquet-bench",
-    description := "Read benchmark: uni-parquet vs. parquet-java on the same files"
+    description := "Read benchmark: Uni vs. parquet-java on the same files"
   )
   .jvmSettings(
     libraryDependencies ++=
@@ -595,7 +578,7 @@ lazy val exampleParquetBench = crossProject(JVMPlatform, JSPlatform, NativePlatf
       _.withMode(scala.scalanative.build.Mode.releaseFull)
     }
   )
-  .dependsOn(parquet)
+  .dependsOn(uni)
 
 // HTTP Garden origin: echoes how Uni parsed each request, for differential parser testing.
 // Built and run only by .github/workflows/http-garden.yml; see examples/http-garden/README.md
@@ -864,7 +847,7 @@ lazy val docSnippets = project
         }
         .taskValue
   )
-  .dependsOn(uni.jvm, parquet.jvm, netty, test.jvm % Test)
+  .dependsOn(uni.jvm, netty, test.jvm % Test)
 
 // The Scala.js counterpart of docSnippets: compile-checks the snippets of the UI pages (uni-dom and
 // uni-ui) against uni.js and uni-ui. Stubs live in docs/snippets-js/src/test/scala. Snippets are

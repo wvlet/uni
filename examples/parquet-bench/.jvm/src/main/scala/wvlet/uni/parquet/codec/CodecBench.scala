@@ -4,7 +4,7 @@ import java.nio.file.{Files, Paths}
 
 /**
   * Isolated codec benchmark: splits a file into 1 MiB chunks, compresses each with snappy-java and
-  * zstd-jni, then times uni-parquet's decoders against the native ones. It also times uni's Snappy
+  * zstd-jni, then times Uni's decoders against the native ones. It also times uni's Snappy
   * compressor against snappy-java's, after checking that snappy-java reads uni's output.
   *
   * {{{
