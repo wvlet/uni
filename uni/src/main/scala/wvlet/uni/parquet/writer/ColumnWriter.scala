@@ -382,11 +382,18 @@ private[parquet] final class ColumnWriter(
     body.setIntLE(lenPos, body.size - lenPos - 4)
 
   /** Writes the column chunk of the current row group and resets for the next one */
-  def writeChunk(out: CountingOutput): ColumnChunkMeta =
-    flushPage()
-    val start = out.position
-    // The dictionary page goes first, and its size counts toward the chunk's sizes
-    val dictOffset =
+  // The compressed dictionary page with its header, set by finishPages
+  private var dictPage: Array[Byte] = null
+  private var finished              = false
+
+  /**
+    * Closes the last page and compresses the dictionary page, the CPU work of [[writeChunk]].
+    * Column writers don't share state, so the writers of a row group can finish their pages in
+    * parallel.
+    */
+  def finishPages(): Unit =
+    if !finished then
+      flushPage()
       if usedDictPage then
         val compressed = Compressors.compress(codec, dictBytes.array, dictBytes.size, level)
         val header     = MetadataEncoder.pageHeader(
@@ -400,9 +407,19 @@ private[parquet] final class ColumnWriter(
             dictionaryPage = Some(DictionaryPageHeader(dictionarySize, Encoding.PLAIN))
           )
         )
-        out.write(header)
-        out.write(compressed)
+        dictPage = new Array[Byte](header.length + compressed.length)
+        System.arraycopy(header, 0, dictPage, 0, header.length)
+        System.arraycopy(compressed, 0, dictPage, header.length, compressed.length)
         uncompressedSize += header.length + dictBytes.size
+      finished = true
+
+  def writeChunk(out: CountingOutput): ColumnChunkMeta =
+    finishPages()
+    val start = out.position
+    // The dictionary page goes first, and its size counts toward the chunk's sizes
+    val dictOffset =
+      if dictPage != null then
+        out.write(dictPage)
         Some(start)
       else
         None
@@ -448,6 +465,8 @@ private[parquet] final class ColumnWriter(
     usedPlainPage = false
     usedDictPage = false
     useDict = canUseDict
+    dictPage = null
+    finished = false
     dictValues = 0
     dictRaw = 0
     dictChecked = false

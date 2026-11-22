@@ -31,6 +31,11 @@ import wvlet.uni.parquet.format.CompressionCodec
   *   `order.price` for a field of a nested case class)
   * @param keyValueMetadata
   *   key-value pairs stored in the footer
+  * @param parallelism
+  *   threads that encode and compress columns at once: the columns of each column batch the batch
+  *   writers take, and every row group's last pages when it closes. On the JVM the default is the
+  *   available processors, up to 8; Scala.js and Scala Native write on one thread. 1 writes on the
+  *   calling thread only. The output is the same for every setting.
   */
 case class ParquetWriteOptions(
     compression: CompressionCodec = CompressionCodec.SNAPPY,
@@ -42,7 +47,8 @@ case class ParquetWriteOptions(
     decimalPrecision: Int = 38,
     decimalScale: Int = 18,
     decimalColumns: Map[String, (Int, Int)] = Map.empty,
-    keyValueMetadata: Map[String, String] = Map.empty
+    keyValueMetadata: Map[String, String] = Map.empty,
+    parallelism: Int = WriteParallelism.default
 ):
   def withCompression(codec: CompressionCodec): ParquetWriteOptions = copy(compression = codec)
   def noCompression(): ParquetWriteOptions = copy(compression = CompressionCodec.UNCOMPRESSED)
@@ -94,6 +100,11 @@ case class ParquetWriteOptions(
   )
 
   def noKeyValueMetadata(): ParquetWriteOptions = copy(keyValueMetadata = Map.empty)
+
+  /** Sets how many threads encode and compress columns at once; 1 for the calling thread only */
+  def withParallelism(threads: Int): ParquetWriteOptions =
+    require(threads >= 1, s"parallelism must be at least 1: ${threads}")
+    copy(parallelism = threads)
 
 end ParquetWriteOptions
 

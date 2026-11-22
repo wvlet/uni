@@ -123,10 +123,37 @@ rounds. DuckDB 2.0.1 ran in the same session.
 - A column whose first 20,000 values are mostly distinct but repeat later loses its dictionary for
   that row group. parquet-java's first-page check has the same trade-off, at a later point.
 
+## Follow-up: write on several threads (JVM)
+
+- DuckDB's partitioned write scales to 136 ms on 18 threads; Uni's was single-threaded.
+- `ParquetWriteOptions.withParallelism(n)`, by default the available processors up to 8 on the JVM
+  and 1 on Scala.js and Scala Native (whose Immix GC can still crash under concurrent allocation):
+  - The batch shredder writes the top-level fields of a slice of 1024 rows or more in parallel.
+    Each field writes only its own column writers, which share no state.
+  - A row group's columns finish their last pages and compress their dictionary pages in
+    parallel when it closes, then the chunks are written in order.
+  - The dataset batch writer writes the partitions of a batch to their files in parallel, each
+    task gathering its own rows with its own shredder, when there's no sort and no file limit
+    that could roll a file mid-batch. Files are opened before and bookkeeping runs after, on the
+    calling thread.
+- `WriteParallelism.run` uses a shared pool of daemon threads. The caller takes tasks too, and a
+  helper that hasn't started when the tasks run out is skipped, so runs nest without waiting for a
+  free thread. (`Future.cancel` can't be used for that: it also succeeds on a running task.)
+- The output is the same bytes at every setting (tested for files and partitioned datasets).
+- Results (load 6-8), Uni with 8 threads:
+
+  | case | Uni, 1 thread | Uni, 8 threads | DuckDB, 18 threads |
+  |---|---:|---:|---:|
+  | batch, unpartitioned, Snappy | 252 ms | 120 ms | 217 ms |
+  | batch, by ship mode, Snappy | 344 ms | 97 ms | 136 ms |
+  | batch, unpartitioned, ZSTD | 452 ms | 256 ms | 270 ms |
+  | batch, by ship mode, ZSTD | 549 ms | 122 ms | 143 ms |
+
+- Case-class and record writes still shred rows on the calling thread; only their row-group
+  compression is parallel.
+
 ## Not covered (later)
 - ZSTD compression speed and ratio against libzstd at level 3.
-- Writing with more than one thread. DuckDB's partitioned write scales to 157 ms on 18 threads;
-  Uni's writer is single-threaded on every platform.
 
 ## Alternatives and Why Not?
 
