@@ -402,6 +402,26 @@ class ParquetDataset private[parquet] (
         withRepetition(f, Repetition.OPTIONAL)
       else
         f
+    // A table column widened after the files were written (int to long, float to double) reads
+    // with the table's type, so a later write binds to it
+    def promoted(fileField: ParquetField, tableField: ParquetField): ParquetField =
+      (fileField, tableField) match
+        case (f: ParquetField.Primitive, t: ParquetField.Primitive)
+            if f.physicalType != t.physicalType =>
+          try
+            // A scratch origins map: this is only a check, so the files' origins stay as they are
+            mergeField(
+              f,
+              t,
+              t.name,
+              s"the table schema of ${root}",
+              scala.collection.mutable.HashMap.empty
+            )
+          catch
+            case _: ParquetException =>
+              f
+        case _ =>
+          fileField
     val columns =
       tableFields match
         case Some(table) =>
@@ -412,7 +432,7 @@ class ParquetDataset private[parquet] (
               case Some(p) =>
                 Some(p)
               case None if wanted.forall(_.contains(t.name)) =>
-                Some(union.get(t.name).map(nullable).getOrElse(nullable(t)))
+                Some(union.get(t.name).map(u => nullable(promoted(u, t))).getOrElse(nullable(t)))
               case None =>
                 None
           }
