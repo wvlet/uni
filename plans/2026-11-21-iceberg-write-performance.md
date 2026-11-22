@@ -152,6 +152,23 @@ rounds. DuckDB 2.0.1 ran in the same session.
 - Case-class and record writes still shred rows on the calling thread; only their row-group
   compression is parallel.
 
+## Follow-up: double-fast ZSTD at levels 1-3
+
+- Single-threaded ZSTD writes were the gap left against DuckDB (452 vs 313 ms unpartitioned).
+  Uni's compressor took 296 ms over the 60 MiB of lineitem pages that zstd-jni (libzstd) compresses
+  in 112 ms (`CodecBench`, `compress` filter).
+- Levels 1-3 now use zstd's double-fast strategy, as libzstd's level 3 does. A table of 8-byte
+  hashes beside the 4-byte one finds long matches at once. A short match is taken only after
+  checking for a long one a position later, and there is no lazy search. Levels 4-9 keep their
+  hash chains.
+- The Huffman code builder sorted symbols through boxed tuples; it now sorts packed longs.
+- `CodecBench`: 296 ms to 214 ms, and 26.18 MB to 25.59 MB (libzstd: 25.53 MB). zstd-jni decodes
+  every chunk. Dropping the lazy step alone was 20% faster but 2.4% larger, and skipping the 2nd
+  and 3rd repeat offsets was 15% faster but 0.5% larger, so neither shipped.
+- Iceberg writes on one thread: ZSTD 452 to 403 ms unpartitioned, 549 to 518 ms by ship mode, and
+  the partitioned table is 24.95 MB (DuckDB: 25.1 MB). DuckDB on one thread is still faster (313
+  and 453 ms): libzstd compresses about 2x as fast as Uni's pure-Scala code.
+
 ## Not covered (later)
 - ZSTD compression speed and ratio against libzstd at level 3.
 

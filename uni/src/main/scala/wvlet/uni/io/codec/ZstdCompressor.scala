@@ -4,13 +4,14 @@ package wvlet.uni.io.codec
   * A Zstandard compressor (RFC 8878), the inverse of [[Zstd]]. Each call writes one frame with the
   * content size, which is how Parquet stores ZSTD pages.
   *
-  * Matches come from a hash of 4-byte sequences and a check of the last offset, over a 2 MiB
-  * window. The level (1 to 22, as in zstd) sets how hard the match finder works. Levels 1-3 (3 is
-  * the default) take the best match at a position or the next one (lazy matching); levels 4-9
-  * follow hash chains of growing depth and look up to two positions ahead. Levels 10-22 are
-  * accepted, as other writers take them, and compress as level 9. Each block gets Huffman-coded
-  * literals and FSE-coded sequences, with a predefined, RLE, or custom table for each sequence
-  * code, whichever is estimated smaller. A block that does not shrink is stored raw.
+  * Matches come from hashes of the input and a check of the last offset, over a 2 MiB window. The
+  * level (1 to 22, as in zstd) sets how hard the match finder works. Levels 1-3 (3 is the default)
+  * use zstd's double-fast strategy: a table of 8-byte hashes finds long matches and one of 4-byte
+  * hashes short ones, with no lazy search. Levels 4-9 follow hash chains of 4-byte hashes, of
+  * growing depth, and look up to two positions ahead. Levels 10-22 are accepted, as other writers
+  * take them, and compress as level 9. Each block gets Huffman-coded literals and FSE-coded
+  * sequences, with a predefined, RLE, or custom table for each sequence code, whichever is
+  * estimated smaller. A block that does not shrink is stored raw.
   */
 private[uni] object ZstdCompressor:
   import Zstd.highBit
@@ -37,8 +38,8 @@ private[uni] object ZstdCompressor:
   private[codec] def params(level: Int): LevelParams =
     level match
       case 1 | 2 | 3 =>
-        // Taking the first match (no lazy step) or skipping faster wrote larger files no faster:
-        // most of the time goes to the hash and repeat-offset lookups at every position
+        // Double fast (findSequencesFast): 4-byte hashes in 2^16 slots, 8-byte ones in 2^17. It
+        // wrote Parquet pages 2% smaller than a lazy search over 4-byte hashes, 25% faster
         LevelParams(16, 1, 1)
       case 4 =>
         LevelParams(17, 4, 1)
@@ -191,6 +192,22 @@ private[uni] object ZstdCompressor:
       else
         WindowSize
 
+    // Levels 1-3 (no chain) also hash 8 bytes at each position, as zstd's double-fast strategy does,
+    // so a long match is found at once and no lazy step is needed
+    private val longLog =
+      if useChain then
+        0
+      else
+        math.max(8, math.min(p.hashLog + 1, highBit(math.max(1, len)) + 1))
+
+    private val longTable =
+      if useChain then
+        null
+      else
+        val t = new Array[Int](1 << longLog)
+        java.util.Arrays.fill(t, -1)
+        t
+
     // Without a chain, the next position to search; with one, the next position to hash
     private var hashedUpTo = 0
 
@@ -215,6 +232,15 @@ private[uni] object ZstdCompressor:
     // Not inline: an inline def calling the JVM's Java Word8 crashes the Scala 3 compiler
     private def load32(i: Int): Int = Word8.le32(src, i)
 
+    private def load64(i: Int): Long = Word8.le64(src, i)
+
+    private inline def hash8(v: Long): Int =
+      (
+        (
+          v * 0xcf1bbcdcb7a56463L
+        ) >>> (64 - longLog)
+      ).toInt
+
     private inline def hash(v: Int): Int =
       (
         v * 0x9e3779b1
@@ -230,7 +256,10 @@ private[uni] object ZstdCompressor:
         out.writeByte(src(start))
       else
         System.arraycopy(rep, 0, savedRep, 0, 3)
-        findSequences(start, end)
+        if useChain then
+          findSequences(start, end)
+        else
+          findSequencesFast(start, end)
         body.reset()
         writeLiterals(body)
         writeSequences(body)
@@ -324,6 +353,80 @@ private[uni] object ZstdCompressor:
       copyLiterals(anchor, end - anchor)
 
     end findSequences
+
+    /**
+      * zstd's double-fast match finder, for levels 1-3. Each position is looked up in a table of
+      * 8-byte hashes and one of 4-byte hashes. An 8-byte match is taken at once; a 4-byte one only
+      * after checking for an 8-byte match one position later. There is no lazy search, since the
+      * long table already finds the long matches lazy matching would.
+      */
+    private def findSequencesFast(start: Int, end: Int): Unit =
+      litSize = 0
+      nbSeq = 0
+      var anchor = start
+      var ip     = start
+      // Leaves room for the 8-byte loads at ip and ip + 1
+      val ilimit = end - 9
+
+      // Takes a match of `m` bytes at `pos` from the earlier position `c`, extended backward
+      inline def take(at: Int, from: Int, len0: Int): Unit =
+        var pos = at
+        var c   = from
+        var m   = len0
+        while pos > anchor && c > 0 && src(pos - 1) == src(c - 1) do
+          pos -= 1
+          c -= 1
+          m += 1
+        addSequence(anchor, pos, pos - c, m)
+        ip = pos + m
+        anchor = ip
+        // Positions inside the match, so later data finds it
+        insertFast(pos + 2)
+        insertFast(ip - 2)
+
+      while ip <= ilimit do
+        val vL = load64(ip)
+        val hL = hash8(vL)
+        val cL = longTable(hL)
+        val v  = vL.toInt
+        val hS = hash(v)
+        val cS = table(hS)
+        longTable(hL) = ip
+        table(hS) = ip
+        val r0 = rep(0)
+        if ip > anchor && ip - r0 >= 0 && load32(ip - r0) == v then
+          // The last offset again: the cheapest match to encode
+          take(ip, ip - r0, MinMatch + matchLength(ip - r0 + MinMatch, ip + MinMatch, end))
+        else if cL >= 0 && ip - cL <= WindowSize && load64(cL) == vL then
+          take(ip, cL, 8 + matchLength(cL + 8, ip + 8, end))
+        else if cS >= 0 && ip - cS <= WindowSize && load32(cS) == v then
+          // A short match: an 8-byte match one position later is worth more
+          val vL1 = load64(ip + 1)
+          val hL1 = hash8(vL1)
+          val cL1 = longTable(hL1)
+          longTable(hL1) = ip + 1
+          if cL1 >= 0 && ip + 1 - cL1 <= WindowSize && load64(cL1) == vL1 then
+            take(ip + 1, cL1, 8 + matchLength(cL1 + 8, ip + 9, end))
+          else
+            take(ip, cS, MinMatch + matchLength(cS + MinMatch, ip + MinMatch, end))
+        else
+          // Step faster through data that does not match
+          ip += 1 + (
+            (
+              ip - anchor
+            ) >>> 6
+          )
+      end while
+      copyLiterals(anchor, end - anchor)
+
+    end findSequencesFast
+
+    /** Adds position `i` to both double-fast tables */
+    private def insertFast(i: Int): Unit =
+      if i >= 0 && i + 8 <= len then
+        val vL = load64(i)
+        longTable(hash8(vL)) = i
+        table(hash(vL.toInt)) = i
 
     // A match packed as (length << 32) | offset; 0 for none
     private inline def matchLen(m: Long): Int =
@@ -1240,10 +1343,25 @@ private[codec] object HuffmanEncoder:
     * to `maxBits` and complete, as the format requires. Needs at least two present symbols.
     */
   def codeLengths(counts: Array[Int], numSymbols: Int, maxBits: Int): Array[Int] =
-    val present =
+    // By count, then by symbol: sorted as packed longs, so no tuple is boxed per symbol
+    var keys  = new Array[Long](numSymbols)
+    var nKeys = 0
+    var sym   = 0
+    while sym < numSymbols do
+      if counts(sym) > 0 then
+        keys(nKeys) =
+          (
+            counts(sym).toLong << 16
+          ) | sym
+        nKeys += 1
+      sym += 1
+    keys = java.util.Arrays.copyOf(keys, nKeys)
+    java.util.Arrays.sort(keys)
+    val present = keys.map(k =>
       (
-        0 until numSymbols
-      ).filter(counts(_) > 0).sortBy(s => (counts(s), s)).toArray
+        k & 0xffff
+      ).toInt
+    )
     val n      = present.length
     val weight = new Array[Long](2 * n)
     val parent = new Array[Int](2 * n)

@@ -86,7 +86,7 @@ class CompressorTest extends UniTest:
 
   test("zstd round trip at every level") {
     // The codec is shared Scala code, so the JVM covers every level. Native tests run in a debug
-    // build, where all 22 levels take ~14 seconds. There, check lazy matching (3) and the
+    // build, where all 22 levels take ~14 seconds. There, check double-fast matching (3) and the
     // shallowest and deepest hash-chain search (4, 9): 1-2 compress as 3, and 10-22 as 9.
     val levels =
       if isScalaNative then
