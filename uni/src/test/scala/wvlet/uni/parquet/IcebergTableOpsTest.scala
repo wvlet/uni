@@ -358,6 +358,13 @@ class IcebergTableOpsTest extends UniTest:
       ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)
     )
     Parquet.alterIcebergTable(root, IcebergTableChange.WidenColumn("n", ParquetType.INT64))
+    // The widened type shows before any file has it
+    val widened = Parquet.dataset(root)
+    try
+      widened.schema.field("n").map(_.asInstanceOf[ParquetField.Primitive].physicalType) shouldBe
+        Some(wvlet.uni.parquet.format.PhysicalType.INT64)
+    finally widened.close()
+    read[IcebergLongCount](root) shouldBe Seq(IcebergLongCount(1, 10))
     Parquet.writeDataset(root, Seq(IcebergLongCount(2, 5000000000L)), append)
     read[IcebergLongCount](root).sortBy(_.id) shouldBe
       Seq(IcebergLongCount(1, 10), IcebergLongCount(2, 5000000000L))
