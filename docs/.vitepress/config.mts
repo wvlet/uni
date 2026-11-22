@@ -197,6 +197,7 @@ const moduleGroups = [
     items: [
       { text: 'Overview', link: '/rx/' },
       { text: 'Rx Basics', link: '/rx/basics' },
+      { text: 'Stream Events', link: '/rx/events' },
       { text: 'Stream Operators', link: '/rx/operators' },
       { text: 'Rx Concurrency', link: '/rx/concurrency' }
     ]

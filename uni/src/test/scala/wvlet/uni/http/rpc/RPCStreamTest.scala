@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http.rpc
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.http.*
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner, RxStream}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner, RxStream}
 import wvlet.uni.test.UniTest
 
 import java.nio.charset.StandardCharsets
@@ -97,9 +95,9 @@ class RPCStreamTest extends UniTest:
     RxRunner.run(rx) {
       case OnNext(v) =>
         values += v.asInstanceOf[A]
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         failure = Some(e)
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         completed = true
     }
     (completed || failure.isDefined) shouldBe true

@@ -5,7 +5,8 @@
 `UnsupportedOperationException`. In a `UniTest`, return the `Rx` from the test
 body instead of awaiting it (see [testing.md](testing.md)).
 
-Full reference: https://wvlet.org/uni/rx/operators.md and https://wvlet.org/uni/rx/concurrency.md
+Full reference: https://wvlet.org/uni/rx/events.md, https://wvlet.org/uni/rx/operators.md, and
+https://wvlet.org/uni/rx/concurrency.md
 
 ## Sources and running
 
@@ -45,6 +46,27 @@ emitted so far (often nothing). Use `await` for the first value, or return the
 - `Rx.interval` emits the milliseconds elapsed since the previous tick, not a
   counter; `Rx.timer(n, unit)` emits `0L` once.
 - `Rx.future(f)` needs a `given ExecutionContext`.
+
+## Events
+
+A stream emits `OnNext(v)` values and `OnError(e)` errors it continues past (a throwing
+`map`), then at most one end: `OnCompletion` (a case object, with no value) or `OnFailure(e)` (a
+failed source such as `Rx.exception`, a failed `Rx.future`, `RxVar.setException`). Both ends
+extend `OnEnd`. `RxRunner.run` stops at the first error and delivers it as `OnFailure(e)`:
+
+```scala
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnNext, RxRunner}
+
+RxRunner.run(many) {
+  case OnNext(v)    => println(v)
+  case OnCompletion => println("done")
+  case OnFailure(e) => println(s"failed: ${e.getMessage}")
+}
+```
+
+`RxRunner.runContinuously` also delivers `OnError` and keeps going. `subscribe(f)` gives `f`
+values only and logs an unhandled error as a warning instead of throwing it; handle errors with
+`recover` or `tapOnFailure`. For the last value use `lastOption`, not the end event.
 
 ## Operators
 

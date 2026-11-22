@@ -13,7 +13,7 @@
  */
 package wvlet.uni.control
 
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, RxRunner}
 import wvlet.uni.util.{Result, ThreadUtil}
 import wvlet.uni.test.UniTest
 
@@ -101,9 +101,9 @@ class BackgroundTaskConcurrencyTest extends UniTest:
     RxRunner.run(task.progressStream) {
       case OnNext(v) =>
         seen += v.asInstanceOf[Int]
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         completed.countDown()
-      case OnCompletion(Result.Failure(_)) =>
+      case OnFailure(_) =>
         completed.countDown()
     }
     canReport.countDown()

@@ -7,6 +7,7 @@ Uni provides a lightweight reactive streams implementation for handling asynchro
 | Component | Description |
 |-----------|-------------|
 | [Basics](./basics) | Creating and subscribing to streams |
+| [Stream Events](./events) | What a stream emits, how it ends, and how errors work |
 | [Operators](./operators) | Transforming and combining streams |
 | [Concurrency](./concurrency) | `RxRef`, `RxDeferred`, fibers, and semaphores |
 

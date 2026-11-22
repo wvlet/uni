@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.ConcurrentLinkedQueue
@@ -42,9 +40,9 @@ class RxFlatMapRaceTest extends UniTest:
           inHandler.countDown()
           release.await(5, TimeUnit.SECONDS)
           events.add(s"next ${v}")
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           events.add(s"error ${e.getMessage}")
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           events.add("completion")
       }
     val failer = Thread(() =>

@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.design.Design
 import wvlet.uni.test.UniTest
 import wvlet.uni.test.empty
@@ -917,22 +915,21 @@ object RxTest extends UniTest:
       .take(1)
     val events = Seq.newBuilder[RxEvent]
     RxRunner.run(rx)(events += _)
-    events.result() shouldBe Seq(OnNext(1), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(1), OnCompletion)
 
     // The upstream is unsubscribed after completion
     v := 2
     upstreamObs shouldBe 1
-    events.result() shouldBe Seq(OnNext(1), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(1), OnCompletion)
   }
 
   test("take(n) on a source with exactly n values completes once") {
-    eval(Rx.sequence(1, 2, 3).take(3)) shouldBe
-      Seq(OnNext(1), OnNext(2), OnNext(3), OnCompletion.success)
-    eval(Rx.single(1).take(1)) shouldBe Seq(OnNext(1), OnCompletion.success)
+    eval(Rx.sequence(1, 2, 3).take(3)) shouldBe Seq(OnNext(1), OnNext(2), OnNext(3), OnCompletion)
+    eval(Rx.single(1).take(1)) shouldBe Seq(OnNext(1), OnCompletion)
   }
 
   test("take(n) with fewer upstream values") {
-    eval(Rx.sequence(1, 2).take(3)) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion.success)
+    eval(Rx.sequence(1, 2).take(3)) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
   }
 
   test("take(0) completes without emitting or subscribing") {
@@ -944,9 +941,9 @@ object RxTest extends UniTest:
         x
       }
       .take(0)
-    eval(rx) shouldBe Seq(OnCompletion.success)
+    eval(rx) shouldBe Seq(OnCompletion)
     subscribed shouldBe false
-    eval(Rx.variable(1).take(-1)) shouldBe Seq(OnCompletion.success)
+    eval(Rx.variable(1).take(-1)) shouldBe Seq(OnCompletion)
   }
 
   test("take(1) can complete while RxVar is propagating an update") {
@@ -956,7 +953,7 @@ object RxTest extends UniTest:
     // The take operator unsubscribes from v during v's own update propagation
     v := 2
     v := 3
-    events.result() shouldBe Seq(OnNext(2), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(2), OnCompletion)
   }
 
   test("take(n) keeps reading after a downstream error") {
@@ -976,7 +973,7 @@ object RxTest extends UniTest:
     v := 4
     v := 5
     events.result() shouldBe
-      Seq(OnNext(2), OnNext(4), OnError(ex), OnNext(8), OnNext(10), OnCompletion.success)
+      Seq(OnNext(2), OnNext(4), OnError(ex), OnNext(8), OnNext(10), OnCompletion)
   }
 
   // Guards runOnce's contract: take must not cancel an upstream whose completion runs cleanup
@@ -1000,7 +997,7 @@ object RxTest extends UniTest:
 
   test("take(1) on RxVar completes inside flatMap") {
     val rx = Rx.single(()).flatMap(_ => Rx.variable(1).take(1)).map(_ * 2)
-    eval(rx) shouldBe Seq(OnNext(2), OnCompletion.success)
+    eval(rx) shouldBe Seq(OnNext(2), OnCompletion)
   }
 
   test("concat") {
@@ -1014,12 +1011,12 @@ object RxTest extends UniTest:
 
   test("startWith(single)") {
     val rx = Rx.single(1).startWith(0)
-    eval(rx) shouldBe Seq(OnNext(0), OnNext(1), OnCompletion.success)
+    eval(rx) shouldBe Seq(OnNext(0), OnNext(1), OnCompletion)
   }
 
   test("startWith(Seq)") {
     val rx = Rx.single(1).startWith(Seq(0, 0))
-    eval(rx) shouldBe Seq(OnNext(0), OnNext(0), OnNext(1), OnCompletion.success)
+    eval(rx) shouldBe Seq(OnNext(0), OnNext(0), OnNext(1), OnCompletion)
   }
 
   test("sequence") {
@@ -1098,7 +1095,7 @@ object RxTest extends UniTest:
         -1
       }
     debug(rx)
-    eval(rx) shouldBe Seq(OnNext(1), OnNext(-1), OnNext(3), OnCompletion.success)
+    eval(rx) shouldBe Seq(OnNext(1), OnNext(-1), OnNext(3), OnCompletion)
   }
 
   test("recover in the middle failed") {
@@ -1115,7 +1112,7 @@ object RxTest extends UniTest:
         -1
       }
     debug(rx)
-    eval(rx) shouldBe Seq(OnNext(1), OnCompletion.failure(ex))
+    eval(rx) shouldBe Seq(OnNext(1), OnFailure(ex))
   }
 
   test("Rx.exception") {
@@ -1133,27 +1130,27 @@ object RxTest extends UniTest:
         Rx.exception(e)
       }
 
-    eval(rx) shouldBe Seq(OnNext(1), OnCompletion.failure(ex))
+    eval(rx) shouldBe Seq(OnNext(1), OnFailure(ex))
   }
 
   test("Rx.exception run") {
     val ex = new IllegalArgumentException("test")
-    eval(Rx.exception(ex)) shouldBe Seq(OnCompletion.failure(ex))
+    eval(Rx.exception(ex)) shouldBe Seq(OnFailure(ex))
   }
 
   test("event sequences") {
 
     test("single") {
-      eval(Rx.single(1)) shouldBe Seq(OnNext(1), OnCompletion.success)
+      eval(Rx.single(1)) shouldBe Seq(OnNext(1), OnCompletion)
     }
     test("sequence") {
-      eval(Rx.sequence(1, 2)) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion.success)
+      eval(Rx.sequence(1, 2)) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
     }
     test("fromSeq") {
-      eval(Rx.fromSeq(Seq(1, 2))) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion.success)
+      eval(Rx.fromSeq(Seq(1, 2))) shouldBe Seq(OnNext(1), OnNext(2), OnCompletion)
     }
     test("map") {
-      eval(Rx.sequence(1, 2).map(_ * 2)) shouldBe Seq(OnNext(2), OnNext(4), OnCompletion.success)
+      eval(Rx.sequence(1, 2).map(_ * 2)) shouldBe Seq(OnNext(2), OnNext(4), OnCompletion)
     }
 
     test("map with exception") {
@@ -1169,12 +1166,12 @@ object RxTest extends UniTest:
               case 3 =>
                 3
           }
-      ) shouldBe Seq(OnNext(1), OnCompletion.failure(ex))
+      ) shouldBe Seq(OnNext(1), OnFailure(ex))
     }
 
     test("flatMap") {
       eval(Rx.sequence(1, 2, 3).flatMap(x => Rx.fromSeq((0 until x).map(_ => x)))) shouldBe
-        Seq(OnNext(1), OnNext(2), OnNext(2), OnNext(3), OnNext(3), OnNext(3), OnCompletion.success)
+        Seq(OnNext(1), OnNext(2), OnNext(2), OnNext(3), OnNext(3), OnNext(3), OnCompletion)
     }
 
     test("flatMap with an error") {
@@ -1189,12 +1186,11 @@ object RxTest extends UniTest:
             case _ =>
               Rx.single("b")
           }
-      ) shouldBe Seq(OnNext("a"), OnCompletion.failure(ex))
+      ) shouldBe Seq(OnNext("a"), OnFailure(ex))
     }
 
     test("filter") {
-      eval(Rx.sequence(1, 2, 3).filter(_ % 2 == 1)) shouldBe
-        Seq(OnNext(1), OnNext(3), OnCompletion.success)
+      eval(Rx.sequence(1, 2, 3).filter(_ % 2 == 1)) shouldBe Seq(OnNext(1), OnNext(3), OnCompletion)
     }
 
     test("filter with error") {
@@ -1207,12 +1203,12 @@ object RxTest extends UniTest:
             else
               x % 2 == 1
           )
-      ) shouldBe Seq(OnNext(1), OnCompletion.failure(ex))
+      ) shouldBe Seq(OnNext(1), OnFailure(ex))
     }
 
     test("concat") {
       eval(Rx.sequence(1, 2).concat(Rx.sequence(3))) shouldBe
-        Seq(OnNext(1), OnNext(2), OnNext(3), OnCompletion.success)
+        Seq(OnNext(1), OnNext(2), OnNext(3), OnCompletion)
     }
   }
 
@@ -1350,8 +1346,57 @@ object RxTest extends UniTest:
 
   test("RxStream emits what the wrapped Rx emits") {
     val stream: RxStream[Int] = RxStream(Rx.sequence(1, 2, 3).map(_ * 10))
-    eval(stream) shouldBe Seq(OnNext(10), OnNext(20), OnNext(30), OnCompletion.success)
-    eval(stream.map(_ + 1)) shouldBe Seq(OnNext(11), OnNext(21), OnNext(31), OnCompletion.success)
+    eval(stream) shouldBe Seq(OnNext(10), OnNext(20), OnNext(30), OnCompletion)
+    eval(stream.map(_ + 1)) shouldBe Seq(OnNext(11), OnNext(21), OnNext(31), OnCompletion)
+  }
+
+  test("subscribe logs an unhandled error instead of throwing it") {
+    test("a failed variable") {
+      val v   = Rx.variable(0)
+      val got = Seq.newBuilder[Int]
+      val c   = v.subscribe(got += _)
+      // Before, setException did not throw, but Rx.exception(...).subscribe did
+      v.setException(IllegalStateException("failed"))
+      c.cancel
+      got.result() shouldBe Seq(0)
+    }
+
+    test("a failed source") {
+      val c = Rx.exception[Int](IllegalStateException("failed")).subscribe()
+      c.cancel
+    }
+
+    test("a throwing map, where the caller of := gets no exception") {
+      val v      = Rx.variable(0)
+      val first  = Seq.newBuilder[Int]
+      val second = Seq.newBuilder[Int]
+      val c1     = v
+        .map(x =>
+          if x == 2 then
+            throw IllegalStateException("bad value")
+          else
+            x
+        )
+        .subscribe(first += _)
+      val c2 = v.subscribe(second += _)
+      v := 1
+      v := 2
+      v := 3
+      c1.cancel
+      c2.cancel
+      first.result() shouldBe Seq(0, 1, 3)
+      // The other subscriber still receives the value the first one failed on
+      second.result() shouldBe Seq(0, 1, 2, 3)
+    }
+
+    test("RxVar.foreach") {
+      val v   = Rx.variable(0)
+      val got = Seq.newBuilder[Int]
+      val c   = v.foreach(got += _)
+      v.setException(IllegalStateException("failed"))
+      c.cancel
+      got.result() shouldBe Seq(0)
+    }
   }
 
 end RxTest

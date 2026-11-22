@@ -1,7 +1,5 @@
 package wvlet.uni.ai
 
-import wvlet.uni.util.Result
-
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import wvlet.uni.ai.anthropic as an
@@ -9,6 +7,7 @@ import wvlet.uni.ai.gemini as gm
 import wvlet.uni.ai.openai as oa
 import wvlet.uni.json.JSON
 import wvlet.uni.rx.OnCompletion
+import wvlet.uni.rx.OnFailure
 import wvlet.uni.rx.OnError
 import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
@@ -203,7 +202,7 @@ class LlmClientJvmTest extends UniTest:
 
   private def single[A](rx: Rx[A]): A =
     val (values, terminal) = runStream(rx)
-    terminal shouldBe OnCompletion.success
+    terminal shouldBe OnCompletion
     values.head
 
   private val anthropic = an.AnthropicClient(
@@ -224,7 +223,7 @@ class LlmClientJvmTest extends UniTest:
     last.get().body.contains("max_tokens") shouldBe false
 
     val (events, terminal) = runStream(anthropic.stream(request))
-    terminal shouldBe OnCompletion.success
+    terminal shouldBe OnCompletion
     val acc = an.MessageAccumulator()
     events.foreach(acc.add)
     acc.result.text shouldBe "Hi"
@@ -233,7 +232,7 @@ class LlmClientJvmTest extends UniTest:
   test("an Anthropic error body becomes an LlmApiException with the error type") {
     val client = an.AnthropicClient(an.AnthropicConfig(an.AnthropicHost.Direct("overloaded", base)))
     val (_, terminal) = runStream(client.messages(request))
-    terminal shouldMatch { case OnCompletion(Result.Failure(e: LlmApiException)) =>
+    terminal shouldMatch { case OnFailure(e: LlmApiException) =>
       e.statusCode shouldBe 529
       e.errorType shouldBe Some("overloaded_error")
       e.isRetryable shouldBe true
@@ -245,7 +244,7 @@ class LlmClientJvmTest extends UniTest:
     val responses  = oa.OpenAIClient(oa.OpenAIConfig(Some("sk-1"), s"${base}/v1"))
     val acc        = LlmStreamAccumulator()
     val (parts, t) = runStream(responses.stream(llm))
-    t shouldBe OnCompletion.success
+    t shouldBe OnCompletion
     parts.foreach(acc.add)
     acc.result.text shouldBe "Yo"
     acc.result.usage.inputTokens shouldBe 5
@@ -256,7 +255,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val chatAcc      = LlmStreamAccumulator()
     val (cparts, ct) = runStream(chat.stream(llm))
-    ct shouldBe OnCompletion.success
+    ct shouldBe OnCompletion
     cparts.foreach(chatAcc.add)
     chatAcc.result.text shouldBe "A"
     chatAcc.result.usage.inputTokens shouldBe 4
@@ -273,7 +272,7 @@ class LlmClientJvmTest extends UniTest:
         gm.GenerateContentRequest(Seq(gm.Content.user("hi")))
       )
     )
-    t shouldBe OnCompletion.success
+    t shouldBe OnCompletion
     val acc = gm.GenerateContentAccumulator()
     chunks.foreach(acc.add)
     acc.result.text shouldBe "Gemini"
@@ -316,14 +315,14 @@ class LlmClientJvmTest extends UniTest:
       true
 
     val (events, t) = runStream(client.stream(req))
-    t shouldBe OnCompletion.success
+    t shouldBe OnCompletion
     last.get().path shouldBe "/anthropic/v1/messages"
     val acc = an.MessageAccumulator()
     events.foreach(acc.add)
     acc.result.text shouldBe "Hi"
 
     val (_, ct) = runStream(client.countTokens(req))
-    ct shouldMatch { case OnCompletion(Result.Failure(_: UnsupportedOperationException)) =>
+    ct shouldMatch { case OnFailure(_: UnsupportedOperationException) =>
     }
     client.close()
   }
@@ -341,7 +340,7 @@ class LlmClientJvmTest extends UniTest:
       bedrockHttp(bedrockHost)
     )
     val (events, t) = runStream(client.stream(request))
-    t shouldBe OnCompletion.success
+    t shouldBe OnCompletion
     events.nonEmpty shouldBe true
     val r    = last.get()
     val auth = r.headers.getOrElse("authorization", "")
@@ -361,7 +360,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val acc        = LlmStreamAccumulator()
     val (parts, t) = runStream(client.stream(llm))
-    t shouldBe OnCompletion.success
+    t shouldBe OnCompletion
     parts.foreach(acc.add)
     acc.result.text shouldBe "Yo"
     last.get().path shouldBe "/openai/v1/responses"
@@ -379,7 +378,7 @@ class LlmClientJvmTest extends UniTest:
     )
     val chatAcc      = LlmStreamAccumulator()
     val (cparts, ct) = runStream(signed.stream(llm.copy(model = "openai.gpt-oss-120b-1:0")))
-    ct shouldBe OnCompletion.success
+    ct shouldBe OnCompletion
     cparts.foreach(chatAcc.add)
     chatAcc.result.text shouldBe "A"
     last.get().path shouldBe "/openai/v1/chat/completions"
@@ -463,7 +462,7 @@ class LlmClientJvmTest extends UniTest:
     // The span starts only when the stream runs
     t.genAi shouldBe Seq.empty
     val (_, terminal) = runStream(rx)
-    terminal shouldBe OnCompletion.success
+    terminal shouldBe OnCompletion
     parent.end()
     val span = t.genAi.head
     span.parentSpanId shouldBe Some(parent.context.spanId)
@@ -473,7 +472,7 @@ class LlmClientJvmTest extends UniTest:
     span.attributes("gen_ai.usage.input_tokens") shouldBe 3L
     span.attributes("gen_ai.usage.output_tokens") shouldBe 2L
     // Running the stream again is a new call with a new span
-    runStream(rx)._2 shouldBe OnCompletion.success
+    runStream(rx)._2 shouldBe OnCompletion
     t.genAi.map(_.spanId).distinct.size shouldBe 2
     client.close()
   }
@@ -484,7 +483,7 @@ class LlmClientJvmTest extends UniTest:
       an.AnthropicConfig(an.AnthropicHost.Direct("overloaded", base)),
       t.http
     )
-    runStream(client.messages(request))._2 shouldMatch { case OnCompletion(Result.Failure(_)) =>
+    runStream(client.messages(request))._2 shouldMatch { case OnFailure(_) =>
     }
     val span = t.genAi.head
     span.status shouldBe SpanStatus.Error
@@ -498,7 +497,7 @@ class LlmClientJvmTest extends UniTest:
     val t         = Traced()
     val llm       = LlmRequest("gpt", Seq(LlmMessage.user("hi")))
     val responses = oa.OpenAIClient(oa.OpenAIConfig(Some("sk-1"), s"${base}/v1"), t.http)
-    runStream(responses.stream(llm))._2 shouldBe OnCompletion.success
+    runStream(responses.stream(llm))._2 shouldBe OnCompletion
     val r = t.genAi.last
     r.name shouldBe "chat gpt"
     r.attributes("gen_ai.provider.name") shouldBe "openai"
@@ -510,7 +509,7 @@ class LlmClientJvmTest extends UniTest:
       oa.OpenAIConfig(Some("sk-2"), s"${base}/v1", useChatCompletions = true),
       t.http
     )
-    runStream(chat.stream(llm))._2 shouldBe OnCompletion.success
+    runStream(chat.stream(llm))._2 shouldBe OnCompletion
     val c = t.genAi.last
     c.attributes("gen_ai.response.id") shouldBe "c1"
     c.attributes("gen_ai.response.model") shouldBe "m"
@@ -527,7 +526,7 @@ class LlmClientJvmTest extends UniTest:
         "gemini-2.5-flash",
         gm.GenerateContentRequest(Seq(gm.Content.user("hi")))
       )
-    )._2 shouldBe OnCompletion.success
+    )._2 shouldBe OnCompletion
     val g = t.genAi.last
     g.name shouldBe "generate_content gemini-2.5-flash"
     g.attributes("gen_ai.provider.name") shouldBe "gcp.gemini"

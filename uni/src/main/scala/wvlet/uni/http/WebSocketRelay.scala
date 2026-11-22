@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 
 import java.util.concurrent.atomic.{AtomicBoolean, AtomicLong}
 import scala.collection.mutable
@@ -252,9 +250,9 @@ private class WebSocketRelaySession(config: WebSocketRelay)
         case NonFatal(e) =>
           Rx.exception(e)
     RxRunner.runOnce(connecting) {
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         upstreamFailed(e)
-      case OnNext(_) | OnCompletion(Result.Success(_)) =>
+      case OnNext(_) | OnCompletion =>
         () // UpstreamHandler.onOpen takes over
     }
 

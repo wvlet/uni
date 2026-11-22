@@ -281,7 +281,7 @@ object RxStories:
             count += 1
             feed := s"live ${count}"
           },
-          // A failed source ends: every subscriber gets OnCompletion(Failure)
+          // A failed source ends: every subscriber gets OnFailure
           Button("setException").danger.onClick(() => feed.setException(Exception("down"))),
           Button("Restart").ghost.onClick(() => round.update(_ + 1))
         ),
@@ -369,7 +369,7 @@ object RxStories:
         div(
           cls -> "demo-row",
           Button("n + 1").primary.onClick(() => n.update(_ + 1)),
-          // stop() ends the variable: OnCompletion(Success) to every subscriber
+          // stop() ends the variable: OnCompletion to every subscriber
           Button("n.stop()").onClick(() => n.stop()),
           Button("Restart").ghost.onClick(() => round.update(_ + 1))
         ),
@@ -457,7 +457,7 @@ object RxStories:
     ComponentPage(
       "rx-errors",
       "Errors",
-      "An OnError reports a failure and the stream goes on; a stream ends only with OnCompletion, which tells whether it succeeded. A throwing map gives an OnError, and a failed source a failed OnCompletion.",
+      "An OnError reports a failure and the stream goes on; a stream ends with OnCompletion, or with OnFailure when it failed. A throwing map gives an OnError, and a failed source an OnFailure.",
       Seq(
         Story(
           "rx-errors/resume",

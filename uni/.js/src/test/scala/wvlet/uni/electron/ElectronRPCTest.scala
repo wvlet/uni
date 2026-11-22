@@ -13,8 +13,6 @@
  */
 package wvlet.uni.electron
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.{Http, HttpException}
 import wvlet.uni.http.{ServiceException, ServiceStatus}
@@ -25,7 +23,7 @@ import wvlet.uni.test.UniTest
 import scala.concurrent.{Future, Promise}
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js
-import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnFailure, OnError, OnNext, RxRunner}
 
 case class Greeting(message: String)
 
@@ -204,9 +202,9 @@ class ElectronRPCTest extends UniTest:
     RxRunner.run(rx) {
       case OnNext(v) =>
         values += v.asInstanceOf[A]
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         done.trySuccess((values.result(), Some(e)))
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         done.trySuccess((values.result(), None))
     }
     done.future

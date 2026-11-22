@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.test.UniTest
 
 import scala.collection.mutable
@@ -59,7 +57,7 @@ class RxSpecTest extends UniTest:
     val queue = Rx.queue[Int]()
     tokens(input).foreach {
       case "C" =>
-        queue.add(OnCompletion.success)
+        queue.add(OnCompletion)
       case "E" =>
         queue.add(OnError(IllegalStateException("spec failure")))
       case v =>
@@ -71,9 +69,9 @@ class RxSpecTest extends UniTest:
       RxRunner.run(rx) {
         case OnNext(v) =>
           observed += v.toString
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           observed += "C"
-        case OnCompletion(Result.Failure(_)) =>
+        case OnFailure(_) =>
           observed += "E"
       }
     c.cancel

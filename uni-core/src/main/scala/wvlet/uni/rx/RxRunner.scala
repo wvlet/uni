@@ -38,13 +38,12 @@ object RxResult:
 
 object RxRunner extends LogSupport:
 
-  // One runner for every entry point: OnError passes, and OnCompletion ends a stream
+  // One runner for every entry point: OnError passes, and OnCompletion or OnFailure ends a stream
   private val runner = new RxRunner
 
   /**
     * Run until the first error or the end. The effect receives each value, then the end: an error
-    * ends the run and arrives as `OnCompletion(Result.Failure(e))`, so the effect never sees an
-    * `OnError`.
+    * ends the run and arrives as `OnFailure(e)`, so the effect never sees an `OnError`.
     */
   def run[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     // The first error or end is the end of the run: later events are dropped
@@ -64,10 +63,11 @@ object RxRunner extends LogSupport:
     }
 
   /**
-    * Run until the first event is observed. Only the first event (OnNext, or OnCompletion, which an
-    * error arrives as) is passed to the effect: some sources (e.g., RxVar, Rx.single) keep emitting
-    * after the downstream returns Stop, and later events are dropped here. The upstream
-    * subscription is not cancelled, so its own completion still drives operators such as concat.
+    * Run until the first event is observed. Only the first event (OnNext, OnCompletion, or
+    * OnFailure, which an error arrives as) is passed to the effect: some sources (e.g., RxVar,
+    * Rx.single) keep emitting after the downstream returns Stop, and later events are dropped here.
+    * The upstream subscription is not cancelled, so its own completion still drives operators such
+    * as concat.
     */
   def runOnce[A, U](rx: RxOps[A])(effect: RxRunEvent => U): Cancelable =
     val observed = AtomicBoolean(false)
@@ -78,11 +78,11 @@ object RxRunner extends LogSupport:
     }
 
   /**
-    * Keep running after an error, which arrives as `OnError(e)`, until the end (`OnCompletion`) or
-    * a cancel.
+    * Keep running after an error, which arrives as `OnError(e)`, until the end (`OnCompletion` or
+    * `OnFailure`) or a cancel.
     */
   def runContinuously[A, U](rx: RxOps[A])(effect: RxEvent => U): Cancelable =
-    // OnCompletion ends the stream: a source that keeps emitting after it is not followed
+    // An end (OnEnd) ends the stream: a source that keeps emitting after it is not followed
     val ended = AtomicBoolean(false)
     tracked(runner, rx, "runContinuously") { ev =>
       if ended.get() then
@@ -92,7 +92,7 @@ object RxRunner extends LogSupport:
           case v @ OnNext(_) =>
             effect(v)
             RxResult.Continue
-          case c: OnCompletion =>
+          case c: OnEnd =>
             if ended.compareAndSet(false, true) then
               effect(c)
             RxResult.Stop
@@ -101,6 +101,16 @@ object RxRunner extends LogSupport:
             effect(ResumableError.toPublic(other))
             RxResult.Continue
     }
+
+  /**
+    * Report an error that a values-only subscriber (`subscribe`, `runContinuously(f)`,
+    * `RxVar.foreach`) has no way to handle. It is logged, not thrown: a throw would reach whatever
+    * code sent the event, such as the caller of `:=` or `setException`, or another thread.
+    */
+  private[rx] def reportUnhandled(e: Throwable): Unit = warn(
+    s"Unhandled error in an Rx subscription: ${e.getMessage}",
+    e
+  )
 
   /**
     * Run `rx` and report the subscription to the active [[RxTracker]]s. The subscription ends on
@@ -195,14 +205,14 @@ class RxRunner extends LogSupport:
                       case n @ OnNext(x) =>
                         toContinue = effect(n)
                         toContinue
-                      case OnCompletion(Result.Success(_)) =>
+                      case OnCompletion =>
                         if tracker.endNested(current) then
-                          toContinue = effect(OnCompletion.success)
+                          toContinue = effect(OnCompletion)
                         toContinue
                       case ev @ OnError(e) =>
                         toContinue = tracker.nestedError(current, ev, effect)
                         toContinue
-                      case ev @ OnCompletion(Result.Failure(e)) =>
+                      case ev @ OnFailure(e) =>
                         toContinue = tracker.nestedError(current, ev, effect)
                         toContinue
                     }
@@ -211,7 +221,7 @@ class RxRunner extends LogSupport:
                   tracker.dropNested()
                   effect(ResumableError(e))
               end match
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               inputEnded.set(true)
               tracker.completeInput(effect)
             case other =>
@@ -254,18 +264,18 @@ class RxRunner extends LogSupport:
                   effect(OnNext(x))
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               // The stream ended with a failure: emit the transformed value, then complete
               Try(tryFunc(Failure(e))) match
                 case Success(x) =>
                   // Complete unless the downstream stopped
                   val r = effect(OnNext(x))
                   if r.toContinue then
-                    effect(OnCompletion.success)
+                    effect(OnCompletion)
                   else
                     r
                 case Failure(e2) =>
-                  effect(OnCompletion.failure(e2))
+                  effect(OnFailure(e2))
             case other =>
               effect(other)
         }
@@ -285,17 +295,17 @@ class RxRunner extends LogSupport:
                   effect(OnNext(x))
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               tryFunc(Failure(e)) match
                 case Success(x) =>
                   // Complete unless the downstream stopped
                   val r = effect(OnNext(x))
                   if r.toContinue then
-                    effect(OnCompletion.success)
+                    effect(OnCompletion)
                   else
                     r
                 case Failure(e2) =>
-                  effect(OnCompletion.failure(e2))
+                  effect(OnFailure(e2))
             case other =>
               effect(other)
         }
@@ -314,14 +324,14 @@ class RxRunner extends LogSupport:
               case n @ OnNext(x) =>
                 toContinue = effect(n)
                 toContinue
-              case OnCompletion(Result.Success(_)) =>
+              case OnCompletion =>
                 if tracker.endNested(current) then
-                  toContinue = effect(OnCompletion.success)
+                  toContinue = effect(OnCompletion)
                 toContinue
               case ev @ OnError(e) =>
                 toContinue = tracker.nestedError(current, ev, effect)
                 toContinue
-              case ev @ OnCompletion(Result.Failure(e)) =>
+              case ev @ OnFailure(e) =>
                 toContinue = tracker.nestedError(current, ev, effect)
                 toContinue
             }
@@ -347,11 +357,11 @@ class RxRunner extends LogSupport:
                   evalRx(rxb)
                 case Failure(e) =>
                   effect(OnError(e))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               Try(tryFunc(Failure(e))) match
                 case Success(rxb) =>
                   val result = evalRx(rxb)
-                  // A failed completion ends the input, so complete once the nested stream built
+                  // An OnFailure ends the input, so complete once the nested stream built
                   // from it ends
                   if !result.toContinue then
                     result
@@ -359,7 +369,7 @@ class RxRunner extends LogSupport:
                     tracker.completeInput(effect)
                 case Failure(e) =>
                   effect(OnError(e))
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               tracker.completeInput(effect)
           }
         Cancelable { () =>
@@ -370,7 +380,7 @@ class RxRunner extends LogSupport:
         var c1 = Cancelable.empty
         val c2 =
           run(first) {
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               var toContinue: RxResult = RxResult.Continue
               // Properly cancel the effect if this operator is evaluated before
               c1.cancel
@@ -459,9 +469,9 @@ class RxRunner extends LogSupport:
                       lastKeys = Some(keys)
                       effect(OnNext(pairs))
                   finally left.foreach(_.stop())
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               stopRows()
-              effect(OnCompletion.success)
+              effect(OnCompletion)
             case other =>
               effect(other)
           }
@@ -477,12 +487,12 @@ class RxRunner extends LogSupport:
             RxResult.Continue
           case err @ OnError(e) =>
             effect(err)
-          case err @ OnCompletion(Result.Failure(e)) =>
+          case err @ OnFailure(e) =>
             effect(err)
-          case OnCompletion(Result.Success(_)) =>
+          case OnCompletion =>
             Try(effect(OnNext(last))) match
               case Success(v) =>
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               case Failure(e) =>
                 effect(OnError(e))
         }
@@ -508,7 +518,7 @@ class RxRunner extends LogSupport:
         }
       case TakeOp(in, n) =>
         if n <= 0 then
-          effect(OnCompletion.success)
+          effect(OnCompletion)
           Cancelable.empty
         else
           var count = 0L
@@ -536,7 +546,7 @@ class RxRunner extends LogSupport:
                   // Complete right after the nth value without waiting for the next upstream event,
                   // unless the downstream stopped
                   if done.compareAndSet(false, true) && result.toContinue then
-                    effect(OnCompletion.success)
+                    effect(OnCompletion)
                   c.cancel
                   RxResult.Stop
               case other =>
@@ -574,7 +584,7 @@ class RxRunner extends LogSupport:
         time.scheduleOnce(delayMillis) {
           Try(effect(OnNext(0L))) match
             case Success(c) =>
-              effect(OnCompletion.success)
+              effect(OnCompletion)
             case Failure(e) =>
               effect(OnError(e))
         }
@@ -602,7 +612,7 @@ class RxRunner extends LogSupport:
           Try(effect(OnNext(()))) match
             case Success(c) =>
               if c.toContinue then
-                effect(OnCompletion.success)
+                effect(OnCompletion)
             case Failure(e) =>
               effect(OnError(e))
         }
@@ -648,7 +658,7 @@ class RxRunner extends LogSupport:
             case OnNext(v) =>
               lastItem = Some(v.asInstanceOf[A])
               canContinue
-            case end: OnCompletion =>
+            case end: OnEnd =>
               // Emit the value still waiting for its window, then end
               timer.cancel
               lastItem match
@@ -686,14 +696,14 @@ class RxRunner extends LogSupport:
               if timedOut.compareAndSet(false, true) then
                 timeoutCancelable.cancel
               effect(ev)
-            case ev @ OnCompletion(Result.Failure(e)) =>
+            case ev @ OnFailure(e) =>
               if timedOut.compareAndSet(false, true) then
                 timeoutCancelable.cancel
               effect(ev)
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               if timedOut.compareAndSet(false, true) then
                 timeoutCancelable.cancel
-              effect(OnCompletion.success)
+              effect(OnCompletion)
           }
         Cancelable { () =>
           timeoutCancelable.cancel
@@ -754,12 +764,12 @@ class RxRunner extends LogSupport:
             // A single-value source: complete after the value, as SingleOp does
             Try(effect(OnNext(x))) match
               case Success(_) =>
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               case Failure(e) =>
                 effect(OnError(e))
           case Failure(e) =>
-            // A failed source ends with a failed completion
-            effect(OnCompletion.failure(e))
+            // A failed source ends with OnFailure
+            effect(OnFailure(e))
         Cancelable.empty
       case o: RxOptionVar[?] =>
         o.asInstanceOf[RxOptionVar[A]]
@@ -789,18 +799,18 @@ class RxRunner extends LogSupport:
                     result
                   case Failure(e) =>
                     effect(OnError(e))
-              case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
+              case OnFailure(e) if f.isDefinedAt(e) =>
                 // The stream ended with a failure: emit the recovered value, then complete unless
                 // the downstream stopped
                 ended.set(true)
                 Try(effect(OnNext(f(e)))) match
                   case Success(result) =>
                     if result.toContinue then
-                      effect(OnCompletion.success)
+                      effect(OnCompletion)
                     else
                       result
                   case Failure(e) =>
-                    effect(OnCompletion.failure(e))
+                    effect(OnFailure(e))
               case other =>
                 effect(other)
         }
@@ -812,17 +822,17 @@ class RxRunner extends LogSupport:
             case OnError(e) =>
               val downstream = effect(OnNext(Result.Failure(e)))
               if downstream.toContinue then
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               else
                 downstream
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               val downstream = effect(OnNext(Result.Failure(e)))
               if downstream.toContinue then
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               else
                 downstream
-            case OnCompletion(Result.Success(_)) =>
-              effect(OnCompletion.success)
+            case OnCompletion =>
+              effect(OnCompletion)
         }
       case RecoverWithOp(in, f) =>
         var toContinue: RxResult = RxResult.Continue
@@ -830,7 +840,7 @@ class RxRunner extends LogSupport:
         // Assigned after subscribing, and read by a recovery that may run on another thread
         @volatile
         var c2 = Cancelable.empty
-        // Set when a failed completion ended the input: the operator ends with the recovery
+        // Set when an OnFailure ended the input: the operator ends with the recovery
         // stream. A recovered OnError keeps the input running, and its next value replaces the
         // recovery stream.
         val inputEnded = AtomicBoolean(false)
@@ -847,7 +857,7 @@ class RxRunner extends LogSupport:
                     case Success(recoverySource) =>
                       c1 =
                         run(recoverySource) {
-                          case OnCompletion(Result.Success(_)) =>
+                          case OnCompletion =>
                             // The input continues past this error, so the recovery stream's
                             // completion does not end the stream
                             RxResult.Continue
@@ -858,7 +868,7 @@ class RxRunner extends LogSupport:
                       toContinue
                     case Failure(e) =>
                       effect(OnError(e))
-                case OnCompletion(Result.Failure(e)) if f.isDefinedAt(e) =>
+                case OnFailure(e) if f.isDefinedAt(e) =>
                   // The input ended with a failure: the stream continues as the recovery stream
                   c1.cancel
                   c1 = Cancelable.empty
@@ -873,7 +883,7 @@ class RxRunner extends LogSupport:
                         }
                       toContinue
                     case Failure(e) =>
-                      effect(OnCompletion.failure(e))
+                      effect(OnFailure(e))
                 case ev @ OnNext(_) =>
                   // The input stays subscribed, and its next value replaces the recovery stream
                   c1.cancel
@@ -905,12 +915,12 @@ class RxRunner extends LogSupport:
                   effect(ev)
                 case Failure(e2) =>
                   effect(ResumableError.like(ev, e2))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               Try(f0.applyOrElse(Failure(e), (_: Try[?]) => ())) match
                 case Success(value) =>
                   effect(ev)
                 case Failure(e2) =>
-                  effect(OnCompletion.failure(e2))
+                  effect(OnFailure(e2))
             case _ =>
               effect(ev)
         }
@@ -921,7 +931,7 @@ class RxRunner extends LogSupport:
         val subscription =
           run(in) { ev =>
             ev match
-              case _: OnCompletion =>
+              case _: OnEnd =>
                 ended.set(true)
               case _ =>
             effect(ev)
@@ -945,11 +955,11 @@ class RxRunner extends LogSupport:
               case Success(v) =>
                 Try(effect(OnNext(v.asInstanceOf[A]))) match
                   case Success(_) =>
-                    effect(OnCompletion.success)
+                    effect(OnCompletion)
                   case Failure(e) =>
                     effect(OnError(e))
               case Failure(e) =>
-                effect(OnCompletion.failure(e))
+                effect(OnFailure(e))
             true
           else
             false
@@ -962,7 +972,7 @@ class RxRunner extends LogSupport:
         }
       case MergeOp(sources) =>
         if sources.isEmpty then
-          effect(OnCompletion.success)
+          effect(OnCompletion)
           Cancelable.empty
         else
           val fanIn = FanIn(effect)
@@ -978,11 +988,11 @@ class RxRunner extends LogSupport:
                   run(source) {
                     case ev @ OnNext(_) =>
                       fanIn.next(ev)
-                    case OnCompletion(Result.Success(_)) =>
+                    case OnCompletion =>
                       fanIn.end(slot)
                     case ev @ OnError(_) =>
                       fanIn.error(slot, ev)
-                    case ev @ OnCompletion(Result.Failure(_)) =>
+                    case ev @ OnFailure(_) =>
                       fanIn.error(slot, ev)
                   }
                 )
@@ -1044,11 +1054,11 @@ class RxRunner extends LogSupport:
                 run(rxb) {
                   case ev @ OnNext(_) =>
                     fanIn.next(slot, ev)
-                  case OnCompletion(Result.Success(_)) =>
+                  case OnCompletion =>
                     fanIn.end(slot, releasePermit)
                   case ev @ OnError(_) =>
                     fanIn.error(slot, ev, releasePermit, endSlot = true)
-                  case ev @ OnCompletion(Result.Failure(_)) =>
+                  case ev @ OnFailure(_) =>
                     fanIn.error(slot, ev, releasePermit, endSlot = true)
                 }
               )
@@ -1073,11 +1083,11 @@ class RxRunner extends LogSupport:
                   if startNow then
                     launch(x)
                   fanIn.result
-                case OnCompletion(Result.Success(_)) =>
+                case OnCompletion =>
                   fanIn.end(inputSlot)
                 case ev @ OnError(_) =>
                   fanIn.error(inputSlot, ev)
-                case ev @ OnCompletion(Result.Failure(_)) =>
+                case ev @ OnFailure(_) =>
                   fanIn.error(inputSlot, ev)
               }
             )
@@ -1088,12 +1098,12 @@ class RxRunner extends LogSupport:
           case Success(x) =>
             Try(effect(OnNext(x))) match
               case Success(c) =>
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               case Failure(e) =>
                 effect(OnError(e))
           case Failure(e) =>
-            // A failed source ends with a failed completion
-            effect(OnCompletion.failure(e))
+            // A failed source ends with OnFailure
+            effect(OnFailure(e))
         Cancelable.empty
       case SeqOp(inputList) =>
         // Emit the list until the downstream stops or the subscription is cancelled
@@ -1103,7 +1113,7 @@ class RxRunner extends LogSupport:
           if !cancelled.get then
             lst match
               case Nil =>
-                effect(OnCompletion.success)
+                effect(OnCompletion)
               case head :: tail =>
                 if effect(OnNext(head)).toContinue then
                   loop(tail)
@@ -1127,7 +1137,7 @@ class RxRunner extends LogSupport:
             RxResult.Stop
           else
             ev match
-              case end: OnCompletion =>
+              case end: OnEnd =>
                 ended.set(true)
                 effect(end)
               case other =>
@@ -1155,11 +1165,11 @@ class RxRunner extends LogSupport:
                 case OnNext(ev: RxEvent) =>
                   deliver(ev)
                 case other =>
-                  // The event's Rx ended: OnCompletion, or OnError if the effect threw, after which
+                  // The event's Rx ended: OnEnd, or OnError if the effect threw, after which
                   // reading continues
                   val r =
                     other match
-                      case OnCompletion(Result.Success(_)) =>
+                      case OnCompletion =>
                         RxResult.Continue
                       case _ =>
                         deliver(other)
@@ -1298,12 +1308,12 @@ class RxRunner extends LogSupport:
         val errors = lastEvent.collect {
           case Some(OnError(ex)) =>
             ex
-          case Some(OnCompletion(Result.Failure(ex))) =>
+          case Some(OnFailure(ex)) =>
             ex
         }
         // A source that ended with a failure ends this operator with a failure too
         val failedEnd = lastEvent.exists {
-          case Some(OnCompletion(Result.Failure(_))) =>
+          case Some(OnFailure(_)) =>
             true
           case _ =>
             false
@@ -1318,7 +1328,7 @@ class RxRunner extends LogSupport:
           // value has just been paired
           if result.toContinue && isCompleted && completed.compareAndSet(false, true) then
             trace(s"emit OnCompletion")
-            effect(OnCompletion.success)
+            effect(OnCompletion)
           else
             result
         else
@@ -1330,7 +1340,7 @@ class RxRunner extends LogSupport:
               e1
             }
             if failedEnd then
-              effect(OnCompletion.failure(ex))
+              effect(OnFailure(ex))
             else
               effect(OnError(ex))
           else
@@ -1385,7 +1395,7 @@ class RxRunner extends LogSupport:
     // Complete once a completed source has no buffered value left to pair (the shortest source
     // ends zip). Values must not count: an RxVar delivers its current value on subscription.
     override protected def isCompleted: Boolean = (0 until size).exists(i =>
-      lastEvent(i).contains(OnCompletion.success) && lastValueBuffer(i).isEmpty
+      lastEvent(i).contains(OnCompletion) && lastValueBuffer(i).isEmpty
     )
 
   /**
@@ -1443,7 +1453,7 @@ class RxRunner extends LogSupport:
             if finished then
               None
             else
-              if other.isInstanceOf[OnCompletion] then
+              if other.isInstanceOf[OnEnd] then
                 finished = true
               takeLatest()
           }
@@ -1484,7 +1494,7 @@ class RxRunner extends LogSupport:
     override protected def update(index: Int, v: A): Unit = lastValue(index) = Some(v)
 
     override protected def isCompleted: Boolean = lastEvent.forall(x =>
-      x.isDefined && x.get == OnCompletion.success
+      x.isDefined && x.get == OnCompletion
     )
 
   private def join[A](input: Rx[A])(effect: RxEvent => RxResult): Cancelable = new JoinStream(input)
@@ -1541,7 +1551,7 @@ class RxRunner extends LogSupport:
       val result = effect(ev)
       val done   = endNested(current)
       if done && result.toContinue then
-        effect(OnCompletion.success)
+        effect(OnCompletion)
       else
         result
 
@@ -1562,7 +1572,7 @@ class RxRunner extends LogSupport:
       else if waitForNested then
         RxResult.Continue
       else
-        effect(OnCompletion.success)
+        effect(OnCompletion)
 
   end NestedStreamTracker
 
@@ -1570,9 +1580,9 @@ class RxRunner extends LogSupport:
     * Joins streams that may run concurrently (merge, parFlatMap) into one downstream. Events are
     * forwarded under a lock, since the streams may emit from different threads. The operator
     * completes when every opened slot has ended. An error the downstream recovers from ends only
-    * the failing slot, as in flatMap. An `OnError` passes. A failed `OnCompletion` of a slot, a
-    * downstream `Stop`, or a cancellation stops the operator: running streams are cancelled and
-    * later events are dropped.
+    * the failing slot, as in flatMap. An `OnError` passes. An `OnFailure` of a slot, a downstream
+    * `Stop`, or a cancellation stops the operator: running streams are cancelled and later events
+    * are dropped.
     */
   private class FanIn(effect: RxEvent => RxResult):
     class Slot:
@@ -1629,8 +1639,8 @@ class RxRunner extends LogSupport:
         deliver(ev)
 
     /**
-      * Forward an error from a slot's stream. A failed `OnCompletion` ends the whole operator with
-      * that failure: the other slots are cancelled. An `OnError` is passed on and the slot keeps
+      * Forward an error from a slot's stream. An `OnFailure` ends the whole operator with that
+      * failure: the other slots are cancelled. An `OnError` is passed on and the slot keeps
       * running, unless `endSlot` is set: then the slot's stream is cancelled and ends, so
       * parFlatMap hands its permit on.
       */
@@ -1641,7 +1651,7 @@ class RxRunner extends LogSupport:
         endSlot: Boolean = false
     ): RxResult =
       ev match
-        case _: OnCompletion =>
+        case _: OnEnd =>
           val r = synchronized {
             if stopped then
               RxResult.Stop
@@ -1702,7 +1712,7 @@ class RxRunner extends LogSupport:
           synchronized {
             if !stopped then
               stopped = true
-              effect(OnCompletion.success)
+              effect(OnCompletion)
           }
           RxResult.Stop
         else

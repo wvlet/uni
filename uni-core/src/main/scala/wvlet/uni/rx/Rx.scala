@@ -129,28 +129,33 @@ trait RxOps[+A]:
     RxRunner.run(self) {
       case OnNext(v) =>
         effect(v.asInstanceOf[A])
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         throw e
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
       // do nothing
     }
 
   /**
-    * Keep evaluating Rx[A] after an error, until the stream ends with `OnCompletion` or is
-    * cancelled.
+    * Keep evaluating Rx[A] after an error, until the stream ends with `OnCompletion` or
+    * `OnFailure`, or is cancelled. The effect receives values only: an `OnError` or `OnFailure` is
+    * logged as a warning, never thrown. Handle errors in the chain with `recover`, or use
+    * `RxRunner.runContinuously` to receive every event.
     */
   def runContinuously[U](effect: A => U = Rx.doNothing): Cancelable =
     RxRunner.runContinuously(this) {
       case OnNext(v) =>
         effect(v.asInstanceOf[A])
       case OnError(e) =>
-        throw e
-      case OnCompletion(Result.Failure(e)) =>
-        throw e
-      case OnCompletion(Result.Success(_)) =>
+        RxRunner.reportUnhandled(e)
+      case OnFailure(e) =>
+        RxRunner.reportUnhandled(e)
+      case OnCompletion =>
       // do nothing
     }
 
+  /**
+    * Same as [[runContinuously]]: values go to `subscriber`, and an unhandled error is logged.
+    */
   def subscribe[U](subscriber: A => U = Rx.doNothing): Cancelable = runContinuously(subscriber)
 
   /**

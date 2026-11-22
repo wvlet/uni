@@ -14,14 +14,13 @@
 package wvlet.uni.rx
 
 import wvlet.uni.test.UniTest
-import wvlet.uni.util.Result
 
 import scala.collection.mutable
 
 /**
   * Replays the cases generated from the target event model in `spec/lean/UniSpec/RxR3.lean` and
-  * `RxR3Ops.lean`: `OnError` never ends a stream, and `OnCompletion` (success or failure) is the
-  * only end. Each input is a pre-filled `Rx.queue`, run with `RxRunner.runContinuously` or
+  * `RxR3Ops.lean`: `OnError` never ends a stream, and `OnCompletion` or `OnFailure` is the only
+  * end. Each input is a pre-filled `Rx.queue`, run with `RxRunner.runContinuously` or
   * `RxRunner.run`.
   */
 class RxR3SpecTest extends UniTest:
@@ -48,9 +47,9 @@ class RxR3SpecTest extends UniTest:
     val queue = Rx.queue[Int]()
     tokens(trace).foreach {
       case "C" =>
-        queue.add(OnCompletion.success)
+        queue.add(OnCompletion)
       case "F" =>
-        queue.add(OnCompletion.failure(IllegalStateException("source failure")))
+        queue.add(OnFailure(IllegalStateException("source failure")))
       case "E" =>
         queue.add(OnError(IllegalStateException("source error")))
       case v =>
@@ -119,9 +118,9 @@ class RxR3SpecTest extends UniTest:
         observed += v.toString
       case OnError(_) =>
         observed += "E"
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         observed += "C"
-      case OnCompletion(Result.Failure(_)) =>
+      case OnFailure(_) =>
         observed += "F"
     }
     val cancel =

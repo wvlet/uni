@@ -13,9 +13,7 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
-import wvlet.uni.rx.{OnCompletion, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.net.{ServerSocket, Socket}
@@ -46,7 +44,7 @@ abstract class WebSocketRelaySpec extends UniTest:
       case OnNext(ctx) =>
         ref.set(Right(ctx.asInstanceOf[WebSocketContext]))
         ready.countDown()
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         ref.set(Left(e))
         ready.countDown()
       case _ =>

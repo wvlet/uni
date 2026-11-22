@@ -4,7 +4,6 @@ import org.scalajs.dom
 import wvlet.uni.dom.all.*
 import wvlet.uni.dom.all.given
 import wvlet.uni.rx.*
-import wvlet.uni.util.Result
 
 import scala.language.implicitConversions
 
@@ -121,18 +120,18 @@ class Timeline(lanes: Lane*) extends RxElement:
                 add(i, Kind.Next, show(v))
               case OnError(e) =>
                 add(i, Kind.Error, e.getMessage)
-              case OnCompletion(Result.Failure(e)) =>
+              case OnFailure(e) =>
                 add(i, Kind.Failed, e.getMessage)
-              case OnCompletion(_) =>
+              case OnCompletion =>
                 add(i, Kind.Done, "")
             }
           else
             RxRunner.run(lane.rx) {
               case OnNext(v) =>
                 add(i, Kind.Next, show(v))
-              case OnCompletion(Result.Failure(e)) =>
+              case OnFailure(e) =>
                 add(i, Kind.Failed, e.getMessage)
-              case OnCompletion(_) =>
+              case OnCompletion =>
                 add(i, Kind.Done, "")
             }
         }
@@ -154,9 +153,9 @@ class Timeline(lanes: Lane*) extends RxElement:
         case Kind.Error =>
           ("✕", s"OnError(${m.text}): the stream goes on")
         case Kind.Done =>
-          ("", "OnCompletion(Success): the stream ended")
+          ("", "OnCompletion: the stream ended")
         case Kind.Failed =>
-          ("✕", s"OnCompletion(Failure(${m.text})): the stream ended")
+          ("✕", s"OnFailure(${m.text}): the stream ended")
     span(
       cls       -> s"marble marble--${m.kind.toString.toLowerCase}",
       styleAttr -> s"left: ${pct(m.x)}%",

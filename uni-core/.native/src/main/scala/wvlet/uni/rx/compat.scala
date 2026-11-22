@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.util.ThreadUtil
 import scala.util.Try
 import scala.concurrent.ExecutionContext
@@ -83,10 +81,10 @@ object compat:
       RxRunner.run(rx) {
         case OnNext(v) =>
           s += v.asInstanceOf[A]
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           c.cancel
           throw e
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           c.cancel
           ready.set(true)
       }
@@ -99,9 +97,9 @@ object compat:
       RxRunner.runOnce(rx) {
         case OnNext(v) =>
           p.trySuccess(v.asInstanceOf[A])
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           p.tryFailure(e)
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           // If promise not yet completed, complete with Unit (for Rx[Unit] tests)
           p.trySuccess(().asInstanceOf[A])
       }

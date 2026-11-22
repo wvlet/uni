@@ -1,5 +1,7 @@
 # `OnCompletion(result)`, and `run` ends at the first error with a failed completion
 
+*Superseded by `2026-11-21-rx-onfailure.md`: the end of a stream is `OnCompletion` or `OnFailure(e)`, not `OnCompletion(result)`.*
+
 ## Context
 
 Step 3a of `plans/2026-11-21-rx-r3-event-model.md`. The target public events are `OnError` that

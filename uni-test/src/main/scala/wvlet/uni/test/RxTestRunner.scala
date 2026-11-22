@@ -13,8 +13,6 @@
  */
 package wvlet.uni.test
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.rx.*
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
@@ -40,9 +38,9 @@ private[test] object RxTestRunner:
       RxRunner.runOnce(rx) {
         case OnNext(v) =>
           p.trySuccess(v)
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           p.tryFailure(e)
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           p.tryFailure(RxCompletedWithoutValue())
       }
     p.future.andThen(_ => cancelable.cancel)

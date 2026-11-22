@@ -835,6 +835,7 @@ lazy val docSnippets = project
                 base / "docs/core/object-storage.md"        -> "snippets.core",
                 base / "docs/http/telemetry.md"             -> "snippets.http",
                 base / "docs/text/parquet.md"               -> "snippets.text",
+                base / "docs/rx/events.md"                  -> "snippets.rx",
                 base / "docs/ai"                            -> "snippets.ai",
                 base / "docs/blog"                          -> "snippets.blog"
               ),

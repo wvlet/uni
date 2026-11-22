@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.control.Retry
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.{CopyOnWriteArrayList, CountDownLatch, TimeUnit}
@@ -108,7 +106,7 @@ class NativeHttpAsyncClientTest extends UniTest:
       RxRunner.run(client.sendSSE(Request.get("/events"))) {
         case OnNext(e) =>
           received.add(e.asInstanceOf[ServerSentEvent].data)
-        case OnCompletion(Result.Failure(_)) | OnCompletion(Result.Success(_)) =>
+        case OnFailure(_) | OnCompletion =>
           done.countDown()
       }
       done.await(5, TimeUnit.SECONDS) shouldBe true
@@ -122,10 +120,10 @@ class NativeHttpAsyncClientTest extends UniTest:
       val error  = AtomicReference[Throwable]()
       val done   = CountDownLatch(1)
       RxRunner.run(client.sendSSE(Request.get("/missing"))) {
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           error.set(e)
           done.countDown()
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           done.countDown()
         case _ =>
       }

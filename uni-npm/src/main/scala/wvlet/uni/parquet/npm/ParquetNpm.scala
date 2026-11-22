@@ -1,7 +1,5 @@
 package wvlet.uni.parquet.npm
 
-import wvlet.uni.util.Result
-
 import org.scalajs.dom
 import wvlet.uni.parquet.*
 import wvlet.uni.parquet.format.LogicalType
@@ -9,6 +7,7 @@ import wvlet.uni.parquet.format.PhysicalType
 import wvlet.uni.parquet.format.Repetition
 import wvlet.uni.parquet.format.TimeUnit
 import wvlet.uni.rx.OnCompletion
+import wvlet.uni.rx.OnFailure
 import wvlet.uni.rx.OnError
 import wvlet.uni.rx.OnNext
 import wvlet.uni.rx.Rx
@@ -56,9 +55,9 @@ object ParquetNpm:
     RxRunner.runOnce(rx) {
       case OnNext(v) =>
         p.trySuccess(v.asInstanceOf[A])
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         p.tryFailure(e)
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         p.tryFailure(IllegalStateException("The read finished without a value"))
     }
     p.future

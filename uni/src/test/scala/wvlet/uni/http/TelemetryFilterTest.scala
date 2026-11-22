@@ -13,10 +13,9 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
 import wvlet.uni.http.router.{Endpoint, Router, RouterHandler}
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
-import wvlet.uni.rx.{OnCompletion, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnNext, Rx, RxRunner}
 import wvlet.uni.telemetry.{
   MetricExporter,
   SpanExporter,
@@ -150,7 +149,7 @@ class TelemetryFilterTest extends UniTest:
     val filter                     = TelemetryFilter(Telemetry().withExporter(exporter))
     var failure: Option[Throwable] = None
     RxRunner.runOnce(filter(Request.get("/x"), _ => throw IllegalStateException("crash"))) {
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         failure = Some(e)
       case _ =>
     }

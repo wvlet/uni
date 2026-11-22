@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 /**
   * Parallel operators for Rx streams.
   *
@@ -82,9 +80,9 @@ object RxParallel:
         RxRunner.runOnce(fiber.join) {
           case OnNext(v) =>
             callback(scala.util.Success(v.asInstanceOf[A]))
-          case OnCompletion(Result.Failure(e)) =>
+          case OnFailure(e) =>
             callback(scala.util.Failure(e))
-          case OnCompletion(Result.Success(_)) =>
+          case OnCompletion =>
         }
       Cancelable { () =>
         join.cancel

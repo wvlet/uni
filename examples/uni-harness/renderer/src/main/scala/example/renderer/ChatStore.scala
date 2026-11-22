@@ -1,9 +1,7 @@
 package example.renderer
 
-import wvlet.uni.util.Result
-
 import example.api.{ChatApi, ChatEvent, ChatMessage, Conversation}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.concurrent.{Future, Promise}
@@ -197,9 +195,9 @@ class ChatStore(api: ChatApi, explain: (String, Throwable) => String = ChatStore
         val event = a.asInstanceOf[A]
         finished = finished || isLast(event)
         onEvent(event)
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         fail(e)
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
         if finished then
           done.trySuccess(())
         else

@@ -13,8 +13,6 @@
  */
 package wvlet.uni.electron
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.http.{
   Http,
   HttpAsyncChannel,
@@ -30,7 +28,7 @@ import wvlet.uni.http.{
 import wvlet.uni.http.Response
 import wvlet.uni.http.ServiceStatus
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
 import scala.concurrent.ExecutionContext
@@ -266,9 +264,9 @@ object ElectronRenderer:
           ) {
             case OnNext(v) =>
               resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               fail(e)
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
           }
         catch
           case NonFatal(e) =>

@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import java.util.concurrent.TimeUnit
 import wvlet.uni.test.UniTest
 
@@ -78,7 +76,7 @@ class RxTimeProviderTest extends UniTest:
     time.advance(49)
     events.result() shouldBe Seq.empty
     time.advance(1)
-    events.result() shouldBe Seq(OnNext(0L), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(0L), OnCompletion)
   }
 
   test("throttleFirst drops values within the window") {
@@ -118,7 +116,7 @@ class RxTimeProviderTest extends UniTest:
     val events                     = Seq.newBuilder[RxEvent]
     RxRunner.run(v.filter(_.isDefined).timeout(100))(events += _)
     time.advance(100)
-    events.result() shouldMatch { case Seq(OnCompletion(Result.Failure(e: Rx.TimeoutException))) =>
+    events.result() shouldMatch { case Seq(OnFailure(e: Rx.TimeoutException)) =>
     }
   }
 
@@ -127,7 +125,7 @@ class RxTimeProviderTest extends UniTest:
     val events                     = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.timer(50, TimeUnit.MILLISECONDS).timeout(100))(events += _)
     time.advance(200)
-    events.result() shouldBe Seq(OnNext(0L), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(0L), OnCompletion)
   }
 
 end RxTimeProviderTest
