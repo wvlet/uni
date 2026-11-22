@@ -20,6 +20,13 @@ sealed trait ColumnVector:
   def isNull(i: Int): Boolean = nulls != null && nulls(i)
   def hasNulls: Boolean       = nulls != null && nulls.exists(identity)
 
+  /**
+    * Null flags by row (true for a null row), or null when no row is null. The array is shared with
+    * this vector, so callers must not modify it. Lets columnar consumers take the flags as is
+    * instead of copying them through [[isNull]].
+    */
+  def nullFlags: Array[Boolean] = nulls
+
   /** The value of row i converted to a Scala value, or null */
   def getValue(i: Int): Any
 
@@ -128,8 +135,47 @@ object ColumnVector:
       .Arrays
       .copyOfRange(data, offsets(i), offsets(i + 1))
 
-    def getString(i: Int): String = String(data, offsets(i), length(i), "UTF-8")
-    def getValue(i: Int): Any     =
+    /**
+      * The dictionary entry row i was decoded from, or -1 when the row is null, PLAIN-encoded, or
+      * the column has no dictionary. Rows with the same entry hold the same bytes.
+      */
+    def dictionaryIndex(i: Int): Int =
+      if dictIndices == null then
+        -1
+      else
+        dictIndices(i)
+
+    /** The number of entries of the dictionary rows were decoded from, or 0 without one */
+    def dictionarySize: Int =
+      if dictionary == null then
+        0
+      else
+        dictionary.size
+
+    /**
+      * Row i as a UTF-8 string. Values decoded from a dictionary are converted once per dictionary
+      * entry, and rows with the same entry share one String.
+      */
+    def getString(i: Int): String =
+      val k = dictionaryIndex(i)
+      if k < 0 then
+        utf8(i)
+      else
+        val cache = dictionary.strings
+        var s     = cache(k)
+        if s == null then
+          s = utf8(i)
+          cache(k) = s
+        s
+
+    private def utf8(i: Int): String = String(
+      data,
+      offsets(i),
+      length(i),
+      java.nio.charset.StandardCharsets.UTF_8
+    )
+
+    def getValue(i: Int): Any =
       if isNull(i) then
         null
       else

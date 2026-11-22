@@ -498,7 +498,7 @@ object ParquetFilter:
     def key(v: Any): Either[String, Key] =
       v match
         case s: String =>
-          Right(Key.Bytes(s.getBytes("UTF-8")))
+          Right(Key.Bytes(s.getBytes(java.nio.charset.StandardCharsets.UTF_8)))
         case _ =>
           Left("a String")
 
@@ -535,8 +535,8 @@ object ParquetFilter:
 
   /** Strings in UTF-8 byte order (code point order), as string columns compare */
   private[parquet] def compareStrings(a: String, b: String): Int =
-    val x = a.getBytes("UTF-8")
-    compareBytes(x, 0, x.length, b.getBytes("UTF-8"))
+    val x = a.getBytes(java.nio.charset.StandardCharsets.UTF_8)
+    compareBytes(x, 0, x.length, b.getBytes(java.nio.charset.StandardCharsets.UTF_8))
 
   /** How a column compares, or None for types filters don't understand (such as DECIMAL) */
   private[parquet] def order(

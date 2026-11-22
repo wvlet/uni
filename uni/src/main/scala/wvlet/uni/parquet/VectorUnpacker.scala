@@ -317,14 +317,14 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackRawStringHeader: Int =
     if kind == Key then
-      setPayload(key.getBytes("UTF-8"))
+      setPayload(key.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     else
       expect(ValueType.STRING)
       if col.code == CStr then
         val b = col.vec.asInstanceOf[BinaryColumn]
         startPayload(b.data, b.offsets(idx), b.length(idx))
       else
-        setPayload(col.string(idx).getBytes("UTF-8"))
+        setPayload(col.string(idx).getBytes(java.nio.charset.StandardCharsets.UTF_8))
 
   override def unpackBinaryHeader: Int =
     expect(ValueType.BINARY)
@@ -708,7 +708,12 @@ private[parquet] object VectorUnpacker:
         dateStrings(slot) = s
         s
 
-    private def utf8(i: Int): String = String(bin.data, bin.offsets(i), bin.length(i), "UTF-8")
+    private def utf8(i: Int): String = String(
+      bin.data,
+      bin.offsets(i),
+      bin.length(i),
+      java.nio.charset.StandardCharsets.UTF_8
+    )
 
     private def nanos(v: Long): Long =
       unit match
