@@ -218,6 +218,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
+          cache: sbt
       - uses: ./.github/actions/sbt-launcher
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
@@ -405,6 +406,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
+          cache: sbt
       - uses: ./.github/actions/sbt-launcher
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
