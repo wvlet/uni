@@ -605,6 +605,21 @@ class IcebergTableOpsTest extends UniTest:
     intercept[ParquetException] {
       Parquet.renameIcebergTable(s"${root}/data", s"${root}-x")
     }
+    intercept[ParquetException] {
+      Parquet.renameIcebergTable(root, "s3://bucket/sales")
+    }
+    // Checked before the folder moves: a write path would still name the old folder
+    Parquet.alterIcebergTable(
+      root,
+      IcebergTableChange.SetProperty("write.data.path", s"${root}/data")
+    )
+    val e = intercept[ParquetException] {
+      Parquet.renameIcebergTable(root, s"${root}-y")
+    }
+    e.getMessage shouldContain "write.data.path"
+    FileSystem.exists(root) shouldBe true
+    FileSystem.exists(s"${root}-y") shouldBe false
+    sales(root) shouldBe first
   }
 
 end IcebergTableOpsTest

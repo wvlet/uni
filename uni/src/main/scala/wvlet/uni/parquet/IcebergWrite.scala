@@ -2204,33 +2204,46 @@ private[parquet] object IcebergWrite:
     val path   = layout.metadata(s"v${t.version + 1}.metadata.json")
     val bytes  = json.toJSON.getBytes(StandardCharsets.UTF_8)
     val result = Some(Expired(t.version + 1, path, expired.size, deleted))
-    Step.Create(
-      path,
-      bytes,
-      created =>
-        if created then
-          Step.Done(result)
-        else
-          // A create whose response was lost may have landed: then the file is ours
-          Step.Fetch(
-            path,
-            existing =>
-              if java.util.Arrays.equals(existing, bytes) then
-                Step.Done(result)
-              else if n < MaxAttempts then
-                // Another writer committed first: reload and choose the snapshots again
-                retry()
-              else
-                throw ParquetException(
-                  s"Another writer kept committing to ${layout
-                      .root} first; gave up after ${n} attempts"
-                )
-          )
-    )
+    // Another writer committed first: reload and choose the snapshots again
+    createMetadata(n, layout, path, bytes, result)(retry, () => Step.Done(()))
 
   end commitExpiry
 
   // ---- Relocation ----
+
+  /**
+    * Why the table with metadata `m` can't be relocated, checked before its folder moves: snapshots
+    * that refs other than `main` keep would be lost, write paths would still name the old folder,
+    * and a format v1 snapshot listing its manifests inline can't be rewritten
+    */
+  def relocationProblem(m: JSONObject): Option[String] =
+    val refs =
+      m.get("refs") match
+        case Some(JSONObject(rs)) =>
+          rs.map(_._1).filterNot(_ == "main")
+        case _ =>
+          Nil
+    val writePaths =
+      m.get("properties") match
+        case Some(JSONObject(ps)) =>
+          ps.map(_._1)
+            .filter(k =>
+              k == "write.data.path" || k == "write.metadata.path" ||
+                k == "write.object-storage.path"
+            )
+        case _ =>
+          Nil
+    val current = long(m, "current-snapshot-id")
+      .filter(_ >= 0)
+      .flatMap(id => objects(m, "snapshots").find(s => long(s, "snapshot-id").contains(id)))
+    if refs.nonEmpty then
+      Some(s"it has branches or tags (${refs.mkString(", ")}), whose snapshots a rename would drop")
+    else if writePaths.nonEmpty then
+      Some(s"it sets ${writePaths.mkString(", ")}, which would still name the old folder")
+    else if current.exists(string(_, "manifest-list").isEmpty) then
+      Some("its current snapshot lists its manifests inline (format version 1)")
+    else
+      None
 
   /**
     * Points the table at `layout`'s location after its folder moved there: rewrites the current
@@ -2295,8 +2308,14 @@ private[parquet] object IcebergWrite:
           .toSeq
           .filterNot((k, _) => k.startsWith("avro."))
           .map((k, v) => k -> String(v, StandardCharsets.UTF_8))
-    def moved(uri: String): String = layout.uriOf(resolvePath(layout, t, uri))
-    val list                       = string(s, "manifest-list").getOrElse(
+    // A file outside the table folder didn't move, so its path stays as recorded
+    def moved(uri: String): String =
+      val p = resolvePath(layout, t, uri)
+      if p.startsWith(layout.root) then
+        layout.uriOf(p)
+      else
+        uri
+    val list = string(s, "manifest-list").getOrElse(
       throw ParquetException(
         s"The current snapshot of ${layout
             .root} lists its manifests inline (format version 1); Uni can't relocate it"
@@ -2424,7 +2443,10 @@ private[parquet] object IcebergWrite:
           }
         ),
       "metadata-log" -> JSONArray(IndexedSeq.empty),
-      "refs"         ->
+      // Statistics files name the old folder; engines compute them again
+      "statistics"           -> JSONArray(IndexedSeq.empty),
+      "partition-statistics" -> JSONArray(IndexedSeq.empty),
+      "refs"                 ->
         JSONObject(
           liveId
             .toSeq
@@ -2438,30 +2460,48 @@ private[parquet] object IcebergWrite:
     val path   = layout.metadata(s"v${t.version + 1}.metadata.json")
     val bytes  = json.toJSON.getBytes(StandardCharsets.UTF_8)
     val result = Expired(t.version + 1, path, snapshots.size - current.size, unreferenced)
-    Step.Create(
-      path,
-      bytes,
-      created =>
-        if created then
-          Step.Done(result)
-        else
-          Step.Fetch(
-            path,
-            existing =>
-              if java.util.Arrays.equals(existing, bytes) then
-                Step.Done(result)
-              else if n < MaxAttempts then
-                // The files this attempt wrote are replaced by the next attempt's
-                deleteFiles(written)(retry)
-              else
+    // The files this attempt wrote are replaced by the next attempt's, or unused on giving up
+    createMetadata(n, layout, path, bytes, result)(
+      () => deleteFiles(written)(retry),
+      () => deleteFiles(written)(() => Step.Done(()))
+    )
+
+  end commitRelocation
+
+  /**
+    * Creates metadata version `path` and continues with `result`. Another writer's version at that
+    * path continues with `retry`, up to [[MaxAttempts]], or fails after `cleanup`; a create whose
+    * response was lost but landed (the same bytes) counts as created
+    */
+  private def createMetadata[A](
+      n: Int,
+      layout: Layout,
+      path: String,
+      bytes: Array[Byte],
+      result: A
+  )(retry: () => Step[A], cleanup: () => Step[Unit]): Step[A] = Step.Create(
+    path,
+    bytes,
+    created =>
+      if created then
+        Step.Done(result)
+      else
+        Step.Fetch(
+          path,
+          existing =>
+            if java.util.Arrays.equals(existing, bytes) then
+              Step.Done(result)
+            else if n < MaxAttempts then
+              retry()
+            else
+              flatMap(cleanup()) { _ =>
                 throw ParquetException(
                   s"Another writer kept committing to ${layout
                       .root} first; gave up after ${n} attempts"
                 )
-          )
-    )
-
-  end commitRelocation
+              }
+        )
+  )
 
   private def deleteFiles[A](paths: Seq[String])(next: () => Step[A]): Step[A] =
     paths match

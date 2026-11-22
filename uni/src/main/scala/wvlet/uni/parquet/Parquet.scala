@@ -921,6 +921,10 @@ object Parquet:
     * supported, since they can't move a folder.
     */
   def renameIcebergTable(from: String, to: String): Unit =
+    if ParquetDataset.isObjectUri(from) || ParquetDataset.isObjectUri(to) then
+      throw ParquetException(
+        s"Cannot rename ${from} to ${to}: renameIcebergTable moves local folders only"
+      )
     val source      = IOPath.parse(from)
     val target      = IOPath.parse(to)
     val metadataDir = source.resolve(IcebergTable.MetadataDir)
@@ -934,6 +938,12 @@ object Parquet:
       )
     if FileSystem.exists(target) then
       throw ParquetException(s"Cannot rename ${from} to ${to}: ${to} already exists")
+    withTarget(datasetTarget(from)) { t =>
+      DatasetWriterCore
+        .runStepsSync(t, IcebergWrite.load(DatasetWriterCore.icebergLayout(t)))
+        .flatMap(table => IcebergWrite.relocationProblem(table.metadata))
+        .foreach(p => throw ParquetException(s"Cannot rename ${from} to ${to}: ${p}"))
+    }
     FileSystem.move(source, target)
     withTarget(datasetTarget(to)) { t =>
       val layout = DatasetWriterCore.icebergLayout(t)
@@ -949,6 +959,8 @@ object Parquet:
             )
       finishCommit(t, layout, e, "Moved the table to")
     }
+
+  end renameIcebergTable
 
   /** Writes the hint for a committed version, then deletes the files no snapshot references */
   private def finishCommit(
