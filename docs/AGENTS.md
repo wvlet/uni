@@ -38,6 +38,11 @@ If any of the above is unverified, drop the claim.
 - **`srcExclude: ['**/AGENTS.md']`** keeps these files out of the
   rendered site, so it is safe to put contributor notes next to the
   content they describe.
+- **Share cards.** Every page shares the site banner card. Add an `image`
+  frontmatter (a 1280x640 PNG under `docs/public/`) to give a page its own
+  og/twitter card, titled and described by the page. The full-window gallery
+  (`examples/ui-gallery/web/index.html`) is not a VitePress page, so its card
+  tags are written in that file.
 - **Clean URLs** are on; link to `/control/retry`, not `.html` or `.md`.
 
 ## Blog posts
