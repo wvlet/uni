@@ -319,6 +319,62 @@ body {
   padding: 0;
 }
 
+/* A component page's header stays at the top; scrolled down, it folds to the title and links */
+.story-hero {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  margin: -24px -28px 0;
+  padding: 24px 28px 12px;
+  border-bottom: 1px solid transparent;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.story-hero.is-stuck {
+  padding-top: 12px;
+  border-bottom-color: var(--uni-line);
+  background: color-mix(in srgb, var(--uni-surface) 82%, transparent);
+  backdrop-filter: blur(16px);
+}
+
+.story-hero.is-stuck .story-overline,
+.story-hero.is-stuck .story-summary {
+  display: none;
+}
+
+.story-hero.is-stuck .story-title {
+  margin: 0;
+  font-size: 18px;
+}
+
+.story-hero.is-stuck .story-meta {
+  flex-wrap: nowrap;
+  margin-top: 8px;
+}
+
+/* Folded, the links stay on one line and scroll sideways */
+.story-hero.is-stuck .page-toc {
+  flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.story-hero.is-stuck .page-toc__link {
+  flex: none;
+}
+
+.story-hero.is-stuck .page-toc.is-clipped {
+  mask-image: linear-gradient(to right, black calc(100% - 32px), transparent);
+}
+
+.story-hero.is-stuck .story-meta__spacer {
+  display: none;
+}
+
 .story-hero__inner {
   animation: rise 0.28s ease-out both;
 }
@@ -1111,11 +1167,17 @@ body {
   color: var(--uni-muted);
 }
 
+.page-toc__link[aria-current='true'] {
+  border-color: var(--uni-accent);
+  background: var(--uni-accent-soft);
+  color: var(--uni-accent);
+}
+
 .example-section {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  scroll-margin-top: 16px;
+  scroll-margin-top: calc(var(--page-head, 96px) + 16px);
 }
 
 .example-head {
@@ -1266,7 +1328,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  scroll-margin-top: 16px;
+  scroll-margin-top: calc(var(--page-head, 96px) + 16px);
 }
 
 .ref-title {
@@ -1539,6 +1601,15 @@ body {
 @media (max-width: 760px) {
   .page {
     padding: 14px 12px 48px;
+  }
+
+  .story-hero {
+    margin: -14px -12px 0;
+    padding: 14px 12px 10px;
+  }
+
+  .story-hero.is-stuck {
+    padding-top: 10px;
   }
 
   .api-signature {

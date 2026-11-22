@@ -2,7 +2,7 @@ package example.gallery
 
 import example.gallery.stories.StartStories
 import org.scalajs.dom
-import wvlet.uni.dom.all.{div, styleAttr}
+import wvlet.uni.dom.all.{cls, div, styleAttr}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.log.{BufferedLogHandler, LogFormatter, Logger}
@@ -308,6 +308,36 @@ class GalleryTest extends DomTestSupport:
         .map(_.querySelectorAll("code")(1).textContent)
       slots shouldContain "tab-panel"
       slots shouldContain "tab"
+    }
+  }
+
+  test("the page header folds when scrolled and its links mark the section shown") {
+    val m = mount(
+      div(
+        cls       -> "gallery-main",
+        styleAttr -> "height: 400px; overflow: auto",
+        PageView(page("button"), None, ViewMode.Preview)
+      )
+    )
+    val hero    = m.get(".story-hero")
+    val main    = m.get(".gallery-main")
+    def current = m.queryAll(".page-toc__link[aria-current='true']").map(_.textContent)
+    current shouldBe Seq("Variants and sizes")
+    hero.classList.contains("is-stuck") shouldBe false
+    waitMs(50).flatMap { _ =>
+      // A link scrolls to its section, also when the URL already names it
+      fireEvent.click(m.queryAll(".page-toc__link").find(_.textContent == "API").get)
+      current shouldBe Seq("API")
+      waitMs(100).flatMap { _ =>
+        (main.scrollTop > PageView.foldAt) shouldBe true
+        hero.classList.contains("is-stuck") shouldBe true
+        current shouldBe Seq("API")
+        main.scrollTop = 0
+        waitMs(100).map { _ =>
+          hero.classList.contains("is-stuck") shouldBe false
+          current shouldBe Seq("Variants and sizes")
+        }
+      }
     }
   }
 
