@@ -447,6 +447,105 @@ class DatasetWriterTest extends UniTest:
     filesUnder(root).size shouldBe 1
   }
 
+  test("read partition values from rows in any key order") {
+    skipInBrowser()
+    val schema = ParquetSchema
+      .builder()
+      .required("id", ParquetType.INT64)
+      .optional("tag", ParquetType.STRING)
+      .required("year", ParquetType.INT32)
+      .optional("name", ParquetType.STRING)
+      .build()
+    val rows: Seq[Any] = Seq(
+      // In schema order
+      Map("id" -> 1L, "tag" -> "a", "year" -> 2025, "name" -> "x"),
+      // Keys out of order, so the positional match gives way to lookups by name
+      Map("year" -> 2026, "name" -> "y", "id" -> 2L, "tag" -> "b"),
+      // A loose key name, and a number for the string column
+      Map("id" -> 3L, "Tag" -> 7, "year" -> 2025),
+      // Partitions alternate from row to row
+      Map("id" -> 4L, "tag" -> "a", "year" -> 2025, "name" -> "z"),
+      Map("id" -> 5L, "tag" -> "b", "year" -> 2026),
+      Map("id" -> 6L, "tag" -> "a", "year" -> 2025)
+    )
+    def check(
+        options: ParquetDatasetWriteOptions,
+        folder: String => String,
+        readOptions: ParquetDatasetOptions
+    ): Unit =
+      val root = newRoot()
+      val w    = Parquet.newDatasetRecordWriter(root.path, schema, options)
+      rows.foreach(w.write)
+      // Past INT32's range: the converter names the column
+      intercept[ParquetException] {
+        w.write(Map("id" -> 9L, "tag" -> "a", "year" -> (Int.MaxValue.toLong + 1)))
+      }.getMessage shouldContain "year"
+      w.close()
+      // One file per partition, though the rows alternate between them
+      filesUnder(root)
+        .filter(_.endsWith(".parquet"))
+        .map(folder)
+        .groupBy(identity)
+        .view
+        .mapValues(_.size)
+        .toMap shouldBe Map("tag=a/year=2025" -> 1, "tag=b/year=2026" -> 1, "tag=7/year=2025" -> 1)
+      val ds = Parquet.dataset(root.path, readOptions)
+      try
+        ds.readRows()
+          .toSeq
+          .map(r => (r("id"), r("tag"), r("year"), r("name")))
+          .sortBy(_._1.asInstanceOf[Long]) shouldBe
+          Seq(
+            (1L, "a", 2025, "x"),
+            (2L, "b", 2026, "y"),
+            (3L, "7", 2025, null),
+            (4L, "a", 2025, "z"),
+            (5L, "b", 2026, null),
+            (6L, "a", 2025, null)
+          )
+      finally ds.close()
+    end check
+
+    val byTagYear = ParquetDatasetWriteOptions.default.withPartitionBy("tag", "year")
+    check(
+      byTagYear,
+      _.split('/').init.mkString("/"),
+      ParquetDatasetOptions.default.withPartitionType("year", ParquetType.INT32)
+    )
+    // Iceberg rows keep the partition columns, so the scan stops after the last partition value.
+    // Data files go under data/.
+    check(
+      byTagYear.withTableFormat(ParquetTableFormat.Iceberg),
+      _.split('/').drop(1).init.mkString("/"),
+      // The table's schema types the partition columns
+      ParquetDatasetOptions.default
+    )
+  }
+
+  test("intern partition strings by their bytes") {
+    val interner = DatasetWriterCore.StringInterner()
+    val buf      = "xxabcabcxx".getBytes("UTF-8")
+    val first    = interner.intern(buf, 2, 3)
+    first shouldBe "abc"
+    // The same bytes elsewhere give the same instance
+    (interner.intern(buf, 5, 3) eq first) shouldBe true
+    interner.intern(buf, 2, 2) shouldBe "ab"
+    interner.intern(buf, 0, 0) shouldBe ""
+    // Past the entry limit, values still decode; earlier entries keep their instances
+    val n      = DatasetWriterCore.StringInterner.MaxEntries + 100
+    val values = (0 until n).map(i => s"v${i}")
+    values.foreach { v =>
+      val b = v.getBytes("UTF-8")
+      interner.intern(b, 0, b.length) shouldBe v
+    }
+    values.foreach { v =>
+      val b = v.getBytes("UTF-8")
+      interner.intern(b, 0, b.length) shouldBe v
+    }
+    val again = "abc".getBytes("UTF-8")
+    (interner.intern(again, 0, 3) eq first) shouldBe true
+  }
+
   test("check partition columns") {
     val schema = ParquetSchema
       .builder()

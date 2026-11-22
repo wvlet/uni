@@ -10,7 +10,7 @@ object UniBench:
       return
     val (dir, warmup, iterations, filter) = BenchRunner.parse(args.toSeq)
     BenchRunner.run(
-      BenchRunner.uniCases(dir) ++ BenchRunner.uniWriteCases(dir),
+      BenchRunner.uniCases(dir) ++ BenchRunner.uniWriteCases(dir) ++ IcebergWriters.cases(dir),
       warmup,
       iterations,
       filter

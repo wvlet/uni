@@ -110,10 +110,18 @@ object BenchRunner:
 
   /**
     * Runs each case `warmup` times untimed, then `iterations` times, and reports the median.
-    * `filter` keeps the cases whose reader or file name contains it.
+    * `filter` keeps the cases whose reader or file name contains it, or with a leading `=`, the
+    * cases whose reader name is the rest exactly.
     */
   def run(cases: Seq[BenchCase], warmup: Int, iterations: Int, filter: Option[String]): Unit =
-    val selected = cases.filter(c => filter.forall(s => c.reader.contains(s) || c.path.contains(s)))
+    val selected = cases.filter(c =>
+      filter.forall { s =>
+        if s.startsWith("=") then
+          c.reader == s.drop(1)
+        else
+          c.reader.contains(s) || c.path.contains(s)
+      }
+    )
     println("| file | reader | rows | MB (uncompressed) | median ms | rows/s | MB/s |")
     println("|------|--------|-----:|------------------:|----------:|-------:|-----:|")
     selected.foreach { c =>
