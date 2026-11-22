@@ -421,6 +421,22 @@ export default withMermaid(defineConfig<UniThemeConfig>({
           })
         ]
       )
+    } else if (pageData.frontmatter.image) {
+      // Other pages: an `image` frontmatter (a path under docs/public/) gives the page its own share
+      // card, titled and described by the page instead of the site-wide defaults
+      const url = `${SITE_URL}${path}`
+      const image = `${SITE_URL}${String(pageData.frontmatter.image).replace(/^\//, '')}`
+      const title = `${pageData.frontmatter.title ?? pageData.title} | Uni`
+      const description = pageData.frontmatter.description ?? pageData.description ?? SITE_DESCRIPTION
+      pageData.frontmatter.head.push(
+        ['meta', { property: 'og:title', content: title }],
+        ['meta', { property: 'og:description', content: description }],
+        ['meta', { property: 'og:url', content: url }],
+        ['meta', { property: 'og:image', content: image }],
+        ['meta', { name: 'twitter:title', content: title }],
+        ['meta', { name: 'twitter:description', content: description }],
+        ['meta', { name: 'twitter:image', content: image }]
+      )
     }
   },
 

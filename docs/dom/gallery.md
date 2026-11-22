@@ -1,5 +1,7 @@
 ---
 description: A live gallery of uni-ui components for Scala.js, each shown next to the Scala code that renders it.
+title: UI Gallery
+image: /uni-gallery-1280x640.png
 aside: false
 ---
 
