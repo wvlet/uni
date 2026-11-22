@@ -32,7 +32,7 @@ async function addSectionMainPages(outDir: string) {
 const VERSION_TOKEN = '__UNI_VERSION__'
 const CENTRAL_VERSION_TOKEN = '__UNI_CENTRAL_VERSION__'
 const [uniVersion, uniCentralVersion] = await Promise.all([
-  fetchLatestVersion('repo.wvlet.org', WVLET_METADATA_URL, '2026.2.2'),
+  fetchLatestVersion('repo.wvlet.org', WVLET_METADATA_URL, '2026.3.0'),
   fetchLatestVersion('Maven Central', CENTRAL_METADATA_URL, '2026.1.41')
 ])
 
