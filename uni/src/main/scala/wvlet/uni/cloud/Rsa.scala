@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.util.Sha256
 
 import java.math.BigInteger
 import java.util.Base64
@@ -23,12 +25,12 @@ import java.util.Base64
 final class RsaPrivateKey(
     val modulus: BigInteger,
     val publicExponent: BigInteger,
-    private[storage] val privateExponent: BigInteger,
-    private[storage] val p: BigInteger,
-    private[storage] val q: BigInteger,
-    private[storage] val dp: BigInteger,
-    private[storage] val dq: BigInteger,
-    private[storage] val qInv: BigInteger
+    private[uni] val privateExponent: BigInteger,
+    private[uni] val p: BigInteger,
+    private[uni] val q: BigInteger,
+    private[uni] val dp: BigInteger,
+    private[uni] val dq: BigInteger,
+    private[uni] val qInv: BigInteger
 ):
   /** The modulus length in bytes (256 for a 2048-bit key) */
   def length: Int = (modulus.bitLength() + 7) / 8
@@ -119,7 +121,7 @@ object Rsa:
     val s       = crt(key, blinded).multiply(r.modInverse(key.modulus)).mod(key.modulus)
     // Check the result, so a computation fault never releases a signature that leaks the key
     if s.modPow(key.publicExponent, key.modulus) != m then
-      throw StorageException(StorageErrorCode.InvalidCredentials, "RSA signature check failed")
+      throw CloudException(CloudErrorCode.InvalidCredentials, "RSA signature check failed")
     toFixedLength(s, k)
 
   /** Verifies a signature with the public part of `key` (for tests and self-checks) */
@@ -200,15 +202,15 @@ object Rsa:
       System.arraycopy(b, 0, out, k - b.length, b.length)
       out
 
-  private def invalidKey(msg: String): StorageException = StorageException(
-    StorageErrorCode.InvalidCredentials,
+  private def invalidKey(msg: String): CloudException = CloudException(
+    CloudErrorCode.InvalidCredentials,
     s"Invalid RSA private key: ${msg}"
   )
 
 end Rsa
 
 /** A minimal DER reader for the structures of an RSA private key */
-private[storage] object Der:
+private[uni] object Der:
   val Integer: Int     = 0x02
   val OctetString: Int = 0x04
   val Null: Int        = 0x05
@@ -222,8 +224,8 @@ private[storage] object Der:
 
     def expect(t: Int, what: String): Unit =
       if tag != t then
-        throw StorageException(
-          StorageErrorCode.InvalidCredentials,
+        throw CloudException(
+          CloudErrorCode.InvalidCredentials,
           f"Invalid RSA private key: ${what} has DER tag 0x${tag}%02x, expected 0x${t}%02x"
         )
 
@@ -243,8 +245,8 @@ private[storage] object Der:
       else
         limit
     def fail(): Nothing =
-      throw StorageException(
-        StorageErrorCode.InvalidCredentials,
+      throw CloudException(
+        CloudErrorCode.InvalidCredentials,
         "Invalid RSA private key: truncated DER"
       )
     if pos + 2 > end then

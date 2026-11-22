@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
@@ -32,7 +34,7 @@ import wvlet.uni.util.URLEncoder
   * one. Only `AWS_ENDPOINT_URL_STS` overrides it: the generic `AWS_ENDPOINT_URL` often points at an
   * S3-compatible store (R2, MinIO), which must not receive web identity tokens.
   */
-private[storage] class AwsSts(env: AwsEnv, region: Option[String]):
+private[uni] class AwsSts(env: AwsEnv, region: Option[String]):
   private val endpoint: String = env("AWS_ENDPOINT_URL_STS")
     .map(_.stripSuffix("/"))
     .getOrElse(
@@ -102,7 +104,7 @@ private[storage] class AwsSts(env: AwsEnv, region: Option[String]):
     val resp = AwsSts.send(req)
     val xml  =
       try
-        Some(S3Xml.parse(resp.contentAsString.getOrElse("")))
+        Some(XmlReader.parse(resp.contentAsString.getOrElse("")))
       catch
         case e: Exception =>
           None
@@ -110,8 +112,8 @@ private[storage] class AwsSts(env: AwsEnv, region: Option[String]):
       val err  = xml.flatMap(x => x.child("Error").orElse(Some(x)))
       val code = err.flatMap(_.childText("Code")).getOrElse(s"HTTP ${resp.statusCode}")
       val msg  = err.flatMap(_.childText("Message")).map(m => s": ${AwsSts.short(m)}").getOrElse("")
-      throw StorageException(
-        StorageErrorCode.NoCredentials,
+      throw CloudException(
+        CloudErrorCode.NoCredentials,
         s"STS ${action} for ${params
             .collectFirst { case ("RoleArn", r) =>
               r
@@ -133,24 +135,21 @@ private[storage] class AwsSts(env: AwsEnv, region: Option[String]):
         c.childText("Expiration").flatMap(AwsTime.parseIso)
       )
     creds.getOrElse(
-      throw StorageException(
-        StorageErrorCode.NoCredentials,
-        s"STS ${action} returned no credentials"
-      )
+      throw CloudException(CloudErrorCode.NoCredentials, s"STS ${action} returned no credentials")
     )
 
   end call
 
 end AwsSts
 
-private[storage] object AwsSts:
+private[uni] object AwsSts:
   def defaultSessionName: String = s"uni-${System.currentTimeMillis()}"
 
   def readToken(file: String): String =
     val path = IOPath.parse(file)
     if !FileSystem.isFile(path) then
-      throw StorageException(
-        StorageErrorCode.NoCredentials,
+      throw CloudException(
+        CloudErrorCode.NoCredentials,
         s"Web identity token file not found: ${file}"
       )
     FileSystem.readString(path).trim

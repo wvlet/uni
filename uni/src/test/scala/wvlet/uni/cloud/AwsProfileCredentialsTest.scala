@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.storage.*
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
@@ -43,13 +45,13 @@ class AwsProfileCredentialsTest extends UniTest:
   ).resolve(profile)
 
   private def failure(env: AwsEnv, profile: String): String =
-    intercept[StorageException] {
+    intercept[CloudException] {
       resolve(env, profile)
     }.getMessage
 
   /** A shell command that prints the file, for `sh -c` and `cmd.exe /C` alike */
   private def printFile(path: IOPath): String =
-    if StorageEnv.isWindows then
+    if CloudEnv.isWindows then
       s"type \"${path.path}\""
     else
       s"cat '${path.path}'"
@@ -175,10 +177,10 @@ class AwsProfileCredentialsTest extends UniTest:
             Some("broken")
           else
             env(name)
-      val e = intercept[StorageException] {
+      val e = intercept[CloudException] {
         AwsCredentialsProvider.defaultChain(chainEnv).credentials
       }
-      e.code shouldBe StorageErrorCode.NoCredentials
+      e.code shouldBe CloudErrorCode.NoCredentials
       e.getMessage shouldContain "Checked: environment, web-identity, profile broken"
       e.getMessage shouldContain "profile broken: Profile broken sets role_arn without"
     }

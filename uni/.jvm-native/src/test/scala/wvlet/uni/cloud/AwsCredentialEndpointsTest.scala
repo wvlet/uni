@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.storage.*
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpServer
@@ -246,7 +248,7 @@ class AwsCredentialEndpointsTest extends UniTest:
             "AWS_ROLE_ARN"                -> "arn:aws:iam::123456789012:role/denied"
           )
         ) { (_, env) =>
-          val e = intercept[StorageException] {
+          val e = intercept[CloudException] {
             AwsCredentialsProvider.defaultChain(env).credentials
           }
           e.getMessage shouldContain "web-identity: STS AssumeRoleWithWebIdentity"
@@ -369,7 +371,7 @@ class AwsCredentialEndpointsTest extends UniTest:
         // Other fields are kept
         field("clientId") shouldBe Some("client-1")
         (AwsSso.parseExpiry(field("expiresAt").get).get > System.currentTimeMillis()) shouldBe true
-        if !StorageEnv.isWindows then
+        if !CloudEnv.isWindows then
           FileSystem.permissions(file) shouldBe PermSet(AwsSso.OwnerOnly)
         // No temp file is left behind
         FileSystem.list(file.parent.get).map(_.fileName) shouldBe Seq(file.fileName)
@@ -386,7 +388,7 @@ class AwsCredentialEndpointsTest extends UniTest:
           System.currentTimeMillis() - 1000L,
           refresh = false
         )
-        val e = intercept[StorageException] {
+        val e = intercept[CloudException] {
           AwsCredentialsProvider.profileOf("legacy", env).credentials
         }
         e.getMessage shouldContain "The SSO token has expired; run `aws sso login --profile legacy`"

@@ -13,6 +13,10 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpStatus
 import wvlet.uni.http.Response
 import wvlet.uni.json.JSON
@@ -52,22 +56,22 @@ class GoogleCredentialsTest extends UniTest:
   }
 
   test("unsupported credential types fail with their type, not a fallback") {
-    val e = intercept[StorageException] {
+    val e = intercept[CloudException] {
       GoogleCredentialsFile.parse("""{"type":"external_account","audience":"x"}""", "adc.json")
     }
-    e.code shouldBe StorageErrorCode.InvalidCredentials
+    e.code shouldBe CloudErrorCode.InvalidCredentials
     e.getMessage shouldContain "external_account"
     e.getMessage shouldContain "adc.json"
   }
 
   test("malformed files never echo their contents") {
-    val e = intercept[StorageException] {
+    val e = intercept[CloudException] {
       GoogleCredentialsFile.parse("""{"type":"authorized_user","client_secret":"s3cr3t"}""", "f")
     }
     e.getMessage shouldNotContain "s3cr3t"
-    intercept[StorageException] {
+    intercept[CloudException] {
       GoogleCredentialsFile.parse("not json", "f")
-    }.code shouldBe StorageErrorCode.InvalidCredentials
+    }.code shouldBe CloudErrorCode.InvalidCredentials
   }
 
   test("tokens are masked") {
@@ -114,21 +118,21 @@ class GoogleCredentialsTest extends UniTest:
     t.expiresAtMillis shouldBe Some(3600000L)
     t.isFresh(1000L) shouldBe true
     t.isFresh(3600000L - GoogleAccessToken.RefreshMarginMillis) shouldBe false
-    intercept[StorageException] {
+    intercept[CloudException] {
       GoogleOAuth.parseTokenResponse("""{"token_type":"Bearer"}""", "test")
-    }.code shouldBe StorageErrorCode.InvalidResponse
+    }.code shouldBe CloudErrorCode.InvalidResponse
   }
 
   test("token endpoints must use HTTPS, except loopback") {
     GoogleOAuth.checkTokenUri("https://oauth2.googleapis.com/token")
     GoogleOAuth.checkTokenUri("http://127.0.0.1:8080/token")
     GoogleOAuth.checkTokenUri("http://localhost/token")
-    intercept[StorageException] {
+    intercept[CloudException] {
       GoogleOAuth.checkTokenUri("http://example.com/token")
-    }.code shouldBe StorageErrorCode.InvalidCredentials
-    intercept[StorageException] {
+    }.code shouldBe CloudErrorCode.InvalidCredentials
+    intercept[CloudException] {
       GoogleOAuth.checkTokenUri("http://localhost.example.com/token")
-    }.code shouldBe StorageErrorCode.InvalidCredentials
+    }.code shouldBe CloudErrorCode.InvalidCredentials
   }
 
   test("tokens are cached until shortly before they expire") {
@@ -151,12 +155,12 @@ class GoogleCredentialsTest extends UniTest:
   }
 
   test("a chain with no source names every provider") {
-    val e = intercept[StorageException] {
+    val e = intercept[CloudException] {
       GoogleCredentialsProvider
         .chain(GoogleCredentialsProvider.anonymous, GoogleCredentialsProvider.anonymous)
         .accessToken
     }
-    e.code shouldBe StorageErrorCode.NoCredentials
+    e.code shouldBe CloudErrorCode.NoCredentials
     e.getMessage shouldContain "anonymous, anonymous"
   }
 
@@ -190,7 +194,7 @@ class GoogleCredentialsTest extends UniTest:
       StorageErrorCode.NoSuchKey
     err(404, "The specified bucket does not exist.", "notFound").code shouldBe
       StorageErrorCode.NoSuchBucket
-    err(403, "denied", "forbidden").code shouldBe StorageErrorCode.AccessDenied
+    err(403, "denied", "forbidden").code shouldBe CloudErrorCode.AccessDenied
     err(429, "slow down", "rateLimitExceeded").code shouldBe "rateLimitExceeded"
     val e = err(404, "No such object: b/k", "notFound")
     e.isNotFound shouldBe true

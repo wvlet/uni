@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpContent
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -152,7 +155,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
       )
 
   override def get(uri: ObjectUri): Array[Byte] =
-    if StorageEnv.isNode then
+    if CloudEnv.isNode then
       // One response may not exceed maxResponseBytes there
       head(uri) match
         case Some(info) =>
@@ -251,7 +254,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
   override def presign(uri: ObjectUri, method: HttpMethod, expiresSeconds: Long): String =
     val c = credentials.getOrElse(
       throw StorageException(
-        StorageErrorCode.NoCredentials,
+        CloudErrorCode.NoCredentials,
         "Presigning needs credentials; this store is anonymous"
       )
     )
@@ -268,13 +271,13 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
       query = Seq("uploads" -> ""),
       contentType = Some(contentType)
     )
-    val xml = S3Xml.parse(utf8(bodyOf(checked(call, send(call)))))
+    val xml = XmlReader.parse(utf8(bodyOf(checked(call, send(call)))))
     xml
       .childText("UploadId")
       .filter(_.nonEmpty)
       .getOrElse(
         throw StorageException(
-          StorageErrorCode.InvalidResponse,
+          CloudErrorCode.InvalidResponse,
           s"No UploadId in the CreateMultipartUpload answer for ${uri}"
         )
       )
@@ -295,7 +298,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
       .header("ETag")
       .getOrElse(
         throw StorageException(
-          StorageErrorCode.InvalidResponse,
+          CloudErrorCode.InvalidResponse,
           s"No ETag for part ${partNumber} of ${uri}"
         )
       )
@@ -309,7 +312,7 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
       etags
         .zipWithIndex
         .map((etag, i) =>
-          s"<Part><PartNumber>${i + 1}</PartNumber><ETag>${S3Xml.escape(etag)}</ETag></Part>"
+          s"<Part><PartNumber>${i + 1}</PartNumber><ETag>${XmlReader.escape(etag)}</ETag></Part>"
         )
         .mkString
     val body = s"<CompleteMultipartUpload>${parts}</CompleteMultipartUpload>".getBytes("UTF-8")
@@ -345,7 +348,7 @@ object S3ObjectStore:
   private[storage] case class ListPage(entries: Seq[ObjectInfo], nextToken: Option[String])
 
   private[storage] def parseListing(prefix: ObjectUri, body: Array[Byte]): ListPage =
-    val xml     = S3Xml.parse(utf8(body))
+    val xml     = XmlReader.parse(utf8(body))
     val objects = xml
       .all("Contents")
       .map { c =>
@@ -397,7 +400,7 @@ object S3ObjectStore:
               case 404 =>
                 StorageErrorCode.NoSuchKey
               case 403 =>
-                StorageErrorCode.AccessDenied
+                CloudErrorCode.AccessDenied
               case 301 | 307 =>
                 StorageErrorCode.WrongRegion
               case s =>
@@ -407,7 +410,7 @@ object S3ObjectStore:
   private def errorFromXml(uri: ObjectUri, status: Int, text: String): StorageException =
     val xml =
       try
-        Some(S3Xml.parse(text))
+        Some(XmlReader.parse(text))
       catch
         case _: StorageException =>
           None

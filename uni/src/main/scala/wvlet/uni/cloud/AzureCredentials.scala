@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
@@ -153,8 +153,7 @@ object AzureCredentialsProvider:
     */
   def default: AzureCredentialsProvider = chain(environment, workloadIdentity, managedIdentity())
 
-  private[storage] val ImdsEndpoint: String =
-    "http://169.254.169.254/metadata/identity/oauth2/token"
+  private[uni] val ImdsEndpoint: String = "http://169.254.169.254/metadata/identity/oauth2/token"
 
   private object Anonymous extends AzureCredentialsProvider:
     def name: String                          = "anonymous"
@@ -173,16 +172,16 @@ object AzureCredentialsProvider:
     def credentials: Option[AzureCredentials] =
       val key =
         for
-          account <- StorageEnv.get("AZURE_STORAGE_ACCOUNT")
-          key     <- StorageEnv.get("AZURE_STORAGE_KEY")
+          account <- CloudEnv.get("AZURE_STORAGE_ACCOUNT")
+          key     <- CloudEnv.get("AZURE_STORAGE_KEY")
         yield AzureCredentials.SharedKey(account, key)
       key
-        .orElse(StorageEnv.get("AZURE_STORAGE_SAS_TOKEN").map(AzureCredentials.Sas(_)))
+        .orElse(CloudEnv.get("AZURE_STORAGE_SAS_TOKEN").map(AzureCredentials.Sas(_)))
         .orElse {
           for
-            tenant <- StorageEnv.get("AZURE_TENANT_ID")
-            client <- StorageEnv.get("AZURE_CLIENT_ID")
-            secret <- StorageEnv.get("AZURE_CLIENT_SECRET")
+            tenant <- CloudEnv.get("AZURE_TENANT_ID")
+            client <- CloudEnv.get("AZURE_CLIENT_ID")
+            secret <- CloudEnv.get("AZURE_CLIENT_SECRET")
             c      <- secretProviderFor((tenant, client, secret)).credentials
           yield c
         }
@@ -206,13 +205,13 @@ object AzureCredentialsProvider:
     private var cached: Option[((String, String, String), AzureCredentialsProvider)] = None
 
     def credentials: Option[AzureCredentials] =
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         for
-          tenant <- StorageEnv.get("AZURE_TENANT_ID")
-          client <- StorageEnv.get("AZURE_CLIENT_ID")
-          file   <- StorageEnv.get("AZURE_FEDERATED_TOKEN_FILE")
+          tenant <- CloudEnv.get("AZURE_TENANT_ID")
+          client <- CloudEnv.get("AZURE_CLIENT_ID")
+          file   <- CloudEnv.get("AZURE_FEDERATED_TOKEN_FILE")
           c      <- providerFor((tenant, client, file)).credentials
         yield c
 
@@ -287,8 +286,8 @@ object AzureCredentialsProvider:
                 ""
               else
                 failures.mkString(". Failures: ", "; ", "")
-            throw StorageException(
-              StorageErrorCode.NoCredentials,
+            throw CloudException(
+              CloudErrorCode.NoCredentials,
               s"No Azure credentials found. Checked: ${providers.map(_.name).mkString(", ")}${why}"
             )
           found
@@ -297,7 +296,7 @@ object AzureCredentialsProvider:
   end Chain
 
   /** Caches tokens until 5 minutes before they expire, so a token isn't fetched per request */
-  private[storage] final class Cached(underlying: AzureCredentialsProvider)
+  private[uni] final class Cached(underlying: AzureCredentialsProvider)
       extends AzureCredentialsProvider:
     def name: String = underlying.name
 
@@ -318,7 +317,7 @@ object AzureCredentialsProvider:
     }
 
   private def authority(host: Option[String]): String = host
-    .orElse(StorageEnv.get("AZURE_AUTHORITY_HOST"))
+    .orElse(CloudEnv.get("AZURE_AUTHORITY_HOST"))
     .getOrElse(DefaultAuthorityHost)
     .stripSuffix("/")
 
@@ -329,7 +328,7 @@ object AzureCredentialsProvider:
     Http.client.withConnectTimeoutMillis(1000).withReadTimeoutMillis(2000).noRetry.noFollowRedirects
 
   /** The OAuth 2.0 client credentials grant, with a secret or a federated assertion */
-  private[storage] final class ClientCredentialsProvider(
+  private[uni] final class ClientCredentialsProvider(
       val name: String,
       tenantId: String,
       clientId: String,
@@ -337,7 +336,7 @@ object AzureCredentialsProvider:
       secret: () => Seq[(String, String)]
   ) extends AzureCredentialsProvider:
     def credentials: Option[AzureCredentials] =
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         val url  = s"${authority(authorityHost)}/${URLEncoder.encode(tenantId)}/oauth2/v2.0/token"
@@ -363,8 +362,8 @@ object AzureCredentialsProvider:
           finally
             client.close()
         if !resp.isSuccessful then
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"Entra ID token request (${name}) failed: HTTP ${resp.statusCode} ${tokenError(
                 resp.contentAsString.getOrElse("")
               )}".trim,
@@ -374,17 +373,17 @@ object AzureCredentialsProvider:
 
   end ClientCredentialsProvider
 
-  private[storage] final class ManagedIdentityProvider(clientId: Option[String], imds: String)
+  private[uni] final class ManagedIdentityProvider(clientId: Option[String], imds: String)
       extends AzureCredentialsProvider:
     def name: String = "managed-identity"
 
     def credentials: Option[AzureCredentials] =
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
-        val id             = clientId.orElse(StorageEnv.get("AZURE_CLIENT_ID"))
+        val id             = clientId.orElse(CloudEnv.get("AZURE_CLIENT_ID"))
         val (url, headers) =
-          (StorageEnv.get("IDENTITY_ENDPOINT"), StorageEnv.get("IDENTITY_HEADER")) match
+          (CloudEnv.get("IDENTITY_ENDPOINT"), CloudEnv.get("IDENTITY_HEADER")) match
             case (Some(endpoint), Some(header)) =>
               // App Service and Functions
               val q =
@@ -426,7 +425,7 @@ object AzureCredentialsProvider:
     * managed identity endpoints send) or `expires_in` (seconds from now, as Entra ID sends). Both
     * may be numbers or strings.
     */
-  private[storage] def parseTokenJson(json: String, nowMillis: Long): Option[AzureCredentials] =
+  private[uni] def parseTokenJson(json: String, nowMillis: Long): Option[AzureCredentials] =
     JSON.parse(json) match
       case o: JSON.JSONObject =>
         def field(key: String): Option[String] = o

@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
@@ -88,7 +90,7 @@ case class GoogleAuthorizedUser(
 /**
   * Supplies OAuth access tokens. `accessToken` returns `None` when the provider has no source to
   * use (no file, no metadata server): the default chain then tries the next one. A source that
-  * exists but fails (a malformed key file, a refused refresh token) raises [[StorageException]], as
+  * exists but fails (a malformed key file, a refused refresh token) raises [[CloudException]], as
   * Google's own libraries do, instead of falling through to another identity.
   */
 trait GoogleCredentialsProvider:
@@ -133,7 +135,7 @@ object GoogleCredentialsProvider:
 
   /**
     * A credentials JSON (a service-account key or `authorized_user` credentials). Other types, such
-    * as `external_account`, fail with [[StorageErrorCode.InvalidCredentials]].
+    * as `external_account`, fail with [[CloudErrorCode.InvalidCredentials]].
     */
   def fromJson(json: String, scopes: Seq[String] = DefaultScopes): GoogleCredentialsProvider =
     GoogleCredentialsFile.parse(json, "credentials JSON") match
@@ -149,7 +151,7 @@ object GoogleCredentialsProvider:
   /** The file named by `GOOGLE_APPLICATION_CREDENTIALS` */
   def environment(scopes: Seq[String] = DefaultScopes): GoogleCredentialsProvider = FileProvider(
     "GOOGLE_APPLICATION_CREDENTIALS",
-    () => StorageEnv.get("GOOGLE_APPLICATION_CREDENTIALS").map(IOPath.parse),
+    () => CloudEnv.get("GOOGLE_APPLICATION_CREDENTIALS").map(IOPath.parse),
     scopes,
     required = true
   )
@@ -173,7 +175,7 @@ object GoogleCredentialsProvider:
     * on itself.
     */
   def metadataServer: GoogleCredentialsProvider = MetadataServerProvider(
-    () => StorageEnv.get("GCE_METADATA_HOST").getOrElse("169.254.169.254"),
+    () => CloudEnv.get("GCE_METADATA_HOST").getOrElse("169.254.169.254"),
     GoogleOAuth.IamCredentialsEndpoint
   )
 
@@ -203,7 +205,7 @@ object GoogleCredentialsProvider:
     def accessToken: Option[GoogleAccessToken] = Some(token)
 
   /** Caches a token until shortly before it expires, fetching a new one under a lock */
-  private[storage] final class TokenCache(fetch: () => Option[GoogleAccessToken]):
+  private[uni] final class TokenCache(fetch: () => Option[GoogleAccessToken]):
     private var cached: Option[GoogleAccessToken] = None
 
     def get: Option[GoogleAccessToken] = synchronized {
@@ -216,10 +218,8 @@ object GoogleCredentialsProvider:
         }
     }
 
-  private[storage] final class ServiceAccountProvider(
-      key: GoogleServiceAccountKey,
-      scopes: Seq[String]
-  ) extends GoogleCredentialsProvider:
+  private[uni] final class ServiceAccountProvider(key: GoogleServiceAccountKey, scopes: Seq[String])
+      extends GoogleCredentialsProvider:
     def name: String = s"service account ${key.clientEmail}"
 
     private val cache = TokenCache { () =>
@@ -245,7 +245,7 @@ object GoogleCredentialsProvider:
 
   end ServiceAccountProvider
 
-  private[storage] final class AuthorizedUserProvider(user: GoogleAuthorizedUser)
+  private[uni] final class AuthorizedUserProvider(user: GoogleAuthorizedUser)
       extends GoogleCredentialsProvider:
     def name: String = s"authorized user ${user.clientId}"
 
@@ -275,7 +275,7 @@ object GoogleCredentialsProvider:
     private var loaded: Option[(IOPath, GoogleCredentialsProvider)] = None
 
     private def delegate: Option[GoogleCredentialsProvider] = synchronized {
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         path().flatMap { p =>
@@ -285,8 +285,8 @@ object GoogleCredentialsProvider:
             case _ =>
               if !FileSystem.isFile(p) then
                 if required then
-                  throw StorageException(
-                    StorageErrorCode.NoCredentials,
+                  throw CloudException(
+                    CloudErrorCode.NoCredentials,
                     s"${name}: ${p} does not exist"
                   )
                 None
@@ -307,7 +307,7 @@ object GoogleCredentialsProvider:
 
   end FileProvider
 
-  private[storage] final class MetadataServerProvider(host: () => String, iamEndpoint: String)
+  private[uni] final class MetadataServerProvider(host: () => String, iamEndpoint: String)
       extends GoogleCredentialsProvider:
     def name: String = "metadata server"
 
@@ -323,14 +323,14 @@ object GoogleCredentialsProvider:
       try
         val resp =
           try client.send(Request.get(s"${base}${path}").setHeader("Metadata-Flavor", "Google"))
-          catch StorageSupport.unwrapHttpError
+          catch CloudHttp.unwrapHttpError
         // Anything else listening on the address is not a metadata server
         if resp.header("Metadata-Flavor").contains("Google") then
           Some(resp)
         else
           None
       catch
-        case e: StorageException =>
+        case e: CloudException =>
           throw e
         case _: Exception =>
           // No metadata server here (not on Google Cloud)
@@ -339,13 +339,13 @@ object GoogleCredentialsProvider:
         client.close()
 
     private val cache = TokenCache { () =>
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         get("/computeMetadata/v1/instance/service-accounts/default/token").map { resp =>
           if !resp.isSuccessful then
-            throw StorageException(
-              StorageErrorCode.NoCredentials,
+            throw CloudException(
+              CloudErrorCode.NoCredentials,
               s"The metadata server answered HTTP ${resp.statusCode} for a token"
             )
           GoogleOAuth.parseTokenResponse(resp.contentAsString.getOrElse(""), "metadata server")
@@ -361,8 +361,8 @@ object GoogleCredentialsProvider:
       .map(_.trim)
       .filter(_.nonEmpty)
       .getOrElse(
-        throw StorageException(
-          StorageErrorCode.NoCredentials,
+        throw CloudException(
+          CloudErrorCode.NoCredentials,
           "The metadata server has no service-account email"
         )
       )
@@ -372,7 +372,7 @@ object GoogleCredentialsProvider:
         def serviceAccountEmail: String          = email
         def sign(data: Array[Byte]): Array[Byte] =
           val token = accessToken.getOrElse(
-            throw StorageException(StorageErrorCode.NoCredentials, "No metadata server token")
+            throw CloudException(CloudErrorCode.NoCredentials, "No metadata server token")
           )
           GoogleOAuth.signBlob(iamEndpoint, email, token, data)
     )
@@ -399,8 +399,8 @@ object GoogleCredentialsProvider:
             t
           }
         if found.isEmpty then
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"No Google credentials found. Checked: ${providers
                 .map(_.name)
                 .mkString(", ")}. Run `gcloud auth application-default login`, " +
@@ -419,20 +419,20 @@ object GoogleCredentialsProvider:
 end GoogleCredentialsProvider
 
 /** Parses Google credentials JSON files */
-private[storage] object GoogleCredentialsFile:
+private[uni] object GoogleCredentialsFile:
   /** The gcloud application default credentials file, if one exists */
   def wellKnownFile: Option[IOPath] =
     val name = "application_default_credentials.json"
-    StorageEnv
+    CloudEnv
       .get("CLOUDSDK_CONFIG")
       .map(d => IOPath.parse(d).resolve(name))
-      .orElse(StorageEnv.get("APPDATA").map(d => IOPath.parse(d).resolve(s"gcloud/${name}")))
+      .orElse(CloudEnv.get("APPDATA").map(d => IOPath.parse(d).resolve(s"gcloud/${name}")))
       .orElse(
-        StorageEnv
+        CloudEnv
           .get("HOME")
           .map(IOPath.parse)
           .orElse(
-            if StorageEnv.isBrowser then
+            if CloudEnv.isBrowser then
               None
             else
               Some(FileSystem.homeDirectory)
@@ -443,8 +443,8 @@ private[storage] object GoogleCredentialsFile:
 
   /** A service-account key (Left) or user credentials (Right). Never echoes the file's contents. */
   def parse(json: String, source: String): Either[GoogleServiceAccountKey, GoogleAuthorizedUser] =
-    def invalid(msg: String): StorageException = StorageException(
-      StorageErrorCode.InvalidCredentials,
+    def invalid(msg: String): CloudException = CloudException(
+      CloudErrorCode.InvalidCredentials,
       s"Invalid Google credentials in ${source}: ${msg}"
     )
     val obj =
@@ -455,7 +455,7 @@ private[storage] object GoogleCredentialsFile:
           case _ =>
             throw invalid("not a JSON object")
       catch
-        case e: StorageException =>
+        case e: CloudException =>
           throw e
         case _: Exception =>
           throw invalid("not valid JSON")
@@ -500,7 +500,7 @@ private[storage] object GoogleCredentialsFile:
 end GoogleCredentialsFile
 
 /** OAuth 2.0 token requests, JWTs, and IAM signBlob */
-private[storage] object GoogleOAuth:
+private[uni] object GoogleOAuth:
   val DefaultTokenUri: String        = "https://oauth2.googleapis.com/token"
   val IamCredentialsEndpoint: String = "https://iamcredentials.googleapis.com"
 
@@ -547,10 +547,7 @@ private[storage] object GoogleOAuth:
           lower.startsWith(p) && (lower.length == p.length || ":/".contains(lower.charAt(p.length)))
         }
     if !ok then
-      throw StorageException(
-        StorageErrorCode.InvalidCredentials,
-        "The OAuth token_uri must use HTTPS"
-      )
+      throw CloudException(CloudErrorCode.InvalidCredentials, "The OAuth token_uri must use HTTPS")
 
   /** POSTs a form to the token endpoint. Errors name Google's error code, never the request. */
   def exchange(tokenUri: String, form: Seq[(String, String)]): GoogleAccessToken =
@@ -563,22 +560,22 @@ private[storage] object GoogleOAuth:
     val resp   =
       try
         try client.send(req)
-        catch StorageSupport.unwrapHttpError
+        catch CloudHttp.unwrapHttpError
       catch
-        case e: StorageException =>
+        case e: CloudException =>
           throw e
         case e: Exception =>
           // The exception may carry the request; report only its kind
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"The Google token request failed: ${e.getClass.getSimpleName}"
           )
       finally
         client.close()
     val text = resp.contentAsString.getOrElse("")
     if !resp.isSuccessful then
-      throw StorageException(
-        StorageErrorCode.NoCredentials,
+      throw CloudException(
+        CloudErrorCode.NoCredentials,
         s"The Google token endpoint refused the request (HTTP ${resp.statusCode}${oauthError(text)
             .map(e => s", ${e}")
             .getOrElse("")})",
@@ -630,8 +627,8 @@ private[storage] object GoogleOAuth:
           }
           .filter(_.nonEmpty)
           .getOrElse(
-            throw StorageException(
-              StorageErrorCode.InvalidResponse,
+            throw CloudException(
+              CloudErrorCode.InvalidResponse,
               s"No access_token in the ${source} response"
             )
           )
@@ -647,8 +644,8 @@ private[storage] object GoogleOAuth:
           }
         GoogleAccessToken(token, expiresIn.map(s => nowMillis + s * 1000))
       case _ =>
-        throw StorageException(
-          StorageErrorCode.InvalidResponse,
+        throw CloudException(
+          CloudErrorCode.InvalidResponse,
           s"The ${source} response is not a JSON object"
         )
     end match
@@ -671,24 +668,24 @@ private[storage] object GoogleOAuth:
     val resp   =
       try
         try client.send(Request.post(url).withBearerToken(token.token).withJsonContent(body))
-        catch StorageSupport.unwrapHttpError
+        catch CloudHttp.unwrapHttpError
       catch
-        case e: StorageException =>
+        case e: CloudException =>
           throw e
         case e: Exception =>
           // The exception may carry the request and its bearer token; report only its kind
-          throw StorageException(
-            StorageErrorCode.NoCredentials,
+          throw CloudException(
+            CloudErrorCode.NoCredentials,
             s"IAM signBlob for ${email} failed: ${e.getClass.getSimpleName}"
           )
       finally
         client.close()
     if !resp.isSuccessful then
-      throw StorageException(
+      throw CloudException(
         if resp.statusCode == 403 then
-          StorageErrorCode.AccessDenied
+          CloudErrorCode.AccessDenied
         else
-          StorageErrorCode.NoCredentials
+          CloudErrorCode.NoCredentials
         ,
         s"IAM signBlob for ${email} failed with HTTP ${resp.statusCode}. The account needs the " +
           "Service Account Token Creator role on itself, and a token with the cloud-platform scope",
@@ -711,7 +708,7 @@ private[storage] object GoogleOAuth:
       .getDecoder
       .decode(
         signed.getOrElse(
-          throw StorageException(StorageErrorCode.InvalidResponse, "No signedBlob in the answer")
+          throw CloudException(CloudErrorCode.InvalidResponse, "No signedBlob in the answer")
         )
       )
 

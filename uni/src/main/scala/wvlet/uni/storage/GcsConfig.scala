@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
 
@@ -63,7 +66,7 @@ case class GcsConfig(
 
   def withHttpClient(config: HttpClientConfig): GcsConfig = copy(httpClient = config)
 
-  private def emulatorHost: Option[String] = StorageEnv
+  private def emulatorHost: Option[String] = CloudEnv
     .get("STORAGE_EMULATOR_HOST")
     .map { h =>
       val e = h.stripSuffix("/")

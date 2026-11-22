@@ -9,11 +9,11 @@ import wvlet.uni.http.ServerSentEvent
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.AwsCredentialsProvider
-import wvlet.uni.storage.GoogleCredentialsProvider
-import wvlet.uni.storage.Sha256
-import wvlet.uni.storage.SigV4
-import wvlet.uni.storage.SigV4Request
+import wvlet.uni.cloud.AwsCredentialsProvider
+import wvlet.uni.cloud.GoogleCredentialsProvider
+import wvlet.uni.util.Sha256
+import wvlet.uni.cloud.SigV4
+import wvlet.uni.cloud.SigV4Request
 
 /**
   * A failed LLM API call: the HTTP status, the vendor's error type when the body names one, and the

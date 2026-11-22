@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.rx.Rx
 
@@ -105,7 +108,7 @@ trait ObjectStore extends AutoCloseable:
     * A URL that lets anyone holding it send `method` to the object until it expires (at most 7
     * days). Use GET to share a download, PUT to accept an upload (a browser can `fetch` it; Azure
     * also needs an `x-ms-blob-type: BlockBlob` header on the upload). Fails with
-    * [[StorageErrorCode.NoCredentials]] when the store's credentials can't sign.
+    * [[CloudErrorCode.NoCredentials]] when the store's credentials can't sign.
     */
   def presign(
       uri: ObjectUri,
@@ -174,21 +177,13 @@ abstract class ObjectOutputStream extends java.io.OutputStream:
   * Error codes. S3 codes such as `NoSuchKey` or `AccessDenied` pass through as sent; GCS errors map
   * to the same codes, or pass Google's `reason` (such as `rateLimitExceeded`) through; Azure codes
   * such as `BlobNotFound` pass through as sent. [[StorageException.isNotFound]] works on every
-  * store.
+  * store. Codes shared with credential providers, such as `AccessDenied` and `NoCredentials`, are
+  * in `wvlet.uni.cloud.CloudErrorCode`.
   */
 object StorageErrorCode:
-  val NoSuchKey: String     = "NoSuchKey"
-  val NoSuchBucket: String  = "NoSuchBucket"
-  val AccessDenied: String  = "AccessDenied"
-  val WrongRegion: String   = "WrongRegion"
-  val NoCredentials: String = "NoCredentials"
-
-  /** Credentials were found but can't be used (a malformed key, an unsupported file type) */
-  val InvalidCredentials: String = "InvalidCredentials"
-  val InvalidResponse: String    = "InvalidResponse"
-
-  /** The store's configuration can't work, such as a bearer token over plain HTTP */
-  val InvalidConfig: String = "InvalidConfig"
+  val NoSuchKey: String    = "NoSuchKey"
+  val NoSuchBucket: String = "NoSuchBucket"
+  val WrongRegion: String  = "WrongRegion"
 
 /**
   * An object store refused or failed a request
@@ -199,9 +194,9 @@ object StorageErrorCode:
   *   the HTTP status, when the store answered
   */
 class StorageException(
-    val code: String,
+    code: String,
     message: String,
-    val statusCode: Option[Int] = None,
+    statusCode: Option[Int] = None,
     cause: Throwable = null
-) extends Exception(message, cause):
+) extends CloudException(code, message, statusCode, cause):
   def isNotFound: Boolean = code == StorageErrorCode.NoSuchKey || statusCode.contains(404)

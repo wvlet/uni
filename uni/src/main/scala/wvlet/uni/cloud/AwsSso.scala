@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
+
+import wvlet.uni.util.Sha256
 
 import wvlet.uni.http.HttpContent
 import wvlet.uni.http.Request
@@ -38,7 +40,7 @@ import wvlet.uni.util.URLEncoder
   * The portal and OIDC hosts use `sso_region`. Only `AWS_ENDPOINT_URL_SSO` and
   * `AWS_ENDPOINT_URL_SSO_OIDC` override them, never the generic `AWS_ENDPOINT_URL`.
   */
-private[storage] class AwsSso(
+private[uni] class AwsSso(
     env: AwsEnv,
     profiles: AwsProfiles,
     now: () => Long = () => System.currentTimeMillis()
@@ -47,8 +49,7 @@ private[storage] class AwsSso(
 
   private val refreshWindowMillis = 5 * 60 * 1000L
 
-  private def fail(msg: String): Nothing =
-    throw StorageException(StorageErrorCode.NoCredentials, msg)
+  private def fail(msg: String): Nothing = throw CloudException(CloudErrorCode.NoCredentials, msg)
 
   def credentials(profile: String, p: Map[String, String]): AwsCredentials =
     def required(key: String): String = p
@@ -232,7 +233,7 @@ private[storage] class AwsSso(
 
 end AwsSso
 
-private[storage] object AwsSso:
+private[uni] object AwsSso:
   /** `rw-------` */
   val OwnerOnly: Int = 0x180
 

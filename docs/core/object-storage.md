@@ -32,7 +32,9 @@ Every method takes an `s3://bucket/key` (or `gs://bucket/key`, `az://container/k
 against it works with any of them. `head` returns `None` for a missing object; the other methods
 raise `StorageException`, whose `code` is the store's error code (`NoSuchKey`, `AccessDenied`,
 `SlowDown`, …) and `statusCode` the HTTP status. `e.isNotFound` checks for a missing object on
-every store.
+every store. Credential failures (`NoCredentials`, `InvalidCredentials`) raise its parent,
+`wvlet.uni.cloud.CloudException` (codes in `CloudErrorCode`), so catch `CloudException` to handle
+both.
 
 ## Credentials and Region
 
@@ -104,7 +106,7 @@ explicitly with `S3Config`:
 
 ```scala
 import wvlet.uni.storage.S3Config
-import wvlet.uni.storage.AwsCredentialsProvider
+import wvlet.uni.cloud.AwsCredentialsProvider
 
 val tokyo = ObjectStore.s3(
   S3Config()
@@ -150,7 +152,7 @@ tokens, so it works with the credentials a Google Cloud project already has: no 
 
 ```scala
 import wvlet.uni.storage.GcsConfig
-import wvlet.uni.storage.GoogleCredentialsProvider
+import wvlet.uni.cloud.GoogleCredentialsProvider
 
 val gcs = ObjectStore.gcs()
 
@@ -239,7 +241,7 @@ with `AzureCredentialsProvider.bearer(token)`. Sovereign clouds set `withEndpoin
 `AZURE_AUTHORITY_HOST`.
 
 ```scala
-import wvlet.uni.storage.AzureCredentialsProvider
+import wvlet.uni.cloud.AzureCredentialsProvider
 
 // A connection string from the Azure portal
 val fromPortal = ObjectStore.azure(AzureConfig.fromConnectionString("<connection-string>"))

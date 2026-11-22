@@ -16,3 +16,10 @@
 - Imports change: `wvlet.uni.ai.mcp.MCP`, `wvlet.uni.surface.description`, `wvlet.uni.ai.agent.UiAgentApi`.
 - A test class named `description` in package `wvlet.uni.surface` now shadows the real one; `AnnotationTest` uses `remark` instead.
 - Next steps (cloud credentials out of `storage`, `SettingStore` into `storage`) are in the plan.
+
+## Addendum: cloud credentials in `wvlet.uni.cloud`
+
+`wvlet.uni.storage` held the AWS, Google, and Azure credential providers, SigV4, and RSA signing next to the object stores, and `ai` imported `storage` for Bedrock and Vertex auth.
+
+- `wvlet.uni.cloud` has `AwsCredentials(Provider)` with the profile, SSO, and STS support, `GoogleCredentialsProvider` and its signer, `AzureCredentials(Provider)`, `SigV4`, `Rsa`, and an internal `XmlReader` (STS replies, S3 and Azure listings). `Sha256` (internal) is in `wvlet.uni.util`. Azure Shared Key and SAS signing (`AzureAuth`) stays in `storage`; only Blob Storage uses it.
+- Credential errors throw `CloudException` with codes in `CloudErrorCode` (`NoCredentials`, `InvalidCredentials`, `AccessDenied`, `InvalidResponse`, `InvalidConfig`). `StorageException` extends it and `StorageErrorCode` keeps the store-only codes (`NoSuchKey`, `NoSuchBucket`, `WrongRegion`). A store call can therefore fail with a plain `CloudException` when credentials are missing; catch `CloudException` to handle both.

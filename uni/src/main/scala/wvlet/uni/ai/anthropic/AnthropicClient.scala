@@ -5,7 +5,7 @@ import wvlet.uni.http.HttpAsyncClient
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.rx.Rx
-import wvlet.uni.storage.GoogleCredentialsProvider
+import wvlet.uni.cloud.GoogleCredentialsProvider
 
 /** Where the Messages API is served */
 enum AnthropicHost:

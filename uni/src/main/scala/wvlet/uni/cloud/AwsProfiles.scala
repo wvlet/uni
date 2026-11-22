@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IO
@@ -20,22 +20,22 @@ import wvlet.uni.io.ProcessConfig
 import wvlet.uni.json.JSON
 
 /** Looks up an environment variable. Tests pass a map so they can point lookups at temp files. */
-private[storage] type AwsEnv = String => Option[String]
+private[uni] type AwsEnv = String => Option[String]
 
-private[storage] object AwsEnv:
-  val system: AwsEnv = StorageEnv.get
+private[uni] object AwsEnv:
+  val system: AwsEnv = CloudEnv.get
 
   def of(vars: Map[String, String]): AwsEnv = name => vars.get(name).filter(_.nonEmpty)
 
 /** Reads `~/.aws/credentials` and `~/.aws/config` */
-private[storage] class AwsProfiles(env: AwsEnv):
+private[uni] class AwsProfiles(env: AwsEnv):
   def currentProfile: String = env("AWS_PROFILE").getOrElse("default")
 
   def home: Option[IOPath] = env("HOME")
     .orElse(env("USERPROFILE"))
     .map(IOPath.parse)
     .orElse(
-      if StorageEnv.isBrowser then
+      if CloudEnv.isBrowser then
         None
       else
         Some(FileSystem.homeDirectory)
@@ -50,7 +50,7 @@ private[storage] class AwsProfiles(env: AwsEnv):
     .orElse(home.map(_.resolve(".aws/config")))
 
   private def read(path: Option[IOPath]): Map[String, Map[String, String]] =
-    if StorageEnv.isBrowser then
+    if CloudEnv.isBrowser then
       Map.empty
     else
       path
@@ -89,7 +89,7 @@ private[storage] class AwsProfiles(env: AwsEnv):
 
 end AwsProfiles
 
-private[storage] object AwsProfiles:
+private[uni] object AwsProfiles:
   def currentProfile: String = AwsProfiles(AwsEnv.system).currentProfile
 
   /** The region set for a profile in the config file */
@@ -121,14 +121,13 @@ end AwsProfiles
 
 /**
   * Resolves a profile to credentials, choosing the source in the AWS Java SDK v2 order (see
-  * [[AwsCredentialsProvider.profile]]). A configured source that fails throws a `StorageException`
+  * [[AwsCredentialsProvider.profile]]). A configured source that fails throws a `CloudException`
   * whose message names the profile and the fix but never a token, secret, or command line.
   */
-private[storage] class AwsProfileCredentials(env: AwsEnv):
+private[uni] class AwsProfileCredentials(env: AwsEnv):
   private val profiles = AwsProfiles(env)
 
-  private def fail(msg: String): Nothing =
-    throw StorageException(StorageErrorCode.NoCredentials, msg)
+  private def fail(msg: String): Nothing = throw CloudException(CloudErrorCode.NoCredentials, msg)
 
   def resolve(name: String): Option[AwsCredentials] = resolve(name, Nil)
 
@@ -252,17 +251,17 @@ end AwsProfileCredentials
   * Runs a profile's `credential_process` through the platform shell (`sh -c`, or `cmd.exe /C` on
   * Windows), as the AWS Java SDK v2 and Go SDK do, and reads the `Version: 1` JSON it prints.
   */
-private[storage] object AwsCredentialProcess:
+private[uni] object AwsCredentialProcess:
   private val commandEnvVar = "UNI_AWS_CREDENTIAL_PROCESS"
 
   def run(profile: String, command: String): AwsCredentials =
     def fail(msg: String): Nothing =
-      throw StorageException(
-        StorageErrorCode.NoCredentials,
+      throw CloudException(
+        CloudErrorCode.NoCredentials,
         s"credential_process of profile ${profile} ${msg}"
       )
     val (shell, config) =
-      if StorageEnv.isWindows then
+      if CloudEnv.isWindows then
         // Pass the command through an environment variable: Scala Native escapes `"` in an
         // argument as `\"`, which cmd.exe doesn't understand, so a quoted command (e.g. a path
         // under "C:\Program Files") fails. cmd expands %VAR% before parsing quotes and `&&`, and
@@ -311,7 +310,7 @@ end AwsCredentialProcess
   * Reads credential JSON. A parse error's message may quote its input, which holds secrets, so
   * every credential source parses through here and a parse failure becomes `None`.
   */
-private[storage] object AwsJson:
+private[uni] object AwsJson:
   def parseObject(json: String): Option[JSON.JSONObject] =
     try
       JSON.parse(json) match

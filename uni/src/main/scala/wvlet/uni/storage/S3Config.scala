@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.Http
 import wvlet.uni.http.HttpClientConfig
 
@@ -67,8 +70,8 @@ case class S3Config(
 
   /** The region used for signing */
   def resolvedRegion: String = region
-    .orElse(StorageEnv.get("AWS_REGION"))
-    .orElse(StorageEnv.get("AWS_DEFAULT_REGION"))
+    .orElse(CloudEnv.get("AWS_REGION"))
+    .orElse(CloudEnv.get("AWS_DEFAULT_REGION"))
     .orElse(AwsProfiles.region())
     .getOrElse("us-east-1")
 

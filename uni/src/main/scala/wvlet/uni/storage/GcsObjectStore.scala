@@ -13,6 +13,9 @@
  */
 package wvlet.uni.storage
 
+import wvlet.uni.cloud.*
+import wvlet.uni.util.Sha256
+
 import wvlet.uni.http.HttpContent
 import wvlet.uni.http.HttpMethod
 import wvlet.uni.http.Request
@@ -109,7 +112,7 @@ class GcsObjectStore(val config: GcsConfig) extends ObjectStore with LogSupport:
   private def mediaUrl(uri: ObjectUri): String = objectUrl(uri, Seq("alt" -> "media"))
 
   override def get(uri: ObjectUri): Array[Byte] =
-    if StorageEnv.isNode then
+    if CloudEnv.isNode then
       // One response may not exceed maxResponseBytes there
       head(uri) match
         case Some(info) =>
@@ -209,7 +212,7 @@ class GcsObjectStore(val config: GcsConfig) extends ObjectStore with LogSupport:
       .signer
       .getOrElse(
         throw StorageException(
-          StorageErrorCode.NoCredentials,
+          CloudErrorCode.NoCredentials,
           s"Signing a URL needs a service account; ${credentialsProvider.name} can't sign. " +
             "Use a service-account key file or the metadata server's account"
         )
@@ -239,14 +242,14 @@ class GcsObjectStore(val config: GcsConfig) extends ObjectStore with LogSupport:
       .header("Location")
       .getOrElse(
         throw StorageException(
-          StorageErrorCode.InvalidResponse,
+          CloudErrorCode.InvalidResponse,
           s"No session URI in the resumable upload answer for ${uri}"
         )
       )
     // The session URI grants upload access; never send it, or a token, to another host
     if !location.startsWith(s"${endpointScheme}://${endpointAuthority}/") then
       throw StorageException(
-        StorageErrorCode.InvalidResponse,
+        CloudErrorCode.InvalidResponse,
         s"The resumable upload session for ${uri} is on another host than ${endpointAuthority}"
       )
     location
@@ -328,10 +331,10 @@ object GcsObjectStore:
       JSON.parse(text)
     catch
       case _: Exception =>
-        throw StorageException(StorageErrorCode.InvalidResponse, "GCS answered invalid JSON")
+        throw StorageException(CloudErrorCode.InvalidResponse, "GCS answered invalid JSON")
 
   private def invalidResponse(uri: ObjectUri): StorageException = StorageException(
-    StorageErrorCode.InvalidResponse,
+    CloudErrorCode.InvalidResponse,
     s"Unexpected GCS answer for ${uri}"
   )
 
@@ -434,7 +437,7 @@ object GcsObjectStore:
           else
             StorageErrorCode.NoSuchKey
         case 401 | 403 =>
-          StorageErrorCode.AccessDenied
+          CloudErrorCode.AccessDenied
         case s =>
           reason.filter(_.nonEmpty).getOrElse(s"HTTP${s}")
     val detail = message.getOrElse(s"HTTP ${status} ${resp.reason}")
@@ -572,7 +575,7 @@ private[storage] class GcsOutputStream(
     val done = (committed - sent).toInt
     if done < 0 || done > used then
       throw StorageException(
-        StorageErrorCode.InvalidResponse,
+        CloudErrorCode.InvalidResponse,
         s"The upload of ${uri} reported ${committed} committed bytes, outside the chunk sent"
       )
     System.arraycopy(buf, done, buf, 0, used - done)
@@ -601,7 +604,7 @@ private[storage] class GcsOutputStream(
           keepUncommitted(committed)
         case None =>
           throw StorageException(
-            StorageErrorCode.InvalidResponse,
+            CloudErrorCode.InvalidResponse,
             s"The upload of ${uri} completed before its last chunk"
           )
 

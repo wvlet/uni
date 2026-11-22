@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.storage
+package wvlet.uni.cloud
 
 import scala.collection.mutable
 
@@ -20,7 +20,7 @@ import scala.collection.mutable
   * keeps elements, attributes, and text, drops namespace prefixes, comments, and processing
   * instructions, and decodes the predefined and numeric entities. It is not a general XML parser.
   */
-private[storage] object S3Xml:
+private[uni] object XmlReader:
   case class Elem(
       name: String,
       children: Seq[Elem],
@@ -44,7 +44,7 @@ private[storage] object S3Xml:
       parseElement()
 
     private def fail(msg: String): Nothing =
-      throw StorageException(StorageErrorCode.InvalidResponse, s"Malformed XML response: ${msg}")
+      throw CloudException(CloudErrorCode.InvalidResponse, s"Malformed XML response: ${msg}")
 
     // Skips whitespace, <?...?>, <!--...-->, and <!DOCTYPE ...>
     private def skipMisc(): Unit =
@@ -216,4 +216,4 @@ private[storage] object S3Xml:
     .replace("\"", "&quot;")
     .replace("'", "&apos;")
 
-end S3Xml
+end XmlReader
