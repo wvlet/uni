@@ -2230,6 +2230,246 @@ private[parquet] object IcebergWrite:
 
   end commitExpiry
 
+  // ---- Relocation ----
+
+  /**
+    * Points the table at `layout`'s location after its folder moved there: rewrites the current
+    * snapshot's manifests and manifest list with paths under the new location, and commits a new
+    * metadata version with that location and only the current snapshot. Older snapshots can't be
+    * read after the move, so their files, the replaced manifests, and the older metadata files are
+    * returned as [[Expired.unreferenced]].
+    */
+  def relocate(layout: Layout): Step[Expired] =
+    def attempt(n: Int): Step[Expired] =
+      flatMap(load(layout)) {
+        case None =>
+          throw ParquetException(s"${layout.root} is not an Iceberg table")
+        case Some(t) =>
+          val m         = t.metadata
+          val snapshots = objects(m, "snapshots")
+          val current   = long(m, "current-snapshot-id")
+            .filter(_ >= 0)
+            .flatMap(id => snapshots.find(s => long(s, "snapshot-id").contains(id)))
+          flatMap(manifestsOf(layout, t, snapshots)) { manifests =>
+            flatMap(dataFilesOf(layout, t, manifests.values.flatten.toSeq.distinct)) { dataFiles =>
+              val commitId = newUuid()
+              def committed(snapshot: Option[JSONObject], written: Seq[String]): Step[Expired] =
+                commitRelocation(
+                  n,
+                  layout,
+                  t,
+                  snapshot,
+                  snapshots,
+                  manifests,
+                  dataFiles,
+                  written,
+                  () => attempt(n + 1)
+                )
+              current match
+                case None =>
+                  committed(None, Nil)
+                case Some(s) =>
+                  rewriteSnapshot(layout, t, s, commitId)((snapshot, written) =>
+                    committed(Some(snapshot), written)
+                  )
+            }
+          }
+      }
+    attempt(1)
+
+  end relocate
+
+  /**
+    * Writes the snapshot's manifests and manifest list again with file paths under `layout`'s
+    * location, and continues with the snapshot pointing at the new list and the files written
+    */
+  private def rewriteSnapshot(layout: Layout, t: Table, s: JSONObject, commitId: String)(
+      next: (JSONObject, Seq[String]) => Step[Expired]
+  ): Step[Expired] =
+    def avroMeta(c: Avro.Container): (String, Seq[(String, String)]) =
+      val schema = c
+        .meta("avro.schema")
+        .getOrElse(throw ParquetException("A manifest has no Avro schema"))
+      schema ->
+        c.metadata
+          .toSeq
+          .filterNot((k, _) => k.startsWith("avro."))
+          .map((k, v) => k -> String(v, StandardCharsets.UTF_8))
+    def moved(uri: String): String = layout.uriOf(resolvePath(layout, t, uri))
+    val list                       = string(s, "manifest-list").getOrElse(
+      throw ParquetException(
+        s"The current snapshot of ${layout
+            .root} lists its manifests inline (format version 1); Uni can't relocate it"
+      )
+    )
+    Step.Fetch(
+      resolvePath(layout, t, list),
+      listBytes =>
+        val listed  = Avro.read(listBytes, list)
+        val entries = listed.records.map(_.asInstanceOf[Map[String, Any]])
+        def loop(i: Int, out: Vector[Map[String, Any]], written: Vector[String]): Step[Expired] =
+          if i >= entries.size then
+            val (schema, meta) = avroMeta(listed)
+            val id             = long(s, "snapshot-id").getOrElse(0L)
+            val listPath       = layout.metadata(s"snap-${id}-relocated-${commitId}.avro")
+            Step.Put(
+              listPath,
+              Avro.write(schema, meta, out),
+              () =>
+                val snapshot = JSONObject(
+                  s.v
+                    .map((k, v) =>
+                      if k == "manifest-list" then
+                        k -> JSONString(layout.uriOf(listPath))
+                      else
+                        k -> v
+                    )
+                )
+                next(snapshot, written :+ listPath)
+            )
+          else
+            val e        = entries(i)
+            val manifest = e
+              .get("manifest_path")
+              .collect { case p: String =>
+                p
+              }
+              .getOrElse(
+                throw ParquetException(
+                  s"A manifest list entry of ${layout.root} has no manifest_path"
+                )
+              )
+            Step.Fetch(
+              resolvePath(layout, t, manifest),
+              bytes =>
+                val c              = Avro.read(bytes, manifest)
+                val (schema, meta) = avroMeta(c)
+                val records        = c
+                  .records
+                  .map { r =>
+                    val entry = r.asInstanceOf[Map[String, Any]]
+                    entry.get("data_file") match
+                      case Some(d: Map[?, ?]) =>
+                        val df = d.asInstanceOf[Map[String, Any]]
+                        df.get("file_path") match
+                          case Some(p: String) =>
+                            entry.updated("data_file", df.updated("file_path", moved(p)))
+                          case _ =>
+                            entry
+                      case _ =>
+                        entry
+                  }
+                val out2 = Avro.write(schema, meta, records)
+                val path = layout.metadata(s"${commitId}-m${i}.avro")
+                Step.Put(
+                  path,
+                  out2,
+                  () =>
+                    val updated = e
+                      .updated("manifest_path", layout.uriOf(path))
+                      .updated("manifest_length", out2.length.toLong)
+                    loop(i + 1, out :+ updated, written :+ path)
+                )
+            )
+        loop(0, Vector.empty, Vector.empty)
+    )
+
+  end rewriteSnapshot
+
+  private def commitRelocation(
+      n: Int,
+      layout: Layout,
+      t: Table,
+      current: Option[JSONObject],
+      snapshots: IndexedSeq[JSONObject],
+      manifests: Map[Long, Seq[String]],
+      dataFiles: Map[String, Seq[(String, Boolean)]],
+      written: Seq[String],
+      retry: () => Step[Expired]
+  ): Step[Expired] =
+    val m      = t.metadata
+    val liveId = current.flatMap(long(_, "snapshot-id"))
+    // The current snapshot's live data files are the only old files the new version reads
+    val live =
+      liveId
+        .toSeq
+        .flatMap(manifests.getOrElse(_, Nil))
+        .flatMap(mf =>
+          dataFiles
+            .getOrElse(mf, Nil)
+            .collect { case (p, true) =>
+              p
+            }
+        )
+        .toSet
+    val oldLists = snapshots.flatMap(s => string(s, "manifest-list").map(resolvePath(layout, t, _)))
+    val oldMetadata  = (1 to t.version).map(v => layout.metadata(s"v${v}.metadata.json"))
+    val unreferenced =
+      (oldLists ++ manifests.values.flatten ++ dataFiles.values.flatten.map(_._1) ++ oldMetadata)
+        .distinct
+        .filterNot(live.contains)
+        .filter(_.startsWith(layout.root))
+    val now      = System.currentTimeMillis()
+    val replaced = Map[String, JSONValue](
+      "location"        -> JSONString(layout.location),
+      "last-updated-ms" -> JSONLong(now),
+      "snapshots"       -> JSONArray(current.toIndexedSeq),
+      "snapshot-log"    ->
+        JSONArray(
+          array(m, "snapshot-log").filter {
+            case o: JSONObject =>
+              liveId.exists(id => long(o, "snapshot-id").contains(id))
+            case _ =>
+              false
+          }
+        ),
+      "metadata-log" -> JSONArray(IndexedSeq.empty),
+      "refs"         ->
+        JSONObject(
+          liveId
+            .toSeq
+            .map(id =>
+              "main" ->
+                JSONObject(Seq("snapshot-id" -> JSONLong(id), "type" -> JSONString("branch")))
+            )
+        )
+    )
+    val json   = JSONObject(m.v.filterNot((k, _) => replaced.contains(k)) ++ replaced.toSeq)
+    val path   = layout.metadata(s"v${t.version + 1}.metadata.json")
+    val bytes  = json.toJSON.getBytes(StandardCharsets.UTF_8)
+    val result = Expired(t.version + 1, path, snapshots.size - current.size, unreferenced)
+    Step.Create(
+      path,
+      bytes,
+      created =>
+        if created then
+          Step.Done(result)
+        else
+          Step.Fetch(
+            path,
+            existing =>
+              if java.util.Arrays.equals(existing, bytes) then
+                Step.Done(result)
+              else if n < MaxAttempts then
+                // The files this attempt wrote are replaced by the next attempt's
+                deleteFiles(written)(retry)
+              else
+                throw ParquetException(
+                  s"Another writer kept committing to ${layout
+                      .root} first; gave up after ${n} attempts"
+                )
+          )
+    )
+
+  end commitRelocation
+
+  private def deleteFiles[A](paths: Seq[String])(next: () => Step[A]): Step[A] =
+    paths match
+      case Seq() =>
+        next()
+      case p +: rest =>
+        Step.Delete(p, () => deleteFiles(rest)(next))
+
   // ---- JSON helpers ----
 
   private def string(o: JSONObject, key: String): Option[String] = o

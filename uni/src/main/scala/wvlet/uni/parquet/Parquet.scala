@@ -910,46 +910,89 @@ object Parquet:
       case None =>
         0
       case Some(e) =>
-        val (path, bytes) = IcebergWrite.hint(layout, e.version)
-        DatasetWriterCore.runSync(
-          target,
-          DatasetWriterCore
-            .RootAction
-            .Put(
-              path,
-              bytes,
-              s"Expired snapshots of ${target.rootName} (${e
-                  .metadataPath}), but writing ${path} failed"
-            )
-        )
-        // Every file is tried: one that fails to delete stays as an unreferenced file
-        val failed = e
-          .unreferenced
-          .flatMap { p =>
-            try
-              DatasetWriterCore.runSync(
-                target,
-                DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
-              )
-              None
-            catch
-              case NonFatal(err) =>
-                Some(p -> err)
-          }
-        failed
-          .headOption
-          .foreach { (p, err) =>
+        finishCommit(target, layout, e, "Expired snapshots of")
+        e.snapshots
+
+  /**
+    * Moves the Apache Iceberg table at local folder `from` to `to`, which must not exist yet, and
+    * points its metadata at the new location: the current snapshot's manifests are written again
+    * with the new paths, so other engines read the moved table. Only the current snapshot is kept;
+    * the files of older snapshots and older metadata versions are deleted. Object stores aren't
+    * supported, since they can't move a folder.
+    */
+  def renameIcebergTable(from: String, to: String): Unit =
+    val source      = IOPath.parse(from)
+    val target      = IOPath.parse(to)
+    val metadataDir = source.resolve(IcebergTable.MetadataDir)
+    // Checked before moving: only a Hadoop table (metadata/vN.metadata.json) can be relocated
+    val hadoop =
+      FileSystem.isDirectory(metadataDir) &&
+        FileSystem.list(metadataDir).exists(p => p.fileName.matches("""v\d+\.metadata\.json"""))
+    if !hadoop then
+      throw ParquetException(
+        s"${from} is not an Iceberg table that Uni writes (metadata/vN.metadata.json)"
+      )
+    if FileSystem.exists(target) then
+      throw ParquetException(s"Cannot rename ${from} to ${to}: ${to} already exists")
+    FileSystem.move(source, target)
+    withTarget(datasetTarget(to)) { t =>
+      val layout = DatasetWriterCore.icebergLayout(t)
+      val e      =
+        try
+          DatasetWriterCore.runStepsSync(t, IcebergWrite.relocate(layout))
+        catch
+          case NonFatal(err) =>
             throw ParquetException(
-              s"Expired ${e.snapshots} snapshots of ${target.rootName} (${e
-                  .metadataPath}), but ${failed
-                  .size} unreferenced files could not be deleted, such as ${p}: ${err.getMessage}",
+              s"Moved ${from} to ${to}, but updating its metadata for the new location failed; Uni still reads it there: ${err
+                  .getMessage}",
               err
             )
-          }
-        e.snapshots
-    end match
+      finishCommit(t, layout, e, "Moved the table to")
+    }
 
-  end expireSnapshots
+  /** Writes the hint for a committed version, then deletes the files no snapshot references */
+  private def finishCommit(
+      target: DatasetTarget,
+      layout: IcebergWrite.Layout,
+      e: IcebergWrite.Expired,
+      what: String
+  ): Unit =
+    val (path, bytes) = IcebergWrite.hint(layout, e.version)
+    DatasetWriterCore.runSync(
+      target,
+      DatasetWriterCore
+        .RootAction
+        .Put(
+          path,
+          bytes,
+          s"${what} ${target.rootName} (${e.metadataPath}), but writing ${path} failed"
+        )
+    )
+    // Every file is tried: one that fails to delete stays as an unreferenced file
+    val failed = e
+      .unreferenced
+      .flatMap { p =>
+        try
+          DatasetWriterCore.runSync(
+            target,
+            DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
+          )
+          None
+        catch
+          case NonFatal(err) =>
+            Some(p -> err)
+      }
+    failed
+      .headOption
+      .foreach { (p, err) =>
+        throw ParquetException(
+          s"${what} ${target.rootName} (${e.metadataPath}), but ${failed
+              .size} unreferenced files could not be deleted, such as ${p}: ${err.getMessage}",
+          err
+        )
+      }
+
+  end finishCommit
 
   /**
     * Deletes the Apache Iceberg table at `root`: its metadata first, so a drop that fails partway

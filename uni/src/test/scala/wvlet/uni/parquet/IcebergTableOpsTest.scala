@@ -560,4 +560,51 @@ class IcebergTableOpsTest extends UniTest:
     }
   }
 
+  test("rename a table and point its metadata at the new folder") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    Parquet.writeDataset(root, Seq(IcebergSale(4, "durian", d2, Some("JP"))), overwrite)
+    Parquet.writeDataset(root, Seq(IcebergSale(5, "elder", d1, None)), append)
+    val ids = snapshotIds(root)
+    val to  = s"${root}-moved"
+    dirs = IOPath.parse(to) :: dirs
+    Parquet.renameIcebergTable(root, to)
+    FileSystem.exists(root) shouldBe false
+    sales(to).map(_.id) shouldBe Seq(4L, 5L)
+    snapshotIds(to) shouldBe Seq(ids.last)
+    // No metadata file names the old folder any more
+    val oldPath = IOPath.parse(root).path.replace('\\', '/')
+    filesUnder(to)
+      .filter(_.startsWith("metadata/"))
+      .foreach { f =>
+        val bytes = String(
+          FileSystem.readBytes(IOPath.parse(s"${to}/${f}")),
+          StandardCharsets.ISO_8859_1
+        )
+        (
+          bytes.contains(s"${oldPath}/") || bytes.contains(s"${oldPath}${IOPath.separator}")
+        ) shouldBe false
+      }
+    str(latest(to), "location") shouldContain "-moved"
+    // Only the current snapshot's data files are left
+    filesUnder(to).count(_.startsWith("data/")) shouldBe 2
+    // Writes after the rename go under the new folder
+    Parquet.writeDataset(to, Seq(IcebergSale(6, "fig", d2, None)), append)
+    sales(to).map(_.id) shouldBe Seq(4L, 5L, 6L)
+  }
+
+  test("refuse to rename onto an existing folder or a non-table") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    val other = newRoot()
+    Parquet.writeDataset(other, first, asIceberg)
+    intercept[ParquetException] {
+      Parquet.renameIcebergTable(root, other)
+    }
+    sales(root) shouldBe first
+    intercept[ParquetException] {
+      Parquet.renameIcebergTable(s"${root}/data", s"${root}-x")
+    }
+  }
+
 end IcebergTableOpsTest

@@ -743,6 +743,8 @@ Parquet.alterIcebergTable(
 )
 // Keep only the newest 5 snapshots, deleting the files only older ones reference
 Parquet.expireIcebergSnapshots(visitsRoot, retainLast = 5)
+// Move a local table to another folder, keeping its current snapshot
+Parquet.renameIcebergTable("warehouse/visits", "warehouse/visits_2026")
 Parquet.dropIcebergTable(visitsRoot)
 ```
 
@@ -759,6 +761,11 @@ Parquet.dropIcebergTable(visitsRoot)
   (manifest lists, manifests, data files), and the metadata files written before the oldest kept
   snapshot. A file a kept snapshot lists stays, and nothing outside the table folder is deleted. It
   returns the number of expired snapshots; time travel to them stops working.
+- `renameIcebergTable` moves a local table's folder, then writes the current snapshot's manifests
+  and manifest list again with the new paths and commits a metadata version with the new
+  `location`, so other engines read the moved table. Older snapshots are dropped, and their files
+  and the older metadata versions are deleted. The target must not exist; object stores aren't
+  supported.
 - `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
   no readable table, then every file under the root. It fails when the root is not an Iceberg
   table.
