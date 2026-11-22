@@ -1160,7 +1160,8 @@ private[parquet] final class DatasetWriterCore private (
   private def isTopLevel: Boolean =
     target match
       case DatasetTarget.Local(root) =>
-        root.segments.isEmpty || (root.segments.size == 1 && root.segments.head.endsWith(":"))
+        // A filesystem root: `/`, a drive root `C:\`, or a share root `\\server\share`
+        root.isAbsolute && root.parent.isEmpty
       case DatasetTarget.Objects(_, root, _) =>
         root.key.stripSuffix("/").isEmpty
 
