@@ -217,6 +217,13 @@ class IcebergWriteTest extends UniTest:
       // Only the first file has a null country
       selected(col("country").isNull) shouldBe Seq(3L)
       selected(col("id") === 2L || col("id") === 4L).size shouldBe 2
+      // An unknown column is still an error, even when the bounds would skip every file
+      intercept[IllegalArgumentException] {
+        ds.readAs[IcebergSale](
+            ParquetReadOptions.default.withFilter(col("id") === 10L && col("nmae") === "x")
+          )
+          .toSeq
+      }
       ds.readAs[IcebergSale](ParquetReadOptions.default.withFilter(col("id") > 3L)).toSeq shouldBe
         second
     finally

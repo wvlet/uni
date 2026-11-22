@@ -356,73 +356,98 @@ class ParquetDataset private[parquet] (
                 Some(None)
               case Right(r) =>
                 Some(Some(r))
-      // Only table formats record file statistics, and those datasets have table fields
-      val schema = tableFields.map(fs =>
-        ParquetSchema(ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, fs))
+      val pruner = StatsPruner.of(
+        tableFields,
+        options.rowGroupFilter.toSeq ++ options.filter,
+        options.binaryAsString
       )
       files.flatMap { file =>
         for
           r   <- residual(options.rowGroupFilter, file)
           row <- residual(options.filter, file)
-          if statsMayMatch(ParquetFilter.both(r, row), file, schema, options.binaryAsString)
+          if pruner.forall(_.mayMatch(ParquetFilter.both(r, row), file))
         yield Selected(file, r, row)
       }
 
   /**
-    * False only when the file's recorded statistics prove that no row matches `f`, so the file
-    * needn't be opened
+    * Skips files by the statistics a table format records for them ([[DatasetFile.stats]]): each
+    * file is checked as one row group whose column chunks carry the file's statistics
     */
-  private def statsMayMatch(
-      f: Option[ParquetFilter],
-      file: DatasetFile,
-      schema: Option[ParquetSchema],
-      binaryAsString: Boolean
-  ): Boolean =
-    (f, file.stats, schema) match
-      case (Some(f), Some(stats), Some(schema)) =>
-        // The whole file as one row group whose column chunks carry the file's statistics
-        // Indexed by columnIndex, which follows the schema's leaf order
-        val columns = schema
-          .columns
-          .sortBy(_.columnIndex)
-          .map { c =>
-            val s =
-              if c.path.size == 1 then
-                stats
-                  .columns
-                  .get(c.path.head)
-                  .map(cs => Statistics(cs.min, cs.max, cs.nullCount, None))
-              else
-                None
-            ColumnChunkMeta(
-              c.path,
-              c.physicalType,
-              Seq.empty,
-              CompressionCodec.UNCOMPRESSED,
-              stats.numRows,
-              0L,
-              0L,
-              0L,
-              None,
-              s,
-              None,
-              None,
-              None,
-              None,
-              None,
-              None,
-              None,
-              false
-            )
-          }
-        ParquetFilter.mayMatch(
-          f,
-          schema,
-          RowGroupMeta(columns, 0L, stats.numRows, None),
-          binaryAsString
+  private final class StatsPruner(schema: ParquetSchema, binaryAsString: Boolean):
+    // Column chunks in columnIndex order, which follows the schema's leaf order
+    private val chunks = schema
+      .columns
+      .sortBy(_.columnIndex)
+      .map { c =>
+        ColumnChunkMeta(
+          c.path,
+          c.physicalType,
+          Seq.empty,
+          CompressionCodec.UNCOMPRESSED,
+          0L,
+          0L,
+          0L,
+          0L,
+          None,
+          None,
+          None,
+          None,
+          None,
+          None,
+          None,
+          None,
+          None,
+          false
         )
-      case _ =>
-        true
+      }
+
+    /** False only when the file's statistics prove that no row matches `f` */
+    def mayMatch(f: Option[ParquetFilter], file: DatasetFile): Boolean =
+      (f, file.stats) match
+        case (Some(f), Some(stats)) =>
+          val columns = chunks.map { c =>
+            if c.path.size == 1 then
+              stats
+                .columns
+                .get(c.path.head)
+                .map(cs =>
+                  c.copy(
+                    numValues = stats.numRows,
+                    statistics = Some(Statistics(cs.min, cs.max, cs.nullCount, None))
+                  )
+                )
+                .getOrElse(c)
+            else
+              c
+          }
+          ParquetFilter.mayMatch(
+            f,
+            schema,
+            RowGroupMeta(columns, 0L, stats.numRows, None),
+            binaryAsString
+          )
+        case _ =>
+          true
+
+  end StatsPruner
+
+  private object StatsPruner:
+    /**
+      * A pruner for a table dataset (only table formats record file statistics). None when a filter
+      * names a column the table doesn't have, so the read reports it instead of skipping files
+      */
+    def of(
+        tableFields: Option[IndexedSeq[ParquetField]],
+        filters: Seq[ParquetFilter],
+        binaryAsString: Boolean
+    ): Option[StatsPruner] = tableFields.flatMap { fs =>
+      val schema = ParquetSchema(
+        ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, fs)
+      )
+      Option.when(
+        filters.flatMap(_.columnNames).forall(n => ParquetFilter.leaf(schema, n).isRight)
+      )(StatsPruner(schema, binaryAsString))
+    }
 
   private def prepare(options: ParquetReadOptions): Plan =
     val selected = selectByPartition(options)

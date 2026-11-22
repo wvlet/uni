@@ -567,7 +567,9 @@ private[parquet] object IcebergTable:
         Option.when(b.length == 1)(b)
       case "int" | "date" =>
         Option.when(b.length == 4)(b)
-      case "long" | "timestamp" | "timestamptz" =>
+      case "timestamp" | "timestamptz" =>
+        Option.when(b.length == 8)(b)
+      case "long" =>
         if b.length == 8 then
           Some(b)
         else if b.length == 4 then
