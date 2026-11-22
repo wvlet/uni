@@ -585,19 +585,6 @@ private[parquet] object VectorUnpacker:
         case _ =>
           null
 
-    // Strings of a dictionary-encoded column, built once per dictionary entry
-    private val dictIndices: Array[Int] =
-      if bin != null && code == CStr then
-        bin.dictIndices
-      else
-        null
-
-    private val dictStrings: Array[String] =
-      if dictIndices != null then
-        bin.dictionary.strings
-      else
-        null
-
     val elements: Col =
       vec match
         case l: ListColumn =>
@@ -667,15 +654,8 @@ private[parquet] object VectorUnpacker:
     def string(i: Int): String =
       code match
         case CStr =>
-          if dictIndices != null && dictIndices(i) >= 0 then
-            val k = dictIndices(i)
-            var s = dictStrings(k)
-            if s == null then
-              s = utf8(i)
-              dictStrings(k) = s
-            s
-          else
-            utf8(i)
+          // Built once per dictionary entry for dictionary-encoded columns
+          bin.getString(i)
         case CDate =>
           dateString(ints(i))
         case CTimeInt =>
