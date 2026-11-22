@@ -7,7 +7,7 @@ import java.time.Instant
 import scala.scalajs.js
 import scala.scalajs.js.typedarray.Uint8Array
 
-/** Parses the JS writer schema and converts JS rows into values uni-parquet writes */
+/** Parses the JS writer schema and converts JS rows into values Uni writes */
 private[npm] object JsWriter:
 
   /** A column type of the JS schema, with how to convert a JS value for it */

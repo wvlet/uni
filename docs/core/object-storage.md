@@ -362,7 +362,7 @@ page's origin.
 
 ## Parquet Files in Object Storage
 
-[uni-parquet](../text/parquet) reads Parquet files straight from S3 or GCS with ranged reads,
+[Uni's Parquet reader](../text/parquet) reads Parquet files straight from S3 or GCS with ranged reads,
 fetching only the footer and the column chunks it needs:
 
 ```scala

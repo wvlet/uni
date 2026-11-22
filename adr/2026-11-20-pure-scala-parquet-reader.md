@@ -11,6 +11,7 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
 
 ## Decision
 
+- *Superseded by `2026-11-22-parquet-in-uni.md`: Parquet now lives in `uni`.*
 - **A separate cross-built module, `uni-parquet`**, depending on `uni`. The reader and its codecs
   are about 6k lines, too much to add to every `uni` user. It needs `uni` for `IOPath`, the HTTP
   client (range reads), `Rx`, and Weaver.

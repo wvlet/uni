@@ -27,7 +27,7 @@ object BenchRunner:
     s"orders.${c}.parquet"
   )
 
-  /** The uni-parquet cases for the files in `dir` */
+  /** The Uni cases for the files in `dir` */
   def uniCases(dir: String): Seq[BenchCase] =
     flatFiles.flatMap(f =>
       Seq(
@@ -42,14 +42,14 @@ object BenchRunner:
         )
       )
 
-  /** The codecs both writers support (uni-parquet does not write ZSTD) */
+  /** The codecs both writers support (Uni does not write ZSTD) */
   val writeCodecs: Seq[String] = Seq("uncompressed", "snappy")
 
   /** The directory the write cases write to */
   def writeDir(dir: String): String = s"${dir}/../write"
 
   /**
-    * The uni-parquet write cases: the rows of each file, read once into memory, written again with
+    * The Uni write cases: the rows of each file, read once into memory, written again with
     * the file's codec. Reader names start with "write" so `--filter write` selects them.
     */
   def uniWriteCases(dir: String): Seq[BenchCase] =

@@ -101,7 +101,7 @@ object BenchBatches:
 
 end BenchBatches
 
-/** uni-parquet writers. Each returns (rows, file size). */
+/** Uni writers. Each returns (rows, file size). */
 object UniWriters:
   def options(codec: String): ParquetWriteOptions =
     codec match

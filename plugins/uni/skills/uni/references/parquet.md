@@ -1,6 +1,6 @@
 # Reading and writing Parquet files
 
-`uni-parquet` (`"org.wvlet.uni" %% "uni-parquet"`) reads and writes Apache Parquet in pure Scala
+`wvlet.uni.parquet` (in the `uni` artifact) reads and writes Apache Parquet in pure Scala
 on the JVM, Scala.js, and Scala Native. It needs no parquet-java or Hadoop.
 
 ## Rows into case classes

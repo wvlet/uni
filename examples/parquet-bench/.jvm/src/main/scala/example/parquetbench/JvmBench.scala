@@ -1,6 +1,6 @@
 package example.parquetbench
 
-/** uni-parquet and parquet-java on the JVM, over the same files */
+/** Uni and parquet-java on the JVM, over the same files */
 object JvmBench:
   def main(args: Array[String]): Unit =
     wvlet.uni.io.FileSystemInit.init()

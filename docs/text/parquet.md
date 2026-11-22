@@ -4,7 +4,7 @@ description: Read and write Apache Parquet files in pure Scala on the JVM, Scala
 
 # Parquet
 
-`uni-parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
+`wvlet.uni.parquet` reads and writes [Apache Parquet](https://parquet.apache.org/) files. It is written
 in Scala with no other dependencies, so the same code runs on the JVM, Scala.js (Node.js and
 browsers), and Scala Native, and it brings in no Hadoop or native libraries. It reads local files,
 byte arrays, files on any HTTP server that supports Range requests, and objects in S3, R2, GCS,
@@ -12,7 +12,7 @@ MinIO, or Azure Blob Storage. It writes case classes, maps, and JSON records to 
 
 ```scala sbt
 resolvers += "wvlet" at "https://repo.wvlet.org/maven2"
-libraryDependencies += "org.wvlet.uni" %% "uni-parquet" % "__UNI_VERSION__"
+libraryDependencies += "org.wvlet.uni" %% "uni" % "__UNI_VERSION__"
 ```
 
 ## Quick Start: Case Classes In and Out
@@ -967,5 +967,5 @@ On the JVM, [parquet-java](https://github.com/apache/parquet-java) and
 [Apache Arrow](https://arrow.apache.org/) read and write Parquet with vectorized readers and
 writers tuned over many years, and [DuckDB](https://duckdb.org/) queries Parquet with SQL. They are
 good choices for heavy analytics, very large files, and features such as page indexes and bloom
-filters. Choose `uni-parquet` when you need Parquet on Scala.js or Scala Native, from a browser
+filters. Choose Uni when you need Parquet on Scala.js or Scala Native, from a browser
 over HTTP, or with no dependencies beyond Uni.

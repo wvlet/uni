@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Read and write benchmark: uni-parquet vs. parquet-java on the JVM, and uni-parquet on Node.js
+# Read and write benchmark: Uni vs. parquet-java on the JVM, and Uni on Node.js
 # and Scala Native, over the same files. The write cases read each file's rows into memory once and
 # write them again; select them with `--filter write`.
 #
