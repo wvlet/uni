@@ -258,7 +258,11 @@ private[parquet] object IcebergTable:
         // A table without snapshots: no files, the current schema and default spec
         val fields = schemaFields(currentSchemaId)
         val spec   = long(m, "default-spec-id").map(_.toInt).flatMap(specs.get).getOrElse(Seq.empty)
-        Step.Done(resolved(paths.root, fields, Seq(spec), IndexedSeq.empty, source, idsOf(fields)))
+        Step.Done(
+          resolved(paths.root, fields, Seq(spec), IndexedSeq.empty, source, idsOf(fields)).copy(
+            properties = properties
+          )
+        )
       case Some(id) =>
         val snapshot = snapshots
           .find(s => long(s, "snapshot-id").contains(id))

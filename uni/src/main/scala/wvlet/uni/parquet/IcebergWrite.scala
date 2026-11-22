@@ -151,48 +151,30 @@ private[parquet] object IcebergWrite:
     case Files(paths: Set[String])
 
   /** What the data files need before any is written, and what the commit builds on */
-  final class Plan(
-      val layout: Layout,
-      val base: Option[Table],
+  case class Plan(
+      layout: Layout,
+      base: Option[Table],
       /** The file schema with the table's field IDs; it keeps the partition columns */
-      val fileSchema: ParquetSchema,
+      fileSchema: ParquetSchema,
       /** The identity partition columns, in spec order */
-      val partitionBy: IndexedSeq[String],
-      val schemaId: Int,
+      partitionBy: IndexedSeq[String],
+      schemaId: Int,
       /** The table schema, as Iceberg JSON with `schema-id` */
-      val schema: JSONObject,
-      val specId: Int,
-      val spec: IndexedSeq[PartitionField],
-      val lastColumnId: Int,
-      val removal: Removal = Removal.Keep,
+      schema: JSONObject,
+      specId: Int,
+      spec: IndexedSeq[PartitionField],
+      lastColumnId: Int,
+      removal: Removal = Removal.Keep,
       /** Whether the commit adds [[schema]] to the table's schemas and makes it current */
-      val addsSchema: Boolean = false,
+      addsSchema: Boolean = false,
       /**
         * Whether the commit adds [[spec]] to the table's partition specs and makes it the default
         */
-      val addsSpec: Boolean = false,
+      addsSpec: Boolean = false,
       /** Table properties the commit sets */
-      val properties: Map[String, String] = Map.empty
+      properties: Map[String, String] = Map.empty
   ):
-    def withProperties(ps: Map[String, String]): Plan =
-      if ps.isEmpty then
-        this
-      else
-        Plan(
-          layout,
-          base,
-          fileSchema,
-          partitionBy,
-          schemaId,
-          schema,
-          specId,
-          spec,
-          lastColumnId,
-          removal,
-          addsSchema,
-          addsSpec,
-          properties ++ ps
-        )
+    def withProperties(ps: Map[String, String]): Plan = copy(properties = properties ++ ps)
 
   end Plan
 
@@ -445,12 +427,30 @@ private[parquet] object IcebergWrite:
         }
       spec.foreach(checkPartitionType)
       val specs = objects(m, "partition-specs")
-      // An unpartitioned spec the table already has is reused
-      val reused =
-        if spec.isEmpty then
-          specs.find(s => array(s, "fields").isEmpty).flatMap(long(_, "spec-id")).map(_.toInt)
-        else
-          None
+      // A spec the table already has with the same identity fields is reused, with its field IDs
+      def sameFields(s: JSONObject): Boolean =
+        val fs = objects(s, "fields")
+        fs.size == spec.size &&
+        fs.zip(spec)
+          .forall((f, p) =>
+            long(f, "source-id").contains(p.sourceId.toLong) &&
+              string(f, "transform").contains("identity")
+          )
+      val existing  = specs.find(sameFields)
+      val reused    = existing.flatMap(long(_, "spec-id")).map(_.toInt)
+      val boundSpec =
+        existing match
+          case Some(s) =>
+            spec
+              .zip(objects(s, "fields"))
+              .map((p, f) =>
+                p.copy(
+                  name = string(f, "name").getOrElse(p.name),
+                  fieldId = long(f, "field-id").map(_.toInt).getOrElse(p.fieldId)
+                )
+              )
+          case None =>
+            spec
       val specId = reused.getOrElse(
         specs.flatMap(long(_, "spec-id")).maxOption.getOrElse(-1L).toInt + 1
       )
@@ -467,7 +467,7 @@ private[parquet] object IcebergWrite:
         schemaId,
         tableSchema,
         specId,
-        spec,
+        boundSpec,
         next,
         Removal.All,
         addsSchema = !fits,
@@ -1416,7 +1416,20 @@ private[parquet] object IcebergWrite:
           next(acc, removed, out)
         else
           val r = parents(i)
-          if plan.removal == Removal.Keep then
+          // A data manifest with no live files is left out, as iceberg-java does
+          val dead =
+            num(r, "content") == 0 &&
+              Seq(
+                "added_files_count",
+                "existing_files_count",
+                "added_data_files_count",
+                "existing_data_files_count"
+              ).exists(r.get(_).exists(_ != null)) &&
+              num(r, "added_files_count") + num(r, "existing_files_count") +
+              num(r, "added_data_files_count") + num(r, "existing_data_files_count") == 0
+          if dead then
+            loop(i + 1, acc, removed, out)
+          else if plan.removal == Removal.Keep then
             loop(i + 1, acc :+ parentEntry(r), removed, out)
           else if num(r, "content") != 0 then
             // Delete files of removed rows don't matter once every row is gone
@@ -1462,14 +1475,22 @@ private[parquet] object IcebergWrite:
                     case _ =>
                       removedKeys.contains(keyOf(e))
                 )
-                if gone.isEmpty then
+                if live.isEmpty then
+                  loop(i + 1, acc, removed, out)
+                else if gone.isEmpty then
                   loop(i + 1, acc :+ parentEntry(r), removed, out)
                 else
-                  // Sequence numbers inherited from the old manifest are written out
+                  // The snapshot ID and sequence numbers inherited from the old manifest are written
+                  // out, so the files keep their provenance in the new manifest
+                  val inherited = Seq(
+                    "snapshot_id"          -> r.getOrElse("added_snapshot_id", null),
+                    "sequence_number"      -> manifestSeq,
+                    "file_sequence_number" -> manifestSeq
+                  )
                   def withSeq(e: Map[String, Any]): Map[String, Any] =
-                    Seq("sequence_number", "file_sequence_number").foldLeft(e) { (m, k) =>
+                    inherited.foldLeft(e) { case (m, (k, v)) =>
                       if m.contains(k) && m(k) == null then
-                        m.updated(k, manifestSeq)
+                        m.updated(k, v)
                       else
                         m
                     }
@@ -1488,7 +1509,7 @@ private[parquet] object IcebergWrite:
                     .map((k, v) => k -> String(v, StandardCharsets.UTF_8))
                   val out2  = Avro.write(schemaJson, meta, entries)
                   val path  = layout.metadata(s"${commitId}-r${n}-${i}.avro")
-                  val seqs  = entries.map(e => num(e, "sequence_number")).filter(_ > 0)
+                  val seqs  = entries.map(e => num(e, "sequence_number"))
                   val entry = Map(
                     "manifest_path"        -> layout.uriOf(path),
                     "manifest_length"      -> out2.length.toLong,

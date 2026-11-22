@@ -142,6 +142,38 @@ class IcebergTableOpsTest extends UniTest:
     ) shouldBe first
   }
 
+  test("repeated overwrites don't keep manifests without live files") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    (1 to 3).foreach(i => Parquet.writeDataset(root, Seq(IcebergSale(i, "x", d1, None)), overwrite))
+    val m       = latest(root)
+    val current =
+      m.get("current-snapshot-id")
+        .collect { case JSONLong(v) =>
+          v
+        }
+        .get
+    val list =
+      m.get("snapshots") match
+        case Some(JSONArray(vs)) =>
+          vs.collect { case s: JSONObject =>
+              s
+            }
+            .find(_.get("snapshot-id").contains(JSONLong(current)))
+            .flatMap(_.get("manifest-list"))
+            .collect { case JSONString(p) =>
+              p
+            }
+            .get
+        case _ =>
+          fail("no snapshots")
+    val path  = ParquetDataset.localPathOfFileUri(list).getOrElse(list)
+    val lists = Avro.read(FileSystem.readBytes(IOPath.parse(path)), path).records
+    // The new manifest, and the last overwrite's DELETED entries
+    lists.size shouldBe 2
+    sales(root) shouldBe Seq(IcebergSale(3, "x", d1, None))
+  }
+
   test("overwrite with other columns commits a new schema") {
     val root = newRoot()
     Parquet.writeDataset(root, first, asIceberg)
