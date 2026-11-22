@@ -14,7 +14,6 @@
 package wvlet.uni.ui.agent
 
 import org.scalajs.dom
-import wvlet.uni.ai.agent.UiAgentApi
 import wvlet.uni.dom.all.{div, span}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*

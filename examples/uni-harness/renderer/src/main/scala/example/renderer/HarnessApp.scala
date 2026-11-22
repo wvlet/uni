@@ -2,7 +2,7 @@ package example.renderer
 
 import example.api.ChatApiClient
 import org.scalajs.dom
-import wvlet.uni.ai.agent.UiAgentApi
+import wvlet.uni.ui.agent.UiAgentApi
 import wvlet.uni.dom.all.renderTo
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.http.Http

@@ -13,7 +13,7 @@
  */
 package example.server
 
-import wvlet.uni.ai.agent.UiAgentApi
+import wvlet.uni.ui.agent.UiAgentApi
 import wvlet.uni.electron.ElectronRenderer
 import wvlet.uni.electron.testing.ElectronTestbed
 import wvlet.uni.http.{HttpMethod, HttpStatus, Request}
