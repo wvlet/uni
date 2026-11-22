@@ -484,11 +484,15 @@ val catalogVersion = Parquet.dataset(
   that isn't. When that matters, pass the catalog's metadata file as the root, as above. Two
   files for the newest version fail, and the error asks for that file.
 - **Snapshots.** The current snapshot is read by default. `withSnapshotId(id)` reads an older one
-  that the metadata still lists, and an unknown id fails with the list of snapshots. The read uses
-  the snapshot's own schema.
-- **Columns** follow the snapshot's schema, in table order. A column the table dropped is hidden,
-  even where older files still hold it. A column added later reads as null in older files. The
-  `int`→`long` and `float`→`double` promotions widen as for any dataset.
+  that the metadata still lists, and an unknown id fails with the list of snapshots. The current
+  snapshot reads with the table's current schema, so a schema change shows up without a new
+  snapshot; an older snapshot reads with its own schema.
+- **Columns** follow the schema, in table order, and match the data files by Iceberg field ID, so
+  a renamed column reads under its new name from every file. A column the table dropped is hidden,
+  even where older files still hold it, and a column added later (even one reusing a dropped
+  column's name) reads as null in older files. The `int`→`long` and `float`→`double` promotions
+  widen as for any dataset. Data files without field IDs are matched by name, which fails for a
+  table with a renamed column or a column dropped and added again.
 - **Partitions.** An identity partition on a `string`, `int`, `long`, or `date` column becomes a
   partition column, with values from the manifests, so filters on it skip files. Other
   partitions (`bucket`, `day`, `truncate`) need nothing, since the data files hold their source
@@ -498,10 +502,9 @@ val catalogVersion = Parquet.dataset(
   are read under the root you pass, so a copied or moved table reads too. Other paths must be in
   the same bucket, or on the local file system for a local table.
 - **What fails** when the dataset opens, with the reason: delete files (merge-on-read deletes;
-  compact the table to rewrite them), format version 3, data files that aren't Parquet, and a
-  schema history with a renamed column or a column dropped and added again (the dataset matches
-  columns by name, and Iceberg by field id). The manifest Avro codecs `null`, `deflate`,
-  `snappy`, and `zstandard` are read.
+  compact the table to rewrite them), format version 3, and data files that aren't Parquet. The
+  manifest Avro codecs `null`, `deflate`, `snappy`, and `zstandard` are read.
+- **Properties.** `ds.tableProperties` holds the table's properties.
 - **Format.** `ParquetTableFormat.Iceberg` fails when the root has no metadata and lists only
   `metadata/`. A root with both `_delta_log/` and Iceberg metadata (Delta UniForm) reads as Delta.
   `withSnapshotId` needs an Iceberg table, and `withVersion` a Delta table.
@@ -667,15 +670,19 @@ Parquet.writeDataset(
   the same. Readers see either the old snapshot or the new one, never part of a write. A failed
   write deletes its data files and manifests, and the table keeps its previous snapshot.
 - **Modes.** `ErrorIfExists` (the default) creates the table and fails if one exists. `Append` adds
-  a snapshot, creating the table when there is none. `Overwrite` and `OverwritePartitions` fail for
-  now. Under the default `ParquetTableFormat.Auto`, a write to a root that is already an Iceberg
+  a snapshot, creating the table when there is none. `Overwrite` commits a snapshot that replaces
+  every row (an empty write empties the table), creating the table when there is none; earlier
+  snapshots stay readable. `OverwritePartitions` fails for now. Under the default `ParquetTableFormat.Auto`, a write to a root that is already an Iceberg
   table goes to the table, so an append lands in a snapshot rather than in files no reader sees. A
   root that is a Delta Lake table fails, since Uni doesn't write Delta yet. `Files` writes plain
   files whatever the root holds.
 - **Schemas.** A new table takes the rows' schema, with field IDs assigned as Iceberg's Java
   library does. An append matches columns to the table's current schema by name. It needs the same
-  Iceberg types, and table columns left out read as null. Extra columns, type changes, and
-  optional data for a required column fail with the column named. Types Iceberg format version 2
+  Iceberg types, and table columns left out read as null. Extra columns (add them with
+  `Parquet.alterIcebergTable` first), type changes, and optional data for a required column fail
+  with the column named. An `Overwrite` whose rows don't fit the schema commits a new schema with
+  new field IDs; it keeps the partition columns if the new schema has them all, and is
+  unpartitioned otherwise, unless `withPartitionBy` says. Types Iceberg format version 2
   can't hold fail too: unsigned integers, millisecond and nanosecond timestamps, and INT96.
 - **Partitions** are identity partitions on string, int, long, and date columns. An append without
   `withPartitionBy` uses the table's spec. An empty string and null are different partition values,
@@ -689,6 +696,61 @@ Parquet.writeDataset(
   `00003-<uuid>.metadata.json`) fails, because the catalog would keep pointing at the old version.
   Commit to such a table through its catalog. Appends to format version 1 and 3 tables fail as
   well.
+- **Properties.** `withTableProperties(Map(...))` sets table properties in the commit, keeping
+  the others.
+
+#### Replacing Data Files (Copy-on-Write)
+
+An update or delete rewrites only the data files it touches. Read them one at a time with
+`ds.withFiles`, write the rows to keep, and commit them with `withReplacedFiles`: one snapshot
+removes the old files and adds the new ones.
+
+```scala
+val ds      = Parquet.dataset(root)
+val touched = ds.files.filter(_.partitions("dt") == day)
+val kept    =
+  try ds.withFiles(touched).readAs[Visit]().filterNot(_.isSpam).toSeq
+  finally ds.close()
+Parquet.writeDataset(
+  root,
+  kept,
+  ParquetDatasetWriteOptions
+    .default
+    .withMode(ParquetWriteMode.Overwrite)
+    .withReplacedFiles(touched.map(_.path))
+)
+```
+
+The rewritten manifests list the other files as `EXISTING` and the removed ones as `DELETED`, as
+Iceberg's Java library does. Writing no rows only removes the files (a `delete` snapshot). The rows
+must fit the table schema. A file that is no longer live fails the commit; if another writer
+removed one while this write ran, the commit fails instead of bringing the file's rows back.
+
+#### Changing and Dropping Tables
+
+```scala
+import wvlet.uni.parquet.IcebergTableChange.*
+
+Parquet.alterIcebergTable(
+  root,
+  AddColumn(ParquetColumn("country", ParquetType.STRING, Repetition.OPTIONAL)),
+  RenameColumn("item", "product"),
+  WidenColumn("qty", ParquetType.INT64),
+  SetProperty("owner", "data-team")
+)
+Parquet.dropIcebergTable(root)
+```
+
+- `alterIcebergTable` applies the changes in order and commits them as one new metadata version,
+  with one new schema when a change touches the schema. No data file is rewritten and no snapshot
+  is added. Losing the commit race reloads the table and applies the changes again.
+- Changes: `AddColumn` (optional columns only, null in existing rows), `DropColumn` (not a column
+  the current partition spec uses), `RenameColumn` (keeps the field ID), `WidenColumn` (int to
+  long, float to double, a decimal to a larger precision with the same scale), `MakeOptional`,
+  `SetProperty`, and `RemoveProperty`. Each works on top-level columns.
+- `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
+  no readable table, then every file under the root. It fails when the root is not an Iceberg
+  table.
 
 ## Writing Case Classes
 

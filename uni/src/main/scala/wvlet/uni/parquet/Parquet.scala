@@ -866,6 +866,83 @@ object Parquet:
     .create(store, root, schema, options, ownsStore = false)
     .map(ParquetDatasetBatchWriterAsync(_))
 
+  // ---- Iceberg tables ----
+
+  /**
+    * Commits schema changes to the Apache Iceberg table at `root` (a Hadoop table, as Uni writes),
+    * in order, as one new schema. No data file is rewritten.
+    */
+  def alterIcebergTable(root: String, changes: IcebergTableChange*): Unit =
+    withTarget(datasetTarget(root))(alterTable(_, changes))
+
+  /** Commits schema changes to the Iceberg table at `root` in the store */
+  def alterIcebergTable(store: ObjectStore, root: String, changes: IcebergTableChange*): Unit =
+    alterTable(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      changes
+    )
+
+  /**
+    * Deletes the Apache Iceberg table at `root`: its metadata first, so a drop that fails partway
+    * leaves no readable table, then its data files and the folder. Fails when `root` is not an
+    * Iceberg table.
+    */
+  def dropIcebergTable(root: String): Unit = withTarget(datasetTarget(root))(dropTable)
+
+  /** Deletes the Iceberg table at `root` in the store */
+  def dropIcebergTable(store: ObjectStore, root: String): Unit = dropTable(
+    DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false)
+  )
+
+  private def withTarget[A](target: DatasetTarget)(body: DatasetTarget => A): A =
+    try body(target)
+    finally target.closeStore()
+
+  private def alterTable(target: DatasetTarget, changes: Seq[IcebergTableChange]): Unit =
+    require(changes.nonEmpty, "No schema change is given")
+    val layout        = DatasetWriterCore.icebergLayout(target)
+    val altered       = DatasetWriterCore.runStepsSync(target, IcebergWrite.alter(layout, changes))
+    val (path, bytes) = IcebergWrite.hint(layout, altered)
+    DatasetWriterCore.runSync(
+      target,
+      DatasetWriterCore
+        .RootAction
+        .Put(
+          path,
+          bytes,
+          s"Committed the schema change to ${target.rootName} (${altered
+              .metadataPath}), but writing ${path} failed"
+        )
+    )
+
+  private def dropTable(target: DatasetTarget): Unit =
+    val layout   = DatasetWriterCore.icebergLayout(target)
+    val metadata = DatasetWriterCore.listDirSync(target, layout.metadataDir)
+    if !metadata.exists(IcebergTable.isMetadataFile) then
+      throw ParquetException(s"${target.rootName} is not an Iceberg table")
+    // The hint and metadata files go first, so readers stop seeing the table
+    val first = metadata
+      .filter(n => n == IcebergTable.VersionHint || IcebergTable.isMetadataFile(n))
+      .sortBy(n =>
+        if n == IcebergTable.VersionHint then
+          0
+        else
+          1
+      )
+    first.foreach { n =>
+      DatasetWriterCore.runSync(
+        target,
+        DatasetWriterCore
+          .RootAction
+          .Delete(layout.metadata(n), s"Failed to delete ${layout.metadata(n)}")
+      )
+    }
+    target match
+      case DatasetTarget.Local(root) =>
+        FileSystem.deleteRecursively(root)
+      case DatasetTarget.Objects(store, root, _) =>
+        store.list(root, recursive = true).foreach(o => store.delete(o.uri))
+
   private[parquet] def asyncDriver(
       root: String,
       schema: ParquetSchema,
