@@ -35,3 +35,5 @@ enum IcebergTableChange:
 
   /** Removes a table property; removing one the table doesn't have is no change */
   case RemoveProperty(key: String)
+
+end IcebergTableChange
