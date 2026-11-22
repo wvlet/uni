@@ -317,14 +317,14 @@ private[parquet] final class VectorUnpacker(batch: ColumnBatch, binaryAsString: 
 
   override def unpackRawStringHeader: Int =
     if kind == Key then
-      setPayload(key.getBytes("UTF-8"))
+      setPayload(key.getBytes(java.nio.charset.StandardCharsets.UTF_8))
     else
       expect(ValueType.STRING)
       if col.code == CStr then
         val b = col.vec.asInstanceOf[BinaryColumn]
         startPayload(b.data, b.offsets(idx), b.length(idx))
       else
-        setPayload(col.string(idx).getBytes("UTF-8"))
+        setPayload(col.string(idx).getBytes(java.nio.charset.StandardCharsets.UTF_8))
 
   override def unpackBinaryHeader: Int =
     expect(ValueType.BINARY)
@@ -585,19 +585,6 @@ private[parquet] object VectorUnpacker:
         case _ =>
           null
 
-    // Strings of a dictionary-encoded column, built once per dictionary entry
-    private val dictIndices: Array[Int] =
-      if bin != null && code == CStr then
-        bin.dictIndices
-      else
-        null
-
-    private val dictStrings: Array[String] =
-      if dictIndices != null then
-        bin.dictionary.strings
-      else
-        null
-
     val elements: Col =
       vec match
         case l: ListColumn =>
@@ -667,15 +654,8 @@ private[parquet] object VectorUnpacker:
     def string(i: Int): String =
       code match
         case CStr =>
-          if dictIndices != null && dictIndices(i) >= 0 then
-            val k = dictIndices(i)
-            var s = dictStrings(k)
-            if s == null then
-              s = utf8(i)
-              dictStrings(k) = s
-            s
-          else
-            utf8(i)
+          // Built once per dictionary entry for dictionary-encoded columns
+          bin.getString(i)
         case CDate =>
           dateString(ints(i))
         case CTimeInt =>
@@ -708,7 +688,12 @@ private[parquet] object VectorUnpacker:
         dateStrings(slot) = s
         s
 
-    private def utf8(i: Int): String = String(bin.data, bin.offsets(i), bin.length(i), "UTF-8")
+    private def utf8(i: Int): String = String(
+      bin.data,
+      bin.offsets(i),
+      bin.length(i),
+      java.nio.charset.StandardCharsets.UTF_8
+    )
 
     private def nanos(v: Long): Long =
       unit match

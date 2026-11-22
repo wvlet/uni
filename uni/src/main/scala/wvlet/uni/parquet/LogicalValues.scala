@@ -98,7 +98,7 @@ private[parquet] object LogicalValues:
           PhysicalType.BYTE_ARRAY
     field.logicalType match
       case Some(LogicalType.String | LogicalType.Enum | LogicalType.Json) =>
-        String(data, off, len, "UTF-8")
+        String(data, off, len, java.nio.charset.StandardCharsets.UTF_8)
       case Some(LogicalType.Decimal(scale, _)) =>
         BigDecimal(bigEndianInt(data, off, len), scale)
       case Some(LogicalType.Uuid) if len == 16 =>
@@ -108,7 +108,7 @@ private[parquet] object LogicalValues:
       case _ if physical == PhysicalType.INT96 && len == 12 =>
         int96ToInstant(data, off)
       case _ if binaryAsString =>
-        String(data, off, len, "UTF-8")
+        String(data, off, len, java.nio.charset.StandardCharsets.UTF_8)
       case _ =>
         java.util.Arrays.copyOfRange(data, off, off + len)
 
