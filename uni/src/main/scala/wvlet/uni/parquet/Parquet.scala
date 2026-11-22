@@ -15,6 +15,8 @@ import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
+import scala.util.control.NonFatal
+
 /**
   * Entry points for reading and writing Apache Parquet files.
   *
@@ -881,6 +883,73 @@ object Parquet:
       DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
       changes
     )
+
+  /**
+    * Expires every snapshot of the Apache Iceberg table at `root` but the newest `retainLast`, the
+    * current one, and those a branch or tag references. The commit is a new metadata version; then
+    * the files only expired snapshots reference (manifest lists, manifests, data files) and the
+    * metadata files older than the oldest kept snapshot are deleted, so time travel to an expired
+    * snapshot stops working. Files outside the table folder are never deleted.
+    *
+    * @return
+    *   the number of expired snapshots (0 when there was nothing to expire)
+    */
+  def expireIcebergSnapshots(root: String, retainLast: Int): Int =
+    withTarget(datasetTarget(root))(expireSnapshots(_, retainLast))
+
+  /** Expires snapshots of the Iceberg table at `root` in the store */
+  def expireIcebergSnapshots(store: ObjectStore, root: String, retainLast: Int): Int =
+    expireSnapshots(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      retainLast
+    )
+
+  private def expireSnapshots(target: DatasetTarget, retainLast: Int): Int =
+    val layout = DatasetWriterCore.icebergLayout(target)
+    DatasetWriterCore.runStepsSync(target, IcebergWrite.expire(layout, retainLast)) match
+      case None =>
+        0
+      case Some(e) =>
+        val (path, bytes) = IcebergWrite.hint(layout, e.version)
+        DatasetWriterCore.runSync(
+          target,
+          DatasetWriterCore
+            .RootAction
+            .Put(
+              path,
+              bytes,
+              s"Expired snapshots of ${target.rootName} (${e
+                  .metadataPath}), but writing ${path} failed"
+            )
+        )
+        // Every file is tried: one that fails to delete stays as an unreferenced file
+        val failed = e
+          .unreferenced
+          .flatMap { p =>
+            try
+              DatasetWriterCore.runSync(
+                target,
+                DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
+              )
+              None
+            catch
+              case NonFatal(err) =>
+                Some(p -> err)
+          }
+        failed
+          .headOption
+          .foreach { (p, err) =>
+            throw ParquetException(
+              s"Expired ${e.snapshots} snapshots of ${target.rootName} (${e
+                  .metadataPath}), but ${failed
+                  .size} unreferenced files could not be deleted, such as ${p}: ${err.getMessage}",
+              err
+            )
+          }
+        e.snapshots
+    end match
+
+  end expireSnapshots
 
   /**
     * Deletes the Apache Iceberg table at `root`: its metadata first, so a drop that fails partway

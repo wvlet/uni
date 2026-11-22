@@ -3,6 +3,7 @@ package wvlet.uni.parquet
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.FileSystemInit
 import wvlet.uni.io.IOPath
+import wvlet.uni.io.ListOptions
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
 import wvlet.uni.parquet.ParquetFilter.*
@@ -486,6 +487,77 @@ class IcebergTableOpsTest extends UniTest:
     intercept[ParquetException] {
       Parquet.dropIcebergTable(root)
     }.getMessage shouldContain "is not an Iceberg table"
+  }
+
+  private def filesUnder(root: String): Set[String] =
+    val base = IOPath.parse(root)
+    FileSystem
+      .list(base, ListOptions(recursive = true))
+      .filterNot(FileSystem.isDirectory)
+      .map(p => p.path.substring(base.path.length + 1).replace('\\', '/'))
+      .toSet
+
+  test("expire old snapshots and delete the files only they reference") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    val firstFiles = filesUnder(root).filter(_.startsWith("data/"))
+    // Replaces every row: the first files are only in the expired snapshot
+    Parquet.writeDataset(root, Seq(IcebergSale(4, "durian", d2, Some("JP"))), overwrite)
+    Parquet.writeDataset(root, Seq(IcebergSale(5, "elder", d1, None)), append)
+    val ids = snapshotIds(root)
+    ids.size shouldBe 3
+
+    Parquet.expireIcebergSnapshots(root, retainLast = 2) shouldBe 1
+    snapshotIds(root) shouldBe ids.drop(1)
+    sales(root).map(_.id) shouldBe Seq(4L, 5L)
+    val after = filesUnder(root)
+    firstFiles.intersect(after) shouldBe Set.empty
+    // The metadata written before the oldest kept snapshot is gone
+    after.contains("metadata/v1.metadata.json") shouldBe false
+    after.contains("metadata/v2.metadata.json") shouldBe true
+    // Time travel works for the kept snapshots only
+    read[IcebergSale](root, ParquetDatasetOptions.default.withSnapshotId(ids(1))).map(_.id) shouldBe
+      Seq(4L)
+    intercept[ParquetException] {
+      read[IcebergSale](root, ParquetDatasetOptions.default.withSnapshotId(ids.head))
+    }
+
+    // Nothing more to expire
+    Parquet.expireIcebergSnapshots(root, retainLast = 2) shouldBe 0
+    Parquet.expireIcebergSnapshots(root, retainLast = 1) shouldBe 1
+    snapshotIds(root) shouldBe ids.drop(2)
+    sales(root).map(_.id) shouldBe Seq(4L, 5L)
+  }
+
+  test("keep data files that a kept snapshot still lists") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    Parquet.writeDataset(root, Seq(IcebergSale(4, "durian", d2, Some("JP"))), append)
+    val ds      = Parquet.dataset(root)
+    val touched =
+      try ds.files.filter(_.partitions("dt") == d1)
+      finally ds.close()
+    // A copy-on-write delete of apple: banana's new file replaces the d1 file
+    Parquet.writeDataset(
+      root,
+      Seq(IcebergSale(2, "banana", d1, None)),
+      overwrite.withReplacedFiles(touched.map(_.path))
+    )
+    val before = filesUnder(root).filter(_.startsWith("data/"))
+    Parquet.expireIcebergSnapshots(root, retainLast = 1) shouldBe 2
+    sales(root).map(_.id) shouldBe Seq(2L, 3L, 4L)
+    val removed = before -- filesUnder(root)
+    // Only the replaced d1 file goes; the d2 files are still live
+    removed.size shouldBe 1
+    removed.head shouldContain "dt=2026-11-20"
+  }
+
+  test("refuse to expire with retainLast below 1") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, asIceberg)
+    intercept[IllegalArgumentException] {
+      Parquet.expireIcebergSnapshots(root, retainLast = 0)
+    }
   }
 
 end IcebergTableOpsTest
