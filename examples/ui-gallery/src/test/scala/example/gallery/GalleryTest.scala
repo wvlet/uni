@@ -2,7 +2,7 @@ package example.gallery
 
 import example.gallery.stories.StartStories
 import org.scalajs.dom
-import wvlet.uni.dom.all.{cls, div, styleAttr}
+import wvlet.uni.dom.all.{cls, div, styleAttr, RxElement}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.log.{BufferedLogHandler, LogFormatter, Logger}
@@ -329,7 +329,7 @@ class GalleryTest extends DomTestSupport:
       fireEvent.click(m.queryAll(".page-toc__link").find(_.textContent == "API").get)
       current shouldBe Seq("API")
       waitMs(100).flatMap { _ =>
-        (main.scrollTop > PageView.foldAt) shouldBe true
+        (main.scrollTop > PageHeader.foldAt) shouldBe true
         hero.classList.contains("is-stuck") shouldBe true
         current shouldBe Seq("API")
         main.scrollTop = 0
@@ -339,6 +339,24 @@ class GalleryTest extends DomTestSupport:
         }
       }
     }
+  }
+
+  test("Get started and Colors fold their header too, so it never covers the page") {
+    def check(view: RxElement, link: String, first: String) =
+      val m = mount(div(cls -> "gallery-main", styleAttr -> "height: 400px; overflow: auto", view))
+      val hero    = m.get(".story-hero")
+      def current = m.queryAll(".page-toc__link[aria-current='true']").map(_.textContent)
+      current shouldBe Seq(first)
+      waitMs(50).flatMap { _ =>
+        fireEvent.click(m.queryAll(".page-toc__link").find(_.textContent == link).get)
+        waitMs(100).map { _ =>
+          hero.classList.contains("is-stuck") shouldBe true
+          current shouldBe Seq(link)
+        }
+      }
+    check(StartStories.page.view(), "5. Run", "1. Build").flatMap(_ =>
+      check(ColorsView(), ColorsPage.groups.last.title, ColorsPage.groups.head.title)
+    )
   }
 
   test("the accessibility check runs checkPattern on the live components") {

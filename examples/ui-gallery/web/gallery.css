@@ -319,7 +319,7 @@ body {
   padding: 0;
 }
 
-/* A component page's header stays at the top; scrolled down, it folds to the title and links */
+/* A page's header stays at the top; scrolled down, it folds to the title and links */
 .story-hero {
   position: sticky;
   top: 0;
@@ -340,7 +340,9 @@ body {
 }
 
 .story-hero.is-stuck .story-overline,
-.story-hero.is-stuck .story-summary {
+.story-hero.is-stuck .story-summary,
+.story-hero.is-stuck .colors-legend,
+.story-hero.is-stuck .start-version {
   display: none;
 }
 
@@ -1715,7 +1717,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scroll-margin-top: 16px;
+  scroll-margin-top: calc(var(--page-head, 96px) + 16px);
 }
 
 .colors-legend {
@@ -2013,7 +2015,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scroll-margin-top: 16px;
+  scroll-margin-top: calc(var(--page-head, 96px) + 16px);
 }
 
 .start-step > p {
