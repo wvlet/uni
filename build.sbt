@@ -487,9 +487,19 @@ lazy val exampleRpcNative = crossProject(JVMPlatform, NativePlatform)
     nativeBuildSettings,
     nativeConfig ~= { c =>
       // releaseFull + full LTO: in examples/rpc-native/README.md's comparison, it matched the best
-      // throughput with the least memory, at a smaller binary than releaseFull alone
-      c.withMode(scala.scalanative.build.Mode.releaseFull)
-        .withLTO(scala.scalanative.build.LTO.full)
+      // throughput with the least memory, at a smaller binary than releaseFull alone.
+      // UNI_NATIVE_FAST_LINK=true (pull-request CI) builds with releaseFast and no LTO instead:
+      // the full-LTO link takes ~2 minutes, and check-rpc-native.sh needs only a working server
+      // that links no libcurl. Pushes to main still build and check the releaseFull binary.
+      val fastLink = sys.env.get("UNI_NATIVE_FAST_LINK").contains("true")
+      val release  =
+        if fastLink then
+          c.withMode(scala.scalanative.build.Mode.releaseFast)
+            .withLTO(scala.scalanative.build.LTO.none)
+        else
+          c.withMode(scala.scalanative.build.Mode.releaseFull)
+            .withLTO(scala.scalanative.build.LTO.full)
+      release
         // Boehm GC: Scala Native 0.5.12's own GCs (immix, commix) corrupt live objects when
         // several worker threads allocate at once (scala-native#5046, #5160), and NativeServer
         // then fails requests or aborts under concurrent load

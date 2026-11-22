@@ -51,6 +51,14 @@ end WeaverPropertyTest
 class WeaverPropertyTest extends UniTest:
   import WeaverPropertyTest.*
 
+  // The weavers are shared Scala code, which the JVM and Scala.js runs check with 100 samples.
+  // Native tests run in a debug build, where 100 samples of these properties take ~10 seconds.
+  override protected def minSuccessfulTests: Int =
+    if isScalaNative then
+      25
+    else
+      super.minSuccessfulTests
+
   // JSON has no representation for Infinity, so the JSON law runs on finite doubles only
   private def finite(d: Double): Double =
     if d.isInfinite then
