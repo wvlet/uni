@@ -96,6 +96,10 @@ private[writer] final class BytesDictionary(page: ByteBuf, lengthPrefix: Boolean
       i += 1
     h ^ (h >>> 16)
 
+  /** Where entry e's bytes start in the page, after any length prefix */
+  def offsetOf(e: Int): Int = offsets(e)
+  def lengthOf(e: Int): Int = lengths(e)
+
   /** True when entry e holds the bytes `src[off, off + len)` */
   def same(e: Int, src: Array[Byte], off: Int, len: Int): Boolean =
     lengths(e) == len && {

@@ -100,6 +100,16 @@ case class Price(id: Int, price: BigDecimal, small: BigDecimal) derives Weaver
 
 case class Simple(id: Long, name: Option[String]) derives Weaver
 
+case class Cardinality(
+    id: Long,
+    small: Int,
+    price: Double,
+    rate: Float,
+    name: Option[String],
+    flag: String,
+    pair: Seq[Long]
+) derives Weaver
+
 case class Tagged(id: Int, tags: Seq[String], note: Option[String]) derives Weaver
 
 case class Recursive(id: Int, children: Seq[Recursive]) derives Weaver
@@ -205,8 +215,9 @@ class WriterTest extends UniTest:
   }
 
   test("fall back from dictionary to PLAIN when the dictionary grows too large") {
-    val rows  = (0 until 5000).map(i => Simple(i % 50, Some(s"distinct-value-${i}")))
-    val opts  = ParquetWriteOptions.default.withDictionaryPageSize(4096).withPageSize(1024)
+    val rows = (0 until 5000).map(i => Simple(i % 50, Some(s"distinct-value-${i}")))
+    // Pages small enough that dictionary-encoded pages close before the dictionary overflows
+    val opts  = ParquetWriteOptions.default.withDictionaryPageSize(4096).withPageSize(256)
     val bytes = Parquet.writeBytes(rows, opts)
     val f     = Parquet.open(bytes)
     val cols  = f.rowGroups.head.columns
@@ -217,6 +228,71 @@ class WriterTest extends UniTest:
     f.close()
     roundTrip[Simple](bytes) shouldBe rows
     // Batches that end inside a page, and a dictionary run followed by PLAIN values
+    roundTrip[Simple](bytes, ParquetReadOptions.default.withBatchSize(7)) shouldBe rows
+  }
+
+  test("drop a dictionary that doesn't pay off and rewrite its values as PLAIN") {
+    val n    = wvlet.uni.parquet.writer.ColumnWriter.DictCheckValues + 5000
+    val rows = (0 until n).map { i =>
+      Cardinality(
+        id = i.toLong * 7919,
+        small = i % 50,
+        price = i * 0.25,
+        rate = i.toFloat / 3,
+        name = Option.when(i % 5 != 0)(s"name-${i}"),
+        flag = Seq("A", "N", "R")(i % 3),
+        // A repeated column: two distinct values per row
+        pair = Seq(i.toLong, -i.toLong)
+      )
+    }
+    val bytes = Parquet.writeBytes(rows, ParquetWriteOptions.default)
+    val f     = Parquet.open(bytes)
+    try
+      val cols = f.rowGroups.head.columns.map(c => c.path.mkString(".") -> c).toMap
+      // Distinct values: no dictionary page and no dictionary-encoded page
+      Seq("id", "price", "rate", "name", "pair.list.element").foreach { c =>
+        cols(c).encodings shouldNotContain Encoding.RLE_DICTIONARY
+        cols(c).dictionaryPageOffset shouldBe None
+      }
+      // Repeated values keep the dictionary
+      Seq("small", "flag").foreach { c =>
+        cols(c).encodings shouldContain Encoding.RLE_DICTIONARY
+      }
+      // Statistics cover the values added while the dictionary was in use
+      val idStats = cols("id").statistics.get
+      java
+        .nio
+        .ByteBuffer
+        .wrap(idStats.min.get)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        .getLong shouldBe 0L
+      java
+        .nio
+        .ByteBuffer
+        .wrap(idStats.max.get)
+        .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        .getLong shouldBe (n - 1).toLong * 7919
+      String(cols("name").statistics.get.min.get, "UTF-8") shouldBe "name-1"
+      cols("name").statistics.get.nullCount shouldBe Some((n / 5).toLong)
+    finally
+      f.close()
+    roundTrip[Cardinality](bytes) shouldBe rows
+    roundTrip[Cardinality](bytes, ParquetReadOptions.default.withBatchSize(7)) shouldBe rows
+  }
+
+  test("keep the pages written so far when a dictionary is dropped after one") {
+    // Small pages, so dictionary-encoded pages are closed before the check
+    val n     = wvlet.uni.parquet.writer.ColumnWriter.DictCheckValues + 5000
+    val rows  = (0 until n).map(i => Simple(i.toLong, Some(s"value-${i}")))
+    val bytes = Parquet.writeBytes(rows, ParquetWriteOptions.default.withPageSize(4096))
+    val f     = Parquet.open(bytes)
+    try
+      val name = f.rowGroups.head.columns(1)
+      name.encodings shouldContain Encoding.RLE_DICTIONARY
+      name.encodings shouldContain Encoding.PLAIN
+    finally
+      f.close()
+    roundTrip[Simple](bytes) shouldBe rows
     roundTrip[Simple](bytes, ParquetReadOptions.default.withBatchSize(7)) shouldBe rows
   }
 

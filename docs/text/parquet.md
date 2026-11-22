@@ -863,7 +863,10 @@ batch if needed, so batch sizes do not show in the file. On the JVM, writing bat
 
 The writer produces files that other engines read: data page v1, PLAIN and RLE encodings, and
 dictionary encoding for every column except booleans. A column whose dictionary grows past
-`dictionaryPageSize` (1 MiB) switches to PLAIN for the rest of its row group. Each column chunk
+`dictionaryPageSize` (1 MiB) switches to PLAIN for the rest of its row group. So does a column
+whose dictionary is no smaller than PLAIN after its first 20,000 values, such as IDs, prices, or
+free text with mostly distinct values. Like parquet-java, the writer then rewrites those values
+as PLAIN, so the chunk has no dictionary page. Each column chunk
 stores min, max, and null counts, so `ParquetFilter`, DuckDB, and Spark can skip row groups.
 
 ```scala
