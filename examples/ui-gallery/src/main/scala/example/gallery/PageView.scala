@@ -58,7 +58,7 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
           .map(g =>
             a(
               cls    -> "story-link",
-              href   -> s"https://wvlet.org/uni/${g.docs}",
+              href   -> s"https://wvlet.org/uni/${page.docsPath(g)}",
               target -> "_blank",
               Icons.book,
               "Docs"

@@ -6,7 +6,7 @@ import wvlet.uni.dom.all.{cls, div, styleAttr, RxElement}
 import wvlet.uni.dom.all.given
 import wvlet.uni.dom.testing.*
 import wvlet.uni.log.{BufferedLogHandler, LogFormatter, Logger}
-import wvlet.uni.rx.{Rx, RxTracker}
+import wvlet.uni.rx.{Rx, RxEvent, RxRunner, RxTracker}
 import wvlet.uni.ui.ColorScheme
 
 import scala.concurrent.{ExecutionContext, Promise}
@@ -510,7 +510,8 @@ class GalleryTest extends DomTestSupport:
   test("the Rx group lists topic pages, without the component reference sections") {
     val rx = Pages.groups.find(_.id == "rx").get
     rx.docs shouldBe "rx/operators"
-    rx.pages.map(_.id) shouldBe Seq("rx-values", "rx-time", "rx-async", "rx-errors", "rx-lifecycle")
+    rx.pages.map(_.id) shouldBe
+      Seq("rx-values", "rx-time", "rx-async", "rx-events", "rx-errors", "rx-lifecycle")
     rx.components.size shouldBe rx.pages.size
     rx.components.foreach(_.isComponent shouldBe false)
     val m = mount(PageView(page("rx-errors"), None, ViewMode.Preview))
@@ -518,6 +519,84 @@ class GalleryTest extends DomTestSupport:
     m.queryAll(".page-toc__link--ref").size shouldBe 0
     m.queryAll(".example-section").size shouldBe 2
     m.get(".story-link").getAttribute("href") shouldBe "https://wvlet.org/uni/rx/operators"
+    // A page can link to its own docs page instead of its group's
+    val events = mount(PageView(page("rx-events"), None, ViewMode.Preview))
+    events.get(".story-link").getAttribute("href") shouldBe "https://wvlet.org/uni/rx/events"
+  }
+
+  test("each stream's lane shows the events of the docs' trace table") {
+    val m = mount(story("rx-events/traces").render())
+    settle().map { _ =>
+      def events(label: String): Seq[String] = lane(m, label)
+        .querySelectorAll(".marble")
+        .toSeq
+        .map(_.getAttribute("aria-label").takeWhile(c => c != '(' && c != ':'))
+      events("Rx.fromSeq(Seq(1, 2, 3))") shouldBe Seq("OnNext", "OnNext", "OnNext", "OnCompletion")
+      events("Rx.empty[Int]") shouldBe Seq("OnCompletion")
+      events("Rx.single(1)") shouldBe Seq("OnNext", "OnCompletion")
+      events("Rx.exception(e)") shouldBe Seq("OnFailure")
+      events("….map(boom)") shouldBe Seq("OnNext", "OnError", "OnNext", "OnCompletion")
+      marbles(m, "….map(boom)", "next") shouldBe Seq("1", "3")
+      events("….filter(_ > 10)") shouldBe Seq("OnCompletion")
+      marbles(m, "….take(2)", "next") shouldBe Seq("1", "2")
+      marbles(m, "….lastOption", "next") shouldBe Seq("Some(3)")
+      marbles(m, "Rx.fromSeq(Seq(1, 2)).concat(Rx.single(3))", "next") shouldBe Seq("1", "2", "3")
+      events("Rx.exception(e).concat(Rx.single(3))") shouldBe Seq("OnFailure")
+      marbles(m, "….map(boom).materialize", "next").size shouldBe 2
+      state(m, "….map(boom).materialize") shouldBe "completed"
+      // The lane drops anything after an end, so check the stream itself sends nothing after it
+      var seen = Seq.empty[RxEvent]
+      RxRunner.runContinuously(Rx.exception[Int](Exception("e")).concat(Rx.single(3)))(ev =>
+        seen :+= ev
+      )
+      seen.size shouldBe 1
+    }
+  }
+
+  test("a throwing map goes on; a failed source or Future ends; recover replaces both") {
+    val m = mount(story("rx-events/kinds").render())
+    settle()
+      .map { _ =>
+        marbles(m, "parsed", "next") shouldBe Seq("1", "3")
+        marbles(m, "parsed", "error").size shouldBe 1
+        state(m, "parsed") shouldBe "completed"
+        marbles(m, "parsed.recover { … => 0 }", "next") shouldBe Seq("1", "0", "3")
+        state(m, "failed") shouldBe "failed"
+        marbles(m, "failed.recover { … => -1 }", "next") shouldBe Seq("-1")
+        state(m, "failed.recover { … => -1 }") shouldBe "completed"
+        state(m, "request") shouldBe "live"
+      }
+      .flatMap(_ => waitMs(700))
+      .map { _ =>
+        state(m, "request") shouldBe "failed"
+        marbles(m, "request.recover { … => -1 }", "next") shouldBe Seq("-1")
+        state(m, "request.recover { … => -1 }") shouldBe "completed"
+      }
+  }
+
+  test("an RxVar sends its value on subscribe, skips an equal one, and ends on stop()") {
+    val m = mount(story("rx-events/variable").render())
+    settle()
+      .map { _ =>
+        marbles(m, "counter", "next") shouldBe Seq("0")
+        press(m, "counter := counter.get + 1")
+        press(m, "counter := counter.get")
+        marbles(m, "counter", "next") shouldBe Seq("0", "1")
+        press(m, "Subscribe again")
+        marbles(m, "a new subscriber", "next") shouldBe Seq("1")
+        press(m, "counter := counter.get + 1")
+        marbles(m, "a new subscriber", "next") shouldBe Seq("1", "2")
+        press(m, "counter.stop()")
+        state(m, "counter") shouldBe "completed"
+        state(m, "a new subscriber") shouldBe "completed"
+        press(m, "Restart")
+      }
+      .flatMap(_ => settle())
+      .map { _ =>
+        press(m, "counter.setException(e)")
+        state(m, "counter") shouldBe "failed"
+        marbles(m, "counter", "next") shouldBe Seq("0")
+      }
   }
 
   test("the timeline draws each value a stream emits, and its latest value") {
@@ -561,9 +640,9 @@ class GalleryTest extends DomTestSupport:
       press(m, "n + 1")
       press(m, "n + 1")
       press(m, "n + 1")
-      marbles(m, "checked", "next") shouldBe Seq("1", "2", "4")
-      marbles(m, "checked", "error").size shouldBe 1
-      state(m, "checked") shouldBe "live"
+      marbles(m, "checked, with runContinuously", "next") shouldBe Seq("1", "2", "4")
+      marbles(m, "checked, with runContinuously", "error").size shouldBe 1
+      state(m, "checked, with runContinuously") shouldBe "live"
       marbles(m, "checked.recover { case _ => -1 }", "next") shouldBe Seq("1", "2", "-1", "4")
       marbles(m, "checked, with run", "next") shouldBe Seq("1", "2")
       marbles(m, "checked, with run", "failed").size shouldBe 1
