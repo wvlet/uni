@@ -27,6 +27,13 @@ iceberg-java does with a rename that isn't atomic on object stores.
   are unchanged. The data files and the manifest are kept, and the manifest list and metadata are
   rewritten. A conflict whose metadata already holds this commit's snapshot ID counts as success,
   which covers a retried request whose first response was lost.
+- **A failed create may still have landed.** When the metadata create throws (a lost response
+  after retries), the table is reloaded. If it holds this snapshot, the write succeeded. If it
+  doesn't, the files are deleted. If the check fails too, the files are kept, since a committed
+  snapshot could list them.
+- **Appends record paths under the table's own `location`**, such as `s3a://` or `file:/`, so a
+  table keeps one scheme. Writing a new table into a folder that already holds plain Parquet
+  files fails, because the table would hide them.
 - **Data files keep the partition columns and carry field IDs.** `ParquetField` gained
   `fieldId`, which footers round-trip. A new table gets IDs in iceberg-java's order. An append
   binds by name to the current schema, needs the same Iceberg types, and refuses extra columns

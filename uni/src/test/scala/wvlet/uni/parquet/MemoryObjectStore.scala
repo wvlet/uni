@@ -88,7 +88,7 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
       contentType: String
   ): Rx[Boolean] = Rx.single {
     beforeCreate(uri)
-    synchronized {
+    val created = synchronized {
       if objects.contains(uri.toString) then
         false
       else
@@ -96,7 +96,13 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
         objects(uri.toString) = content.clone()
         true
     }
+    if created && loseCreateResponse then
+      throw java.io.IOException(s"connection reset after creating ${uri}")
+    created
   }
+
+  /** Makes a create that succeeded fail on the client, as when its response is lost */
+  var loseCreateResponse: Boolean = false
 
   def putObject(key: String, content: Array[Byte]): Unit = synchronized {
     objects(key) = content.clone()

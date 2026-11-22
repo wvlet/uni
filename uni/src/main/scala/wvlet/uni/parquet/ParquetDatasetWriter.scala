@@ -394,8 +394,9 @@ private[parquet] final class DatasetWriterCore private (
               reader.skip()
           else
             reader.skip()
-            kept += start
-            kept += reader.pos
+            if iceberg.isEmpty then
+              kept += start
+              kept += reader.pos
           j += 1
         finishValues()
         if iceberg.isDefined then
@@ -945,9 +946,28 @@ private[parquet] final class DatasetWriterCore private (
           committedTo(runStepsSync(c.run()))
         catch
           case NonFatal(e) =>
-            failedCommit(c, e).foreach(a => runCleanup(a, e))
-            abortWith(e)
-            throw e
+            val outcome =
+              if !c.mayHaveCommitted then
+                Some(None)
+              else
+                try
+                  Some(runStepsSync(c.verify()))
+                catch
+                  case NonFatal(v) =>
+                    e.addSuppressed(v)
+                    None
+            outcome match
+              case Some(Some(done)) =>
+                // The create landed although the call failed
+                committedTo(done)
+              case Some(None) =>
+                failedCommit(c).foreach(a => runCleanup(a, e))
+                abortWith(e)
+                throw e
+              case None =>
+                state = State.Closed
+                target.closeStore()
+                throw uncertainCommit(e)
       }
       state = State.Closed
       try closeActions().foreach(runSync)
@@ -981,9 +1001,16 @@ private[parquet] final class DatasetWriterCore private (
   def committedSnapshot: Option[IcebergWrite.Committed] = snapshot
 
   /** Deletes for the manifests of a failed commit; the data files are deleted by the abort */
-  def failedCommit(c: IcebergWrite.CommitState, e: Throwable): Seq[RootAction] = c
+  def failedCommit(c: IcebergWrite.CommitState): Seq[RootAction] = c
     .writtenFiles
     .map(p => RootAction.Delete(p, s"Failed to delete ${p}"))
+
+  /** A commit that may have landed: its files stay, since a committed snapshot may list them */
+  def uncertainCommit(e: Throwable): ParquetException = ParquetException(
+    s"The commit to ${rootName} failed, and checking whether it landed failed too, so its files are kept: ${e
+        .getMessage}",
+    e
+  )
 
   private def runCleanup(a: RootAction, cause: Throwable): Unit =
     try
@@ -1050,7 +1077,7 @@ private[parquet] final class DatasetWriterCore private (
         )
 
   /** The Iceberg layout of the root */
-  private def layout: IcebergWrite.Layout = DatasetWriterCore.icebergLayout(target)
+  private lazy val layout: IcebergWrite.Layout = DatasetWriterCore.icebergLayout(target)
 
   /** Decides whether this is an Iceberg write, and binds it to the table (loaded here when sync) */
   private def planIceberg(): Option[IcebergWrite.Plan] =
@@ -1063,6 +1090,19 @@ private[parquet] final class DatasetWriterCore private (
             p.table.getOrElse(throw IllegalStateException("The async writer didn't load the table"))
           case None =>
             runStepsSync(IcebergWrite.load(layout))
+      if base.isEmpty then
+        // An Iceberg table here would hide the plain files from readers
+        listedRoot
+          .find(l =>
+            l.segments.nonEmpty && l.segments.head != IcebergTable.MetadataDir &&
+              !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))
+          )
+          .foreach { l =>
+            throw ParquetException(
+              s"${rootName} holds plain Parquet files, such as ${l
+                  .path}, and no Iceberg table. Write the table to another folder"
+            )
+          }
       Some(IcebergWrite.plan(layout, base, schema, options.partitionBy, options.mode))
 
   // ---- The async writer's steps ----
@@ -1160,7 +1200,7 @@ private[parquet] final class DatasetWriterCore private (
       snapshot
         .toSeq
         .map { c =>
-          val (path, bytes) = IcebergWrite.hint(layout, c)
+          val (path, bytes) = IcebergWrite.hint(iceberg.get.layout, c)
           RootAction.Put(
             path,
             bytes,

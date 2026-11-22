@@ -425,6 +425,50 @@ class IcebergWriteTest extends UniTest:
       }
   }
 
+  test("a create whose response is lost still commits") {
+    val store = MemoryObjectStore()
+    Parquet
+      .writeDatasetAsync(store, bucketRoot, first, asIceberg)
+      .flatMap { _ =>
+        store.loseCreateResponse = true
+        Parquet.writeDatasetAsync(store, bucketRoot, second, append)
+      }
+      .flatMap { written =>
+        store.loseCreateResponse = false
+        written.size shouldBe 1
+        readAsync(store)
+      }
+      .map(_ shouldBe first ++ second)
+  }
+
+  test("refuse an Iceberg table in a folder of plain files") {
+    val root = newRoot()
+    Parquet.writeDataset(root, first, ParquetDatasetWriteOptions.default.withPartitionBy("dt"))
+    intercept[ParquetException](Parquet.writeDataset(root, second, asIceberg))
+      .getMessage shouldContain "holds plain Parquet files"
+  }
+
+  test("an append records paths under the table's own location") {
+    val store = MemoryObjectStore()
+    Parquet
+      .writeDatasetAsync(store, bucketRoot, first, asIceberg)
+      .flatMap { _ =>
+        val key = s"${bucketRoot}/metadata/v1.metadata.json"
+        val v1  = String(store.getObject(key).get, StandardCharsets.UTF_8)
+        store.putObject(key, v1.replace("\"s3://lake/sales\"", "\"s3a://lake/sales\"").getBytes)
+        Parquet.writeDatasetAsync(store, bucketRoot, second, append)
+      }
+      .flatMap { _ =>
+        val v2 = String(
+          store.getObject(s"${bucketRoot}/metadata/v2.metadata.json").get,
+          StandardCharsets.UTF_8
+        )
+        v2 shouldContain "\"manifest-list\":\"s3a://lake/sales/metadata/snap-"
+        readAsync(store)
+      }
+      .map(_ shouldBe first ++ second)
+  }
+
 end IcebergWriteTest
 
 /**

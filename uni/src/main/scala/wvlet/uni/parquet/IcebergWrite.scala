@@ -50,11 +50,8 @@ private[parquet] object IcebergWrite:
 
     /** The absolute URI of a file of this write, as the metadata records it */
     def uriOf(path: String): String =
-      if objects then
-        path
-      else
-        val rel = path.substring(root.length).replace('\\', '/')
-        s"${location}/${rel}"
+      val rel = path.substring(root.length).replace('\\', '/')
+      s"${location}/${rel}"
 
   /** A Hadoop table's current metadata */
   case class Table(version: Int, path: String, metadata: JSONObject)
@@ -283,8 +280,13 @@ private[parquet] object IcebergWrite:
       if schema.field(k).isEmpty then
         throw ParquetException(s"The rows have no partition column ${k}, which ${t.path} needs")
     }
+    // Paths are recorded under the table's own location (for example s3a:// or file:/), so the
+    // table keeps one scheme
+    val tableLayout = string(m, "location")
+      .map(l => layout.copy(location = l.stripSuffix("/")))
+      .getOrElse(layout)
     Plan(
-      layout,
+      tableLayout,
       Some(t),
       fileSchema,
       keys,
@@ -747,7 +749,7 @@ private[parquet] object IcebergWrite:
     s"""{"name":${JSONString(p.name).toJSON},"type":["null",${t}],"default":null,"field-id":${p
         .fieldId}}"""
 
-  private def mapType(name: String, keyId: Int, valueId: Int, value: String): String =
+  private def mapType(keyId: Int, valueId: Int, value: String): String =
     s"""["null",{"type":"array","items":{"type":"record","name":"k${keyId}_v${valueId}","fields":[{"name":"key","type":"int","field-id":${keyId}},{"name":"value","type":"${value}","field-id":${valueId}}]},"logicalType":"map"}]"""
 
   private def manifestSchema(spec: IndexedSeq[PartitionField]): String =
@@ -761,12 +763,12 @@ private[parquet] object IcebergWrite:
       s"""{"name":"partition","type":{"type":"record","name":"r102","fields":[${partition}]},"field-id":102}""",
       """{"name":"record_count","type":"long","field-id":103}""",
       """{"name":"file_size_in_bytes","type":"long","field-id":104}""",
-      opt("column_sizes", 108, mapType("column_sizes", 117, 118, "long")),
-      opt("value_counts", 109, mapType("value_counts", 119, 120, "long")),
-      opt("null_value_counts", 110, mapType("null_value_counts", 121, 122, "long")),
-      opt("nan_value_counts", 137, mapType("nan_value_counts", 138, 139, "long")),
-      opt("lower_bounds", 125, mapType("lower_bounds", 126, 127, "bytes")),
-      opt("upper_bounds", 128, mapType("upper_bounds", 129, 130, "bytes")),
+      opt("column_sizes", 108, mapType(117, 118, "long")),
+      opt("value_counts", 109, mapType(119, 120, "long")),
+      opt("null_value_counts", 110, mapType(121, 122, "long")),
+      opt("nan_value_counts", 137, mapType(138, 139, "long")),
+      opt("lower_bounds", 125, mapType(126, 127, "bytes")),
+      opt("upper_bounds", 128, mapType(129, 130, "bytes")),
       opt("key_metadata", 131, """["null","bytes"]"""),
       opt("split_offsets", 132, """["null",{"type":"array","items":"long","element-id":133}]"""),
       opt("equality_ids", 135, """["null",{"type":"array","items":"int","element-id":136}]"""),
@@ -1029,6 +1031,7 @@ private[parquet] object IcebergWrite:
           val version = base.map(_.version).getOrElse(0) + 1
           val path    = layout.metadata(s"v${version}.metadata.json")
           val json    = metadataJson(base, parentSnapshot, seq, layout.uriOf(listPath))
+          createAttempted = true
           Step.Create(
             path,
             json.toJSON.getBytes(StandardCharsets.UTF_8),
@@ -1075,6 +1078,23 @@ private[parquet] object IcebergWrite:
               s"Another writer changed the schema or partition spec of ${layout
                   .root} during this write"
             )
+
+    /**
+      * Whether a metadata create ran, so a failure may still have committed: a request can land on
+      * the server and then fail on the client
+      */
+    def mayHaveCommitted: Boolean = createAttempted
+
+    private var createAttempted = false
+
+    /** After an ambiguous failure: the commit, if the newest metadata holds this snapshot */
+    def verify(): Step[Option[Committed]] =
+      flatMap(load(layout)) {
+        case Some(t) if hasSnapshot(t, snapshotId) =>
+          Step.Done(Some(Committed(snapshotId, t.version, t.path)))
+        case _ =>
+          Step.Done(None)
+      }
 
     private def hasSnapshot(t: Table, id: Long): Boolean = array(t.metadata, "snapshots").exists {
       case s: JSONObject =>
