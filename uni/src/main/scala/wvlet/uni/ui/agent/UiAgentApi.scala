@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.ai.agent
+package wvlet.uni.ui.agent
 
 import wvlet.uni.surface.description
 import wvlet.uni.rx.Rx
@@ -24,6 +24,9 @@ import wvlet.uni.rx.Rx
   * Results are JSON text, so each action can carry its own JSON Schema and every transport passes
   * the result through unchanged. Every method returns `Rx`, so a forwarder in another process (an
   * Electron main process calling its renderer) can implement the trait over an async transport.
+  *
+  * It lives in uni, not uni-ui, so an Electron main process or a JVM client can use it without
+  * depending on uni-ui; the package is shared with uni-ui's `UiAgent`.
   */
 trait UiAgentApi:
 

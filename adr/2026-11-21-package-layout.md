@@ -27,3 +27,11 @@
 ## Addendum: `SettingStore` in `wvlet.uni.storage`
 
 `wvlet.uni.config` held only `SettingStore`, `SettingLocation`, and its backends (`StoreBackend`, `FileStoreBackend`, `InMemoryStoreBackend`, `LocalStorageBackend`, `NodeFileStoreBackend`): local persistence, not configuration. They move to `wvlet.uni.storage` next to the object stores, which leaves `config` free for configuration loading. The Scala.js rule in `2026-10-27-setting-store.md` (no `FileSystem` from `SettingStore` code on Scala.js) applies to that code; the package name has no effect on linking.
+
+## Addendum: `UiAgentApi` in `wvlet.uni.ui.agent`
+
+`wvlet.uni.ai.agent` read as a home for agent loops over `Llm`, but it held only `UiAgentApi`, the tools an agent uses to read and operate a uni-ui screen.
+
+- `UiAgentApi` moves to `wvlet.uni.ui.agent`, the package of uni-ui's `UiAgent`, `AgentRegistry`, and `UiHistory`. One import brings in the trait and its implementation.
+- It stays in the `uni` module (`2026-11-13-ui-agent.md`: an Electron main process or a JVM client uses it without uni-ui), so `wvlet.uni.ui.agent` is split across `uni` and `uni-ui`. Neither JVM nor Scala.js checks split packages here, since Uni doesn't use JPMS modules.
+- `wvlet.uni.ai.agent` is free for agent code built on `Llm`.

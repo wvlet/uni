@@ -16,7 +16,6 @@ package wvlet.uni.ui.agent
 import wvlet.uni.util.Result
 
 import org.scalajs.dom
-import wvlet.uni.ai.agent.UiAgentApi
 import wvlet.uni.dom.{DomNode, DomRenderer}
 import wvlet.uni.dom.all.data
 import wvlet.uni.json.JSON.{JSONArray, JSONLong, JSONObject}
