@@ -706,13 +706,14 @@ An update or delete rewrites only the data files it touches. Read them one at a 
 removes the old files and adds the new ones.
 
 ```scala
-val ds      = Parquet.dataset(root)
-val touched = ds.files.filter(_.partitions("dt") == day)
-val kept    =
-  try ds.withFiles(touched).readAs[Visit]().filterNot(_.isSpam).toSeq
-  finally ds.close()
+val visitsRoot = "s3://my-bucket/warehouse/visits/"
+val visitsDs   = Parquet.dataset(visitsRoot)
+val touched    = visitsDs.files.filter(_.partitions("dt") == LocalDate.of(2026, 11, 20))
+val kept       =
+  try visitsDs.withFiles(touched).readAs[Visit]().filterNot(_.user == "bot").toSeq
+  finally visitsDs.close()
 Parquet.writeDataset(
-  root,
+  visitsRoot,
   kept,
   ParquetDatasetWriteOptions
     .default
@@ -729,16 +730,18 @@ removed one while this write ran, the commit fails instead of bringing the file'
 #### Changing and Dropping Tables
 
 ```scala
+import wvlet.uni.parquet.{IcebergTableChange, ParquetColumn, ParquetType}
 import wvlet.uni.parquet.IcebergTableChange.*
+import wvlet.uni.parquet.format.Repetition
 
 Parquet.alterIcebergTable(
-  root,
+  visitsRoot,
   AddColumn(ParquetColumn("country", ParquetType.STRING, Repetition.OPTIONAL)),
   RenameColumn("item", "product"),
   WidenColumn("qty", ParquetType.INT64),
   SetProperty("owner", "data-team")
 )
-Parquet.dropIcebergTable(root)
+Parquet.dropIcebergTable(visitsRoot)
 ```
 
 - `alterIcebergTable` applies the changes in order and commits them as one new metadata version,
