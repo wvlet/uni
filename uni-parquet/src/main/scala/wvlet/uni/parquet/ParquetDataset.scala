@@ -32,6 +32,16 @@ import scala.collection.immutable.VectorMap
 case class DatasetFile(path: String, size: Long, partitions: VectorMap[String, Any])
 
 /**
+  * Row groups of a dataset read on demand. Each call reads the next row group that has rows to
+  * read; an empty Seq means its rows were all filtered out. None means the read is done.
+  */
+private[parquet] trait DatasetBatchReader:
+  def nextRowGroup(): Rx[Option[Seq[ColumnBatch]]]
+
+  /** Closes the open file; later calls return None */
+  def close(): Unit
+
+/**
   * The Parquet files under a local directory or an object store prefix, read as one table. Open it
   * with [[Parquet.dataset]].
   *
@@ -168,6 +178,65 @@ class ParquetDataset private[parquet] (
   def readAllRowsAsync(
       options: ParquetReadOptions = ParquetReadOptions.default
   ): Rx[Seq[Map[String, Any]]] = collect(readBatchesAsync(options))(_.rows)
+
+  /**
+    * A reader the caller pulls one row group at a time, for consumers that need backpressure (the
+    * npm facade's AsyncIterable). `readBatchesAsync` pushes every batch as soon as it is read.
+    */
+  private[parquet] def batchReaderAsync(
+      options: ParquetReadOptions = ParquetReadOptions.default
+  ): Rx[DatasetBatchReader] = prepareAsync(options).map { (plan, files) =>
+    new DatasetBatchReader:
+      private var nextFile                 = 0
+      private var current: ParquetFile     = null
+      private var currentSel: Selected     = null
+      private var opts: ParquetReadOptions = null
+      private var rowGroups: List[Int]     = Nil
+      private var closed                   = false
+      private def finishFile(): Unit       =
+        if current != null then
+          release(current)
+          current = null
+
+      /** Opens files (no I/O; footers are cached) until one has a row group left to read */
+      private def advance(): Boolean =
+        while rowGroups.isEmpty && !closed && (current != null || nextFile < files.size) do
+          finishFile()
+          if nextFile < files.size then
+            val (s, meta) = files(nextFile)
+            nextFile += 1
+            current = track(ParquetFile(openAsyncSource(s.file), meta))
+            currentSel = s
+            opts = fileOptions(s, plan, current.schema)
+            rowGroups = current.selectRowGroups(opts).toList
+        !closed && rowGroups.nonEmpty
+
+      def nextRowGroup(): Rx[Option[Seq[ColumnBatch]]] =
+        if !advance() then
+          finishFile()
+          Rx.single(None)
+        else
+          val i    = rowGroups.head
+          val file = current
+          val s    = currentSel
+          rowGroups = rowGroups.tail
+          val read: Rx[Seq[ColumnBatch]] =
+            if opts.columns.exists(_.isEmpty) then
+              Rx.single(emptyBatches(file.rowGroups(i).numRows, opts).toSeq)
+            else
+              file.rowGroupBatchesAsync(i, opts).map(_.toSeq)
+          read
+            .map(bs => Some(bs.map(b => finish(b, s, plan)).filter(_.numRows > 0)))
+            .recoverWith { case e: Throwable =>
+              close()
+              Rx.exception(fileError(s.file, e))
+            }
+
+      def close(): Unit =
+        closed = true
+        rowGroups = Nil
+        finishFile()
+  }
 
   private def collect[A](batches: Rx[ColumnBatch])(f: ColumnBatch => Iterator[A]): Rx[Seq[A]] =
     batches

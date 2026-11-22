@@ -315,7 +315,7 @@ lazy val npm = project
         out
       }
   )
-  .dependsOn(parquet.js)
+  .dependsOn(parquet.js % "compile->compile;test->test", test.js % Test)
 
 // uni-ui - Styled components for uni-dom (Scala.js only), themed by a plain CSS file
 lazy val ui = project

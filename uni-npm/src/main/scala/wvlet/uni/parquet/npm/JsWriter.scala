@@ -220,10 +220,8 @@ private[npm] object JsWriter:
       case _ =>
         v
 
-  /** Writes rows to a Parquet file in memory */
-  def write(rows: js.Array[js.Any], schema: js.Array[js.Dynamic], options: js.Dynamic): Uint8Array =
-    val cols       = columns(schema)
-    val ps         = ParquetSchema.fromColumns("schema", cols.map(_.column))
+  /** The file options of a JS options object: `compression` and `compressionLevel` */
+  def fileOptions(options: js.Dynamic): ParquetWriteOptions =
     val hasOptions = !js.isUndefined(options) && options != null
     val codec      =
       if hasOptions then
@@ -236,8 +234,15 @@ private[npm] object JsWriter:
       if js.typeOf(level) != "number" || !level.asInstanceOf[Double].isWhole then
         fail(s"compressionLevel must be an integer: ${js.JSON.stringify(level)}")
       opts = opts.withCompressionLevel(level.asInstanceOf[Double].toInt)
-    val out = java.io.ByteArrayOutputStream()
-    val w   = Parquet.newRecordWriter(out, ps, opts)
+    opts
+
+  /** Writes rows to a Parquet file in memory */
+  def write(rows: js.Array[js.Any], schema: js.Array[js.Dynamic], options: js.Dynamic): Uint8Array =
+    val cols = columns(schema)
+    val ps   = ParquetSchema.fromColumns("schema", cols.map(_.column))
+    val opts = fileOptions(options)
+    val out  = java.io.ByteArrayOutputStream()
+    val w    = Parquet.newRecordWriter(out, ps, opts)
     try rows.foreach(r => w.write(row(r, cols)))
     finally w.close()
     JsValues.bytes(out.toByteArray)

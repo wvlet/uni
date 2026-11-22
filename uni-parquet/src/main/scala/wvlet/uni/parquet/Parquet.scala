@@ -350,7 +350,7 @@ object Parquet:
     require(paths.nonEmpty, "The list of files is empty")
     filesDataset(store, paths, options, ownsStore = false)
 
-  private def filesDataset(
+  private[parquet] def filesDataset(
       store: ObjectStore,
       paths: Seq[String],
       options: ParquetDatasetOptions,
@@ -387,7 +387,7 @@ object Parquet:
       options: ParquetDatasetOptions
   ): Rx[ParquetDataset] = datasetAsync(store, root, options, ownsStore = false)
 
-  private def datasetAsync(
+  private[parquet] def datasetAsync(
       store: ObjectStore,
       root: String,
       options: ParquetDatasetOptions,

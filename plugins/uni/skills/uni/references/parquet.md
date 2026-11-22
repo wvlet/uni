@@ -441,6 +441,28 @@ const out = writeParquet(rows, [{ name: "id", type: "int64", optional: false }])
 
 INT64 is `bigint`, decimals are strings, timestamps are `Date` unless `timestamps: "bigint"`.
 
+Datasets (root, glob, or file list; local in Node, or `s3://`/`gs://`/`az://`; async I/O, so browsers work):
+
+```ts
+import { openDataset, writeDataset, newDatasetWriter } from "@wvlet/uni/parquet";
+const storage = { s3: { region: "us-east-1", credentials: { accessKeyId, secretAccessKey, sessionToken } } };
+await writeDataset("s3://bucket/events/", rows, schema, { partitionBy: ["dt"], mode: "overwrite-partitions", storage });
+const ds = await openDataset("s3://bucket/events/dt=2026-11-*", { storage });
+const hits = await ds.readRows({ filter: [["dt", ">=", "2026-11-15"], ["country", "in", ["JP"]]] });
+for await (const b of ds.batches({ columns: ["id"] })) { /* one row group at a time */ }
+ds.close();
+```
+
+- Filters follow PyArrow: a `[col, op, value]` condition, an array of them (AND), or an array of
+  arrays (OR of ANDs). Ops: `= != < <= > >= in "not in" "is null" "is not null"`. They are exact.
+- Partition types come from `_common_metadata`, or from `partitionTypes: { dt: "date" }` (needed for file lists).
+- `storage` is per call: `s3 { region, endpoint, pathStyle, credentials | "anonymous" }`,
+  `gcs { accessToken | credentialsJson (Node only) | anonymous }`, `azure { connectionString,
+  account, sasToken | sharedKey | anonymous }`. Node falls back to the default chain. Browsers
+  must pass short-lived credentials or `anonymous`.
+- `newDatasetWriter(root, schema, opts)` gives `write(row)` (throws when the upload queue is over
+  `maxBufferedBytes`; await `flush()`), `flush()`, `close()` (resolves to the written files), and `abort()`.
+
 ## Limits
 
 No modular encryption, LZO codec, or ALP encoding, and one row must hold under 2 GiB of values

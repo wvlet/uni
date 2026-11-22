@@ -6,7 +6,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { openParquet, writeParquet } from "@wvlet/uni/parquet";
+import { newDatasetWriter, openDataset, openParquet, writeDataset, writeParquet } from "@wvlet/uni/parquet";
 
 const schema = [
   { name: "id", type: "int64", optional: false },
@@ -197,4 +197,146 @@ test("reports errors as JS Errors", async () => {
     /Expected an object or a Map/,
   );
   assert.throws(() => writeParquet([], [{ name: "a", type: { decimal: { scale: 2 } } }]), /integer decimal precision/);
+});
+
+// ---- Datasets ----
+
+const eventSchema = [
+  { name: "id", type: "int64", optional: false },
+  { name: "name", type: "string" },
+  { name: "dt", type: "date" },
+  { name: "hour", type: "int32" },
+];
+
+const events = [
+  { id: 1n, name: "a", dt: "2026-11-19", hour: 1 },
+  { id: 2n, name: "b", dt: "2026-11-20", hour: 1 },
+  { id: 3n, name: "c", dt: "2026-11-20", hour: 2 },
+  { id: 4n, name: null, dt: new Date(Date.UTC(2026, 10, 21)), hour: 2 },
+];
+
+function tempRoot() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "uni-npm-dataset-"));
+}
+
+test("writes a partitioned dataset and reads it back with typed partitions", async () => {
+  const root = path.join(tempRoot(), "events");
+  const written = await writeDataset(root, events, eventSchema, { partitionBy: ["dt", "hour"] });
+  assert.equal(written.length, 4);
+  assert.equal(written.reduce((n, f) => n + f.numRows, 0), 4);
+  assert.ok(written.every((f) => f.path.includes("dt=") && f.size > 0));
+  assert.deepEqual(written.map((f) => f.partitions.hour).sort(), [1, 1, 2, 2]);
+  assert.ok(fs.existsSync(path.join(root, "_SUCCESS")));
+  assert.ok(fs.existsSync(path.join(root, "_common_metadata")));
+
+  const ds = await openDataset(root);
+  assert.deepEqual(ds.partitionColumns, ["dt", "hour"]);
+  assert.equal(ds.numFiles, 4);
+  const types = Object.fromEntries(ds.schema.map((c) => [c.name, [c.type, c.partition ?? false]]));
+  // Types recorded in _common_metadata, with no partitionTypes option
+  assert.deepEqual(types, {
+    id: ["int64", false],
+    name: ["string", false],
+    dt: ["date", true],
+    hour: ["int32", true],
+  });
+  const rows = await ds.readRows();
+  assert.deepEqual(
+    rows.map((r) => r.id),
+    [1n, 2n, 3n, 4n],
+  );
+  assert.ok(rows[0].dt instanceof Date);
+  assert.equal(rows[0].dt.toISOString(), "2026-11-19T00:00:00.000Z");
+  assert.equal(rows[3].hour, 2);
+  ds.close();
+});
+
+test("prunes partitions and filters rows", async () => {
+  const root = path.join(tempRoot(), "events");
+  await writeDataset(root, events, eventSchema, { partitionBy: ["dt"] });
+  const ds = await openDataset(root);
+  const day = new Date(Date.UTC(2026, 10, 20));
+  const files = await ds.files({ filter: ["dt", "=", day] });
+  assert.equal(files.length, 1);
+  assert.ok(files[0].partitions.dt instanceof Date);
+  assert.ok(files[0].size > 0);
+
+  const ids = async (filter) => (await ds.readRows({ filter, columns: ["id"] })).map((r) => r.id);
+  assert.deepEqual(await ids(["dt", ">=", "2026-11-20"]), [2n, 3n, 4n]);
+  assert.deepEqual(await ids([["dt", "=", "2026-11-20"], ["hour", ">", 1]]), [3n]);
+  assert.deepEqual(await ids([[["id", "=", 1n]], [["name", "is null"]]]), [1n, 4n]);
+  assert.deepEqual(await ids(["name", "in", ["a", "c"]]), [1n, 3n]);
+  assert.deepEqual(await ids(["name", "!=", "a"]), [2n, 3n]);
+  assert.deepEqual(await ids(["name", "not in", ["a", "b"]]), [3n]);
+  await assert.rejects(ds.readRows({ filter: ["id", "~", 1] }), /Unknown filter operator/);
+  await assert.rejects(ds.readRows({ filter: ["id", "=", null] }), /is null/);
+  await assert.rejects(ds.readRows({ filter: ["nope", "=", 1] }), /No column named nope/);
+  ds.close();
+});
+
+test("reads a dataset in batches, stopping early", async () => {
+  const root = path.join(tempRoot(), "events");
+  await writeDataset(root, events, eventSchema, { partitionBy: ["dt"] });
+  const ds = await openDataset(root);
+  let rows = 0;
+  for await (const b of ds.batches({ filter: ["dt", "<=", "2026-11-20"] })) {
+    assert.ok(b.column("dt").values.length === b.numRows);
+    rows += b.numRows;
+  }
+  assert.equal(rows, 3);
+  for await (const b of ds.batches()) {
+    assert.ok(b.numRows > 0);
+    break;
+  }
+  ds.close();
+});
+
+test("reads a glob and a list of files", async () => {
+  const root = path.join(tempRoot(), "events");
+  const written = await writeDataset(root, events, eventSchema, { partitionBy: ["dt"] });
+  const glob = await openDataset(`${root}/dt=2026-11-2*`);
+  assert.equal(glob.numFiles, 2);
+  assert.deepEqual((await glob.readRows({ columns: ["id"] })).map((r) => r.id), [2n, 3n, 4n]);
+  glob.close();
+
+  const paths = written.map((f) => f.path).sort();
+  // A list has no root, so partitions are strings unless declared
+  const list = await openDataset(paths);
+  assert.equal((await list.readRows())[0].dt, "2026-11-19");
+  list.close();
+  const typed = await openDataset(paths, { partitionTypes: { dt: "date" } });
+  assert.ok((await typed.readRows())[0].dt instanceof Date);
+  assert.ok((await typed.files())[0].size > 0);
+  typed.close();
+});
+
+test("streams rows with a dataset writer and appends", async () => {
+  const root = path.join(tempRoot(), "events");
+  const w = await newDatasetWriter(root, eventSchema, { partitionBy: ["dt"], maxRowsPerFile: 1 });
+  for (const e of events) w.write(e);
+  await w.flush();
+  assert.equal(w.numRows, 4);
+  const files = await w.close();
+  assert.equal(files.length, 4);
+  await assert.rejects(writeDataset(root, events, eventSchema, { partitionBy: ["dt"] }), Error);
+  await writeDataset(root, events.slice(0, 1), eventSchema, { partitionBy: ["dt"], mode: "append" });
+  const ds = await openDataset(root);
+  assert.equal((await ds.readRows()).length, 5);
+  ds.close();
+});
+
+test("reports dataset option errors", async () => {
+  await assert.rejects(openDataset(path.join(tempRoot(), "missing")), Error);
+  await assert.rejects(openDataset("https://example.com/x/"), /openParquet/);
+  await assert.rejects(openDataset([]), /empty/);
+  await assert.rejects(openDataset("/tmp", { partitionTypes: { dt: "timestamp" } }), /Unknown partition type/);
+  await assert.rejects(writeDataset(path.join(tempRoot(), "x"), [], eventSchema, { mode: "replace" }), /Unknown mode/);
+  await assert.rejects(
+    openDataset("s3://bucket/x/", { storage: { s3: { credentials: "none" } } }),
+    /"anonymous"/,
+  );
+  await assert.rejects(
+    openDataset("gs://bucket/x/", { storage: { gcs: { accessToken: "t", anonymous: true } } }),
+    /one of/,
+  );
 });

@@ -35,6 +35,10 @@ for await (const batch of file.batches()) {
 - INT64 values are `bigint`, decimals are strings, timestamps are `Date` by default; pass
   `{ timestamps: "bigint" }` to read them without losing precision. See `parquet.d.ts` for the full
   mapping.
+- Datasets: `openDataset(root | glob | files[], { storage })` reads partitioned datasets from a
+  local directory (Node.js) or S3, GCS, and Azure, with PyArrow-style filters such as
+  `[["dt", ">=", "2026-11-15"]]`; `writeDataset` and `newDatasetWriter` write them. Object-store
+  I/O is async, so it works in browsers too; pass short-lived credentials there.
 - Browsers: the bundle refers to Node.js built-ins (`os`, `path`, `zlib`) that only run for local
   files and GZIP. Vite stubs them automatically; with webpack, set
   `resolve.fallback: { os: false, path: false, zlib: false }`.
