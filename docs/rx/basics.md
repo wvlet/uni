@@ -116,40 +116,9 @@ val result = Rx.single(computeValue()).await
 
 ## Stream Events
 
-Streams emit three types of events:
-
-1. **OnNext(value)** - A value is emitted
-2. **OnError(exception)** - An error occurred
-3. **OnCompletion(result)** - The stream ended: `Result.Success(())` when it
-   completed, `Result.Failure(e)` when it failed
-
-`RxRunner.run` and `runOnce` stop at the first error, which arrives as the end of
-the stream, so their handler sees only `OnNext` and `OnCompletion`:
-
-```scala
-import wvlet.uni.rx.{OnCompletion, OnNext, RxRunner}
-import wvlet.uni.util.Result
-
-RxRunner.run(stream) {
-  case OnNext(value)                   => println(s"Value: ${value}")
-  case OnCompletion(Result.Success(_)) => println("Done")
-  case OnCompletion(Result.Failure(e)) => println(s"Failed: ${e.getMessage}")
-}
-```
-
-`RxRunner.runContinuously` keeps running after an error, which it delivers as
-`OnError(e)`, and stops at the first `OnCompletion`. `subscribe(f)` runs this
-way, but `f` receives values only: an `OnError` is thrown back to the code that
-pushed the value, such as the caller of `:=`, and later values still arrive. A
-uni-dom binding shows nothing for an `OnError` and renders the next value.
-
-A throwing `map` reports an `OnError`, and the stream goes on. A failed source
-(`RxVar.setException`, a failed `Rx.future`, `Rx.exception`) ends the stream with
-`OnCompletion(Result.Failure(e))` (see [error handling](./operators#error-handling)).
-Try a throwing `map` in the gallery, where each lane draws the events of one
-stream:
-
-<UiGallery story="rx-errors/resume" embed height="520px" />
+A stream emits values as `OnNext`, reports errors it continues past as `OnError`, and ends at most
+once, with `OnCompletion` or `OnFailure`. See [Stream Events](./events) for the rules, event traces
+of common streams, and what each way of running a stream delivers.
 
 ## Timers and Intervals
 
