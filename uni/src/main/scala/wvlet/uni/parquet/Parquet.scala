@@ -15,6 +15,8 @@ import wvlet.uni.storage.ObjectUri
 import wvlet.uni.storage.S3Config
 import wvlet.uni.weaver.Weaver
 
+import scala.util.control.NonFatal
+
 /**
   * Entry points for reading and writing Apache Parquet files.
   *
@@ -908,7 +910,7 @@ object Parquet:
       case None =>
         0
       case Some(e) =>
-        val (path, bytes) = IcebergWrite.hint(layout, e)
+        val (path, bytes) = IcebergWrite.hint(layout, e.version)
         DatasetWriterCore.runSync(
           target,
           DatasetWriterCore
@@ -920,7 +922,34 @@ object Parquet:
                   .metadataPath}), but writing ${path} failed"
             )
         )
+        // Every file is tried: one that fails to delete stays as an unreferenced file
+        val failed = e
+          .unreferenced
+          .flatMap { p =>
+            try
+              DatasetWriterCore.runSync(
+                target,
+                DatasetWriterCore.RootAction.Delete(p, s"Failed to delete ${p}")
+              )
+              None
+            catch
+              case NonFatal(err) =>
+                Some(p -> err)
+          }
+        failed
+          .headOption
+          .foreach { (p, err) =>
+            throw ParquetException(
+              s"Expired ${e.snapshots} snapshots of ${target.rootName} (${e
+                  .metadataPath}), but ${failed
+                  .size} unreferenced files could not be deleted, such as ${p}: ${err.getMessage}",
+              err
+            )
+          }
         e.snapshots
+    end match
+
+  end expireSnapshots
 
   /**
     * Deletes the Apache Iceberg table at `root`: its metadata first, so a drop that fails partway

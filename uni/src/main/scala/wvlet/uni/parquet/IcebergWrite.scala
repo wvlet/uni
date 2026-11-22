@@ -521,8 +521,11 @@ private[parquet] object IcebergWrite:
     attempt(1)
 
   /** The hint after a schema change */
-  def hint(layout: Layout, a: Altered): (String, Array[Byte]) =
-    layout.metadata(VersionHint) -> a.version.toString.getBytes(StandardCharsets.UTF_8)
+  def hint(layout: Layout, a: Altered): (String, Array[Byte]) = hint(layout, a.version)
+
+  /** `version-hint.text` naming metadata version `version` */
+  def hint(layout: Layout, version: Int): (String, Array[Byte]) =
+    layout.metadata(VersionHint) -> version.toString.getBytes(StandardCharsets.UTF_8)
 
   private def alteredMetadata(
       layout: Layout,
@@ -1238,12 +1241,6 @@ private[parquet] object IcebergWrite:
     val lsb = (r.nextLong() & 0x3fffffffffffffffL) | Long.MinValue
     java.util.UUID(msb, lsb).toString
 
-  /**
-    * The commit: writes the manifest, then for each attempt a manifest list on the current parent
-    * and `v{N+1}.metadata.json` (only if absent). Losing the race reloads the table and retries, up
-    * to [[MaxAttempts]] times. Files of a failed commit are deleted by `onFailure` of the caller,
-    * which gets them from [[CommitState.written]].
-    */
   /** The local path or object URI of a file URI the table's metadata records */
   private def resolvePath(layout: Layout, t: Table, uri: String): String =
     val location                = string(t.metadata, "location").getOrElse("").stripSuffix("/")
@@ -1267,6 +1264,12 @@ private[parquet] object IcebergWrite:
     else
       ParquetDataset.localPath(n)
 
+  /**
+    * The commit: writes the manifest, then for each attempt a manifest list on the current parent
+    * and `v{N+1}.metadata.json` (only if absent). Losing the race reloads the table and retries, up
+    * to [[MaxAttempts]] times. Files of a failed commit are deleted by `onFailure` of the caller,
+    * which gets them from [[CommitState.written]].
+    */
   final class CommitState(val plan: Plan, files: IndexedSeq[DataFile]):
     val snapshotId: Long = newId()
     private val commitId = newUuid()
@@ -1958,8 +1961,7 @@ private[parquet] object IcebergWrite:
   )
 
   /** The hint readers such as DuckDB use to find the current version */
-  def hint(layout: Layout, c: Committed): (String, Array[Byte]) =
-    layout.metadata(VersionHint) -> c.version.toString.getBytes(StandardCharsets.UTF_8)
+  def hint(layout: Layout, c: Committed): (String, Array[Byte]) = hint(layout, c.version)
 
   // ---- Steps ----
 
@@ -1980,16 +1982,19 @@ private[parquet] object IcebergWrite:
 
   // ---- Snapshot expiry ----
 
-  /** The result of expiring snapshots: the new metadata version and the files deleted */
-  case class Expired(version: Int, metadataPath: String, snapshots: Int, deletedFiles: Seq[String])
+  /**
+    * A committed expiry: the new metadata version, and the files no snapshot left in it references,
+    * for the caller to delete after writing the hint
+    */
+  case class Expired(version: Int, metadataPath: String, snapshots: Int, unreferenced: Seq[String])
 
   /**
     * Expires every snapshot but the newest `retainLast` (by commit time), the current one, and
-    * those a branch or tag references, in a new metadata version. After the commit, deletes the
-    * files only expired snapshots reference (manifest lists, manifests, and data files), and the
-    * metadata files written before the oldest kept snapshot. Files outside the table folder are
-    * never deleted, and a file that a kept snapshot still lists stays. None when there is nothing
-    * to expire.
+    * those a branch or tag references, in a new metadata version. The files only expired snapshots
+    * reference (manifest lists, manifests, and data files), and the metadata files written before
+    * the oldest kept snapshot, are returned for deletion after the commit. Files outside the table
+    * folder are never returned, nor is a file a kept snapshot still lists. None when there is
+    * nothing to expire.
     */
   def expire(layout: Layout, retainLast: Int): Step[Option[Expired]] =
     require(retainLast >= 1, s"retainLast must be at least 1: ${retainLast}")
@@ -2195,35 +2200,35 @@ private[parquet] object IcebergWrite:
             )
         )
     )
-    val json = JSONObject(m.v.filterNot((k, _) => replaced.contains(k)) ++ replaced.toSeq)
-    val path = layout.metadata(s"v${t.version + 1}.metadata.json")
-    def deleteAll(ps: List[String]): Step[Option[Expired]] =
-      ps match
-        case Nil =>
-          Step.Done(Some(Expired(t.version + 1, path, expired.size, deleted)))
-        case p :: rest =>
-          Step.Delete(p, () => deleteAll(rest))
+    val json   = JSONObject(m.v.filterNot((k, _) => replaced.contains(k)) ++ replaced.toSeq)
+    val path   = layout.metadata(s"v${t.version + 1}.metadata.json")
+    val bytes  = json.toJSON.getBytes(StandardCharsets.UTF_8)
+    val result = Some(Expired(t.version + 1, path, expired.size, deleted))
     Step.Create(
       path,
-      json.toJSON.getBytes(StandardCharsets.UTF_8),
+      bytes,
       created =>
         if created then
-          // Only after the commit: a reader of the new version never needs these files
-          deleteAll(deleted.toList)
-        else if n < MaxAttempts then
-          // Another writer committed first: reload and choose the snapshots again
-          retry()
+          Step.Done(result)
         else
-          throw ParquetException(
-            s"Another writer kept committing to ${layout.root} first; gave up after ${n} attempts"
+          // A create whose response was lost may have landed: then the file is ours
+          Step.Fetch(
+            path,
+            existing =>
+              if java.util.Arrays.equals(existing, bytes) then
+                Step.Done(result)
+              else if n < MaxAttempts then
+                // Another writer committed first: reload and choose the snapshots again
+                retry()
+              else
+                throw ParquetException(
+                  s"Another writer kept committing to ${layout
+                      .root} first; gave up after ${n} attempts"
+                )
           )
     )
 
   end commitExpiry
-
-  /** The hint after an expiry */
-  def hint(layout: Layout, e: Expired): (String, Array[Byte]) =
-    layout.metadata(VersionHint) -> e.version.toString.getBytes(StandardCharsets.UTF_8)
 
   // ---- JSON helpers ----
 
