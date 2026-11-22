@@ -174,4 +174,17 @@ class GcsIntegrationTest extends UniTest:
     e.statusCode shouldBe Some(404)
   }
 
+  test("putIfAbsent creates an object only once") {
+    requireServer()
+    val uri = prefix.resolve("once/v1.metadata.json")
+    store.putIfAbsent(uri, "first".getBytes("UTF-8")) shouldBe true
+    store.putIfAbsent(uri, "second".getBytes("UTF-8")) shouldBe false
+    String(store.get(uri), "UTF-8") shouldBe "first"
+    val other = prefix.resolve("once/v2.metadata.json")
+    store
+      .putIfAbsentAsync(other, "a".getBytes("UTF-8"))
+      .flatMap(created => store.putIfAbsentAsync(other, "b".getBytes("UTF-8")).map(created -> _))
+      .map(_ shouldBe (true, false))
+  }
+
 end GcsIntegrationTest

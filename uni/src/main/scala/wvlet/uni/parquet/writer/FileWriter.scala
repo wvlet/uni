@@ -107,6 +107,9 @@ private[parquet] final class FileWriter(
   /** Bytes written to the output so far: the whole file once it is closed */
   private[parquet] def bytesWritten: Long = output.position
 
+  /** The row groups written so far, with their column statistics */
+  private[parquet] def rowGroupMetas: IndexedSeq[RowGroupMeta] = rowGroups.toIndexedSeq
+
   /** The file size if it were closed now, not counting the footer */
   private[parquet] def estimatedSize: Long = output.position + bufferedSize
 

@@ -63,7 +63,11 @@ private[parquet] final class AsyncDatasetDriver(
         core.writtenFiles
       }
     else
-      guard(Rx.single(core.finishAll()).flatMap(_ => uploadAll(core.takeUploads()))).flatMap { _ =>
+      guard(
+        Rx.single(core.finishAll())
+          .flatMap(_ => uploadAll(core.takeUploads()))
+          .flatMap(_ => commit())
+      ).flatMap { _ =>
         // The data files are published: a failure from here on keeps them
         runAll(core.closed()).transform { result =>
           core.closeStore()
@@ -71,6 +75,47 @@ private[parquet] final class AsyncDatasetDriver(
           core.writtenFiles
         }
       }
+
+  /** Commits an Iceberg snapshot; a failed commit deletes its manifests before `guard` aborts */
+  private def commit(): Rx[Unit] =
+    core.commitState() match
+      case None =>
+        Rx.single(())
+      case Some(c) =>
+        runSteps(c.run())
+          .map(core.committedTo)
+          .recoverWith { case NonFatal(e) =>
+            core
+              .failedCommit(c, e)
+              .foldLeft(Rx.single(()))((acc, a) =>
+                acc.flatMap(_ =>
+                  run(a).recover { case NonFatal(d) =>
+                    e.addSuppressed(d)
+                  }
+                )
+              )
+              .flatMap(_ => Rx.exception[Unit](e))
+          }
+
+  /** Runs commit steps with async calls */
+  private def runSteps[A](step: IcebergWrite.Step[A]): Rx[A] =
+    import IcebergWrite.Step
+    val s = store.getOrElse(throw IllegalStateException("The async writer has no object store"))
+    step match
+      case Step.Done(v) =>
+        Rx.single(v)
+      case Step.ListDir(dir, next) =>
+        val uri = ObjectUri.parse(dir)
+        s.listAsync(uri, recursive = false)
+          .flatMap(listed => runSteps(next(IcebergWrite.namesUnder(uri, listed))))
+      case Step.Fetch(path, next) =>
+        s.getAsync(ObjectUri.parse(path)).flatMap(b => runSteps(next(b)))
+      case Step.Put(path, bytes, next) =>
+        s.putAsync(ObjectUri.parse(path), bytes).flatMap(_ => runSteps(next()))
+      case Step.Create(path, bytes, next) =>
+        s.putIfAbsentAsync(ObjectUri.parse(path), bytes).flatMap(ok => runSteps(next(ok)))
+      case Step.Delete(path, next) =>
+        s.deleteAsync(ObjectUri.parse(path)).flatMap(_ => runSteps(next()))
 
   /** Deletes every file of this write, including uploaded ones */
   def abort(): Rx[Unit] =
@@ -168,6 +213,27 @@ private[parquet] object AsyncDatasetDriver:
   /** How many finished files upload at once */
   private val UploadParallelism = 4
 
+  /** Reads the current metadata of an Iceberg table with async calls */
+  private def loadTable(
+      store: ObjectStore,
+      layout: IcebergWrite.Layout
+  ): Rx[Option[IcebergWrite.Table]] =
+    import IcebergWrite.Step
+    def loop(step: Step[Option[IcebergWrite.Table]]): Rx[Option[IcebergWrite.Table]] =
+      step match
+        case Step.Done(v) =>
+          Rx.single(v)
+        case Step.ListDir(dir, next) =>
+          val uri = ObjectUri.parse(dir)
+          store
+            .listAsync(uri, recursive = false)
+            .flatMap(l => loop(next(IcebergWrite.namesUnder(uri, l))))
+        case Step.Fetch(path, next) =>
+          store.getAsync(ObjectUri.parse(path)).flatMap(b => loop(next(b)))
+        case other =>
+          Rx.exception(IllegalStateException(s"Loading a table doesn't write: ${other}"))
+    loop(IcebergWrite.load(layout))
+
   /** Lists the root and reads an old `_common_metadata` with async calls, then creates the core */
   def create(
       store: ObjectStore,
@@ -200,12 +266,19 @@ private[parquet] object AsyncDatasetDriver:
                   store.getAsync(ObjectUri.parse(l.path)).map(Option(_))
                 case _ =>
                   Rx.single(None)
-            bytes.map(b =>
-              DatasetWriterCore.create(
-                target,
-                schema,
-                options,
-                Some(DatasetWriterCore.Prefetched(listing, b))
+            val table: Rx[Option[Option[IcebergWrite.Table]]] =
+              if DatasetWriterCore.isIcebergWrite(listing, options, target.rootName) then
+                loadTable(store, DatasetWriterCore.icebergLayout(target)).map(Some(_))
+              else
+                Rx.single(None)
+            bytes.flatMap(b =>
+              table.map(t =>
+                DatasetWriterCore.create(
+                  target,
+                  schema,
+                  options,
+                  Some(DatasetWriterCore.Prefetched(listing, b, t))
+                )
               )
             )
           }

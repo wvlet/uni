@@ -3,6 +3,7 @@ package wvlet.uni.parquet
 import wvlet.uni.io.CRC32
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
+import wvlet.uni.io.codec.ByteBuf
 import wvlet.uni.io.codec.Inflate
 import wvlet.uni.io.codec.Snappy
 import wvlet.uni.io.codec.Zstd
@@ -415,5 +416,159 @@ private[parquet] object Avro:
           m.result()
 
   end Decoder
+
+  // ---- Writing ----
+
+  /**
+    * Writes an Avro object container file with the `null` codec, which every Avro reader supports.
+    * Records use the same generic tree [[read]] returns: a record is a `Map[String, Any]` (a
+    * missing field is null), an array any `Seq`, a map a `Map[String, Any]`, bytes and fixed an
+    * `Array[Byte]`. A union takes the first branch that fits the value. `schemaJson` is stored as
+    * written, so attributes such as Iceberg's `field-id` reach the readers.
+    */
+  def write(schemaJson: String, metadata: Seq[(String, String)], records: Seq[Any]): Array[Byte] =
+    val schema = parseSchema(JSON.parse(schemaJson), "", mutable.HashMap.empty, "the Avro schema")
+    val out    = ByteBuf(1024)
+    out.write(Magic)
+    val meta = Seq("avro.schema" -> schemaJson, "avro.codec" -> "null") ++ metadata
+    val head = Encoder(out)
+    head.long(meta.size.toLong)
+    meta.foreach { (k, v) =>
+      head.string(k)
+      head.bytes(v.getBytes(StandardCharsets.UTF_8))
+    }
+    head.long(0)
+    val sync = new Array[Byte](16)
+    scala.util.Random.nextBytes(sync)
+    out.write(sync)
+    if records.nonEmpty then
+      val body = ByteBuf(4096)
+      val e    = Encoder(body)
+      records.foreach(e.value(schema, _, "record"))
+      head.long(records.size.toLong)
+      head.long(body.size.toLong)
+      out.write(body)
+      out.write(sync)
+    out.toByteArray
+
+  end write
+
+  private final class Encoder(out: ByteBuf):
+    def long(v: Long): Unit = out.writeUnsignedVarLong((v << 1) ^ (v >> 63))
+
+    def bytes(b: Array[Byte]): Unit =
+      long(b.length.toLong)
+      out.write(b)
+
+    def string(s: String): Unit = bytes(s.getBytes(StandardCharsets.UTF_8))
+
+    private def fail(path: String, s: Schema, v: Any): Nothing =
+      throw IllegalArgumentException(
+        s"Avro ${path}: ${
+            if v == null then
+              "null"
+            else
+              v.getClass.getSimpleName
+          } doesn't fit ${s}"
+      )
+
+    private def fits(s: Schema, v: Any): Boolean =
+      (s, v) match
+        case (Schema.Null, null) =>
+          true
+        case (Schema.Boolean, _: Boolean) =>
+          true
+        case (Schema.Int, _: Int) =>
+          true
+        case (Schema.Long, _: Long | _: Int) =>
+          true
+        case (Schema.Float, _: Float) =>
+          true
+        case (Schema.Double, _: Double | _: Float) =>
+          true
+        case (Schema.Bytes, _: Array[Byte]) =>
+          true
+        case (Schema.Fixed(n), b: Array[Byte]) =>
+          b.length == n
+        case (Schema.Str, _: String) =>
+          true
+        case (Schema.Enum(symbols), x: String) =>
+          symbols.contains(x)
+        case (_: Schema.ArrayOf, _: Seq[?]) =>
+          true
+        case (_: Schema.MapOf, _: Map[?, ?]) =>
+          true
+        case (_: Schema.Record, _: Map[?, ?]) =>
+          true
+        case _ =>
+          false
+
+    def value(s: Schema, v: Any, path: String): Unit =
+      s match
+        case Schema.Union(types) =>
+          val i = types.indexWhere(fits(_, v))
+          if i < 0 then
+            fail(path, s, v)
+          long(i.toLong)
+          value(types(i), v, path)
+        case _ if !fits(s, v) =>
+          fail(path, s, v)
+        case Schema.Null    =>
+        case Schema.Boolean =>
+          out.writeByte(
+            if v.asInstanceOf[Boolean] then
+              1
+            else
+              0
+          )
+        case Schema.Int =>
+          long(v.asInstanceOf[Int].toLong)
+        case Schema.Long =>
+          v match
+            case i: Int =>
+              long(i.toLong)
+            case l =>
+              long(l.asInstanceOf[Long])
+        case Schema.Float =>
+          out.writeIntLE(java.lang.Float.floatToIntBits(v.asInstanceOf[Float]))
+        case Schema.Double =>
+          val d =
+            v match
+              case f: Float =>
+                f.toDouble
+              case d =>
+                d.asInstanceOf[Double]
+          out.writeLongLE(java.lang.Double.doubleToLongBits(d))
+        case Schema.Bytes =>
+          bytes(v.asInstanceOf[Array[Byte]])
+        case Schema.Fixed(_) =>
+          out.write(v.asInstanceOf[Array[Byte]])
+        case Schema.Str =>
+          string(v.asInstanceOf[String])
+        case Schema.Enum(symbols) =>
+          long(symbols.indexOf(v).toLong)
+        case Schema.ArrayOf(items) =>
+          val xs = v.asInstanceOf[Seq[Any]]
+          if xs.nonEmpty then
+            long(xs.size.toLong)
+            xs.foreach(value(items, _, s"${path}[]"))
+          long(0)
+        case Schema.MapOf(values) =>
+          val m = v.asInstanceOf[Map[String, Any]]
+          if m.nonEmpty then
+            long(m.size.toLong)
+            m.foreach { (k, x) =>
+              string(k)
+              value(values, x, s"${path}.${k}")
+            }
+          long(0)
+        case r: Schema.Record =>
+          val m = v.asInstanceOf[Map[String, Any]]
+          r.fields.foreach((n, t) => value(t, m.getOrElse(n, null), s"${path}.${n}"))
+      end match
+
+    end value
+
+  end Encoder
 
 end Avro

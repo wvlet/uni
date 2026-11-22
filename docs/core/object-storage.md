@@ -297,6 +297,22 @@ val top = store.list(ObjectUri.parse("s3://my-bucket/logs/"), recursive = false)
 top.filter(_.isDirectory).foreach(d => println(d.uri))
 ```
 
+## Creating an Object Only If Absent
+
+`putIfAbsent(uri, bytes)` creates the object only when nothing is stored at the key yet. It
+returns true when this call created the object and false when one was already there. Of several
+writers racing for the same key, at most one gets true, so it can commit a version file, such as
+the `vN.metadata.json` of an [Iceberg table](../text/parquet#writing-apache-iceberg-tables), or
+take a lock. S3 sends `If-None-Match: *`, GCS `ifGenerationMatch=0`, and Azure `If-None-Match: *`.
+`putIfAbsentAsync` returns an `Rx[Boolean]`.
+
+```scala
+val versionFile  = ObjectUri.parse("s3://my-bucket/table/metadata/v2.metadata.json")
+val metadataJson = """{"format-version": 2}"""
+if !store.putIfAbsent(versionFile, metadataJson.getBytes("UTF-8")) then
+  println("another writer committed v2 first")
+```
+
 ## Uploading Large Objects
 
 `newOutputStream` uploads what you write to it. It buffers 8 MiB parts (set

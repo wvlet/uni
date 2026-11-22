@@ -243,6 +243,13 @@ def typedDataset(root: String) = Parquet.dataset(
   date columns are partition columns. It reads `version-hint.text` or else the newest metadata
   file; pass the catalog's `.metadata.json` path as the root to read exactly the catalog's
   version. Delete files, format v3, non-Parquet data files, and renamed columns fail by name.
+- `ParquetDatasetWriteOptions.default.withTableFormat(ParquetTableFormat.Iceberg)` writes an
+  Iceberg table (Hadoop table, format v2): `ErrorIfExists` creates it, `Append` commits a
+  snapshot atomically (`ObjectStore.putIfAbsent` on `metadata/vN.metadata.json`, retrying a lost
+  race). Data goes under `data/` with the partition columns and field IDs kept; manifests carry
+  column stats. Under the default `Auto`, a write to an existing Iceberg root goes to the table.
+  Identity partitions on string, int, long, or date only; overwrite modes, other transforms,
+  schema changes, and catalog-owned tables (`00003-<uuid>.metadata.json`) fail by name.
 
 ## Write a partitioned dataset
 

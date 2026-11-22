@@ -196,6 +196,34 @@ class S3ObjectStore(val config: S3Config) extends ObjectStore with LogSupport:
     val call = Call(HttpMethod.PUT, uri, body = content, contentType = Some(contentType))
     sendAsync(call).map(r => checked(call, r)).map(_ => ())
 
+  private def createCall(uri: ObjectUri, content: Array[Byte], contentType: String): Call = Call(
+    HttpMethod.PUT,
+    uri,
+    headers = Seq("If-None-Match" -> "*"),
+    body = content,
+    contentType = Some(contentType)
+  )
+
+  // 412: the object exists; 409: a concurrent conditional write to the same key is in flight
+  private def createResult(call: Call, resp: Response): Boolean =
+    if resp.statusCode == 412 || resp.statusCode == 409 then
+      false
+    else
+      checked(call, resp)
+      true
+
+  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
+    val call = createCall(uri, content, contentType)
+    createResult(call, send(call))
+
+  override def putIfAbsentAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Rx[Boolean] =
+    val call = createCall(uri, content, contentType)
+    sendAsync(call).map(createResult(call, _))
+
   override def delete(uri: ObjectUri): Unit =
     val call = Call(HttpMethod.DELETE, uri)
     deleteResult(call, send(call))
