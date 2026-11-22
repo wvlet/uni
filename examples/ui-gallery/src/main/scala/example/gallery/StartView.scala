@@ -15,17 +15,10 @@ import scala.language.implicitConversions
 class StartView(page: GuidePage, app: Story) extends RxElement:
   import StartView.*
 
-  private var root: Option[dom.Element] = None
-
-  override def onMount(node: Any): Unit = root = Some(node.asInstanceOf[dom.Element])
-
-  private def scrollTo(e: dom.Event, sectionId: String): Unit =
-    e.preventDefault()
-    root.flatMap(r => Option(r.querySelector(s"#${sectionId}"))).foreach(_.scrollIntoView(true))
-
   private def step(n: Int, sectionId: String, title: String, body: DomNode*): RxElement = section(
-    cls -> "start-step",
-    id  -> sectionId,
+    cls             -> "start-step",
+    id              -> sectionId,
+    data("section") -> sectionId,
     h2(cls -> "start-step__title", span(cls -> "start-step__num", n.toString), title),
     body
   )
@@ -39,35 +32,17 @@ class StartView(page: GuidePage, app: Story) extends RxElement:
 
   override def render: RxElement = div(
     cls -> "page page--guide",
-    div(
-      cls -> "story-hero",
-      div(
-        cls -> "story-hero__inner",
-        h1(cls -> "story-title", page.name),
-        p(cls  -> "story-summary", page.summary),
-        div(
-          cls -> "story-meta",
-          div(
-            cls -> "page-toc",
-            steps.map((sectionId, title) =>
-              a(
-                cls     -> "page-toc__link",
-                href    -> s"#/${page.id}",
-                onclick -> { (e: dom.Event) =>
-                  scrollTo(e, sectionId)
-                },
-                title
-              )
-            )
-          ),
-          div(cls -> "story-meta__spacer"),
-          a(
-            cls    -> "story-link start-version",
-            href   -> "https://github.com/wvlet/uni/releases",
-            target -> "_blank",
-            rel    -> "noopener",
-            s"Uni ${BuildInfo.uniVersion} release notes"
-          )
+    PageHeader(
+      page.name,
+      page.summary,
+      steps.map((sectionId, title) => PageHeader.Link(sectionId, title, page.id)),
+      trailing = Seq(
+        a(
+          cls    -> "story-link start-version",
+          href   -> "https://github.com/wvlet/uni/releases",
+          target -> "_blank",
+          rel    -> "noopener",
+          s"Uni ${BuildInfo.uniVersion} release notes"
         )
       )
     ),

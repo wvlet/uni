@@ -300,47 +300,19 @@ class ColorsView extends RxElement:
 
   override def render: RxElement = div(
     cls -> "page colors-page",
-    div(
-      cls -> "story-hero",
-      div(
-        cls -> "story-hero__inner",
-        div(
-          cls -> "story-overline",
-          "Foundations",
-          span(cls -> "story-overline__sep", "/"),
-          "Colors"
-        ),
-        h1(cls -> "story-title", "Colors"),
-        p(cls  -> "story-summary", ColorsPage.page.summary),
-        div(
-          cls -> "story-meta",
-          div(
-            cls -> "page-toc",
-            ColorsPage
-              .groups
-              .map(g =>
-                a(
-                  cls     -> "page-toc__link",
-                  href    -> "#/colors",
-                  onclick -> { (e: dom.Event) =>
-                    e.preventDefault()
-                    Option(dom.document.getElementById(s"colors-${g.id}")).foreach(
-                      _.scrollIntoView(true)
-                    )
-                  },
-                  g.title
-                )
-              )
-          ),
-          div(cls -> "story-meta__spacer"),
-          div(cls -> "colors-legend", span(Icons.sun, "Light"), span(Icons.moon, "Dark")),
-          a(
-            cls    -> "story-link",
-            href   -> "https://wvlet.org/uni/dom/theming",
-            target -> "_blank",
-            Icons.book,
-            "Theming"
-          )
+    PageHeader(
+      "Colors",
+      ColorsPage.page.summary,
+      ColorsPage.groups.map(g => PageHeader.Link(g.id, g.title, ColorsPage.page.id)),
+      overline = Seq("Foundations", "Colors"),
+      trailing = Seq(
+        div(cls -> "colors-legend", span(Icons.sun, "Light"), span(Icons.moon, "Dark")),
+        a(
+          cls    -> "story-link",
+          href   -> "https://wvlet.org/uni/dom/theming",
+          target -> "_blank",
+          Icons.book,
+          "Theming"
         )
       )
     ),
@@ -348,8 +320,9 @@ class ColorsView extends RxElement:
       .groups
       .map(g =>
         section(
-          cls -> "colors-group",
-          id  -> s"colors-${g.id}",
+          cls             -> "colors-group",
+          id              -> s"colors-${g.id}",
+          data("section") -> g.id,
           div(
             cls -> "example-head",
             h2(cls -> "example-title", g.title),
