@@ -409,7 +409,14 @@ class ParquetDataset private[parquet] (
         case (f: ParquetField.Primitive, t: ParquetField.Primitive)
             if f.physicalType != t.physicalType =>
           try
-            mergeField(f, t, t.name, s"the table schema of ${root}", origins)
+            // A scratch origins map: this is only a check, so the files' origins stay as they are
+            mergeField(
+              f,
+              t,
+              t.name,
+              s"the table schema of ${root}",
+              scala.collection.mutable.HashMap.empty
+            )
           catch
             case _: ParquetException =>
               f
