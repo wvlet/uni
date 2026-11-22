@@ -741,6 +741,8 @@ Parquet.alterIcebergTable(
   WidenColumn("qty", ParquetType.INT64),
   SetProperty("owner", "data-team")
 )
+// Keep only the newest 5 snapshots, deleting the files only older ones reference
+Parquet.expireIcebergSnapshots(visitsRoot, retainLast = 5)
 Parquet.dropIcebergTable(visitsRoot)
 ```
 
@@ -751,6 +753,12 @@ Parquet.dropIcebergTable(visitsRoot)
   the current partition spec uses), `RenameColumn` (keeps the field ID), `WidenColumn` (int to
   long, float to double, a decimal to a larger precision with the same scale), `MakeOptional`,
   `SetProperty`, and `RemoveProperty`. Each works on top-level columns.
+- `expireIcebergSnapshots` keeps the newest `retainLast` snapshots (by commit time), the current
+  one, and those a branch or tag references, and commits the rest away in a new metadata version.
+  Only after that commit does it delete the files that just the expired snapshots reference
+  (manifest lists, manifests, data files), and the metadata files written before the oldest kept
+  snapshot. A file a kept snapshot lists stays, and nothing outside the table folder is deleted. It
+  returns the number of expired snapshots; time travel to them stops working.
 - `dropIcebergTable` deletes the hint and metadata files first, so a drop that fails partway leaves
   no readable table, then every file under the root. It fails when the root is not an Iceberg
   table.

@@ -1244,6 +1244,29 @@ private[parquet] object IcebergWrite:
     * to [[MaxAttempts]] times. Files of a failed commit are deleted by `onFailure` of the caller,
     * which gets them from [[CommitState.written]].
     */
+  /** The local path or object URI of a file URI the table's metadata records */
+  private def resolvePath(layout: Layout, t: Table, uri: String): String =
+    val location                = string(t.metadata, "location").getOrElse("").stripSuffix("/")
+    def norm(p: String): String =
+      if p.startsWith("s3a://") || p.startsWith("s3n://") then
+        s"s3${p.substring(3)}"
+      else if p.startsWith("file:") then
+        ParquetDataset.localPathOfFileUri(p).getOrElse(p)
+      else
+        p
+    val n = norm(uri)
+    val l = norm(location)
+    if n.startsWith(s"${l}/") then
+      val rel = n.substring(l.length + 1)
+      if layout.objects then
+        s"${layout.root}${rel}"
+      else
+        ParquetDataset.localPath(s"${layout.root}${rel}")
+    else if layout.objects then
+      n
+    else
+      ParquetDataset.localPath(n)
+
   final class CommitState(val plan: Plan, files: IndexedSeq[DataFile]):
     val snapshotId: Long = newId()
     private val commitId = newUuid()
@@ -1695,27 +1718,7 @@ private[parquet] object IcebergWrite:
         false
     }
 
-    private def resolve(t: Table, uri: String): String =
-      val location                = string(t.metadata, "location").getOrElse("").stripSuffix("/")
-      def norm(p: String): String =
-        if p.startsWith("s3a://") || p.startsWith("s3n://") then
-          s"s3${p.substring(3)}"
-        else if p.startsWith("file:") then
-          ParquetDataset.localPathOfFileUri(p).getOrElse(p)
-        else
-          p
-      val n = norm(uri)
-      val l = norm(location)
-      if n.startsWith(s"${l}/") then
-        val rel = n.substring(l.length + 1)
-        if layout.objects then
-          s"${layout.root}${rel}"
-        else
-          ParquetDataset.localPath(s"${layout.root}${rel}")
-      else if layout.objects then
-        n
-      else
-        ParquetDataset.localPath(n)
+    private def resolve(t: Table, uri: String): String = resolvePath(layout, t, uri)
 
     private def parentEntry(r: Any): Any =
       val m                        = r.asInstanceOf[Map[String, Any]]
@@ -1974,6 +1977,253 @@ private[parquet] object IcebergWrite:
         Step.Create(p, b, ok => flatMap(next(ok))(f))
       case Step.Delete(p, next) =>
         Step.Delete(p, () => flatMap(next())(f))
+
+  // ---- Snapshot expiry ----
+
+  /** The result of expiring snapshots: the new metadata version and the files deleted */
+  case class Expired(version: Int, metadataPath: String, snapshots: Int, deletedFiles: Seq[String])
+
+  /**
+    * Expires every snapshot but the newest `retainLast` (by commit time), the current one, and
+    * those a branch or tag references, in a new metadata version. After the commit, deletes the
+    * files only expired snapshots reference (manifest lists, manifests, and data files), and the
+    * metadata files written before the oldest kept snapshot. Files outside the table folder are
+    * never deleted, and a file that a kept snapshot still lists stays. None when there is nothing
+    * to expire.
+    */
+  def expire(layout: Layout, retainLast: Int): Step[Option[Expired]] =
+    require(retainLast >= 1, s"retainLast must be at least 1: ${retainLast}")
+    def attempt(n: Int): Step[Option[Expired]] =
+      flatMap(load(layout)) {
+        case None =>
+          throw ParquetException(s"${layout.root} is not an Iceberg table")
+        case Some(t) =>
+          val m                         = t.metadata
+          val snapshots                 = objects(m, "snapshots")
+          def idOf(s: JSONObject): Long = long(s, "snapshot-id").getOrElse(-1L)
+          val pinned                    =
+            long(m, "current-snapshot-id").toSet ++ (
+              m.get("refs") match
+                case Some(JSONObject(rs)) =>
+                  rs.collect { case (_, r: JSONObject) =>
+                      long(r, "snapshot-id")
+                    }
+                    .flatten
+                case _ =>
+                  Nil
+            )
+          val newest =
+            snapshots
+              .sortBy(s =>
+                (long(s, "timestamp-ms").getOrElse(0L), long(s, "sequence-number").getOrElse(0L))
+              )
+              .reverse
+              .take(retainLast)
+              .map(idOf)
+              .toSet
+          val (kept, expired) = snapshots.partition(s =>
+            newest.contains(idOf(s)) || pinned.contains(idOf(s))
+          )
+          if expired.isEmpty then
+            Step.Done(None)
+          else
+            flatMap(manifestsOf(layout, t, snapshots)) { manifests =>
+              flatMap(dataFilesOf(layout, t, manifests.values.flatten.toSeq.distinct)) {
+                dataFiles =>
+                  commitExpiry(
+                    n,
+                    layout,
+                    t,
+                    kept,
+                    expired,
+                    manifests,
+                    dataFiles,
+                    () => attempt(n + 1)
+                  )
+              }
+            }
+      }
+    attempt(1)
+
+  end expire
+
+  /** Each snapshot's manifest list (when it has one) and manifests, as paths */
+  private def manifestsOf(
+      layout: Layout,
+      t: Table,
+      snapshots: IndexedSeq[JSONObject]
+  ): Step[Map[Long, Seq[String]]] =
+    def loop(i: Int, acc: Map[Long, Seq[String]]): Step[Map[Long, Seq[String]]] =
+      if i >= snapshots.size then
+        Step.Done(acc)
+      else
+        val s  = snapshots(i)
+        val id = long(s, "snapshot-id").getOrElse(-1L)
+        string(s, "manifest-list") match
+          case Some(list) =>
+            Step.Fetch(
+              resolvePath(layout, t, list),
+              bytes =>
+                val paths = Avro
+                  .read(bytes, list)
+                  .records
+                  .flatMap(r =>
+                    r.asInstanceOf[Map[String, Any]]
+                      .get("manifest_path")
+                      .collect { case p: String =>
+                        resolvePath(layout, t, p)
+                      }
+                  )
+                loop(i + 1, acc + (id -> paths))
+            )
+          case None =>
+            // Format v1 may list the manifests in the snapshot
+            val paths = array(s, "manifests").collect { case JSONString(p) =>
+              resolvePath(layout, t, p)
+            }
+            loop(i + 1, acc + (id -> paths))
+    loop(0, Map.empty)
+
+  end manifestsOf
+
+  /** The data files each manifest lists: (path, whether the entry is live) */
+  private def dataFilesOf(
+      layout: Layout,
+      t: Table,
+      manifests: Seq[String]
+  ): Step[Map[String, Seq[(String, Boolean)]]] =
+    def loop(
+        i: Int,
+        acc: Map[String, Seq[(String, Boolean)]]
+    ): Step[Map[String, Seq[(String, Boolean)]]] =
+      if i >= manifests.size then
+        Step.Done(acc)
+      else
+        val path = manifests(i)
+        Step.Fetch(
+          path,
+          bytes =>
+            val files = Avro
+              .read(bytes, path)
+              .records
+              .flatMap { r =>
+                val e      = r.asInstanceOf[Map[String, Any]]
+                val status =
+                  e.get("status") match
+                    case Some(i: Int) =>
+                      i
+                    case _ =>
+                      Existing
+                e.get("data_file")
+                  .collect { case d: Map[?, ?] =>
+                    d.asInstanceOf[Map[String, Any]]
+                      .get("file_path")
+                      .collect { case p: String =>
+                        resolvePath(layout, t, p) -> (status != Deleted)
+                      }
+                  }
+                  .flatten
+              }
+            loop(i + 1, acc + (path -> files))
+        )
+    loop(0, Map.empty)
+
+  end dataFilesOf
+
+  private def commitExpiry(
+      n: Int,
+      layout: Layout,
+      t: Table,
+      kept: IndexedSeq[JSONObject],
+      expired: IndexedSeq[JSONObject],
+      manifests: Map[Long, Seq[String]],
+      dataFiles: Map[String, Seq[(String, Boolean)]],
+      retry: () => Step[Option[Expired]]
+  ): Step[Option[Expired]] =
+    val m                                  = t.metadata
+    def idOf(s: JSONObject): Long          = long(s, "snapshot-id").getOrElse(-1L)
+    def listOf(s: JSONObject): Seq[String] =
+      string(s, "manifest-list").map(resolvePath(layout, t, _)).toSeq
+    val keptIds = kept.map(idOf).toSet
+    // Everything a kept snapshot reads stays
+    val keptManifests = kept.flatMap(s => manifests.getOrElse(idOf(s), Nil)).toSet
+    val keep          =
+      kept.flatMap(listOf).toSet ++ keptManifests ++
+        keptManifests.flatMap(mf =>
+          dataFiles
+            .getOrElse(mf, Nil)
+            .collect { case (p, true) =>
+              p
+            }
+        )
+    val expiredManifests = expired.flatMap(s => manifests.getOrElse(idOf(s), Nil)).distinct
+    val candidates       =
+      expired.flatMap(listOf) ++ expiredManifests ++
+        expiredManifests.flatMap(mf => dataFiles.getOrElse(mf, Nil).map(_._1))
+    val root              = layout.root
+    val oldest            = kept.flatMap(long(_, "timestamp-ms")).minOption.getOrElse(Long.MaxValue)
+    val (oldLog, keptLog) = array(m, "metadata-log")
+      .collect { case o: JSONObject =>
+        o
+      }
+      .partition(e => long(e, "timestamp-ms").exists(_ < oldest))
+    val oldMetadata = oldLog.flatMap(string(_, "metadata-file")).map(resolvePath(layout, t, _))
+    val deleted     = (candidates.filterNot(keep.contains) ++ oldMetadata)
+      .distinct
+      .filter(_.startsWith(root))
+    val now      = System.currentTimeMillis()
+    val replaced = Map[String, JSONValue](
+      "last-updated-ms" -> JSONLong(now),
+      "snapshots"       -> JSONArray(kept),
+      "snapshot-log"    ->
+        JSONArray(
+          array(m, "snapshot-log").filter {
+            case o: JSONObject =>
+              long(o, "snapshot-id").exists(keptIds.contains)
+            case _ =>
+              false
+          }
+        ),
+      "metadata-log" ->
+        JSONArray(
+          keptLog :+
+            JSONObject(
+              Seq(
+                "timestamp-ms"  -> JSONLong(long(m, "last-updated-ms").getOrElse(now)),
+                "metadata-file" -> JSONString(tableLayout(layout, t).uriOf(t.path))
+              )
+            )
+        )
+    )
+    val json = JSONObject(m.v.filterNot((k, _) => replaced.contains(k)) ++ replaced.toSeq)
+    val path = layout.metadata(s"v${t.version + 1}.metadata.json")
+    def deleteAll(ps: List[String]): Step[Option[Expired]] =
+      ps match
+        case Nil =>
+          Step.Done(Some(Expired(t.version + 1, path, expired.size, deleted)))
+        case p :: rest =>
+          Step.Delete(p, () => deleteAll(rest))
+    Step.Create(
+      path,
+      json.toJSON.getBytes(StandardCharsets.UTF_8),
+      created =>
+        if created then
+          // Only after the commit: a reader of the new version never needs these files
+          deleteAll(deleted.toList)
+        else if n < MaxAttempts then
+          // Another writer committed first: reload and choose the snapshots again
+          retry()
+        else
+          throw ParquetException(
+            s"Another writer kept committing to ${layout.root} first; gave up after ${n} attempts"
+          )
+    )
+
+  end commitExpiry
+
+  /** The hint after an expiry */
+  def hint(layout: Layout, e: Expired): (String, Array[Byte]) =
+    layout.metadata(VersionHint) -> e.version.toString.getBytes(StandardCharsets.UTF_8)
 
   // ---- JSON helpers ----
 

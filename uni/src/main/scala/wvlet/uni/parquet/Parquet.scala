@@ -883,6 +883,46 @@ object Parquet:
     )
 
   /**
+    * Expires every snapshot of the Apache Iceberg table at `root` but the newest `retainLast`, the
+    * current one, and those a branch or tag references. The commit is a new metadata version; then
+    * the files only expired snapshots reference (manifest lists, manifests, data files) and the
+    * metadata files older than the oldest kept snapshot are deleted, so time travel to an expired
+    * snapshot stops working. Files outside the table folder are never deleted.
+    *
+    * @return
+    *   the number of expired snapshots (0 when there was nothing to expire)
+    */
+  def expireIcebergSnapshots(root: String, retainLast: Int): Int =
+    withTarget(datasetTarget(root))(expireSnapshots(_, retainLast))
+
+  /** Expires snapshots of the Iceberg table at `root` in the store */
+  def expireIcebergSnapshots(store: ObjectStore, root: String, retainLast: Int): Int =
+    expireSnapshots(
+      DatasetTarget.Objects(store, ParquetDataset.objectRoot(root), ownsStore = false),
+      retainLast
+    )
+
+  private def expireSnapshots(target: DatasetTarget, retainLast: Int): Int =
+    val layout = DatasetWriterCore.icebergLayout(target)
+    DatasetWriterCore.runStepsSync(target, IcebergWrite.expire(layout, retainLast)) match
+      case None =>
+        0
+      case Some(e) =>
+        val (path, bytes) = IcebergWrite.hint(layout, e)
+        DatasetWriterCore.runSync(
+          target,
+          DatasetWriterCore
+            .RootAction
+            .Put(
+              path,
+              bytes,
+              s"Expired snapshots of ${target.rootName} (${e
+                  .metadataPath}), but writing ${path} failed"
+            )
+        )
+        e.snapshots
+
+  /**
     * Deletes the Apache Iceberg table at `root`: its metadata first, so a drop that fails partway
     * leaves no readable table, then its data files and the folder. Fails when `root` is not an
     * Iceberg table.
