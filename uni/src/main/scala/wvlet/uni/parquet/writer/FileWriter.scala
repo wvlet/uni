@@ -149,6 +149,12 @@ private[parquet] final class FileWriter(
         throw e
 
   private def flushRowGroup(): Unit =
+    // Compress in parallel, then write the chunks in order
+    wvlet
+      .uni
+      .parquet
+      .WriteParallelism
+      .run(writers.size, options.parallelism)(i => writers(i).finishPages())
     val chunks = writers.map(_.writeChunk(output))
     rowGroups +=
       RowGroupMeta(

@@ -241,7 +241,7 @@ private[parquet] final class DatasetWriterCore private (
               .mkString(", ")}"
         )
 
-  private lazy val batchShredder = BatchShredder(fileSchema)
+  private lazy val batchShredder = BatchShredder(fileSchema, options.writeOptions.parallelism)
 
   /** The sort order of `withSortBy`, checked against the file schema */
   private val sort: Option[DatasetSort] =
@@ -612,6 +612,8 @@ private[parquet] final class DatasetWriterCore private (
         val (dir, (vs, _)) = groups.head
         setValues(vs)
         writeOrHold(dir, data, checked)
+      else if writesInParallel(groups.size) then
+        writeInParallel(data, groups)
       else
         groups.foreach { case (dir, (vs, rows)) =>
           setValues(vs)
@@ -625,6 +627,58 @@ private[parquet] final class DatasetWriterCore private (
     end if
 
   end writePartitions
+
+  /**
+    * Whether the partitions of a batch go to their files in parallel: each to its own open file,
+    * with no file limits that would roll a file in the middle of the batch
+    */
+  private def writesInParallel(groups: Int): Boolean =
+    options.writeOptions.parallelism > 1 && sort.isEmpty && groups <= options.maxOpenFiles &&
+      options.maxRowsPerFile.isEmpty && maxFileSize.isEmpty
+
+  // A shredder for each parallel partition task, since a shredder caches struct vectors
+  private val groupShredders = mutable.ArrayBuffer.empty[BatchShredder]
+
+  /**
+    * Writes each partition of a batch to its file in parallel. Files are opened first, in order,
+    * then each task gathers its rows and writes them column by column, and the bookkeeping runs
+    * after every task is done.
+    */
+  private def writeInParallel(
+      data: ColumnBatch,
+      groups: mutable.LinkedHashMap[String, (Array[Any], mutable.ArrayBuilder.ofInt)]
+  ): Unit =
+    val tasks = groups
+      .toIndexedSeq
+      .map { case (dir, (vs, rows)) =>
+        setValues(vs)
+        (fileFor(dir), rows.result())
+      }
+    while groupShredders.size < tasks.size do
+      groupShredders += BatchShredder(fileSchema, options.writeOptions.parallelism)
+    try
+      WriteParallelism.run(tasks.size, options.writeOptions.parallelism) { t =>
+        val (f, rows) = tasks(t)
+        val shredder  = groupShredders(t)
+        val part      = VectorGather.take(data, rows, rows.length)
+        val checked   = shredder.check(part)
+        try
+          f.writer
+            .writeColumns(part.numRows)((writers, a, b) => shredder.write(checked, writers, a, b))
+        finally shredder.release()
+      }
+    catch
+      case NonFatal(e) =>
+        if tasks.exists(_._1.writer.hasFailed) then
+          abortWith(e)
+        throw e
+    tasks.foreach { (f, rows) =>
+      f.rows += rows.length
+      rowCount += rows.length
+      afterWrite(f, rows.length)
+    }
+
+  end writeInParallel
 
   private def setValues(vs: Array[Any]): Unit = System.arraycopy(vs, 0, values, 0, vs.length)
 

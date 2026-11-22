@@ -431,7 +431,7 @@ def copyColumns(from: String, to: String): Unit =
 `ParquetWriteOptions.default` writes SNAPPY, data page v1, dictionary encoding (falls back to
 PLAIN past `dictionaryPageSize`, 1 MiB, or when the dictionary is no smaller than PLAIN after 20,000 values), 1 MiB pages, and 128 MiB row groups, with min/max/null
 statistics. Change them with `withCompression(CompressionCodec.ZSTD)` (or `withCompression(CompressionCodec.ZSTD, 9)` for a
-level, 1-22; default 3; also `LZ4_RAW`, and `GZIP`, not in browsers), `noCompression()`, `noDictionary()`, `withPageSize`, and `withRowGroupSize`. One row
+level, 1-22; default 3; also `LZ4_RAW`, and `GZIP`, not in browsers), `noCompression()`, `noDictionary()`, `withPageSize`, `withRowGroupSize`, and `withParallelism(n)` (JVM: batch columns, dataset partitions, and row-group compression run on up to 8 threads by default; same bytes at any setting; 1 for the calling thread only). One row
 group is buffered in memory; on Scala.js a file stream holds the whole file until `close()`.
 
 ## From TypeScript (npm)

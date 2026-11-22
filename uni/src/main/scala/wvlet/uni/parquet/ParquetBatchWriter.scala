@@ -68,5 +68,5 @@ object ParquetBatchWriter:
       options: ParquetWriteOptions
   ): ParquetBatchWriter =
     // Check the schema before the file is created
-    val shredder = BatchShredder(schema)
+    val shredder = BatchShredder(schema, options.parallelism)
     ParquetBatchWriter(FileWriter(schema, options, openOutput), shredder)

@@ -18,7 +18,7 @@ import wvlet.uni.parquet.format.*
   * no values behind. Positions under a null parent (or outside every list) are not checked, since
   * they are never written.
   */
-private[parquet] final class BatchShredder(schema: ParquetSchema):
+private[parquet] final class BatchShredder(schema: ParquetSchema, parallelism: Int = 1):
   import BatchShredder.*
 
   schema
@@ -54,28 +54,48 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
       v
     }
 
-  /** Appends rows [from, to) of checked vectors to the column writers */
+  /**
+    * Appends rows [from, to) of checked vectors to the column writers. Each top-level field writes
+    * only its own column writers, so with `parallelism` above 1 the fields of a large slice are
+    * written in parallel.
+    */
   def write(
       vectors: Array[ColumnVector],
       writers: IndexedSeq[ColumnWriter],
       from: Int,
       to: Int
   ): Unit =
-    var c = 0
-    while c < fields.length do
-      fields(c) match
-        case leaf: Leaf if !leaf.field.isRepeated =>
-          writeFlat(leaf, vectors(c), writers(leaf.col), from, to)
-        case node =>
-          var i = from
-          while i < to do
-            writeField(node, vectors(c), i, 0, writers)
-            var col = node.first
-            while col <= node.last do
-              writers(col).endRow()
-              col += 1
-            i += 1
-      c += 1
+    if parallelism > 1 && fields.length > 1 && to - from >= ParallelRows then
+      wvlet
+        .uni
+        .parquet
+        .WriteParallelism
+        .run(fields.length, parallelism)(c => writeTopField(c, vectors, writers, from, to))
+    else
+      var c = 0
+      while c < fields.length do
+        writeTopField(c, vectors, writers, from, to)
+        c += 1
+
+  private def writeTopField(
+      c: Int,
+      vectors: Array[ColumnVector],
+      writers: IndexedSeq[ColumnWriter],
+      from: Int,
+      to: Int
+  ): Unit =
+    fields(c) match
+      case leaf: Leaf if !leaf.field.isRepeated =>
+        writeFlat(leaf, vectors(c), writers(leaf.col), from, to)
+      case node =>
+        var i = from
+        while i < to do
+          writeField(node, vectors(c), i, 0, writers)
+          var col = node.first
+          while col <= node.last do
+            writers(col).endRow()
+            col += 1
+          i += 1
 
   /** Drops the struct vectors cached by [[write]], so the writer does not keep a batch alive */
   def release(): Unit = fields.foreach(releaseNode)
@@ -451,6 +471,8 @@ private[parquet] final class BatchShredder(schema: ParquetSchema):
 end BatchShredder
 
 private[parquet] object BatchShredder:
+  /** The rows a slice needs before its fields are written in parallel */
+  private val ParallelRows = 1024
 
   /** Leaf columns under a field are the contiguous column indexes first to last */
   sealed abstract class Node(val field: ParquetField):

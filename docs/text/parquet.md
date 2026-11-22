@@ -888,6 +888,13 @@ files 10-25% smaller than level 3, at about a seventh of the speed. Levels 1-3 c
 take no level. GZIP uses the
 platform's zlib, so browsers cannot write it. BROTLI files can be read but not written.
 
+On the JVM, writes use several threads: the columns of each batch from `newBatchWriter` and the
+dataset batch writer are encoded and compressed in parallel, so are the partitions of a batch the
+dataset writer splits, and so is every row group's final compression. `withParallelism(n)` sets the
+thread count (the available processors, up to 8, by default), and `withParallelism(1)` keeps a
+write on the calling thread. The file is the same at every setting. Case-class and record writers
+encode rows on the calling thread. Scala.js and Scala Native write on one thread.
+
 The writer holds one row group in memory, as compressed pages, and writes it when it reaches the
 row group size. On the JVM and Scala Native, each row group goes to the file as soon as it is
 complete. On Scala.js, a file output stream keeps the whole file in memory and writes it on
