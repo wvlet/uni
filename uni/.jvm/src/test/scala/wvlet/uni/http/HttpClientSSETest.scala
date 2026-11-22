@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxEvent, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxEvent, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.net.InetSocketAddress
@@ -86,7 +84,7 @@ class HttpClientSSETest extends UniTest:
     override def onConnect(response: HttpResponse): Unit = connected.set(Some(response))
     override def onEvent(e: ServerSentEvent): Unit       = received.add(e)
     override def onError(e: Throwable): Unit             = terminal.add(OnError(e))
-    override def onCompletion(): Unit                    = terminal.add(OnCompletion.success)
+    override def onCompletion(): Unit                    = terminal.add(OnCompletion)
 
     def nextEvent(): ServerSentEvent =
       val e = received.poll(5, TimeUnit.SECONDS)
@@ -154,7 +152,7 @@ class HttpClientSSETest extends UniTest:
         handler.nextEvent() shouldBe ServerSentEvent(data = "first", event = Some("message"))
         release.countDown()
         handler.nextEvent().data shouldBe "second"
-        handler.awaitTerminal() shouldBe OnCompletion.success
+        handler.awaitTerminal() shouldBe OnCompletion
         server.requestCount.get() shouldBe 1
       finally
         client.close()
@@ -201,12 +199,12 @@ class HttpClientSSETest extends UniTest:
         server.requestCount.get() shouldBe 0
 
         val (received, terminal) = runStream(stream)
-        terminal shouldBe OnCompletion.success
+        terminal shouldBe OnCompletion
         received.map(_.data) shouldBe Seq("""{"text":"こんにちは"}""", "done")
         received.map(_.id) shouldBe Seq(None, Some("2"))
         handler.connected.get().map(_.status) shouldBe Some(HttpStatus.Ok_200)
         handler.received.asScala.toSeq shouldBe received
-        handler.awaitTerminal() shouldBe OnCompletion.success
+        handler.awaitTerminal() shouldBe OnCompletion
         server.requestCount.get() shouldBe 1
       finally
         client.close()
@@ -226,7 +224,7 @@ class HttpClientSSETest extends UniTest:
           () => ready.countDown()
         )
         received.isEmpty shouldBe true
-        terminal shouldMatch { case OnCompletion(Result.Failure(e: HttpException)) =>
+        terminal shouldMatch { case OnFailure(e: HttpException) =>
           e.statusCode shouldBe Some(401)
         }
         handler.connected.get().map(_.status) shouldBe Some(HttpStatus.Unauthorized_401)
@@ -250,7 +248,7 @@ class HttpClientSSETest extends UniTest:
             base.noRetry.newAsyncClient
         try
           val (_, terminal) = runStream(client.sendSSE(Request.get(server.url)))
-          terminal shouldMatch { case OnCompletion(Result.Failure(e: HttpException)) =>
+          terminal shouldMatch { case OnFailure(e: HttpException) =>
             e.statusCode shouldBe Some(401)
             e.contentAsString shouldBe Some(body)
             e.response.flatMap(_.contentType).map(_.fullType) shouldBe Some("application/json")
@@ -266,7 +264,7 @@ class HttpClientSSETest extends UniTest:
       val client = Http.client.withMaxRetry(3).newAsyncClient
       try
         val (_, terminal) = runStream(client.sendSSE(Request.get(server.url)))
-        terminal shouldMatch { case OnCompletion(Result.Failure(e: HttpException)) =>
+        terminal shouldMatch { case OnFailure(e: HttpException) =>
           e.statusCode shouldBe Some(503)
         }
         server.requestCount.get() shouldBe 1

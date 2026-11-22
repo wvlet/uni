@@ -47,7 +47,7 @@ class RxFrameProviderTest extends UniTest:
     val events                        = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.everyFrame.take(2))(events += _)
     frames.advanceFrame(5)
-    events.result() shouldBe Seq(OnNext(0L), OnNext(1L), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(0L), OnNext(1L), OnCompletion)
     frames.pendingCallbacks shouldBe 0
   }
 
@@ -57,7 +57,7 @@ class RxFrameProviderTest extends UniTest:
     RxRunner.run(Rx.nextFrame)(events += _)
     events.result() shouldBe Seq.empty
     frames.advanceFrame()
-    events.result() shouldBe Seq(OnNext(()), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(()), OnCompletion)
   }
 
   test("sampleFrame emits the last value of each frame") {
@@ -86,7 +86,7 @@ class RxFrameProviderTest extends UniTest:
     given frames: ManualFrameProvider = RxFrameProvider.manual()
     val events                        = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.sequence(1, 2, 3).sampleFrame)(events += _)
-    events.result() shouldBe Seq(OnNext(3), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext(3), OnCompletion)
     frames.pendingCallbacks shouldBe 0
   }
 
@@ -95,7 +95,7 @@ class RxFrameProviderTest extends UniTest:
     val e                             = IllegalStateException("boom")
     val events                        = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.concat(Rx.single(1), Rx.exception[Int](e)).sampleFrame)(events += _)
-    events.result() shouldBe Seq(OnNext(1), OnCompletion.failure(e))
+    events.result() shouldBe Seq(OnNext(1), OnFailure(e))
   }
 
   test("frames from a time provider") {

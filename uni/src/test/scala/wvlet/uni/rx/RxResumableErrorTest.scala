@@ -14,7 +14,6 @@
 package wvlet.uni.rx
 
 import wvlet.uni.test.UniTest
-import wvlet.uni.util.Result
 
 class RxResumableErrorTest extends UniTest:
   private val boom = IllegalStateException("boom")
@@ -106,16 +105,16 @@ class RxResumableErrorTest extends UniTest:
     }
   }
 
-  test("a failed source ends with a failed completion") {
+  test("a failed source ends with OnFailure") {
     val v      = Rx.variable(1)
     val events =
       internalEvents(v.map(_ + 1)) {
         v.setException(boom)
       }
-    events shouldBe Seq(OnNext(2), OnCompletion.failure(boom))
+    events shouldBe Seq(OnNext(2), OnFailure(boom))
   }
 
-  test("run and runOnce end with a failed completion; runContinuously delivers a plain OnError") {
+  test("run and runOnce end with OnFailure; runContinuously delivers a plain OnError") {
     val failing = Rx
       .sequence(1, 2)
       .map(x =>
@@ -127,11 +126,11 @@ class RxResumableErrorTest extends UniTest:
 
     val runEvents = Seq.newBuilder[RxEvent]
     RxRunner.run(failing)(runEvents += _)
-    runEvents.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+    runEvents.result() shouldBe Seq(OnNext(1), OnFailure(boom))
 
     var first: RxEvent = null
     RxRunner.runOnce(Rx.single(1).map(_ => throw boom))(first = _)
-    first shouldBe OnCompletion.failure(boom)
+    first shouldBe OnFailure(boom)
 
     val v          = Rx.variable(1)
     val contEvents = Seq.newBuilder[RxEvent]
@@ -167,7 +166,7 @@ class RxResumableErrorTest extends UniTest:
     v := 2
     v := 4
     c.cancel
-    events.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+    events.result() shouldBe Seq(OnNext(1), OnFailure(boom))
 
     val w       = Rx.variable(1)
     val wEvents = Seq.newBuilder[RxEvent]
@@ -175,13 +174,13 @@ class RxResumableErrorTest extends UniTest:
     w.setException(boom)
     w := 4
     c2.cancel
-    wEvents.result() shouldBe Seq(OnNext(1), OnCompletion.failure(boom))
+    wEvents.result() shouldBe Seq(OnNext(1), OnFailure(boom))
   }
 
   test("run completes a zip of finite sources") {
     val events = Seq.newBuilder[RxEvent]
     RxRunner.run(Rx.sequence(1, 2).zip(Rx.sequence("a", "b", "c")))(events += _)
-    events.result() shouldBe Seq(OnNext((1, "a")), OnNext((2, "b")), OnCompletion.success)
+    events.result() shouldBe Seq(OnNext((1, "a")), OnNext((2, "b")), OnCompletion)
   }
 
   test("a failed source ends merge and cancels the other source") {
@@ -192,7 +191,7 @@ class RxResumableErrorTest extends UniTest:
     a.setException(boom)
     b := 20
     c.cancel
-    events.result() shouldBe Seq(OnNext(1), OnNext(10), OnCompletion.failure(boom))
+    events.result() shouldBe Seq(OnNext(1), OnNext(10), OnFailure(boom))
   }
 
   test("runContinuously answers Continue to an error, so a finite source keeps going") {
@@ -207,7 +206,7 @@ class RxResumableErrorTest extends UniTest:
         )
     )(events += _)
     events.result() shouldMatch {
-      case Seq(OnNext(1), OnError(e), OnNext(3), OnCompletion(Result.Success(_))) if e eq boom =>
+      case Seq(OnNext(1), OnError(e), OnNext(3), OnCompletion) if e eq boom =>
     }
   }
 

@@ -13,8 +13,6 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
@@ -184,7 +182,7 @@ class NodeServerTest extends UniTest:
   }
 
   test("should stream Server-Sent Events") {
-    import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+    import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
     import scala.concurrent.Promise
 
     val events = Seq(ServerSentEvent.data("hello"), ServerSentEvent.data("world"))
@@ -201,9 +199,9 @@ class NodeServerTest extends UniTest:
         RxRunner.run(asyncClient(server).sendSSE(Request.get("/events"))) {
           case OnNext(event) =>
             buffer += event.asInstanceOf[ServerSentEvent].data
-          case OnCompletion(Result.Failure(e)) =>
+          case OnFailure(e) =>
             received.failure(e)
-          case OnCompletion(Result.Success(_)) =>
+          case OnCompletion =>
             received.success(buffer.toSeq)
         }
         Rx.future(received.future)

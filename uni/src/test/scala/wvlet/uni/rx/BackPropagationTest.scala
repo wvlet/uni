@@ -39,7 +39,7 @@ class BackPropagationTest extends UniTest:
           other
       }
 
-    eval(rx) shouldBe Seq(OnNext(1), OnCompletion.failure(ex))
+    eval(rx) shouldBe Seq(OnNext(1), OnFailure(ex))
   }
 
   test("flatMap") {
@@ -52,12 +52,12 @@ class BackPropagationTest extends UniTest:
           Rx.sequence(other, other)
       }
 
-    eval(rx) shouldBe Seq(OnNext(1), OnNext(1), OnNext(2), OnCompletion.failure(ex))
+    eval(rx) shouldBe Seq(OnNext(1), OnNext(1), OnNext(2), OnFailure(ex))
   }
 
   test("concat") {
     val rx = Rx.single(2).concat(Rx.exception(ex))
-    eval(rx) shouldBe Seq(OnNext(2), OnCompletion.failure(ex))
+    eval(rx) shouldBe Seq(OnNext(2), OnFailure(ex))
   }
 
 end BackPropagationTest

@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.{ConcurrentHashMap, CountDownLatch, ExecutorService, TimeUnit}
@@ -570,11 +568,11 @@ abstract class SocketHttpServer private[http] (
                   subscription.cancel
                   done.countDown()
             }
-          case OnCompletion(Result.Failure(e)) =>
+          case OnFailure(e) =>
             warn(s"SSE stream error: ${e.getMessage}", e)
             ok.set(false)
             done.countDown()
-          case OnCompletion(Result.Success(_)) =>
+          case OnCompletion =>
             done.countDown()
         }
       )
@@ -674,10 +672,10 @@ abstract class SocketHttpServer private[http] (
         case OnNext(response) =>
           result.set(response.asInstanceOf[Response])
           latch.countDown()
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           result.set(handlerError(e))
           latch.countDown()
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
           // Completed without emitting a response.
           result.compareAndSet(null, onEmpty)
           latch.countDown()

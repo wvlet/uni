@@ -136,4 +136,4 @@ val rx2: Rx[Int] = Result.success(1).toRx
 ```
 
 `Result.Failure(e)` converts to an `Rx` that ends with
-`OnCompletion(Result.Failure(e))`, as any failed source does.
+`OnFailure(e)`, as any failed source does.

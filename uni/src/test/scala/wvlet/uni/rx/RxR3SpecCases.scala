@@ -3,8 +3,7 @@ package wvlet.uni.rx
 
 object RxR3SpecCases:
   // Each case: entry point | input events | operators | expected events.
-  // Events: an Int for OnNext, E for OnError, C for a successful OnCompletion, F for a failed
-  // OnCompletion; - for none.
+  // Events: an Int for OnNext, E for OnError, C for OnCompletion, F for OnFailure; - for none.
   val cases: Seq[String] = Seq(
     "continuous | 1 2 3 C | even | 2 C",
     "continuous | 1 2 3 F | even | 2 F",

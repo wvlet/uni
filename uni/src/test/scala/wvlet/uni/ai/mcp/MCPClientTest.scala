@@ -15,8 +15,6 @@ package wvlet.uni.ai.mcp
 
 import wvlet.uni.surface.description
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.http.{
   Http,
   HttpChannel,
@@ -27,7 +25,7 @@ import wvlet.uni.http.{
   RxHttpHandler
 }
 import wvlet.uni.json.JSON.{JSONLong, JSONObject, JSONString}
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxResource, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxResource, RxRunner}
 import wvlet.uni.test.UniTest
 
 /**
@@ -46,9 +44,9 @@ private class InMemoryChannel(handler: RxHttpHandler) extends HttpChannel:
         result = r
       case OnNext(_) =>
         throw IllegalStateException("MCP handler must produce a Response")
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         error = e
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
     }
     if error != null then
       throw error
@@ -210,7 +208,7 @@ class MCPClientTest extends UniTest:
       ) {
         case OnNext(r: MCPToolResult) =>
           result = Some(r)
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           throw e
         case _ =>
       }

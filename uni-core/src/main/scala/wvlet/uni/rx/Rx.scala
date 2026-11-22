@@ -129,9 +129,9 @@ trait RxOps[+A]:
     RxRunner.run(self) {
       case OnNext(v) =>
         effect(v.asInstanceOf[A])
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         throw e
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
       // do nothing
     }
 
@@ -145,9 +145,9 @@ trait RxOps[+A]:
         effect(v.asInstanceOf[A])
       case OnError(e) =>
         throw e
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         throw e
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
       // do nothing
     }
 

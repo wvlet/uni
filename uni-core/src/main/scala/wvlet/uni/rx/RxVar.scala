@@ -13,8 +13,6 @@
  */
 package wvlet.uni.rx
 
-import wvlet.uni.util.Result
-
 import scala.collection.mutable.ArrayBuffer
 import scala.language.higherKinds
 import scala.util.control.NonFatal
@@ -42,7 +40,7 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
             f(v.asInstanceOf[A])
           case OnError(e) =>
             throw e
-          case OnCompletion(Result.Failure(e)) =>
+          case OnFailure(e) =>
             throw e
           case _ =>
     foreachEvent(s)
@@ -87,7 +85,7 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
     * this method is called, the behavior of the downstream subscribers is undefined for further
     * updates of this variable.
     */
-  override def stop(): Unit = propagateEvent(OnCompletion.success)
+  override def stop(): Unit = propagateEvent(OnCompletion)
 
   private def propagateEvent(e: RxEvent): Unit =
     // Wrap with a synchrnoized block to avoid concurrent modification of subscribers
@@ -109,9 +107,9 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
     }
 
   /**
-    * End this variable with a failure: subscribers receive `OnCompletion(Result.Failure(e))`.
+    * End this variable with a failure: subscribers receive `OnFailure(e)`.
     */
-  override def setException(e: Throwable): Unit = propagateEvent(OnCompletion.failure(e))
+  override def setException(e: Throwable): Unit = propagateEvent(OnFailure(e))
 
 end RxVar
 
@@ -119,9 +117,8 @@ object RxVar {}
 
 /**
   * The variable behind `Rx.future` and `Rx.fromFuture`: None until the future completes, then its
-  * value and a successful OnCompletion, or a failed OnCompletion. A subscriber that attaches after
-  * the future completed still receives that terminal event, so a future that fails before anyone
-  * subscribes is not lost.
+  * value and OnCompletion, or OnFailure. A subscriber that attaches after the future completed
+  * still receives that terminal event, so a future that fails before anyone subscribes is not lost.
   */
 private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
   // Guarded by this
@@ -133,10 +130,10 @@ private[rx] class FutureVar[A] extends RxVar[Option[A]](None):
     result match
       case Success(x) =>
         set(Some(x))
-        terminal = OnCompletion.success
+        terminal = OnCompletion
         stop()
       case Failure(e) =>
-        terminal = OnCompletion.failure(e)
+        terminal = OnFailure(e)
         setException(e)
   }
 

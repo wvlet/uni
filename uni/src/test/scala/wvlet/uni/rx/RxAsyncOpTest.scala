@@ -41,13 +41,13 @@ class RxAsyncOpTest extends UniTest:
     val (events, _) = collect(deferred.get)
     events shouldBe empty
     deferred.complete(42).run()
-    events.toSeq shouldBe Seq(OnNext(42), OnCompletion.success)
+    events.toSeq shouldBe Seq(OnNext(42), OnCompletion)
   }
 
   test("RxDeferred.get emits an already completed value") {
     val deferred = RxDeferred[String]()
     deferred.complete("done").run()
-    collect(deferred.get)._1.toSeq shouldBe Seq(OnNext("done"), OnCompletion.success)
+    collect(deferred.get)._1.toSeq shouldBe Seq(OnNext("done"), OnCompletion)
   }
 
   test("RxDeferred.get propagates an error") {
@@ -55,7 +55,7 @@ class RxAsyncOpTest extends UniTest:
     val error       = IllegalStateException("failed")
     val (events, _) = collect(deferred.get.map(_ + 1))
     deferred.completeWithError(error).run()
-    events.toSeq shouldBe Seq(OnCompletion.failure(error))
+    events.toSeq shouldBe Seq(OnFailure(error))
   }
 
   test("RxDeferred.get emits nothing after cancellation") {
@@ -68,12 +68,12 @@ class RxAsyncOpTest extends UniTest:
 
   test("RxSemaphore.acquire waits for a release") {
     val semaphore = RxSemaphore(1)
-    collect(semaphore.acquire)._1.toSeq shouldBe Seq(OnNext(()), OnCompletion.success)
+    collect(semaphore.acquire)._1.toSeq shouldBe Seq(OnNext(()), OnCompletion)
 
     val (events, _) = collect(semaphore.acquire)
     events shouldBe empty
     semaphore.release.run()
-    events.toSeq shouldBe Seq(OnNext(()), OnCompletion.success)
+    events.toSeq shouldBe Seq(OnNext(()), OnCompletion)
   }
 
   test("RxBoundedQueue.take waits for an offer") {
@@ -81,7 +81,7 @@ class RxAsyncOpTest extends UniTest:
     val (events, _) = collect(queue.take)
     events shouldBe empty
     queue.offer(7).run()
-    events.toSeq shouldBe Seq(OnNext(7), OnCompletion.success)
+    events.toSeq shouldBe Seq(OnNext(7), OnCompletion)
   }
 
   test("RxBoundedQueue.offer waits for space") {
@@ -89,9 +89,9 @@ class RxAsyncOpTest extends UniTest:
     queue.offer(1).run()
     val (events, _) = collect(queue.offer(2))
     events shouldBe empty
-    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion.success)
-    events.toSeq shouldBe Seq(OnNext(()), OnCompletion.success)
-    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(2), OnCompletion.success)
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion)
+    events.toSeq shouldBe Seq(OnNext(()), OnCompletion)
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(2), OnCompletion)
   }
 
   test("a cancelled RxSemaphore.acquire leaves the permit available") {
@@ -114,7 +114,7 @@ class RxAsyncOpTest extends UniTest:
     small shouldBe empty
     c.cancel
     large shouldBe empty
-    small.toSeq shouldBe Seq(OnNext(()), OnCompletion.success)
+    small.toSeq shouldBe Seq(OnNext(()), OnCompletion)
     get(semaphore.available) shouldBe 0
   }
 
@@ -124,7 +124,7 @@ class RxAsyncOpTest extends UniTest:
     c.cancel
     queue.offer(7).run()
     cancelled shouldBe empty
-    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(7), OnCompletion.success)
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(7), OnCompletion)
   }
 
   test("a cancelled waiting RxBoundedQueue.offer does not enqueue its element") {
@@ -132,7 +132,7 @@ class RxAsyncOpTest extends UniTest:
     queue.offer(1).run()
     val (cancelled, c) = collect(queue.offer(2))
     c.cancel
-    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion.success)
+    collect(queue.take)._1.toSeq shouldBe Seq(OnNext(1), OnCompletion)
     cancelled shouldBe empty
     get(queue.isEmpty) shouldBe true
   }
@@ -166,7 +166,7 @@ class RxAsyncOpTest extends UniTest:
     val secondEvents = ListBuffer.empty[RxEvent]
     second = RxRunner.run(semaphore.acquire)(ev => secondEvents += ev)
     semaphore.releaseN(2).run()
-    firstEvents.toSeq shouldBe Seq(OnNext(()), OnCompletion.success)
+    firstEvents.toSeq shouldBe Seq(OnNext(()), OnCompletion)
     secondEvents shouldBe empty
     get(semaphore.available) shouldBe 1
   }
@@ -178,7 +178,7 @@ class RxAsyncOpTest extends UniTest:
     c.cancel
     deferred.complete(3).run()
     events shouldBe empty
-    other.toSeq shouldBe Seq(OnNext(3), OnCompletion.success)
+    other.toSeq shouldBe Seq(OnNext(3), OnCompletion)
   }
 
   // Runs scheduled tasks only when the test asks

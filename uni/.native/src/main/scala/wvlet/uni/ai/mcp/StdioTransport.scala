@@ -13,10 +13,8 @@
  */
 package wvlet.uni.ai.mcp
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.log.LogSupport
-import wvlet.uni.rx.{OnCompletion, OnError, OnNext, Rx, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnError, OnNext, Rx, RxRunner}
 
 import java.io.{BufferedReader, InputStreamReader}
 import java.nio.charset.StandardCharsets
@@ -53,10 +51,10 @@ private[mcp] object StdioTransport extends LogSupport:
     RxRunner.run(handle(line)) {
       case OnNext(v) =>
         v.asInstanceOf[Option[String]].foreach(writeLine(protocolOut, _))
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         // handleMessage encodes its own errors; this is defensive only
         warn(s"Failed to handle MCP message: ${e.getMessage}", e)
-      case OnCompletion(Result.Success(_)) =>
+      case OnCompletion =>
     }
 
   private def writeLine(protocolOut: java.io.PrintStream, message: String): Unit = writeLock

@@ -13,9 +13,7 @@
  */
 package wvlet.uni.http
 
-import wvlet.uni.util.Result
-
-import wvlet.uni.rx.{OnCompletion, OnNext, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnNext, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.io.{BufferedReader, InputStreamReader}
@@ -38,7 +36,7 @@ class JvmWebSocketCloseTest extends UniTest:
       case OnNext(ctx) =>
         ref.set(ctx.asInstanceOf[WebSocketContext])
         ready.countDown()
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         error.set(e)
         ready.countDown()
       case _ =>
@@ -132,7 +130,7 @@ class JvmWebSocketCloseTest extends UniTest:
           new WebSocketHandler {}
         )
     ) {
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         error.put(e)
       case _ =>
     }

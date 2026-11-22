@@ -13,13 +13,11 @@
  */
 package wvlet.uni.electron
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.log.LogSupport
 import wvlet.uni.http.{Response, ServerSentEvent}
 import wvlet.uni.http.ServiceStatus
 import wvlet.uni.http.rpc.{RPCDispatcher, RPCRouter}
-import wvlet.uni.rx.{Cancelable, OnCompletion, OnError, OnNext, RxRunner}
+import wvlet.uni.rx.{Cancelable, OnCompletion, OnFailure, OnError, OnNext, RxRunner}
 
 import scala.scalajs.js
 import scala.util.control.NonFatal
@@ -273,9 +271,9 @@ object ElectronRPCServer extends LogSupport:
           RxRunner.run(response.events) {
             case OnNext(event) =>
               reply.send(ElectronIPC.streamChunk(event.asInstanceOf[ServerSentEvent].toContent))
-            case OnCompletion(Result.Failure(e)) =>
+            case OnFailure(e) =>
               fail(e)
-            case OnCompletion(Result.Success(_)) =>
+            case OnCompletion =>
               end()
           }
       else
@@ -288,9 +286,9 @@ object ElectronRPCServer extends LogSupport:
           case OnNext(v) =>
             if !finished then
               forward(v.asInstanceOf[Response])
-          case OnCompletion(Result.Failure(e)) =>
+          case OnFailure(e) =>
             fail(e)
-          case OnCompletion(Result.Success(_)) =>
+          case OnCompletion =>
         }
     catch
       case NonFatal(e) =>
@@ -310,7 +308,7 @@ object ElectronRPCServer extends LogSupport:
       RxRunner.run(dispatcher.dispatch(request)) {
         case OnNext(v) =>
           resolve(ElectronIPC.fromResponse(v.asInstanceOf[Response]))
-        case OnCompletion(Result.Failure(e)) =>
+        case OnFailure(e) =>
           warn(s"Unexpected error in RPC dispatch: ${e.getMessage}", e)
           val errorResponse =
             ServiceStatus
@@ -319,7 +317,7 @@ object ElectronRPCServer extends LogSupport:
               .noStackTrace
               .toResponse
           resolve(ElectronIPC.fromResponse(errorResponse))
-        case OnCompletion(Result.Success(_)) =>
+        case OnCompletion =>
         // No value emitted: nothing to resolve with (should not happen for RPC).
       }
     )

@@ -22,7 +22,7 @@ the generated scripts respect this.
 The sink records every event it receives and answers `Stop` to a non-value event. `RxRunner` has
 one semantics (`adr/2026-11-21-rx-single-mode.md`): an error raised by an operator (a throwing
 function) passes and the stream continues, a `Stop` after it is transient, and a var's failure
-(`setException`) is a failed `OnCompletion`, the end of that var. `RxVar` ignores `Stop`, so the
+(`setException`) is an `OnFailure`, the end of that var. `RxVar` ignores `Stop`, so the
 model, like `RxRunner`, can deliver events after a terminal one where an operator does not guard
 against them. `GenRxLiveCases.lean` evaluates the model, and `RxLiveFanIn.lean` (`merge`,
 `parFlatMap`), to generate the cases that `RxLiveSpecTest` replays.
@@ -106,7 +106,7 @@ theorem runFrom_silent {σ : Type} (step : σ → Action → σ × List Out) (p 
 
 Var 0 is the input. The function maps the input value 1 to var 1, 2 to var 2, and throws on any
 other value. `transformRx` maps an input error to var 2. A var's own failure (`setException`) ends
-the var with a failed `OnCompletion`, so the operator completes once the nested
+the var with an `OnFailure`, so the operator completes once the nested
 stream built from it ends. -/
 
 /-- The nested var for an input value; `none` when the function throws. -/

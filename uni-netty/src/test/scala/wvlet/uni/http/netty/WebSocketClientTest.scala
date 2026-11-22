@@ -13,10 +13,8 @@
  */
 package wvlet.uni.http.netty
 
-import wvlet.uni.util.Result
-
 import wvlet.uni.http.{Http, Request, WebSocketContext, WebSocketHandler}
-import wvlet.uni.rx.{OnCompletion, OnNext, RxRunner}
+import wvlet.uni.rx.{OnCompletion, OnFailure, OnNext, RxRunner}
 import wvlet.uni.test.UniTest
 
 import java.util.concurrent.atomic.AtomicReference
@@ -42,7 +40,7 @@ class WebSocketClientTest extends UniTest:
       case OnNext(ctx) =>
         ref.set(ctx.asInstanceOf[WebSocketContext]);
         ready.countDown()
-      case OnCompletion(Result.Failure(e)) =>
+      case OnFailure(e) =>
         error.set(e);
         ready.countDown()
       case _ =>
@@ -139,7 +137,7 @@ class WebSocketClientTest extends UniTest:
           case OnNext(ctx) =>
             ref.set(ctx.asInstanceOf[WebSocketContext]);
             ready.countDown()
-          case OnCompletion(Result.Failure(_)) =>
+          case OnFailure(_) =>
             ready.countDown()
           case _ =>
         }
