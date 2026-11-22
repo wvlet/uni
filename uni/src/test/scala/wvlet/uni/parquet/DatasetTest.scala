@@ -11,6 +11,7 @@ import java.time.LocalDate
 
 case class Visit(id: Long, user: String) derives Weaver
 case class VisitV2(id: Long, user: String, durationMs: Option[Long]) derives Weaver
+case class VisitPaid(id: Long, user: String, paid: Option[BigDecimal]) derives Weaver
 case class VisitWithDt(id: Long, user: String, dt: String, country: String) derives Weaver
 case class VisitTyped(id: Long, year: Long) derives Weaver
 case class VisitOtherType(id: String, user: String) derives Weaver
@@ -211,6 +212,33 @@ class DatasetTest extends UniTest:
       // Pruning to the old file leaves only its columns, plus partitions
       val old = ParquetReadOptions.default.withRowGroupFilter(col("dt") === "2026-11-19")
       ds.readRows(old).next().keys.toSeq shouldBe Seq("id", "user", "dt")
+    }
+  }
+
+  test("read INT32 decimals as Long values in files with and without the column") {
+    skipInBrowser()
+    val root = datasetDir(
+      "a.parquet" -> visits(0 until 2, "a"),
+      "b.parquet" ->
+        Parquet.writeBytes(
+          Seq(VisitPaid(2, "b", Some(BigDecimal("1.25")))),
+          ParquetWriteOptions.default.withDecimal(7, 2)
+        )
+    )
+    withDataset(root) { ds =>
+      val opts    = ParquetReadOptions.default.withInt32DecimalAsLong(true)
+      val batches = ds.readBatches(opts).toSeq
+      // The file lacking the column gives nulls of the same vector type
+      batches.foreach(b =>
+        b.column("paid") shouldMatch { case _: ColumnVector.LongColumn =>
+        }
+      )
+      ds.readAs[VisitPaid](opts).toSeq.sortBy(_.id) shouldBe
+        Seq(
+          VisitPaid(0, "a-0", None),
+          VisitPaid(1, "a-1", None),
+          VisitPaid(2, "b", Some(BigDecimal("1.25")))
+        )
     }
   }
 

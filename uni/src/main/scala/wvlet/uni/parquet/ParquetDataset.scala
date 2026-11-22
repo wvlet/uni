@@ -706,9 +706,21 @@ class ParquetDataset private[parquet] (
               case Some(v) =>
                 conformField(v, f)
               case None =>
-                nullVector(f, n)
+                missingColumn(f, n, plan.options)
         }
     )
+
+  /**
+    * Nulls for a top-level column a file lacks, of the vector type the file's reader returns for
+    * it: a LongColumn for an INT32 decimal read with `int32DecimalAsLong`
+    */
+  private def missingColumn(f: ParquetField, n: Int, opts: ParquetReadOptions): ColumnVector =
+    f match
+      case p: ParquetField.Primitive
+          if opts.int32DecimalAsLong && !p.isRepeated && Assembly.isInt32Decimal(p) =>
+        LongColumn(p, new Array[Long](n), nullFlags(n))
+      case _ =>
+        nullVector(f, n)
 
   private def wrapErrors[A](file: DatasetFile)(body: => A): A =
     try

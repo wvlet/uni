@@ -5,6 +5,7 @@ import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.ParquetException
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.format.LogicalType
+import wvlet.uni.parquet.format.PhysicalType
 
 /**
   * Builds column vectors from repetition and definition levels (the record shredding scheme of the
@@ -63,13 +64,24 @@ private[parquet] object Assembly:
   def build(
       fields: IndexedSeq[ParquetField],
       columns: Map[Int, ColumnData],
-      numRows: Int
+      numRows: Int,
+      int32DecimalAsLong: Boolean = false
   ): IndexedSeq[ColumnVector] =
     val leaves                   = columns.view.mapValues(Leaf(_)).toMap
     val rootInstances: Instances = leaves.map { case (idx, leaf) =>
       idx -> rowRanges(leaf, numRows)
     }
-    fields.map(f => buildField(f, leaves, rootInstances, numRows))
+    fields.map {
+      // Widened while copying the decoded values, so no Int array is made only to be widened
+      case p: ParquetField.Primitive if int32DecimalAsLong && !p.isRepeated && isInt32Decimal(p) =>
+        buildLeaf(p, leaves(p.columnIndex), rootInstances(p.columnIndex), numRows, asLong = true)
+      case f =>
+        buildField(f, leaves, rootInstances, numRows)
+    }
+
+  private[parquet] def isInt32Decimal(p: ParquetField.Primitive): Boolean =
+    p.physicalType == PhysicalType.INT32 &&
+      p.logicalType.exists(_.isInstanceOf[LogicalType.Decimal])
 
   private def rowRanges(leaf: Leaf, numRows: Int): Ranges =
     if leaf.data.field.maxRepetitionLevel == 0 then
@@ -283,18 +295,20 @@ private[parquet] object Assembly:
 
   end splitRepeated
 
+  /** With `asLong`, INT32 values come out as a LongColumn */
   private def buildLeaf(
       p: ParquetField.Primitive,
       leaf: Leaf,
       ranges: Ranges,
-      n: Int
+      n: Int,
+      asLong: Boolean = false
   ): ColumnVector =
     // Every entry holds a value (no nulls at this leaf) and instance k is entry k: true for flat
     // required columns and for required leaves of lists. The decoded buffer is then the vector.
     if n == leaf.m && leaf.data.values.size == leaf.m && isIdentity(ranges, n) then
-      directLeaf(p, leaf.data.values, n)
+      directLeaf(p, leaf.data.values, n, asLong)
     else
-      gatherLeaf(p, leaf, ranges, n)
+      gatherLeaf(p, leaf, ranges, n, asLong)
 
   private def isIdentity(ranges: Ranges, n: Int): Boolean =
     var k = 0
@@ -302,9 +316,21 @@ private[parquet] object Assembly:
       k += 1
     k == n
 
-  private def directLeaf(p: ParquetField.Primitive, values: ValueBuffer, n: Int): ColumnVector =
+  private def directLeaf(
+      p: ParquetField.Primitive,
+      values: ValueBuffer,
+      n: Int,
+      asLong: Boolean = false
+  ): ColumnVector =
     import java.util.Arrays.copyOf
     values match
+      case b: IntBuffer if asLong =>
+        val out = new Array[Long](n)
+        var i   = 0
+        while i < n do
+          out(i) = b.values(i)
+          i += 1
+        LongColumn(p, out, null)
       case b: BooleanBuffer =>
         BooleanColumn(p, copyOf(b.values, n), null)
       case b: IntBuffer =>
@@ -321,6 +347,8 @@ private[parquet] object Assembly:
           b.dict,
           dictIndices(b, n, i => i)
         )
+
+  end directLeaf
 
   /** The dictionary entry of each row, given the value index of row i (-1 for none) */
   private inline def dictIndices(b: BinaryBuffer, n: Int, inline valueOf: Int => Int): Array[Int] =
@@ -343,7 +371,8 @@ private[parquet] object Assembly:
       p: ParquetField.Primitive,
       leaf: Leaf,
       ranges: Ranges,
-      n: Int
+      n: Int,
+      asLong: Boolean = false
   ): ColumnVector =
     val maxDef                = p.maxDefinitionLevel
     val vidx                  = leaf.valueIndex
@@ -368,6 +397,14 @@ private[parquet] object Assembly:
       )
 
     leaf.data.values match
+      case b: IntBuffer if asLong =>
+        val out = new Array[Long](n)
+        var i   = 0
+        while i < n do
+          if pick(i) >= 0 then
+            out(i) = b.values(pick(i))
+          i += 1
+        LongColumn(p, out, nulls)
       case b: BooleanBuffer =>
         BooleanColumn(p, gather(n, pick)(i => b.values(i), false), nulls)
       case b: IntBuffer =>

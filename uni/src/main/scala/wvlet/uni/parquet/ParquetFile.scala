@@ -442,7 +442,16 @@ class ParquetFile private[parquet] (val source: AsyncByteSource, val metadata: F
         ValueBuffer.MaxArrayLength
       else
         options.batchSize.getOrElse(ValueBuffer.MaxArrayLength)
-    RowGroupBatches(plan.fields, cursors, plan.rowGroup.numRows, batchSize, options.binaryAsString)
+    RowGroupBatches(
+      plan.fields,
+      cursors,
+      plan.rowGroup.numRows,
+      batchSize,
+      options.binaryAsString,
+      options.int32DecimalAsLong
+    )
+
+  end batches
 
   private def wholeRowGroup(index: Int, it: Iterator[ColumnBatch]): ColumnBatch =
     val numRows = rowGroups(index).numRows

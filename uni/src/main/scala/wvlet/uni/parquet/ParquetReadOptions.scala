@@ -25,6 +25,10 @@ package wvlet.uni.parquet
   *   [[rowGroupFilter]]. A filter that can't be evaluated exactly (an unknown or list column, an
   *   unsupported type such as DECIMAL, or a literal that can't be converted without loss) fails
   *   when the read starts.
+  * @param int32DecimalAsLong
+  *   read top-level DECIMAL columns stored as INT32 into [[ColumnVector.LongColumn]]s of unscaled
+  *   values, widened while the decoded values are copied, for consumers that keep decimals as Long
+  *   values
   */
 case class ParquetReadOptions(
     columns: Option[Seq[String]] = None,
@@ -32,7 +36,8 @@ case class ParquetReadOptions(
     rowGroupFilter: Option[ParquetFilter] = None,
     maxMergeGap: Int = 1024 * 1024,
     batchSize: Option[Int] = None,
-    filter: Option[ParquetFilter] = None
+    filter: Option[ParquetFilter] = None,
+    int32DecimalAsLong: Boolean = false
 ):
   def withColumns(names: String*): ParquetReadOptions          = copy(columns = Some(names))
   def noColumns(): ParquetReadOptions                          = copy(columns = None)
@@ -42,6 +47,14 @@ case class ParquetReadOptions(
   def withRowGroupFilter(f: ParquetFilter): ParquetReadOptions = copy(rowGroupFilter = Some(f))
   def noRowGroupFilter(): ParquetReadOptions                   = copy(rowGroupFilter = None)
   def withMaxMergeGap(bytes: Int): ParquetReadOptions          = copy(maxMergeGap = bytes)
+
+  /**
+    * Read top-level DECIMAL columns stored as INT32 into LongColumns (unscaled values), so that a
+    * consumer keeping decimals as Long values doesn't widen them in another pass
+    */
+  def withInt32DecimalAsLong(enabled: Boolean): ParquetReadOptions = copy(int32DecimalAsLong =
+    enabled
+  )
 
   def withBatchSize(rows: Int): ParquetReadOptions =
     require(rows > 0, s"batch size must be positive: ${rows}")
@@ -54,6 +67,8 @@ case class ParquetReadOptions(
     rowGroupFilter,
     filter
   )
+
+end ParquetReadOptions
 
 object ParquetReadOptions:
   val default: ParquetReadOptions = ParquetReadOptions()
