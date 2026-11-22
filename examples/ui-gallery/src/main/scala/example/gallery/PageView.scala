@@ -16,29 +16,160 @@ import scala.language.implicitConversions
   * parts and states the component renders, its API, and a live WAI-ARIA check.
   */
 class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode) extends RxElement:
-  private var root: Option[dom.Element] = None
+  private var root: Option[dom.Element]          = None
+  private var scroller: Option[dom.Element]      = None
+  private var resize: Option[dom.ResizeObserver] = None
+  private var frame                              = 0
+  // Scrolled past the header: it stays at the top, folded to the title and the section links
+  private val stuck = Rx.variable(false)
+  // The section in view, highlighted in the header's links
+  private val active = Rx.variable(focus.map(_.id).orElse(page.examples.headOption.map(_.id)))
+
+  private val onScroll: scala.scalajs.js.Function1[dom.Event, Unit] =
+    (_: dom.Event) =>
+      if frame == 0 then
+        frame = dom
+          .window
+          .requestAnimationFrame(_ =>
+            frame = 0
+            update()
+          )
+
+  private val onTocScroll: scala.scalajs.js.Function1[dom.Event, Unit] =
+    (_: dom.Event) => markClipped()
+
+  private def hero: Option[dom.Element] = root.flatMap(r => Option(r.querySelector(".story-hero")))
+
+  private def sectionOf(key: String): Option[dom.Element] = root.flatMap(r =>
+    Option(r.querySelector(s"[data-section='${key}']"))
+  )
+
+  private def toc: Option[dom.Element] = root.flatMap(r => Option(r.querySelector(".page-toc")))
+
+  // Folded, the links scroll sideways on one line: fade the right edge while more links are
+  // hidden there
+  private def markClipped(): Unit = toc.foreach { t =>
+    val clipped = t.scrollLeft + t.clientWidth < t.scrollWidth - 1
+    if clipped != t.classList.contains("is-clipped") then
+      t.classList.toggle("is-clipped")
+  }
+
+  // Scroll the links sideways so the active one shows
+  private def reveal(): Unit =
+    for
+      t   <- toc
+      key <- active.get
+      l   <- Option(t.querySelector(s"[data-key='${key}']"))
+    do
+      val tr = t.getBoundingClientRect()
+      val lr = l.getBoundingClientRect()
+      if lr.left < tr.left then
+        t.scrollLeft -= tr.left - lr.left + PageView.revealMargin
+      else if lr.right > tr.right - PageView.revealMargin then
+        t.scrollLeft += lr.right - tr.right + PageView.revealMargin
+      markClipped()
+
+  private def update(): Unit = scroller.foreach { sc =>
+    val top = sc.scrollTop
+    // Fold after a short scroll, unfold only back at the top, so folding can't flicker
+    val fold   = (!stuck.get && top > PageView.foldAt) || (stuck.get && top >= PageView.unfoldAt)
+    val folded = fold != stuck.get
+    if folded then
+      stuck := fold
+    // The header's bottom edge, or the scroller's top if the header isn't on screen
+    val headBottom = math.max(
+      hero.map(_.getBoundingClientRect().bottom).getOrElse(0.0),
+      sc.getBoundingClientRect().top
+    )
+    val sections = root.toSeq.flatMap(_.querySelectorAll("[data-section]").toSeq)
+    val atEnd    = top + sc.clientHeight >= sc.scrollHeight - 2
+    val current  =
+      if atEnd then
+        sections.lastOption
+      else
+        sections
+          .takeWhile(_.getBoundingClientRect().top <= headBottom + PageView.spyOffset)
+          .lastOption
+          .orElse(sections.headOption)
+    val key   = current.map(_.getAttribute("data-section"))
+    val moved = key != active.get
+    if moved then
+      active := key
+    if moved || folded then
+      reveal()
+  }
 
   override def onMount(node: Any): Unit =
-    root = Some(node.asInstanceOf[dom.Element])
+    val el = node.asInstanceOf[dom.Element]
+    root = Some(el)
+    scroller = Option(el.closest(".gallery-main"))
+    scroller.foreach(_.addEventListener("scroll", onScroll))
+    toc.foreach(_.addEventListener("scroll", onTocScroll))
+    // Scrolling to a section leaves room for the folded header
+    hero.foreach { h =>
+      val ro = dom.ResizeObserver((_, _) =>
+        if stuck.get then
+          el.asInstanceOf[dom.html.Element]
+            .style
+            .setProperty("--page-head", s"${h.getBoundingClientRect().height}px")
+      )
+      ro.observe(h)
+      resize = Some(ro)
+    }
     // Opened at one example (#/button/disabled): bring it into view
     focus.foreach { s =>
-      dom
-        .window
-        .setTimeout(
-          () =>
-            root
-              .flatMap(r => Option(r.querySelector(s"[data-example='${s.id}']")))
-              .foreach(_.scrollIntoView(true)),
-          50
-        )
+      dom.window.setTimeout(() => sectionOf(s.id).foreach(_.scrollIntoView(true)), 50)
     }
+
+  override def beforeUnmount: Unit =
+    scroller.foreach(_.removeEventListener("scroll", onScroll))
+    toc.foreach(_.removeEventListener("scroll", onTocScroll))
+    resize.foreach(_.disconnect())
+    resize = None
+    if frame != 0 then
+      dom.window.cancelAnimationFrame(frame)
+
+  // A link in the header. It scrolls even when the URL already names its section, and keeps the
+  // URL on the example shown without a hashchange
+  private def tocLink(key: String, hash: String, label: String, ref: Boolean, badge: Boolean) = a(
+    cls -> (
+      if ref then
+        "page-toc__link page-toc__link--ref"
+      else
+        "page-toc__link"
+    ),
+    href        -> s"#/${hash}",
+    data("key") -> key,
+    ariaCurrent ->
+      active.map(a =>
+        if a.contains(key) then
+          "true"
+        else
+          "false"
+      ),
+    onclick -> { (e: dom.Event) =>
+      e.preventDefault()
+      sectionOf(key).foreach(_.scrollIntoView(true))
+      active := Some(key)
+      reveal()
+      dom.window.history.replaceState(null, "", s"#/${hash}")
+    },
+    label,
+    when(badge, span(cls -> "story-badge", "Playground"))
+  )
 
   override def render: RxElement =
     val group = Pages.groupOf(page)
     div(
       cls -> "page",
       div(
-        cls -> "story-hero",
+        cls ->
+          stuck.map(on =>
+            if on then
+              "story-hero is-stuck"
+            else
+              "story-hero"
+          ),
         div(
           cls -> "story-hero__inner",
           div(
@@ -51,47 +182,20 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
           p(cls  -> "story-summary", page.summary),
           div(
             cls -> "story-meta",
-            div(
-              cls -> "page-toc",
+            nav(
+              cls       -> "page-toc",
+              ariaLabel -> "Sections",
               page
                 .examples
                 .map(s =>
-                  a(
-                    cls  -> "page-toc__link",
-                    href -> s"#/${s.id}",
-                    s.title,
-                    when(s.playground.isDefined, span(cls -> "story-badge", "Playground"))
-                  )
+                  tocLink(s.id, s.id, s.title, ref = false, badge = s.playground.isDefined)
                 ) ++ (
                 if !page.isComponent then
                   Nil
                 else
-                  Seq(
-                    a(
-                      cls     -> "page-toc__link page-toc__link--ref",
-                      href    -> s"#/${page.id}",
-                      onclick -> { (e: dom.Event) =>
-                        scrollTo(e, "parts")
-                      },
-                      "Parts"
-                    ),
-                    a(
-                      cls     -> "page-toc__link page-toc__link--ref",
-                      href    -> s"#/${page.id}",
-                      onclick -> { (e: dom.Event) =>
-                        scrollTo(e, "api")
-                      },
-                      "API"
-                    ),
-                    a(
-                      cls     -> "page-toc__link page-toc__link--ref",
-                      href    -> s"#/${page.id}",
-                      onclick -> { (e: dom.Event) =>
-                        scrollTo(e, "a11y")
-                      },
-                      "Accessibility"
-                    )
-                  )
+                  PageView
+                    .refSections
+                    .map((key, label) => tocLink(key, page.id, label, ref = true, badge = false))
               )
             ),
             div(cls -> "story-meta__spacer"),
@@ -113,6 +217,7 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
           section(
             cls             -> "example-section",
             data("example") -> s.id,
+            data("section") -> s.id,
             div(
               cls -> "example-head",
               h2(cls -> "example-title", s.title),
@@ -126,20 +231,23 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
         page.isComponent,
         Seq(
           section(
-            cls -> "ref-section",
-            id  -> "parts",
+            cls             -> "ref-section",
+            id              -> "parts",
+            data("section") -> "parts",
             h2(cls -> "ref-title", "Parts"),
             PartsTable(() => root)
           ),
           section(
-            cls -> "ref-section",
-            id  -> "api",
+            cls             -> "ref-section",
+            id              -> "api",
+            data("section") -> "api",
             h2(cls -> "ref-title", "API"),
             ApiTable(page.api)
           ),
           section(
-            cls -> "ref-section",
-            id  -> "a11y",
+            cls             -> "ref-section",
+            id              -> "a11y",
+            data("section") -> "a11y",
             h2(cls -> "ref-title", "Accessibility"),
             A11yPanel(page, () => root)
           )
@@ -149,11 +257,25 @@ class PageView(page: ComponentPage, focus: Option[Story], defaultMode: ViewMode)
 
   end render
 
-  private def scrollTo(e: dom.Event, sectionId: String): Unit =
-    e.preventDefault()
-    root.flatMap(r => Option(r.querySelector(s"#${sectionId}"))).foreach(_.scrollIntoView(true))
-
 end PageView
+
+object PageView:
+  /** The reference sections after the examples, by their `data-section` key. */
+  val refSections: Seq[(String, String)] = Seq(
+    "parts" -> "Parts",
+    "api"   -> "API",
+    "a11y"  -> "Accessibility"
+  )
+
+  /** Scrolled this far, the header folds; it unfolds only near the top again. */
+  val foldAt: Double   = 64
+  val unfoldAt: Double = 8
+
+  /** Room kept beside the active link when the folded links scroll sideways to it. */
+  val revealMargin: Double = 32
+
+  /** A section counts as shown once its top is this close under the header. */
+  val spyOffset: Double = 48
 
 /**
   * The `data-slot` parts the page's examples render, read from the live DOM: the component that
