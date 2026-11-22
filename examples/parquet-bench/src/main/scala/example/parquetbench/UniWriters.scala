@@ -109,6 +109,8 @@ object UniWriters:
         ParquetWriteOptions.default.noCompression()
       case "snappy" =>
         ParquetWriteOptions.default.withCompression(CompressionCodec.SNAPPY)
+      case "zstd" =>
+        ParquetWriteOptions.default.withCompression(CompressionCodec.ZSTD)
       case other =>
         throw IllegalArgumentException(s"Unsupported codec ${other}")
 

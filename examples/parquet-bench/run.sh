@@ -8,6 +8,10 @@
 # rows (default 1000000) is the size of the lineitem table; the files are regenerated when it
 # changes. Bench options: --warmup N, --iterations N, --filter TEXT (a reader or file name).
 # Set PLATFORMS to a subset of "jvm js native" to skip platforms.
+#
+# The `iceberg` cases write the lineitem rows as Iceberg tables (`-- --filter iceberg`).
+# duckdb_iceberg.py times DuckDB's Iceberg writer on the same rows, and check_iceberg.py reads the
+# tables back with DuckDB and pyiceberg and checks them against the source rows; see each script.
 set -euo pipefail
 
 BENCH="$(cd "$(dirname "$0")" && pwd)"

@@ -66,7 +66,7 @@ object JvmBench:
               )
           Seq(u, java)
       }
-    BenchRunner.run(cases ++ writes, warmup, iterations, filter)
+    BenchRunner.run(cases ++ writes ++ IcebergWriters.cases(dir), warmup, iterations, filter)
 
   end main
 

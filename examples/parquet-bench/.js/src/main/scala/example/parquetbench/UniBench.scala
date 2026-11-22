@@ -9,7 +9,7 @@ object UniBench:
     val argv = js.Dynamic.global.process.argv.asInstanceOf[js.Array[String]].toSeq.drop(2)
     val (dir, warmup, iterations, filter) = BenchRunner.parse(argv)
     BenchRunner.run(
-      BenchRunner.uniCases(dir) ++ BenchRunner.uniWriteCases(dir),
+      BenchRunner.uniCases(dir) ++ BenchRunner.uniWriteCases(dir) ++ IcebergWriters.cases(dir),
       warmup,
       iterations,
       filter

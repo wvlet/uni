@@ -212,6 +212,19 @@ private[parquet] final class DatasetWriterCore private (
   private val partitionPositions: Array[Int] =
     keys.map(k => schema.fields.indexWhere(_.name == k)).toArray
 
+  // The partition index of each top-level field, or -1, for rows whose keys are in schema order
+  private val partitionOfField: Array[Int] =
+    schema.fields.indices.map(j => partitionPositions.indexOf(j)).toArray
+
+  private val lastPartitionPosition: Int = partitionPositions.maxOption.getOrElse(-1)
+
+  // The UTF-8 names of the top-level fields, matched against map keys without decoding them
+  private val fieldNames: Array[Array[Byte]] =
+    schema.fields.map(_.name.getBytes(StandardCharsets.UTF_8)).toArray
+
+  // The decoded strings of each STRING partition column, so a repeated value isn't decoded again
+  private val interners: IndexedSeq[StringInterner] = keys.map(_ => StringInterner())
+
   private def partitionField(key: String): ParquetField.Primitive =
     schema.field(key) match
       case Some(p: ParquetField.Primitive) if kindOfField(p).isDefined =>
@@ -314,11 +327,12 @@ private[parquet] final class DatasetWriterCore private (
   private val touched = mutable.LinkedHashSet.empty[Seq[(String, String)]]
   private var state   = State.Open
 
-  private val reader       = MsgReader()
-  private val rowPacker    = PureScalaBufferPacker()
-  private val values       = new Array[Any](keys.size)
-  private var lastValues   = Array.empty[Any]
-  private var lastDir      = ""
+  private val reader    = MsgReader()
+  private val rowPacker = PureScalaBufferPacker()
+  private val values    = new Array[Any](keys.size)
+  // The folder of each partition seen, by its values
+  private val dirs         = mutable.HashMap.empty[PartitionValues, String]
+  private val probe        = PartitionValues(values)
   private var sinceBudget  = 0
   private val partitionSet = keys.toSet
   private val keyIndexes   = mutable.HashMap.empty[String, Int]
@@ -334,8 +348,10 @@ private[parquet] final class DatasetWriterCore private (
   def writeRow(bytes: Array[Byte], len: Int): Unit =
     ensureOpen()
     ensureRoom()
-    val (row, rowLen) = extractPartitions(bytes, len)
-    val dir           = currentDir()
+    extractPartitions(bytes, len)
+    val row    = extracted
+    val rowLen = extractedLen
+    val dir    = currentDir()
     sort match
       case Some(s) =>
         // Check the row now, so a row that doesn't fit fails here rather than in a later run
@@ -365,31 +381,52 @@ private[parquet] final class DatasetWriterCore private (
     f.rows += 1
     afterWrite(f, 1)
 
+  // The row bytes `extractPartitions` leaves to shred; fields rather than a tuple, which would box
+  private var extracted    = Array.emptyByteArray
+  private var extractedLen = 0
+
+  private def extractedRow(bytes: Array[Byte], len: Int): Unit =
+    extracted = bytes
+    extractedLen = len
+
   /**
-    * Reads the partition values of a row into `values`, and returns the bytes to shred against the
+    * Reads the partition values of a row into `values`, and sets the bytes to shred against the
     * file schema. Rows are rebuilt without the partition entries, so the remaining fields keep
-    * their schema positions and the shredder's positional fast path.
+    * their schema positions and the shredder's positional fast path. Iceberg files keep the
+    * partition columns, so their rows are shredded as given.
     */
-  private def extractPartitions(bytes: Array[Byte], len: Int): (Array[Byte], Int) =
+  private def extractPartitions(bytes: Array[Byte], len: Int): Unit =
     var i = 0
     while i < values.length do
       values(i) = Unset
       i += 1
     if keys.isEmpty then
-      (bytes, len)
+      extractedRow(bytes, len)
     else
       reader.reset(bytes, len)
       if reader.isMap then
         val n = reader.readMapHeader()
         kept.clear()
         var j = 0
-        while j < n do
+        // Keys in schema order (as Weaver packs case classes) are matched without decoding them
+        var positional = true
+        var found      = 0
+        // An Iceberg row is kept as it is, so the scan stops once every partition value is read
+        while j < n && !(iceberg.isDefined && found == keys.length) do
           val start = reader.pos
-          val idx   = keyIndex(reader.readKey())
+          val idx   =
+            if positional && j < fieldNames.length && reader.keyEquals(fieldNames(j)) then
+              partitionOfField(j)
+            else
+              if positional then
+                positional = false
+                reader.pos = start
+              keyIndex(reader.readKey())
           if idx >= 0 then
             // A repeated partition key counts once, as the shredder does for columns
             if values(idx) == Unset then
               values(idx) = readPartitionValue(idx)
+              found += 1
             else
               reader.skip()
           else
@@ -400,15 +437,15 @@ private[parquet] final class DatasetWriterCore private (
           j += 1
         finishValues()
         if iceberg.isDefined then
-          // Iceberg files keep the partition columns
-          return (bytes, len)
-        rowPacker.clear
-        rowPacker.packMapHeader(kept.length / 2)
-        var k = 0
-        while k < kept.length do
-          rowPacker.writePayload(bytes, kept(k), kept(k + 1) - kept(k))
-          k += 2
-        (rowPacker.writtenArray, rowPacker.writtenSize)
+          extractedRow(bytes, len)
+        else
+          rowPacker.clear
+          rowPacker.packMapHeader(kept.length / 2)
+          var k = 0
+          while k < kept.length do
+            rowPacker.writePayload(bytes, kept(k), kept(k + 1) - kept(k))
+            k += 2
+          extractedRow(rowPacker.writtenArray, rowPacker.writtenSize)
       else if reader.isArray then
         val n = reader.readArrayHeader()
         if n != schema.fields.size then
@@ -416,31 +453,33 @@ private[parquet] final class DatasetWriterCore private (
             s"A row of ${n} values does not match the ${schema.fields.size} columns of the schema"
           )
         if iceberg.isDefined then
-          // Iceberg files keep the partition columns: read their values, keep the row as it is
+          // Read the partition values, up to the last partition column, and keep the row as it is
           var j = 0
-          while j < n do
-            val idx = partitionPositions.indexOf(j)
+          while j <= lastPartitionPosition do
+            val idx = partitionOfField(j)
             if idx >= 0 then
               values(idx) = readPartitionValue(idx)
             else
               reader.skip()
             j += 1
           finishValues()
-          return (bytes, len)
-        rowPacker.clear
-        rowPacker.packArrayHeader(n - keys.size)
-        var j = 0
-        while j < n do
-          val idx = partitionPositions.indexOf(j)
-          if idx >= 0 then
-            values(idx) = readPartitionValue(idx)
-          else
-            val start = reader.pos
-            reader.skip()
-            rowPacker.writePayload(bytes, start, reader.pos - start)
-          j += 1
-        finishValues()
-        (rowPacker.writtenArray, rowPacker.writtenSize)
+          extractedRow(bytes, len)
+        else
+          rowPacker.clear
+          rowPacker.packArrayHeader(n - keys.size)
+          var j = 0
+          while j < n do
+            val idx = partitionOfField(j)
+            if idx >= 0 then
+              values(idx) = readPartitionValue(idx)
+            else
+              val start = reader.pos
+              reader.skip()
+              rowPacker.writePayload(bytes, start, reader.pos - start)
+            j += 1
+          finishValues()
+          extractedRow(rowPacker.writtenArray, rowPacker.writtenSize)
+        end if
       else
         throw ParquetException(s"A row must be a map or an array, but got ${reader.valueType}")
       end if
@@ -468,20 +507,39 @@ private[parquet] final class DatasetWriterCore private (
     if reader.isNil then
       reader.skipNil()
       null
+    else if kinds(idx) == Kind.Str && reader.isString then
+      val n = reader.readRawHeader()
+      val s = interners(idx).intern(reader.bytes, reader.pos, n)
+      reader.pos += n
+      s
+    else if (kinds(idx) == Kind.I64 || kinds(idx) == Kind.I32) && reader.isLong then
+      val start = reader.pos
+      val v     = reader.readLong()
+      if kinds(idx) == Kind.I64 then
+        v
+      else if v >= Int.MinValue && v <= Int.MaxValue then
+        v.toInt
+      else
+        // Out of range: the converter reports it
+        reader.pos = start
+        readConverted(idx)
     else
-      val v = reader.readValue()
-      try
-        val x = converters(idx)(v)
-        kinds(idx) match
-          case Kind.Str =>
-            String(x.asInstanceOf[Array[Byte]], StandardCharsets.UTF_8)
-          case Kind.Date =>
-            LocalDate.ofEpochDay(x.asInstanceOf[Int].toLong)
-          case _ =>
-            x
-      catch
-        case e: ValueConverter.Mismatch =>
-          throw ParquetException(s"Partition column ${keys(idx)}: ${e.getMessage}")
+      readConverted(idx)
+
+  private def readConverted(idx: Int): Any =
+    val v = reader.readValue()
+    try
+      val x = converters(idx)(v)
+      kinds(idx) match
+        case Kind.Str =>
+          String(x.asInstanceOf[Array[Byte]], StandardCharsets.UTF_8)
+        case Kind.Date =>
+          LocalDate.ofEpochDay(x.asInstanceOf[Int].toLong)
+        case _ =>
+          x
+    catch
+      case e: ValueConverter.Mismatch =>
+        throw ParquetException(s"Partition column ${keys(idx)}: ${e.getMessage}")
 
   /** Missing values are null; a null in a required partition column is an error */
   private def finishValues(): Unit =
@@ -543,7 +601,7 @@ private[parquet] final class DatasetWriterCore private (
       while i < n do
         var k = 0
         while k < keys.size do
-          values(k) = vectorValue(vectors(k), i, kinds(k))
+          values(k) = vectorValue(vectors(k), i, k)
           k += 1
         finishValues()
         val dir = currentDir()
@@ -684,7 +742,8 @@ private[parquet] final class DatasetWriterCore private (
       case _ =>
         "a BinaryColumn"
 
-  private def vectorValue(v: ColumnVector, i: Int, kind: Kind): Any =
+  private def vectorValue(v: ColumnVector, i: Int, k: Int): Any =
+    val kind = kinds(k)
     if v.isNull(i) then
       null
     else
@@ -696,7 +755,7 @@ private[parquet] final class DatasetWriterCore private (
         case c: LongColumn =>
           c.values(i)
         case c: BinaryColumn =>
-          c.getString(i)
+          interners(k).intern(c.data, c.offsets(i), c.length(i))
         case other =>
           throw ParquetException(s"Unexpected partition vector ${other.getClass.getSimpleName}")
 
@@ -747,24 +806,25 @@ private[parquet] final class DatasetWriterCore private (
   private def currentDir(): String =
     if keys.isEmpty then
       ""
-    else if java
-        .util
-        .Arrays
-        .equals(values.asInstanceOf[Array[AnyRef]], lastValues.asInstanceOf[Array[AnyRef]])
-    then
-      lastDir
     else
-      val sb = StringBuilder()
-      var i  = 0
-      while i < keys.size do
-        sb.append(escape(keys(i)))
-        sb.append('=')
-        sb.append(escape(folderValue(values(i), iceberg.isDefined)))
-        sb.append('/')
-        i += 1
-      lastValues = values.clone()
-      lastDir = sb.result()
-      lastDir
+      dirs.get(probe) match
+        case Some(dir) =>
+          dir
+        case None =>
+          val sb = StringBuilder()
+          var i  = 0
+          while i < keys.size do
+            sb.append(escape(keys(i)))
+            sb.append('=')
+            sb.append(escape(folderValue(values(i), iceberg.isDefined)))
+            sb.append('/')
+            i += 1
+          val dir = sb.result()
+          // Partitions are few in practice; a write over very many keeps the cache bounded
+          if dirs.size >= MaxCachedDirs then
+            dirs.clear()
+          dirs.put(PartitionValues(values.clone()), dir)
+          dir
 
   private def fileFor(dir: String): OpenFile =
     open.get(dir) match
@@ -1411,6 +1471,88 @@ private[parquet] object DatasetWriterCore:
         throw e
 
   private object Unset
+
+  /** The partition folders cached before the cache starts over */
+  private val MaxCachedDirs = 4096
+
+  /** Partition values as a hash key; the writer probes with its own reused array */
+  private final class PartitionValues(val values: Array[Any]):
+    override def hashCode: Int = java.util.Arrays.hashCode(values.asInstanceOf[Array[AnyRef]])
+    override def equals(o: Any): Boolean =
+      o match
+        case p: PartitionValues =>
+          java
+            .util
+            .Arrays
+            .equals(values.asInstanceOf[Array[AnyRef]], p.values.asInstanceOf[Array[AnyRef]])
+        case _ =>
+          false
+
+  /**
+    * The strings of one partition column by their UTF-8 bytes, so the rows of a partition share one
+    * decoded string. Past [[StringInterner.MaxEntries]] distinct values, strings are decoded as
+    * they come.
+    */
+  private[parquet] final class StringInterner:
+    private var keys  = new Array[Array[Byte]](64)
+    private var strs  = new Array[String](64)
+    private var mask  = 63
+    private var count = 0
+
+    private def hashOf(buf: Array[Byte], off: Int, len: Int): Int =
+      var h = len
+      var i = 0
+      while i < len do
+        h = 31 * h + buf(off + i)
+        i += 1
+      h ^ (h >>> 16)
+
+    def intern(buf: Array[Byte], off: Int, len: Int): String =
+      var s = hashOf(buf, off, len) & mask
+      while keys(s) != null && !same(keys(s), buf, off, len) do
+        s = (s + 1) & mask
+      if keys(s) != null then
+        strs(s)
+      else
+        val str = String(buf, off, len, StandardCharsets.UTF_8)
+        if count < StringInterner.MaxEntries then
+          keys(s) = java.util.Arrays.copyOfRange(buf, off, off + len)
+          strs(s) = str
+          count += 1
+          if count * 2 > mask then
+            grow()
+        str
+
+    private def same(k: Array[Byte], buf: Array[Byte], off: Int, len: Int): Boolean =
+      if k.length != len then
+        false
+      else
+        var i = 0
+        while i < len && k(i) == buf(off + i) do
+          i += 1
+        i == len
+
+    private def grow(): Unit =
+      val oldKeys = keys
+      val oldStrs = strs
+      keys = new Array[Array[Byte]](oldKeys.length * 2)
+      strs = new Array[String](oldKeys.length * 2)
+      mask = keys.length - 1
+      var i = 0
+      while i < oldKeys.length do
+        val k = oldKeys(i)
+        if k != null then
+          var s = hashOf(k, 0, k.length) & mask
+          while keys(s) != null do
+            s = (s + 1) & mask
+          keys(s) = k
+          strs(s) = oldStrs(i)
+        i += 1
+
+  end StringInterner
+
+  private[parquet] object StringInterner:
+    val MaxEntries = 4096
 
   /** The async writer's file size cap when none is set, since files are built in memory */
   val AsyncMaxFileSize: Long = 128L * 1024 * 1024
