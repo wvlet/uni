@@ -25,8 +25,8 @@ and run only on the JVM. Uni already reads JSON, MessagePack, and YAML on every 
 - **Every codec is written in Scala** (Snappy, LZ4 block and Hadoop framing, inflate, ZSTD from
   RFC 8878, Brotli from RFC 7932), so a file reads the same way on every platform. GZIP uses the
   platform's zlib through `wvlet.uni.io.Gzip` where one exists (JVM, Native, Node.js) and the
-  Scala inflate in browsers. The codecs are `private[parquet]` until another module needs them
-  (for example `Content-Encoding: zstd`); moving them to a shared package is a separate decision.
+  Scala inflate in browsers. The codecs were `private[parquet]` until another module needed them
+  (for example `Content-Encoding: zstd`); since `2026-11-22-parquet-in-uni.md` they live in `wvlet.uni.io.codec`.
   The decoders' logic stays shared; only their 8-byte loads and copies (`Word8`) are per platform:
   a VarHandle on the JVM (in Java, since Scala boxes `VarHandle.get` results), `memcpy` between
   array pointers on Native for copies, and byte assembly on Scala.js. Native 8-byte loads read the

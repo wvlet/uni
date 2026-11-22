@@ -1,5 +1,6 @@
 package wvlet.uni.parquet.codec
 
+import wvlet.uni.io.codec.*
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.Gzip
 import wvlet.uni.parquet.ParquetException
@@ -9,6 +10,16 @@ import wvlet.uni.parquet.format.CompressionCodec
 private[parquet] object Codecs:
 
   def decompress(
+      codec: CompressionCodec,
+      src: Array[Byte],
+      offset: Int,
+      length: Int,
+      uncompressedSize: Int
+  ): Array[Byte] = ParquetException.fromCodec(
+    decompressPage(codec, src, offset, length, uncompressedSize)
+  )
+
+  private def decompressPage(
       codec: CompressionCodec,
       src: Array[Byte],
       offset: Int,
@@ -55,6 +66,6 @@ private[parquet] object Codecs:
         throw ParquetException.unsupported("the LZO codec")
     end match
 
-  end decompress
+  end decompressPage
 
 end Codecs

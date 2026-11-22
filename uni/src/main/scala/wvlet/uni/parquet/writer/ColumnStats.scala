@@ -2,7 +2,7 @@ package wvlet.uni.parquet.writer
 
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.format.*
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 
 /**
   * Tracks the min, max, and null count of a column chunk in the column's sort order: signed for

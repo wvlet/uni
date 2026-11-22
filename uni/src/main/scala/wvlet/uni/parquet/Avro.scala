@@ -3,9 +3,9 @@ package wvlet.uni.parquet
 import wvlet.uni.io.CRC32
 import wvlet.uni.json.JSON
 import wvlet.uni.json.JSON.*
-import wvlet.uni.parquet.codec.Inflate
-import wvlet.uni.parquet.codec.Snappy
-import wvlet.uni.parquet.codec.Zstd
+import wvlet.uni.io.codec.Inflate
+import wvlet.uni.io.codec.Snappy
+import wvlet.uni.io.codec.Zstd
 
 import java.nio.charset.StandardCharsets
 import scala.collection.mutable
@@ -92,6 +92,14 @@ private[parquet] object Avro:
   end read
 
   private def decompress(
+      codec: String,
+      bytes: Array[Byte],
+      offset: Int,
+      length: Int,
+      source: String
+  ): Array[Byte] = ParquetException.fromCodec(decompressBlock(codec, bytes, offset, length, source))
+
+  private def decompressBlock(
       codec: String,
       bytes: Array[Byte],
       offset: Int,

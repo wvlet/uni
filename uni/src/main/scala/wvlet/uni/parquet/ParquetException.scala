@@ -8,6 +8,14 @@ class ParquetException(message: String, cause: Throwable = null)
     extends RuntimeException(message, cause)
 
 object ParquetException:
+  /** Runs a codec call, turning its errors into ParquetExceptions with the same message */
+  private[parquet] inline def fromCodec[A](inline body: A): A =
+    try
+      body
+    catch
+      case e: wvlet.uni.io.codec.CodecException =>
+        throw ParquetException(e.getMessage, e)
+
   private[parquet] def unsupported(feature: String): ParquetException = ParquetException(
     s"Unsupported Parquet feature: ${feature}"
   )

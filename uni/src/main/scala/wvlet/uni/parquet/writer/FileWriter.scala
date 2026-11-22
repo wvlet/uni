@@ -6,7 +6,7 @@ import wvlet.uni.parquet.ParquetWriteOptions
 import wvlet.uni.parquet.SchemaElements
 import wvlet.uni.parquet.codec.Compressors
 import wvlet.uni.parquet.format.*
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 
 import scala.collection.mutable
 import scala.util.control.NonFatal

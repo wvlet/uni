@@ -4,7 +4,7 @@ import wvlet.uni.parquet.ParquetException
 import wvlet.uni.parquet.ParquetField
 import wvlet.uni.parquet.ParquetSchema
 import wvlet.uni.parquet.format.*
-import wvlet.uni.parquet.io.ByteBuf
+import wvlet.uni.io.codec.ByteBuf
 import wvlet.uni.parquet.io.DoubleBuf
 import wvlet.uni.parquet.io.IntBuf
 import wvlet.uni.parquet.io.LongBuf
