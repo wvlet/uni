@@ -29,9 +29,18 @@ case class ComponentPage(
     api: Seq[ApiEntry],
     a11y: Seq[A11yCheck] = Nil,
     a11yNote: String = "",
-    topic: Boolean = false
+    topic: Boolean = false,
+    // The docs page under https://wvlet.org/uni/ that the page links to, when not its group's
+    docs: String = ""
 ) extends GalleryPage:
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
+
+  /** The docs page this page links to: its own, else its group's. */
+  def docsPath(group: PageGroup): String =
+    if docs.nonEmpty then
+      docs
+    else
+      group.docs
 
   /**
     * A page about a uni-ui component, with its parts, API, and accessibility check. A topic page

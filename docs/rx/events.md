@@ -77,9 +77,11 @@ val fallback = failed.recover { case _: IllegalStateException => -1 }
 // OnNext(-1), OnCompletion
 ```
 
-Try a throwing `map` in the gallery, where each lane draws the events of one stream:
+In the gallery, each lane draws the events of one stream: the throwing `map` goes on past its
+error, while `Rx.exception` and a failed `Rx.future` end, and `recover` replaces each error with a
+value. A failed `RxVar` ends the same way; see [recoverWith](./operators#recoverwith).
 
-<UiGallery story="rx-errors/resume" embed height="520px" />
+<UiGallery story="rx-events/kinds" embed height="500px" />
 
 ## Event Traces
 
@@ -91,6 +93,7 @@ What a handler of `RxRunner.runContinuously` receives, where `boom` is a `map` t
 | `Rx.empty[Int]` | `OnCompletion` |
 | `Rx.single(1)` | `OnNext(1)` `OnCompletion` |
 | `Rx.exception(e)` | `OnFailure(e)` |
+| `Rx.future(f)`, where `f` fails with `e` | `OnFailure(e)` |
 | `Rx.fromSeq(Seq(1, 2, 3)).map(boom)` | `OnNext(1)` `OnError(e)` `OnNext(3)` `OnCompletion` |
 | `Rx.fromSeq(Seq(1, 2, 3)).filter(_ > 10)` | `OnCompletion` |
 | `Rx.fromSeq(Seq(1, 2, 3)).take(2)` | `OnNext(1)` `OnNext(2)` `OnCompletion` |
@@ -103,6 +106,10 @@ What a handler of `RxRunner.runContinuously` receives, where `boom` is a `map` t
 so it completes here only because the sequence did. `concat` starts its second stream only after
 the first one completes. `materialize` turns events into `Result` values, and it ends at the first
 error.
+
+Each lane in the gallery runs one of these streams. Press **Replay** to run them again:
+
+<UiGallery story="rx-events/traces" embed height="800px" />
 
 ## Variables
 
@@ -119,7 +126,10 @@ counter := 1 // nothing: the value did not change
 counter.stop() // OnCompletion
 ```
 
-`counter.setException(e)` ends the variable with `OnFailure(e)` instead.
+`counter.setException(e)` ends the variable with `OnFailure(e)` instead. Try each step in the
+gallery. **Subscribe again** starts a new subscription, which gets the current value at once:
+
+<UiGallery story="rx-events/variable" embed height="380px" />
 
 ## Ways to Run a Stream
 
@@ -146,6 +156,12 @@ RxRunner.run(parsed) {
 // value: 1
 // failed: For input string: "x"
 ```
+
+In the gallery, the same stream runs with `runContinuously` and with `run` side by side. When `n`
+reaches 3, the `run` lane ends with a failure, while the `runContinuously` lane draws an error and
+goes on:
+
+<UiGallery story="rx-errors/resume" embed height="520px" />
 
 `subscribe` suits UI state and other long-lived streams. Its function sees values only. An error
 it can't handle is logged as a warning, never thrown back to the code that sent the event, such as

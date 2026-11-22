@@ -59,10 +59,12 @@ class Timeline(lanes: Lane*) extends RxElement:
     if t - lastAt > windowMs then
       restart(t)
     lastAt = t
-    // Marbles of events close in time sit side by side, slightly later than they happened
+    // Marbles of events close in time sit side by side, slightly later than they happened. A wide
+    // first marble moves right to show whole.
     val at   = t - origin
     val half = msPerPx * Marble.widthPx(kind, text) / 2
-    val x    = math.max(at, lastX(i) + lastHalf(i) + half + msPerPx * 2)
+    val gap  = msPerPx * 2
+    val x    = math.max(math.max(at, half + gap), lastX(i) + lastHalf(i) + half + gap)
     lastX(i) = x
     lastHalf(i) = half
     front = math.max(front, x)

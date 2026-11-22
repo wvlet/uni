@@ -231,6 +231,154 @@ object RxStories:
   end rxFuture
   // #endregion
 
+  // #region rx-events/traces
+  inline def rxTraces: RxElement =
+    val round = Rx.variable(0)
+
+    // A map function that throws on 2
+    def boom(v: Int): Int =
+      if v == 2 then
+        throw IllegalArgumentException("boom")
+      v
+
+    def demo(): RxElement =
+      val e = IllegalStateException("e")
+      Timeline(
+        Lane("Rx.fromSeq(Seq(1, 2, 3))", Rx.fromSeq(Seq(1, 2, 3))),
+        Lane("Rx.empty[Int]", Rx.empty[Int]),
+        Lane("Rx.single(1)", Rx.single(1)),
+        Lane("Rx.exception(e)", Rx.exception[Int](e)),
+        // An OnError, and the stream goes on
+        Lane("….map(boom)", Rx.fromSeq(Seq(1, 2, 3)).map(boom)),
+        Lane("….filter(_ > 10)", Rx.fromSeq(Seq(1, 2, 3)).filter(_ > 10)),
+        Lane("….take(2)", Rx.fromSeq(Seq(1, 2, 3)).take(2)),
+        Lane("….lastOption", Rx.fromSeq(Seq(1, 2, 3)).lastOption),
+        Lane(
+          "Rx.fromSeq(Seq(1, 2)).concat(Rx.single(3))",
+          Rx.fromSeq(Seq(1, 2)).concat(Rx.single(3))
+        ),
+        // Nothing follows an end: 3 never arrives
+        Lane("Rx.exception(e).concat(Rx.single(3))", Rx.exception[Int](e).concat(Rx.single(3))),
+        Lane("….map(boom).materialize", Rx.fromSeq(Seq(1, 2, 3)).map(boom).materialize)
+      )
+
+    div(
+      cls -> "demo-stack",
+      div(
+        cls -> "demo-row",
+        Button("Replay").primary.onClick(() => round.update(_ + 1)),
+        span(cls -> "demo-note", "… is Rx.fromSeq(Seq(1, 2, 3))")
+      ),
+      round.map(_ => demo())
+    )
+  end rxTraces
+  // #endregion
+
+  // #region rx-events/kinds
+  inline def rxKinds: RxElement =
+    val round = Rx.variable(0)
+
+    // A fake request: a Future that fails after 500 ms
+    def fetch(): Future[Int] =
+      val reply = Promise[Int]()
+      dom.window.setTimeout(() => reply.failure(IllegalStateException("timed out")), 500)
+      reply.future
+
+    def demo(): RxElement =
+      given ExecutionContext = ExecutionContext.parasitic
+      // An error inside the stream: OnError, and the next value still arrives
+      val parsed = Rx.fromSeq(Seq("1", "x", "3")).map(_.toInt)
+      // A failed source: OnFailure, the end of the stream
+      val failed  = Rx.exception[Int](IllegalStateException("unavailable"))
+      val request = Rx.future(fetch())
+
+      Timeline(
+        Lane("parsed", parsed),
+        Lane(
+          "parsed.recover { … => 0 }",
+          parsed.recover { case _: NumberFormatException =>
+            0
+          }
+        ),
+        Lane("failed", failed),
+        Lane(
+          "failed.recover { … => -1 }",
+          failed.recover { case _: IllegalStateException =>
+            -1
+          }
+        ),
+        Lane("request", request),
+        Lane(
+          "request.recover { … => -1 }",
+          request.recover { case _: IllegalStateException =>
+            -1
+          }
+        )
+      )
+    end demo
+
+    div(
+      cls -> "demo-stack",
+      div(cls -> "demo-row", Button("Replay").primary.onClick(() => round.update(_ + 1))),
+      round.map(_ => demo())
+    )
+  end rxKinds
+  // #endregion
+
+  // #region rx-events/variable
+  inline def rxVariable: RxElement =
+    val round = Rx.variable(0)
+
+    def demo(): RxElement =
+      val counter = Rx.variable(0)
+      val joins   = Rx.variable(0)
+      // Each join subscribes to counter again, and flatMap cancels the previous subscription
+      val newcomer = joins.filter(_ > 0).flatMap(_ => counter)
+      // An ended variable stays ended: only Restart makes a new one
+      val ended = Rx.variable(false)
+
+      div(
+        cls -> "demo-stack",
+        div(
+          cls -> "demo-row",
+          Button("counter := counter.get + 1")
+            .primary
+            .withDisabled(ended)
+            .onClick(() => counter := counter.get + 1),
+          // An equal value sends nothing
+          Button("counter := counter.get")
+            .withDisabled(ended)
+            .onClick(() => counter := counter.get),
+          // A new subscriber gets the current value at once
+          Button("Subscribe again").withDisabled(ended).onClick(() => joins.update(_ + 1))
+        ),
+        div(
+          cls -> "demo-row",
+          Button("counter.stop()")
+            .withDisabled(ended)
+            .onClick { () =>
+              ended := true
+              counter.stop()
+              // flatMap completes once its input has ended too
+              joins.stop()
+            },
+          Button("counter.setException(e)")
+            .danger
+            .withDisabled(ended)
+            .onClick { () =>
+              ended := true
+              counter.setException(IllegalStateException("e"))
+            },
+          Button("Restart").ghost.onClick(() => round.update(_ + 1))
+        ),
+        Timeline(Lane("counter", counter), Lane("a new subscriber", newcomer))
+      )
+    end demo
+
+    div(round.map(_ => demo()))
+  end rxVariable
+  // #endregion
+
   // #region rx-errors/resume
   inline def rxResume: RxElement =
     val n       = Rx.variable(1)
@@ -251,7 +399,7 @@ object RxStories:
       Timeline(
         Lane("n", n),
         // OnError doesn't end the stream: the next n comes through
-        Lane("checked", checked),
+        Lane("checked, with runContinuously", checked),
         Lane(
           "checked.recover { case _ => -1 }",
           checked.recover { case _ =>
@@ -453,6 +601,31 @@ object RxStories:
       ),
       api = Nil,
       topic = true
+    ),
+    ComponentPage(
+      "rx-events",
+      "Stream events",
+      "A stream sends values (OnNext) and errors it goes past (OnError) in any order, then at most one end: OnCompletion, or OnFailure when it failed. Nothing follows the end.",
+      Seq(
+        Story(
+          "rx-events/traces",
+          "Event traces",
+          "Each lane runs one stream from the docs' trace table. The failed concat ends at once, so its 3 never arrives."
+        )(rxTraces),
+        Story(
+          "rx-events/kinds",
+          "OnError and OnFailure",
+          "The throwing map goes on past its error; a failed source or Future ends. recover replaces both."
+        )(rxKinds),
+        Story(
+          "rx-events/variable",
+          "RxVar events",
+          "Press counter := counter.get: nothing. Subscribe again sends the current value. stop() and setException end the variable."
+        )(rxVariable)
+      ),
+      api = Nil,
+      topic = true,
+      docs = "rx/events"
     ),
     ComponentPage(
       "rx-errors",
