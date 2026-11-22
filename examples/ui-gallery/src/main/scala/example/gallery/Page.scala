@@ -35,6 +35,13 @@ case class ComponentPage(
 ) extends GalleryPage:
   def example(name: String): Option[Story] = examples.find(_.id == s"${id}/${name}")
 
+  /** The docs page this page links to: its own, else its group's. */
+  def docsPath(group: PageGroup): String =
+    if docs.nonEmpty then
+      docs
+    else
+      group.docs
+
   /**
     * A page about a uni-ui component, with its parts, API, and accessibility check. A topic page
     * (such as the Rx pages) has examples only.
