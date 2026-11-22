@@ -42,8 +42,32 @@ private[parquet] object IcebergTable:
       partitionColumns: IndexedSeq[(String, ParquetType.Primitive)],
       /** Identity partition source columns that each file must hold, since no value fills them */
       requiredInFiles: Set[String],
-      files: IndexedSeq[DataFile]
+      files: IndexedSeq[DataFile],
+      /** The field IDs of the files' columns, for reading renamed and re-added columns */
+      fieldIds: FieldIds = FieldIds.empty,
+      /** The table properties */
+      properties: Map[String, String] = Map.empty
   )
+
+  /**
+    * How data files map to the table's columns. Files whose top-level columns carry field IDs the
+    * table has known are read by ID: a column takes its current name, and a dropped one is hidden.
+    * Other files are read by name, which fails when the table renamed a column or added one back.
+    */
+  case class FieldIds(
+      /** The current top-level column name of each field ID */
+      current: Map[Int, String],
+      /** Every top-level field ID of any schema */
+      known: Set[Int],
+      /** Why the table can't be read by name, if it can't */
+      byNameError: Option[String]
+  )
+
+  object FieldIds:
+    val empty: FieldIds = FieldIds(Map.empty, Set.empty, None)
+
+    /** A name no column can have, for a file column the table dropped */
+    def droppedName(id: Int): String = s"\u0000dropped-${id}"
 
   private val HadoopMetadata   = """v(\d+)\.metadata\.json""".r
   private val CatalogMetadata  = """(\d+)-.+\.metadata\.json""".r
@@ -191,10 +215,20 @@ private[parquet] object IcebergTable:
     val location = string(m, "location").getOrElse(
       throw ParquetException(s"${source} has no table location")
     )
-    val paths   = Paths(givenRoot, location, objects)
-    val schemas = schemasOf(m, source)
-    checkSchemaHistory(schemas.values.toSeq, source)
-    val specs = specsOf(m)
+    val paths       = Paths(givenRoot, location, objects)
+    val schemas     = schemasOf(m, source)
+    val byNameError = schemaHistoryError(schemas.values.toSeq, source)
+    val properties  =
+      m.get("properties") match
+        case Some(JSONObject(ps)) =>
+          ps.collect { case (k, JSONString(v)) =>
+              k -> v
+            }
+            .toMap
+        case _ =>
+          Map.empty[String, String]
+    val knownIds = schemas.values.flatten.flatMap(long(_, "id")).map(_.toInt).toSet
+    val specs    = specsOf(m)
 
     val current   = long(m, "current-snapshot-id").filter(_ >= 0)
     val snapshots =
@@ -209,6 +243,11 @@ private[parquet] object IcebergTable:
     val currentSchemaId = long(m, "current-schema-id")
       .map(_.toInt)
       .getOrElse(schemas.keys.headOption.getOrElse(0))
+    def idsOf(fields: IndexedSeq[JSONObject]): FieldIds = FieldIds(
+      fields.flatMap(f => long(f, "id").map(_.toInt -> string(f, "name").getOrElse(""))).toMap,
+      knownIds,
+      byNameError
+    )
     def schemaFields(id: Int): IndexedSeq[JSONObject] = schemas.getOrElse(
       id,
       throw ParquetException(s"${source} has no schema with id ${id}")
@@ -219,7 +258,11 @@ private[parquet] object IcebergTable:
         // A table without snapshots: no files, the current schema and default spec
         val fields = schemaFields(currentSchemaId)
         val spec   = long(m, "default-spec-id").map(_.toInt).flatMap(specs.get).getOrElse(Seq.empty)
-        Step.Done(resolved(paths.root, fields, Seq(spec), IndexedSeq.empty, source))
+        Step.Done(
+          resolved(paths.root, fields, Seq(spec), IndexedSeq.empty, source, idsOf(fields)).copy(
+            properties = properties
+          )
+        )
       case Some(id) =>
         val snapshot = snapshots
           .find(s => long(s, "snapshot-id").contains(id))
@@ -238,8 +281,13 @@ private[parquet] object IcebergTable:
                 }"
             )
           }
+        // The current snapshot reads with the current schema, which a schema change without a new
+        // snapshot updates; time travel reads with the snapshot's own schema
         val fields = schemaFields(
-          long(snapshot, "schema-id").map(_.toInt).getOrElse(currentSchemaId)
+          if current.contains(id) then
+            currentSchemaId
+          else
+            long(snapshot, "schema-id").map(_.toInt).getOrElse(currentSchemaId)
         )
         def readManifests(manifests: IndexedSeq[Manifest]): Step = Step.Fetch(
           manifests.map(mf => paths.resolve(mf.path)),
@@ -272,7 +320,16 @@ private[parquet] object IcebergTable:
                   throw ParquetException(s"${source} has no partition spec ${id}")
                 )
               )
-            Step.Done(resolved(paths.root, fields, usedSpecs, files.map(_._1).toIndexedSeq, source))
+            Step.Done(
+              resolved(
+                paths.root,
+                fields,
+                usedSpecs,
+                files.map(_._1).toIndexedSeq,
+                source,
+                idsOf(fields)
+              ).copy(properties = properties)
+            )
         )
         (snapshot.get("manifest-list"), snapshot.get("manifests")) match
           case (Some(JSONString(list)), _) =>
@@ -434,7 +491,8 @@ private[parquet] object IcebergTable:
       fields: IndexedSeq[JSONObject],
       specs: Seq[Seq[PartitionField]],
       files: IndexedSeq[DataFile],
-      source: String
+      source: String,
+      fieldIds: FieldIds
   ): Resolved =
     val columns = fields.map(column(_, source))
     // An identity source column is a partition column when every spec of the files has it as an
@@ -463,7 +521,7 @@ private[parquet] object IcebergTable:
           .toMap
       )
     }
-    Resolved(root, columns, partitionColumns, required, typed.sortBy(_.path))
+    Resolved(root, columns, partitionColumns, required, typed.sortBy(_.path), fieldIds)
 
   end resolved
 
@@ -562,10 +620,21 @@ private[parquet] object IcebergTable:
     .flatMap(string(_, "name"))
 
   /**
-    * The dataset matches columns by name, so a field id must keep its name in every schema, and a
-    * name must keep its field id: a rename, or a column dropped and added again, would read the
-    * wrong values from older files
+    * Files without field IDs are matched by name, so a field id must keep its name in every schema,
+    * and a name must keep its field id: a rename, or a column dropped and added again, would read
+    * the wrong values from older files
     */
+  private def schemaHistoryError(
+      schemas: Seq[IndexedSeq[JSONObject]],
+      source: String
+  ): Option[String] =
+    try
+      checkSchemaHistory(schemas, source)
+      None
+    catch
+      case e: ParquetException =>
+        Some(e.getMessage)
+
   private def checkSchemaHistory(schemas: Seq[IndexedSeq[JSONObject]], source: String): Unit =
     val nameOfId = mutable.HashMap.empty[Long, String]
     val idOfName = mutable.HashMap.empty[String, Long]
@@ -578,14 +647,14 @@ private[parquet] object IcebergTable:
       nameOfId.get(id) match
         case Some(prev) if prev != name =>
           throw ParquetException(
-            s"Column ${prev} of ${source} was renamed to ${name}. Uni matches columns by name, so it can't read a table with renamed columns yet"
+            s"Column ${prev} of ${source} was renamed to ${name}. Its data files have no field IDs, so Uni matches columns by name and can't read the renamed column"
           )
         case _ =>
           nameOfId(id) = name
       idOfName.get(name) match
         case Some(prev) if prev != id =>
           throw ParquetException(
-            s"Column ${name} of ${source} was dropped and added again. Uni matches columns by name, so older files would show the dropped column's values"
+            s"Column ${name} of ${source} was dropped and added again. Its data files have no field IDs, so Uni matches columns by name, and older files would show the dropped column's values"
           )
         case _ =>
           idOfName(name) = id

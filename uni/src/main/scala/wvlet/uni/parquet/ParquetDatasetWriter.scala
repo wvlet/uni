@@ -1091,7 +1091,8 @@ private[parquet] final class DatasetWriterCore private (
 
   /** The commit of an Iceberg write, or none for plain files and for an append without files */
   def commitState(): Option[IcebergWrite.CommitState] = iceberg.flatMap { p =>
-    if committed.isEmpty && p.base.isDefined then
+    // An overwrite with no rows still commits: it removes the replaced files
+    if committed.isEmpty && p.base.isDefined && p.removal == IcebergWrite.Removal.Keep then
       None
     else
       val files = committed
@@ -1134,61 +1135,10 @@ private[parquet] final class DatasetWriterCore private (
         cause.addSuppressed(e)
 
   /** Runs commit steps with sync calls */
-  private def runStepsSync[A](start: IcebergWrite.Step[A]): A =
-    import IcebergWrite.Step
-    var step = start
-    var done = Option.empty[A]
-    while done.isEmpty do
-      step match
-        case Step.Done(v) =>
-          done = Some(v)
-        case Step.ListDir(dir, next) =>
-          step = next(listDirSync(dir))
-        case Step.Fetch(path, next) =>
-          step = next(
-            target match
-              case DatasetTarget.Local(_) =>
-                FileSystem.readBytes(IOPath.parse(path))
-              case DatasetTarget.Objects(store, _, _) =>
-                store.get(ObjectUri.parse(path))
-          )
-        case Step.Put(path, bytes, next) =>
-          runSync(RootAction.Put(path, bytes, s"Failed to write ${path}"))
-          step = next()
-        case Step.Create(path, bytes, next) =>
-          val created =
-            target match
-              case DatasetTarget.Local(_) =>
-                try
-                  FileSystem.writeBytes(IOPath.parse(path), bytes, WriteMode.CreateNew)
-                  true
-                catch
-                  case _: FileAlreadyExistsException =>
-                    false
-              case DatasetTarget.Objects(store, _, _) =>
-                store.putIfAbsent(ObjectUri.parse(path), bytes)
-          step = next(created)
-        case Step.Delete(path, next) =>
-          runSync(RootAction.Delete(path, s"Failed to delete ${path}"))
-          step = next()
-    end while
-    done.get
-
-  end runStepsSync
-
-  private def listDirSync(dir: String): Seq[String] =
-    target match
-      case DatasetTarget.Local(_) =>
-        val d = IOPath.parse(dir)
-        if FileSystem.isDirectory(d) then
-          FileSystem.list(d).filter(FileSystem.isFile).map(_.fileName)
-        else
-          Seq.empty
-      case DatasetTarget.Objects(store, _, _) =>
-        IcebergWrite.namesUnder(
-          ObjectUri.parse(dir),
-          store.list(ObjectUri.parse(dir), recursive = false)
-        )
+  private def runStepsSync[A](start: IcebergWrite.Step[A]): A = DatasetWriterCore.runStepsSync(
+    target,
+    start
+  )
 
   /** The Iceberg layout of the root */
   private lazy val layout: IcebergWrite.Layout = DatasetWriterCore.icebergLayout(target)
@@ -1196,6 +1146,10 @@ private[parquet] final class DatasetWriterCore private (
   /** Decides whether this is an Iceberg write, and binds it to the table (loaded here when sync) */
   private def planIceberg(): Option[IcebergWrite.Plan] =
     if !DatasetWriterCore.isIcebergWrite(listedRoot, options, rootName) then
+      if options.replacedFiles.nonEmpty || options.tableProperties.nonEmpty then
+        throw ParquetException(
+          s"withReplacedFiles and withTableProperties need an Iceberg table, but ${rootName} is not one"
+        )
       None
     else
       val base =
@@ -1217,7 +1171,11 @@ private[parquet] final class DatasetWriterCore private (
                   .path}, and no Iceberg table. Write the table to another folder"
             )
           }
-      Some(IcebergWrite.plan(layout, base, schema, options.partitionBy, options.mode))
+      Some(
+        IcebergWrite
+          .plan(layout, base, schema, options.partitionBy, options.mode, options.replacedFiles)
+          .withProperties(options.tableProperties)
+      )
 
   // ---- The async writer's steps ----
 
@@ -1388,21 +1346,7 @@ private[parquet] final class DatasetWriterCore private (
   )
 
   /** Runs an action with sync calls, for the sync writers */
-  private def runSync(a: RootAction): Unit =
-    try
-      (a, target) match
-        case (RootAction.Put(path, bytes, _), DatasetTarget.Local(root)) =>
-          FileSystem.createDirectoryIfNotExists(root)
-          FileSystem.writeBytes(IOPath.parse(path), bytes)
-        case (RootAction.Put(path, bytes, _), DatasetTarget.Objects(store, _, _)) =>
-          store.put(ObjectUri.parse(path), bytes)
-        case (RootAction.Delete(path, _), DatasetTarget.Local(_)) =>
-          FileSystem.deleteIfExists(IOPath.parse(path))
-        case (RootAction.Delete(path, _), DatasetTarget.Objects(store, _, _)) =>
-          store.delete(ObjectUri.parse(path))
-    catch
-      case NonFatal(e) =>
-        throw a.failure(e)
+  private def runSync(a: RootAction): Unit = DatasetWriterCore.runSync(target, a)
 
   /** Decides whether to write `_common_metadata`, failing early when it records other types */
   private def checkMetadata(): Boolean =
@@ -1641,6 +1585,80 @@ private[parquet] object DatasetWriterCore:
             s"${rootName} is a Delta Lake table, which Uni doesn't write yet. Use withTableFormat(ParquetTableFormat.Files) to write plain files next to it anyway"
           )
         IcebergTable.isTable(listing)
+
+  /** Runs commit steps with sync calls */
+  def runStepsSync[A](target: DatasetTarget, start: IcebergWrite.Step[A]): A =
+    import IcebergWrite.Step
+    var step = start
+    var done = Option.empty[A]
+    while done.isEmpty do
+      step match
+        case Step.Done(v) =>
+          done = Some(v)
+        case Step.ListDir(dir, next) =>
+          step = next(listDirSync(target, dir))
+        case Step.Fetch(path, next) =>
+          step = next(
+            target match
+              case DatasetTarget.Local(_) =>
+                FileSystem.readBytes(IOPath.parse(path))
+              case DatasetTarget.Objects(store, _, _) =>
+                store.get(ObjectUri.parse(path))
+          )
+        case Step.Put(path, bytes, next) =>
+          runSync(target, RootAction.Put(path, bytes, s"Failed to write ${path}"))
+          step = next()
+        case Step.Create(path, bytes, next) =>
+          val created =
+            target match
+              case DatasetTarget.Local(_) =>
+                try
+                  FileSystem.writeBytes(IOPath.parse(path), bytes, WriteMode.CreateNew)
+                  true
+                catch
+                  case _: FileAlreadyExistsException =>
+                    false
+              case DatasetTarget.Objects(store, _, _) =>
+                store.putIfAbsent(ObjectUri.parse(path), bytes)
+          step = next(created)
+        case Step.Delete(path, next) =>
+          runSync(target, RootAction.Delete(path, s"Failed to delete ${path}"))
+          step = next()
+    end while
+    done.get
+
+  end runStepsSync
+
+  def listDirSync(target: DatasetTarget, dir: String): Seq[String] =
+    target match
+      case DatasetTarget.Local(_) =>
+        val d = IOPath.parse(dir)
+        if FileSystem.isDirectory(d) then
+          FileSystem.list(d).filter(FileSystem.isFile).map(_.fileName)
+        else
+          Seq.empty
+      case DatasetTarget.Objects(store, _, _) =>
+        IcebergWrite.namesUnder(
+          ObjectUri.parse(dir),
+          store.list(ObjectUri.parse(dir), recursive = false)
+        )
+
+  /** Runs an action with sync calls, for the sync writers */
+  def runSync(target: DatasetTarget, a: RootAction): Unit =
+    try
+      (a, target) match
+        case (RootAction.Put(path, bytes, _), DatasetTarget.Local(root)) =>
+          FileSystem.createDirectoryIfNotExists(root)
+          FileSystem.writeBytes(IOPath.parse(path), bytes)
+        case (RootAction.Put(path, bytes, _), DatasetTarget.Objects(store, _, _)) =>
+          store.put(ObjectUri.parse(path), bytes)
+        case (RootAction.Delete(path, _), DatasetTarget.Local(_)) =>
+          FileSystem.deleteIfExists(IOPath.parse(path))
+        case (RootAction.Delete(path, _), DatasetTarget.Objects(store, _, _)) =>
+          store.delete(ObjectUri.parse(path))
+    catch
+      case NonFatal(e) =>
+        throw a.failure(e)
 
   def icebergLayout(target: DatasetTarget): IcebergWrite.Layout =
     target match

@@ -78,7 +78,11 @@ class ParquetDataset private[parquet] (
       */
     tableFields: Option[IndexedSeq[ParquetField]] = None,
     /** Columns each file must hold, since no partition value fills them */
-    requiredInFiles: Set[String] = Set.empty
+    requiredInFiles: Set[String] = Set.empty,
+    /** For an Iceberg table: how files map to the table's columns by field ID */
+    fieldIds: IcebergTable.FieldIds = IcebergTable.FieldIds.empty,
+    /** An Iceberg table's properties; empty for other datasets */
+    val tableProperties: Map[String, String] = Map.empty
 ) extends AutoCloseable:
   import ParquetDataset.*
 
@@ -97,6 +101,30 @@ class ParquetDataset private[parquet] (
   def selectFiles(
       options: ParquetReadOptions = ParquetReadOptions.default
   ): IndexedSeq[DatasetFile] = selectByPartition(options).map(_.file)
+
+  /**
+    * A dataset of only these files of [[files]], with the same columns: for reading a table file by
+    * file, as a copy-on-write update does before [[ParquetDatasetWriteOptions.withReplacedFiles]].
+    * It shares this dataset's object store and leaves it open.
+    */
+  def withFiles(selected: Seq[DatasetFile]): ParquetDataset =
+    val known = files.map(_.path).toSet
+    selected.foreach { f =>
+      require(known.contains(f.path), s"${f.path} is not a file of ${root}")
+    }
+    ParquetDataset(
+      root,
+      selected.toIndexedSeq,
+      partitionColumns,
+      store,
+      ownsStore = false,
+      prefetch,
+      metadataFields,
+      tableFields,
+      requiredInFiles,
+      fieldIds,
+      tableProperties
+    )
 
   override def close(): Unit =
     val toClose = synchronized {
@@ -473,10 +501,50 @@ class ParquetDataset private[parquet] (
     footers.get(file.path)
   )
 
-  private def cache(file: DatasetFile, meta: FileMetaData): FileMetaData = synchronized {
-    footers(file.path) = meta
-    meta
-  }
+  private def cache(file: DatasetFile, meta: FileMetaData): FileMetaData =
+    val m = byFieldId(file, meta)
+    synchronized {
+      footers(file.path) = m
+      m
+    }
+
+  /**
+    * For an Iceberg table, the footer with its top-level columns named as the table names their
+    * field IDs: a renamed column takes its current name, and a dropped one a name no column has.
+    * Column chunks follow the schema by position, so the names are all that changes.
+    */
+  private def byFieldId(file: DatasetFile, meta: FileMetaData): FileMetaData =
+    if fieldIds.known.isEmpty || meta.schema.isEmpty then
+      meta
+    else
+      // The top-level elements: each is followed by its subtree
+      val top = IndexedSeq.newBuilder[Int]
+      var i   = 1
+      while i < meta.schema.size do
+        top += i
+        var pending = meta.schema(i).numChildren.getOrElse(0)
+        i += 1
+        while pending > 0 do
+          pending += meta.schema(i).numChildren.getOrElse(0) - 1
+          i += 1
+      val tops = top.result()
+      if tops.forall(j => meta.schema(j).fieldId.exists(fieldIds.known.contains)) then
+        val renamed =
+          tops.foldLeft(meta.schema) { (els, j) =>
+            val id = els(j).fieldId.get
+            els.updated(
+              j,
+              els(j).copy(name =
+                fieldIds.current.getOrElse(id, IcebergTable.FieldIds.droppedName(id))
+              )
+            )
+          }
+        meta.copy(schema = renamed)
+      else
+        fieldIds.byNameError.foreach(e => throw ParquetException(s"${file.path}: ${e}"))
+        meta
+
+  end byFieldId
 
   private def footer(file: DatasetFile): FileMetaData = cachedFooter(file).getOrElse {
     val f = wrapErrors(file)(ParquetFile.open(openSource(file)))
@@ -1210,7 +1278,9 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
       ownsStore,
       options.prefetch,
       tableFields = Some(fields),
-      requiredInFiles = table.requiredInFiles
+      requiredInFiles = table.requiredInFiles,
+      fieldIds = table.fieldIds,
+      tableProperties = table.properties
     )
 
   end icebergDataset

@@ -195,9 +195,13 @@ class IcebergTableTest extends UniTest:
       ds.close()
   }
 
-  test("refuse renamed columns") {
-    intercept[ParquetException](Parquet.dataset(fixture("renamed"))).getMessage shouldContain
-      "was renamed to new"
+  test("read a renamed column by its field ID") {
+    val ds = Parquet.dataset(fixture("renamed"))
+    try
+      ds.schema.fields.map(_.name) shouldBe IndexedSeq("id", "new")
+      ds.readRows().toSeq.forall(r => r.contains("new") && r("new") != null) shouldBe true
+    finally
+      ds.close()
   }
 
   test("a column that stopped being a partition is read from the files") {

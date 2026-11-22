@@ -83,6 +83,10 @@ private[parquet] object IcebergWrite:
       None
   }
 
+  /** Manifest entry statuses */
+  private val Existing = 0
+  private val Deleted  = 2
+
   private val HadoopMetadata  = """v(\d+)\.metadata\.json""".r
   private val CatalogMetadata = """(\d+)-.+\.metadata\.json""".r
   private val MaxAttempts     = 4
@@ -135,50 +139,91 @@ private[parquet] object IcebergWrite:
   /** An identity partition field of the spec */
   case class PartitionField(name: String, source: String, sourceId: Int, fieldId: Int, tpe: String)
 
+  /** Which live data files of the base snapshot a commit removes */
+  enum Removal:
+    /** None: the commit only adds files */
+    case Keep
+
+    /** Every live file: the commit replaces the table's rows */
+    case All
+
+    /** These files, by the paths [[ParquetDataset.files]] lists (a copy-on-write rewrite) */
+    case Files(paths: Set[String])
+
   /** What the data files need before any is written, and what the commit builds on */
-  final class Plan(
-      val layout: Layout,
-      val base: Option[Table],
+  case class Plan(
+      layout: Layout,
+      base: Option[Table],
       /** The file schema with the table's field IDs; it keeps the partition columns */
-      val fileSchema: ParquetSchema,
+      fileSchema: ParquetSchema,
       /** The identity partition columns, in spec order */
-      val partitionBy: IndexedSeq[String],
-      val schemaId: Int,
+      partitionBy: IndexedSeq[String],
+      schemaId: Int,
       /** The table schema, as Iceberg JSON with `schema-id` */
-      val schema: JSONObject,
-      val specId: Int,
-      val spec: IndexedSeq[PartitionField],
-      val lastColumnId: Int
-  )
+      schema: JSONObject,
+      specId: Int,
+      spec: IndexedSeq[PartitionField],
+      lastColumnId: Int,
+      removal: Removal = Removal.Keep,
+      /** Whether the commit adds [[schema]] to the table's schemas and makes it current */
+      addsSchema: Boolean = false,
+      /**
+        * Whether the commit adds [[spec]] to the table's partition specs and makes it the default
+        */
+      addsSpec: Boolean = false,
+      /** Table properties the commit sets */
+      properties: Map[String, String] = Map.empty
+  ):
+    def withProperties(ps: Map[String, String]): Plan = copy(properties = properties ++ ps)
+
+  end Plan
 
   /**
     * Binds the write to the table: field IDs from the table schema (or new ones for a new table),
-    * and the partition spec from `withPartitionBy` (or the table's spec when none is given)
+    * and the partition spec from `withPartitionBy` (or the table's spec when none is given).
+    *
+    * [[ParquetWriteMode.Overwrite]] replaces the table's rows; with `replacedFiles`, it removes
+    * only those data files. A replace whose rows don't fit the table schema adds a new schema.
     */
   def plan(
       layout: Layout,
       base: Option[Table],
       schema: ParquetSchema,
       partitionBy: Seq[String],
-      mode: ParquetWriteMode
+      mode: ParquetWriteMode,
+      replacedFiles: Seq[String] = Seq.empty
   ): Plan =
-    mode match
-      case ParquetWriteMode.Overwrite | ParquetWriteMode.OverwritePartitions =>
-        throw ParquetException(
-          s"Uni doesn't overwrite Iceberg tables yet (${mode}); write with ErrorIfExists to create ${layout
-              .root} or Append to add a snapshot"
-        )
-      case _ =>
+    if mode == ParquetWriteMode.OverwritePartitions then
+      throw ParquetException(
+        s"Uni doesn't overwrite partitions of Iceberg tables yet; write with Overwrite to replace ${layout
+            .root}, or Append to add a snapshot"
+      )
+    if replacedFiles.nonEmpty && mode != ParquetWriteMode.Overwrite then
+      throw IllegalArgumentException(
+        s"withReplacedFiles needs ParquetWriteMode.Overwrite, but the mode is ${mode}"
+      )
     base match
       case Some(t) =>
-        if mode == ParquetWriteMode.ErrorIfExists then
-          throw ParquetException(
-            s"${layout.root} is already an Iceberg table (${t
-                .path}). Write withMode(ParquetWriteMode.Append) to add a snapshot"
-          )
-        planAppend(layout, t, schema, partitionBy)
+        mode match
+          case ParquetWriteMode.ErrorIfExists =>
+            throw ParquetException(
+              s"${layout.root} is already an Iceberg table (${t
+                  .path}). Write withMode(ParquetWriteMode.Append) to add a snapshot"
+            )
+          case ParquetWriteMode.Overwrite if replacedFiles.nonEmpty =>
+            planAppend(layout, t, schema, partitionBy, Removal.Files(replacedFiles.toSet))
+          case ParquetWriteMode.Overwrite =>
+            planReplace(layout, t, schema, partitionBy)
+          case _ =>
+            planAppend(layout, t, schema, partitionBy, Removal.Keep)
       case None =>
+        if replacedFiles.nonEmpty then
+          throw ParquetException(
+            s"${layout.root} has no Iceberg table, so it has no data files to replace"
+          )
         planCreate(layout, schema, partitionBy)
+
+  end plan
 
   private def planCreate(layout: Layout, schema: ParquetSchema, partitionBy: Seq[String]): Plan =
     var next          = 0
@@ -213,17 +258,13 @@ private[parquet] object IcebergWrite:
 
   end planCreate
 
-  private def planAppend(
-      layout: Layout,
-      t: Table,
-      schema: ParquetSchema,
-      partitionBy: Seq[String]
-  ): Plan =
+  /** The current schema of a table Uni can commit to: its ID and Iceberg JSON */
+  private def currentSchema(t: Table): (Int, JSONObject) =
     val m       = t.metadata
     val version = long(m, "format-version").getOrElse(1L)
     if version != 2 then
       throw ParquetException(
-        s"${t.path} is an Iceberg format version ${version} table; Uni appends only to version 2 tables"
+        s"${t.path} is an Iceberg format version ${version} table; Uni writes only to version 2 tables"
       )
     val schemaId = long(m, "current-schema-id").map(_.toInt).getOrElse(0)
     val current  = array(m, "schemas")
@@ -232,14 +273,16 @@ private[parquet] object IcebergWrite:
       }
       .find(s => long(s, "schema-id").contains(schemaId.toLong))
       .getOrElse(throw ParquetException(s"${t.path} has no schema with id ${schemaId}"))
-    val tableFields = structFields(current)
-    val bound       = bindStruct(schema.fields, tableFields, "", t.path)
-    val fileSchema  = ParquetSchema(schema.root.copy(children = bound))
-    val specId      = long(m, "default-spec-id").map(_.toInt).getOrElse(0)
-    val specJson    = array(m, "partition-specs")
-      .collect { case s: JSONObject =>
-        s
-      }
+    (schemaId, current)
+
+  /** The default partition spec, with source columns from `tableFields` */
+  private def defaultSpec(
+      t: Table,
+      tableFields: IndexedSeq[JSONObject]
+  ): (Int, IndexedSeq[PartitionField]) =
+    val m        = t.metadata
+    val specId   = long(m, "default-spec-id").map(_.toInt).getOrElse(0)
+    val specJson = objects(m, "partition-specs")
       .find(s => long(s, "spec-id").contains(specId.toLong))
       .getOrElse(throw ParquetException(s"${t.path} has no partition spec ${specId}"))
     val spec = array(specJson, "fields").collect { case f: JSONObject =>
@@ -269,7 +312,30 @@ private[parquet] object IcebergWrite:
       PartitionField(name, source, sourceId, long(f, "field-id").map(_.toInt).getOrElse(-1), tpe)
     }
     spec.foreach(checkPartitionType)
-    val keys = spec.map(_.source)
+    (specId, spec)
+
+  end defaultSpec
+
+  // Paths are recorded under the table's own location (for example s3a:// or file:/), so the
+  // table keeps one scheme
+  private def tableLayout(layout: Layout, t: Table): Layout = string(t.metadata, "location")
+    .map(l => layout.copy(location = l.stripSuffix("/")))
+    .getOrElse(layout)
+
+  private def planAppend(
+      layout: Layout,
+      t: Table,
+      schema: ParquetSchema,
+      partitionBy: Seq[String],
+      removal: Removal
+  ): Plan =
+    val m                = t.metadata
+    val (schemaId, json) = currentSchema(t)
+    val tableFields      = structFields(json)
+    val bound            = bindStruct(schema.fields, tableFields, "", t.path)
+    val fileSchema       = ParquetSchema(schema.root.copy(children = bound))
+    val (specId, spec)   = defaultSpec(t, tableFields)
+    val keys             = spec.map(_.source)
     if partitionBy.nonEmpty && partitionBy.toIndexedSeq != keys then
       throw ParquetException(
         s"${t.path} partitions by (${keys.mkString(
@@ -280,24 +346,136 @@ private[parquet] object IcebergWrite:
       if schema.field(k).isEmpty then
         throw ParquetException(s"The rows have no partition column ${k}, which ${t.path} needs")
     }
-    // Paths are recorded under the table's own location (for example s3a:// or file:/), so the
-    // table keeps one scheme
-    val tableLayout = string(m, "location")
-      .map(l => layout.copy(location = l.stripSuffix("/")))
-      .getOrElse(layout)
     Plan(
-      tableLayout,
+      tableLayout(layout, t),
       Some(t),
       fileSchema,
       keys,
       schemaId,
-      current,
+      json,
       specId,
       spec,
-      long(m, "last-column-id").map(_.toInt).getOrElse(0)
+      long(m, "last-column-id").map(_.toInt).getOrElse(0),
+      removal
     )
 
   end planAppend
+
+  /**
+    * Replaces every row. Rows that fit the table schema keep it (and the partition spec, unless
+    * `partitionBy` names other columns); other rows get a new schema with new field IDs, which
+    * keeps the old partition columns when the new schema has them all.
+    */
+  private def planReplace(
+      layout: Layout,
+      t: Table,
+      schema: ParquetSchema,
+      partitionBy: Seq[String]
+  ): Plan =
+    val m           = t.metadata
+    val (_, json)   = currentSchema(t)
+    val tableFields = structFields(json)
+    val fits        =
+      try
+        bindStruct(schema.fields, tableFields, "", t.path)
+        true
+      catch
+        case _: ParquetException =>
+          false
+    // A spec Uni can't write (a non-identity transform) is replaced, not kept
+    val oldKeys =
+      try
+        Some(defaultSpec(t, tableFields)._2.map(_.source))
+      catch
+        case _: ParquetException =>
+          None
+    val sameSpec = oldKeys.exists(k =>
+      (partitionBy.isEmpty || partitionBy.toIndexedSeq == k) && k.forall(schema.field(_).isDefined)
+    )
+    if fits && sameSpec then
+      planAppend(layout, t, schema, partitionBy, Removal.All)
+    else
+      var next          = long(m, "last-column-id").map(_.toInt).getOrElse(0)
+      def nextId(): Int =
+        next += 1
+        next
+      val fields =
+        if fits then
+          bindStruct(schema.fields, tableFields, "", t.path)
+        else
+          assignStruct(schema.fields, () => nextId())
+      val schemaId =
+        if fits then
+          currentSchema(t)._1
+        else
+          objects(m, "schemas").flatMap(long(_, "schema-id")).maxOption.getOrElse(-1L).toInt + 1
+      val keys =
+        if partitionBy.nonEmpty then
+          partitionBy.toIndexedSeq
+        else
+          oldKeys.filter(_.forall(k => fields.exists(_.name == k))).getOrElse(IndexedSeq.empty)
+      val lastPartitionId = long(m, "last-partition-id").map(_.toInt).getOrElse(999)
+      val spec            = keys
+        .zipWithIndex
+        .map { (name, i) =>
+          val f = fields
+            .find(_.name == name)
+            .getOrElse(
+              throw IllegalArgumentException(s"Partition column ${name} is not in the schema")
+            )
+          PartitionField(name, name, f.fieldId.get, lastPartitionId + 1 + i, typeName(f))
+        }
+      spec.foreach(checkPartitionType)
+      val specs = objects(m, "partition-specs")
+      // A spec the table already has with the same identity fields is reused, with its field IDs
+      def sameFields(s: JSONObject): Boolean =
+        val fs = objects(s, "fields")
+        fs.size == spec.size &&
+        fs.zip(spec)
+          .forall((f, p) =>
+            long(f, "source-id").contains(p.sourceId.toLong) &&
+              string(f, "transform").contains("identity")
+          )
+      val existing  = specs.find(sameFields)
+      val reused    = existing.flatMap(long(_, "spec-id")).map(_.toInt)
+      val boundSpec =
+        existing match
+          case Some(s) =>
+            spec
+              .zip(objects(s, "fields"))
+              .map((p, f) =>
+                p.copy(
+                  name = string(f, "name").getOrElse(p.name),
+                  fieldId = long(f, "field-id").map(_.toInt).getOrElse(p.fieldId)
+                )
+              )
+          case None =>
+            spec
+      val specId = reused.getOrElse(
+        specs.flatMap(long(_, "spec-id")).maxOption.getOrElse(-1L).toInt + 1
+      )
+      val tableSchema =
+        if fits then
+          json
+        else
+          schemaJson(schemaId, fields)
+      Plan(
+        tableLayout(layout, t),
+        Some(t),
+        ParquetSchema(schema.root.copy(children = fields)),
+        keys,
+        schemaId,
+        tableSchema,
+        specId,
+        boundSpec,
+        next,
+        Removal.All,
+        addsSchema = !fits,
+        addsSpec = reused.isEmpty
+      )
+    end if
+
+  end planReplace
 
   private def checkPartitionType(p: PartitionField): Unit =
     p.tpe match
@@ -307,6 +485,206 @@ private[parquet] object IcebergWrite:
           s"Partition column ${p
               .source} has the Iceberg type ${other}; Uni writes identity partitions on string, int, long, and date columns"
         )
+
+  // ---- Schema changes ----
+
+  /** A committed metadata version */
+  case class Altered(version: Int, metadataPath: String)
+
+  /**
+    * Commits the schema changes as a new current schema, in a new metadata version without a new
+    * snapshot. Losing the commit race reloads the table and applies the changes again.
+    */
+  def alter(layout: Layout, changes: Seq[IcebergTableChange]): Step[Altered] =
+    def attempt(n: Int): Step[Altered] =
+      flatMap(load(layout)) {
+        case None =>
+          throw ParquetException(s"${layout.root} is not an Iceberg table")
+        case Some(t) =>
+          val json = alteredMetadata(layout, t, changes)
+          val path = layout.metadata(s"v${t.version + 1}.metadata.json")
+          Step.Create(
+            path,
+            json.toJSON.getBytes(StandardCharsets.UTF_8),
+            created =>
+              if created then
+                Step.Done(Altered(t.version + 1, path))
+              else if n < MaxAttempts then
+                attempt(n + 1)
+              else
+                throw ParquetException(
+                  s"Another writer kept committing to ${layout
+                      .root} first; gave up after ${n} attempts"
+                )
+          )
+      }
+    attempt(1)
+
+  /** The hint after a schema change */
+  def hint(layout: Layout, a: Altered): (String, Array[Byte]) =
+    layout.metadata(VersionHint) -> a.version.toString.getBytes(StandardCharsets.UTF_8)
+
+  private def alteredMetadata(
+      layout: Layout,
+      t: Table,
+      changes: Seq[IcebergTableChange]
+  ): JSONObject =
+    import IcebergTableChange.*
+    val m          = t.metadata
+    var properties =
+      m.get("properties") match
+        case Some(JSONObject(ps)) =>
+          ps
+        case _ =>
+          Seq.empty
+    var schemaChanged    = false
+    val (schemaId, json) = currentSchema(t)
+    var fields           = structFields(json)
+    var lastColumnId     = long(m, "last-column-id").map(_.toInt).getOrElse(0)
+    def nextId(): Int    =
+      lastColumnId += 1
+      lastColumnId
+    def nameOf(f: JSONObject): String  = string(f, "name").getOrElse("")
+    def find(name: String): JSONObject = fields
+      .find(nameOf(_) == name)
+      .getOrElse(
+        throw ParquetException(
+          s"${layout.root} has no column ${name}. Columns: ${fields.map(nameOf).mkString(", ")}"
+        )
+      )
+    def checkAbsent(name: String): Unit =
+      if fields.exists(nameOf(_) == name) then
+        throw ParquetException(s"${layout.root} already has a column ${name}")
+    def replace(name: String)(f: JSONObject => JSONObject): Unit =
+      fields = fields.map(c =>
+        if nameOf(c) == name then
+          f(c)
+        else
+          c
+      )
+    def updated(c: JSONObject, key: String, v: JSONValue): JSONObject = JSONObject(
+      c.v
+        .map((k, x) =>
+          if k == key then
+            k -> v
+          else
+            k -> x
+        )
+    )
+    val specSources: Set[Long] =
+      objects(m, "partition-specs")
+        .find(s => long(s, "spec-id") == long(m, "default-spec-id"))
+        .toSeq
+        .flatMap(s => objects(s, "fields").flatMap(long(_, "source-id")))
+        .toSet
+    changes.foreach {
+      case SetProperty(key, value) =>
+        properties = properties.filterNot(_._1 == key) :+ (key -> JSONString(value))
+      case RemoveProperty(key) =>
+        properties = properties.filterNot(_._1 == key)
+      case change =>
+        schemaChanged = true
+        schemaChange(change)
+    }
+    def schemaChange(change: IcebergTableChange): Unit =
+      change match
+        case SetProperty(_, _) | RemoveProperty(_) =>
+        case AddColumn(column)                     =>
+          checkAbsent(column.name)
+          if column.repetition == Repetition.REQUIRED then
+            throw ParquetException(
+              s"Can't add the required column ${column.name} to ${layout
+                  .root}: the existing rows have no value for it. Add it as optional"
+            )
+          val f = ParquetSchema.fromColumns("schema", Seq(column)).fields.head
+          fields = fields :+ fieldJson(assignType(f, () => nextId(), Some(nextId())))
+        case DropColumn(name) =>
+          val c = find(name)
+          if long(c, "id").exists(specSources.contains) then
+            throw ParquetException(
+              s"Can't drop ${name} from ${layout.root}: the table is partitioned by it"
+            )
+          if fields.size == 1 then
+            throw ParquetException(s"Can't drop ${name}, the last column of ${layout.root}")
+          fields = fields.filterNot(nameOf(_) == name)
+        case RenameColumn(from, to) =>
+          find(from)
+          if from != to then
+            checkAbsent(to)
+            replace(from)(updated(_, "name", JSONString(to)))
+        case WidenColumn(name, to) =>
+          val c    = find(name)
+          val from = c
+            .get("type")
+            .collect { case JSONString(s) =>
+              normalizeType(s)
+            }
+            .getOrElse(
+              throw ParquetException(s"Column ${name} of ${layout.root} is not a primitive column")
+            )
+          val field =
+            ParquetSchema
+              .fromColumns("schema", Seq(ParquetColumn(name, to, Repetition.OPTIONAL)))
+              .fields
+              .head
+          val target = normalizeType(typeName(field))
+          if from != target && !canWiden(from, target) then
+            throw ParquetException(
+              s"Can't change column ${name} of ${layout
+                  .root} from ${from} to ${target}. Iceberg widens int to long, float to double, and a decimal to a larger precision with the same scale"
+            )
+          replace(name)(updated(_, "type", JSONString(target)))
+        case MakeOptional(name) =>
+          find(name)
+          replace(name)(updated(_, "required", JSONBoolean(false)))
+    val newId     = objects(m, "schemas").flatMap(long(_, "schema-id")).maxOption.getOrElse(-1L) + 1
+    val newSchema = JSONObject(
+      Seq(
+        "type"                 -> JSONString("struct"),
+        "schema-id"            -> JSONLong(newId),
+        "identifier-field-ids" ->
+          json.get("identifier-field-ids").getOrElse(JSONArray(IndexedSeq.empty)),
+        "fields" -> JSONArray(fields)
+      )
+    )
+    val now         = System.currentTimeMillis()
+    val metadataLog = JSONObject(
+      Seq(
+        "timestamp-ms"  -> JSONLong(long(m, "last-updated-ms").getOrElse(now)),
+        "metadata-file" -> JSONString(tableLayout(layout, t).uriOf(t.path))
+      )
+    )
+    val schemaUpdate =
+      if schemaChanged then
+        Seq(
+          "schemas"           -> JSONArray(array(m, "schemas") :+ newSchema),
+          "current-schema-id" -> JSONLong(newId),
+          "last-column-id"    -> JSONLong(lastColumnId.toLong)
+        )
+      else
+        Seq.empty
+    val replaced = (
+      schemaUpdate ++
+        Seq(
+          "properties"      -> JSONObject(properties),
+          "last-updated-ms" -> JSONLong(now),
+          "metadata-log"    -> JSONArray(array(m, "metadata-log") :+ metadataLog)
+        )
+    ).toMap[String, JSONValue]
+    JSONObject(m.v.filterNot((k, _) => replaced.contains(k)) ++ replaced.toSeq)
+
+  end alteredMetadata
+
+  private val DecimalOf = """decimal\((\d+),(\d+)\)""".r
+
+  private def canWiden(from: String, to: String): Boolean =
+    (from, to) match
+      case ("int", "long") | ("float", "double") =>
+        true
+      case (DecimalOf(p1, s1), DecimalOf(p2, s2)) =>
+        s1 == s2 && p2.toInt > p1.toInt
+      case _ =>
+        false
 
   // ---- Schemas ----
 
@@ -378,7 +756,7 @@ private[parquet] object IcebergWrite:
           throw ParquetException(
             s"Column ${name} is not in the schema of ${source} (${table
                 .flatMap(string(_, "name"))
-                .mkString(", ")}). Uni doesn't add columns to Iceberg tables yet"
+                .mkString(", ")}). Add it with Parquet.alterIcebergTable first"
           )
         )
       if c.get("required").contains(JSONBoolean(true)) && f.isOptional then
@@ -965,6 +1343,217 @@ private[parquet] object IcebergWrite:
       )
     }
 
+    /** What a commit removed from the base snapshot */
+    private case class Removed(paths: Set[String], files: Long, rows: Long, bytes: Long):
+      def +(e: Map[String, Any], path: String): Removed =
+        val d = dataFileOf(e)
+        Removed(
+          paths + path,
+          files + 1,
+          rows + num(d, "record_count"),
+          bytes + num(d, "file_size_in_bytes")
+        )
+
+    private val NoneRemoved = Removed(Set.empty, 0, 0, 0)
+
+    private def dataFileOf(e: Map[String, Any]): Map[String, Any] =
+      e.get("data_file") match
+        case Some(d: Map[?, ?]) =>
+          d.asInstanceOf[Map[String, Any]]
+        case _ =>
+          throw ParquetException(s"A manifest entry of ${layout.root} has no data_file")
+
+    private def num(m: Map[String, Any], key: String): Long =
+      m.get(key) match
+        case Some(l: Long) =>
+          l
+        case Some(i: Int) =>
+          i.toLong
+        case _ =>
+          0L
+
+    /** A path as [[ParquetDataset.files]] lists it, for matching the files to remove */
+    private def pathKey(p: String): String =
+      if layout.objects then
+        if p.startsWith("s3a://") || p.startsWith("s3n://") then
+          s"s3${p.substring(3)}"
+        else
+          p
+      else
+        ParquetDataset.localPath(p)
+
+    private val removedKeys: Set[String] =
+      plan.removal match
+        case Removal.Files(ps) =>
+          ps.map(pathKey)
+        case _ =>
+          Set.empty
+
+    /**
+      * The parent's manifest list entries for the new list. A manifest with files to remove is
+      * rewritten: its other live files become EXISTING entries and the removed ones DELETED.
+      */
+    private def rewriteParents(
+        n: Int,
+        base: Table,
+        parents: IndexedSeq[Map[String, Any]],
+        seq: Long,
+        rewritten: List[String]
+    )(next: (Seq[Any], Removed, List[String]) => Step[Committed]): Step[Committed] =
+      def loop(i: Int, acc: Vector[Any], removed: Removed, out: List[String]): Step[Committed] =
+        if i >= parents.size then
+          plan.removal match
+            case Removal.Files(_) if removed.paths.size < removedKeys.size =>
+              val missing = (removedKeys -- removed.paths).toSeq.sorted
+              throw ParquetException(
+                if n == 1 then
+                  s"${missing.mkString(", ")} is not a live data file of ${layout.root}"
+                else
+                  s"Another writer removed ${missing.mkString(", ")} from ${layout
+                      .root} during this write"
+              )
+            case _ =>
+          next(acc, removed, out)
+        else
+          val r = parents(i)
+          // A data manifest with no live files is left out, as iceberg-java does
+          val dead =
+            num(r, "content") == 0 &&
+              Seq(
+                "added_files_count",
+                "existing_files_count",
+                "added_data_files_count",
+                "existing_data_files_count"
+              ).exists(r.get(_).exists(_ != null)) &&
+              num(r, "added_files_count") + num(r, "existing_files_count") +
+              num(r, "added_data_files_count") + num(r, "existing_data_files_count") == 0
+          if dead then
+            loop(i + 1, acc, removed, out)
+          else if plan.removal == Removal.Keep then
+            loop(i + 1, acc :+ parentEntry(r), removed, out)
+          else if num(r, "content") != 0 then
+            // Delete files of removed rows don't matter once every row is gone
+            if plan.removal == Removal.All then
+              loop(i + 1, acc, removed, out)
+            else
+              loop(i + 1, acc :+ parentEntry(r), removed, out)
+          else
+            val listed = r
+              .get("manifest_path")
+              .collect { case s: String =>
+                s
+              }
+              .getOrElse(
+                throw ParquetException(
+                  s"A manifest list entry of ${layout.root} has no manifest_path"
+                )
+              )
+            Step.Fetch(
+              resolve(base, listed),
+              bytes =>
+                val c           = Avro.read(bytes, listed)
+                val manifestSeq = num(r, "sequence_number")
+                val live        = c
+                  .records
+                  .map(_.asInstanceOf[Map[String, Any]])
+                  .filter(e => num(e, "status") != Deleted)
+                def keyOf(e: Map[String, Any]): String = pathKey(
+                  resolve(
+                    base,
+                    dataFileOf(e)
+                      .get("file_path")
+                      .collect { case s: String =>
+                        s
+                      }
+                      .getOrElse("")
+                  )
+                )
+                val (gone, kept) = live.partition(e =>
+                  plan.removal match
+                    case Removal.All =>
+                      true
+                    case _ =>
+                      removedKeys.contains(keyOf(e))
+                )
+                if live.isEmpty then
+                  loop(i + 1, acc, removed, out)
+                else if gone.isEmpty then
+                  loop(i + 1, acc :+ parentEntry(r), removed, out)
+                else
+                  // The snapshot ID and sequence numbers inherited from the old manifest are written
+                  // out, so the files keep their provenance in the new manifest
+                  val inherited = Seq(
+                    "snapshot_id"          -> r.getOrElse("added_snapshot_id", null),
+                    "sequence_number"      -> manifestSeq,
+                    "file_sequence_number" -> manifestSeq
+                  )
+                  def withSeq(e: Map[String, Any]): Map[String, Any] =
+                    inherited.foldLeft(e) { case (m, (k, v)) =>
+                      if m.contains(k) && m(k) == null then
+                        m.updated(k, v)
+                      else
+                        m
+                    }
+                  val entries =
+                    kept.map(e => withSeq(e).updated("status", Existing)) ++
+                      gone.map(e =>
+                        withSeq(e).updated("status", Deleted).updated("snapshot_id", snapshotId)
+                      )
+                  val schemaJson = c
+                    .meta("avro.schema")
+                    .getOrElse(throw ParquetException(s"${listed} has no Avro schema"))
+                  val meta = c
+                    .metadata
+                    .toSeq
+                    .filterNot((k, _) => k.startsWith("avro."))
+                    .map((k, v) => k -> String(v, StandardCharsets.UTF_8))
+                  val out2  = Avro.write(schemaJson, meta, entries)
+                  val path  = layout.metadata(s"${commitId}-r${n}-${i}.avro")
+                  val seqs  = entries.map(e => num(e, "sequence_number"))
+                  val entry = Map(
+                    "manifest_path"        -> layout.uriOf(path),
+                    "manifest_length"      -> out2.length.toLong,
+                    "partition_spec_id"    -> r.getOrElse("partition_spec_id", 0),
+                    "content"              -> 0,
+                    "sequence_number"      -> seq,
+                    "min_sequence_number"  -> seqs.minOption.getOrElse(seq),
+                    "added_snapshot_id"    -> snapshotId,
+                    "added_files_count"    -> 0,
+                    "existing_files_count" -> kept.size,
+                    "deleted_files_count"  -> gone.size,
+                    "added_rows_count"     -> 0L,
+                    "existing_rows_count"  -> kept.map(e => num(dataFileOf(e), "record_count")).sum,
+                    "deleted_rows_count"   -> gone.map(e => num(dataFileOf(e), "record_count")).sum,
+                    "partitions"           -> r.getOrElse("partitions", null),
+                    "key_metadata"         -> null
+                  )
+                  put(path, out2) {
+                    loop(
+                      i + 1,
+                      acc :+ entry,
+                      gone.foldLeft(removed)((x, e) => x + (e, keyOf(e))),
+                      path :: out
+                    )
+                  }
+                end if
+            )
+          end if
+      loop(0, Vector.empty, NoneRemoved, rewritten)
+
+    end rewriteParents
+
+    private def deleteAll(paths: List[String])(next: => Step[Committed]): Step[Committed] =
+      paths match
+        case Nil =>
+          next
+        case p :: rest =>
+          Step.Delete(
+            p,
+            () =>
+              written = written.filterNot(_ == p)
+              deleteAll(rest)(next)
+          )
+
     private def attempt(
         n: Int,
         base: Option[Table],
@@ -976,89 +1565,92 @@ private[parquet] object IcebergWrite:
       val lastSeq        = m.flatMap(long(_, "last-sequence-number")).getOrElse(0L)
       val seq            = lastSeq + 1
       val parentSnapshot = parent.flatMap(id =>
-        m.toSeq
-          .flatMap(array(_, "snapshots"))
-          .collect { case s: JSONObject =>
-            s
-          }
-          .find(s => long(s, "snapshot-id").contains(id))
+        m.toSeq.flatMap(objects(_, "snapshots")).find(s => long(s, "snapshot-id").contains(id))
       )
-      def withParentManifests(next: Seq[Any] => Step[Committed]): Step[Committed] =
+      def withParentManifests(
+          next: IndexedSeq[Map[String, Any]] => Step[Committed]
+      ): Step[Committed] =
         parentSnapshot match
           case None =>
-            next(Seq.empty)
+            next(IndexedSeq.empty)
           case Some(s) =>
             string(s, "manifest-list") match
               case Some(list) =>
                 Step.Fetch(
                   resolve(base.get, list),
-                  bytes => next(Avro.read(bytes, list).records.map(parentEntry))
+                  bytes =>
+                    next(Avro.read(bytes, list).records.map(_.asInstanceOf[Map[String, Any]]))
                 )
               case None =>
                 throw ParquetException(
                   s"The current snapshot of ${layout
-                      .root} lists its manifests inline (format version 1); Uni can't append to it"
+                      .root} lists its manifests inline (format version 1); Uni can't commit to it"
                 )
-      withParentManifests { parentEntries =>
-        val newEntry = Map(
-          "manifest_path"        -> layout.uriOf(manifestPath),
-          "manifest_length"      -> manifestLength,
-          "partition_spec_id"    -> plan.specId,
-          "content"              -> 0,
-          "sequence_number"      -> seq,
-          "min_sequence_number"  -> seq,
-          "added_snapshot_id"    -> snapshotId,
-          "added_files_count"    -> files.size,
-          "existing_files_count" -> 0,
-          "deleted_files_count"  -> 0,
-          "added_rows_count"     -> files.map(_.numRows).sum,
-          "existing_rows_count"  -> 0L,
-          "deleted_rows_count"   -> 0L,
-          "partitions"           -> partitionSummaries
-        )
-        val list = Avro.write(
-          ManifestListSchema,
-          Seq(
-            "snapshot-id"        -> snapshotId.toString,
-            "parent-snapshot-id" -> parent.map(_.toString).getOrElse("null"),
-            "sequence-number"    -> seq.toString,
-            "format-version"     -> "2"
-          ),
-          newEntry +: parentEntries
-        )
-        val listPath = layout.metadata(s"snap-${snapshotId}-${n}-${commitId}.avro")
-        put(listPath, list) {
-          val version = base.map(_.version).getOrElse(0) + 1
-          val path    = layout.metadata(s"v${version}.metadata.json")
-          val json    = metadataJson(base, parentSnapshot, seq, layout.uriOf(listPath))
-          createAttempted = true
-          Step.Create(
-            path,
-            json.toJSON.getBytes(StandardCharsets.UTF_8),
-            created =>
-              if created then
-                Step.Done(Committed(snapshotId, version, path))
-              else
-                // Another writer committed this version first: rebase on it, unless it is our own
-                // commit whose response was lost and retried
-                flatMap(load(layout)) {
-                  case Some(t) if hasSnapshot(t, snapshotId) =>
-                    Step.Done(Committed(snapshotId, t.version, t.path))
-                  case Some(t) if n < MaxAttempts =>
-                    checkRebase(t)
-                    Step.Delete(
-                      listPath,
-                      () =>
-                        written = written.filterNot(_ == listPath)
-                        attempt(n + 1, Some(t), manifestPath, manifestLength)
-                    )
-                  case _ =>
-                    throw ParquetException(
-                      s"Another writer kept committing to ${layout
-                          .root} first; gave up after ${n} attempts"
-                    )
-                }
+      withParentManifests { parents =>
+        rewriteParents(n, base.orNull, parents, seq, Nil) { (parentEntries, removed, rewritten) =>
+          val newEntry = Map(
+            "manifest_path"        -> layout.uriOf(manifestPath),
+            "manifest_length"      -> manifestLength,
+            "partition_spec_id"    -> plan.specId,
+            "content"              -> 0,
+            "sequence_number"      -> seq,
+            "min_sequence_number"  -> seq,
+            "added_snapshot_id"    -> snapshotId,
+            "added_files_count"    -> files.size,
+            "existing_files_count" -> 0,
+            "deleted_files_count"  -> 0,
+            "added_rows_count"     -> files.map(_.numRows).sum,
+            "existing_rows_count"  -> 0L,
+            "deleted_rows_count"   -> 0L,
+            "partitions"           -> partitionSummaries
           )
+          // A commit that only removes files lists no manifest of its own
+          val entries =
+            if files.isEmpty && plan.removal != Removal.Keep then
+              parentEntries
+            else
+              newEntry +: parentEntries
+          val list = Avro.write(
+            ManifestListSchema,
+            Seq(
+              "snapshot-id"        -> snapshotId.toString,
+              "parent-snapshot-id" -> parent.map(_.toString).getOrElse("null"),
+              "sequence-number"    -> seq.toString,
+              "format-version"     -> "2"
+            ),
+            entries
+          )
+          val listPath = layout.metadata(s"snap-${snapshotId}-${n}-${commitId}.avro")
+          put(listPath, list) {
+            val version = base.map(_.version).getOrElse(0) + 1
+            val path    = layout.metadata(s"v${version}.metadata.json")
+            val json    = metadataJson(base, parentSnapshot, seq, layout.uriOf(listPath), removed)
+            createAttempted = true
+            Step.Create(
+              path,
+              json.toJSON.getBytes(StandardCharsets.UTF_8),
+              created =>
+                if created then
+                  Step.Done(Committed(snapshotId, version, path))
+                else
+                  // Another writer committed this version first: rebase on it, unless it is our
+                  // own commit whose response was lost and retried
+                  flatMap(load(layout)) {
+                    case Some(t) if hasSnapshot(t, snapshotId) =>
+                      Step.Done(Committed(snapshotId, t.version, t.path))
+                    case Some(t) if n < MaxAttempts =>
+                      checkRebase(t)
+                      deleteAll(listPath :: rewritten)(
+                        attempt(n + 1, Some(t), manifestPath, manifestLength)
+                      )
+                    case _ =>
+                      throw ParquetException(
+                        s"Another writer kept committing to ${layout
+                            .root} first; gave up after ${n} attempts"
+                      )
+                  }
+            )
+          }
         }
       }
 
@@ -1150,7 +1742,8 @@ private[parquet] object IcebergWrite:
         base: Option[Table],
         parentSnapshot: Option[JSONObject],
         seq: Long,
-        manifestList: String
+        manifestList: String,
+        removed: Removed
     ): JSONObject =
       val now           = System.currentTimeMillis()
       val added         = files.size.toLong
@@ -1161,29 +1754,48 @@ private[parquet] object IcebergWrite:
         .collect { case o: JSONObject =>
           o
         }
-      def total(key: String, add: Long): Option[(String, JSONValue)] =
+      def total(key: String, add: Long, sub: Long = 0): Option[(String, JSONValue)] =
         parentSnapshot match
           case None =>
+            Some(key -> JSONString(add.toString))
+          case Some(_) if plan.removal == Removal.All =>
+            // Every earlier file is gone, so the totals are this commit's
             Some(key -> JSONString(add.toString))
           case Some(_) =>
             parentSummary
               .flatMap(string(_, key))
               .flatMap(_.toLongOption)
-              .map(v => key -> JSONString((v + add).toString))
+              .map(v => key -> JSONString((v + add - sub).toString))
       val partitions =
         files.map(f => plan.partitionBy.map(k => f.partitions.getOrElse(k, null))).distinct.size
+      val operation =
+        if plan.removal == Removal.Keep then
+          "append"
+        else if files.isEmpty then
+          "delete"
+        else
+          "overwrite"
+      val removedSummary =
+        if removed.files == 0 then
+          Seq.empty
+        else
+          Seq(
+            "deleted-data-files" -> JSONString(removed.files.toString),
+            "deleted-records"    -> JSONString(removed.rows.toString),
+            "removed-files-size" -> JSONString(removed.bytes.toString)
+          )
       val summary = JSONObject(
         Seq(
-          "operation"               -> JSONString("append"),
+          "operation"               -> JSONString(operation),
           "added-data-files"        -> JSONString(added.toString),
           "added-records"           -> JSONString(rows.toString),
           "added-files-size"        -> JSONString(bytes.toString),
           "changed-partition-count" -> JSONString(partitions.toString)
-        ) ++
+        ) ++ removedSummary ++
           Seq(
-            total("total-records", rows),
-            total("total-files-size", bytes),
-            total("total-data-files", added),
+            total("total-records", rows, removed.rows),
+            total("total-files-size", bytes, removed.bytes),
+            total("total-data-files", added, removed.files),
             total("total-delete-files", 0),
             total("total-position-deletes", 0),
             total("total-equality-deletes", 0)
@@ -1242,7 +1854,8 @@ private[parquet] object IcebergWrite:
                     )
                   )
                 ),
-              "properties"          -> JSONObject(Seq.empty),
+              "properties" ->
+                JSONObject(plan.properties.toSeq.sortBy(_._1).map((k, v) => k -> JSONString(v))),
               "current-snapshot-id" -> JSONLong(snapshotId),
               "refs"                -> ref,
               "snapshots"           -> JSONArray(IndexedSeq(snapshot)),
@@ -1265,15 +1878,65 @@ private[parquet] object IcebergWrite:
                 JSONObject(rs.filterNot(_._1 == "main") ++ ref.v)
               case _ =>
                 ref
-          val replaced = Map[String, JSONValue](
-            "last-sequence-number" -> JSONLong(seq),
-            "last-updated-ms"      -> JSONLong(now),
-            "current-snapshot-id"  -> JSONLong(snapshotId),
-            "refs"                 -> refs,
-            "snapshots"            -> JSONArray(array(old, "snapshots") :+ snapshot),
-            "snapshot-log"         -> JSONArray(array(old, "snapshot-log") :+ logEntry),
-            "metadata-log"         -> JSONArray(array(old, "metadata-log") :+ metadataLog)
-          )
+          val schemaUpdate =
+            if plan.addsSchema then
+              Seq(
+                "schemas"           -> JSONArray(array(old, "schemas") :+ plan.schema),
+                "current-schema-id" -> JSONLong(plan.schemaId.toLong),
+                "last-column-id"    -> JSONLong(plan.lastColumnId.toLong)
+              )
+            else
+              Seq.empty
+          val specUpdate =
+            if plan.addsSpec then
+              Seq(
+                "partition-specs" ->
+                  JSONArray(
+                    array(old, "partition-specs") :+
+                      JSONObject(
+                        Seq(
+                          "spec-id" -> JSONLong(plan.specId.toLong),
+                          "fields"  -> JSONArray(spec.map(specFieldJson))
+                        )
+                      )
+                  ),
+                "last-partition-id" ->
+                  JSONLong(
+                    (
+                      spec.map(_.fieldId) :+
+                        long(old, "last-partition-id").map(_.toInt).getOrElse(999)
+                    ).max.toLong
+                  )
+              )
+            else
+              Seq.empty
+          val propertyUpdate =
+            if plan.properties.isEmpty then
+              Seq.empty
+            else
+              val oldProps =
+                old.get("properties") match
+                  case Some(JSONObject(ps)) =>
+                    ps.filterNot((k, _) => plan.properties.contains(k))
+                  case _ =>
+                    Seq.empty
+              Seq(
+                "properties" ->
+                  JSONObject(
+                    oldProps ++ plan.properties.toSeq.sortBy(_._1).map((k, v) => k -> JSONString(v))
+                  )
+              )
+          val replaced =
+            Map[String, JSONValue](
+              "default-spec-id"      -> JSONLong(plan.specId.toLong),
+              "last-sequence-number" -> JSONLong(seq),
+              "last-updated-ms"      -> JSONLong(now),
+              "current-snapshot-id"  -> JSONLong(snapshotId),
+              "refs"                 -> refs,
+              "snapshots"            -> JSONArray(array(old, "snapshots") :+ snapshot),
+              "snapshot-log"         -> JSONArray(array(old, "snapshot-log") :+ logEntry),
+              "metadata-log"         -> JSONArray(array(old, "metadata-log") :+ metadataLog)
+            ) ++ schemaUpdate ++ specUpdate ++ propertyUpdate
           val kept = old.v.filterNot((k, _) => replaced.contains(k))
           JSONObject(kept ++ replaced.toSeq)
       end match
@@ -1335,5 +1998,10 @@ private[parquet] object IcebergWrite:
         vs
       case _ =>
         IndexedSeq.empty
+
+  private def objects(o: JSONObject, key: String): IndexedSeq[JSONObject] = array(o, key).collect {
+    case x: JSONObject =>
+      x
+  }
 
 end IcebergWrite

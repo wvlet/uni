@@ -239,22 +239,14 @@ class IcebergWriteTest extends UniTest:
     intercept[ParquetException](Parquet.writeDataset(root, second, asIceberg))
       .getMessage shouldContain "already an Iceberg table"
     intercept[ParquetException](
-      Parquet.writeDataset(root, second, asIceberg.withMode(ParquetWriteMode.Overwrite))
-    ).getMessage shouldContain "doesn't overwrite Iceberg tables yet"
-    // Auto protects the table from a plain overwrite
-    intercept[ParquetException](
-      Parquet.writeDataset(
-        root,
-        second,
-        ParquetDatasetWriteOptions.default.withMode(ParquetWriteMode.Overwrite)
-      )
-    ).getMessage shouldContain "doesn't overwrite Iceberg tables yet"
+      Parquet.writeDataset(root, second, asIceberg.withMode(ParquetWriteMode.OverwritePartitions))
+    ).getMessage shouldContain "doesn't overwrite partitions of Iceberg tables yet"
     intercept[ParquetException](
       Parquet.writeDataset(root, second, append.withPartitionBy("country"))
     ).getMessage shouldContain "partitions by (dt)"
     intercept[ParquetException](
       Parquet.writeDataset(root, Seq(IcebergWide(5, "e", d1, None, 1)), append)
-    ).getMessage shouldContain "doesn't add columns"
+    ).getMessage shouldContain "Parquet.alterIcebergTable"
     // Nothing was written by the refused writes
     readSales(root) shouldBe first
     snapshotIds(metadata(root, 1)).size shouldBe 1

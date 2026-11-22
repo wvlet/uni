@@ -88,7 +88,17 @@ object ParquetSortKey:
   *   (and fails on a Delta table, which Uni doesn't write yet). `Iceberg` creates an Apache Iceberg
   *   table (a Hadoop table: `metadata/vN.metadata.json`) with [[ParquetWriteMode.ErrorIfExists]],
   *   or adds a snapshot to one with [[ParquetWriteMode.Append]]; the data files go under `data/`
-  *   and keep the partition columns. `Files` always writes plain files.
+  *   and keep the partition columns. `Files` always writes plain files. On an Iceberg table,
+  *   [[ParquetWriteMode.Overwrite]] commits a snapshot that replaces every row; when the rows don't
+  *   fit the table schema, the snapshot has a new schema.
+  * @param replacedFiles
+  *   with [[ParquetWriteMode.Overwrite]] on an Iceberg table: remove only these live data files, as
+  *   [[ParquetDataset.files]] lists them, and add the written files, in one snapshot. This is a
+  *   copy-on-write update or delete: read the files, write the rows to keep, and replace them. The
+  *   rows must fit the table schema. Writing no rows removes the files.
+  * @param tableProperties
+  *   Iceberg table properties the commit sets, keeping the others; see
+  *   [[ParquetDataset.tableProperties]]
   */
 case class ParquetDatasetWriteOptions(
     partitionBy: Seq[String] = Seq.empty,
@@ -101,7 +111,9 @@ case class ParquetDatasetWriteOptions(
     writeSuccessMarker: Boolean = true,
     writeCommonMetadata: Boolean = true,
     sortBy: Seq[ParquetSortKey] = Seq.empty,
-    tableFormat: ParquetTableFormat = ParquetTableFormat.Auto
+    tableFormat: ParquetTableFormat = ParquetTableFormat.Auto,
+    replacedFiles: Seq[String] = Seq.empty,
+    tableProperties: Map[String, String] = Map.empty
 ):
   def withPartitionBy(columns: String*): ParquetDatasetWriteOptions =
     require(columns.distinct.size == columns.size, s"Duplicate partition columns: ${columns}")
@@ -170,6 +182,20 @@ case class ParquetDatasetWriteOptions(
   def withTableFormat(format: ParquetTableFormat): ParquetDatasetWriteOptions = copy(tableFormat =
     format
   )
+
+  /** Replace only these data files of an Iceberg table; see [[replacedFiles]] */
+  def withReplacedFiles(paths: Seq[String]): ParquetDatasetWriteOptions =
+    require(paths.nonEmpty, "withReplacedFiles needs at least one file")
+    copy(replacedFiles = paths)
+
+  def noReplacedFiles(): ParquetDatasetWriteOptions = copy(replacedFiles = Seq.empty)
+
+  /** Set these Iceberg table properties in the commit */
+  def withTableProperties(properties: Map[String, String]): ParquetDatasetWriteOptions = copy(
+    tableProperties = properties
+  )
+
+  def noTableProperties(): ParquetDatasetWriteOptions = copy(tableProperties = Map.empty)
 
 end ParquetDatasetWriteOptions
 
