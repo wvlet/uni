@@ -15,7 +15,8 @@ private[parquet] final class RowGroupBatches(
     cursors: IndexedSeq[ColumnChunkCursor],
     numRows: Long,
     batchSize: Int,
-    binaryAsString: Boolean
+    binaryAsString: Boolean,
+    int32DecimalAsLong: Boolean = false
 ) extends Iterator[ColumnBatch]:
   if numRows < 0 then
     throw ParquetException.corrupt(s"row group has ${numRows} rows")
@@ -44,7 +45,7 @@ private[parquet] final class RowGroupBatches(
     remaining -= rows
     if remaining == 0 then
       cursors.foreach(_.checkDone())
-    val vectors = Assembly.build(fields, columns, rows)
+    val vectors = Assembly.build(fields, columns, rows, int32DecimalAsLong)
     ColumnBatch(
       rows,
       if binaryAsString then
