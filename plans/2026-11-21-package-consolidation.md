@@ -14,3 +14,7 @@ Several top-level packages in `uni` are small or mix concerns. Uni is early, so 
 Not moving: `control`, `io`, `text`, `util`, `weaver`.
 
 Each PR updates `docs/guide/for-ai-agents.md`, `plugins/uni/skills/uni/` (with a version bump), and the ADRs that name the package. Old `plans/` files keep the old names.
+
+## Status
+
+- Step 1: PR #1106. Step 2: PR #1107; it also adds `CloudException` (parent of `StorageException`) for credential errors and keeps `AzureAuth` in `storage`.

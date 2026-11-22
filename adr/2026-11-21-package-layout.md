@@ -23,3 +23,7 @@
 
 - `wvlet.uni.cloud` has `AwsCredentials(Provider)` with the profile, SSO, and STS support, `GoogleCredentialsProvider` and its signer, `AzureCredentials(Provider)`, `SigV4`, `Rsa`, and an internal `XmlReader` (STS replies, S3 and Azure listings). `Sha256` (internal) is in `wvlet.uni.util`. Azure Shared Key and SAS signing (`AzureAuth`) stays in `storage`; only Blob Storage uses it.
 - Credential errors throw `CloudException` with codes in `CloudErrorCode` (`NoCredentials`, `InvalidCredentials`, `AccessDenied`, `InvalidResponse`, `InvalidConfig`). `StorageException` extends it and `StorageErrorCode` keeps the store-only codes (`NoSuchKey`, `NoSuchBucket`, `WrongRegion`). A store call can therefore fail with a plain `CloudException` when credentials are missing; catch `CloudException` to handle both.
+
+## Addendum: `SettingStore` in `wvlet.uni.storage`
+
+`wvlet.uni.config` held only `SettingStore`, `SettingLocation`, and its backends (`StoreBackend`, `FileStoreBackend`, `InMemoryStoreBackend`, `LocalStorageBackend`, `NodeFileStoreBackend`): local persistence, not configuration. They move to `wvlet.uni.storage` next to the object stores, which leaves `config` free for configuration loading. The Scala.js rule in `2026-10-27-setting-store.md` (no `FileSystem` from `SettingStore` code on Scala.js) applies to that code; the package name has no effect on linking.

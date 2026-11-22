@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package wvlet.uni.config
+package wvlet.uni.storage
 
 import wvlet.uni.io.IOPath
 import wvlet.uni.json.JSON
@@ -254,7 +254,7 @@ object SettingStore extends LogSupport:
   inline def of[A](using weaver: Weaver[A]): SettingStoreConfig[A] =
     SettingStoreConfig[A]()(using weaver, Surface.of[A])
 
-  private[config] def load[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
+  private[storage] def load[A](key: String, config: SettingStoreConfig[A]): SettingStore[A] =
     require(validKey.matches(key), s"Invalid setting file name: ${key}")
     val default = config.resolveDefault
     val backend = config.resolveBackend

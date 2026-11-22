@@ -1,7 +1,7 @@
 package example.server
 
 import example.api.{ChatEvent, ChatReply}
-import wvlet.uni.config.InMemoryStoreBackend
+import wvlet.uni.storage.InMemoryStoreBackend
 import wvlet.uni.rx.Rx
 import wvlet.uni.test.UniTest
 
