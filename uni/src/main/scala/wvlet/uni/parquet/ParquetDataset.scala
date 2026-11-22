@@ -28,8 +28,38 @@ import scala.collection.immutable.VectorMap
   * @param partitions
   *   the values of the `key=value` folders above the file, typed as the dataset's partition
   *   columns; null for `__HIVE_DEFAULT_PARTITION__`
+  * @param stats
+  *   whole-file statistics a table format records for the file (Iceberg manifests), used to skip
+  *   the file before it is opened; None when there are none
   */
-case class DatasetFile(path: String, size: Long, partitions: VectorMap[String, Any])
+case class DatasetFile(
+    path: String,
+    size: Long,
+    partitions: VectorMap[String, Any],
+    stats: Option[DatasetFile.Stats] = None
+)
+
+object DatasetFile:
+  /**
+    * Statistics of a whole data file
+    *
+    * @param numRows
+    *   the number of rows in the file
+    * @param columns
+    *   the statistics of top-level primitive columns by name, with min and max in the PLAIN
+    *   encoding of the dataset's column type. A column that isn't listed has unknown statistics
+    */
+  case class Stats(numRows: Long, columns: Map[String, ColumnStats])
+
+  /**
+    * A column's bounds over a whole file. `min` and `max` may be looser than the actual values (as
+    * Iceberg truncates string bounds), but never inside them
+    */
+  case class ColumnStats(
+      min: Option[Array[Byte]],
+      max: Option[Array[Byte]],
+      nullCount: Option[Long]
+  )
 
 /**
   * Row groups of a dataset read on demand. Each call reads the next row group that has rows to
@@ -326,12 +356,73 @@ class ParquetDataset private[parquet] (
                 Some(None)
               case Right(r) =>
                 Some(Some(r))
+      // Only table formats record file statistics, and those datasets have table fields
+      val schema = tableFields.map(fs =>
+        ParquetSchema(ParquetField.Group("schema", Repetition.REQUIRED, None, Seq.empty, 0, 0, fs))
+      )
       files.flatMap { file =>
         for
           r   <- residual(options.rowGroupFilter, file)
           row <- residual(options.filter, file)
+          if statsMayMatch(ParquetFilter.both(r, row), file, schema, options.binaryAsString)
         yield Selected(file, r, row)
       }
+
+  /**
+    * False only when the file's recorded statistics prove that no row matches `f`, so the file
+    * needn't be opened
+    */
+  private def statsMayMatch(
+      f: Option[ParquetFilter],
+      file: DatasetFile,
+      schema: Option[ParquetSchema],
+      binaryAsString: Boolean
+  ): Boolean =
+    (f, file.stats, schema) match
+      case (Some(f), Some(stats), Some(schema)) =>
+        // The whole file as one row group whose column chunks carry the file's statistics
+        // Indexed by columnIndex, which follows the schema's leaf order
+        val columns = schema
+          .columns
+          .sortBy(_.columnIndex)
+          .map { c =>
+            val s =
+              if c.path.size == 1 then
+                stats
+                  .columns
+                  .get(c.path.head)
+                  .map(cs => Statistics(cs.min, cs.max, cs.nullCount, None))
+              else
+                None
+            ColumnChunkMeta(
+              c.path,
+              c.physicalType,
+              Seq.empty,
+              CompressionCodec.UNCOMPRESSED,
+              stats.numRows,
+              0L,
+              0L,
+              0L,
+              None,
+              s,
+              None,
+              None,
+              None,
+              None,
+              None,
+              None,
+              None,
+              false
+            )
+          }
+        ParquetFilter.mayMatch(
+          f,
+          schema,
+          RowGroupMeta(columns, 0L, stats.numRows, None),
+          binaryAsString
+        )
+      case _ =>
+        true
 
   private def prepare(options: ParquetReadOptions): Plan =
     val selected = selectByPartition(options)
@@ -1286,7 +1377,8 @@ object ParquetDataset extends wvlet.uni.log.LogSupport:
         DatasetFile(
           f.path,
           f.size,
-          VectorMap.from(columns.map(c => c.name -> f.partitions.getOrElse(c.name, null)))
+          VectorMap.from(columns.map(c => c.name -> f.partitions.getOrElse(c.name, null))),
+          f.stats
         )
       )
     val fields = ParquetSchema.fromColumns("schema", table.columns).fields

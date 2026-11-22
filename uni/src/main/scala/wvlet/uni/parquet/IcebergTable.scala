@@ -31,7 +31,13 @@ private[parquet] object IcebergTable:
     case Done(table: Resolved)
 
   /** A live data file, with the values of the partition columns by column name */
-  case class DataFile(path: String, size: Long, partitions: Map[String, Any])
+  case class DataFile(
+      path: String,
+      size: Long,
+      partitions: Map[String, Any],
+      /** Column bounds from the manifest entry, for skipping the file by a filter */
+      stats: Option[DatasetFile.Stats] = None
+  )
 
   /** The table at the chosen snapshot */
   case class Resolved(
@@ -482,9 +488,100 @@ private[parquet] object IcebergTable:
           nameOf(fields, pf.sourceId).map(n => n -> partition.getOrElse(pf.name, null))
         }
         .toMap
-    DataFile(paths.resolve(path), size, values)
+    DataFile(paths.resolve(path), size, values, statsOf(d, fields))
 
   end dataFile
+
+  /**
+    * The manifest entry's record count and bounds of top-level columns, keyed by the read schema's
+    * column names. Iceberg bounds use the single-value binary serialization, which matches the
+    * PLAIN encoding for the types kept here; a bound written before an `int` to `long` promotion is
+    * widened. Other types (floating-point, decimals, nested) are left out
+    */
+  private def statsOf(
+      d: Map[String, Any],
+      fields: IndexedSeq[JSONObject]
+  ): Option[DatasetFile.Stats] =
+    def longOf(v: Any): Option[Long] =
+      v match
+        case l: Long =>
+          Some(l)
+        case i: Int =>
+          Some(i.toLong)
+        case _ =>
+          None
+    def entries(name: String): Map[Int, Any] =
+      d.get(name) match
+        case Some(xs: Seq[?]) =>
+          xs.collect { case e: Map[?, ?] =>
+              val m = e.asInstanceOf[Map[String, Any]]
+              (m.get("key"), m.get("value")) match
+                case (Some(k: Int), Some(v)) =>
+                  Some(k -> v)
+                case _ =>
+                  None
+            }
+            .flatten
+            .toMap
+        case _ =>
+          Map.empty
+    d.get("record_count")
+      .flatMap(longOf)
+      .map { numRows =>
+        val lower   = entries("lower_bounds")
+        val upper   = entries("upper_bounds")
+        val nulls   = entries("null_value_counts")
+        val columns = fields.flatMap { f =>
+          for
+            id   <- long(f, "id").map(_.toInt)
+            name <- string(f, "name")
+            tpe  <- string(f, "type")
+            if bounded(tpe)
+          yield
+            def bound(m: Map[Int, Any]): Option[Array[Byte]] = m
+              .get(id)
+              .collect { case b: Array[Byte] =>
+                b
+              }
+              .flatMap(plainOf(tpe, _))
+            name ->
+              DatasetFile.ColumnStats(bound(lower), bound(upper), nulls.get(id).flatMap(longOf))
+        }
+        DatasetFile.Stats(numRows, columns.toMap)
+      }
+
+  end statsOf
+
+  /** Iceberg primitive types whose bounds compare as PLAIN-encoded Parquet statistics */
+  private def bounded(tpe: String): Boolean =
+    tpe match
+      case "boolean" | "int" | "long" | "date" | "timestamp" | "timestamptz" | "string" =>
+        true
+      case _ =>
+        false
+
+  /** A bound in the PLAIN encoding of the column type, or None when its size doesn't fit */
+  private def plainOf(tpe: String, b: Array[Byte]): Option[Array[Byte]] =
+    tpe match
+      case "boolean" =>
+        Option.when(b.length == 1)(b)
+      case "int" | "date" =>
+        Option.when(b.length == 4)(b)
+      case "long" | "timestamp" | "timestamptz" =>
+        if b.length == 8 then
+          Some(b)
+        else if b.length == 4 then
+          // Written as an int before the column was promoted to long: sign-extend (little-endian)
+          val ext: Byte =
+            if b(3) < 0 then
+              -1
+            else
+              0
+          Some(b ++ Array.fill(4)(ext))
+        else
+          None
+      case _ =>
+        Some(b)
 
   private def resolved(
       root: String,
