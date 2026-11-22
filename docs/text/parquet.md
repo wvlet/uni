@@ -875,7 +875,7 @@ for await (const batch of file.batches()) {
   `optional: false`. Its options are `compression` (`"snappy"`, `"none"`, `"lz4"`, `"zstd"`, or
   `"gzip"`) and `compressionLevel` for ZSTD.
 - `readRows` and `batches` take a `filter`, written as in PyArrow (see the datasets below).
-- The package is about 860 KB gzipped, including the S3, GCS, and Azure clients that datasets use.
+- The package is about 950 KB gzipped, including the S3, GCS, and Azure clients that datasets use.
   In browsers, bundlers must leave out the Node.js built-ins it refers to (`os`, `path`, `zlib`):
   Vite does this by itself; with webpack, set
   `resolve.fallback: { os: false, path: false, zlib: false }`.

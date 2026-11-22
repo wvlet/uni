@@ -1,8 +1,8 @@
 package wvlet.uni.parquet.npm
 
 import wvlet.uni.parquet.MemoryObjectStore
-import wvlet.uni.storage.AwsCredentials
-import wvlet.uni.storage.AzureCredentials
+import wvlet.uni.cloud.AwsCredentials
+import wvlet.uni.cloud.AzureCredentials
 import wvlet.uni.test.UniTest
 
 import scala.concurrent.ExecutionContext

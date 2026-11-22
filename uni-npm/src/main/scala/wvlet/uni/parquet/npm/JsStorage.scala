@@ -1,7 +1,7 @@
 package wvlet.uni.parquet.npm
 
 import wvlet.uni.io.FileSystem
-import wvlet.uni.storage.AwsCredentials
+import wvlet.uni.cloud.AwsCredentials
 import wvlet.uni.storage.AzureConfig
 import wvlet.uni.storage.GcsConfig
 import wvlet.uni.storage.ObjectStore

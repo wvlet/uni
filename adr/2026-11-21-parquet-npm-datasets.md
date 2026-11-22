@@ -55,7 +55,7 @@ Rejected alternatives:
 
 ## Consequences
 
-- The package grows from about 613 KB to 858 KB gzipped (both modules), mostly the S3, GCS, and
+- The package grows by about 245 KB gzipped (613 KB to 858 KB for both modules when measured; about 950 KB with later additions), mostly the S3, GCS, and
   Azure clients and their credential chains, which every importer now loads. Lazy loading stays
   the follow-up the npm ADR names.
 - In Node.js, the default chains' metadata-endpoint lookups block the event loop while they
