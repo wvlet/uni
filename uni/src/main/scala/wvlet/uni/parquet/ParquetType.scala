@@ -237,10 +237,13 @@ private[parquet] object SchemaElements:
               Some(p.repetition),
               None,
               p.logicalType,
-              None
+              p.fieldId
             )
         case g: ParquetField.Group =>
-          b += group(g.name, Some(g.repetition), g.logicalType, g.children.size)
+          b +=
+            group(g.name, Some(g.repetition), g.logicalType, g.children.size).copy(fieldId =
+              g.fieldId
+            )
           g.children.foreach(walk)
     b += group(schema.root.name, None, None, schema.fields.size)
     schema.fields.foreach(walk)

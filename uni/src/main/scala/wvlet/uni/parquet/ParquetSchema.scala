@@ -18,6 +18,9 @@ sealed trait ParquetField:
   /** The highest repetition level of this field: repeated ancestors, plus itself */
   def maxRepetitionLevel: Int
 
+  /** The field ID that table formats such as Iceberg match columns by, if the file records one */
+  def fieldId: Option[Int]
+
   def isOptional: Boolean = repetition == Repetition.OPTIONAL
   def isRepeated: Boolean = repetition == Repetition.REPEATED
   def pathString: String  = path.mkString(".")
@@ -34,7 +37,9 @@ object ParquetField:
       maxDefinitionLevel: Int,
       maxRepetitionLevel: Int,
       /** Position among the leaf columns, which matches the column chunk order in a row group */
-      columnIndex: Int
+      columnIndex: Int,
+      /** The field ID that table formats such as Iceberg match columns by */
+      fieldId: Option[Int] = None
   ) extends ParquetField
 
   case class Group(
@@ -44,7 +49,9 @@ object ParquetField:
       path: Seq[String],
       maxDefinitionLevel: Int,
       maxRepetitionLevel: Int,
-      children: IndexedSeq[ParquetField]
+      children: IndexedSeq[ParquetField],
+      /** The field ID that table formats such as Iceberg match columns by */
+      fieldId: Option[Int] = None
   ) extends ParquetField:
     def field(name: String): Option[ParquetField] = children.find(_.name == name)
 
@@ -187,7 +194,16 @@ object ParquetSchema:
           if n < 0 || n > elements.length - pos then
             throw ParquetException.corrupt(s"group ${e.name} has an invalid child count ${n}")
           val children = IndexedSeq.fill(n)(build(path, defLevel, repLevel, depth + 1))
-          ParquetField.Group(e.name, rep, e.logicalType, path, defLevel, repLevel, children)
+          ParquetField.Group(
+            e.name,
+            rep,
+            e.logicalType,
+            path,
+            defLevel,
+            repLevel,
+            children,
+            e.fieldId
+          )
         case _ =>
           val tpe = e
             .physicalType
@@ -203,8 +219,10 @@ object ParquetSchema:
             path,
             defLevel,
             repLevel,
-            idx
+            idx,
+            e.fieldId
           )
+      end match
 
     end build
 

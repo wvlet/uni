@@ -24,6 +24,10 @@ val keys               = store.list("s3://my-bucket/logs/").map(_.uri.key)
 val oneLevel           = store.list(ObjectUri.parse("s3://my-bucket/logs/"), recursive = false)
 store.delete("s3://my-bucket/a.txt")
 
+// Create only if absent (S3 If-None-Match, GCS ifGenerationMatch=0, Azure If-None-Match):
+// true when this call created it; of concurrent callers, at most one gets true
+val created: Boolean = store.putIfAbsent(ObjectUri.parse("s3://my-bucket/v1.json"), "{}".getBytes("UTF-8"))
+
 try store.get("s3://my-bucket/missing")
 catch case e: StorageException if e.isNotFound => Array.emptyByteArray
 

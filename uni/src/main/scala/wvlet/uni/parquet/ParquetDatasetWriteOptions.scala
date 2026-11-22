@@ -83,6 +83,12 @@ object ParquetSortKey:
   *   early as a separate run: each file stays sorted, but runs overlap. Every row group records
   *   Parquet's `sorting_columns`. [[maxOpenFiles]] has no effect, as a run writes one file at a
   *   time.
+  * @param tableFormat
+  *   `Auto` (default) writes plain files, or appends to the Iceberg table the root already holds
+  *   (and fails on a Delta table, which Uni doesn't write yet). `Iceberg` creates an Apache Iceberg
+  *   table (a Hadoop table: `metadata/vN.metadata.json`) with [[ParquetWriteMode.ErrorIfExists]],
+  *   or adds a snapshot to one with [[ParquetWriteMode.Append]]; the data files go under `data/`
+  *   and keep the partition columns. `Files` always writes plain files.
   */
 case class ParquetDatasetWriteOptions(
     partitionBy: Seq[String] = Seq.empty,
@@ -94,7 +100,8 @@ case class ParquetDatasetWriteOptions(
     writeOptions: ParquetWriteOptions = ParquetWriteOptions.default,
     writeSuccessMarker: Boolean = true,
     writeCommonMetadata: Boolean = true,
-    sortBy: Seq[ParquetSortKey] = Seq.empty
+    sortBy: Seq[ParquetSortKey] = Seq.empty,
+    tableFormat: ParquetTableFormat = ParquetTableFormat.Auto
 ):
   def withPartitionBy(columns: String*): ParquetDatasetWriteOptions =
     require(columns.distinct.size == columns.size, s"Duplicate partition columns: ${columns}")
@@ -159,6 +166,10 @@ case class ParquetDatasetWriteOptions(
     copy(sortBy = keys)
 
   def noSortBy(): ParquetDatasetWriteOptions = copy(sortBy = Seq.empty)
+
+  def withTableFormat(format: ParquetTableFormat): ParquetDatasetWriteOptions = copy(tableFormat =
+    format
+  )
 
 end ParquetDatasetWriteOptions
 

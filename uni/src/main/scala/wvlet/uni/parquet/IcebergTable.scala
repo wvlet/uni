@@ -76,12 +76,30 @@ private[parquet] object IcebergTable:
         Step.Fetch(
           IndexedSeq(hint.path),
           bytes =>
-            val v    = String(bytes.head, StandardCharsets.UTF_8).trim
+            val v = String(bytes.head, StandardCharsets.UTF_8).trim
+            // A writer updates the hint after it commits, so a newer vN can exist; iceberg-java
+            // rolls forward the same way
+            val newer = v
+              .toIntOption
+              .flatMap { hinted =>
+                meta
+                  .flatMap { l =>
+                    l.segments.last match
+                      case HadoopMetadata(n) if n.toLong > hinted =>
+                        Some(n.toLong -> l)
+                      case _ =>
+                        None
+                  }
+                  .maxByOption(_._1)
+                  .map(_._2)
+              }
             val file =
               if isMetadataFile(v) then
                 byName(v.split('/').last)
               else
-                byName(s"v${v}.metadata.json").orElse(byName(s"v${v}.gz.metadata.json"))
+                newer
+                  .orElse(byName(s"v${v}.metadata.json"))
+                  .orElse(byName(s"v${v}.gz.metadata.json"))
             file match
               case Some(f) =>
                 fromMetadataFile(tableRoot, f.path, snapshotId, objects)

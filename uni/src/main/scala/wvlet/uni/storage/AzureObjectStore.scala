@@ -227,14 +227,38 @@ class AzureObjectStore(val config: AzureConfig) extends ObjectStore with LogSupp
     headers = Seq("x-ms-range" -> s"bytes=${offset}-${offset + length - 1}")
   )
 
-  private def putCall(uri: ObjectUri, content: Array[Byte], contentType: String): StorageCall =
-    StorageCall(
-      HttpMethod.PUT,
-      uri,
-      headers = Seq("x-ms-blob-type" -> "BlockBlob"),
-      body = content,
-      contentType = Some(contentType)
-    )
+  private def putCall(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String,
+      condition: Seq[(String, String)] = Nil
+  ): StorageCall = StorageCall(
+    HttpMethod.PUT,
+    uri,
+    headers = Seq("x-ms-blob-type" -> "BlockBlob") ++ condition,
+    body = content,
+    contentType = Some(contentType)
+  )
+
+  // 409 BlobAlreadyExists (or 412 from some emulators): the blob exists
+  private def createResult(call: StorageCall, resp: Response): Boolean =
+    if resp.statusCode == 409 || resp.statusCode == 412 then
+      false
+    else
+      checked(call, resp)
+      true
+
+  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
+    val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
+    createResult(call, send(call))
+
+  override def putIfAbsentAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Rx[Boolean] =
+    val call = putCall(uri, content, contentType, Seq("If-None-Match" -> "*"))
+    sendAsync(call).map(createResult(call, _))
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit =
     val call = putCall(uri, content, contentType)

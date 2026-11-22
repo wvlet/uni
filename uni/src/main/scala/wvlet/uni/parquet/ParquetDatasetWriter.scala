@@ -1,7 +1,9 @@
 package wvlet.uni.parquet
 
+import wvlet.uni.io.FileAlreadyExistsException
 import wvlet.uni.io.FileSystem
 import wvlet.uni.io.IOPath
+import wvlet.uni.io.WriteMode
 import wvlet.uni.msgpack.impl.PureScalaBufferPacker
 import wvlet.uni.parquet.ColumnVector.*
 import wvlet.uni.parquet.format.LogicalType
@@ -173,13 +175,27 @@ private[parquet] final class DatasetWriterCore private (
     else
       options.maxFileSize
 
-  private val keys: IndexedSeq[String]                            = options.partitionBy.toIndexedSeq
+  /** The root listing before this write, including `_` files */
+  private val listedRoot: Seq[ParquetDataset.Listed] = listRoot()
+
+  /** For an Iceberg write: the table this write commits to, and the file schema with field IDs */
+  private val iceberg: Option[IcebergWrite.Plan] = planIceberg()
+
+  private val keys: IndexedSeq[String] = iceberg
+    .map(_.partitionBy)
+    .getOrElse(options.partitionBy.toIndexedSeq)
+
   private val partitionFields: IndexedSeq[ParquetField.Primitive] = keys.map(partitionField)
   private val kinds: IndexedSeq[Kind]                             = partitionFields.map(kindOf)
   private val converters = partitionFields.map(ValueConverter.forField)
 
-  /** The schema of each file: every column except the partition columns */
-  private val fileSchema: ParquetSchema =
+  /**
+    * The schema of each file: every column except the partition columns. Iceberg files keep every
+    * column and carry the table's field IDs.
+    */
+  private val fileSchema: ParquetSchema = iceberg.map(_.fileSchema).getOrElse(plainFileSchema)
+
+  private def plainFileSchema: ParquetSchema =
     val rest = schema.fields.map(_.name).filterNot(keys.contains)
     if rest.isEmpty then
       throw IllegalArgumentException(
@@ -235,11 +251,12 @@ private[parquet] final class DatasetWriterCore private (
   // Partitions written as more than one sorted run, because the held rows exceeded the budget
   private var earlyRuns = 0
 
-  /** The root listing before this write, including `_` files */
-  private val listedRoot: Seq[ParquetDataset.Listed] = listRoot()
-
-  /** The reader-visible data files under the root before this write */
-  private val existing: Seq[ParquetDataset.Listed] = checkExisting()
+  /** The reader-visible data files under the root before this write; none for an Iceberg table */
+  private val existing: Seq[ParquetDataset.Listed] =
+    if iceberg.isDefined then
+      Seq.empty
+    else
+      checkExisting()
 
   /** The partition keys and their types, as `_common_metadata` records them */
   private val partitionTypes: Seq[(String, ParquetType.Primitive)] = keys.zip(kinds.map(typeOfKind))
@@ -265,8 +282,10 @@ private[parquet] final class DatasetWriterCore private (
     * returning the writer.
     */
   val startActions: Seq[RootAction] =
-    if options.mode == ParquetWriteMode.Overwrite ||
-      options.mode == ParquetWriteMode.OverwritePartitions
+    if iceberg.isEmpty && (
+        options.mode == ParquetWriteMode.Overwrite ||
+          options.mode == ParquetWriteMode.OverwritePartitions
+      )
     then
       rootFile(DatasetMetadata.SuccessMarker).map(l => deleteAction(l)).toSeq
     else
@@ -287,6 +306,10 @@ private[parquet] final class DatasetWriterCore private (
   // Open files by partition folder, least recently written first
   private val open      = mutable.LinkedHashMap.empty[String, OpenFile]
   private val committed = mutable.ArrayBuffer.empty[(WrittenFile, Committed)]
+  // The row groups of each finished file by path, for the Iceberg manifest's column metrics
+  private val rowGroupsOf = mutable.HashMap.empty[String, IndexedSeq[format.RowGroupMeta]]
+  // The snapshot an Iceberg write committed
+  private var snapshot = Option.empty[IcebergWrite.Committed]
   // The decoded (key, value) pairs of every partition this write touched
   private val touched = mutable.LinkedHashSet.empty[Seq[(String, String)]]
   private var state   = State.Open
@@ -371,10 +394,14 @@ private[parquet] final class DatasetWriterCore private (
               reader.skip()
           else
             reader.skip()
-            kept += start
-            kept += reader.pos
+            if iceberg.isEmpty then
+              kept += start
+              kept += reader.pos
           j += 1
         finishValues()
+        if iceberg.isDefined then
+          // Iceberg files keep the partition columns
+          return (bytes, len)
         rowPacker.clear
         rowPacker.packMapHeader(kept.length / 2)
         var k = 0
@@ -388,6 +415,18 @@ private[parquet] final class DatasetWriterCore private (
           throw ParquetException(
             s"A row of ${n} values does not match the ${schema.fields.size} columns of the schema"
           )
+        if iceberg.isDefined then
+          // Iceberg files keep the partition columns: read their values, keep the row as it is
+          var j = 0
+          while j < n do
+            val idx = partitionPositions.indexOf(j)
+            if idx >= 0 then
+              values(idx) = readPartitionValue(idx)
+            else
+              reader.skip()
+            j += 1
+          finishValues()
+          return (bytes, len)
         rowPacker.clear
         rowPacker.packArrayHeader(n - keys.size)
         var j = 0
@@ -470,7 +509,11 @@ private[parquet] final class DatasetWriterCore private (
       checkPartitionVector(p, v, n)
       v
     }
-    val asGiven = ColumnBatch(n, batch.columns.filterNot(c => partitionSet.contains(c.name)))
+    val asGiven =
+      if iceberg.isDefined then
+        batch
+      else
+        ColumnBatch(n, batch.columns.filterNot(c => partitionSet.contains(c.name)))
     // Check the whole batch before any of it is written
     val checked = batchShredder.check(asGiven)
     // Held batches are joined by position, so a sorted write keeps them in schema order
@@ -716,7 +759,7 @@ private[parquet] final class DatasetWriterCore private (
       while i < keys.size do
         sb.append(escape(keys(i)))
         sb.append('=')
-        sb.append(escape(folderValue(values(i))))
+        sb.append(escape(folderValue(values(i), iceberg.isDefined)))
         sb.append('/')
         i += 1
       lastValues = values.clone()
@@ -738,11 +781,19 @@ private[parquet] final class DatasetWriterCore private (
         open.put(dir, f)
         f
 
-  private def openFile(dir: String): OpenFile =
+  private def openFile(partitionDir: String): OpenFile =
     val name = s"part-${writeId}-${pad(fileCount)}.parquet"
     fileCount += 1
-    val partitions = VectorMap.from(keys.indices.map(i => keys(i) -> typedValue(values(i))))
-    touched += keys.indices.map(i => keys(i) -> folderValue(values(i)))
+    val partitions = VectorMap.from(
+      keys.indices.map(i => keys(i) -> typedValue(values(i), iceberg.isDefined))
+    )
+    touched += keys.indices.map(i => keys(i) -> folderValue(values(i), iceberg.isDefined))
+    // Iceberg data files go under data/; the open-file map still keys by the partition folder
+    val dir =
+      if iceberg.isDefined then
+        s"${IcebergWrite.DataDir}/${partitionDir}"
+      else
+        partitionDir
     target match
       case DatasetTarget.Local(root) =>
         val folder =
@@ -765,14 +816,14 @@ private[parquet] final class DatasetWriterCore private (
             case NonFatal(e) =>
               FileSystem.deleteIfExists(tmp)
               throw e
-        OpenFile(dir, partitions, w, Committed.LocalFile(fin), Some(tmp))
+        OpenFile(partitionDir, partitions, w, Committed.LocalFile(fin), Some(tmp))
       case DatasetTarget.Objects(store, root, _) =>
         val uri = root.resolve(s"${dir}${name}")
         if async then
           // The async writer uploads the whole file with one put once it is finished
           val buf = java.io.ByteArrayOutputStream()
           val w   = FileWriter(fileSchema, options.writeOptions, () => buf, sortingColumns)
-          OpenFile(dir, partitions, w, Committed.Remote(store, uri), None, Some(buf))
+          OpenFile(partitionDir, partitions, w, Committed.Remote(store, uri), None, Some(buf))
         else
           val w = FileWriter(
             fileSchema,
@@ -780,7 +831,7 @@ private[parquet] final class DatasetWriterCore private (
             () => store.newOutputStream(uri),
             sortingColumns
           )
-          OpenFile(dir, partitions, w, Committed.Remote(store, uri), None)
+          OpenFile(partitionDir, partitions, w, Committed.Remote(store, uri), None)
     end match
 
   end openFile
@@ -845,6 +896,8 @@ private[parquet] final class DatasetWriterCore private (
       // Only now, so an abort after a failed close still discards the file
       open.remove(f.dir)
       val written = WrittenFile(f.target.location, f.partitions, f.rows, f.writer.bytesWritten)
+      if iceberg.isDefined then
+        rowGroupsOf(written.path) = f.writer.rowGroupMetas
       f.memory match
         case Some(buf) =>
           val bytes = buf.toByteArray
@@ -888,9 +941,169 @@ private[parquet] final class DatasetWriterCore private (
     if state == State.Open then
       writeRuns()
       fatal(open.valuesIterator.toList.foreach(finish))
+      commitState().foreach { c =>
+        try
+          committedTo(runStepsSync(c.run()))
+        catch
+          case NonFatal(e) =>
+            val outcome =
+              if !c.mayHaveCommitted then
+                Some(None)
+              else
+                try
+                  Some(runStepsSync(c.verify()))
+                catch
+                  case NonFatal(v) =>
+                    e.addSuppressed(v)
+                    None
+            outcome match
+              case Some(Some(done)) =>
+                // The create landed although the call failed
+                committedTo(done)
+              case Some(None) =>
+                failedCommit(c).foreach(a => runCleanup(a, e))
+                abortWith(e)
+                throw e
+              case None =>
+                state = State.Closed
+                target.closeStore()
+                throw uncertainCommit(e)
+      }
       state = State.Closed
       try closeActions().foreach(runSync)
       finally target.closeStore()
+
+  // ---- Iceberg ----
+
+  /** The commit of an Iceberg write, or none for plain files and for an append without files */
+  def commitState(): Option[IcebergWrite.CommitState] = iceberg.flatMap { p =>
+    if committed.isEmpty && p.base.isDefined then
+      None
+    else
+      val files = committed
+        .map(_._1)
+        .map(w =>
+          IcebergWrite.DataFile(
+            w.path,
+            w.partitions,
+            w.numRows,
+            w.size,
+            rowGroupsOf.getOrElse(w.path, IndexedSeq.empty)
+          )
+        )
+      Some(IcebergWrite.CommitState(p, files.toIndexedSeq))
+  }
+
+  /** Records the committed snapshot, so closing writes the version hint after it */
+  def committedTo(c: IcebergWrite.Committed): Unit = snapshot = Some(c)
+
+  /** The snapshot an Iceberg write committed */
+  def committedSnapshot: Option[IcebergWrite.Committed] = snapshot
+
+  /** Deletes for the manifests of a failed commit; the data files are deleted by the abort */
+  def failedCommit(c: IcebergWrite.CommitState): Seq[RootAction] = c
+    .writtenFiles
+    .map(p => RootAction.Delete(p, s"Failed to delete ${p}"))
+
+  /** A commit that may have landed: its files stay, since a committed snapshot may list them */
+  def uncertainCommit(e: Throwable): ParquetException = ParquetException(
+    s"The commit to ${rootName} failed, and checking whether it landed failed too, so its files are kept: ${e
+        .getMessage}",
+    e
+  )
+
+  private def runCleanup(a: RootAction, cause: Throwable): Unit =
+    try
+      runSync(a)
+    catch
+      case NonFatal(e) =>
+        cause.addSuppressed(e)
+
+  /** Runs commit steps with sync calls */
+  private def runStepsSync[A](start: IcebergWrite.Step[A]): A =
+    import IcebergWrite.Step
+    var step = start
+    var done = Option.empty[A]
+    while done.isEmpty do
+      step match
+        case Step.Done(v) =>
+          done = Some(v)
+        case Step.ListDir(dir, next) =>
+          step = next(listDirSync(dir))
+        case Step.Fetch(path, next) =>
+          step = next(
+            target match
+              case DatasetTarget.Local(_) =>
+                FileSystem.readBytes(IOPath.parse(path))
+              case DatasetTarget.Objects(store, _, _) =>
+                store.get(ObjectUri.parse(path))
+          )
+        case Step.Put(path, bytes, next) =>
+          runSync(RootAction.Put(path, bytes, s"Failed to write ${path}"))
+          step = next()
+        case Step.Create(path, bytes, next) =>
+          val created =
+            target match
+              case DatasetTarget.Local(_) =>
+                try
+                  FileSystem.writeBytes(IOPath.parse(path), bytes, WriteMode.CreateNew)
+                  true
+                catch
+                  case _: FileAlreadyExistsException =>
+                    false
+              case DatasetTarget.Objects(store, _, _) =>
+                store.putIfAbsent(ObjectUri.parse(path), bytes)
+          step = next(created)
+        case Step.Delete(path, next) =>
+          runSync(RootAction.Delete(path, s"Failed to delete ${path}"))
+          step = next()
+    end while
+    done.get
+
+  end runStepsSync
+
+  private def listDirSync(dir: String): Seq[String] =
+    target match
+      case DatasetTarget.Local(_) =>
+        val d = IOPath.parse(dir)
+        if FileSystem.isDirectory(d) then
+          FileSystem.list(d).filter(FileSystem.isFile).map(_.fileName)
+        else
+          Seq.empty
+      case DatasetTarget.Objects(store, _, _) =>
+        IcebergWrite.namesUnder(
+          ObjectUri.parse(dir),
+          store.list(ObjectUri.parse(dir), recursive = false)
+        )
+
+  /** The Iceberg layout of the root */
+  private lazy val layout: IcebergWrite.Layout = DatasetWriterCore.icebergLayout(target)
+
+  /** Decides whether this is an Iceberg write, and binds it to the table (loaded here when sync) */
+  private def planIceberg(): Option[IcebergWrite.Plan] =
+    if !DatasetWriterCore.isIcebergWrite(listedRoot, options, rootName) then
+      None
+    else
+      val base =
+        prefetched match
+          case Some(p) =>
+            p.table.getOrElse(throw IllegalStateException("The async writer didn't load the table"))
+          case None =>
+            runStepsSync(IcebergWrite.load(layout))
+      if base.isEmpty then
+        // An Iceberg table here would hide the plain files from readers
+        listedRoot
+          .find(l =>
+            l.segments.nonEmpty && l.segments.head != IcebergTable.MetadataDir &&
+              !l.segments.exists(s => s.startsWith("_") || s.startsWith("."))
+          )
+          .foreach { l =>
+            throw ParquetException(
+              s"${rootName} holds plain Parquet files, such as ${l
+                  .path}, and no Iceberg table. Write the table to another folder"
+            )
+          }
+      Some(IcebergWrite.plan(layout, base, schema, options.partitionBy, options.mode))
 
   // ---- The async writer's steps ----
 
@@ -982,7 +1195,21 @@ private[parquet] final class DatasetWriterCore private (
     * Deletes the files an overwrite replaces. It runs after every new file is published, so a
     * failure here keeps the new files and reports the file it could not delete.
     */
-  private def closeActions(): Seq[RootAction] = replacedDeletes() ++ rootFileActions()
+  private def closeActions(): Seq[RootAction] =
+    if iceberg.isDefined then
+      snapshot
+        .toSeq
+        .map { c =>
+          val (path, bytes) = IcebergWrite.hint(iceberg.get.layout, c)
+          RootAction.Put(
+            path,
+            bytes,
+            s"Committed snapshot ${c.snapshotId} to ${rootName} (${c
+                .metadataPath}), but writing ${path} failed"
+          )
+        }
+    else
+      replacedDeletes() ++ rootFileActions()
 
   private def replacedDeletes(): Seq[RootAction] =
     val replaced =
@@ -1189,7 +1416,47 @@ private[parquet] object DatasetWriterCore:
   val AsyncMaxFileSize: Long = 128L * 1024 * 1024
 
   /** What the async writer fetched before creating the core */
-  case class Prefetched(listing: Seq[ParquetDataset.Listed], metadataBytes: Option[Array[Byte]])
+  case class Prefetched(
+      listing: Seq[ParquetDataset.Listed],
+      metadataBytes: Option[Array[Byte]],
+      /** For an Iceberg write: the loaded table, or `Some(None)` when there is none yet */
+      table: Option[Option[IcebergWrite.Table]] = None
+  )
+
+  /** Whether the write goes to an Iceberg table, from the options and the root listing */
+  def isIcebergWrite(
+      listing: Seq[ParquetDataset.Listed],
+      options: ParquetDatasetWriteOptions,
+      rootName: String
+  ): Boolean =
+    def isDelta = listing.exists(_.segments.headOption.contains(DeltaLog.LogDir))
+    options.tableFormat match
+      case ParquetTableFormat.Files =>
+        false
+      case ParquetTableFormat.Iceberg =>
+        true
+      case ParquetTableFormat.Delta =>
+        throw ParquetException(
+          s"Uni doesn't write Delta Lake tables yet. Write ${rootName} with ParquetTableFormat.Iceberg or Files"
+        )
+      case ParquetTableFormat.Auto =>
+        if isDelta then
+          throw ParquetException(
+            s"${rootName} is a Delta Lake table, which Uni doesn't write yet. Use withTableFormat(ParquetTableFormat.Files) to write plain files next to it anyway"
+          )
+        IcebergTable.isTable(listing)
+
+  def icebergLayout(target: DatasetTarget): IcebergWrite.Layout =
+    target match
+      case DatasetTarget.Local(root) =>
+        val abs =
+          if root.isAbsolute then
+            root
+          else
+            FileSystem.currentDirectory.resolve(root.path)
+        IcebergWrite.Layout(target.rootName, objects = false, IcebergWrite.fileUri(abs.path))
+      case DatasetTarget.Objects(_, root, _) =>
+        IcebergWrite.Layout(target.rootName, objects = true, root.toString.stripSuffix("/"))
 
   /** A finished in-memory file for the async writer to upload */
   final class Upload(val file: WrittenFile, val bytes: Array[Byte], val target: Committed)
@@ -1283,19 +1550,22 @@ private[parquet] object DatasetWriterCore:
         ParquetType.DATE
 
   /** The folder text of a value before escaping: null and "" become the Hive default partition */
-  private def folderValue(v: Any): String =
+  private def folderValue(v: Any, keepEmpty: Boolean): String =
     v match
       case null =>
         ParquetDataset.DefaultPartition
+      case s: String if s.isEmpty && keepEmpty =>
+        // Iceberg keeps an empty string apart from null; the manifest holds the value
+        ""
       case s: String if s.isEmpty =>
         ParquetDataset.DefaultPartition
       case other =>
         other.toString
 
   /** The value as the reader returns it: an empty string reads back as null */
-  private def typedValue(v: Any): Any =
+  private def typedValue(v: Any, keepEmpty: Boolean): Any =
     v match
-      case s: String if s.isEmpty =>
+      case s: String if s.isEmpty && !keepEmpty =>
         null
       case other =>
         other

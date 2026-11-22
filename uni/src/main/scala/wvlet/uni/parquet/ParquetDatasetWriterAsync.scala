@@ -63,7 +63,11 @@ private[parquet] final class AsyncDatasetDriver(
         core.writtenFiles
       }
     else
-      guard(Rx.single(core.finishAll()).flatMap(_ => uploadAll(core.takeUploads()))).flatMap { _ =>
+      guard(
+        Rx.single(core.finishAll())
+          .flatMap(_ => uploadAll(core.takeUploads()))
+          .flatMap(_ => commit())
+      ).flatMap { _ =>
         // The data files are published: a failure from here on keeps them
         runAll(core.closed()).transform { result =>
           core.closeStore()
@@ -71,6 +75,55 @@ private[parquet] final class AsyncDatasetDriver(
           core.writtenFiles
         }
       }
+
+  /**
+    * Commits an Iceberg snapshot. A failed commit deletes its manifests before `guard` deletes the
+    * data files, unless the metadata create may have landed: then the table is checked first, and
+    * the files are kept if that check fails too.
+    */
+  private def commit(): Rx[Unit] =
+    core.commitState() match
+      case None =>
+        Rx.single(())
+      case Some(c) =>
+        val s = objectStore
+        AsyncDatasetDriver
+          .runSteps(s, c.run())
+          .map(core.committedTo)
+          .recoverWith { case NonFatal(e) =>
+            val outcome: Rx[Option[Option[IcebergWrite.Committed]]] =
+              if !c.mayHaveCommitted then
+                Rx.single(Some(None))
+              else
+                AsyncDatasetDriver
+                  .runSteps(s, c.verify())
+                  .map(Option(_))
+                  .recover { case NonFatal(v) =>
+                    e.addSuppressed(v)
+                    None
+                  }
+            outcome.flatMap {
+              case Some(Some(done)) =>
+                Rx.single(core.committedTo(done))
+              case Some(None) =>
+                core
+                  .failedCommit(c)
+                  .foldLeft(Rx.single(()))((acc, a) =>
+                    acc.flatMap(_ =>
+                      run(a).recover { case NonFatal(d) =>
+                        e.addSuppressed(d)
+                      }
+                    )
+                  )
+                  .flatMap(_ => Rx.exception[Unit](e))
+              case None =>
+                Rx.exception[Unit](AsyncDatasetDriver.KeepFiles(core.uncertainCommit(e)))
+            }
+          }
+
+  private def objectStore: ObjectStore = store.getOrElse(
+    throw IllegalStateException("The async writer has no object store")
+  )
 
   /** Deletes every file of this write, including uploaded ones */
   def abort(): Rx[Unit] =
@@ -86,8 +139,13 @@ private[parquet] final class AsyncDatasetDriver(
     else
       Rx.exception(e)
 
-  private def guard[A](rx: Rx[A]): Rx[A] = rx.recoverWith { case NonFatal(e) =>
-    cleanUp(e).flatMap(_ => Rx.exception[A](e))
+  private def guard[A](rx: Rx[A]): Rx[A] = rx.recoverWith {
+    case AsyncDatasetDriver.KeepFiles(e) =>
+      core.closed()
+      core.closeStore()
+      Rx.exception[A](e)
+    case NonFatal(e) =>
+      cleanUp(e).flatMap(_ => Rx.exception[A](e))
   }
 
   /** Runs the core's abort deletes; their errors are added to `cause` */
@@ -168,6 +226,28 @@ private[parquet] object AsyncDatasetDriver:
   /** How many finished files upload at once */
   private val UploadParallelism = 4
 
+  /** A commit failure after which the written files must stay */
+  private case class KeepFiles(cause: ParquetException) extends Exception(cause)
+
+  /** Runs Iceberg steps with async calls */
+  private def runSteps[A](s: ObjectStore, step: IcebergWrite.Step[A]): Rx[A] =
+    import IcebergWrite.Step
+    step match
+      case Step.Done(v) =>
+        Rx.single(v)
+      case Step.ListDir(dir, next) =>
+        val uri = ObjectUri.parse(dir)
+        s.listAsync(uri, recursive = false)
+          .flatMap(listed => runSteps(s, next(IcebergWrite.namesUnder(uri, listed))))
+      case Step.Fetch(path, next) =>
+        s.getAsync(ObjectUri.parse(path)).flatMap(b => runSteps(s, next(b)))
+      case Step.Put(path, bytes, next) =>
+        s.putAsync(ObjectUri.parse(path), bytes).flatMap(_ => runSteps(s, next()))
+      case Step.Create(path, bytes, next) =>
+        s.putIfAbsentAsync(ObjectUri.parse(path), bytes).flatMap(ok => runSteps(s, next(ok)))
+      case Step.Delete(path, next) =>
+        s.deleteAsync(ObjectUri.parse(path)).flatMap(_ => runSteps(s, next()))
+
   /** Lists the root and reads an old `_common_metadata` with async calls, then creates the core */
   def create(
       store: ObjectStore,
@@ -200,12 +280,21 @@ private[parquet] object AsyncDatasetDriver:
                   store.getAsync(ObjectUri.parse(l.path)).map(Option(_))
                 case _ =>
                   Rx.single(None)
-            bytes.map(b =>
-              DatasetWriterCore.create(
-                target,
-                schema,
-                options,
-                Some(DatasetWriterCore.Prefetched(listing, b))
+            val table: Rx[Option[Option[IcebergWrite.Table]]] =
+              if DatasetWriterCore.isIcebergWrite(listing, options, target.rootName) then
+                runSteps(store, IcebergWrite.load(DatasetWriterCore.icebergLayout(target))).map(
+                  Some(_)
+                )
+              else
+                Rx.single(None)
+            bytes.flatMap(b =>
+              table.map(t =>
+                DatasetWriterCore.create(
+                  target,
+                  schema,
+                  options,
+                  Some(DatasetWriterCore.Prefetched(listing, b, t))
+                )
               )
             )
           }

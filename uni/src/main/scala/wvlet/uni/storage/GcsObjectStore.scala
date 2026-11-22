@@ -139,11 +139,37 @@ class GcsObjectStore(val config: GcsConfig) extends ObjectStore with LogSupport:
       sendAsync(rangeRequest(uri, pos, n)).map(rangeBody(_, pos, n, checked(uri, _)))
     }
 
-  private def putRequest(uri: ObjectUri, content: Array[Byte], contentType: String): Request =
-    Request
-      .post(bucketUrl(uri, upload = true, Seq("uploadType" -> "media", "name" -> uri.key)))
-      .setHeader("Content-Type", contentType)
-      .withContent(HttpContent.bytes(content))
+  private def putRequest(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String,
+      condition: Seq[(String, String)] = Nil
+  ): Request = Request
+    .post(
+      bucketUrl(uri, upload = true, Seq("uploadType" -> "media", "name" -> uri.key) ++ condition)
+    )
+    .setHeader("Content-Type", contentType)
+    .withContent(HttpContent.bytes(content))
+
+  // Generation 0 means the object must not exist yet
+  private def createRequest(uri: ObjectUri, content: Array[Byte], contentType: String): Request =
+    putRequest(uri, content, contentType, Seq("ifGenerationMatch" -> "0"))
+
+  private def createResult(uri: ObjectUri, resp: Response): Boolean =
+    if resp.statusCode == 412 then
+      false
+    else
+      checked(uri, resp)
+      true
+
+  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
+    createResult(uri, send(createRequest(uri, content, contentType)))
+
+  override def putIfAbsentAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Rx[Boolean] = sendAsync(createRequest(uri, content, contentType)).map(createResult(uri, _))
 
   override def put(uri: ObjectUri, content: Array[Byte], contentType: String): Unit = checked(
     uri,

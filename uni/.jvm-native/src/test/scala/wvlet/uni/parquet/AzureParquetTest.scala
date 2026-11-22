@@ -93,4 +93,24 @@ class AzureParquetTest extends UniTest:
     store.head(uri) shouldBe None
   }
 
+  test("write and append to an Iceberg table") {
+    requireServer()
+    val root = prefix.resolve("iceberg-sales").toString
+    val d    = java.time.LocalDate.of(2026, 11, 21)
+    val opts = ParquetDatasetWriteOptions
+      .default
+      .withTableFormat(ParquetTableFormat.Iceberg)
+      .withPartitionBy("dt")
+    Parquet.writeDataset(store, root, Seq(IcebergSale(1, "a", d, Some("JP"))), opts)
+    Parquet.writeDataset(
+      store,
+      root,
+      Seq(IcebergSale(2, "b", d, None)),
+      opts.withMode(ParquetWriteMode.Append)
+    )
+    val ds = Parquet.dataset(store, root)
+    try ds.readAs[IcebergSale]().map(_.id).toSeq.sorted shouldBe Seq(1L, 2L)
+    finally ds.close()
+  }
+
 end AzureParquetTest

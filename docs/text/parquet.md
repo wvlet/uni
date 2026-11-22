@@ -506,7 +506,8 @@ val catalogVersion = Parquet.dataset(
   `metadata/`. A root with both `_delta_log/` and Iceberg metadata (Delta UniForm) reads as Delta.
   `withSnapshotId` needs an Iceberg table, and `withVersion` a Delta table.
 
-`_metadata` summary files aren't supported yet, and Delta Lake and Iceberg tables aren't written.
+`_metadata` summary files aren't supported yet. Delta Lake tables aren't written yet; Iceberg
+tables are (see [Writing Apache Iceberg Tables](#writing-apache-iceberg-tables)).
 
 ## Writing a Dataset
 
@@ -632,6 +633,62 @@ and cleanup work as in the sync writer: a failure, or `abort()`, deletes every u
   with a message to call `flush()` while the queued files exceed it; `writeAll` never does.
 - **Browsers** also need the bucket's CORS rules to allow `PUT` and `DELETE`, besides `GET`.
 - A local root uses the sync writer, wrapped in `Rx`.
+
+### Writing Apache Iceberg Tables
+
+`withTableFormat(ParquetTableFormat.Iceberg)` writes the rows as an Apache Iceberg table that
+Spark, Trino, DuckDB, pyiceberg, and `Parquet.dataset` read: the first write creates the table,
+and each `Append` commits a new snapshot atomically.
+
+```scala
+import wvlet.uni.parquet.ParquetTableFormat
+
+val asIceberg = ParquetDatasetWriteOptions
+  .default
+  .withTableFormat(ParquetTableFormat.Iceberg)
+  .withPartitionBy("dt")
+
+Parquet.writeDataset("s3://my-bucket/warehouse/visits/", visits, asIceberg) // creates the table
+Parquet.writeDataset(
+  "s3://my-bucket/warehouse/visits/",
+  visits.take(1),
+  asIceberg.withMode(ParquetWriteMode.Append) // adds a snapshot
+)
+```
+
+- **Layout.** Data files go under `data/` (`data/dt=2026-11-20/part-....parquet`) and keep every
+  column, including the partition columns, with Iceberg field IDs. Each commit writes a manifest
+  and a manifest list (Avro) under `metadata/`, then `metadata/vN.metadata.json`, then
+  `version-hint.text`. Format version 2.
+- **Atomic commits.** The new `vN.metadata.json` is created with `ObjectStore.putIfAbsent` (S3
+  `If-None-Match: *`, GCS `ifGenerationMatch=0`, Azure `If-None-Match: *`; an exclusive create on a
+  local disk), so of two concurrent writers only one commits each version. The other reloads the
+  table and retries on top of it, up to 4 times, as long as the schema and partition spec stayed
+  the same. Readers see either the old snapshot or the new one, never part of a write. A failed
+  write deletes its data files and manifests, and the table keeps its previous snapshot.
+- **Modes.** `ErrorIfExists` (the default) creates the table and fails if one exists. `Append` adds
+  a snapshot, creating the table when there is none. `Overwrite` and `OverwritePartitions` fail for
+  now. Under the default `ParquetTableFormat.Auto`, a write to a root that is already an Iceberg
+  table goes to the table, so an append lands in a snapshot rather than in files no reader sees. A
+  root that is a Delta Lake table fails, since Uni doesn't write Delta yet. `Files` writes plain
+  files whatever the root holds.
+- **Schemas.** A new table takes the rows' schema, with field IDs assigned as Iceberg's Java
+  library does. An append matches columns to the table's current schema by name. It needs the same
+  Iceberg types, and table columns left out read as null. Extra columns, type changes, and
+  optional data for a required column fail with the column named. Types Iceberg format version 2
+  can't hold fail too: unsigned integers, millisecond and nanosecond timestamps, and INT96.
+- **Partitions** are identity partitions on string, int, long, and date columns. An append without
+  `withPartitionBy` uses the table's spec. An empty string and null are different partition values,
+  as Iceberg keeps them apart. Tables partitioned by other transforms (`day`, `bucket`,
+  `truncate`) can be read but not appended to yet.
+- **Statistics.** Each data file's manifest entry records its row count, size, and per-column
+  sizes, value counts, null counts, and lower and upper bounds (except for float, double,
+  decimal, and UUID columns), so engines can skip files.
+- **Which tables.** Uni commits to Hadoop tables, which keep `metadata/vN.metadata.json` and need
+  no catalog. A table that a catalog owns (Glue, REST, Hive, or SQL; its metadata files are named
+  `00003-<uuid>.metadata.json`) fails, because the catalog would keep pointing at the old version.
+  Commit to such a table through its catalog. Appends to format version 1 and 3 tables fail as
+  well.
 
 ## Writing Case Classes
 

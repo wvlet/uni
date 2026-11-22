@@ -90,6 +90,18 @@ trait ObjectStore extends AutoCloseable:
   def put(uri: ObjectUri, content: Array[Byte], contentType: String = ObjectStore.Binary): Unit
 
   /**
+    * Creates the object only if nothing is stored at `uri` yet: true when this call created it,
+    * false when an object was already there. Of several concurrent calls for one key, at most one
+    * returns true, so this can commit a version file (S3 `If-None-Match: *`, GCS
+    * `ifGenerationMatch=0`, Azure `If-None-Match: *`).
+    */
+  def putIfAbsent(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String = ObjectStore.Binary
+  ): Boolean
+
+  /**
     * Objects under the prefix `uri`. With `recursive = false`, keys are grouped at the next `/` and
     * each group is returned once as a directory entry.
     */
@@ -124,6 +136,12 @@ trait ObjectStore extends AutoCloseable:
       content: Array[Byte],
       contentType: String = ObjectStore.Binary
   ): Rx[Unit]
+
+  def putIfAbsentAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String = ObjectStore.Binary
+  ): Rx[Boolean]
 
   def listAsync(uri: ObjectUri, recursive: Boolean = true): Rx[Seq[ObjectInfo]]
   def deleteAsync(uri: ObjectUri): Rx[Unit]

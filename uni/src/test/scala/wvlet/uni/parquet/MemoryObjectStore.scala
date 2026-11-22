@@ -76,6 +76,40 @@ class MemoryObjectStore(var failPuts: Option[Int] = None) extends ObjectStore:
       }
     }
 
+  override def putIfAbsent(uri: ObjectUri, content: Array[Byte], contentType: String): Boolean =
+    syncCall("putIfAbsent")
+
+  /** Called before each `putIfAbsentAsync`, so a test can commit a racing version first */
+  var beforeCreate: ObjectUri => Unit = _ => ()
+
+  override def putIfAbsentAsync(
+      uri: ObjectUri,
+      content: Array[Byte],
+      contentType: String
+  ): Rx[Boolean] = Rx.single {
+    beforeCreate(uri)
+    val created = synchronized {
+      if objects.contains(uri.toString) then
+        false
+      else
+        puts += 1
+        objects(uri.toString) = content.clone()
+        true
+    }
+    if created && loseCreateResponse then
+      throw java.io.IOException(s"connection reset after creating ${uri}")
+    created
+  }
+
+  /** Makes a create that succeeded fail on the client, as when its response is lost */
+  var loseCreateResponse: Boolean = false
+
+  def putObject(key: String, content: Array[Byte]): Unit = synchronized {
+    objects(key) = content.clone()
+  }
+
+  def getObject(key: String): Option[Array[Byte]] = synchronized(objects.get(key))
+
   override def listAsync(uri: ObjectUri, recursive: Boolean): Rx[Seq[ObjectInfo]] = Rx.single(
     synchronized(
       objects.iterator.filter(_._1.startsWith(uri.toString)).map((k, v) => info(k, v)).toSeq
