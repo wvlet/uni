@@ -278,11 +278,16 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
+          cache: sbt
       - uses: ./.github/actions/sbt-launcher
       - name: Install libcurl
         # libgc: examples/rpc-native links the Boehm GC
         run: sudo apt-get update && sudo apt-get install -y libcurl4-openssl-dev libgc-dev
       - name: Scala Native test
+        env:
+          # On pull requests, link the rpc-native example with releaseFast and no LTO (~2 minutes
+          # faster than releaseFull + full LTO); pushes to main keep the release build
+          UNI_NATIVE_FAST_LINK: ${{ github.event_name == 'pull_request' }}
         run: JVM_OPTS=-Xmx4g ./sbt "projectNative/test" "exampleRpcNativeNative/nativeLink"
       - name: Run the rpc-native example binary
         run: .github/scripts/check-rpc-native.sh
@@ -318,6 +323,7 @@ jobs:
         with:
           distribution: 'temurin'
           java-version: '25'
+          cache: sbt
       - uses: ./.github/actions/sbt-launcher
       - uses: ilammy/msvc-dev-cmd@v1
       - name: Install LLVM
