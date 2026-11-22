@@ -39,7 +39,12 @@ private[parquet] final class CountingOutput(out: java.io.OutputStream):
   * Buffers the pages of one leaf column for the current row group. Values arrive with their
   * repetition and definition levels; a page is closed at a row boundary once it reaches the page
   * size. Values are dictionary-encoded until the dictionary grows past its limit, then PLAIN for
-  * the rest of the row group.
+  * the rest of the row group. After the first [[ColumnWriter.DictCheckValues]] values of a row
+  * group, a dictionary that is no smaller than PLAIN would be (dictionary page plus bit-packed
+  * indices against the raw values) is dropped too, as parquet-java does at its first page: such a
+  * column has too many distinct values for the dictionary to pay off, and looking each value up
+  * costs time. A dictionary dropped before any dictionary-encoded page is closed leaves no trace:
+  * the buffered values are rewritten as PLAIN, so the chunk has no dictionary page.
   */
 private[parquet] final class ColumnWriter(
     val field: ParquetField.Primitive,
@@ -82,6 +87,11 @@ private[parquet] final class ColumnWriter(
   private var remapFor: BinaryBuffer = null
   private var remap: Array[Int]      = null
 
+  // Values added through the dictionary in this row group, and their PLAIN size, for the check
+  private var dictValues  = 0
+  private var dictRaw     = 0L
+  private var dictChecked = false
+
   private def dictionarySize: Int =
     if longDict != null then
       longDict.size
@@ -120,6 +130,8 @@ private[parquet] final class ColumnWriter(
       if longDict.added then
         dictBytes.writeIntLE(v)
       dictIndices.add(idx)
+      dictValues += 1
+      dictRaw += 4
     else
       plainValues.writeIntLE(v)
 
@@ -131,6 +143,8 @@ private[parquet] final class ColumnWriter(
       if longDict.added then
         dictBytes.writeLongLE(v)
       dictIndices.add(idx)
+      dictValues += 1
+      dictRaw += 8
     else
       plainValues.writeLongLE(v)
 
@@ -144,6 +158,8 @@ private[parquet] final class ColumnWriter(
       if longDict.added then
         dictBytes.writeIntLE(bits)
       dictIndices.add(idx)
+      dictValues += 1
+      dictRaw += 4
     else
       plainValues.writeIntLE(bits)
 
@@ -156,6 +172,8 @@ private[parquet] final class ColumnWriter(
       if longDict.added then
         dictBytes.writeLongLE(bits)
       dictIndices.add(idx)
+      dictValues += 1
+      dictRaw += 8
     else
       plainValues.writeLongLE(bits)
 
@@ -178,6 +196,7 @@ private[parquet] final class ColumnWriter(
       // A value already in the dictionary cannot change min or max
       if bytesDict.added then
         stats.addBytes(src, off, len)
+      countDictBytes(len)
     else
       stats.addBytes(src, off, len)
       if physical == PhysicalType.BYTE_ARRAY then
@@ -206,6 +225,7 @@ private[parquet] final class ColumnWriter(
       if remapFor ne dict then
         useRemap(dict)
       val known = remap(entry)
+      countDictBytes(len)
       if known >= 0 && bytesDict.same(known, src, off, len) then
         dictIndices.add(known)
       else
@@ -217,6 +237,15 @@ private[parquet] final class ColumnWriter(
           remap(entry) = idx
         dictIndices.add(idx)
 
+  private inline def countDictBytes(len: Int): Unit =
+    dictValues += 1
+    dictRaw += (
+      if physical == PhysicalType.BYTE_ARRAY then
+        len + 4
+      else
+        len
+    )
+
   private def useRemap(dict: BinaryBuffer): Unit =
     if remap == null || remap.length < dict.size then
       remap = new Array[Int](dict.size)
@@ -225,12 +254,65 @@ private[parquet] final class ColumnWriter(
 
   /** Called after each row: closes the page when it is full */
   def endRow(): Unit =
-    if useDict && dictBytes.size > options.dictionaryPageSize then
-      // Keep the pages written so far, and write the rest of the row group as PLAIN
-      flushPage()
-      useDict = false
+    if useDict && (
+        dictBytes.size > options.dictionaryPageSize ||
+          (!dictChecked && dictValues >= ColumnWriter.DictCheckValues && !dictionaryPays)
+      )
+    then
+      dropDictionary()
     else if currentPageSize >= options.pageSize then
       flushPage()
+
+  /** Writes the rest of the row group as PLAIN */
+  private def dropDictionary(): Unit =
+    if !usedDictPage && physical != PhysicalType.INT96 then
+      // No page went out dictionary-encoded: rewrite the open page's values as PLAIN
+      rewriteAsPlain()
+      useDict = false
+      remapFor = null
+      if longDict != null then
+        longDict.clear()
+      else
+        bytesDict.clear()
+      dictBytes.reset()
+    else
+      // Keep the pages written so far
+      flushPage()
+      useDict = false
+
+  private def rewriteAsPlain(): Unit =
+    val d = dictBytes.array
+    var i = 0
+    physical match
+      case PhysicalType.BYTE_ARRAY | PhysicalType.FIXED_LEN_BYTE_ARRAY =>
+        val prefix = physical == PhysicalType.BYTE_ARRAY
+        while i < dictIndices.size do
+          val e   = dictIndices(i)
+          val len = bytesDict.lengthOf(e)
+          if prefix then
+            plainValues.writeIntLE(len)
+          plainValues.write(d, bytesDict.offsetOf(e), len)
+          i += 1
+      case _ =>
+        // Fixed-width entries, in index order
+        val width =
+          physical match
+            case PhysicalType.INT64 | PhysicalType.DOUBLE =>
+              8
+            case _ =>
+              4
+        while i < dictIndices.size do
+          plainValues.write(d, dictIndices(i) * width, width)
+          i += 1
+    dictIndices.reset()
+
+  /**
+    * Whether the dictionary is smaller than PLAIN for the values so far; checked once a row group
+    */
+  private def dictionaryPays: Boolean =
+    dictChecked = true
+    val bitWidth = math.max(1, BitPacking.bitWidthOf(dictionarySize - 1))
+    dictBytes.size + (dictValues.toLong * bitWidth + 7) / 8 < dictRaw
 
   private def currentPageSize: Long =
     val values: Long =
@@ -366,6 +448,9 @@ private[parquet] final class ColumnWriter(
     usedPlainPage = false
     usedDictPage = false
     useDict = canUseDict
+    dictValues = 0
+    dictRaw = 0
+    dictChecked = false
     // The writer's dictionary is cleared below, so the indices of the reader's entries are stale
     remapFor = null
     if longDict != null then
@@ -376,6 +461,10 @@ private[parquet] final class ColumnWriter(
     stats.reset()
 
 end ColumnWriter
+
+private[parquet] object ColumnWriter:
+  /** The values of a row group after which the writer checks that its dictionary pays off */
+  val DictCheckValues = 20000
 
 /** PLAIN encoding of booleans */
 private[parquet] object PlainEncoder:

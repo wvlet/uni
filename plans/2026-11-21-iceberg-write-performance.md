@@ -93,11 +93,37 @@ rounds. DuckDB 2.0.1 ran in the same session.
   rows, every manifest entry matches its data file, and a ship-mode filter plans one file. Removing
   one row or changing one value makes the row check fail.
 
-## Not covered (later)
+## Follow-up: drop dictionaries that don't pay off
 
-- Dictionary heuristics for high-cardinality columns (dropping a dictionary that won't pay off
-  early, as DuckDB does). It changes Parquet output for every writer, not only Iceberg, and needs
-  its own size and speed study.
+- High-cardinality columns kept dictionary encoding until the dictionary reached 1 MiB
+  (`dictionaryPageSize`), about 131k longs. A partition file of ~143k rows rarely got there, so
+  `lOrderkey`, `lPartkey`, `lExtendedprice`, and `lComment` paid a cache-missing lookup per value
+  and wrote larger files. DuckDB writes those columns as PLAIN.
+- The column writer now checks once per row group, after 20,000 values, whether the dictionary
+  page plus bit-packed indices is smaller than the PLAIN values. If not, it drops the dictionary,
+  as parquet-java does at its first page. When no dictionary-encoded page has been closed yet (the
+  usual case, since a page holds 1 MiB), the buffered values are rewritten as PLAIN, so the chunk
+  has no dictionary page. Otherwise the closed pages stay and the rest is PLAIN, as before.
+- The same rewrite applies to the old 1 MiB fallback when it fires before the first page closes.
+- Results, same setup (load ~4), against the first change:
+
+  | case | before | after | DuckDB, 1 thread |
+  |---|---:|---:|---:|
+  | case class, by ship mode, Snappy | 1527 ms | 1315 ms (-14%) | |
+  | batch, unpartitioned, Snappy | 258 ms | 252 ms | 269 ms |
+  | batch, by ship mode, Snappy | 411 ms | 344 ms (-16%) | 391 ms |
+  | batch, by ship mode, ZSTD | 621 ms | 549 ms (-12%) | 453 ms |
+
+  | table data | before | after | DuckDB |
+  |---|---:|---:|---:|
+  | by ship mode, Snappy | 39.4 MB | 34.3 MB (-13%) | |
+  | by ship mode, ZSTD | 31.1 MB | 25.5 MB (-18%) | 25.1 MB |
+  | unpartitioned, Snappy | 33.3 MB | 33.2 MB | |
+
+- A column whose first 20,000 values are mostly distinct but repeat later loses its dictionary for
+  that row group. parquet-java's first-page check has the same trade-off, at a later point.
+
+## Not covered (later)
 - ZSTD compression speed and ratio against libzstd at level 3.
 - Writing with more than one thread. DuckDB's partitioned write scales to 157 ms on 18 threads;
   Uni's writer is single-threaded on every platform.

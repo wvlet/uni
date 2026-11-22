@@ -17,7 +17,8 @@ import wvlet.uni.parquet.format.CompressionCodec
   *   a data page is closed once its encoded data reaches this many bytes
   * @param dictionaryEnabled
   *   dictionary-encode columns (except booleans), falling back to PLAIN when the dictionary grows
-  *   past `dictionaryPageSize`
+  *   past `dictionaryPageSize`, or when it is no smaller than PLAIN after a row group's first
+  *   20,000 values of the column
   * @param dictionaryPageSize
   *   the largest dictionary, in bytes of PLAIN-encoded values, before a column falls back to PLAIN
   *   for the rest of its row group
