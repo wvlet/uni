@@ -34,7 +34,16 @@ class GcsSignedUrlTest extends UniTest:
     key.toString shouldNotContain "BEGIN"
   }
 
-  vectors.foreach { v =>
+  // Each vector signs with RSA, which takes ~0.3 seconds in Native's debug build. The URL
+  // canonicalization is shared Scala code that the JVM checks against every vector, so Native
+  // checks a few to cover its BigInteger arithmetic.
+  private val checkedVectors =
+    if isScalaNative then
+      vectors.take(3)
+    else
+      vectors
+
+  checkedVectors.foreach { v =>
     test(s"conformance: ${v.description}") {
       val url = GcsSignedUrl.sign(
         v.method,

@@ -177,6 +177,10 @@ class BatchTest extends UniTest:
 
   corpus.foreach { name =>
     test(s"read ${name} in small batches") {
+      // These two files hold every column type, which takes ~2 seconds each in Native's debug
+      // build. The reader is shared Scala code, and the smaller files cover it on Native.
+      if isScalaNative && name.startsWith("duckdb/") then
+        skip("Checked on the JVM")
       def json(f: ParquetFile): Seq[String] = f.readJson().map(_.toJSON).toSeq
       val whole                             =
         val f = Parquet.open(TestFiles.bytes(name))

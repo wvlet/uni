@@ -141,7 +141,13 @@ class CodecTest extends UniTest:
     val good = file("text.3.zst")
     val n    = text(300000, 1).length
     val rnd  = scala.util.Random(42)
-    for i <- 0 until 200 do
+    // The decoder is shared Scala code; Native runs it in a slow debug build, so it tries fewer
+    val trials =
+      if isScalaNative then
+        50
+      else
+        200
+    for i <- 0 until trials do
       val bad = good.clone()
       // Flip a few bytes after the frame header
       for _ <- 0 until 3 do
