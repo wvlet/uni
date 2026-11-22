@@ -23,32 +23,32 @@ case class OnError(e: Throwable) extends RxEvent
 
 /**
   * The end of a stream: [[OnCompletion]] when it completed, [[OnFailure]] when it failed. A stream
-  * reports at most one end, after its last value. Match `case e: RxEnd` when only the end matters:
+  * reports at most one end, after its last value. Match `case e: OnEnd` when only the end matters:
   *
   * {{{
   *   case OnCompletion => // completed
   *   case OnFailure(e) => // ended with a failure
   * }}}
   */
-sealed trait RxEnd extends RxEvent
+sealed trait OnEnd extends RxEvent
 
 /**
   * The stream completed. It carries no value: values arrive only as [[OnNext]] (use `lastOption`
   * for the last one).
   */
-case object OnCompletion extends RxEnd
+case object OnCompletion extends OnEnd
 
 /**
   * The stream ended with a failure, such as a failed source (`RxVar.setException`, a failed
   * `Rx.future`, `Rx.exception`). Unlike [[OnError]], nothing follows it.
   */
-case class OnFailure(e: Throwable) extends RxEnd
+case class OnFailure(e: Throwable) extends OnEnd
 
 /**
   * The events `RxRunner.run` and `runOnce` deliver: they stop at the first error, which arrives as
   * the stream's end, `OnFailure(e)`, so a handler never sees an [[OnError]].
   */
-type RxRunEvent = OnNext | RxEnd
+type RxRunEvent = OnNext | OnEnd
 
 /**
   * An error raised by an operator's function (a throwing `map`, `filter`, or `flatMap` function)
@@ -103,7 +103,7 @@ private[rx] object ResumableError:
     ev match
       case n: OnNext =>
         n
-      case end: RxEnd =>
+      case end: OnEnd =>
         end
       case OnError(e) =>
         OnFailure(e)

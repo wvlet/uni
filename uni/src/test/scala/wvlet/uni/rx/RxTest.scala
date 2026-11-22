@@ -1350,4 +1350,53 @@ object RxTest extends UniTest:
     eval(stream.map(_ + 1)) shouldBe Seq(OnNext(11), OnNext(21), OnNext(31), OnCompletion)
   }
 
+  test("subscribe logs an unhandled error instead of throwing it") {
+    test("a failed variable") {
+      val v   = Rx.variable(0)
+      val got = Seq.newBuilder[Int]
+      val c   = v.subscribe(got += _)
+      // Before, setException did not throw, but Rx.exception(...).subscribe did
+      v.setException(IllegalStateException("failed"))
+      c.cancel
+      got.result() shouldBe Seq(0)
+    }
+
+    test("a failed source") {
+      val c = Rx.exception[Int](IllegalStateException("failed")).subscribe()
+      c.cancel
+    }
+
+    test("a throwing map, where the caller of := gets no exception") {
+      val v      = Rx.variable(0)
+      val first  = Seq.newBuilder[Int]
+      val second = Seq.newBuilder[Int]
+      val c1     = v
+        .map(x =>
+          if x == 2 then
+            throw IllegalStateException("bad value")
+          else
+            x
+        )
+        .subscribe(first += _)
+      val c2 = v.subscribe(second += _)
+      v := 1
+      v := 2
+      v := 3
+      c1.cancel
+      c2.cancel
+      first.result() shouldBe Seq(0, 1, 3)
+      // The other subscriber still receives the value the first one failed on
+      second.result() shouldBe Seq(0, 1, 2, 3)
+    }
+
+    test("RxVar.foreach") {
+      val v   = Rx.variable(0)
+      val got = Seq.newBuilder[Int]
+      val c   = v.foreach(got += _)
+      v.setException(IllegalStateException("failed"))
+      c.cancel
+      got.result() shouldBe Seq(0)
+    }
+  }
+
 end RxTest

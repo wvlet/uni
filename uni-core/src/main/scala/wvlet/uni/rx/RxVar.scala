@@ -39,9 +39,9 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
           case OnNext(v) =>
             f(v.asInstanceOf[A])
           case OnError(e) =>
-            throw e
+            RxRunner.reportUnhandled(e)
           case OnFailure(e) =>
-            throw e
+            RxRunner.reportUnhandled(e)
           case _ =>
     foreachEvent(s)
 
@@ -100,8 +100,13 @@ class RxVar[A](private var currentValue: A) extends Rx[A] with RxVarOps[A]:
             subscriber(e)
           catch
             case NonFatal(e) =>
-              // This is an unusual path because errors should be propagated to the downstream subscribers
-              subscriber(OnError(e))
+              // A subscriber's handler threw: report it to that subscriber as an error. If it throws
+              // again, log it, so the other subscribers still receive the event
+              try
+                subscriber(OnError(e))
+              catch
+                case NonFatal(e2) =>
+                  RxRunner.reportUnhandled(e2)
         }
       }
     }

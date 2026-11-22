@@ -34,7 +34,7 @@ RxRunner.runContinuously(Rx.fromSeq(Seq(1, 2, 3))) {
 | `OnCompletion` | The stream completed | Nothing |
 | `OnFailure(e)` | The stream failed, for example because its source failed | Nothing |
 
-`OnCompletion` and `OnFailure` share the parent type `RxEnd`. Match `case end: RxEnd` when you
+`OnCompletion` and `OnFailure` share the parent type `OnEnd`. Match `case end: OnEnd` when you
 only need to know that the stream ended.
 
 ## The Rules
@@ -127,7 +127,7 @@ Each entry point decides what your code sees:
 
 | Entry point | Your code receives | At an `OnError` | At the end |
 |-------------|--------------------|-----------------|------------|
-| `rx.subscribe(f)` | Values | `f` doesn't see it, and the stream goes on | Stops; `f` doesn't see an `OnFailure` |
+| `rx.subscribe(f)` | Values | Logged as a warning, and the stream goes on | Stops; an `OnFailure` is logged as a warning |
 | `RxRunner.runContinuously(rx)(f)` | Every `RxEvent` | Delivered, and the stream goes on | Delivered, then stops |
 | `RxRunner.run(rx)(f)` | `OnNext`, `OnCompletion`, `OnFailure` | Delivered as `OnFailure(e)`, and the run stops | Delivered, then stops |
 | `RxRunner.runOnce(rx)(f)` | The first event only | Delivered as `OnFailure(e)` if it comes first | Delivered if it comes first |
@@ -147,9 +147,11 @@ RxRunner.run(parsed) {
 // failed: For input string: "x"
 ```
 
-`subscribe` suits UI state and other long-lived streams. Its function sees values only, so handle
-errors in the chain with `recover` or `tapOnFailure`, or use `RxRunner.runContinuously` to see
-every event. A uni-dom binding shows nothing for an `OnError` and renders the next value.
+`subscribe` suits UI state and other long-lived streams. Its function sees values only. An error
+it can't handle is logged as a warning, never thrown back to the code that sent the event, such as
+the caller of `:=`. Handle errors in the chain with `recover` or `tapOnFailure`, or use
+`RxRunner.runContinuously` to see every event. A uni-dom binding shows nothing for an `OnError`
+and renders the next value.
 
 ## How Operators End
 
